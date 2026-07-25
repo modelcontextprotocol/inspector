@@ -1,12 +1,15 @@
 import { useState } from "react";
-import { CloseButton, Group, Modal, Stack } from "@mantine/core";
+import { CloseButton, Group, Modal, ScrollArea } from "@mantine/core";
+import type { ProtocolEra } from "@modelcontextprotocol/client";
 import type {
   InspectorServerSettings,
+  ModernLogLevel,
   OAuthSettings,
   ServerProtocolEra,
   ServerType,
 } from "@inspector/core/mcp/types.js";
 import { isOAuthCapableServerType } from "@inspector/core/mcp/config.js";
+import { ADVERTISABLE_EXTENSIONS } from "@inspector/core/mcp/extensions.js";
 import { ListToggle } from "../../elements/ListToggle/ListToggle";
 import {
   ServerSettingsForm,
@@ -23,6 +26,7 @@ function allSectionsFor(
 ): ServerSettingsSection[] {
   return [
     "options",
+    "extensions",
     ...(isStdio ? (["environment"] as const) : []),
     "headers",
     "metadata",
@@ -31,6 +35,23 @@ function allSectionsFor(
     "roots",
   ];
 }
+
+const AppModalLg = Modal.Root.withProps({
+  size: "lg",
+  centered: true,
+  scrollAreaComponent: ScrollArea.Autosize,
+});
+
+const ModalHeaderRow = Group.withProps({
+  justify: "space-between",
+  wrap: "nowrap",
+  w: "100%",
+});
+
+const CenteredModalTitle = Modal.Title.withProps({
+  ta: "center",
+  flex: 1,
+});
 
 export interface ServerSettingsModalProps {
   opened: boolean;
@@ -42,6 +63,13 @@ export interface ServerSettingsModalProps {
    * section.
    */
   isStdio: boolean;
+  /**
+   * The era this server actually negotiated, when it is the live connection.
+   * Forwarded to the form to hide the modern "Log Level per Request" control on
+   * an `auto` server that resolved to legacy (#1629). Undefined when this server
+   * isn't the connected one.
+   */
+  negotiatedEra?: ProtocolEra;
   onClose: () => void;
   onSettingsChange: (settings: InspectorServerSettings) => void;
   onClearStoredOAuth?: () => void;
@@ -52,6 +80,7 @@ export function ServerSettingsModal({
   settings,
   serverType,
   isStdio,
+  negotiatedEra,
   onClose,
   onSettingsChange,
   onClearStoredOAuth,
@@ -166,12 +195,34 @@ export function ServerSettingsModal({
     onSettingsChange({ ...settings, paginatedLists: value });
   }
 
+  function handleAdvertisedExtensionChange(key: string, checked: boolean) {
+    const next = { ...settings.advertisedExtensions };
+    const ext = ADVERTISABLE_EXTENSIONS.find((e) => e.key === key);
+    // Reconverge to "no override" when the toggle returns to the registry
+    // default, so the on-disk map (and its byte-stable round-trip) stays minimal
+    // — matching the omit-when-default policy used for the other settings. Only
+    // a value that actually differs from the default is persisted.
+    if (ext && checked === ext.defaultAdvertised) {
+      delete next[key];
+    } else {
+      next[key] = checked;
+    }
+    onSettingsChange({
+      ...settings,
+      advertisedExtensions: Object.keys(next).length > 0 ? next : undefined,
+    });
+  }
+
   function handleMaxFetchRequestsChange(value: number) {
     onSettingsChange({ ...settings, maxFetchRequests: value });
   }
 
   function handleProtocolEraChange(value: ServerProtocolEra) {
     onSettingsChange({ ...settings, protocolEra: value });
+  }
+
+  function handleModernLogLevelChange(value: ModernLogLevel) {
+    onSettingsChange({ ...settings, modernLogLevel: value });
   }
 
   function handleAddRoot() {
@@ -198,54 +249,60 @@ export function ServerSettingsModal({
   }
 
   return (
-    <Modal
-      opened={opened}
-      onClose={onClose}
-      withCloseButton={false}
-      size="lg"
-      centered
-    >
-      <Stack gap="md">
-        <Group justify="space-between" wrap="nowrap">
-          <ListToggle
-            compact={!allExpanded}
-            variant="subtle"
-            onToggle={handleToggleAll}
+    // Compound Modal so the header lives in `Modal.Header` (sticky by design)
+    // while `scrollAreaComponent` confines overflow to `Modal.Body` — otherwise
+    // expanding enough accordion sections grows the whole modal past the
+    // viewport and scrolls the header out of view (#1698). The fade-down
+    // transition `<Modal>` defaults to (but `Modal.Root` doesn't inherit) is
+    // supplied app-wide by `ThemeModalRoot`.
+    <AppModalLg opened={opened} onClose={onClose}>
+      <Modal.Overlay />
+      <Modal.Content>
+        <Modal.Header>
+          <ModalHeaderRow>
+            <ListToggle
+              compact={!allExpanded}
+              variant="subtle"
+              onToggle={handleToggleAll}
+            />
+            {/* `Modal.Title` names the dialog (wires `aria-labelledby`). */}
+            <CenteredModalTitle>Server Settings</CenteredModalTitle>
+            <CloseButton aria-label="Close" onClick={onClose} />
+          </ModalHeaderRow>
+        </Modal.Header>
+        <Modal.Body>
+          <ServerSettingsForm
+            settings={settings}
+            serverType={serverType}
+            isStdio={isStdio}
+            expandedSections={expandedSections}
+            onExpandedSectionsChange={setExpandedSections}
+            onAddHeader={handleAddHeader}
+            onRemoveHeader={handleRemoveHeader}
+            onHeaderChange={handleHeaderChange}
+            onAddEnv={handleAddEnv}
+            onRemoveEnv={handleRemoveEnv}
+            onEnvChange={handleEnvChange}
+            onCwdChange={handleCwdChange}
+            onAddMetadata={handleAddMetadata}
+            onRemoveMetadata={handleRemoveMetadata}
+            onMetadataChange={handleMetadataChange}
+            onTimeoutChange={handleTimeoutChange}
+            onAutoRefreshChange={handleAutoRefreshChange}
+            onPaginatedListsChange={handlePaginatedListsChange}
+            onAdvertisedExtensionChange={handleAdvertisedExtensionChange}
+            onMaxFetchRequestsChange={handleMaxFetchRequestsChange}
+            onProtocolEraChange={handleProtocolEraChange}
+            onModernLogLevelChange={handleModernLogLevelChange}
+            negotiatedEra={negotiatedEra}
+            onOAuthChange={handleOAuthChange}
+            onClearStoredOAuth={onClearStoredOAuth}
+            onAddRoot={handleAddRoot}
+            onRemoveRoot={handleRemoveRoot}
+            onRootChange={handleRootChange}
           />
-          {/* `Modal.Title` names the dialog (wires `aria-labelledby`). */}
-          <Modal.Title ta="center" flex={1}>
-            Server Settings
-          </Modal.Title>
-          <CloseButton aria-label="Close" onClick={onClose} />
-        </Group>
-        <ServerSettingsForm
-          settings={settings}
-          serverType={serverType}
-          isStdio={isStdio}
-          expandedSections={expandedSections}
-          onExpandedSectionsChange={setExpandedSections}
-          onAddHeader={handleAddHeader}
-          onRemoveHeader={handleRemoveHeader}
-          onHeaderChange={handleHeaderChange}
-          onAddEnv={handleAddEnv}
-          onRemoveEnv={handleRemoveEnv}
-          onEnvChange={handleEnvChange}
-          onCwdChange={handleCwdChange}
-          onAddMetadata={handleAddMetadata}
-          onRemoveMetadata={handleRemoveMetadata}
-          onMetadataChange={handleMetadataChange}
-          onTimeoutChange={handleTimeoutChange}
-          onAutoRefreshChange={handleAutoRefreshChange}
-          onPaginatedListsChange={handlePaginatedListsChange}
-          onMaxFetchRequestsChange={handleMaxFetchRequestsChange}
-          onProtocolEraChange={handleProtocolEraChange}
-          onOAuthChange={handleOAuthChange}
-          onClearStoredOAuth={onClearStoredOAuth}
-          onAddRoot={handleAddRoot}
-          onRemoveRoot={handleRemoveRoot}
-          onRootChange={handleRootChange}
-        />
-      </Stack>
-    </Modal>
+        </Modal.Body>
+      </Modal.Content>
+    </AppModalLg>
   );
 }

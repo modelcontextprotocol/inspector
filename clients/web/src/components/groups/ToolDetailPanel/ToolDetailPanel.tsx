@@ -1,6 +1,7 @@
 import {
   ActionIcon,
   Button,
+  Code,
   Collapse,
   Divider,
   Group,
@@ -19,6 +20,7 @@ import type {
 } from "@modelcontextprotocol/client";
 import { resolveDisplayLabel } from "../../../utils/toolUtils";
 import { toFormSchema } from "../../../utils/jsonUtils";
+import { getMirroredHeaderParams } from "@inspector/core/json/xMcpHeader.js";
 import { AnnotationBadge } from "../../elements/AnnotationBadge/AnnotationBadge";
 import { ProgressDisplay } from "../../elements/ProgressDisplay/ProgressDisplay";
 import { SchemaForm } from "../SchemaForm/SchemaForm";
@@ -35,7 +37,15 @@ export interface ToolDetailPanelProps {
   progress?: ToolProgress;
   /** Whether the connected server advertises task-augmented tool calls. */
   serverSupportsTaskToolCalls: boolean;
-  /** User's "Run as task" preference (only meaningful for `optional` tools). */
+  /**
+   * Modern (2026-07-28) connection with the `io.modelcontextprotocol/tasks`
+   * extension negotiated (SEP-2663). Task creation is server-directed there, so
+   * "Run as task" is offered for ANY tool (not just ones declaring per-tool
+   * `taskSupport`, which is the legacy mechanism). Defaults to false (legacy).
+   */
+  modernTasks?: boolean;
+  /** User's "Run as task" preference (meaningful for `optional` tools and, on
+   * modern connections, any tool). */
   runAsTask: boolean;
   onRunAsTaskChange: (value: boolean) => void;
   onFormChange: (values: Record<string, unknown>) => void;
@@ -131,6 +141,34 @@ const RunAsTaskSwitch = Switch.withProps({
   label: "Run as task",
 });
 
+// Header-mirroring section (SEP-2243): lists which args mirror their value into
+// an `Mcp-Param-{Name}` header on `tools/call`. `Stack` (not `Box`) so the
+// constant can carry props; the heading + note pin above the mapping rows.
+const HeaderParamsSection = Stack.withProps({
+  gap: "xs",
+});
+
+const HeaderParamsTitle = Text.withProps({
+  size: "sm",
+  fw: 600,
+});
+
+const HeaderParamsNote = Text.withProps({
+  size: "xs",
+  c: "var(--inspector-text-secondary)",
+});
+
+// One `arg → Mcp-Param-{Name}` mapping row.
+const HeaderParamRow = Group.withProps({
+  gap: "xs",
+  wrap: "nowrap",
+});
+
+const HeaderParamArrow = Text.withProps({
+  size: "sm",
+  c: "var(--inspector-text-secondary)",
+});
+
 // A tool's per-tool task support, defaulting to "forbidden" (the SDK default
 // when `execution` is absent) so tools that say nothing can't be run as tasks.
 type TaskSupport = "forbidden" | "optional" | "required";
@@ -154,6 +192,7 @@ export function ToolDetailPanel({
   isExecuting,
   progress,
   serverSupportsTaskToolCalls,
+  modernTasks = false,
   runAsTask,
   onRunAsTaskChange,
   onFormChange,
@@ -164,6 +203,9 @@ export function ToolDetailPanel({
   // Narrow the SDK protocol schema to the form renderer's schema type.
   const formSchema = toFormSchema(inputSchema) ?? {};
   const iconSrc = icons?.[0]?.src;
+  // SEP-2243: args this tool declares as `x-mcp-header` — their values mirror
+  // into `Mcp-Param-{Name}` headers on a `tools/call` (#1632).
+  const mirroredParams = getMirroredHeaderParams(tool);
 
   // Descriptions are shown by default (most are short); the chevron lets the
   // user hide a long one to keep the form and Execute footer in view. Reset to
@@ -180,20 +222,28 @@ export function ToolDetailPanel({
   // single expandable control (aria-expanded + aria-controls).
   const descriptionRegionId = useId();
 
-  // Show the toggle only when the server supports task tool calls and the tool
-  // doesn't forbid them. `required` tools are forced on (checked + disabled);
-  // `optional` tools follow the user's `runAsTask` choice.
+  // Show the toggle when the server supports task tool calls and either the
+  // connection is modern (task creation is server-directed there, so any tool
+  // may become a task) or the tool doesn't forbid per-tool task support
+  // (legacy). `required` tools are forced on (checked + disabled); `optional`
+  // and (on modern) any tool follow the user's `runAsTask` choice.
+  //
+  // NOTE: on modern, a per-tool `taskSupport: "forbidden"` is DELIBERATELY
+  // ignored. Under SEP-2663 task creation is decided by the server per request,
+  // not declared per tool, so `taskSupport` (a legacy 2025-11-25 concept) does
+  // not gate the affordance — the server may return a task for any call. The
+  // toggle just declares intent to poll a returned handle.
   const taskSupport = getTaskSupport(tool);
   const showRunAsTask =
-    serverSupportsTaskToolCalls && taskSupport !== "forbidden";
-  // Gate the effective decision on `showRunAsTask` (which includes
-  // `serverSupportsTaskToolCalls`): a stale `runAsTask`/`required` value must
-  // not route through callToolStream when the toggle is hidden because the
-  // server doesn't advertise task tool calls. Per spec, a tool's taskSupport is
-  // only considered when the server advertises `tasks.requests.tools.call`.
+    serverSupportsTaskToolCalls && (modernTasks || taskSupport !== "forbidden");
+  // Gate the effective decision on `showRunAsTask`: a stale `runAsTask`/`required`
+  // value must not route through callToolStream when the toggle is hidden. On
+  // legacy, a tool's taskSupport is only considered when the server advertises
+  // `tasks.requests.tools.call`; on modern, the user's choice governs any tool.
   const effectiveRunAsTask =
     showRunAsTask &&
-    (taskSupport === "required" || (taskSupport === "optional" && runAsTask));
+    (taskSupport === "required" ||
+      ((taskSupport === "optional" || modernTasks) && runAsTask));
 
   return (
     <PanelStack>
@@ -241,6 +291,26 @@ export function ToolDetailPanel({
           )}
 
           <Divider />
+
+          {mirroredParams.length > 0 && (
+            <HeaderParamsSection>
+              <HeaderParamsTitle>
+                Mirrored request headers (SEP-2243)
+              </HeaderParamsTitle>
+              {mirroredParams.map((param) => (
+                <HeaderParamRow key={param.path}>
+                  <Code>{param.path}</Code>
+                  <HeaderParamArrow>→</HeaderParamArrow>
+                  <Code>{param.header}</Code>
+                </HeaderParamRow>
+              ))}
+              <HeaderParamsNote>
+                These argument values are mirrored into HTTP headers on the
+                call. The SDK sends them only on a Node/proxy transport — the
+                browser omits <Code>Mcp-Param-*</Code> headers.
+              </HeaderParamsNote>
+            </HeaderParamsSection>
+          )}
 
           <SchemaForm
             schema={formSchema}

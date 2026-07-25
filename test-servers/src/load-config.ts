@@ -56,12 +56,23 @@ export interface ConfigFile {
     list?: boolean;
     cancel?: boolean;
   };
+  /** Advertise the modern (SEP-2663) `io.modelcontextprotocol/tasks` extension
+   * and wire its handlers + `modern_task` / `modern_input_task` tools. Pair with
+   * `transport.modern`. */
+  tasksExtension?: boolean;
   maxPageSize?: {
     tools?: number;
     resources?: number;
     resourceTemplates?: number;
     prompts?: number;
   };
+  /**
+   * Gate a tool's `tools/list` visibility on a client-declared extension. Maps
+   * extension id → tool name; the tool appears only when the connected client
+   * advertised that extension (#1739 / #1633). Legacy stateful leg only. See
+   * {@link ServerConfig.extensionGatedTools}.
+   */
+  extensionGatedTools?: Record<string, string>;
   oauth?: ConfigFileOAuth;
   transport: {
     type: "stdio" | "streamable-http" | "sse";

@@ -562,6 +562,30 @@ describe("RemoteClientTransport (focused branch coverage)", () => {
       ).rejects.toThrow(/Transport is closed/);
     });
 
+    it("does not wait for an SSE response on subscriptions/listen (long-lived stream)", async () => {
+      // A `subscriptions/listen` never yields a JSON-RPC response — only an
+      // acknowledged notification over the event channel — so send() must
+      // resolve promptly instead of hanging on the SSE response wait (#1630).
+      // With a short response timeout, a request that *did* wait would reject.
+      const t = makeTransport(
+        {
+          events: () => openEventsResponse(),
+          send: () => jsonResponse({ ok: true }),
+        },
+        { sseResponseTimeoutMs: 50 },
+      );
+      await t.start();
+      await expect(
+        t.send({
+          jsonrpc: "2.0",
+          id: "listen:0",
+          method: "subscriptions/listen",
+          params: {},
+        }),
+      ).resolves.toBeUndefined();
+      await t.close();
+    });
+
     it("posts a message including relatedRequestId and succeeds", async () => {
       let sentBody: { relatedRequestId?: unknown } | undefined;
       const encoder = new TextEncoder();

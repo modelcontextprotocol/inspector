@@ -134,12 +134,56 @@ const EmptyState = Text.withProps({
 // Override the card-surface var for the whole grid so every server card (in any
 // state — the theme's default/highlighted/errored/disabled Card variants all
 // read `--inspector-surface-card`) picks up the faintly-grey server tone,
-// without touching the shared token or the variant logic.
+// without touching the shared token or the variant logic. `alignItems: start`
+// keeps rows top-aligned so a taller card (e.g. one whose action row wrapped)
+// doesn't stretch its shorter row-mates.
 const GRID_SURFACE_STYLES = {
   root: {
     "--inspector-surface-card": "var(--inspector-surface-card-server)",
+    alignItems: "start",
   },
 } as const;
+
+// Read-only banner shown above the panel when the server list isn't writable.
+const ReadOnlyAlert = Alert.withProps({
+  color: "gray",
+  variant: "light",
+  title: "Read-only session",
+});
+
+// Semantic h3 (visually h4) so it doesn't skip a level under the disconnected
+// header's h2 "MCP Inspector" (heading-order a11y). The other panels render h4
+// directly because they only show while connected, when the header carries no
+// heading to skip under.
+const PanelTitle = Title.withProps({
+  order: 3,
+  size: "h4",
+});
+
+// The server card grid. Container queries (not viewport) so column count tracks
+// the actual space the grid occupies. The 2- and 3-column thresholds (1040px /
+// 1560px) keep each card ≥ ~505px wide at the switch point: container =
+// N·card + (N−1)·gap with gap = lg spacing (20px), i.e. 1040 = 2·510+20 and
+// 1560 = 3·507+40. Below ~500px a connected card's action row (Clone/Edit/Remove
+// + Connection Info/Settings, ~440px with padding) wraps and stacks, making that
+// card taller than its neighbours; dropping to fewer, wider columns instead keeps
+// every card the same height. (#1528)
+const ServerGrid = SimpleGrid.withProps({
+  type: "container",
+  cols: { base: 1, "1040px": 2, "1560px": 3 },
+  spacing: "lg",
+  styles: GRID_SURFACE_STYLES,
+});
+
+// Same scrollbar treatment as the Protocol/Network/Logging list panels (#1474):
+// reserve a gutter so the bar never overlays the right edge of the server cards
+// (occluding their action icons / status badges), and only show it while
+// actively scrolling rather than popping in on hover.
+const CardScrollArea = ScrollArea.Autosize.withProps({
+  mah: "100%",
+  type: "scroll",
+  offsetScrollbars: true,
+});
 
 export function ServerListScreen({
   servers,
@@ -217,22 +261,7 @@ export function ServerListScreen({
   });
 
   const grid = (
-    <SimpleGrid
-      // Container queries (not viewport) so column count tracks the actual
-      // space the grid occupies. The 2- and 3-column thresholds (1040px /
-      // 1560px) keep each card ≥ ~505px wide at the switch point: container =
-      // N·card + (N−1)·gap with gap = lg spacing (20px), i.e. 1040 = 2·510+20
-      // and 1560 = 3·507+40. Below ~500px a connected card's action row
-      // (Clone/Edit/Remove + Connection Info/Settings, ~440px with padding)
-      // wraps and stacks, making that card taller than its neighbours; dropping
-      // to fewer, wider columns instead keeps every card the same height.
-      // (#1528)
-      type="container"
-      cols={{ base: 1, "1040px": 2, "1560px": 3 }}
-      spacing="lg"
-      className="grid-align-start"
-      styles={GRID_SURFACE_STYLES}
-    >
+    <ServerGrid>
       {servers.map((server) =>
         reorderable ? (
           <SortableServerCard key={server.id} {...cardProps(server)} />
@@ -240,27 +269,21 @@ export function ServerListScreen({
           <ServerCard key={server.id} {...cardProps(server)} />
         ),
       )}
-    </SimpleGrid>
+    </ServerGrid>
   );
 
   return (
     <ScreenLayout>
       {!writable && (
-        <Alert color="gray" variant="light" title="Read-only session">
+        <ReadOnlyAlert>
           This server list was launched with <Code>--config</Code> or an ad-hoc
           server and can't be edited here. Changes won't be saved. Use{" "}
           <Code>--catalog</Code> (or no flag) to manage a writable catalog.
-        </Alert>
+        </ReadOnlyAlert>
       )}
       <PanelContainer>
         <PanelHeader>
-          {/* Semantic h3 (visually h4) so it doesn't skip a level under the
-              disconnected header's h2 "MCP Inspector" (heading-order a11y). The
-              other panels render h4 directly because they only show while
-              connected, when the header carries no heading to skip under. */}
-          <Title order={3} size="h4">
-            Servers
-          </Title>
+          <PanelTitle>Servers</PanelTitle>
           <ServerListControls
             serverCount={servers.length}
             compact={compact}
@@ -281,16 +304,7 @@ export function ServerListScreen({
           </EmptyCenter>
         ) : (
           <CardScrollWrap>
-            <ScrollArea.Autosize
-              mah="100%"
-              // Same scrollbar treatment as the Protocol/Network/Logging list
-              // panels (#1474): reserve a gutter so the bar never overlays the
-              // right edge of the server cards (occluding their action icons /
-              // status badges), and only show it while actively scrolling
-              // rather than popping in on hover.
-              type="scroll"
-              offsetScrollbars
-            >
+            <CardScrollArea>
               {reorderable ? (
                 <DndContext
                   sensors={sensors}
@@ -305,7 +319,7 @@ export function ServerListScreen({
               ) : (
                 grid
               )}
-            </ScrollArea.Autosize>
+            </CardScrollArea>
           </CardScrollWrap>
         )}
       </PanelContainer>

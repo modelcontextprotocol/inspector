@@ -51,6 +51,12 @@ const EmptyState = Text.withProps({
   ta: "center",
 });
 
+// Panel header: title on the left, action controls on the right.
+const HeaderRow = Group.withProps({
+  justify: "space-between",
+  mb: "sm",
+});
+
 function formatTitle(count: number): string {
   return `Requests (${count})`;
 }
@@ -125,7 +131,7 @@ export function NetworkStreamPanel({
 
   return (
     <PanelContainer>
-      <Group justify="space-between" mb="sm">
+      <HeaderRow>
         <Title order={4}>{formatTitle(filteredEntries.length)}</Title>
         <Group gap="xs">
           <SortToggle
@@ -143,7 +149,7 @@ export function NetworkStreamPanel({
             <ListToggle compact={compact} onToggle={onToggleCompact} />
           )}
         </Group>
-      </Group>
+      </HeaderRow>
 
       {!hasResults ? (
         <EmptyCenter>

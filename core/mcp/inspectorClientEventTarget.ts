@@ -23,6 +23,8 @@ import type {
   PromptGetInvocation,
   ResourceReadInvocation,
   ResourceTemplateReadInvocation,
+  ResourceSubscriptionStreamState,
+  ExcludedTool,
 } from "./types.js";
 import type {
   Tool,
@@ -54,6 +56,12 @@ export type TaskWithOptionalCreatedAt = Omit<Task, "createdAt"> & {
 export interface InspectorClientEventMap {
   statusChange: ConnectionStatus;
   toolsChange: Tool[];
+  /**
+   * Tools the SDK excluded from `tools/list` for invalid `x-mcp-header`
+   * annotations (SEP-2243), each with its reason. Empty on legacy/stdio
+   * connections (which don't exclude) and before connect (#1632).
+   */
+  excludedToolsChange: ExcludedTool[];
   capabilitiesChange: ServerCapabilities | undefined;
   serverInfoChange: Implementation | undefined;
   instructionsChange: string | undefined;
@@ -114,6 +122,13 @@ export interface InspectorClientEventMap {
   newPendingElicitation: ElicitationCreateMessage;
   rootsChange: Root[];
   resourceSubscriptionsChange: string[];
+  /**
+   * Fired when the modern-era `subscriptions/listen` stream that backs resource
+   * subscriptions changes lifecycle state (#1630): opened+acknowledged, dropped
+   * and reconnecting, or ended. Legacy connections never dispatch an `active`
+   * state (they have no persistent stream).
+   */
+  resourceSubscriptionStreamChange: ResourceSubscriptionStreamState;
   // Task events
   /** Fired only from server notification notifications/tasks/status. */
   taskStatusChange: { taskId: string; task: Task };

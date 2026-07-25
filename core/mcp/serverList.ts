@@ -7,8 +7,10 @@
 
 import {
   DEFAULT_MAX_FETCH_REQUESTS,
+  DEFAULT_MODERN_LOG_LEVEL,
   DEFAULT_PROTOCOL_ERA,
   DEFAULT_TASK_TTL_MS,
+  isModernLogLevel,
 } from "./types.js";
 import type { Root } from "@modelcontextprotocol/client";
 import type {
@@ -25,6 +27,7 @@ import {
   SECRET_FIELD_OAUTH_CLIENT_SECRET,
   envSecretField,
 } from "../auth/secret-fields.js";
+import { toRecord } from "../json/jsonUtils.js";
 
 // The full set of valid `type` discriminator values, used to reject anything
 // else read off disk so unknown strings can't propagate to narrowing sites.
@@ -116,11 +119,13 @@ type StoredInspectorFields = Pick<
   | "headers"
   | "metadata"
   | "protocolEra"
+  | "modernLogLevel"
   | "connectionTimeout"
   | "requestTimeout"
   | "taskTtl"
   | "autoRefreshOnListChanged"
   | "paginatedLists"
+  | "advertisedExtensions"
   | "maxFetchRequests"
   | "oauth"
   | "roots"
@@ -188,10 +193,12 @@ export function storedFieldsToInspectorSettings(
     stored.taskTtl !== undefined ||
     stored.autoRefreshOnListChanged !== undefined ||
     stored.paginatedLists !== undefined ||
+    stored.advertisedExtensions !== undefined ||
     stored.maxFetchRequests !== undefined ||
     stored.oauth !== undefined ||
     stored.roots !== undefined ||
     stored.protocolEra !== undefined ||
+    stored.modernLogLevel !== undefined ||
     stored.env !== undefined ||
     stored.cwd !== undefined;
   if (!hasAny) return undefined;
@@ -226,6 +233,21 @@ export function storedFieldsToInspectorSettings(
   // (→ default legacy) rather than passed through to `eraToVersionNegotiation`.
   if (isProtocolEra(stored.protocolEra)) {
     settings.protocolEra = stored.protocolEra;
+  }
+  // Like `protocolEra`: absent reads back as the default modern log level (the
+  // form defaults via `?? DEFAULT_MODERN_LOG_LEVEL`), and an unknown literal from
+  // a hand-edited file is dropped rather than surfaced.
+  if (isModernLogLevel(stored.modernLogLevel)) {
+    settings.modernLogLevel = stored.modernLogLevel;
+  }
+  // Optional map with no default; carried through only when the file has a
+  // non-empty object. An absent/empty field reads back as unset, which the
+  // write side then omits — keeping a byte-stable round-trip.
+  if (
+    stored.advertisedExtensions &&
+    Object.keys(stored.advertisedExtensions).length > 0
+  ) {
+    settings.advertisedExtensions = { ...stored.advertisedExtensions };
   }
   // Truthiness drops empty-string OAuth fields — mirrors the write-side
   // coercion in `validateSettings` (server.ts) so a round-trip can't
@@ -301,6 +323,16 @@ export function inspectorSettingsToStoredFields(
     out.paginatedLists = true;
   }
 
+  // Persist only when the user has toggled at least one extension override;
+  // an empty map reads back as unset (above), keeping the diff minimal for the
+  // common (no-override) case.
+  if (
+    settings.advertisedExtensions &&
+    Object.keys(settings.advertisedExtensions).length > 0
+  ) {
+    out.advertisedExtensions = { ...settings.advertisedExtensions };
+  }
+
   // Persist only when it differs from the default era. Absent reads back as
   // DEFAULT_PROTOCOL_ERA, so writing the default would inject the field into
   // hand-edited files that never had it and break byte-stable round-trips.
@@ -309,6 +341,16 @@ export function inspectorSettingsToStoredFields(
     settings.protocolEra !== DEFAULT_PROTOCOL_ERA
   ) {
     out.protocolEra = settings.protocolEra;
+  }
+
+  // Persist only when it differs from the default modern log level; absent reads
+  // back as DEFAULT_MODERN_LOG_LEVEL, so writing the default would inject the
+  // field into files that never set it and break byte-stable round-trips.
+  if (
+    settings.modernLogLevel !== undefined &&
+    settings.modernLogLevel !== DEFAULT_MODERN_LOG_LEVEL
+  ) {
+    out.modernLogLevel = settings.modernLogLevel;
   }
 
   // Persist only when it differs from the default. Unlike the timeouts, 0 is a
@@ -363,11 +405,13 @@ const INSPECTOR_FIELD_KEY_MAP = {
   headers: true,
   metadata: true,
   protocolEra: true,
+  modernLogLevel: true,
   connectionTimeout: true,
   requestTimeout: true,
   taskTtl: true,
   autoRefreshOnListChanged: true,
   paginatedLists: true,
+  advertisedExtensions: true,
   maxFetchRequests: true,
   oauth: true,
   roots: true,
@@ -384,16 +428,17 @@ export const INSPECTOR_FIELD_KEYS = new Set(
  * new extension field doesn't silently leak through this slice — the
  * `satisfies` constraint above forces the map update, which propagates
  * here.
+ *
+ * Every Inspector-extension key is optional on `StoredMCPServer`, so deleting
+ * them off a clone leaves a value still typed as (a subtype of)
+ * `MCPServerConfig` — no cast needed.
  */
 export function stripInspectorFields(stored: StoredMCPServer): MCPServerConfig {
-  const out: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(
-    stored as unknown as Record<string, unknown>,
-  )) {
-    if (INSPECTOR_FIELD_KEYS.has(k as keyof StoredInspectorFields)) continue;
-    out[k] = v;
+  const out = { ...stored };
+  for (const key of INSPECTOR_FIELD_KEYS) {
+    delete out[key];
   }
-  return out as unknown as MCPServerConfig;
+  return out;
 }
 
 /**
@@ -411,16 +456,13 @@ export function mcpConfigToServerEntries(config: MCPConfig): ServerEntry[] {
     // `InspectorServerSettings` only.
     const inspectorFields: StoredInspectorFields = {};
     const sdkOnly: Record<string, unknown> = {};
-    // Widen the typed config object to a generic record to iterate its keys.
-    // `StoredMCPServer` has no index signature, so TS requires the `unknown`
-    // step (`as Record<string, unknown>` alone is TS2352). This is a plain
-    // structural widening, not an SDK-shape workaround. (Pre-existing pattern,
-    // also at the `serverEntryToStored` / oauth-strip casts in this file.)
-    for (const [k, v] of Object.entries(
-      raw as unknown as Record<string, unknown>,
-    )) {
+    // Partition the entry's keys into Inspector-extension vs SDK-only. Both
+    // `raw` and `inspectorFields` are widened through `toRecord` (see its doc)
+    // so the generic key iteration/assignment needs no per-site cast.
+    const inspectorRecord = toRecord(inspectorFields);
+    for (const [k, v] of Object.entries(toRecord(raw))) {
       if (INSPECTOR_FIELD_KEYS.has(k as keyof StoredInspectorFields)) {
-        (inspectorFields as Record<string, unknown>)[k] = v;
+        inspectorRecord[k] = v;
       } else {
         sdkOnly[k] = v;
       }
@@ -546,7 +588,7 @@ export function extractSecretsFromStored(
     if (Object.keys(restOauth).length > 0) {
       stripped.oauth = restOauth;
     } else {
-      delete (stripped as unknown as Record<string, unknown>).oauth;
+      delete stripped.oauth;
     }
   }
 

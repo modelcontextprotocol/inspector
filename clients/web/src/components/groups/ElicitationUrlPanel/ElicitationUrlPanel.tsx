@@ -60,6 +60,11 @@ const MetaText = Text.withProps({
   c: "dimmed",
 });
 
+const WarningAlert = Alert.withProps({
+  variant: "warning",
+  title: "Warning",
+});
+
 function formatRequestId(id: string): string {
   return `Request ID: ${id}`;
 }
@@ -99,9 +104,9 @@ export function ElicitationUrlPanel({
         </Group>
       )}
       <MetaText>{formatRequestId(requestId)}</MetaText>
-      <Alert variant="warning" title="Warning">
+      <WarningAlert>
         This will open an external URL. Verify the domain before proceeding.
-      </Alert>
+      </WarningAlert>
       <Group justify="flex-end">
         <Button variant="light" onClick={onCancel} disabled={busy}>
           Cancel

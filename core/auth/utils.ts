@@ -1,3 +1,4 @@
+import { UnauthorizedError } from "@modelcontextprotocol/client";
 import type { CallbackParams } from "./types.js";
 import { ZodError } from "zod";
 
@@ -172,13 +173,50 @@ export const generateOAuthErrorDescription = (
  * transport preserves the status on the error object; as a fallback, match
  * transport wording `"failed …(401)"` so unrelated `(401)` in messages does
  * not trigger OAuth.
+ *
+ * Under `protocolEra: auto|modern`, a negotiation-probe 401 can surface as
+ * `SdkError(EraNegotiationFailed)` with the real {@link UnauthorizedError} at
+ * `error.data.cause` (and sometimes native `error.cause`). Walk that chain so
+ * OAuth recovery still starts.
  */
 export function isUnauthorizedError(err: unknown): boolean {
-  if (typeof err === "object" && err !== null) {
-    const status = (err as { status?: number; code?: number }).status;
-    const code = (err as { code?: number }).code;
-    if (status === 401 || code === 401) return true;
+  return isUnauthorizedErrorDeep(err, new Set());
+}
+
+function isUnauthorizedErrorDeep(err: unknown, seen: Set<unknown>): boolean {
+  if (err == null) return false;
+  if (typeof err !== "object") {
+    return /\bfailed\b[^\n]*\(401\)/i.test(String(err));
   }
-  const message = err instanceof Error ? err.message : String(err);
-  return /\bfailed\b[^\n]*\(401\)/i.test(message);
+  if (seen.has(err)) return false;
+  seen.add(err);
+
+  if (UnauthorizedError.isInstance(err)) return true;
+
+  const status = (err as { status?: number }).status;
+  const code = (err as { code?: unknown }).code;
+  if (status === 401 || code === 401) return true;
+
+  if (err instanceof Error && /\bfailed\b[^\n]*\(401\)/i.test(err.message)) {
+    return true;
+  }
+
+  if (
+    "cause" in err &&
+    isUnauthorizedErrorDeep((err as { cause: unknown }).cause, seen)
+  ) {
+    return true;
+  }
+
+  const data = (err as { data?: unknown }).data;
+  if (
+    data !== null &&
+    typeof data === "object" &&
+    "cause" in data &&
+    isUnauthorizedErrorDeep((data as { cause: unknown }).cause, seen)
+  ) {
+    return true;
+  }
+
+  return false;
 }

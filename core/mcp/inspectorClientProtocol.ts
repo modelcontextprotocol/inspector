@@ -19,6 +19,8 @@ import type {
   ResourceTemplateReadInvocation,
   PromptGetInvocation,
   ToolCallInvocation,
+  ResourceSubscriptionStreamState,
+  ExcludedTool,
 } from "./types.js";
 import type {
   CacheMode,
@@ -60,6 +62,10 @@ export interface InspectorClientProtocol extends InspectorClientEventTarget {
   getInstructions(): string | undefined;
   getProtocolVersion(): string | undefined;
   getProtocolEra(): ProtocolEra | undefined;
+  /** Tools excluded from `tools/list` for invalid `x-mcp-header` annotations
+   * (SEP-2243); empty on legacy/stdio connections (#1632). */
+  getExcludedTools(): ExcludedTool[];
+  getResourceSubscriptionStreamState(): ResourceSubscriptionStreamState;
   getDiscoverResult(): DiscoverResult | undefined;
   getServerSettings(): InspectorServerSettings | undefined;
   setServerSettings(settings: InspectorServerSettings): void;
@@ -89,6 +95,15 @@ export interface InspectorClientProtocol extends InspectorClientEventTarget {
   listRequestorTasks(
     cursor?: string,
   ): Promise<{ tasks: Task[]; nextCursor?: string }>;
+  /** Poll one requestor task's current status (era-aware: modern `DetailedTask`
+   * via `tasks/get`, or the legacy flattened task). Dispatches
+   * `requestorTaskUpdated`. Used by the modern task store's refresh (no
+   * `tasks/list`). */
+  getRequestorTask(taskId: string): Promise<Task>;
+  /** True when a modern (2026-07-28) connection negotiated the
+   * `io.modelcontextprotocol/tasks` extension (SEP-2663). Gates the Tasks tab
+   * and the modern task store's poll-based refresh. */
+  isTasksExtensionNegotiated(): boolean;
 
   // Aggregate (all-page) list methods used by the managed state stores on
   // refresh. Unlike the single-page methods above, these route through the

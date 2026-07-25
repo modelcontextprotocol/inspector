@@ -66,8 +66,10 @@ const baseHandlers = {
   onTimeoutChange: vi.fn(),
   onAutoRefreshChange: vi.fn(),
   onPaginatedListsChange: vi.fn(),
+  onAdvertisedExtensionChange: vi.fn(),
   onMaxFetchRequestsChange: vi.fn(),
   onProtocolEraChange: vi.fn(),
+  onModernLogLevelChange: vi.fn(),
   onOAuthChange: vi.fn(),
   onAddRoot: vi.fn(),
   onRemoveRoot: vi.fn(),
@@ -128,6 +130,110 @@ describe("ServerSettingsForm", () => {
     expect(
       screen.getByDisplayValue("Auto (probe, fall back to legacy)"),
     ).toBeInTheDocument();
+  });
+
+  // The modern per-request control only shows for a modern-capable era. Base
+  // these tests on a modern-pinned settings object so the Select renders.
+  const modernSettings = { ...emptySettings, protocolEra: "modern" as const };
+
+  it("defaults the Log Level per Request select to Debug when unset (#1629)", () => {
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        settings={modernSettings}
+        expandedSections={["options"]}
+      />,
+    );
+    // Two selects can display "debug" (the value plus its hidden input), so
+    // assert at least one and that the control's label is present.
+    expect(screen.getByText("Log Level per Request")).toBeInTheDocument();
+    expect(screen.getAllByDisplayValue("debug").length).toBeGreaterThan(0);
+  });
+
+  it("invokes onModernLogLevelChange with the selected level (#1629)", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        settings={modernSettings}
+        expandedSections={["options"]}
+      />,
+    );
+    await user.click(screen.getAllByDisplayValue("debug")[0]);
+    await user.click(screen.getByText("warning"));
+    expect(baseHandlers.onModernLogLevelChange).toHaveBeenCalledWith("warning");
+  });
+
+  it("selects Off to opt out of per-request logs (#1629)", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        settings={modernSettings}
+        expandedSections={["options"]}
+      />,
+    );
+    await user.click(screen.getAllByDisplayValue("debug")[0]);
+    await user.click(screen.getByText("Off (no logs)"));
+    expect(baseHandlers.onModernLogLevelChange).toHaveBeenCalledWith("off");
+  });
+
+  it("reflects the configured modernLogLevel in the select value (#1629)", () => {
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        settings={{ ...modernSettings, modernLogLevel: "off" }}
+        expandedSections={["options"]}
+      />,
+    );
+    expect(screen.getByDisplayValue("Off (no logs)")).toBeInTheDocument();
+  });
+
+  it("hides the Log Level per Request control when the era is legacy (#1629)", () => {
+    // emptySettings has no protocolEra → defaults to legacy → control hidden.
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        settings={emptySettings}
+        expandedSections={["options"]}
+      />,
+    );
+    expect(screen.queryByText("Log Level per Request")).toBeNull();
+  });
+
+  it("hides the control for an 'auto' server that negotiated legacy (#1629)", () => {
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        settings={{ ...emptySettings, protocolEra: "auto" }}
+        negotiatedEra="legacy"
+        expandedSections={["options"]}
+      />,
+    );
+    expect(screen.queryByText("Log Level per Request")).toBeNull();
+  });
+
+  it("shows the control for an 'auto' server not yet connected (era unknown) (#1629)", () => {
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        settings={{ ...emptySettings, protocolEra: "auto" }}
+        expandedSections={["options"]}
+      />,
+    );
+    expect(screen.getByText("Log Level per Request")).toBeInTheDocument();
+  });
+
+  it("shows the control for an 'auto' server that negotiated modern (#1629)", () => {
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        settings={{ ...emptySettings, protocolEra: "auto" }}
+        negotiatedEra="modern"
+        expandedSections={["options"]}
+      />,
+    );
+    expect(screen.getByText("Log Level per Request")).toBeInTheDocument();
   });
 
   it("shows empty hints for headers and metadata when no entries exist", () => {
@@ -345,6 +451,66 @@ describe("ServerSettingsForm", () => {
       }),
     );
     expect(onAutoRefreshChange).toHaveBeenCalledWith(true);
+  });
+
+  it("renders the Advertised Extensions section with Tasks checked by default", () => {
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        settings={emptySettings}
+        expandedSections={["extensions"]}
+      />,
+    );
+    // Advertised Extensions is now its own accordion section (#1747).
+    expect(
+      screen.getByRole("button", { name: "Advertised Extensions" }),
+    ).toBeInTheDocument();
+    const tasks = screen.getByRole("checkbox", {
+      name: /Tasks \(io\.modelcontextprotocol\/tasks\)/,
+    });
+    // No override present → the registry default (advertised) shows checked.
+    expect(tasks).toBeChecked();
+  });
+
+  it("reflects an advertisedExtensions override that disables Tasks", () => {
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        settings={{
+          ...emptySettings,
+          advertisedExtensions: { "io.modelcontextprotocol/tasks": false },
+        }}
+        expandedSections={["extensions"]}
+      />,
+    );
+    expect(
+      screen.getByRole("checkbox", {
+        name: /Tasks \(io\.modelcontextprotocol\/tasks\)/,
+      }),
+    ).not.toBeChecked();
+  });
+
+  it("invokes onAdvertisedExtensionChange when a Tasks toggle is clicked", async () => {
+    const user = userEvent.setup();
+    const onAdvertisedExtensionChange = vi.fn();
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        onAdvertisedExtensionChange={onAdvertisedExtensionChange}
+        settings={emptySettings}
+        expandedSections={["extensions"]}
+      />,
+    );
+    // Default is checked; clicking flips it to unadvertised.
+    await user.click(
+      screen.getByRole("checkbox", {
+        name: /Tasks \(io\.modelcontextprotocol\/tasks\)/,
+      }),
+    );
+    expect(onAdvertisedExtensionChange).toHaveBeenCalledWith(
+      "io.modelcontextprotocol/tasks",
+      false,
+    );
   });
 
   it("renders the Network Log Size field reflecting maxFetchRequests", () => {
@@ -580,6 +746,57 @@ describe("ServerSettingsForm", () => {
       scopes: "",
       enterpriseManaged: true,
     });
+  });
+
+  it("uses unqualified Client ID / Client Secret labels when EMA is off (#1692)", () => {
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        settings={emptySettings}
+        expandedSections={["oauth"]}
+      />,
+    );
+    expect(screen.getByLabelText("Client ID")).toBeInTheDocument();
+    expect(screen.getByLabelText("Client Secret")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Resource AS Client ID")).toBeNull();
+  });
+
+  it("relabels the OAuth fields to Resource AS credentials when EMA is on (#1692)", () => {
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        settings={{ ...emptySettings, enterpriseManaged: true }}
+        expandedSections={["oauth"]}
+      />,
+    );
+    expect(screen.getByLabelText("Resource AS Client ID")).toBeInTheDocument();
+    expect(
+      screen.getByLabelText("Resource AS Client Secret"),
+    ).toBeInTheDocument();
+    expect(screen.queryByLabelText("Client ID")).toBeNull();
+    // The resource-authorization-server description is present (rendered twice —
+    // once per field).
+    expect(
+      screen.getAllByText(
+        /resource authorization server's registered client credential/i,
+      ).length,
+    ).toBeGreaterThan(0);
+  });
+
+  it("documents the space-separated Scopes delimiter (#1692)", () => {
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        settings={emptySettings}
+        expandedSections={["oauth"]}
+      />,
+    );
+    expect(
+      screen.getByText(/Space-separated OAuth scopes/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByPlaceholderText("mcp tools:read env:read"),
+    ).toBeInTheDocument();
   });
 
   it("hides the OAuth Settings section for stdio servers", () => {

@@ -16,6 +16,7 @@ import {
   createAddTool,
   createGetSumTool,
   createGetWeatherTool,
+  createInvalidHeaderTool,
   createSpecErrorTriggerTool,
   createWriteToStderrTool,
   createCollectSampleTool,
@@ -98,6 +99,8 @@ function resolveToolPreset(
       return createGetSumTool();
     case "get_weather":
       return createGetWeatherTool();
+    case "invalid_header_tool":
+      return createInvalidHeaderTool();
     case "trigger_header_mismatch":
       return createSpecErrorTriggerTool(
         "trigger_header_mismatch",
@@ -117,6 +120,11 @@ function resolveToolPreset(
       return createSpecErrorTriggerTool(
         "trigger_method_not_found",
         "Returns -32601 MethodNotFound (HTTP 404)",
+      );
+    case "trigger_invalid_params":
+      return createSpecErrorTriggerTool(
+        "trigger_invalid_params",
+        "Returns a generic -32602 Invalid params (not an unknown tool)",
       );
     case "write_to_stderr":
       return createWriteToStderrTool();

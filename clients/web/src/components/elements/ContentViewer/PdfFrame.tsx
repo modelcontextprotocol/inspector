@@ -30,6 +30,8 @@ export function PdfFrame({ data }: PdfFrameProps) {
     return <BinaryNotice mimeType="application/pdf" />;
   }
   return (
+    // Box+iframe is a native element (not a Mantine primitive), so the
+    // `.withProps()` extraction rule doesn't apply.
     <Box
       component="iframe"
       title="PDF preview"

@@ -100,6 +100,19 @@ const DurationText = Text.withProps({
   c: "dimmed",
 });
 
+// Muted note for empty/placeholder states (no headers, empty body, uncaptured
+// stream) and the secrets-hidden status line.
+const DimmedNote = Text.withProps({
+  size: "xs",
+  c: "dimmed",
+});
+
+// Heading above each expanded-detail section (Request/Response Headers/Body).
+const SectionLabel = Text.withProps({
+  size: "sm",
+  fw: 500,
+});
+
 // Cap is in JS string `.length` units (UTF-16 code units), not bytes — for
 // multi-byte content the wire size is larger, but the limit's purpose is
 // to keep the DOM from drowning in a single Code block so character count
@@ -188,6 +201,80 @@ const MismatchMarker = Text.withProps({
   c: "var(--inspector-danger-text)",
 });
 
+// The decoded value plus its optional base64 / mismatch markers, on one line.
+const ValueCellRow = Group.withProps({
+  gap: "xs",
+  wrap: "nowrap",
+  align: "center",
+});
+
+// Tooltip for a base64 sentinel value or a header/body mismatch.
+const SentinelTooltip = Tooltip.withProps({
+  withArrow: true,
+  multiline: true,
+  w: 280,
+});
+
+const Base64Badge = Badge.withProps({
+  size: "xs",
+  color: "gray",
+  variant: "light",
+});
+
+const HeadersGrid = Table.withProps({
+  striped: true,
+  withColumnBorders: true,
+  fz: "xs",
+});
+
+// OAuth flow-phase chip for an `auth`-category request.
+const PhaseBadge = Badge.withProps({
+  color: "violet",
+  variant: "light",
+});
+
+// Compact-header URL row: copy button, horizontal URL scroll, expand toggle.
+const CompactUrlRow = Group.withProps({
+  gap: "xs",
+  wrap: "nowrap",
+  justify: "space-between",
+});
+
+const UrlScrollArea = ScrollArea.withProps({
+  scrollbarSize: 6,
+  flex: 1,
+  miw: 0,
+  // The URL scrolls horizontally but has no focusable child, so make the
+  // viewport itself keyboard-scrollable (WCAG SC 2.1.1). Scrollbar auto-hides
+  // via the `type="scroll"` theme default.
+  viewportProps: { tabIndex: 0 },
+});
+
+// Wide-header left cluster: timestamp + badges + URL, shrinking to truncate.
+const WideHeaderCluster = Group.withProps({
+  gap: "sm",
+  wrap: "nowrap",
+  miw: 0,
+  flex: 1,
+});
+
+// Trailing expand-toggle row in the wide layout.
+const ToggleRow = Group.withProps({
+  gap: "xs",
+  justify: "flex-end",
+});
+
+const MonoSpan = Text.withProps({
+  span: true,
+  ff: "monospace",
+});
+
+const ErrorText = Text.withProps({
+  size: "xs",
+  ff: "monospace",
+  c: "red",
+});
+
 function HeaderValueCell({
   name,
   value,
@@ -205,39 +292,27 @@ function HeaderValueCell({
   const mismatch = consistency !== undefined && !consistency.ok;
 
   return (
-    <Group gap="xs" wrap="nowrap" align="center">
+    <ValueCellRow>
       {mismatch ? (
         <MismatchValueText>{decoded.value}</MismatchValueText>
       ) : (
         <HeaderValueText>{decoded.value}</HeaderValueText>
       )}
       {decoded.encoded && (
-        <Tooltip
-          label={`base64 sentinel — raw: ${decoded.raw}`}
-          withArrow
-          multiline
-          w={280}
-        >
-          <Badge size="xs" color="gray" variant="light">
-            base64
-          </Badge>
-        </Tooltip>
+        <SentinelTooltip label={`base64 sentinel — raw: ${decoded.raw}`}>
+          <Base64Badge>base64</Base64Badge>
+        </SentinelTooltip>
       )}
       {mismatch && (
-        <Tooltip
-          label={`Expected: ${consistency.expected}`}
-          withArrow
-          multiline
-          w={280}
-        >
+        <SentinelTooltip label={`Expected: ${consistency.expected}`}>
           <MismatchMarker
             aria-label={`Header does not match body; expected ${consistency.expected}`}
           >
             <RiErrorWarningLine />
           </MismatchMarker>
-        </Tooltip>
+        </SentinelTooltip>
       )}
-    </Group>
+    </ValueCellRow>
   );
 }
 
@@ -251,15 +326,11 @@ function HeadersTable({
 }) {
   const rows = Object.entries(headers);
   if (rows.length === 0) {
-    return (
-      <Text size="xs" c="dimmed">
-        (none)
-      </Text>
-    );
+    return <DimmedNote>(none)</DimmedNote>;
   }
   const byHeader = new Map((consistency ?? []).map((row) => [row.header, row]));
   return (
-    <Table striped withColumnBorders fz="xs">
+    <HeadersGrid>
       <Table.Tbody>
         {rows.map(([name, value]) => (
           <Table.Tr key={name}>
@@ -280,7 +351,7 @@ function HeadersTable({
           </Table.Tr>
         ))}
       </Table.Tbody>
-    </Table>
+    </HeadersGrid>
   );
 }
 
@@ -334,9 +405,9 @@ function BodyPreview({
 
   if (tooLarge) {
     return (
-      <Text size="xs" c="dimmed">
+      <DimmedNote>
         Body too large to preview ({body.length} characters)
-      </Text>
+      </DimmedNote>
     );
   }
 
@@ -348,9 +419,9 @@ function BodyPreview({
   return (
     <Stack gap="xs">
       <Group gap="xs">
-        <Text size="xs" c="dimmed" aria-live="polite">
+        <DimmedNote aria-live="polite">
           {revealed ? "Secrets revealed" : "Secrets hidden"}
-        </Text>
+        </DimmedNote>
         <RevealButton
           onClick={() => setRevealed((v) => !v)}
           aria-label={
@@ -408,9 +479,7 @@ export function NetworkEntry({
   const oauthPhase =
     entry.category === "auth" ? oauthNetworkPhase(entry.url) : undefined;
   const phaseBadge = oauthPhase ? (
-    <Badge color="violet" variant="light">
-      {oauthNetworkPhaseLabel(oauthPhase)}
-    </Badge>
+    <PhaseBadge>{oauthNetworkPhaseLabel(oauthPhase)}</PhaseBadge>
   ) : null;
 
   // Request header/body cross-checks so a mirrored-header mismatch is visible
@@ -458,26 +527,18 @@ export function NetworkEntry({
               </HeaderCluster>
               <ControlsCluster>{metaBadges}</ControlsCluster>
             </HeaderRow>
-            <Group gap="xs" wrap="nowrap" justify="space-between">
+            <CompactUrlRow>
               <CopyButton value={entry.url} />
-              <ScrollArea
-                scrollbarSize={6}
-                flex={1}
-                miw={0}
-                // The URL scrolls horizontally but has no focusable child, so
-                // make the viewport itself keyboard-scrollable (WCAG SC 2.1.1).
-                // Scrollbar auto-hides via the `type="scroll"` theme default.
-                viewportProps={{ tabIndex: 0 }}
-              >
+              <UrlScrollArea>
                 <UrlScroll>{entry.url}</UrlScroll>
-              </ScrollArea>
+              </UrlScrollArea>
               {expandToggle}
-            </Group>
+            </CompactUrlRow>
           </Stack>
         ) : (
           <>
             <HeaderRow>
-              <Group gap="sm" wrap="nowrap" miw={0} flex={1}>
+              <WideHeaderCluster>
                 <TimestampText>
                   {formatTimestamp(entry.timestamp)}
                 </TimestampText>
@@ -486,15 +547,11 @@ export function NetworkEntry({
                 {phaseBadge}
                 <CopyButton value={entry.url} />
                 <UrlText>{entry.url}</UrlText>
-              </Group>
-              <Group gap="sm" wrap="nowrap">
-                {metaBadges}
-              </Group>
+              </WideHeaderCluster>
+              <ControlsCluster>{metaBadges}</ControlsCluster>
             </HeaderRow>
 
-            <Group gap="xs" justify="flex-end">
-              {expandToggle}
-            </Group>
+            <ToggleRow>{expandToggle}</ToggleRow>
           </>
         )}
 
@@ -506,17 +563,12 @@ export function NetworkEntry({
                 <Text size="xs">
                   Cancellation appears as a connection abort — the modern
                   transport aborts the request stream instead of sending a{" "}
-                  <Text span ff="monospace">
-                    notifications/cancelled
-                  </Text>{" "}
-                  frame (SEP-2575).
+                  <MonoSpan>notifications/cancelled</MonoSpan> frame (SEP-2575).
                 </Text>
               </CancellationAlert>
             )}
             <Stack gap="xs">
-              <Text size="sm" fw={500}>
-                Request Headers
-              </Text>
+              <SectionLabel>Request Headers</SectionLabel>
               <HeadersTable
                 headers={entry.requestHeaders}
                 consistency={headerConsistency}
@@ -524,9 +576,7 @@ export function NetworkEntry({
             </Stack>
             {entry.requestBody && (
               <Stack gap="xs">
-                <Text size="sm" fw={500}>
-                  Request Body
-                </Text>
+                <SectionLabel>Request Body</SectionLabel>
                 <BodyPreview
                   key={`${entry.requestHeaders["content-type"] ?? ""}|${entry.requestBody}`}
                   body={entry.requestBody}
@@ -536,17 +586,13 @@ export function NetworkEntry({
             )}
             {entry.responseHeaders && (
               <Stack gap="xs">
-                <Text size="sm" fw={500}>
-                  Response Headers
-                </Text>
+                <SectionLabel>Response Headers</SectionLabel>
                 <HeadersTable headers={entry.responseHeaders} />
               </Stack>
             )}
             {entry.responseStatus !== undefined && (
               <Stack gap="xs">
-                <Text size="sm" fw={500}>
-                  Response Body
-                </Text>
+                <SectionLabel>Response Body</SectionLabel>
                 {entry.responseBody ? (
                   <BodyPreview
                     key={`${entry.responseHeaders?.["content-type"] ?? ""}|${entry.responseBody}`}
@@ -554,22 +600,18 @@ export function NetworkEntry({
                     contentType={entry.responseHeaders?.["content-type"]}
                   />
                 ) : (
-                  <Text size="xs" c="dimmed">
+                  <DimmedNote>
                     {isLongLivedStream(entry)
                       ? "Long-lived stream — body not captured"
                       : "(empty)"}
-                  </Text>
+                  </DimmedNote>
                 )}
               </Stack>
             )}
             {entry.error && (
               <Stack gap="xs">
-                <Text size="sm" fw={500} c="red">
-                  Error
-                </Text>
-                <Text size="xs" ff="monospace" c="red">
-                  {entry.error}
-                </Text>
+                <SectionLabel c="red">Error</SectionLabel>
+                <ErrorText>{entry.error}</ErrorText>
               </Stack>
             )}
           </Stack>

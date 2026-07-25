@@ -8,6 +8,7 @@ import { renderWithMantine, screen } from "../../../test/renderWithMantine";
 import {
   CLEAR_OAUTH_STATE_AND_DISCONNECT_LABEL,
   ConnectionInfoContent,
+  SERVER_INFO_NOT_REPORTED_LABEL,
 } from "./ConnectionInfoContent";
 
 const fullResult: InitializeResult = {
@@ -57,7 +58,111 @@ describe("ConnectionInfoContent", () => {
         transport="stdio"
       />,
     );
-    expect(screen.getByText("—")).toBeInTheDocument();
+    // Exactly three em dashes: the missing server version, plus the two
+    // extension sections (the fixtures advertise none on either side).
+    expect(screen.getAllByText("—")).toHaveLength(3);
+  });
+
+  it("renders an em-dash when the reported version is an empty string", () => {
+    renderWithMantine(
+      <ConnectionInfoContent
+        initializeResult={{
+          ...fullResult,
+          serverInfo: { name: "Empty Version Server", version: "" },
+        }}
+        clientCapabilities={fullClientCaps}
+        transport="stdio"
+      />,
+    );
+    // An empty version reads as unknown ("—"), not a blank row (#1772).
+    expect(screen.getByText("Empty Version Server")).toBeInTheDocument();
+    expect(screen.getAllByText("—")).toHaveLength(3);
+  });
+
+  it("renders an em-dash when the reported name is an empty string", () => {
+    renderWithMantine(
+      <ConnectionInfoContent
+        initializeResult={{
+          ...fullResult,
+          serverInfo: { name: "", version: "1.0.0" },
+        }}
+        clientCapabilities={fullClientCaps}
+        transport="stdio"
+      />,
+    );
+    // `initialize` mandates the name field, not a non-empty value, so an empty
+    // reported name also reads as unknown ("—") — symmetric with version.
+    expect(screen.getByText("1.0.0")).toBeInTheDocument();
+    expect(screen.getAllByText("—")).toHaveLength(3);
+  });
+
+  it("renders an em-dash when the reported name is missing", () => {
+    renderWithMantine(
+      <ConnectionInfoContent
+        initializeResult={{
+          ...fullResult,
+          // Non-conforming server: `name` is runtime-absent (the field is typed
+          // non-null). Pins the `?.trim()` tolerance — symmetric with the
+          // "version is missing" test above — so it reads "—", not a crash.
+          serverInfo: { version: "1.0.0" } as never,
+        }}
+        clientCapabilities={fullClientCaps}
+        transport="stdio"
+      />,
+    );
+    expect(screen.getByText("1.0.0")).toBeInTheDocument();
+    expect(screen.getAllByText("—")).toHaveLength(3);
+  });
+
+  it("renders an em-dash when the reported name is whitespace-only", () => {
+    renderWithMantine(
+      <ConnectionInfoContent
+        initializeResult={{
+          ...fullResult,
+          serverInfo: { name: "   ", version: "1.0.0" },
+        }}
+        clientCapabilities={fullClientCaps}
+        transport="stdio"
+      />,
+    );
+    // A whitespace-only reported name is the same non-conforming class as an
+    // empty one (#1774): it must read as unknown ("—"), not a visually blank
+    // row. Stays faithful — never borrows the catalog name.
+    expect(screen.getByText("1.0.0")).toBeInTheDocument();
+    expect(screen.getAllByText("—")).toHaveLength(3);
+  });
+
+  it("shows 'not reported' for name and version when serverInfo was not reported", () => {
+    renderWithMantine(
+      <ConnectionInfoContent
+        initializeResult={{
+          ...fullResult,
+          // App synthesizes a catalog-name fallback here when a modern server
+          // omits serverInfo; the modal must not present it as server-reported.
+          serverInfo: { name: "my-catalog-name", version: "" },
+        }}
+        serverInfoReported={false}
+        clientCapabilities={fullClientCaps}
+        transport="streamable-http"
+      />,
+    );
+    // The inferred catalog name is NOT shown as the server's reported name...
+    expect(screen.queryByText("my-catalog-name")).not.toBeInTheDocument();
+    // ...both Name and Version read as not reported instead.
+    expect(screen.getAllByText(SERVER_INFO_NOT_REPORTED_LABEL)).toHaveLength(2);
+  });
+
+  it("renders an em-dash when the protocol version is empty", () => {
+    renderWithMantine(
+      <ConnectionInfoContent
+        initializeResult={{ ...fullResult, protocolVersion: "" }}
+        clientCapabilities={fullClientCaps}
+        transport="stdio"
+      />,
+    );
+    // App supplies `protocolVersion ?? ""`; an empty one reads as unknown ("—"),
+    // symmetric with Name/Version (#1772).
+    expect(screen.getAllByText("—")).toHaveLength(3);
   });
 
   it("renders server and client capability sections", () => {
@@ -151,12 +256,9 @@ describe("ConnectionInfoContent", () => {
     expect(screen.getByText("Sessionless")).toBeInTheDocument();
     expect(screen.getByText("Discovery")).toBeInTheDocument();
     expect(screen.getByText("2026-07-28, 2025-11-25")).toBeInTheDocument();
-    expect(
-      screen.getByText("io.modelcontextprotocol/tasks"),
-    ).toBeInTheDocument();
   });
 
-  it("renders em-dashes for empty supported versions and absent extensions", () => {
+  it("renders an em-dash for empty supported versions in Discovery", () => {
     renderWithMantine(
       <ConnectionInfoContent
         initializeResult={fullResult}
@@ -171,9 +273,78 @@ describe("ConnectionInfoContent", () => {
       />,
     );
     expect(screen.getByText("Supported versions")).toBeInTheDocument();
-    expect(screen.getByText("Extensions")).toBeInTheDocument();
-    // Both the empty-versions and no-extensions values render as an em dash.
-    expect(screen.getAllByText("—").length).toBeGreaterThanOrEqual(2);
+    // Extensions moved out of Discovery into their own era-transparent section.
+    expect(screen.queryByText("Discovery")).toBeInTheDocument();
+    // Exactly three em dashes: empty supported versions, plus the two extension
+    // sections (the fixtures advertise none).
+    expect(screen.getAllByText("—")).toHaveLength(3);
+  });
+
+  it("shows server extensions on a LEGACY connection (no discovery), from server capabilities (#1740)", () => {
+    renderWithMantine(
+      <ConnectionInfoContent
+        initializeResult={{
+          ...fullResult,
+          capabilities: {
+            ...fullResult.capabilities,
+            extensions: { "io.modelcontextprotocol/tasks": {} },
+          },
+        }}
+        clientCapabilities={fullClientCaps}
+        transport="streamable-http"
+        protocolEra="legacy"
+      />,
+    );
+    // No discoverResult (legacy) but the server's extension still renders,
+    // sourced from the negotiated server capabilities rather than discovery.
+    expect(screen.queryByText("Discovery")).not.toBeInTheDocument();
+    expect(screen.getByText("Server Extensions")).toBeInTheDocument();
+    expect(
+      screen.getByText("io.modelcontextprotocol/tasks"),
+    ).toBeInTheDocument();
+  });
+
+  it("shows the Inspector's own advertised extensions (#1740)", () => {
+    renderWithMantine(
+      <ConnectionInfoContent
+        initializeResult={fullResult}
+        clientCapabilities={{
+          ...fullClientCaps,
+          extensions: {
+            "io.modelcontextprotocol/tasks": {},
+            "io.modelcontextprotocol/ui": { mimeTypes: ["text/html"] },
+          },
+        }}
+        transport="streamable-http"
+        protocolEra="legacy"
+      />,
+    );
+    expect(
+      screen.getByText("Client Advertised Extensions"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "io.modelcontextprotocol/tasks, io.modelcontextprotocol/ui",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("renders em-dashes for the extensions sections when neither side advertises any (#1740)", () => {
+    renderWithMantine(
+      <ConnectionInfoContent
+        initializeResult={fullResult}
+        clientCapabilities={fullClientCaps}
+        transport="streamable-http"
+        protocolEra="legacy"
+      />,
+    );
+    expect(screen.getByText("Server Extensions")).toBeInTheDocument();
+    expect(
+      screen.getByText("Client Advertised Extensions"),
+    ).toBeInTheDocument();
+    // Exactly two em dashes: the two extension sections (the server version is
+    // present in the fixture, so it does not em-dash).
+    expect(screen.getAllByText("—")).toHaveLength(2);
   });
 
   it("renders client registration kind when provided", () => {

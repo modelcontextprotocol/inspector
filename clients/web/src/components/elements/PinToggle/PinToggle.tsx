@@ -7,6 +7,12 @@ export interface PinToggleProps {
   onToggle: () => void;
 }
 
+const PinActionIcon = ActionIcon.withProps({
+  variant: "subtle",
+  color: "gray",
+  size: "md",
+});
+
 /**
  * Icon toggle for pinning an entry. Unpinned shows an outline pin; pinned shows
  * a filled pin. The aria-label stays "Pin"/"Unpin" so it reads the same as the
@@ -17,15 +23,9 @@ export function PinToggle({ pinned, onToggle }: PinToggleProps) {
   const label = pinned ? "Unpin" : "Pin";
   return (
     <Tooltip label={label}>
-      <ActionIcon
-        variant="subtle"
-        color="gray"
-        size="md"
-        aria-label={label}
-        onClick={onToggle}
-      >
+      <PinActionIcon aria-label={label} onClick={onToggle}>
         <Icon size={18} />
-      </ActionIcon>
+      </PinActionIcon>
     </Tooltip>
   );
 }

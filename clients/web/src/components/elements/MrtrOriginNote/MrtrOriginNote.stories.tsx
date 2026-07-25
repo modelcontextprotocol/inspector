@@ -13,6 +13,10 @@ export const InputRequired: Story = {
   args: { origin: "input-required" },
 };
 
+export const TaskInputRequired: Story = {
+  args: { origin: "task-input-required" },
+};
+
 export const ServerRequest: Story = {
   args: { origin: "server-request" },
 };

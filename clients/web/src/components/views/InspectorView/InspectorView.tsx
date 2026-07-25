@@ -17,6 +17,7 @@ import {
 } from "@mantine/core";
 import { useLocalStorage } from "@mantine/hooks";
 import type {
+  Implementation,
   InitializeResult,
   LoggingLevel,
   Prompt,
@@ -29,14 +30,17 @@ import type {
 } from "@modelcontextprotocol/client";
 import type {
   ConnectionStatus,
+  ExcludedTool,
   FetchRequestEntry,
   InspectorResourceSubscription,
   MessageEntry,
+  ResourceSubscriptionStreamState,
   ServerEntry,
   StderrLogEntry,
 } from "@inspector/core/mcp/types.js";
 import { isTerminalStatus } from "@inspector/core/mcp/types.js";
 import { isAppTool } from "@inspector/core/mcp/apps.js";
+import { TASKS_EXTENSION_KEY } from "@inspector/core/mcp/modernTaskSchemas.js";
 import { ViewHeader } from "../../groups/ViewHeader/ViewHeader";
 import { VersionBadge } from "../../elements/VersionBadge/VersionBadge";
 import { CopyrightBadge } from "../../elements/CopyrightBadge/CopyrightBadge";
@@ -166,6 +170,27 @@ const LOGS_TAB = "Logs";
 const PROTOCOL_TAB = "Protocol";
 const NETWORK_TAB = "Network";
 const CONSOLE_TAB = "Console";
+
+// Resolve the server name the connected header renders. A server may report
+// `serverInfo` with a blank `name` (#1774) — empty or whitespace-only — and the
+// header must never show a nameless title, so fall back to the active server's
+// catalog name when the reported name is blank (`.trim()` catches "   ", the
+// same non-conforming class an empty string is). This is a display-only
+// fallback: the Connection Info modal stays faithful to the raw report because
+// it reads App's untouched `initializeResult` + `serverInfoReported`, not this
+// resolved value. (App already folds the catalog name into
+// `initializeResult.serverInfo` for the modern-omitted case where serverInfo is
+// absent entirely (#1772); this covers the reported-but-blank-name case that
+// `??` fallback doesn't reach.)
+function resolveHeaderServerInfo(
+  serverInfo: Implementation,
+  servers: ServerEntry[],
+  activeServerId: string | undefined,
+): Implementation {
+  if (serverInfo.name?.trim()) return serverInfo;
+  const catalogName = servers.find((s) => s.id === activeServerId)?.name;
+  return catalogName ? { ...serverInfo, name: catalogName } : serverInfo;
+}
 
 const ALL_TABS: string[] = [
   SERVERS_TAB,
@@ -390,10 +415,19 @@ export interface InspectorViewProps {
   // Primitive lists, log streams, task state — all sourced from the
   // per-primitive `useManaged*` / `useMessageLog` hooks in the parent.
   tools: Tool[];
+  /** Tools excluded from `tools/list` for invalid `x-mcp-header` annotations
+   * (SEP-2243); shown in the Tools sidebar with the reason (#1632). */
+  excludedTools?: ExcludedTool[];
   prompts: Prompt[];
   resources: Resource[];
   resourceTemplates: ResourceTemplate[];
   subscriptions: InspectorResourceSubscription[];
+  /**
+   * Modern-era `subscriptions/listen` stream state (#1630). Drives the
+   * Resources screen's stream badge/dot; `active: false` (or omitted) on the
+   * legacy era.
+   */
+  subscriptionStreamState?: ResourceSubscriptionStreamState;
 
   // "List changed since last refresh" flags, sourced from the managed-state
   // layer (#1402). They light the per-screen list-changed indicator. Apps is a
@@ -536,6 +570,14 @@ export interface InspectorViewProps {
   onRefreshTasks: () => void;
 
   onSetLogLevel: (level: LoggingLevel) => void;
+  /**
+   * Modern-era per-request log level currently stamped, or `null` when opted
+   * out (#1629). On modern connections the Logs sidebar shows a per-request
+   * opt-in control instead of the legacy `logging/setLevel` selector.
+   */
+  modernLogLevel?: LoggingLevel | null;
+  /** Set (or clear, with `null`) the modern per-request log level. */
+  onSetModernLogLevel?: (level: LoggingLevel | null) => void;
   onLogsUiChange: (next: LogsUiState) => void;
   onClearLogs: () => void;
   onExportLogs: () => void;
@@ -578,6 +620,7 @@ export function InspectorView({
   initializeResult,
   latencyMs,
   tools,
+  excludedTools = [],
   prompts,
   resources,
   resourceTemplates,
@@ -585,6 +628,7 @@ export function InspectorView({
   promptsListChanged,
   resourcesListChanged,
   subscriptions,
+  subscriptionStreamState,
   logs,
   tasks,
   progressByTaskId,
@@ -652,6 +696,8 @@ export function InspectorView({
   onClearCompletedTasks,
   onRefreshTasks,
   onSetLogLevel,
+  modernLogLevel = null,
+  onSetModernLogLevel,
   onLogsUiChange,
   onClearLogs,
   onExportLogs,
@@ -789,8 +835,11 @@ export function InspectorView({
   //   Logs      → capabilities.logging
   //   Prompts   → capabilities.prompts
   //   Resources → capabilities.resources
-  //   Tasks     → capabilities.tasks (the "run as task" affordance on the
-  //               Tools screen separately keys off tasks.requests.tools.call)
+  //   Tasks     → capabilities.tasks (legacy) OR the
+  //               io.modelcontextprotocol/tasks extension (modern, SEP-2663).
+  //               The "run as task" affordance on the Tools screen separately
+  //               keys off tasks.requests.tools.call (legacy) / the negotiated
+  //               extension (modern).
   //   Apps      → capabilities.tools (MCP Apps build on tools) AND at least one
   //               app tool — Apps is a filtered view of tools, not its own
   //               capability, so it keeps the content check; when app tools
@@ -812,7 +861,12 @@ export function InspectorView({
     const hasApps = hasTools && appTools.length > 0;
     const hasPrompts = capabilities?.prompts !== undefined;
     const hasResources = capabilities?.resources !== undefined;
-    const hasTasks = capabilities?.tasks !== undefined;
+    // Legacy servers gate Tasks on `capabilities.tasks`; modern servers
+    // (SEP-2663) advertise the `io.modelcontextprotocol/tasks` extension in
+    // `server/discover` instead, so gate on either being present.
+    const hasTasks =
+      capabilities?.tasks !== undefined ||
+      capabilities?.extensions?.[TASKS_EXTENSION_KEY] !== undefined;
     const hasLogging = capabilities?.logging !== undefined;
     return ALL_TABS.filter((t) => {
       if (t === NETWORK_TAB && isStdio) return false;
@@ -1113,6 +1167,9 @@ export function InspectorView({
     ui: logsUi,
     onUiChange: onLogsUiChange,
     onSetLevel: onSetLogLevel,
+    protocolEra,
+    modernLogLevel,
+    onSetModernLogLevel,
     onClear: onClearLogs,
     onExport: onExportLogs,
     sortDirection: logsSort,
@@ -1239,7 +1296,11 @@ export function InspectorView({
         {connectionStatus === "connected" && initializeResult ? (
           <ViewHeader
             connected
-            serverInfo={initializeResult.serverInfo}
+            serverInfo={resolveHeaderServerInfo(
+              initializeResult.serverInfo,
+              serversInput,
+              activeServer,
+            )}
             status={connectionStatus}
             latencyMs={latencyMs}
             activeTab={activeTab}
@@ -1289,10 +1350,17 @@ export function InspectorView({
             <ScreenStage active={activeTab === "Tools"}>
               <ToolsScreen
                 tools={tools}
+                excludedTools={excludedTools}
                 callState={toolCallState}
                 ui={toolsUi}
                 listChanged={toolsListChanged}
                 serverSupportsTaskToolCalls={serverSupportsTaskToolCalls}
+                modernTasks={
+                  protocolEra === "modern" &&
+                  initializeResult?.capabilities?.extensions?.[
+                    TASKS_EXTENSION_KEY
+                  ] !== undefined
+                }
                 onUiChange={onToolsUiChange}
                 onRefreshList={onRefreshTools}
                 pagination={toolsPagination}
@@ -1339,6 +1407,8 @@ export function InspectorView({
                 resources={resources}
                 templates={resourceTemplates}
                 subscriptions={subscriptions}
+                subscriptionStreamState={subscriptionStreamState}
+                protocolEra={protocolEra}
                 readState={readResourceState}
                 ui={resourcesUi}
                 listChanged={resourcesListChanged}

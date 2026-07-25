@@ -19,19 +19,19 @@ const levelColor: Record<LoggingLevel, string> = {
 
 const boldLevels: Set<LoggingLevel> = new Set(["alert", "emergency"]);
 
+const FilledBadge = Badge.withProps({
+  variant: "filled",
+  autoContrast: true,
+});
+
 export function LogLevelBadge({ level }: LogLevelBadgeProps) {
   const fw = boldLevels.has(level) ? 500 : undefined;
 
   // `autoContrast` keeps the label legible (WCAG AA) on both the light-mode
   // fills and the darker dark-mode `-filled` shades — see AnnotationBadge.
   return (
-    <Badge
-      color={filledBadgeColor(levelColor[level])}
-      variant="filled"
-      fw={fw}
-      autoContrast
-    >
+    <FilledBadge color={filledBadgeColor(levelColor[level])} fw={fw}>
       {level}
-    </Badge>
+    </FilledBadge>
   );
 }

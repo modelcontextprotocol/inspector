@@ -50,6 +50,10 @@ export async function discoverEmaResourceContext(
   const resourceAsUrl = getAuthorizationServerUrl(serverUrl, resourceMetadata);
   const resourceUrl = await selectResourceURL(
     serverUrl,
+    // `selectResourceURL` only reads `clientMetadata.scope` off the provider, so
+    // we pass a minimal stub carrying just that. A partial literal has too little
+    // overlap with the full `OAuthClientProvider` interface for a single cast, so
+    // the double cast bridges the deliberately-incomplete shape here.
     {
       clientMetadata: {
         scope: configuredScope ?? "",

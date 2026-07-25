@@ -475,7 +475,7 @@ describe("ClientSettingsForm interactions", () => {
       />,
     );
 
-    await user.type(screen.getByLabelText("Client ID"), "x");
+    await user.type(screen.getByLabelText("IdP Client ID"), "x");
     expect(onSettingsChange).toHaveBeenLastCalledWith(expect.any(Function));
     expect(
       resolveSettingsChange(
@@ -485,7 +485,7 @@ describe("ClientSettingsForm interactions", () => {
     ).toBe("x");
 
     onSettingsChange.mockClear();
-    await user.type(screen.getByLabelText("Client Secret"), "s");
+    await user.type(screen.getByLabelText("IdP Client Secret"), "s");
     expect(onSettingsChange).toHaveBeenLastCalledWith(expect.any(Function));
     expect(
       resolveSettingsChange(

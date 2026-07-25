@@ -39,6 +39,8 @@ function createMockBridge(): AppBridge {
     close: async () => {},
     addEventListener: () => {},
     removeEventListener: () => {},
+    // Partial mock: implements only the `AppBridge` members the screen
+    // exercises; the double cast bridges the deliberately-incomplete shape.
   } as unknown as AppBridge;
 }
 
@@ -228,6 +230,8 @@ export const EchoRunning: Story = {
       // Simulate the view finishing initialization shortly after AppRenderer
       // registers its `initialized` listener; sendToolInput then flushes.
       setTimeout(() => onInitialized?.(), 20);
+      // Partial mock (only the members this story drives); the double cast
+      // bridges the deliberately-incomplete shape.
       return bridge as unknown as AppBridge;
     }, []);
 

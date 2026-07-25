@@ -5,6 +5,8 @@ const ContentWrapper = Flex.withProps({
   direction: "column",
 });
 
+const NoticeCode = Code.withProps({ block: true, p: 36 });
+
 /**
  * Fallback shown when content can't be previewed — an unsupported binary MIME
  * type, or a blob whose base64 fails to decode. Kept in its own module so blob
@@ -15,9 +17,9 @@ export function BinaryNotice({ mimeType }: { mimeType: string }) {
   return (
     <Stack gap="xs">
       <ContentWrapper>
-        <Code block p={36}>
+        <NoticeCode>
           {`[Binary content (${mimeType}) — preview not supported]`}
-        </Code>
+        </NoticeCode>
       </ContentWrapper>
     </Stack>
   );

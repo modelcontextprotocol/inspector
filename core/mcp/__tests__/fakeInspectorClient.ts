@@ -33,8 +33,11 @@ import type {
   PromptGetInvocation,
   ResourceReadInvocation,
   ResourceTemplateReadInvocation,
+  ResourceSubscriptionStreamState,
   ToolCallInvocation,
+  ExcludedTool,
 } from "../types.js";
+import { INACTIVE_SUBSCRIPTION_STREAM_STATE } from "../types.js";
 import type { JsonValue } from "../../json/jsonUtils.js";
 
 type ListResult<TKey extends string, TItem> = {
@@ -111,6 +114,24 @@ export class FakeInspectorClient
   listRequestorTasks = vi.fn(
     async () => this.taskPages.shift() ?? { tasks: [] },
   );
+  // Modern task poll (#1631): defaults to echoing back a minimal task; tests
+  // override the mock to drive status transitions. Dispatches nothing by
+  // default — tests that exercise the merge path dispatch requestorTaskUpdated
+  // themselves or override this to do so.
+  getRequestorTask = vi.fn(async (taskId: string) => ({
+    taskId,
+    status: "working" as const,
+    ttl: null,
+    createdAt: "",
+    lastUpdatedAt: "",
+  }));
+  // Whether this fake presents as a modern connection that negotiated the
+  // tasks extension. Tests flip `tasksExtensionNegotiated` to true to exercise
+  // the modern task path.
+  tasksExtensionNegotiated = false;
+  isTasksExtensionNegotiated(): boolean {
+    return this.tasksExtensionNegotiated;
+  }
 
   // Aggregate variants used by the managed state stores on refresh: drain ALL
   // queued pages (mimicking the SDK's all-page walk) and return the flattened
@@ -245,8 +266,27 @@ export class FakeInspectorClient
     return this.protocolEra;
   }
 
+  private excludedTools: ExcludedTool[] = [];
+
+  getExcludedTools(): ExcludedTool[] {
+    return this.excludedTools;
+  }
+
+  /** Test helper: set the excluded-tools set and emit `excludedToolsChange`. */
+  setExcludedTools(excluded: ExcludedTool[]): void {
+    this.excludedTools = excluded;
+    this.dispatchTypedEvent("excludedToolsChange", excluded);
+  }
+
   getDiscoverResult(): DiscoverResult | undefined {
     return this.discoverResult;
+  }
+
+  resourceSubscriptionStreamState: ResourceSubscriptionStreamState =
+    INACTIVE_SUBSCRIPTION_STREAM_STATE;
+
+  getResourceSubscriptionStreamState(): ResourceSubscriptionStreamState {
+    return this.resourceSubscriptionStreamState;
   }
 
   getServerSettings(): InspectorServerSettings | undefined {

@@ -71,7 +71,9 @@ export const CIMD_METADATA_URL_PATH_ERROR =
  * Returns undefined when the value is valid; empty strings are not flagged here
  * (required-field gating lives in {@link canPersistClientSettingsDraft}).
  */
-export function getCimdClientMetadataUrlError(value: string): string | undefined {
+export function getCimdClientMetadataUrlError(
+  value: string,
+): string | undefined {
   const trimmed = value.trim();
   if (trimmed === "") return undefined;
   if (!isAbsoluteHttpUrl(trimmed)) {

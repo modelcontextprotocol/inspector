@@ -39,6 +39,11 @@ const EmptyCenter = Stack.withProps({
   justify: "center",
 });
 
+const HeaderRow = Group.withProps({
+  justify: "space-between",
+  mb: "sm",
+});
+
 function formatData(data: unknown): string {
   if (data === undefined || data === null) return "";
   if (typeof data === "string") return data;
@@ -87,7 +92,7 @@ export function LogStreamPanel({
 
   return (
     <PanelContainer>
-      <Group justify="space-between" mb="sm">
+      <HeaderRow>
         <Title order={4}>Log Stream</Title>
         <Group>
           <SortToggle
@@ -110,7 +115,7 @@ export function LogStreamPanel({
             Export
           </Button>
         </Group>
-      </Group>
+      </HeaderRow>
       {filteredEntries.length > 0 ? (
         <EmbeddableScrollArea embedded={embedded} viewportRef={viewportRef}>
           <Stack gap="xs">

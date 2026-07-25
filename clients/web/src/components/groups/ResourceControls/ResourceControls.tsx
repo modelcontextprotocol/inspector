@@ -1,11 +1,17 @@
-import { Accordion, Group, Stack, TextInput, Title } from "@mantine/core";
+import { Accordion, Group, Stack, Text, TextInput, Title } from "@mantine/core";
 import { ClearButton } from "../../elements/ClearButton/ClearButton";
 import { RiArrowRightSLine } from "react-icons/ri";
 import type {
+  ProtocolEra,
   Resource,
   ResourceTemplateType as ResourceTemplate,
 } from "@modelcontextprotocol/client";
-import type { InspectorResourceSubscription } from "../../../../../../core/mcp/types.js";
+import type {
+  InspectorResourceSubscription,
+  ResourceSubscriptionStreamState,
+} from "../../../../../../core/mcp/types.js";
+import { isModernEra } from "../../elements/EraBadge/eraUtils";
+import { SubscriptionStreamBadge } from "../../elements/SubscriptionStreamBadge/SubscriptionStreamBadge";
 import { ListChangedIndicator } from "../../elements/ListChangedIndicator/ListChangedIndicator";
 import {
   ListPaginationControls,
@@ -14,6 +20,21 @@ import {
 import { ListToggle } from "../../elements/ListToggle/ListToggle";
 import { ResourceListItem } from "../ResourceListItem/ResourceListItem";
 import { ResourceSubscribedItem } from "../ResourceSubscribedItem/ResourceSubscribedItem";
+
+// A tight, non-wrapping horizontal row (search field + toggle; count + stream
+// badge).
+const TightRow = Group.withProps({ gap: "xs", wrap: "nowrap" });
+
+// Fills the full-height `sidebar` Card (flex column) so the scroll region below
+// can claim the remaining space; `mih: 0` lets that child shrink and scroll
+// instead of overflowing the card (#1462).
+const SidebarStack = Stack.withProps({ gap: "sm", flex: 1, mih: 0 });
+
+const SearchInput = TextInput.withProps({
+  flex: 1,
+  placeholder: "Search...",
+  rightSectionPointerEvents: "auto",
+});
 
 export interface ResourceControlsProps {
   resources: Resource[];
@@ -26,6 +47,15 @@ export interface ResourceControlsProps {
    * explicitly marks subscriptions unsupported.
    */
   subscriptionsSupported?: boolean;
+  /**
+   * Modern-era `subscriptions/listen` stream state (#1630). When `active`
+   * (modern era with at least one subscription) the Subscriptions section shows
+   * a stream-status badge in its panel and a status dot in its header. Legacy
+   * connections pass `active: false` (or omit it) and see neither.
+   */
+  subscriptionStreamState?: ResourceSubscriptionStreamState;
+  /** Negotiated protocol era; gates the modern subscription stream chrome. */
+  protocolEra?: ProtocolEra;
   selectedUri?: string;
   selectedTemplateUri?: string;
   // Search text + accordion open-sections are controlled by the parent (App,
@@ -71,6 +101,8 @@ export function ResourceControls({
   templates,
   subscriptions,
   subscriptionsSupported = true,
+  subscriptionStreamState,
+  protocolEra,
   selectedUri,
   selectedTemplateUri,
   searchText = "",
@@ -105,6 +137,20 @@ export function ResourceControls({
       (s.resource.title?.toLowerCase().includes(query) ?? false) ||
       s.resource.uri.toLowerCase().includes(query),
   );
+
+  // Modern-era chrome for the single `subscriptions/listen` stream (#1630):
+  // a status badge in the section header (so it stays visible while the section
+  // is collapsed). Only shown on the modern era while the stream is active
+  // (≥1 subscription); the legacy per-URI `resources/subscribe` model has no
+  // persistent stream. Also gated on the *filtered* count so the badge hides
+  // alongside the section when a search matches none of the live subscriptions
+  // (rather than sitting next to a disabled "Subscriptions (0)" header).
+  const streamStatus =
+    isModernEra(protocolEra) &&
+    subscriptionStreamState?.active === true &&
+    filteredSubscriptions.length > 0
+      ? subscriptionStreamState.status
+      : undefined;
 
   // Subscriptions are only meaningful when the server advertises the
   // `resources.subscribe` capability; otherwise the section is omitted
@@ -170,21 +216,15 @@ export function ResourceControls({
   }
 
   return (
-    // Fills the full-height `sidebar` Card (flex column) so the scroll region
-    // below can claim the remaining space; `mih: 0` lets that child shrink and
-    // scroll instead of overflowing the card (#1462).
-    <Stack gap="sm" flex={1} mih={0}>
+    <SidebarStack>
       <Group justify="space-between">
         <Title order={4}>Resources</Title>
         <ListChangedIndicator visible={listChanged} onRefresh={onRefreshList} />
       </Group>
-      <Group gap="xs" wrap="nowrap">
-        <TextInput
-          flex={1}
-          placeholder="Search..."
+      <TightRow>
+        <SearchInput
           value={searchText}
           onChange={(e) => onSearchChange(e.currentTarget.value)}
-          rightSectionPointerEvents="auto"
           rightSection={
             searchText ? (
               <ClearButton onClick={() => onSearchChange("")} />
@@ -192,22 +232,22 @@ export function ResourceControls({
           }
         />
         <ListToggle compact={!allExpanded} onToggle={handleToggleList} />
-      </Group>
+      </TightRow>
       <ListPaginationControls {...pagination} />
+      {/* Stays inline: Accordion is a compound, `multiple`-discriminated generic,
+          so `.withProps({ multiple: true, ... })` loses its JSX call signature
+          (same tooling limit as Box). */}
       <Accordion
         multiple
         variant="disclosure"
         chevron={<RiArrowRightSLine />}
-        value={visibleOpenSections}
-        onChange={handleOpenSectionsChange}
         flex={1}
         mih={0}
-        // Disable Mantine's panel height animation: its Collapse drives the
-        // open/close via an inline `height` that briefly jumps the panel to its
-        // full natural height, fighting the flex sizing (the panels are
-        // flex-distributed and scroll). With it off, flex controls the height
-        // cleanly. The chevron still rotates smoothly (CSS, in App.css). #1462
+        // Disable Mantine's panel height animation so flex controls the height
+        // cleanly (the chevron still rotates smoothly via CSS in App.css). #1462
         transitionDuration={0}
+        value={visibleOpenSections}
+        onChange={handleOpenSectionsChange}
       >
         <Accordion.Item
           value="resources"
@@ -271,10 +311,17 @@ export function ResourceControls({
             )}
           >
             <Accordion.Control disabled={filteredSubscriptions.length === 0}>
-              {formatSectionCount(
-                "Subscriptions",
-                filteredSubscriptions.length,
-              )}
+              <TightRow>
+                <Text span>
+                  {formatSectionCount(
+                    "Subscriptions",
+                    filteredSubscriptions.length,
+                  )}
+                </Text>
+                {streamStatus && (
+                  <SubscriptionStreamBadge status={streamStatus} />
+                )}
+              </TightRow>
             </Accordion.Control>
             <Accordion.Panel>
               <Stack gap="xs">
@@ -292,6 +339,6 @@ export function ResourceControls({
           </Accordion.Item>
         )}
       </Accordion>
-    </Stack>
+    </SidebarStack>
   );
 }

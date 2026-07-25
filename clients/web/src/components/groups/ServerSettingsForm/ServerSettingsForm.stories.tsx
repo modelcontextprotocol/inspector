@@ -137,6 +137,18 @@ function InteractiveRender(args: ServerSettingsFormProps) {
           settings: { ...args.settings, paginatedLists: value },
         });
       }}
+      onAdvertisedExtensionChange={(key, checked) => {
+        args.onAdvertisedExtensionChange(key, checked);
+        updateArgs({
+          settings: {
+            ...args.settings,
+            advertisedExtensions: {
+              ...args.settings.advertisedExtensions,
+              [key]: checked,
+            },
+          },
+        });
+      }}
       onMaxFetchRequestsChange={(value) => {
         args.onMaxFetchRequestsChange(value);
         updateArgs({
@@ -147,6 +159,12 @@ function InteractiveRender(args: ServerSettingsFormProps) {
         args.onProtocolEraChange(value);
         updateArgs({
           settings: { ...args.settings, protocolEra: value },
+        });
+      }}
+      onModernLogLevelChange={(value) => {
+        args.onModernLogLevelChange(value);
+        updateArgs({
+          settings: { ...args.settings, modernLogLevel: value },
         });
       }}
       onOAuthChange={(oauth) => {
@@ -185,8 +203,10 @@ const meta: Meta<typeof ServerSettingsForm> = {
     onTimeoutChange: fn(),
     onAutoRefreshChange: fn(),
     onPaginatedListsChange: fn(),
+    onAdvertisedExtensionChange: fn(),
     onMaxFetchRequestsChange: fn(),
     onProtocolEraChange: fn(),
+    onModernLogLevelChange: fn(),
     onOAuthChange: fn(),
   },
 };
@@ -213,6 +233,19 @@ export const WithHeaders: Story = {
   },
 };
 
+export const AdvertisedExtensions: Story = {
+  args: {
+    // Expand the standalone Advertised Extensions section so its checkboxes are
+    // documented visually. A per-server override disables one extension, showing
+    // both the default-on and toggled-off states side by side.
+    expandedSections: ["extensions"],
+    settings: {
+      ...defaultSettings,
+      advertisedExtensions: { "io.modelcontextprotocol/tasks": false },
+    },
+  },
+};
+
 export const WithOAuth: Story = {
   args: {
     settings: {
@@ -220,6 +253,19 @@ export const WithOAuth: Story = {
       oauthClientId: "my-client-id",
       oauthClientSecret: "super-secret-value",
       oauthScopes: "read write admin",
+    },
+  },
+};
+
+export const EnterpriseManagedOAuth: Story = {
+  args: {
+    expandedSections: ["oauth"],
+    settings: {
+      ...defaultSettings,
+      enterpriseManaged: true,
+      oauthClientId: "resource-test-client-id",
+      oauthClientSecret: "resource-test-client-secret",
+      oauthScopes: "mcp tools:read env:read",
     },
   },
 };

@@ -17,6 +17,12 @@ const ToggleLabel = Text.withProps({
   fw: 500,
 });
 
+const ToggleButton = UnstyledButton.withProps({
+  w: "100%",
+  p: "sm",
+  variant: "filterToggle",
+});
+
 /**
  * A single full-width filter toggle used by the Logging, Protocol, and Network
  * controls. The `filterToggle` theme variant + `.filter-toggle` rules own the
@@ -32,14 +38,8 @@ export function FilterToggleButton({
   onToggle,
 }: FilterToggleButtonProps) {
   return (
-    <UnstyledButton
-      w="100%"
-      p="sm"
-      variant="filterToggle"
-      aria-pressed={active}
-      onClick={() => onToggle(!active)}
-    >
+    <ToggleButton aria-pressed={active} onClick={() => onToggle(!active)}>
       <ToggleLabel c={accessibleTextColor(color)}>{label}</ToggleLabel>
-    </UnstyledButton>
+    </ToggleButton>
   );
 }

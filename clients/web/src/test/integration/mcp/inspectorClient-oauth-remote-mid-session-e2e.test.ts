@@ -191,7 +191,10 @@ describe("InspectorClient remote mid-session OAuth", () => {
 
     const authUrl = await client.authenticate();
     if (!authUrl) throw new Error("Expected authorization URL");
-    await client.completeOAuthFlow(await completeOAuthAuthorization(authUrl));
+    {
+      const { code, iss } = await completeOAuthAuthorization(authUrl);
+      await client.completeOAuthFlow(code, iss);
+    }
     await client.connect();
 
     const tokens = await client.getOAuthTokens();
@@ -273,7 +276,10 @@ describe("InspectorClient remote mid-session OAuth", () => {
 
     const authUrl = await client.authenticate();
     if (!authUrl) throw new Error("Expected authorization URL");
-    await client.completeOAuthFlow(await completeOAuthAuthorization(authUrl));
+    {
+      const { code, iss } = await completeOAuthAuthorization(authUrl);
+      await client.completeOAuthFlow(code, iss);
+    }
     await client.connect();
 
     const tokens = await client.getOAuthTokens();
@@ -361,7 +367,10 @@ describe("InspectorClient remote mid-session OAuth", () => {
 
     const authUrl = await client.authenticate();
     if (!authUrl) throw new Error("Expected authorization URL");
-    await client.completeOAuthFlow(await completeOAuthAuthorization(authUrl));
+    {
+      const { code, iss } = await completeOAuthAuthorization(authUrl);
+      await client.completeOAuthFlow(code, iss);
+    }
     await client.connect();
 
     const toolsResult = await client.listTools();
@@ -396,9 +405,8 @@ describe("InspectorClient remote mid-session OAuth", () => {
       "weather:read",
     );
 
-    const stepUpCode = await completeOAuthAuthorization(
-      recovery!.authorizationUrl,
-    );
+    const { code: stepUpCode, iss: stepUpCodeIss } =
+      await completeOAuthAuthorization(recovery!.authorizationUrl);
 
     // Mirror `/oauth/callback`: new InspectorClient instance, same persisted OAuth
     // storage, reattach to the live remote backend session.
@@ -409,7 +417,10 @@ describe("InspectorClient remote mid-session OAuth", () => {
       } as MCPServerConfig,
       clientConfig,
     );
-    await callbackClient.resumeAfterOAuth(stepUpCode, { remoteSessionId });
+    await callbackClient.resumeAfterOAuth(stepUpCode, {
+      iss: stepUpCodeIss,
+      remoteSessionId,
+    });
 
     expect(callbackClient.getStatus()).toBe("connected");
 
@@ -505,15 +516,17 @@ describe("InspectorClient remote mid-session OAuth", () => {
 
     const authUrl = await client.authenticate();
     if (!authUrl) throw new Error("Expected authorization URL");
-    const initialCode = await completeOAuthAuthorization(authUrl);
-    await client.completeOAuthFlow(initialCode);
+    const { code: initialCode, iss: initialCodeIss } =
+      await completeOAuthAuthorization(authUrl);
+    await client.completeOAuthFlow(initialCode, initialCodeIss);
     await client.connect();
 
     const mcpServerUrl = `${serverUrl}/mcp`;
     await oauthConfig.storage.clearTokens(mcpServerUrl);
     const reauthUrl = await client.authenticate();
     if (!reauthUrl) throw new Error("Expected reauth URL");
-    const code = await completeOAuthAuthorization(reauthUrl);
+    const { code: code, iss: codeIss } =
+      await completeOAuthAuthorization(reauthUrl);
 
     const callbackClient = new InspectorClient(
       {
@@ -524,6 +537,7 @@ describe("InspectorClient remote mid-session OAuth", () => {
     );
     const connectSpy = vi.spyOn(callbackClient, "connect");
     await callbackClient.resumeAfterOAuth(code, {
+      iss: codeIss,
       remoteSessionId: "dead-remote-session-id",
     });
     expect(connectSpy).toHaveBeenCalled();
@@ -603,7 +617,10 @@ describe("InspectorClient remote mid-session OAuth", () => {
 
     const authUrl = await client.authenticate();
     if (!authUrl) throw new Error("Expected authorization URL");
-    await client.completeOAuthFlow(await completeOAuthAuthorization(authUrl));
+    {
+      const { code, iss } = await completeOAuthAuthorization(authUrl);
+      await client.completeOAuthFlow(code, iss);
+    }
     await client.connect();
 
     const tokens = await client.getOAuthTokens();
@@ -693,7 +710,10 @@ describe("InspectorClient remote mid-session OAuth", () => {
 
     const authUrl = await client.authenticate();
     if (!authUrl) throw new Error("Expected authorization URL");
-    await client.completeOAuthFlow(await completeOAuthAuthorization(authUrl));
+    {
+      const { code, iss } = await completeOAuthAuthorization(authUrl);
+      await client.completeOAuthFlow(code, iss);
+    }
     await client.connect();
 
     const tokens = await client.getOAuthTokens();

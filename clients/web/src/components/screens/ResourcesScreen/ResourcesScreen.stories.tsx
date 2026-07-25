@@ -239,6 +239,27 @@ export const SubscriptionsUnsupported: Story = {
   },
 };
 
+// Modern (2026-07-28) era: subscriptions ride one `subscriptions/listen`
+// stream, so the Subscriptions section shows a stream-status badge in its panel
+// and a status dot in its header (#1630).
+export const ModernSubscriptionStream: Story = {
+  args: {
+    resources: sampleResources,
+    templates: sampleTemplates,
+    subscriptions: sampleSubscriptions,
+    protocolEra: "modern",
+    subscriptionStreamState: {
+      active: true,
+      status: "acknowledged",
+      honoredUris: sampleSubscriptions.map((s) => s.resource.uri),
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    expect(await canvas.findByText("Listening")).toBeInTheDocument();
+  },
+};
+
 const manyResources: Resource[] = Array.from({ length: 40 }, (_, i) => ({
   name: `resource-${String(i + 1).padStart(2, "0")}.wav`,
   uri: `file:///kit/resource-${i + 1}.wav`,

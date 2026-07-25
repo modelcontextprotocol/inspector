@@ -25,13 +25,14 @@ export type { BuildOAuthConnectionStateParams } from "./connection-state.js";
 export { ensureCimdClientRegistration } from "./cimd.js";
 
 export { mcpAuth, type McpAuthOptions, type McpAuthResult } from "./mcpAuth.js";
-export {
-  computeScopeUnion,
-  isStrictScopeSuperset,
-} from "./scopes.js";
+export { computeScopeUnion, isStrictScopeSuperset } from "./scopes.js";
 
 // Storage
-export type { OAuthStorage, IdpSessionState, SaveClientInformationOptions } from "./storage.js";
+export type {
+  OAuthStorage,
+  IdpSessionState,
+  SaveClientInformationOptions,
+} from "./storage.js";
 export { getServerSpecificKey, OAUTH_STORAGE_KEYS } from "./storage.js";
 
 // Providers

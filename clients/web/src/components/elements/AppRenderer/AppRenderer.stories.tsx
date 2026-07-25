@@ -25,6 +25,8 @@ function createMockBridge(): AppBridge {
     removeEventListener: () => {},
     teardownResource: async () => ({}),
     close: async () => {},
+    // Partial mock: implements only the `AppBridge` members the renderer
+    // exercises; the double cast bridges the deliberately-incomplete shape.
   } as unknown as AppBridge;
 }
 

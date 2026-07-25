@@ -266,15 +266,6 @@ body {
   }
 }
 
-@keyframes inspector-spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
-}
-
 /* Both motions travel downward: enter descends from above into place, exit
    descends from place to below — used for the header crossfade (#1450). */
 @keyframes inspector-fade-slide-in {
@@ -318,10 +309,6 @@ body {
   animation: inspector-pulse 1.5s ease-in-out infinite;
 }
 
-.inspector-spin {
-  animation: inspector-spin 1s linear infinite;
-}
-
 /* Applied (via the `tabGlow` Text variant) to a tab label; the glow starts full
    and fades, running only while `data-glow="on"` on a freshly-appeared tab. */
 .tab-glow[data-glow="on"] {
@@ -341,13 +328,6 @@ body {
 
 .header-anim[data-anim="out"] {
   animation: inspector-fade-slide-out 300ms ease both;
-}
-
-/* The title and tab bar additionally share one grid cell so one replaces the
-   other in place during the center crossfade. */
-.header-stack-cell {
-  grid-area: 1 / 1;
-  place-self: center;
 }
 
 /* Honor reduced-motion for the header animations this PR adds (#1450): skip the
@@ -528,12 +508,6 @@ body {
   background-color: var(--mantine-primary-color-light-hover);
 }
 
-/* ── Grid alignment ─────────────────────────────────────── */
-
-.grid-align-start {
-  align-items: start;
-}
-
 /* ── Markdown content (third-party HTML from react-markdown) ───── */
 
 .markdown-content {
@@ -581,16 +555,6 @@ body {
 
 .server-drag-handle:active {
   cursor: grabbing;
-}
-
-/*
- * Sticky re-auth banner bar. Positioning (pos/top) and background are set via
- * Mantine props on the Box; z-index and box-shadow have no Mantine style-prop
- * shorthand, so they live here.
- */
-.reauth-banner-bar {
-  z-index: 200;
-  box-shadow: var(--mantine-shadow-sm);
 }
 
 /*

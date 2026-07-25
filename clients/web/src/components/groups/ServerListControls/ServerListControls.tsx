@@ -15,6 +15,13 @@ export interface ServerListControlsProps extends AddServerMenuProps {
   writable?: boolean;
 }
 
+// `gap="sm"` matches the header's control spacing (its RightSection group), so
+// these buttons sit the same distance apart as the header icons.
+const ControlsRow = Group.withProps({
+  justify: "flex-end",
+  gap: "sm",
+});
+
 export function ServerListControls({
   compact,
   serverCount,
@@ -26,9 +33,7 @@ export function ServerListControls({
   writable = true,
 }: ServerListControlsProps) {
   return (
-    // `gap="sm"` matches the header's control spacing (its RightSection group),
-    // so these buttons sit the same distance apart as the header icons.
-    <Group justify="flex-end" gap="sm">
+    <ControlsRow>
       <Button variant="default" onClick={onExport} disabled={serverCount === 0}>
         Export
       </Button>
@@ -42,6 +47,6 @@ export function ServerListControls({
       {serverCount > 0 && (
         <ListToggle compact={compact} onToggle={onToggleList} />
       )}
-    </Group>
+    </ControlsRow>
   );
 }

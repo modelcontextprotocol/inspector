@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ChangeEvent } from "react";
 import {
   Button,
   Group,
@@ -48,10 +48,41 @@ interface FormState {
   url: string;
 }
 
+// The `string`-valued FormState keys, which all share the same text-input
+// update/clear handlers. Selecting by value type (not by excluding `transport`
+// by name) keeps this in sync with FormState automatically: a new string field
+// is picked up, and a non-string field is excluded — so passing its key to the
+// handler factories is a compile error at the call site rather than a silent
+// string-into-non-string write.
+type PlainStringKeys<T> = {
+  [K in keyof T]-?: string extends T[K] ? K : never;
+}[keyof T];
+type TextField = PlainStringKeys<FormState>;
+
 const SectionStack = Stack.withProps({ gap: "md" });
 const FieldGrid = Stack.withProps({ gap: "sm" });
 const Actions = Group.withProps({ justify: "flex-end", gap: "sm", mt: "md" });
 const ModalTitle = Text.withProps({ fw: 700, span: true });
+const AppModalLg = Modal.withProps({ size: "lg", centered: true });
+const FieldError = Text.withProps({ c: "red", size: "sm", role: "alert" });
+const RequiredTextInput = TextInput.withProps({
+  required: true,
+  rightSectionPointerEvents: "auto",
+});
+// Optional (non-required) clearable field — keeps the ClearButton clickable.
+const ClearableTextInput = TextInput.withProps({
+  rightSectionPointerEvents: "auto",
+});
+const ArgsTextarea = Textarea.withProps({
+  autosize: true,
+  minRows: 3,
+  rightSectionPointerEvents: "auto",
+});
+const EnvTextarea = Textarea.withProps({
+  autosize: true,
+  minRows: 2,
+  rightSectionPointerEvents: "auto",
+});
 
 const MODE_TITLES: Record<ServerConfigModalMode, string> = {
   add: "Add server",
@@ -165,6 +196,19 @@ export function ServerConfigModal({
   const [submitError, setSubmitError] = useState<string | undefined>(undefined);
   const [submitting, setSubmitting] = useState<boolean>(false);
 
+  // The six text fields all update the same way. Capture the value before the
+  // functional updater closes over it — React nulls SyntheticEvent.currentTarget
+  // after the synchronous handler returns, so reading it inside `setForm((f) =>
+  // ...)` would throw "Cannot read properties of null".
+  const setTextField =
+    (field: TextField) =>
+    (e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+      const next = e.currentTarget.value;
+      setForm((f) => ({ ...f, [field]: next }));
+    };
+  const clearTextField = (field: TextField) => () =>
+    setForm((f) => ({ ...f, [field]: "" }));
+
   // Reset form whenever the modal opens with new inputs.
   useEffect(() => {
     if (opened) {
@@ -254,38 +298,27 @@ export function ServerConfigModal({
   const isStdio = form.transport === "stdio";
 
   return (
-    <Modal
+    <AppModalLg
       opened={opened}
       onClose={onClose}
-      size="lg"
-      centered
       title={<ModalTitle>{MODE_TITLES[mode]}</ModalTitle>}
     >
       <SectionStack>
         <FieldGrid>
-          <TextInput
+          <RequiredTextInput
             label="Server ID"
             description="Used as the key in mcp.json. Letters, numbers, hyphens, underscores."
             placeholder="my-server"
             value={form.id}
-            onChange={(e) => {
-              // Capture before the functional updater closes over it — React
-              // nulls SyntheticEvent.currentTarget after the synchronous
-              // handler returns, so reading inside `setForm((f) => ...)`
-              // throws "Cannot read properties of null".
-              const next = e.currentTarget.value;
-              setForm((f) => ({ ...f, id: next }));
-            }}
+            onChange={setTextField("id")}
             error={idError}
             data-autofocus
-            required
             disabled={submitting}
-            rightSectionPointerEvents="auto"
             rightSection={
               form.id ? (
                 <ClearButton
                   disabled={submitting}
-                  onClick={() => setForm((f) => ({ ...f, id: "" }))}
+                  onClick={clearTextField("id")}
                 />
               ) : null
             }
@@ -311,107 +344,81 @@ export function ServerConfigModal({
 
           {isStdio ? (
             <>
-              <TextInput
+              <RequiredTextInput
                 label="Command"
                 placeholder="npx"
                 value={form.command}
-                onChange={(e) => {
-                  const next = e.currentTarget.value;
-                  setForm((f) => ({ ...f, command: next }));
-                }}
-                required
+                onChange={setTextField("command")}
                 disabled={submitting}
-                rightSectionPointerEvents="auto"
                 rightSection={
                   form.command ? (
                     <ClearButton
                       disabled={submitting}
-                      onClick={() => setForm((f) => ({ ...f, command: "" }))}
+                      onClick={clearTextField("command")}
                     />
                   ) : null
                 }
               />
-              <Textarea
+              <ArgsTextarea
                 label="Arguments"
                 description="One argument per line."
                 placeholder={"-y\n@modelcontextprotocol/server-everything"}
                 value={form.argsText}
-                onChange={(e) => {
-                  const next = e.currentTarget.value;
-                  setForm((f) => ({ ...f, argsText: next }));
-                }}
-                autosize
-                minRows={3}
+                onChange={setTextField("argsText")}
                 disabled={submitting}
-                rightSectionPointerEvents="auto"
                 rightSection={
                   form.argsText ? (
                     <ClearButton
                       disabled={submitting}
-                      onClick={() => setForm((f) => ({ ...f, argsText: "" }))}
+                      onClick={clearTextField("argsText")}
                     />
                   ) : null
                 }
               />
-              <Textarea
+              <EnvTextarea
                 label="Environment"
                 description="KEY=VALUE per line."
                 placeholder="DEBUG=1"
                 value={form.envText}
-                onChange={(e) => {
-                  const next = e.currentTarget.value;
-                  setForm((f) => ({ ...f, envText: next }));
-                }}
-                autosize
-                minRows={2}
+                onChange={setTextField("envText")}
                 disabled={submitting}
-                rightSectionPointerEvents="auto"
                 rightSection={
                   form.envText ? (
                     <ClearButton
                       disabled={submitting}
-                      onClick={() => setForm((f) => ({ ...f, envText: "" }))}
+                      onClick={clearTextField("envText")}
                     />
                   ) : null
                 }
               />
-              <TextInput
+              <ClearableTextInput
                 label="Working directory"
                 placeholder="(inherit)"
                 value={form.cwd}
-                onChange={(e) => {
-                  const next = e.currentTarget.value;
-                  setForm((f) => ({ ...f, cwd: next }));
-                }}
+                onChange={setTextField("cwd")}
                 disabled={submitting}
-                rightSectionPointerEvents="auto"
                 rightSection={
                   form.cwd ? (
                     <ClearButton
                       disabled={submitting}
-                      onClick={() => setForm((f) => ({ ...f, cwd: "" }))}
+                      onClick={clearTextField("cwd")}
                     />
                   ) : null
                 }
               />
             </>
           ) : (
-            <TextInput
+            <RequiredTextInput
               label="URL"
               placeholder="https://example.com/mcp"
               value={form.url}
-              onChange={(e) => {
-                const next = e.currentTarget.value;
-                setForm((f) => ({ ...f, url: next }));
-              }}
-              required
+              onChange={setTextField("url")}
               disabled={submitting}
-              rightSectionPointerEvents="auto"
               rightSection={
                 form.url ? (
                   <ClearButton
                     disabled={submitting}
-                    onClick={() => setForm((f) => ({ ...f, url: "" }))}
+                    onClick={clearTextField("url")}
                   />
                 ) : null
               }
@@ -419,11 +426,7 @@ export function ServerConfigModal({
           )}
         </FieldGrid>
 
-        {submitError ? (
-          <Text c="red" size="sm" role="alert">
-            {submitError}
-          </Text>
-        ) : null}
+        {submitError ? <FieldError>{submitError}</FieldError> : null}
 
         <Actions>
           <Button variant="default" onClick={onClose} disabled={submitting}>
@@ -439,6 +442,6 @@ export function ServerConfigModal({
           </Button>
         </Actions>
       </SectionStack>
-    </Modal>
+    </AppModalLg>
   );
 }

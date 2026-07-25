@@ -1,0 +1,17 @@
+{
+  "serverInfo": {
+    "name": "tasks-legacy",
+    "version": "1.0.0"
+  },
+  "tools": [
+    { "preset": "simple_task" },
+    { "preset": "progress_task" },
+    { "preset": "elicitation_task" }
+  ],
+  "tasks": { "list": true, "cancel": true },
+  "logging": true,
+  "transport": {
+    "type": "streamable-http",
+    "port": 3223
+  }
+}

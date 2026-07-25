@@ -10,16 +10,23 @@ import {
 import {
   CLIENT_KEYCHAIN_ID,
   extractSecretsFromClientConfig,
+  hasClientPlaintextSecret,
   mergeSecretsIntoClientConfig,
 } from "@inspector/core/client/secrets.js";
 import {
+  getClientConfigFilePath,
   loadClientConfig,
   parseClientConfig,
   saveClientConfig,
 } from "@inspector/core/client/config.js";
 import {
+  CIMD_METADATA_URL_HTTPS_ERROR,
+  CIMD_METADATA_URL_INVALID_ERROR,
+  CIMD_METADATA_URL_PATH_ERROR,
   formatClientConfigLoadError,
+  getCimdClientMetadataUrlError,
   isAbsoluteHttpUrl,
+  serializeClientConfig,
 } from "@inspector/core/client/config-parse.js";
 import {
   getActiveCimdClientMetadataUrl,
@@ -210,11 +217,88 @@ describe("client config", () => {
     ).toThrow(/path/);
   });
 
+  it("getClientConfigFilePath honors a custom path and defaults to the storage dir", () => {
+    expect(getClientConfigFilePath("/custom/client.json")).toBe(
+      "/custom/client.json",
+    );
+    expect(getClientConfigFilePath()).toMatch(/client\.json$/);
+  });
+
   it("loadClientConfig returns {} when file is absent", async () => {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "client-config-"));
     const filePath = path.join(tmpDir, "client.json");
     const config = await loadClientConfig({ filePath });
     expect(config).toEqual({});
+  });
+
+  it("saveClientConfig/loadClientConfig round-trip without a secretStore", async () => {
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "client-config-"));
+    const filePath = path.join(tmpDir, "client.json");
+    const input = {
+      cimd: {
+        enabled: true,
+        clientMetadataUrl: "https://example.com/oauth/client.json",
+      },
+    };
+    await saveClientConfig(input, { filePath });
+    expect(await loadClientConfig({ filePath })).toEqual(input);
+  });
+
+  it("hasClientPlaintextSecret reflects the presence of an IdP clientSecret", () => {
+    expect(
+      hasClientPlaintextSecret({
+        enterpriseManagedAuth: {
+          idp: { issuer: "https://idp.example.com", clientId: "c" },
+        },
+      }),
+    ).toBe(false);
+    expect(
+      hasClientPlaintextSecret({
+        enterpriseManagedAuth: {
+          idp: {
+            issuer: "https://idp.example.com",
+            clientId: "c",
+            clientSecret: "s",
+          },
+        },
+      }),
+    ).toBe(true);
+  });
+
+  it("getActiveCimdClientMetadataUrl returns undefined for a whitespace-only URL", () => {
+    expect(
+      getActiveCimdClientMetadataUrl({
+        cimd: { enabled: true, clientMetadataUrl: "   " },
+      }),
+    ).toBeUndefined();
+  });
+
+  it("serializeClientConfig emits pretty-printed JSON", () => {
+    expect(serializeClientConfig({ cimd: { clientMetadataUrl: "x" } })).toBe(
+      JSON.stringify({ cimd: { clientMetadataUrl: "x" } }, null, 2),
+    );
+  });
+
+  describe("getCimdClientMetadataUrlError", () => {
+    it("returns undefined for an empty value or a valid https URL with a path", () => {
+      expect(getCimdClientMetadataUrlError("")).toBeUndefined();
+      expect(getCimdClientMetadataUrlError("   ")).toBeUndefined();
+      expect(
+        getCimdClientMetadataUrlError("https://example.com/oauth/client.json"),
+      ).toBeUndefined();
+    });
+
+    it("flags unparseable, non-https, and pathless URLs distinctly", () => {
+      expect(getCimdClientMetadataUrlError("not-a-url")).toBe(
+        CIMD_METADATA_URL_INVALID_ERROR,
+      );
+      expect(
+        getCimdClientMetadataUrlError("http://example.com/oauth/client.json"),
+      ).toBe(CIMD_METADATA_URL_HTTPS_ERROR);
+      expect(getCimdClientMetadataUrlError("https://example.com")).toBe(
+        CIMD_METADATA_URL_PATH_ERROR,
+      );
+    });
   });
 
   it("formatClientConfigLoadError summarizes Zod validation failures", () => {

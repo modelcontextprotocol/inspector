@@ -4,6 +4,7 @@ import { useServerJsonImport } from "../../../hooks/useServerJsonImport";
 import { ImportServerJsonPanel } from "../ImportServerJsonPanel/ImportServerJsonPanel";
 
 const ModalTitle = Text.withProps({ fw: 700, span: true });
+const AppModalLg = Modal.withProps({ size: "lg", centered: true });
 
 export interface ServerImportJsonModalProps {
   opened: boolean;
@@ -28,11 +29,9 @@ export function ServerImportJsonModal({
   const vm = useServerJsonImport({ opened, existingIds, onAddServer });
 
   return (
-    <Modal
+    <AppModalLg
       opened={opened}
       onClose={onClose}
-      size="lg"
-      centered
       title={<ModalTitle>Import from registry config</ModalTitle>}
     >
       <ImportServerJsonPanel
@@ -56,6 +55,6 @@ export function ServerImportJsonModal({
         }}
         onPickFile={(file) => void vm.pickFile(file)}
       />
-    </Modal>
+    </AppModalLg>
   );
 }

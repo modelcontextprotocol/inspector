@@ -17,6 +17,15 @@ const Summary = Paper.withProps({
   bg: "var(--inspector-surface-subtle)",
   withBorder: true,
 });
+const RemoveServerModal = Modal.withProps({
+  size: "md",
+  centered: true,
+  title: "Remove server?",
+});
+const BoldInline = Text.withProps({ component: "span", fw: 600 });
+const IdText = Text.withProps({ size: "sm", fw: 600 });
+const DimText = Text.withProps({ size: "xs", c: "dimmed" });
+const FieldError = Text.withProps({ c: "red", size: "sm", role: "alert" });
 
 function summarize(config: ServerEntry["config"] | undefined): string {
   /* v8 ignore next -- defensive guard: every ServerEntry has a non-optional
@@ -53,38 +62,24 @@ export function ServerRemoveConfirmModal({
   }
 
   return (
-    <Modal
-      opened={opened}
-      onClose={onCancel}
-      size="md"
-      centered
-      title="Remove server?"
-    >
+    <RemoveServerModal opened={opened} onClose={onCancel}>
       <Stack gap="md">
         <Text size="sm">
           The entry will be removed from{" "}
-          <Text component="span" fw={600}>
-            ~/.mcp-inspector/mcp.json
-          </Text>
-          . You can add it back at any time.
+          <BoldInline>~/.mcp-inspector/mcp.json</BoldInline>. You can add it
+          back at any time.
         </Text>
         {target ? (
           <Summary>
             <Stack gap={4}>
-              <Text size="sm" fw={600}>
-                {target.id}
-              </Text>
-              <Text size="xs" c="dimmed">
+              <IdText>{target.id}</IdText>
+              <DimText>
                 {target.config.type ?? "stdio"} · {summarize(target.config)}
-              </Text>
+              </DimText>
             </Stack>
           </Summary>
         ) : null}
-        {error ? (
-          <Text c="red" size="sm" role="alert">
-            {error}
-          </Text>
-        ) : null}
+        {error ? <FieldError>{error}</FieldError> : null}
         <Actions>
           <Button variant="default" onClick={onCancel} disabled={submitting}>
             Cancel
@@ -100,6 +95,6 @@ export function ServerRemoveConfirmModal({
           </Button>
         </Actions>
       </Stack>
-    </Modal>
+    </RemoveServerModal>
   );
 }

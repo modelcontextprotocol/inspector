@@ -74,9 +74,7 @@ export function useClientSettingsDraft<T>({
       const prev = latestValuesRef.current;
       if (prev === null) return;
       const resolved =
-        typeof next === "function"
-          ? (next as (prev: T) => T)(prev)
-          : next;
+        typeof next === "function" ? (next as (prev: T) => T)(prev) : next;
       latestValuesRef.current = resolved;
       setDraft(resolved);
       if (timerRef.current) clearTimeout(timerRef.current);

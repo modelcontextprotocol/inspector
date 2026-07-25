@@ -12,3 +12,18 @@ export const ThemeModal = Modal.extend({
     closeButtonProps: { "aria-label": "Close" },
   },
 });
+
+/**
+ * Restore the fade-down open/close animation on the compound `Modal.Root` API.
+ * The default `<Modal>` wrapper hardcodes `transitionProps: { transition:
+ * "fade-down", duration: 200 }`, but `Modal.Root` does not inherit it — so
+ * modals built from `Modal.Root` (e.g. Server/Client Settings, which need a
+ * sticky `Modal.Header` + scrollable `Modal.Body`, see #1698) would otherwise
+ * animate differently from every plain `<Modal>`. Setting it here keeps them
+ * consistent app-wide without repeating the literal at each call site.
+ */
+export const ThemeModalRoot = Modal.Root.extend({
+  defaultProps: {
+    transitionProps: { transition: "fade-down", duration: 200 },
+  },
+});

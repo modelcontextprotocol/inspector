@@ -22,16 +22,17 @@ const statusLabel: Record<TaskStatus, string> = {
   cancelled: "cancelled",
 };
 
+const FilledBadge = Badge.withProps({
+  variant: "filled",
+  autoContrast: true,
+});
+
 export function TaskStatusBadge({ status }: TaskStatusBadgeProps) {
   // `autoContrast` keeps the label legible (WCAG AA) on both the light-mode
   // fills and the darker dark-mode `-filled` shades — see AnnotationBadge.
   return (
-    <Badge
-      color={filledBadgeColor(statusColor[status])}
-      variant="filled"
-      autoContrast
-    >
+    <FilledBadge color={filledBadgeColor(statusColor[status])}>
       {statusLabel[status]}
-    </Badge>
+    </FilledBadge>
   );
 }

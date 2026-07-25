@@ -86,6 +86,12 @@ const EmptyState = Text.withProps({
   ta: "center",
 });
 
+// Panel header: title (+ era badge) on the left, action controls on the right.
+const HeaderRow = Group.withProps({
+  justify: "space-between",
+  mb: "sm",
+});
+
 // The section header is a single "pleat" bar (rounded, with the filter-button
 // outline-on-hover treatment and the active background passed per instance via
 // `bg`). Inside it sit the
@@ -334,7 +340,7 @@ export function ProtocolListPanel({
 
   return (
     <PanelContainer>
-      <Group justify="space-between" mb="sm">
+      <HeaderRow>
         <Group gap="sm">
           <Title order={4}>Messages</Title>
           {protocolEra && <EraBadge era={protocolEra} />}
@@ -359,7 +365,7 @@ export function ProtocolListPanel({
             <ListToggle compact={compact} onToggle={onToggleCompact} />
           )}
         </Group>
-      </Group>
+      </HeaderRow>
 
       {!hasResults ? (
         <EmptyCenter>

@@ -29,7 +29,6 @@ import {
   extractMethod,
   extractResultType,
   extractSubscriptionId,
-  isModernFrame,
   isReplayableProtocolMethod,
 } from "../protocolUtils.js";
 
@@ -109,15 +108,6 @@ const DurationText = Text.withProps({
   c: "dimmed",
 });
 
-// Flags a frame whose method only exists in the modern (2026-07-28) era
-// (`server/discover`, `subscriptions/listen`, its acknowledgement). This labels
-// the *frame*, not the connection's negotiated era (see the transcript caveat in
-// protocolUtils) — those methods genuinely cannot occur on a legacy connection.
-const ModernFrameBadge = Badge.withProps({
-  color: "blue",
-  variant: "outline",
-});
-
 // The `subscriptionId` tag on a modern push notification (spec §7.4). Shown with
 // a copy button so the id can be correlated against the `subscriptions/listen`
 // stream that opened it.
@@ -135,6 +125,36 @@ const SubscriptionCluster = Group.withProps({
   gap: 4,
   wrap: "nowrap",
   miw: 0,
+});
+
+// Friendly summary alert for a modern spec error (title is per-error, dynamic).
+const SpecErrorAlert = Alert.withProps({
+  variant: "light",
+  color: "red",
+  icon: <RiErrorWarningLine />,
+});
+
+// Link (button-styled) that jumps to the correlated HTTP entry in the Network tab.
+const RevealLink = Anchor.withProps({
+  component: "button",
+  type: "button",
+  size: "xs",
+});
+
+const TargetScrollArea = ScrollArea.withProps({
+  scrollbarSize: 6,
+  flex: 1,
+  miw: 0,
+  // The target scrolls horizontally but has no focusable child, so make the
+  // viewport itself keyboard-scrollable (WCAG SC 2.1.1). Scrollbar auto-hides
+  // via the `type="scroll"` theme default.
+  viewportProps: { tabIndex: 0 },
+});
+
+// Trailing controls row (replay / pin / expand) in the wide layout.
+const ToggleRow = Group.withProps({
+  gap: "xs",
+  justify: "flex-end",
 });
 
 // `complete` is green — it's the success signal now that the redundant "OK"
@@ -241,24 +261,19 @@ function McpSpecErrorAlert({
   onReveal?: () => void;
 }) {
   return (
-    <Alert
-      variant="light"
-      color="red"
-      title={`${error.code} ${error.name}`}
-      icon={<RiErrorWarningLine />}
-    >
+    <SpecErrorAlert title={`${error.code} ${error.name}`}>
       <Stack gap="xs">
         <Text size="xs">{error.description}</Text>
         {error.supported && (
           <Text size="xs">Server supports: {error.supported.join(", ")}</Text>
         )}
         {onReveal && (
-          <Anchor component="button" type="button" size="xs" onClick={onReveal}>
+          <RevealLink onClick={onReveal}>
             View the HTTP request in the Network tab →
-          </Anchor>
+          </RevealLink>
         )}
       </Stack>
-    </Alert>
+    </SpecErrorAlert>
   );
 }
 
@@ -280,7 +295,6 @@ export function ProtocolEntry({
   const canReplay = isReplayableProtocolMethod(method);
   const resultType = extractResultType(entry);
   const subscriptionId = extractSubscriptionId(entry);
-  const isModern = isModernFrame(method);
 
   useEffect(() => {
     setIsExpanded(isListExpanded);
@@ -319,9 +333,6 @@ export function ProtocolEntry({
       {statusLabel(status)}
     </Badge>
   );
-  const modernFrameBadge = isModern && (
-    <ModernFrameBadge>modern</ModernFrameBadge>
-  );
   const subscriptionBadge = subscriptionId && (
     <SubscriptionCluster>
       <SubscriptionLabel>sub</SubscriptionLabel>
@@ -350,28 +361,22 @@ export function ProtocolEntry({
                 {durationText}
                 {resultTypeBadge}
                 {statusBadge}
+                {/* The subscription-id tag rides the top line's trailing edge
+                    (a notification row's duration/status slots are empty) so the
+                    method badge on the line below gets the full column width and
+                    doesn't truncate against the pin control (#1630). */}
+                {subscriptionBadge}
               </ControlsCluster>
             </HeaderRow>
             <HeaderRow>
               <HeaderCluster flex={1}>
                 <MethodBadge method={method} />
-                {modernFrameBadge}
-                {subscriptionBadge}
                 {target && (
                   <>
                     {resourceUri && <CopyButton value={resourceUri} />}
-                    <ScrollArea
-                      scrollbarSize={6}
-                      flex={1}
-                      miw={0}
-                      // The target scrolls horizontally but has no focusable
-                      // child, so make the viewport itself keyboard-scrollable
-                      // (WCAG SC 2.1.1). Scrollbar auto-hides via the
-                      // `type="scroll"` theme default.
-                      viewportProps={{ tabIndex: 0 }}
-                    >
+                    <TargetScrollArea>
                       <TargetScroll>{target}</TargetScroll>
-                    </ScrollArea>
+                    </TargetScrollArea>
                   </>
                 )}
               </HeaderCluster>
@@ -395,7 +400,6 @@ export function ProtocolEntry({
                 {directionBadge}
                 <MethodBadge method={method} />
                 {specErrorBadge}
-                {modernFrameBadge}
                 {subscriptionBadge}
                 {target && (
                   <>
@@ -411,14 +415,14 @@ export function ProtocolEntry({
               </Group>
             </HeaderRow>
 
-            <Group gap="xs" justify="flex-end">
+            <ToggleRow>
               {canReplay && <ReplayButton onReplay={onReplay} />}
               <PinToggle pinned={isPinned} onToggle={onTogglePin} />
               <ExpandToggle
                 expanded={isExpanded}
                 onToggle={() => setIsExpanded((v) => !v)}
               />
-            </Group>
+            </ToggleRow>
           </>
         )}
 

@@ -2,10 +2,7 @@
  * Remote HTTP load/save for client.json via /api/storage/client.
  */
 
-import {
-  parseClientConfig,
-  serializeClientConfig,
-} from "./config-parse.js";
+import { parseClientConfig, serializeClientConfig } from "./config-parse.js";
 import type { ClientConfig } from "./types.js";
 
 export interface RemoteClientConfigOptions {

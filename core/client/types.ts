@@ -28,9 +28,7 @@ export interface ClientConfig {
 }
 
 /** True when install-level EMA IdP config is active (not just stored). */
-export function isEnterpriseManagedAuthEnabled(
-  config: ClientConfig,
-): boolean {
+export function isEnterpriseManagedAuthEnabled(config: ClientConfig): boolean {
   const ema = config.enterpriseManagedAuth;
   if (!ema?.idp) return false;
   return ema.enabled !== false;

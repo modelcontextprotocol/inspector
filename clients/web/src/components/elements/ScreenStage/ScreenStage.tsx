@@ -1,9 +1,25 @@
 import type { ReactNode } from "react";
-import { Box, Transition } from "@mantine/core";
+import { Flex, Transition } from "@mantine/core";
 
 /** Screen enter / exit durations for the shared `fade-up` stage transition. */
 export const SCREEN_ENTER_MS = 350;
 export const SCREEN_EXIT_MS = 250;
+
+// A single absolutely-positioned layer, so a Flex primitive (Box can't use
+// `.withProps()`). `direction: "column"` is load-bearing: the child screen must
+// fill the layer's width the way it did under the old block-level `Box`. A
+// column flex puts the width on the cross axis, where Mantine's default
+// `align-items: stretch` makes the single child fill it (a row flex would size
+// the child to its content, collapsing screens whose width is content-agnostic —
+// e.g. ServerListScreen's `container`-typed grid). The dynamic transition
+// `style` and the `bottom` anchor are passed at the call site.
+const StageLayer = Flex.withProps({
+  direction: "column",
+  pos: "absolute",
+  top: 0,
+  left: 0,
+  right: 0,
+});
 
 export interface ScreenStageProps {
   /** True when this stage's screen is the active one. */
@@ -35,6 +51,8 @@ export function ScreenStage({
   fill = false,
 }: ScreenStageProps) {
   return (
+    // Stays inline: Transition is a headless, non-`factory()` Mantine component,
+    // so it has no `.withProps` static at all (same tooling limit as Box).
     <Transition
       mounted={active}
       transition="fade-up"
@@ -45,16 +63,9 @@ export function ScreenStage({
       {(styles) => (
         // `style={styles}` is the runtime transition state from Mantine's
         // Transition API — interpolated values, not static styling.
-        <Box
-          style={styles}
-          pos="absolute"
-          top={0}
-          left={0}
-          right={0}
-          bottom={fill ? 0 : undefined}
-        >
+        <StageLayer style={styles} bottom={fill ? 0 : undefined}>
           {children}
-        </Box>
+        </StageLayer>
       )}
     </Transition>
   );

@@ -19,7 +19,10 @@ import { join } from "node:path";
 import { serve } from "@hono/node-server";
 import type { ServerType } from "@hono/node-server";
 import type pinoType from "pino";
-import { createRemoteApp } from "@inspector/core/mcp/remote/node/server.js";
+import {
+  createRemoteApp,
+  requestIdForSendWait,
+} from "@inspector/core/mcp/remote/node/server.js";
 import {
   InMemorySecretStore,
   KeychainUnavailableError,
@@ -108,6 +111,34 @@ function makeCapturingLogger(): {
 }
 
 describe("server.ts supplemental coverage", () => {
+  describe("requestIdForSendWait (#1630)", () => {
+    it("returns the id for an ordinary request", () => {
+      expect(
+        requestIdForSendWait({ jsonrpc: "2.0", id: 7, method: "tools/list" }),
+      ).toBe(7);
+    });
+
+    it("does not wait for a response on subscriptions/listen (long-lived stream)", () => {
+      expect(
+        requestIdForSendWait({
+          jsonrpc: "2.0",
+          id: "listen:0",
+          method: "subscriptions/listen",
+          params: {},
+        }),
+      ).toBeUndefined();
+    });
+
+    it("returns undefined for a notification (no id)", () => {
+      expect(
+        requestIdForSendWait({
+          jsonrpc: "2.0",
+          method: "notifications/initialized",
+        }),
+      ).toBeUndefined();
+    });
+  });
+
   describe("/api/log forwardLogEvent shapes", () => {
     let h: Harness;
     let records: Array<{ level: string; args: unknown[] }>;
@@ -477,6 +508,32 @@ describe("server.ts supplemental coverage", () => {
       expect((await res.json()).error).toMatch(/protocolEra/);
     });
 
+    it("rejects an unknown modernLogLevel (#1629)", async () => {
+      const res = await postSettings({ ...base, modernLogLevel: "verbose" });
+      expect((await res.json()).error).toMatch(/modernLogLevel/);
+    });
+
+    it("rejects a non-boolean-valued advertisedExtensions (#1739)", async () => {
+      const res = await postSettings({
+        ...base,
+        advertisedExtensions: { "io.modelcontextprotocol/tasks": "yes" },
+      });
+      expect((await res.json()).error).toMatch(/advertisedExtensions/);
+    });
+
+    it("rejects a non-object advertisedExtensions (#1739)", async () => {
+      const res = await postSettings({
+        ...base,
+        advertisedExtensions: ["io.modelcontextprotocol/tasks"],
+      });
+      expect((await res.json()).error).toMatch(/advertisedExtensions/);
+    });
+
+    it("accepts an empty advertisedExtensions map without persisting it (#1739)", async () => {
+      const res = await postSettings({ ...base, advertisedExtensions: {} });
+      expect(res.status).toBe(200);
+    });
+
     it("accepts a fully-populated valid settings payload", async () => {
       const res = await postSettings({
         ...base,
@@ -485,8 +542,10 @@ describe("server.ts supplemental coverage", () => {
         taskTtl: 1000,
         autoRefreshOnListChanged: true,
         paginatedLists: true,
+        advertisedExtensions: { "io.modelcontextprotocol/tasks": false },
         maxFetchRequests: 5,
         protocolEra: "modern",
+        modernLogLevel: "off",
         oauthClientId: "cid",
         oauthScopes: "a b",
         enterpriseManaged: true,
@@ -524,6 +583,8 @@ describe("server.ts supplemental coverage", () => {
               maxFetchRequests: -1,
               // unknown era literal → isProtocolEra branch
               protocolEra: "future",
+              // unknown modern log level → isModernLogLevel branch (#1629)
+              modernLogLevel: "verbose",
               // enterpriseManaged non-boolean → isOauthObject inner branch
               oauth: { enterpriseManaged: "yes" },
               // a non-string `name` → isRootArray inner branch
@@ -552,6 +613,7 @@ describe("server.ts supplemental coverage", () => {
           "taskTtl",
           "maxFetchRequests",
           "protocolEra",
+          "modernLogLevel",
           "oauth",
           "roots",
         ]) {

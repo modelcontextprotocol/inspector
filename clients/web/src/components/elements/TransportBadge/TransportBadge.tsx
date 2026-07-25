@@ -11,10 +11,11 @@ const transportLabel: Record<ServerType, string> = {
   "streamable-http": "HTTP",
 };
 
+const OutlineBadge = Badge.withProps({
+  variant: "outline",
+  color: "gray",
+});
+
 export function TransportBadge({ transport }: TransportBadgeProps) {
-  return (
-    <Badge variant="outline" color="gray">
-      {transportLabel[transport]}
-    </Badge>
-  );
+  return <OutlineBadge>{transportLabel[transport]}</OutlineBadge>;
 }

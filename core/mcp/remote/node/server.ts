@@ -36,6 +36,7 @@ import { AuthChallengeError } from "../../../auth/challenge.js";
 import {
   DEFAULT_MAX_FETCH_REQUESTS,
   DEFAULT_TASK_TTL_MS,
+  isModernLogLevel,
 } from "../../types.js";
 import type {
   InspectorServerSettings,
@@ -57,6 +58,7 @@ import {
   storedFieldsToInspectorSettings,
   stripInspectorFields,
 } from "../../serverList.js";
+import { toRecord } from "../../../json/jsonUtils.js";
 import { resolveImportSource } from "../../import/resolveSource.js";
 import { RemoteSession } from "./remote-session.js";
 import { createRemoteAuthProvider } from "./tokenAuthProvider.js";
@@ -297,7 +299,7 @@ function forwardLogEvent(
   logEvent: Partial<LogEvent>,
 ): void {
   const levelLabel = (logEvent?.level?.label ?? "info").toLowerCase();
-  const method = (logger as unknown as Record<string, unknown>)[levelLabel];
+  const method = toRecord(logger)[levelLabel];
   if (typeof method !== "function") return;
 
   const bindings = Object.assign(
@@ -334,7 +336,8 @@ function forwardLogEvent(
   }
 }
 
-function requestIdForSendWait(
+// Exported for unit coverage of the `subscriptions/listen` exemption (#1630).
+export function requestIdForSendWait(
   message: JSONRPCMessage,
 ): string | number | undefined {
   if (
@@ -343,6 +346,17 @@ function requestIdForSendWait(
     message.id !== null &&
     message.id !== undefined
   ) {
+    // `subscriptions/listen` (modern era, #1630) is a long-lived stream request:
+    // it never produces a JSON-RPC response — it's answered by a
+    // `notifications/subscriptions/acknowledged` and, only on graceful close, an
+    // empty result. Waiting for a response would block `/api/mcp/send` for the
+    // full timeout, delaying the client's `listen()` (which awaits `send()`) and
+    // then tearing the stream down (`closed`) when the wait finally rejects,
+    // which spuriously drives the reconnect loop. Don't wait: the ack and all
+    // stream notifications reach the client over the SSE event channel.
+    if (message.method === "subscriptions/listen") {
+      return undefined;
+    }
     return message.id;
   }
   return undefined;
@@ -619,12 +633,16 @@ export function createRemoteApp(
         // the user. The endpoint cleans up on stream close; this TTL
         // sweeps sessions whose client never connects at all.
         if (!session.hasEventConsumer()) {
+          // This sweep is a best-effort GC of an abandoned session, not work
+          // the process must stay alive for — unref it so a pending timer
+          // can't keep the event loop (or a test worker) alive for 30s after
+          // everything else has finished.
           setTimeout(() => {
             const stale = sessions.get(sessionId);
             if (stale && !stale.hasEventConsumer()) {
               sessions.delete(sessionId);
             }
-          }, 30_000);
+          }, 30_000).unref();
         }
       } else {
         // Session not created yet - failed during start
@@ -1186,6 +1204,16 @@ export function createRemoteApp(
         );
         delete valObj.protocolEra;
       }
+      if (
+        "modernLogLevel" in valObj &&
+        !isModernLogLevel(valObj.modernLogLevel)
+      ) {
+        logWarn(
+          { route: "/api/servers", id, droppedKey: "modernLogLevel" },
+          "Dropping malformed `modernLogLevel` field — expected 'off' or a logging level.",
+        );
+        delete valObj.modernLogLevel;
+      }
 
       out[id] = normalizeServerType(
         valObj as Record<string, unknown> & { type?: string },
@@ -1331,6 +1359,12 @@ export function createRemoteApp(
           typeof (e as Record<string, unknown>).value === "string",
       );
     };
+    const isBooleanRecord = (v: unknown): v is Record<string, boolean> => {
+      if (v === null || typeof v !== "object" || Array.isArray(v)) return false;
+      return Object.values(v as Record<string, unknown>).every(
+        (flag) => typeof flag === "boolean",
+      );
+    };
     if (!isKvArray(obj.headers)) {
       return {
         ok: false,
@@ -1463,6 +1497,31 @@ export function createRemoteApp(
         error: "settings.protocolEra must be 'legacy', 'auto', or 'modern'",
       };
     }
+    // modernLogLevel is optional on the wire; when present it must be "off" or
+    // one of the eight logging levels, otherwise it defaults to absent below.
+    if (
+      obj.modernLogLevel !== undefined &&
+      !isModernLogLevel(obj.modernLogLevel)
+    ) {
+      return {
+        ok: false,
+        error:
+          "settings.modernLogLevel must be 'off' or a logging level (debug…emergency)",
+      };
+    }
+    // advertisedExtensions is optional on the wire (older clients won't send
+    // it); when present it must be a flat record of boolean flags keyed by
+    // extension id, otherwise it defaults to absent below.
+    if (
+      obj.advertisedExtensions !== undefined &&
+      !isBooleanRecord(obj.advertisedExtensions)
+    ) {
+      return {
+        ok: false,
+        error:
+          "settings.advertisedExtensions must be an object of boolean flags",
+      };
+    }
     // Build the validated value from explicitly named fields rather than
     // casting the raw object through. Unknown keys silently drop so a
     // misconfigured client can't smuggle stowaways onto disk, and consumers
@@ -1527,6 +1586,20 @@ export function createRemoteApp(
     // default era downstream (eraToVersionNegotiation is not called for absent).
     if (isProtocolEra(obj.protocolEra)) {
       value.protocolEra = obj.protocolEra;
+    }
+    // Optional; carry a valid modern log level. Absence reads back as the
+    // default (DEFAULT_MODERN_LOG_LEVEL) downstream.
+    if (isModernLogLevel(obj.modernLogLevel)) {
+      value.modernLogLevel = obj.modernLogLevel;
+    }
+    // Optional; carry a non-empty boolean-flag map. Empty/absent reads back as
+    // unset downstream (omit-on-empty in inspectorSettingsToStoredFields), so a
+    // client that sent none writes no spurious advertisedExtensions to disk.
+    if (
+      isBooleanRecord(obj.advertisedExtensions) &&
+      Object.keys(obj.advertisedExtensions).length > 0
+    ) {
+      value.advertisedExtensions = { ...obj.advertisedExtensions };
     }
     // Empty cwd coerces to absent on the value (matching the read side); the
     // write-through distinguishes "sent cwd: '' " (clear) from "cwd omitted"

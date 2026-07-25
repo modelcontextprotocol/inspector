@@ -1,16 +1,11 @@
-import { discoverAuthorizationServerMetadata } from "@modelcontextprotocol/client";
+import { discoverAndRequestJwtAuthGrant } from "@modelcontextprotocol/client";
 import type {
   OAuthClientInformation,
   OAuthTokens,
 } from "@modelcontextprotocol/client";
 import { OAuthTokensSchema } from "@modelcontextprotocol/core";
 import type { EnterpriseManagedAuthIdpConfig } from "../../client/types.js";
-import {
-  GRANT_TYPE_JWT_BEARER,
-  GRANT_TYPE_TOKEN_EXCHANGE,
-  TOKEN_TYPE_ID_JAG,
-  TOKEN_TYPE_ID_TOKEN,
-} from "./constants.js";
+import { GRANT_TYPE_JWT_BEARER } from "./constants.js";
 import { parseHttpUrl } from "../utils.js";
 import { discoverResourceAsMetadata } from "./resourceContext.js";
 import { normalizeIdpIssuer } from "./storage.js";
@@ -19,70 +14,64 @@ import {
   postOAuthTokenRequest,
 } from "./tokenEndpoint.js";
 
-/** Leg 2 — exchange ID Token for ID-JAG at the enterprise IdP (RFC 8693). */
+/**
+ * Leg 2 — exchange ID Token for ID-JAG at the enterprise IdP (RFC 8693).
+ *
+ * Delegates to SDK `discoverAndRequestJwtAuthGrant`. `resource` is required
+ * (the SDK always sends it on the wire). Callers should pass
+ * `resourceUrl ?? resourceMetadata.resource` from EMA resource context discovery.
+ */
 export async function exchangeIdJag(params: {
   idp: EnterpriseManagedAuthIdpConfig;
   idToken: string;
   audience: string;
-  resource?: string;
+  /** RFC 8707 resource indicator — required by the SDK Layer-2 helper. */
+  resource: string;
   scope?: string;
   fetchFn?: typeof fetch;
 }): Promise<string> {
   const issuer = normalizeIdpIssuer(params.idp.issuer);
-  const issuerUrl = parseHttpUrl(issuer, "EMA IdP issuer (Client Settings)");
-  const idpMetadata = await discoverAuthorizationServerMetadata(issuerUrl, {
-    fetchFn: params.fetchFn,
-  });
-  if (!idpMetadata?.token_endpoint) {
-    throw new Error("IdP metadata missing token_endpoint");
+  const resource = params.resource.trim();
+  if (!resource) {
+    throw new Error("EMA leg 2 requires a resource identifier");
   }
 
-  const clientInformation = {
-    client_id: params.idp.clientId,
-    client_secret: params.idp.clientSecret,
-    token_endpoint_auth_method: "client_secret_post",
-  } as OAuthClientInformation;
-
-  const body = new URLSearchParams({
-    grant_type: GRANT_TYPE_TOKEN_EXCHANGE,
-    requested_token_type: TOKEN_TYPE_ID_JAG,
-    subject_token: params.idToken,
-    subject_token_type: TOKEN_TYPE_ID_TOKEN,
-    audience: params.audience,
-  });
-  if (params.resource) {
-    body.set("resource", params.resource);
-  }
-  if (params.scope) {
-    body.set("scope", params.scope);
-  }
-
-  const response = await postOAuthTokenRequest(
-    parseHttpUrl(
-      idpMetadata.token_endpoint,
-      "IdP token_endpoint (from OIDC discovery)",
-    ),
-    body,
-    idpMetadata,
-    clientInformation,
-    params.fetchFn,
-  );
-  if (!response.ok) {
-    throw await parseOAuthTokenErrorResponse(
-      response,
-      "EMA leg 2 (IdP token exchange for ID-JAG)",
-    );
+  let result: Awaited<ReturnType<typeof discoverAndRequestJwtAuthGrant>>;
+  try {
+    result = await discoverAndRequestJwtAuthGrant({
+      idpUrl: issuer,
+      audience: params.audience,
+      resource,
+      idToken: params.idToken,
+      clientId: params.idp.clientId,
+      clientSecret: params.idp.clientSecret,
+      scope: params.scope,
+      fetchFn: params.fetchFn,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    // Drift-sensitive: `@modelcontextprotocol/client` currently throws plain
+    // `Error`s (not typed SdkError codes) for these failure modes. Remap to
+    // stable Inspector UX strings by matching SDK wording. Prefer typed errors
+    // when the SDK grows them. Canaries in `wire.test.ts` call the real helper
+    // so a wording change fails CI instead of silently falling through.
+    if (/Failed to discover token endpoint/i.test(message)) {
+      throw new Error("IdP metadata missing token_endpoint", { cause: err });
+    }
+    if (/Invalid token exchange response/i.test(message)) {
+      throw new Error("IdP token exchange did not return an ID-JAG", {
+        cause: err,
+      });
+    }
+    throw new Error(`EMA leg 2 (IdP token exchange for ID-JAG): ${message}`, {
+      cause: err,
+    });
   }
 
-  const json = (await response.json()) as {
-    access_token?: string;
-    issued_token_type?: string;
-  };
-  const idJag = json.access_token;
-  if (!idJag) {
+  if (!result.jwtAuthGrant) {
     throw new Error("IdP token exchange did not return an ID-JAG");
   }
-  return idJag;
+  return result.jwtAuthGrant;
 }
 
 /** Leg 3 — redeem ID-JAG for MCP resource access token (RFC 7523). */

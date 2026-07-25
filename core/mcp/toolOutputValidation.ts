@@ -34,9 +34,11 @@ export function validateToolOutput(
       : `Tool "${tool.name}" declares an output schema but returned no structured content`;
   }
   try {
-    const validate = provider.getValidator(
-      tool.outputSchema as unknown as JsonSchemaType,
-    );
+    // `tool.outputSchema` is the SDK's own object-schema shape; `JsonSchemaType`
+    // is the validator provider's third-party JSON Schema interface. The two are
+    // structurally compatible but nominally unrelated, so a cast is required to
+    // bridge them here.
+    const validate = provider.getValidator(tool.outputSchema as JsonSchemaType);
     const validation = validate(structured);
     return validation.valid ? undefined : validation.errorMessage;
   } catch {

@@ -8,6 +8,10 @@ import type {
   McpHttpHandler,
 } from "@modelcontextprotocol/server";
 import { createMcpServer } from "./test-server-fixtures.js";
+import {
+  ModernTaskRuntime,
+  createModernTaskInterceptor,
+} from "./modern-tasks.js";
 import { SSEServerTransport } from "@modelcontextprotocol/server-legacy/sse";
 import type { Request, Response } from "express";
 import express from "express";
@@ -157,6 +161,16 @@ const SPEC_ERROR_TRIGGERS: Record<
     code: -32601,
     message: "Method not found",
   },
+  // A generic `-32602 Invalid params` delivered as an in-band JSON-RPC error
+  // (HTTP 200) whose message does NOT name an unknown tool — so the client
+  // throws it as a `ProtocolError(-32602)` and the Inspector renders the
+  // "Invalid Parameters" branch of the tool-call error panel, distinct from the
+  // unknown-tool `-32602` (#1632).
+  trigger_invalid_params: {
+    httpStatus: 200,
+    code: -32602,
+    message: "Invalid params: 'code' must be a positive integer",
+  },
 };
 
 interface JsonRpcCallBody {
@@ -196,8 +210,7 @@ export class TestServerHttp {
   private recordedRequests: RecordedRequest[] = [];
   private httpServer?: HttpServer;
   private transport?:
-    | WebStandardStreamableHTTPServerTransport
-    | SSEServerTransport;
+    WebStandardStreamableHTTPServerTransport | SSEServerTransport;
   private baseUrl?: string;
   private currentRequestHeaders?: Record<string, string>;
   private currentLogLevel: string | null = null;
@@ -364,6 +377,19 @@ export class TestServerHttp {
       ?.injectSpecErrors
       ? [specErrorInjector]
       : [];
+
+    // Modern tasks extension (SEP-2663): the SDK's modern leg era-gates inbound
+    // `tasks/*` spec methods, so serve them from a middleware ahead of the SDK
+    // handler, backed by the shared runtime (also used by the tools/call task
+    // seam inside `createMcpServer`).
+    if (this.config.tasksExtension) {
+      this.configWithCallback.modernTaskRuntime ??= new ModernTaskRuntime();
+      extraMiddleware.push(
+        createModernTaskInterceptor(
+          () => this.configWithCallback.modernTaskRuntime!,
+        ),
+      );
+    }
 
     app.post("/mcp", ...mcpMiddleware, ...extraMiddleware, route);
     app.get("/mcp", ...mcpMiddleware, route);

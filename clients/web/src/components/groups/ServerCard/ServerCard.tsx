@@ -63,11 +63,21 @@ export interface ServerCardProps extends ServerEntry {
   onClearHighlight?: () => void;
 }
 
+const HeaderRow = Group.withProps({
+  justify: "space-between",
+  wrap: "nowrap",
+});
+
 const HeaderLeft = Group.withProps({
   gap: "sm",
   wrap: "nowrap",
   miw: 0,
   flex: 1,
+});
+
+const MetaRow = Group.withProps({
+  gap: "sm",
+  mih: 30,
 });
 
 const HeaderRight = Group.withProps({
@@ -235,7 +245,7 @@ export function ServerCard({
       {...(isDimmed ? { "aria-disabled": true, inert: true } : {})}
     >
       <Stack gap="sm">
-        <Group justify="space-between" wrap="nowrap">
+        <HeaderRow>
           <HeaderLeft>
             {dragHandle}
             <ServerName>{name}</ServerName>
@@ -257,18 +267,18 @@ export function ServerCard({
               aria-label={`Connect or disconnect "${name}"`}
             />
           </HeaderRight>
-        </Group>
+        </HeaderRow>
 
         {!compact && (
           <>
-            <Group gap="sm" mih={30}>
+            <MetaRow>
               {version && <Badge variant="outline">{version}</Badge>}
               <TransportBadge transport={transport} />
               <ModeText>{TRANSPORT_DESCRIPTION[transport]}</ModeText>
               {protocolVersion && (
                 <ProtocolText>MCP {protocolVersion}</ProtocolText>
               )}
-            </Group>
+            </MetaRow>
 
             <ContentViewer
               block={{ type: "text", text: commandOrUrl }}

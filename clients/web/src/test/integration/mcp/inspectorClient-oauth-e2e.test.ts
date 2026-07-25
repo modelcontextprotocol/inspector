@@ -28,6 +28,7 @@ import {
   getDCRRequests,
   invalidateAccessToken,
 } from "@modelcontextprotocol/inspector-test-server";
+import { discoverAuthorizationServerMetadata } from "@modelcontextprotocol/client";
 import { flushStoreFileWrites } from "@inspector/core/storage/store-io.js";
 import {
   createOAuthClientConfig,
@@ -180,8 +181,9 @@ describe("InspectorClient OAuth E2E", () => {
         expect(stateAfterAuth?.oauthClientInfo).toBeDefined();
         expect(stateAfterAuth?.oauthClientInfo?.client_id).toBe(staticClientId);
 
-        const authCode = await completeOAuthAuthorization(authUrl);
-        await client.completeOAuthFlow(authCode);
+        const { code: authCode, iss: authCodeIss } =
+          await completeOAuthAuthorization(authUrl);
+        await client.completeOAuthFlow(authCode, authCodeIss);
         await client.connect();
 
         const stateAfterComplete = client.getOAuthFlowState();
@@ -260,8 +262,9 @@ describe("InspectorClient OAuth E2E", () => {
         const authUrl = await client.authenticate();
         if (!authUrl) throw new Error("Expected authorization URL");
         expect(authUrl.href).toContain("/oauth/authorize");
-        const authCode = await completeOAuthAuthorization(authUrl);
-        await client.completeOAuthFlow(authCode);
+        const { code: authCode, iss: authCodeIss } =
+          await completeOAuthAuthorization(authUrl);
+        await client.completeOAuthFlow(authCode, authCodeIss);
         await client.connect();
 
         expect(client.getStatus()).toBe("connected");
@@ -354,8 +357,9 @@ describe("InspectorClient OAuth E2E", () => {
         if (!authUrl) throw new Error("Expected authorization URL");
         expect(authUrl.href).toContain("/oauth/authorize");
 
-        const authCode = await completeOAuthAuthorization(authUrl);
-        await client.completeOAuthFlow(authCode);
+        const { code: authCode, iss: authCodeIss } =
+          await completeOAuthAuthorization(authUrl);
+        await client.completeOAuthFlow(authCode, authCodeIss);
         await client.connect();
 
         // Verify tokens are stored
@@ -430,8 +434,9 @@ describe("InspectorClient OAuth E2E", () => {
 
         const authUrl = await client.authenticate();
         if (!authUrl) throw new Error("Expected authorization URL");
-        const authCode = await completeOAuthAuthorization(authUrl);
-        await client.completeOAuthFlow(authCode);
+        const { code: authCode, iss: authCodeIss } =
+          await completeOAuthAuthorization(authUrl);
+        await client.completeOAuthFlow(authCode, authCodeIss);
         await client.connect();
 
         expect(client.getStatus()).toBe("connected");
@@ -498,8 +503,9 @@ describe("InspectorClient OAuth E2E", () => {
         expect(stateAfterAuth?.oauthClientInfo).toBeDefined();
         expect(stateAfterAuth?.oauthClientInfo?.client_id).toBeDefined();
 
-        const authCode = await completeOAuthAuthorization(authUrl);
-        await client.completeOAuthFlow(authCode);
+        const { code: authCode, iss: authCodeIss } =
+          await completeOAuthAuthorization(authUrl);
+        await client.completeOAuthFlow(authCode, authCodeIss);
         await client.connect();
 
         const stateAfterComplete = client.getOAuthFlowState();
@@ -567,8 +573,9 @@ describe("InspectorClient OAuth E2E", () => {
 
         const authUrl = await client.authenticate();
         if (!authUrl) throw new Error("Expected authorization URL");
-        const authCode = await completeOAuthAuthorization(authUrl);
-        await client.completeOAuthFlow(authCode);
+        const { code: authCode, iss: authCodeIss } =
+          await completeOAuthAuthorization(authUrl);
+        await client.completeOAuthFlow(authCode, authCodeIss);
         await client.connect();
 
         const dcr = getDCRRequests();
@@ -624,8 +631,9 @@ describe("InspectorClient OAuth E2E", () => {
 
         const authUrlFirst = await client.authenticate();
         if (!authUrlFirst) throw new Error("Expected authorization URL");
-        const authCodeFirst = await completeOAuthAuthorization(authUrlFirst);
-        await client.completeOAuthFlow(authCodeFirst);
+        const { code: authCodeFirst, iss: authCodeFirstIss } =
+          await completeOAuthAuthorization(authUrlFirst);
+        await client.completeOAuthFlow(authCodeFirst, authCodeFirstIss);
         await client.connect();
         expect(client.getStatus()).toBe("connected");
 
@@ -634,8 +642,9 @@ describe("InspectorClient OAuth E2E", () => {
 
         const authUrlSecond = await client.authenticate();
         if (!authUrlSecond) throw new Error("Expected authorization URL");
-        const authCodeSecond = await completeOAuthAuthorization(authUrlSecond);
-        await client.completeOAuthFlow(authCodeSecond);
+        const { code: authCodeSecond, iss: authCodeSecondIss } =
+          await completeOAuthAuthorization(authUrlSecond);
+        await client.completeOAuthFlow(authCodeSecond, authCodeSecondIss);
         await client.connect();
         expect(client.getStatus()).toBe("connected");
       });
@@ -836,8 +845,9 @@ describe("InspectorClient OAuth E2E", () => {
 
       const authUrl = await client.authenticate();
       if (!authUrl) throw new Error("Expected authorization URL");
-      const authCode = await completeOAuthAuthorization(authUrl);
-      await client.completeOAuthFlow(authCode);
+      const { code: authCode, iss: authCodeIss } =
+        await completeOAuthAuthorization(authUrl);
+      await client.completeOAuthFlow(authCode, authCodeIss);
 
       await client.connect();
       expect(await client.isOAuthAuthorized()).toBe(true);
@@ -906,8 +916,9 @@ describe("InspectorClient OAuth E2E", () => {
 
         const authUrl = await client.authenticate();
         if (!authUrl) throw new Error("Expected authorization URL");
-        const authCode = await completeOAuthAuthorization(authUrl);
-        await client.completeOAuthFlow(authCode);
+        const { code: authCode, iss: authCodeIss } =
+          await completeOAuthAuthorization(authUrl);
+        await client.completeOAuthFlow(authCode, authCodeIss);
         await client.connect();
 
         const tokens = await client.getOAuthTokens();
@@ -986,8 +997,9 @@ describe("InspectorClient OAuth E2E", () => {
 
       const authUrl = await client.authenticate();
       if (!authUrl) throw new Error("Expected authorization URL");
-      const authCode = await completeOAuthAuthorization(authUrl);
-      await client.completeOAuthFlow(authCode);
+      const { code: authCode, iss: authCodeIss } =
+        await completeOAuthAuthorization(authUrl);
+      await client.completeOAuthFlow(authCode, authCodeIss);
       await client.connect();
 
       const tokens = await client.getOAuthTokens();
@@ -1065,8 +1077,9 @@ describe("InspectorClient OAuth E2E", () => {
       try {
         const authUrl = await client.authenticate();
         if (!authUrl) throw new Error("Expected authorization URL");
-        const authCode = await completeOAuthAuthorization(authUrl);
-        await client.completeOAuthFlow(authCode);
+        const { code: authCode, iss: authCodeIss } =
+          await completeOAuthAuthorization(authUrl);
+        await client.completeOAuthFlow(authCode, authCodeIss);
         await client.connect();
 
         expect(client.getStatus()).toBe("connected");
@@ -1181,8 +1194,9 @@ describe("InspectorClient OAuth E2E", () => {
       if (!authUrl) throw new Error("Expected authorization URL");
       expect(authUrl.href).toContain("/oauth/authorize");
 
-      const authCode = await completeOAuthAuthorization(authUrl);
-      await client.completeOAuthFlow(authCode);
+      const { code: authCode, iss: authCodeIss } =
+        await completeOAuthAuthorization(authUrl);
+      await client.completeOAuthFlow(authCode, authCodeIss);
       await client.connect();
 
       expect(client.getStatus()).toBe("connected");
@@ -1196,6 +1210,19 @@ describe("InspectorClient OAuth E2E", () => {
       );
       expect(oauthUrls.length).toBeGreaterThan(0);
 
+      // SEP-2351: discovery uses stable well-known suffixes (not only "some oauth URL").
+      const trackedUrls = tracker.map((c) => c.url);
+      expect(
+        trackedUrls.some((u) =>
+          u.includes("/.well-known/oauth-protected-resource"),
+        ),
+      ).toBe(true);
+      expect(
+        trackedUrls.some((u) =>
+          u.includes("/.well-known/oauth-authorization-server"),
+        ),
+      ).toBe(true);
+
       // Verify fetch tracking categories: auth vs transport
       const fetchRequests = fetchRequestLogState.getFetchRequests();
       const authFetches = fetchRequests.filter((r) => r.category === "auth");
@@ -1204,6 +1231,271 @@ describe("InspectorClient OAuth E2E", () => {
       );
       expect(authFetches.length).toBeGreaterThan(0);
       expect(transportFetches.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe("SEP-2468 iss validation (Streamable HTTP)", () => {
+    const transport = transports[1]!;
+
+    async function startStaticClient() {
+      const staticClientId = "test-iss-client";
+      const staticClientSecret = "test-iss-secret";
+      const serverConfig = {
+        ...getDefaultServerConfig(),
+        serverType: transport.serverType,
+        ...createOAuthTestServerConfig({
+          requireAuth: true,
+          staticClients: [
+            {
+              clientId: staticClientId,
+              clientSecret: staticClientSecret,
+              redirectUris: [testRedirectUrl],
+            },
+          ],
+        }),
+      };
+      server = new TestServerHttp(serverConfig);
+      const port = await server.start();
+      const serverUrl = `http://localhost:${port}`;
+      await waitForOAuthWellKnown(serverUrl);
+
+      const oauthConfig = createTestOAuthConfig({
+        mode: "static",
+        clientId: staticClientId,
+        clientSecret: staticClientSecret,
+        redirectUrl: testRedirectUrl,
+      });
+      client = new InspectorClient(
+        {
+          type: transport.clientType,
+          url: `${serverUrl}${transport.endpoint}`,
+        } as MCPServerConfig,
+        {
+          environment: {
+            transport: createTransportNode,
+            oauth: {
+              storage: oauthConfig.storage,
+              navigation: oauthConfig.navigation,
+              redirectUrlProvider: oauthConfig.redirectUrlProvider,
+            },
+          },
+          oauth: {
+            clientId: oauthConfig.clientId,
+            clientSecret: oauthConfig.clientSecret,
+            scope: oauthConfig.scope,
+          },
+        },
+      );
+      return { serverUrl, oauthConfig };
+    }
+
+    it("accepts completeOAuthFlow with matching callback iss", async () => {
+      await startStaticClient();
+      const authUrl = await client.authenticate();
+      if (!authUrl) throw new Error("Expected authorization URL");
+      const { code, iss } = await completeOAuthAuthorization(authUrl);
+      expect(iss).toBeDefined();
+      await client.completeOAuthFlow(code, iss);
+      await client.connect();
+      expect(client.getStatus()).toBe("connected");
+      expect(await client.getOAuthTokens()).toBeDefined();
+    });
+
+    it("rejects mismatched callback iss before storing tokens", async () => {
+      await startStaticClient();
+      const authUrl = await client.authenticate();
+      if (!authUrl) throw new Error("Expected authorization URL");
+      const { code } = await completeOAuthAuthorization(authUrl);
+      await expect(
+        client.completeOAuthFlow(code, "https://evil.example"),
+      ).rejects.toThrow(/Issuer mismatch|issuer/i);
+      expect(await client.getOAuthTokens()).toBeUndefined();
+    });
+
+    it("rejects missing iss when AS requires authorization_response iss", async () => {
+      await startStaticClient();
+      const authUrl = await client.authenticate();
+      if (!authUrl) throw new Error("Expected authorization URL");
+      const { code } = await completeOAuthAuthorization(authUrl);
+      await expect(client.completeOAuthFlow(code)).rejects.toThrow(
+        /Issuer mismatch|issuer/i,
+      );
+      expect(await client.getOAuthTokens()).toBeUndefined();
+    });
+  });
+
+  describe("SEP-2207 offline_access on authorize (Streamable HTTP)", () => {
+    it("requests offline_access when AS scopes_supported includes it", async () => {
+      const transport = transports[1]!;
+      const staticClientId = "test-offline-access-client";
+      const staticClientSecret = "test-offline-access-secret";
+      const serverConfig = {
+        ...getDefaultServerConfig(),
+        serverType: transport.serverType,
+        ...createOAuthTestServerConfig({
+          requireAuth: true,
+          supportRefreshTokens: true,
+          scopesSupported: ["mcp", "offline_access"],
+          staticClients: [
+            {
+              clientId: staticClientId,
+              clientSecret: staticClientSecret,
+              redirectUris: [testRedirectUrl],
+            },
+          ],
+        }),
+      };
+      server = new TestServerHttp(serverConfig);
+      const port = await server.start();
+      const serverUrl = `http://localhost:${port}`;
+      await waitForOAuthWellKnown(serverUrl);
+
+      const oauthConfig = createTestOAuthConfig({
+        mode: "static",
+        clientId: staticClientId,
+        clientSecret: staticClientSecret,
+        redirectUrl: testRedirectUrl,
+        scope: "mcp",
+      });
+      client = new InspectorClient(
+        {
+          type: transport.clientType,
+          url: `${serverUrl}${transport.endpoint}`,
+        } as MCPServerConfig,
+        {
+          environment: {
+            transport: createTransportNode,
+            oauth: {
+              storage: oauthConfig.storage,
+              navigation: oauthConfig.navigation,
+              redirectUrlProvider: oauthConfig.redirectUrlProvider,
+            },
+          },
+          oauth: {
+            clientId: oauthConfig.clientId,
+            clientSecret: oauthConfig.clientSecret,
+            scope: oauthConfig.scope,
+          },
+        },
+      );
+
+      const authUrl = await client.authenticate();
+      if (!authUrl) throw new Error("Expected authorization URL");
+      const scope = authUrl.searchParams.get("scope") ?? "";
+      expect(scope.split(/\s+/)).toContain("offline_access");
+    });
+  });
+
+  describe("SEP-2352 AS migration (Streamable HTTP)", () => {
+    it("does not silently reuse issuer-A tokens when discovery resolves issuer B", async () => {
+      const transport = transports[1]!;
+      const staticClientId = "test-as-migrate-client";
+      const staticClientSecret = "test-as-migrate-secret";
+
+      let asB: TestServerHttp | undefined;
+      try {
+        const serverAConfig = {
+          ...getDefaultServerConfig(),
+          serverType: transport.serverType,
+          ...createOAuthTestServerConfig({
+            requireAuth: true,
+            staticClients: [
+              {
+                clientId: staticClientId,
+                clientSecret: staticClientSecret,
+                redirectUris: [testRedirectUrl],
+              },
+            ],
+          }),
+        };
+        server = new TestServerHttp(serverAConfig);
+        const portA = await server.start();
+        const serverAUrl = `http://localhost:${portA}`;
+        await waitForOAuthWellKnown(serverAUrl);
+
+        const serverBConfig = {
+          ...getDefaultServerConfig(),
+          serverType: transport.serverType,
+          ...createOAuthTestServerConfig({
+            requireAuth: true,
+            staticClients: [
+              {
+                clientId: staticClientId,
+                clientSecret: staticClientSecret,
+                redirectUris: [testRedirectUrl],
+              },
+            ],
+          }),
+        };
+        asB = new TestServerHttp(serverBConfig);
+        const portB = await asB.start();
+        const serverBUrl = `http://localhost:${portB}`;
+        await waitForOAuthWellKnown(serverBUrl);
+        const issuerB = serverBUrl.replace(/\/$/, "");
+
+        const oauthConfig = createTestOAuthConfig({
+          mode: "static",
+          clientId: staticClientId,
+          clientSecret: staticClientSecret,
+          redirectUrl: testRedirectUrl,
+        });
+
+        client = new InspectorClient(
+          {
+            type: transport.clientType,
+            url: `${serverAUrl}${transport.endpoint}`,
+          } as MCPServerConfig,
+          {
+            environment: {
+              transport: createTransportNode,
+              oauth: {
+                storage: oauthConfig.storage,
+                navigation: oauthConfig.navigation,
+                redirectUrlProvider: oauthConfig.redirectUrlProvider,
+              },
+            },
+            oauth: {
+              clientId: oauthConfig.clientId,
+              clientSecret: oauthConfig.clientSecret,
+              scope: oauthConfig.scope,
+            },
+          },
+        );
+
+        const mcpUrl = `${serverAUrl}${transport.endpoint}`;
+        const authUrlA = await client.authenticate();
+        if (!authUrlA) throw new Error("Expected authorization URL for A");
+        expect(authUrlA.origin).toBe(new URL(serverAUrl).origin);
+        const { code, iss } = await completeOAuthAuthorization(authUrlA);
+        await client.completeOAuthFlow(code, iss);
+        await client.connect();
+        expect(client.getStatus()).toBe("connected");
+        expect(await client.getOAuthTokens()).toBeDefined();
+
+        await client.disconnect();
+
+        // SDK auth() reuses cached authorizationServerUrl and will not pick up a
+        // PRM flip until discovery is replaced. Simulate AS migration by pointing
+        // persisted discovery at issuer B while leaving issuer-A tokens in place.
+        const asBMetadata = await discoverAuthorizationServerMetadata(issuerB);
+        await oauthConfig.storage.saveDiscoveryState(mcpUrl, {
+          authorizationServerUrl: issuerB,
+          authorizationServerMetadata: asBMetadata,
+          resourceMetadata: {
+            resource: `${serverAUrl}/`,
+            authorization_servers: [issuerB],
+          },
+        });
+        // Shared in-memory AS token store would otherwise let B redeem A's
+        // refresh_token; clear AS-side grants so reuse cannot succeed via refresh.
+        clearOAuthTestData();
+
+        const authUrlB = await client.authenticate();
+        expect(authUrlB).toBeDefined();
+        expect(authUrlB!.origin).toBe(new URL(serverBUrl).origin);
+      } finally {
+        if (asB) await asB.stop();
+      }
     });
   });
 });

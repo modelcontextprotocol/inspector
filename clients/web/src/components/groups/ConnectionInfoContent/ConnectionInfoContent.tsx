@@ -40,6 +40,16 @@ export interface OAuthDetails {
 
 export interface ConnectionInfoContentProps {
   initializeResult: InitializeResult;
+  /**
+   * Whether the server actually reported `serverInfo`. When false (a modern
+   * server that omitted the optional `_meta` stamp), `initializeResult`'s name is
+   * a client-side catalog fallback, so the Server Implementation section renders
+   * "not reported" rather than presenting the inferred name as server-sent — the
+   * exact fact a user opens this modal to check (#1772). Defaults to `true`
+   * (server-reported), which is the norm and what fixtures with a real
+   * `serverInfo` want.
+   */
+  serverInfoReported?: boolean;
   clientCapabilities: ClientCapabilities;
   transport: ServerType;
   /**
@@ -63,6 +73,12 @@ const ValueText = Text.withProps({
   fw: 600,
 });
 
+// Shown for Name/Version when the server didn't report `serverInfo` — an em dash
+// plus an explicit note so the client-side catalog fallback is never mistaken
+// for a value the server sent. Exported so tests/stories assert against it
+// rather than re-typing the copy.
+export const SERVER_INFO_NOT_REPORTED_LABEL = "— (not reported by server)";
+
 const SectionHeading = Title.withProps({
   // `order: 3` (not 5) keeps the heading level one below the modal's `h2`
   // `Modal.Title`, so the outline doesn't skip a level (axe `heading-order`);
@@ -78,6 +94,12 @@ const SectionHeading = Title.withProps({
 // that would otherwise need its own keyboard access (axe
 // `scrollable-region-focusable`).
 const ValueCode = Code.withProps({ variant: "wrapping" });
+
+const ClearOAuthButton = Button.withProps({
+  variant: "subtle",
+  color: "red",
+  size: "compact-xs",
+});
 
 function formatScopes(scopes: string[]): string {
   return scopes.join(", ");
@@ -128,11 +150,14 @@ function formatSession(
   return isModernEra(era) ? "Sessionless" : "Session-based";
 }
 
-// The `extensions` map the server advertised in its `server/discover`
-// capabilities (SEP-2133). Render the extension identifiers, or an em dash when
-// none were advertised.
-function formatExtensions(discoverResult: DiscoverResult): string {
-  const extensions = discoverResult.capabilities.extensions;
+// Render an `extensions` capability map (SEP-2133) as a comma-separated list of
+// its extension identifiers, or an em dash when none are present. Works for
+// either side's map: the server's negotiated `capabilities.extensions` (present
+// on both eras via `getServerCapabilities()`) or the Inspector's own advertised
+// `clientCapabilities.extensions`. (#1740)
+function formatExtensions(
+  extensions: Record<string, unknown> | undefined,
+): string {
   const keys = extensions ? Object.keys(extensions) : [];
   return keys.length > 0 ? keys.join(", ") : "—";
 }
@@ -169,6 +194,7 @@ function getCapabilityEntries(
 
 export function ConnectionInfoContent({
   initializeResult,
+  serverInfoReported = true,
   clientCapabilities,
   transport,
   protocolEra,
@@ -178,6 +204,23 @@ export function ConnectionInfoContent({
 }: ConnectionInfoContentProps) {
   const { serverInfo, protocolVersion, capabilities, instructions } =
     initializeResult;
+
+  // Only trust `serverInfo` when the server actually reported it; otherwise the
+  // name is a catalog fallback. Both rows `?.trim()` before the `||` (not `??`)
+  // so a reported-but-blank name/version — empty, whitespace-only ("   "), or a
+  // non-conforming runtime-absent field — reads as unknown ("—") rather than a
+  // blank row. The optional chain preserves the prior tolerance of a missing
+  // field (the field is typed non-null, but a non-conforming server can omit
+  // it); whitespace-only is the same class InspectorView's
+  // `resolveHeaderServerInfo` handles for the header (#1774). `initialize`
+  // mandates the fields, not non-empty values. Stays faithful: the fallback is
+  // "—", never a borrowed catalog name.
+  const displayName = serverInfoReported
+    ? serverInfo.name?.trim() || "—"
+    : SERVER_INFO_NOT_REPORTED_LABEL;
+  const displayVersion = serverInfoReported
+    ? serverInfo.version?.trim() || "—"
+    : SERVER_INFO_NOT_REPORTED_LABEL;
 
   const serverCaps = getCapabilityEntries(capabilities, SERVER_CAPABILITY_KEYS);
   const clientCaps = getCapabilityEntries(
@@ -191,13 +234,13 @@ export function ConnectionInfoContent({
         <SectionHeading>Server Implementation</SectionHeading>
         <SimpleGrid cols={2}>
           <Text size="sm">Name</Text>
-          <ValueText>{serverInfo.name}</ValueText>
+          <ValueText>{displayName}</ValueText>
 
           <Text size="sm">Version</Text>
-          <ValueText>{serverInfo.version ?? "—"}</ValueText>
+          <ValueText>{displayVersion}</ValueText>
 
           <Text size="sm">Protocol</Text>
-          <ValueText>{protocolVersion}</ValueText>
+          <ValueText>{protocolVersion || "—"}</ValueText>
 
           <Text size="sm">Transport</Text>
           <Badge variant="outline">{transport}</Badge>
@@ -220,9 +263,6 @@ export function ConnectionInfoContent({
                 ? discoverResult.supportedVersions.join(", ")
                 : "—"}
             </ValueText>
-
-            <Text size="sm">Extensions</Text>
-            <ValueText>{formatExtensions(discoverResult)}</ValueText>
           </SimpleGrid>
         </Stack>
       )}
@@ -247,6 +287,23 @@ export function ConnectionInfoContent({
               supported={cap.supported}
             />
           ))}
+        </Stack>
+      </SimpleGrid>
+
+      {/* Extensions (SEP-2133) shown for both eras: the server's from its
+          negotiated capabilities, the Inspector's from what it advertised
+          (the Advertised Extensions setting). Mirrors the server/client
+          capability columns above. (#1740) */}
+      <SimpleGrid cols={2}>
+        <Stack gap="xs">
+          <SectionHeading>Server Extensions</SectionHeading>
+          <ValueText>{formatExtensions(capabilities.extensions)}</ValueText>
+        </Stack>
+        <Stack gap="xs">
+          <SectionHeading>Client Advertised Extensions</SectionHeading>
+          <ValueText>
+            {formatExtensions(clientCapabilities.extensions)}
+          </ValueText>
         </Stack>
       </SimpleGrid>
 
@@ -322,14 +379,9 @@ export function ConnectionInfoContent({
             ) : (
               onClearOAuth && (
                 <Flex justify="flex-end">
-                  <Button
-                    variant="subtle"
-                    color="red"
-                    size="compact-xs"
-                    onClick={onClearOAuth}
-                  >
+                  <ClearOAuthButton onClick={onClearOAuth}>
                     {CLEAR_OAUTH_STATE_AND_DISCONNECT_LABEL}
-                  </Button>
+                  </ClearOAuthButton>
                 </Flex>
               )
             )}

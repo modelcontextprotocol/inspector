@@ -1,12 +1,15 @@
 /**
- * Tests for useSandboxUrl — runs in happy-dom under the unit project. Uses a
+ * Tests for useInitialConfig — runs in happy-dom under the unit project. Uses a
  * controlled fake `fetch` so each branch (present / absent / non-string / HTTP
- * error / network throw) and the auth header are asserted directly.
+ * error / network throw / post-unmount guards) and the auth header are asserted
+ * directly. This is the single hook that replaced useSandboxUrl /
+ * useServerListWritable / useInspectorVersion (#1643), so it covers each field's
+ * branch matrix in one place.
  */
 
 import { describe, it, expect, vi } from "vitest";
 import { renderHook, waitFor } from "@testing-library/react";
-import { useSandboxUrl } from "@inspector/core/react/useSandboxUrl";
+import { useInitialConfig } from "@inspector/core/react/useInitialConfig";
 
 function jsonResponse(body: unknown, ok = true): Response {
   return {
@@ -16,30 +19,40 @@ function jsonResponse(body: unknown, ok = true): Response {
   } as unknown as Response;
 }
 
-describe("useSandboxUrl", () => {
-  it("starts loading, then resolves the sandboxUrl from the config payload", async () => {
-    const fetchFn = vi
-      .fn()
-      .mockResolvedValue(
-        jsonResponse({ sandboxUrl: "http://localhost:6299/sandbox" }),
-      );
-
-    const { result } = renderHook(() =>
-      useSandboxUrl({ baseUrl: "http://test.local", fetchFn }),
+describe("useInitialConfig", () => {
+  it("starts loading, then resolves all three fields from one config payload", async () => {
+    const fetchFn = vi.fn().mockResolvedValue(
+      jsonResponse({
+        version: "2.0.0",
+        sandboxUrl: "http://localhost:6299/sandbox",
+        writable: false,
+      }),
     );
 
+    const { result } = renderHook(() =>
+      useInitialConfig({ baseUrl: "http://test.local", fetchFn }),
+    );
+
+    // Initial (pre-fetch) state: version/sandboxUrl undefined, writable defaults
+    // true, loading true.
     expect(result.current.loading).toBe(true);
+    expect(result.current.version).toBeUndefined();
     expect(result.current.sandboxUrl).toBeUndefined();
+    expect(result.current.writable).toBe(true);
 
     await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.version).toBe("2.0.0");
     expect(result.current.sandboxUrl).toBe("http://localhost:6299/sandbox");
+    expect(result.current.writable).toBe(false);
+    // One static payload, one request.
+    expect(fetchFn).toHaveBeenCalledTimes(1);
   });
 
   it("sends the bearer auth header when a token is provided", async () => {
     const fetchFn = vi.fn().mockResolvedValue(jsonResponse({}));
 
     renderHook(() =>
-      useSandboxUrl({
+      useInitialConfig({
         baseUrl: "http://test.local/",
         authToken: "secret-token",
         fetchFn,
@@ -57,77 +70,119 @@ describe("useSandboxUrl", () => {
   it("omits the auth header when no token is provided", async () => {
     const fetchFn = vi.fn().mockResolvedValue(jsonResponse({}));
 
-    renderHook(() => useSandboxUrl({ baseUrl: "http://test.local", fetchFn }));
+    renderHook(() =>
+      useInitialConfig({ baseUrl: "http://test.local", fetchFn }),
+    );
 
     await waitFor(() => expect(fetchFn).toHaveBeenCalled());
     const [, init] = fetchFn.mock.calls[0];
     expect(init.headers["x-mcp-remote-auth"]).toBeUndefined();
   });
 
-  it("leaves sandboxUrl undefined when the payload omits it", async () => {
+  it("applies each field's default when the payload omits it", async () => {
     const fetchFn = vi
       .fn()
       .mockResolvedValue(jsonResponse({ defaultEnvironment: {} }));
 
     const { result } = renderHook(() =>
-      useSandboxUrl({ baseUrl: "http://test.local", fetchFn }),
+      useInitialConfig({ baseUrl: "http://test.local", fetchFn }),
     );
 
     await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.version).toBeUndefined();
     expect(result.current.sandboxUrl).toBeUndefined();
+    // Missing writable (legacy backend) stays writable.
+    expect(result.current.writable).toBe(true);
   });
 
-  it("leaves sandboxUrl undefined when the field is not a usable string", async () => {
-    const fetchFn = vi.fn().mockResolvedValue(jsonResponse({ sandboxUrl: "" }));
-
-    const { result } = renderHook(() =>
-      useSandboxUrl({ baseUrl: "http://test.local", fetchFn }),
-    );
-
-    await waitFor(() => expect(result.current.loading).toBe(false));
-    expect(result.current.sandboxUrl).toBeUndefined();
-  });
-
-  it("leaves sandboxUrl undefined on a non-ok response", async () => {
+  it("leaves version/sandboxUrl undefined when the fields are not usable strings", async () => {
     const fetchFn = vi
       .fn()
-      .mockResolvedValue(jsonResponse({ sandboxUrl: "x" }, false));
+      .mockResolvedValue(jsonResponse({ version: "", sandboxUrl: "" }));
 
     const { result } = renderHook(() =>
-      useSandboxUrl({ baseUrl: "http://test.local", fetchFn }),
+      useInitialConfig({ baseUrl: "http://test.local", fetchFn }),
     );
 
     await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.version).toBeUndefined();
     expect(result.current.sandboxUrl).toBeUndefined();
   });
 
-  it("leaves sandboxUrl undefined when the fetch throws", async () => {
+  // Only an explicit `false` flips the list read-only. A nonconforming backend
+  // could send a falsy-but-not-false value (null / 0 / a string); each is
+  // `!== false`, so each must leave the list writable.
+  it.each([null, 0, "no"])(
+    "keeps writable true for writable=%j (falsy but not false)",
+    async (value) => {
+      const fetchFn = vi
+        .fn()
+        .mockResolvedValue(jsonResponse({ writable: value }));
+
+      const { result } = renderHook(() =>
+        useInitialConfig({ baseUrl: "http://test.local", fetchFn }),
+      );
+
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      expect(result.current.writable).toBe(true);
+    },
+  );
+
+  it("applies defaults on a non-ok response", async () => {
+    const fetchFn = vi
+      .fn()
+      .mockResolvedValue(
+        jsonResponse(
+          { version: "9.9.9", sandboxUrl: "http://x/sb", writable: false },
+          false,
+        ),
+      );
+
+    const { result } = renderHook(() =>
+      useInitialConfig({ baseUrl: "http://test.local", fetchFn }),
+    );
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.version).toBeUndefined();
+    expect(result.current.sandboxUrl).toBeUndefined();
+    expect(result.current.writable).toBe(true);
+  });
+
+  it("applies defaults when the fetch throws", async () => {
     const fetchFn = vi.fn().mockRejectedValue(new Error("network down"));
 
     const { result } = renderHook(() =>
-      useSandboxUrl({ baseUrl: "http://test.local", fetchFn }),
+      useInitialConfig({ baseUrl: "http://test.local", fetchFn }),
     );
 
     await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.version).toBeUndefined();
     expect(result.current.sandboxUrl).toBeUndefined();
+    expect(result.current.writable).toBe(true);
   });
 
   it("falls back to globalThis.fetch when no fetchFn is provided", async () => {
-    const globalFetch = vi
-      .fn()
-      .mockResolvedValue(jsonResponse({ sandboxUrl: "http://global/sb" }));
+    const globalFetch = vi.fn().mockResolvedValue(
+      jsonResponse({
+        version: "3.1.4",
+        sandboxUrl: "http://global/sb",
+        writable: false,
+      }),
+    );
     const original = globalThis.fetch;
     globalThis.fetch = globalFetch as unknown as typeof fetch;
     try {
       const { result } = renderHook(() =>
-        useSandboxUrl({ baseUrl: "http://test.local" }),
+        useInitialConfig({ baseUrl: "http://test.local" }),
       );
       await waitFor(() => expect(result.current.loading).toBe(false));
       expect(globalFetch).toHaveBeenCalledWith(
         "http://test.local/api/config",
         expect.objectContaining({ method: "GET" }),
       );
+      expect(result.current.version).toBe("3.1.4");
       expect(result.current.sandboxUrl).toBe("http://global/sb");
+      expect(result.current.writable).toBe(false);
     } finally {
       globalThis.fetch = original;
     }
@@ -145,19 +200,25 @@ describe("useSandboxUrl", () => {
     );
 
     const { result, unmount } = renderHook(() =>
-      useSandboxUrl({ baseUrl: "http://test.local", fetchFn }),
+      useInitialConfig({ baseUrl: "http://test.local", fetchFn }),
     );
     expect(result.current.loading).toBe(true);
 
     unmount();
     // Resolve after unmount — the post-fetch isCancelled() guard returns early.
-    resolveFetch?.(jsonResponse({ sandboxUrl: "http://late/sb" }));
+    resolveFetch?.(
+      jsonResponse({ version: "2.0.0", sandboxUrl: "http://late/sb" }),
+    );
     // Let the microtask queue drain so the continuation runs.
     await Promise.resolve();
     await Promise.resolve();
-    // No assertion error / React warning means the guards held; the last
-    // observed value stayed at its initial undefined.
+    // This test exists to exercise the post-unmount `isCancelled()` guard
+    // branches; it can't detect their removal (React 18 dropped the
+    // setState-after-unmount warning, and `result.current` is frozen at the last
+    // render), so it only asserts the fields stayed at their initial values.
+    expect(result.current.version).toBeUndefined();
     expect(result.current.sandboxUrl).toBeUndefined();
+    expect(result.current.writable).toBe(true);
   });
 
   it("drops a response whose json resolves after unmount", async () => {
@@ -175,16 +236,17 @@ describe("useSandboxUrl", () => {
     const fetchFn = vi.fn().mockResolvedValue(res);
 
     const { result, unmount } = renderHook(() =>
-      useSandboxUrl({ baseUrl: "http://test.local", fetchFn }),
+      useInitialConfig({ baseUrl: "http://test.local", fetchFn }),
     );
     // Let the fetch resolve so we're parked awaiting json().
     await waitFor(() => expect(fetchFn).toHaveBeenCalled());
     await Promise.resolve();
 
     unmount();
-    resolveJson?.({ sandboxUrl: "http://late/sb" });
+    resolveJson?.({ version: "2.0.0", writable: false });
     await Promise.resolve();
     await Promise.resolve();
-    expect(result.current.sandboxUrl).toBeUndefined();
+    expect(result.current.version).toBeUndefined();
+    expect(result.current.writable).toBe(true);
   });
 });

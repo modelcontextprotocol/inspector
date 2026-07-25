@@ -24,6 +24,13 @@ export interface TaskCardProps {
   progress?: TaskProgress;
   isListExpanded: boolean;
   onCancel: () => void;
+  /**
+   * Compact variant for the narrow monitoring sidebar. Moves the long task ID
+   * out of the header onto its own line below it (truncated) so the header
+   * doesn't wrap the status badge / Cancel Task control onto a second row. The
+   * full-width Tasks screen keeps the ID inline in the header.
+   */
+  embedded?: boolean;
 }
 
 const TaskContainer = Card.withProps({
@@ -80,6 +87,9 @@ const HeaderLeftGroup = Group.withProps({
 
 const HeaderRightGroup = Group.withProps({
   gap: "xs",
+  // Keep the Cancel Task control and the status badge together on the header's
+  // first row rather than letting the badge wrap beneath the button.
+  wrap: "nowrap",
 });
 
 const SectionTitle = Text.withProps({
@@ -100,6 +110,7 @@ export function TaskCard({
   progress,
   isListExpanded,
   onCancel,
+  embedded = false,
 }: TaskCardProps) {
   const { taskId, status, ttl, createdAt, lastUpdatedAt, statusMessage } = task;
   const [isExpanded, setIsExpanded] = useState(isListExpanded);
@@ -115,7 +126,11 @@ export function TaskCard({
         <HeaderRow>
           <HeaderLeftGroup>
             <SectionTitle>Task Details</SectionTitle>
-            <TaskIdText>{formatTaskId(taskId)}</TaskIdText>
+            {/* Full-width screen: the id sits inline after the title. In the
+                narrow embedded sidebar it moves to its own line below (see
+                below) so it can't push the status badge / Cancel Task onto a
+                second row. */}
+            {!embedded && <TaskIdText>{formatTaskId(taskId)}</TaskIdText>}
           </HeaderLeftGroup>
           <HeaderRightGroup>
             {isActive && (
@@ -124,6 +139,10 @@ export function TaskCard({
             <TaskStatusBadge status={status} />
           </HeaderRightGroup>
         </HeaderRow>
+
+        {embedded && (
+          <TaskIdText truncate="end">{formatTaskId(taskId)}</TaskIdText>
+        )}
 
         <SummaryRow>
           <DetailRow>

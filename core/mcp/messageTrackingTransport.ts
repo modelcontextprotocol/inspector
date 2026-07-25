@@ -26,15 +26,52 @@ export interface MessageTrackingCallbacks {
   ) => void;
 }
 
+/**
+ * Optional rewrite of an incoming response BEFORE it reaches the SDK's codec.
+ * Used for extension result shapes the SDK v2 codec would reject outright — e.g.
+ * a modern (SEP-2663) `resultType: "task"` result, which the codec has no
+ * knowledge of (tasks were removed from the SDK). The ORIGINAL message is still
+ * what `trackResponse` logs (so the Protocol/Network tabs show the true wire);
+ * only the copy handed to the SDK is rewritten. Return the message unchanged to
+ * pass it through untouched.
+ */
+export type IncomingResultRewriter = (
+  message: JSONRPCResultResponse,
+) => JSONRPCMessage;
+
+/**
+ * Optional consumer for an incoming response the SDK Client did not originate —
+ * used for the raw-wire channel that drives extension methods the SDK v2 era
+ * gate refuses to send (e.g. modern `tasks/get`/`tasks/update`/`tasks/cancel`,
+ * which are spec-method names absent from the 2026-07-28 era). When this returns
+ * `true` the response is treated as fully handled and is NOT forwarded to the
+ * SDK Client (which has no pending request for it). The response is still logged
+ * by `trackResponse` first, so the Protocol/Network tabs see the true frame.
+ */
+export type IncomingResponseConsumer = (
+  message: JSONRPCResultResponse | JSONRPCErrorResponse,
+) => boolean;
+
+export interface MessageTrackingHooks {
+  rewriteIncomingResult?: IncomingResultRewriter;
+  consumeIncomingResponse?: IncomingResponseConsumer;
+}
+
 // Transport wrapper that intercepts all messages for tracking
 export class MessageTrackingTransport implements Transport {
   private baseTransport: Transport;
   private callbacks: MessageTrackingCallbacks;
   private negotiatedProtocolVersion?: string;
+  private hooks: MessageTrackingHooks;
 
-  constructor(baseTransport: Transport, callbacks: MessageTrackingCallbacks) {
+  constructor(
+    baseTransport: Transport,
+    callbacks: MessageTrackingCallbacks,
+    hooks: MessageTrackingHooks = {},
+  ) {
     this.baseTransport = baseTransport;
     this.callbacks = callbacks;
+    this.hooks = hooks;
   }
 
   async start(): Promise<void> {
@@ -121,6 +158,28 @@ export class MessageTrackingTransport implements Transport {
               message as JSONRPCResultResponse | JSONRPCErrorResponse,
               "server",
             );
+            // Consume a response to a raw-wire request the SDK never sent (e.g.
+            // a modern `tasks/get`); handled entirely by the caller, not the SDK.
+            if (
+              this.hooks.consumeIncomingResponse?.(
+                message as JSONRPCResultResponse | JSONRPCErrorResponse,
+              )
+            ) {
+              return;
+            }
+            // Rewrite a result the SDK codec can't decode (e.g. a modern
+            // `resultType: "task"` handle) AFTER logging the true wire, so the
+            // SDK receives a shape it accepts while the Protocol/Network tabs
+            // still show the real frame.
+            if (this.hooks.rewriteIncomingResult && "result" in message) {
+              const rewritten = this.hooks.rewriteIncomingResult(
+                message as JSONRPCResultResponse,
+              );
+              if (rewritten !== message) {
+                handler(rewritten as T, extra);
+                return;
+              }
+            }
           } else if ("method" in message) {
             // This is a request coming from the server
             this.callbacks.trackRequest?.(message as JSONRPCRequest, "server");

@@ -35,6 +35,11 @@ const ClearHistoryButton = Button.withProps({
   size: "sm",
 });
 
+const HeaderRow = Group.withProps({
+  justify: "space-between",
+  mb: "sm",
+});
+
 const EmptyState = Text.withProps({
   c: "dimmed",
   ta: "center",
@@ -110,7 +115,7 @@ export function TaskListPanel({
 
   return (
     <PanelContainer>
-      <Group justify="space-between" mb="sm">
+      <HeaderRow>
         <Title order={4}>Tasks</Title>
         {hasResults && (
           <ListToggle
@@ -118,7 +123,7 @@ export function TaskListPanel({
             onToggle={() => setCompact((c) => !c)}
           />
         )}
-      </Group>
+      </HeaderRow>
 
       {!hasResults ? (
         <EmptyState>No tasks</EmptyState>
@@ -135,6 +140,7 @@ export function TaskListPanel({
                     progress={progressByTaskId?.[task.taskId]}
                     isListExpanded={!compact}
                     onCancel={() => onCancel(task.taskId)}
+                    embedded={embedded}
                   />
                 ))}
               </>
@@ -157,6 +163,7 @@ export function TaskListPanel({
                     progress={progressByTaskId?.[task.taskId]}
                     isListExpanded={!compact}
                     onCancel={() => onCancel(task.taskId)}
+                    embedded={embedded}
                   />
                 ))}
               </>

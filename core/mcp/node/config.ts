@@ -9,6 +9,7 @@ import type {
   StreamableHttpServerConfig,
 } from "../types.js";
 import { normalizeServerType } from "../serverList.js";
+import { toRecord } from "../../json/jsonUtils.js";
 
 /**
  * Options object passed to resolveServerConfigs by runners (parsed from argv).
@@ -140,9 +141,7 @@ function loadMcpServersConfig(
 
     const normalizedServers: Record<string, MCPServerConfig> = {};
     for (const [name, raw] of Object.entries(config.mcpServers)) {
-      normalizedServers[name] = normalizeServerType(
-        raw as unknown as Record<string, unknown> & { type?: string },
-      );
+      normalizedServers[name] = normalizeServerType(toRecord(raw));
     }
     return { ...config, mcpServers: normalizedServers };
   } catch (error) {

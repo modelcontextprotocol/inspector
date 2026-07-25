@@ -135,4 +135,52 @@ describe("ToolControls", () => {
     expect(screen.getByText("Tools")).toBeInTheDocument();
     expect(screen.queryByText("git_status")).not.toBeInTheDocument();
   });
+
+  const excludedFixture = [
+    {
+      tool: {
+        name: "invalid_header_tool",
+        inputSchema: { type: "object" as const },
+      },
+      reason:
+        "value: x-mcp-header 'Bad Header' is not a valid RFC 9110 token (no spaces, control characters or HTTP delimiters)",
+    },
+  ];
+
+  it("renders excluded tools with a header and the tool name (#1632)", () => {
+    renderWithMantine(
+      <ToolControls {...baseProps} excludedTools={excludedFixture} />,
+    );
+    expect(screen.getByText("Excluded (SEP-2243)")).toBeInTheDocument();
+    expect(screen.getByText("invalid_header_tool")).toBeInTheDocument();
+  });
+
+  it("does not render the excluded section when there are none", () => {
+    renderWithMantine(<ToolControls {...baseProps} excludedTools={[]} />);
+    expect(screen.queryByText("Excluded (SEP-2243)")).not.toBeInTheDocument();
+  });
+
+  it("filters excluded tools by the search text (#1632)", () => {
+    renderWithMantine(
+      <ToolControls
+        {...baseProps}
+        excludedTools={excludedFixture}
+        searchText="git"
+      />,
+    );
+    // The search matches no excluded tool, so the section is hidden.
+    expect(screen.queryByText("Excluded (SEP-2243)")).not.toBeInTheDocument();
+    expect(screen.queryByText("invalid_header_tool")).not.toBeInTheDocument();
+  });
+
+  it("keeps a matching excluded tool visible under search (#1632)", () => {
+    renderWithMantine(
+      <ToolControls
+        {...baseProps}
+        excludedTools={excludedFixture}
+        searchText="invalid"
+      />,
+    );
+    expect(screen.getByText("invalid_header_tool")).toBeInTheDocument();
+  });
 });

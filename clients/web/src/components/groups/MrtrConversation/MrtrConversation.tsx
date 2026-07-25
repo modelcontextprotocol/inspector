@@ -69,6 +69,11 @@ const RoundLabel = Text.withProps({
   c: "dimmed",
 });
 
+const RoundCountBadge = Badge.withProps({
+  color: "blue",
+  variant: "outline",
+});
+
 type ConversationStatus = "pending" | "awaiting" | "error" | "complete";
 
 // The conversation's status is that of its final (latest) round: still awaiting
@@ -145,14 +150,14 @@ export function MrtrConversation({
           <HeaderLeft>
             <MethodBadge method={method} />
             <MrtrLabel>MRTR</MrtrLabel>
-            <Badge color="blue" variant="outline">
+            <RoundCountBadge>
               {formatRoundsLabel(ordered.length)}
-            </Badge>
+            </RoundCountBadge>
           </HeaderLeft>
           <HeaderRight>
             <Badge
-              color={statusColor(status)}
               variant="status"
+              color={statusColor(status)}
               data-testid="mrtr-status"
             >
               {statusLabel(status)}

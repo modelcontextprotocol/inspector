@@ -107,10 +107,13 @@ const SidebarCard = Card.withProps({
 // `variant="preview"` (overflow: hidden) keeps the full-height card from
 // bleeding past the viewport: the running app's iframe fills it, and the
 // app-input form scrolls internally (see AppDetailPanel's PanelScroll).
+// `flex: 1` + `h: "100%"` make it fill the screen column (both call sites do).
 const ContentCard = Card.withProps({
   withBorder: true,
   padding: "lg",
   variant: "preview",
+  flex: 1,
+  h: "100%",
 });
 
 const EmptyState = Text.withProps({
@@ -150,6 +153,17 @@ const HeaderTitle = Text.withProps({
 const HeaderActions = Group.withProps({
   gap: "xs",
   wrap: "nowrap",
+});
+
+const BackToInputButton = Button.withProps({
+  variant: "subtle",
+  size: "sm",
+  leftSection: <MdArrowBack aria-hidden size={16} />,
+});
+
+const CloseIconButton = ActionIcon.withProps({
+  variant: "subtle",
+  "aria-label": "Close",
 });
 
 // The host-controlled box the running app sits within. Its size is driven by
@@ -552,7 +566,7 @@ export function AppsScreen({
   if (!sandboxPath) {
     return (
       <ScreenLayout>
-        <ContentCard flex={1} h="100%">
+        <ContentCard>
           <EmptyState>
             MCP Apps are unavailable — the sandbox could not be reached.
           </EmptyState>
@@ -589,8 +603,6 @@ export function AppsScreen({
       )}
 
       <ContentCard
-        flex={1}
-        h="100%"
         data-testid="apps-form"
         data-app-status={running ? appStatus : "idle"}
         data-app-error={running ? appError?.message : undefined}
@@ -608,14 +620,9 @@ export function AppsScreen({
               </HeaderLabel>
               <HeaderActions>
                 {running && selectedHasFields && (
-                  <Button
-                    variant="subtle"
-                    size="sm"
-                    leftSection={<MdArrowBack aria-hidden size={16} />}
-                    onClick={handleBackToInput}
-                  >
+                  <BackToInputButton onClick={handleBackToInput}>
                     Back to Input
-                  </Button>
+                  </BackToInputButton>
                 )}
                 {running && (
                   <Tooltip label={maximized ? "Restore" : "Maximize"}>
@@ -633,13 +640,9 @@ export function AppsScreen({
                   </Tooltip>
                 )}
                 <Tooltip label="Close">
-                  <ActionIcon
-                    variant="subtle"
-                    onClick={handleClose}
-                    aria-label="Close"
-                  >
+                  <CloseIconButton onClick={handleClose}>
                     <MdClose aria-hidden size={20} />
-                  </ActionIcon>
+                  </CloseIconButton>
                 </Tooltip>
               </HeaderActions>
             </HeaderRow>

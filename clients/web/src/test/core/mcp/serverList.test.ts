@@ -284,6 +284,63 @@ describe("serverEntriesToMcpConfig", () => {
     expect(round).toEqual(original);
   });
 
+  it("round-trips advertisedExtensions: lifts a non-empty map to settings and back to disk", () => {
+    const original: MCPConfig = {
+      mcpServers: {
+        exttest: {
+          type: "streamable-http",
+          url: "https://x.test/mcp",
+          advertisedExtensions: { "io.modelcontextprotocol/tasks": false },
+        },
+      },
+    };
+    const [entry] = mcpConfigToServerEntries(original);
+    expect(entry?.settings?.advertisedExtensions).toEqual({
+      "io.modelcontextprotocol/tasks": false,
+    });
+    const round = serverEntriesToMcpConfig(mcpConfigToServerEntries(original));
+    expect(round).toEqual(original);
+  });
+
+  it("omits advertisedExtensions from disk when unset, and leaves settings unset", () => {
+    const original: MCPConfig = {
+      mcpServers: {
+        extnone: {
+          type: "streamable-http",
+          url: "https://x.test/mcp",
+          connectionTimeout: 5000,
+        },
+      },
+    };
+    const [entry] = mcpConfigToServerEntries(original);
+    expect(entry?.settings?.advertisedExtensions).toBeUndefined();
+    const round = serverEntriesToMcpConfig(mcpConfigToServerEntries(original));
+    expect("advertisedExtensions" in (round.mcpServers.extnone ?? {})).toBe(
+      false,
+    );
+    expect(round).toEqual(original);
+  });
+
+  it("treats an empty advertisedExtensions map on disk as unset (omitted on write)", () => {
+    const original: MCPConfig = {
+      mcpServers: {
+        extempty: {
+          type: "streamable-http",
+          url: "https://x.test/mcp",
+          advertisedExtensions: {},
+        },
+      },
+    };
+    const [entry] = mcpConfigToServerEntries(original);
+    // An empty map reads back as unset for the form...
+    expect(entry?.settings?.advertisedExtensions).toBeUndefined();
+    // ...and the write side omits it, so the empty map does not round-trip.
+    const round = serverEntriesToMcpConfig(mcpConfigToServerEntries(original));
+    expect("advertisedExtensions" in (round.mcpServers.extempty ?? {})).toBe(
+      false,
+    );
+  });
+
   it("round-trips maxFetchRequests: lifts a non-default value to settings and back to disk", () => {
     const original: MCPConfig = {
       mcpServers: {
@@ -404,6 +461,56 @@ describe("serverEntriesToMcpConfig", () => {
     expect(entry?.settings?.protocolEra).toBe("legacy");
     const round = serverEntriesToMcpConfig(mcpConfigToServerEntries(original));
     expect("protocolEra" in (round.mcpServers["era-legacy"] ?? {})).toBe(false);
+  });
+
+  it("round-trips modernLogLevel: lifts a non-default value to settings and back to disk (#1629)", () => {
+    const original: MCPConfig = {
+      mcpServers: {
+        "log-off": {
+          type: "streamable-http",
+          url: "https://x.test/mcp",
+          modernLogLevel: "off",
+        },
+      },
+    };
+    const [entry] = mcpConfigToServerEntries(original);
+    expect(entry?.settings?.modernLogLevel).toBe("off");
+    const round = serverEntriesToMcpConfig(mcpConfigToServerEntries(original));
+    expect(round).toEqual(original);
+  });
+
+  it("drops an unknown modernLogLevel literal on read (hand-edited file) (#1629)", () => {
+    const badLevel: object = { modernLogLevel: "verbose" };
+    const original: MCPConfig = {
+      mcpServers: {
+        "log-bad": {
+          type: "streamable-http",
+          url: "https://x.test/mcp",
+          ...badLevel,
+        },
+      },
+    };
+    const [entry] = mcpConfigToServerEntries(original);
+    expect(entry?.settings?.modernLogLevel).toBeUndefined();
+  });
+
+  it("omits modernLogLevel from disk when it equals the default (debug) (#1629)", () => {
+    const original: MCPConfig = {
+      mcpServers: {
+        "log-default": {
+          type: "streamable-http",
+          url: "https://x.test/mcp",
+          modernLogLevel: "debug",
+          connectionTimeout: 5000,
+        },
+      },
+    };
+    const [entry] = mcpConfigToServerEntries(original);
+    expect(entry?.settings?.modernLogLevel).toBe("debug");
+    const round = serverEntriesToMcpConfig(mcpConfigToServerEntries(original));
+    expect("modernLogLevel" in (round.mcpServers["log-default"] ?? {})).toBe(
+      false,
+    );
   });
 
   it("lifts top-level Inspector-extension fields onto ServerEntry.settings (form shape)", () => {

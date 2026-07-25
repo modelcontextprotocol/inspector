@@ -124,7 +124,10 @@ describe("InspectorClient direct mid-session OAuth", () => {
 
     const authUrl = await client.authenticate();
     if (!authUrl) throw new Error("Expected authorization URL");
-    await client.completeOAuthFlow(await completeOAuthAuthorization(authUrl));
+    {
+      const { code, iss } = await completeOAuthAuthorization(authUrl);
+      await client.completeOAuthFlow(code, iss);
+    }
     await client.connect();
 
     const tokens = await client.getOAuthTokens();
@@ -205,7 +208,10 @@ describe("InspectorClient direct mid-session OAuth", () => {
 
     const authUrl = await client.authenticate();
     if (!authUrl) throw new Error("Expected authorization URL");
-    await client.completeOAuthFlow(await completeOAuthAuthorization(authUrl));
+    {
+      const { code, iss } = await completeOAuthAuthorization(authUrl);
+      await client.completeOAuthFlow(code, iss);
+    }
     await client.connect();
 
     const toolsResult = await client.listTools();
@@ -227,10 +233,9 @@ describe("InspectorClient direct mid-session OAuth", () => {
       "weather:read",
     );
 
-    const stepUpCode = await completeOAuthAuthorization(
-      recovery!.authorizationUrl,
-    );
-    await client.completeOAuthFlow(stepUpCode);
+    const { code: stepUpCode, iss: stepUpCodeIss } =
+      await completeOAuthAuthorization(recovery!.authorizationUrl);
+    await client.completeOAuthFlow(stepUpCode, stepUpCodeIss);
 
     const result = await client.callTool(getTempTool!, {
       city: "NYC",

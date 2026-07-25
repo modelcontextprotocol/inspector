@@ -2,10 +2,24 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "noEmit": true,
+    // Match clients/web/tsconfig.app.json's module/lib *resolution* options so
+    // the imported `core/` sources are validated the same way web's own gate
+    // validates them: DOM lib + bundler resolution are what core/ (browser-side
+    // auth, DOM types) expects, and `noUncheckedIndexedAccess` is off because
+    // web's app config does not extend tsconfig.base — re-enabling it here would
+    // flag core/ issues web never gates. This does NOT mirror web's extra
+    // strictness flags (noUnusedLocals, verbatimModuleSyntax, ES2023 target,
+    // …), so cli/tui's own src is checked slightly more loosely than web's src.
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": ["node"],
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "module": "ESNext",
+    "noUncheckedIndexedAccess": false,
     "paths": {
       "@inspector/core/*": ["../../core/*"]
     }
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "**/*.test.ts", "build"]
+  "exclude": ["node_modules", "**/*.test.ts", "**/*.test.tsx", "build"]
 }

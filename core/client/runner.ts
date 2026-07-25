@@ -3,8 +3,14 @@
  * for Node runners (TUI, CLI).
  */
 
-import { KeyringSecretStore } from "../auth/node/secret-store.js";
-import type { InspectorClientOptions, InspectorServerSettings } from "../mcp/types.js";
+import {
+  KeyringSecretStore,
+  type SecretStore,
+} from "../auth/node/secret-store.js";
+import type {
+  InspectorClientOptions,
+  InspectorServerSettings,
+} from "../mcp/types.js";
 import { loadClientConfig } from "./config.js";
 import type { ClientConfig } from "./types.js";
 import {
@@ -15,6 +21,9 @@ import {
 export interface LoadRunnerClientConfigOptions {
   /** Explicit path from `--client-config` (or MCP_CLIENT_CONFIG_PATH when unset). */
   clientConfigPath?: string;
+  /** Secret store for the IdP clientSecret; defaults to the OS keychain. Tests
+   * inject an in-memory store for determinism. */
+  secretStore?: SecretStore;
 }
 
 /** Load install-level client.json with keychain-backed IdP secrets. */
@@ -25,7 +34,7 @@ export async function loadRunnerClientConfig(
     options?.clientConfigPath?.trim() ||
     process.env.MCP_CLIENT_CONFIG_PATH?.trim() ||
     undefined;
-  const secretStore = new KeyringSecretStore();
+  const secretStore = options?.secretStore ?? new KeyringSecretStore();
   return loadClientConfig({ filePath: customPath, secretStore });
 }
 
@@ -53,7 +62,10 @@ export function buildRunnerClientAuthOptions(
   cliOverrides?: RunnerClientConfigOverrides,
 ): Pick<
   InspectorClientOptions,
-  "oauth" | "enterpriseManagedAuth" | "installEnterpriseManagedAuth" | "directAuthRecovery"
+  | "oauth"
+  | "enterpriseManagedAuth"
+  | "installEnterpriseManagedAuth"
+  | "directAuthRecovery"
 > {
   const activeIdp = getActiveEnterpriseManagedAuthIdp(clientConfig);
   const activeCimdUrl = getActiveCimdClientMetadataUrl(clientConfig);
@@ -84,9 +96,7 @@ export function buildRunnerClientAuthOptions(
     cliOverrides?.clientMetadataUrl?.trim() || activeCimdUrl;
 
   const oauthFromCli =
-    cliOverrides?.clientId ||
-    cliOverrides?.clientSecret ||
-    clientMetadataUrl
+    cliOverrides?.clientId || cliOverrides?.clientSecret || clientMetadataUrl
       ? {
           ...(cliOverrides?.clientId && { clientId: cliOverrides.clientId }),
           ...(cliOverrides?.clientSecret && {

@@ -11,6 +11,12 @@ export interface MonitoringToggleProps {
   onToggle: () => void;
 }
 
+// `size={36}` matches the header's theme / client-settings ActionIcons.
+const MonitoringActionIcon = ActionIcon.withProps({
+  variant: "subtle",
+  size: 36,
+});
+
 /**
  * The single header affordance for the monitoring sidebar (#1661). It replaces
  * the per-screen pin buttons, the server-list open-sidebar button, and the
@@ -19,7 +25,7 @@ export interface MonitoringToggleProps {
  * label reflect the current state (expand when closed, collapse when open). The
  * caller only mounts it when the sidebar is available (connected, or a failed
  * connect attempt, on a wide viewport), so it never appears with nothing to
- * toggle. `size={36}` matches the header's theme / client-settings ActionIcons.
+ * toggle.
  */
 export function MonitoringToggle({ open, onToggle }: MonitoringToggleProps) {
   const Icon = open ? TbLayoutSidebarRightCollapse : TbLayoutSidebarRightExpand;
@@ -27,14 +33,9 @@ export function MonitoringToggle({ open, onToggle }: MonitoringToggleProps) {
 
   return (
     <Tooltip label={label}>
-      <ActionIcon
-        variant="subtle"
-        size={36}
-        aria-label={label}
-        onClick={onToggle}
-      >
+      <MonitoringActionIcon aria-label={label} onClick={onToggle}>
         <Icon size={20} />
-      </ActionIcon>
+      </MonitoringActionIcon>
     </Tooltip>
   );
 }

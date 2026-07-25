@@ -68,12 +68,14 @@ export function summarizeServerConfig(config: MCPServerConfig): {
   type: string;
   detail: string;
 } {
-  if (config.type === "stdio") {
-    const args = config.args?.length ? ` ${config.args.join(" ")}` : "";
-    return { type: "stdio", detail: `${config.command}${args}` };
+  // Narrow on the URL-bearing transports first — stdio's `type` is optional, so
+  // an else-after-`=== "stdio"` check would still leave `StdioServerConfig` in
+  // the residual union (see `StdioServerConfig` in core/mcp/types.ts).
+  if (config.type === "sse" || config.type === "streamable-http") {
+    return { type: config.type, detail: config.url };
   }
-  // sse | streamable-http — both carry `url`
-  return { type: config.type, detail: config.url ?? "" };
+  const args = config.args?.length ? ` ${config.args.join(" ")}` : "";
+  return { type: "stdio", detail: `${config.command}${args}` };
 }
 
 /**

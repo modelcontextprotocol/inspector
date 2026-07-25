@@ -6,6 +6,16 @@ import { ServerCard, type ServerCardProps } from "../ServerCard/ServerCard";
 
 export type SortableServerCardProps = ServerCardProps;
 
+// The drag-activator grip. `server-drag-handle` carries the grab cursor +
+// `:active` pseudo (App.css). `ref`, `aria-label`, and the dnd-kit
+// attribute/listener spreads are applied at the call site.
+const DragHandle = ActionIcon.withProps({
+  variant: "subtle",
+  color: "gray",
+  size: "md",
+  className: "server-drag-handle",
+});
+
 /**
  * Sortable wrapper around the dumb `ServerCard`. Owns all drag-and-drop
  * concerns (the `@dnd-kit` sortable node, the per-frame transform, and the
@@ -30,18 +40,14 @@ export function SortableServerCard(props: SortableServerCardProps) {
   } = useSortable({ id: props.id });
 
   const grip = (
-    <ActionIcon
+    <DragHandle
       ref={setActivatorNodeRef}
-      variant="subtle"
-      color="gray"
-      size="md"
-      className="server-drag-handle"
       aria-label={`Reorder ${props.name}`}
       {...attributes}
       {...listeners}
     >
       <RiDraggable size={16} />
-    </ActionIcon>
+    </DragHandle>
   );
 
   return (

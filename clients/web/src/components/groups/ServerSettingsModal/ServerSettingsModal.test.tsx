@@ -139,6 +139,108 @@ describe("ServerSettingsModal", () => {
     );
   });
 
+  it("maps the selected modern log level into settings (#1629)", async () => {
+    const user = userEvent.setup();
+    const onSettingsChange = vi.fn();
+    renderWithMantine(
+      <ServerSettingsModal
+        opened
+        // The modern log-level control only shows for a modern-capable era.
+        settings={{ ...emptySettings, protocolEra: "modern" }}
+        serverType="streamable-http"
+        isStdio={false}
+        onClose={vi.fn()}
+        onSettingsChange={onSettingsChange}
+      />,
+    );
+    // The Options section (with Log Level per Request) is expanded by default;
+    // it defaults to "debug".
+    await user.click(screen.getAllByDisplayValue("debug")[0]);
+    await user.click(screen.getByText("Off (no logs)"));
+    expect(onSettingsChange).toHaveBeenCalledWith(
+      expect.objectContaining({ modernLogLevel: "off" }),
+    );
+  });
+
+  it("folds an advertised-extension toggle into settings.advertisedExtensions (#1739)", async () => {
+    const user = userEvent.setup();
+    const onSettingsChange = vi.fn();
+    renderWithMantine(
+      <ServerSettingsModal
+        opened
+        settings={emptySettings}
+        serverType="streamable-http"
+        isStdio={false}
+        onClose={vi.fn()}
+        onSettingsChange={onSettingsChange}
+      />,
+    );
+    // Advertised Extensions is its own accordion section (#1747), collapsed by
+    // default — open it, then toggle Tasks (checked by the registry default) off.
+    await user.click(
+      screen.getByRole("button", { name: "Advertised Extensions" }),
+    );
+    await user.click(
+      screen.getByRole("checkbox", {
+        name: /Tasks \(io\.modelcontextprotocol\/tasks\)/,
+      }),
+    );
+    expect(onSettingsChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        advertisedExtensions: { "io.modelcontextprotocol/tasks": false },
+      }),
+    );
+  });
+
+  it("reconverges to no override when an extension toggle returns to its default (#1739)", async () => {
+    const user = userEvent.setup();
+    const onSettingsChange = vi.fn();
+    renderWithMantine(
+      <ServerSettingsModal
+        opened
+        // Start from a disabling override so re-checking Tasks returns it to the
+        // registry default (advertised) and should drop the key entirely.
+        settings={{
+          ...emptySettings,
+          advertisedExtensions: { "io.modelcontextprotocol/tasks": false },
+        }}
+        serverType="streamable-http"
+        isStdio={false}
+        onClose={vi.fn()}
+        onSettingsChange={onSettingsChange}
+      />,
+    );
+    // Open the Advertised Extensions section (#1747), then re-check Tasks.
+    await user.click(
+      screen.getByRole("button", { name: "Advertised Extensions" }),
+    );
+    await user.click(
+      screen.getByRole("checkbox", {
+        name: /Tasks \(io\.modelcontextprotocol\/tasks\)/,
+      }),
+    );
+    // The only override returned to its default → the whole map drops to
+    // undefined (no-override), keeping the on-disk round-trip minimal.
+    expect(onSettingsChange).toHaveBeenCalledWith(
+      expect.objectContaining({ advertisedExtensions: undefined }),
+    );
+  });
+
+  it("hides the modern log-level control when this server negotiated legacy under 'auto' (#1629)", () => {
+    renderWithMantine(
+      <ServerSettingsModal
+        opened
+        settings={{ ...emptySettings, protocolEra: "auto" }}
+        serverType="streamable-http"
+        isStdio={false}
+        negotiatedEra="legacy"
+        onClose={vi.fn()}
+        onSettingsChange={vi.fn()}
+      />,
+    );
+    expect(screen.queryByText("Log Level per Request")).toBeNull();
+  });
+
   it("calls onSettingsChange when adding a header after expanding the section", async () => {
     const user = userEvent.setup();
     const onSettingsChange = vi.fn();

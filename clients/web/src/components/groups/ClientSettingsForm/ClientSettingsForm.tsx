@@ -51,6 +51,45 @@ const HintText = Text.withProps({
   c: "dimmed",
 });
 
+const ErrorAlert = Alert.withProps({
+  color: "red",
+  variant: "light",
+  title: "Client registration was rejected",
+});
+
+// `rightSectionPointerEvents="auto"` keeps the ClearButton clickable inside the
+// input's right section; shared by every clearable field here.
+const ClearableTextInput = TextInput.withProps({
+  rightSectionPointerEvents: "auto",
+});
+
+const IdpSessionRow = Group.withProps({
+  justify: "space-between",
+  align: "flex-start",
+  wrap: "nowrap",
+});
+
+const IdpSessionStack = Stack.withProps({
+  gap: 4,
+  flex: 1,
+});
+
+const SectionLabel = Text.withProps({
+  size: "sm",
+  fw: 500,
+});
+
+const SessionBadge = Badge.withProps({
+  w: "fit-content",
+  variant: "light",
+});
+
+const SignOutButton = Button.withProps({
+  variant: "light",
+  color: "red",
+  size: "compact-sm",
+});
+
 /** Human-readable one-liner for an RFC 7591 DCR rejection. */
 function registrationRejectionSummary(error: OAuthRegistrationError): string {
   const parts = [
@@ -115,11 +154,7 @@ export function ClientSettingsForm({
   return (
     <Stack gap="md">
       {registrationError && (
-        <Alert
-          color="red"
-          variant="light"
-          title="Client registration was rejected"
-        >
+        <ErrorAlert>
           <Stack gap={4}>
             <Text size="sm">
               {registrationRejectionSummary(registrationError)}
@@ -132,15 +167,18 @@ export function ClientSettingsForm({
               preregistered client instead.
             </HintText>
           </Stack>
-        </Alert>
+        </ErrorAlert>
       )}
+      {/* Stays inline: Accordion is a compound, `multiple`-discriminated generic,
+          so `.withProps({ multiple: true, ... })` loses its JSX call signature
+          (same tooling limit as Box). */}
       <Accordion
         multiple
+        variant="separated"
         value={expandedSections}
         onChange={(value) =>
           onExpandedSectionsChange(value as ClientSettingsSection[])
         }
-        variant="separated"
       >
         <Accordion.Item value="ema">
           <Accordion.Control>
@@ -162,42 +200,39 @@ export function ClientSettingsForm({
                       ? `${window.location.origin}/oauth/callback`
                       : "http://localhost:6274/oauth/callback"}
                   </HintText>
-                  <TextInput
+                  <ClearableTextInput
                     label="Issuer"
                     description="Your enterprise IdP issuer URL."
                     value={settings.issuer}
                     onChange={(e) => patch({ issuer: e.currentTarget.value })}
                     onBlur={() => setIssuerTouched(true)}
                     error={showIssuerError}
-                    rightSectionPointerEvents="auto"
                     rightSection={
                       settings.issuer ? (
                         <ClearButton onClick={() => patch({ issuer: "" })} />
                       ) : null
                     }
                   />
-                  <TextInput
-                    label="Client ID"
-                    description="Client id registered with your enterprise IdP."
+                  <ClearableTextInput
+                    label="IdP Client ID"
+                    description="Client id registered with your enterprise IdP (EMA legs 1–2) — not the per-server resource authorization server credentials, which go in Server Settings → OAuth Settings."
                     value={settings.clientId}
                     onChange={(e) => patch({ clientId: e.currentTarget.value })}
                     error={showClientIdError}
-                    rightSectionPointerEvents="auto"
                     rightSection={
                       settings.clientId ? (
                         <ClearButton onClick={() => patch({ clientId: "" })} />
                       ) : null
                     }
                   />
-                  <TextInput
-                    label="Client Secret"
-                    description="Client secret for your enterprise IdP (if required)."
+                  <ClearableTextInput
+                    label="IdP Client Secret"
+                    description="Client secret for your enterprise IdP, if required (EMA legs 1–2) — not the per-server resource authorization server credentials, which go in Server Settings → OAuth Settings."
                     type="password"
                     value={settings.clientSecret}
                     onChange={(e) =>
                       patch({ clientSecret: e.currentTarget.value })
                     }
-                    rightSectionPointerEvents="auto"
                     rightSection={
                       settings.clientSecret ? (
                         <ClearButton
@@ -207,24 +242,12 @@ export function ClientSettingsForm({
                     }
                   />
                   {settings.issuer.trim() !== "" && (
-                    <Group
-                      justify="space-between"
-                      align="flex-start"
-                      wrap="nowrap"
-                    >
-                      <Stack gap={4} flex={1}>
-                        <Text size="sm" fw={500}>
-                          IdP sign-in
-                        </Text>
+                    <IdpSessionRow>
+                      <IdpSessionStack>
+                        <SectionLabel>IdP sign-in</SectionLabel>
                         {emaIdpLoginState === "logged_in" ? (
                           <>
-                            <Badge
-                              w="fit-content"
-                              color="green"
-                              variant="light"
-                            >
-                              Signed in
-                            </Badge>
+                            <SessionBadge color="green">Signed in</SessionBadge>
                             <HintText>
                               Your enterprise IdP session is active. Connecting
                               to EMA-enabled MCP servers will not prompt for IdP
@@ -233,13 +256,9 @@ export function ClientSettingsForm({
                           </>
                         ) : emaIdpLoginState === "expired" ? (
                           <>
-                            <Badge
-                              w="fit-content"
-                              color="yellow"
-                              variant="light"
-                            >
+                            <SessionBadge color="yellow">
                               Session expired
-                            </Badge>
+                            </SessionBadge>
                             <HintText>
                               Your cached IdP session has expired. The next
                               connect to an EMA-enabled server will prompt for
@@ -252,18 +271,13 @@ export function ClientSettingsForm({
                             an EMA-enabled MCP server will open IdP login.
                           </HintText>
                         )}
-                      </Stack>
+                      </IdpSessionStack>
                       {showIdpSession && onEmaIdpLogout ? (
-                        <Button
-                          variant="light"
-                          color="red"
-                          size="compact-sm"
-                          onClick={onEmaIdpLogout}
-                        >
+                        <SignOutButton onClick={onEmaIdpLogout}>
                           Sign out
-                        </Button>
+                        </SignOutButton>
                       ) : null}
-                    </Group>
+                    </IdpSessionRow>
                   )}
                 </>
               )}
@@ -299,7 +313,7 @@ export function ClientSettingsForm({
                       ? `${window.location.origin}/oauth/callback`
                       : "http://localhost:6274/oauth/callback"}
                   </HintText>
-                  <TextInput
+                  <ClearableTextInput
                     label="Client ID metadata document URL"
                     description="Public HTTPS URL of your OAuth client metadata JSON document."
                     value={settings.clientMetadataUrl}
@@ -308,7 +322,6 @@ export function ClientSettingsForm({
                     }
                     onBlur={() => setClientMetadataUrlTouched(true)}
                     error={showClientMetadataUrlError}
-                    rightSectionPointerEvents="auto"
                     rightSection={
                       settings.clientMetadataUrl ? (
                         <ClearButton

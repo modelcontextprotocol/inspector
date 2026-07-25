@@ -29,7 +29,7 @@ const oauthTestStatePath = join(
 
 async function completeOAuthAuthorization(
   authorizationUrl: URL,
-): Promise<string> {
+): Promise<{ code: string; iss?: string }> {
   let response = await fetch(authorizationUrl.toString(), {
     redirect: "manual",
   });
@@ -62,19 +62,23 @@ async function completeOAuthAuthorization(
   if (!code) {
     throw new Error("Missing authorization code");
   }
-  return code;
+  const iss = redirect.searchParams.get("iss") ?? undefined;
+  return iss ? { code, iss } : { code };
 }
 
 function createAutoCompleteNavigation(
   redirectUrlProvider: MutableRedirectUrlProvider,
 ) {
   return new CallbackNavigation(async (url) => {
-    const code = await completeOAuthAuthorization(url);
+    const { code, iss } = await completeOAuthAuthorization(url);
     const redirect = redirectUrlProvider.redirectUrl;
     if (!redirect) {
       throw new Error("redirectUrl not set");
     }
-    await fetch(`${redirect}?code=${encodeURIComponent(code)}`);
+    const callback = new URL(redirect);
+    callback.searchParams.set("code", code);
+    if (iss) callback.searchParams.set("iss", iss);
+    await fetch(callback.href);
   });
 }
 

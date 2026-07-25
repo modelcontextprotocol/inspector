@@ -1,7 +1,8 @@
 # Inspector V2 Auth — OAuth smoke testing (real servers)
 
 ### [Brief](README.md) | [V1 Problems](v1_problems.md) | [V2 Scope](v2_scope.md) | [V2 Tech Stack](v2_web_client.md) | [V2 UX](v2_ux.md) | V2 Auth | [V2 New Spec Impact](v2_new_spec_impact.md)
-#### [Overview](v2_auth.md) | [EMA / XAA](v2_auth_ema.md) | [Hardening](v2_auth_hardening.md) | [Mid-session](v2_auth_mid_session.md) | Smoke testing
+
+#### [Overview](v2_auth.md) | [EMA / XAA](v2_auth_ema.md) | [Hardening](v2_auth_hardening.md) | [Mid-session](v2_auth_mid_session.md) | Smoke testing | [SDK consolidation](v2_auth_sdk_consolidation.md)
 
 Manual smoke procedures for exercising Inspector OAuth against **hosted** MCP servers. Complements automated coverage in `clients/web/src/test/integration/mcp/inspectorClient-oauth-e2e.test.ts`, which uses the in-repo `TestServerHttp` (`createOAuthTestServerConfig`).
 
@@ -11,9 +12,9 @@ This document does **not** replace CI. It records known-good real endpoints, whi
 
 EMA and CIMD credentials live in **`~/.mcp-inspector/storage/client.json`** (same file the web **Client Settings** dialog writes). TUI and CLI load it automatically at startup:
 
-| Flag / env | Default |
-| ---------- | ------- |
-| `--client-config <path>` | `~/.mcp-inspector/storage/client.json` |
+| Flag / env               | Default                                        |
+| ------------------------ | ---------------------------------------------- |
+| `--client-config <path>` | `~/.mcp-inspector/storage/client.json`         |
 | `MCP_CLIENT_CONFIG_PATH` | Same default when `--client-config` is omitted |
 
 For repo smoke fixtures, point at the checked-in template:
@@ -26,21 +27,21 @@ CLI flags (`--client-metadata-url`, `--client-id`, `--client-secret`) override v
 
 OAuth callback URL (TUI/CLI only):
 
-| Flag / env | Default |
-| ---------- | ------- |
-| `--callback-url <url>` | `http://127.0.0.1:6276/oauth/callback` |
+| Flag / env               | Default                                       |
+| ------------------------ | --------------------------------------------- |
+| `--callback-url <url>`   | `http://127.0.0.1:6276/oauth/callback`        |
 | `MCP_OAUTH_CALLBACK_URL` | Same default when `--callback-url` is omitted |
 
 Web uses `http://localhost:6274/oauth/callback` on the main app server — not these runner settings.
 
 ## Terminology
 
-| Term | Meaning in this doc |
-| ---- | ------------------- |
-| **Static / preregistered client** | You supply `oauthClientId` and optionally `oauthClientSecret` in Server Settings. Inspector skips DCR and uses your credentials. |
-| **DCR** | Dynamic Client Registration (RFC 7591). Inspector registers at the AS `registration_endpoint` on first connect; no client id in config. |
-| **CIMD** | Client ID Metadata Document (SEP-991). Inspector uses an HTTPS metadata URL as `client_id` when the AS advertises `client_id_metadata_document_supported`. |
-| **Client credentials grant** | OAuth 2.0 machine-to-machine `grant_type=client_credentials`. **Not** what we mean by “static client credentials” here. Inspector does not implement this grant yet ([#1225](https://github.com/modelcontextprotocol/inspector/issues/1225)). |
+| Term                              | Meaning in this doc                                                                                                                                                                                                                           |
+| --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Static / preregistered client** | You supply `oauthClientId` and optionally `oauthClientSecret` in Server Settings. Inspector skips DCR and uses your credentials.                                                                                                              |
+| **DCR**                           | Dynamic Client Registration (RFC 7591). Inspector registers at the AS `registration_endpoint` on first connect; no client id in config.                                                                                                       |
+| **CIMD**                          | Client ID Metadata Document (SEP-991). Inspector uses an HTTPS metadata URL as `client_id` when the AS advertises `client_id_metadata_document_supported`.                                                                                    |
+| **Client credentials grant**      | OAuth 2.0 machine-to-machine `grant_type=client_credentials`. **Not** what we mean by “static client credentials” here. Inspector does not implement this grant yet ([#1225](https://github.com/modelcontextprotocol/inspector/issues/1225)). |
 
 ## Prerequisites
 
@@ -59,21 +60,21 @@ Web uses `http://localhost:6274/oauth/callback` on the main app server — not t
   "mcpServers": {
     "mcp-example-everything": {
       "type": "streamable-http",
-      "url": "https://example-server.modelcontextprotocol.io/mcp"
+      "url": "https://example-server.modelcontextprotocol.io/mcp",
     },
     "github-mcp": {
       "type": "streamable-http",
-      "url": "https://api.githubcopilot.com/mcp/"
+      "url": "https://api.githubcopilot.com/mcp/",
     },
     "stytch-mcp-demo": {
       "type": "streamable-http",
-      "url": "https://stytch-as-demo.val.run/mcp"
+      "url": "https://stytch-as-demo.val.run/mcp",
     },
     "stytch-mcp": {
       "type": "streamable-http",
-      "url": "https://mcp.stytch.dev/mcp"
-    }
-  }
+      "url": "https://mcp.stytch.dev/mcp",
+    },
+  },
 }
 ```
 
@@ -89,14 +90,14 @@ Per-server OAuth fields live on the same entry (lifted to `InspectorServerSettin
 
 ## Smoke matrix (real servers)
 
-| Server | URL | Mechanism to smoke | Credentials in repo? |
-| ------ | --- | ------------------ | -------------------- |
-| **MCP Example “Everything”** (hosted) | `https://example-server.modelcontextprotocol.io/mcp` | **DCR** | No — register at connect time |
-| **GitHub MCP** (remote) | `https://api.githubcopilot.com/mcp/` | **Static OAuth App** (or PAT header bypass) | No — you create a GitHub OAuth App |
-| **Stytch MCP demo** (hosted) | `https://stytch-as-demo.val.run/mcp` | **CIMD** (also DCR) | No — use [MCPJam CIMD](#cimd-credentials-for-smoke-mcpjam) (default for smoke) |
-| **Stytch MCP** (management API) | `https://mcp.stytch.dev/mcp` | **CIMD** (also DCR) | No — same MCPJam CIMD URL; real Stytch login at `stytch.com` |
-| **Composable test server** (local) | `http://127.0.0.1:<port>/mcp` | Static, DCR, CIMD (all) | Fake ids in e2e tests only |
-| **xaa.dev EMA** | Local resource + `auth.resource.xaa.dev` | EMA (not standard OAuth ladder) | Registered on xaa.dev — see [EMA staging](v2_auth_ema.md#staging-validation-manual--verified) |
+| Server                                | URL                                                  | Mechanism to smoke                          | Credentials in repo?                                                                          |
+| ------------------------------------- | ---------------------------------------------------- | ------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| **MCP Example “Everything”** (hosted) | `https://example-server.modelcontextprotocol.io/mcp` | **DCR**                                     | No — register at connect time                                                                 |
+| **GitHub MCP** (remote)               | `https://api.githubcopilot.com/mcp/`                 | **Static OAuth App** (or PAT header bypass) | No — you create a GitHub OAuth App                                                            |
+| **Stytch MCP demo** (hosted)          | `https://stytch-as-demo.val.run/mcp`                 | **CIMD** (also DCR)                         | No — use [MCPJam CIMD](#cimd-credentials-for-smoke-mcpjam) (default for smoke)                |
+| **Stytch MCP** (management API)       | `https://mcp.stytch.dev/mcp`                         | **CIMD** (also DCR)                         | No — same MCPJam CIMD URL; real Stytch login at `stytch.com`                                  |
+| **Composable test server** (local)    | `http://127.0.0.1:<port>/mcp`                        | Static, DCR, CIMD (all)                     | Fake ids in e2e tests only                                                                    |
+| **xaa.dev EMA**                       | Local resource + `auth.resource.xaa.dev`             | EMA (not standard OAuth ladder)             | Registered on xaa.dev — see [EMA staging](v2_auth_ema.md#staging-validation-manual--verified) |
 
 ---
 
@@ -104,13 +105,13 @@ Per-server OAuth fields live on the same entry (lifted to `InspectorServerSettin
 
 **Hosted reference server** implementing the full MCP feature surface (tools, resources, prompts, sampling, elicitation). Source: [modelcontextprotocol/example-remote-server](https://github.com/modelcontextprotocol/example-remote-server). Public deployment:
 
-| Field | Value |
-| ----- | ----- |
-| MCP URL | `https://example-server.modelcontextprotocol.io/mcp` |
-| Resource identifier | `https://example-server.modelcontextprotocol.io/` |
-| Authorization server | Same host (combined resource + AS) |
-| Protected resource metadata | `https://example-server.modelcontextprotocol.io/.well-known/oauth-protected-resource` |
-| AS metadata | `https://example-server.modelcontextprotocol.io/.well-known/oauth-authorization-server` |
+| Field                       | Value                                                                                   |
+| --------------------------- | --------------------------------------------------------------------------------------- |
+| MCP URL                     | `https://example-server.modelcontextprotocol.io/mcp`                                    |
+| Resource identifier         | `https://example-server.modelcontextprotocol.io/`                                       |
+| Authorization server        | Same host (combined resource + AS)                                                      |
+| Protected resource metadata | `https://example-server.modelcontextprotocol.io/.well-known/oauth-protected-resource`   |
+| AS metadata                 | `https://example-server.modelcontextprotocol.io/.well-known/oauth-authorization-server` |
 
 **Verified AS capabilities (June 2026):**
 
@@ -145,13 +146,13 @@ Per-server OAuth fields live on the same entry (lifted to `InspectorServerSettin
 
 **Remote GitHub MCP** is the usual choice for **static client credential** smoke testing against a production authorization server that does **not** expose DCR to arbitrary MCP clients.
 
-| Field | Value |
-| ----- | ----- |
-| MCP URL | `https://api.githubcopilot.com/mcp/` |
-| Resource identifier | `https://api.githubcopilot.com/mcp` |
-| Protected resource metadata | `https://api.githubcopilot.com/.well-known/oauth-protected-resource/mcp` |
-| Authorization server | `https://github.com/login/oauth` |
-| Upstream docs | [github/github-mcp-server](https://github.com/github/github-mcp-server) — [remote-server.md](https://github.com/github/github-mcp-server/blob/main/docs/remote-server.md) |
+| Field                       | Value                                                                                                                                                                     |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| MCP URL                     | `https://api.githubcopilot.com/mcp/`                                                                                                                                      |
+| Resource identifier         | `https://api.githubcopilot.com/mcp`                                                                                                                                       |
+| Protected resource metadata | `https://api.githubcopilot.com/.well-known/oauth-protected-resource/mcp`                                                                                                  |
+| Authorization server        | `https://github.com/login/oauth`                                                                                                                                          |
+| Upstream docs               | [github/github-mcp-server](https://github.com/github/github-mcp-server) — [remote-server.md](https://github.com/github/github-mcp-server/blob/main/docs/remote-server.md) |
 
 **Verified PRM (June 2026):** `authorization_servers: ["https://github.com/login/oauth"]`. Scopes advertised include `repo`, `read:org`, `read:user`, `user:email`, `gist`, `workflow`, etc.
 
@@ -168,10 +169,10 @@ There are **no shared Inspector test credentials** in this repository. Create a 
 1. Open [GitHub Developer settings → OAuth Apps](https://github.com/settings/developers) → **New OAuth App**.
 2. Suggested values for local web smoke:
 
-   | Field | Value |
-   | ----- | ----- |
-   | Application name | `MCP Inspector (local dev)` |
-   | Homepage URL | `http://localhost:6274` |
+   | Field                      | Value                                  |
+   | -------------------------- | -------------------------------------- |
+   | Application name           | `MCP Inspector (local dev)`            |
+   | Homepage URL               | `http://localhost:6274`                |
    | Authorization callback URL | `http://localhost:6274/oauth/callback` |
 
    For TUI/CLI, register **`http://127.0.0.1:6276/oauth/callback`** (default) on the OAuth app, or override with `--callback-url` / `MCP_OAUTH_CALLBACK_URL`.
@@ -249,30 +250,32 @@ See [GitHub MCP README — Using a GitHub PAT](https://github.com/github/github-
 
 Stytch advertises first-class [CIMD support for MCP](https://stytch.com/blog/oauth-client-id-metadata-mcp/). Inspector smoke testing uses **two** hosted Stytch MCP targets:
 
-| Target | When to use |
-| ------ | ----------- |
-| **`stytch-mcp-demo`** — `https://stytch-as-demo.val.run/mcp` | **Default for local CIMD smoke.** Test Stytch project; authorize at the demo app (`/oauth/authorize`) with email OTP / test login — not the `stytch.com` dashboard. |
-| **`stytch-mcp`** — `https://mcp.stytch.dev/mcp` | **Production-style smoke.** Stytch’s hosted Management API MCP; authorize at `https://stytch.com/oauth/authorize` with a real Stytch workspace account (often social SSO). |
+| Target                                                       | When to use                                                                                                                                                                |
+| ------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **`stytch-mcp-demo`** — `https://stytch-as-demo.val.run/mcp` | **Default for local CIMD smoke.** Test Stytch project; authorize at the demo app (`/oauth/authorize`) with email OTP / test login — not the `stytch.com` dashboard.        |
+| **`stytch-mcp`** — `https://mcp.stytch.dev/mcp`              | **Production-style smoke.** Stytch’s hosted Management API MCP; authorize at `https://stytch.com/oauth/authorize` with a real Stytch workspace account (often social SSO). |
 
 ### 3a. Stytch demo MCP (preferred for dev)
 
-| Field | Value |
-| ----- | ----- |
-| MCP URL | `https://stytch-as-demo.val.run/mcp` |
-| Resource identifier | `https://stytch-as-demo.val.run/mcp` |
-| Protected resource metadata | `https://stytch-as-demo.val.run/.well-known/oauth-protected-resource/mcp` |
-| Authorization server (issuer) | `https://industrious-dress-4239.customers.stytch.dev` *(resolve from PRM — may change)* |
-| AS metadata | `https://industrious-dress-4239.customers.stytch.dev/.well-known/oauth-authorization-server` |
-| Token endpoint | `https://industrious-dress-4239.customers.stytch.dev/v1/oauth2/token` |
-| DCR registration endpoint | `https://industrious-dress-4239.customers.stytch.dev/v1/oauth2/register` |
-| Authorization UI | `https://stytch-as-demo.val.run/oauth/authorize` (demo-hosted; test login — **not** `stytch.com`) |
+| Field                         | Value                                                                                             |
+| ----------------------------- | ------------------------------------------------------------------------------------------------- |
+| MCP URL                       | `https://stytch-as-demo.val.run/mcp`                                                              |
+| Resource identifier           | `https://stytch-as-demo.val.run/mcp`                                                              |
+| Protected resource metadata   | `https://stytch-as-demo.val.run/.well-known/oauth-protected-resource/mcp`                         |
+| Authorization server (issuer) | `https://industrious-dress-4239.customers.stytch.dev` _(resolve from PRM — may change)_           |
+| AS metadata                   | `https://industrious-dress-4239.customers.stytch.dev/.well-known/oauth-authorization-server`      |
+| Token endpoint                | `https://industrious-dress-4239.customers.stytch.dev/v1/oauth2/token`                             |
+| DCR registration endpoint     | `https://industrious-dress-4239.customers.stytch.dev/v1/oauth2/register`                          |
+| Authorization UI              | `https://stytch-as-demo.val.run/oauth/authorize` (demo-hosted; test login — **not** `stytch.com`) |
 
 **Verified discovery (June 2026):** PRM at the URL above currently returns:
 
 ```json
 {
   "resource": "https://stytch-as-demo.val.run/mcp",
-  "authorization_servers": ["https://industrious-dress-4239.customers.stytch.dev"],
+  "authorization_servers": [
+    "https://industrious-dress-4239.customers.stytch.dev"
+  ],
   "scopes_supported": ["openid", "email"]
 }
 ```
@@ -303,23 +306,30 @@ CIMD does **not** call `POST …/v1/oauth2/register` — Inspector stores the me
 
 ### 3b. Stytch Management MCP (production-style)
 
-| Field | Value |
-| ----- | ----- |
-| MCP URL | `https://mcp.stytch.dev/mcp` |
-| Resource identifier | `https://mcp.stytch.dev` |
-| Protected resource metadata | `https://mcp.stytch.dev/.well-known/oauth-protected-resource` |
-| Product docs | [Stytch MCP Server](https://stytch.com/docs/resources/workspace-management/stytch-mcp-server), [mcp.stytch.dev](https://mcp.stytch.dev/) |
+| Field                       | Value                                                                                                                                    |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| MCP URL                     | `https://mcp.stytch.dev/mcp`                                                                                                             |
+| Resource identifier         | `https://mcp.stytch.dev`                                                                                                                 |
+| Protected resource metadata | `https://mcp.stytch.dev/.well-known/oauth-protected-resource`                                                                            |
+| Product docs                | [Stytch MCP Server](https://stytch.com/docs/resources/workspace-management/stytch-mcp-server), [mcp.stytch.dev](https://mcp.stytch.dev/) |
 
 **Verified discovery (June 2026):** PRM at the URL above currently returns:
 
 ```json
 {
   "resource": "https://mcp.stytch.dev",
-  "authorization_servers": ["https://rustic-kilogram-6347.customers.stytch.com"],
+  "authorization_servers": [
+    "https://rustic-kilogram-6347.customers.stytch.com"
+  ],
   "scopes_supported": [
-    "openid", "email", "profile",
-    "admin:projects", "manage:api_keys", "manage:api_keys:test",
-    "manage:project_settings", "manage:project_data"
+    "openid",
+    "email",
+    "profile",
+    "admin:projects",
+    "manage:api_keys",
+    "manage:api_keys:test",
+    "manage:project_settings",
+    "manage:project_data"
   ]
 }
 ```
@@ -362,7 +372,11 @@ Live document (June 2026; fetch fresh if debugging redirect mismatches):
     "http://localhost:6274/oauth/callback",
     "…"
   ],
-  "grant_types": ["authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:device_code"],
+  "grant_types": [
+    "authorization_code",
+    "refresh_token",
+    "urn:ietf:params:oauth:grant-type:device_code"
+  ],
   "response_types": ["code"],
   "token_endpoint_auth_method": "none",
   "application_type": "native"
@@ -373,11 +387,11 @@ The full `redirect_uris` list also includes other localhost ports and MCPJam app
 
 #### Inspector configuration
 
-| Surface | Setting |
-| ------- | ------- |
-| **Web** | **Client Settings** → **Client ID Metadata Document** → paste the MCPJam URL above → enable **Use Client ID Metadata Document** |
+| Surface | Setting                                                                                                                                     |
+| ------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Web** | **Client Settings** → **Client ID Metadata Document** → paste the MCPJam URL above → enable **Use Client ID Metadata Document**             |
 | **TUI** | `--client-metadata-url https://www.mcpjam.com/.well-known/oauth/client-metadata.json` (or enable CIMD in `client.json` / `--client-config`) |
-| **CLI** | Same flags; reuses tokens from `~/.mcp-inspector/storage/oauth.json` when already authorized via web/TUI |
+| **CLI** | Same flags; reuses tokens from `~/.mcp-inspector/storage/oauth.json` when already authorized via web/TUI                                    |
 
 #### Why MCPJam’s document works with Inspector
 
@@ -409,14 +423,14 @@ Hosting a dedicated `https://…/inspector/oauth-client.json` with Inspector bra
 
 Stytch **normalizes** both CIMD and DCR into internal Connected App records. The **access token JWT** looks the same either way — `client_id` in the decoded payload is Stytch’s internal id (e.g. `connected-app-test-0bb7b586-…`), **not** your metadata URL. **Do not use the JWT alone to distinguish CIMD from DCR.**
 
-| Check | CIMD | DCR |
-| ----- | ---- | --- |
-| **Connection Info → Client ID** | MCPJam metadata URL | Opaque `connected-app-test-…` |
-| **Connection Info → Client registration** | Client ID Metadata (CIMD) | Dynamic (DCR) |
-| **`POST …/v1/oauth2/token` body → `client_id`** | Metadata URL | `connected-app-test-…` |
-| **Authorize URL → `client_id` param** (browser) | Metadata URL | `connected-app-test-…` |
-| **`POST …/v1/oauth2/register`** (after cleared OAuth state) | **Absent** | Present on first connect |
-| **Decoded access token JWT → `client_id`** | Internal Stytch id *(same shape as DCR)* | Internal Stytch id |
+| Check                                                       | CIMD                                     | DCR                           |
+| ----------------------------------------------------------- | ---------------------------------------- | ----------------------------- |
+| **Connection Info → Client ID**                             | MCPJam metadata URL                      | Opaque `connected-app-test-…` |
+| **Connection Info → Client registration**                   | Client ID Metadata (CIMD)                | Dynamic (DCR)                 |
+| **`POST …/v1/oauth2/token` body → `client_id`**             | Metadata URL                             | `connected-app-test-…`        |
+| **Authorize URL → `client_id` param** (browser)             | Metadata URL                             | `connected-app-test-…`        |
+| **`POST …/v1/oauth2/register`** (after cleared OAuth state) | **Absent**                               | Present on first connect      |
+| **Decoded access token JWT → `client_id`**                  | Internal Stytch id _(same shape as DCR)_ | Internal Stytch id            |
 
 **Definitive smoke signal:** expand the **`POST …/v1/oauth2/token`** row in the network log (auth category). The form body must include the MCPJam metadata URL as `client_id`. Verified example against **`stytch-mcp-demo`** (June 2026):
 
@@ -538,55 +552,58 @@ Register **`http://127.0.0.1:6276/oauth/callback`** on the xaa.dev IdP before le
 
 Run **required** smokes before release or after any auth UX change. **Optional** smokes extend coverage; run when time allows or when touching the listed area.
 
-| ID | Client | When | Required? |
-| -- | ------ | ---- | --------- |
-| **W1** | Web | Step-up modal + OAuth resume | **Yes** |
-| W2–W4 | Web | Connect-time, silent refresh, multi-tab | Optional |
-| **W5–W11** | Web | P0/P1/P2 code-review UX (below) | **Recommended** after auth recovery changes |
-| **T1, T2, T4** | TUI | Connect, step-up, clear OAuth | **Yes** |
-| T3, T5–T6 | TUI | Modal path, tab/server selection | Optional |
-| **C1, C2** | CLI | Connect + step-up **y/N** | **Yes** |
-| C3 | CLI | Built launcher subprocess | Optional |
+| ID             | Client | When                                    | Required?                                   |
+| -------------- | ------ | --------------------------------------- | ------------------------------------------- |
+| **W1**         | Web    | Step-up modal + OAuth resume            | **Yes**                                     |
+| W2–W4          | Web    | Connect-time, silent refresh, multi-tab | Optional                                    |
+| **W5–W11**     | Web    | P0/P1/P2 code-review UX (below)         | **Recommended** after auth recovery changes |
+| **T1, T2, T4** | TUI    | Connect, step-up, clear OAuth           | **Yes**                                     |
+| T3, T5–T6      | TUI    | Modal path, tab/server selection        | Optional                                    |
+| **C1, C2**     | CLI    | Connect + step-up **y/N**               | **Yes**                                     |
+| C3             | CLI    | Built launcher subprocess               | Optional                                    |
 
 **Minimum release gate:** **W1** + **W5–W7** (web), **T1–T2** + **T4** (TUI), **C1–C2** (CLI).
 
 ### What CI covers vs what you verify manually
 
-| Capability | Web | TUI | CLI | Automated in CI? |
-| ---------- | --- | --- | --- | ---------------- |
-| Core `handleAuthChallenge()` / token exchange | Remote transport | Direct transport | Direct (`cliOAuth.ts`) | Yes — `inspectorClient-oauth-*-mid-session-e2e.test.ts`, `oauth-interactive.test.ts` |
-| Silent mid-session refresh (valid refresh token) | Yes | Yes (reconnect) | N/A (one-shot) | Yes — remote e2e |
-| Connect-time 401 → interactive OAuth | Yes | Yes | Yes | Partial — core/CLI integration; **not** full UI/binary |
-| Step-up confirm before second OAuth | Modal | Auth tab **A** / **C** | stderr **y/N** | Partial — unit/modal tests; **not** real browser + Ink/terminal |
-| OAuth resume after full-page redirect | Yes (`6274`) | N/A (loopback) | N/A (loopback) | Partial — `oauthResume` unit tests; **not** browser tab restore |
-| Tab + form restore after step-up | Yes | N/A | N/A | **Manual only** |
-| Network log survives redirect | Yes | N/A | N/A | **Manual only** |
-| Multi–browser-tab defer (background tab) | Yes | N/A | N/A | **Manual only** |
-| Tool / prompt / resource modal → auth recovery | Yes | Yes | CLI one-shot RPC only | Partial — component unit tests |
-| Loopback callback server (`6276`) | N/A | Yes | Yes | Partial — integration tests auto-complete authorize URL |
-| Step-up **decline** (stay connected / exit cleanly) | Modal Cancel | Auth **C** | **N** | **Manual only** |
-| ReAuthBanner reconnect without disconnect | Yes | N/A | N/A | **Manual only** (W7) |
-| Abandoned step-up / reauth snapshot → banner | Yes | N/A | N/A | **Manual only** (W6) |
-| Step-up pre-redirect toast | Yes | N/A | N/A | **Manual only** (W5) |
-| Background-tab defer + resume on visibility | Yes | N/A | N/A | **Manual only** (W8) |
-| Concurrent step-up → warning toast | Yes | TUI overwrite message | N/A | **Manual only** (W9 / T5) |
-| Partial consent after step-up → warning toast | Yes | Yes | Yes (stderr message) | Partial — unit copy only (W10) |
-| Prompt / resource / app command-scoped recovery | Yes | Yes | N/A (tools only in CLI) | Partial — no full UI e2e (W11) |
-| Built launcher → CLI binary subprocess | N/A | N/A | Yes | `scripts/smoke-cli.mjs` — **no OAuth** |
+| Capability                                          | Web              | TUI                    | CLI                     | Automated in CI?                                                                     |
+| --------------------------------------------------- | ---------------- | ---------------------- | ----------------------- | ------------------------------------------------------------------------------------ |
+| Core `handleAuthChallenge()` / token exchange       | Remote transport | Direct transport       | Direct (`cliOAuth.ts`)  | Yes — `inspectorClient-oauth-*-mid-session-e2e.test.ts`, `oauth-interactive.test.ts` |
+| Silent mid-session refresh (valid refresh token)    | Yes              | Yes (reconnect)        | N/A (one-shot)          | Yes — remote e2e                                                                     |
+| Connect-time 401 → interactive OAuth                | Yes              | Yes                    | Yes                     | Partial — core/CLI integration; **not** full UI/binary                               |
+| Step-up confirm before second OAuth                 | Modal            | Auth tab **A** / **C** | stderr **y/N**          | Partial — unit/modal tests; **not** real browser + Ink/terminal                      |
+| OAuth resume after full-page redirect               | Yes (`6274`)     | N/A (loopback)         | N/A (loopback)          | Partial — `oauthResume` unit tests; **not** browser tab restore                      |
+| Tab + form restore after step-up                    | Yes              | N/A                    | N/A                     | **Manual only**                                                                      |
+| Network log survives redirect                       | Yes              | N/A                    | N/A                     | **Manual only**                                                                      |
+| Multi–browser-tab defer (background tab)            | Yes              | N/A                    | N/A                     | **Manual only**                                                                      |
+| Tool / prompt / resource modal → auth recovery      | Yes              | Yes                    | CLI one-shot RPC only   | Partial — component unit tests                                                       |
+| Loopback callback server (`6276`)                   | N/A              | Yes                    | Yes                     | Partial — integration tests auto-complete authorize URL                              |
+| Step-up **decline** (stay connected / exit cleanly) | Modal Cancel     | Auth **C**             | **N**                   | **Manual only**                                                                      |
+| ReAuthBanner reconnect without disconnect           | Yes              | N/A                    | N/A                     | **Manual only** (W7)                                                                 |
+| Abandoned step-up / reauth snapshot → banner        | Yes              | N/A                    | N/A                     | **Manual only** (W6)                                                                 |
+| Step-up pre-redirect toast                          | Yes              | N/A                    | N/A                     | **Manual only** (W5)                                                                 |
+| Background-tab defer + resume on visibility         | Yes              | N/A                    | N/A                     | **Manual only** (W8)                                                                 |
+| Concurrent step-up → warning toast                  | Yes              | TUI overwrite message  | N/A                     | **Manual only** (W9 / T5)                                                            |
+| Partial consent after step-up → warning toast       | Yes              | Yes                    | Yes (stderr message)    | Partial — unit copy only (W10)                                                       |
+| Prompt / resource / app command-scoped recovery     | Yes              | Yes                    | N/A (tools only in CLI) | Partial — no full UI e2e (W11)                                                       |
+| Built launcher → CLI binary subprocess              | N/A              | N/A                    | Yes                     | `scripts/smoke-cli.mjs` — **no OAuth**                                               |
 
 Run this section when touching mid-session auth UX. CI proves protocol/core paths; **you** prove each client’s interactive UX with a real browser (and terminal for CLI **y/N**).
 
 ### Shared setup
 
 1. **Composable OAuth server** (terminal A):
+
    ```bash
    cd clients/web && npm run test-servers:build
    node ../../test-servers/build/server-composable.js \
      --config ../../test-servers/configs/oauth-step-up-demo.json
    ```
+
    Confirm stderr: `Composable server listening at http://127.0.0.1:8081/mcp`.
 
 2. **Catalog entry** — add to `~/.mcp-inspector/mcp.json` (all three clients):
+
    ```json
    "oauth-step-up-demo": {
      "type": "streamable-http",
@@ -665,7 +682,7 @@ Primary path; CI does **not** exercise modal UX or post-redirect tab restore.
 #### W8 — Background-tab defer + resume (**recommended**, MR-104)
 
 1. Connect; open step-up modal on **get_temp** (W1 steps 1–3) but **do not** click Authorize yet.
-2. Switch away from the inspector tab (another browser tab or app) so the page is **hidden** (`document.visibilityState === "hidden"` — DevTools → **Rendering** → *Emulate page visibility hidden* also works).
+2. Switch away from the inspector tab (another browser tab or app) so the page is **hidden** (`document.visibilityState === "hidden"` — DevTools → **Rendering** → _Emulate page visibility hidden_ also works).
 3. Return to the inspector tab (or disable emulation).
 4. **Expect:** deferred recovery runs — step-up modal or OAuth flow resumes without losing the connected session.
 5. Complete step-up; run **get_temp** successfully.
@@ -783,73 +800,73 @@ Session from C1 must have **`mcp tools:read` only**. If step-up does not prompt,
 
 ### Manual sign-off checklist
 
-| # | Check | Web | TUI | CLI |
-| - | ----- | --- | --- | --- |
-| 1 | Connect-time OAuth with empty storage | W1 prep / W2 | T1 | C1 |
-| 2 | Unscoped tool works after connect | W1 step 2 | T1 | C1 output |
-| 3 | Step-up prompt before second OAuth | W1 step 4 | T2 step 2 | C2 step 2 |
-| 4 | Decline step-up, stay usable | W1 step 5 | T2 step 3 | C2 step 3 |
-| 5 | Accept step-up + complete browser OAuth | W1 step 6–8 | T2 step 4–6 | C2 step 4–5 |
-| 6 | Clear OAuth state | Settings | T4 | delete `oauth.json` / fresh HOME |
-| 7 | Step-up pre-redirect toast | W5 | — | — |
-| 8 | Abandoned step-up → banner | W6 | — | — |
-| 9 | ReAuthBanner reconnect (no disconnect) | W7 | — | — |
-| 10 | Background-tab defer + resume | W8 | — | — |
-| 11 | Concurrent step-up warning | W9 | T6 | — |
-| 12 | Partial consent warning toast | W10 | T2 (if AS allows) | C2 (if AS allows) |
-| 13 | Prompt / resource / app recovery | W11 | T3 | — |
+| #   | Check                                   | Web          | TUI               | CLI                              |
+| --- | --------------------------------------- | ------------ | ----------------- | -------------------------------- |
+| 1   | Connect-time OAuth with empty storage   | W1 prep / W2 | T1                | C1                               |
+| 2   | Unscoped tool works after connect       | W1 step 2    | T1                | C1 output                        |
+| 3   | Step-up prompt before second OAuth      | W1 step 4    | T2 step 2         | C2 step 2                        |
+| 4   | Decline step-up, stay usable            | W1 step 5    | T2 step 3         | C2 step 3                        |
+| 5   | Accept step-up + complete browser OAuth | W1 step 6–8  | T2 step 4–6       | C2 step 4–5                      |
+| 6   | Clear OAuth state                       | Settings     | T4                | delete `oauth.json` / fresh HOME |
+| 7   | Step-up pre-redirect toast              | W5           | —                 | —                                |
+| 8   | Abandoned step-up → banner              | W6           | —                 | —                                |
+| 9   | ReAuthBanner reconnect (no disconnect)  | W7           | —                 | —                                |
+| 10  | Background-tab defer + resume           | W8           | —                 | —                                |
+| 11  | Concurrent step-up warning              | W9           | T6                | —                                |
+| 12  | Partial consent warning toast           | W10          | T2 (if AS allows) | C2 (if AS allows)                |
+| 13  | Prompt / resource / app recovery        | W11          | T3                | —                                |
 
 ### Troubleshooting
 
-| Symptom | Likely cause |
-| ------- | ------------- |
-| Redirect with no modal / no step-up prompt | Scopes already include `weather:read`; clear OAuth state and ensure catalog has `"scopes": "mcp tools:read"` only |
-| Web callback “could not be matched” | Missing `mcp-inspector:oauth-resume` in `sessionStorage` — use modal **Authorize**, not manual URL |
-| TUI/CLI `EADDRINUSE` on 6276 | Another TUI/CLI (or stale process) holds callback port |
-| CLI step-up never prompts | Connect-time recovery unioned scopes — clear tokens and retry C1 |
-| `get_temp` fails after web step-up without re-run | Expected — click **Run** again (no auto-replay after full-page OAuth) |
-| ReAuthBanner **Re-authenticate** disconnects session | Should **not** happen when already connected — see W7 |
-| Step-up shows toast instead of modal | `insufficient_scope` recovery failures use a toast, not ReAuthBanner (MR-206) |
-| No pre-redirect toast on step-up Authorize | See W5 — blue toast expected before redirect (MR-219) |
-| Port conflict on 8081 | Change `transport.port` in config and catalog URL |
+| Symptom                                              | Likely cause                                                                                                      |
+| ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| Redirect with no modal / no step-up prompt           | Scopes already include `weather:read`; clear OAuth state and ensure catalog has `"scopes": "mcp tools:read"` only |
+| Web callback “could not be matched”                  | Missing `mcp-inspector:oauth-resume` in `sessionStorage` — use modal **Authorize**, not manual URL                |
+| TUI/CLI `EADDRINUSE` on 6276                         | Another TUI/CLI (or stale process) holds callback port                                                            |
+| CLI step-up never prompts                            | Connect-time recovery unioned scopes — clear tokens and retry C1                                                  |
+| `get_temp` fails after web step-up without re-run    | Expected — click **Run** again (no auto-replay after full-page OAuth)                                             |
+| ReAuthBanner **Re-authenticate** disconnects session | Should **not** happen when already connected — see W7                                                             |
+| Step-up shows toast instead of modal                 | `insufficient_scope` recovery failures use a toast, not ReAuthBanner (MR-206)                                     |
+| No pre-redirect toast on step-up Authorize           | See W5 — blue toast expected before redirect (MR-219)                                                             |
+| Port conflict on 8081                                | Change `transport.port` in config and catalog URL                                                                 |
 
 ---
 
 ## What to verify (all smokes)
 
-| Check | Where |
-| ----- | ----- |
-| **Negative control** (mechanism off → fail or wrong client id source) | Connection Info / error toast |
-| **Clear OAuth state** between smoke phases | **Web:** Server Settings → OAuth → **Clear stored OAuth state**; or Connection Info → **Clear and disconnect** (standard) / **Clear OAuth state** (EMA). **TUI:** Auth tab → **S** (**Clear OAuth State**; disconnects when connected) |
-| **Positive path** (mechanism on → authorized session) | Connect + `tools/list` |
-| 401 on first connect without tokens | Network / Requests tab |
-| OAuth discovery + correct mechanism (DCR vs static vs CIMD) | Network log (auth category) |
-| **CIMD:** token exchange `client_id` = metadata URL | `POST …/v1/oauth2/token` request body |
-| **CIMD:** no DCR register call (after cleared state) | Absence of `POST …/v1/oauth2/register` |
-| **Stytch:** JWT `client_id` is internal id (not metadata URL) | Decode access token — informational only |
-| Authorization redirect opens | Browser |
-| Callback completes (`/oauth/callback`) | Web URL or TUI callback server |
-| Second connect uses stored access token | Connect without re-login (until expiry) |
-| `tools/list` JSON | Tools tab / CLI `--method tools/list` |
-| Connection Info: protocol, authorized, client id, registration kind | Connection Info OAuth section |
+| Check                                                                 | Where                                                                                                                                                                                                                                  |
+| --------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Negative control** (mechanism off → fail or wrong client id source) | Connection Info / error toast                                                                                                                                                                                                          |
+| **Clear OAuth state** between smoke phases                            | **Web:** Server Settings → OAuth → **Clear stored OAuth state**; or Connection Info → **Clear and disconnect** (standard) / **Clear OAuth state** (EMA). **TUI:** Auth tab → **S** (**Clear OAuth State**; disconnects when connected) |
+| **Positive path** (mechanism on → authorized session)                 | Connect + `tools/list`                                                                                                                                                                                                                 |
+| 401 on first connect without tokens                                   | Network / Requests tab                                                                                                                                                                                                                 |
+| OAuth discovery + correct mechanism (DCR vs static vs CIMD)           | Network log (auth category)                                                                                                                                                                                                            |
+| **CIMD:** token exchange `client_id` = metadata URL                   | `POST …/v1/oauth2/token` request body                                                                                                                                                                                                  |
+| **CIMD:** no DCR register call (after cleared state)                  | Absence of `POST …/v1/oauth2/register`                                                                                                                                                                                                 |
+| **Stytch:** JWT `client_id` is internal id (not metadata URL)         | Decode access token — informational only                                                                                                                                                                                               |
+| Authorization redirect opens                                          | Browser                                                                                                                                                                                                                                |
+| Callback completes (`/oauth/callback`)                                | Web URL or TUI callback server                                                                                                                                                                                                         |
+| Second connect uses stored access token                               | Connect without re-login (until expiry)                                                                                                                                                                                                |
+| `tools/list` JSON                                                     | Tools tab / CLI `--method tools/list`                                                                                                                                                                                                  |
+| Connection Info: protocol, authorized, client id, registration kind   | Connection Info OAuth section                                                                                                                                                                                                          |
 
 ## Automated parity
 
-| Mode | Real server (this doc) | CI (in-repo) |
-| ---- | ---------------------- | ------------ |
-| DCR | example-server.modelcontextprotocol.io (or Stytch MCP) | `inspectorClient-oauth-e2e.test.ts` |
-| Static | GitHub MCP + your OAuth App | `test-static-client` / `test-static-secret` on TestServerHttp |
-| CIMD | **Stytch demo MCP** (`stytch-as-demo.val.run`) + [MCPJam metadata URL](#cimd-credentials-for-smoke-mcpjam) (or local composable) | `createClientMetadataServer()` in e2e |
-| EMA | xaa.dev staging | `inspectorClient-ema-e2e.test.ts` + mocks |
-| Mid-session / step-up (web remote) | §5 **W1** + **W5–W7** (required gate); W2–W4, W8–W11 optional | `inspectorClient-oauth-remote-mid-session-e2e.test.ts`; web unit (`oauthResume`, `StepUpAuthModal`) |
-| Mid-session / step-up (TUI direct) | §5 **T1–T2, T4** (required); T3, T5–T6 optional | `inspectorClient-oauth-direct-mid-session-e2e.test.ts` (core); `App.test.tsx`, `tuiOAuth.test.ts` (no Ink+browser) |
-| Mid-session / step-up (CLI direct) | §5 **C1–C2** (required) | `clients/cli/__tests__/oauth-interactive.test.ts`, `cliOAuth.test.ts` (in-process; not subprocess) |
+| Mode                               | Real server (this doc)                                                                                                           | CI (in-repo)                                                                                                       |
+| ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| DCR                                | example-server.modelcontextprotocol.io (or Stytch MCP)                                                                           | `inspectorClient-oauth-e2e.test.ts`                                                                                |
+| Static                             | GitHub MCP + your OAuth App                                                                                                      | `test-static-client` / `test-static-secret` on TestServerHttp                                                      |
+| CIMD                               | **Stytch demo MCP** (`stytch-as-demo.val.run`) + [MCPJam metadata URL](#cimd-credentials-for-smoke-mcpjam) (or local composable) | `createClientMetadataServer()` in e2e                                                                              |
+| EMA                                | xaa.dev staging                                                                                                                  | `inspectorClient-ema-e2e.test.ts` + mocks                                                                          |
+| Mid-session / step-up (web remote) | §5 **W1** + **W5–W7** (required gate); W2–W4, W8–W11 optional                                                                    | `inspectorClient-oauth-remote-mid-session-e2e.test.ts`; web unit (`oauthResume`, `StepUpAuthModal`)                |
+| Mid-session / step-up (TUI direct) | §5 **T1–T2, T4** (required); T3, T5–T6 optional                                                                                  | `inspectorClient-oauth-direct-mid-session-e2e.test.ts` (core); `App.test.tsx`, `tuiOAuth.test.ts` (no Ink+browser) |
+| Mid-session / step-up (CLI direct) | §5 **C1–C2** (required)                                                                                                          | `clients/cli/__tests__/oauth-interactive.test.ts`, `cliOAuth.test.ts` (in-process; not subprocess)                 |
 
 ## Known gaps (Inspector)
 
 **Mid-session auth** is implemented for web (remote transport), TUI, and CLI — see [Mid-session authorization](v2_auth_mid_session.md). **Remaining:** optional idle SSE E2E, v2 SDK transport upgrade for direct silent retry.
 
-See **[Auth hardening (MCP 2026-07-28)](v2_auth_hardening.md)** for connect-time OAuth hardening (SEP-2468, SEP-837, SEP-2352, SEP-2207, SEP-2350, SEP-2351) and the v2 SDK upgrade strategy.
+See **[Auth hardening (MCP 2026-07-28)](v2_auth_hardening.md)** for per-SEP as-built status and automated coverage. Hosted smoke here is complementary for real IdPs — SEPs already covered in CI do not need dedicated smoke scenarios.
 
 - **Mid-session auth:** see [§5 manual validation](v2_auth_smoke_testing.md#5-mid-session-auth--step-up--manual-validation) — CI covers core protocol; **W1 + W5–W7 / T1–T2 + T4 / C1–C2** are the required manual gate per client; **W8–W11, T3, T5–T6, C3** extend P0/P1/P2 UX coverage.
 - **Client credentials grant:** not implemented ([#1225](https://github.com/modelcontextprotocol/inspector/issues/1225)).

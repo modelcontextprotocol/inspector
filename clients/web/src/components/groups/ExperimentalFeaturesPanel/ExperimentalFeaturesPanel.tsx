@@ -97,6 +97,42 @@ const RemoveIcon = ActionIcon.withProps({
   color: "red",
 });
 
+const HeaderNameInput = TextInput.withProps({
+  placeholder: "Header name",
+  rightSectionPointerEvents: "auto",
+});
+
+const HeaderValueInput = TextInput.withProps({
+  placeholder: "Header value",
+  rightSectionPointerEvents: "auto",
+});
+
+const RequestTextarea = Textarea.withProps({
+  label: "Request",
+  ff: "monospace",
+  autosize: true,
+  minRows: 6,
+  rightSectionPointerEvents: "auto",
+});
+
+const ResponseTextarea = Textarea.withProps({
+  "aria-label": "Response",
+  ff: "monospace",
+  readOnly: true,
+  autosize: true,
+  minRows: 4,
+});
+
+const ResponseLabel = Text.withProps({
+  fw: 500,
+  size: "sm",
+});
+
+const ErrorBadge = Badge.withProps({
+  color: "red",
+  size: "sm",
+});
+
 function formatDuration(ms: number): string {
   return `${ms}ms`;
 }
@@ -239,13 +275,11 @@ export function ExperimentalFeaturesPanel({
 
       {customHeaders.map((header, index) => (
         <Group key={index}>
-          <TextInput
-            placeholder="Header name"
+          <HeaderNameInput
             value={header.key}
             onChange={(e) =>
               onHeaderChange(index, e.currentTarget.value, header.value)
             }
-            rightSectionPointerEvents="auto"
             rightSection={
               header.key ? (
                 <ClearButton
@@ -254,13 +288,11 @@ export function ExperimentalFeaturesPanel({
               ) : null
             }
           />
-          <TextInput
-            placeholder="Header value"
+          <HeaderValueInput
             value={header.value}
             onChange={(e) =>
               onHeaderChange(index, header.key, e.currentTarget.value)
             }
-            rightSectionPointerEvents="auto"
             rightSection={
               header.value ? (
                 <ClearButton
@@ -279,14 +311,9 @@ export function ExperimentalFeaturesPanel({
         <CompactButton onClick={onAddHeader}>+ Add Header</CompactButton>
       </Group>
 
-      <Textarea
-        label="Request"
-        ff="monospace"
+      <RequestTextarea
         value={requestDraft}
         onChange={(e) => onRequestChange(e.currentTarget.value)}
-        autosize
-        minRows={6}
-        rightSectionPointerEvents="auto"
         rightSection={
           requestDraft ? (
             <ClearButton onClick={() => onRequestChange("")} />
@@ -299,23 +326,10 @@ export function ExperimentalFeaturesPanel({
       {response && (
         <>
           <Group gap="xs">
-            <Text fw={500} size="sm">
-              Response
-            </Text>
-            {isErrorResponse(response) && (
-              <Badge color="red" size="sm">
-                Error
-              </Badge>
-            )}
+            <ResponseLabel>Response</ResponseLabel>
+            {isErrorResponse(response) && <ErrorBadge>Error</ErrorBadge>}
           </Group>
-          <Textarea
-            aria-label="Response"
-            ff="monospace"
-            value={formatResponse(response)}
-            readOnly
-            autosize
-            minRows={4}
-          />
+          <ResponseTextarea value={formatResponse(response)} />
           <Group>
             <CompactButton onClick={onCopyResponse}>Copy</CompactButton>
           </Group>

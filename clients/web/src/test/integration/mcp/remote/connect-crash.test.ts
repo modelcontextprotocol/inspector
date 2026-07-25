@@ -10,6 +10,7 @@ import { serve } from "@hono/node-server";
 import type { ServerType } from "@hono/node-server";
 import { createRemoteApp } from "@inspector/core/mcp/remote/node/server.js";
 import type { MCPServerConfig } from "@inspector/core/mcp/types.js";
+import { closeHarnessServer } from "./harnessTeardown.js";
 
 interface Harness {
   baseUrl: string;
@@ -37,7 +38,7 @@ async function startServer(): Promise<Harness> {
 }
 
 async function teardown(h: Harness): Promise<void> {
-  await new Promise<void>((resolve) => h.server.close(() => resolve()));
+  await closeHarnessServer(h.server);
 }
 
 interface ParsedSseEvent {

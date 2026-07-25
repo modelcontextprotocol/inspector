@@ -167,6 +167,9 @@ function setupMetadataEndpoints(
             "client_secret_basic",
             "none",
           ],
+          // RFC 9207 / SEP-2468: advertise iss on authorization responses so
+          // clients must validate (and our e2e can exercise reject paths).
+          authorization_response_iss_parameter_supported: true,
           ...(config.supportDCR && {
             registration_endpoint: new URL("/oauth/register", actualIssuerUrl)
               .href,
@@ -235,7 +238,12 @@ function setupAuthorizationEndpoint(
         return;
       }
 
-      completeAuthorizationRedirect(res, parsed.value);
+      const requestBaseUrl = `${req.protocol}://${req.get("host")}`;
+      const issuer = (config.issuerUrl ?? new URL(requestBaseUrl)).href.replace(
+        /\/$/,
+        "",
+      );
+      completeAuthorizationRedirect(res, parsed.value, issuer);
     },
   );
 }
@@ -340,6 +348,7 @@ async function parseAuthorizationRequest(
 function completeAuthorizationRedirect(
   res: Response,
   params: AuthorizationRequestParams,
+  issuer: string,
 ): void {
   const authCode = generateAuthorizationCode();
   storeAuthorizationCode(authCode, {
@@ -354,6 +363,8 @@ function completeAuthorizationRedirect(
   if (params.state) {
     redirectUrl.searchParams.set("state", params.state);
   }
+  // RFC 9207: iss must match metadata `issuer` (no trailing slash).
+  redirectUrl.searchParams.set("iss", issuer);
   res.redirect(redirectUrl.href);
 }
 

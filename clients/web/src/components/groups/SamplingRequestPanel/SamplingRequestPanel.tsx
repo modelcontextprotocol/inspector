@@ -92,6 +92,23 @@ const RejectButton = Button.withProps({
   color: "red",
 });
 
+const ResponseTextarea = Textarea.withProps({
+  "aria-label": "Response",
+  autosize: true,
+  minRows: 3,
+  rightSectionPointerEvents: "auto",
+});
+
+const ModelInput = TextInput.withProps({
+  label: "Model Used",
+  rightSectionPointerEvents: "auto",
+});
+
+const StopReasonSelect = Select.withProps({
+  label: "Stop Reason",
+  data: ["endTurn", "stopSequence", "maxTokens"],
+});
+
 export function SamplingRequestPanel({
   request,
   draftResult,
@@ -182,8 +199,7 @@ export function SamplingRequestPanel({
           <Divider />
 
           <SectionTitle>Response:</SectionTitle>
-          <Textarea
-            aria-label="Response"
+          <ResponseTextarea
             value={
               draftResult.content.type === "text"
                 ? draftResult.content.text
@@ -195,9 +211,6 @@ export function SamplingRequestPanel({
                 content: { type: "text", text: event.currentTarget.value },
               })
             }
-            autosize
-            minRows={3}
-            rightSectionPointerEvents="auto"
             rightSection={
               draftResult.content.type === "text" &&
               draftResult.content.text ? (
@@ -213,8 +226,7 @@ export function SamplingRequestPanel({
             }
           />
           <Group>
-            <TextInput
-              label="Model Used"
+            <ModelInput
               value={draftResult.model}
               onChange={(event) =>
                 onResultChange({
@@ -222,7 +234,6 @@ export function SamplingRequestPanel({
                   model: event.currentTarget.value,
                 })
               }
-              rightSectionPointerEvents="auto"
               rightSection={
                 draftResult.model ? (
                   <ClearButton
@@ -233,9 +244,7 @@ export function SamplingRequestPanel({
                 ) : null
               }
             />
-            <Select
-              label="Stop Reason"
-              data={["endTurn", "stopSequence", "maxTokens"]}
+            <StopReasonSelect
               value={draftResult.stopReason ?? null}
               onChange={(value) =>
                 onResultChange({

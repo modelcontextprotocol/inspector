@@ -12,18 +12,39 @@ import {
   TextInput,
 } from "@mantine/core";
 import { ClearButton } from "../../elements/ClearButton/ClearButton";
+import type { ProtocolEra } from "@modelcontextprotocol/client";
 import type {
   InspectorServerSettings,
+  ModernLogLevel,
   OAuthSettings,
   ServerProtocolEra,
   ServerType,
 } from "@inspector/core/mcp/types.js";
-import { DEFAULT_PROTOCOL_ERA } from "@inspector/core/mcp/types.js";
+import {
+  DEFAULT_MODERN_LOG_LEVEL,
+  DEFAULT_PROTOCOL_ERA,
+  MODERN_LOG_LEVELS,
+} from "@inspector/core/mcp/types.js";
 import { isOAuthCapableServerType } from "@inspector/core/mcp/config.js";
+import { ADVERTISABLE_EXTENSIONS } from "@inspector/core/mcp/extensions.js";
 import type { Root } from "@modelcontextprotocol/client";
+
+/**
+ * Resolve the advertised state of an extension for the form: the per-server
+ * override wins, else the registry default. Mirrors `buildClientExtensions`'s
+ * resolution so the switches show exactly what the client will advertise.
+ */
+function isExtensionAdvertised(
+  settings: InspectorServerSettings,
+  key: string,
+  defaultAdvertised: boolean,
+): boolean {
+  return settings.advertisedExtensions?.[key] ?? defaultAdvertised;
+}
 
 export type ServerSettingsSection =
   | "options"
+  | "extensions"
   | "environment"
   | "headers"
   | "metadata"
@@ -59,8 +80,23 @@ export interface ServerSettingsFormProps {
   ) => void;
   onAutoRefreshChange: (value: boolean) => void;
   onPaginatedListsChange: (value: boolean) => void;
+  /**
+   * Toggle whether the Inspector advertises the extension `key` to this server.
+   * `checked` is the new advertise state; the modal folds it into
+   * `settings.advertisedExtensions`. (#1739)
+   */
+  onAdvertisedExtensionChange: (key: string, checked: boolean) => void;
   onMaxFetchRequestsChange: (value: number) => void;
   onProtocolEraChange: (value: ServerProtocolEra) => void;
+  onModernLogLevelChange: (value: ModernLogLevel) => void;
+  /**
+   * The era this server actually negotiated, when it is the live connection —
+   * `undefined` when this server isn't the connected one. Used to hide the
+   * modern-only "Log Level per Request" control once an `auto` server resolves
+   * to legacy at connect time (#1629). A pinned `legacy` era hides it
+   * regardless (no connection needed).
+   */
+  negotiatedEra?: ProtocolEra;
   onOAuthChange: (oauth: OAuthSettings) => void;
   onClearStoredOAuth?: () => void;
   onAddRoot: () => void;
@@ -84,6 +120,48 @@ const PROTOCOL_ERA_VALUES: ReadonlySet<ServerProtocolEra> = new Set(
 function isProtocolEra(value: string | null): value is ServerProtocolEra {
   return value !== null && PROTOCOL_ERA_VALUES.has(value as ServerProtocolEra);
 }
+
+// Modern per-request log-level options (#1629): "Off" plus the eight levels.
+// Only meaningful on the modern era; labeled so the "Off" state reads clearly.
+const MODERN_LOG_LEVEL_OPTIONS: { value: ModernLogLevel; label: string }[] =
+  MODERN_LOG_LEVELS.map((level) => ({
+    value: level,
+    label: level === "off" ? "Off (no logs)" : level,
+  }));
+
+const MODERN_LOG_LEVEL_VALUES: ReadonlySet<ModernLogLevel> = new Set(
+  MODERN_LOG_LEVELS,
+);
+
+function isModernLogLevelValue(value: string | null): value is ModernLogLevel {
+  return value !== null && MODERN_LOG_LEVEL_VALUES.has(value as ModernLogLevel);
+}
+
+// `rightSectionPointerEvents="auto"` keeps the ClearButton clickable inside the
+// input's right section; shared by every clearable field in this form.
+const ClearableTextInput = TextInput.withProps({
+  rightSectionPointerEvents: "auto",
+});
+
+const LogSizeInput = NumberInput.withProps({
+  min: 0,
+  step: 100,
+});
+
+const TimeoutInput = NumberInput.withProps({
+  suffix: " ms",
+});
+
+const ExtensionsHint = Text.withProps({
+  size: "xs",
+  c: "var(--inspector-text-secondary)",
+});
+
+const ClearOAuthRow = Flex.withProps({
+  align: "flex-start",
+  gap: "sm",
+  wrap: "wrap",
+});
 
 const RemoveIcon = ActionIcon.withProps({
   color: "red",
@@ -140,22 +218,20 @@ function KeyValueRows({
     <>
       {items.map((item, index) => (
         <Group key={index} grow>
-          <TextInput
+          <ClearableTextInput
             placeholder="Key"
             value={item.key}
             onChange={(e) => onChange(index, e.currentTarget.value, item.value)}
-            rightSectionPointerEvents="auto"
             rightSection={
               item.key ? (
                 <ClearButton onClick={() => onChange(index, "", item.value)} />
               ) : null
             }
           />
-          <TextInput
+          <ClearableTextInput
             placeholder="Value"
             value={item.value}
             onChange={(e) => onChange(index, item.key, e.currentTarget.value)}
-            rightSectionPointerEvents="auto"
             rightSection={
               item.value ? (
                 <ClearButton onClick={() => onChange(index, item.key, "")} />
@@ -189,13 +265,12 @@ function RootRows({
     <>
       {roots.map((root, index) => (
         <Group key={index} grow>
-          <TextInput
+          <ClearableTextInput
             placeholder="URI (e.g. file:///path)"
             value={root.uri}
             onChange={(e) =>
               onChange(index, e.currentTarget.value, root.name ?? "")
             }
-            rightSectionPointerEvents="auto"
             rightSection={
               root.uri ? (
                 <ClearButton
@@ -204,11 +279,10 @@ function RootRows({
               ) : null
             }
           />
-          <TextInput
+          <ClearableTextInput
             placeholder="Name (optional)"
             value={root.name ?? ""}
             onChange={(e) => onChange(index, root.uri, e.currentTarget.value)}
-            rightSectionPointerEvents="auto"
             rightSection={
               root.name ? (
                 <ClearButton onClick={() => onChange(index, root.uri, "")} />
@@ -241,8 +315,11 @@ export function ServerSettingsForm({
   onTimeoutChange,
   onAutoRefreshChange,
   onPaginatedListsChange,
+  onAdvertisedExtensionChange,
   onMaxFetchRequestsChange,
   onProtocolEraChange,
+  onModernLogLevelChange,
+  negotiatedEra,
   onOAuthChange,
   onClearStoredOAuth,
   onAddRoot,
@@ -250,6 +327,30 @@ export function ServerSettingsForm({
   onRootChange,
 }: ServerSettingsFormProps) {
   const oauthCapable = isOAuthCapableServerType(serverType);
+  // Under enterprise-managed auth these fields hold the *resource authorization
+  // server* credentials (leg 3 — its registered client), not the app/IdP pair
+  // configured in Client Settings. The toggle's label mentions the IdP, which
+  // pulls the reader toward the wrong pair — so qualify the labels and add a
+  // description when EMA is on (#1692).
+  const enterpriseManaged = settings.enterpriseManaged ?? false;
+  const clientIdLabel = enterpriseManaged
+    ? "Resource AS Client ID"
+    : "Client ID";
+  const clientSecretLabel = enterpriseManaged
+    ? "Resource AS Client Secret"
+    : "Client Secret";
+  const resourceAsDescription = enterpriseManaged
+    ? "The resource authorization server's registered client credential (EMA leg 3) — not the app client id/secret, which belong in Client Settings."
+    : undefined;
+  // The modern per-request "Log Level per Request" control is meaningless on a
+  // legacy connection (#1629). Hide it when legacy is pinned, or when an `auto`
+  // server negotiated legacy at connect time. A pinned `modern` server, and an
+  // `auto` server that is either not yet connected or resolved to modern, keep
+  // it visible.
+  const configuredEra = settings.protocolEra ?? DEFAULT_PROTOCOL_ERA;
+  const showModernLogLevel =
+    configuredEra === "modern" ||
+    (configuredEra === "auto" && negotiatedEra !== "legacy");
   const handleMaxFetchRequestsChange = (value: number | string) => {
     if (typeof value === "number") {
       onMaxFetchRequestsChange(value);
@@ -284,13 +385,16 @@ export function ServerSettingsForm({
   }
 
   return (
+    // Stays inline: Accordion is a compound, `multiple`-discriminated generic,
+    // so `.withProps({ multiple: true, ... })` loses its JSX call signature
+    // (same tooling limit as Box).
     <Accordion
       multiple
+      variant="separated"
       value={expandedSections}
       onChange={(value) =>
         onExpandedSectionsChange(value as ServerSettingsSection[])
       }
-      variant="separated"
     >
       <Accordion.Item value="options">
         <Accordion.Control>Options</Accordion.Control>
@@ -310,6 +414,22 @@ export function ServerSettingsForm({
               }}
               allowDeselect={false}
             />
+            {showModernLogLevel && (
+              <Select
+                label="Log Level per Request"
+                description="Modern-era only. On 2026-07-28 servers there is no logging/setLevel — the client opts into logs per request by stamping this level in each request's _meta, and logs arrive on the originating request's stream. Off requests no logs. Defaults to Debug so a modern connection surfaces server logs out of the box. Legacy servers ignore this and use Set Active Level."
+                data={MODERN_LOG_LEVEL_OPTIONS}
+                value={settings.modernLogLevel ?? DEFAULT_MODERN_LOG_LEVEL}
+                onChange={(value) => {
+                  // Select emits `string | null`; not clearable, so the value
+                  // always resolves to a known option.
+                  /* v8 ignore next -- Select never emits an out-of-range value */
+                  if (isModernLogLevelValue(value))
+                    onModernLogLevelChange(value);
+                }}
+                allowDeselect={false}
+              />
+            )}
             <Checkbox
               label="Auto Refresh on List Changed Notifications"
               description="When checked, tool/prompt/resource lists refresh automatically when the server sends a */list_changed notification. When unchecked, the list-changed indicator appears and you refresh on demand."
@@ -322,22 +442,19 @@ export function ServerSettingsForm({
               checked={settings.paginatedLists ?? false}
               onChange={(e) => onPaginatedListsChange(e.currentTarget.checked)}
             />
-            <NumberInput
+            <LogSizeInput
               label="Network Log Size"
               description="Maximum number of HTTP requests kept in the Network log for this server. Older entries rotate out past this limit; a response body that arrives after its entry rotated out is dropped. Use 0 for unlimited (not recommended). Applies immediately to the active connection."
-              min={0}
-              step={100}
               value={settings.maxFetchRequests}
               onChange={handleMaxFetchRequestsChange}
             />
             {isStdio ? (
-              <TextInput
+              <ClearableTextInput
                 label="Working Directory"
                 description="Directory the stdio server process is launched in. Leave empty to inherit the Inspector's working directory."
                 placeholder="(inherit)"
                 value={settings.cwd ?? ""}
                 onChange={(e) => onCwdChange(e.currentTarget.value)}
-                rightSectionPointerEvents="auto"
                 rightSection={
                   settings.cwd ? (
                     <ClearButton onClick={() => onCwdChange("")} />
@@ -345,6 +462,34 @@ export function ServerSettingsForm({
                 }
               />
             ) : null}
+          </Stack>
+        </Accordion.Panel>
+      </Accordion.Item>
+
+      <Accordion.Item value="extensions">
+        <Accordion.Control>Advertised Extensions</Accordion.Control>
+        <Accordion.Panel>
+          <Stack gap="xs">
+            <ExtensionsHint>
+              Which extensions the Inspector declares to this server in its
+              client capabilities. A server may register different tools
+              depending on what the client advertises — toggle these to debug
+              that. Takes effect on the next connect.
+            </ExtensionsHint>
+            {ADVERTISABLE_EXTENSIONS.map((ext) => (
+              <Checkbox
+                key={ext.key}
+                label={ext.label}
+                checked={isExtensionAdvertised(
+                  settings,
+                  ext.key,
+                  ext.defaultAdvertised,
+                )}
+                onChange={(e) =>
+                  onAdvertisedExtensionChange(ext.key, e.currentTarget.checked)
+                }
+              />
+            ))}
           </Stack>
         </Accordion.Panel>
       </Accordion.Item>
@@ -428,21 +573,18 @@ export function ServerSettingsForm({
         <Accordion.Control>Timeouts</Accordion.Control>
         <Accordion.Panel>
           <Group>
-            <NumberInput
+            <TimeoutInput
               label="Connection Timeout"
-              suffix=" ms"
               value={settings.connectionTimeout}
               onChange={handleTimeoutChange("connectionTimeout")}
             />
-            <NumberInput
+            <TimeoutInput
               label="Request Timeout"
-              suffix=" ms"
               value={settings.requestTimeout}
               onChange={handleTimeoutChange("requestTimeout")}
             />
-            <NumberInput
+            <TimeoutInput
               label="Task TTL"
-              suffix=" ms"
               min={1}
               value={settings.taskTtl}
               onChange={handleTimeoutChange("taskTtl")}
@@ -483,7 +625,7 @@ export function ServerSettingsForm({
               <Checkbox
                 label="Enterprise-managed authorization"
                 description="Connect via the configured enterprise IdP instead of interactive OAuth to the MCP authorization server. OAuth fields below are resource authorization server credentials."
-                checked={settings.enterpriseManaged ?? false}
+                checked={enterpriseManaged}
                 onChange={(e) =>
                   onOAuthChange({
                     ...currentOAuth(),
@@ -495,8 +637,9 @@ export function ServerSettingsForm({
                 Pre-configure OAuth credentials for servers requiring
                 authentication
               </HintText>
-              <TextInput
-                label="Client ID"
+              <ClearableTextInput
+                label={clientIdLabel}
+                description={resourceAsDescription}
                 value={settings.oauthClientId ?? ""}
                 onChange={(e) =>
                   onOAuthChange({
@@ -504,7 +647,6 @@ export function ServerSettingsForm({
                     clientId: e.currentTarget.value,
                   })
                 }
-                rightSectionPointerEvents="auto"
                 rightSection={
                   settings.oauthClientId ? (
                     <ClearButton
@@ -515,8 +657,9 @@ export function ServerSettingsForm({
                   ) : null
                 }
               />
-              <TextInput
-                label="Client Secret"
+              <ClearableTextInput
+                label={clientSecretLabel}
+                description={resourceAsDescription}
                 value={settings.oauthClientSecret ?? ""}
                 type="password"
                 onChange={(e) =>
@@ -525,7 +668,6 @@ export function ServerSettingsForm({
                     clientSecret: e.currentTarget.value,
                   })
                 }
-                rightSectionPointerEvents="auto"
                 rightSection={
                   settings.oauthClientSecret ? (
                     <ClearButton
@@ -536,8 +678,10 @@ export function ServerSettingsForm({
                   ) : null
                 }
               />
-              <TextInput
+              <ClearableTextInput
                 label="Scopes"
+                description="Space-separated OAuth scopes (RFC 6749). Do not use commas — a comma-separated entry is sent as one invalid token and rejected by the authorization server."
+                placeholder="mcp tools:read env:read"
                 value={settings.oauthScopes ?? ""}
                 onChange={(e) =>
                   onOAuthChange({
@@ -545,7 +689,6 @@ export function ServerSettingsForm({
                     scopes: e.currentTarget.value,
                   })
                 }
-                rightSectionPointerEvents="auto"
                 rightSection={
                   settings.oauthScopes ? (
                     <ClearButton
@@ -577,7 +720,7 @@ export function ServerSettingsForm({
                 allowDeselect={false}
               />
               {onClearStoredOAuth ? (
-                <Flex align="flex-start" gap="sm" wrap="wrap">
+                <ClearOAuthRow>
                   <ClearStoredOAuthButton onClick={onClearStoredOAuth}>
                     Clear stored OAuth state
                   </ClearStoredOAuthButton>
@@ -585,7 +728,7 @@ export function ServerSettingsForm({
                     Removes stored tokens and client registration for this
                     server. Disconnects if this server is currently connected.
                   </ClearStoredOAuthHint>
-                </Flex>
+                </ClearOAuthRow>
               ) : null}
             </Stack>
           </Accordion.Panel>

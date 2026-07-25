@@ -111,6 +111,39 @@ describe("useInspectorClient", () => {
     expect(result.current.discoverResult).toEqual(discoverResult);
   });
 
+  it("subscribes to excludedToolsChange and updates (#1632)", () => {
+    const client = new FakeInspectorClient();
+    const { result } = renderHook(() => useInspectorClient(client));
+    expect(result.current.excludedTools).toEqual([]);
+    const excluded = [
+      {
+        tool: { name: "bad", inputSchema: { type: "object" as const } },
+        reason:
+          "value: x-mcp-header 'Bad Header' is not a valid RFC 9110 token",
+      },
+    ];
+    act(() => {
+      client.setExcludedTools(excluded);
+    });
+    expect(result.current.excludedTools).toEqual(excluded);
+  });
+
+  it("resets excludedTools to [] when client becomes null (#1632)", () => {
+    const client = new FakeInspectorClient({ status: "connected" });
+    client.setExcludedTools([
+      {
+        tool: { name: "bad", inputSchema: { type: "object" as const } },
+        reason: "invalid",
+      },
+    ]);
+    const { result, rerender } = renderHook(({ c }) => useInspectorClient(c), {
+      initialProps: { c: client as FakeInspectorClient | null },
+    });
+    expect(result.current.excludedTools.length).toBe(1);
+    rerender({ c: null });
+    expect(result.current.excludedTools).toEqual([]);
+  });
+
   it("resets protocolEra / discoverResult to defaults when client becomes null", () => {
     const client = new FakeInspectorClient({
       status: "connected",

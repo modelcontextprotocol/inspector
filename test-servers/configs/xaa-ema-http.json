@@ -16,7 +16,7 @@
     "mode": "protected-resource",
     "authorizationServers": ["https://auth.resource.xaa.dev"],
     "requireAuth": true,
-    "scopesSupported": ["mcp", "tools:read", "env:read"],
+    "scopesSupported": ["tools:read", "env:read"],
     "accessTokenIssuers": ["https://auth.resource.xaa.dev"],
     "jwksUri": "https://auth.resource.xaa.dev/jwks",
     "resource": "http://localhost:8080/",

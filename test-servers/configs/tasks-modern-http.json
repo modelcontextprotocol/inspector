@@ -1,0 +1,12 @@
+{
+  "serverInfo": {
+    "name": "tasks-modern",
+    "version": "1.0.0"
+  },
+  "tasksExtension": true,
+  "transport": {
+    "type": "streamable-http",
+    "port": 3222,
+    "modern": true
+  }
+}

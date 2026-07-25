@@ -15,7 +15,10 @@ import type {
   AppRendererClient,
   InspectorClientOptions,
   PendingRequestOrigin,
+  ResourceSubscriptionStreamState,
+  ExcludedTool,
 } from "./types.js";
+import { scanXMcpHeaderDeclarations } from "../json/xMcpHeader.js";
 // Re-export so v1.5 tests that do `import { InspectorClientOptions } from
 // "@inspector/core/mcp/inspectorClient.js"` keep resolving.
 export type {
@@ -27,6 +30,11 @@ export type {
   AppRendererClient,
 } from "./types.js";
 import { getServerType as getServerTypeFromConfig } from "./config.js";
+import {
+  DEFAULT_MODERN_LOG_LEVEL,
+  INACTIVE_SUBSCRIPTION_STREAM_STATE,
+  isTerminalStatus,
+} from "./types.js";
 // Fallback client identity, used ONLY when a caller doesn't pass
 // `clientIdentity`. Real clients supply their own: the Node clients (CLI, TUI)
 // read the single-source version from the root package.json via
@@ -53,6 +61,7 @@ import type {
   JSONRPCNotification,
   JSONRPCResultResponse,
   JSONRPCErrorResponse,
+  JSONRPCMessage,
   ServerCapabilities,
   ClientCapabilities,
   Implementation,
@@ -93,12 +102,32 @@ import type {
   InputRequests,
   InputRequiredOptions,
   StandardSchemaV1,
+  McpSubscription,
+  SubscriptionFilter,
 } from "@modelcontextprotocol/client";
 import { ProtocolError, ProtocolErrorCode } from "@modelcontextprotocol/client";
 import {
   isInputRequiredResult,
   withInputRequired,
+  LOG_LEVEL_META_KEY,
+  CLIENT_CAPABILITIES_META_KEY,
+  CLIENT_INFO_META_KEY,
+  PROTOCOL_VERSION_META_KEY,
+  RELATED_TASK_META_KEY,
 } from "@modelcontextprotocol/client";
+import {
+  TASKS_EXTENSION_KEY,
+  MODERN_TASK_HANDLE_META,
+  MODERN_PROTOCOL_VERSION,
+  ModernGetTaskResultSchema,
+  ModernUpdateTaskResultSchema,
+  ModernCancelTaskResultSchema,
+  normalizeModernTask,
+  readInputRequests,
+  isModernCreateTaskResult,
+  type ModernDetailedTask,
+} from "./modernTaskSchemas.js";
+import { buildClientExtensions } from "./extensions.js";
 import {
   EmptyResultSchema,
   CallToolResultSchema,
@@ -245,6 +274,16 @@ interface ToolCallRequest {
   options?: { skipOutputValidation?: boolean };
 }
 
+// Backoff for reconnect-by-re-listen on the modern `subscriptions/listen` stream
+// (#1630). A `"remote"` drop schedules a re-listen after a capped exponential
+// delay (based on the count of *consecutive failed* re-lists) so a flapping
+// server can't spin a tight zero-delay loop; a successful acknowledgement resets
+// the count, and past the cap we give up (mark the stream ended) rather than
+// retry a persistently-failing re-list forever.
+const MODERN_RECONNECT_BASE_MS = 500;
+const MODERN_RECONNECT_MAX_MS = 15_000;
+const MODERN_RECONNECT_MAX_ATTEMPTS = 8;
+
 /**
  * InspectorClient wraps an MCP Client and provides:
  * - Message tracking and storage
@@ -274,6 +313,13 @@ export class InspectorClient extends InspectorClientEventTarget {
   private ambientAuthChallengeInFlight = new Map<string, Promise<void>>();
   private pipeStderr: boolean;
   private initialLoggingLevel?: LoggingLevel;
+  // Modern-era per-request log level (#1629). On 2026-07-28 servers
+  // `logging/setLevel` is gone; the client opts into logs per request via the
+  // `io.modelcontextprotocol/logLevel` `_meta` key, and the SDK does not attach
+  // it automatically. When set, `mergeMeta` stamps this level on every outgoing
+  // request so server logs arrive on each request's stream; `undefined` means
+  // "don't opt in" (logs stay silently absent). Only honored on the modern era.
+  private modernLogLevel?: LoggingLevel;
   private sample: boolean;
   private elicit: boolean | { form?: boolean; url?: boolean };
   private progress: boolean;
@@ -299,11 +345,18 @@ export class InspectorClient extends InspectorClientEventTarget {
   // probed/pinned connection (undefined on a plain legacy connect).
   private protocolEra?: ProtocolEra;
   private discoverResult?: DiscoverResult;
+  // Tools the SDK excludes from `tools/list` for invalid `x-mcp-header`
+  // annotations (SEP-2243), recomputed on every aggregate tools refresh and
+  // surfaced so the Tools tab can show why a tool vanished (#1632).
+  private excludedTools: ExcludedTool[] = [];
   // The capabilities this Inspector client advertises to the server during the
   // initialize handshake. Built once in setupClient() and snapshotted here so
   // UI surfaces (Server Info modal) can display them without poking at the
   // SDK Client's private state.
   private clientCapabilities: ClientCapabilities = {};
+  // The client identity ({name, version}) passed to the SDK Client. Reused to
+  // build the modern per-request envelope for raw tasks/* requests.
+  private clientInfo: Implementation;
   // Sampling requests
   private pendingSamples: SamplingCreateMessage[] = [];
   // Elicitation requests
@@ -317,8 +370,31 @@ export class InspectorClient extends InspectorClientEventTarget {
     resources: boolean;
     prompts: boolean;
   };
-  // Resource subscriptions
+  // Resource subscriptions. The set of subscribed URIs is the era-agnostic
+  // source of truth for the UI (the `resourceSubscriptionsChange` list). How a
+  // subscription reaches the wire forks by era: legacy sends one
+  // `resources/subscribe` per URI; modern (2026-07-28) has no such method — all
+  // subscriptions are a filter over one long-lived `subscriptions/listen` stream
+  // (#1630, SEP §7.4).
   private subscribedResources: Set<string> = new Set();
+  // Modern-era listen stream backing the subscriptions above. A single
+  // `McpSubscription` whose filter's `resourceSubscriptions` mirrors
+  // `subscribedResources`; mutating the set re-lists (close old, open new), and
+  // an unexpected `"remote"` close re-lists (reconnect-by-re-listen — the stream
+  // is not resumable). `null` when no URI is subscribed or on the legacy era.
+  private modernSubscription: McpSubscription | null = null;
+  // Monotonic guard so a stale re-list/reconnect (whose `listen()` or `closed`
+  // resolves after a newer refresh already started) can detect it lost the race
+  // and bail without clobbering the current stream.
+  private modernListenGeneration = 0;
+  // Last dispatched modern stream state; `active: false` on the legacy era.
+  private modernStreamState: ResourceSubscriptionStreamState =
+    INACTIVE_SUBSCRIPTION_STREAM_STATE;
+  // Reconnect-by-re-listen backoff state (#1630): the count of consecutive
+  // *failed* re-lists (reset to 0 on any successful acknowledgement) and the
+  // pending re-listen timer.
+  private modernReconnectAttempts = 0;
+  private modernReconnectTimer: ReturnType<typeof setTimeout> | undefined;
   // Task ids the user explicitly cancelled. A cancel makes the in-flight
   // `callToolStream` reject with a generic -32603 error, which the stream's
   // error path would otherwise report as a *failed* task — flashing "failed"
@@ -327,6 +403,25 @@ export class InspectorClient extends InspectorClientEventTarget {
   // instead, so it lands in the right state immediately (#1455). Cleared on
   // disconnect.
   private cancelledTaskIds: Set<string> = new Set();
+  // Per-task abort controllers for a modern task paused at `input_required`.
+  // While the poll loop blocks on the pending elicitation (the modal), the tool
+  // call's own abort path isn't in play — so `cancelRequestorTask` aborts this
+  // controller to reject the pending request, close the modal, and let the poll
+  // observe the cancellation. Keyed by taskId; created/removed by the poll loops.
+  private taskInputAbortControllers = new Map<string, AbortController>();
+  // Pending raw-wire requests (modern tasks/* — see rawWireRequest). Keyed by a
+  // string JSON-RPC id we mint; the SDK Client only mints numeric ids, so ours
+  // never collide with (or reach) it. Resolved by the transport's
+  // consume-response hook and rejected on disconnect.
+  private pendingRawWireRequests = new Map<
+    string,
+    {
+      resolve: (result: unknown) => void;
+      reject: (err: Error) => void;
+      timer: ReturnType<typeof setTimeout>;
+    }
+  >();
+  private rawWireRequestCounter = 0;
   // Abort controller for the in-flight ordinary (non-task) tool call. Aborting
   // it makes the SDK send a `notifications/cancelled` for that request (the MCP
   // cancellation flow) and reject the pending call, which `callTool` surfaces as
@@ -336,6 +431,9 @@ export class InspectorClient extends InspectorClientEventTarget {
   private activeToolCallAbortController?: AbortController;
   // Receiver tasks (server-initiated: server sends createMessage/elicit with params.task, server polls us)
   private receiverTasks: boolean;
+  // Per-extension advertise overrides (#1738); undefined key falls back to the
+  // registry default in ADVERTISABLE_EXTENSIONS.
+  private advertisedExtensions?: Record<string, boolean>;
   private receiverTaskTtlMs: number | (() => number);
   private receiverTaskRecords: Map<string, ReceiverTaskRecord> = new Map();
   // OAuth support (config owned by oauthManager; client delegates and uses !!oauthManager for "is OAuth configured")
@@ -373,6 +471,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     this.sample = options.sample ?? true;
     this.elicit = options.elicit ?? true;
     this.receiverTasks = options.receiverTasks ?? false;
+    this.advertisedExtensions = options.advertisedExtensions;
     this.receiverTaskTtlMs = options.receiverTaskTtlMs ?? 60_000;
     this.progress = options.progress ?? true;
     this.resetTimeoutOnProgress = options.resetTimeoutOnProgress ?? true;
@@ -382,6 +481,14 @@ export class InspectorClient extends InspectorClientEventTarget {
         ? options.defaultMetadata
         : undefined;
     this.serverSettings = options.serverSettings;
+    // Seed the modern per-request log level from the server setting (#1629), so
+    // a modern connection opts into logs by default without the user touching
+    // the Logs-tab control. Absence means DEFAULT_MODERN_LOG_LEVEL; `"off"`
+    // clears the opt-in. Only stamped on modern connections (see mergeMeta) —
+    // legacy uses `logging/setLevel`.
+    const settingLevel =
+      options.serverSettings?.modernLogLevel ?? DEFAULT_MODERN_LOG_LEVEL;
+    this.modernLogLevel = settingLevel === "off" ? undefined : settingLevel;
     // Default to the legacy 2025-11-25 era when the caller doesn't pin one, per
     // the SDK guidance that a debugging tool must not auto-probe (#1626).
     this.versionNegotiation = options.versionNegotiation ?? { mode: "legacy" };
@@ -492,22 +599,34 @@ export class InspectorClient extends InspectorClientEventTarget {
         },
       };
     }
-    if (options.oauth?.enterpriseManaged) {
+    // Assemble the advertised-extensions map from one builder (the single
+    // source of truth), instead of ad-hoc per-extension spreads. It layers the
+    // registry defaults (with any user overrides from `advertisedExtensions`)
+    // and the auth-mode-driven EMA extension. The Tasks entry defaults to
+    // advertised, so the map is non-empty and `capabilities.extensions` is
+    // always attached — the modern Tasks extension (SEP-2663) must ride every
+    // modern request envelope for a server to legally return a `CreateTaskResult`
+    // (harmless on legacy, where extensions are ignored). (#1738)
+    const advertisedExtensions = buildClientExtensions({
+      enterpriseManaged: options.oauth?.enterpriseManaged ?? false,
+      advertised: this.advertisedExtensions,
+    });
+    if (Object.keys(advertisedExtensions).length > 0) {
       capabilities.extensions = {
-        "io.modelcontextprotocol/enterprise-managed-authorization": {},
+        ...capabilities.extensions,
+        ...advertisedExtensions,
       };
     }
-    if (Object.keys(capabilities).length > 0) {
-      clientOptions.capabilities = capabilities;
-    }
+    clientOptions.capabilities = capabilities;
     this.clientCapabilities = capabilities;
 
     this.appRendererClientProxy = null;
+    this.clientInfo = options.clientIdentity ?? {
+      name: corePackageJson.name.split("/")[1] ?? corePackageJson.name,
+      version: corePackageJson.version,
+    };
     this.client = new Client(
-      options.clientIdentity ?? {
-        name: corePackageJson.name.split("/")[1] ?? corePackageJson.name,
-        version: corePackageJson.version,
-      },
+      this.clientInfo,
       Object.keys(clientOptions).length > 0 ? clientOptions : undefined,
     );
   }
@@ -643,10 +762,21 @@ export class InspectorClient extends InspectorClientEventTarget {
     callMetadata?: Record<string, string>,
   ): Record<string, string> | undefined {
     const defaults = this.defaultMetadata;
-    const hasDefaults = defaults && Object.keys(defaults).length > 0;
-    const hasCall = callMetadata && Object.keys(callMetadata).length > 0;
-    if (!hasDefaults && !hasCall) return undefined;
-    return { ...(defaults ?? {}), ...(callMetadata ?? {}) };
+    // Modern-era per-request log level (#1629): stamp the opt-in `_meta` key on
+    // every request so the server emits `notifications/message` on this
+    // request's stream. Gated on the negotiated era — legacy servers use
+    // `logging/setLevel` instead, so we never stamp it there. Placed before the
+    // call-time keys so an explicit per-call `logLevel` (if ever passed) wins.
+    const logMeta =
+      this.protocolEra === "modern" && this.modernLogLevel
+        ? { [LOG_LEVEL_META_KEY]: this.modernLogLevel }
+        : undefined;
+    const merged = {
+      ...(defaults ?? {}),
+      ...(logMeta ?? {}),
+      ...(callMetadata ?? {}),
+    };
+    return Object.keys(merged).length > 0 ? merged : undefined;
   }
 
   private getRequestOptions(
@@ -1017,6 +1147,12 @@ export class InspectorClient extends InspectorClientEventTarget {
       this.transport = new MessageTrackingTransport(
         baseTransport,
         messageTracking,
+        {
+          rewriteIncomingResult: (message) =>
+            this.rewriteModernTaskResult(message),
+          consumeIncomingResponse: (message) =>
+            this.consumeRawWireResponse(message),
+        },
       );
       this.attachTransportListeners(this.baseTransport);
     }
@@ -1496,9 +1632,30 @@ export class InspectorClient extends InspectorClientEventTarget {
       elicitation.cancel();
     }
     this.pendingElicitations = [];
-    // Clear resource subscriptions on disconnect
+    // Clear resource subscriptions on disconnect. Tear down the modern listen
+    // stream (best-effort — the transport is already going away) and bump the
+    // generation so any in-flight re-listen/reconnect bails (#1630).
     this.subscribedResources.clear();
+    this.modernListenGeneration++;
+    this.clearModernReconnectTimer();
+    this.modernReconnectAttempts = 0;
+    const closingSubscription = this.modernSubscription;
+    this.modernSubscription = null;
+    closingSubscription?.close().catch(() => {});
+    this.modernStreamState = INACTIVE_SUBSCRIPTION_STREAM_STATE;
+    this.dispatchTypedEvent(
+      "resourceSubscriptionStreamChange",
+      INACTIVE_SUBSCRIPTION_STREAM_STATE,
+    );
     this.cancelledTaskIds.clear();
+    // Settle any pending raw-wire (modern tasks/*) requests so their callers
+    // don't hang past teardown.
+    this.rejectPendingRawWireRequests("Disconnected");
+    // Abort any task paused at input_required so its poll loop unwinds.
+    for (const [, controller] of this.taskInputAbortControllers) {
+      controller.abort(new Error("Disconnected"));
+    }
+    this.taskInputAbortControllers.clear();
     // Abort any in-flight ordinary tool call so its promise settles instead of
     // hanging past teardown; drop the controller reference either way.
     this.activeToolCallAbortController?.abort("Disconnected");
@@ -1517,6 +1674,10 @@ export class InspectorClient extends InspectorClientEventTarget {
     this.protocolVersion = undefined;
     this.protocolEra = undefined;
     this.discoverResult = undefined;
+    this.excludedTools = [];
+    // Drop the modern per-request log-level opt-in so it doesn't leak into the
+    // next connection's `_meta` (#1629).
+    this.modernLogLevel = undefined;
     this.dispatchTypedEvent("pendingSamplesChange", this.pendingSamples);
     this.dispatchTypedEvent(
       "pendingElicitationsChange",
@@ -1528,6 +1689,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     this.dispatchTypedEvent("protocolVersionChange", this.protocolVersion);
     this.dispatchTypedEvent("protocolEraChange", this.protocolEra);
     this.dispatchTypedEvent("discoverResultChange", this.discoverResult);
+    this.dispatchTypedEvent("excludedToolsChange", this.excludedTools);
   }
 
   /**
@@ -1621,6 +1783,183 @@ export class InspectorClient extends InspectorClientEventTarget {
   }
 
   /**
+   * True when the connection is modern (2026-07-28) AND the server advertised
+   * the `io.modelcontextprotocol/tasks` extension (SEP-2663) in its
+   * `server/discover` capabilities. Modern task methods (`tasks/get`,
+   * `tasks/update`, `tasks/cancel`) and the "unsolicited task handle" behavior
+   * are gated on this — legacy servers use `capabilities.tasks` and the
+   * `tasks/list`-backed flow instead. Exposed so the Tasks tab and the modern
+   * task store gate on the extension rather than the legacy capability.
+   */
+  isTasksExtensionNegotiated(): boolean {
+    return (
+      this.isModernEra() &&
+      this.capabilities?.extensions?.[TASKS_EXTENSION_KEY] !== undefined
+    );
+  }
+
+  /**
+   * Build the full modern (2026-07-28) per-request envelope for a RAW tasks/*
+   * request. The SDK's codec normally stamps this envelope, but raw requests
+   * bypass the codec, and the modern server rejects a request whose
+   * `MCP-Protocol-Version` header names 2026-07-28 but omits the required
+   * envelope `_meta` keys (`protocolVersion`, `clientInfo`, plus
+   * `clientCapabilities` carrying the tasks extension). We reproduce it here.
+   */
+  private withModernTaskEnvelope(
+    params: Record<string, unknown>,
+  ): Record<string, unknown> {
+    const existingMeta =
+      (params._meta as Record<string, unknown> | undefined) ?? {};
+    const clientCapabilities = {
+      ...this.clientCapabilities,
+      // Force-stamp the tasks extension regardless of what the client
+      // advertised at construction: the raw `tasks/*` channel requires it, and
+      // a user may disable general tasks advertisement via `advertisedExtensions`
+      // (#1738). So this stamp is load-bearing, not a redundant re-add.
+      extensions: {
+        ...this.clientCapabilities.extensions,
+        [TASKS_EXTENSION_KEY]: {},
+      },
+    };
+    // Use the NEGOTIATED protocol version so the envelope agrees with the
+    // `MCP-Protocol-Version` header the transport stamps from the same source —
+    // a future modern-family revision would negotiate a different string, and
+    // the two must not disagree. The raw channel only runs on a connected modern
+    // session, so this is always set; the constant is a defensive fallback.
+    /* v8 ignore start -- fallback only if getProtocolVersion() is unset, which
+       can't happen on the connected modern session this runs on. Bracketed so
+       the ignore is reflow-proof however prettier splits the statement. */
+    const protocolVersion =
+      this.getProtocolVersion() ?? MODERN_PROTOCOL_VERSION;
+    /* v8 ignore stop */
+    return {
+      ...params,
+      _meta: {
+        ...existingMeta,
+        [PROTOCOL_VERSION_META_KEY]: protocolVersion,
+        [CLIENT_INFO_META_KEY]: this.clientInfo,
+        [CLIENT_CAPABILITIES_META_KEY]: clientCapabilities,
+      },
+    };
+  }
+
+  /**
+   * Transport-level rewrite of a modern (SEP-2663) `CreateTaskResult`
+   * (`resultType: "task"`) — the one task frame the SDK v2 codec rejects (tasks
+   * were removed, so the codec knows only `complete`/`input_required`). The true
+   * frame is already logged by `trackResponse`; here we hand the SDK a benign
+   * `CallToolResult` that carries the real `DetailedTask` under
+   * {@link MODERN_TASK_HANDLE_META}, where {@link pollTaskToolCall} reads it to
+   * drive the poll. Any other message passes through untouched.
+   */
+  private rewriteModernTaskResult(
+    message: JSONRPCResultResponse,
+  ): JSONRPCMessage {
+    if (!isModernCreateTaskResult(message.result)) {
+      return message;
+    }
+    const task = message.result as ModernDetailedTask;
+    return {
+      ...message,
+      result: {
+        resultType: "complete",
+        content: [{ type: "text", text: `Modern task ${task.taskId} created` }],
+        _meta: { [MODERN_TASK_HANDLE_META]: task },
+      },
+    };
+  }
+
+  /**
+   * Send an extension method the SDK v2 era gate refuses to route — the modern
+   * `tasks/get` / `tasks/update` / `tasks/cancel`, which are spec-method names
+   * absent from the 2026-07-28 era, so `client.request` throws
+   * `MethodNotSupportedByProtocolVersion` before anything reaches the wire.
+   *
+   * We mint a string JSON-RPC id (the SDK only mints numeric ids, so ours never
+   * collide), send the raw frame straight through the transport (which still
+   * logs it via `trackRequest`, so the Protocol/Network tabs see it), and await
+   * the matching response — captured and consumed by the transport's
+   * consume-response hook so it never confuses the SDK Client. The response is
+   * validated with the caller's explicit schema.
+   */
+  private async rawWireRequest<T>(
+    method: string,
+    params: Record<string, unknown>,
+    resultSchema: { parse: (value: unknown) => T },
+  ): Promise<T> {
+    const transport = this.transport;
+    if (!transport) {
+      throw new Error("Client is not connected");
+    }
+    const id = `inspector-ext-${(this.rawWireRequestCounter += 1)}`;
+    // `params` is an arbitrary caller-supplied record; the SDK types request
+    // params with a specific optional `_meta` shape it can't satisfy, so widen
+    // it with a single structural cast. Typing `message` as `JSONRPCRequest`
+    // (a `JSONRPCMessage` member) then needs no further cast.
+    const message: JSONRPCRequest = {
+      jsonrpc: "2.0",
+      id,
+      method,
+      params: params as JSONRPCRequest["params"],
+    };
+    const timeoutMs = this.requestTimeout ?? 30_000;
+    const raw = await new Promise<unknown>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pendingRawWireRequests.delete(id);
+        reject(
+          new Error(`Raw request "${method}" timed out after ${timeoutMs} ms`),
+        );
+      }, timeoutMs);
+      this.pendingRawWireRequests.set(id, { resolve, reject, timer });
+      transport.send(message).catch((err: unknown) => {
+        const pending = this.pendingRawWireRequests.get(id);
+        if (pending) {
+          clearTimeout(pending.timer);
+          this.pendingRawWireRequests.delete(id);
+        }
+        reject(err instanceof Error ? err : new Error(String(err)));
+      });
+    });
+    return resultSchema.parse(raw);
+  }
+
+  /**
+   * Transport consume-response hook: resolve/reject a pending
+   * {@link rawWireRequest} when its response arrives, and report it as consumed
+   * (so the transport does not forward it to the SDK Client, which never sent
+   * it). Returns false for any id we don't own, leaving normal SDK traffic
+   * untouched.
+   */
+  private consumeRawWireResponse(
+    message: JSONRPCResultResponse | JSONRPCErrorResponse,
+  ): boolean {
+    const id = String((message as { id?: unknown }).id);
+    const pending = this.pendingRawWireRequests.get(id);
+    if (!pending) {
+      return false;
+    }
+    this.pendingRawWireRequests.delete(id);
+    clearTimeout(pending.timer);
+    if ("error" in message) {
+      const err = (message as JSONRPCErrorResponse).error;
+      pending.reject(new Error(err?.message ?? `Request ${id} failed`));
+    } else {
+      pending.resolve((message as JSONRPCResultResponse).result);
+    }
+    return true;
+  }
+
+  /** Reject and clear all pending raw-wire requests (on disconnect/teardown). */
+  private rejectPendingRawWireRequests(reason: string): void {
+    for (const [, pending] of this.pendingRawWireRequests) {
+      clearTimeout(pending.timer);
+      pending.reject(new Error(reason));
+    }
+    this.pendingRawWireRequests.clear();
+  }
+
+  /**
    * Get requestor task status by taskId (tasks we created on the server)
    * @param taskId Task identifier
    * @returns Task status
@@ -1629,9 +1968,26 @@ export class InspectorClient extends InspectorClientEventTarget {
     if (!this.client) {
       throw new Error("Client is not connected");
     }
-    // SDK v2 removed `client.experimental.tasks.*`; drive the 2025-11-25
-    // `tasks/get` wire method directly with its explicit (deprecated-but-
-    // importable) result schema. `GetTaskResult` is the flattened task object.
+    // Modern (SEP-2663): `tasks/get` returns a `DetailedTask` (ttlMs/pollIntervalMs,
+    // inlined result/error/inputRequests) — a different wire shape than the
+    // deprecated SDK schema. Parse with the explicit modern schema and normalize
+    // onto the internal Task shape, stamping the extension client capability.
+    if (this.isTasksExtensionNegotiated()) {
+      const modern = await this.rawWireRequest(
+        "tasks/get",
+        this.withModernTaskEnvelope({ taskId }),
+        ModernGetTaskResultSchema,
+      );
+      const task = normalizeModernTask(modern);
+      this.dispatchTypedEvent("requestorTaskUpdated", {
+        taskId: task.taskId,
+        task,
+      });
+      return task;
+    }
+    // Legacy (2025-11-25): SDK v2 removed `client.experimental.tasks.*`; drive
+    // the `tasks/get` wire method directly with its deprecated-but-importable
+    // result schema. `GetTaskResult` is the flattened task object.
     const task = (await this.client.request(
       { method: "tasks/get", params: { taskId } },
       GetTaskResultSchema,
@@ -1678,14 +2034,58 @@ export class InspectorClient extends InspectorClientEventTarget {
     // whose error message may arrive before this resolves — the stream's error
     // path reads this set to label the task "cancelled" rather than "failed".
     this.cancelledTaskIds.add(taskId);
-    await this.client.request(
-      { method: "tasks/cancel", params: { taskId } },
-      CancelTaskResultSchema,
-      this.getRequestOptions(),
-    );
+    // If the task is paused at `input_required` (its poll loop blocked on the
+    // pending-request modal), abort it so the modal closes and the poll observes
+    // the cancellation — otherwise the user is stuck answering a modal that a
+    // non-advancing server would keep re-showing.
+    const inputAbort = this.taskInputAbortControllers.get(taskId);
+    if (inputAbort) {
+      inputAbort.abort(new Error(`Task ${taskId} cancelled by user`));
+    }
+    // Modern `tasks/cancel` is a raw-wire request (the SDK era gate blocks the
+    // spec-method name on 2026-07-28); legacy uses the SDK path + deprecated
+    // schema.
+    if (this.isTasksExtensionNegotiated()) {
+      await this.rawWireRequest(
+        "tasks/cancel",
+        this.withModernTaskEnvelope({ taskId }),
+        ModernCancelTaskResultSchema,
+      );
+    } else {
+      await this.client.request(
+        { method: "tasks/cancel", params: { taskId } },
+        CancelTaskResultSchema,
+        this.getRequestOptions(),
+      );
+    }
 
     // Dispatch event
     this.dispatchTypedEvent("taskCancelled", { taskId });
+  }
+
+  /**
+   * Fulfil the outstanding `inputRequests` of a modern (SEP-2663)
+   * `input_required` task by sending `tasks/update` with the collected
+   * `inputResponses`. The server acks with an empty result; the task's
+   * observable status advances on a subsequent `tasks/get` poll (the update is
+   * eventually consistent). Modern-only — legacy tasks surface input through the
+   * server→client request channel, not `tasks/update`.
+   *
+   * @param taskId Task identifier
+   * @param inputResponses Responses keyed by the server's `inputRequests` ids
+   */
+  async updateRequestorTask(
+    taskId: string,
+    inputResponses: Record<string, unknown>,
+  ): Promise<void> {
+    if (!this.client) {
+      throw new Error("Client is not connected");
+    }
+    await this.rawWireRequest(
+      "tasks/update",
+      this.withModernTaskEnvelope({ taskId, inputResponses }),
+      ModernUpdateTaskResultSchema,
+    );
   }
 
   /**
@@ -1903,36 +2303,40 @@ export class InspectorClient extends InspectorClientEventTarget {
   private async fulfilInputRequests(
     inputRequests: InputRequests | undefined,
     signal?: AbortSignal,
+    origin: PendingRequestOrigin = "input-required",
   ): Promise<Record<string, unknown> | undefined> {
     if (!inputRequests) return undefined;
     const responses: Record<string, unknown> = {};
     for (const [key, embedded] of Object.entries(inputRequests)) {
-      responses[key] = await this.fulfilEmbeddedInputRequest(embedded, signal);
+      responses[key] = await this.fulfilEmbeddedInputRequest(
+        embedded,
+        signal,
+        origin,
+      );
     }
     return responses;
   }
 
   /**
-   * Fulfil a single embedded MRTR request. `roots/list` is auto-answered from
+   * Fulfil a single embedded input request. `roots/list` is auto-answered from
    * the configured roots (consistent with the legacy `roots/list` handler — no
    * pending UX); `elicitation/create` and `sampling/createMessage` surface
-   * through the pending-request UI tagged `"input-required"`.
+   * through the pending-request UI tagged with `origin`. `origin` distinguishes
+   * an MRTR round (`"input-required"`, answer echoed as a retry) from a modern
+   * task round (`"task-input-required"`, answer submitted via `tasks/update`).
    */
   private async fulfilEmbeddedInputRequest(
     request: CreateMessageRequest | ElicitRequest | ListRootsRequest,
     signal?: AbortSignal,
+    origin: PendingRequestOrigin = "input-required",
   ): Promise<unknown> {
     switch (request.method) {
       case "roots/list":
         return { roots: this.roots ?? [] };
       case "elicitation/create":
-        return this.enqueuePendingElicitation(
-          request,
-          "input-required",
-          signal,
-        );
+        return this.enqueuePendingElicitation(request, origin, signal);
       case "sampling/createMessage":
-        return this.enqueuePendingSample(request, "input-required", signal);
+        return this.enqueuePendingSample(request, origin, signal);
       /* v8 ignore next 6 -- defensive: an SDK server rejects an unknown embedded
          method before it reaches the wire, so this only guards against a
          non-conformant hand-rolled server; not reproducible against the
@@ -2092,7 +2496,12 @@ export class InspectorClient extends InspectorClientEventTarget {
   }
 
   /**
-   * Set the logging level for the MCP server
+   * Set the logging level for the MCP server (legacy era only).
+   *
+   * On legacy servers logging is session-scoped: one `logging/setLevel` request
+   * sets the level for all subsequent `notifications/message`. Modern servers
+   * removed this method — use {@link setModernLogLevel} there instead.
+   *
    * @param level Logging level to set
    * @throws Error if client is not connected or server doesn't support logging
    */
@@ -2104,6 +2513,28 @@ export class InspectorClient extends InspectorClientEventTarget {
       throw new Error("Server does not support logging");
     }
     await this.client.setLoggingLevel(level, this.getRequestOptions());
+  }
+
+  /**
+   * Set (or clear) the modern-era per-request log level (#1629).
+   *
+   * On 2026-07-28 servers `logging/setLevel` is gone and there is no
+   * session-scoped level: the client opts into logs per request by stamping the
+   * `io.modelcontextprotocol/logLevel` `_meta` key, and the server MUST NOT emit
+   * `notifications/message` for requests that omit it. This stores the level so
+   * {@link mergeMeta} stamps it on every subsequent request; pass `undefined` to
+   * stop opting in (logs then stay silently absent). Takes effect immediately —
+   * no request is sent, and it is a no-op on the wire until the next request.
+   *
+   * @param level Level to stamp on every request, or `undefined` to opt out.
+   */
+  setModernLogLevel(level: LoggingLevel | undefined): void {
+    this.modernLogLevel = level;
+  }
+
+  /** The modern-era per-request log level, or `undefined` when not opted in. */
+  getModernLogLevel(): LoggingLevel | undefined {
+    return this.modernLogLevel;
   }
 
   /**
@@ -2157,7 +2588,71 @@ export class InspectorClient extends InspectorClientEventTarget {
         this.getCacheableRequestOptions(options?.cacheMode),
       ),
     );
+    // Recompute the SEP-2243 excluded-tools set alongside the aggregate. The
+    // SDK already filtered `response.tools`, so it can't tell us what it
+    // dropped — {@link refreshExcludedTools} re-lists the RAW `tools/list` to
+    // find out. This is a SECOND, deliberately un-cached walk: on a modern
+    // non-stdio connection it roughly doubles the list round-trips per refresh
+    // (and runs even when the aggregate above was served from cache), because
+    // the raw per-page path has no response cache and the excluded set must
+    // reflect the current wire truth. Accepted for a debugging tool where the
+    // list is small and correctness of "why did this tool vanish" matters more
+    // than the extra request; it's a no-op (no round trip) on legacy/stdio.
+    // Kept best-effort: an error here must never fail the tools list itself.
+    await this.refreshExcludedTools(options?.metadata).catch(() => {});
     return { tools: [...response.tools] };
+  }
+
+  /**
+   * Whether this connection excludes tools with invalid `x-mcp-header`
+   * annotations from `tools/list`, matching the SDK's gate: only the modern
+   * (2026-07-28) era on a non-stdio (Streamable HTTP / SSE) transport. Legacy
+   * and stdio keep such tools in the list, so there is nothing to surface.
+   */
+  private excludesInvalidXMcpHeaderTools(): boolean {
+    return this.isModernEra() && this.getServerType() !== "stdio";
+  }
+
+  /** The current SEP-2243 excluded-tools set (empty on legacy/stdio). */
+  getExcludedTools(): ExcludedTool[] {
+    return this.excludedTools;
+  }
+
+  /**
+   * Recompute the tools the SDK excludes from `tools/list` for invalid
+   * `x-mcp-header` annotations (SEP-2243), and emit `excludedToolsChange`.
+   * Returns `[]` without any round trip on connections that don't exclude
+   * (legacy/stdio). Otherwise walks every page of the RAW `tools/list` (which,
+   * unlike the SDK's high-level `listTools()`, is NOT filtered) and keeps the
+   * tools whose annotation scan fails, each with its reason. A repeating cursor
+   * stops the walk (non-converging-server guard, mirroring the SDK).
+   */
+  async refreshExcludedTools(
+    metadata?: Record<string, string>,
+  ): Promise<ExcludedTool[]> {
+    const excluded: ExcludedTool[] = [];
+    // Gated to connections that actually exclude; otherwise this is a pure
+    // no-op (no round trip). The raw `listTools` below guards the connection.
+    if (this.excludesInvalidXMcpHeaderTools()) {
+      const seenCursors = new Set<string>();
+      let cursor: string | undefined;
+      do {
+        const page = await this.listTools(cursor, metadata);
+        for (const tool of page.tools) {
+          const scan = scanXMcpHeaderDeclarations(tool.inputSchema);
+          if (!scan.valid) excluded.push({ tool, reason: scan.reason });
+        }
+        cursor = page.nextCursor;
+        if (cursor !== undefined) {
+          /* v8 ignore next -- defensive: a spec-compliant server never repeats a cursor; this guards a non-converging server from an infinite walk (mirrors the SDK's drainList guard) */
+          if (seenCursors.has(cursor)) break;
+          seenCursors.add(cursor);
+        }
+      } while (cursor !== undefined);
+    }
+    this.excludedTools = excluded;
+    this.dispatchTypedEvent("excludedToolsChange", excluded);
+    return excluded;
   }
 
   /**
@@ -2403,7 +2898,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     // via `validateToolOutput`. MCP Apps passthrough (skipOutputValidation)
     // simply skips that check; both paths yield a CallToolResult once the
     // driver returns a complete (non-`input_required`) result.
-    const result = await this.invokeMcpClient(
+    const rawResult = await this.invokeMcpClient(
       () =>
         this.requestWithInputRequired(
           "tools/call",
@@ -2413,6 +2908,19 @@ export class InspectorClient extends InspectorClientEventTarget {
         ),
       { method: "tools/call", toolName: tool.name },
     );
+
+    // Unsolicited modern task handle (SEP-2663): on a modern connection the
+    // server may answer ANY `tools/call` with a task rather than a result. The
+    // transport rewrote that frame into a `CallToolResult` carrying the real
+    // `DetailedTask` in `_meta`; poll it to completion here (the run-as-task
+    // path does the same via `callToolStream`) so the ordinary call resolves to
+    // the task's final result and the Tasks tab tracks it.
+    const taskHandle = (rawResult as CallToolResult)._meta?.[
+      MODERN_TASK_HANDLE_META
+    ] as ModernDetailedTask | undefined;
+    const result = taskHandle
+      ? await this.pollModernTaskToTermination(taskHandle)
+      : rawResult;
 
     // Output-schema validation. SDK v2's `callTool` relaxed some checks (e.g. it
     // no longer rejects a structuredContent with undeclared properties against a
@@ -2545,6 +3053,205 @@ export class InspectorClient extends InspectorClientEventTarget {
   }
 
   /**
+   * When a modern (SEP-2663) task is `input_required`, fulfil its embedded
+   * `inputRequests` through the pending-request UI and submit them via
+   * `tasks/update`. No-op for any other status. Shared by the streaming
+   * ({@link pollTaskToolCall}) and ordinary ({@link pollModernTaskToTermination})
+   * poll loops so the input handling lives in one place.
+   *
+   * `priorRounds` is the count of `input_required` rounds already handled for
+   * this task; the return value is the updated count. A non-conformant server
+   * that keeps returning `input_required` without ever completing would
+   * otherwise re-prompt the user on every poll forever, so we bound it with the
+   * same {@link MRTR_MAX_ROUNDS} cap the MRTR driver uses.
+   */
+  private async submitModernTaskInput(
+    detailed: ModernDetailedTask,
+    task: Task,
+    priorRounds: number,
+    signal?: AbortSignal,
+  ): Promise<number> {
+    if (task.status !== "input_required") {
+      return priorRounds;
+    }
+    const rounds = priorRounds + 1;
+    if (rounds > InspectorClient.MRTR_MAX_ROUNDS) {
+      throw new Error(
+        `Modern task "${task.taskId}" exceeded ${InspectorClient.MRTR_MAX_ROUNDS} input_required rounds without completing.`,
+      );
+    }
+    const inputResponses = await this.fulfilInputRequests(
+      this.tagInputRequestsWithTask(readInputRequests(detailed), task.taskId),
+      signal,
+      "task-input-required",
+    );
+    /* v8 ignore next 3 -- a conformant `input_required` task always carries
+       `inputRequests`, so `fulfilInputRequests` returns a (possibly empty)
+       object here, never undefined; the guard is defensive. */
+    if (inputResponses) {
+      await this.updateRequestorTask(task.taskId, inputResponses);
+    }
+    return rounds;
+  }
+
+  /**
+   * Stamp `_meta[RELATED_TASK_META_KEY]` with the owning task id on each embedded
+   * request of a modern task's `inputRequests`. The pending-request UI reads that
+   * id (via `ElicitationCreateMessage.taskId`) so its Cancel control can cancel
+   * the TASK — not just answer the request — when a task is paused at
+   * `input_required`.
+   */
+  private tagInputRequestsWithTask(
+    inputRequests: InputRequests | undefined,
+    taskId: string,
+  ): InputRequests | undefined {
+    /* v8 ignore next -- only called for an input_required task, which always
+       carries inputRequests; the undefined passthrough is defensive. */
+    if (!inputRequests) return inputRequests;
+    const tagged: Record<string, unknown> = {};
+    for (const [key, req] of Object.entries(inputRequests)) {
+      const request = req as { params?: { _meta?: Record<string, unknown> } };
+      tagged[key] = {
+        ...request,
+        params: {
+          ...request.params,
+          _meta: {
+            ...request.params?._meta,
+            [RELATED_TASK_META_KEY]: { taskId },
+          },
+        },
+      };
+    }
+    return tagged as InputRequests;
+  }
+
+  /**
+   * Terminal outcome for a modern task: the inlined `CallToolResult` for a
+   * `completed` task (SEP-2663 removed the blocking `tasks/result`), or a
+   * `ProtocolError` for `failed` / `cancelled`. Shared so both poll loops agree
+   * on the result/error shape.
+   */
+  private modernTaskTerminalOutcome(
+    task: Task,
+    detailed: ModernDetailedTask,
+  ):
+    | { type: "result"; result: CallToolResult }
+    | { type: "error"; error: ProtocolError } {
+    if (task.status === "completed") {
+      /* v8 ignore next -- a conformant `completed` task always inlines its
+         `result`; the `{ content: [] }` fallback is defensive. */
+      return {
+        type: "result",
+        result: (detailed.result ?? { content: [] }) as CallToolResult,
+      };
+    }
+    return {
+      type: "error",
+      error: new ProtocolError(
+        ProtocolErrorCode.InternalError,
+        task.statusMessage ?? `Task ${task.status}`,
+      ),
+    };
+  }
+
+  /**
+   * Poll cadence for a task: the server-advertised `pollInterval` when
+   * positive, else the default. Shared by every task poll loop (both eras).
+   */
+  private taskPollInterval(task: Task): number {
+    const advertised = task.pollInterval;
+    if (typeof advertised !== "number") return DEFAULT_TASK_POLL_INTERVAL_MS;
+    // A spec-conformant server never advertises a non-positive interval; the
+    // `> 0` guard is defensive against a malformed value.
+    /* v8 ignore next -- non-positive pollInterval is unreachable from a conformant server. */
+    return advertised > 0 ? advertised : DEFAULT_TASK_POLL_INTERVAL_MS;
+  }
+
+  /**
+   * Register a per-task abort controller (keyed by taskId) whose signal gates
+   * the task's `input_required` pending request, and return the signal plus a
+   * `release` cleanup. {@link cancelRequestorTask} aborts it to unblock a task
+   * paused at the pending-request modal.
+   */
+  private registerTaskInputAbort(taskId: string): {
+    signal: AbortSignal;
+    release: () => void;
+  } {
+    const controller = new AbortController();
+    this.taskInputAbortControllers.set(taskId, controller);
+    return {
+      signal: controller.signal,
+      release: () => {
+        // Only delete our own entry — tool calls are serial, so a second task
+        // never replaces this id's controller mid-poll; the guard is defensive.
+        /* v8 ignore next */
+        if (this.taskInputAbortControllers.get(taskId) === controller) {
+          this.taskInputAbortControllers.delete(taskId);
+        }
+      },
+    };
+  }
+
+  /**
+   * Drive a modern (SEP-2663) task to a terminal state from a seed
+   * `DetailedTask`, dispatching task events so the Tasks tab and toasts track
+   * it, and return the completed task's inlined `CallToolResult` (or throw on
+   * `failed` / `cancelled`). Used by the ORDINARY `callTool` path when a server
+   * returns an unsolicited task handle (the run-as-task streaming path drives
+   * the equivalent loop inline in {@link pollTaskToolCall}). `input_required`
+   * rounds are answered through the pending-request UI and submitted via
+   * `tasks/update`.
+   */
+  private async pollModernTaskToTermination(
+    seed: ModernDetailedTask,
+  ): Promise<CallToolResult> {
+    let detailed = seed;
+    let task = normalizeModernTask(detailed);
+    const emit = (t: Task): void => {
+      this.dispatchTypedEvent("toolCallTaskUpdated", {
+        taskId: t.taskId,
+        task: t,
+      });
+      this.dispatchTypedEvent("requestorTaskUpdated", {
+        taskId: t.taskId,
+        task: t,
+      });
+    };
+    emit(task);
+    const { signal: inputSignal, release } = this.registerTaskInputAbort(
+      task.taskId,
+    );
+    try {
+      let inputRounds = 0;
+      while (!InspectorClient.isTerminalTaskStatus(task.status)) {
+        inputRounds = await this.submitModernTaskInput(
+          detailed,
+          task,
+          inputRounds,
+          inputSignal,
+        );
+        await new Promise((resolve) =>
+          setTimeout(resolve, this.taskPollInterval(task)),
+        );
+        detailed = await this.rawWireRequest(
+          "tasks/get",
+          this.withModernTaskEnvelope({ taskId: task.taskId }),
+          ModernGetTaskResultSchema,
+        );
+        task = normalizeModernTask(detailed);
+        emit(task);
+      }
+    } finally {
+      release();
+    }
+    const outcome = this.modernTaskTerminalOutcome(task, detailed);
+    if (outcome.type === "error") {
+      throw outcome.error;
+    }
+    return outcome.result;
+  }
+
+  /**
    * Poll a task-augmented tool call to completion. Replaces the removed
    * `client.experimental.tasks.callToolStream` helper: it sends the
    * task-augmented `tools/call` (the server responds with a task handle, i.e. a
@@ -2589,12 +3296,27 @@ export class InspectorClient extends InspectorClientEventTarget {
     // may return an immediate `CallToolResult` instead — accept either with a
     // union schema and branch on the presence of `task`.
     //
-    // NOTE: this task path does NOT opt into `allowInputRequired`, so a
-    // task-augmented tool that returns `input_required` is not MRTR-driven here.
-    // Driving MRTR over the tasks extension is out of scope for #1704.
+    // NOTE: the LEGACY task path does NOT opt into `allowInputRequired` (MRTR
+    // over legacy tasks is out of scope for #1704). The MODERN path (SEP-2663)
+    // instead surfaces a task's `input_required` through `tasks/get`'s
+    // `inputRequests` and answers via `tasks/update` (handled in the poll loop
+    // below), reusing the same pending-request UI.
+    const modernTasks = this.isTasksExtensionNegotiated();
     const requestPromise = client.request(
-      { method: "tools/call", params },
-      CreateTaskResultSchema.or(CallToolResultSchema),
+      {
+        // On modern the SDK codec stamps the tasks-extension client capability
+        // into the request envelope (advertised at construction), so a server
+        // may answer with a `CreateTaskResult` — no per-call `_meta` needed.
+        method: "tools/call",
+        params,
+      },
+      // Modern: the SDK codec can't decode a `resultType: "task"` result, so the
+      // transport rewrote it to a `CallToolResult` carrying the task handle in
+      // `_meta` — parse as a CallToolResult and read the handle below. Legacy:
+      // accept a `{ task }` handle or an immediate result.
+      modernTasks
+        ? CallToolResultSchema
+        : CreateTaskResultSchema.or(CallToolResultSchema),
       requestOptions,
     );
     // The SDK registers the progress handler synchronously while constructing
@@ -2611,6 +3333,67 @@ export class InspectorClient extends InspectorClientEventTarget {
       ? [...progressHandlers.keys()].find((k) => !keysBeforeRequest.has(k))
       : undefined;
     const created = await requestPromise;
+
+    if (modernTasks) {
+      // Modern (SEP-2663): a task-creating `tools/call` came back as a
+      // `resultType: "task"` frame the SDK can't decode, so the transport
+      // rewrote it to a `CallToolResult` carrying the real `DetailedTask` under
+      // MODERN_TASK_HANDLE_META. A synchronous completion has no such handle —
+      // yield that `CallToolResult` directly.
+      const handle = (created as CallToolResult)._meta?.[
+        MODERN_TASK_HANDLE_META
+      ] as ModernDetailedTask | undefined;
+      if (!handle) {
+        yield { type: "result", result: created as CallToolResult };
+        return;
+      }
+      let detailed = handle;
+      let task = normalizeModernTask(detailed);
+      yield { type: "taskCreated", task };
+      if (progressSubscriptionId != null && requestOptions.onprogress) {
+        progressHandlers.set(progressSubscriptionId, requestOptions.onprogress);
+      }
+      const { signal: inputSignal, release } = this.registerTaskInputAbort(
+        task.taskId,
+      );
+      let inputRounds = 0;
+      try {
+        while (!InspectorClient.isTerminalTaskStatus(task.status)) {
+          // `input_required`: fulfil the embedded server→client requests through
+          // the same pending-request UI the MRTR path uses, then submit them via
+          // `tasks/update`. The update is eventually consistent — the task's
+          // status advances on a following `tasks/get`, so keep polling
+          // (bounded by MRTR_MAX_ROUNDS against a server that never advances).
+          // `inputSignal` fires if the task is cancelled while paused here.
+          inputRounds = await this.submitModernTaskInput(
+            detailed,
+            task,
+            inputRounds,
+            inputSignal,
+          );
+          await new Promise((resolve) =>
+            setTimeout(resolve, this.taskPollInterval(task)),
+          );
+          detailed = await this.rawWireRequest(
+            "tasks/get",
+            this.withModernTaskEnvelope({ taskId: task.taskId }),
+            ModernGetTaskResultSchema,
+          );
+          task = normalizeModernTask(detailed);
+          yield { type: "taskStatus", task };
+        }
+      } finally {
+        release();
+        if (progressSubscriptionId != null) {
+          progressHandlers.delete(progressSubscriptionId);
+        }
+      }
+      // Modern removes the blocking `tasks/result`: a completed task inlines its
+      // CallToolResult; failed/cancelled surface as an error.
+      yield this.modernTaskTerminalOutcome(task, detailed);
+      return;
+    }
+
     if (!("task" in created) || created.task == null) {
       // Immediate result — no task was created; yield it directly.
       yield { type: "result", result: created as CallToolResult };
@@ -2628,11 +3411,9 @@ export class InspectorClient extends InspectorClientEventTarget {
       // Poll `tasks/get` until the task reaches a terminal status. Honour the
       // server-advertised `pollInterval` when present, else the default cadence.
       while (!InspectorClient.isTerminalTaskStatus(task.status)) {
-        const pollInterval =
-          typeof task.pollInterval === "number" && task.pollInterval > 0
-            ? task.pollInterval
-            : DEFAULT_TASK_POLL_INTERVAL_MS;
-        await new Promise((resolve) => setTimeout(resolve, pollInterval));
+        await new Promise((resolve) =>
+          setTimeout(resolve, this.taskPollInterval(task)),
+        );
         task = (await client.request(
           { method: "tasks/get", params: { taskId: task.taskId } },
           GetTaskResultSchema,
@@ -3469,7 +4250,243 @@ export class InspectorClient extends InspectorClientEventTarget {
   }
 
   /**
-   * Subscribe to a resource to receive update notifications
+   * The negotiated protocol era once connected (SEP §7.8). Modern (2026-07-28)
+   * connections manage resource subscriptions through a `subscriptions/listen`
+   * stream instead of `resources/subscribe`; every other era is legacy.
+   */
+  private isModernEra(): boolean {
+    return this.protocolEra === "modern";
+  }
+
+  /**
+   * Current state of the modern-era `subscriptions/listen` stream (#1630).
+   * `active: false` on the legacy era (there is no persistent stream).
+   */
+  getResourceSubscriptionStreamState(): ResourceSubscriptionStreamState {
+    return this.modernStreamState;
+  }
+
+  private setModernStreamState(next: ResourceSubscriptionStreamState): void {
+    this.modernStreamState = next;
+    this.dispatchTypedEvent("resourceSubscriptionStreamChange", next);
+  }
+
+  private dispatchSubscriptionsChange(): void {
+    this.dispatchTypedEvent(
+      "resourceSubscriptionsChange",
+      Array.from(this.subscribedResources),
+    );
+  }
+
+  /**
+   * The `subscriptions/listen` filter for the current modern subscriptions:
+   * the subscribed URIs, plus the list-change opt-ins the Inspector already
+   * tracks (config ∩ server capability) so the single stream also carries
+   * list-change notifications — the spec models one listen stream for every
+   * opted-in notification type (SEP §7.4).
+   */
+  private buildSubscriptionFilter(): SubscriptionFilter {
+    const filter: SubscriptionFilter = {
+      resourceSubscriptions: Array.from(this.subscribedResources),
+    };
+    if (
+      this.listChangedNotifications.tools &&
+      this.capabilities?.tools?.listChanged
+    ) {
+      filter.toolsListChanged = true;
+    }
+    if (
+      this.listChangedNotifications.resources &&
+      this.capabilities?.resources?.listChanged
+    ) {
+      filter.resourcesListChanged = true;
+    }
+    if (
+      this.listChangedNotifications.prompts &&
+      this.capabilities?.prompts?.listChanged
+    ) {
+      filter.promptsListChanged = true;
+    }
+    return filter;
+  }
+
+  /**
+   * (Re-)establish the modern `subscriptions/listen` stream to match the current
+   * `subscribedResources` set (#1630). Because the stream is not resumable,
+   * every filter change re-lists: the existing stream is closed and a fresh
+   * `listen()` opened. With no subscribed URIs the stream is left closed.
+   *
+   * `modernListenGeneration` guards against races — if a newer refresh starts
+   * while this one awaits its acknowledgement, the just-opened stream is
+   * discarded rather than overwriting the newer one.
+   */
+  /** Cancel a pending reconnect re-listen, if any (#1630). */
+  private clearModernReconnectTimer(): void {
+    if (this.modernReconnectTimer !== undefined) {
+      clearTimeout(this.modernReconnectTimer);
+      this.modernReconnectTimer = undefined;
+    }
+  }
+
+  private async refreshModernSubscription(
+    fromReconnect = false,
+  ): Promise<void> {
+    if (!this.client) return;
+    // A user-initiated (subscribe/unsubscribe) refresh is a clean slate: clear
+    // any pending reconnect and reset the backoff run so the next drop starts
+    // from the base delay.
+    if (!fromReconnect) {
+      this.clearModernReconnectTimer();
+      this.modernReconnectAttempts = 0;
+    }
+    const generation = ++this.modernListenGeneration;
+
+    // Tear down the current stream before opening a replacement (re-listen).
+    const previous = this.modernSubscription;
+    this.modernSubscription = null;
+    if (previous) {
+      await previous.close().catch(() => {});
+    }
+
+    // Nothing subscribed → keep the stream closed.
+    if (this.subscribedResources.size === 0) {
+      this.setModernStreamState(INACTIVE_SUBSCRIPTION_STREAM_STATE);
+      return;
+    }
+
+    const subscription = await this.client.listen(
+      this.buildSubscriptionFilter(),
+      this.getRequestOptions(),
+    );
+
+    // A newer refresh superseded us while awaiting the ack — discard this one.
+    if (generation !== this.modernListenGeneration) {
+      await subscription.close().catch(() => {});
+      return;
+    }
+
+    this.modernSubscription = subscription;
+    // A successful acknowledgement ends any reconnect run: the backoff counts
+    // only *consecutive* failed re-lists, so a stream that recovers and holds
+    // starts fresh next time (#1630).
+    this.modernReconnectAttempts = 0;
+    this.setModernStreamState({
+      active: true,
+      status: "acknowledged",
+      honoredUris: subscription.honoredFilter.resourceSubscriptions ?? [],
+    });
+
+    // Observe termination; an unexpected drop reconnects by re-listing.
+    void subscription.closed.then((reason) =>
+      this.onModernSubscriptionClosed(subscription, reason, generation),
+    );
+  }
+
+  /**
+   * Handle termination of a modern listen stream (#1630). `"remote"` is an
+   * unexpected drop — reconnect by re-listing (no resumability, so the re-listen
+   * re-establishes the full filter). `"local"` (we closed it) and `"graceful"`
+   * (server shutdown) are expected and leave the stream ended.
+   */
+  private onModernSubscriptionClosed(
+    subscription: McpSubscription,
+    reason: "local" | "graceful" | "remote",
+    generation: number,
+  ): void {
+    // Ignore a superseded stream (a newer refresh already replaced it).
+    if (
+      generation !== this.modernListenGeneration ||
+      this.modernSubscription !== subscription
+    ) {
+      return;
+    }
+    this.modernSubscription = null;
+
+    const shouldReconnect =
+      reason === "remote" &&
+      !isTerminalStatus(this.status) &&
+      this.subscribedResources.size > 0;
+    if (!shouldReconnect) {
+      // "stream gone but subscriptions remain" renders the same whether we gave
+      // up after failed reconnects or the server closed it gracefully: keep the
+      // ended badge while URIs are still subscribed. (On a terminal-status drop
+      // the disconnect reset clears the set and forces the inactive state.)
+      this.setModernStreamState({
+        active: this.subscribedResources.size > 0,
+        status: "ended",
+        honoredUris: [],
+      });
+      return;
+    }
+
+    // A drop of an established stream is not itself a failure — schedule a
+    // re-listen at the current backoff (0 after a healthy stream, so the base
+    // delay). The counter only advances when a re-listen actually fails.
+    this.scheduleModernReconnect();
+  }
+
+  /**
+   * Schedule a reconnect re-listen after the current backoff delay (#1630).
+   * `modernReconnectAttempts` reflects the number of *consecutive failed*
+   * re-lists (reset to 0 on any successful acknowledgement), so the delay grows
+   * only while re-listing keeps failing.
+   */
+  private scheduleModernReconnect(): void {
+    this.setModernStreamState({
+      active: true,
+      status: "reconnecting",
+      honoredUris: [],
+    });
+    const delay = Math.min(
+      MODERN_RECONNECT_BASE_MS * 2 ** this.modernReconnectAttempts,
+      MODERN_RECONNECT_MAX_MS,
+    );
+    this.clearModernReconnectTimer();
+    this.modernReconnectTimer = setTimeout(() => {
+      this.modernReconnectTimer = undefined;
+      // Disconnect/unsubscribe may have raced the timer — bail if the reconnect
+      // is no longer wanted.
+      if (
+        isTerminalStatus(this.status) ||
+        this.subscribedResources.size === 0
+      ) {
+        return;
+      }
+      this.refreshModernSubscription(true).catch(() =>
+        this.onModernReconnectFailed(),
+      );
+    }, delay);
+  }
+
+  /**
+   * A reconnect re-listen failed (#1630). Count it and either retry with a
+   * longer backoff or, past the consecutive-failure cap, give up and mark the
+   * stream ended (re-subscribing resets the run and tries again).
+   */
+  private onModernReconnectFailed(): void {
+    this.modernReconnectAttempts += 1;
+    if (
+      this.modernReconnectAttempts > MODERN_RECONNECT_MAX_ATTEMPTS ||
+      isTerminalStatus(this.status) ||
+      this.subscribedResources.size === 0
+    ) {
+      this.setModernStreamState({
+        active: this.subscribedResources.size > 0,
+        status: "ended",
+        honoredUris: [],
+      });
+      return;
+    }
+    this.scheduleModernReconnect();
+  }
+
+  /**
+   * Subscribe to a resource to receive update notifications.
+   *
+   * Legacy era: sends `resources/subscribe`. Modern era (2026-07-28): adds the
+   * URI to the `subscriptions/listen` filter and re-lists (#1630). In both eras
+   * `notifications/resources/updated` is delivered through the same handler.
+   *
    * @param uri - The URI of the resource to subscribe to
    * @throws Error if client is not connected or server doesn't support subscriptions
    */
@@ -3481,12 +4498,38 @@ export class InspectorClient extends InspectorClientEventTarget {
       throw new Error("Server does not support resource subscriptions");
     }
     try {
+      if (this.isModernEra()) {
+        // Already subscribed → the filter is unchanged, so skip the re-listen
+        // (which would needlessly tear down and reopen the server stream).
+        if (this.subscribedResources.has(uri)) return;
+        this.subscribedResources.add(uri);
+        // Reflect the subscription optimistically so the UI responds to the
+        // click immediately, and show the stream as "connecting" until the
+        // `listen()` acknowledgement lands (which can be a visible round-trip on
+        // the modern era, unlike the single-shot legacy `resources/subscribe`).
+        this.dispatchSubscriptionsChange();
+        this.setModernStreamState({
+          active: true,
+          status: "connecting",
+          honoredUris: this.modernStreamState.honoredUris,
+        });
+        try {
+          await this.refreshModernSubscription();
+        } catch (error) {
+          // Roll back the optimistic add + stream state so both stay consistent
+          // with the (unchanged) server filter.
+          this.subscribedResources.delete(uri);
+          this.dispatchSubscriptionsChange();
+          if (this.subscribedResources.size === 0) {
+            this.setModernStreamState(INACTIVE_SUBSCRIPTION_STREAM_STATE);
+          }
+          throw error;
+        }
+        return;
+      }
       await this.client.subscribeResource({ uri }, this.getRequestOptions());
       this.subscribedResources.add(uri);
-      this.dispatchTypedEvent(
-        "resourceSubscriptionsChange",
-        Array.from(this.subscribedResources),
-      );
+      this.dispatchSubscriptionsChange();
     } catch (error) {
       throw new Error(
         `Failed to subscribe to resource: ${error instanceof Error ? error.message : String(error)}`,
@@ -3495,7 +4538,12 @@ export class InspectorClient extends InspectorClientEventTarget {
   }
 
   /**
-   * Unsubscribe from a resource
+   * Unsubscribe from a resource.
+   *
+   * Legacy era: sends `resources/unsubscribe`. Modern era: drops the URI from
+   * the `subscriptions/listen` filter and re-lists (closing the stream once the
+   * last URI is removed) (#1630).
+   *
    * @param uri - The URI of the resource to unsubscribe from
    * @throws Error if client is not connected
    */
@@ -3504,12 +4552,21 @@ export class InspectorClient extends InspectorClientEventTarget {
       throw new Error("Client is not connected");
     }
     try {
-      await this.client.unsubscribeResource({ uri }, this.getRequestOptions());
-      this.subscribedResources.delete(uri);
-      this.dispatchTypedEvent(
-        "resourceSubscriptionsChange",
-        Array.from(this.subscribedResources),
-      );
+      if (this.isModernEra()) {
+        // Not subscribed → the filter is unchanged, so skip the re-listen.
+        if (!this.subscribedResources.delete(uri)) return;
+        // The removal is the user's intent; keep it even if the re-listen fails
+        // (the stale URI simply lingers in the server's honored filter).
+        this.dispatchSubscriptionsChange();
+        await this.refreshModernSubscription();
+      } else {
+        await this.client.unsubscribeResource(
+          { uri },
+          this.getRequestOptions(),
+        );
+        this.subscribedResources.delete(uri);
+        this.dispatchSubscriptionsChange();
+      }
     } catch (error) {
       throw new Error(
         `Failed to unsubscribe from resource: ${error instanceof Error ? error.message : String(error)}`,

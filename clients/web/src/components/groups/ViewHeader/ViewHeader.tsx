@@ -177,6 +177,15 @@ const RightConnectedGroup = Group.withProps({
   wrap: "nowrap",
 });
 
+// Center crossfade cell: the tab bar and the "MCP Inspector" title share one
+// grid cell (`gridArea: 1 / 1`, centered) and fade/slide (the keyframe-driven
+// `header-anim` class) so one replaces the other in place. The `data-anim`
+// direction is set per render.
+const HeaderStackCell = Group.withProps({
+  className: "header-anim",
+  styles: { root: { gridArea: "1 / 1", placeSelf: "center" } },
+});
+
 const DisconnectIcon = ActionIcon.withProps({
   variant: "subtle",
   size: 36,
@@ -329,9 +338,12 @@ export function ViewHeader(props: ViewHeaderProps) {
       </LeftSection>
 
       {/* CSS grid stack: the title and tab bar cells share one cell (grid-area
-          1/1 via `.header-stack-cell`), so on connect/disconnect one
+          1/1, set on `HeaderStackCell`), so on connect/disconnect one
           fades+slides out as the other fades+slides in, in the same place.
           `flex: 0 0 auto` keeps it from stretching within the header. */}
+      {/* Box (not a flex primitive via `.withProps()`): this is a CSS grid
+          container, and no Mantine flex primitive is a grid — converting to
+          Group/Stack would break the shared-cell stack overlay. */}
       <Box display="grid" flex="0 0 auto">
         {/* The Transitions are keep-alive only: when `mounted` flips false the
             cell stays in the DOM for `exitDuration` while its CSS exit animation
@@ -346,17 +358,14 @@ export function ViewHeader(props: ViewHeaderProps) {
         >
           {() =>
             headerData ? (
-              <Box
-                className="header-anim header-stack-cell"
-                data-anim={connectedAnim}
-              >
+              <HeaderStackCell data-anim={connectedAnim}>
                 <SegmentedControl
                   value={headerData.activeTab}
                   onChange={handleTabChange}
                   data={toGlowingTabData(headerData.availableTabs, glowing)}
                   size="sm"
                 />
-              </Box>
+              </HeaderStackCell>
             ) : (
               // Unreachable in practice — the Transition only mounts while
               // connected, by which point the snapshot is set — but the render
@@ -373,12 +382,9 @@ export function ViewHeader(props: ViewHeaderProps) {
           exitDuration={HEADER_ANIM_MS}
         >
           {() => (
-            <Box
-              className="header-anim header-stack-cell"
-              data-anim={props.connected ? "out" : "in"}
-            >
+            <HeaderStackCell data-anim={props.connected ? "out" : "in"}>
               <Title order={2}>MCP Inspector</Title>
-            </Box>
+            </HeaderStackCell>
           )}
         </Transition>
       </Box>

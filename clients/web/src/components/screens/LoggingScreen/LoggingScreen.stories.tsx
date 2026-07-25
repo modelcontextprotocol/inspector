@@ -12,6 +12,7 @@ const meta: Meta<typeof LoggingScreen> = {
   args: {
     currentLevel: "info",
     onSetLevel: fn(),
+    onSetModernLogLevel: fn(),
     onClear: fn(),
     onExport: fn(),
     ui: EMPTY_LOGS_UI,
@@ -102,5 +103,15 @@ const allLevelEntries: LogEntryData[] = [
 export const MixedLevels: Story = {
   args: {
     entries: allLevelEntries,
+  },
+};
+
+// Modern era (#1629): the sidebar shows the per-request opt-in control instead
+// of the legacy `logging/setLevel` selector.
+export const ModernEra: Story = {
+  args: {
+    entries: mixedEntries,
+    protocolEra: "modern",
+    modernLogLevel: "debug",
   },
 };

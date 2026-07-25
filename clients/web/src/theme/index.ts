@@ -10,7 +10,7 @@ export { ThemeCode } from "./Code";
 export { ThemeFlex } from "./Flex";
 export { ThemeGroup } from "./Group";
 export { ThemeInput } from "./Input";
-export { ThemeModal } from "./Modal";
+export { ThemeModal, ThemeModalRoot } from "./Modal";
 export { ThemePaper } from "./Paper";
 export { ThemeScrollArea, ThemeScrollAreaAutosize } from "./ScrollArea";
 export { ThemeSelect } from "./Select";

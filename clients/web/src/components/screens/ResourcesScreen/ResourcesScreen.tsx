@@ -9,11 +9,15 @@ import {
   Text,
 } from "@mantine/core";
 import type {
+  ProtocolEra,
   ReadResourceResult,
   Resource,
   ResourceTemplateType as ResourceTemplate,
 } from "@modelcontextprotocol/client";
-import type { InspectorResourceSubscription } from "../../../../../../core/mcp/types.js";
+import type {
+  InspectorResourceSubscription,
+  ResourceSubscriptionStreamState,
+} from "../../../../../../core/mcp/types.js";
 import { ResourceControls } from "../../groups/ResourceControls/ResourceControls";
 import type { ListPaginationControlsProps } from "../../elements/ListPaginationControls/ListPaginationControls";
 import { ResourcePreviewPanel } from "../../groups/ResourcePreviewPanel/ResourcePreviewPanel";
@@ -32,6 +36,14 @@ export interface ResourcesScreenProps {
   resources: Resource[];
   templates: ResourceTemplate[];
   subscriptions: InspectorResourceSubscription[];
+  /**
+   * Modern-era `subscriptions/listen` stream state (#1630). On the modern era
+   * the Subscriptions section shows a stream-status badge and a header dot;
+   * `active: false` (the legacy default) renders neither.
+   */
+  subscriptionStreamState?: ResourceSubscriptionStreamState;
+  /** Negotiated protocol era; gates the modern subscription stream chrome. */
+  protocolEra?: ProtocolEra;
   readState?: ReadResourceState;
   ui: ResourcesUiState;
   listChanged: boolean;
@@ -130,6 +142,18 @@ const EmptyState = Text.withProps({
   py: "xl",
 });
 
+// Centered loader/status column shown while a resource is being read.
+const CenteredStatus = Stack.withProps({
+  align: "center",
+  py: "xl",
+});
+
+const ReadErrorAlert = Alert.withProps({
+  color: "red",
+  variant: "light",
+  title: "Read Error",
+});
+
 const SCROLL_MAX_HEIGHT =
   "calc(100dvh - var(--app-shell-header-height, 0px) - var(--app-shell-footer-height, 0px) - var(--mantine-spacing-xl) * 2)";
 
@@ -137,6 +161,8 @@ export function ResourcesScreen({
   resources,
   templates,
   subscriptions,
+  subscriptionStreamState,
+  protocolEra,
   readState,
   ui,
   listChanged,
@@ -234,10 +260,10 @@ export function ResourcesScreen({
                 onClick={handleClosePreview}
               />
             </Group>
-            <Stack align="center" py="xl">
+            <CenteredStatus>
               <Loader size="sm" />
               <Text c="dimmed">Reading resource...</Text>
-            </Stack>
+            </CenteredStatus>
           </Stack>
         </PreviewCard>
       );
@@ -253,9 +279,9 @@ export function ResourcesScreen({
                 onClick={handleClosePreview}
               />
             </Group>
-            <Alert color="red" variant="light" title="Read Error">
+            <ReadErrorAlert>
               {readState.error ?? "Failed to read resource"}
-            </Alert>
+            </ReadErrorAlert>
           </Stack>
         </PreviewCard>
       );
@@ -291,6 +317,8 @@ export function ResourcesScreen({
             templates={templates}
             subscriptions={subscriptions}
             subscriptionsSupported={subscriptionsSupported}
+            subscriptionStreamState={subscriptionStreamState}
+            protocolEra={protocolEra}
             selectedUri={selectedResourceUri}
             selectedTemplateUri={selectedTemplateUri}
             searchText={search}

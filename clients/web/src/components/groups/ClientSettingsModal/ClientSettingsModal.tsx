@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { CloseButton, Group, Modal, Stack } from "@mantine/core";
+import { CloseButton, Group, Modal, ScrollArea } from "@mantine/core";
 import { ListToggle } from "../../elements/ListToggle/ListToggle";
 import {
   ClientSettingsForm,
@@ -12,6 +12,23 @@ import {
 } from "../ClientSettingsForm/clientSettingsValues.js";
 
 const ALL_SECTIONS: ClientSettingsSection[] = ["ema", "cimd"];
+
+const AppModalLg = Modal.Root.withProps({
+  size: "lg",
+  centered: true,
+  scrollAreaComponent: ScrollArea.Autosize,
+});
+
+const ModalHeaderRow = Group.withProps({
+  justify: "space-between",
+  wrap: "nowrap",
+  w: "100%",
+});
+
+const CenteredModalTitle = Modal.Title.withProps({
+  ta: "center",
+  flex: 1,
+});
 
 export interface ClientSettingsModalProps {
   opened: boolean;
@@ -61,36 +78,38 @@ export function ClientSettingsModal({
   }
 
   return (
-    <Modal
-      opened={opened}
-      onClose={handleClose}
-      withCloseButton={false}
-      size="lg"
-      centered
-    >
-      <Stack gap="md">
-        <Group justify="space-between" wrap="nowrap">
-          <ListToggle
-            compact={!allExpanded}
-            variant="subtle"
-            onToggle={handleToggleAll}
+    // Compound Modal so the header lives in `Modal.Header` (sticky by design)
+    // while `scrollAreaComponent` confines overflow to `Modal.Body` (#1698 —
+    // kept consistent with ServerSettingsModal for when this grows enough to
+    // scroll). The fade-down transition `<Modal>` defaults to (but `Modal.Root`
+    // doesn't inherit) is supplied app-wide by `ThemeModalRoot`.
+    <AppModalLg opened={opened} onClose={handleClose}>
+      <Modal.Overlay />
+      <Modal.Content>
+        <Modal.Header>
+          <ModalHeaderRow>
+            <ListToggle
+              compact={!allExpanded}
+              variant="subtle"
+              onToggle={handleToggleAll}
+            />
+            {/* `Modal.Title` names the dialog (wires `aria-labelledby`). */}
+            <CenteredModalTitle>Client Settings</CenteredModalTitle>
+            <CloseButton aria-label="Close" onClick={handleClose} />
+          </ModalHeaderRow>
+        </Modal.Header>
+        <Modal.Body>
+          <ClientSettingsForm
+            settings={settings}
+            expandedSections={expandedSections}
+            onExpandedSectionsChange={setExpandedSections}
+            onSettingsChange={onSettingsChange}
+            emaIdpLoginState={emaIdpLoginState}
+            onEmaIdpLogout={onEmaIdpLogout}
+            revealErrors={revealErrors}
           />
-          {/* `Modal.Title` names the dialog (wires `aria-labelledby`). */}
-          <Modal.Title ta="center" flex={1}>
-            Client Settings
-          </Modal.Title>
-          <CloseButton aria-label="Close" onClick={handleClose} />
-        </Group>
-        <ClientSettingsForm
-          settings={settings}
-          expandedSections={expandedSections}
-          onExpandedSectionsChange={setExpandedSections}
-          onSettingsChange={onSettingsChange}
-          emaIdpLoginState={emaIdpLoginState}
-          onEmaIdpLogout={onEmaIdpLogout}
-          revealErrors={revealErrors}
-        />
-      </Stack>
-    </Modal>
+        </Modal.Body>
+      </Modal.Content>
+    </AppModalLg>
   );
 }

@@ -4,6 +4,7 @@
  * test-servers/configs/xaa-ema-http.json and specification/v2_auth_ema.md.
  */
 
+import crypto from "node:crypto";
 import {
   createServer,
   type IncomingMessage,
@@ -73,6 +74,15 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.end(JSON.stringify(body));
 }
 
+/** RFC 7636 S256: base64url(SHA-256(verifier)) === challenge. */
+function verifyPkceS256(codeVerifier: string, codeChallenge: string): boolean {
+  const expected = crypto
+    .createHash("sha256")
+    .update(codeVerifier)
+    .digest("base64url");
+  return expected === codeChallenge;
+}
+
 function startHttpServer(
   createHandler: (
     baseUrl: string,
@@ -107,8 +117,20 @@ function startHttpServer(
   });
 }
 
-/** Mock enterprise IdP — OIDC discovery + RFC 8693 token exchange (leg 2). */
+interface IdpAuthCode {
+  redirectUri: string;
+  codeChallenge?: string;
+}
+
+/**
+ * Mock enterprise IdP — OIDC discovery, interactive authorization-code login
+ * (leg 1), RFC 8693 token exchange (leg 2), and refresh_token grant.
+ */
 export async function startMockIdpServer(): Promise<StoppableMockServer> {
+  // Interactive leg-1 authorization codes minted by GET /authorize, redeemed by
+  // the authorization_code branch of POST /token (single-use).
+  const authCodes = new Map<string, IdpAuthCode>();
+
   return startHttpServer((baseUrl) => async (req, res) => {
     const url = new URL(req.url ?? "/", baseUrl);
 
@@ -125,8 +147,97 @@ export async function startMockIdpServer(): Promise<StoppableMockServer> {
       return;
     }
 
+    // Interactive leg-1 authorization endpoint. Real IdPs render a login/consent
+    // page; the mock auto-approves and immediately redirects back to the client
+    // with `code`, echoed `state`, and RFC 9207 `iss` (the SDK rejects the later
+    // code exchange if `iss` is missing, since the metadata advertises
+    // `authorization_response_iss_parameter_supported`).
+    if (req.method === "GET" && url.pathname === "/authorize") {
+      const redirectUri = url.searchParams.get("redirect_uri");
+      if (!redirectUri) {
+        sendJson(res, 400, {
+          error: "invalid_request",
+          error_description: "Missing redirect_uri",
+        });
+        return;
+      }
+      const codeChallengeMethod = url.searchParams.get("code_challenge_method");
+      if (codeChallengeMethod && codeChallengeMethod !== "S256") {
+        sendJson(res, 400, {
+          error: "invalid_request",
+          error_description: "Unsupported code_challenge_method",
+        });
+        return;
+      }
+      const code = `mock-idp-auth-code.${crypto.randomBytes(16).toString("hex")}`;
+      const codeChallenge = url.searchParams.get("code_challenge");
+      authCodes.set(code, {
+        redirectUri,
+        ...(codeChallenge ? { codeChallenge } : {}),
+      });
+      const location = new URL(redirectUri);
+      location.searchParams.set("code", code);
+      const state = url.searchParams.get("state");
+      if (state) {
+        location.searchParams.set("state", state);
+      }
+      location.searchParams.set("iss", baseUrl);
+      res.writeHead(302, { Location: location.href });
+      res.end();
+      return;
+    }
+
     if (req.method === "POST" && url.pathname === "/token") {
       const body = await readFormBody(req);
+      if (body.get("grant_type") === "authorization_code") {
+        if (
+          body.get("client_id") !== EMA_MOCK_IDP_CLIENT_ID ||
+          body.get("client_secret") !== EMA_MOCK_IDP_CLIENT_SECRET
+        ) {
+          sendJson(res, 401, { error: "invalid_client" });
+          return;
+        }
+        const code = body.get("code");
+        const stored = code ? authCodes.get(code) : undefined;
+        if (!code || !stored) {
+          sendJson(res, 400, {
+            error: "invalid_grant",
+            error_description: "Invalid or expired authorization code",
+          });
+          return;
+        }
+        authCodes.delete(code); // single-use
+        if (stored.redirectUri !== body.get("redirect_uri")) {
+          sendJson(res, 400, {
+            error: "invalid_grant",
+            error_description: "redirect_uri mismatch",
+          });
+          return;
+        }
+        if (stored.codeChallenge) {
+          const verifier = body.get("code_verifier");
+          if (!verifier || !verifyPkceS256(verifier, stored.codeChallenge)) {
+            sendJson(res, 400, {
+              error: "invalid_grant",
+              error_description: "Invalid code_verifier",
+            });
+            return;
+          }
+        }
+        const exp = Math.floor(Date.now() / 1000) + 3600;
+        const idToken = await createMockIdToken(baseUrl, exp);
+        sendJson(res, 200, {
+          // OAuthTokensSchema requires access_token + token_type; the EMA IdP leg
+          // consumes id_token, but the SDK's exchangeAuthorization still parses
+          // the full token response, so include a (dummy) access_token.
+          access_token: `mock-idp-access.${crypto.randomBytes(8).toString("hex")}`,
+          token_type: "Bearer",
+          expires_in: 3600,
+          id_token: idToken,
+          refresh_token: `mock-idp-refresh.${crypto.randomBytes(8).toString("hex")}`,
+        });
+        return;
+      }
       if (body.get("grant_type") === "refresh_token") {
         if (
           body.get("client_id") !== EMA_MOCK_IDP_CLIENT_ID ||

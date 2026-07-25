@@ -1,7 +1,8 @@
 # Inspector V2 Auth — Mid-session authorization
 
 ### [Brief](README.md) | [V1 Problems](v1_problems.md) | [V2 Scope](v2_scope.md) | [V2 Tech Stack](v2_web_client.md) | [V2 UX](v2_ux.md) | V2 Auth | [V2 New Spec Impact](v2_new_spec_impact.md)
-#### [Overview](v2_auth.md) | [EMA / XAA](v2_auth_ema.md) | [Hardening](v2_auth_hardening.md) | Mid-session | [Smoke testing](v2_auth_smoke_testing.md)
+
+#### [Overview](v2_auth.md) | [EMA / XAA](v2_auth_ema.md) | [Hardening](v2_auth_hardening.md) | Mid-session | [Smoke testing](v2_auth_smoke_testing.md) | [SDK consolidation](v2_auth_sdk_consolidation.md)
 
 Design and implementation reference for **mid-session authorization** in Inspector: detecting when MCP traffic needs new or elevated credentials, running the correct OAuth or EMA recovery flow, and restoring the session — across **web**, **TUI**, and **CLI**.
 
@@ -15,10 +16,10 @@ Inspector already supports **connect-time** OAuth and EMA: the first `connect()`
 
 **Mid-session authorization** covers everything **after** that: a token expires, is revoked, or lacks scopes for a specific operation while the user is working. The server signals this with HTTP **401** (bad/missing token) or **403** + `insufficient_scope` (valid token, not enough scope — **step-up**). Inspector normalizes those signals into an **`AuthChallenge`**, runs **`handleAuthChallenge()`**, and either refreshes silently or starts interactive OAuth.
 
-| Client | Transport model | Auth runs where | Recovery highlights |
-| ------ | --------------- | --------------- | ------------------- |
-| **Web** | Browser → Hono **remote** backend → MCP server | Browser (`OAuthManager`) | `POST /api/mcp/auth-state` hot-swap; full-page OAuth + **resume snapshot** |
-| **TUI / CLI** | **Direct** SDK transport in-process | Node (`OAuthManager`) | Loopback callback on `127.0.0.1:6276`; user retries action after interactive auth |
+| Client        | Transport model                                | Auth runs where          | Recovery highlights                                                               |
+| ------------- | ---------------------------------------------- | ------------------------ | --------------------------------------------------------------------------------- |
+| **Web**       | Browser → Hono **remote** backend → MCP server | Browser (`OAuthManager`) | `POST /api/mcp/auth-state` hot-swap; full-page OAuth + **resume snapshot**        |
+| **TUI / CLI** | **Direct** SDK transport in-process            | Node (`OAuthManager`)    | Loopback callback on `127.0.0.1:6276`; user retries action after interactive auth |
 
 All three clients share **`core/auth/challenge.ts`** and **`OAuthManager.handleAuthChallenge()`**. UX and wire protocol differ by client.
 
@@ -28,18 +29,18 @@ All three clients share **`core/auth/challenge.ts`** and **`OAuthManager.handleA
 
 ### Connect-time vs mid-session
 
-| | Connect-time | Mid-session |
-| --- | --- | --- |
-| **When** | First connect with no valid tokens, or reconnect before a remote session exists | Any MCP RPC **after** credentials were supplied |
-| **Typical signal** | `connect()` throws **401** | MCP HTTP **401/403** on an in-flight request |
-| **Web handler** | `App.tsx` → `authenticate()` → redirect | `handleAuthChallenge()` → `auth-state` push and/or redirect |
-| **Core handler** | Same OAuth primitives | `OAuthManager.handleAuthChallenge()` |
+|                    | Connect-time                                                                    | Mid-session                                                 |
+| ------------------ | ------------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| **When**           | First connect with no valid tokens, or reconnect before a remote session exists | Any MCP RPC **after** credentials were supplied             |
+| **Typical signal** | `connect()` throws **401**                                                      | MCP HTTP **401/403** on an in-flight request                |
+| **Web handler**    | `App.tsx` → `authenticate()` → redirect                                         | `handleAuthChallenge()` → `auth-state` push and/or redirect |
+| **Core handler**   | Same OAuth primitives                                                           | `OAuthManager.handleAuthChallenge()`                        |
 
 Both paths use the same token storage, refresh, and authorization-code exchange; only **detection** and **session update** mechanics differ.
 
 ### Step-up authorization (SEP-2350)
 
-**Step-up** is OAuth for “I have a token, but not permission for *this* operation.” MCP servers usually express it as:
+**Step-up** is OAuth for “I have a token, but not permission for _this_ operation.” MCP servers usually express it as:
 
 ```http
 HTTP/1.1 403 Forbidden
@@ -50,10 +51,10 @@ By contrast, **401** means the token is missing, invalid, or expired — fix by 
 
 **[SEP-2350](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2350)** (in the MCP 2026-07-28 authorization hardening) requires clients to **accumulate scopes** on step-up:
 
-| Situation | Client scope behavior |
-| --------- | --------------------- |
-| **403** step-up | **Union** previously requested scopes with scopes from the challenge — do not drop scopes needed for other tools |
-| **401** re-login | **Replace** scope set (user may down-scope at the AS) |
+| Situation        | Client scope behavior                                                                                            |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------- |
+| **403** step-up  | **Union** previously requested scopes with scopes from the challenge — do not drop scopes needed for other tools |
+| **401** re-login | **Replace** scope set (user may down-scope at the AS)                                                            |
 
 Inspector persists granted scopes in `OAuthStorage.scope` (`saveScope()`): when the authorization server returns a `scope` parameter on the token response, that value is **authoritative** (RFC 6749 §5.1 — including when the grant is a subset of what was requested). When `scope` is **omitted** on a successful response, granted scope is assumed to equal what was requested for that exchange. Storage must never claim scopes the access token was not granted.
 
@@ -61,7 +62,7 @@ For step-up, `handleAuthChallenge()` computes `authorizationScopes` as the union
 
 **UX consequence:** standard-OAuth and **web EMA** step-up need **user-visible consent** before proceeding (web modal, TUI Auth tab confirm, CLI **y/N**). On the web client, EMA `insufficient_scope` shows the same **`StepUpAuthModal`** pattern as standard OAuth, with organization/IdP copy; only after **Authorize** does Inspector run silent re-mint or start an IdP redirect. TUI/CLI may still re-mint silently after their own confirm prompt — see [EMA step-up (web)](v2_auth_ema.md#ema-step-up-web-confirmation).
 
-**Rationale (Inspector as a testing tool):** EMA can often satisfy scope upgrades without a visible IdP prompt when the organization session is still valid. That is convenient in production clients, but Inspector deliberately surfaces the requested scopes first so operators can see *what* permission elevation is happening while exploring MCP servers — the same visibility standard OAuth step-up already provides on web.
+**Rationale (Inspector as a testing tool):** EMA can often satisfy scope upgrades without a visible IdP prompt when the organization session is still valid. That is convenient in production clients, but Inspector deliberately surfaces the requested scopes first so operators can see _what_ permission elevation is happening while exploring MCP servers — the same visibility standard OAuth step-up already provides on web.
 
 Normative background: [MCP authorization — Step-Up Authorization Flow](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization#step-up-authorization-flow), [Runtime Insufficient Scope Errors](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization#runtime-insufficient-scope-errors), [RFC 6750 §3.1](https://datatracker.ietf.org/doc/html/rfc6750#section-3.1).
 
@@ -69,16 +70,16 @@ Normative background: [MCP authorization — Step-Up Authorization Flow](https:/
 
 ## Terminology
 
-| Term | Meaning |
-| ---- | ------- |
-| **App tab** | An Inspector **view** inside one browser window: Tools, Resources, Prompts, etc. (`activeTab` in `App.tsx`). Not a browser tab. |
-| **Browser tab** | A top-level browsing context (window/tab) running the Inspector SPA. Each has its own `InspectorClient`, remote session, and OAuth context. |
-| **Auth challenge** | Normalized `{ reason, requiredScopes?, … }` — not raw HTTP. Built by `parseAuthChallengeFromResponse()` or received on the remote wire. |
+| Term                        | Meaning                                                                                                                                                             |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **App tab**                 | An Inspector **view** inside one browser window: Tools, Resources, Prompts, etc. (`activeTab` in `App.tsx`). Not a browser tab.                                     |
+| **Browser tab**             | A top-level browsing context (window/tab) running the Inspector SPA. Each has its own `InspectorClient`, remote session, and OAuth context.                         |
+| **Auth challenge**          | Normalized `{ reason, requiredScopes?, … }` — not raw HTTP. Built by `parseAuthChallengeFromResponse()` or received on the remote wire.                             |
 | **`handleAuthChallenge()`** | Core orchestrator: silent refresh / EMA re-mint, or start interactive OAuth. Returns `satisfied`, `step_up_confirm` (EMA/web deferral), `interactive`, or `failed`. |
-| **`RemoteAuthState`** | Payload for `POST /api/mcp/auth-state`: fresh `oauthTokens` (+ optional `oauthClient`) pushed to the node backend without tearing down the MCP transport. |
-| **Command-scoped recovery** | Failure during an active user action (tool call, connect button). May **retry the same JSON-RPC** once after silent recovery. |
-| **Ambient recovery** | Failure with no correlated in-flight command (idle SSE). Prepares the session for the **next** user action — no auto-retry of a specific RPC. |
-| **OAuth resume snapshot** | `sessionStorage` blob written before a **full-page** OAuth redirect so the web app can restore server, app tab, and form state after callback. |
+| **`RemoteAuthState`**       | Payload for `POST /api/mcp/auth-state`: fresh `oauthTokens` (+ optional `oauthClient`) pushed to the node backend without tearing down the MCP transport.           |
+| **Command-scoped recovery** | Failure during an active user action (tool call, connect button). May **retry the same JSON-RPC** once after silent recovery.                                       |
+| **Ambient recovery**        | Failure with no correlated in-flight command (idle SSE). Prepares the session for the **next** user action — no auto-retry of a specific RPC.                       |
+| **OAuth resume snapshot**   | `sessionStorage` blob written before a **full-page** OAuth redirect so the web app can restore server, app tab, and form state after callback.                      |
 
 ---
 
@@ -108,11 +109,11 @@ TUI / CLI direct:
 
 ### Recovery shapes
 
-| Shape | When | MCP retry | Page unload |
-| ----- | ---- | --------- | ----------- |
-| **Silent in-process** | Refresh, EMA re-mint after user confirmed step-up (web modal **Authorize**), TUI/CLI confirm | **Yes** (command-scoped, once) | No |
-| **In-app step-up confirm** | Web EMA `insufficient_scope` before re-mint / IdP | **No** — modal only; retry after success toast | No |
-| **Interactive full-page** | Standard-OAuth step-up, 401 re-login, EMA IdP leg 1 (after web confirm when applicable) | **No** — user retries action after callback | Yes (web) |
+| Shape                      | When                                                                                         | MCP retry                                      | Page unload |
+| -------------------------- | -------------------------------------------------------------------------------------------- | ---------------------------------------------- | ----------- |
+| **Silent in-process**      | Refresh, EMA re-mint after user confirmed step-up (web modal **Authorize**), TUI/CLI confirm | **Yes** (command-scoped, once)                 | No          |
+| **In-app step-up confirm** | Web EMA `insufficient_scope` before re-mint / IdP                                            | **No** — modal only; retry after success toast | No          |
+| **Interactive full-page**  | Standard-OAuth step-up, 401 re-login, EMA IdP leg 1 (after web confirm when applicable)      | **No** — user retries action after callback    | Yes (web)   |
 
 ```text
 Browser InspectorClient              Hono RemoteSession              MCP server
@@ -131,18 +132,18 @@ RemoteClientTransport                  StreamableHTTPClientTransport
 
 ### Code map
 
-| Area | Primary files |
-| ---- | ------------- |
-| Challenge types & parsing | `core/auth/challenge.ts`, `core/auth/oauthUx.ts` |
-| Handler & storage | `core/mcp/oauthManager.ts`, `core/auth/mcpAuth.ts`, `core/auth/scopes.ts` |
-| EMA | `core/auth/ema/emaFlow.ts`, `core/auth/ema/resourceContext.ts` — see [v2_auth_ema.md](v2_auth_ema.md) |
-| Web remote backend | `core/mcp/remote/node/server.ts`, `remote-session.ts`, `core/mcp/node/authChallengeFetch.ts` |
-| Web remote client | `core/mcp/remote/remoteClientTransport.ts`, `core/mcp/inspectorClient.ts` |
-| Web app | `clients/web/src/App.tsx`, `utils/oauthResume.ts`, `utils/pendingReauth.ts`, `utils/browserTabVisibility.ts`, `components/groups/StepUpAuthModal/` |
-| TUI | `clients/tui/src/App.tsx`, `utils/tuiOAuth.ts` |
-| CLI | `clients/cli/src/cliOAuth.ts` |
-| Runner OAuth (TUI/CLI) | `core/auth/node/runner-interactive-oauth.ts`, `oauth-callback-server.ts` |
-| Step-up test fixture | `test-servers/configs/oauth-step-up-demo.json`, `test-servers/src/test-server-oauth.ts` |
+| Area                      | Primary files                                                                                                                                      |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Challenge types & parsing | `core/auth/challenge.ts`, `core/auth/oauthUx.ts`                                                                                                   |
+| Handler & storage         | `core/mcp/oauthManager.ts`, `core/auth/mcpAuth.ts`, `core/auth/scopes.ts`                                                                          |
+| EMA                       | `core/auth/ema/emaFlow.ts`, `core/auth/ema/resourceContext.ts` — see [v2_auth_ema.md](v2_auth_ema.md)                                              |
+| Web remote backend        | `core/mcp/remote/node/server.ts`, `remote-session.ts`, `core/mcp/node/authChallengeFetch.ts`                                                       |
+| Web remote client         | `core/mcp/remote/remoteClientTransport.ts`, `core/mcp/inspectorClient.ts`                                                                          |
+| Web app                   | `clients/web/src/App.tsx`, `utils/oauthResume.ts`, `utils/pendingReauth.ts`, `utils/browserTabVisibility.ts`, `components/groups/StepUpAuthModal/` |
+| TUI                       | `clients/tui/src/App.tsx`, `utils/tuiOAuth.ts`                                                                                                     |
+| CLI                       | `clients/cli/src/cliOAuth.ts`                                                                                                                      |
+| Runner OAuth (TUI/CLI)    | `core/auth/node/runner-interactive-oauth.ts`, `oauth-callback-server.ts`                                                                           |
+| Step-up test fixture      | `test-servers/configs/oauth-step-up-demo.json`, `test-servers/src/test-server-oauth.ts`                                                            |
 
 ---
 
@@ -159,8 +160,8 @@ export type AuthChallengeReason =
 
 export interface AuthChallenge {
   reason: AuthChallengeReason;
-  requiredScopes?: string[];       // From WWW-Authenticate scope= (this operation)
-  authorizationScopes?: string[];  // SEP-2350 union — set before re-auth, not on wire
+  requiredScopes?: string[]; // From WWW-Authenticate scope= (this operation)
+  authorizationScopes?: string[]; // SEP-2350 union — set before re-auth, not on wire
   resource?: string;
   audience?: string;
   message?: string;
@@ -212,10 +213,10 @@ Read-only check against **current storage** (and token expiry helpers). Used bef
 
 #### Standard OAuth
 
-| Reason | Silent | Interactive |
-| ------ | ------ | ----------- |
-| `token_expired`, `invalid_token`, `unauthorized` | Refresh via `refresh_token` when supported | Authorization code flow (`authenticate()`) |
-| `insufficient_scope` | N/A | Authorize with **`authorizationScopes`** = union(previous, challenge) via `mcpAuth({ forceReauthorization: true })`; navigation **deferred** until UI confirms (web modal / TUI Auth / CLI prompt) |
+| Reason                                           | Silent                                     | Interactive                                                                                                                                                                                        |
+| ------------------------------------------------ | ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `token_expired`, `invalid_token`, `unauthorized` | Refresh via `refresh_token` when supported | Authorization code flow (`authenticate()`)                                                                                                                                                         |
+| `insufficient_scope`                             | N/A                                        | Authorize with **`authorizationScopes`** = union(previous, challenge) via `mcpAuth({ forceReauthorization: true })`; navigation **deferred** until UI confirms (web modal / TUI Auth / CLI prompt) |
 
 Union scope is held in `pendingAuthorizationScope` until `completeOAuthFlow()` succeeds; cleared on failure. On success, `saveScope()` stores the AS-granted scope (explicit `scope` on the token response, or the requested union when `scope` is omitted per RFC 6749 §5.1).
 
@@ -223,21 +224,21 @@ Union scope is held in `pendingAuthorizationScope` until `completeOAuthFlow()` s
 
 Per [v2_auth_ema.md](v2_auth_ema.md): **no** fallback to standard resource-OAuth redirect.
 
-| Reason | Silent | Interactive |
-| ------ | ------ | ----------- |
-| Resource token expired / unauthorized | Legs 2–3 re-mint | — |
-| IdP session missing | — | Leg 1 IdP OIDC redirect, then legs 2–3 |
-| `insufficient_scope` | After user confirms (web modal / TUI / CLI), re-mint legs 2–3 with union scopes when IdP session valid | IdP redirect if IdP session invalid |
+| Reason                                | Silent                                                                                                 | Interactive                            |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------ | -------------------------------------- |
+| Resource token expired / unauthorized | Legs 2–3 re-mint                                                                                       | —                                      |
+| IdP session missing                   | —                                                                                                      | Leg 1 IdP OIDC redirect, then legs 2–3 |
+| `insufficient_scope`                  | After user confirms (web modal / TUI / CLI), re-mint legs 2–3 with union scopes when IdP session valid | IdP redirect if IdP session invalid    |
 
 On **web**, `handleAuthChallenge()` returns **`step_up_confirm`** for EMA `insufficient_scope` until the user clicks **Authorize** in `StepUpAuthModal`; it does **not** call `trySilentEmaAuth()` before that. After confirm, silent re-mint runs in-process when possible; otherwise IdP redirect + callback (same as before).
 
 ### Outcomes — what callers do
 
-| Outcome | Web remote | TUI / CLI direct |
-| ------- | ---------- | ---------------- |
-| **`satisfied`** | `pushAuthState()`; command-scoped: **retry send once** | Reconnect or SDK retry (v2); command wrapper may retry RPC |
-| **`step_up_confirm`** | Throw `AuthRecoveryRequiredError` (`emaStepUpConfirm`) → `StepUpAuthModal` (EMA copy) | N/A (web-only deferral) |
-| **`interactive`** | Throw `AuthRecoveryRequiredError` (enriched challenge) → App shows modal or redirect + snapshot | `AuthRecoveryRequiredError` or `authChallengeInteractive` → callback server flow |
+| Outcome               | Web remote                                                                                      | TUI / CLI direct                                                                 |
+| --------------------- | ----------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| **`satisfied`**       | `pushAuthState()`; command-scoped: **retry send once**                                          | Reconnect or SDK retry (v2); command wrapper may retry RPC                       |
+| **`step_up_confirm`** | Throw `AuthRecoveryRequiredError` (`emaStepUpConfirm`) → `StepUpAuthModal` (EMA copy)           | N/A (web-only deferral)                                                          |
+| **`interactive`**     | Throw `AuthRecoveryRequiredError` (enriched challenge) → App shows modal or redirect + snapshot | `AuthRecoveryRequiredError` or `authChallengeInteractive` → callback server flow |
 
 **InspectorClient events (direct transport):** `authChallengeAmbient` (idle SSE / ambient recovery), `authChallengeCommand` (command-scoped direct recovery — no ambient toast), `authChallengeInteractive`, `authChallengeRecovered`.
 | **`failed`** | Toast / banner; stay connected (degraded) | Error message; stay connected (TUI) or exit non-zero (CLI one-shot) |
@@ -255,10 +256,10 @@ On **web**, `handleAuthChallenge()` returns **`step_up_confirm`** for EMA `insuf
 
 **Dual delivery — one channel per incident:**
 
-| Path | Trigger | Wire | Client behavior |
-| ---- | ------- | ---- | --------------- |
+| Path               | Trigger                     | Wire                                                                | Client behavior                                                            |
+| ------------------ | --------------------------- | ------------------------------------------------------------------- | -------------------------------------------------------------------------- |
 | **Command-scoped** | Active `POST /api/mcp/send` | HTTP **200** `{ ok: false, kind: "auth_challenge", authChallenge }` | `handleAuthChallenge()` → `pushAuthState()` → **retry same JSON-RPC once** |
-| **Ambient** | Transport error while idle | SSE `auth_challenge` | `handleAmbientAuthChallenge()` → push auth state; **no RPC retry** |
+| **Ambient**        | Transport error while idle  | SSE `auth_challenge`                                                | `handleAmbientAuthChallenge()` → push auth state; **no RPC retry**         |
 
 `authReturnedViaHttp` prevents duplicating a command-scoped challenge on SSE.
 
@@ -314,11 +315,11 @@ Full-page redirect (`window.location.href`) destroys in-memory React state. Befo
 interface OAuthResumeSnapshot {
   version: 1;
   serverId: string;
-  activeTab: string;           // App tab id ("Tools", …)
+  activeTab: string; // App tab id ("Tools", …)
   authKind: "step_up" | "reauth";
-  tabUi: Partial<Record<InspectorTabId, unknown>>;  // lifted *UiState shells
+  tabUi: Partial<Record<InspectorTabId, unknown>>; // lifted *UiState shells
   remoteSessionId?: string;
-  authChallenge?: AuthChallenge;  // step-up: verify scopes after callback
+  authChallenge?: AuthChallenge; // step-up: verify scopes after callback
 }
 ```
 
@@ -351,18 +352,18 @@ Future: shared `RemoteOAuthStorage` → `oauth.json` may use optional `navigator
 
 ### Web UX reference
 
-| Situation | Behavior |
-| --------- | -------- |
-| Silent refresh / EMA re-mint (after confirm) | Toast “Refreshing authorization…” or EMA in-progress toast — no modal |
-| **401** interactive | Toast “Session expired…” → auto-redirect; no confirm modal |
-| **403** standard-OAuth step-up | Modal → optional pre-redirect toast → redirect → callback restore |
-| **403** EMA step-up (web) | Modal (organization copy) → in-progress toast → silent re-mint or IdP redirect → success toast |
-| EMA IdP leg 1 (401 / expired IdP) | Toast “Re-authenticating…” → auto-redirect |
-| Step-up **Cancel** | Connected; failed action shows error |
-| OAuth abort / callback failure | **ReAuthBanner**; Re-authenticate uses in-session `authenticate()` when already connected (no disconnect cycle) |
-| Step-up callback, scopes still insufficient | Warning toast — not green success |
-| `insufficient_scope` recovery failure (non-banner reasons) | Yellow toast — not ReAuthBanner |
-| Concurrent step-up while modal open | Yellow toast — complete or cancel current step-up first |
+| Situation                                                  | Behavior                                                                                                        |
+| ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| Silent refresh / EMA re-mint (after confirm)               | Toast “Refreshing authorization…” or EMA in-progress toast — no modal                                           |
+| **401** interactive                                        | Toast “Session expired…” → auto-redirect; no confirm modal                                                      |
+| **403** standard-OAuth step-up                             | Modal → optional pre-redirect toast → redirect → callback restore                                               |
+| **403** EMA step-up (web)                                  | Modal (organization copy) → in-progress toast → silent re-mint or IdP redirect → success toast                  |
+| EMA IdP leg 1 (401 / expired IdP)                          | Toast “Re-authenticating…” → auto-redirect                                                                      |
+| Step-up **Cancel**                                         | Connected; failed action shows error                                                                            |
+| OAuth abort / callback failure                             | **ReAuthBanner**; Re-authenticate uses in-session `authenticate()` when already connected (no disconnect cycle) |
+| Step-up callback, scopes still insufficient                | Warning toast — not green success                                                                               |
+| `insufficient_scope` recovery failure (non-banner reasons) | Yellow toast — not ReAuthBanner                                                                                 |
+| Concurrent step-up while modal open                        | Yellow toast — complete or cancel current step-up first                                                         |
 
 ---
 
@@ -381,25 +382,25 @@ CLI never spawns TUI/web for auth — completes locally or fails.
 
 ### TUI UX (`clients/tui/src/App.tsx`)
 
-| Situation | Behavior |
-| --------- | -------- |
-| Silent recovery | Auth tab: “Refreshing authorization…” |
-| **401** | Auto `runOAuthAuthentication()` (same as connect-time) |
+| Situation                      | Behavior                                                               |
+| ------------------------------ | ---------------------------------------------------------------------- |
+| Silent recovery                | Auth tab: “Refreshing authorization…”                                  |
+| **401**                        | Auto `runOAuthAuthentication()` (same as connect-time)                 |
 | **403** standard-OAuth step-up | Switch to Auth tab; **A** authorize / **C** cancel; browser → callback |
-| **403** EMA | Silent re-mint |
-| Step-up on connected server | `presentStepUpForServer()` selects server + opens Auth tab |
-| Reauth for affected server | `handleAuthRecoveryRequired()` switches server when needed |
-| Clear OAuth | Auth tab **S** |
+| **403** EMA                    | Silent re-mint                                                         |
+| Step-up on connected server    | `presentStepUpForServer()` selects server + opens Auth tab             |
+| Reauth for affected server     | `handleAuthRecoveryRequired()` switches server when needed             |
+| Clear OAuth                    | Auth tab **S**                                                         |
 
 ### CLI UX (`clients/cli/src/cliOAuth.ts`)
 
-| Situation | Behavior |
-| --------- | -------- |
-| Connect-time 401 | `connectInspectorWithOAuth()` → authorize URL on stdout → callback |
-| Mid-session interactive | `handleCliAuthRecoveryRequired()` / `withCliAuthRecoveryRetry()` (**one retry**) |
-| **403** standard-OAuth step-up | stderr: scope message + `Proceed with step-up authorization? [y/N]` |
-| Decline step-up | Exit non-zero |
-| Insufficient scope after OAuth | stderr message from `stepUpInsufficientScopeMessage()` |
+| Situation                      | Behavior                                                                         |
+| ------------------------------ | -------------------------------------------------------------------------------- |
+| Connect-time 401               | `connectInspectorWithOAuth()` → authorize URL on stdout → callback               |
+| Mid-session interactive        | `handleCliAuthRecoveryRequired()` / `withCliAuthRecoveryRetry()` (**one retry**) |
+| **403** standard-OAuth step-up | stderr: scope message + `Proceed with step-up authorization? [y/N]`              |
+| Decline step-up                | Exit non-zero                                                                    |
+| Insufficient scope after OAuth | stderr message from `stepUpInsufficientScopeMessage()`                           |
 
 ### SSE limitation
 
@@ -409,16 +410,16 @@ Legacy **SSE** transport: **401 only** on mid-session `send()` (no 403 step-up).
 
 ## Client matrix
 
-| Concern | Web | TUI | CLI |
-| ------- | --- | --- | --- |
-| Challenge detection | Inline send + SSE ambient | SDK transport + intercept | Same as TUI |
-| Auth execution | Browser `OAuthManager` | Node `OAuthManager` | Node `OAuthManager` |
-| OAuth storage | `RemoteOAuthStorage` → `oauth.json` (via `/api/storage/oauth`) | `NodeOAuthStorage` (file) | Same file as TUI |
-| Silent recovery | `auth-state` push + send retry | Reconnect / SDK retry (v2) | One-shot RPC retry |
-| Interactive recovery | Modal + full-page redirect + snapshot | Auth tab + callback | stderr **y/N** + callback |
-| Step-up confirm | `StepUpAuthModal` | Auth tab **A** / **C** | **y/N** |
-| EMA step-up | Web modal + confirm (then silent or IdP) | Confirm on Auth tab, then silent | **y/N**, then silent |
-| Multiple browser tabs | Independent sessions; background defer | N/A | N/A |
+| Concern               | Web                                                            | TUI                              | CLI                       |
+| --------------------- | -------------------------------------------------------------- | -------------------------------- | ------------------------- |
+| Challenge detection   | Inline send + SSE ambient                                      | SDK transport + intercept        | Same as TUI               |
+| Auth execution        | Browser `OAuthManager`                                         | Node `OAuthManager`              | Node `OAuthManager`       |
+| OAuth storage         | `RemoteOAuthStorage` → `oauth.json` (via `/api/storage/oauth`) | `NodeOAuthStorage` (file)        | Same file as TUI          |
+| Silent recovery       | `auth-state` push + send retry                                 | Reconnect / SDK retry (v2)       | One-shot RPC retry        |
+| Interactive recovery  | Modal + full-page redirect + snapshot                          | Auth tab + callback              | stderr **y/N** + callback |
+| Step-up confirm       | `StepUpAuthModal`                                              | Auth tab **A** / **C**           | **y/N**                   |
+| EMA step-up           | Web modal + confirm (then silent or IdP)                       | Confirm on Auth tab, then silent | **y/N**, then silent      |
+| Multiple browser tabs | Independent sessions; background defer                         | N/A                              | N/A                       |
 
 ---
 
@@ -428,10 +429,10 @@ Step-up integration tests and manual smokes use the **composable OAuth server** 
 
 ### How scopes work at two levels
 
-| Level | Config field | Role |
-| ----- | ------------ | ---- |
-| **Authorization server** | `oauth.scopesSupported` | Advertises every scope the AS **may grant** (PRM / AS metadata). Inspector uses this for connect-time consent and step-up union. Must include all scopes referenced by `requiredScopes` below. |
-| **Per capability** | `requiredScopes` on a tool, resource, or prompt preset ref | Scopes the **access token must already include** before that RPC succeeds. Missing scope → **403** + `WWW-Authenticate: Bearer error="insufficient_scope", scope="…"`. Omitted → only global bearer validity (401 if no/invalid token). |
+| Level                    | Config field                                               | Role                                                                                                                                                                                                                                    |
+| ------------------------ | ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Authorization server** | `oauth.scopesSupported`                                    | Advertises every scope the AS **may grant** (PRM / AS metadata). Inspector uses this for connect-time consent and step-up union. Must include all scopes referenced by `requiredScopes` below.                                          |
+| **Per capability**       | `requiredScopes` on a tool, resource, or prompt preset ref | Scopes the **access token must already include** before that RPC succeeds. Missing scope → **403** + `WWW-Authenticate: Bearer error="insufficient_scope", scope="…"`. Omitted → only global bearer validity (401 if no/invalid token). |
 
 **Connect-time vs step-up:** Inspector catalog OAuth scopes control what the user grants on **first connect**. The composable server may accept that token for some operations but reject others until step-up adds more scopes.
 
@@ -456,7 +457,13 @@ Illustrates server-level `scopesSupported` plus tool-, resource-, and prompt-lev
     "enabled": true,
     "mode": "combined",
     "requireAuth": true,
-    "scopesSupported": ["mcp", "tools:read", "weather:read", "secrets:read", "admin:write"],
+    "scopesSupported": [
+      "mcp",
+      "tools:read",
+      "weather:read",
+      "secrets:read",
+      "admin:write"
+    ],
     "supportDCR": true,
     "supportRefreshTokens": true
   },
@@ -472,9 +479,7 @@ Illustrates server-level `scopesSupported` plus tool-, resource-, and prompt-lev
       "requiredScopes": ["secrets:read"]
     }
   ],
-  "prompts": [
-    { "preset": "simple_prompt", "requiredScopes": ["weather:read"] }
-  ]
+  "prompts": [{ "preset": "simple_prompt", "requiredScopes": ["weather:read"] }]
 }
 ```
 
@@ -503,11 +508,11 @@ On each MCP request, after bearer validation:
 1. Parse JSON-RPC `method` and `params`.
 2. Look up `requiredScopes` from the registry built at startup:
 
-| MCP method | Registry key |
-| ---------- | ------------ |
-| `tools/call` | tool `name` (`params.name`) |
-| `resources/read` | resource `uri` (`params.uri`) |
-| `prompts/get` | prompt `name` (`params.name`) |
+| MCP method                 | Registry key                       |
+| -------------------------- | ---------------------------------- |
+| `tools/call`               | tool `name` (`params.name`)        |
+| `resources/read`           | resource `uri` (`params.uri`)      |
+| `prompts/get`              | prompt `name` (`params.name`)      |
 | `resources/templates/read` | template name or URI from `params` |
 
 3. Compare granted scopes on the access token (stored at token issue time in combined mode) against `requiredScopes`.
@@ -531,12 +536,12 @@ On each MCP request, after bearer validation:
 
 ## Related specifications
 
-| Document | Relationship |
-| -------- | ------------ |
-| [v2_auth_hardening.md](v2_auth_hardening.md) | Connect-time SEPs; v2 SDK upgrade; direct transport silent retry delegation |
-| [v2_auth_ema.md](v2_auth_ema.md) | EMA legs 2–3 re-mint; scope resolution; no resource-OAuth fallback |
-| [v2_auth_smoke_testing.md](v2_auth_smoke_testing.md) | Manual OAuth and mid-session validation procedures |
-| [v2_storage.md](v2_storage.md) | Shared `oauth.json` via `RemoteOAuthStorage` on web (implemented) |
+| Document                                             | Relationship                                                                |
+| ---------------------------------------------------- | --------------------------------------------------------------------------- |
+| [v2_auth_hardening.md](v2_auth_hardening.md)         | Connect-time SEPs; v2 SDK upgrade; direct transport silent retry delegation |
+| [v2_auth_ema.md](v2_auth_ema.md)                     | EMA legs 2–3 re-mint; scope resolution; no resource-OAuth fallback          |
+| [v2_auth_smoke_testing.md](v2_auth_smoke_testing.md) | Manual OAuth and mid-session validation procedures                          |
+| [v2_storage.md](v2_storage.md)                       | Shared `oauth.json` via `RemoteOAuthStorage` on web (implemented)           |
 
 ---
 

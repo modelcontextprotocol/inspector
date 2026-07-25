@@ -3,7 +3,11 @@ import type {
   InitializeResult,
 } from "@modelcontextprotocol/client";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { ConnectionInfoContent } from "./ConnectionInfoContent";
+import { expect, within } from "storybook/test";
+import {
+  ConnectionInfoContent,
+  SERVER_INFO_NOT_REPORTED_LABEL,
+} from "./ConnectionInfoContent";
 
 const fullResult: InitializeResult = {
   protocolVersion: "2025-03-26",
@@ -50,6 +54,12 @@ export const ModernEra: Story = {
       capabilities: {
         tools: { listChanged: true },
         resources: { subscribe: true },
+        // The Server Extensions row reads the negotiated server capabilities
+        // (era-transparent), not discoverResult — carry it here too so the
+        // modern story demonstrates the extension. (#1740)
+        extensions: {
+          "io.modelcontextprotocol/tasks": {},
+        },
       },
     },
     clientCapabilities: fullClientCaps,
@@ -66,6 +76,38 @@ export const ModernEra: Story = {
         },
       },
     },
+  },
+};
+
+// A modern server that omitted the optional `_meta` serverInfo stamp (#1772).
+// `initializeResult.serverInfo` here is App's client-side catalog fallback, and
+// `serverInfoReported: false` tells the modal not to present it as server-sent —
+// Name and Version read "— (not reported by server)".
+export const ServerInfoNotReported: Story = {
+  args: {
+    initializeResult: {
+      protocolVersion: "2026-07-28",
+      // The catalog name App synthesizes; must NOT surface as the reported name.
+      serverInfo: { name: "my-catalog-name", version: "" },
+      capabilities: { tools: { listChanged: true } },
+    },
+    serverInfoReported: false,
+    clientCapabilities: { roots: { listChanged: true } },
+    transport: "streamable-http",
+    protocolEra: "modern",
+    // A real modern connection that skipped the `_meta` serverInfo stamp still
+    // has a discover result — with `supportedVersions` + capabilities, just no
+    // `serverInfo`. Including it makes the story accurate and shows the Discovery
+    // section doesn't leak a name either.
+    discoverResult: {
+      supportedVersions: ["2026-07-28", "2025-11-25"],
+      capabilities: { tools: { listChanged: true } },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    expect(canvas.queryByText("my-catalog-name")).not.toBeInTheDocument();
+    expect(canvas.getAllByText(SERVER_INFO_NOT_REPORTED_LABEL)).toHaveLength(2);
   },
 };
 

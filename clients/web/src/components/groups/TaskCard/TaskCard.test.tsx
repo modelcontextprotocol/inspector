@@ -51,6 +51,25 @@ describe("TaskCard", () => {
     expect(screen.getByText("300000ms")).toBeInTheDocument();
   });
 
+  it("still renders the task id (on its own line) in the embedded variant (#1631)", () => {
+    // The embedded sidebar moves the id out of the header so the badge/Cancel
+    // don't wrap, but the id must remain visible (not removed entirely).
+    renderWithMantine(
+      <TaskCard
+        task={workingTask}
+        isListExpanded={false}
+        onCancel={vi.fn()}
+        embedded
+      />,
+    );
+    expect(screen.getByText("ID: task-working-1")).toBeInTheDocument();
+    // The status badge and Cancel Task control are still present on the header.
+    expect(screen.getByText("working")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Cancel Task" }),
+    ).toBeInTheDocument();
+  });
+
   it("renders the Cancel Task button when status is working", () => {
     renderWithMantine(
       <TaskCard task={workingTask} isListExpanded={false} onCancel={vi.fn()} />,

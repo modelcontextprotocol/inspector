@@ -18,6 +18,13 @@ export const MAX_ROWS = 100;
 
 const PlainCode = Code.withProps({ block: true, variant: "wrapping" });
 
+const CsvGrid = Table.withProps({
+  striped: true,
+  highlightOnHover: true,
+  withTableBorder: true,
+  withColumnBorders: true,
+});
+
 interface ParsedCsv {
   fields: string[];
   rows: string[][];
@@ -49,7 +56,7 @@ export function CsvTable({ text }: CsvTableProps) {
 
   const truncated = parsed.total > MAX_ROWS;
   return (
-    <Table striped highlightOnHover withTableBorder withColumnBorders>
+    <CsvGrid>
       {truncated && (
         <Table.Caption>
           {`Showing first ${MAX_ROWS} of ${parsed.total} rows`}
@@ -71,6 +78,6 @@ export function CsvTable({ text }: CsvTableProps) {
           </Table.Tr>
         ))}
       </Table.Tbody>
-    </Table>
+    </CsvGrid>
   );
 }

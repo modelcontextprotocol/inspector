@@ -3,6 +3,7 @@ import {
   Anchor,
   Box,
   List,
+  Paper,
   Stack,
   Text,
   useComputedColorScheme,
@@ -21,6 +22,7 @@ import type {
   Tool,
 } from "@modelcontextprotocol/client";
 import { InspectorClient } from "@inspector/core/mcp/index.js";
+import { toRecord } from "@inspector/core/json/jsonUtils.js";
 import { getServerType } from "@inspector/core/mcp/config.js";
 import type {
   InspectorClientEventMap,
@@ -42,6 +44,7 @@ import type {
 } from "@inspector/core/mcp/types.js";
 import {
   DEFAULT_MAX_FETCH_REQUESTS,
+  DEFAULT_MODERN_LOG_LEVEL,
   DEFAULT_TASK_TTL_MS,
   eraToVersionNegotiation,
 } from "@inspector/core/mcp/types.js";
@@ -105,9 +108,7 @@ import { useResourceSubscriptions } from "@inspector/core/react/useResourceSubsc
 import { useMessageLog } from "@inspector/core/react/useMessageLog.js";
 import { useFetchRequestLog } from "@inspector/core/react/useFetchRequestLog.js";
 import { useStderrLog } from "@inspector/core/react/useStderrLog.js";
-import { useSandboxUrl } from "@inspector/core/react/useSandboxUrl.js";
-import { useServerListWritable } from "@inspector/core/react/useServerListWritable.js";
-import { useInspectorVersion } from "@inspector/core/react/useInspectorVersion.js";
+import { useInitialConfig } from "@inspector/core/react/useInitialConfig.js";
 import { usePendingClientRequests } from "@inspector/core/react/usePendingClientRequests.js";
 import { InspectorView } from "./components/views/InspectorView/InspectorView";
 import type {
@@ -243,9 +244,7 @@ function getAuthToken(): string | undefined {
       // ignore — see note above
     }
   };
-  const fromGlobal = (window as unknown as Record<string, unknown>)[
-    INSPECTOR_API_TOKEN_GLOBAL
-  ];
+  const fromGlobal = toRecord(window)[INSPECTOR_API_TOKEN_GLOBAL];
   if (typeof fromGlobal === "string" && fromGlobal) {
     persist(fromGlobal);
     return fromGlobal;
@@ -272,10 +271,12 @@ function messagesToLogEntries(messages: MessageEntry[]): LogEntryData[] {
   for (const m of messages) {
     if (m.direction !== "notification") continue;
     // MessageEntry.message is a JSONRPC union; notifications have `method`
-    // but not `id`. Narrow with an `in` check before the cast.
+    // but not `id`. Narrow with an `in` check, then confirm the method.
     if (!("method" in m.message)) continue;
     if (m.message.method !== "notifications/message") continue;
-    const params = (m.message as unknown as LoggingMessageNotification).params;
+    // The method check pins this to a logging notification; its `params` are
+    // only generically typed on the JSONRPC union, so cast just that value.
+    const params = m.message.params as LoggingMessageNotification["params"];
     out.push({
       receivedAt: m.timestamp,
       params,
@@ -383,6 +384,34 @@ function bodyDroppedToastId(serverId: string): string {
 
 const CLIENT_CONFIG_LOAD_ERROR_NOTIFICATION_ID = "client-config-load-error";
 
+// Shared "list of likely causes" styling for the warning-toast bodies below.
+const ToastCauseList = List.withProps({ size: "sm", spacing: 2 });
+
+// The "open the relevant settings/details" link rendered at the bottom of each
+// warning-toast body. Same static shape across all three toasts; each passes
+// its own `onClick`.
+const ToastLinkButton = Anchor.withProps({
+  component: "button",
+  type: "button",
+  size: "sm",
+});
+
+// Sticky re-auth banner bar. A `Paper` so every static style is a prop: `shadow`
+// emits `var(--mantine-shadow-sm)` (identical to the old CSS), and the stacking
+// order goes through `styles.root` since Mantine has no `z` prop.
+const ReAuthBannerBar = Paper.withProps({
+  px: "md",
+  pt: "xs",
+  pos: "sticky",
+  top: 60,
+  bg: "var(--mantine-color-body)",
+  shadow: "sm",
+  styles: { root: { zIndex: 200 } },
+  // Paper's default `radius: "md"` would round this full-bleed sticky bar's
+  // corners; the bar it replaced (a Box) had none.
+  radius: 0,
+});
+
 // Body of the "response body dropped" warning toast: a one-line summary of what
 // happened, the likely causes, and a link that opens this server's settings
 // (on the Options section) so the user can raise the Network Log Size if it's
@@ -401,7 +430,7 @@ const FetchBodyDroppedToastMessage = ({
       out (the log hit its {maxFetchRequests}-request limit), so the body
       couldn&apos;t be shown. This usually indicates:
     </Text>
-    <List size="sm" spacing={2}>
+    <ToastCauseList>
       <List.Item>
         a chatty or misbehaving server (notification storms, rapid polling)
       </List.Item>
@@ -412,10 +441,10 @@ const FetchBodyDroppedToastMessage = ({
       <List.Item>
         the Network Log Size set too low for this server&apos;s traffic
       </List.Item>
-    </List>
-    <Anchor component="button" type="button" size="sm" onClick={onAdjust}>
+    </ToastCauseList>
+    <ToastLinkButton onClick={onAdjust}>
       Adjust Network Log Size for this server
-    </Anchor>
+    </ToastLinkButton>
   </Stack>
 );
 
@@ -433,9 +462,9 @@ const OutputValidationToastMessage = ({
       tool&apos;s outputSchema. The inspector renders it anyway, but strict MCP
       clients may not.
     </Text>
-    <Anchor component="button" type="button" size="sm" onClick={onViewDetails}>
+    <ToastLinkButton onClick={onViewDetails}>
       View validation details
-    </Anchor>
+    </ToastLinkButton>
   </Stack>
 );
 
@@ -452,14 +481,26 @@ const UrlElicitationErrorToastMessage = ({
       The server reported a URLElicitationRequired error but listed no required
       elicitations, so there&apos;s nothing to open.
     </Text>
-    <Anchor component="button" type="button" size="sm" onClick={onViewDetails}>
+    <ToastLinkButton onClick={onViewDetails}>
       View error details
-    </Anchor>
+    </ToastLinkButton>
   </Stack>
 );
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+// The numeric JSON-RPC code of a thrown protocol error (e.g. a `ProtocolError`
+// carrying `-32602`), or undefined for a plain Error. Duck-typed like
+// `formatErrorDetails` so we don't couple to the SDK's error class here — the
+// only consumer is the Tools error panel's unknown-tool (`-32602`) hint (#1632).
+function errorCodeOf(err: unknown): number | undefined {
+  if (err && typeof err === "object") {
+    const code = (err as { code?: unknown }).code;
+    if (typeof code === "number") return code;
+  }
+  return undefined;
 }
 
 // Pretty-print a thrown error for the URL-elicitation details modal: a ProtocolError
@@ -685,19 +726,16 @@ function App() {
   const appRendererRef = useRef<AppRendererHandle>(null);
   const configBaseUrl =
     typeof window !== "undefined" ? window.location.origin : "http://localhost";
-  const { sandboxUrl } = useSandboxUrl({
-    baseUrl: configBaseUrl,
-    authToken: getAuthToken(),
-  });
-  // Read-only sessions (launched with `--config` or an ad-hoc server) hide
-  // catalog CRUD; the default catalog and `--catalog` stay writable.
-  const { writable: serverListWritable } = useServerListWritable({
-    baseUrl: configBaseUrl,
-    authToken: getAuthToken(),
-  });
-  // The Inspector version (root package.json), shown in the lower-right corner.
-  // The browser can't read it off disk, so the backend sends it via /api/config.
-  const { version: inspectorVersion } = useInspectorVersion({
+  // One `GET /api/config` fetch recovers every static payload field the app
+  // reads: the MCP Apps `sandboxUrl`, the session's `writable` flag (read-only
+  // `--config` / ad-hoc sessions hide catalog CRUD; the default catalog and
+  // `--catalog` stay writable), and the Inspector `version` shown in the
+  // lower-right corner (the browser can't read it off disk).
+  const {
+    sandboxUrl,
+    writable: serverListWritable,
+    version: inspectorVersion,
+  } = useInitialConfig({
     baseUrl: configBaseUrl,
     authToken: getAuthToken(),
   });
@@ -779,6 +817,14 @@ function App() {
   // Optimistic log level — `logging/setLevel` has no echo notification, so
   // the parent keeps the current value locally.
   const [currentLogLevel, setCurrentLogLevel] = useState<LoggingLevel>("info");
+
+  // Modern-era per-request log level (#1629). `null` = not opted in (the modern
+  // default: logs stay absent until the user picks a level, which the client
+  // then stamps on every request's `_meta`). Separate from `currentLogLevel`
+  // because the modern control has an "off" state legacy doesn't.
+  const [modernLogLevel, setModernLogLevel] = useState<LoggingLevel | null>(
+    null,
+  );
 
   // In-flight call panel state. Tracked here (rather than inside the
   // respective screens) so the panels can reflect pending → ok/error
@@ -926,6 +972,7 @@ function App() {
     protocolVersion,
     protocolEra,
     discoverResult,
+    excludedTools,
     lastError,
   } = useInspectorClient(inspectorClient);
   const {
@@ -1021,9 +1068,8 @@ function App() {
     refresh: refreshTasks,
     clearCompleted: clearCompletedTasks,
   } = useManagedRequestorTasks(inspectorClient, managedRequestorTasksState);
-  const { subscriptions } = useResourceSubscriptions(
-    resourceSubscriptionsState,
-  );
+  const { subscriptions, streamState: subscriptionStreamState } =
+    useResourceSubscriptions(resourceSubscriptionsState);
   const { messages } = useMessageLog(messageLogState);
   const { fetchRequests } = useFetchRequestLog(fetchRequestLogState);
   const { stderrLogs } = useStderrLog(stderrLogState);
@@ -1170,6 +1216,7 @@ function App() {
     setConsoleUi(EMPTY_CONSOLE_UI);
     setProgressByTaskId({});
     setCurrentLogLevel("info");
+    setModernLogLevel(null);
     setPendingStepUp(null);
     setPendingReauth(null);
     setReAuthBanner(null);
@@ -1426,21 +1473,52 @@ function App() {
     };
   }, [inspectorClient]);
 
+  // The Server Info modal needs the active server's transport and (optional)
+  // OAuth details — both are co-located here so the modal opens against the
+  // same connection snapshot the header is reading. Also feeds the
+  // `initializeResult` serverInfo fallback below.
+  const activeServer = useMemo<ServerEntry | undefined>(
+    () => servers.find((s) => s.id === activeServerId),
+    [servers, activeServerId],
+  );
+
+  // Whether the server actually reported `serverInfo`, vs. the catalog-name
+  // fallback synthesized below. Threaded to the Connection Info modal so it can
+  // show "not reported" instead of an inferred name that looks server-sent.
+  const serverInfoReported = serverInfo !== undefined;
+
   // Build the InitializeResult the connected ViewHeader / Connection Info
   // modal expect from the hook's split fields. `protocolVersion` is the value
   // the InspectorClient negotiated during initialize (#1324); it's dispatched
   // alongside serverInfo, so in practice it's present whenever we're connected.
-  // We deliberately gate only on serverInfo (not protocolVersion): this object
-  // also drives the connected header and Connection Info modal, so a
-  // missing/edge-case version must not hide those. It flows through as the
-  // optional field it is everywhere downstream (the ServerCard label and the
-  // modal value both tolerate an empty string), so "" reads as "unknown".
+  // We gate only on `connectionStatus`, never on serverInfo or protocolVersion:
+  // this object also drives the connected header (and its whole tab bar) and the
+  // Connection Info modal, so a missing field must not hide those.
+  //
+  // A modern-era server's `server/discover` makes `serverInfo` OPTIONAL (SHOULD,
+  // not MUST — it's stamped in `_meta["io.modelcontextprotocol/serverInfo"]`), so
+  // a conforming modern server may omit it and `serverInfo` stays undefined even
+  // while connected. Falling back to the catalog name (rather than returning
+  // `undefined`) keeps the header + tabs rendered for those servers (#1772). It
+  // fires for such a modern server — and, harmlessly, in the batched instant on
+  // any connect (legacy included) between the `connected` status dispatch and the
+  // `serverInfo` dispatch, which land in a single React render. The modal uses
+  // `serverInfoReported` (above), not this name, to stay faithful.
+  //
+  // This `??` only covers an *absent* serverInfo. A server that *reports* a
+  // blank name (`{ name: "" }`) is degraded for display a layer below, in
+  // InspectorView's `resolveHeaderServerInfo` (#1774) — kept there so this
+  // faithful object (and thus the modal) never carries a borrowed name.
   const initializeResult = useMemo<InitializeResult | undefined>(() => {
-    if (connectionStatus !== "connected" || !serverInfo) return undefined;
+    if (connectionStatus !== "connected") return undefined;
+    const resolvedServerInfo = serverInfo ?? {
+      name: activeServer?.name ?? "",
+      version: "",
+    };
     return {
       protocolVersion: protocolVersion ?? "",
       capabilities: capabilities ?? {},
-      serverInfo,
+      serverInfo: resolvedServerInfo,
       ...(instructions ? { instructions } : {}),
     };
   }, [
@@ -1449,15 +1527,8 @@ function App() {
     serverInfo,
     instructions,
     protocolVersion,
+    activeServer,
   ]);
-
-  // The Server Info modal needs the active server's transport and (optional)
-  // OAuth details — both are co-located here so the modal opens against the
-  // same connection snapshot the header is reading.
-  const activeServer = useMemo<ServerEntry | undefined>(
-    () => servers.find((s) => s.id === activeServerId),
-    [servers, activeServerId],
-  );
 
   // Mirror the active server's name into a ref so a mid-session failure toast
   // can still name the server: a transport crash dispatches `disconnect`,
@@ -2249,6 +2320,12 @@ function App() {
             savedSettings.protocolEra,
           ),
         }),
+        // Per-server advertised-extension overrides (#1739). Absent/empty falls
+        // back to the registry defaults in the InspectorClient constructor.
+        ...(savedSettings?.advertisedExtensions &&
+          Object.keys(savedSettings.advertisedExtensions).length > 0 && {
+            advertisedExtensions: savedSettings.advertisedExtensions,
+          }),
         // Set on the `/oauth/callback` rebuild so the client's `saveSession`
         // events (and any later persistence) key off the same OAuth authId
         // the pre-redirect page saved under.
@@ -2256,6 +2333,13 @@ function App() {
       });
 
       setInspectorClient(client);
+      // #1629: seed the live modern per-request log level from the server
+      // setting so the Logs-tab control reflects what the client stamps by
+      // default (the client was seeded the same way in its constructor). "off"
+      // means not opted in (null). Only affects modern connections.
+      const seededModernLevel =
+        savedSettings?.modernLogLevel ?? DEFAULT_MODERN_LOG_LEVEL;
+      setModernLogLevel(seededModernLevel === "off" ? null : seededModernLevel);
       setManagedToolsState(new ManagedToolsState(client));
       setPagedToolsState(new PagedToolsState(client));
       setPagedPromptsState(new PagedPromptsState(client));
@@ -2807,8 +2891,16 @@ function App() {
       // error). The created task shows up on the Tasks screen via the
       // `requestorTaskUpdated` events callToolStream dispatches, and its live
       // status/progress surface as toasts + progress bar.
+      // Legacy servers advertise task tool calls via
+      // `tasks.requests.tools.call`. Modern servers (SEP-2663) instead negotiate
+      // the `io.modelcontextprotocol/tasks` extension and are server-directed:
+      // task creation is decided per-request by the server, so declaring the
+      // extension on the call (which the task path does) is what makes a returned
+      // task handle legal ("unsolicited handles"). Either era routes the flagged
+      // call through the streaming task pipeline.
       const serverSupportsTaskToolCalls =
-        !!capabilities?.tasks?.requests?.tools?.call;
+        !!capabilities?.tasks?.requests?.tools?.call ||
+        inspectorClient.isTasksExtensionNegotiated();
       const asTask =
         serverSupportsTaskToolCalls &&
         (runAsTask || tool.execution?.taskSupport === "required");
@@ -2909,6 +3001,7 @@ function App() {
         setToolCallState({
           status: "error",
           error: errorMessage(err),
+          errorCode: errorCodeOf(err),
         });
       }
     },
@@ -3241,6 +3334,16 @@ function App() {
       );
     },
     [inspectorClient, runWithCommandAuthRecovery],
+  );
+
+  // Modern era (#1629): no request is sent — the client stores the level and
+  // stamps it on every subsequent request's `_meta`. `null` opts back out.
+  const onSetModernLogLevel = useCallback(
+    (level: LoggingLevel | null) => {
+      setModernLogLevel(level);
+      inspectorClient?.setModernLogLevel(level ?? undefined);
+    },
+    [inspectorClient],
   );
 
   // Refresh acts per pagination mode: in paginated mode reload page 1 (the
@@ -3973,9 +4076,25 @@ function App() {
 
   const onElicitationRespond = useCallback(
     (result: ElicitResult) => {
-      void pendingElicitations[0]?.respond(result);
+      const pending = pendingElicitations[0];
+      if (!pending) return;
+      // "Cancel" on a MODERN task's input_required request means "give up on the
+      // task" — not "send a cancel answer" (which a non-advancing server would
+      // just re-prompt on). Cancel the underlying task instead; that aborts the
+      // pending request, closes this modal, and lets the poll settle as
+      // cancelled (#1631). Submit/Decline still answer the task normally.
+      if (
+        result.action === "cancel" &&
+        pending.origin === "task-input-required" &&
+        pending.taskId &&
+        inspectorClient
+      ) {
+        void inspectorClient.cancelRequestorTask(pending.taskId);
+        return;
+      }
+      void pending.respond(result);
     },
-    [pendingElicitations],
+    [pendingElicitations, inspectorClient],
   );
 
   const handleStepUpAuthorize = async () => {
@@ -4119,20 +4238,13 @@ function App() {
     <>
       <Box>
         {reAuthBanner ? (
-          <Box
-            className="reauth-banner-bar"
-            px="md"
-            pt="xs"
-            pos="sticky"
-            top={60}
-            bg="var(--mantine-color-body)"
-          >
+          <ReAuthBannerBar>
             <ReAuthBanner
               message={reAuthBanner.message}
               onReauthenticate={onReauthenticateFromBanner}
               onDismiss={() => setReAuthBanner(null)}
             />
-          </Box>
+          </ReAuthBannerBar>
         ) : null}
         <InspectorView
           deepLink={deepLink}
@@ -4148,6 +4260,7 @@ function App() {
           initializeResult={initializeResult}
           latencyMs={latencyMs}
           tools={tools}
+          excludedTools={excludedTools}
           prompts={prompts}
           resources={resources}
           resourceTemplates={resourceTemplates}
@@ -4155,6 +4268,7 @@ function App() {
           promptsListChanged={promptsListChanged}
           resourcesListChanged={resourcesListChanged}
           subscriptions={subscriptions}
+          subscriptionStreamState={subscriptionStreamState}
           logs={logs}
           tasks={tasks}
           progressByTaskId={progressByTaskId}
@@ -4229,7 +4343,8 @@ function App() {
           highlightedServerIds={highlightedServerIds}
           onClearHighlight={clearHighlight}
           serverSupportsTaskToolCalls={
-            !!capabilities?.tasks?.requests?.tools?.call
+            !!capabilities?.tasks?.requests?.tools?.call ||
+            (inspectorClient?.isTasksExtensionNegotiated() ?? false)
           }
           onToolsUiChange={onToolsUiChange}
           onCallTool={(name, args, runAsTask) => {
@@ -4264,6 +4379,8 @@ function App() {
           onClearCompletedTasks={onClearCompletedTasks}
           onRefreshTasks={onRefreshTasks}
           onSetLogLevel={onSetLogLevel}
+          modernLogLevel={modernLogLevel}
+          onSetModernLogLevel={onSetModernLogLevel}
           onLogsUiChange={setLogsUi}
           onClearLogs={onClearLogs}
           onExportLogs={onExportLogs}
@@ -4323,6 +4440,16 @@ function App() {
         settings={settingsModalValue}
         serverType={settingsModalServerType}
         isStdio={settingsModalIsStdio}
+        // The negotiated era only applies when this settings modal targets the
+        // live-connected server; otherwise the server isn't connected and the
+        // era is unknown (#1629). Lets the form hide the modern log-level control
+        // once an `auto` server resolves to legacy.
+        negotiatedEra={
+          connectionStatus === "connected" &&
+          settingsModalTargetId === activeServerId
+            ? protocolEra
+            : undefined
+        }
         onClose={onSettingsModalClose}
         onSettingsChange={onSettingsChange}
         onClearStoredOAuth={
@@ -4345,6 +4472,7 @@ function App() {
           opened={connectionInfoModalOpen}
           onClose={() => setConnectionInfoModalOpen(false)}
           initializeResult={initializeResult}
+          serverInfoReported={serverInfoReported}
           clientCapabilities={clientCapabilities}
           transport={connectionInfoTransport}
           protocolEra={protocolEra}

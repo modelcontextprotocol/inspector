@@ -7,6 +7,13 @@ const SubtleButton = Button.withProps({
   size: "xs",
 });
 
+// h5 (not h6) to sit one level below the screen's h4 heading (avoids an
+// axe `heading-order` skip); `size="h6"` preserves the visual size.
+const SectionTitle = Title.withProps({
+  order: 5,
+  size: "h6",
+});
+
 // The two message directions, in display order. Label + color mirror the
 // MessageDirectionBadge: outgoing (client → server) is green, incoming
 // (server → client) is violet.
@@ -39,11 +46,7 @@ export function MessageDirectionFilter({
   return (
     <>
       <Group justify="space-between">
-        {/* h5 (not h6) to sit one level below the screen's h4 heading (avoids an
-            axe `heading-order` skip); `size="h6"` preserves the visual size. */}
-        <Title order={5} size="h6">
-          Filter by Message Direction
-        </Title>
+        <SectionTitle>Filter by Message Direction</SectionTitle>
         <SubtleButton onClick={onToggleAllDirections}>
           {Object.values(visibleDirections).every(Boolean)
             ? "Deselect All"

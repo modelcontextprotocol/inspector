@@ -1,7 +1,8 @@
 # Inspector V2 Auth — Enterprise-Managed Authorization (EMA / XAA)
 
 ### [Brief](README.md) | [V1 Problems](v1_problems.md) | [V2 Scope](v2_scope.md) | [V2 Tech Stack](v2_web_client.md) | [V2 UX](v2_ux.md) | V2 Auth | [V2 New Spec Impact](v2_new_spec_impact.md)
-#### [Overview](v2_auth.md) | EMA / XAA | [Hardening](v2_auth_hardening.md) | [Mid-session](v2_auth_mid_session.md) | [Smoke testing](v2_auth_smoke_testing.md)
+
+#### [Overview](v2_auth.md) | EMA / XAA | [Hardening](v2_auth_hardening.md) | [Mid-session](v2_auth_mid_session.md) | [Smoke testing](v2_auth_smoke_testing.md) | [SDK consolidation](v2_auth_sdk_consolidation.md)
 
 Tracks [#1509](https://github.com/modelcontextprotocol/inspector/issues/1509).
 
@@ -47,43 +48,40 @@ _Audited June 2026 against the [EMA extension spec](https://modelcontextprotocol
 
 Inspector depends on **`@modelcontextprotocol/sdk` v1.x** only (`^1.29.0` in root `package.json`). Standard OAuth and EMA both build on that package — there is **no** `@modelcontextprotocol/client` v2 dependency in the tree today.
 
-| Concern | Package / module |
-| ------- | ---------------- |
-| Standard OAuth | v1 `@modelcontextprotocol/sdk/client/auth.js` via `BaseOAuthClientProvider` (`core/auth/providers.ts`) |
-| EMA leg 1 (IdP OIDC) | v1 SDK: `startAuthorization`, `exchangeAuthorization`, `discoverAuthorizationServerMetadata` — `core/auth/ema/idpOidc.ts` |
-| EMA legs 2–3 (ID-JAG + resource token) | **Local wire** in `core/auth/ema/wire.ts` (RFC 8693 token exchange + RFC 7523 JWT bearer); reuses v1 SDK for AS discovery, `selectClientAuthMethod`, `OAuthTokensSchema` |
-| EMA orchestration | `core/auth/ema/emaFlow.ts` — `mintEmaResourceTokens`, silent connect, connect/callback completion |
-| EMA 401 / transport | `core/auth/ema/transportProvider.ts` — `EmaTransportOAuthProvider` wraps v1 `BaseOAuthClientProvider`; re-runs legs 2–3 on expiry, IdP redirect on missing ID Token |
-| JWT expiry helpers | `core/auth/ema/jwt.ts` — `jwtExpiresAtMs`, `isJwtExpired` (exp claim only; no signature verification) |
-| Leg 1 in-flight PKCE key | `core/auth/ema/storage.ts` — `idpOAuthStorageKey(issuer)` → `ema-idp:{issuer}` in per-server `servers` map (storage key only; not an OAuth `state` param prefix) |
-| Wire constants | `core/auth/ema/constants.ts` — grant/type URNs + `IDP_OIDC_SCOPES` for leg 1 |
+| Concern                                | Package / module                                                                                                                                                                                                                                                                                        |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Standard OAuth                         | v1 `@modelcontextprotocol/sdk/client/auth.js` via `BaseOAuthClientProvider` (`core/auth/providers.ts`)                                                                                                                                                                                                  |
+| EMA leg 1 (IdP OIDC)                   | v1 SDK: `startAuthorization`, `exchangeAuthorization`, `discoverAuthorizationServerMetadata` — `core/auth/ema/idpOidc.ts`                                                                                                                                                                               |
+| EMA legs 2–3 (ID-JAG + resource token) | **Leg 2:** SDK `discoverAndRequestJwtAuthGrant` via `exchangeIdJag` in `core/auth/ema/wire.ts`. **Leg 3:** still local JWT bearer in `wire.ts` + `tokenEndpoint.ts` (SDK `exchangeJwtAuthGrant` lacks `resource`/`scope` — see [SDK consolidation](v2_auth_sdk_consolidation.md#sdk-adoption-wishlist)) |
+| EMA orchestration                      | `core/auth/ema/emaFlow.ts` — `mintEmaResourceTokens`, silent connect, connect/callback completion                                                                                                                                                                                                       |
+| EMA 401 / transport                    | `core/auth/ema/transportProvider.ts` — `EmaTransportOAuthProvider` wraps v1 `BaseOAuthClientProvider`; re-runs legs 2–3 on expiry, IdP redirect on missing ID Token                                                                                                                                     |
+| JWT expiry helpers                     | `core/auth/ema/jwt.ts` — `jwtExpiresAtMs`, `isJwtExpired` (exp claim only; no signature verification)                                                                                                                                                                                                   |
+| Leg 1 in-flight PKCE key               | `core/auth/ema/storage.ts` — `idpOAuthStorageKey(issuer)` → `ema-idp:{issuer}` in per-server `servers` map (storage key only; not an OAuth `state` param prefix)                                                                                                                                        |
+| Wire constants                         | `core/auth/ema/constants.ts` — grant/type URNs + `IDP_OIDC_SCOPES` for leg 1                                                                                                                                                                                                                            |
 
 **EMA is not in the v1 SDK** as a named feature (`CrossAppAccess`, ID-JAG helpers, etc.). Inspector implements the protocol in `core/auth/ema/` instead.
 
-#### v2 `@modelcontextprotocol/client` (not used; future option)
+#### v2 `@modelcontextprotocol/client` Layer-2 EMA helpers
 
-The v2 client package (`CrossAppAccessProvider`, `discoverAndRequestJwtAuthGrant`, `exchangeJwtAuthGrant`) implements the same legs 2–3 wire format internally. It is **not** imported anywhere today. Possible future paths:
+| Leg                                          | Status                                                                                                                                                                                                     |
+| -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Leg 2** (`discoverAndRequestJwtAuthGrant`) | **Adopted** — `exchangeIdJag` wraps the SDK helper                                                                                                                                                         |
+| **Leg 3** (`exchangeJwtAuthGrant`)           | **Not adopted** — helper omits `resource`/`scope` on the JWT-bearer body; keep local `redeemIdJagForAccessToken` until the [SDK wishlist](v2_auth_sdk_consolidation.md#sdk-adoption-wishlist) gap is fixed |
+| **`CrossAppAccessProvider`**                 | **Not adopted** — in-memory tokens; no fit for remoting / durable `OAuthStorage` / IdP leg 1                                                                                                               |
 
-| Option | When |
-| ------ | ---- |
-| **Swap legs 2–3 to v2 Layer-2 helpers** | Replace `wire.ts` calls with `discoverAndRequestJwtAuthGrant` / `exchangeJwtAuthGrant`; keep v1 transport + `EmaTransportOAuthProvider` |
-| **Full v2 transport (Path B)** | v2 `StreamableHTTPClientTransport` + `CrossAppAccessProvider` for EMA servers only — requires v2 client stack; does **not** drop into v1 transport today |
-
-**Why v1 + local wire for the first slice:** single SDK surface, custom `fetchFn` threading, inspector-owned scope/audience resolution (`resourceContext.ts`), and v1 `OAuthClientProvider` adapter for 401 re-auth — without pulling in alpha v2 client bundle surface.
-
-**Watch items (unchanged):**
+**Watch items:**
 
 - **401 re-auth** — EMA connections re-run legs 2–3 (leg 1 only if ID Token missing/expired); do not fall back to standard resource OAuth redirect.
-- **Future v2 adoption** — when migrating to v2 wholesale, prefer SDK Layer-2 helpers or `CrossAppAccessProvider` over maintaining duplicate wire in `wire.ts`.
+- **Leg 3 SDK adoption** — when `exchangeJwtAuthGrant` grows `resource`/`scope`, swap local wire per the consolidation wishlist.
 
 ## Configuration
 
 Config shape matches VS Code (verified against [`mcpConfiguration.ts`](https://github.com/microsoft/vscode/blob/main/src/vs/workbench/contrib/mcp/common/mcpConfiguration.ts)). **Two credential planes** — do not merge them:
 
-| Plane | Scope | What it identifies |
-| ----- | ----- | ------------------ |
-| **IdP (client / tenant)** | Global — one per inspector install or session | Inspector's OIDC client at the enterprise IdP (legs 1–2) |
-| **Resource AS (per-server)** | Per MCP server entry | OAuth client trusted by the protected resource (leg 3) |
+| Plane                        | Scope                                         | What it identifies                                       |
+| ---------------------------- | --------------------------------------------- | -------------------------------------------------------- |
+| **IdP (client / tenant)**    | Global — one per inspector install or session | Inspector's OIDC client at the enterprise IdP (legs 1–2) |
+| **Resource AS (per-server)** | Per MCP server entry                          | OAuth client trusted by the protected resource (leg 3)   |
 
 ### 1. Client / tenant IdP credentials (global)
 
@@ -103,8 +101,8 @@ All three fields are the **IdP OIDC client** credentials used in leg 2 (ID-JAG m
 
 Until **client profiles** (see below) land, install-level client config — starting with `enterpriseManagedAuth` — is stored in **`~/.mcp-inspector/storage/client.json`** (same generic storage API as other install-level blobs):
 
-| Store | API (web) | On disk | Purpose |
-| ----- | --------- | ------- | ------- |
+| Store        | API (web)                             | On disk                                | Purpose                                                  |
+| ------------ | ------------------------------------- | -------------------------------------- | -------------------------------------------------------- |
 | **`client`** | `GET/POST/DELETE /api/storage/client` | `~/.mcp-inspector/storage/client.json` | **Config** — IdP credentials, later client identity/caps |
 
 **Do not** put IdP credentials in the OAuth store or per-server `mcp.json`. **Do not** use environment variables for IdP config — all clients read/write the same `client.json` file.
@@ -113,10 +111,10 @@ Until **client profiles** (see below) land, install-level client config — star
 
 Web uses shared file-backed OAuth via `RemoteOAuthStorage` → `/api/storage/oauth` (same `oauth.json` as CLI/TUI). Existing **sessionStorage** OAuth blobs from before that wiring are not migrated automatically — users start fresh or re-authorize once.
 
-| Client | Config (`client.json`) | Runtime auth state (`OAuthStorage`) |
-| ------ | ---------------------- | ----------------------------------- |
-| **Web** | `RemoteStorage` adapter → `/api/storage/client` | `RemoteOAuthStorage` → `/api/storage/oauth` → `~/.mcp-inspector/storage/oauth.json` (via `getWebRemoteOAuthStorage()` in `clients/web/src/lib/remoteOAuthStorage.ts`) |
-| **CLI / TUI** | `NodeClientStorage` (file adapter) | `NodeOAuthStorage` → `oauth.json` |
+| Client        | Config (`client.json`)                          | Runtime auth state (`OAuthStorage`)                                                                                                                                   |
+| ------------- | ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Web**       | `RemoteStorage` adapter → `/api/storage/client` | `RemoteOAuthStorage` → `/api/storage/oauth` → `~/.mcp-inspector/storage/oauth.json` (via `getWebRemoteOAuthStorage()` in `clients/web/src/lib/remoteOAuthStorage.ts`) |
+| **CLI / TUI** | `NodeClientStorage` (file adapter)              | `NodeOAuthStorage` → `oauth.json`                                                                                                                                     |
 
 On-disk shape (initial):
 
@@ -183,7 +181,9 @@ const clientConfig = await loadClientConfig(); // client.json
 new InspectorClient(serverConfig, {
   ...opts,
   ...(getActiveEnterpriseManagedAuthIdp(clientConfig) && {
-    enterpriseManagedAuth: { idp: getActiveEnterpriseManagedAuthIdp(clientConfig)! },
+    enterpriseManagedAuth: {
+      idp: getActiveEnterpriseManagedAuthIdp(clientConfig)!,
+    },
   }),
   ...(clientConfig.enterpriseManagedAuth && {
     installEnterpriseManagedAuth: clientConfig.enterpriseManagedAuth,
@@ -248,12 +248,12 @@ Extend the existing per-server `oauth` block already used for standard OAuth ([S
 }
 ```
 
-| Field | When `enterpriseManaged: false` | When `enterpriseManaged: true` |
-| ----- | ------------------------------- | ------------------------------ |
-| `oauth.clientId` | OAuth client id (existing behavior) | **Resource AS** client id trusted by the protected resource |
-| `oauth.clientSecret` | OAuth client secret (existing behavior) | **Resource AS** client secret (keychain-backed, same as today) |
-| `oauth.scopes` | OAuth scopes (existing behavior) | Scopes for the resource token request |
-| `oauth.enterpriseManaged` | omitted / `false` | `true` — route to EMA flow instead of standard authorization-code OAuth |
+| Field                     | When `enterpriseManaged: false`         | When `enterpriseManaged: true`                                          |
+| ------------------------- | --------------------------------------- | ----------------------------------------------------------------------- |
+| `oauth.clientId`          | OAuth client id (existing behavior)     | **Resource AS** client id trusted by the protected resource             |
+| `oauth.clientSecret`      | OAuth client secret (existing behavior) | **Resource AS** client secret (keychain-backed, same as today)          |
+| `oauth.scopes`            | OAuth scopes (existing behavior)        | Scopes for the resource token request                                   |
+| `oauth.enterpriseManaged` | omitted / `false`                       | `true` — route to EMA flow instead of standard authorization-code OAuth |
 
 Types to extend in `core/mcp/types.ts`:
 
@@ -297,7 +297,7 @@ Install-level IdP credentials are edited in **Client Settings**, separate from p
   1. Clears `idpSessions[issuer]`
   2. Clears leg-1 in-flight state at `servers["ema-idp:{issuer}"]`
   3. Calls `OAuthStorage.clearEnterpriseManagedResourceServers()` — scans the shared OAuth blob and removes `servers[url]` entries where `enterpriseManaged === true` (set when EMA legs 2–3 saved tokens via `saveTokens(url, tokens, { enterpriseManaged: true })` in `emaFlow.ts` / `EmaTransportOAuthProvider`). Standard OAuth entries in the same blob are **not** cleared. Untagged legacy EMA tokens (saved before tagging landed) are not removed until the next EMA connect re-saves with the tag.
-  The next connect to a cleared EMA server has no cached access token, so a **401** triggers leg 1 (IdP login) via `authenticate()`.
+     The next connect to a cleared EMA server has no cached access token, so a **401** triggers leg 1 (IdP login) via `authenticate()`.
 - **Web OAuth store singleton:** web uses `getWebRemoteOAuthStorage()` (`clients/web/src/lib/remoteOAuthStorage.ts`) — memoized `RemoteOAuthStorage` backed by `/api/storage/oauth` — so Client Settings sign-out, EMA IdP session, connect, and per-server clear all mutate the same in-memory `OAuthStorageBase` view as the active `InspectorClient`.
 
 **Future (not implemented):** explicit **Sign out** may additionally invoke the IdP's OIDC **end-session** / logout endpoint (RP-initiated logout) so the IdP SSO cookie is cleared — not just inspector-local IdP/resource token state. Today sign-out is **local-only** (clear `idpSessions`, tagged EMA resource entries, and leg-1 PKCE); the IdP may still treat the browser as signed in and skip the login prompt on the next authorize redirect until the IdP session expires or the user signs out at the IdP.
@@ -317,10 +317,10 @@ CLI/TUI do not have a dedicated Client Settings dialog. They **load** `client.js
 
 When the user connects to a server with `oauth.enterpriseManaged: true` but install-level IdP is not active, `OAuthManager.getEmaFlowConfig()` throws `EmaClientNotConfiguredError` (`core/auth/ema/clientConfigError.ts`) with a reason-specific message:
 
-| Reason | When | User-facing guidance |
-| ------ | ---- | -------------------- |
-| `not_configured` | No IdP block, or issuer/client id missing | Open Client Settings, enable Enterprise IdP, set issuer, client ID, and secret |
-| `disabled` | `enterpriseManagedAuth.enabled === false` with IdP credentials retained | Enterprise IdP is turned off in Client Settings — re-enable and retry |
+| Reason           | When                                                                    | User-facing guidance                                                           |
+| ---------------- | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| `not_configured` | No IdP block, or issuer/client id missing                               | Open Client Settings, enable Enterprise IdP, set issuer, client ID, and secret |
+| `disabled`       | `enterpriseManagedAuth.enabled === false` with IdP credentials retained | Enterprise IdP is turned off in Client Settings — re-enable and retry          |
 
 `installEnterpriseManagedAuth` on `InspectorClientOptions` supplies the full install config so the error can distinguish disabled from never configured. Web surfaces this in connect, OAuth auth, and post-callback reconnect paths (`App.tsx`): toast title `Cannot connect to "<server name>"`, message from the error, `autoClose: false` (stays until dismissed).
 
@@ -344,10 +344,10 @@ Leg 1 is **OIDC authorization-code login** against the enterprise IdP using cred
 
 **Reuse existing OAuth client infrastructure** — leg 1 is not a new auth stack. It uses the same per-client mechanisms already wired for standard MCP resource OAuth (`OAuthManager`, redirect/callback, PKCE, token exchange). Only the target changes: IdP endpoints and `client.json` credentials instead of the resource authorization server and per-server `oauth.*` fields.
 
-| Client | Leg 1 mechanism (same stack as standard OAuth in that client) |
-| ------ | ------------------------------------------------------------- |
-| **Web** | Browser redirect via `navigation`; callback at `/oauth/callback`; `InspectorClient.completeOAuthFlow(code)`; `RemoteOAuthStorage` → shared `oauth.json` |
-| **TUI / CLI** | `OAuthCallbackServer` opens local callback; system browser for authorize URL; `completeOAuthFlow(code)`; `NodeOAuthStorage` |
+| Client        | Leg 1 mechanism (same stack as standard OAuth in that client)                                                                                           |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Web**       | Browser redirect via `navigation`; callback at `/oauth/callback`; `InspectorClient.completeOAuthFlow(code)`; `RemoteOAuthStorage` → shared `oauth.json` |
+| **TUI / CLI** | `OAuthCallbackServer` opens local callback; system browser for authorize URL; `completeOAuthFlow(code)`; `NodeOAuthStorage`                             |
 
 **Silent connect:** if a valid cached ID Token exists for the configured issuer, skip the interactive redirect and proceed to leg 2.
 
@@ -373,11 +373,11 @@ When an EMA server returns **403** + `insufficient_scope`, `OAuthManager.handleA
 
 **Web UX after Authorize:**
 
-| Outcome | User sees |
-| ------- | --------- |
+| Outcome                      | User sees                                                                                                                                               |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `satisfied` (silent re-mint) | Blue in-progress toast → green “Organization permissions were updated” (+ “Retry your action” when step-up was triggered by a tool/prompt/resource/app) |
-| `interactive` (IdP redirect) | Pre-redirect toast → full-page IdP callback → same resume snapshot behavior as other EMA flows |
-| `failed` | Red toast with error detail; triggering panel shows failure |
+| `interactive` (IdP redirect) | Pre-redirect toast → full-page IdP callback → same resume snapshot behavior as other EMA flows                                                          |
+| `failed`                     | Red toast with error detail; triggering panel shows failure                                                                                             |
 
 TUI/CLI still use their existing confirm prompts (Auth tab **A**/**C**, CLI **y/N**) before silent re-mint — no web modal.
 
@@ -428,11 +428,11 @@ Inspector touchpoints to extend:
 
 ### Clients
 
-| Client | Notes |
-| ------ | ----- |
-| Web | **First** — implement and test EMA here; **Client Settings** for IdP + per-server EMA checkbox (HTTP/SSE only); connect via `authenticate()` on 401 or explicit auth; leg 1 via browser redirect + `/oauth/callback` (same path as standard OAuth; disambiguate pending flow) |
-| TUI | Follow web; extend existing OAuth auth tab (`clients/tui/src/App.tsx`, `AuthTab`) for EMA legs 2–3; leg 1 via existing `OAuthCallbackServer` flow |
-| CLI | Follow web/TUI; same Node OAuth stack as TUI when interactive IdP login is required |
+| Client | Notes                                                                                                                                                                                                                                                                         |
+| ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Web    | **First** — implement and test EMA here; **Client Settings** for IdP + per-server EMA checkbox (HTTP/SSE only); connect via `authenticate()` on 401 or explicit auth; leg 1 via browser redirect + `/oauth/callback` (same path as standard OAuth; disambiguate pending flow) |
+| TUI    | Follow web; extend existing OAuth auth tab (`clients/tui/src/App.tsx`, `AuthTab`) for EMA legs 2–3; leg 1 via existing `OAuthCallbackServer` flow                                                                                                                             |
+| CLI    | Follow web/TUI; same Node OAuth stack as TUI when interactive IdP login is required                                                                                                                                                                                           |
 
 ### Implementation order (settled)
 
@@ -503,8 +503,8 @@ Design decisions for EMA are complete. Remaining work is the phased plan and che
 
 - [x] **Manual staging validation** — full EMA connect against live xaa.dev (see §Staging validation). Confirms legs 1–3 and web UX outside CI.
 - [x] **Automated integration tests** — mock IdP + mock resource AS + composable protected-resource server (see §Phase 3b test plan). Live xaa.dev is **not** required for CI.
-- [ ] *(optional)* `RemoteOAuthStorage` EMA E2E variant — same happy path via `/api/storage/oauth` (standard OAuth remote E2E exists; EMA-specific variant optional).
-- [ ] *(optional)* 401 re-auth stretch — invalidate resource token, assert legs 2–3 re-run.
+- [ ] _(optional)_ `RemoteOAuthStorage` EMA E2E variant — same happy path via `/api/storage/oauth` (standard OAuth remote E2E exists; EMA-specific variant optional).
+- [ ] _(optional)_ 401 re-auth stretch — invalidate resource token, assert legs 2–3 re-run.
 
 ### Phase 4 — Other clients
 
@@ -528,11 +528,11 @@ Full end-to-end EMA has been exercised manually against live **xaa.dev** (June 2
 
 ### Topology
 
-| Role | Service | Inspector config |
-| ---- | ------- | ---------------- |
-| **Enterprise IdP** (legs 1–2) | `https://idp.xaa.dev` | **Client Settings** — issuer, requesting-app client id/secret |
-| **Resource authorization server** (leg 3) | `https://auth.resource.xaa.dev` (xaa.dev resource AS) | Per-server **Server Settings** — resource test client id/secret, EMA enabled, scopes |
-| **Protected MCP resource** | Composable test server (`test-servers/configs/xaa-ema-http.json`) — `protected-resource` mode, local streamable-http | Server catalog entry URL must match registered resource identifier (`http://localhost:8080/` — use `localhost`, not `127.0.0.1`) |
+| Role                                      | Service                                                                                                              | Inspector config                                                                                                                 |
+| ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| **Enterprise IdP** (legs 1–2)             | `https://idp.xaa.dev`                                                                                                | **Client Settings** — issuer, requesting-app client id/secret                                                                    |
+| **Resource authorization server** (leg 3) | `https://auth.resource.xaa.dev` (xaa.dev resource AS)                                                                | Per-server **Server Settings** — resource test client id/secret, EMA enabled, scopes                                             |
+| **Protected MCP resource**                | Composable test server (`test-servers/configs/xaa-ema-http.json`) — `protected-resource` mode, local streamable-http | Server catalog entry URL must match registered resource identifier (`http://localhost:8080/` — use `localhost`, not `127.0.0.1`) |
 
 Registration on xaa.dev: composable test server registered as a **resource server**; its AS points at xaa.dev (`authorizationServers` / JWKS in `xaa-ema-http.json`). IdP and resource AS are distinct hosts on xaa.dev.
 
@@ -557,11 +557,11 @@ These items came out of EMA staging and apply beyond EMA. They are **not** requi
 
 `OAuthStorage` is implemented by **`OAuthStorageBase`** (`core/auth/oauth-storage.ts`) backed by **`OAuthMemoryStore`** (`core/auth/store.ts`) and an explicit **`OAuthPersistBackend`** (`core/auth/oauth-persist.ts`):
 
-| Backend | Class | Where |
-| ------- | ----- | ----- |
-| File | `NodeOAuthStorage` | CLI, TUI, default `~/.mcp-inspector/storage/oauth.json` |
-| Remote HTTP | `RemoteOAuthStorage` | Web → `GET/POST/DELETE /api/storage/oauth` on the Hono backend |
-| Session | `BrowserOAuthStorage` | Reference/tests only; v2 web uses shared file-backed remote store |
+| Backend     | Class                 | Where                                                             |
+| ----------- | --------------------- | ----------------------------------------------------------------- |
+| File        | `NodeOAuthStorage`    | CLI, TUI, default `~/.mcp-inspector/storage/oauth.json`           |
+| Remote HTTP | `RemoteOAuthStorage`  | Web → `GET/POST/DELETE /api/storage/oauth` on the Hono backend    |
+| Session     | `BrowserOAuthStorage` | Reference/tests only; v2 web uses shared file-backed remote store |
 
 **On disk / wire:** writes plain JSON `{ servers, idpSessions }`. **Reads** still accept legacy blobs wrapped as `{ state: { servers, idpSessions }, version }` (produced by the old Zustand `persist` middleware) and promote the inner payload — migrate-on-write on the next save.
 
@@ -573,10 +573,10 @@ These items came out of EMA staging and apply beyond EMA. They are **not** requi
 
 **Status (July 2026):** Web is wired through `RemoteOAuthStorage` (`environmentFactory.ts`, `App.tsx`, `getWebRemoteOAuthStorage()`). CLI/TUI continue to use `NodeOAuthStorage` on the same on-disk file when using the default local backend.
 
-| Client | OAuth runtime store |
-| ------ | ------------------- |
-| **Web** | `RemoteOAuthStorage` → `/api/storage/oauth` → `~/.mcp-inspector/storage/oauth.json` |
-| **CLI / TUI** | `NodeOAuthStorage` → `~/.mcp-inspector/storage/oauth.json` |
+| Client        | OAuth runtime store                                                                 |
+| ------------- | ----------------------------------------------------------------------------------- |
+| **Web**       | `RemoteOAuthStorage` → `/api/storage/oauth` → `~/.mcp-inspector/storage/oauth.json` |
+| **CLI / TUI** | `NodeOAuthStorage` → `~/.mcp-inspector/storage/oauth.json`                          |
 
 `RemoteOAuthStorage` (`core/auth/remote/storage-remote.ts`) talks to **`GET/POST/DELETE /api/storage/oauth`** on the local Hono backend — the same generic storage API that persists to disk under `~/.mcp-inspector/storage/`. Integration tests use it (`inspectorClient-oauth-remote-storage-e2e.test.ts`).
 
@@ -607,16 +607,16 @@ Goal: CI tests that prove EMA legs 1–3 through `InspectorClient` / `OAuthManag
 
 **Files:** `clients/web/src/test/core/auth/ema/wire.test.ts`, `emaFlow.test.ts`
 
-| Case | Status |
-| ---- | ------ |
-| `exchangeIdJag` happy path | ✅ Mock IdP token endpoint; assert RFC 8693 request shape |
-| `exchangeIdJag` IdP error | ✅ Asserts leg-2 error message |
-| `redeemIdJagForAccessToken` happy path | ✅ Mock resource AS token endpoint |
-| `mintEmaResourceTokens` end-to-end | ✅ In-memory `OAuthStorage` + mocked fetch; `resourceContext` bypass |
-| Missing ID Token | ✅ |
-| Missing resource secret | ✅ |
-| `trySilentEmaAuth` saves tagged tokens | ✅ `enterpriseManaged: true` on `saveTokens` |
-| `trySilentEmaAuth` returns false without IdP session | ✅ |
+| Case                                                 | Status                                                               |
+| ---------------------------------------------------- | -------------------------------------------------------------------- |
+| `exchangeIdJag` happy path                           | ✅ Mock IdP token endpoint; assert RFC 8693 request shape            |
+| `exchangeIdJag` IdP error                            | ✅ Asserts leg-2 error message                                       |
+| `redeemIdJagForAccessToken` happy path               | ✅ Mock resource AS token endpoint                                   |
+| `mintEmaResourceTokens` end-to-end                   | ✅ In-memory `OAuthStorage` + mocked fetch; `resourceContext` bypass |
+| Missing ID Token                                     | ✅                                                                   |
+| Missing resource secret                              | ✅                                                                   |
+| `trySilentEmaAuth` saves tagged tokens               | ✅ `enterpriseManaged: true` on `saveTokens`                         |
+| `trySilentEmaAuth` returns false without IdP session | ✅                                                                   |
 
 Uses `vi.fn()` fetch — no listening ports. Runs in `unit` project.
 
@@ -635,14 +635,14 @@ Shared helper `minimalOAuthAsMetadata()` satisfies SDK OAuth metadata schema. `c
 
 **File:** `clients/web/src/test/integration/mcp/inspectorClient-ema-e2e.test.ts`
 
-| Step | Status |
-| ---- | ------ |
-| 1 | ✅ Protected-resource `TestServerHttp` + `createExternalResourceOAuthTestServerConfig` (mock AS JWKS/issuers) |
-| 2 | ✅ Mock IdP + mock resource AS on ephemeral ports |
-| 3 | ✅ `InspectorClient` with `enterpriseManaged: true`, fixture IdP + resource credentials |
-| 4 | ✅ Cached ID Token seeded in `NodeOAuthStorage` (leg 1 shortcut) |
-| 5 | ✅ `connect()` → `getOAuthState()` `protocol: "ema"`, `authorized: true`, `ema.idpSession: "logged_in"` |
-| 6 | ✅ Second connect reuses silent path; persisted tokens tagged `enterpriseManaged: true` |
+| Step | Status                                                                                                        |
+| ---- | ------------------------------------------------------------------------------------------------------------- |
+| 1    | ✅ Protected-resource `TestServerHttp` + `createExternalResourceOAuthTestServerConfig` (mock AS JWKS/issuers) |
+| 2    | ✅ Mock IdP + mock resource AS on ephemeral ports                                                             |
+| 3    | ✅ `InspectorClient` with `enterpriseManaged: true`, fixture IdP + resource credentials                       |
+| 4    | ✅ Cached ID Token seeded in `NodeOAuthStorage` (leg 1 shortcut)                                              |
+| 5    | ✅ `connect()` → `getOAuthState()` `protocol: "ema"`, `authorized: true`, `ema.idpSession: "logged_in"`       |
+| 6    | ✅ Second connect reuses silent path; persisted tokens tagged `enterpriseManaged: true`                       |
 
 Runs under `integration` project; `test-servers:build` prerequisite (existing). Transport: `streamable-http` only (EMA is HTTP-only).
 
@@ -673,8 +673,8 @@ Existing coverage: `xaa-ema-http.json` config load, `ExternalAccessTokenValidato
 - [x] Layer 1 tests merged
 - [x] Layer 3 happy-path integration test green in CI
 - [x] Document in test file how mock topology maps to xaa.dev staging (comment block + link to `xaa-ema-http.json`)
-- [ ] *(optional)* `RemoteOAuthStorage` EMA E2E variant
-- [ ] *(optional)* 401 re-auth stretch case
+- [ ] _(optional)_ `RemoteOAuthStorage` EMA E2E variant
+- [ ] _(optional)_ 401 re-auth stretch case
 
 ---
 
@@ -724,6 +724,7 @@ In `mainThreadMcp`, enterprise-managed path does these implementation-specific c
 7. Call session acquisition with `audience` and `resource` in options.
 
 All of this is implemented in:
+
 - https://github.com/microsoft/vscode/blob/main/src/vs/workbench/api/browser/mainThreadMcp.ts
 
 ### A.4 Provider lifecycle and host plumbing
@@ -794,6 +795,7 @@ Functions to copy conceptually:
 3. JWT claims parsing helpers used to infer `client_id` from assertion
 
 Tests for body semantics:
+
 - https://github.com/microsoft/vscode/blob/main/src/vs/base/test/common/oauth.test.ts
 
 ### A.7 Secret storage model in this implementation
@@ -877,6 +879,7 @@ If you need a frozen reference (won't drift as `main` changes), use commit-pinne
 - https://github.com/microsoft/vscode/tree/2d95154af0f50db2a41ceee431acfc6d79638aab
 
 For example:
+
 - https://github.com/microsoft/vscode/blob/2d95154af0f50db2a41ceee431acfc6d79638aab/src/vs/workbench/api/common/extHostXaaAuthProvider.ts
 - https://github.com/microsoft/vscode/blob/2d95154af0f50db2a41ceee431acfc6d79638aab/src/vs/workbench/api/browser/mainThreadMcp.ts
 - https://github.com/microsoft/vscode/blob/2d95154af0f50db2a41ceee431acfc6d79638aab/src/vs/workbench/api/browser/mainThreadAuthentication.ts

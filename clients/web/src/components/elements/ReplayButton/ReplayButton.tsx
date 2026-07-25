@@ -6,6 +6,13 @@ export interface ReplayButtonProps {
   onReplay: () => void;
 }
 
+const ReplayActionIcon = ActionIcon.withProps({
+  variant: "subtle",
+  color: "gray",
+  size: "md",
+  "aria-label": "Replay",
+});
+
 /**
  * Icon form of the "Replay" action, used in the compact (column) ProtocolEntry
  * layout where the text button is replaced by a replay icon sitting next to the
@@ -14,15 +21,9 @@ export interface ReplayButtonProps {
 export function ReplayButton({ onReplay }: ReplayButtonProps) {
   return (
     <Tooltip label="Replay">
-      <ActionIcon
-        variant="subtle"
-        color="gray"
-        size="md"
-        aria-label="Replay"
-        onClick={onReplay}
-      >
+      <ReplayActionIcon onClick={onReplay}>
         <MdReplay size={18} />
-      </ActionIcon>
+      </ReplayActionIcon>
     </Tooltip>
   );
 }

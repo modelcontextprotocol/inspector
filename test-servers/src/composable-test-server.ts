@@ -43,6 +43,12 @@ import {
   ListTasksRequestSchema,
   TaskStatusNotificationSchema,
 } from "@modelcontextprotocol/core";
+import {
+  TASKS_EXTENSION_KEY,
+  ModernTaskRuntime,
+  createModernTaskTools,
+  wireModernTaskHandlers,
+} from "./modern-tasks.js";
 
 // Empty object JSON schema constant (from SDK's mcp.js)
 const EMPTY_OBJECT_JSON_SCHEMA = {
@@ -83,6 +89,14 @@ export interface HandlerExtra {
     params?: Record<string, unknown>;
   }) => Promise<void>;
   /**
+   * Request-scoped, threshold-gated logging (the SDK's `ctx.mcpReq.log`). Emits
+   * a `notifications/message` only when the connection's negotiated level admits
+   * it — the modern per-request `logLevel` opt-in, or the legacy session level —
+   * and streams it on this request's response. Prefer over {@link sendNotification}
+   * for server logs so the era-correct gating is applied for you.
+   */
+  log?: (level: string, data: unknown, logger?: string) => Promise<void> | void;
+  /**
    * MRTR (2026-07-28): the bare input responses a retried request echoes back,
    * keyed by the identifiers the server assigned in `inputRequests`. Present
    * only on the retry round, so an MRTR tool branches on it to distinguish the
@@ -102,6 +116,17 @@ interface McpReqContext {
     signal?: AbortSignal;
     send?: HandlerExtra["sendRequest"];
     notify?: HandlerExtra["sendNotification"];
+    /**
+     * Request-scoped logging helper the SDK adds in `McpServer.buildContext`.
+     * It applies the era-correct threshold gating for us: on the modern
+     * (2026-07-28) leg it reads the per-request `logLevel` opt-in from the
+     * request envelope and drops the message when the client didn't opt in or
+     * the level is below the requested severity; on legacy it honors the
+     * session level from `logging/setLevel`. Emits through `notify`, so on the
+     * modern leg the response upgrades to SSE and the log rides this request's
+     * stream. Prefer this over a raw `notify`/`notification` for logs.
+     */
+    log?: HandlerExtra["log"];
     /** MRTR input responses on a retried request (2026-07-28). */
     inputResponses?: Record<string, unknown>;
     /** MRTR request-state accessor (resolves the echoed opaque token). */
@@ -118,6 +143,7 @@ function toHandlerExtra(ctx: ServerContext | undefined): HandlerExtra {
     signal: mcpReq?.signal,
     sendRequest: mcpReq?.send,
     sendNotification: mcpReq?.notify,
+    log: mcpReq?.log?.bind(mcpReq),
     inputResponses: mcpReq?.inputResponses,
     requestState: mcpReq?.requestState?.(),
   };
@@ -447,6 +473,19 @@ export interface ServerConfig {
     prompts?: number;
   };
   /**
+   * Gate a tool's visibility in `tools/list` on a client-declared extension
+   * (SEP-2133 `capabilities.extensions`). Maps extension id → tool name (the
+   * tool must be among the registered presets). The named tool is registered
+   * but starts disabled; on `notifications/initialized`, if the connected
+   * client declared that extension, it is enabled and appears in `tools/list`.
+   *
+   * Demonstrates that advertised client extensions change server tool
+   * registration (#1739 / #1633). Legacy stateful leg only — the modern
+   * per-request leg builds a fresh server per request with no persistent
+   * `oninitialized`, so a gated tool stays disabled there.
+   */
+  extensionGatedTools?: Record<string, string>;
+  /**
    * Whether to advertise tasks capability
    * If enabled, server will advertise tasks capability with list and cancel support
    */
@@ -459,6 +498,21 @@ export interface ServerConfig {
    * Only used if tasks capability is enabled.
    */
   taskStore?: InMemoryTaskStore;
+  /**
+   * Advertise the modern (2026-07-28) `io.modelcontextprotocol/tasks` extension
+   * (SEP-2663) and wire its raw `tasks/get` / `tasks/update` / `tasks/cancel`
+   * handlers plus the `modern_task` / `modern_input_task` tools. Distinct from
+   * the legacy {@link ServerConfig.tasks} capability — meant to be paired with
+   * `modern: true`. See `modern-tasks.ts`.
+   */
+  tasksExtension?: boolean;
+  /**
+   * Shared modern task runtime. Created lazily on first `createMcpServer` call
+   * and cached here so the stateless modern leg's per-request server instances
+   * share one task store (a task created by a `tools/call` must be visible to a
+   * later `tasks/get`). Do not set by hand.
+   */
+  modernTaskRuntime?: ModernTaskRuntime;
   /**
    * OAuth 2.1 configuration for test server.
    * - **combined** (default): this server is both MCP resource and authorization server.
@@ -595,9 +649,13 @@ export function createMcpServer(config: ServerConfig): McpServer {
       cancel?: object;
       requests?: { tools?: { call?: object } };
     };
+    extensions?: Record<string, object>;
   } = {};
 
-  if (config.tools !== undefined) {
+  // The modern tasks extension (SEP-2663) needs the tools capability too (its
+  // task-augmented tools list via `tools/list`), even when no `config.tools`
+  // were supplied.
+  if (config.tools !== undefined || config.tasksExtension) {
     capabilities.tools = {};
   }
   if (
@@ -629,6 +687,19 @@ export function createMcpServer(config: ServerConfig): McpServer {
     if (capabilities.tasks.cancel === undefined) {
       delete capabilities.tasks.cancel;
     }
+  }
+
+  // Modern tasks extension (SEP-2663): advertise it in server/discover and reuse
+  // (or lazily create + cache) the shared runtime so the stateless modern leg's
+  // per-request servers all answer against the same task store.
+  const modernTaskRuntime = config.tasksExtension
+    ? (config.modernTaskRuntime ??= new ModernTaskRuntime())
+    : undefined;
+  if (config.tasksExtension) {
+    capabilities.extensions = {
+      ...(capabilities.extensions ?? {}),
+      [TASKS_EXTENSION_KEY]: {},
+    };
   }
 
   // Create the in-memory task store if tasks are enabled. SDK v2 has no built-in
@@ -726,9 +797,15 @@ export function createMcpServer(config: ServerConfig): McpServer {
   // (returning a task handle), reproducing the deleted SDK task runtime.
   const taskTools = new Map<string, TaskToolDefinition>();
 
-  // Set up tools
-  if (config.tools && config.tools.length > 0) {
-    for (const tool of config.tools) {
+  // Set up tools. The modern tasks extension contributes its task-augmented
+  // tools (registered as ordinary tools so they surface in `tools/list`; their
+  // `tools/call` is intercepted by `wireModernTaskHandlers` below).
+  const effectiveTools: (ToolDefinition | TaskToolDefinition)[] = [
+    ...(config.tools ?? []),
+    ...(config.tasksExtension ? createModernTaskTools() : []),
+  ];
+  if (effectiveTools.length > 0) {
+    for (const tool of effectiveTools) {
       if (isTaskTool(tool)) {
         // Register the task tool as an ordinary tool so it surfaces in
         // `tools/list` with its input schema, `_meta`, and `execution` support.
@@ -1234,7 +1311,49 @@ export function createMcpServer(config: ServerConfig): McpServer {
     wireTaskHandlers(mcpServer, taskStore, taskTools);
   }
 
+  // Modern tasks extension (SEP-2663): raw tasks/get, tasks/update, tasks/cancel
+  // (no tasks/list, no tasks/result) plus the CreateTaskResult tools/call seam.
+  if (modernTaskRuntime) {
+    wireModernTaskHandlers(mcpServer, modernTaskRuntime);
+  }
+
+  // Extension-gated tools (#1739): start each gated tool disabled, then enable
+  // it on `initialized` iff the connected client declared its extension.
+  if (config.extensionGatedTools) {
+    wireExtensionGatedTools(mcpServer, state, config.extensionGatedTools);
+  }
+
   return mcpServer;
+}
+
+/**
+ * Gate the named tools on a client-declared extension. Each gated tool is
+ * disabled up front (so it is absent from `tools/list` by default), and the
+ * server's `oninitialized` hook enables it only when the connected client
+ * advertised the mapped extension id in `capabilities.extensions`. Because
+ * `initialized` arrives before the client's first `tools/list`, the enable
+ * lands in time for the list to reflect it. Chains any existing
+ * `oninitialized` so this composes with other wiring.
+ */
+function wireExtensionGatedTools(
+  mcpServer: McpServer,
+  state: ServerState,
+  gates: Record<string, string>,
+): void {
+  const entries = Object.entries(gates);
+  for (const [, toolName] of entries) {
+    state.registeredTools.get(toolName)?.disable();
+  }
+  const previous = mcpServer.server.oninitialized;
+  mcpServer.server.oninitialized = () => {
+    previous?.();
+    const declared = mcpServer.server.getClientCapabilities()?.extensions ?? {};
+    for (const [extensionId, toolName] of entries) {
+      if (declared[extensionId] !== undefined) {
+        state.registeredTools.get(toolName)?.enable();
+      }
+    }
+  };
 }
 
 /** Structural view of the low-level `Server`'s request-handler registry. */

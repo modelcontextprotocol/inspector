@@ -110,6 +110,13 @@ export type StoredMCPServer = MCPServerConfig & {
    * (`"legacy"`). (#1626)
    */
   protocolEra?: ServerProtocolEra;
+  /**
+   * Modern-era per-request log level stamped by default (`"off"` or one of the
+   * eight logging levels). Inspector-specific. Omitted on disk when it equals
+   * `DEFAULT_MODERN_LOG_LEVEL` (`"debug"`). Only affects modern connections.
+   * (#1629)
+   */
+  modernLogLevel?: ModernLogLevel;
   /** Inspector-specific connect-time timeout (ms). */
   connectionTimeout?: number;
   /** Inspector-specific request timeout (ms). */
@@ -131,6 +138,13 @@ export type StoredMCPServer = MCPServerConfig & {
    * false (the default). (#1721)
    */
   paginatedLists?: boolean;
+  /**
+   * Per-extension overrides for which extensions the Inspector advertises to
+   * this server (keyed by extension id; a present key wins over the registry
+   * default). Inspector-specific. Omitted on disk when empty, keeping the file
+   * diff minimal for servers that never toggled one. (#1739)
+   */
+  advertisedExtensions?: Record<string, boolean>;
   /**
    * Maximum number of HTTP fetch requests retained in the Network log for this
    * server (oldest rotate out past the cap). Inspector-specific. Omitted on
@@ -243,8 +257,15 @@ export type MessageOrigin = "client" | "server";
  * - `"input-required"` — a modern (2026-07-28) MRTR round: the request was
  *   embedded in a tool-call/prompt/resource `input_required` result, and the
  *   user's answer is echoed back to the server as a retry (SEP-2322).
+ * - `"task-input-required"` — a modern task (SEP-2663) that reached
+ *   `input_required`: the request came from the task's `tasks/get` `inputRequests`
+ *   map, and the user's answer is submitted via a `tasks/update` request (NOT a
+ *   retry of the original call, unlike MRTR).
  */
-export type PendingRequestOrigin = "server-request" | "input-required";
+export type PendingRequestOrigin =
+  | "server-request"
+  | "input-required"
+  | "task-input-required";
 
 export interface MessageEntry {
   id: string;
@@ -378,6 +399,54 @@ export interface InspectorResourceSubscription {
 }
 
 /**
+ * Lifecycle status of the single modern-era `subscriptions/listen` stream that
+ * backs every resource subscription on a 2026-07-28 server (#1630).
+ *
+ * - `"connecting"` — a `listen()` request is in flight and hasn't been
+ *   acknowledged yet (the optimistic state shown the moment the user subscribes,
+ *   so the UI responds to the click without waiting for the ack round-trip).
+ * - `"acknowledged"` — the `listen()` request resolved and the server sent
+ *   `notifications/subscriptions/acknowledged`; the stream is open and carrying
+ *   updates.
+ * - `"reconnecting"` — the stream dropped unexpectedly (`closed` resolved
+ *   `"remote"`) and a re-listen is in flight (reconnect-by-re-listen; there is
+ *   no resumability, so the re-listen re-establishes the full filter).
+ * - `"ended"` — the server tore the stream down deliberately (`closed` resolved
+ *   `"graceful"`, e.g. on shutdown) or reconnection was abandoned; no automatic
+ *   re-listen.
+ */
+export type ResourceSubscriptionStreamStatus =
+  | "connecting"
+  | "acknowledged"
+  | "reconnecting"
+  | "ended";
+
+/**
+ * State of the modern-era resource-subscription listen stream (#1630).
+ *
+ * On the legacy era each `resources/subscribe` is an independent request with no
+ * persistent stream, so `active` is `false` and the UI surfaces no stream chrome.
+ * On the modern era all subscriptions are a filter over one long-lived
+ * `subscriptions/listen` stream; `active` is `true` whenever that stream is being
+ * managed (i.e. at least one URI is subscribed), and `honoredUris` is the subset
+ * of requested URIs the server acknowledged in its `honoredFilter` (may be a
+ * strict subset — a server is allowed to decline some).
+ */
+export interface ResourceSubscriptionStreamState {
+  active: boolean;
+  status: ResourceSubscriptionStreamStatus;
+  honoredUris: string[];
+}
+
+/** The stream state reported on the legacy era (or before any subscription). */
+export const INACTIVE_SUBSCRIPTION_STREAM_STATE: ResourceSubscriptionStreamState =
+  {
+    active: false,
+    status: "ended",
+    honoredUris: [],
+  };
+
+/**
  * Wraps a URL-based elicit request from the server. v1.5 only supports
  * form elicitation; v2 introduces URL elicitation as a discriminated variant
  * of the inline elicitation panel. The wrapper carries the request payload
@@ -481,6 +550,44 @@ export type ServerProtocolEra = "legacy" | "auto" | "modern";
 export const DEFAULT_PROTOCOL_ERA: ServerProtocolEra = "legacy";
 
 /**
+ * Per-server modern (2026-07-28) per-request log level (#1629). `logging/setLevel`
+ * is gone on the modern era; instead the client opts into logs by stamping
+ * `_meta["io.modelcontextprotocol/logLevel"]` on each request. This setting is
+ * the level stamped by default on a modern connection — one of the eight logging
+ * levels, or `"off"` to not opt in (no server logs). Legacy connections ignore
+ * it (they use the session-scoped `logging/setLevel` instead).
+ */
+export type ModernLogLevel = LoggingLevel | "off";
+
+/**
+ * The default modern per-request log level when none is configured. Defaults to
+ * opted-in at the most verbose level so a modern connection surfaces server logs
+ * out of the box (the Inspector is a debugging tool); set `"off"` per server to
+ * opt back out.
+ */
+export const DEFAULT_MODERN_LOG_LEVEL: ModernLogLevel = "debug";
+
+/** All modern-log-level values, for form options and the runtime guard. */
+export const MODERN_LOG_LEVELS: ModernLogLevel[] = [
+  "off",
+  "debug",
+  "info",
+  "notice",
+  "warning",
+  "error",
+  "critical",
+  "alert",
+  "emergency",
+];
+
+/** Runtime guard for the {@link ModernLogLevel} literal (hand-edited files). */
+export function isModernLogLevel(value: unknown): value is ModernLogLevel {
+  return (
+    typeof value === "string" && (MODERN_LOG_LEVELS as string[]).includes(value)
+  );
+}
+
+/**
  * The modern protocol revision `"modern"` era pins to. The successor to
  * 2025-11-25; the first revision with the per-request-metadata / sessionless
  * model (SEP §7.1).
@@ -582,6 +689,23 @@ export interface InspectorServerSettings {
    * omitted when it equals the default, keeping the file diff minimal.
    */
   protocolEra?: ServerProtocolEra;
+  /**
+   * Modern-era per-request log level stamped by default on this server's
+   * connections (#1629). One of the eight logging levels, or `"off"` to not opt
+   * in. Absence means {@link DEFAULT_MODERN_LOG_LEVEL} (`"debug"`). Only affects
+   * modern (2026-07-28) connections; legacy uses `logging/setLevel`. Persisted
+   * on disk as `modernLogLevel` and omitted when it equals the default.
+   */
+  modernLogLevel?: ModernLogLevel;
+  /**
+   * Per-extension overrides for which extensions the Inspector advertises to
+   * this server in `capabilities.extensions`, keyed by extension id. A present
+   * key wins over the registry default in `ADVERTISABLE_EXTENSIONS`; an absent
+   * key falls back to it. Toggling an entry is a debugging knob — a server may
+   * change tool registration on a client-declared extension. Persisted on disk
+   * as `advertisedExtensions` and omitted when empty. (#1739)
+   */
+  advertisedExtensions?: Record<string, boolean>;
 }
 
 /**
@@ -658,6 +782,19 @@ export interface CreateTransportOptions {
 
 export interface CreateTransportResult {
   transport: Transport;
+}
+
+/**
+ * A tool a conforming Streamable HTTP client MUST exclude from `tools/list`
+ * because its `x-mcp-header` annotations violate SEP-2243 (the whole tool
+ * definition is invalidated). The SDK's `listTools()` drops these silently; the
+ * Inspector surfaces them — with the constraint they broke — so a user can see
+ * *why* a tool vanished (#1632). Only modern non-stdio connections exclude.
+ */
+export interface ExcludedTool {
+  tool: Tool;
+  /** The first violated constraint, from the `x-mcp-header` scan. */
+  reason: string;
 }
 
 /**
@@ -781,6 +918,16 @@ export interface InspectorClientOptions {
    * advertise roots capability and handle roots/list requests from the server.
    */
   roots?: Root[];
+
+  /**
+   * Per-extension overrides for which extensions the Inspector advertises in
+   * `capabilities.extensions`, keyed by extension id. A present key wins over
+   * the registry default in `ADVERTISABLE_EXTENSIONS`; an absent key falls back
+   * to it. Lets a user toggle advertised extensions as a debugging knob —
+   * servers legitimately change tool registration on client-declared extensions
+   * (#1633). EMA is not configured here (it follows the auth mode). (#1738)
+   */
+  advertisedExtensions?: Record<string, boolean>;
 
   /**
    * Whether to enable listChanged notification handlers (default: true)

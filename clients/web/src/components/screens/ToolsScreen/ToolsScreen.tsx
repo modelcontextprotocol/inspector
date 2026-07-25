@@ -4,6 +4,7 @@ import type {
   ReadResourceResult,
   Tool,
 } from "@modelcontextprotocol/client";
+import type { ExcludedTool } from "@inspector/core/mcp/types.js";
 import { ToolControls } from "../../groups/ToolControls/ToolControls";
 import type { ListPaginationControlsProps } from "../../elements/ListPaginationControls/ListPaginationControls";
 import {
@@ -11,6 +12,7 @@ import {
   type ToolProgress,
 } from "../../groups/ToolDetailPanel/ToolDetailPanel";
 import { ToolResultPanel } from "../../groups/ToolResultPanel/ToolResultPanel";
+import { ToolCallErrorPanel } from "../../groups/ToolResultPanel/ToolCallErrorPanel";
 import { resultHasResourceLinks } from "../../groups/ToolResultPanel/toolResultUtils";
 import { collectSchemaDefaults, toFormSchema } from "../../../utils/jsonUtils";
 
@@ -18,6 +20,13 @@ export interface ToolCallState {
   status: "idle" | "pending" | "ok" | "error";
   result?: CallToolResult;
   error?: string;
+  /**
+   * JSON-RPC error code when the call REJECTED (a thrown `ProtocolError`) rather
+   * than resolving a result. SDK v2 rejects an unknown-tool call with `-32602`
+   * instead of returning an `isError` result, so this drives the distinct
+   * "Unknown Tool" rendering in the error panel (#1632).
+   */
+  errorCode?: number;
   progress?: ToolProgress;
 }
 
@@ -38,11 +47,17 @@ export interface ToolsUiState {
 
 export interface ToolsScreenProps {
   tools: Tool[];
+  /** Tools the SDK excluded from `tools/list` for invalid `x-mcp-header`
+   * annotations (SEP-2243), shown in the sidebar with the reason (#1632). */
+  excludedTools?: ExcludedTool[];
   callState?: ToolCallState;
   ui: ToolsUiState;
   listChanged: boolean;
   /** Whether the connected server advertises task-augmented tool calls. */
   serverSupportsTaskToolCalls: boolean;
+  /** Modern (SEP-2663) tasks extension negotiated — "Run as task" is offered
+   * for any tool (server-directed task creation). */
+  modernTasks?: boolean;
   onUiChange: (next: ToolsUiState) => void;
   onRefreshList: () => void;
   /** Pagination controls rendered in the sidebar (#1721). */
@@ -129,10 +144,12 @@ const EmptyState = Text.withProps({
 
 export function ToolsScreen({
   tools,
+  excludedTools,
   callState,
   ui,
   listChanged,
   serverSupportsTaskToolCalls,
+  modernTasks = false,
   onUiChange,
   onRefreshList,
   pagination,
@@ -147,39 +164,37 @@ export function ToolsScreen({
     : undefined;
   const isExecuting = callState?.status === "pending";
 
+  const handleSelectTool = (name: string) => {
+    // Seed the form with the tool's schema defaults so default-only fields the
+    // user never edits are still sent on execute (the form shows defaults via
+    // resolveValue, but onChange only writes edited fields).
+    const tool = tools.find((t) => t.name === name);
+    // `name` always comes from the rendered tools list (ToolControls only emits
+    // names it was given), so the lookup never misses; the empty-object fallback
+    // is an unreachable defensive default.
+    let nextFormValues: Record<string, unknown> = {};
+    /* v8 ignore next -- unreachable: onSelectTool always names a tool in the list */
+    if (tool)
+      nextFormValues = collectSchemaDefaults(
+        toFormSchema(tool.inputSchema) ?? {},
+      );
+    onUiChange({ ...ui, selectedToolName: name, formValues: nextFormValues });
+  };
+
   return (
     <ScreenLayout>
       <Sidebar>
         <SidebarCard>
           <ToolControls
             tools={tools}
+            excludedTools={excludedTools}
             selectedName={selectedToolName}
             searchText={search}
             listChanged={listChanged}
             onRefreshList={onRefreshList}
             pagination={pagination}
             onSearchChange={(value) => onUiChange({ ...ui, search: value })}
-            onSelectTool={(name) => {
-              // Seed the form with the tool's schema defaults so default-only
-              // fields the user never edits are still sent on execute (the
-              // form shows defaults via resolveValue, but onChange only writes
-              // edited fields).
-              const tool = tools.find((t) => t.name === name);
-              // `name` always comes from the rendered tools list (ToolControls
-              // only emits names it was given), so the lookup never misses; the
-              // empty-object fallback is an unreachable defensive default.
-              let formValues: Record<string, unknown> = {};
-              /* v8 ignore next -- unreachable: onSelectTool always names a tool in the list */
-              if (tool)
-                formValues = collectSchemaDefaults(
-                  toFormSchema(tool.inputSchema) ?? {},
-                );
-              onUiChange({
-                ...ui,
-                selectedToolName: name,
-                formValues,
-              });
-            }}
+            onSelectTool={handleSelectTool}
           />
         </SidebarCard>
       </Sidebar>
@@ -207,6 +222,19 @@ export function ToolsScreen({
             />
           </ContentCard>
         </ContentPane>
+      ) : callState?.status === "error" && callState.error ? (
+        // A thrown rejection (no result) — e.g. SDK v2's `-32602` unknown-tool
+        // reject, which no longer arrives as an `isError` CallToolResult. The X
+        // dismisses back to the form, like a result (#1632).
+        <ContentPane mah={SCROLL_MAX_HEIGHT}>
+          <ContentCard>
+            <ToolCallErrorPanel
+              error={callState.error}
+              errorCode={callState.errorCode}
+              onClear={() => onClearResult?.()}
+            />
+          </ContentCard>
+        </ContentPane>
       ) : selectedTool ? (
         <ContentPane mah={SCROLL_MAX_HEIGHT}>
           <ContentCard>
@@ -216,6 +244,7 @@ export function ToolsScreen({
               isExecuting={isExecuting}
               progress={callState?.progress}
               serverSupportsTaskToolCalls={serverSupportsTaskToolCalls}
+              modernTasks={modernTasks}
               runAsTask={ui.runAsTask}
               onRunAsTaskChange={(value) =>
                 onUiChange({ ...ui, runAsTask: value })

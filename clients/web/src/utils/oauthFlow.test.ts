@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
 import {
+  SdkError,
+  SdkErrorCode,
+  UnauthorizedError,
+} from "@modelcontextprotocol/client";
+import {
   OAUTH_CALLBACK_PATH,
   OAUTH_PENDING_SERVER_KEY,
   isUnauthorizedError,
@@ -64,5 +69,15 @@ describe("isUnauthorizedError", () => {
     expect(isUnauthorizedError(null)).toBe(false);
     expect(isUnauthorizedError(undefined)).toBe(false);
     expect(isUnauthorizedError(42)).toBe(false);
+  });
+
+  it("unwraps EraNegotiationFailed → UnauthorizedError (data.cause)", () => {
+    expect(
+      isUnauthorizedError(
+        new SdkError(SdkErrorCode.EraNegotiationFailed, "probe failed", {
+          cause: new UnauthorizedError("Unauthorized"),
+        }),
+      ),
+    ).toBe(true);
   });
 });

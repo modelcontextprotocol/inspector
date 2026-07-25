@@ -15,6 +15,28 @@ const ToolbarButton = Button.withProps({
   size: "sm",
 });
 
+const HeaderRow = Group.withProps({
+  flex: 1,
+  justify: "space-between",
+});
+
+const SearchInput = TextInput.withProps({
+  placeholder: "Search...",
+  rightSectionPointerEvents: "auto",
+});
+
+// h5 (not h6) to sit one level below the screen's h4 heading (avoids an
+// axe `heading-order` skip); `size="h6"` preserves the visual size.
+const FilterTitle = Title.withProps({
+  order: 5,
+  size: "h6",
+});
+
+const StatusSelect = Select.withProps({
+  placeholder: "All statuses",
+  clearable: true,
+});
+
 export interface TaskControlsProps {
   searchText: string;
   statusFilter?: TaskStatus;
@@ -32,28 +54,21 @@ export function TaskControls({
 }: TaskControlsProps) {
   return (
     <Stack gap="md">
-      <Group flex={1} justify={"space-between"}>
+      <HeaderRow>
         <Title order={4}>Tasks</Title>
         <ToolbarButton onClick={onRefresh}>Refresh</ToolbarButton>
-      </Group>
+      </HeaderRow>
       <Title order={5}>Search</Title>
-      <TextInput
-        placeholder="Search..."
+      <SearchInput
         value={searchText}
         onChange={(event) => onSearchChange(event.currentTarget.value)}
-        rightSectionPointerEvents="auto"
         rightSection={
           searchText ? <ClearButton onClick={() => onSearchChange("")} /> : null
         }
       />
 
-      {/* h5 (not h6) to sit one level below the screen's h4 heading (avoids an
-          axe `heading-order` skip); `size="h6"` preserves the visual size. */}
-      <Title order={5} size="h6">
-        Filter by Status
-      </Title>
-      <Select
-        placeholder="All statuses"
+      <FilterTitle>Filter by Status</FilterTitle>
+      <StatusSelect
         data={STATUS_OPTIONS}
         value={statusFilter ?? null}
         onChange={(value) =>
@@ -63,7 +78,6 @@ export function TaskControls({
               : undefined,
           )
         }
-        clearable
       />
     </Stack>
   );

@@ -81,6 +81,12 @@ const MetaRow = Group.withProps({
   align: "center",
 });
 
+// The single-line row (full Logs screen): meta + message on one row.
+const LogRow = Group.withProps({
+  gap: "sm",
+  wrap: "nowrap",
+});
+
 export function LogEntry({ entry, compact = false }: LogEntryProps) {
   const { receivedAt, params } = entry;
   const message = formatData(params.data);
@@ -106,13 +112,13 @@ export function LogEntry({ entry, compact = false }: LogEntryProps) {
   }
 
   return (
-    <Group gap="sm" wrap="nowrap">
+    <LogRow>
       <TimestampText>{formatTimestamp(receivedAt)}</TimestampText>
       <LogLevelBadge level={params.level} />
       {logger}
       <MessageText c={accessibleTextColor(levelMessageColor[params.level])}>
         {message}
       </MessageText>
-    </Group>
+    </LogRow>
   );
 }

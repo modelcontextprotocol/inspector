@@ -9,6 +9,16 @@ describe("MrtrOriginNote", () => {
     expect(screen.getByText(/sent back as a retry/i)).toBeInTheDocument();
   });
 
+  it("renders the tasks/update note for a modern task input-required round (#1631)", () => {
+    renderWithMantine(<MrtrOriginNote origin="task-input-required" />);
+    expect(screen.getByText("input_required")).toBeInTheDocument();
+    expect(
+      screen.getByText(/submitted via a tasks\/update request/i),
+    ).toBeInTheDocument();
+    // The task note must NOT claim the answer is a retry (that's the MRTR case).
+    expect(screen.queryByText(/sent back as a retry/i)).not.toBeInTheDocument();
+  });
+
   it("renders nothing for a legacy server request", () => {
     renderWithMantine(<MrtrOriginNote origin="server-request" />);
     expect(screen.queryByText("input_required")).not.toBeInTheDocument();

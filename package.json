@@ -40,7 +40,12 @@
     "build:launcher": "cd clients/launcher && npm run build",
     "ci": "npm run validate && npm run coverage && npm run smoke && npm run ci:storybook",
     "ci:storybook": "cd clients/web && npx playwright install chromium && npm run test:storybook",
-    "validate": "npm run validate:web && npm run validate:cli && npm run validate:mcpi && npm run validate:tui && npm run validate:launcher",
+    "validate": "npm run validate:core && npm run validate:web && npm run validate:cli && npm run validate:mcpi && npm run validate:tui && npm run validate:launcher",
+    "validate:core": "npm run format:check:core && npm run lint:core",
+    "lint:core": "eslint \"core/**/*.{ts,tsx}\"",
+    "format:core": "prettier --write \"core/**/*.{ts,tsx}\"",
+    "format:check:core": "prettier --check \"core/**/*.{ts,tsx}\"",
+    "format": "npm run format:core && cd clients/web && npm run format && cd ../cli && npm run format && cd ../mcpi && npm run format && cd ../tui && npm run format && cd ../launcher && npm run format",
     "validate:cli": "cd clients/cli && npm run validate",
     "validate:mcpi": "cd clients/mcpi && npm run validate",
     "validate:tui": "cd clients/tui && npm run validate",
@@ -52,10 +57,11 @@
     "coverage:tui": "cd clients/tui && npm run test:coverage",
     "coverage:web": "cd clients/web && npm run test:coverage",
     "coverage:launcher": "cd clients/launcher && npm run test:coverage",
-    "smoke": "npm run smoke:launcher && npm run smoke:cli && npm run smoke:tui && npm run smoke:web",
+    "smoke": "npm run smoke:launcher && npm run smoke:cli && npm run smoke:tui && npm run smoke:web && npm run smoke:web:browser",
     "smoke:cli": "node scripts/smoke-cli.mjs",
     "smoke:tui": "node scripts/smoke-tui.mjs",
     "smoke:web": "node scripts/smoke-web.mjs",
+    "smoke:web:browser": "cd clients/web && npx playwright install chromium && node ../../scripts/smoke-web-browser.mjs",
     "smoke:launcher": "node scripts/smoke-launcher.mjs",
     "pack:verify": "node scripts/pack-and-verify.mjs",
     "prepack": "npm run build",
@@ -63,11 +69,11 @@
   },
   "dependencies": {
     "@hono/node-server": "^1.19.14",
-    "@modelcontextprotocol/client": "2.0.0-beta.4",
-    "@modelcontextprotocol/core": "2.0.0-beta.4",
+    "@modelcontextprotocol/client": "2.0.0-beta.5",
+    "@modelcontextprotocol/core": "2.0.0-beta.5",
     "@modelcontextprotocol/ext-apps": "^1.7.4",
-    "@modelcontextprotocol/server": "2.0.0-beta.4",
-    "@modelcontextprotocol/server-legacy": "2.0.0-beta.4",
+    "@modelcontextprotocol/server": "2.0.0-beta.5",
+    "@modelcontextprotocol/server-legacy": "2.0.0-beta.5",
     "@napi-rs/keyring": "^1.3.0",
     "@vitejs/plugin-react": "^6.0.0",
     "ajv": "^8.17.1",
@@ -91,5 +97,13 @@
   },
   "engines": {
     "node": ">=22.19.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "eslint": "^9.39.5",
+    "globals": "^17.7.0",
+    "prettier": "^3.8.1",
+    "typescript": "~5.9.3",
+    "typescript-eslint": "^8.65.0"
   }
 }

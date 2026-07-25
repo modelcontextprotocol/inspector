@@ -1,0 +1,13 @@
+{
+  "serverInfo": {
+    "name": "logging-modern",
+    "version": "1.0.0"
+  },
+  "tools": [{ "preset": "echo" }, { "preset": "send_notification" }],
+  "logging": true,
+  "transport": {
+    "type": "streamable-http",
+    "port": 3211,
+    "modern": true
+  }
+}
