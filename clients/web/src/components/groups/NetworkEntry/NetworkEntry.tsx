@@ -201,6 +201,80 @@ const MismatchMarker = Text.withProps({
   c: "var(--inspector-danger-text)",
 });
 
+// The decoded value plus its optional base64 / mismatch markers, on one line.
+const ValueCellRow = Group.withProps({
+  gap: "xs",
+  wrap: "nowrap",
+  align: "center",
+});
+
+// Tooltip for a base64 sentinel value or a header/body mismatch.
+const SentinelTooltip = Tooltip.withProps({
+  withArrow: true,
+  multiline: true,
+  w: 280,
+});
+
+const Base64Badge = Badge.withProps({
+  size: "xs",
+  color: "gray",
+  variant: "light",
+});
+
+const HeadersTableEl = Table.withProps({
+  striped: true,
+  withColumnBorders: true,
+  fz: "xs",
+});
+
+// OAuth flow-phase chip for an `auth`-category request.
+const PhaseBadge = Badge.withProps({
+  color: "violet",
+  variant: "light",
+});
+
+// Compact-header URL row: copy button, horizontal URL scroll, expand toggle.
+const CompactUrlRow = Group.withProps({
+  gap: "xs",
+  wrap: "nowrap",
+  justify: "space-between",
+});
+
+const UrlScrollArea = ScrollArea.withProps({
+  scrollbarSize: 6,
+  flex: 1,
+  miw: 0,
+  // The URL scrolls horizontally but has no focusable child, so make the
+  // viewport itself keyboard-scrollable (WCAG SC 2.1.1). Scrollbar auto-hides
+  // via the `type="scroll"` theme default.
+  viewportProps: { tabIndex: 0 },
+});
+
+// Wide-header left cluster: timestamp + badges + URL, shrinking to truncate.
+const WideHeaderCluster = Group.withProps({
+  gap: "sm",
+  wrap: "nowrap",
+  miw: 0,
+  flex: 1,
+});
+
+// Trailing expand-toggle row in the wide layout.
+const ToggleRow = Group.withProps({
+  gap: "xs",
+  justify: "flex-end",
+});
+
+const MonoSpan = Text.withProps({
+  span: true,
+  ff: "monospace",
+});
+
+const ErrorText = Text.withProps({
+  size: "xs",
+  ff: "monospace",
+  c: "red",
+});
+
 function HeaderValueCell({
   name,
   value,
@@ -218,39 +292,27 @@ function HeaderValueCell({
   const mismatch = consistency !== undefined && !consistency.ok;
 
   return (
-    <Group gap="xs" wrap="nowrap" align="center">
+    <ValueCellRow>
       {mismatch ? (
         <MismatchValueText>{decoded.value}</MismatchValueText>
       ) : (
         <HeaderValueText>{decoded.value}</HeaderValueText>
       )}
       {decoded.encoded && (
-        <Tooltip
-          label={`base64 sentinel — raw: ${decoded.raw}`}
-          withArrow
-          multiline
-          w={280}
-        >
-          <Badge size="xs" color="gray" variant="light">
-            base64
-          </Badge>
-        </Tooltip>
+        <SentinelTooltip label={`base64 sentinel — raw: ${decoded.raw}`}>
+          <Base64Badge>base64</Base64Badge>
+        </SentinelTooltip>
       )}
       {mismatch && (
-        <Tooltip
-          label={`Expected: ${consistency.expected}`}
-          withArrow
-          multiline
-          w={280}
-        >
+        <SentinelTooltip label={`Expected: ${consistency.expected}`}>
           <MismatchMarker
             aria-label={`Header does not match body; expected ${consistency.expected}`}
           >
             <RiErrorWarningLine />
           </MismatchMarker>
-        </Tooltip>
+        </SentinelTooltip>
       )}
-    </Group>
+    </ValueCellRow>
   );
 }
 
@@ -268,7 +330,7 @@ function HeadersTable({
   }
   const byHeader = new Map((consistency ?? []).map((row) => [row.header, row]));
   return (
-    <Table striped withColumnBorders fz="xs">
+    <HeadersTableEl>
       <Table.Tbody>
         {rows.map(([name, value]) => (
           <Table.Tr key={name}>
@@ -289,7 +351,7 @@ function HeadersTable({
           </Table.Tr>
         ))}
       </Table.Tbody>
-    </Table>
+    </HeadersTableEl>
   );
 }
 
@@ -417,9 +479,7 @@ export function NetworkEntry({
   const oauthPhase =
     entry.category === "auth" ? oauthNetworkPhase(entry.url) : undefined;
   const phaseBadge = oauthPhase ? (
-    <Badge color="violet" variant="light">
-      {oauthNetworkPhaseLabel(oauthPhase)}
-    </Badge>
+    <PhaseBadge>{oauthNetworkPhaseLabel(oauthPhase)}</PhaseBadge>
   ) : null;
 
   // Request header/body cross-checks so a mirrored-header mismatch is visible
@@ -467,26 +527,18 @@ export function NetworkEntry({
               </HeaderCluster>
               <ControlsCluster>{metaBadges}</ControlsCluster>
             </HeaderRow>
-            <Group gap="xs" wrap="nowrap" justify="space-between">
+            <CompactUrlRow>
               <CopyButton value={entry.url} />
-              <ScrollArea
-                scrollbarSize={6}
-                flex={1}
-                miw={0}
-                // The URL scrolls horizontally but has no focusable child, so
-                // make the viewport itself keyboard-scrollable (WCAG SC 2.1.1).
-                // Scrollbar auto-hides via the `type="scroll"` theme default.
-                viewportProps={{ tabIndex: 0 }}
-              >
+              <UrlScrollArea>
                 <UrlScroll>{entry.url}</UrlScroll>
-              </ScrollArea>
+              </UrlScrollArea>
               {expandToggle}
-            </Group>
+            </CompactUrlRow>
           </Stack>
         ) : (
           <>
             <HeaderRow>
-              <Group gap="sm" wrap="nowrap" miw={0} flex={1}>
+              <WideHeaderCluster>
                 <TimestampText>
                   {formatTimestamp(entry.timestamp)}
                 </TimestampText>
@@ -495,15 +547,11 @@ export function NetworkEntry({
                 {phaseBadge}
                 <CopyButton value={entry.url} />
                 <UrlText>{entry.url}</UrlText>
-              </Group>
-              <Group gap="sm" wrap="nowrap">
-                {metaBadges}
-              </Group>
+              </WideHeaderCluster>
+              <ControlsCluster>{metaBadges}</ControlsCluster>
             </HeaderRow>
 
-            <Group gap="xs" justify="flex-end">
-              {expandToggle}
-            </Group>
+            <ToggleRow>{expandToggle}</ToggleRow>
           </>
         )}
 
@@ -515,10 +563,7 @@ export function NetworkEntry({
                 <Text size="xs">
                   Cancellation appears as a connection abort — the modern
                   transport aborts the request stream instead of sending a{" "}
-                  <Text span ff="monospace">
-                    notifications/cancelled
-                  </Text>{" "}
-                  frame (SEP-2575).
+                  <MonoSpan>notifications/cancelled</MonoSpan> frame (SEP-2575).
                 </Text>
               </CancellationAlert>
             )}
@@ -566,9 +611,7 @@ export function NetworkEntry({
             {entry.error && (
               <Stack gap="xs">
                 <SectionLabel c="red">Error</SectionLabel>
-                <Text size="xs" ff="monospace" c="red">
-                  {entry.error}
-                </Text>
+                <ErrorText>{entry.error}</ErrorText>
               </Stack>
             )}
           </Stack>

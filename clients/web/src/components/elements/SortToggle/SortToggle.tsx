@@ -18,6 +18,13 @@ function isSortDirection(value: string | null): value is SortDirection {
   return value === "oldest-first" || value === "newest-first";
 }
 
+const SortSelect = Select.withProps({
+  size: "sm",
+  w: 150,
+  allowDeselect: false,
+  withCheckIcon: false,
+});
+
 export function SortToggle({
   value,
   onChange,
@@ -25,9 +32,7 @@ export function SortToggle({
 }: SortToggleProps) {
   const Icon = value === "newest-first" ? TbSortDescending2 : TbSortAscending2;
   return (
-    <Select
-      size="sm"
-      w={150}
+    <SortSelect
       data={OPTIONS}
       value={value}
       onChange={(next) => {
@@ -37,8 +42,6 @@ export function SortToggle({
         /* v8 ignore next */
         if (isSortDirection(next)) onChange(next);
       }}
-      allowDeselect={false}
-      withCheckIcon={false}
       rightSection={<Icon size={16} />}
       aria-label={ariaLabel}
     />

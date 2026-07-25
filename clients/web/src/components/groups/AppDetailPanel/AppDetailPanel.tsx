@@ -38,6 +38,12 @@ const PanelStack = Stack.withProps({
   miw: 0,
 });
 
+const OpenAppButton = Button.withProps({
+  size: "md",
+  fullWidth: true,
+  leftSection: <MdPlayArrow aria-hidden size={18} />,
+});
+
 export function AppDetailPanel({
   tool,
   formValues,
@@ -72,17 +78,14 @@ export function AppDetailPanel({
           disabled={isOpening}
         />
 
-        <Button
-          size="md"
-          fullWidth
-          leftSection={<MdPlayArrow aria-hidden size={18} />}
+        <OpenAppButton
           onClick={onOpenApp}
           disabled={disabled}
           loading={isOpening}
           data-testid="open-app"
         >
           Open App
-        </Button>
+        </OpenAppButton>
       </PanelStack>
     </PanelScroll>
   );

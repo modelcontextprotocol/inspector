@@ -25,6 +25,25 @@ import { ResourceSubscribedItem } from "../ResourceSubscribedItem/ResourceSubscr
 // badge).
 const TightRow = Group.withProps({ gap: "xs", wrap: "nowrap" });
 
+// Fills the full-height `sidebar` Card (flex column) so the scroll region below
+// can claim the remaining space; `mih: 0` lets that child shrink and scroll
+// instead of overflowing the card (#1462).
+const SidebarStack = Stack.withProps({ gap: "sm", flex: 1, mih: 0 });
+
+const SearchInput = TextInput.withProps({
+  flex: 1,
+  placeholder: "Search...",
+  rightSectionPointerEvents: "auto",
+});
+
+// Full-height, multi-open accordion for the resource sections.
+// `transitionDuration: 0` disables Mantine's panel height animation: its
+// Collapse drives open/close via an inline `height` that briefly jumps the panel
+// to its full natural height, fighting the flex sizing (the panels are
+// Accordion is a compound, `multiple`-discriminated generic component, so
+// `.withProps({ multiple: true, ... })` loses its call signature and can't type
+// — it stays inline (same tooling limit as Box).
+
 export interface ResourceControlsProps {
   resources: Resource[];
   templates: ResourceTemplate[];
@@ -205,21 +224,15 @@ export function ResourceControls({
   }
 
   return (
-    // Fills the full-height `sidebar` Card (flex column) so the scroll region
-    // below can claim the remaining space; `mih: 0` lets that child shrink and
-    // scroll instead of overflowing the card (#1462).
-    <Stack gap="sm" flex={1} mih={0}>
+    <SidebarStack>
       <Group justify="space-between">
         <Title order={4}>Resources</Title>
         <ListChangedIndicator visible={listChanged} onRefresh={onRefreshList} />
       </Group>
       <TightRow>
-        <TextInput
-          flex={1}
-          placeholder="Search..."
+        <SearchInput
           value={searchText}
           onChange={(e) => onSearchChange(e.currentTarget.value)}
-          rightSectionPointerEvents="auto"
           rightSection={
             searchText ? (
               <ClearButton onClick={() => onSearchChange("")} />
@@ -233,16 +246,13 @@ export function ResourceControls({
         multiple
         variant="disclosure"
         chevron={<RiArrowRightSLine />}
-        value={visibleOpenSections}
-        onChange={handleOpenSectionsChange}
         flex={1}
         mih={0}
-        // Disable Mantine's panel height animation: its Collapse drives the
-        // open/close via an inline `height` that briefly jumps the panel to its
-        // full natural height, fighting the flex sizing (the panels are
-        // flex-distributed and scroll). With it off, flex controls the height
-        // cleanly. The chevron still rotates smoothly (CSS, in App.css). #1462
+        // Disable Mantine's panel height animation so flex controls the height
+        // cleanly (the chevron still rotates smoothly via CSS in App.css). #1462
         transitionDuration={0}
+        value={visibleOpenSections}
+        onChange={handleOpenSectionsChange}
       >
         <Accordion.Item
           value="resources"
@@ -334,6 +344,6 @@ export function ResourceControls({
           </Accordion.Item>
         )}
       </Accordion>
-    </Stack>
+    </SidebarStack>
   );
 }

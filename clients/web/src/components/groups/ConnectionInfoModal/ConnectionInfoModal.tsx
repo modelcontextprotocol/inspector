@@ -11,6 +11,18 @@ import {
   type OAuthDetails,
 } from "../ConnectionInfoContent/ConnectionInfoContent";
 
+const AppModalLg = Modal.Root.withProps({
+  size: "lg",
+  centered: true,
+  scrollAreaComponent: ScrollArea.Autosize,
+});
+
+const ModalHeaderRow = Group.withProps({
+  justify: "space-between",
+  wrap: "nowrap",
+  w: "100%",
+});
+
 export interface ConnectionInfoModalProps {
   opened: boolean;
   onClose: () => void;
@@ -40,22 +52,16 @@ export function ConnectionInfoModal({
     // a long connection-info payload grows the whole modal past the viewport and
     // scrolls the header out of view (#1754, same fix as the settings modals in
     // #1698). The fade-down transition is supplied app-wide by `ThemeModalRoot`.
-    <Modal.Root
-      opened={opened}
-      onClose={onClose}
-      size="lg"
-      centered
-      scrollAreaComponent={ScrollArea.Autosize}
-    >
+    <AppModalLg opened={opened} onClose={onClose}>
       <Modal.Overlay />
       <Modal.Content>
         <Modal.Header>
-          <Group justify="space-between" wrap="nowrap" w="100%">
+          <ModalHeaderRow>
             {/* `Modal.Title` (not a bare `Title`) registers the modal's
                 accessible name — it wires the dialog's `aria-labelledby`. */}
             <Modal.Title flex={1}>Connection Info</Modal.Title>
             <CloseButton aria-label="Close" onClick={onClose} />
-          </Group>
+          </ModalHeaderRow>
         </Modal.Header>
         <Modal.Body>
           <ConnectionInfoContent
@@ -69,6 +75,6 @@ export function ConnectionInfoModal({
           />
         </Modal.Body>
       </Modal.Content>
-    </Modal.Root>
+    </AppModalLg>
   );
 }

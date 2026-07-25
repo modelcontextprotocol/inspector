@@ -7,6 +7,12 @@ export interface SubscriptionStreamBadgeProps {
   status: ResourceSubscriptionStreamStatus;
 }
 
+const StreamTooltip = Tooltip.withProps({
+  multiline: true,
+  w: 260,
+  withArrow: true,
+});
+
 /**
  * Status indicator for the modern-era resource-subscription listen stream
  * (#1630). Only meaningful on the modern era — the caller gates rendering on
@@ -18,10 +24,10 @@ export function SubscriptionStreamBadge({
 }: SubscriptionStreamBadgeProps) {
   const { color, label, tooltip } = subscriptionStreamPresentation(status);
   return (
-    <Tooltip label={tooltip} multiline w={260} withArrow>
+    <StreamTooltip label={tooltip}>
       <Badge variant="dot" color={color}>
         {label}
       </Badge>
-    </Tooltip>
+    </StreamTooltip>
   );
 }

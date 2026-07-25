@@ -60,6 +60,48 @@ const ExcludedName = Text.withProps({
   truncate: "end",
 });
 
+// Fill the full-height `sidebar` Card (a flex column) so the scroll region
+// below claims all the remaining space under the fixed title/search — the
+// list runs to the bottom of the card before it scrolls, instead of being
+// capped short by a fixed max-height. `mih: 0` lets the scroll child shrink
+// and scroll rather than overflow the card.
+const SidebarStack = Stack.withProps({
+  gap: "sm",
+  flex: 1,
+  mih: 0,
+});
+
+// h3 (not h4), size h4: the sampling/elicitation request modals open over this
+// screen with an `h2` `Modal.Title`, so an `h4` section would skip a level
+// (axe `heading-order`); `size="h4"` keeps the look.
+const ToolsTitle = Title.withProps({
+  order: 3,
+  size: "h4",
+});
+
+const SearchInput = TextInput.withProps({
+  placeholder: "Search tools...",
+  rightSectionPointerEvents: "auto",
+});
+
+const SidebarScroll = ScrollArea.withProps({
+  flex: 1,
+  mih: 0,
+});
+
+const ExcludedDivider = Divider.withProps({
+  label: "Excluded (SEP-2243)",
+  labelPosition: "left",
+  mt: "sm",
+});
+
+const ExcludedTooltip = Tooltip.withProps({
+  multiline: true,
+  w: 280,
+  withArrow: true,
+  position: "right",
+});
+
 export function ToolControls({
   tools,
   excludedTools = [],
@@ -91,32 +133,20 @@ export function ToolControls({
     : excludedTools;
 
   return (
-    // Fill the full-height `sidebar` Card (a flex column) so the scroll region
-    // below claims all the remaining space under the fixed title/search — the
-    // list runs to the bottom of the card before it scrolls, instead of being
-    // capped short by a fixed max-height. `mih: 0` lets the scroll child shrink
-    // and scroll rather than overflow the card.
-    <Stack gap="sm" flex={1} mih={0}>
+    <SidebarStack>
       <Group justify="space-between">
-        {/* h3 (not h4), size h4: the sampling/elicitation request modals open
-            over this screen with an `h2` `Modal.Title`, so an `h4` section would
-            skip a level (axe `heading-order`); `size="h4"` keeps the look. */}
-        <Title order={3} size="h4">
-          Tools
-        </Title>
+        <ToolsTitle>Tools</ToolsTitle>
         <ListChangedIndicator visible={listChanged} onRefresh={onRefreshList} />
       </Group>
-      <TextInput
-        placeholder="Search tools..."
+      <SearchInput
         value={searchText}
         onChange={(e) => onSearchChange(e.currentTarget.value)}
-        rightSectionPointerEvents="auto"
         rightSection={
           searchText ? <ClearButton onClick={() => onSearchChange("")} /> : null
         }
       />
       <ListPaginationControls {...pagination} />
-      <ScrollArea viewportRef={viewportRef} flex={1} mih={0}>
+      <SidebarScroll viewportRef={viewportRef}>
         <Stack gap="xs">
           {filteredTools.map((tool) => (
             <ToolListItem
@@ -130,32 +160,21 @@ export function ToolControls({
           ))}
           {filteredExcluded.length > 0 && (
             <>
-              <Divider
-                label="Excluded (SEP-2243)"
-                labelPosition="left"
-                mt="sm"
-              />
+              <ExcludedDivider />
               {filteredExcluded.map(({ tool, reason }) => (
-                <Tooltip
-                  key={tool.name}
-                  label={reason}
-                  multiline
-                  w={280}
-                  withArrow
-                  position="right"
-                >
+                <ExcludedTooltip key={tool.name} label={reason}>
                   <ExcludedRow>
                     <ExcludedWarningIcon>
                       <RiErrorWarningLine />
                     </ExcludedWarningIcon>
                     <ExcludedName>{tool.name}</ExcludedName>
                   </ExcludedRow>
-                </Tooltip>
+                </ExcludedTooltip>
               ))}
             </>
           )}
         </Stack>
-      </ScrollArea>
-    </Stack>
+      </SidebarScroll>
+    </SidebarStack>
   );
 }

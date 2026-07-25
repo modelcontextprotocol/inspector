@@ -56,6 +56,16 @@ const ModalTitle = Text.withProps({ fw: 700, span: true });
 // Heading above a review/summary group (New servers / Already exists / Import
 // complete).
 const GroupHeading = Text.withProps({ fw: 600, size: "sm" });
+const AppModalLg = Modal.withProps({ size: "lg", centered: true });
+const DetailError = Text.withProps({
+  size: "xs",
+  c: "var(--inspector-status-error)",
+});
+const ImportErrorAlert = Alert.withProps({
+  color: "red",
+  title: "Import error",
+});
+const ClientSelect = NativeSelect.withProps({ label: "Client", flex: 1 });
 
 /**
  * Source-picker dropdown options, derived from the strategy registry. A leading
@@ -113,19 +123,13 @@ export function ServerImportConfigModal({
   const { plan } = vm;
 
   return (
-    <Modal
+    <AppModalLg
       opened={opened}
       onClose={onClose}
-      size="lg"
-      centered
       title={<ModalTitle>Import from client config</ModalTitle>}
     >
       <SectionStack>
-        {vm.error ? (
-          <Alert color="red" title="Import error">
-            {vm.error}
-          </Alert>
-        ) : null}
+        {vm.error ? <ImportErrorAlert>{vm.error}</ImportErrorAlert> : null}
         {vm.notice ? <Alert variant="warning">{vm.notice}</Alert> : null}
 
         {vm.phase === "select" ? (
@@ -135,14 +139,12 @@ export function ServerImportConfigModal({
               (read on this machine) or upload its config file.
             </DimText>
             <SourceRow>
-              <NativeSelect
-                label="Client"
+              <ClientSelect
                 data={SOURCE_OPTIONS}
                 value={vm.selectedType ?? ""}
                 onChange={(e) =>
                   vm.setSelectedType(e.currentTarget.value || null)
                 }
-                flex={1}
               />
               <Button
                 disabled={!vm.selectedType}
@@ -272,11 +274,7 @@ export function ServerImportConfigModal({
                       {meta.label}
                     </Badge>
                   </RowGroup>
-                  {o.detail ? (
-                    <Text size="xs" c="var(--inspector-status-error)">
-                      {o.detail}
-                    </Text>
-                  ) : null}
+                  {o.detail ? <DetailError>{o.detail}</DetailError> : null}
                 </Stack>
               );
             })}
@@ -286,6 +284,6 @@ export function ServerImportConfigModal({
           </SectionStack>
         ) : null}
       </SectionStack>
-    </Modal>
+    </AppModalLg>
   );
 }

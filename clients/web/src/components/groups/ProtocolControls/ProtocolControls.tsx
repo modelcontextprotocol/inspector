@@ -6,6 +6,23 @@ import type {
 } from "@inspector/core/mcp/types.js";
 import { MessageDirectionFilter } from "../MessageDirectionFilter/MessageDirectionFilter";
 
+const SearchInput = TextInput.withProps({
+  placeholder: "Search...",
+  rightSectionPointerEvents: "auto",
+});
+
+// h5 (not h6) so it sits one level below the screen's h4 heading — avoids an axe
+// `heading-order` skip; `size="h6"` keeps the small visual size.
+const MethodFilterTitle = Title.withProps({
+  order: 5,
+  size: "h6",
+});
+
+const MethodSelect = Select.withProps({
+  placeholder: "All methods",
+  clearable: true,
+});
+
 export interface ProtocolControlsProps {
   searchText: string;
   methodFilter?: MessageMethod;
@@ -30,29 +47,21 @@ export function ProtocolControls({
   return (
     <Stack gap="md">
       <Title order={4}>Protocol</Title>
-      <TextInput
-        placeholder="Search..."
+      <SearchInput
         value={searchText}
         onChange={(event) => onSearchChange(event.currentTarget.value)}
-        rightSectionPointerEvents="auto"
         rightSection={
           searchText ? <ClearButton onClick={() => onSearchChange("")} /> : null
         }
       />
 
-      {/* h5 (not h6) so it sits one level below the screen's h4 heading — avoids
-          an axe `heading-order` skip; `size="h6"` keeps the small visual size. */}
-      <Title order={5} size="h6">
-        Filter by Method
-      </Title>
-      <Select
-        placeholder="All methods"
+      <MethodFilterTitle>Filter by Method</MethodFilterTitle>
+      <MethodSelect
         data={availableMethods}
         value={methodFilter ?? null}
         onChange={(value) =>
           onMethodFilterChange((value as MessageMethod | null) ?? undefined)
         }
-        clearable
       />
 
       <MessageDirectionFilter

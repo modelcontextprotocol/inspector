@@ -152,6 +152,17 @@ const HeaderActions = Group.withProps({
   wrap: "nowrap",
 });
 
+const BackToInputButton = Button.withProps({
+  variant: "subtle",
+  size: "sm",
+  leftSection: <MdArrowBack aria-hidden size={16} />,
+});
+
+const CloseIconButton = ActionIcon.withProps({
+  variant: "subtle",
+  "aria-label": "Close",
+});
+
 // The host-controlled box the running app sits within. Its size is driven by
 // the host's layout (window resize, sidebar toggle, maximize) and NOT by the
 // view's reported content height — that drives the inner RendererFrame — so the
@@ -608,14 +619,9 @@ export function AppsScreen({
               </HeaderLabel>
               <HeaderActions>
                 {running && selectedHasFields && (
-                  <Button
-                    variant="subtle"
-                    size="sm"
-                    leftSection={<MdArrowBack aria-hidden size={16} />}
-                    onClick={handleBackToInput}
-                  >
+                  <BackToInputButton onClick={handleBackToInput}>
                     Back to Input
-                  </Button>
+                  </BackToInputButton>
                 )}
                 {running && (
                   <Tooltip label={maximized ? "Restore" : "Maximize"}>
@@ -633,13 +639,9 @@ export function AppsScreen({
                   </Tooltip>
                 )}
                 <Tooltip label="Close">
-                  <ActionIcon
-                    variant="subtle"
-                    onClick={handleClose}
-                    aria-label="Close"
-                  >
+                  <CloseIconButton onClick={handleClose}>
                     <MdClose aria-hidden size={20} />
-                  </ActionIcon>
+                  </CloseIconButton>
                 </Tooltip>
               </HeaderActions>
             </HeaderRow>

@@ -21,20 +21,20 @@ export interface MonitoringToggleProps {
  * connect attempt, on a wide viewport), so it never appears with nothing to
  * toggle. `size={36}` matches the header's theme / client-settings ActionIcons.
  */
+const MonitoringActionIcon = ActionIcon.withProps({
+  variant: "subtle",
+  size: 36,
+});
+
 export function MonitoringToggle({ open, onToggle }: MonitoringToggleProps) {
   const Icon = open ? TbLayoutSidebarRightCollapse : TbLayoutSidebarRightExpand;
   const label = open ? "Close monitoring sidebar" : "Open monitoring sidebar";
 
   return (
     <Tooltip label={label}>
-      <ActionIcon
-        variant="subtle"
-        size={36}
-        aria-label={label}
-        onClick={onToggle}
-      >
+      <MonitoringActionIcon aria-label={label} onClick={onToggle}>
         <Icon size={20} />
-      </ActionIcon>
+      </MonitoringActionIcon>
     </Tooltip>
   );
 }

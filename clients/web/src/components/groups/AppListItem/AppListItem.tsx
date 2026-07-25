@@ -38,15 +38,18 @@ const AppIcon = Image.withProps({
   fit: "contain",
 });
 
+const ListItemButton = UnstyledButton.withProps({
+  w: "100%",
+  p: "sm",
+  variant: "listItem",
+});
+
 export function AppListItem({ tool, selected, onClick }: AppListItemProps) {
   const { name, title, description, icons } = tool;
   const iconSrc = icons?.[0]?.src;
 
   return (
-    <UnstyledButton
-      w="100%"
-      p="sm"
-      variant="listItem"
+    <ListItemButton
       bg={selected ? "var(--mantine-primary-color-light)" : undefined}
       onClick={onClick}
     >
@@ -62,6 +65,6 @@ export function AppListItem({ tool, selected, onClick }: AppListItemProps) {
           size={18}
         />
       </Row>
-    </UnstyledButton>
+    </ListItemButton>
   );
 }

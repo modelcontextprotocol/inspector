@@ -142,6 +142,18 @@ const EmptyState = Text.withProps({
   py: "xl",
 });
 
+// Centered loader/status column shown while a resource is being read.
+const CenteredStatus = Stack.withProps({
+  align: "center",
+  py: "xl",
+});
+
+const ReadErrorAlert = Alert.withProps({
+  color: "red",
+  variant: "light",
+  title: "Read Error",
+});
+
 const SCROLL_MAX_HEIGHT =
   "calc(100dvh - var(--app-shell-header-height, 0px) - var(--app-shell-footer-height, 0px) - var(--mantine-spacing-xl) * 2)";
 
@@ -248,10 +260,10 @@ export function ResourcesScreen({
                 onClick={handleClosePreview}
               />
             </Group>
-            <Stack align="center" py="xl">
+            <CenteredStatus>
               <Loader size="sm" />
               <Text c="dimmed">Reading resource...</Text>
-            </Stack>
+            </CenteredStatus>
           </Stack>
         </PreviewCard>
       );
@@ -267,9 +279,9 @@ export function ResourcesScreen({
                 onClick={handleClosePreview}
               />
             </Group>
-            <Alert color="red" variant="light" title="Read Error">
+            <ReadErrorAlert>
               {readState.error ?? "Failed to read resource"}
-            </Alert>
+            </ReadErrorAlert>
           </Stack>
         </PreviewCard>
       );

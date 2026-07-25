@@ -62,6 +62,20 @@ const PanelContainer = Paper.withProps({
   variant: "panel",
 });
 
+// Header row inside the panel: "Server Console" title beside the sort/clear/
+// export controls.
+const PanelHeaderRow = Group.withProps({
+  justify: "space-between",
+  mb: "sm",
+});
+
+// Sidebar filter field; `rightSectionPointerEvents="auto"` lets the clear button
+// in the right section stay clickable.
+const SearchInput = TextInput.withProps({
+  placeholder: "Search...",
+  rightSectionPointerEvents: "auto",
+});
+
 const EmptyCenter = Stack.withProps({
   flex: 1,
   align: "center",
@@ -133,13 +147,11 @@ export function ConsoleScreen({
           <SidebarCard>
             <Stack gap="md">
               <Title order={4}>Console</Title>
-              <TextInput
-                placeholder="Search..."
+              <SearchInput
                 value={filterText}
                 onChange={(e) =>
                   onUiChange({ filterText: e.currentTarget.value })
                 }
-                rightSectionPointerEvents="auto"
                 rightSection={
                   filterText ? (
                     <ClearButton
@@ -153,7 +165,7 @@ export function ConsoleScreen({
         </Sidebar>
       )}
       <PanelContainer>
-        <Group justify="space-between" mb="sm">
+        <PanelHeaderRow>
           <Title order={4}>Server Console</Title>
           <Group>
             <SortToggle
@@ -176,7 +188,7 @@ export function ConsoleScreen({
               Export
             </Button>
           </Group>
-        </Group>
+        </PanelHeaderRow>
         {filteredEntries.length > 0 ? (
           <EmbeddableScrollArea embedded={embedded} viewportRef={viewportRef}>
             <Stack gap="xs">

@@ -48,6 +48,16 @@ const HelpText = Text.withProps({
   c: "var(--inspector-text-secondary)",
 });
 
+const ActiveLevelSelect = Select.withProps({
+  "aria-label": "Set Active Level",
+  flex: 1,
+});
+
+const PerRequestLevelSelect = Select.withProps({
+  "aria-label": "Log Level per Request",
+  allowDeselect: false,
+});
+
 const LEVEL_OPTIONS = LOG_LEVELS.map((level) => ({
   value: level,
   label: level,
@@ -85,9 +95,7 @@ const LegacyLevelControl = ({
   <>
     <Title order={5}>Set Active Level</Title>
     <Group wrap="nowrap">
-      <Select
-        aria-label="Set Active Level"
-        flex={1}
+      <ActiveLevelSelect
         data={LEVEL_OPTIONS}
         value={currentLevel}
         onChange={(value) => {
@@ -117,14 +125,12 @@ const ModernLevelControl = ({
       choose is stamped on every request, and logs arrive on the originating
       request&apos;s stream. Choose Off to stop requesting logs.
     </HelpText>
-    <Select
-      aria-label="Log Level per Request"
+    <PerRequestLevelSelect
       data={[
         { value: MODERN_OFF_VALUE, label: "Off (no logs)" },
         ...LEVEL_OPTIONS,
       ]}
       value={modernLogLevel ?? MODERN_OFF_VALUE}
-      allowDeselect={false}
       onChange={(value) => {
         if (value === MODERN_OFF_VALUE) {
           onSetModernLogLevel?.(null);

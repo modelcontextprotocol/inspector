@@ -127,6 +127,36 @@ const SubscriptionCluster = Group.withProps({
   miw: 0,
 });
 
+// Friendly summary alert for a modern spec error (title is per-error, dynamic).
+const SpecErrorAlert = Alert.withProps({
+  variant: "light",
+  color: "red",
+  icon: <RiErrorWarningLine />,
+});
+
+// Link (button-styled) that jumps to the correlated HTTP entry in the Network tab.
+const RevealLink = Anchor.withProps({
+  component: "button",
+  type: "button",
+  size: "xs",
+});
+
+const TargetScrollArea = ScrollArea.withProps({
+  scrollbarSize: 6,
+  flex: 1,
+  miw: 0,
+  // The target scrolls horizontally but has no focusable child, so make the
+  // viewport itself keyboard-scrollable (WCAG SC 2.1.1). Scrollbar auto-hides
+  // via the `type="scroll"` theme default.
+  viewportProps: { tabIndex: 0 },
+});
+
+// Trailing controls row (replay / pin / expand) in the wide layout.
+const ToggleRow = Group.withProps({
+  gap: "xs",
+  justify: "flex-end",
+});
+
 // `complete` is green — it's the success signal now that the redundant "OK"
 // status badge is suppressed, so a modern success keeps the same at-a-glance
 // green affordance a legacy success has. `input_required` is yellow (in
@@ -231,24 +261,19 @@ function McpSpecErrorAlert({
   onReveal?: () => void;
 }) {
   return (
-    <Alert
-      variant="light"
-      color="red"
-      title={`${error.code} ${error.name}`}
-      icon={<RiErrorWarningLine />}
-    >
+    <SpecErrorAlert title={`${error.code} ${error.name}`}>
       <Stack gap="xs">
         <Text size="xs">{error.description}</Text>
         {error.supported && (
           <Text size="xs">Server supports: {error.supported.join(", ")}</Text>
         )}
         {onReveal && (
-          <Anchor component="button" type="button" size="xs" onClick={onReveal}>
+          <RevealLink onClick={onReveal}>
             View the HTTP request in the Network tab →
-          </Anchor>
+          </RevealLink>
         )}
       </Stack>
-    </Alert>
+    </SpecErrorAlert>
   );
 }
 
@@ -349,18 +374,9 @@ export function ProtocolEntry({
                 {target && (
                   <>
                     {resourceUri && <CopyButton value={resourceUri} />}
-                    <ScrollArea
-                      scrollbarSize={6}
-                      flex={1}
-                      miw={0}
-                      // The target scrolls horizontally but has no focusable
-                      // child, so make the viewport itself keyboard-scrollable
-                      // (WCAG SC 2.1.1). Scrollbar auto-hides via the
-                      // `type="scroll"` theme default.
-                      viewportProps={{ tabIndex: 0 }}
-                    >
+                    <TargetScrollArea>
                       <TargetScroll>{target}</TargetScroll>
-                    </ScrollArea>
+                    </TargetScrollArea>
                   </>
                 )}
               </HeaderCluster>
@@ -399,14 +415,14 @@ export function ProtocolEntry({
               </Group>
             </HeaderRow>
 
-            <Group gap="xs" justify="flex-end">
+            <ToggleRow>
               {canReplay && <ReplayButton onReplay={onReplay} />}
               <PinToggle pinned={isPinned} onToggle={onTogglePin} />
               <ExpandToggle
                 expanded={isExpanded}
                 onToggle={() => setIsExpanded((v) => !v)}
               />
-            </Group>
+            </ToggleRow>
           </>
         )}
 

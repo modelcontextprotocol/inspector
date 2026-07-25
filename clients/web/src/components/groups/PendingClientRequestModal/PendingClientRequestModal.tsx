@@ -73,6 +73,13 @@ const TitleText = Text.withProps({ fw: 600 });
 
 const QueueLabel = Text.withProps({ size: "xs", c: "dimmed" });
 
+const PendingRequestModal = Modal.withProps({
+  withCloseButton: false,
+  closeOnClickOutside: false,
+  closeOnEscape: false,
+  size: "lg",
+});
+
 /**
  * The stub result pre-filled into a sampling draft. "Send Response" sends this
  * as-is when untouched, or whatever the user edited it into.
@@ -245,13 +252,9 @@ export function PendingClientRequestModal({
   onElicitationRespond,
 }: PendingClientRequestModalProps) {
   return (
-    <Modal
+    <PendingRequestModal
       opened={request !== null}
       onClose={ignoreClose}
-      withCloseButton={false}
-      closeOnClickOutside={false}
-      closeOnEscape={false}
-      size="lg"
       title={
         request && (
           <TitleRow>
@@ -289,6 +292,6 @@ export function PendingClientRequestModal({
           onRespond={onElicitationRespond}
         />
       )}
-    </Modal>
+    </PendingRequestModal>
   );
 }

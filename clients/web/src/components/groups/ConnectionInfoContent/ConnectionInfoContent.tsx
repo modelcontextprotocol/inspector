@@ -79,6 +79,12 @@ const SectionHeading = Title.withProps({
 // `scrollable-region-focusable`).
 const ValueCode = Code.withProps({ variant: "wrapping" });
 
+const ClearOAuthButton = Button.withProps({
+  variant: "subtle",
+  color: "red",
+  size: "compact-xs",
+});
+
 function formatScopes(scopes: string[]): string {
   return scopes.join(", ");
 }
@@ -339,14 +345,9 @@ export function ConnectionInfoContent({
             ) : (
               onClearOAuth && (
                 <Flex justify="flex-end">
-                  <Button
-                    variant="subtle"
-                    color="red"
-                    size="compact-xs"
-                    onClick={onClearOAuth}
-                  >
+                  <ClearOAuthButton onClick={onClearOAuth}>
                     {CLEAR_OAUTH_STATE_AND_DISCONNECT_LABEL}
-                  </Button>
+                  </ClearOAuthButton>
                 </Flex>
               )
             )}

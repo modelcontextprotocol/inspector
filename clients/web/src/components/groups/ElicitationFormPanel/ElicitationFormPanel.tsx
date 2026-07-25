@@ -58,6 +58,16 @@ const FieldScroll = ScrollArea.Autosize.withProps({
   offsetScrollbars: true,
 });
 
+const WarningAlert = Alert.withProps({
+  variant: "warning",
+  title: "Warning",
+});
+
+const DeclineButton = Button.withProps({
+  variant: "light",
+  color: "red",
+});
+
 function formatQuoted(text: string): string {
   return `\u201C${text}\u201D`;
 }
@@ -93,16 +103,14 @@ export function ElicitationFormPanel({
           disabled={busy}
         />
       </FieldScroll>
-      <Alert variant="warning" title="Warning">
-        {formatWarning(serverName)}
-      </Alert>
+      <WarningAlert>{formatWarning(serverName)}</WarningAlert>
       <Group justify="flex-end">
         <Button variant="light" onClick={onCancel} disabled={busy}>
           Cancel
         </Button>
-        <Button variant="light" color="red" onClick={onDecline} disabled={busy}>
+        <DeclineButton onClick={onDecline} disabled={busy}>
           Decline
-        </Button>
+        </DeclineButton>
         <Button onClick={onSubmit} disabled={submitDisabled}>
           Submit
         </Button>

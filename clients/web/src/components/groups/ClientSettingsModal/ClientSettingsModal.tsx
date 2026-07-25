@@ -13,6 +13,23 @@ import {
 
 const ALL_SECTIONS: ClientSettingsSection[] = ["ema", "cimd"];
 
+const AppModalLg = Modal.Root.withProps({
+  size: "lg",
+  centered: true,
+  scrollAreaComponent: ScrollArea.Autosize,
+});
+
+const ModalHeaderRow = Group.withProps({
+  justify: "space-between",
+  wrap: "nowrap",
+  w: "100%",
+});
+
+const CenteredModalTitle = Modal.Title.withProps({
+  ta: "center",
+  flex: 1,
+});
+
 export interface ClientSettingsModalProps {
   opened: boolean;
   settings: ClientSettingsFormValues;
@@ -66,28 +83,20 @@ export function ClientSettingsModal({
     // kept consistent with ServerSettingsModal for when this grows enough to
     // scroll). The fade-down transition `<Modal>` defaults to (but `Modal.Root`
     // doesn't inherit) is supplied app-wide by `ThemeModalRoot`.
-    <Modal.Root
-      opened={opened}
-      onClose={handleClose}
-      size="lg"
-      centered
-      scrollAreaComponent={ScrollArea.Autosize}
-    >
+    <AppModalLg opened={opened} onClose={handleClose}>
       <Modal.Overlay />
       <Modal.Content>
         <Modal.Header>
-          <Group justify="space-between" wrap="nowrap" w="100%">
+          <ModalHeaderRow>
             <ListToggle
               compact={!allExpanded}
               variant="subtle"
               onToggle={handleToggleAll}
             />
             {/* `Modal.Title` names the dialog (wires `aria-labelledby`). */}
-            <Modal.Title ta="center" flex={1}>
-              Client Settings
-            </Modal.Title>
+            <CenteredModalTitle>Client Settings</CenteredModalTitle>
             <CloseButton aria-label="Close" onClick={handleClose} />
-          </Group>
+          </ModalHeaderRow>
         </Modal.Header>
         <Modal.Body>
           <ClientSettingsForm
@@ -101,6 +110,6 @@ export function ClientSettingsModal({
           />
         </Modal.Body>
       </Modal.Content>
-    </Modal.Root>
+    </AppModalLg>
   );
 }

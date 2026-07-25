@@ -10,13 +10,18 @@ function formatTitle(count: number): string {
   return `Pending Client Requests (${count})`;
 }
 
+const PendingAlert = Alert.withProps({
+  color: "blue",
+  variant: "light",
+});
+
 export function PendingClientRequests({
   count,
   children,
 }: PendingClientRequestsProps) {
   return (
-    <Alert color="blue" variant="light" title={formatTitle(count)}>
+    <PendingAlert title={formatTitle(count)}>
       <Stack gap="md">{children}</Stack>
-    </Alert>
+    </PendingAlert>
   );
 }

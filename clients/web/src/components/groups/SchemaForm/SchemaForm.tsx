@@ -21,6 +21,14 @@ const FieldDescription = Text.withProps({
   c: "dimmed",
 });
 
+// Indented column for a nested object's sub-fields.
+const IndentedStack = Stack.withProps({ gap: "sm", pl: "md" });
+
+const SchemaJsonInput = JsonInput.withProps({
+  formatOnBlur: true,
+  autosize: true,
+});
+
 function serializeJson(value: unknown): string {
   return JSON.stringify(value, null, 2);
 }
@@ -227,7 +235,7 @@ export function SchemaForm({
         <Stack key={fieldName} gap="sm">
           <FieldLabel>{label}</FieldLabel>
           {description && <FieldDescription>{description}</FieldDescription>}
-          <Stack gap="sm" pl="md">
+          <IndentedStack>
             <SchemaForm
               schema={fieldSchema}
               values={(rawValue as Record<string, unknown>) ?? {}}
@@ -236,21 +244,19 @@ export function SchemaForm({
               }
               disabled={disabled}
             />
-          </Stack>
+          </IndentedStack>
         </Stack>
       );
     }
 
     // fallback: JsonInput for complex schemas
     return (
-      <JsonInput
+      <SchemaJsonInput
         key={fieldName}
         label={label}
         description={description}
         withAsterisk={isRequired}
         disabled={disabled}
-        formatOnBlur
-        autosize
         value={rawValue !== undefined ? serializeJson(rawValue) : ""}
         onChange={(val) => {
           try {

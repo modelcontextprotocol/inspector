@@ -161,6 +161,20 @@ const ResourceLinksStack = Stack.withProps({
   gap: "sm",
 });
 
+// h3 (not h4), size h4: request modals open over the Tools screen with an `h2`
+// `Modal.Title`, so an `h4` here would skip a level (axe `heading-order`);
+// `size="h4"` preserves the visual size.
+const ResultsTitle = Title.withProps({
+  order: 3,
+  size: "h4",
+});
+
+const ErrorAlert = Alert.withProps({
+  color: "red",
+  variant: "light",
+  title: "Tool Error",
+});
+
 function ResourceLinksGroup({
   links,
   onReadResource,
@@ -235,22 +249,17 @@ export function ToolResultPanel({
       <HeaderRow>
         <HeaderLeft>
           <CloseButton aria-label="Close results" onClick={onClear} />
-          {/* h3 (not h4), size h4: request modals open over the Tools screen
-              with an `h2` `Modal.Title`, so an `h4` here would skip a level
-              (axe `heading-order`); `size="h4"` preserves the visual size. */}
-          <Title order={3} size="h4">
-            Results
-          </Title>
+          <ResultsTitle>Results</ResultsTitle>
         </HeaderLeft>
       </HeaderRow>
       {result.isError ? (
         <ResultScroll>
-          <Alert color="red" variant="light" title="Tool Error">
+          <ErrorAlert>
             {result.content
               .filter((b) => b.type === "text")
               .map((b) => b.text)
               .join("\n")}
-          </Alert>
+          </ErrorAlert>
         </ResultScroll>
       ) : result.content.length === 0 ? (
         <ResultScroll>

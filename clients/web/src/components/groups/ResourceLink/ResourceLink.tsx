@@ -53,6 +53,12 @@ const LoadingText = Text.withProps({
   c: "dimmed",
 });
 
+const ErrorAlert = Alert.withProps({
+  color: "red",
+  variant: "light",
+  title: "Failed to read resource",
+});
+
 /**
  * Expandable card for a `resource_link` content block. Renders the link's
  * metadata via {@link ResourceLinkInfo} and — when `onReadResource` is supplied
@@ -125,13 +131,7 @@ export function ResourceLink({
             {loading ? (
               <LoadingText>Loading resource…</LoadingText>
             ) : error !== null ? (
-              <Alert
-                color="red"
-                variant="light"
-                title="Failed to read resource"
-              >
-                {error}
-              </Alert>
+              <ErrorAlert>{error}</ErrorAlert>
             ) : result !== null ? (
               <ResultScroll>
                 <ContentViewer

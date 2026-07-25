@@ -83,6 +83,42 @@ const HintText = Text.withProps({
   c: "dimmed",
 });
 
+const HeaderRow = Group.withProps({
+  justify: "space-between",
+  align: "center",
+  wrap: "nowrap",
+});
+
+const ChooseFileButton = Button.withProps({
+  variant: "default",
+  size: "xs",
+});
+
+// Accordion is a compound, `multiple`-discriminated generic component, so
+// `.withProps()` loses its JSX call signature and can't type — it stays inline
+// (same tooling limit as Box).
+
+const FileContentsTextarea = Textarea.withProps({
+  "aria-label": "File Contents",
+  ff: "monospace",
+  autosize: true,
+  minRows: 8,
+  maxRows: 15,
+  rightSectionPointerEvents: "auto",
+});
+
+const DefaultNameInput = TextInput.withProps({
+  label: "From configuration",
+  description: "The id derived from the server.json name.",
+  readOnly: true,
+});
+
+const OverrideNameInput = TextInput.withProps({
+  label: "Override",
+  description: "Optional. Used instead of the name above.",
+  rightSectionPointerEvents: "auto",
+});
+
 function formatPackageLabel(pkg: PackageInfo): string {
   return `${pkg.registryType}: ${pkg.identifier} (${pkg.runtimeHint})`;
 }
@@ -109,18 +145,16 @@ export function ImportServerJsonPanel({
   const hasContent = draft.rawText.trim().length > 0;
   return (
     <Stack gap="md">
-      <Group justify="space-between" align="center" wrap="nowrap">
+      <HeaderRow>
         <HintText>Paste server.json content, or load it from a file:</HintText>
         {onPickFile ? (
           <FileButton accept="application/json,.json" onChange={onPickFile}>
             {(props) => (
-              <Button {...props} variant="default" size="xs">
-                Choose file…
-              </Button>
+              <ChooseFileButton {...props}>Choose file…</ChooseFileButton>
             )}
           </FileButton>
         ) : null}
-      </Group>
+      </HeaderRow>
 
       <Accordion
         variant="separated"
@@ -144,15 +178,9 @@ export function ImportServerJsonPanel({
             File Contents
           </Accordion.Control>
           <Accordion.Panel>
-            <Textarea
-              aria-label="File Contents"
+            <FileContentsTextarea
               value={draft.rawText}
               onChange={(e) => onJsonChange(e.currentTarget.value)}
-              ff="monospace"
-              autosize
-              minRows={8}
-              maxRows={15}
-              rightSectionPointerEvents="auto"
               rightSection={
                 draft.rawText ? (
                   <ClearButton onClick={() => onJsonChange("")} />
@@ -237,18 +265,10 @@ export function ImportServerJsonPanel({
               <Accordion.Control>Server Name</Accordion.Control>
               <Accordion.Panel>
                 <Stack gap="sm">
-                  <TextInput
-                    label="From configuration"
-                    description="The id derived from the server.json name."
-                    value={defaultServerName ?? ""}
-                    readOnly
-                  />
-                  <TextInput
-                    label="Override"
-                    description="Optional. Used instead of the name above."
+                  <DefaultNameInput value={defaultServerName ?? ""} />
+                  <OverrideNameInput
                     value={draft.nameOverride ?? ""}
                     onChange={(e) => onServerNameChange(e.currentTarget.value)}
-                    rightSectionPointerEvents="auto"
                     rightSection={
                       draft.nameOverride ? (
                         <ClearButton onClick={() => onServerNameChange("")} />

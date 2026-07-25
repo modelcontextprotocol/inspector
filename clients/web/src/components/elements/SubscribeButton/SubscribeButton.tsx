@@ -5,13 +5,18 @@ export interface SubscribeButtonProps {
   onToggle: () => void;
 }
 
+const ToggleButton = Button.withProps({
+  variant: "filled",
+  size: "sm",
+});
+
 export function SubscribeButton({
   subscribed,
   onToggle,
 }: SubscribeButtonProps) {
   return (
-    <Button variant="filled" size="sm" onClick={onToggle}>
+    <ToggleButton onClick={onToggle}>
       {subscribed ? "Unsubscribe" : "Subscribe"}
-    </Button>
+    </ToggleButton>
   );
 }

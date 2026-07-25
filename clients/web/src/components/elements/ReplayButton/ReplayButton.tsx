@@ -11,18 +11,19 @@ export interface ReplayButtonProps {
  * layout where the text button is replaced by a replay icon sitting next to the
  * pin toggle (#1616). Matches PinToggle's subtle gray icon-button styling.
  */
+const ReplayActionIcon = ActionIcon.withProps({
+  variant: "subtle",
+  color: "gray",
+  size: "md",
+  "aria-label": "Replay",
+});
+
 export function ReplayButton({ onReplay }: ReplayButtonProps) {
   return (
     <Tooltip label="Replay">
-      <ActionIcon
-        variant="subtle"
-        color="gray"
-        size="md"
-        aria-label="Replay"
-        onClick={onReplay}
-      >
+      <ReplayActionIcon onClick={onReplay}>
         <MdReplay size={18} />
-      </ActionIcon>
+      </ReplayActionIcon>
     </Tooltip>
   );
 }

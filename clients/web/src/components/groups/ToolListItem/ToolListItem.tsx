@@ -37,15 +37,18 @@ const ToolIcon = Image.withProps({
   fit: "contain",
 });
 
+const ListItemButton = UnstyledButton.withProps({
+  w: "100%",
+  p: "sm",
+  variant: "listItem",
+});
+
 export function ToolListItem({ tool, selected, onClick }: ToolListItemProps) {
   const { name, title, icons } = tool;
   const iconSrc = icons?.[0]?.src;
 
   return (
-    <UnstyledButton
-      w="100%"
-      p="sm"
-      variant="listItem"
+    <ListItemButton
       bg={selected ? "var(--mantine-primary-color-light)" : undefined}
       onClick={onClick}
     >
@@ -56,6 +59,6 @@ export function ToolListItem({ tool, selected, onClick }: ToolListItemProps) {
           {title && <ItemSubLabel>{name}</ItemSubLabel>}
         </ItemBody>
       </Row>
-    </UnstyledButton>
+    </ListItemButton>
   );
 }

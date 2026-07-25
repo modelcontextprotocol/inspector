@@ -20,6 +20,21 @@ const COLOR_BY_CODE: Record<number, string> = {
   [-32601]: "yellow", // MethodNotFound (modern 404)
 };
 
+const SpecErrorBadge = Badge.withProps({
+  variant: "filled",
+  autoContrast: true,
+  // Keep the spec/SDK identifier's own casing (e.g. "UnsupportedProtocolVersion")
+  // rather than Mantine's default uppercase, which runs these long
+  // PascalCase names together and hurts readability.
+  tt: "none",
+});
+
+const DescriptionTooltip = Tooltip.withProps({
+  multiline: true,
+  w: 280,
+  withArrow: true,
+});
+
 /**
  * Distinct badge for one of the modern Streamable HTTP spec error codes shown in
  * the Protocol tab. Labels the code and spec name (e.g. "-32020 HeaderMismatch")
@@ -31,22 +46,10 @@ const COLOR_BY_CODE: Record<number, string> = {
  */
 export function McpErrorBadge({ code, name, description }: McpErrorBadgeProps) {
   const badge = (
-    <Badge
-      color={filledBadgeColor(COLOR_BY_CODE[code] ?? "red")}
-      variant="filled"
-      autoContrast
-      // Keep the spec/SDK identifier's own casing (e.g. "UnsupportedProtocolVersion")
-      // rather than Mantine's default uppercase, which runs these long
-      // PascalCase names together and hurts readability.
-      tt="none"
-    >
+    <SpecErrorBadge color={filledBadgeColor(COLOR_BY_CODE[code] ?? "red")}>
       {code} {name}
-    </Badge>
+    </SpecErrorBadge>
   );
   if (!description) return badge;
-  return (
-    <Tooltip label={description} multiline w={280} withArrow>
-      {badge}
-    </Tooltip>
-  );
+  return <DescriptionTooltip label={description}>{badge}</DescriptionTooltip>;
 }

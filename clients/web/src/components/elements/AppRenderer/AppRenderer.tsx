@@ -522,6 +522,8 @@ export function AppRenderer({
   // iframe. Sandboxing this outer frame would block the postMessage bridge
   // that `AppBridge` relies on.
   return (
+    // Box+iframe is a native element (not a Mantine primitive), so the
+    // `.withProps()` extraction rule doesn't apply.
     <Box
       component="iframe"
       ref={iframeRef}

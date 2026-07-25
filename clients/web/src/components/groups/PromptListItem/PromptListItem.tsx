@@ -17,6 +17,12 @@ const DescriptionText = Text.withProps({
   lineClamp: 1,
 });
 
+const ListItemButton = UnstyledButton.withProps({
+  w: "100%",
+  p: "sm",
+  variant: "listItem",
+});
+
 export function PromptListItem({
   prompt,
   selected,
@@ -24,10 +30,7 @@ export function PromptListItem({
 }: PromptListItemProps) {
   const { name, title, description } = prompt;
   return (
-    <UnstyledButton
-      w="100%"
-      p="sm"
-      variant="listItem"
+    <ListItemButton
       bg={selected ? "var(--mantine-primary-color-light)" : undefined}
       onClick={onClick}
     >
@@ -35,6 +38,6 @@ export function PromptListItem({
         <NameText>{title ?? name}</NameText>
         {description && <DescriptionText>{description}</DescriptionText>}
       </Stack>
-    </UnstyledButton>
+    </ListItemButton>
   );
 }

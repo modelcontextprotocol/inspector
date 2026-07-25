@@ -12,20 +12,20 @@ export interface PinToggleProps {
  * a filled pin. The aria-label stays "Pin"/"Unpin" so it reads the same as the
  * text button it replaces.
  */
+const PinActionIcon = ActionIcon.withProps({
+  variant: "subtle",
+  color: "gray",
+  size: "md",
+});
+
 export function PinToggle({ pinned, onToggle }: PinToggleProps) {
   const Icon = pinned ? TiPin : TiPinOutline;
   const label = pinned ? "Unpin" : "Pin";
   return (
     <Tooltip label={label}>
-      <ActionIcon
-        variant="subtle"
-        color="gray"
-        size="md"
-        aria-label={label}
-        onClick={onToggle}
-      >
+      <PinActionIcon aria-label={label} onClick={onToggle}>
         <Icon size={18} />
-      </ActionIcon>
+      </PinActionIcon>
     </Tooltip>
   );
 }

@@ -63,6 +63,26 @@ const SectionStack = Stack.withProps({ gap: "md" });
 const FieldGrid = Stack.withProps({ gap: "sm" });
 const Actions = Group.withProps({ justify: "flex-end", gap: "sm", mt: "md" });
 const ModalTitle = Text.withProps({ fw: 700, span: true });
+const AppModalLg = Modal.withProps({ size: "lg", centered: true });
+const FieldError = Text.withProps({ c: "red", size: "sm", role: "alert" });
+const IdTextInput = TextInput.withProps({
+  required: true,
+  rightSectionPointerEvents: "auto",
+});
+const RequiredTextInput = TextInput.withProps({
+  required: true,
+  rightSectionPointerEvents: "auto",
+});
+const ArgsTextarea = Textarea.withProps({
+  autosize: true,
+  minRows: 3,
+  rightSectionPointerEvents: "auto",
+});
+const EnvTextarea = Textarea.withProps({
+  autosize: true,
+  minRows: 2,
+  rightSectionPointerEvents: "auto",
+});
 
 const MODE_TITLES: Record<ServerConfigModalMode, string> = {
   add: "Add server",
@@ -278,16 +298,14 @@ export function ServerConfigModal({
   const isStdio = form.transport === "stdio";
 
   return (
-    <Modal
+    <AppModalLg
       opened={opened}
       onClose={onClose}
-      size="lg"
-      centered
       title={<ModalTitle>{MODE_TITLES[mode]}</ModalTitle>}
     >
       <SectionStack>
         <FieldGrid>
-          <TextInput
+          <IdTextInput
             label="Server ID"
             description="Used as the key in mcp.json. Letters, numbers, hyphens, underscores."
             placeholder="my-server"
@@ -295,9 +313,7 @@ export function ServerConfigModal({
             onChange={setTextField("id")}
             error={idError}
             data-autofocus
-            required
             disabled={submitting}
-            rightSectionPointerEvents="auto"
             rightSection={
               form.id ? (
                 <ClearButton
@@ -328,14 +344,12 @@ export function ServerConfigModal({
 
           {isStdio ? (
             <>
-              <TextInput
+              <RequiredTextInput
                 label="Command"
                 placeholder="npx"
                 value={form.command}
                 onChange={setTextField("command")}
-                required
                 disabled={submitting}
-                rightSectionPointerEvents="auto"
                 rightSection={
                   form.command ? (
                     <ClearButton
@@ -345,16 +359,13 @@ export function ServerConfigModal({
                   ) : null
                 }
               />
-              <Textarea
+              <ArgsTextarea
                 label="Arguments"
                 description="One argument per line."
                 placeholder={"-y\n@modelcontextprotocol/server-everything"}
                 value={form.argsText}
                 onChange={setTextField("argsText")}
-                autosize
-                minRows={3}
                 disabled={submitting}
-                rightSectionPointerEvents="auto"
                 rightSection={
                   form.argsText ? (
                     <ClearButton
@@ -364,16 +375,13 @@ export function ServerConfigModal({
                   ) : null
                 }
               />
-              <Textarea
+              <EnvTextarea
                 label="Environment"
                 description="KEY=VALUE per line."
                 placeholder="DEBUG=1"
                 value={form.envText}
                 onChange={setTextField("envText")}
-                autosize
-                minRows={2}
                 disabled={submitting}
-                rightSectionPointerEvents="auto"
                 rightSection={
                   form.envText ? (
                     <ClearButton
@@ -401,14 +409,12 @@ export function ServerConfigModal({
               />
             </>
           ) : (
-            <TextInput
+            <RequiredTextInput
               label="URL"
               placeholder="https://example.com/mcp"
               value={form.url}
               onChange={setTextField("url")}
-              required
               disabled={submitting}
-              rightSectionPointerEvents="auto"
               rightSection={
                 form.url ? (
                   <ClearButton
@@ -421,11 +427,7 @@ export function ServerConfigModal({
           )}
         </FieldGrid>
 
-        {submitError ? (
-          <Text c="red" size="sm" role="alert">
-            {submitError}
-          </Text>
-        ) : null}
+        {submitError ? <FieldError>{submitError}</FieldError> : null}
 
         <Actions>
           <Button variant="default" onClick={onClose} disabled={submitting}>
@@ -441,6 +443,6 @@ export function ServerConfigModal({
           </Button>
         </Actions>
       </SectionStack>
-    </Modal>
+    </AppModalLg>
   );
 }

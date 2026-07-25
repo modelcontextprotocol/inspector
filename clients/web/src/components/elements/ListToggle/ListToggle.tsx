@@ -7,6 +7,19 @@ export interface ListToggleProps {
   variant?: "default" | "subtle";
 }
 
+const SubtleActionIcon = ActionIcon.withProps({
+  variant: "subtle",
+  color: "gray",
+  size: "md",
+});
+
+// `size={36}` matches the header's theme / client-settings ActionIcons so the
+// toolbar's toggle reads as the same size icon button.
+const ToolbarActionIcon = ActionIcon.withProps({
+  variant: "subtle",
+  size: 36,
+});
+
 export function ListToggle({
   compact,
   onToggle,
@@ -18,31 +31,18 @@ export function ListToggle({
   if (variant === "subtle") {
     return (
       <Tooltip label={label}>
-        <ActionIcon
-          variant="subtle"
-          color="gray"
-          size="md"
-          aria-label={label}
-          onClick={onToggle}
-        >
+        <SubtleActionIcon aria-label={label} onClick={onToggle}>
           <Icon size={16} />
-        </ActionIcon>
+        </SubtleActionIcon>
       </Tooltip>
     );
   }
 
-  // `size={36}` matches the header's theme / client-settings ActionIcons so the
-  // toolbar's toggle reads as the same size icon button.
   return (
     <Tooltip label={label}>
-      <ActionIcon
-        variant="subtle"
-        size={36}
-        aria-label={label}
-        onClick={onToggle}
-      >
+      <ToolbarActionIcon aria-label={label} onClick={onToggle}>
         <Icon size={20} />
-      </ActionIcon>
+      </ToolbarActionIcon>
     </Tooltip>
   );
 }

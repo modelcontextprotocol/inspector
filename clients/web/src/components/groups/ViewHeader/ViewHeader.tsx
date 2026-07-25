@@ -341,6 +341,9 @@ export function ViewHeader(props: ViewHeaderProps) {
           1/1, set on `HeaderStackCell`), so on connect/disconnect one
           fades+slides out as the other fades+slides in, in the same place.
           `flex: 0 0 auto` keeps it from stretching within the header. */}
+      {/* Box (not a flex primitive via `.withProps()`): this is a CSS grid
+          container, and no Mantine flex primitive is a grid — converting to
+          Group/Stack would break the shared-cell stack overlay. */}
       <Box display="grid" flex="0 0 auto">
         {/* The Transitions are keep-alive only: when `mounted` flips false the
             cell stays in the DOM for `exitDuration` while its CSS exit animation

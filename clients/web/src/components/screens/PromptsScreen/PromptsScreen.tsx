@@ -109,6 +109,18 @@ const EmptyState = Text.withProps({
   py: "xl",
 });
 
+// Centered loader/status column shown while a prompt is being fetched.
+const CenteredStatus = Stack.withProps({
+  align: "center",
+  py: "xl",
+});
+
+const PromptErrorAlert = Alert.withProps({
+  color: "red",
+  variant: "light",
+  title: "Prompt Error",
+});
+
 const SCROLL_MAX_HEIGHT =
   "calc(100dvh - var(--app-shell-header-height, 0px) - var(--app-shell-footer-height, 0px) - var(--mantine-spacing-xl) * 2)";
 
@@ -212,10 +224,10 @@ export function PromptsScreen({
                 onClick={handleClosePreview}
               />
             </Group>
-            <Stack align="center" py="xl">
+            <CenteredStatus>
               <Loader size="sm" />
               <Text c="dimmed">Loading prompt...</Text>
-            </Stack>
+            </CenteredStatus>
           </Stack>
         </PreviewCard>
       );
@@ -230,9 +242,9 @@ export function PromptsScreen({
                 onClick={handleClosePreview}
               />
             </Group>
-            <Alert color="red" variant="light" title="Prompt Error">
+            <PromptErrorAlert>
               {getPromptState.error ?? "Failed to get prompt"}
-            </Alert>
+            </PromptErrorAlert>
           </Stack>
         </PreviewCard>
       );

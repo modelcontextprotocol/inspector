@@ -26,6 +26,18 @@ const ScopeToken = Text.withProps({
   size: "sm",
 });
 
+const AppModalMd = Modal.withProps({ size: "md", centered: true });
+const SectionLabel = Text.withProps({ size: "sm", fw: 600 });
+const DimText = Text.withProps({ size: "xs", c: "dimmed" });
+const ScopeList = List.withProps({
+  size: "sm",
+  spacing: "xs",
+  listStyleType: "none",
+});
+const ScopeListPlain = List.withProps({ size: "sm", spacing: "xs" });
+const ScopeRow = Group.withProps({ gap: "xs", wrap: "nowrap" });
+const ScopeBadge = Badge.withProps({ size: "xs", variant: "light" });
+
 export function StepUpAuthModal({
   opened,
   challenge,
@@ -49,11 +61,9 @@ export function StepUpAuthModal({
   const showUnion = !ema && carriedOverScopes.length > 0;
 
   return (
-    <Modal
+    <AppModalMd
       opened={opened}
       onClose={onCancel}
-      size="md"
-      centered
       title={stepUpModalTitle({ enterpriseManaged: ema })}
     >
       <Stack gap="md">
@@ -68,45 +78,41 @@ export function StepUpAuthModal({
         </Text>
         {showUnion ? (
           <Stack gap="xs">
-            <Text size="sm" fw={600}>
-              Scopes to authorize
-            </Text>
-            <Text size="xs" c="dimmed">
+            <SectionLabel>Scopes to authorize</SectionLabel>
+            <DimText>
               Re-authorizing with the union of your previously granted scopes
               and the ones this operation requires, so the new token keeps every
               grant (SEP-2350).
-            </Text>
-            <List size="sm" spacing="xs" listStyleType="none">
+            </DimText>
+            <ScopeList>
               {unionScopes.map((scope) => (
                 <List.Item key={scope}>
-                  <Group gap="xs" wrap="nowrap">
+                  <ScopeRow>
                     <ScopeToken>{scope}</ScopeToken>
-                    <Badge
-                      size="xs"
-                      variant="light"
+                    <ScopeBadge
                       color={additionalSet.has(scope) ? "blue" : "gray"}
                     >
                       {additionalSet.has(scope) ? "new" : "already granted"}
-                    </Badge>
-                  </Group>
+                    </ScopeBadge>
+                  </ScopeRow>
                 </List.Item>
               ))}
-            </List>
+            </ScopeList>
           </Stack>
         ) : additionalScopes.length > 0 ? (
           <Stack gap="xs">
-            <Text size="sm" fw={600}>
+            <SectionLabel>
               {ema
                 ? "Additional permissions needed"
                 : "Additional scopes needed"}
-            </Text>
-            <List size="sm" spacing="xs">
+            </SectionLabel>
+            <ScopeListPlain>
               {additionalScopes.map((scope) => (
                 <List.Item key={scope}>
                   <ScopeToken>{scope}</ScopeToken>
                 </List.Item>
               ))}
-            </List>
+            </ScopeListPlain>
           </Stack>
         ) : null}
         <Actions>
@@ -116,6 +122,6 @@ export function StepUpAuthModal({
           <Button onClick={handleAuthorize}>Authorize</Button>
         </Actions>
       </Stack>
-    </Modal>
+    </AppModalMd>
   );
 }

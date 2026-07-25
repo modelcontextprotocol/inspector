@@ -16,6 +16,24 @@ export interface UrlElicitationErrorModalProps {
   details?: string;
 }
 
+const DetailModal = Modal.withProps({
+  withCloseButton: false,
+  size: "lg",
+  centered: true,
+});
+const HeaderRow = Group.withProps({
+  justify: "space-between",
+  wrap: "nowrap",
+});
+const DimText = Text.withProps({ size: "sm", c: "dimmed" });
+const DetailsTextarea = Textarea.withProps({
+  "aria-label": "Error details",
+  readOnly: true,
+  autosize: true,
+  minRows: 6,
+  maxRows: 18,
+});
+
 /**
  * Surfaces the raw body of a `URLElicitationRequired` (`-32042`) error that
  * carried no `elicitations` list — a non-spec server response the inspector
@@ -30,33 +48,20 @@ export function UrlElicitationErrorModal({
   details,
 }: UrlElicitationErrorModalProps) {
   return (
-    <Modal
-      opened={opened}
-      onClose={onClose}
-      withCloseButton={false}
-      size="lg"
-      centered
-    >
+    <DetailModal opened={opened} onClose={onClose}>
       <Stack gap="md">
-        <Group justify="space-between" wrap="nowrap">
+        <HeaderRow>
           {/* `Modal.Title` names the dialog (wires `aria-labelledby`). */}
           <Modal.Title flex={1}>URL elicitation required</Modal.Title>
           <CloseButton aria-label="Close" onClick={onClose} />
-        </Group>
-        <Text size="sm" c="dimmed">
+        </HeaderRow>
+        <DimText>
           {toolName
             ? `"${toolName}" returned a URLElicitationRequired (-32042) error with no required elicitations. Per the MCP spec the error must list the URL elicitations to complete before retrying, so the inspector has nothing to open.`
             : "The server returned a URLElicitationRequired (-32042) error with no required elicitations. Per the MCP spec the error must list the URL elicitations to complete before retrying, so the inspector has nothing to open."}
-        </Text>
-        <Textarea
-          aria-label="Error details"
-          readOnly
-          autosize
-          minRows={6}
-          maxRows={18}
-          value={details ?? ""}
-        />
+        </DimText>
+        <DetailsTextarea value={details ?? ""} />
       </Stack>
-    </Modal>
+    </DetailModal>
   );
 }

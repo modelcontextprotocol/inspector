@@ -9,6 +9,25 @@ import {
 import { PromptListItem } from "../PromptListItem/PromptListItem";
 import { useScrollMemory } from "../../../hooks/useScrollMemory";
 
+// Fill the full-height `sidebar` Card (a flex column) so the list runs to the
+// bottom of the card before it scrolls, instead of being capped short by a
+// fixed max-height. `mih: 0` lets the scroll child shrink and scroll.
+const SidebarStack = Stack.withProps({
+  gap: "sm",
+  flex: 1,
+  mih: 0,
+});
+
+const SearchInput = TextInput.withProps({
+  placeholder: "Search prompts...",
+  rightSectionPointerEvents: "auto",
+});
+
+const ListScroll = ScrollArea.withProps({
+  flex: 1,
+  mih: 0,
+});
+
 export interface PromptControlsProps {
   prompts: Prompt[];
   selectedName?: string;
@@ -43,25 +62,20 @@ export function PromptControls({
   );
 
   return (
-    // Fill the full-height `sidebar` Card (a flex column) so the list runs to the
-    // bottom of the card before it scrolls, instead of being capped short by a
-    // fixed max-height. `mih: 0` lets the scroll child shrink and scroll.
-    <Stack gap="sm" flex={1} mih={0}>
+    <SidebarStack>
       <Group justify="space-between">
         <Title order={4}>Prompts</Title>
         <ListChangedIndicator visible={listChanged} onRefresh={onRefreshList} />
       </Group>
-      <TextInput
-        placeholder="Search prompts..."
+      <SearchInput
         value={searchText}
         onChange={(e) => onSearchChange(e.currentTarget.value)}
-        rightSectionPointerEvents="auto"
         rightSection={
           searchText ? <ClearButton onClick={() => onSearchChange("")} /> : null
         }
       />
       <ListPaginationControls {...pagination} />
-      <ScrollArea viewportRef={viewportRef} flex={1} mih={0}>
+      <ListScroll viewportRef={viewportRef}>
         <Stack gap="xs">
           {filteredPrompts.map((prompt) => (
             <PromptListItem
@@ -74,7 +88,7 @@ export function PromptControls({
             />
           ))}
         </Stack>
-      </ScrollArea>
-    </Stack>
+      </ListScroll>
+    </SidebarStack>
   );
 }

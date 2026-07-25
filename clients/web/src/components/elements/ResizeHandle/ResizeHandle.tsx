@@ -4,7 +4,17 @@ import {
   type KeyboardEvent,
   type PointerEvent,
 } from "react";
-import { Box } from "@mantine/core";
+import { Flex } from "@mantine/core";
+
+// Childless interactive separator: a single positioned layer, so a Flex
+// primitive (Box can't use `.withProps()`). The dynamic aria-value*/aria-label
+// and pointer/key handlers are passed at the call site.
+const ResizeSeparator = Flex.withProps({
+  role: "separator",
+  "aria-orientation": "vertical",
+  tabIndex: 0,
+  className: "resize-handle",
+});
 
 export interface ResizeHandleProps {
   /** Current width (px) of the panel this handle resizes. */
@@ -100,15 +110,11 @@ export function ResizeHandle({
   }
 
   return (
-    <Box
-      role="separator"
-      aria-orientation="vertical"
+    <ResizeSeparator
       aria-valuenow={value}
       aria-valuemin={min}
       aria-valuemax={max}
       aria-label={ariaLabel}
-      tabIndex={0}
-      className="resize-handle"
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={endDrag}

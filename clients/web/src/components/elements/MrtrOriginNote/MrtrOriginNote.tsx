@@ -23,6 +23,11 @@ const NoteText = Text.withProps({
   c: "dimmed",
 });
 
+const OriginBadge = Badge.withProps({
+  variant: "outline",
+  color: "blue",
+});
+
 // The two modern origins differ in HOW the answer is delivered: an MRTR round
 // retries the original call with the answer (SEP-2322); a task round submits it
 // via a separate `tasks/update` request (SEP-2663). The note is accurate to each
@@ -50,9 +55,7 @@ export function MrtrOriginNote({
   if (!note) return null;
   return (
     <NoteRow>
-      <Badge variant="outline" color="blue">
-        input_required
-      </Badge>
+      <OriginBadge>input_required</OriginBadge>
       <NoteText>{note}</NoteText>
     </NoteRow>
   );

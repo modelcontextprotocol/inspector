@@ -34,6 +34,14 @@ export interface EmbeddableScrollAreaProps {
 // grow wider than its viewport; see `constrainContentWidth`.
 const CONSTRAIN_CONTENT_STYLES = { content: { minWidth: 0 } } as const;
 
+// Shared scroll region for both hosts; the differing props (viewportRef, mah,
+// styles) are passed at each call site.
+const StreamScrollArea = ScrollArea.Autosize.withProps({
+  type: "scroll",
+  offsetScrollbars: true,
+  viewportProps: { tabIndex: 0 },
+});
+
 /**
  * The scroll region shared by the Logs / Protocol / Network stream panels, which
  * render both full-size (their own tab) and embedded (the monitoring sidebar).
@@ -49,29 +57,19 @@ export function EmbeddableScrollArea({
   if (embedded) {
     return (
       <Stack flex={1} mih={0} gap={0}>
-        <ScrollArea.Autosize
-          viewportRef={viewportRef}
-          mah="100%"
-          type="scroll"
-          offsetScrollbars
-          styles={styles}
-          viewportProps={{ tabIndex: 0 }}
-        >
+        <StreamScrollArea viewportRef={viewportRef} mah="100%" styles={styles}>
           {children}
-        </ScrollArea.Autosize>
+        </StreamScrollArea>
       </Stack>
     );
   }
   return (
-    <ScrollArea.Autosize
+    <StreamScrollArea
       viewportRef={viewportRef}
       mah={FULLSIZE_MAH}
-      type="scroll"
-      offsetScrollbars
       styles={styles}
-      viewportProps={{ tabIndex: 0 }}
     >
       {children}
-    </ScrollArea.Autosize>
+    </StreamScrollArea>
   );
 }

@@ -26,6 +26,12 @@ const colorMap: Record<AnnotationFacet, string> = {
   longRunHint: "yellow",
 };
 
+const FilledBadge = Badge.withProps({
+  variant: "filled",
+  fw: 500,
+  autoContrast: true,
+});
+
 function formatLabel(
   facet: AnnotationFacet,
   value: Role[] | number | boolean,
@@ -59,9 +65,5 @@ export function AnnotationBadge({ facet, value }: AnnotationBadgeProps) {
   // fills and the darker dark-mode `-filled` shades — unlike a fixed
   // scheme→black/white mapping, which inverted the contrast in dark mode.
   // Amber fills are pinned to shade 5 first (see `filledBadgeColor`).
-  return (
-    <Badge color={color} variant="filled" fw={500} autoContrast>
-      {formatLabel(facet, value)}
-    </Badge>
-  );
+  return <FilledBadge color={color}>{formatLabel(facet, value)}</FilledBadge>;
 }

@@ -35,6 +35,11 @@ const SearchInput = TextInput.withProps({
   "aria-label": "Search",
 });
 
+const ScreenTabs = SegmentedControl.withProps({
+  size: "sm",
+  "aria-label": "Monitoring screen",
+});
+
 /**
  * Tab row + search for the pinned monitoring sidebar (#1616). Renders only the
  * currently-available monitor tabs (the caller filters by capability), so it
@@ -52,13 +57,7 @@ export function MonitoringControls({
 }: MonitoringControlsProps) {
   return (
     <ControlsBar>
-      <SegmentedControl
-        size="sm"
-        value={value}
-        onChange={onChange}
-        data={tabs}
-        aria-label="Monitoring screen"
-      />
+      <ScreenTabs value={value} onChange={onChange} data={tabs} />
       <SearchInput
         value={searchValue}
         onChange={(e) => onSearchChange(e.currentTarget.value)}

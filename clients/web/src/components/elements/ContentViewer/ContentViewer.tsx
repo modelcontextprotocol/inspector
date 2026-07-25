@@ -86,6 +86,11 @@ const PreviewImage = Image.withProps({
   radius: "md",
 });
 
+const CodeBlock = Code.withProps({
+  block: true,
+  p: 36,
+});
+
 // Markdown anchors are constrained to a safe-scheme allowlist: a non-matching
 // href (e.g. `javascript:`, protocol-relative `//evil.com`) renders as inert
 // text so user-supplied markdown can't smuggle a script-bearing link.
@@ -168,9 +173,7 @@ function PlainTextContent({
   const displayText = looksLikeJson(text) ? formatJson(text) : text;
   return (
     <CopyableWrapper copyable={copyable} copyValue={text}>
-      <Code
-        block
-        p={36}
+      <CodeBlock
         // A `block` Code has `overflow: auto`, so make it keyboard-scrollable
         // (WCAG SC 2.1.1) — it holds only text, with no focusable child.
         tabIndex={0}
@@ -180,7 +183,7 @@ function PlainTextContent({
         title={wrap ? undefined : displayText}
       >
         {displayText}
-      </Code>
+      </CodeBlock>
     </CopyableWrapper>
   );
 }
@@ -351,11 +354,11 @@ function BlockContent({
       return (
         <Stack gap="xs">
           <ContentWrapper>
-            <Code block p={36}>
+            <CodeBlock>
               {"text" in block.resource
                 ? block.resource.text
                 : `[blob: ${block.resource.uri}]`}
-            </Code>
+            </CodeBlock>
           </ContentWrapper>
         </Stack>
       );

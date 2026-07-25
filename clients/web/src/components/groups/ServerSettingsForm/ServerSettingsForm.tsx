@@ -137,6 +137,36 @@ function isModernLogLevelValue(value: string | null): value is ModernLogLevel {
   return value !== null && MODERN_LOG_LEVEL_VALUES.has(value as ModernLogLevel);
 }
 
+// Accordion is a compound, `multiple`-discriminated generic component, so
+// `.withProps({ multiple: true, ... })` loses its call signature and can't type
+// — it stays inline (same tooling limit as Box).
+
+// `rightSectionPointerEvents="auto"` keeps the ClearButton clickable inside the
+// input's right section; shared by every clearable field in this form.
+const ClearableTextInput = TextInput.withProps({
+  rightSectionPointerEvents: "auto",
+});
+
+const LogSizeInput = NumberInput.withProps({
+  min: 0,
+  step: 100,
+});
+
+const TimeoutInput = NumberInput.withProps({
+  suffix: " ms",
+});
+
+const ExtensionsHint = Text.withProps({
+  size: "xs",
+  c: "var(--inspector-text-secondary)",
+});
+
+const ClearOAuthRow = Flex.withProps({
+  align: "flex-start",
+  gap: "sm",
+  wrap: "wrap",
+});
+
 const RemoveIcon = ActionIcon.withProps({
   color: "red",
   variant: "subtle",
@@ -192,22 +222,20 @@ function KeyValueRows({
     <>
       {items.map((item, index) => (
         <Group key={index} grow>
-          <TextInput
+          <ClearableTextInput
             placeholder="Key"
             value={item.key}
             onChange={(e) => onChange(index, e.currentTarget.value, item.value)}
-            rightSectionPointerEvents="auto"
             rightSection={
               item.key ? (
                 <ClearButton onClick={() => onChange(index, "", item.value)} />
               ) : null
             }
           />
-          <TextInput
+          <ClearableTextInput
             placeholder="Value"
             value={item.value}
             onChange={(e) => onChange(index, item.key, e.currentTarget.value)}
-            rightSectionPointerEvents="auto"
             rightSection={
               item.value ? (
                 <ClearButton onClick={() => onChange(index, item.key, "")} />
@@ -241,13 +269,12 @@ function RootRows({
     <>
       {roots.map((root, index) => (
         <Group key={index} grow>
-          <TextInput
+          <ClearableTextInput
             placeholder="URI (e.g. file:///path)"
             value={root.uri}
             onChange={(e) =>
               onChange(index, e.currentTarget.value, root.name ?? "")
             }
-            rightSectionPointerEvents="auto"
             rightSection={
               root.uri ? (
                 <ClearButton
@@ -256,11 +283,10 @@ function RootRows({
               ) : null
             }
           />
-          <TextInput
+          <ClearableTextInput
             placeholder="Name (optional)"
             value={root.name ?? ""}
             onChange={(e) => onChange(index, root.uri, e.currentTarget.value)}
-            rightSectionPointerEvents="auto"
             rightSection={
               root.name ? (
                 <ClearButton onClick={() => onChange(index, root.uri, "")} />
@@ -365,11 +391,11 @@ export function ServerSettingsForm({
   return (
     <Accordion
       multiple
+      variant="separated"
       value={expandedSections}
       onChange={(value) =>
         onExpandedSectionsChange(value as ServerSettingsSection[])
       }
-      variant="separated"
     >
       <Accordion.Item value="options">
         <Accordion.Control>Options</Accordion.Control>
@@ -417,22 +443,19 @@ export function ServerSettingsForm({
               checked={settings.paginatedLists ?? false}
               onChange={(e) => onPaginatedListsChange(e.currentTarget.checked)}
             />
-            <NumberInput
+            <LogSizeInput
               label="Network Log Size"
               description="Maximum number of HTTP requests kept in the Network log for this server. Older entries rotate out past this limit; a response body that arrives after its entry rotated out is dropped. Use 0 for unlimited (not recommended). Applies immediately to the active connection."
-              min={0}
-              step={100}
               value={settings.maxFetchRequests}
               onChange={handleMaxFetchRequestsChange}
             />
             {isStdio ? (
-              <TextInput
+              <ClearableTextInput
                 label="Working Directory"
                 description="Directory the stdio server process is launched in. Leave empty to inherit the Inspector's working directory."
                 placeholder="(inherit)"
                 value={settings.cwd ?? ""}
                 onChange={(e) => onCwdChange(e.currentTarget.value)}
-                rightSectionPointerEvents="auto"
                 rightSection={
                   settings.cwd ? (
                     <ClearButton onClick={() => onCwdChange("")} />
@@ -448,12 +471,12 @@ export function ServerSettingsForm({
         <Accordion.Control>Advertised Extensions</Accordion.Control>
         <Accordion.Panel>
           <Stack gap="xs">
-            <Text size="xs" c="var(--inspector-text-secondary)">
+            <ExtensionsHint>
               Which extensions the Inspector declares to this server in its
               client capabilities. A server may register different tools
               depending on what the client advertises — toggle these to debug
               that. Takes effect on the next connect.
-            </Text>
+            </ExtensionsHint>
             {ADVERTISABLE_EXTENSIONS.map((ext) => (
               <Checkbox
                 key={ext.key}
@@ -551,21 +574,18 @@ export function ServerSettingsForm({
         <Accordion.Control>Timeouts</Accordion.Control>
         <Accordion.Panel>
           <Group>
-            <NumberInput
+            <TimeoutInput
               label="Connection Timeout"
-              suffix=" ms"
               value={settings.connectionTimeout}
               onChange={handleTimeoutChange("connectionTimeout")}
             />
-            <NumberInput
+            <TimeoutInput
               label="Request Timeout"
-              suffix=" ms"
               value={settings.requestTimeout}
               onChange={handleTimeoutChange("requestTimeout")}
             />
-            <NumberInput
+            <TimeoutInput
               label="Task TTL"
-              suffix=" ms"
               min={1}
               value={settings.taskTtl}
               onChange={handleTimeoutChange("taskTtl")}
@@ -618,7 +638,7 @@ export function ServerSettingsForm({
                 Pre-configure OAuth credentials for servers requiring
                 authentication
               </HintText>
-              <TextInput
+              <ClearableTextInput
                 label={clientIdLabel}
                 description={resourceAsDescription}
                 value={settings.oauthClientId ?? ""}
@@ -628,7 +648,6 @@ export function ServerSettingsForm({
                     clientId: e.currentTarget.value,
                   })
                 }
-                rightSectionPointerEvents="auto"
                 rightSection={
                   settings.oauthClientId ? (
                     <ClearButton
@@ -639,7 +658,7 @@ export function ServerSettingsForm({
                   ) : null
                 }
               />
-              <TextInput
+              <ClearableTextInput
                 label={clientSecretLabel}
                 description={resourceAsDescription}
                 value={settings.oauthClientSecret ?? ""}
@@ -650,7 +669,6 @@ export function ServerSettingsForm({
                     clientSecret: e.currentTarget.value,
                   })
                 }
-                rightSectionPointerEvents="auto"
                 rightSection={
                   settings.oauthClientSecret ? (
                     <ClearButton
@@ -661,7 +679,7 @@ export function ServerSettingsForm({
                   ) : null
                 }
               />
-              <TextInput
+              <ClearableTextInput
                 label="Scopes"
                 description="Space-separated OAuth scopes (RFC 6749). Do not use commas — a comma-separated entry is sent as one invalid token and rejected by the authorization server."
                 placeholder="mcp tools:read env:read"
@@ -672,7 +690,6 @@ export function ServerSettingsForm({
                     scopes: e.currentTarget.value,
                   })
                 }
-                rightSectionPointerEvents="auto"
                 rightSection={
                   settings.oauthScopes ? (
                     <ClearButton
@@ -704,7 +721,7 @@ export function ServerSettingsForm({
                 allowDeselect={false}
               />
               {onClearStoredOAuth ? (
-                <Flex align="flex-start" gap="sm" wrap="wrap">
+                <ClearOAuthRow>
                   <ClearStoredOAuthButton onClick={onClearStoredOAuth}>
                     Clear stored OAuth state
                   </ClearStoredOAuthButton>
@@ -712,7 +729,7 @@ export function ServerSettingsForm({
                     Removes stored tokens and client registration for this
                     server. Disconnects if this server is currently connected.
                   </ClearStoredOAuthHint>
-                </Flex>
+                </ClearOAuthRow>
               ) : null}
             </Stack>
           </Accordion.Panel>

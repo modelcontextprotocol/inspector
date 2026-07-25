@@ -13,21 +13,24 @@ export interface CopyButtonProps {
   flush?: boolean;
 }
 
+const CopyActionIcon = ActionIcon.withProps({
+  variant: "subtle",
+  fz: 24,
+});
+
 export function CopyButton({ value, flush = false }: CopyButtonProps) {
   return (
     <MantineCopyButton value={value}>
       {({ copied, copy }) => (
         <Tooltip label={copied ? "Copied" : "Copy"}>
-          <ActionIcon
-            variant="subtle"
+          <CopyActionIcon
             color={copied ? "green" : "var(--inspector-text-primary)"}
             onClick={copy}
-            fz={24}
             aria-label={copied ? "Copied" : "Copy"}
             {...(flush && { p: 0, h: "auto", w: "auto" })}
           >
             {copied ? "\u2713" : "\u2398"}
-          </ActionIcon>
+          </CopyActionIcon>
         </Tooltip>
       )}
     </MantineCopyButton>

@@ -36,6 +36,23 @@ function allSectionsFor(
   ];
 }
 
+const AppModalLg = Modal.Root.withProps({
+  size: "lg",
+  centered: true,
+  scrollAreaComponent: ScrollArea.Autosize,
+});
+
+const ModalHeaderRow = Group.withProps({
+  justify: "space-between",
+  wrap: "nowrap",
+  w: "100%",
+});
+
+const CenteredModalTitle = Modal.Title.withProps({
+  ta: "center",
+  flex: 1,
+});
+
 export interface ServerSettingsModalProps {
   opened: boolean;
   settings: InspectorServerSettings;
@@ -238,28 +255,20 @@ export function ServerSettingsModal({
     // viewport and scrolls the header out of view (#1698). The fade-down
     // transition `<Modal>` defaults to (but `Modal.Root` doesn't inherit) is
     // supplied app-wide by `ThemeModalRoot`.
-    <Modal.Root
-      opened={opened}
-      onClose={onClose}
-      size="lg"
-      centered
-      scrollAreaComponent={ScrollArea.Autosize}
-    >
+    <AppModalLg opened={opened} onClose={onClose}>
       <Modal.Overlay />
       <Modal.Content>
         <Modal.Header>
-          <Group justify="space-between" wrap="nowrap" w="100%">
+          <ModalHeaderRow>
             <ListToggle
               compact={!allExpanded}
               variant="subtle"
               onToggle={handleToggleAll}
             />
             {/* `Modal.Title` names the dialog (wires `aria-labelledby`). */}
-            <Modal.Title ta="center" flex={1}>
-              Server Settings
-            </Modal.Title>
+            <CenteredModalTitle>Server Settings</CenteredModalTitle>
             <CloseButton aria-label="Close" onClick={onClose} />
-          </Group>
+          </ModalHeaderRow>
         </Modal.Header>
         <Modal.Body>
           <ServerSettingsForm
@@ -294,6 +303,6 @@ export function ServerSettingsModal({
           />
         </Modal.Body>
       </Modal.Content>
-    </Modal.Root>
+    </AppModalLg>
   );
 }

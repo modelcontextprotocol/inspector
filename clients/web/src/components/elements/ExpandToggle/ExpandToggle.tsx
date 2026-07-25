@@ -22,6 +22,12 @@ export interface ExpandToggleProps {
  * it replaced); `aria-expanded` exposes the disclosure state and `ariaLabel`
  * can distinguish sibling toggles.
  */
+const ExpandActionIcon = ActionIcon.withProps({
+  variant: "subtle",
+  color: "gray",
+  size: "md",
+});
+
 export function ExpandToggle({
   expanded,
   onToggle,
@@ -31,16 +37,13 @@ export function ExpandToggle({
   const label = expanded ? "Collapse" : "Expand";
   return (
     <Tooltip label={label}>
-      <ActionIcon
-        variant="subtle"
-        color="gray"
-        size="md"
+      <ExpandActionIcon
         aria-label={ariaLabel ?? label}
         aria-expanded={expanded}
         onClick={onToggle}
       >
         <Icon size={16} />
-      </ActionIcon>
+      </ExpandActionIcon>
     </Tooltip>
   );
 }
