@@ -270,10 +270,12 @@ function messagesToLogEntries(messages: MessageEntry[]): LogEntryData[] {
   for (const m of messages) {
     if (m.direction !== "notification") continue;
     // MessageEntry.message is a JSONRPC union; notifications have `method`
-    // but not `id`. Narrow with an `in` check before the cast.
+    // but not `id`. Narrow with an `in` check, then confirm the method.
     if (!("method" in m.message)) continue;
     if (m.message.method !== "notifications/message") continue;
-    const params = (m.message as unknown as LoggingMessageNotification).params;
+    // The method check pins this to a logging notification; its `params` are
+    // only generically typed on the JSONRPC union, so cast just that value.
+    const params = m.message.params as LoggingMessageNotification["params"];
     out.push({
       receivedAt: m.timestamp,
       params,

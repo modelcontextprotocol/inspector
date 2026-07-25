@@ -53,6 +53,9 @@ const RowGroup = Group.withProps({
 });
 const DimText = Text.withProps({ size: "sm", c: "dimmed" });
 const ModalTitle = Text.withProps({ fw: 700, span: true });
+// Heading above a review/summary group (New servers / Already exists / Import
+// complete).
+const GroupHeading = Text.withProps({ fw: 600, size: "sm" });
 
 /**
  * Source-picker dropdown options, derived from the strategy registry. A leading
@@ -174,9 +177,9 @@ export function ServerImportConfigModal({
           <SectionStack>
             {plan.additions.length > 0 ? (
               <Stack gap="xs">
-                <Text fw={600} size="sm">
+                <GroupHeading>
                   New servers ({plan.additions.length})
-                </Text>
+                </GroupHeading>
                 {plan.additions.map((a) => (
                   <RowGroup key={a.id}>
                     <Text size="sm">{a.id}</Text>
@@ -199,9 +202,9 @@ export function ServerImportConfigModal({
 
             {plan.conflicts.length > 0 ? (
               <Stack gap="xs">
-                <Text fw={600} size="sm">
+                <GroupHeading>
                   Already exists ({plan.conflicts.length})
-                </Text>
+                </GroupHeading>
                 {plan.conflicts.map((conflict) => {
                   const res = vm.resolutions[conflict.id];
                   return (
@@ -258,9 +261,7 @@ export function ServerImportConfigModal({
 
         {vm.phase === "summary" ? (
           <SectionStack>
-            <Text fw={600} size="sm">
-              Import complete
-            </Text>
+            <GroupHeading>Import complete</GroupHeading>
             {vm.outcomes.map((o) => {
               const meta = OUTCOME_META[o.status];
               return (

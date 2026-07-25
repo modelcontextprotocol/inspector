@@ -21,6 +21,10 @@ import { ListToggle } from "../../elements/ListToggle/ListToggle";
 import { ResourceListItem } from "../ResourceListItem/ResourceListItem";
 import { ResourceSubscribedItem } from "../ResourceSubscribedItem/ResourceSubscribedItem";
 
+// A tight, non-wrapping horizontal row (search field + toggle; count + stream
+// badge).
+const TightRow = Group.withProps({ gap: "xs", wrap: "nowrap" });
+
 export interface ResourceControlsProps {
   resources: Resource[];
   templates: ResourceTemplate[];
@@ -209,7 +213,7 @@ export function ResourceControls({
         <Title order={4}>Resources</Title>
         <ListChangedIndicator visible={listChanged} onRefresh={onRefreshList} />
       </Group>
-      <Group gap="xs" wrap="nowrap">
+      <TightRow>
         <TextInput
           flex={1}
           placeholder="Search..."
@@ -223,7 +227,7 @@ export function ResourceControls({
           }
         />
         <ListToggle compact={!allExpanded} onToggle={handleToggleList} />
-      </Group>
+      </TightRow>
       <ListPaginationControls {...pagination} />
       <Accordion
         multiple
@@ -302,7 +306,7 @@ export function ResourceControls({
             )}
           >
             <Accordion.Control disabled={filteredSubscriptions.length === 0}>
-              <Group gap="xs" wrap="nowrap">
+              <TightRow>
                 <Text span>
                   {formatSectionCount(
                     "Subscriptions",
@@ -312,7 +316,7 @@ export function ResourceControls({
                 {streamStatus && (
                   <SubscriptionStreamBadge status={streamStatus} />
                 )}
-              </Group>
+              </TightRow>
             </Accordion.Control>
             <Accordion.Panel>
               <Stack gap="xs">

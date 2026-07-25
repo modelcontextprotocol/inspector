@@ -100,6 +100,19 @@ const DurationText = Text.withProps({
   c: "dimmed",
 });
 
+// Muted note for empty/placeholder states (no headers, empty body, uncaptured
+// stream) and the secrets-hidden status line.
+const DimmedNote = Text.withProps({
+  size: "xs",
+  c: "dimmed",
+});
+
+// Heading above each expanded-detail section (Request/Response Headers/Body).
+const SectionLabel = Text.withProps({
+  size: "sm",
+  fw: 500,
+});
+
 // Cap is in JS string `.length` units (UTF-16 code units), not bytes — for
 // multi-byte content the wire size is larger, but the limit's purpose is
 // to keep the DOM from drowning in a single Code block so character count
@@ -251,11 +264,7 @@ function HeadersTable({
 }) {
   const rows = Object.entries(headers);
   if (rows.length === 0) {
-    return (
-      <Text size="xs" c="dimmed">
-        (none)
-      </Text>
-    );
+    return <DimmedNote>(none)</DimmedNote>;
   }
   const byHeader = new Map((consistency ?? []).map((row) => [row.header, row]));
   return (
@@ -334,9 +343,9 @@ function BodyPreview({
 
   if (tooLarge) {
     return (
-      <Text size="xs" c="dimmed">
+      <DimmedNote>
         Body too large to preview ({body.length} characters)
-      </Text>
+      </DimmedNote>
     );
   }
 
@@ -348,9 +357,9 @@ function BodyPreview({
   return (
     <Stack gap="xs">
       <Group gap="xs">
-        <Text size="xs" c="dimmed" aria-live="polite">
+        <DimmedNote aria-live="polite">
           {revealed ? "Secrets revealed" : "Secrets hidden"}
-        </Text>
+        </DimmedNote>
         <RevealButton
           onClick={() => setRevealed((v) => !v)}
           aria-label={
@@ -514,9 +523,7 @@ export function NetworkEntry({
               </CancellationAlert>
             )}
             <Stack gap="xs">
-              <Text size="sm" fw={500}>
-                Request Headers
-              </Text>
+              <SectionLabel>Request Headers</SectionLabel>
               <HeadersTable
                 headers={entry.requestHeaders}
                 consistency={headerConsistency}
@@ -524,9 +531,7 @@ export function NetworkEntry({
             </Stack>
             {entry.requestBody && (
               <Stack gap="xs">
-                <Text size="sm" fw={500}>
-                  Request Body
-                </Text>
+                <SectionLabel>Request Body</SectionLabel>
                 <BodyPreview
                   key={`${entry.requestHeaders["content-type"] ?? ""}|${entry.requestBody}`}
                   body={entry.requestBody}
@@ -536,17 +541,13 @@ export function NetworkEntry({
             )}
             {entry.responseHeaders && (
               <Stack gap="xs">
-                <Text size="sm" fw={500}>
-                  Response Headers
-                </Text>
+                <SectionLabel>Response Headers</SectionLabel>
                 <HeadersTable headers={entry.responseHeaders} />
               </Stack>
             )}
             {entry.responseStatus !== undefined && (
               <Stack gap="xs">
-                <Text size="sm" fw={500}>
-                  Response Body
-                </Text>
+                <SectionLabel>Response Body</SectionLabel>
                 {entry.responseBody ? (
                   <BodyPreview
                     key={`${entry.responseHeaders?.["content-type"] ?? ""}|${entry.responseBody}`}
@@ -554,19 +555,17 @@ export function NetworkEntry({
                     contentType={entry.responseHeaders?.["content-type"]}
                   />
                 ) : (
-                  <Text size="xs" c="dimmed">
+                  <DimmedNote>
                     {isLongLivedStream(entry)
                       ? "Long-lived stream — body not captured"
                       : "(empty)"}
-                  </Text>
+                  </DimmedNote>
                 )}
               </Stack>
             )}
             {entry.error && (
               <Stack gap="xs">
-                <Text size="sm" fw={500} c="red">
-                  Error
-                </Text>
+                <SectionLabel c="red">Error</SectionLabel>
                 <Text size="xs" ff="monospace" c="red">
                   {entry.error}
                 </Text>

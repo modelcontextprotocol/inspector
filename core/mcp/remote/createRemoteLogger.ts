@@ -6,8 +6,10 @@
  * Uses pino/browser so transmit works in both Node (tests) and browser.
  */
 
-// @ts-expect-error - pino/browser.js exists but TypeScript doesn't have types for the .js extension
-// Node.js ESM requires explicit .js extension, and pino exports browser.js
+// pino ships a browser build at `pino/browser.js` but no `.d.ts` for it, and TS
+// resolves the real JS file (so an ambient `declare module` can't type it) —
+// suppress the resulting implicit-any. Node ESM requires the explicit `.js`.
+// @ts-expect-error - pino/browser.js exists but has no type declarations
 import pino from "pino/browser.js";
 import type { Logger, LogEvent } from "pino";
 

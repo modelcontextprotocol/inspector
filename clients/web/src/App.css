@@ -528,12 +528,6 @@ body {
   background-color: var(--mantine-primary-color-light-hover);
 }
 
-/* ── Grid alignment ─────────────────────────────────────── */
-
-.grid-align-start {
-  align-items: start;
-}
-
 /* ── Markdown content (third-party HTML from react-markdown) ───── */
 
 .markdown-content {

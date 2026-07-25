@@ -134,10 +134,13 @@ const EmptyState = Text.withProps({
 // Override the card-surface var for the whole grid so every server card (in any
 // state — the theme's default/highlighted/errored/disabled Card variants all
 // read `--inspector-surface-card`) picks up the faintly-grey server tone,
-// without touching the shared token or the variant logic.
+// without touching the shared token or the variant logic. `alignItems: start`
+// keeps rows top-aligned so a taller card (e.g. one whose action row wrapped)
+// doesn't stretch its shorter row-mates.
 const GRID_SURFACE_STYLES = {
   root: {
     "--inspector-surface-card": "var(--inspector-surface-card-server)",
+    alignItems: "start",
   },
 } as const;
 
@@ -230,7 +233,6 @@ export function ServerListScreen({
       type="container"
       cols={{ base: 1, "1040px": 2, "1560px": 3 }}
       spacing="lg"
-      className="grid-align-start"
       styles={GRID_SURFACE_STYLES}
     >
       {servers.map((server) =>

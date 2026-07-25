@@ -177,6 +177,13 @@ const RightConnectedGroup = Group.withProps({
   wrap: "nowrap",
 });
 
+// Center crossfade cell: the tab bar and the "MCP Inspector" title share one
+// grid cell (`header-stack-cell`) and fade/slide (`header-anim`) so one replaces
+// the other in place. The `data-anim` direction is set per render.
+const HeaderStackCell = Group.withProps({
+  className: "header-anim header-stack-cell",
+});
+
 const DisconnectIcon = ActionIcon.withProps({
   variant: "subtle",
   size: 36,
@@ -346,17 +353,14 @@ export function ViewHeader(props: ViewHeaderProps) {
         >
           {() =>
             headerData ? (
-              <Box
-                className="header-anim header-stack-cell"
-                data-anim={connectedAnim}
-              >
+              <HeaderStackCell data-anim={connectedAnim}>
                 <SegmentedControl
                   value={headerData.activeTab}
                   onChange={handleTabChange}
                   data={toGlowingTabData(headerData.availableTabs, glowing)}
                   size="sm"
                 />
-              </Box>
+              </HeaderStackCell>
             ) : (
               // Unreachable in practice — the Transition only mounts while
               // connected, by which point the snapshot is set — but the render
@@ -373,12 +377,9 @@ export function ViewHeader(props: ViewHeaderProps) {
           exitDuration={HEADER_ANIM_MS}
         >
           {() => (
-            <Box
-              className="header-anim header-stack-cell"
-              data-anim={props.connected ? "out" : "in"}
-            >
+            <HeaderStackCell data-anim={props.connected ? "out" : "in"}>
               <Title order={2}>MCP Inspector</Title>
-            </Box>
+            </HeaderStackCell>
           )}
         </Transition>
       </Box>

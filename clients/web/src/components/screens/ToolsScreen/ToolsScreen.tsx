@@ -164,6 +164,23 @@ export function ToolsScreen({
     : undefined;
   const isExecuting = callState?.status === "pending";
 
+  const handleSelectTool = (name: string) => {
+    // Seed the form with the tool's schema defaults so default-only fields the
+    // user never edits are still sent on execute (the form shows defaults via
+    // resolveValue, but onChange only writes edited fields).
+    const tool = tools.find((t) => t.name === name);
+    // `name` always comes from the rendered tools list (ToolControls only emits
+    // names it was given), so the lookup never misses; the empty-object fallback
+    // is an unreachable defensive default.
+    let nextFormValues: Record<string, unknown> = {};
+    /* v8 ignore next -- unreachable: onSelectTool always names a tool in the list */
+    if (tool)
+      nextFormValues = collectSchemaDefaults(
+        toFormSchema(tool.inputSchema) ?? {},
+      );
+    onUiChange({ ...ui, selectedToolName: name, formValues: nextFormValues });
+  };
+
   return (
     <ScreenLayout>
       <Sidebar>
@@ -177,27 +194,7 @@ export function ToolsScreen({
             onRefreshList={onRefreshList}
             pagination={pagination}
             onSearchChange={(value) => onUiChange({ ...ui, search: value })}
-            onSelectTool={(name) => {
-              // Seed the form with the tool's schema defaults so default-only
-              // fields the user never edits are still sent on execute (the
-              // form shows defaults via resolveValue, but onChange only writes
-              // edited fields).
-              const tool = tools.find((t) => t.name === name);
-              // `name` always comes from the rendered tools list (ToolControls
-              // only emits names it was given), so the lookup never misses; the
-              // empty-object fallback is an unreachable defensive default.
-              let formValues: Record<string, unknown> = {};
-              /* v8 ignore next -- unreachable: onSelectTool always names a tool in the list */
-              if (tool)
-                formValues = collectSchemaDefaults(
-                  toFormSchema(tool.inputSchema) ?? {},
-                );
-              onUiChange({
-                ...ui,
-                selectedToolName: name,
-                formValues,
-              });
-            }}
+            onSelectTool={handleSelectTool}
           />
         </SidebarCard>
       </Sidebar>
