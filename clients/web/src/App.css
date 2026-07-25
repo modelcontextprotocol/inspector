@@ -266,15 +266,6 @@ body {
   }
 }
 
-@keyframes inspector-spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
-}
-
 /* Both motions travel downward: enter descends from above into place, exit
    descends from place to below — used for the header crossfade (#1450). */
 @keyframes inspector-fade-slide-in {
@@ -316,10 +307,6 @@ body {
 
 .inspector-pulse {
   animation: inspector-pulse 1.5s ease-in-out infinite;
-}
-
-.inspector-spin {
-  animation: inspector-spin 1s linear infinite;
 }
 
 /* Applied (via the `tabGlow` Text variant) to a tab label; the glow starts full

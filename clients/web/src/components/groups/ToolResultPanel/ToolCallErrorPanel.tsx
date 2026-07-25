@@ -52,18 +52,18 @@ const PanelTitle = Title.withProps({ order: 3, size: "h4" });
 
 const ErrorAlert = Alert.withProps({ color: "red", variant: "light" });
 
-/**
- * Renders a thrown tool-call error (a protocol/SDK-level rejection) as a
- * distinct error panel. This is separate from ToolResultPanel, which renders a
- * `CallToolResult` (including a tool-level `isError` result). An `-32602`
- * rejection carries no result, so it would otherwise be invisible.
- */
 const ERROR_TITLES: Record<string, string> = {
   "unknown-tool": "Unknown Tool",
   "invalid-params": "Invalid Parameters",
   generic: "Tool Error",
 };
 
+/**
+ * Renders a thrown tool-call error (a protocol/SDK-level rejection) as a
+ * distinct error panel. This is separate from ToolResultPanel, which renders a
+ * `CallToolResult` (including a tool-level `isError` result). An `-32602`
+ * rejection carries no result, so it would otherwise be invisible.
+ */
 export function ToolCallErrorPanel({
   error,
   errorCode,
