@@ -110,18 +110,22 @@ describe("useInitialConfig", () => {
   });
 
   it("keeps writable true for any non-false value", async () => {
-    // A missing/non-boolean writable must not flip the list read-only — only an
-    // explicit `false` does.
-    const fetchFn = vi
-      .fn()
-      .mockResolvedValue(jsonResponse({ writable: undefined }));
+    // Only an explicit `false` flips the list read-only. A nonconforming backend
+    // could send a falsy-but-not-false value (null / 0 / a string); each is
+    // `!== false`, so each must leave the list writable.
+    for (const value of [null, 0, "no"]) {
+      const fetchFn = vi
+        .fn()
+        .mockResolvedValue(jsonResponse({ writable: value }));
 
-    const { result } = renderHook(() =>
-      useInitialConfig({ baseUrl: "http://test.local", fetchFn }),
-    );
+      const { result, unmount } = renderHook(() =>
+        useInitialConfig({ baseUrl: "http://test.local", fetchFn }),
+      );
 
-    await waitFor(() => expect(result.current.loading).toBe(false));
-    expect(result.current.writable).toBe(true);
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      expect(result.current.writable).toBe(true);
+      unmount();
+    }
   });
 
   it("applies defaults on a non-ok response", async () => {
@@ -208,8 +212,10 @@ describe("useInitialConfig", () => {
     // Let the microtask queue drain so the continuation runs.
     await Promise.resolve();
     await Promise.resolve();
-    // No assertion error / React warning means the guards held; every field
-    // stayed at its initial value.
+    // This test exists to exercise the post-unmount `isCancelled()` guard
+    // branches; it can't detect their removal (React 18 dropped the
+    // setState-after-unmount warning, and `result.current` is frozen at the last
+    // render), so it only asserts the fields stayed at their initial values.
     expect(result.current.version).toBeUndefined();
     expect(result.current.sandboxUrl).toBeUndefined();
     expect(result.current.writable).toBe(true);
