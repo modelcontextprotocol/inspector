@@ -351,10 +351,35 @@ describe("InspectorView", () => {
     ).toBeInTheDocument();
   });
 
-  it("renders the connected header without borrowing a name when the reported name is empty and no catalog entry matches (#1774)", () => {
-    // Empty reported name AND no catalog server to fall back to: the header
-    // still renders (connection is live) but has no name to show, rather than
-    // crashing or inventing a label. Exercises the no-catalog-match branch.
+  it("falls back to the catalog name in the header when the reported serverInfo name is whitespace-only (#1774)", () => {
+    // A whitespace-only reported name ("   ") is the same non-conforming class
+    // as an empty string — truthy, so a naive `if (serverInfo.name)` guard would
+    // let it through and render a blank-looking title. The `.trim()` guard
+    // degrades it to the catalog name like the empty case.
+    renderWithMantine(
+      <StatefulInspectorViewHost
+        {...makeProps({
+          servers: [sampleServer],
+          activeServer: "alpha",
+          connectionStatus: "connected",
+          initializeResult: {
+            ...connectedInit,
+            serverInfo: { name: "   ", version: "1.0.0" },
+          },
+        })}
+      />,
+    );
+    expect(
+      within(screen.getByRole("banner")).getByText("Alpha"),
+    ).toBeInTheDocument();
+  });
+
+  it("still renders the connected header when the reported name is blank and no catalog entry matches (#1774)", () => {
+    // Blank reported name AND no catalog server to borrow from: the connected
+    // header must still render (the connection is live) rather than crash or
+    // invent a label — it just shows no server name. Asserting the Disconnect
+    // control inside the banner makes this a real regression guard for the
+    // no-catalog-match branch, not merely a coverage-only test.
     renderWithMantine(
       <StatefulInspectorViewHost
         {...makeProps({
@@ -369,8 +394,11 @@ describe("InspectorView", () => {
       />,
     );
     const header = screen.getByRole("banner");
-    expect(header).toBeInTheDocument();
-    expect(within(header).queryByText("Alpha")).not.toBeInTheDocument();
+    expect(
+      within(header).getByRole("button", { name: "Disconnect from server" }),
+    ).toBeInTheDocument();
+    // No reported name and nothing to borrow, so the header shows no catalog name.
+    expect(within(header).queryByText("ghost")).not.toBeInTheDocument();
   });
 
   it("surfaces the negotiated protocol version on the active connected card", () => {

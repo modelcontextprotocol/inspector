@@ -1504,6 +1504,11 @@ function App() {
   // any connect (legacy included) between the `connected` status dispatch and the
   // `serverInfo` dispatch, which land in a single React render. The modal uses
   // `serverInfoReported` (above), not this name, to stay faithful.
+  //
+  // This `??` only covers an *absent* serverInfo. A server that *reports* a
+  // blank name (`{ name: "" }`) is degraded for display a layer below, in
+  // InspectorView's `resolveHeaderServerInfo` (#1774) — kept there so this
+  // faithful object (and thus the modal) never carries a borrowed name.
   const initializeResult = useMemo<InitializeResult | undefined>(() => {
     if (connectionStatus !== "connected") return undefined;
     const resolvedServerInfo = serverInfo ?? {
