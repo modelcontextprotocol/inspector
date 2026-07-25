@@ -58,6 +58,12 @@ function browserExternalizedBuiltinGate(): Plugin {
     name: 'inspector:fail-on-browser-externalized-builtin',
     apply: 'build',
     applyToEnvironment: (environment) => environment.name === 'client',
+    // `enforce: 'pre'` runs this ahead of the normal-plugin group in the `onLog`
+    // chain: a plugin whose `onLog` returns `false` filters that log for every
+    // later plugin, so trailing the array would let a future log-filtering plugin
+    // silently blind the gate. Ordering the gate first makes "it sees every log"
+    // structural rather than dependent on array position.
+    enforce: 'pre',
     buildStart() {
       gate.reset();
     },

@@ -28,7 +28,7 @@
  */
 
 import { spawnSync } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -79,26 +79,30 @@ function escapeRegExp(literal) {
   return literal.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-// Write the captured original to a `.bak` and fail — the honest remedy when the
+// Write the captured original to a backup and fail — the honest remedy when the
 // in-place restore can't be trusted, since it preserves any uncommitted edits
-// the developer had (unlike `git checkout --`). Written under the OS temp dir,
-// NOT next to the entry: a sidecar inside `src/` is untracked and a `git add -A`
-// (likely while recovering) would sweep it into a commit.
+// the developer had (unlike `git checkout --`). The backup goes in a fresh
+// `mkdtempSync` dir, NOT next to the entry (a sidecar inside `src/` is untracked
+// and a recovery-time `git add -A` would commit it) and NOT a fixed tmp filename
+// (a pre-existing/foreign-owned file would make us point the user at someone
+// else's content). The message only claims a backup when the write succeeded —
+// this path runs during recovery, so it must not misdirect.
 function saveBackupAndFail(reason) {
-  const backupPath = path.join(
-    tmpdir(),
-    `${path.basename(entryPath)}.verify-build-gate.bak`,
-  );
+  let savedTo;
   try {
-    writeFileSync(backupPath, original);
+    const dir = mkdtempSync(path.join(tmpdir(), "verify-build-gate-"));
+    savedTo = path.join(dir, path.basename(entryPath));
+    writeFileSync(savedTo, original);
   } catch {
-    // Best effort: if even the sidecar can't be written, the reason below (and
-    // the injected probe still in the entry) is all we can offer.
+    savedTo = undefined;
   }
-  fail(
-    `${reason} — pre-run contents were saved to ${backupPath}; restore from ` +
-      `there (it preserves uncommitted edits, unlike 'git checkout --')`,
-  );
+  const remedy = savedTo
+    ? `pre-run contents were saved to ${savedTo}; restore from there ` +
+      `(it preserves uncommitted edits, unlike 'git checkout --')`
+    : `a backup could NOT be written — the entry still has the probe injected; ` +
+      `restore it from version control (this discards uncommitted edits to it) ` +
+      `once the filesystem is writable`;
+  fail(`${reason} — ${remedy}`);
 }
 
 let original;
@@ -212,8 +216,18 @@ try {
 }
 
 // Guard against a botched restore that wrote *something* other than the original
-// (distinct from restoreEntry's write throwing, which it handles itself).
-if (readFileSync(entryPath, "utf8") !== original) {
+// (distinct from restoreEntry's write throwing, which it handles itself). The
+// verifying read is itself routed through saveBackupAndFail so the restore path
+// is uniformly safe — a raw throw here would skip the backup net.
+let afterRestore;
+try {
+  afterRestore = readFileSync(entryPath, "utf8");
+} catch (err) {
+  saveBackupAndFail(
+    `could not re-read ${path.relative(repoRoot, entryPath)} to verify the restore (${err.message})`,
+  );
+}
+if (afterRestore !== original) {
   saveBackupAndFail(
     `failed to restore ${path.relative(repoRoot, entryPath)} (contents differ)`,
   );
