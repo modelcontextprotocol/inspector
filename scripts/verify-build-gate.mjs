@@ -49,6 +49,12 @@ const gatePath = path.join(
 // The drift guard below keeps this literal honest against that source.
 const KNOWN_PHRASE = "has been externalized for browser compatibility";
 
+// The Node built-in the probe imports. Single source of truth: the diagnosis
+// below tests the output for this exact name, so deriving both from one constant
+// keeps a phrasing-drift failure from being misrouted as "probe never reached
+// the graph" if the probe module ever changes.
+const PROBE_MODULE = "node:fs";
+
 // A namespace import + guarded use so the built-in isn't tree-shaken before Vite
 // externalizes it (a bare side-effect import can be dropped). `__never__` is
 // never truthy, so the reference survives to build time without running.
@@ -56,13 +62,18 @@ const KNOWN_PHRASE = "has been externalized for browser compatibility";
 // resolve time, and appending won't demote a leading directive (e.g. a future
 // `"use client"`) the way prepending would.
 const PROBE =
-  '\nimport * as __nodeBuiltinProbe from "node:fs";\n' +
+  `\nimport * as __nodeBuiltinProbe from "${PROBE_MODULE}";\n` +
   "if (globalThis.__never__) console.log(__nodeBuiltinProbe);\n";
 
 function fail(message, detail) {
   console.error(`verify:build-gate FAILED — ${message}`);
   if (detail) console.error(detail);
   process.exit(1);
+}
+
+// Escape a literal for safe interpolation into a RegExp.
+function escapeRegExp(literal) {
+  return literal.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 // Write the captured original to a sidecar `.bak` and fail — the honest remedy
@@ -95,12 +106,25 @@ try {
 // Fail fast if the mirrored literal drifted from the source of truth: a stale
 // KNOWN_PHRASE would make the three-way diagnosis below misreport a
 // plugin-not-applying regression as a phrasing drift (the exact misdirection the
-// diagnosis exists to avoid).
-if (!readFileSync(gatePath, "utf8").includes(KNOWN_PHRASE)) {
+// diagnosis exists to avoid). Anchor on the *assignment* — matching the whole
+// file would let the old wording lingering in a comment mask a changed constant.
+let gateSource;
+try {
+  gateSource = readFileSync(gatePath, "utf8");
+} catch (err) {
   fail(
-    `KNOWN_PHRASE no longer appears in ${path.relative(repoRoot, gatePath)} — the ` +
-      `mirrored literals drifted; re-sync KNOWN_PHRASE with ` +
-      `BROWSER_EXTERNALIZED_BUILTIN_PHRASE`,
+    `could not read the gate module ${path.relative(repoRoot, gatePath)} ` +
+      `(${err.message}) — if it moved, update gatePath in this script`,
+  );
+}
+const phraseAssignment = new RegExp(
+  `BROWSER_EXTERNALIZED_BUILTIN_PHRASE\\s*=\\s*["'\`]${escapeRegExp(KNOWN_PHRASE)}["'\`]`,
+);
+if (!phraseAssignment.test(gateSource)) {
+  fail(
+    `KNOWN_PHRASE here no longer matches the BROWSER_EXTERNALIZED_BUILTIN_PHRASE ` +
+      `assignment in ${path.relative(repoRoot, gatePath)} — the mirrored literals ` +
+      `drifted; re-sync them.`,
   );
 }
 
@@ -199,6 +223,8 @@ if (result.status === 0) {
   console.error(
     "verify:build-gate: note — clients/web/dist now holds a probe build; run a normal build before serving it.",
   );
+  // Order matters: a phrase match implies the probe reached the graph, so it
+  // must be checked before the module-name fallback — don't reorder these.
   if (output.includes(KNOWN_PHRASE)) {
     fail(
       "vite build SUCCEEDED but Vite DID emit the externalization warning — the " +
@@ -210,10 +236,10 @@ if (result.status === 0) {
       output,
     );
   }
-  if (output.includes("node:fs")) {
+  if (output.includes(PROBE_MODULE)) {
     fail(
       "vite build SUCCEEDED and the warning phrasing drifted — the probe reached " +
-        "the graph (node:fs is named) but the known phrase is absent. Update " +
+        `the graph (${PROBE_MODULE} is named) but the known phrase is absent. Update ` +
         "BROWSER_EXTERNALIZED_BUILTIN_PHRASE in browser-externalized-builtin-gate.ts " +
         "to match the new Vite wording.",
       output,
@@ -221,13 +247,18 @@ if (result.status === 0) {
   }
   fail(
     "vite build SUCCEEDED and the probe never reached the browser graph (neither " +
-      "the known phrase nor node:fs appears in the output) — the entry may have " +
-      "moved or the probe was tree-shaken. Check this script's PROBE / entryPath.",
+      `the known phrase nor ${PROBE_MODULE} appears in the output) — the entry may ` +
+      "have moved or the probe was tree-shaken. Check this script's PROBE / entryPath.",
     output,
   );
 }
 
-if (!output.includes("#1769")) {
+// Assert on the gate's distinctive thrown-error prefix, NOT a bare "#1769":
+// that issue number also appears in clients/web/vite.config.ts comments, so a
+// code frame from an unrelated build error there could otherwise make this
+// report OK with the gate dead. This prefix + KNOWN_PHRASE are the script's
+// contract with browser-externalized-builtin-gate.ts's exported error.
+if (!output.includes("Build failed (#1769)")) {
   fail(
     "vite build failed, but not via the #1769 gate — the build broke for another " +
       "reason, so this check no longer proves the gate works.",
