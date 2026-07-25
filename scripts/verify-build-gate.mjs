@@ -17,7 +17,8 @@
  *
  * Why the REAL config + entry (and not a fast throwaway temp entry / generated
  * config): building the actual `clients/web` config is what catches config-level
- * regressions — the plugin being deleted from the `plugins` array, or a
+ * regressions — the plugin being deleted from the `plugins` array, its
+ * `applyToEnvironment` no longer matching the browser environment's name, or a
  * `build.rollupOptions.onwarn` suppression added above it. A temp config would
  * keep passing through all of those, degrading this from "the gate works in this
  * repo" to "the gate's string still matches the live Vite." That fidelity is the
@@ -36,6 +37,12 @@ const webDir = path.join(repoRoot, "clients/web");
 // Hardcoded browser entry. If it's ever renamed, the guarded read below fails
 // with an actionable message rather than a raw ENOENT stack.
 const entryPath = path.join(webDir, "src/main.tsx");
+
+// Mirrors BROWSER_EXTERNALIZED_BUILTIN_PHRASE in
+// clients/web/server/browser-externalized-builtin-gate.ts; kept as a literal
+// because this plain .mjs script can't import the TS source. Used to tell apart
+// the ways a passing build can mean the gate broke (see the diagnoses below).
+const KNOWN_PHRASE = "has been externalized for browser compatibility";
 
 // A namespace import + guarded use so the built-in isn't tree-shaken before Vite
 // externalizes it (a bare side-effect import can be dropped). `__never__` is
@@ -80,13 +87,24 @@ function restoreEntry() {
 for (const signal of ["SIGINT", "SIGTERM"]) {
   process.on(signal, () => {
     restoreEntry();
-    process.exit(130);
+    // Conventional 128 + signal number: SIGINT → 130, SIGTERM → 143.
+    process.exit(signal === "SIGINT" ? 130 : 143);
   });
+}
+
+// Mutate the entry (guarded), THEN wrap only the build in the restore-`finally`
+// — so a write failure (read-only checkout, EACCES) fails actionably before any
+// mutation, rather than escaping the finally as a raw stack.
+try {
+  writeFileSync(entryPath, original + PROBE);
+} catch (err) {
+  fail(
+    `could not write the probe into ${path.relative(repoRoot, entryPath)} (${err.message})`,
+  );
 }
 
 let result;
 try {
-  writeFileSync(entryPath, original + PROBE);
   console.log(
     "verify:build-gate: running a real `vite build` with a node:fs probe (takes a minute)…",
   );
@@ -94,10 +112,15 @@ try {
   // point is proving the message-keyed gate fires against THIS Vite, so `npx`
   // must never silently fetch a different version from the registry when
   // clients/web/node_modules is missing/partial. A missing local bin then
-  // surfaces via the `result.error` check below.
+  // surfaces via the `result.error` check below. `timeout` bounds a hung build:
+  // spawnSync sets `result.error` (ETIMEDOUT) on timeout, so the same branch
+  // reports it — otherwise a hang would burn to the GitHub job's 360-min default
+  // with no output (this step captures rather than inherits stdio).
   result = spawnSync("npx", ["--no-install", "vite", "build"], {
     cwd: webDir,
     encoding: "utf8",
+    timeout: 10 * 60_000,
+    killSignal: "SIGKILL",
   });
 } finally {
   // Always restore the entry, even if the build spawn threw.
@@ -127,10 +150,34 @@ if (result.error) {
 const output = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
 
 if (result.status === 0) {
+  // A passing build with a Node built-in in the browser graph means the gate
+  // broke — but in three distinct ways, each pointing at a different file. The
+  // captured output distinguishes them (Vite prints the warning at the default
+  // log level, and no build script passes `--logLevel`, so its presence is
+  // reliable).
+  if (output.includes(KNOWN_PHRASE)) {
+    fail(
+      "vite build SUCCEEDED but Vite DID emit the externalization warning — the " +
+        "gate plugin isn't applying. In clients/web/vite.config.ts the plugin may " +
+        "have been removed from `plugins`, its `applyToEnvironment` may no longer " +
+        "match the browser environment's name, or a `build.rollupOptions.onwarn` " +
+        "suppression was added above it.",
+      output,
+    );
+  }
+  if (output.includes("node:fs")) {
+    fail(
+      "vite build SUCCEEDED and the warning phrasing drifted — the probe reached " +
+        "the graph (node:fs is named) but the known phrase is absent. Update " +
+        "BROWSER_EXTERNALIZED_BUILTIN_PHRASE in browser-externalized-builtin-gate.ts " +
+        "to match the new Vite wording.",
+      output,
+    );
+  }
   fail(
-    "vite build SUCCEEDED with a node:fs import in the browser graph — the gate " +
-      "did not fire (the warning phrasing likely drifted in a Vite bump; update " +
-      "BROWSER_EXTERNALIZED_BUILTIN_PHRASE in browser-externalized-builtin-gate.ts).",
+    "vite build SUCCEEDED and the probe never reached the browser graph (neither " +
+      "the known phrase nor node:fs appears in the output) — the entry may have " +
+      "moved or the probe was tree-shaken. Check this script's PROBE / entryPath.",
     output,
   );
 }
