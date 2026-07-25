@@ -26,7 +26,10 @@
 // user-facing phrasing, whose troubleshooting anchor
 // (`module-externalized-for-browser-compatibility`) Vite treats as stable.
 // The `verify:build-gate` script exercises a real build so a phrasing drift in a
-// future Vite bump fails CI here rather than silently disabling the gate.
+// future Vite bump fails CI here rather than silently disabling the gate. That
+// script also drift-guards its mirrored copy by regex against this assignment —
+// keep it a single string literal (no concatenation/template) or the guard will
+// report a false drift.
 export const BROWSER_EXTERNALIZED_BUILTIN_PHRASE =
   "has been externalized for browser compatibility";
 

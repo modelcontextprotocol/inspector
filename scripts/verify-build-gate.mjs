@@ -29,6 +29,7 @@
 
 import { spawnSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -42,12 +43,14 @@ const gatePath = path.join(
   "server/browser-externalized-builtin-gate.ts",
 );
 
-// Mirrors BROWSER_EXTERNALIZED_BUILTIN_PHRASE in
-// clients/web/server/browser-externalized-builtin-gate.ts; kept as a literal
-// because this plain .mjs script can't import the TS source. Used to tell apart
-// the ways a passing build can mean the gate broke (see the diagnoses below).
-// The drift guard below keeps this literal honest against that source.
+// The two literals this .mjs mirrors from the gate module (it can't import the
+// TS source). KNOWN_PHRASE tells apart the ways a passing build can mean the gate
+// broke (see the diagnoses below); ERROR_PREFIX is the success key — the
+// distinctive lead of the gate's thrown error, so an unrelated build error whose
+// output merely mentions "#1769" (it's in vite.config.ts comments) can't report
+// OK. The drift guard below keeps BOTH honest against the source.
 const KNOWN_PHRASE = "has been externalized for browser compatibility";
+const ERROR_PREFIX = "Build failed (#1769)";
 
 // The Node built-in the probe imports. Single source of truth: the diagnosis
 // below tests the output for this exact name, so deriving both from one constant
@@ -76,11 +79,16 @@ function escapeRegExp(literal) {
   return literal.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-// Write the captured original to a sidecar `.bak` and fail — the honest remedy
-// when the in-place restore can't be trusted, since it preserves any
-// uncommitted edits the developer had (unlike `git checkout --`).
+// Write the captured original to a `.bak` and fail — the honest remedy when the
+// in-place restore can't be trusted, since it preserves any uncommitted edits
+// the developer had (unlike `git checkout --`). Written under the OS temp dir,
+// NOT next to the entry: a sidecar inside `src/` is untracked and a `git add -A`
+// (likely while recovering) would sweep it into a commit.
 function saveBackupAndFail(reason) {
-  const backupPath = `${entryPath}.verify-build-gate.bak`;
+  const backupPath = path.join(
+    tmpdir(),
+    `${path.basename(entryPath)}.verify-build-gate.bak`,
+  );
   try {
     writeFileSync(backupPath, original);
   } catch {
@@ -88,8 +96,8 @@ function saveBackupAndFail(reason) {
     // the injected probe still in the entry) is all we can offer.
   }
   fail(
-    `${reason} — pre-run contents were saved to ${path.relative(repoRoot, backupPath)}; ` +
-      `restore from there (it preserves uncommitted edits, unlike 'git checkout --')`,
+    `${reason} — pre-run contents were saved to ${backupPath}; restore from ` +
+      `there (it preserves uncommitted edits, unlike 'git checkout --')`,
   );
 }
 
@@ -103,11 +111,14 @@ try {
   );
 }
 
-// Fail fast if the mirrored literal drifted from the source of truth: a stale
+// Fail fast if either mirrored literal drifted from the source of truth: a stale
 // KNOWN_PHRASE would make the three-way diagnosis below misreport a
-// plugin-not-applying regression as a phrasing drift (the exact misdirection the
-// diagnosis exists to avoid). Anchor on the *assignment* — matching the whole
-// file would let the old wording lingering in a comment mask a changed constant.
+// plugin-not-applying regression as a phrasing drift, and a stale ERROR_PREFIX
+// would make a correctly-firing gate report "the build broke for another
+// reason" (both exactly the misdirection this script exists to avoid). Anchor
+// the phrase on the *assignment* — matching the whole file would let the old
+// wording lingering in a comment mask a changed constant; the prefix is
+// distinctive enough that a plain substring is fine.
 let gateSource;
 try {
   gateSource = readFileSync(gatePath, "utf8");
@@ -117,14 +128,20 @@ try {
       `(${err.message}) — if it moved, update gatePath in this script`,
   );
 }
+const gateRel = path.relative(repoRoot, gatePath);
 const phraseAssignment = new RegExp(
   `BROWSER_EXTERNALIZED_BUILTIN_PHRASE\\s*=\\s*["'\`]${escapeRegExp(KNOWN_PHRASE)}["'\`]`,
 );
 if (!phraseAssignment.test(gateSource)) {
   fail(
     `KNOWN_PHRASE here no longer matches the BROWSER_EXTERNALIZED_BUILTIN_PHRASE ` +
-      `assignment in ${path.relative(repoRoot, gatePath)} — the mirrored literals ` +
-      `drifted; re-sync them.`,
+      `assignment in ${gateRel} — the mirrored literals drifted; re-sync them.`,
+  );
+}
+if (!gateSource.includes(ERROR_PREFIX)) {
+  fail(
+    `ERROR_PREFIX here ("${ERROR_PREFIX}") no longer appears in ${gateRel} — the ` +
+      `gate's thrown error was reworded; re-sync ERROR_PREFIX with it.`,
   );
 }
 
@@ -240,8 +257,9 @@ if (result.status === 0) {
     fail(
       "vite build SUCCEEDED and the warning phrasing drifted — the probe reached " +
         `the graph (${PROBE_MODULE} is named) but the known phrase is absent. Update ` +
-        "BROWSER_EXTERNALIZED_BUILTIN_PHRASE in browser-externalized-builtin-gate.ts " +
-        "to match the new Vite wording.",
+        "BOTH BROWSER_EXTERNALIZED_BUILTIN_PHRASE in browser-externalized-builtin-gate.ts " +
+        "AND KNOWN_PHRASE in this script to the new Vite wording (the drift guard " +
+        "requires they stay in sync).",
       output,
     );
   }
@@ -256,9 +274,9 @@ if (result.status === 0) {
 // Assert on the gate's distinctive thrown-error prefix, NOT a bare "#1769":
 // that issue number also appears in clients/web/vite.config.ts comments, so a
 // code frame from an unrelated build error there could otherwise make this
-// report OK with the gate dead. This prefix + KNOWN_PHRASE are the script's
-// contract with browser-externalized-builtin-gate.ts's exported error.
-if (!output.includes("Build failed (#1769)")) {
+// report OK with the gate dead. ERROR_PREFIX + KNOWN_PHRASE are the script's
+// contract with the gate module, and both are drift-guarded above.
+if (!output.includes(ERROR_PREFIX)) {
   fail(
     "vite build failed, but not via the #1769 gate — the build broke for another " +
       "reason, so this check no longer proves the gate works.",
