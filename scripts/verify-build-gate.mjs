@@ -298,6 +298,22 @@ if (!output.includes(ERROR_PREFIX)) {
   );
 }
 
+// The gate fired — but confirm it fired on OUR probe, not a pre-existing leak.
+// The gate's error embeds every original Vite warning, and those name the module,
+// so PROBE_MODULE must appear. Without this, a repo that already leaks a built-in
+// would report OK even if the probe was tree-shaken or entryPath went stale —
+// branch (c)'s failure, silently inverted into a pass. (Unreachable inside
+// `npm run ci`: `validate`'s `build:web` fails first on a pre-existing leak — but
+// this script is a documented standalone command, run exactly when debugging one.)
+if (!output.includes(PROBE_MODULE)) {
+  fail(
+    `the #1769 gate fired, but ${PROBE_MODULE} isn't among the offenders — it ` +
+      `tripped on a pre-existing leak, so this run doesn't prove the probe reached ` +
+      `the graph (was it tree-shaken, or has entryPath gone stale?).`,
+    output,
+  );
+}
+
 console.log(
   "verify:build-gate OK — vite build fails on a Node built-in in the browser graph (#1769 gate fired).",
 );
