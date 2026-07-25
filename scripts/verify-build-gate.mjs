@@ -37,11 +37,16 @@ const webDir = path.join(repoRoot, "clients/web");
 // Hardcoded browser entry. If it's ever renamed, the guarded read below fails
 // with an actionable message rather than a raw ENOENT stack.
 const entryPath = path.join(webDir, "src/main.tsx");
+const gatePath = path.join(
+  webDir,
+  "server/browser-externalized-builtin-gate.ts",
+);
 
 // Mirrors BROWSER_EXTERNALIZED_BUILTIN_PHRASE in
 // clients/web/server/browser-externalized-builtin-gate.ts; kept as a literal
 // because this plain .mjs script can't import the TS source. Used to tell apart
 // the ways a passing build can mean the gate broke (see the diagnoses below).
+// The drift guard below keeps this literal honest against that source.
 const KNOWN_PHRASE = "has been externalized for browser compatibility";
 
 // A namespace import + guarded use so the built-in isn't tree-shaken before Vite
@@ -60,6 +65,23 @@ function fail(message, detail) {
   process.exit(1);
 }
 
+// Write the captured original to a sidecar `.bak` and fail — the honest remedy
+// when the in-place restore can't be trusted, since it preserves any
+// uncommitted edits the developer had (unlike `git checkout --`).
+function saveBackupAndFail(reason) {
+  const backupPath = `${entryPath}.verify-build-gate.bak`;
+  try {
+    writeFileSync(backupPath, original);
+  } catch {
+    // Best effort: if even the sidecar can't be written, the reason below (and
+    // the injected probe still in the entry) is all we can offer.
+  }
+  fail(
+    `${reason} — pre-run contents were saved to ${path.relative(repoRoot, backupPath)}; ` +
+      `restore from there (it preserves uncommitted edits, unlike 'git checkout --')`,
+  );
+}
+
 let original;
 try {
   original = readFileSync(entryPath, "utf8");
@@ -70,12 +92,33 @@ try {
   );
 }
 
+// Fail fast if the mirrored literal drifted from the source of truth: a stale
+// KNOWN_PHRASE would make the three-way diagnosis below misreport a
+// plugin-not-applying regression as a phrasing drift (the exact misdirection the
+// diagnosis exists to avoid).
+if (!readFileSync(gatePath, "utf8").includes(KNOWN_PHRASE)) {
+  fail(
+    `KNOWN_PHRASE no longer appears in ${path.relative(repoRoot, gatePath)} — the ` +
+      `mirrored literals drifted; re-sync KNOWN_PHRASE with ` +
+      `BROWSER_EXTERNALIZED_BUILTIN_PHRASE`,
+  );
+}
+
 let restored = false;
 
+// Restore the entry in place. On failure the sidecar-`.bak` path is the reachable
+// safety net — letting the write escape the `finally` would skip it and leave the
+// probe injected in the entry (the worst outcome this script can produce).
 function restoreEntry() {
   if (restored) return;
-  writeFileSync(entryPath, original);
-  restored = true;
+  try {
+    writeFileSync(entryPath, original);
+    restored = true;
+  } catch (err) {
+    saveBackupAndFail(
+      `failed to restore ${path.relative(repoRoot, entryPath)} (${err.message})`,
+    );
+  }
 }
 
 // A `finally` doesn't run on Ctrl-C during the multi-minute build; restore the
@@ -127,16 +170,11 @@ try {
   restoreEntry();
 }
 
-// Guard against a botched restore leaving the tree dirty. Write the captured
-// original to a sidecar `.bak` and point there — NOT `git checkout --`, which
-// would also discard any uncommitted edits the developer had in the entry.
+// Guard against a botched restore that wrote *something* other than the original
+// (distinct from restoreEntry's write throwing, which it handles itself).
 if (readFileSync(entryPath, "utf8") !== original) {
-  const backupPath = `${entryPath}.verify-build-gate.bak`;
-  writeFileSync(backupPath, original);
-  fail(
-    `failed to restore ${path.relative(repoRoot, entryPath)} — its pre-run ` +
-      `contents were saved to ${path.relative(repoRoot, backupPath)}; restore ` +
-      `from there (it preserves any uncommitted edits, unlike 'git checkout --')`,
+  saveBackupAndFail(
+    `failed to restore ${path.relative(repoRoot, entryPath)} (contents differ)`,
   );
 }
 
@@ -151,17 +189,24 @@ const output = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
 
 if (result.status === 0) {
   // A passing build with a Node built-in in the browser graph means the gate
-  // broke — but in three distinct ways, each pointing at a different file. The
+  // broke — but in distinct ways, each pointing at a different file. The
   // captured output distinguishes them (Vite prints the warning at the default
   // log level, and no build script passes `--logLevel`, so its presence is
-  // reliable).
+  // reliable). All three paths completed the build, so `clients/web/dist` now
+  // holds a probe bundle — harmless (the probe never runs) and overwritten by
+  // the next `validate`/`build`; flagged once here so a local debugger doesn't
+  // serve it via `npm run web` unaware.
+  console.error(
+    "verify:build-gate: note — clients/web/dist now holds a probe build; run a normal build before serving it.",
+  );
   if (output.includes(KNOWN_PHRASE)) {
     fail(
       "vite build SUCCEEDED but Vite DID emit the externalization warning — the " +
         "gate plugin isn't applying. In clients/web/vite.config.ts the plugin may " +
         "have been removed from `plugins`, its `applyToEnvironment` may no longer " +
-        "match the browser environment's name, or a `build.rollupOptions.onwarn` " +
-        "suppression was added above it.",
+        "match the browser environment's name, a `build.rollupOptions.onwarn` " +
+        "suppression was added above it, or a future Vite emitted the warning " +
+        "before the client environment's `buildStart` reset (which then cleared it).",
       output,
     );
   }
