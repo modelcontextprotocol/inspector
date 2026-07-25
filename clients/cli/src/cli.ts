@@ -26,7 +26,11 @@ import type { JsonValue } from "@inspector/core/mcp/index.js";
 import { getStateFilePath } from "@inspector/core/auth/node/storage-node.js";
 import { consumeMethodOutcome } from "./handlers/consume-outcome.js";
 import { runMethod } from "./handlers/run-method.js";
-import type { MethodArgs } from "./handlers/method-types.js";
+import {
+  isOneShotMethod,
+  ONE_SHOT_METHODS,
+  type MethodArgs,
+} from "./handlers/method-types.js";
 export type { CliAppInfo } from "./handlers/method-types.js";
 export { emitResult } from "./handlers/emit-result.js";
 export { collectAppInfo } from "./handlers/collect-app-info.js";
@@ -875,6 +879,12 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
       options.format === "json" ? "json" : "text",
     );
     return { shortCircuit: true };
+  }
+
+  if (!isOneShotMethod(options.method)) {
+    throw new Error(
+      `Unsupported method: ${options.method}. One-shot --cli supports: ${ONE_SHOT_METHODS.join(", ")}, servers/list, servers/show.`,
+    );
   }
 
   // Shared with the TUI: resolves the catalog/config source (or ad-hoc target),

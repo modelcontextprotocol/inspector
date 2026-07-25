@@ -98,7 +98,7 @@ Options that specify the MCP server (catalog/config file, ad-hoc command/URL, en
 
 | Option                        | Description                                                                               |
 | ----------------------------- | ----------------------------------------------------------------------------------------- |
-| `--method <method>`           | MCP method to invoke. Supports `initialize` (connect-only probe → `{serverInfo, protocolVersion, capabilities, instructions}`), `tools/list`, `tools/call`, `resources/list`, `resources/read`, `resources/templates/list`, `prompts/list`, `prompts/get`, `logging/setLevel`. |
+| `--method <method>`           | MCP method to invoke. Supports `initialize` (connect-only probe → `{serverInfo, protocolVersion, capabilities, instructions}`), `tools/list`, `tools/call`, `resources/list`, `resources/read`, `resources/templates/list`, `prompts/list`, `prompts/get`, `logging/setLevel`, plus catalog-only `servers/list` / `servers/show` (no MCP connect). Stream / session-only methods (e.g. `logging/tail`) are rejected. |
 | `--tool-name <name>`          | Tool name (for `tools/call`).                                                             |
 | `--tool-arg <key=value>`      | Tool argument; repeat for multiple. Use `key='{"json":true}'` for JSON. Values are coerced (JSON-parsed, so `count=1` becomes a number). |
 | `--tool-args-json <json>`     | Tool arguments as a single JSON object (e.g. `'{"zip":"10001"}'`). Passed verbatim — no `key=value` coercion, so `"012"` stays a string. Mutually exclusive with `--tool-arg`. |
@@ -111,6 +111,8 @@ Options that specify the MCP server (catalog/config file, ad-hoc command/URL, en
 | `--connect-timeout <ms>`      | Connection timeout in ms. Defaults to `15000` for ad-hoc `--server-url`/target runs (so a black-holed host fails fast) and to the file-level timeout for `--catalog`/`--config` runs. `0` disables the timeout. |
 | `--app-info`                  | Probe a tool's MCP App UI metadata without invoking it. With `--method tools/call --tool-name <name>`: prints one JSON line (`hasApp`, `resourceUri`, `csp`, `permissions`, `domain`, …) and exits `0` if the tool has an app or `2` (`no_app`) if not. With `--method tools/list`: emits NDJSON — one app-info line per tool over a single connection. |
 | `--format <text\|json>`       | Output format. `text` (default) pretty-prints the result. `json` emits a single JSON object on stdout (`{ "result": … }`, plus `{ "appInfo": … }` as a sibling key for App tools) with no banners, so the whole output pipes cleanly into `jq`. |
+| `--relogin`                   | Ignore any stored OAuth for this run’s server URL before connect; interactive login still only runs if the server requires auth. No-op for stdio (no URL-keyed store entry). Conflicts with `--stored-auth-only` / `--use-stored-auth` / `--wait-for-auth`. |
+| `--stored-auth-only`          | Never start interactive OAuth / step-up; use the shared store if present, otherwise fail with `auth_required`. |
 
 #### App probing (`--app-info`) and machine-readable output (`--format json`)
 
@@ -145,7 +147,7 @@ The CLI runs the same loopback callback server as the TUI (`http://127.0.0.1:627
 **One-shot (`mcp-inspector --cli`):** on connect **401** or mid-session interactive auth (re-login / step-up), it:
 
 1. Starts the callback listener on `--callback-url` (or `MCP_OAUTH_CALLBACK_URL`)
-2. Prints the authorization URL to the console (`ConsoleNavigation`)
+2. Prints the authorization URL to stderr (OSC 8 hyperlink when stderr is a TTY) and **opens the default browser** on a TTY; non-TTY / CI prints a plain URL only and never launches a browser
 3. Waits for the browser redirect, exchanges the code, and retries connect or the failed RPC
 
 **Step-up (standard OAuth, one-shot only):** when an RPC needs extra scopes, the CLI prompts on stderr: `Proceed with step-up authorization? [y/N]`. **y** continues; **N** exits with an error. EMA step-up re-mints silently (no prompt).
@@ -269,6 +271,6 @@ separate `build` step (`pretest` builds). Repo-root `validate:cli` delegates
 here; the coverage gate is `npm run coverage` / `coverage:cli` (also in
 `npm run ci`), matching AGENTS.md.
 
-Tests run the CLI **in-process** (importing `runCli()` / `runMcp()`) so `src/`
-is measured under coverage, with a thin out-of-process spawn layer for the real
-binary. See [`__tests__/README.md`](./__tests__/README.md) for details.
+Tests run the CLI **in-process** (importing `runCli()`) so `src/` is measured
+under coverage, with a thin out-of-process spawn layer for the real binary. See
+[`__tests__/README.md`](./__tests__/README.md) for details.

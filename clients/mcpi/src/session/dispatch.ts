@@ -91,10 +91,14 @@ export function stripAt(name: string | undefined): string | undefined {
   return name.startsWith("@") ? name.slice(1) : name;
 }
 
-/** Non-TTY (CI/pipelines) must pass an explicit session for MRU-targeting ops. */
+/**
+ * Non-interactive runs must pass an explicit session for MRU-targeting ops.
+ * Key off stdin (not stdout) so piping output (`mcpi tools/list | jq`) still
+ * uses MRU when a human is at the keyboard.
+ */
 export function requireExplicitSession(): boolean {
   if (process.env.MCP_ALLOW_DEFAULT_SESSION === "1") return false;
-  return !process.stdout.isTTY;
+  return process.stdin.isTTY !== true;
 }
 
 /**

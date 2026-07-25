@@ -98,6 +98,20 @@ export async function callDaemon<T = unknown>(
       );
     });
 
+    // Clean FIN with no response must not sit until timeoutMs (mirrors
+    // streamDaemon's close guard).
+    socket.on("close", () => {
+      if (!settled) {
+        fail(
+          new CliExitCodeError(
+            EXIT_CODES.UNREACHABLE,
+            `Session daemon closed the connection during '${op}'`,
+            { code: "daemon_unreachable" },
+          ),
+        );
+      }
+    });
+
     timer = setTimeout(() => {
       fail(
         new CliExitCodeError(

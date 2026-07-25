@@ -512,6 +512,54 @@ describe("daemon coverage", () => {
     expect(idle).toBe(false);
   });
 
+  it("re-arms idle when createSessionClient fails before client.connect", async () => {
+    const registry = new SessionRegistry(5_000);
+    registry.setIdleHandler(() => {});
+    const prev = process.env.MCP_OAUTH_CALLBACK_URL;
+    process.env.MCP_OAUTH_CALLBACK_URL = "https://example.com/oauth/callback";
+    try {
+      await expect(
+        registry.connect({
+          name: "http",
+          serverConfig: {
+            type: "streamable-http",
+            url: "http://127.0.0.1:1/mcp",
+          },
+          serverIdentity: "http",
+        }),
+      ).rejects.toThrow(/http scheme|callback URL/i);
+      expect(registry.idleRemainingMs()).not.toBeNull();
+    } finally {
+      if (prev === undefined) delete process.env.MCP_OAUTH_CALLBACK_URL;
+      else process.env.MCP_OAUTH_CALLBACK_URL = prev;
+    }
+  });
+
+  it("callDaemon fails immediately when the peer closes without a response", async () => {
+    const d = freshDir();
+    const sock = path.join(d, "daemon.sock");
+    const peer = net.createServer((socket) => {
+      socket.on("error", () => {});
+      // Accept then FIN with no NDJSON reply.
+      socket.end();
+    });
+    await new Promise<void>((resolve) => peer.listen(sock, resolve));
+    try {
+      await expect(
+        callDaemon("ping", {}, { socketPath: sock, timeoutMs: 60_000 }),
+      ).rejects.toMatchObject({
+        envelope: { code: "daemon_unreachable" },
+      });
+    } finally {
+      peer.close();
+      try {
+        fs.unlinkSync(sock);
+      } catch {
+        // ignore
+      }
+    }
+  });
+
   it("sessions/use via handle and blank IPC lines", async () => {
     const d = freshDir();
     server = new DaemonServer({ dir: d, idleMs: 60_000 });

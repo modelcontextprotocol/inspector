@@ -80,3 +80,27 @@ export const SESSION_RPC_METHODS = [
 ] as const;
 
 export type SessionRpcMethod = (typeof SESSION_RPC_METHODS)[number];
+
+/**
+ * Methods accepted by one-shot `mcp-inspector --cli` (plus catalog-only
+ * `servers/list` / `servers/show`, handled before connect). Stream methods and
+ * session-only RPCs (`logging/tail`, `tasks/*`, …) are rejected so one-shot
+ * never hangs waiting for SIGINT.
+ */
+export const ONE_SHOT_METHODS = [
+  "initialize",
+  "tools/list",
+  "tools/call",
+  "resources/list",
+  "resources/read",
+  "resources/templates/list",
+  "prompts/list",
+  "prompts/get",
+  "logging/setLevel",
+] as const;
+
+export type OneShotMethod = (typeof ONE_SHOT_METHODS)[number];
+
+export function isOneShotMethod(method: string): method is OneShotMethod {
+  return (ONE_SHOT_METHODS as readonly string[]).includes(method);
+}

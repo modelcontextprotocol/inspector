@@ -128,6 +128,12 @@ export function sanitizeServerConfig(
   if ("env" in config && config.env) {
     out.env = redactStringRecord(config.env);
   }
+  if ("requestInit" in config && isPlainObject(config.requestInit)) {
+    out.requestInit = sanitizeInitRecord(config.requestInit);
+  }
+  if ("eventSourceInit" in config && isPlainObject(config.eventSourceInit)) {
+    out.eventSourceInit = sanitizeInitRecord(config.eventSourceInit);
+  }
   return out;
 }
 
@@ -143,7 +149,7 @@ export function sanitizeServerSettings(
     })),
     env: settings.env.map((e) => ({
       key: e.key,
-      value: e.key ? REDACTED : e.value,
+      value: REDACTED,
     })),
   };
   if (settings.oauthClientSecret !== undefined) {
@@ -156,6 +162,26 @@ function redactStringRecord(
   record: Record<string, string>,
 ): Record<string, string> {
   return Object.fromEntries(Object.keys(record).map((key) => [key, REDACTED]));
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+/** Redact sensitive header values inside requestInit / eventSourceInit. */
+function sanitizeInitRecord(
+  init: Record<string, unknown>,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...init };
+  if (isPlainObject(init.headers)) {
+    out.headers = Object.fromEntries(
+      Object.entries(init.headers).map(([key, value]) => [
+        key,
+        isSensitiveHeader(key) ? REDACTED : value,
+      ]),
+    );
+  }
+  return out;
 }
 
 function isSensitiveHeader(key: string): boolean {

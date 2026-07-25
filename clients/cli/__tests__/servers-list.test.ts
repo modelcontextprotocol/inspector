@@ -137,7 +137,7 @@ describe("showServerEntry / servers/show", () => {
     }
   });
 
-  it("redacts env values and sensitive settings fields", () => {
+  it("redacts env values, init headers, and sensitive settings fields", () => {
     expect(
       sanitizeServerConfig({
         type: "stdio",
@@ -150,13 +150,48 @@ describe("showServerEntry / servers/show", () => {
       env: { SECRET: "[redacted]", HELLO: "[redacted]" },
     });
 
+    expect(
+      sanitizeServerConfig({
+        type: "streamable-http",
+        url: "https://example.com/mcp",
+        requestInit: {
+          headers: {
+            Authorization: "Bearer secret",
+            "X-Custom": "ok",
+          },
+        },
+        eventSourceInit: {
+          headers: {
+            "X-Api-Key": "k",
+            Accept: "text/event-stream",
+          },
+        },
+      } as MCPServerConfig),
+    ).toMatchObject({
+      requestInit: {
+        headers: {
+          Authorization: "[redacted]",
+          "X-Custom": "ok",
+        },
+      },
+      eventSourceInit: {
+        headers: {
+          "X-Api-Key": "[redacted]",
+          Accept: "text/event-stream",
+        },
+      },
+    });
+
     const settings: InspectorServerSettings = {
       headers: [
         { key: "Authorization", value: "Bearer x" },
         { key: "X-Custom", value: "ok" },
       ],
       metadata: [],
-      env: [{ key: "TOKEN", value: "secret" }],
+      env: [
+        { key: "TOKEN", value: "secret" },
+        { key: "", value: "still-secret" },
+      ],
       connectionTimeout: 0,
       requestTimeout: 0,
       taskTtl: 60_000,
@@ -172,7 +207,10 @@ describe("showServerEntry / servers/show", () => {
       { key: "Authorization", value: "[redacted]" },
       { key: "X-Custom", value: "ok" },
     ]);
-    expect(sanitized.env).toEqual([{ key: "TOKEN", value: "[redacted]" }]);
+    expect(sanitized.env).toEqual([
+      { key: "TOKEN", value: "[redacted]" },
+      { key: "", value: "[redacted]" },
+    ]);
   });
 
   it("shows one resolved entry without connecting", async () => {

@@ -114,20 +114,38 @@ describe("hoistAtSession / stripAt / requireExplicitSession", () => {
     else process.env.MCP_ALLOW_DEFAULT_SESSION = prev;
   });
 
-  it("requireExplicitSession is false on a TTY when allow-default is unset", async () => {
+  it("requireExplicitSession keys off stdin TTY (piping stdout still OK)", async () => {
     const { requireExplicitSession } =
       await import("../src/session/dispatch.js");
     const prevEnv = process.env.MCP_ALLOW_DEFAULT_SESSION;
     delete process.env.MCP_ALLOW_DEFAULT_SESSION;
-    const desc = Object.getOwnPropertyDescriptor(process.stdout, "isTTY");
-    Object.defineProperty(process.stdout, "isTTY", {
-      configurable: true,
-      value: true,
-    });
+    const stdinDesc = Object.getOwnPropertyDescriptor(process.stdin, "isTTY");
+    const stdoutDesc = Object.getOwnPropertyDescriptor(process.stdout, "isTTY");
     try {
+      Object.defineProperty(process.stdin, "isTTY", {
+        configurable: true,
+        value: true,
+      });
+      Object.defineProperty(process.stdout, "isTTY", {
+        configurable: true,
+        value: false,
+      });
       expect(requireExplicitSession()).toBe(false);
+
+      Object.defineProperty(process.stdin, "isTTY", {
+        configurable: true,
+        value: false,
+      });
+      expect(requireExplicitSession()).toBe(true);
     } finally {
-      if (desc) Object.defineProperty(process.stdout, "isTTY", desc);
+      if (stdinDesc) Object.defineProperty(process.stdin, "isTTY", stdinDesc);
+      else
+        Object.defineProperty(process.stdin, "isTTY", {
+          configurable: true,
+          value: undefined,
+        });
+      if (stdoutDesc)
+        Object.defineProperty(process.stdout, "isTTY", stdoutDesc);
       else
         Object.defineProperty(process.stdout, "isTTY", {
           configurable: true,

@@ -171,52 +171,59 @@ export class SessionRegistry {
   }): Promise<SessionInfo> {
     this.clearIdleTimer();
 
-    if (this.sessions.has(params.name)) {
-      // Reconnect: tear down the previous client first.
-      await this.disconnect(params.name, false);
-    }
-
-    // Front-end authorize / auth/clear write oauth.json in another process.
-    // Drop the daemon's cached store so this connect re-reads disk.
-    resetNodeOAuthStorageCache();
-
-    const client = await createSessionClient(
-      params.serverConfig,
-      params.serverSettings,
-    );
-
     try {
-      await client.connect();
-    } catch (error) {
-      await safeDisconnect(client);
-      this.armIdleTimerIfEmpty();
-      if (isSessionAuthRequiredError(error)) {
-        throw new CliExitCodeError(
-          EXIT_CODES.AUTH_REQUIRED,
-          error instanceof Error ? error.message : String(error),
-          { code: "auth_required" },
-        );
+      if (this.sessions.has(params.name)) {
+        // Reconnect: tear down the previous client first.
+        await this.disconnect(params.name, false);
       }
+
+      // Front-end authorize / auth/clear write oauth.json in another process.
+      // Drop the daemon's cached store so this connect re-reads disk.
+      resetNodeOAuthStorageCache();
+
+      const client = await createSessionClient(
+        params.serverConfig,
+        params.serverSettings,
+      );
+
+      try {
+        await client.connect();
+      } catch (error) {
+        await safeDisconnect(client);
+        if (isSessionAuthRequiredError(error)) {
+          throw new CliExitCodeError(
+            EXIT_CODES.AUTH_REQUIRED,
+            error instanceof Error ? error.message : String(error),
+            { code: "auth_required" },
+          );
+        }
+        throw error;
+      }
+
+      const now = Date.now();
+      this.sessions.set(params.name, {
+        name: params.name,
+        serverIdentity: params.serverIdentity,
+        connectedAt: now,
+        lastAccessedAt: now,
+        client,
+      });
+      this.mruName = params.name;
+
+      return {
+        name: params.name,
+        serverIdentity: params.serverIdentity,
+        connectedAt: now,
+        lastAccessedAt: now,
+        isMru: true,
+      };
+    } catch (error) {
+      // Any failure after clearIdleTimer (createSessionClient, reconnect
+      // disconnect, client.connect, …) must re-arm so a session-less daemon
+      // still self-reaps.
+      this.armIdleTimerIfEmpty();
       throw error;
     }
-
-    const now = Date.now();
-    this.sessions.set(params.name, {
-      name: params.name,
-      serverIdentity: params.serverIdentity,
-      connectedAt: now,
-      lastAccessedAt: now,
-      client,
-    });
-    this.mruName = params.name;
-
-    return {
-      name: params.name,
-      serverIdentity: params.serverIdentity,
-      connectedAt: now,
-      lastAccessedAt: now,
-      isMru: true,
-    };
   }
 
   async disconnect(
