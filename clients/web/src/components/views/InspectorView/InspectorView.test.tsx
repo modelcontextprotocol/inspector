@@ -326,6 +326,53 @@ describe("InspectorView", () => {
     expect(screen.getByRole("switch")).toBeChecked();
   });
 
+  it("falls back to the catalog name in the header when the reported serverInfo name is empty (#1774)", () => {
+    // A non-conforming server reports serverInfo with an empty name string.
+    // `App`'s `??` fallback only fires when the whole object is absent, so the
+    // header would otherwise render a nameless title. The view degrades to the
+    // active server's catalog name ("Alpha") so the header still identifies the
+    // server. Scoped to the header (role="banner") to exclude the ServerCard,
+    // which shows the catalog name unconditionally.
+    renderWithMantine(
+      <StatefulInspectorViewHost
+        {...makeProps({
+          servers: [sampleServer],
+          activeServer: "alpha",
+          connectionStatus: "connected",
+          initializeResult: {
+            ...connectedInit,
+            serverInfo: { name: "", version: "1.0.0" },
+          },
+        })}
+      />,
+    );
+    expect(
+      within(screen.getByRole("banner")).getByText("Alpha"),
+    ).toBeInTheDocument();
+  });
+
+  it("renders the connected header without borrowing a name when the reported name is empty and no catalog entry matches (#1774)", () => {
+    // Empty reported name AND no catalog server to fall back to: the header
+    // still renders (connection is live) but has no name to show, rather than
+    // crashing or inventing a label. Exercises the no-catalog-match branch.
+    renderWithMantine(
+      <StatefulInspectorViewHost
+        {...makeProps({
+          servers: [],
+          activeServer: "ghost",
+          connectionStatus: "connected",
+          initializeResult: {
+            ...connectedInit,
+            serverInfo: { name: "", version: "1.0.0" },
+          },
+        })}
+      />,
+    );
+    const header = screen.getByRole("banner");
+    expect(header).toBeInTheDocument();
+    expect(within(header).queryByText("Alpha")).not.toBeInTheDocument();
+  });
+
   it("surfaces the negotiated protocol version on the active connected card", () => {
     renderWithMantine(
       <StatefulInspectorViewHost
