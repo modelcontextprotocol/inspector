@@ -1,5 +1,5 @@
 /// <reference types="vitest/config" />
-import { defineConfig } from 'vite';
+import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 
 // https://vite.dev/config/
@@ -10,6 +10,7 @@ import { playwright } from '@vitest/browser-playwright';
 import { honoMiddlewarePlugin } from './server/vite-hono-plugin';
 import { getViteBaseConfig, getViteDevOptimizeDeps } from './server/vite-base-config';
 import { buildWebServerConfigFromEnv } from './server/web-server-config';
+import { createBrowserExternalizedBuiltinGate } from './server/browser-externalized-builtin-gate';
 import { vitestSharedPaths } from '../../vitest.shared.mts';
 const dirname = typeof __dirname !== 'undefined' ? __dirname : path.dirname(fileURLToPath(import.meta.url));
 const { repoRoot, sharedDedupe, nodeModulesAliases, projectResolve, sharedAliases } =
@@ -26,6 +27,35 @@ const { repoRoot, sharedDedupe, nodeModulesAliases, projectResolve, sharedAliase
 // stray `.test.tsx` placed inside this folder would slip past the integration
 // include AND fail to be excluded from unit, silently landing under happy-dom.
 const integrationGlob = 'clients/web/src/test/integration/**/*.test.{ts,tsx}';
+
+// Fail `vite build` when a Node built-in lands in the browser bundle (#1769).
+// Vite 8 otherwise only *warns* and ships a `module.exports = {}` stub, so a
+// broken bundle builds green; the runtime browser smoke (`smoke:web:browser`,
+// #1615) only catches the subset where that stub is *called* at module init.
+// The detection + error logic lives in `browser-externalized-builtin-gate.ts`
+// (Vite-agnostic, unit-tested); this is only the Vite wiring.
+//
+// Throwing directly in `onLog` does NOT abort a rolldown build (it's the one
+// hook where a thrown error is swallowed — verified against vite@8.0.0), so the
+// gate *records* the warning in `onLog` and re-throws in `buildEnd`, which runs
+// after module resolution (by when the warning has fired) and where a throw
+// aborts the build with a non-zero exit. `apply: 'build'` scopes it to
+// `vite build` only — never `vite dev` or the vitest projects — and the Node
+// runner build (tsup, `build:runner`) uses a separate config where built-ins
+// are legitimate.
+function browserExternalizedBuiltinGate(): Plugin {
+  const gate = createBrowserExternalizedBuiltinGate();
+  return {
+    name: 'inspector:fail-on-browser-externalized-builtin',
+    apply: 'build',
+    onLog(_level, log) {
+      gate.recordLog(log.message);
+    },
+    buildEnd() {
+      gate.assertClean();
+    },
+  };
+}
 
 // More info at: https://storybook.js.org/docs/next/writing-tests/integrations/vitest-addon
 export default defineConfig(({ command }) => {
@@ -46,7 +76,13 @@ export default defineConfig(({ command }) => {
   // resolve it from core/, reviving the benign `UNRESOLVED_IMPORT` warnings
   // that #1491 eliminated at the source (by removing the old stream filter and
   // build-time onwarn suppressions rather than re-hiding the symptom).
-  plugins: [react(), honoMiddlewarePlugin(buildWebServerConfigFromEnv())],
+  // `browserExternalizedBuiltinGate` fails `vite build` if a Node built-in
+  // reaches the browser bundle (#1769) — see its definition above.
+  plugins: [
+    react(),
+    honoMiddlewarePlugin(buildWebServerConfigFromEnv()),
+    browserExternalizedBuiltinGate(),
+  ],
   // Shared optimizeDeps exclusions so node-only packages
   // (`@modelcontextprotocol/client/stdio`, `cross-spawn`, `which`)
   // consumed by the dev backend aren't scanned for browser pre-bundling.
