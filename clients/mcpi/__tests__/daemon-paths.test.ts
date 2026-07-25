@@ -10,7 +10,7 @@ import {
   getDaemonSocketPath,
   getInspectorHome,
 } from "../src/daemon/paths.js";
-import { writeFormattedResult } from "../src/handlers/format-output.js";
+import { writeFormattedResult } from "@inspector/cli/handlers/format-output.js";
 
 describe("daemon paths", () => {
   const backup: Record<string, string | undefined> = {};
@@ -81,8 +81,7 @@ describe("writeFormattedResult", () => {
     process.stdout.write = ((chunk: unknown, ...rest: unknown[]) => {
       out += String(chunk);
       const cb = rest.find((x) => typeof x === "function") as
-        | (() => void)
-        | undefined;
+        (() => void) | undefined;
       cb?.();
       return true;
     }) as typeof process.stdout.write;

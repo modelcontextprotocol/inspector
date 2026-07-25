@@ -1,4 +1,4 @@
-import type { OutputFormat } from "../handlers/format-output.js";
+import type { OutputFormat } from "./handlers/format-output.js";
 
 export type Style = {
   /** Whether ANSI styling is enabled. */

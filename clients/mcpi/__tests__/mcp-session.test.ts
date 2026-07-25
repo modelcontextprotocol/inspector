@@ -3,12 +3,12 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { runMcp } from "./helpers/mcp-runner.js";
-import { runCli } from "./helpers/cli-runner.js";
+import { runCli } from "../../cli/__tests__/helpers/cli-runner.js";
 import {
   createSampleTestConfig,
   deleteConfigFile,
-} from "./helpers/fixtures.js";
-import { expectCliSuccess } from "./helpers/assertions.js";
+} from "../../cli/__tests__/helpers/fixtures.js";
+import { expectCliSuccess } from "../../cli/__tests__/helpers/assertions.js";
 import { resolveDaemonScriptPath } from "../src/daemon/ensure.js";
 import { callDaemon } from "../src/daemon/client.js";
 

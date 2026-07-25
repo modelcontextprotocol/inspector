@@ -4,7 +4,7 @@ import type { MCPServerConfig } from "@inspector/core/mcp/types.js";
 const connectSpy = vi.fn();
 const disconnectSpy = vi.fn().mockResolvedValue(undefined);
 
-vi.mock("../src/cliOAuth.js", () => ({
+vi.mock("@inspector/cli/cliOAuth.js", () => ({
   connectInspectorWithOAuth: (...args: unknown[]) => connectSpy(...args),
 }));
 

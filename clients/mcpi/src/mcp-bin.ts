@@ -2,7 +2,7 @@
 
 import { resolve } from "path";
 import { fileURLToPath } from "url";
-import { handleError } from "./error-handler.js";
+import { handleError } from "@inspector/cli/error-handler.js";
 import { runMcp } from "./session/mcp.js";
 
 export { runMcp };

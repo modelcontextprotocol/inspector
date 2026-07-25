@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as net from "node:net";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import { CliExitCodeError, EXIT_CODES } from "../error-handler.js";
+import { CliExitCodeError, EXIT_CODES } from "@inspector/cli/error-handler.js";
 import { getDaemonTokenFromEnv } from "./auth.js";
 import { callDaemon } from "./client.js";
 import {
@@ -40,7 +40,7 @@ export function resolveDaemonScriptPath(): string {
      builds, and fs.existsSync cannot be spied in this ESM package under vitest. */
   throw new CliExitCodeError(
     EXIT_CODES.USAGE,
-    `Session daemon bundle not found (looked for daemon.js near ${here}). Run npm run build in clients/cli.`,
+    `Session daemon bundle not found (looked for daemon.js near ${here}). Run npm run build in clients/mcpi.`,
     { code: "daemon_not_built" },
   );
 }

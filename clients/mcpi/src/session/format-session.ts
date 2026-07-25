@@ -1,8 +1,8 @@
-import { awaitableLog } from "../utils/awaitable-log.js";
+import { awaitableLog } from "@inspector/cli/utils/awaitable-log.js";
 import type { SessionInfo } from "../daemon/protocol.js";
-import { CliExitCodeError, EXIT_CODES } from "../error-handler.js";
-import type { OutputFormat } from "../handlers/format-output.js";
-import type { CliAppInfo } from "../handlers/method-types.js";
+import { CliExitCodeError, EXIT_CODES } from "@inspector/cli/error-handler.js";
+import type { OutputFormat } from "@inspector/cli/handlers/format-output.js";
+import type { CliAppInfo } from "@inspector/cli/handlers/method-types.js";
 import {
   formatAppInfoHuman,
   formatAppInfoListHuman,
@@ -14,7 +14,7 @@ import {
   formatSessionsListHuman,
   formatStreamEventHuman,
 } from "./format-human.js";
-import { PLAIN, type Style } from "./style.js";
+import { PLAIN, type Style } from "@inspector/cli/style.js";
 
 type JsonObject = Record<string, unknown>;
 

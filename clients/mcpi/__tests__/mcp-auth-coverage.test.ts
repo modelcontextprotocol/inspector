@@ -2,8 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   createSampleTestConfig,
   deleteConfigFile,
-} from "./helpers/fixtures.js";
-import { CliExitCodeError, EXIT_CODES } from "../src/error-handler.js";
+} from "../../cli/__tests__/helpers/fixtures.js";
+import { CliExitCodeError, EXIT_CODES } from "@inspector/cli/error-handler.js";
 
 const callDaemon = vi.fn();
 const ensureDaemon = vi.fn();
@@ -32,15 +32,13 @@ describe("mcp.ts auth / daemon error paths", () => {
     process.stdout.write = ((chunk: unknown, ...rest: unknown[]) => {
       stdout += typeof chunk === "string" ? chunk : String(chunk);
       const cb = rest.find((r) => typeof r === "function") as
-        | (() => void)
-        | undefined;
+        (() => void) | undefined;
       cb?.();
       return true;
     }) as typeof process.stdout.write;
     process.stderr.write = ((chunk: unknown, ...rest: unknown[]) => {
       const cb = rest.find((r) => typeof r === "function") as
-        | (() => void)
-        | undefined;
+        (() => void) | undefined;
       cb?.();
       return true;
     }) as typeof process.stderr.write;

@@ -8,7 +8,7 @@ import {
   acceptDaemonConnection,
   removeStaleDaemonSocket,
 } from "../src/daemon/ipc-glue.js";
-import { CliExitCodeError, EXIT_CODES } from "../src/error-handler.js";
+import { CliExitCodeError, EXIT_CODES } from "@inspector/cli/error-handler.js";
 
 describe("streamDaemon + ipc-glue", () => {
   let dir: string | undefined;

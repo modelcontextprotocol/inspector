@@ -10,9 +10,12 @@ import {
   listStoredAuth,
   resolveStoredAuthKey,
 } from "../src/session/stored-auth.js";
-import { CliExitCodeError } from "../src/error-handler.js";
+import { CliExitCodeError } from "@inspector/cli/error-handler.js";
 import { runMcp } from "./helpers/mcp-runner.js";
-import { expectCliSuccess, expectCliFailure } from "./helpers/assertions.js";
+import {
+  expectCliSuccess,
+  expectCliFailure,
+} from "../../cli/__tests__/helpers/assertions.js";
 
 function writeOAuthFixture(dir: string): string {
   const file = path.join(dir, "oauth.json");

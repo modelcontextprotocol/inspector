@@ -19,8 +19,8 @@ import {
   type MCPServerConfig,
 } from "@inspector/core/mcp/types.js";
 import { readInspectorVersion } from "@inspector/core/node/version.js";
-import { createCliOAuthNavigation } from "../cli-oauth-navigation.js";
-import { connectInspectorWithOAuth } from "../cliOAuth.js";
+import { createCliOAuthNavigation } from "@inspector/cli/cli-oauth-navigation.js";
+import { connectInspectorWithOAuth } from "@inspector/cli/cliOAuth.js";
 
 /**
  * Run interactive (or stored-auth-only) OAuth in the front-end process so tokens

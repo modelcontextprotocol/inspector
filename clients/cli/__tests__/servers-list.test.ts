@@ -5,7 +5,6 @@ import {
   deleteConfigFile,
 } from "./helpers/fixtures.js";
 import { expectCliSuccess } from "./helpers/assertions.js";
-import { runMcp } from "./helpers/mcp-runner.js";
 import {
   annotateServerEntriesWithSessions,
   listServerEntries,
@@ -186,25 +185,6 @@ describe("showServerEntry / servers/show", () => {
       command: expect.any(String),
     });
     expect(entry.config.env).toEqual({ HELLO: "[redacted]" });
-  });
-
-  it("works via session mcpi servers/show", async () => {
-    configPath = createSampleTestConfig();
-    const result = await runMcp([
-      "servers/show",
-      "test-stdio",
-      "--config",
-      configPath,
-      "--format",
-      "json",
-    ]);
-    expectCliSuccess(result);
-    const body = JSON.parse(result.stdout) as {
-      name: string;
-      config: { env?: Record<string, string> };
-    };
-    expect(body.name).toBe("test-stdio");
-    expect(body.config.env?.HELLO).toBe("[redacted]");
   });
 
   it("works via one-shot --method servers/show --server", async () => {

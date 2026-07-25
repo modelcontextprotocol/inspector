@@ -8,13 +8,16 @@ import { DaemonServer } from "../src/daemon/server.js";
 import { callDaemon } from "../src/daemon/client.js";
 import { ensureDaemon, resolveDaemonScriptPath } from "../src/daemon/ensure.js";
 import { SessionRegistry } from "../src/daemon/sessions.js";
-import { CliExitCodeError } from "../src/error-handler.js";
+import { CliExitCodeError } from "@inspector/cli/error-handler.js";
 import { runMcp } from "./helpers/mcp-runner.js";
 import {
   createSampleTestConfig,
   deleteConfigFile,
-} from "./helpers/fixtures.js";
-import { expectCliSuccess, expectCliFailure } from "./helpers/assertions.js";
+} from "../../cli/__tests__/helpers/fixtures.js";
+import {
+  expectCliSuccess,
+  expectCliFailure,
+} from "../../cli/__tests__/helpers/assertions.js";
 
 describe("daemon coverage", () => {
   let server: DaemonServer | undefined;

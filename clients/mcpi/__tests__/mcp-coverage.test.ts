@@ -7,8 +7,11 @@ import { runMcp } from "./helpers/mcp-runner.js";
 import {
   createSampleTestConfig,
   deleteConfigFile,
-} from "./helpers/fixtures.js";
-import { expectCliSuccess, expectCliFailure } from "./helpers/assertions.js";
+} from "../../cli/__tests__/helpers/fixtures.js";
+import {
+  expectCliSuccess,
+  expectCliFailure,
+} from "../../cli/__tests__/helpers/assertions.js";
 import { resolveDaemonScriptPath } from "../src/daemon/ensure.js";
 import { callDaemon } from "../src/daemon/client.js";
 

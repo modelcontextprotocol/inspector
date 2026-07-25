@@ -25,7 +25,8 @@ v2 is **not** an npm workspace. Each client under `clients/*` keeps its own `pac
 inspector/
 ├── clients/
 │   ├── web/          # Web client (Vite + React + Mantine). src/ = browser app; server/ = Node dev/prod backend
-│   ├── cli/          # CLI client — one-shot (`cli.ts`) + session (`session/`, `daemon/`, `handlers/`)
+│   ├── cli/          # One-shot CLI (`cli.ts`, shared `handlers/` used by mcpi at build time)
+│   ├── mcpi/         # Session CLI (`mcpi` bin — `session/` + `daemon/`)
 │   ├── tui/          # TUI client (Ink + React, tsup bundle)
 │   └── launcher/     # Shared launcher — provides the `mcp-inspector` bin, dispatches to web/cli/tui
 ├── core/             # Shared code consumed via the `@inspector/core` alias (no package.json)
@@ -43,7 +44,7 @@ inspector/
 ```
 
 Each client has its own README with client-specific detail:
-[web](./clients/web/README.md) · [cli](./clients/cli/README.md) · [tui](./clients/tui/README.md) · [launcher](./clients/launcher/README.md).
+[web](./clients/web/README.md) · [cli](./clients/cli/README.md) · [mcpi](./clients/mcpi/README.md) · [tui](./clients/tui/README.md) · [launcher](./clients/launcher/README.md).
 
 Task-oriented guides live under [`docs/`](./docs) — see [Reviewing an MCP App](./docs/mcp-app-review.md), the CLI-first → one-shot-web recipe for automated App-tool review: `--app-info` probe → deep-link navigate → rendered widget, plus OAuth handoff and proxy support.
 
@@ -79,7 +80,7 @@ npm run web:dev    # web launcher in --dev mode (Vite)
 
 ![Shared code architecture: the four clients over the @inspector/core shared package](specification/diagrams/shared-code-architecture.png)
 
-`core/` holds the logic shared by all three clients so that web, CLI, and TUI behave identically. Its entry point is the **`InspectorClient`** class (`core/mcp/`), which owns the connection to an MCP server, the request/response lifecycle, and a set of state stores; `core/react/` exposes React hooks over those stores that both the web and TUI (Ink) React trees consume. OAuth (`core/auth/`) is factored into isomorphic logic plus browser/node/remote backends so the same flows work in the browser, in Node, and against a remote backend.
+`core/` holds the logic shared by the clients so that web, CLI, mcpi, and TUI behave identically. Its entry point is the **`InspectorClient`** class (`core/mcp/`), which owns the connection to an MCP server, the request/response lifecycle, and a set of state stores; `core/react/` exposes React hooks over those stores that both the web and TUI (Ink) React trees consume. OAuth (`core/auth/`) is factored into isomorphic logic plus browser/node/remote backends so the same flows work in the browser, in Node, and against a remote backend.
 
 `core/` intentionally has **no `package.json`** — it is not published on its own. Each client bundles it in via a `@inspector/core` alias:
 

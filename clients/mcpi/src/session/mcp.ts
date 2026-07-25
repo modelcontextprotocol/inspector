@@ -8,7 +8,7 @@ import {
 } from "@inspector/core/mcp/node/index.js";
 import { type LoggingLevel } from "@modelcontextprotocol/client";
 import { LoggingLevelSchema } from "@modelcontextprotocol/core";
-import { CliExitCodeError, EXIT_CODES } from "../error-handler.js";
+import { CliExitCodeError, EXIT_CODES } from "@inspector/cli/error-handler.js";
 import { callDaemon, ensureDaemon } from "../daemon/index.js";
 import type { SessionInfo } from "../daemon/protocol.js";
 import {
@@ -16,14 +16,14 @@ import {
   listServerEntries,
   showServerEntry,
   summarizeServerConfig,
-} from "../handlers/servers-list.js";
-import { type OutputFormat } from "../handlers/format-output.js";
+} from "@inspector/cli/handlers/servers-list.js";
+import { type OutputFormat } from "@inspector/cli/handlers/format-output.js";
 import {
   DEFAULT_CONNECT_TIMEOUT_MS,
   withConnectTimeout,
-} from "../handlers/connect-timeout.js";
-import type { MethodArgs } from "../handlers/method-types.js";
-import { SESSION_RPC_METHODS } from "../handlers/method-types.js";
+} from "@inspector/cli/handlers/connect-timeout.js";
+import type { MethodArgs } from "@inspector/cli/handlers/method-types.js";
+import { SESSION_RPC_METHODS } from "@inspector/cli/handlers/method-types.js";
 import { authorizeInFrontend } from "./authorize.js";
 import { resolveToolCallArgs } from "./parse-tool-args.js";
 import {
@@ -43,8 +43,8 @@ import {
   clearStoredAuthForRelogin,
   listStoredAuth,
 } from "./stored-auth.js";
-import { styleFromOpts } from "./style.js";
-import { awaitableLog } from "../utils/awaitable-log.js";
+import { styleFromOpts } from "@inspector/cli/style.js";
+import { awaitableLog } from "@inspector/cli/utils/awaitable-log.js";
 import { createInterface } from "node:readline/promises";
 
 function isDaemonUnreachable(error: unknown): boolean {

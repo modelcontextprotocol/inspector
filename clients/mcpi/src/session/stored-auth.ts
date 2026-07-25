@@ -5,7 +5,7 @@ import {
   NodeOAuthStorage,
   resetNodeOAuthStorageCache,
 } from "@inspector/core/auth/node/storage-node.js";
-import { CliExitCodeError, EXIT_CODES } from "../error-handler.js";
+import { CliExitCodeError, EXIT_CODES } from "@inspector/cli/error-handler.js";
 
 /** Same canonicalisation as one-shot `normalizeServerUrl` (avoid importing cli.ts). */
 function normalizeServerUrl(serverUrl: string): string {

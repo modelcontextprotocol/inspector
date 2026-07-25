@@ -12,9 +12,16 @@ import {
   DAEMON_TOKEN_ENV,
 } from "../src/daemon/paths.js";
 import { DaemonServer } from "../src/daemon/server.js";
-import { CliExitCodeError } from "../src/error-handler.js";
+import { CliExitCodeError } from "@inspector/cli/error-handler.js";
 import { runMcp } from "./helpers/mcp-runner.js";
-import { expectCliSuccess } from "./helpers/assertions.js";
+import {
+  expectCliSuccess,
+  expectCliFailure,
+} from "../../cli/__tests__/helpers/assertions.js";
+import {
+  createSampleTestConfig,
+  deleteConfigFile,
+} from "../../cli/__tests__/helpers/fixtures.js";
 import {
   createPrivateBinding,
   formatPrivateEnvExports,
@@ -131,6 +138,37 @@ describe("private daemon end-to-end", () => {
       { socketPath: server.socketPath, timeoutMs: 2000, token },
     );
     expect(pong.pong).toBe(true);
+  });
+
+  it("session front-end rethrows non-unreachable daemon errors", async () => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "mcp-priv-rethrow-"));
+    const token = "good-token";
+    server = new DaemonServer({ dir, idleMs: 0, requiredToken: token });
+    await server.start();
+
+    const env = {
+      MCP_STORAGE_DIR: dir,
+      [DAEMON_DIR_ENV]: dir,
+      [DAEMON_TOKEN_ENV]: "wrong-token",
+    };
+
+    const listed = await runMcp(["sessions/list"], { env });
+    expectCliFailure(listed);
+    expect(listed.stderr).toMatch(/authentication failed|daemon_auth_failed/i);
+
+    const status = await runMcp(["daemon", "status"], { env });
+    expectCliFailure(status);
+
+    const configPath = createSampleTestConfig();
+    try {
+      const servers = await runMcp(["servers/list", "--config", configPath], {
+        env,
+      });
+      // Optional daemon probe must not swallow auth failures as empty sessions.
+      expectCliFailure(servers);
+    } finally {
+      deleteConfigFile(configPath);
+    }
   });
 
   it("ensureDaemon spawns a token-gated daemon from env", async () => {

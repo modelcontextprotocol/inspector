@@ -23,7 +23,8 @@ import {
   formatRpcResultHuman,
 } from "../src/session/format-human.js";
 import { writeSessionOutput } from "../src/session/format-session.js";
-import { CliExitCodeError, EXIT_CODES } from "../src/error-handler.js";
+import { CliExitCodeError, EXIT_CODES } from "@inspector/cli/error-handler.js";
+import { createStyle } from "@inspector/cli/style.js";
 
 describe("format-human", () => {
   it("formats tools with schema variants and empty list", () => {
@@ -464,8 +465,7 @@ describe("writeSessionOutput", () => {
     process.stdout.write = ((chunk: unknown, ...rest: unknown[]) => {
       stdout += typeof chunk === "string" ? chunk : String(chunk);
       const cb = rest.find((r) => typeof r === "function") as
-        | (() => void)
-        | undefined;
+        (() => void) | undefined;
       cb?.();
       return true;
     }) as typeof process.stdout.write;
@@ -661,5 +661,39 @@ describe("writeSessionOutput", () => {
       },
     );
     expect(stdout).toContain("Disconnected `@z`");
+  });
+});
+
+describe("format-human ANSI styling", () => {
+  it("styles human tool lists and log levels when enabled", () => {
+    const s = createStyle(true);
+    const tools = formatToolsHuman(
+      [
+        {
+          name: "echo",
+          description: "hi",
+          inputSchema: {
+            type: "object",
+            properties: { message: { type: "string" } },
+            required: ["message"],
+          },
+        },
+      ],
+      s,
+    );
+    expect(tools).toContain("\u001b[1m"); // bold name
+    expect(tools).toContain("\u001b[36m"); // cyan params
+    expect(tools).toContain("\u001b[2m"); // dim description
+    expect(tools).toContain("echo");
+
+    const log = formatStreamEventHuman(
+      {
+        direction: "notification",
+        message: { params: { level: "error", data: "boom" } },
+      },
+      s,
+    );
+    expect(log).toContain("\u001b[31m");
+    expect(log).toContain("boom");
   });
 });

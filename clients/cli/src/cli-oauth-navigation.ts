@@ -1,6 +1,6 @@
 import { CallbackNavigation } from "@inspector/core/auth/index.js";
 import { openUrl } from "./open-url.js";
-import { createStyle, resolveAnsiEnabled } from "./session/style.js";
+import { createStyle, resolveAnsiEnabled } from "./style.js";
 
 export type CliOAuthNavigationOptions = {
   /** Override TTY detection (tests). Defaults to stderr.isTTY. */

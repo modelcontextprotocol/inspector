@@ -6,7 +6,7 @@
 
 Documentation of the session-oriented Inspector CLI (`mcpi`) and how it relates to the frozen one-shot path (`mcp-inspector --cli`). Tracked by [#1432](https://github.com/modelcontextprotocol/inspector/issues/1432).
 
-**Related:** [CLI, TUI, and Launcher](v2_cli_tui_launcher.md), [Catalog and Launch Configuration](v2_catalog_launch_config.md), [Storage](v2_storage.md), [Auth](v2_auth.md), [`clients/cli/README.md`](../clients/cli/README.md) (end-user reference).
+**Related:** [CLI, TUI, and Launcher](v2_cli_tui_launcher.md), [Catalog and Launch Configuration](v2_catalog_launch_config.md), [Storage](v2_storage.md), [Auth](v2_auth.md), [`clients/mcpi/README.md`](../clients/mcpi/README.md) (session end-user reference), [`clients/cli/README.md`](../clients/cli/README.md) (one-shot).
 
 ---
 
@@ -17,9 +17,9 @@ Documentation of the session-oriented Inspector CLI (`mcpi`) and how it relates 
 | Entrypoint | `mcp-inspector --cli` | `mcpi` |
 | Lifecycle | Connect → one `--method` → disconnect | Connect once → many subcommands → disconnect |
 | Process | In-process only | Short-lived front-end + implicit session daemon (IPC) |
-| Package | `clients/cli` (shared with session) | Same; root `bin.mcpi` → `clients/cli/build/mcp-bin.js` |
+| Package | `clients/cli` | `clients/mcpi`; root `bin.mcpi` → `clients/mcpi/build/mcp-bin.js` |
 
-Both use `@inspector/core` `InspectorClient` and shared `handlers/run-method.ts`. One-shot never starts the daemon. `mcpi` does not accept `--method`.
+Both use `@inspector/core` `InspectorClient` and shared `clients/cli/src/handlers/run-method.ts` (mcpi reaches in via a temporary `@inspector/cli` build alias). One-shot never starts the daemon. `mcpi` does not accept `--method`.
 
 ```bash
 mcpi servers/list --config mcp.json
@@ -48,20 +48,21 @@ mcpi tools/list
 | Piece | Location |
 | --- | --- |
 | One-shot | `clients/cli/src/cli.ts`, `cliOAuth.ts`, `index.ts` |
-| Session front-end | `clients/cli/src/session/` (`mcp.ts`, `dispatch.ts`, `authorize.ts`, `format-*.ts`, `private-env.ts`, `mcp-bin.ts`) |
-| Daemon | `clients/cli/src/daemon/` |
+| Session front-end | `clients/mcpi/src/session/` (`mcp.ts`, `dispatch.ts`, `authorize.ts`, `format-*.ts`, `private-env.ts`) + `mcp-bin.ts` |
+| Daemon | `clients/mcpi/src/daemon/` → `clients/mcpi/build/daemon.js` |
 | Shared handlers | `clients/cli/src/handlers/` (`run-method.ts`, `method-types.ts`, `servers-list.ts`, `emit-result.ts`, …) |
 
 ```
 mcp-inspector --cli …          mcpi …
         │                        │
         ▼                        ▼
+  clients/cli              clients/mcpi
      cli.ts                 session/mcp.ts
         │                        │ NDJSON IPC
         │                   daemon (build/daemon.js)
         └──────────┬─────────────┘
                    ▼
-         handlers/run-method.ts → InspectorClient
+    clients/cli handlers/run-method.ts → InspectorClient
 ```
 
 ### One-shot (`mcp-inspector --cli`)

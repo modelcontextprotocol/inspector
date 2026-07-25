@@ -1,18 +1,16 @@
 {
-  "name": "@modelcontextprotocol/inspector-cli",
+  "name": "@modelcontextprotocol/mcpi",
   "private": true,
-  "description": "CLI for the Model Context Protocol inspector",
+  "description": "Session-oriented MCP Inspector CLI (mcpi) — connect once, run many commands",
   "license": "MIT",
   "type": "module",
-  "main": "build/index.js",
-  "exports": {
-    ".": "./build/index.js"
-  },
+  "main": "build/mcp-bin.js",
   "bin": {
-    "mcp-inspector-cli": "./build/index.js"
+    "mcpi": "./build/mcp-bin.js"
   },
   "files": [
-    "build"
+    "build",
+    "README.md"
   ],
   "scripts": {
     "build": "tsup",
@@ -21,10 +19,6 @@
     "test:watch": "vitest",
     "test:coverage": "npm run test-servers:build && npm run build && vitest run --coverage",
     "test-servers:build": "tsc -p ../../test-servers --noCheck",
-    "test:cli": "vitest run cli.test.ts",
-    "test:cli-tools": "vitest run tools.test.ts",
-    "test:cli-headers": "vitest run headers.test.ts",
-    "test:cli-metadata": "vitest run metadata.test.ts",
     "pretest": "npm run test-servers:build && npm run build",
     "lint": "eslint .",
     "format": "prettier --write src __tests__",

@@ -4,9 +4,9 @@ import {
   classifyError,
   CliExitCodeError,
   EXIT_CODES,
-} from "../error-handler.js";
-import { runMethod } from "../handlers/run-method.js";
-import type { MethodArgs } from "../handlers/method-types.js";
+} from "@inspector/cli/error-handler.js";
+import { runMethod } from "@inspector/cli/handlers/run-method.js";
+import type { MethodArgs } from "@inspector/cli/handlers/method-types.js";
 import {
   acceptDaemonConnection,
   removeStaleDaemonSocket,

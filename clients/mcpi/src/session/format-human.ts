@@ -3,7 +3,7 @@
  * Styling (color / bold / dim / OSC 8 links) is parameterized via {@link Style}.
  */
 
-import { PLAIN, type Style } from "./style.js";
+import { PLAIN, type Style } from "@inspector/cli/style.js";
 
 type JsonObject = Record<string, unknown>;
 

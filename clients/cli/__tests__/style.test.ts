@@ -4,11 +4,7 @@ import {
   resolveAnsiEnabled,
   styleFromOpts,
   PLAIN,
-} from "../src/session/style.js";
-import {
-  formatToolsHuman,
-  formatStreamEventHuman,
-} from "../src/session/format-human.js";
+} from "../src/style.js";
 
 describe("resolveAnsiEnabled", () => {
   it("is off for --plain, json, NO_COLOR, and non-TTY", () => {
@@ -40,37 +36,5 @@ describe("createStyle", () => {
     );
     expect(s.link("https://example.com", "ex")).toContain("ex");
     expect(s.link("", "ex")).toBe("ex");
-  });
-
-  it("styles human tool lists and log levels when enabled", () => {
-    const s = createStyle(true);
-    const tools = formatToolsHuman(
-      [
-        {
-          name: "echo",
-          description: "hi",
-          inputSchema: {
-            type: "object",
-            properties: { message: { type: "string" } },
-            required: ["message"],
-          },
-        },
-      ],
-      s,
-    );
-    expect(tools).toContain("\u001b[1m"); // bold name
-    expect(tools).toContain("\u001b[36m"); // cyan params
-    expect(tools).toContain("\u001b[2m"); // dim description
-    expect(tools).toContain("echo");
-
-    const log = formatStreamEventHuman(
-      {
-        direction: "notification",
-        message: { params: { level: "error", data: "boom" } },
-      },
-      s,
-    );
-    expect(log).toContain("\u001b[31m");
-    expect(log).toContain("boom");
   });
 });

@@ -27,7 +27,7 @@ import {
   AuthRecoveryRequiredError,
   isUnauthorizedError,
 } from "@inspector/core/auth/index.js";
-import { CliExitCodeError, EXIT_CODES } from "../error-handler.js";
+import { CliExitCodeError, EXIT_CODES } from "@inspector/cli/error-handler.js";
 import type { SessionInfo } from "./protocol.js";
 
 const SESSION_CLIENT_NAME = "inspector-cli";

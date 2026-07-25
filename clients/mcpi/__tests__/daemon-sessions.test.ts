@@ -11,7 +11,7 @@ import {
   isSessionAuthRequiredError,
   SessionRegistry,
 } from "../src/daemon/sessions.js";
-import { CliExitCodeError } from "../src/error-handler.js";
+import { CliExitCodeError } from "@inspector/cli/error-handler.js";
 import { AuthRecoveryRequiredError } from "@inspector/core/auth/challenge.js";
 
 describe("daemon framing", () => {

@@ -1,5 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
-import { CliExitCodeError, EXIT_CODES } from "../error-handler.js";
+import { CliExitCodeError, EXIT_CODES } from "@inspector/cli/error-handler.js";
 import { DAEMON_TOKEN_ENV } from "./paths.js";
 
 /**

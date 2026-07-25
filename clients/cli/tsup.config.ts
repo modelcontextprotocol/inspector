@@ -8,8 +8,6 @@ const repoRoot = path.resolve(dirname, '../..');
 export default defineConfig({
   entry: {
     index: 'src/index.ts',
-    'mcp-bin': 'src/mcp-bin.ts',
-    daemon: 'src/daemon/run.ts',
   },
   format: ['esm'],
   outDir: 'build',

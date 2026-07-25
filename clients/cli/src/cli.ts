@@ -13,7 +13,7 @@ import {
 } from "./handlers/connect-timeout.js";
 import { listServerEntries, showServerEntry } from "./handlers/servers-list.js";
 import { writeFormattedResult } from "./handlers/format-output.js";
-import { clearStoredAuthForRelogin } from "./session/stored-auth.js";
+import { clearStoredAuthForRelogin } from "./clear-stored-auth-for-relogin.js";
 import { InspectorClient } from "@inspector/core/mcp/index.js";
 import {
   createTransportNode,

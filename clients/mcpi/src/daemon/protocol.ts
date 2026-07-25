@@ -2,7 +2,10 @@ import type {
   InspectorServerSettings,
   MCPServerConfig,
 } from "@inspector/core/mcp/types.js";
-import type { CliAppInfo, MethodArgs } from "../handlers/method-types.js";
+import type {
+  CliAppInfo,
+  MethodArgs,
+} from "@inspector/cli/handlers/method-types.js";
 
 /** Operations the session daemon accepts over IPC. */
 export type DaemonOp =
@@ -50,10 +53,7 @@ export type DaemonRequest = {
    */
   token?: string;
   params?:
-    | ConnectParams
-    | SessionNameParams
-    | RpcParams
-    | Record<string, never>;
+    ConnectParams | SessionNameParams | RpcParams | Record<string, never>;
 };
 
 export type DaemonErrorBody = {
@@ -69,8 +69,7 @@ export type DaemonResponse =
 
 /** Frames after the initial ok response on a `stream` connection. */
 export type DaemonStreamFrame =
-  | { id: string; stream: "data"; data: unknown }
-  | { id: string; stream: "end" };
+  { id: string; stream: "data"; data: unknown } | { id: string; stream: "end" };
 
 export type SessionInfo = {
   name: string;

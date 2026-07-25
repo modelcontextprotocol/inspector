@@ -1,9 +1,12 @@
 import { callDaemon, ensureDaemon, streamDaemon } from "../daemon/index.js";
 import type { RpcParams, RpcResult } from "../daemon/protocol.js";
-import type { CliAppInfo, MethodArgs } from "../handlers/method-types.js";
-import type { OutputFormat } from "../handlers/format-output.js";
+import type {
+  CliAppInfo,
+  MethodArgs,
+} from "@inspector/cli/handlers/method-types.js";
+import type { OutputFormat } from "@inspector/cli/handlers/format-output.js";
 import { writeSessionOutput } from "./format-session.js";
-import { styleFromOpts } from "./style.js";
+import { styleFromOpts } from "@inspector/cli/style.js";
 
 const STREAM_METHODS = new Set(["logging/tail", "resources/subscribe"]);
 
