@@ -187,7 +187,7 @@ function resolveHeaderServerInfo(
   servers: ServerEntry[],
   activeServerId: string | undefined,
 ): Implementation {
-  if (serverInfo.name.trim()) return serverInfo;
+  if (serverInfo.name?.trim()) return serverInfo;
   const catalogName = servers.find((s) => s.id === activeServerId)?.name;
   return catalogName ? { ...serverInfo, name: catalogName } : serverInfo;
 }

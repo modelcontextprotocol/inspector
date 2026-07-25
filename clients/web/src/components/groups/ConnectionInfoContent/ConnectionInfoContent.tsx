@@ -206,14 +206,20 @@ export function ConnectionInfoContent({
     initializeResult;
 
   // Only trust `serverInfo` when the server actually reported it; otherwise the
-  // name is a catalog fallback. Both rows use `||` (not `??`) so a reported-but-
-  // empty name/version reads as unknown ("—") rather than a blank row —
-  // `initialize` mandates the fields, not non-empty values.
+  // name is a catalog fallback. Both rows `?.trim()` before the `||` (not `??`)
+  // so a reported-but-blank name/version — empty, whitespace-only ("   "), or a
+  // non-conforming runtime-absent field — reads as unknown ("—") rather than a
+  // blank row. The optional chain preserves the prior tolerance of a missing
+  // field (the field is typed non-null, but a non-conforming server can omit
+  // it); whitespace-only is the same class InspectorView's
+  // `resolveHeaderServerInfo` handles for the header (#1774). `initialize`
+  // mandates the fields, not non-empty values. Stays faithful: the fallback is
+  // "—", never a borrowed catalog name.
   const displayName = serverInfoReported
-    ? serverInfo.name || "—"
+    ? serverInfo.name?.trim() || "—"
     : SERVER_INFO_NOT_REPORTED_LABEL;
   const displayVersion = serverInfoReported
-    ? serverInfo.version || "—"
+    ? serverInfo.version?.trim() || "—"
     : SERVER_INFO_NOT_REPORTED_LABEL;
 
   const serverCaps = getCapabilityEntries(capabilities, SERVER_CAPABILITY_KEYS);
