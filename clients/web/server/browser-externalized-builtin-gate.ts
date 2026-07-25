@@ -30,10 +30,12 @@
 export const BROWSER_EXTERNALIZED_BUILTIN_PHRASE =
   "has been externalized for browser compatibility";
 
-/** True for a build log announcing a browser-externalized Node built-in. */
+// True for a build log announcing a browser-externalized Node built-in. Typed
+// as a `message is string` guard: a match implies a defined string, so callers
+// can add it to a `Set<string>` without a separate `undefined` check.
 export function isBrowserExternalizedBuiltinLog(
   message: string | undefined,
-): boolean {
+): message is string {
   return message?.includes(BROWSER_EXTERNALIZED_BUILTIN_PHRASE) ?? false;
 }
 
@@ -48,7 +50,10 @@ export function browserExternalizedBuiltinError(messages: string[]): Error {
     "Build failed (#1769): a Node built-in reached the browser bundle and was " +
       "externalized to an empty stub, which ships a broken bundle. Remove the " +
       "node:* / Node built-in import(s) from the browser graph (or gate them " +
-      "behind the Node-only dev backend).\n\nOriginal Vite warning(s):\n" +
+      "behind the Node-only dev backend). If an import comes from a dependency " +
+      "(not first-party code — see the module path in the warning below), add a " +
+      "`resolve.alias` in clients/web/vite.config.ts pointing it at a browser " +
+      "shim.\n\nOriginal Vite warning(s):\n" +
       list,
   );
 }
@@ -74,7 +79,7 @@ export function createBrowserExternalizedBuiltinGate(): BrowserExternalizedBuilt
   const externalized = new Set<string>();
   return {
     recordLog(message) {
-      if (message !== undefined && isBrowserExternalizedBuiltinLog(message)) {
+      if (isBrowserExternalizedBuiltinLog(message)) {
         externalized.add(message);
       }
     },

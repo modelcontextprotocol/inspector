@@ -14,6 +14,16 @@
  * This temporarily injects a `node:fs` import into the browser entry
  * (src/main.tsx), runs `vite build`, and asserts the build FAILS with the #1769
  * error, then restores the entry. Run from `npm run ci`.
+ *
+ * Why the REAL config + entry (and not a fast throwaway temp entry / generated
+ * config): building the actual `clients/web` config is what catches config-level
+ * regressions — the plugin being deleted from the `plugins` array, or a
+ * `build.rollupOptions.onwarn` suppression added above it. A temp config would
+ * keep passing through all of those, degrading this from "the gate works in this
+ * repo" to "the gate's string still matches the live Vite." That fidelity is the
+ * point, and it's why this accepts a full (~minute) app build and a
+ * source-mutation-with-restore rather than something cheaper. Do NOT "optimize"
+ * it into a temp entry — that silently loses the config-regression coverage.
  */
 
 import { spawnSync } from "node:child_process";
@@ -23,6 +33,8 @@ import { fileURLToPath } from "node:url";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const webDir = path.join(repoRoot, "clients/web");
+// Hardcoded browser entry. If it's ever renamed, the guarded read below fails
+// with an actionable message rather than a raw ENOENT stack.
 const entryPath = path.join(webDir, "src/main.tsx");
 
 // A namespace import + guarded use so the built-in isn't tree-shaken before Vite
@@ -35,19 +47,28 @@ const PROBE =
   '\nimport * as __nodeBuiltinProbe from "node:fs";\n' +
   "if (globalThis.__never__) console.log(__nodeBuiltinProbe);\n";
 
-const original = readFileSync(entryPath, "utf8");
+function fail(message, detail) {
+  console.error(`verify:build-gate FAILED — ${message}`);
+  if (detail) console.error(detail);
+  process.exit(1);
+}
+
+let original;
+try {
+  original = readFileSync(entryPath, "utf8");
+} catch (err) {
+  fail(
+    `could not read the browser entry ${path.relative(repoRoot, entryPath)} ` +
+      `(${err.message}) — if it was renamed, update entryPath in this script`,
+  );
+}
+
 let restored = false;
 
 function restoreEntry() {
   if (restored) return;
   writeFileSync(entryPath, original);
   restored = true;
-}
-
-function fail(message, detail) {
-  console.error(`verify:build-gate FAILED — ${message}`);
-  if (detail) console.error(detail);
-  process.exit(1);
 }
 
 // A `finally` doesn't run on Ctrl-C during the multi-minute build; restore the
@@ -83,10 +104,16 @@ try {
   restoreEntry();
 }
 
-// Guard against a botched restore leaving the tree dirty.
+// Guard against a botched restore leaving the tree dirty. Write the captured
+// original to a sidecar `.bak` and point there — NOT `git checkout --`, which
+// would also discard any uncommitted edits the developer had in the entry.
 if (readFileSync(entryPath, "utf8") !== original) {
+  const backupPath = `${entryPath}.verify-build-gate.bak`;
+  writeFileSync(backupPath, original);
   fail(
-    `failed to restore ${entryPath} — run 'git checkout -- ${path.relative(repoRoot, entryPath)}'`,
+    `failed to restore ${path.relative(repoRoot, entryPath)} — its pre-run ` +
+      `contents were saved to ${path.relative(repoRoot, backupPath)}; restore ` +
+      `from there (it preserves any uncommitted edits, unlike 'git checkout --')`,
   );
 }
 
