@@ -77,8 +77,10 @@ export function useInitialConfig(
   const [writable, setWritable] = useState<boolean>(true);
   const [loading, setLoading] = useState<boolean>(true);
 
-  // `isCancelled` lets the effect drop a response that resolves after unmount,
-  // avoiding a setState on a dead component (React 18 warns, doesn't throw).
+  // `isCancelled` lets the effect drop a response that resolves after unmount or
+  // after a re-run (baseUrl/authToken change), so a stale payload can't overwrite
+  // current state. React 18 no longer warns on setState-after-unmount — it's a
+  // silent no-op — so the guard is about correctness, not the warning.
   const load = useCallback(
     async (isCancelled: () => boolean): Promise<void> => {
       const headers: Record<string, string> = {};

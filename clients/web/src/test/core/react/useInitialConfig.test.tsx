@@ -109,24 +109,24 @@ describe("useInitialConfig", () => {
     expect(result.current.sandboxUrl).toBeUndefined();
   });
 
-  it("keeps writable true for any non-false value", async () => {
-    // Only an explicit `false` flips the list read-only. A nonconforming backend
-    // could send a falsy-but-not-false value (null / 0 / a string); each is
-    // `!== false`, so each must leave the list writable.
-    for (const value of [null, 0, "no"]) {
+  // Only an explicit `false` flips the list read-only. A nonconforming backend
+  // could send a falsy-but-not-false value (null / 0 / a string); each is
+  // `!== false`, so each must leave the list writable.
+  it.each([null, 0, "no"])(
+    "keeps writable true for writable=%p (falsy but not false)",
+    async (value) => {
       const fetchFn = vi
         .fn()
         .mockResolvedValue(jsonResponse({ writable: value }));
 
-      const { result, unmount } = renderHook(() =>
+      const { result } = renderHook(() =>
         useInitialConfig({ baseUrl: "http://test.local", fetchFn }),
       );
 
       await waitFor(() => expect(result.current.loading).toBe(false));
       expect(result.current.writable).toBe(true);
-      unmount();
-    }
-  });
+    },
+  );
 
   it("applies defaults on a non-ok response", async () => {
     const fetchFn = vi
