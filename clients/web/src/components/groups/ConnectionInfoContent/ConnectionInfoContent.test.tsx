@@ -96,6 +96,24 @@ describe("ConnectionInfoContent", () => {
     expect(screen.getAllByText("—")).toHaveLength(3);
   });
 
+  it("renders an em-dash when the reported name is missing", () => {
+    renderWithMantine(
+      <ConnectionInfoContent
+        initializeResult={{
+          ...fullResult,
+          // Non-conforming server: `name` is runtime-absent (the field is typed
+          // non-null). Pins the `?.trim()` tolerance — symmetric with the
+          // "version is missing" test above — so it reads "—", not a crash.
+          serverInfo: { version: "1.0.0" } as never,
+        }}
+        clientCapabilities={fullClientCaps}
+        transport="stdio"
+      />,
+    );
+    expect(screen.getByText("1.0.0")).toBeInTheDocument();
+    expect(screen.getAllByText("—")).toHaveLength(3);
+  });
+
   it("renders an em-dash when the reported name is whitespace-only", () => {
     renderWithMantine(
       <ConnectionInfoContent

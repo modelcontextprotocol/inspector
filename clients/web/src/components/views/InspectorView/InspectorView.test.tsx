@@ -351,6 +351,28 @@ describe("InspectorView", () => {
     ).toBeInTheDocument();
   });
 
+  it("falls back to the catalog name in the header when the reported serverInfo name is missing (#1774)", () => {
+    // Non-conforming server: `serverInfo` omits `name` entirely (the field is
+    // typed non-null). Pins the `?.trim()` tolerance in resolveHeaderServerInfo
+    // — a runtime-absent name degrades to the catalog name, it doesn't throw.
+    renderWithMantine(
+      <StatefulInspectorViewHost
+        {...makeProps({
+          servers: [sampleServer],
+          activeServer: "alpha",
+          connectionStatus: "connected",
+          initializeResult: {
+            ...connectedInit,
+            serverInfo: { version: "1.0.0" } as never,
+          },
+        })}
+      />,
+    );
+    expect(
+      within(screen.getByRole("banner")).getByText("Alpha"),
+    ).toBeInTheDocument();
+  });
+
   it("falls back to the catalog name in the header when the reported serverInfo name is whitespace-only (#1774)", () => {
     // A whitespace-only reported name ("   ") is the same non-conforming class
     // as an empty string — truthy, so a naive `if (serverInfo.name)` guard would
