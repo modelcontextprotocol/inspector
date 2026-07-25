@@ -199,9 +199,12 @@ export function ConnectionInfoContent({
     initializeResult;
 
   // Only trust `serverInfo` when the server actually reported it; otherwise the
-  // name is a catalog fallback. Version uses `||` (not `??`) so a reported-but-
-  // empty version also reads as unknown rather than a blank row.
-  const displayName = serverInfoReported ? serverInfo.name : NOT_REPORTED;
+  // name is a catalog fallback. Both rows use `||` (not `??`) so a reported-but-
+  // empty name/version reads as unknown ("—") rather than a blank row —
+  // `initialize` mandates the fields, not non-empty values.
+  const displayName = serverInfoReported
+    ? serverInfo.name || "—"
+    : NOT_REPORTED;
   const displayVersion = serverInfoReported
     ? serverInfo.version || "—"
     : NOT_REPORTED;

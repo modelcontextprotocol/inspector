@@ -362,6 +362,7 @@ vi.mock("./components/views/InspectorView/InspectorView", () => ({
     erroredServerId?: string;
     initializeResult?: { serverInfo: { name: string; version: string } };
     onActiveTabChange: (tab: string) => void;
+    onConnectionInfo: () => void;
     onToggleConnection: (id: string) => void;
     onToolsUiChange: (next: {
       selectedToolName?: string;
@@ -440,6 +441,9 @@ vi.mock("./components/views/InspectorView/InspectorView", () => ({
         switch-servers-tab
       </button>
       <button onClick={() => props.onToggleConnection("A")}>connect</button>
+      <button onClick={() => props.onConnectionInfo()}>
+        open-connection-info
+      </button>
       <button
         onClick={() =>
           props.onToolsUiChange({
@@ -681,6 +685,38 @@ describe("App initializeResult when connected without serverInfo (#1772)", () =>
     expect(screen.getByTestId("init-result")).toHaveTextContent(
       "name:real-server",
     );
+  });
+
+  // Pins the App → ConnectionInfoModal wiring of `serverInfoReported`: without
+  // this, hard-coding it to `true` would keep the suite green and silently
+  // reintroduce the fidelity bug.
+  it("passes serverInfoReported=false to the modal, which shows 'not reported' (serverInfo omitted)", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(<App />);
+    await user.click(screen.getByText("connect")); // active server = A
+    await user.click(screen.getByText("open-connection-info"));
+    await waitFor(() =>
+      expect(screen.getAllByText("— (not reported by server)")).toHaveLength(2),
+    );
+    // The synthesized catalog name is not presented as the server's report.
+    expect(screen.queryByText("PlotRocket")).not.toBeInTheDocument();
+  });
+
+  it("passes serverInfoReported=true to the modal, which shows the reported name", async () => {
+    vi.mocked(useInspectorClient).mockReturnValue({
+      ...DEFAULT_USE_INSPECTOR_CLIENT,
+      serverInfo: { name: "real-server", version: "2.0.0" },
+    });
+    const user = userEvent.setup();
+    renderWithMantine(<App />);
+    await user.click(screen.getByText("connect"));
+    await user.click(screen.getByText("open-connection-info"));
+    await waitFor(() =>
+      expect(screen.getByText("real-server")).toBeInTheDocument(),
+    );
+    expect(
+      screen.queryByText("— (not reported by server)"),
+    ).not.toBeInTheDocument();
   });
 });
 

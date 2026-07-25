@@ -78,6 +78,23 @@ describe("ConnectionInfoContent", () => {
     expect(screen.getAllByText("—")).toHaveLength(3);
   });
 
+  it("renders an em-dash when the reported name is an empty string", () => {
+    renderWithMantine(
+      <ConnectionInfoContent
+        initializeResult={{
+          ...fullResult,
+          serverInfo: { name: "", version: "1.0.0" },
+        }}
+        clientCapabilities={fullClientCaps}
+        transport="stdio"
+      />,
+    );
+    // `initialize` mandates the name field, not a non-empty value, so an empty
+    // reported name also reads as unknown ("—") — symmetric with version.
+    expect(screen.getByText("1.0.0")).toBeInTheDocument();
+    expect(screen.getAllByText("—")).toHaveLength(3);
+  });
+
   it("shows 'not reported' for name and version when serverInfo was not reported", () => {
     renderWithMantine(
       <ConnectionInfoContent

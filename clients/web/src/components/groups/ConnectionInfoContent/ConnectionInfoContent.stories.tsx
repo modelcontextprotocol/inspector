@@ -3,6 +3,7 @@ import type {
   InitializeResult,
 } from "@modelcontextprotocol/client";
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { expect, within } from "storybook/test";
 import { ConnectionInfoContent } from "./ConnectionInfoContent";
 
 const fullResult: InitializeResult = {
@@ -72,6 +73,30 @@ export const ModernEra: Story = {
         },
       },
     },
+  },
+};
+
+// A modern server that omitted the optional `_meta` serverInfo stamp (#1772).
+// `initializeResult.serverInfo` here is App's client-side catalog fallback, and
+// `serverInfoReported: false` tells the modal not to present it as server-sent —
+// Name and Version read "— (not reported by server)".
+export const ServerInfoNotReported: Story = {
+  args: {
+    initializeResult: {
+      protocolVersion: "2026-07-28",
+      // The catalog name App synthesizes; must NOT surface as the reported name.
+      serverInfo: { name: "my-catalog-name", version: "" },
+      capabilities: { tools: { listChanged: true } },
+    },
+    serverInfoReported: false,
+    clientCapabilities: { roots: { listChanged: true } },
+    transport: "streamable-http",
+    protocolEra: "modern",
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    expect(canvas.queryByText("my-catalog-name")).not.toBeInTheDocument();
+    expect(canvas.getAllByText("— (not reported by server)")).toHaveLength(2);
   },
 };
 
