@@ -221,7 +221,7 @@ const Base64Badge = Badge.withProps({
   variant: "light",
 });
 
-const HeadersTableEl = Table.withProps({
+const HeadersGrid = Table.withProps({
   striped: true,
   withColumnBorders: true,
   fz: "xs",
@@ -330,7 +330,7 @@ function HeadersTable({
   }
   const byHeader = new Map((consistency ?? []).map((row) => [row.header, row]));
   return (
-    <HeadersTableEl>
+    <HeadersGrid>
       <Table.Tbody>
         {rows.map(([name, value]) => (
           <Table.Tr key={name}>
@@ -351,7 +351,7 @@ function HeadersTable({
           </Table.Tr>
         ))}
       </Table.Tbody>
-    </HeadersTableEl>
+    </HeadersGrid>
   );
 }
 
