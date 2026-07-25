@@ -8,7 +8,7 @@ import { renderWithMantine, screen } from "../../../test/renderWithMantine";
 import {
   CLEAR_OAUTH_STATE_AND_DISCONNECT_LABEL,
   ConnectionInfoContent,
-  NOT_REPORTED,
+  SERVER_INFO_NOT_REPORTED_LABEL,
 } from "./ConnectionInfoContent";
 
 const fullResult: InitializeResult = {
@@ -113,7 +113,7 @@ describe("ConnectionInfoContent", () => {
     // The inferred catalog name is NOT shown as the server's reported name...
     expect(screen.queryByText("my-catalog-name")).not.toBeInTheDocument();
     // ...both Name and Version read as not reported instead.
-    expect(screen.getAllByText(NOT_REPORTED)).toHaveLength(2);
+    expect(screen.getAllByText(SERVER_INFO_NOT_REPORTED_LABEL)).toHaveLength(2);
   });
 
   it("renders an em-dash when the protocol version is empty", () => {

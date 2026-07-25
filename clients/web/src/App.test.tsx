@@ -549,7 +549,7 @@ vi.mock("./components/views/InspectorView/InspectorView", () => ({
 }));
 
 import App from "./App";
-import { NOT_REPORTED } from "./components/groups/ConnectionInfoContent/ConnectionInfoContent";
+import { SERVER_INFO_NOT_REPORTED_LABEL } from "./components/groups/ConnectionInfoContent/ConnectionInfoContent";
 import { OAUTH_CALLBACK_PATH } from "./utils/oauthFlow.js";
 import { INSPECTOR_SERVERS_TAB } from "./utils/inspectorTabs.js";
 import {
@@ -697,9 +697,14 @@ describe("App initializeResult when connected without serverInfo (#1772)", () =>
     await user.click(screen.getByText("connect")); // active server = A
     await user.click(screen.getByText("open-connection-info"));
     await waitFor(() =>
-      expect(screen.getAllByText(NOT_REPORTED)).toHaveLength(2),
+      expect(screen.getAllByText(SERVER_INFO_NOT_REPORTED_LABEL)).toHaveLength(
+        2,
+      ),
     );
     // The synthesized catalog name is not presented as the server's report.
+    // Exact-match query on purpose: the mocked InspectorView's `init-result` span
+    // prints "name:PlotRocket" (prefixed), so this only matches a bare "PlotRocket"
+    // — i.e. the modal's Name cell — not the harness span.
     expect(screen.queryByText("PlotRocket")).not.toBeInTheDocument();
   });
 
@@ -715,7 +720,9 @@ describe("App initializeResult when connected without serverInfo (#1772)", () =>
     await waitFor(() =>
       expect(screen.getByText("real-server")).toBeInTheDocument(),
     );
-    expect(screen.queryByText(NOT_REPORTED)).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(SERVER_INFO_NOT_REPORTED_LABEL),
+    ).not.toBeInTheDocument();
   });
 });
 

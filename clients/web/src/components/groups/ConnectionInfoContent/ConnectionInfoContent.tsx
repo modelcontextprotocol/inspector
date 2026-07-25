@@ -77,7 +77,7 @@ const ValueText = Text.withProps({
 // plus an explicit note so the client-side catalog fallback is never mistaken
 // for a value the server sent. Exported so tests/stories assert against it
 // rather than re-typing the copy.
-export const NOT_REPORTED = "— (not reported by server)";
+export const SERVER_INFO_NOT_REPORTED_LABEL = "— (not reported by server)";
 
 const SectionHeading = Title.withProps({
   // `order: 3` (not 5) keeps the heading level one below the modal's `h2`
@@ -205,10 +205,10 @@ export function ConnectionInfoContent({
   // `initialize` mandates the fields, not non-empty values.
   const displayName = serverInfoReported
     ? serverInfo.name || "—"
-    : NOT_REPORTED;
+    : SERVER_INFO_NOT_REPORTED_LABEL;
   const displayVersion = serverInfoReported
     ? serverInfo.version || "—"
-    : NOT_REPORTED;
+    : SERVER_INFO_NOT_REPORTED_LABEL;
 
   const serverCaps = getCapabilityEntries(capabilities, SERVER_CAPABILITY_KEYS);
   const clientCaps = getCapabilityEntries(

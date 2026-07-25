@@ -4,7 +4,10 @@ import type {
 } from "@modelcontextprotocol/client";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { expect, within } from "storybook/test";
-import { ConnectionInfoContent, NOT_REPORTED } from "./ConnectionInfoContent";
+import {
+  ConnectionInfoContent,
+  SERVER_INFO_NOT_REPORTED_LABEL,
+} from "./ConnectionInfoContent";
 
 const fullResult: InitializeResult = {
   protocolVersion: "2025-03-26",
@@ -104,7 +107,7 @@ export const ServerInfoNotReported: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     expect(canvas.queryByText("my-catalog-name")).not.toBeInTheDocument();
-    expect(canvas.getAllByText(NOT_REPORTED)).toHaveLength(2);
+    expect(canvas.getAllByText(SERVER_INFO_NOT_REPORTED_LABEL)).toHaveLength(2);
   },
 };
 
