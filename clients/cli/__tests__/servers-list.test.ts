@@ -182,6 +182,26 @@ describe("showServerEntry / servers/show", () => {
       },
     });
 
+    expect(
+      sanitizeServerConfig({
+        type: "streamable-http",
+        url: "https://example.com/mcp",
+        requestInit: {
+          headers: [
+            ["Authorization", "Bearer secret"],
+            ["X-Custom", "ok"],
+          ],
+        },
+      } as MCPServerConfig),
+    ).toMatchObject({
+      requestInit: {
+        headers: [
+          ["Authorization", "[redacted]"],
+          ["X-Custom", "ok"],
+        ],
+      },
+    });
+
     const settings: InspectorServerSettings = {
       headers: [
         { key: "Authorization", value: "Bearer x" },

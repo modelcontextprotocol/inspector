@@ -22,8 +22,11 @@ import {
   DEFAULT_CONNECT_TIMEOUT_MS,
   withConnectTimeout,
 } from "@inspector/cli/handlers/connect-timeout.js";
-import type { MethodArgs } from "@inspector/cli/handlers/method-types.js";
-import { SESSION_RPC_METHODS } from "@inspector/cli/handlers/method-types.js";
+import {
+  metaValueToString,
+  SESSION_RPC_METHODS,
+  type MethodArgs,
+} from "@inspector/cli/handlers/method-types.js";
 import { authorizeInFrontend } from "./authorize.js";
 import { resolveToolCallArgs } from "./parse-tool-args.js";
 import {
@@ -803,12 +806,6 @@ function stringifyMeta(
   return Object.fromEntries(
     Object.entries(meta).map(([k, v]) => [k, metaValueToString(v)]),
   );
-}
-
-/** Preserve structured metadata (objects/arrays) instead of String → "[object Object]". */
-function metaValueToString(value: JsonValue): string {
-  if (typeof value === "string") return value;
-  return JSON.stringify(value);
 }
 
 function looksLikeUrl(value: string): boolean {

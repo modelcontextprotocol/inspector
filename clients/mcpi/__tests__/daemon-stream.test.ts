@@ -188,6 +188,24 @@ describe("streamDaemon + ipc-glue", () => {
     ).rejects.toThrow(/timed out/);
   }, 5000);
 
+  it("fails when the peer FINs before the stream ok frame", async () => {
+    const sock = freshSock();
+    await listen(sock, (socket) => {
+      socket.on("error", () => {});
+      socket.once("data", () => {
+        socket.end();
+      });
+    });
+    await expect(
+      streamDaemon(
+        {},
+        { socketPath: sock, timeoutMs: 60_000, onData: () => {} },
+      ),
+    ).rejects.toMatchObject({
+      envelope: { code: "daemon_unreachable" },
+    });
+  });
+
   it("resolves when the peer closes mid-stream", async () => {
     const sock = freshSock();
     await listen(sock, (socket) => {

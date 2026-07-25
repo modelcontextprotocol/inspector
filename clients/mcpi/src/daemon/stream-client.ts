@@ -136,7 +136,20 @@ export async function streamDaemon(
     });
 
     socket.on("close", () => {
-      if (!settled) succeed();
+      if (settled) return;
+      // Soft-end after the ok frame; pre-response FIN is unreachable (mirrors
+      // the error handler and callDaemon's close guard).
+      if (streaming) {
+        succeed();
+        return;
+      }
+      fail(
+        new CliExitCodeError(
+          EXIT_CODES.UNREACHABLE,
+          `Session daemon closed the connection before the stream opened`,
+          { code: "daemon_unreachable" },
+        ),
+      );
     });
 
     timer = setTimeout(() => {

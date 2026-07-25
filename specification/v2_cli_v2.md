@@ -71,8 +71,10 @@ Frozen automation contract. Each invocation: resolve server → connect → `run
 
 | `--method` | Notes |
 | --- | --- |
-| `initialize`, `tools/list`, `tools/call`, `resources/*`, `prompts/list`, `prompts/get`, `logging/setLevel` | Core one-shot surface |
+| `initialize`, `tools/list`, `tools/call`, `resources/list`, `resources/read`, `resources/templates/list`, `prompts/list`, `prompts/get`, `logging/setLevel` | Core one-shot surface (`ONE_SHOT_METHODS`) |
 | `servers/list`, `servers/show` | Catalog only (no MCP connect); `servers/show` needs `--server` |
+
+Anything else (e.g. `logging/tail`, `resources/subscribe`, `tasks/*`, `roots/*`) is a **usage error before connect** — one-shot must not hang on stream outcomes.
 
 **Output:** `--format text` = pretty JSON of bare result; `json` = `{ result[, appInfo] }` envelope. Exit codes `0`–`5` + stderr `ErrorEnvelope`.
 
@@ -150,9 +152,12 @@ Frozen automation contract. Each invocation: resolve server → connect → `run
 
 ### Testing
 
-- In-process `runCli()` / `runMcp()`; daemon IPC + stream + private-token tests; thin binary e2e.
-- Per-file ≥90 coverage on measured `clients/cli/src`.
-- Exclusions: `index.ts`, `mcp-bin.ts`, `daemon/run.ts`, `ipc-glue.ts`, `stream-client.ts`. `session/mcp.ts` is gated.
+| Client | Runner | Coverage |
+| --- | --- | --- |
+| One-shot (`clients/cli`) | In-process `runCli()`; thin binary e2e | Per-file ≥90 on `clients/cli/src`. Exclusion: `src/index.ts`. |
+| Session (`clients/mcpi`) | In-process `runMcp()`; daemon IPC + stream + private-token tests | Per-file ≥90 on `clients/mcpi/src`. Exclusions: `mcp-bin.ts`, `daemon/run.ts`, `ipc-glue.ts`, `stream-client.ts`. |
+
+Both are wired into root `validate` / `coverage`.
 
 ---
 

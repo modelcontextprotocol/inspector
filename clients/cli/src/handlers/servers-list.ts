@@ -180,6 +180,20 @@ function sanitizeInitRecord(
         isSensitiveHeader(key) ? REDACTED : value,
       ]),
     );
+  } else if (Array.isArray(init.headers)) {
+    // HeadersInit pair form: [["Authorization", "Bearer …"], …]
+    out.headers = init.headers.map((entry) => {
+      if (
+        Array.isArray(entry) &&
+        entry.length >= 2 &&
+        typeof entry[0] === "string"
+      ) {
+        const key = entry[0];
+        const value = entry[1];
+        return [key, isSensitiveHeader(key) ? REDACTED : value];
+      }
+      return entry;
+    });
   }
   return out;
 }

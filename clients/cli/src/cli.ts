@@ -28,6 +28,7 @@ import { consumeMethodOutcome } from "./handlers/consume-outcome.js";
 import { runMethod } from "./handlers/run-method.js";
 import {
   isOneShotMethod,
+  metaValueToString,
   ONE_SHOT_METHODS,
   type MethodArgs,
 } from "./handlers/method-types.js";
@@ -456,12 +457,6 @@ function parseKeyValuePair(
   return { ...previous, [key as string]: parsedValue };
 }
 
-/** Preserve structured metadata (objects/arrays) instead of String → "[object Object]". */
-function metaValueToString(value: JsonValue): string {
-  if (typeof value === "string") return value;
-  return JSON.stringify(value);
-}
-
 type ParseResult =
   | {
       shortCircuit?: undefined;
@@ -763,6 +758,21 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     return { shortCircuit: true };
   }
 
+  // Validate --method before stored-auth network work (refresh / wait) so a
+  // typo or stream method fails locally without burning a token round-trip.
+  if (!options.method) {
+    throw new Error(
+      "Method is required. Use --method to specify the method to invoke.",
+    );
+  }
+  const isCatalogMethod =
+    options.method === "servers/list" || options.method === "servers/show";
+  if (!isCatalogMethod && !isOneShotMethod(options.method)) {
+    throw new Error(
+      `Unsupported method: ${options.method}. One-shot --cli supports: ${ONE_SHOT_METHODS.join(", ")}, servers/list, servers/show.`,
+    );
+  }
+
   // Honour MCP_CATALOG_PATH only when no ad-hoc target is given. Applying it
   // unconditionally meant a homespace that exports the env var could never run
   // `--server-url …` (serverSourceConflict rejects catalog + ad-hoc).
@@ -852,12 +862,6 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     };
   }
 
-  if (!options.method) {
-    throw new Error(
-      "Method is required. Use --method to specify the method to invoke.",
-    );
-  }
-
   // Catalog list / show — no MCP connection.
   if (options.method === "servers/list") {
     const servers = await listServerEntries(serverOptions);
@@ -879,12 +883,6 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
       options.format === "json" ? "json" : "text",
     );
     return { shortCircuit: true };
-  }
-
-  if (!isOneShotMethod(options.method)) {
-    throw new Error(
-      `Unsupported method: ${options.method}. One-shot --cli supports: ${ONE_SHOT_METHODS.join(", ")}, servers/list, servers/show.`,
-    );
   }
 
   // Shared with the TUI: resolves the catalog/config source (or ad-hoc target),

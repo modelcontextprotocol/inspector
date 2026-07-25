@@ -84,6 +84,20 @@ describe("CLI method coverage", () => {
     expectOutputContains(tail, "logging/tail");
   });
 
+  it("rejects bad methods before --use-stored-auth network work", async () => {
+    // No oauth.json / refresh — must fail on allowlist, not no_stored_token.
+    const result = await runCli([
+      "--method",
+      "logging/tail",
+      "--use-stored-auth",
+      "--server-url",
+      "https://example.com/mcp",
+    ]);
+    expectCliFailure(result);
+    expectOutputContains(result, "Unsupported method");
+    expect(result.stderr).not.toMatch(/No stored OAuth token/);
+  });
+
   it("rejects an invalid --transport value before connecting", async () => {
     const result = await runCli([
       command,

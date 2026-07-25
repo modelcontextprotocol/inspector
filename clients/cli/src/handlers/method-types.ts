@@ -104,3 +104,13 @@ export type OneShotMethod = (typeof ONE_SHOT_METHODS)[number];
 export function isOneShotMethod(method: string): method is OneShotMethod {
   return (ONE_SHOT_METHODS as readonly string[]).includes(method);
 }
+
+/**
+ * Encode a metadata / tool-metadata value for MethodArgs (string map).
+ * Strings pass through; objects/arrays use JSON.stringify so structure is kept
+ * (avoids String(obj) → "[object Object]").
+ */
+export function metaValueToString(value: JsonValue): string {
+  if (typeof value === "string") return value;
+  return JSON.stringify(value);
+}
