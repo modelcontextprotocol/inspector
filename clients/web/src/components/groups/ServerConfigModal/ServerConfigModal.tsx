@@ -48,12 +48,16 @@ interface FormState {
   url: string;
 }
 
-// The string-valued FormState fields (everything but `transport`), which all
-// share the same text-input update/clear handlers. Derived from FormState so it
-// stays in sync automatically — adding a string field picks it up, and adding a
-// non-string field would surface as a type error at the factory instead of
-// silently drifting.
-type TextField = Exclude<keyof FormState, "transport">;
+// The `string`-valued FormState keys, which all share the same text-input
+// update/clear handlers. Selecting by value type (not by excluding `transport`
+// by name) keeps this in sync with FormState automatically: a new string field
+// is picked up, and a non-string field is excluded — so passing its key to the
+// handler factories is a compile error at the call site rather than a silent
+// string-into-non-string write.
+type PlainStringKeys<T> = {
+  [K in keyof T]-?: string extends T[K] ? K : never;
+}[keyof T];
+type TextField = PlainStringKeys<FormState>;
 
 const SectionStack = Stack.withProps({ gap: "md" });
 const FieldGrid = Stack.withProps({ gap: "sm" });
