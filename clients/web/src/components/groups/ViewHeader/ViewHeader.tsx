@@ -178,10 +178,12 @@ const RightConnectedGroup = Group.withProps({
 });
 
 // Center crossfade cell: the tab bar and the "MCP Inspector" title share one
-// grid cell (`header-stack-cell`) and fade/slide (`header-anim`) so one replaces
-// the other in place. The `data-anim` direction is set per render.
+// grid cell (`gridArea: 1 / 1`, centered) and fade/slide (the keyframe-driven
+// `header-anim` class) so one replaces the other in place. The `data-anim`
+// direction is set per render.
 const HeaderStackCell = Group.withProps({
-  className: "header-anim header-stack-cell",
+  className: "header-anim",
+  styles: { root: { gridArea: "1 / 1", placeSelf: "center" } },
 });
 
 const DisconnectIcon = ActionIcon.withProps({
@@ -336,7 +338,7 @@ export function ViewHeader(props: ViewHeaderProps) {
       </LeftSection>
 
       {/* CSS grid stack: the title and tab bar cells share one cell (grid-area
-          1/1 via `.header-stack-cell`), so on connect/disconnect one
+          1/1, set on `HeaderStackCell`), so on connect/disconnect one
           fades+slides out as the other fades+slides in, in the same place.
           `flex: 0 0 auto` keeps it from stretching within the header. */}
       <Box display="grid" flex="0 0 auto">

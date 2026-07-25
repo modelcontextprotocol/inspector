@@ -343,13 +343,6 @@ body {
   animation: inspector-fade-slide-out 300ms ease both;
 }
 
-/* The title and tab bar additionally share one grid cell so one replaces the
-   other in place during the center crossfade. */
-.header-stack-cell {
-  grid-area: 1 / 1;
-  place-self: center;
-}
-
 /* Honor reduced-motion for the header animations this PR adds (#1450): skip the
    fade/slide and the new-tab glow, leaving the elements at their resting state.
    Selectors match the originals' specificity so they win inside the query. */
