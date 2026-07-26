@@ -290,6 +290,20 @@ export default defineConfig(({ command }) => {
             // Integration tests run in the integration project below (node env).
             exclude: [integrationGlob],
             setupFiles: [path.join(dirname, "src/test/setup.ts")],
+            // Run after-hooks LIFO (reverse registration) instead of Vitest's
+            // default "parallel". Defense-in-depth for the real-transitions
+            // auto-settle in `src/test/renderWithMantine.tsx`: its `afterEach`
+            // must run *before* `setup.ts`'s setupFile `cleanup()` so it drains
+            // an in-flight Mantine transition against the still-mounted tree
+            // (avoiding the #1760 post-teardown `window is not defined` leak,
+            // #1786). That ordering already holds in *every* `sequence.hooks`
+            // mode here — setupFile hooks are outer, so they run after this
+            // import-registered inner hook (verified across stack/list/parallel)
+            // — and the settle self-checks `container.isConnected` and throws if
+            // it's ever broken. Pinning "stack" makes the intended LIFO ordering
+            // explicit and guards a future Vitest default change up front rather
+            // than relying on that runtime check to catch it.
+            sequence: { hooks: "stack" },
           },
         },
         {

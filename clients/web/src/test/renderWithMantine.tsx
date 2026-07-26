@@ -16,7 +16,8 @@ export type MantineRenderOptions = Omit<RenderOptions, "wrapper"> & {
 // automatic post-test settle waits (see below); pass the component's longest JS
 // timer chain — its `Transition` `duration`/`exitDuration` plus any
 // `enterDelay`/`exitDelay` plus two-frame rAF slack. Omit to use the generic
-// default.
+// default. Pass `0` as a deliberate opt-out for a test that provably drove every
+// transition to completion itself: the `act` flush still runs, but with no wait.
 export type MantineTransitionsRenderOptions = MantineRenderOptions & {
   settleMs?: number;
 };
@@ -65,8 +66,16 @@ export function renderWithMantineTransitions(
     settleMs = DEFAULT_SETTLE_MS,
     ...rest
   } = options ?? {};
-  armedSettleMs = settleMs;
-  return render(ui, { wrapper: makeWrapper("default", colorScheme), ...rest });
+  // Keep the LONGEST armed window if a test renders more than one real-
+  // transitions tree, so a later short-animation render can't under-settle an
+  // earlier long one (last-write-wins would).
+  armedSettleMs = Math.max(armedSettleMs ?? 0, settleMs);
+  const result = render(ui, {
+    wrapper: makeWrapper("default", colorScheme),
+    ...rest,
+  });
+  armedContainer = result.container;
+  return result;
 }
 
 // Fallback settle window: ≈500ms clears a typical few-hundred-millisecond
@@ -77,9 +86,12 @@ export function renderWithMantineTransitions(
 const DEFAULT_SETTLE_MS = 500;
 
 // Set by `renderWithMantineTransitions`; consumed once by the `afterEach` below.
-// `null` means no real-transitions render happened this test, so nothing to
-// settle (every `renderWithMantine` / `env="test"` test skips the wait entirely).
+// `armedSettleMs === null` means no real-transitions render happened this test,
+// so nothing to settle (every `renderWithMantine` / `env="test"` test skips the
+// wait entirely). `armedContainer` is the most recent such render's container,
+// used by the `afterEach` to assert it settles *before* cleanup unmounts.
 let armedSettleMs: number | null = null;
+let armedContainer: HTMLElement | null = null;
 
 // Flush any in-flight `renderWithMantineTransitions` animation before the test
 // ends. What's observed when it isn't flushed: an in-flight Mantine transition
@@ -112,20 +124,46 @@ export async function settleTransitions(ms: number = DEFAULT_SETTLE_MS) {
   });
 }
 
-// Auto-settle any armed real transition. Registered at import (collection) time,
-// so — afterEach hooks run LIFO and `setup.ts`'s global `cleanup()` is a
-// setupFile registered first — this runs *before* cleanup unmounts, i.e. while
-// the tree the settling `setState` targets is still live (the ordering the fix
-// depends on; verified). Skips when a `renderWithMantineTransitions` test also
-// opted into fake timers, since `settleTransitions` can't await a real timer
-// there (no such test exists today; this keeps the guard from throwing during
-// teardown if one is ever added).
+// Auto-settle any armed real transition. This runs *before* `setup.ts`'s
+// setupFile `cleanup()` unmounts the tree — the ordering the fix depends on, so
+// the settling `setState` targets a still-live component. setupFile afterEach
+// hooks are outer relative to this import-registered inner hook, so this runs
+// first in every `sequence.hooks` mode (verified across stack/list/parallel);
+// the unit project additionally pins "stack" as defense-in-depth. The
+// `container.isConnected` check below is the actual enforcement — it turns a
+// broken ordering into a loud failure rather than a silently-reopened leak,
+// regardless of what guarantees it.
 afterEach(async () => {
   const ms = armedSettleMs;
+  const container = armedContainer;
   armedSettleMs = null;
-  if (ms !== null && !vi.isFakeTimers()) {
-    await settleTransitions(ms);
+  armedContainer = null;
+  if (ms === null) return;
+  // A `renderWithMantineTransitions` test that also used fake timers can't be
+  // drained by a real-timer wait; skip, but warn — silence here is how the leak
+  // sneaks back (unlike the manual `settleTransitions`, which throws). No such
+  // test exists today.
+  if (vi.isFakeTimers()) {
+    console.warn(
+      "renderWithMantineTransitions auto-settle skipped: the test is under " +
+        "vi.useFakeTimers(). A real-transitions test should not use fake " +
+        "timers — the #1760 leak is unprotected once the settle no-ops.",
+    );
+    return;
   }
+  // If the tree is already detached, cleanup() ran first — the afterEach
+  // ordering this depends on broke, and the settle would drain nothing,
+  // silently reopening the #1760 leak. Fail loudly instead.
+  if (container && !container.isConnected) {
+    throw new Error(
+      "renderWithMantineTransitions auto-settle ran after cleanup() unmounted " +
+        "the tree — the afterEach ordering it depends on broke, so the settle " +
+        "drained nothing and the #1760 leak is reopened. This hook must run " +
+        "before setup.ts's cleanup (see the ordering note here and the " +
+        '`sequence.hooks: "stack"` pin in vite.config.ts).',
+    );
+  }
+  await settleTransitions(ms);
 });
 
 export * from "@testing-library/react";
