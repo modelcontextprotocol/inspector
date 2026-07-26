@@ -361,16 +361,26 @@ describe("defaultAllowedOrigins", () => {
   // A non-canonical spelling of a loopback address is canonicalized (the way the
   // browser canonicalizes it into `Origin`), so it's recognized as loopback and
   // gets the trio — not a single unmatchable entry.
-  it.each(["127.1", "0x7f.0.0.1", "2130706433", "0:0:0:0:0:0:0:1", "::0001"])(
-    "canonicalizes the loopback spelling %j and returns the trio",
-    (host) => {
-      expect(defaultAllowedOrigins(host, 6274)).toEqual([
-        "http://localhost:6274",
-        "http://127.0.0.1:6274",
-        "http://[::1]:6274",
-      ]);
-    },
-  );
+  it.each([
+    "127.1",
+    "0x7f.0.0.1",
+    "2130706433",
+    "0:0:0:0:0:0:0:1",
+    "::0001",
+    "::ffff:127.0.0.1", // IPv4-mapped loopback — the socket answers on 127.0.0.1
+  ])("canonicalizes the loopback spelling %j and returns the trio", (host) => {
+    expect(defaultAllowedOrigins(host, 6274)).toEqual([
+      "http://localhost:6274",
+      "http://127.0.0.1:6274",
+      "http://[::1]:6274",
+    ]);
+  });
+
+  it("unmaps an IPv4-mapped non-loopback host to its dotted form", () => {
+    expect(defaultAllowedOrigins("::ffff:192.168.1.50", 6274)).toEqual([
+      "http://192.168.1.50:6274",
+    ]);
+  });
 
   it("keeps a distinct non-loopback address (127.0.0.2) as a single origin", () => {
     // 127.0.0.2 is canonical and a bind there doesn't serve 127.0.0.1, so the

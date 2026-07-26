@@ -213,8 +213,10 @@ export interface BuildWebServerConfigOptions {
  * to *either* `127.0.0.1` (IPv4) or `::1` (IPv6) depending on the OS resolver,
  * and Node/Vite may bind the IPv6 form — so the browser can legitimately end up
  * at `http://[::1]:PORT` even though the banner printed `http://localhost:PORT`.
+ * IPv6 is the **bracketed** form only (`[::1]`): the sole caller looks up
+ * `canonicalUrlHost(hostname)`, which always brackets an IPv6 literal.
  */
-const LOOPBACK_HOSTNAMES = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
+const LOOPBACK_HOSTNAMES = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
 /**
  * Build an http origin string. The port is omitted when it's the http scheme
@@ -235,19 +237,36 @@ function loopbackOrigins(port: number): string[] {
 }
 
 /**
+ * Unmap an IPv4-mapped IPv6 host (`[::ffff:7f00:1]`) to its dotted IPv4 form
+ * (`127.0.0.1`) — the address the socket actually answers on (a
+ * `::ffff:127.0.0.1` bind is reachable at `127.0.0.1`, not `::1`). Other hosts
+ * pass through. Mirrors the bind guard, which already folds the mapped
+ * *wildcard* (`::ffff:0:0`) into `ALL_INTERFACES_LITERALS`.
+ */
+function unmapIpv4MappedHost(host: string): string {
+  const bare = host.replace(/^\[(.*)\]$/, "$1");
+  const m = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i.exec(bare);
+  if (!m) return host;
+  const hi = parseInt(m[1], 16);
+  const lo = parseInt(m[2], 16);
+  return `${hi >> 8}.${hi & 0xff}.${lo >> 8}.${lo & 0xff}`;
+}
+
+/**
  * Canonicalize a bind host the way a browser does before building `Origin`, so
  * the allow-list entry matches the header. Non-canonical spellings of the same
  * address — `127.1` / `0x7f.0.0.1` / `2130706433` all mean `127.0.0.1`,
- * `0:0:0:0:0:0:0:1` / `::0001` mean `::1` — otherwise both miss the
- * {@link LOOPBACK_HOSTNAMES} lookup (losing the loopback-trio expansion for an
- * address that IS loopback) and emit an origin the browser can never send.
- * `new URL().hostname` returns the URL-ready form (bracketed for IPv6); falls
- * back to the formatted input if it isn't a parseable URL host.
+ * `0:0:0:0:0:0:0:1` / `::0001` mean `::1`, `::ffff:127.0.0.1` means `127.0.0.1`
+ * (the address it binds) — otherwise miss the {@link LOOPBACK_HOSTNAMES} lookup
+ * (losing the loopback-trio expansion for an address that IS loopback) and emit
+ * an origin the browser can never send. `new URL().hostname` returns the
+ * URL-ready form (bracketed for IPv6); falls back to the formatted input if it
+ * isn't a parseable URL host.
  */
 function canonicalUrlHost(host: string): string {
   const formatted = formatHostForUrl(host.trim().toLowerCase());
   try {
-    return new URL(`http://${formatted}`).hostname;
+    return unmapIpv4MappedHost(new URL(`http://${formatted}`).hostname);
   } catch {
     return formatted;
   }

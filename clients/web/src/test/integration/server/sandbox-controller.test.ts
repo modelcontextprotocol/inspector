@@ -53,6 +53,7 @@ describe("sandboxFrameAncestors", () => {
 
 describe("resolveSandboxPort", () => {
   let envSnapshot: { mcp?: string; server?: string };
+  let warnSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
     envSnapshot = {
@@ -61,9 +62,12 @@ describe("resolveSandboxPort", () => {
     };
     delete process.env.MCP_SANDBOX_PORT;
     delete process.env.SERVER_PORT;
+    // A set-but-invalid MCP_SANDBOX_PORT warns; keep it off the test console.
+    warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
   });
 
   afterEach(() => {
+    warnSpy.mockRestore();
     if (envSnapshot.mcp === undefined) delete process.env.MCP_SANDBOX_PORT;
     else process.env.MCP_SANDBOX_PORT = envSnapshot.mcp;
     if (envSnapshot.server === undefined) delete process.env.SERVER_PORT;

@@ -87,14 +87,18 @@ function parseListenPort(raw: string | undefined): number | undefined {
 
 /**
  * Resolve sandbox port from env: MCP_SANDBOX_PORT → SERVER_PORT → 0 (dynamic).
- * An invalid value in either falls through rather than crashing the boot.
+ * An invalid value falls through rather than crashing the boot; a set-but-invalid
+ * MCP_SANDBOX_PORT (the dedicated knob) is warned so the fall-through isn't
+ * silent — matching the warn-and-drop precedent for ALLOWED_ORIGINS.
  */
 export function resolveSandboxPort(): number {
-  return (
-    parseListenPort(process.env.MCP_SANDBOX_PORT) ??
-    parseListenPort(process.env.SERVER_PORT) ??
-    0
-  );
+  const fromSandbox = parseListenPort(process.env.MCP_SANDBOX_PORT);
+  if (fromSandbox === undefined && process.env.MCP_SANDBOX_PORT?.trim()) {
+    console.warn(
+      `Ignoring invalid MCP_SANDBOX_PORT="${process.env.MCP_SANDBOX_PORT}" (need an integer 0–65535); falling back.`,
+    );
+  }
+  return fromSandbox ?? parseListenPort(process.env.SERVER_PORT) ?? 0;
 }
 
 export function createSandboxController(
