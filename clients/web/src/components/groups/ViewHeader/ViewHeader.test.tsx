@@ -7,22 +7,25 @@ import {
   screen,
   waitFor,
 } from "../../../test/renderWithMantine";
-import { render } from "@testing-library/react";
-import { MantineProvider } from "@mantine/core";
-import { theme } from "../../../theme/theme";
 import { ViewHeader } from "./ViewHeader";
 
-// Render under a forced-dark MantineProvider so `useComputedColorScheme`
-// returns "dark" (the light/dark icon + logo branches). `env="test"` disables
-// timer-driven transitions, matching the shared `renderWithMantine` wrapper and
-// avoiding post-teardown `window is not defined` races (#1760).
-function renderDark(ui: React.ReactElement) {
-  return render(ui, {
-    wrapper: ({ children }) => (
-      <MantineProvider theme={theme} defaultColorScheme="dark" env="test">
-        {children}
-      </MantineProvider>
-    ),
+// The header Transitions run for HEADER_ANIM_MS (300ms); this exceeds that plus
+// the two-frame rAF scheduling slack so a real-timer transition is guaranteed
+// to have reached its terminal ("entered"/"exited") state after the wait.
+const TRANSITION_SETTLE_MS = 500;
+
+// The `renderWithMantineTransitions` tests use real (env="default") Mantine
+// transitions to observe mid-flight "in"/"out" cells. A `Transition` schedules a
+// rAF→`setTimeout` chain; a straggler that fires after happy-dom tears down
+// `window` throws `ReferenceError: window is not defined` from react-dom and
+// fails the whole run even when every assertion passed (#1760). Waiting for one
+// cell to unmount doesn't settle the *sibling* enter cells (a completed enter
+// leaves no DOM signal to `waitFor`). Drain every pending timer here — while the
+// tree is still mounted, so the settling setState targets a live component —
+// before the global cleanup() unmounts (#1786).
+async function settleTransitions() {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, TRANSITION_SETTLE_MS));
   });
 }
 
@@ -275,6 +278,10 @@ describe("ViewHeader", () => {
       await waitFor(() =>
         expect(screen.queryAllByRole("radio").length).toBe(0),
       );
+
+      // The title's *enter* runs concurrently and leaves no unmount to await;
+      // settle it so no timer fires post-teardown (#1786).
+      await settleTransitions();
     });
 
     it("glows a tab added after the connect grace window, not during it (#1450)", () => {
@@ -367,12 +374,18 @@ describe("ViewHeader", () => {
           screen.queryByRole("button", { name: "Disconnect from server" }),
         ).not.toBeInTheDocument(),
       );
+
+      // The title's concurrent *enter* leaves no unmount to await; settle it so
+      // no timer fires post-teardown (#1786).
+      await settleTransitions();
     });
 
     it("renders the dark-scheme icon/logo branch under a dark color scheme", () => {
       // Rendering under a forced-dark provider exercises the
       // `colorScheme === "dark"` branches for the theme icon and the logo src.
-      renderDark(<ViewHeader {...connectedProps} />);
+      renderWithMantine(<ViewHeader {...connectedProps} />, {
+        colorScheme: "dark",
+      });
       expect(
         screen.getByRole("button", { name: "Toggle color scheme" }),
       ).toBeInTheDocument();
@@ -410,6 +423,11 @@ describe("ViewHeader", () => {
       ).toBe("out");
       // The connected server name enters once the keep-alive Transition mounts.
       expect(await screen.findByText("my-mcp-server")).toBeInTheDocument();
+
+      // Both the title's exit and the server name's enter are still in flight
+      // (the enter leaves no unmount to await); settle them so no timer fires
+      // post-teardown (#1786).
+      await settleTransitions();
     });
 
     it("disarms the tab glow when the connection drops after the grace window", () => {
