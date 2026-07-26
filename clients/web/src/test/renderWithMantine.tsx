@@ -184,8 +184,9 @@ afterEach(async () => {
     console.warn(
       `renderWithMantineTransitions auto-settle skipped for "${testName}": ` +
         "the test is under vi.useFakeTimers(). A real-transitions test should " +
-        "not use fake timers — the #1760 leak is unprotected once the settle " +
-        "no-ops.",
+        "not use fake timers — anything left pending on the real clock is then " +
+        "unprotected (this settle can't drain it), so the test depends on which " +
+        "clock was installed at teardown.",
     );
     return;
   }
@@ -201,20 +202,26 @@ afterEach(async () => {
   // still-live tree mid-settle, which the pre-check can't see. Both apply only to
   // trees the test left mounted.
   let livenessError: unknown;
-  try {
-    assertLiveContainersConnected(liveContainers, "before");
-  } catch (error) {
-    livenessError = error;
-  }
-  await settleTransitions(ms);
-  if (livenessError === undefined) {
+  const captureLiveness = (when: "before" | "after") => {
     try {
-      assertLiveContainersConnected(liveContainers, "after");
+      assertLiveContainersConnected(liveContainers, when);
     } catch (error) {
-      livenessError = error;
+      livenessError ??= error;
     }
+  };
+  captureLiveness("before");
+  let drainError: unknown;
+  try {
+    await settleTransitions(ms);
+  } catch (error) {
+    drainError = error;
   }
+  if (livenessError === undefined) captureLiveness("after");
+  // A liveness error explains the actual regression; a drain-time throw
+  // (realistically only `act` surfacing an error flushed during the settle) is a
+  // downstream symptom — so prefer the liveness error, else rethrow the drain's.
   if (livenessError !== undefined) throw livenessError;
+  if (drainError !== undefined) throw drainError;
 });
 
 // Throw if any still-live armed tree was detached at the given point relative to
