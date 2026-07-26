@@ -223,8 +223,17 @@ afterEach(async () => {
   // as its `cause` rather than dropping it, so a component error flushed during
   // the settle isn't lost when both fire. Otherwise rethrow the drain's.
   if (livenessError !== undefined) {
-    if (drainError !== undefined && livenessError instanceof Error) {
-      livenessError.cause = drainError;
+    if (drainError !== undefined) {
+      // Preserve the drain error rather than dropping it, so a component error
+      // flushed during the settle isn't lost when both fire. Attach it as the
+      // liveness error's `cause` (when that's an Error) *and* log it, so it's
+      // readable regardless of whether the test reporter renders `cause`.
+      if (livenessError instanceof Error) livenessError.cause = drainError;
+      console.error(
+        "renderWithMantineTransitions auto-settle: the drain also threw " +
+          "(reported as the liveness error's cause):",
+        drainError,
+      );
     }
     throw livenessError;
   }
@@ -232,7 +241,7 @@ afterEach(async () => {
 });
 
 // Throw if any still-live armed tree was detached at the given point relative to
-// the settle — meaning `cleanup()` ran before this settle finished, so it
+// the settle — meaning something unmounted it before this settle finished, so it
 // drained against a dead tree and the #1760 leak is reopened. Only trees the
 // test left mounted are passed here; a tree the test unmounted itself (via the
 // wrapped `unmount()`) is excluded, so its legitimate detach never lands here.
@@ -241,18 +250,19 @@ function assertLiveContainersConnected(
   when: "before" | "after",
 ) {
   if (containers.some((c) => !c.isConnected)) {
+    // The check observes only that a tree the test left mounted is no longer
+    // connected — it can't identify *what* detached it — so state that
+    // observation, then list the candidate causes rather than asserting one.
     throw new Error(
-      `renderWithMantineTransitions auto-settle: a still-mounted tree was ` +
-        `detached ${when} the settle — setup.ts's cleanup() ran ` +
-        (when === "before" ? "entirely first" : "concurrently mid-settle") +
-        ", so the settle drained nothing and the #1760 leak is reopened. This " +
-        "hook must run and complete before cleanup, which holds because " +
-        "cleanup() is a setupFile (outer) hook; the likely cause is cleanup " +
-        "having been moved to a same-level afterEach (the `sequence.hooks` pin " +
-        "is defense-in-depth, not the guarantee — see the ordering note here). " +
-        "If instead the test unmounted the tree itself, use the `unmount()` " +
-        "returned by renderWithMantineTransitions (which drops the tree from the " +
-        "liveness set) rather than a bare mid-body `cleanup()`.",
+      `renderWithMantineTransitions auto-settle: a still-mounted armed tree was ` +
+        `detached ${when === "before" ? "before the settle started" : "while the settle was in flight"}, ` +
+        "so the settle drained nothing and the #1760 leak is reopened. Candidate " +
+        "causes: (a) a bare mid-body `cleanup()` in the test — use the " +
+        "`unmount()` returned by renderWithMantineTransitions instead (it drops " +
+        "the tree from the liveness set); or (b) `cleanup()` moved off setup.ts's " +
+        "setupFile (outer) hook to a same-level afterEach, so it no longer runs " +
+        "after this one (the `sequence.hooks` pin is defense-in-depth, not the " +
+        "guarantee — see the ordering note here).",
     );
   }
 }
