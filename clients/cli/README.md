@@ -111,10 +111,10 @@ Options that specify the MCP server (catalog/config file, ad-hoc command/URL, en
 | `--connect-timeout <ms>`      | Connection timeout in ms. Defaults to `15000` for ad-hoc `--server-url`/target runs (so a black-holed host fails fast) and to the file-level timeout for `--catalog`/`--config` runs. `0` disables the timeout. |
 | `--app-info`                  | Probe a tool's MCP App UI metadata without invoking it. With `--method tools/call --tool-name <name>`: prints one JSON line (`hasApp`, `resourceUri`, `csp`, `permissions`, `domain`, …) and exits `0` if the tool has an app or `2` (`no_app`) if not. With `--method tools/list`: emits NDJSON — one app-info line per tool over a single connection. |
 | `--format <text\|json>`       | Output format. `text` (default) pretty-prints the result. `json` emits a single JSON object on stdout (`{ "result": … }`, plus `{ "appInfo": … }` as a sibling key for App tools) with no banners, so the whole output pipes cleanly into `jq`. |
-| `--relogin`                   | Delete stored OAuth for this server URL from the shared store before connect; interactive login still only runs if the server requires auth. No-op for stdio (no URL-keyed store entry). Conflicts with `--stored-auth-only` / `--use-stored-auth` / `--wait-for-auth`. |
-| `--stored-auth-only`          | Never start interactive OAuth / step-up (and never auto-open a browser); use the shared store if present, otherwise fail with `auth_required`. |
+| `--relogin`                   | Delete stored OAuth for this server URL from the shared store before connect; interactive login still only runs if the server requires auth. Requires an HTTP/SSE URL (rejected for stdio). Conflicts with `--stored-auth-only` / `--use-stored-auth` / `--wait-for-auth` / catalog short-circuits. |
+| `--stored-auth-only`          | **CI / non-interactive safe:** never start interactive OAuth / step-up (and never auto-open a browser); use the shared store if present, otherwise fail immediately with `auth_required`. Prefer this over a bare pipe/CI run that would otherwise attempt interactive login. |
 
-`servers/show` redacts secret-bearing fields (`env` values, sensitive headers in `requestInit` / `eventSourceInit` / settings, `oauthClientSecret`). It does **not** scrub credentials embedded in a server `url` (userinfo or query tokens) or in stdio `args` — treat `detail` / raw URL fields as potentially sensitive before pasting into issues.
+`servers/show` redacts secret-bearing fields (`env` values, sensitive headers / `settings.metadata` keys, `requestInit` / `eventSourceInit` headers, `oauthClientSecret`). It does **not** scrub credentials embedded in a server `url` (userinfo or query tokens) or in stdio `args` — treat `detail` / raw URL fields as potentially sensitive before pasting into issues.
 
 #### App probing (`--app-info`) and machine-readable output (`--format json`)
 
@@ -149,8 +149,10 @@ The CLI runs the same loopback callback server as the TUI (`http://127.0.0.1:627
 **CLI (`mcp-inspector --cli`):** on connect **401** or mid-session interactive auth (re-login / step-up), it:
 
 1. Starts the callback listener on `--callback-url` (or `MCP_OAUTH_CALLBACK_URL`)
-2. Prints the authorization URL to stderr (OSC 8 hyperlink when stderr is a TTY) and **opens the default browser** when allowed. Default: open on a TTY, plain URL only when non-TTY / CI. `MCP_AUTO_OPEN_ENABLED=false` never opens; `=true` forces open even on a non-TTY (same as the web launcher). `--stored-auth-only` never prints or opens.
+2. Prints the authorization URL to stderr (OSC 8 hyperlink when stderr is a TTY) and **opens the default browser** when allowed. Default: open on a TTY, plain URL only when non-TTY. `MCP_AUTO_OPEN_ENABLED=false` never opens; `=true` forces open even on a non-TTY (same as the web launcher).
 3. Waits for the browser redirect, exchanges the code, and retries connect or the failed RPC
+
+Interactive OAuth (connect-time or mid-RPC) **requires a TTY**, or `MCP_AUTO_OPEN_ENABLED=true`. On a non-TTY without that env (typical CI / piped stderr), the CLI fails fast with `auth_required` instead of waiting up to 15 minutes on the loopback callback. Use **`--stored-auth-only`** for non-interactive runs that should only consume the shared store.
 
 **Step-up (standard OAuth):** when an RPC needs extra scopes, the CLI prompts on stderr: `Proceed with step-up authorization? [y/N]`. **y** continues; **N** exits with an error. EMA step-up re-mints silently (no prompt).
 

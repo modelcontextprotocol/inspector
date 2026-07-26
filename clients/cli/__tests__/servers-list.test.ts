@@ -219,7 +219,10 @@ describe("showServerEntry / servers/show", () => {
         { key: "Authorization", value: "Bearer x" },
         { key: "X-Custom", value: "ok" },
       ],
-      metadata: [],
+      metadata: [
+        { key: "Authorization", value: "Bearer meta" },
+        { key: "X-Custom", value: "ok" },
+      ],
       env: [
         { key: "TOKEN", value: "secret" },
         { key: "", value: "still-secret" },
@@ -236,6 +239,10 @@ describe("showServerEntry / servers/show", () => {
     expect(sanitized.oauthClientSecret).toBe("[redacted]");
     expect(sanitized.oauthClientId).toBe("cid");
     expect(sanitized.headers).toEqual([
+      { key: "Authorization", value: "[redacted]" },
+      { key: "X-Custom", value: "ok" },
+    ]);
+    expect(sanitized.metadata).toEqual([
       { key: "Authorization", value: "[redacted]" },
       { key: "X-Custom", value: "ok" },
     ]);

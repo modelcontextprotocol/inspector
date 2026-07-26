@@ -157,6 +157,10 @@ export function sanitizeServerSettings(
       key: h.key,
       value: isSensitiveHeader(h.key) ? REDACTED : h.value,
     })),
+    metadata: (settings.metadata ?? []).map((m) => ({
+      key: m.key,
+      value: isSensitiveHeader(m.key) ? REDACTED : m.value,
+    })),
     env: (settings.env ?? []).map((e) => ({
       key: e.key,
       value: REDACTED,

@@ -18,7 +18,10 @@ import { isOAuthCapableServerConfig } from "@inspector/core/client/runner.js";
 import type { MCPServerConfig } from "@inspector/core/mcp/types.js";
 import { createInterface } from "node:readline/promises";
 import { CliExitCodeError, EXIT_CODES } from "./error-handler.js";
-import type { CliOAuthAutoOpenControl } from "./cli-oauth-navigation.js";
+import {
+  isCliAutoOpenForced,
+  type CliOAuthAutoOpenControl,
+} from "./cli-oauth-navigation.js";
 
 /** Client surface needed for connect + mid-RPC OAuth recovery. */
 export type CliOAuthClient = RunnerInteractiveOAuthClient & {
@@ -37,12 +40,35 @@ export type CliOAuthConnectOptions = {
    * (callback server listening). See {@link createCliOAuthNavigation}.
    */
   autoOpenControl?: CliOAuthAutoOpenControl;
+  /**
+   * Override stderr TTY detection for interactive-OAuth gating (tests).
+   * Defaults to `process.stderr.isTTY`.
+   */
+  isTTY?: boolean;
 };
 
 function storedAuthOnlyFailure(message: string): never {
   throw new CliExitCodeError(EXIT_CODES.AUTH_REQUIRED, message, {
     code: "auth_required",
   });
+}
+
+/**
+ * Interactive OAuth waits up to 15 minutes on the loopback callback. On a
+ * non-TTY (CI / piped stderr) nobody will complete that flow unless the caller
+ * explicitly opted into browser open via `MCP_AUTO_OPEN_ENABLED=true`.
+ */
+export function assertInteractiveOAuthAllowed(
+  options?: Pick<CliOAuthConnectOptions, "isTTY">,
+): void {
+  const tty =
+    options?.isTTY !== undefined
+      ? options.isTTY
+      : process.stderr.isTTY === true;
+  if (tty || isCliAutoOpenForced()) return;
+  storedAuthOnlyFailure(
+    "Interactive OAuth requires a TTY (or MCP_AUTO_OPEN_ENABLED=true). For CI/non-interactive runs use --stored-auth-only.",
+  );
 }
 
 /** Standard-OAuth step-up (not EMA silent re-mint). */
@@ -125,11 +151,13 @@ export async function handleCliAuthRecoveryRequired(
   serverSettings?: InspectorServerSettings,
   confirmStepUp: () => Promise<boolean> = confirmStepUpFromStdin,
   autoOpenControl?: CliOAuthAutoOpenControl,
+  isTTY?: boolean,
 ): Promise<void> {
   if (isStandardOAuthStepUp(error.authChallenge, serverSettings)) {
     if (await client.checkAuthChallengeSatisfied(error.authChallenge)) {
       return;
     }
+    assertInteractiveOAuthAllowed({ isTTY });
     const proceed = await promptStepUpConfirm(
       error.authChallenge,
       confirmStepUp,
@@ -139,6 +167,8 @@ export async function handleCliAuthRecoveryRequired(
     }
   } else if (await client.checkAuthChallengeSatisfied(error.authChallenge)) {
     return;
+  } else {
+    assertInteractiveOAuthAllowed({ isTTY });
   }
 
   await runCliInteractiveOAuth(client, redirectUrlProvider, callbackUrlConfig, {
@@ -188,7 +218,11 @@ export async function connectInspectorWithOAuth(
         serverSettings,
         confirmStepUpFromStdin,
         options?.autoOpenControl,
+        options?.isTTY,
       );
+      // Belt-and-braces: this branch never disconnects today, so connect() is
+      // usually a no-op (already connected). Fresh tokens are picked up from
+      // storage per request; keep the call if handle later gains a disconnect.
       await inspectorClient.connect();
       return;
     }
@@ -201,6 +235,7 @@ export async function connectInspectorWithOAuth(
             : "Authentication required and --stored-auth-only is set; refusing interactive OAuth.",
         );
       }
+      assertInteractiveOAuthAllowed(options);
       await inspectorClient.disconnect().catch(() => {});
       await runCliInteractiveOAuth(
         inspectorClient,
@@ -262,8 +297,10 @@ export async function withCliAuthRecoveryRetry<T>(
         serverSettings,
         confirmStepUp,
         options?.autoOpenControl,
+        options?.isTTY,
       );
-      // completeOAuthFlow only reconnects under directAuthRecovery (off in CLI).
+      // Belt-and-braces: this branch never disconnects today, so connect() is
+      // usually a no-op (already connected). See connectInspectorWithOAuth.
       await inspectorClient.connect();
       process.stderr.write("Authorization complete. Retrying…\n");
       return await fn();
@@ -277,6 +314,7 @@ export async function withCliAuthRecoveryRetry<T>(
             : "Authentication required and --stored-auth-only is set; refusing interactive OAuth.",
         );
       }
+      assertInteractiveOAuthAllowed(options);
       await inspectorClient.disconnect().catch(() => {});
       await runCliInteractiveOAuth(
         inspectorClient,
@@ -284,7 +322,7 @@ export async function withCliAuthRecoveryRetry<T>(
         callbackUrlConfig,
         { autoOpenControl: options?.autoOpenControl },
       );
-      // Mirror connectInspectorWithOAuth: reconnect before retrying the RPC.
+      // Load-bearing: disconnect() above closed the session.
       // connect() is a no-op when already connected.
       await inspectorClient.connect();
       process.stderr.write("Authorization complete. Retrying…\n");

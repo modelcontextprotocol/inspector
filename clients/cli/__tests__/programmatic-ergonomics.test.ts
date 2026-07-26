@@ -176,6 +176,19 @@ describe("CLI --relogin flag conflicts", () => {
     expect(result.stderr).toMatch(/--list-stored-auth or --print-handoff/);
   });
 
+  it("rejects --relogin for stdio servers", async () => {
+    const { command, args } = getTestMcpServerCommand();
+    const result = await runCli([
+      command,
+      ...args,
+      "--relogin",
+      "--method",
+      "tools/list",
+    ]);
+    expectCliFailure(result);
+    expect(result.stderr).toMatch(/HTTP\/SSE server URL/);
+  });
+
   it("accepts --relogin and clears stored auth before connect", async () => {
     // Unreachable port: proves --relogin runs (clears store) then fails connect.
     const result = await runCli([

@@ -7,6 +7,7 @@ import {
   handleCliAuthRecoveryRequired,
   isStandardOAuthStepUp,
   runCliInteractiveOAuth,
+  assertInteractiveOAuthAllowed,
   withCliAuthRecoveryRetry,
 } from "../src/cliOAuth.js";
 import type { MCPServerConfig } from "@inspector/core/mcp/types.js";
@@ -40,6 +41,9 @@ const STDIO_CONFIG = {
   type: "stdio",
   command: "x",
 } as MCPServerConfig;
+
+/** Unit tests run without a TTY; opt into interactive OAuth explicitly. */
+const INTERACTIVE = { isTTY: true as const };
 
 describe("cliOAuth", () => {
   afterEach(() => {
@@ -172,6 +176,8 @@ describe("cliOAuth", () => {
         { hostname: "127.0.0.1", port: 6276, pathname: "/oauth/callback" },
         {},
         async () => false,
+        undefined,
+        true,
       ),
     ).rejects.toThrow("Step-up authorization declined.");
 
@@ -202,6 +208,8 @@ describe("cliOAuth", () => {
       { hostname: "127.0.0.1", port: 6276, pathname: "/oauth/callback" },
       {},
       async () => true,
+      undefined,
+      true,
     );
 
     expect(runSpy).toHaveBeenCalledWith(
@@ -291,6 +299,7 @@ describe("cliOAuth", () => {
       { enterpriseManaged: true },
       fn,
       async () => true,
+      INTERACTIVE,
     );
 
     expect(result).toBe("ok");
@@ -326,6 +335,9 @@ describe("cliOAuth", () => {
         new MutableRedirectUrlProvider(),
         CALLBACK_URL_CONFIG,
         {},
+        undefined,
+        undefined,
+        true,
       );
 
       expect(mockQuestion).toHaveBeenCalled();
@@ -345,6 +357,9 @@ describe("cliOAuth", () => {
         new MutableRedirectUrlProvider(),
         CALLBACK_URL_CONFIG,
         {},
+        undefined,
+        undefined,
+        true,
       );
 
       expect(runSpy).toHaveBeenCalled();
@@ -361,6 +376,9 @@ describe("cliOAuth", () => {
           new MutableRedirectUrlProvider(),
           CALLBACK_URL_CONFIG,
           {},
+          undefined,
+          undefined,
+          true,
         ),
       ).rejects.toThrow("Step-up authorization declined.");
 
@@ -424,6 +442,8 @@ describe("cliOAuth", () => {
         oauthServerConfig,
         new MutableRedirectUrlProvider(),
         CALLBACK_URL_CONFIG,
+        undefined,
+        INTERACTIVE,
       );
 
       expect(connect).toHaveBeenCalledTimes(2);
@@ -450,6 +470,8 @@ describe("cliOAuth", () => {
         oauthServerConfig,
         new MutableRedirectUrlProvider(),
         CALLBACK_URL_CONFIG,
+        undefined,
+        INTERACTIVE,
       );
 
       expect(client.disconnect).toHaveBeenCalled();
@@ -685,6 +707,8 @@ describe("cliOAuth", () => {
       CALLBACK_URL_CONFIG,
       undefined,
       fn,
+      undefined,
+      INTERACTIVE,
     );
 
     expect(result).toBe("ok");
@@ -800,5 +824,84 @@ describe("cliOAuth", () => {
       message: expect.stringMatching(/--stored-auth-only/),
     });
     expect(runSpy).not.toHaveBeenCalled();
+  });
+
+  it("assertInteractiveOAuthAllowed fails fast on a non-TTY", () => {
+    expect(() => assertInteractiveOAuthAllowed({ isTTY: false })).toThrow(
+      /Interactive OAuth requires a TTY/,
+    );
+  });
+
+  it("withCliAuthRecoveryRetry refuses interactive OAuth on a non-TTY", async () => {
+    const runSpy = vi.spyOn(runnerInteractive, "runRunnerInteractiveOAuth");
+    const fn = vi.fn().mockRejectedValue(new Error("RPC failed (401)"));
+
+    await expect(
+      withCliAuthRecoveryRetry(
+        {
+          connect: vi.fn(),
+          disconnect: vi.fn(),
+          authenticate: vi.fn(),
+          beginInteractiveAuthorization: vi.fn(),
+          completeOAuthFlow: vi.fn(),
+          checkAuthChallengeSatisfied: vi.fn(),
+        },
+        OAUTH_HTTP_CONFIG,
+        new MutableRedirectUrlProvider(),
+        CALLBACK_URL_CONFIG,
+        undefined,
+        fn,
+        undefined,
+        { isTTY: false },
+      ),
+    ).rejects.toMatchObject({
+      exitCode: 3,
+      message: expect.stringMatching(/--stored-auth-only/),
+    });
+    expect(runSpy).not.toHaveBeenCalled();
+  });
+
+  it("withCliAuthRecoveryRetry allows non-TTY interactive OAuth when MCP_AUTO_OPEN_ENABLED=true", async () => {
+    const prev = process.env.MCP_AUTO_OPEN_ENABLED;
+    process.env.MCP_AUTO_OPEN_ENABLED = "true";
+    try {
+      const runSpy = vi
+        .spyOn(runnerInteractive, "runRunnerInteractiveOAuth")
+        .mockResolvedValue({ kind: "success" });
+      const connect = vi.fn().mockResolvedValue(undefined);
+      const fn = vi
+        .fn()
+        .mockRejectedValueOnce(new Error("RPC failed (401)"))
+        .mockResolvedValueOnce("ok");
+      vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+
+      const result = await withCliAuthRecoveryRetry(
+        {
+          connect,
+          disconnect: vi.fn().mockResolvedValue(undefined),
+          authenticate: vi.fn(),
+          beginInteractiveAuthorization: vi.fn(),
+          completeOAuthFlow: vi.fn(),
+          checkAuthChallengeSatisfied: vi.fn(),
+        },
+        OAUTH_HTTP_CONFIG,
+        new MutableRedirectUrlProvider(),
+        CALLBACK_URL_CONFIG,
+        undefined,
+        fn,
+        undefined,
+        { isTTY: false },
+      );
+
+      expect(result).toBe("ok");
+      expect(runSpy).toHaveBeenCalledOnce();
+      expect(connect).toHaveBeenCalledOnce();
+    } finally {
+      if (prev === undefined) {
+        delete process.env.MCP_AUTO_OPEN_ENABLED;
+      } else {
+        process.env.MCP_AUTO_OPEN_ENABLED = prev;
+      }
+    }
   });
 });

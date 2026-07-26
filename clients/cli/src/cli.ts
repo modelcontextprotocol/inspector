@@ -99,7 +99,12 @@ async function callMethod(
 ): Promise<void> {
   // Clear after parse-time validation so a bad flag combo never deletes store
   // entries. Deletes the shared URL-keyed OAuth entry (not "ignore for this run").
-  if (relogin && "url" in serverConfig && serverConfig.url) {
+  if (relogin) {
+    if (!("url" in serverConfig && serverConfig.url)) {
+      throw new Error(
+        "--relogin requires an HTTP/SSE server URL (no OAuth store entry for stdio)",
+      );
+    }
     await clearStoredAuthForRelogin(serverConfig.url);
   }
 
@@ -669,11 +674,11 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     )
     .option(
       "--stored-auth-only",
-      "Never start interactive OAuth; use the shared store if present, otherwise fail with auth_required. No-op when the server does not require auth.",
+      "Never start interactive OAuth; use the shared store if present, otherwise fail with auth_required. Preferred for CI/non-interactive runs. No-op when the server does not require auth.",
     )
     .option(
       "--relogin",
-      "Delete stored OAuth for this server URL from the shared store before connect (HTTP/SSE URL keys only); interactive login runs only if the server requires auth. No-op for stdio / servers with no stored entry",
+      "Delete stored OAuth for this server URL from the shared store before connect (HTTP/SSE URL keys only); interactive login runs only if the server requires auth. Rejected for stdio (no URL-keyed store entry)",
     )
     .option(
       "--wait-for-auth <sec>",
