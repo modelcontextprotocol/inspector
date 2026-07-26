@@ -163,6 +163,9 @@ describe("showServerEntry / servers/show", () => {
         requestInit: {
           headers: {
             Authorization: "Bearer secret",
+            Cookie: "session=abc",
+            "X-Auth": "t",
+            "Proxy-Authorization": "Basic x",
             "X-Custom": "ok",
           },
         },
@@ -177,6 +180,9 @@ describe("showServerEntry / servers/show", () => {
       requestInit: {
         headers: {
           Authorization: "[redacted]",
+          Cookie: "[redacted]",
+          "X-Auth": "[redacted]",
+          "Proxy-Authorization": "[redacted]",
           "X-Custom": "ok",
         },
       },
@@ -241,7 +247,10 @@ describe("showServerEntry / servers/show", () => {
 
   it("shows one resolved entry without connecting", async () => {
     configPath = createSampleTestConfig();
-    const entry = await showServerEntry("test-stdio", { configPath });
+    const entry = await showServerEntry("test-stdio", {
+      configPath,
+      secretStore: new InMemorySecretStore(),
+    });
     expect(entry.name).toBe("test-stdio");
     expect(entry.type).toBe("stdio");
     expect(entry.config).toMatchObject({
@@ -329,8 +338,11 @@ describe("showServerEntry / servers/show", () => {
 
   it("rejects unknown server names", async () => {
     configPath = createSampleTestConfig();
-    await expect(showServerEntry("nope", { configPath })).rejects.toThrow(
-      /not found/,
-    );
+    await expect(
+      showServerEntry("nope", {
+        configPath,
+        secretStore: new InMemorySecretStore(),
+      }),
+    ).rejects.toThrow(/not found/);
   });
 });

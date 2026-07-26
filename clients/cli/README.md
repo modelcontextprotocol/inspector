@@ -149,7 +149,7 @@ The CLI runs the same loopback callback server as the TUI (`http://127.0.0.1:627
 **CLI (`mcp-inspector --cli`):** on connect **401** or mid-session interactive auth (re-login / step-up), it:
 
 1. Starts the callback listener on `--callback-url` (or `MCP_OAUTH_CALLBACK_URL`)
-2. Prints the authorization URL to stderr (OSC 8 hyperlink when stderr is a TTY) and **opens the default browser** on a TTY; non-TTY / CI prints a plain URL only and never launches a browser
+2. Prints the authorization URL to stderr (OSC 8 hyperlink when stderr is a TTY) and **opens the default browser** on a TTY; non-TTY / CI prints a plain URL only and never launches a browser. Opt out of the browser launch with `MCP_AUTO_OPEN_ENABLED=false` (same 3-way resolve as the web launcher: `true` / `false` / default off under `VITEST`). `--stored-auth-only` never prints or opens.
 3. Waits for the browser redirect, exchanges the code, and retries connect or the failed RPC
 
 **Step-up (standard OAuth):** when an RPC needs extra scopes, the CLI prompts on stderr: `Proceed with step-up authorization? [y/N]`. **y** continues; **N** exits with an error. EMA step-up re-mints silently (no prompt).
@@ -182,6 +182,7 @@ Register `http://127.0.0.1:6276/oauth/callback` on static or enterprise IdPs tha
 | `--client-secret <secret>`    | —                        | OAuth client secret; overrides `client.json`.                                                    |
 | `--client-metadata-url <url>` | —                        | CIMD metadata URL; overrides `client.json`.                                                      |
 | `--callback-url <url>`        | `MCP_OAUTH_CALLBACK_URL` | Redirect URI sent to the authorization server (default: `http://127.0.0.1:6276/oauth/callback`). |
+| —                             | `MCP_AUTO_OPEN_ENABLED`  | Browser auto-open for interactive OAuth: `true` / `false` / unset (open unless `VITEST` is set). Same semantics as the web launcher / `Dockerfile`. |
 
 **Example** — list tools on an OAuth-protected server using stored tokens and CIMD from the command line:
 

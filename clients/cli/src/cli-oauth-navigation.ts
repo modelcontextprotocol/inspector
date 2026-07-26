@@ -3,10 +3,10 @@ import { openUrl } from "./open-url.js";
 import { createStyle, resolveAnsiEnabled } from "./style.js";
 
 /**
- * Arms browser auto-open only for the CLI-owned interactive OAuth flow (the
- * one with a listening callback server). Left disarmed during
- * `inspectorClient.connect()` so an SDK-internal `auth()` cannot open a
- * browser (or a second doomed tab) before CLI gates run.
+ * Arms URL print + browser auto-open only for the CLI-owned interactive OAuth
+ * flow (the one with a listening callback server). Left disarmed during
+ * `inspectorClient.connect()` so an SDK-internal `auth()` cannot print a
+ * doomed authorize URL (or open a second browser tab) before CLI gates run.
  */
 export type CliOAuthAutoOpenControl = {
   armed: boolean;
@@ -22,11 +22,16 @@ export type CliOAuthNavigationOptions = {
   /** Open the browser (defaults to {@link openUrl}). */
   openBrowser?: (url: string) => Promise<void>;
   /**
-   * When set, browser open is allowed only while {@link CliOAuthAutoOpenControl.armed}
-   * is true. When omitted, auto-open is never armed (print URL only).
+   * When set, print + browser open are allowed only while
+   * {@link CliOAuthAutoOpenControl.armed} is true. When omitted, navigation is
+   * a no-op (SDK-during-connect default).
    */
   autoOpenControl?: CliOAuthAutoOpenControl;
-  /** Hard-disable browser open (e.g. `--stored-auth-only`). */
+  /**
+   * Suppress print + browser open entirely (e.g. `--stored-auth-only`). A
+   * disarmed/disabled navigation is never actionable — no callback server is
+   * listening for that authorize URL.
+   */
   disableAutoOpen?: boolean;
   /**
    * Override {@link resolveCliAutoOpenEnabled} (tests). When omitted, uses
@@ -51,15 +56,19 @@ export function resolveCliAutoOpenEnabled(
 }
 
 /**
- * CLI OAuth navigation: always print the authorization URL (OSC 8 when TTY
- * allows ANSI). Browser open is gated by {@link CliOAuthAutoOpenControl}
- * (armed only for the CLI interactive flow), `--stored-auth-only`, TTY,
- * and {@link resolveCliAutoOpenEnabled}.
+ * CLI OAuth navigation: print the authorization URL (OSC 8 when TTY allows
+ * ANSI) and optionally open the browser — but only when armed for the
+ * CLI-owned interactive flow. Disarmed / `--stored-auth-only` navigations are
+ * silent no-ops so SDK-internal `auth()` during connect cannot emit an
+ * uncompletable "Please navigate to:" line.
  */
 export function createCliOAuthNavigation(
   options: CliOAuthNavigationOptions = {},
 ): CallbackNavigation {
   return new CallbackNavigation(async (url) => {
+    const armed = options.autoOpenControl?.armed === true;
+    if (options.disableAutoOpen || !armed) return;
+
     const href = url.href;
     const tty =
       options.isTTY !== undefined
@@ -79,8 +88,7 @@ export function createCliOAuthNavigation(
       options.autoOpenEnabled !== undefined
         ? options.autoOpenEnabled
         : resolveCliAutoOpenEnabled();
-    const armed = options.autoOpenControl?.armed === true;
-    if (options.disableAutoOpen || !armed || !envAllows || !tty) return;
+    if (!envAllows || !tty) return;
 
     try {
       await (options.openBrowser ?? openUrl)(href);

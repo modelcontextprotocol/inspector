@@ -61,7 +61,7 @@ describe("createCliOAuthNavigation", () => {
     expect(openUrlMock).not.toHaveBeenCalled();
   });
 
-  it("prints the URL but does not open a browser when disarmed (SDK-during-connect default)", async () => {
+  it("is a silent no-op when disarmed (SDK-during-connect default)", async () => {
     const lines: string[] = [];
     const openBrowser = vi.fn();
     const nav = createCliOAuthNavigation({
@@ -73,12 +73,13 @@ describe("createCliOAuthNavigation", () => {
       // no autoOpenControl → never armed
     });
     nav.navigateToAuthorization(new URL("https://as.example/authorize"));
-    await vi.waitFor(() => expect(lines.length).toBe(1));
-    expect(lines.join("")).toContain("Please navigate to:");
+    // Navigation is fire-and-forget; give the microtask a turn.
+    await Promise.resolve();
+    expect(lines).toEqual([]);
     expect(openBrowser).not.toHaveBeenCalled();
   });
 
-  it("does not open a browser when disableAutoOpen is set", async () => {
+  it("is a silent no-op when disableAutoOpen is set (stored-auth-only)", async () => {
     const lines: string[] = [];
     const openBrowser = vi.fn();
     const nav = createCliOAuthNavigation({
@@ -91,11 +92,12 @@ describe("createCliOAuthNavigation", () => {
       disableAutoOpen: true,
     });
     nav.navigateToAuthorization(new URL("https://as.example/authorize"));
-    await vi.waitFor(() => expect(lines.length).toBe(1));
+    await Promise.resolve();
+    expect(lines).toEqual([]);
     expect(openBrowser).not.toHaveBeenCalled();
   });
 
-  it("does not open a browser when autoOpenEnabled is false", async () => {
+  it("prints but does not open a browser when autoOpenEnabled is false", async () => {
     const lines: string[] = [];
     const openBrowser = vi.fn();
     const nav = createCliOAuthNavigation({
@@ -108,6 +110,7 @@ describe("createCliOAuthNavigation", () => {
     });
     nav.navigateToAuthorization(new URL("https://as.example/authorize"));
     await vi.waitFor(() => expect(lines.length).toBe(1));
+    expect(lines.join("")).toContain("Please navigate to:");
     expect(openBrowser).not.toHaveBeenCalled();
   });
 

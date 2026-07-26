@@ -211,7 +211,8 @@ function sanitizeInitRecord(
 function isSensitiveHeader(key: string): boolean {
   const k = key.toLowerCase();
   return (
-    k === "authorization" ||
+    k.includes("auth") ||
+    k.includes("cookie") ||
     k.includes("secret") ||
     k.includes("token") ||
     k.includes("password") ||
