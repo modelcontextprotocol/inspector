@@ -1,7 +1,7 @@
 import type { ReactElement, ReactNode } from "react";
 import { act, render, type RenderOptions } from "@testing-library/react";
 import { MantineProvider, type MantineColorScheme } from "@mantine/core";
-import { vi } from "vitest";
+import { afterEach, vi } from "vitest";
 import { theme } from "../theme/theme";
 
 // Options accepted by both render helpers: the standard RTL options (minus
@@ -10,6 +10,15 @@ import { theme } from "../theme/theme";
 // without hand-rolling a bare `MantineProvider` (the #1760 anti-pattern).
 export type MantineRenderOptions = Omit<RenderOptions, "wrapper"> & {
   colorScheme?: MantineColorScheme;
+};
+
+// Options for the real-transitions variant. `settleMs` is the window the
+// automatic post-test settle waits (see below); pass the component's longest JS
+// timer chain — its `Transition` `duration`/`exitDuration` plus any
+// `enterDelay`/`exitDelay` plus two-frame rAF slack. Omit to use the generic
+// default.
+export type MantineTransitionsRenderOptions = MantineRenderOptions & {
+  settleMs?: number;
 };
 
 // Build a MantineProvider wrapper for the given Mantine `env` + forced color
@@ -41,24 +50,36 @@ export function renderWithMantine(
 
 // Opt-in variant that keeps Mantine's timer-driven transitions enabled, for the
 // few tests that assert on transition/animation state that only exists mid-flight
-// (e.g. a `data-anim="out"` cell during an exit crossfade). Such a test MUST
-// drive every transition to completion so no rAF→`setTimeout` chain is still
-// pending at teardown; otherwise it reintroduces the #1760 leak. A settled enter
-// leaves no DOM signal to `waitFor`, so a test that opens a transition it can't
-// observe closing should call `settleTransitions()` before ending (#1786).
+// (e.g. a `data-anim="out"` cell during an exit crossfade). Calling this **arms
+// an automatic settle** (see `settleTransitions` / the `afterEach` below) so the
+// test can't leak the #1760 class by forgetting to drain a concurrent enter that
+// has no DOM signal to `waitFor`. Pass `settleMs` derived from the component's
+// real animation duration so the settle window can't silently become
+// insufficient if that duration changes.
 export function renderWithMantineTransitions(
   ui: ReactElement,
-  options?: MantineRenderOptions,
+  options?: MantineTransitionsRenderOptions,
 ) {
-  const { colorScheme = "light", ...rest } = options ?? {};
+  const {
+    colorScheme = "light",
+    settleMs = DEFAULT_SETTLE_MS,
+    ...rest
+  } = options ?? {};
+  armedSettleMs = settleMs;
   return render(ui, { wrapper: makeWrapper("default", colorScheme), ...rest });
 }
 
 // Fallback settle window: ≈500ms clears a typical few-hundred-millisecond
 // transition plus the two-frame rAF scheduling slack. Callers that know their
-// component's animation duration should pass it (duration + slack) rather than
+// component's animation duration should pass `settleMs` (its longest JS timer
+// chain — duration plus any `enterDelay`/`exitDelay` — plus slack) rather than
 // rely on this default.
 const DEFAULT_SETTLE_MS = 500;
+
+// Set by `renderWithMantineTransitions`; consumed once by the `afterEach` below.
+// `null` means no real-transitions render happened this test, so nothing to
+// settle (every `renderWithMantine` / `env="test"` test skips the wait entirely).
+let armedSettleMs: number | null = null;
 
 // Flush any in-flight `renderWithMantineTransitions` animation before the test
 // ends. What's observed when it isn't flushed: an in-flight Mantine transition
@@ -90,5 +111,21 @@ export async function settleTransitions(ms: number = DEFAULT_SETTLE_MS) {
     await new Promise((resolve) => setTimeout(resolve, ms));
   });
 }
+
+// Auto-settle any armed real transition. Registered at import (collection) time,
+// so — afterEach hooks run LIFO and `setup.ts`'s global `cleanup()` is a
+// setupFile registered first — this runs *before* cleanup unmounts, i.e. while
+// the tree the settling `setState` targets is still live (the ordering the fix
+// depends on; verified). Skips when a `renderWithMantineTransitions` test also
+// opted into fake timers, since `settleTransitions` can't await a real timer
+// there (no such test exists today; this keeps the guard from throwing during
+// teardown if one is ever added).
+afterEach(async () => {
+  const ms = armedSettleMs;
+  armedSettleMs = null;
+  if (ms !== null && !vi.isFakeTimers()) {
+    await settleTransitions(ms);
+  }
+});
 
 export * from "@testing-library/react";

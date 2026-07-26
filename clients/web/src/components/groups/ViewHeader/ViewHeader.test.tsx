@@ -5,7 +5,6 @@ import {
   renderWithMantine,
   renderWithMantineTransitions,
   screen,
-  settleTransitions,
   waitFor,
 } from "../../../test/renderWithMantine";
 import { HEADER_ANIM_MS, ViewHeader } from "./ViewHeader";
@@ -13,10 +12,12 @@ import { HEADER_ANIM_MS, ViewHeader } from "./ViewHeader";
 // The `renderWithMantineTransitions` tests use real (env="default") Mantine
 // transitions to observe mid-flight "in"/"out" cells. Waiting for one cell to
 // unmount doesn't settle the *sibling* enter cells (a completed enter leaves no
-// DOM signal to `waitFor`), so those tests call `settleTransitions(...)` to
-// flush the in-flight animation before teardown (#1786). Derive the window from
-// the component's real duration plus rAF scheduling slack, so bumping
-// HEADER_ANIM_MS can't silently make the settle insufficient.
+// DOM signal to `waitFor`), which would leak the #1760 timer class. Passing
+// `settleMs` arms the helper's automatic post-test settle to drain the in-flight
+// animation before teardown (#1786). Derive the window from the component's real
+// duration plus rAF scheduling slack, so bumping HEADER_ANIM_MS can't silently
+// make the settle insufficient. (This is why ViewHeader.tsx exports
+// HEADER_ANIM_MS — the settle window must track the animation it settles.)
 const TRANSITION_SETTLE_MS = HEADER_ANIM_MS + 200;
 
 // Mock @mantine/hooks so we can control useMediaQuery results per test.
@@ -236,10 +237,12 @@ describe("ViewHeader", () => {
 
     it("crossfades on disconnect: tab bar exits while the title enters, then the bar unmounts (#1450)", async () => {
       mediaQueryMock.value = true;
-      // Asserts the mid-flight exit ("out") state, so it needs real transitions;
-      // it drives them to completion below (waitFor unmount).
+      // Asserts the mid-flight exit ("out") state, so it needs real transitions.
+      // The title's concurrent *enter* leaves no unmount to await, so the armed
+      // settle (settleMs) drains it before teardown (#1786).
       const { rerender } = renderWithMantineTransitions(
         <ViewHeader {...connectedProps} />,
+        { settleMs: TRANSITION_SETTLE_MS },
       );
       expect(screen.getAllByRole("radio").length).toBeGreaterThan(0);
 
@@ -268,10 +271,6 @@ describe("ViewHeader", () => {
       await waitFor(() =>
         expect(screen.queryAllByRole("radio").length).toBe(0),
       );
-
-      // The title's *enter* runs concurrently and leaves no unmount to await;
-      // settle it so no timer fires post-teardown (#1786).
-      await settleTransitions(TRANSITION_SETTLE_MS);
     });
 
     it("glows a tab added after the connect grace window, not during it (#1450)", () => {
@@ -311,10 +310,12 @@ describe("ViewHeader", () => {
 
     it("animates the server name and disconnect controls in on connect, out on disconnect (#1450)", async () => {
       mediaQueryMock.value = true;
-      // Asserts the mid-flight exit ("out") state, so it needs real transitions;
-      // it drives them to completion below (waitFor unmount).
+      // Asserts the mid-flight exit ("out") state, so it needs real transitions.
+      // The concurrent enter cells leave no unmount to await, so the armed settle
+      // (settleMs) drains them before teardown (#1786).
       const { rerender } = renderWithMantineTransitions(
         <ViewHeader {...connectedProps} />,
+        { settleMs: TRANSITION_SETTLE_MS },
       );
       // Connected: the server name and the Disconnect control are in their
       // enter cells.
@@ -364,10 +365,6 @@ describe("ViewHeader", () => {
           screen.queryByRole("button", { name: "Disconnect from server" }),
         ).not.toBeInTheDocument(),
       );
-
-      // The title's concurrent *enter* leaves no unmount to await; settle it so
-      // no timer fires post-teardown (#1786).
-      await settleTransitions(TRANSITION_SETTLE_MS);
     });
 
     it("renders the dark-scheme icon/logo branch under a dark color scheme", () => {
@@ -384,8 +381,10 @@ describe("ViewHeader", () => {
 
     it("crossfades the title out and the connected header in on connect (#1450)", async () => {
       mediaQueryMock.value = true;
-      // Asserts the mid-flight exit ("out") state, so it needs real transitions;
-      // it drives them to completion below (findByText for the entering header).
+      // Asserts the mid-flight exit ("out") state, so it needs real transitions.
+      // The title's exit and the server name's enter stay in flight past the
+      // assertions (the enter leaves no unmount to await), so the armed settle
+      // (settleMs) drains them before teardown (#1786).
       // Start disconnected: the title cell is the entering one.
       const { rerender } = renderWithMantineTransitions(
         <ViewHeader
@@ -393,6 +392,7 @@ describe("ViewHeader", () => {
           onToggleTheme={vi.fn()}
           onOpenClientSettings={vi.fn()}
         />,
+        { settleMs: TRANSITION_SETTLE_MS },
       );
       expect(
         screen
@@ -413,11 +413,6 @@ describe("ViewHeader", () => {
       ).toBe("out");
       // The connected server name enters once the keep-alive Transition mounts.
       expect(await screen.findByText("my-mcp-server")).toBeInTheDocument();
-
-      // Both the title's exit and the server name's enter are still in flight
-      // (the enter leaves no unmount to await); settle them so no timer fires
-      // post-teardown (#1786).
-      await settleTransitions(TRANSITION_SETTLE_MS);
     });
 
     it("disarms the tab glow when the connection drops after the grace window", () => {
