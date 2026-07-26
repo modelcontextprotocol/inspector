@@ -634,6 +634,17 @@ describe("printServerBanner", () => {
     expect(url).toBe("http://localhost:6274");
   });
 
+  it("advertises the canonical (unmapped) host so banner ⊆ allowedOrigins", () => {
+    // An IPv4-mapped bind host: the allow-list emits the loopback trio (which
+    // includes http://127.0.0.1), so the banner must advertise a member of it,
+    // not the [::ffff:127.0.0.1] form (whose Origin is [::ffff:7f00:1]).
+    const cfg = baseConfig();
+    cfg.hostname = "::ffff:127.0.0.1";
+    const url = printServerBanner(cfg, 6274, "", undefined);
+    expect(url).toBe("http://127.0.0.1:6274");
+    expect(defaultAllowedOrigins(cfg.hostname, 6274)).toContain(url);
+  });
+
   it("prints the sandbox URL when provided", () => {
     printServerBanner(baseConfig(), 6274, "tok", "http://sandbox:9999/sandbox");
     expect(

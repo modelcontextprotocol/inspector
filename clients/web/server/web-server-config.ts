@@ -20,7 +20,7 @@ import {
   isAllInterfacesHost,
   resolveBindHostname,
 } from "./resolve-bind-host.js";
-import { formatHostForUrl } from "../../../core/node/hostUrl.ts";
+import { canonicalUrlHost } from "../../../core/node/hostUrl.ts";
 
 // The single-source Inspector version (root package.json), read once at load.
 // The browser can't read the filesystem the way the CLI/TUI do, so the backend
@@ -168,13 +168,16 @@ export function printServerBanner(
   resolvedToken: string,
   sandboxUrl: string | undefined,
 ): string {
-  // Advertise `localhost` for a wildcard bind: `http://0.0.0.0:PORT` is an
-  // awkward URL to click, so point the user at a loopback address that's both
-  // reachable and in the default allow-list. Uses httpOrigin so the banner and
-  // the origin allow-list agree on the default-port form (both drop :80).
+  // Advertise `localhost` for a wildcard bind (`http://0.0.0.0:PORT` is an
+  // awkward URL to click and points the user at a reachable, allow-listed
+  // address); otherwise use the SAME canonical host the allow-list emits, so the
+  // advertised URL's origin is always a member of `allowedOrigins`
+  // (`banner ⊆ allowedOrigins`) — including the IPv4-mapped case where
+  // `canonicalUrlHost` unmaps but `formatHostForUrl` wouldn't. `httpOrigin`
+  // keeps the banner and the list agreeing on the default-port form (both drop :80).
   const bannerHost = isAllInterfacesHost(config.hostname)
     ? "localhost"
-    : formatHostForUrl(config.hostname);
+    : canonicalUrlHost(config.hostname);
   const baseUrl = httpOrigin(bannerHost, actualPort);
   const url =
     config.dangerouslyOmitAuth || !resolvedToken
@@ -234,42 +237,6 @@ function loopbackOrigins(port: number): string[] {
     httpOrigin("127.0.0.1", port),
     httpOrigin("[::1]", port),
   ];
-}
-
-/**
- * Unmap an IPv4-mapped IPv6 host (`[::ffff:7f00:1]`) to its dotted IPv4 form
- * (`127.0.0.1`) — the address the socket actually answers on (a
- * `::ffff:127.0.0.1` bind is reachable at `127.0.0.1`, not `::1`). Other hosts
- * pass through. Mirrors the bind guard, which already folds the mapped
- * *wildcard* (`::ffff:0:0`) into `ALL_INTERFACES_LITERALS`.
- */
-function unmapIpv4MappedHost(host: string): string {
-  const bare = host.replace(/^\[(.*)\]$/, "$1");
-  const m = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i.exec(bare);
-  if (!m) return host;
-  const hi = parseInt(m[1], 16);
-  const lo = parseInt(m[2], 16);
-  return `${hi >> 8}.${hi & 0xff}.${lo >> 8}.${lo & 0xff}`;
-}
-
-/**
- * Canonicalize a bind host the way a browser does before building `Origin`, so
- * the allow-list entry matches the header. Non-canonical spellings of the same
- * address — `127.1` / `0x7f.0.0.1` / `2130706433` all mean `127.0.0.1`,
- * `0:0:0:0:0:0:0:1` / `::0001` mean `::1`, `::ffff:127.0.0.1` means `127.0.0.1`
- * (the address it binds) — otherwise miss the {@link LOOPBACK_HOSTNAMES} lookup
- * (losing the loopback-trio expansion for an address that IS loopback) and emit
- * an origin the browser can never send. `new URL().hostname` returns the
- * URL-ready form (bracketed for IPv6); falls back to the formatted input if it
- * isn't a parseable URL host.
- */
-function canonicalUrlHost(host: string): string {
-  const formatted = formatHostForUrl(host.trim().toLowerCase());
-  try {
-    return unmapIpv4MappedHost(new URL(`http://${formatted}`).hostname);
-  } catch {
-    return formatted;
-  }
 }
 
 /**

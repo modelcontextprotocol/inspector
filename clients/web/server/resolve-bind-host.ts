@@ -8,6 +8,7 @@
  */
 
 import { isIPv6 } from "node:net";
+import { stripBrackets } from "../../../core/node/hostUrl.ts";
 
 /** Env var that opts into binding all network interfaces (see {@link resolveBindHostname}). */
 export const BIND_ALL_INTERFACES_ENV = "DANGEROUSLY_BIND_ALL_INTERFACES";
@@ -71,16 +72,9 @@ function isAllZeroIpv4(value: string): boolean {
   return parts.every((part) => parseAddressPart(part) === 0);
 }
 
-/** Strip a single surrounding `[...]` pair from a bracketed IPv6 literal; other hosts pass through. */
-function stripIpv6Brackets(host: string): string {
-  return host.replace(/^\[(.+)\]$/, "$1");
-}
-
 /** True when `host` binds all interfaces rather than loopback only. */
 export function isAllInterfacesHost(host: string): boolean {
-  const normalized = canonicalizeIpv6(
-    stripIpv6Brackets(host.trim().toLowerCase()),
-  );
+  const normalized = canonicalizeIpv6(stripBrackets(host.trim().toLowerCase()));
   return ALL_INTERFACES_LITERALS.has(normalized) || isAllZeroIpv4(normalized);
 }
 
@@ -119,5 +113,5 @@ export function resolveBindHostname(
         `${BIND_ALL_INTERFACES_ENV}=true.`,
     );
   }
-  return stripIpv6Brackets(host);
+  return stripBrackets(host);
 }

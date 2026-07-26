@@ -197,6 +197,21 @@ describe("createSandboxController", () => {
     }
   });
 
+  it("uses the canonical (unmapped) host in the sandbox URL", async () => {
+    // Same canonicalization as the origin allow-list, so the served sandbox URL
+    // is reachable — ::ffff:127.0.0.1 answers at 127.0.0.1, not [::ffff:...].
+    const controller = createSandboxController({
+      port: 0,
+      host: "::ffff:127.0.0.1",
+    });
+    try {
+      const { url, port } = await controller.start();
+      expect(url).toBe(`http://127.0.0.1:${port}/sandbox`);
+    } finally {
+      await controller.close();
+    }
+  });
+
   it("returns 404 for paths other than /sandbox", async () => {
     const controller = createSandboxController({ port: 0 });
     try {
