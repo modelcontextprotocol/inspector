@@ -217,21 +217,18 @@ afterEach(async () => {
     drainError = error;
   }
   if (livenessError === undefined) captureLiveness("after");
-  // A liveness error explains the actual regression; a drain-time throw
-  // (realistically only `act` surfacing an error flushed during the settle) is a
-  // downstream symptom — so prefer the liveness error. Preserve the drain error
-  // as its `cause` rather than dropping it, so a component error flushed during
-  // the settle isn't lost when both fire. Otherwise rethrow the drain's.
+  // A liveness error explains the actual regression; a drain-time throw is a
+  // downstream symptom — so prefer the liveness error, else rethrow the drain's.
   if (livenessError !== undefined) {
     if (drainError !== undefined) {
-      // Preserve the drain error rather than dropping it, so a component error
-      // flushed during the settle isn't lost when both fire. Attach it as the
-      // liveness error's `cause` (when that's an Error) *and* log it, so it's
-      // readable regardless of whether the test reporter renders `cause`.
+      // Preserve the drain error rather than dropping it when both fire: attach
+      // it as the liveness error's `cause` (when that's an Error) *and* log it,
+      // so it's readable regardless of whether the reporter renders `cause` and
+      // on the (currently unreachable) path where the liveness error isn't an
+      // Error and no cause can be set.
       if (livenessError instanceof Error) livenessError.cause = drainError;
       console.error(
-        "renderWithMantineTransitions auto-settle: the drain also threw " +
-          "(reported as the liveness error's cause):",
+        "renderWithMantineTransitions auto-settle: the drain also threw:",
         drainError,
       );
     }
@@ -256,13 +253,14 @@ function assertLiveContainersConnected(
     throw new Error(
       `renderWithMantineTransitions auto-settle: a still-mounted armed tree was ` +
         `detached ${when === "before" ? "before the settle started" : "while the settle was in flight"}, ` +
-        "so the settle drained nothing and the #1760 leak is reopened. Candidate " +
-        "causes: (a) a bare mid-body `cleanup()` in the test — use the " +
-        "`unmount()` returned by renderWithMantineTransitions instead (it drops " +
-        "the tree from the liveness set); or (b) `cleanup()` moved off setup.ts's " +
-        "setupFile (outer) hook to a same-level afterEach, so it no longer runs " +
-        "after this one (the `sequence.hooks` pin is defense-in-depth, not the " +
-        "guarantee — see the ordering note here).",
+        "so the settle drained against a dead tree and the #1760 leak is " +
+        "reopened. Candidate causes: (a) a bare mid-body `cleanup()` in the test " +
+        "— use the `unmount()` returned by renderWithMantineTransitions instead " +
+        "(it drops the tree from the liveness set); or (b) `cleanup()` moved off " +
+        "setup.ts's setupFile (outer) hook to a same-level afterEach, so it no " +
+        "longer runs after this one (the `sequence.hooks` pin is defense-in-" +
+        "depth, not the guarantee — see the auto-settle ordering note in " +
+        "renderWithMantine.tsx).",
     );
   }
 }
