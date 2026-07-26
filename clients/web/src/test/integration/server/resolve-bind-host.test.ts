@@ -42,6 +42,13 @@ describe("resolveBindHostname", () => {
     );
   });
 
+  it("names the resolved wildcard address when the spelling differs (fullwidth)", () => {
+    // `HOST="０"` renders like `0`, so the message shows it resolves to 0.0.0.0.
+    expect(() => resolveBindHostname({ HOST: "０" })).toThrow(
+      /resolves to 0\.0\.0\.0/,
+    );
+  });
+
   it.each(["true", "TRUE", "1", " true "])(
     "allows 0.0.0.0 when the opt-in is %j",
     (flag) => {

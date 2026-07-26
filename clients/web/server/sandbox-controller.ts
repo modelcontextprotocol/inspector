@@ -204,7 +204,8 @@ export function createSandboxController(
           // wildcard bind serves loopback, so `localhost` is. Otherwise use the
           // same canonical host the origin allow-list emits, so the served URL
           // is reachable and its origin is allow-listed (matches the app banner).
-          // One normalized value drives both the predicate and the value.
+          // (`isAllInterfacesHost` canonicalizes internally too, so passing the
+          // pre-canonicalized host is belt-and-braces.)
           const canonicalHost = canonicalUrlHost(host);
           const urlHost = isAllInterfacesHost(canonicalHost)
             ? "localhost"

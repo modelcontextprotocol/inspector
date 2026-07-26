@@ -8,6 +8,10 @@ clients/web/dist
 clients/**/build
 clients/**/coverage
 test-servers/build
+# TypeScript incremental build cache (written by `tsc -b`); web routes its own
+# into node_modules/.tmp via tsBuildInfoFile, but a stray `tsc -b` elsewhere
+# drops one next to the tsconfig — never source.
+*.tsbuildinfo
 .env
 /.playwright-mcp/
 

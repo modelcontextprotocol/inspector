@@ -8,6 +8,7 @@
  */
 
 import {
+  canonicalUrlHost,
   isAllInterfacesHost,
   stripBrackets,
 } from "../../../core/node/hostUrl.ts";
@@ -41,8 +42,17 @@ export function resolveBindHostname(
 ): string {
   const host = (env.HOST ?? "localhost").trim();
   if (isAllInterfacesHost(host) && !isEnabled(env[BIND_ALL_INTERFACES_ENV])) {
+    // Show the resolved address when it differs from the typed spelling — the
+    // guard now catches forms the resolver folds to the wildcard (a fullwidth
+    // `HOST="０"` renders like `0`, `HOST=0` / `0x0` / `::0` bind `0.0.0.0`), and
+    // "bind a loopback host" reads as a non-sequitur without that hint.
+    const resolved = canonicalUrlHost(host);
+    const shown =
+      resolved === host.toLowerCase()
+        ? `HOST="${host}"`
+        : `HOST="${host}" (resolves to ${resolved})`;
     throw new Error(
-      `Refusing to bind HOST="${host}": this exposes the MCP Inspector to your ` +
+      `Refusing to bind ${shown}: this exposes the MCP Inspector to your ` +
         `entire network, and its backend can spawn local processes and connect ` +
         `to MCP servers on your behalf — the exposure DNS-rebinding attacks ` +
         `target. Bind a loopback host (localhost / 127.0.0.1) instead. To ` +

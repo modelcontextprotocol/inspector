@@ -175,7 +175,9 @@ export function printServerBanner(
   // (`banner ⊆ allowedOrigins`) — including the IPv4-mapped case where
   // `canonicalUrlHost` unmaps but `formatHostForUrl` wouldn't. `httpOrigin`
   // keeps the banner and the list agreeing on the default-port form (both drop
-  // :80). One normalized value (`h`) drives both the predicate and the value.
+  // :80). Computing `h` once keeps the predicate and the value reading the same
+  // form; `isAllInterfacesHost` also canonicalizes internally, so this is
+  // belt-and-braces, not what makes them agree.
   const h = canonicalUrlHost(config.hostname);
   const bannerHost = isAllInterfacesHost(h) ? "localhost" : h;
   const baseUrl = httpOrigin(bannerHost, actualPort);
@@ -274,9 +276,9 @@ export function defaultAllowedOrigins(
   hostname: string,
   port: number,
 ): string[] {
-  // One normalized value drives every branch (so they can't disagree about the
-  // same host): the loopback lookup, the wildcard check, and the emitted origin
-  // all read `h`.
+  // The loopback lookup and the emitted origin both read the canonicalized `h`
+  // (the wildcard check via `isAllInterfacesHost` canonicalizes internally), so
+  // every branch reasons about the same address.
   const h = canonicalUrlHost(hostname);
   if (LOOPBACK_HOSTNAMES.has(h)) {
     return loopbackOrigins(port);
