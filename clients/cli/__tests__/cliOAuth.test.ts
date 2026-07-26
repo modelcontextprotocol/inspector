@@ -8,7 +8,6 @@ import {
   isStandardOAuthStepUp,
   runCliInteractiveOAuth,
   assertInteractiveOAuthAllowed,
-  assertStepUpPromptAllowed,
   withCliAuthRecoveryRetry,
 } from "../src/cliOAuth.js";
 import type { MCPServerConfig } from "@inspector/core/mcp/types.js";
@@ -16,17 +15,18 @@ import { createInterface } from "node:readline/promises";
 
 // `confirmStepUpFromStdin` (the default step-up confirmer) reads a line from
 // stdin via node:readline/promises. Mock the module so the default path can be
-// exercised deterministically without real TTY input. Minimal once/removeListener
-// surface covers the EOF/close race in the confirmer.
-const { mockQuestion, mockClose } = vi.hoisted(() => ({
-  mockQuestion: vi.fn(),
-  mockClose: vi.fn(),
-}));
-vi.mock("node:readline/promises", () => ({
-  createInterface: vi.fn(() => {
+// exercised deterministically without real TTY input.
+const { mockQuestion, mockClose, createMockReadline } = vi.hoisted(() => {
+  const mockQuestion = vi.fn();
+  const mockClose = vi.fn();
+  function createMockReadline(options?: {
+    question?: () => Promise<string>;
+    /** When set, emit `close` on the next microtask (EOF). */
+    emitClose?: boolean;
+  }) {
     const listeners = new Map<string, Set<(...args: unknown[]) => void>>();
     const rl = {
-      question: mockQuestion,
+      question: options?.question ?? mockQuestion,
       close: mockClose,
       once(event: string, cb: (...args: unknown[]) => void) {
         let set = listeners.get(event);
@@ -41,9 +41,19 @@ vi.mock("node:readline/promises", () => ({
         listeners.get(event)?.delete(cb);
         return rl;
       },
+      emit(event: string) {
+        for (const cb of listeners.get(event) ?? []) cb();
+      },
     };
+    if (options?.emitClose) {
+      queueMicrotask(() => rl.emit("close"));
+    }
     return rl;
-  }),
+  }
+  return { mockQuestion, mockClose, createMockReadline };
+});
+vi.mock("node:readline/promises", () => ({
+  createInterface: vi.fn(() => createMockReadline()),
 }));
 
 const CALLBACK_URL_CONFIG = {
@@ -415,30 +425,13 @@ describe("cliOAuth", () => {
 
     it("declines when stdin EOF closes the readline interface before an answer", async () => {
       const runSpy = vi.spyOn(runnerInteractive, "runRunnerInteractiveOAuth");
-      vi.mocked(createInterface).mockImplementationOnce(() => {
-        const listeners = new Map<string, Set<(...args: unknown[]) => void>>();
-        const rl = {
-          question: vi.fn(() => new Promise<string>(() => {})),
-          close: mockClose,
-          once(event: string, cb: (...args: unknown[]) => void) {
-            let set = listeners.get(event);
-            if (!set) {
-              set = new Set();
-              listeners.set(event, set);
-            }
-            set.add(cb);
-            return rl;
-          },
-          removeListener(event: string, cb: (...args: unknown[]) => void) {
-            listeners.get(event)?.delete(cb);
-            return rl;
-          },
-        };
-        queueMicrotask(() => {
-          for (const cb of listeners.get("close") ?? []) cb();
-        });
-        return rl as unknown as ReturnType<typeof createInterface>;
-      });
+      vi.mocked(createInterface).mockImplementationOnce(
+        () =>
+          createMockReadline({
+            question: () => new Promise(() => {}),
+            emitClose: true,
+          }) as unknown as ReturnType<typeof createInterface>,
+      );
 
       await expect(
         handleCliAuthRecoveryRequired(
@@ -453,59 +446,47 @@ describe("cliOAuth", () => {
 
       expect(runSpy).not.toHaveBeenCalled();
     });
-  });
 
-  it("assertStepUpPromptAllowed fails without a stdin TTY when using the default confirmer", () => {
-    expect(() => assertStepUpPromptAllowed({ isTTY: false })).toThrow(
-      /Step-up authorization requires a TTY on stdin/,
-    );
-  });
-
-  it("assertStepUpPromptAllowed skips the stdin gate when confirmStepUp is provided", () => {
-    expect(() =>
-      assertStepUpPromptAllowed({
-        isTTY: false,
-        confirmStepUp: async () => true,
-      }),
-    ).not.toThrow();
-  });
-
-  it("step-up fails fast without stdin even when interactive OAuth is force-admitted", async () => {
-    // MCP_AUTO_OPEN_ENABLED=true admits the interactive-OAuth gate, but the
-    // [y/N] prompt still needs stdin — otherwise CI hangs forever.
-    vi.stubEnv("MCP_AUTO_OPEN_ENABLED", "true");
-    const runSpy = vi.spyOn(runnerInteractive, "runRunnerInteractiveOAuth");
-    try {
-      await expect(
-        handleCliAuthRecoveryRequired(
-          {
-            authenticate: vi.fn(),
-            beginInteractiveAuthorization: vi.fn(),
-            completeOAuthFlow: vi.fn(),
-            checkAuthChallengeSatisfied: vi.fn().mockResolvedValue(false),
-          },
-          new AuthRecoveryRequiredError(
-            new URL("https://as.example/authorize"),
-            {
-              reason: "insufficient_scope",
-              requiredScopes: ["weather:read"],
-            },
-          ),
+    it("accepts a piped y when stdin is non-TTY (echo y | …)", async () => {
+      // Force-admit interactive OAuth without a TTY; the confirmer still reads
+      // the piped answer (round-9: do not hard-require stdin.isTTY).
+      vi.stubEnv("MCP_AUTO_OPEN_ENABLED", "true");
+      mockQuestion.mockResolvedValue("y");
+      const runSpy = vi
+        .spyOn(runnerInteractive, "runRunnerInteractiveOAuth")
+        .mockResolvedValue({ kind: "success" });
+      try {
+        await handleCliAuthRecoveryRequired(
+          clientNeedingStepUp(),
+          standardStepUpError(),
           new MutableRedirectUrlProvider(),
           CALLBACK_URL_CONFIG,
           {},
           { isTTY: false },
+        );
+        expect(runSpy).toHaveBeenCalled();
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    });
+
+    it("declines when a non-TTY stdin never answers (pipe timeout)", async () => {
+      mockQuestion.mockImplementation(() => new Promise(() => {}));
+      const runSpy = vi.spyOn(runnerInteractive, "runRunnerInteractiveOAuth");
+
+      await expect(
+        handleCliAuthRecoveryRequired(
+          clientNeedingStepUp(),
+          standardStepUpError(),
+          new MutableRedirectUrlProvider(),
+          CALLBACK_URL_CONFIG,
+          {},
+          { isTTY: true, stepUpPromptTimeoutMs: 20 },
         ),
-      ).rejects.toMatchObject({
-        exitCode: 3,
-        message: expect.stringMatching(
-          /Step-up authorization requires a TTY on stdin/,
-        ),
-      });
+      ).rejects.toThrow("Step-up authorization declined.");
+
       expect(runSpy).not.toHaveBeenCalled();
-    } finally {
-      vi.unstubAllEnvs();
-    }
+    });
   });
 
   describe("connectInspectorWithOAuth recovery branch", () => {

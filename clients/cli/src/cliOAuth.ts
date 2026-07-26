@@ -29,6 +29,9 @@ export type CliOAuthClient = RunnerInteractiveOAuthClient & {
   disconnect(): Promise<void>;
 };
 
+/** Default bound for a non-TTY step-up [y/N] that never sends a line. */
+export const STEP_UP_PIPE_TIMEOUT_MS = 5_000;
+
 export type CliOAuthConnectOptions = {
   /**
    * When true, never open interactive OAuth / step-up prompts. Use the shared
@@ -41,11 +44,11 @@ export type CliOAuthConnectOptions = {
    */
   autoOpenControl?: CliOAuthAutoOpenControl;
   /**
-   * Override “human present” / interactive-terminal detection (tests and
-   * programmatic callers). When omitted, production uses
+   * Override “human present” detection for interactive-OAuth admit gating
+   * (tests and programmatic callers). When omitted, production uses
    * `stdin.isTTY || stderr.isTTY` so `2>&1 | tee` still works (stdin remains a
-   * TTY). Also used as the stdin-readiness override for the step-up [y/N]
-   * prompt when {@link confirmStepUp} is not provided.
+   * TTY). Does **not** gate the step-up [y/N] confirmer — that accepts piped
+   * answers and bounds silent pipes via {@link stepUpPromptTimeoutMs}.
    */
   isTTY?: boolean;
   /**
@@ -53,6 +56,13 @@ export type CliOAuthConnectOptions = {
    * When omitted, prompts on stderr and reads from stdin.
    */
   confirmStepUp?: () => Promise<boolean>;
+  /**
+   * Bound (ms) for the default step-up confirmer when stdin is not a TTY, so a
+   * pipe that never writes cannot hang forever. Ignored on a TTY stdin (humans
+   * may pause). When set explicitly (including in tests), always applied.
+   * Default: {@link STEP_UP_PIPE_TIMEOUT_MS}.
+   */
+  stepUpPromptTimeoutMs?: number;
 };
 
 function authRequiredFailure(message: string): never {
@@ -68,7 +78,8 @@ function authRequiredFailure(message: string): never {
  * automation opt-in, which also force-opens a browser).
  *
  * Browser auto-open stays stderr-only — see {@link createCliOAuthNavigation}.
- * Step-up [y/N] needs readable stdin — see {@link assertStepUpPromptAllowed}.
+ * Step-up [y/N] accepts piped stdin (`echo y | …`); EOF and silent pipes are
+ * bounded in the default confirmer (close race + {@link STEP_UP_PIPE_TIMEOUT_MS}).
  */
 export function assertInteractiveOAuthAllowed(
   options?: Pick<CliOAuthConnectOptions, "isTTY">,
@@ -83,23 +94,6 @@ export function assertInteractiveOAuthAllowed(
   );
 }
 
-/**
- * Standard-OAuth step-up asks [y/N] on stdin. Admit-on-stderr / force-open is
- * not enough — without a TTY stdin the readline `question` never settles on
- * EOF. Custom {@link CliOAuthConnectOptions.confirmStepUp} skips this gate.
- */
-export function assertStepUpPromptAllowed(
-  options?: Pick<CliOAuthConnectOptions, "isTTY" | "confirmStepUp">,
-): void {
-  if (options?.confirmStepUp) return;
-  const stdinReady =
-    options?.isTTY !== undefined ? options.isTTY : process.stdin.isTTY === true;
-  if (stdinReady) return;
-  authRequiredFailure(
-    "Step-up authorization requires a TTY on stdin. For CI/non-interactive runs use --stored-auth-only.",
-  );
-}
-
 /** Standard-OAuth step-up (not EMA silent re-mint). */
 export function isStandardOAuthStepUp(
   challenge: AuthChallenge,
@@ -111,24 +105,39 @@ export function isStandardOAuthStepUp(
 }
 
 /**
- * Read [y/N] from stdin. On EOF / interface close (e.g. `< /dev/null`), treat
- * as decline so CI never hangs forever on `rl.question`.
+ * Read [y/N] from stdin. Piped answers work (`echo y | …`). On EOF / interface
+ * close (e.g. `< /dev/null`), or when a non-TTY stdin never sends a line
+ * within {@link STEP_UP_PIPE_TIMEOUT_MS}, treat as decline so CI never hangs.
  */
-async function confirmStepUpFromStdin(): Promise<boolean> {
+async function confirmStepUpFromStdin(timeoutMs?: number): Promise<boolean> {
   const rl = createInterface({ input: process.stdin, output: process.stderr });
+  const applyTimeoutMs =
+    timeoutMs !== undefined
+      ? timeoutMs
+      : process.stdin.isTTY === true
+        ? undefined
+        : STEP_UP_PIPE_TIMEOUT_MS;
   try {
     const answer = await new Promise<string>((resolve) => {
-      const onClose = () => resolve("n");
+      let settled = false;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      function finish(value: string): void {
+        if (settled) return;
+        settled = true;
+        if (timer !== undefined) clearTimeout(timer);
+        rl.removeListener("close", onClose);
+        resolve(value);
+      }
+      function onClose(): void {
+        finish("n");
+      }
       rl.once("close", onClose);
+      if (applyTimeoutMs !== undefined) {
+        timer = setTimeout(() => finish("n"), applyTimeoutMs);
+      }
       void rl.question("").then(
-        (line) => {
-          rl.removeListener("close", onClose);
-          resolve(line);
-        },
-        () => {
-          rl.removeListener("close", onClose);
-          resolve("n");
-        },
+        (line) => finish(line),
+        () => finish("n"),
       );
     });
     const normalized = answer.trim().toLowerCase();
@@ -197,13 +206,14 @@ export async function handleCliAuthRecoveryRequired(
   serverSettings?: InspectorServerSettings,
   options?: CliOAuthConnectOptions,
 ): Promise<void> {
-  const confirmStepUp = options?.confirmStepUp ?? confirmStepUpFromStdin;
+  const confirmStepUp =
+    options?.confirmStepUp ??
+    (() => confirmStepUpFromStdin(options?.stepUpPromptTimeoutMs));
   if (isStandardOAuthStepUp(error.authChallenge, serverSettings)) {
     if (await client.checkAuthChallengeSatisfied(error.authChallenge)) {
       return;
     }
     assertInteractiveOAuthAllowed(options);
-    assertStepUpPromptAllowed(options);
     const proceed = await promptStepUpConfirm(
       error.authChallenge,
       confirmStepUp,

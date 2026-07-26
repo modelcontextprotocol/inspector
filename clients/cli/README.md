@@ -154,7 +154,7 @@ The CLI runs the same loopback callback server as the TUI (`http://127.0.0.1:627
 
 Interactive OAuth (connect-time or mid-RPC) requires a TTY on **stdin or stderr** (so `2>&1 | tee` still works — stdin stays a TTY), or `MCP_AUTO_OPEN_ENABLED=true`. When neither stdin nor stderr is a TTY and that env is unset (typical CI), the CLI fails fast with `auth_required` instead of waiting up to 15 minutes on the loopback callback. Use **`--stored-auth-only`** for non-interactive runs that should only consume the shared store.
 
-**Step-up (standard OAuth):** when an RPC needs extra scopes, the CLI prompts on stderr: `Proceed with step-up authorization? [y/N]`. **y** continues; **N** (or EOF / closed stdin) declines. This prompt requires a **stdin** TTY — admit-on-stderr or `MCP_AUTO_OPEN_ENABLED=true` alone is not enough (avoids an unbounded hang when stdin is `/dev/null`). EMA step-up re-mints silently (no prompt).
+**Step-up (standard OAuth):** when an RPC needs extra scopes, the CLI prompts on stderr: `Proceed with step-up authorization? [y/N]`. **y** continues (including piped stdin, e.g. `echo y | …`); **N**, EOF (`< /dev/null` / Ctrl-D), or a non-TTY stdin that never sends a line within a short timeout declines. EMA step-up re-mints silently (no prompt).
 
 **Shared OAuth storage:** the CLI **reuses** tokens from `~/.mcp-inspector/storage/oauth.json` when they already exist (same file as other Inspector clients). That is passive file sharing, not launching another app.
 
