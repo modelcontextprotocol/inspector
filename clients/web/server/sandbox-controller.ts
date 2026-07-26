@@ -7,8 +7,10 @@ import { createServer, type Server } from "node:http";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { canonicalUrlHost } from "../../../core/node/hostUrl.ts";
-import { isAllInterfacesHost } from "./resolve-bind-host.js";
+import {
+  canonicalUrlHost,
+  isAllInterfacesHost,
+} from "../../../core/node/hostUrl.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 

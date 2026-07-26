@@ -23,7 +23,10 @@ import {
   parseHeaderPair,
 } from "@inspector/core/mcp/node/index.js";
 import type { JsonValue } from "@inspector/core/mcp/index.js";
-import { canonicalUrlHost } from "@inspector/core/node/hostUrl.js";
+import {
+  canonicalUrlHost,
+  isAllInterfacesHost,
+} from "@inspector/core/node/hostUrl.js";
 import { getStateFilePath } from "@inspector/core/auth/node/storage-node.js";
 import { consumeMethodOutcome } from "./handlers/consume-outcome.js";
 import { runMethod } from "./handlers/run-method.js";
@@ -423,6 +426,13 @@ function buildHandoff(
   transport: "sse" | "http" | "stdio" | undefined,
 ): McpResponse {
   const host = process.env.HOST || "127.0.0.1";
+  // The deep link is a URL handed to a human, so advertise localhost for a
+  // wildcard bind (like the web banner/sandbox URL) rather than the awkward
+  // http://0.0.0.0 / http://[::] — both are allow-listed, but neither is a nice
+  // URL to click; otherwise use the canonical host so it matches the allow-list.
+  const linkHost = isAllInterfacesHost(host)
+    ? "localhost"
+    : canonicalUrlHost(host);
   const clientPort = process.env.CLIENT_PORT || "6274";
   const sandboxPort = process.env.MCP_SANDBOX_PORT || "6275";
   // Treat an empty MCP_INSPECTOR_API_TOKEN the same as unset — an empty token
@@ -441,7 +451,7 @@ function buildHandoff(
   if (apiToken) params.set("autoConnect", apiToken);
   return {
     serverUrl: normalizedUrl,
-    deepLink: `http://${canonicalUrlHost(host)}:${clientPort}/?${params.toString()}`,
+    deepLink: `http://${linkHost}:${clientPort}/?${params.toString()}`,
     portForwardCmd: `coder port-forward <workspace> --tcp ${clientPort}:${clientPort} --tcp ${sandboxPort}:${sandboxPort}`,
     oauthStatePath: statePath,
     apiToken: apiToken ?? null,

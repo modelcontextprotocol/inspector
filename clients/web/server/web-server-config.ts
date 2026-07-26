@@ -16,11 +16,11 @@ import {
 import type { InitialConfigPayload } from "../../../core/mcp/remote/node/server.ts";
 import { readInspectorVersionSafe } from "../../../core/node/version.ts";
 import { resolveSandboxPort } from "./sandbox-controller.js";
+import { resolveBindHostname } from "./resolve-bind-host.js";
 import {
+  canonicalUrlHost,
   isAllInterfacesHost,
-  resolveBindHostname,
-} from "./resolve-bind-host.js";
-import { canonicalUrlHost } from "../../../core/node/hostUrl.ts";
+} from "../../../core/node/hostUrl.ts";
 
 // The single-source Inspector version (root package.json), read once at load.
 // The browser can't read the filesystem the way the CLI/TUI do, so the backend

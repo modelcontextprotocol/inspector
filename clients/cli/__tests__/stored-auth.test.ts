@@ -599,6 +599,25 @@ describe("--print-handoff", () => {
     expect(out.deepLink.startsWith("http://127.0.0.1:16274/?")).toBe(true);
   });
 
+  it("advertises localhost in the deep link for a wildcard HOST", async () => {
+    // 0.0.0.0 is allow-listed so it connects, but the deep link is handed to a
+    // human — advertise localhost like the web banner does.
+    const result = await runCli(
+      ["--print-handoff", "--server-url", "https://x.example/mcp"],
+      {
+        env: {
+          MCP_INSPECTOR_API_TOKEN: "tok123",
+          HOST: "0.0.0.0",
+          DANGEROUSLY_BIND_ALL_INTERFACES: "true",
+          CLIENT_PORT: "16274",
+        },
+      },
+    );
+    expectCliSuccess(result);
+    const out = JSON.parse(result.stdout) as { deepLink: string };
+    expect(out.deepLink.startsWith("http://localhost:16274/?")).toBe(true);
+  });
+
   it("derives transport=sse for an SSE server (auto-detected from the /sse path)", async () => {
     const result = await runCli(
       ["--print-handoff", "--server-url", "https://x.example/sse"],
