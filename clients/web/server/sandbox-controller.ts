@@ -25,19 +25,35 @@ export interface SandboxControllerOptions {
   allowedOrigins?: string[];
 }
 
+const LOOPBACK_FRAME_ANCESTORS = [
+  "http://127.0.0.1:*",
+  "http://localhost:*",
+  "http://[::1]:*",
+];
+
+/**
+ * A well-formed CSP host-source: `scheme://host[:port]` with no whitespace or
+ * CSP metacharacters. `allowedOrigins` is user-controlled (the `ALLOWED_ORIGINS`
+ * env var), and its values are interpolated into the `Content-Security-Policy`
+ * response header — so a newline would make `writeHead` throw `ERR_INVALID_CHAR`
+ * (killing the sandbox page) and a `;` would inject extra CSP directives. Only
+ * values matching this shape are allowed through {@link sandboxFrameAncestors}.
+ */
+const CSP_HOST_SOURCE = /^[a-z][a-z0-9+.-]*:\/\/[^\s;,'"]+$/i;
+
 /**
  * The proxy's `frame-ancestors` sources. The embedder is the inspector app
  * page, whose origin is (by construction) in the backend's `allowedOrigins`, so
  * derive the directive from that list — this keeps the MCP Apps iframe working
- * on whatever host the app is actually served from, not just loopback. Falls
- * back to the loopback family (any port) when the list is empty — the "origin
- * check disabled" case — so the sandbox still loads locally.
+ * on whatever host the app is actually served from, not just loopback.
+ * Malformed entries are dropped (see {@link CSP_HOST_SOURCE}); if nothing valid
+ * remains (empty list, or the "origin check disabled" case), falls back to the
+ * loopback family so the sandbox still loads locally and the header can't be
+ * corrupted.
  */
 export function sandboxFrameAncestors(allowedOrigins?: string[]): string {
-  const sources =
-    allowedOrigins && allowedOrigins.length > 0
-      ? allowedOrigins
-      : ["http://127.0.0.1:*", "http://localhost:*", "http://[::1]:*"];
+  const valid = (allowedOrigins ?? []).filter((o) => CSP_HOST_SOURCE.test(o));
+  const sources = valid.length > 0 ? valid : LOOPBACK_FRAME_ANCESTORS;
   return `frame-ancestors ${sources.join(" ")}`;
 }
 

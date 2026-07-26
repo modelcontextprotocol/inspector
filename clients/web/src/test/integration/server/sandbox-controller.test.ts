@@ -26,6 +26,25 @@ describe("sandboxFrameAncestors", () => {
       );
     },
   );
+
+  it("drops malformed entries that could inject CSP directives or crash writeHead", () => {
+    // A newline would make writeHead throw ERR_INVALID_CHAR; a ';' would inject
+    // extra directives. Only the well-formed origin survives.
+    expect(
+      sandboxFrameAncestors([
+        "http://good.example:6274",
+        "http://a:1; sandbox",
+        "http://b:2\nX-Evil: 1",
+        "not a url",
+      ]),
+    ).toBe("frame-ancestors http://good.example:6274");
+  });
+
+  it("falls back to loopback when every entry is malformed", () => {
+    expect(sandboxFrameAncestors(["http://a:1; sandbox", "garbage"])).toBe(
+      "frame-ancestors http://127.0.0.1:* http://localhost:* http://[::1]:*",
+    );
+  });
 });
 
 describe("resolveSandboxPort", () => {

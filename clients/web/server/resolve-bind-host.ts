@@ -29,10 +29,17 @@ const ALL_INTERFACES_LITERALS = new Set(["", "0.0.0.0", "::", "::ffff:0:0"]);
  * `0000:…:0000` all collapse to `::`, and `::ffff:0.0.0.0` → `::ffff:0:0`. This
  * is what lets a small literal set catch every all-zero IPv6 spelling rather
  * than only the handful written out. Non-IPv6 input passes through unchanged.
+ *
+ * The zone index (`%eth0`) is stripped first: `net.isIPv6` accepts it but
+ * `new URL()` rejects a zone id outright (even `%25`-encoded), so passing it
+ * through would throw. The zone is irrelevant to *which* address this is, so
+ * dropping it is correct for detection — `::%eth0` still canonicalizes to `::`.
+ * (The caller keeps the zone on the value it returns for `listen()`.)
  */
 function canonicalizeIpv6(value: string): string {
   if (!isIPv6(value)) return value;
-  return new URL(`http://[${value}]`).hostname.slice(1, -1);
+  const [address] = value.split("%");
+  return new URL(`http://[${address}]`).hostname.slice(1, -1);
 }
 
 /**
@@ -49,8 +56,10 @@ function parseAddressPart(part: string): number {
 /**
  * True when `value` is an all-zero IPv4 address in any legacy spelling the OS
  * still binds as the `0.0.0.0` wildcard: the bare integer `0`, `0x0`, dotted
- * `0.0.0.0`, `000.000.000.000`, `0x0.0.0.0`, etc. (Node/`inet_aton` accept all
- * of these.) Guards the near-miss bypasses of the literal set above.
+ * `0.0.0.0`, `000.000.000.000`, `0x0.0.0.0`, and the short forms `0.0` / `0.0.0`
+ * (Node/`inet_aton` accept 1–4 parts). Guards the near-miss bypasses of the
+ * literal set above. The `> 4` reject is intentional — 1–3 parts are valid
+ * `inet_aton` spellings, so this is deliberately NOT `parts.length === 4`.
  */
 function isAllZeroIpv4(value: string): boolean {
   const parts = value.split(".");

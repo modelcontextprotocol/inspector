@@ -165,7 +165,9 @@ export function printServerBanner(
   resolvedToken: string,
   sandboxUrl: string | undefined,
 ): string {
-  const baseUrl = `http://${formatHostForUrl(config.hostname)}:${actualPort}`;
+  // Uses httpOrigin so the banner and the origin allow-list agree on the
+  // default-port form (both drop :80).
+  const baseUrl = httpOrigin(formatHostForUrl(config.hostname), actualPort);
   const url =
     config.dangerouslyOmitAuth || !resolvedToken
       ? baseUrl
