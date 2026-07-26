@@ -8,6 +8,7 @@ describe("formatHostForUrl", () => {
     ["  ::1  ", "[::1]"],
     ["fe80::1%eth0", "[fe80::1]"], // zone id dropped — a URL host can't carry one
     ["::1%lo0", "[::1]"],
+    ["[fe80::1%eth0]", "[fe80::1]"], // bracketed-with-zone → still a valid URL host
   ])("brackets the IPv6 literal %j", (host, expected) => {
     expect(formatHostForUrl(host)).toBe(expected);
   });

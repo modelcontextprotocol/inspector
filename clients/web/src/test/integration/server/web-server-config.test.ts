@@ -113,12 +113,13 @@ describe("buildWebServerConfigFromEnv", () => {
     const cfg = buildWebServerConfigFromEnv();
     expect(cfg.hostname).toBe("0.0.0.0");
     // A wildcard bind serves loopback, so the default allow-list is the
-    // loopback trio (what a `docker run -p` browser actually sends), not the
-    // unmatchable http://0.0.0.0:PORT.
+    // loopback trio (what a `docker run -p` browser actually sends) plus the
+    // bound-host origin the banner prints (http://0.0.0.0:PORT).
     expect(cfg.allowedOrigins).toEqual([
       "http://localhost:8123",
       "http://127.0.0.1:8123",
       "http://[::1]:8123",
+      "http://0.0.0.0:8123",
     ]);
   });
 
@@ -171,6 +172,21 @@ describe("buildWebServerConfigFromEnv", () => {
     const cfg = buildWebServerConfigFromEnv();
     expect(cfg.allowedOrigins).toEqual(["http://a:1", "http://b:2"]);
   });
+
+  it.each(["", " ", ","])(
+    "falls back to the default (not an empty allow-all) when ALLOWED_ORIGINS is %j",
+    (value) => {
+      // An empty parsed list must NOT reach the middleware — it treats an empty
+      // allow-list as allow-all, which would silently disable the origin guard.
+      process.env.ALLOWED_ORIGINS = value;
+      const cfg = buildWebServerConfigFromEnv();
+      expect(cfg.allowedOrigins).toEqual([
+        "http://localhost:6274",
+        "http://127.0.0.1:6274",
+        "http://[::1]:6274",
+      ]);
+    },
+  );
 
   it("resolves sandboxPort from MCP_SANDBOX_PORT", () => {
     process.env.MCP_SANDBOX_PORT = "9001";
@@ -259,18 +275,25 @@ describe("defaultAllowedOrigins", () => {
     ]);
   });
 
-  it.each(["0.0.0.0", "::", "::0"])(
-    "returns the loopback trio for the all-interfaces host %j",
-    (host) => {
-      // A wildcard bind serves loopback; the wildcard address itself is never
-      // sent as an Origin, so http://<wildcard>:PORT would be dead weight.
-      expect(defaultAllowedOrigins(host, 8123)).toEqual([
-        "http://localhost:8123",
-        "http://127.0.0.1:8123",
-        "http://[::1]:8123",
-      ]);
-    },
-  );
+  it("returns the loopback trio plus the bound-host origin for the 0.0.0.0 wildcard", () => {
+    // A wildcard bind serves loopback (the trio) and 0.0.0.0 is itself locally
+    // connectable — the banner prints http://0.0.0.0:PORT, so it's included too.
+    expect(defaultAllowedOrigins("0.0.0.0", 8123)).toEqual([
+      "http://localhost:8123",
+      "http://127.0.0.1:8123",
+      "http://[::1]:8123",
+      "http://0.0.0.0:8123",
+    ]);
+  });
+
+  it("brackets the bound-host origin for the :: wildcard", () => {
+    expect(defaultAllowedOrigins("::", 8123)).toEqual([
+      "http://localhost:8123",
+      "http://127.0.0.1:8123",
+      "http://[::1]:8123",
+      "http://[::]:8123",
+    ]);
+  });
 
   it("lowercases a non-loopback hostname to match the browser's Origin", () => {
     expect(defaultAllowedOrigins("Example.COM", 6274)).toEqual([
@@ -479,6 +502,13 @@ describe("printServerBanner", () => {
     cfg.hostname = "::1";
     const url = printServerBanner(cfg, 6274, "", undefined);
     expect(url).toBe("http://[::1]:6274");
+  });
+
+  it("advertises localhost for a wildcard bind rather than the wildcard host", () => {
+    const cfg = baseConfig();
+    cfg.hostname = "0.0.0.0";
+    const url = printServerBanner(cfg, 6274, "", undefined);
+    expect(url).toBe("http://localhost:6274");
   });
 
   it("prints the sandbox URL when provided", () => {

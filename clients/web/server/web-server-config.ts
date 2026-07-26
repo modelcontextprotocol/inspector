@@ -168,9 +168,14 @@ export function printServerBanner(
   resolvedToken: string,
   sandboxUrl: string | undefined,
 ): string {
-  // Uses httpOrigin so the banner and the origin allow-list agree on the
-  // default-port form (both drop :80).
-  const baseUrl = httpOrigin(formatHostForUrl(config.hostname), actualPort);
+  // Advertise `localhost` for a wildcard bind: `http://0.0.0.0:PORT` is an
+  // awkward URL to click, so point the user at a loopback address that's both
+  // reachable and in the default allow-list. Uses httpOrigin so the banner and
+  // the origin allow-list agree on the default-port form (both drop :80).
+  const bannerHost = isAllInterfacesHost(config.hostname)
+    ? "localhost"
+    : formatHostForUrl(config.hostname);
+  const baseUrl = httpOrigin(bannerHost, actualPort);
   const url =
     config.dangerouslyOmitAuth || !resolvedToken
       ? baseUrl
@@ -223,13 +228,15 @@ const LOOPBACK_HOSTNAMES = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
  * `localhost` the banner advertised.
  *
  * An **all-interfaces** bind (`0.0.0.0` / `::`, the opt-in path the Docker image
- * uses) also serves loopback, so it gets the same loopback trio: a browser
- * reaching the container via `docker run -p 6274:6274` navigates to
- * `http://localhost:6274` and sends that as its `Origin`. The bind host itself
- * (`0.0.0.0`) is never sent as an `Origin`, so a `http://0.0.0.0:PORT` entry
- * would only ever be dead weight. (Reaching the server at a non-loopback
- * address — a LAN IP, a public hostname — still needs `ALLOWED_ORIGINS`, since
- * those origins can't be enumerated from the wildcard.)
+ * uses) also serves loopback, so it gets the loopback trio *plus the bound-host
+ * origin*: a browser reaching the container via `docker run -p 6274:6274`
+ * navigates to `http://localhost:6274` (the trio), but `0.0.0.0` is itself
+ * locally connectable and the startup banner prints `http://0.0.0.0:PORT`, so a
+ * user who pastes that URL sends `http://0.0.0.0:6274` as its `Origin` — hence
+ * that entry is included too. Including it weakens nothing (no attacker document
+ * can claim that origin without the user having navigated there). Reaching the
+ * server at a non-loopback address — a LAN IP, a public hostname — still needs
+ * `ALLOWED_ORIGINS`, since those origins can't be enumerated from the wildcard.
  *
  * For a specific non-loopback host (a real IP/hostname) we return the single
  * exact origin — lowercased and, for an IPv6 literal, bracketed, so it matches
@@ -248,11 +255,21 @@ export function defaultAllowedOrigins(
   port: number,
 ): string[] {
   const h = hostname.toLowerCase();
-  if (LOOPBACK_HOSTNAMES.has(h) || isAllInterfacesHost(hostname)) {
+  if (LOOPBACK_HOSTNAMES.has(h)) {
     return [
       httpOrigin("localhost", port),
       httpOrigin("127.0.0.1", port),
       httpOrigin("[::1]", port),
+    ];
+  }
+  if (isAllInterfacesHost(hostname)) {
+    // Loopback trio (reachable via the wildcard) + the bound-host origin the
+    // banner prints (e.g. http://0.0.0.0:PORT), which is locally connectable.
+    return [
+      httpOrigin("localhost", port),
+      httpOrigin("127.0.0.1", port),
+      httpOrigin("[::1]", port),
+      httpOrigin(formatHostForUrl(h), port),
     ];
   }
   return [httpOrigin(formatHostForUrl(h), port)];
@@ -294,6 +311,14 @@ export function buildWebServerConfig(
     );
   }
 
+  // Fall back to the default when ALLOWED_ORIGINS parses to an empty list
+  // (`""`, `" "`, `","`). `[]` is not `undefined`, so a bare `??` would let it
+  // through — and the origin middleware treats an empty allow-list as
+  // *allow-all*, silently disabling the DNS-rebinding guard (fail open).
+  const configuredOrigins = process.env.ALLOWED_ORIGINS?.split(",")
+    .map((o) => o.trim())
+    .filter(Boolean);
+
   return {
     port,
     hostname,
@@ -304,10 +329,9 @@ export function buildWebServerConfig(
     writable,
     initialServers,
     storageDir: process.env.MCP_STORAGE_DIR,
-    allowedOrigins:
-      process.env.ALLOWED_ORIGINS?.split(",")
-        .map((o) => o.trim())
-        .filter(Boolean) ?? defaultAllowedOrigins(hostname, port),
+    allowedOrigins: configuredOrigins?.length
+      ? configuredOrigins
+      : defaultAllowedOrigins(hostname, port),
     sandboxPort,
     sandboxHost: hostname,
     logger,
