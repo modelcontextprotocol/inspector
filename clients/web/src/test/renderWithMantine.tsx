@@ -75,7 +75,16 @@ export function renderWithMantineTransitions(
     ...rest,
   });
   armedContainer = result.container;
-  return result;
+  // If the test unmounts the tree itself, disarm: there's nothing left to settle
+  // against a live tree (Mantine's `useTransition` unmount cleanup applies), and
+  // otherwise the auto-settle's detached-tree check would misread the test's own
+  // `unmount()` as a broken cleanup ordering. Wrap rather than mutate RTL's
+  // result so `rerender`/`container`/etc. pass through unchanged.
+  const disarmingUnmount = () => {
+    disarmSettle();
+    result.unmount();
+  };
+  return { ...result, unmount: disarmingUnmount };
 }
 
 // Fallback settle window: ≈500ms clears a typical few-hundred-millisecond
@@ -92,8 +101,16 @@ const DEFAULT_SETTLE_MS = 500;
 // Last-write-wins here (unlike the max-wins `armedSettleMs`) is fine: it's only
 // used to detect that `cleanup()` ran, and cleanup detaches *every* mounted
 // container at once — so the last one is a faithful proxy for "cleanup ran".
+// This module-level state assumes **sequential** tests: it isn't concurrency-
+// safe, so don't use `renderWithMantineTransitions` under `test.concurrent` /
+// `describe.concurrent` (two in-flight tests would share this arming).
 let armedSettleMs: number | null = null;
 let armedContainer: HTMLElement | null = null;
+
+function disarmSettle() {
+  armedSettleMs = null;
+  armedContainer = null;
+}
 
 // Flush any in-flight `renderWithMantineTransitions` animation before the test
 // ends. What's observed when it isn't flushed: an in-flight Mantine transition
@@ -145,16 +162,16 @@ export async function settleTransitions(ms: number = DEFAULT_SETTLE_MS) {
 afterEach(async () => {
   const ms = armedSettleMs;
   const container = armedContainer;
-  armedSettleMs = null;
-  armedContainer = null;
+  disarmSettle();
   if (ms === null) return;
   // A `renderWithMantineTransitions` test that also used fake timers can't be
   // drained by a real-timer wait; skip, but warn — silence here is how the leak
   // sneaks back (unlike the manual `settleTransitions`, which throws). No such
   // test exists today.
   if (vi.isFakeTimers()) {
+    const testName = expect.getState().currentTestName ?? "(unknown test)";
     console.warn(
-      `renderWithMantineTransitions auto-settle skipped for "${expect.getState().currentTestName}": ` +
+      `renderWithMantineTransitions auto-settle skipped for "${testName}": ` +
         "the test is under vi.useFakeTimers(). A real-transitions test should " +
         "not use fake timers — the #1760 leak is unprotected once the settle " +
         "no-ops.",
@@ -169,9 +186,10 @@ afterEach(async () => {
 });
 
 // Throw if the armed tree was detached at the given point relative to the
-// settle — cleanup() ran first ("before") or concurrently mid-settle ("after"),
-// meaning the settle drained nothing and the #1760 leak is reopened. Either way
-// the load-bearing afterEach ordering broke.
+// settle — meaning the settle drained nothing and the #1760 leak is reopened. In
+// the current setup the only cause is a broken afterEach ordering (setup.ts's
+// cleanup() ran before this hook finished): a test that unmounts the tree
+// *itself* disarms via the wrapped `unmount()`, so it never reaches here.
 function assertConnectedForSettle(
   container: HTMLElement | null,
   when: "before" | "after",
@@ -179,11 +197,14 @@ function assertConnectedForSettle(
   if (container && !container.isConnected) {
     throw new Error(
       `renderWithMantineTransitions auto-settle: tree was unmounted ${when} ` +
-        "the settle — setup.ts's cleanup() ran " +
+        "the settle. Expected cause: setup.ts's cleanup() ran " +
         (when === "before" ? "entirely first" : "concurrently mid-settle") +
-        ", so the settle drained nothing and the #1760 leak is reopened. This " +
-        "hook must run and complete before cleanup (see the ordering note here " +
-        'and the `sequence.hooks: "stack"` pin in vite.config.ts).',
+        " — the afterEach ordering this depends on broke, so the settle drained " +
+        "nothing and the #1760 leak is reopened (this hook must run and complete " +
+        "before cleanup; see the ordering note here and the `sequence.hooks: " +
+        '"stack"` pin in vite.config.ts). If instead the test unmounted the tree ' +
+        "itself, use the `unmount()` returned by renderWithMantineTransitions " +
+        "(which disarms the auto-settle) rather than a bare RTL unmount.",
     );
   }
 }
