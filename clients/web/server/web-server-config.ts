@@ -294,6 +294,15 @@ export function buildWebServerConfig(
     initialServers = null,
   } = options;
   const port = parseInt(process.env.CLIENT_PORT ?? "6274", 10);
+  // A fixed port is required: the origin allow-list and the sandbox CSP are both
+  // built from it, so `0` (OS-assigned) would make them reference a port the
+  // server isn't on — every connect 403s and the MCP Apps iframe is blocked.
+  // Fail fast with an actionable message (run-web surfaces it cleanly).
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error(
+      `Invalid CLIENT_PORT="${process.env.CLIENT_PORT}": the web server needs a fixed port in 1–65535 (0 / dynamic is unsupported — the origin allow-list and sandbox CSP are derived from it).`,
+    );
+  }
   const hostname = resolveBindHostname();
   const dangerouslyOmitAuth = !!process.env.DANGEROUSLY_OMIT_AUTH;
   const authToken = dangerouslyOmitAuth
@@ -316,13 +325,28 @@ export function buildWebServerConfig(
     );
   }
 
-  // Fall back to the default when ALLOWED_ORIGINS parses to an empty list
-  // (`""`, `" "`, `","`). `[]` is not `undefined`, so a bare `??` would let it
-  // through — and the origin middleware treats an empty allow-list as
-  // *allow-all*, silently disabling the DNS-rebinding guard (fail open).
+  // Parse ALLOWED_ORIGINS into canonical origins. Each entry is normalized via
+  // `new URL(o).origin` (drops a trailing slash/path, lowercases the host, drops
+  // the default :80) so the natural copy-paste forms — `http://localhost:6274/`
+  // from the address bar, an uppercase host, an explicit `:80` — match the
+  // canonical `Origin` the browser sends rather than 403ing on an exact-string
+  // compare. Unparseable entries are warned and dropped.
+  //
+  // When nothing survives (unset, `""`, `" "`, `","`, or all-invalid) we fall
+  // back to `defaultAllowedOrigins` below — critically NOT to `[]`, which the
+  // origin middleware treats as *allow-all*, silently disabling the guard.
   const configuredOrigins = process.env.ALLOWED_ORIGINS?.split(",")
     .map((o) => o.trim())
-    .filter(Boolean);
+    .filter(Boolean)
+    .map((o) => {
+      try {
+        return new URL(o).origin;
+      } catch {
+        console.warn(`Ignoring invalid ALLOWED_ORIGINS entry: ${o}`);
+        return null;
+      }
+    })
+    .filter((o): o is string => o !== null);
 
   return {
     port,

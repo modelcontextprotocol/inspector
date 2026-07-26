@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   buildWebServerConfig,
   buildWebServerConfigFromEnv,
@@ -186,6 +186,47 @@ describe("buildWebServerConfigFromEnv", () => {
         "http://127.0.0.1:6274",
         "http://[::1]:6274",
       ]);
+    },
+  );
+
+  it("canonicalizes ALLOWED_ORIGINS entries so copy-paste forms still match", () => {
+    // Trailing slash, uppercase host, explicit default :80 — all normalized to
+    // the canonical Origin the browser actually sends.
+    process.env.ALLOWED_ORIGINS =
+      "http://localhost:6274/, http://Example.COM:6274, http://myhost:80";
+    const cfg = buildWebServerConfigFromEnv();
+    expect(cfg.allowedOrigins).toEqual([
+      "http://localhost:6274",
+      "http://example.com:6274",
+      "http://myhost",
+    ]);
+  });
+
+  it("drops unparseable ALLOWED_ORIGINS entries (and falls back if none survive)", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      process.env.ALLOWED_ORIGINS = "not a url, *, http://ok:1";
+      const cfg = buildWebServerConfigFromEnv();
+      // "not a url" / "*" throw; "http://ok:1" parses.
+      expect(cfg.allowedOrigins).toEqual(["http://ok:1"]);
+
+      process.env.ALLOWED_ORIGINS = "not a url, also bad";
+      const cfg2 = buildWebServerConfigFromEnv();
+      expect(cfg2.allowedOrigins).toEqual([
+        "http://localhost:6274",
+        "http://127.0.0.1:6274",
+        "http://[::1]:6274",
+      ]);
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it.each(["0", "abc", "70000", "-1"])(
+    "rejects an unusable CLIENT_PORT %j with an actionable error",
+    (value) => {
+      process.env.CLIENT_PORT = value;
+      expect(() => buildWebServerConfigFromEnv()).toThrow(/CLIENT_PORT/);
     },
   );
 
