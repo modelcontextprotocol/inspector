@@ -168,8 +168,10 @@ ssh -L 6274:127.0.0.1:6274 -L 6275:127.0.0.1:6275 <remote-host>
 
 Then open `http://127.0.0.1:6274/?MCP_INSPECTOR_API_TOKEN=$TOKEN` locally.
 
-- Use `127.0.0.1`, **not** `localhost` — the backend's origin guard checks the
-  literal `Origin` header against the configured `HOST`.
+- Any of the three loopback forms works — `127.0.0.1`, `localhost`, or `[::1]`.
+  The default origin allow-list emits all three for a loopback bind (#1795), so
+  the guard accepts whichever the browser sends. (A **non-loopback** forward
+  target needs `ALLOWED_ORIGINS` set to that origin.)
 - Forward `:6275` (`MCP_SANDBOX_PORT`) as well: the Apps tab renders widgets in
   an iframe served from that second origin; without it the App frame stays
   blank.
