@@ -169,7 +169,12 @@ export default defineConfig(({ command }) => {
     // `strictPort: true` so a port collision fails loudly instead of silently
     // picking a different port (which would leave `allowedOrigins` wrong).
     server: {
-      port: devConfig?.port ?? parseInt(process.env.CLIENT_PORT ?? "6274", 10),
+      // The `|| "6274"` (empty ⇒ unset) mirrors buildWebServerConfig, so the
+      // non-serve fallback agrees with the validated dev path on a blank
+      // CLIENT_PORT rather than parsing it to NaN.
+      port:
+        devConfig?.port ??
+        parseInt(process.env.CLIENT_PORT?.trim() || "6274", 10),
       host: devConfig?.hostname ?? process.env.HOST ?? "localhost",
       strictPort: true,
       fs: {

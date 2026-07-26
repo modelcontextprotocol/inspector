@@ -245,6 +245,18 @@ describe("buildWebServerConfigFromEnv", () => {
     }
   });
 
+  it("drops a wildcard ALLOWED_ORIGINS entry (works for CSP but never for the origin check)", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      process.env.ALLOWED_ORIGINS =
+        "http://*.example.com:6274, http://real.example.com:6274";
+      const cfg = buildWebServerConfigFromEnv();
+      expect(cfg.allowedOrigins).toEqual(["http://real.example.com:6274"]);
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
   it.each(["0", "abc", "70000", "-1", "6274abc", "80.9"])(
     "rejects an unusable CLIENT_PORT %j with an actionable error",
     (value) => {
@@ -343,6 +355,28 @@ describe("defaultAllowedOrigins", () => {
   it("returns a single exact origin for a specific non-loopback host", () => {
     expect(defaultAllowedOrigins("192.168.1.50", 6274)).toEqual([
       "http://192.168.1.50:6274",
+    ]);
+  });
+
+  // A non-canonical spelling of a loopback address is canonicalized (the way the
+  // browser canonicalizes it into `Origin`), so it's recognized as loopback and
+  // gets the trio — not a single unmatchable entry.
+  it.each(["127.1", "0x7f.0.0.1", "2130706433", "0:0:0:0:0:0:0:1", "::0001"])(
+    "canonicalizes the loopback spelling %j and returns the trio",
+    (host) => {
+      expect(defaultAllowedOrigins(host, 6274)).toEqual([
+        "http://localhost:6274",
+        "http://127.0.0.1:6274",
+        "http://[::1]:6274",
+      ]);
+    },
+  );
+
+  it("keeps a distinct non-loopback address (127.0.0.2) as a single origin", () => {
+    // 127.0.0.2 is canonical and a bind there doesn't serve 127.0.0.1, so the
+    // single-origin branch is correct — only non-canonical *spellings* expand.
+    expect(defaultAllowedOrigins("127.0.0.2", 6274)).toEqual([
+      "http://127.0.0.2:6274",
     ]);
   });
 

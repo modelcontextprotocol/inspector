@@ -37,14 +37,15 @@ const LOOPBACK_FRAME_ANCESTORS = ["http://127.0.0.1:*", "http://localhost:*"];
 
 /**
  * A well-formed CSP host-source: `scheme://host[:port]` with no whitespace, CSP
- * metacharacters, or brackets. `allowedOrigins` is user-controlled (the
- * `ALLOWED_ORIGINS` env var) and its values are interpolated into the
- * `Content-Security-Policy` response header — so a newline would make
- * `writeHead` throw `ERR_INVALID_CHAR` (killing the sandbox page) and a `;`
- * would inject extra CSP directives. Brackets are excluded too: a bracketed IPv6
- * literal (`http://[::1]:PORT`) is not a valid CSP host-source, so emitting it
- * is at best dead weight and — as the only source — would block the frame.
- * Only values matching this shape survive into {@link sandboxFrameAncestors}.
+ * metacharacters, or brackets. `allowedOrigins` comes from
+ * `web-server-config.ts`, where every entry is already a `new URL().origin`
+ * (canonical, no path/newline/`;`), so its **load-bearing job today is dropping
+ * bracketed IPv6** — a `http://[::1]:PORT` literal isn't a valid CSP host-source
+ * and, as the only source, would collapse the directive to `'none'`. The
+ * whitespace/metacharacter exclusions are belt-and-braces: `sandboxFrameAncestors`
+ * takes the list from a caller, not from env directly, so a future caller that
+ * doesn't pre-canonicalize can't corrupt the header. Only values matching this
+ * shape survive into {@link sandboxFrameAncestors}.
  */
 const CSP_HOST_SOURCE = /^[a-z][a-z0-9+.-]*:\/\/[^\s;,'"[\]]+$/i;
 

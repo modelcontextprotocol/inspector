@@ -262,11 +262,30 @@ function loopbackOrigins(port: number): string[] {
   ];
 }
 
+/**
+ * Canonicalize a bind host the way a browser does before building `Origin`, so
+ * the allow-list entry matches the header. Non-canonical spellings of the same
+ * address — `127.1` / `0x7f.0.0.1` / `2130706433` all mean `127.0.0.1`,
+ * `0:0:0:0:0:0:0:1` / `::0001` mean `::1` — otherwise both miss the
+ * {@link LOOPBACK_HOSTNAMES} lookup (losing the loopback-trio expansion for an
+ * address that IS loopback) and emit an origin the browser can never send.
+ * `new URL().hostname` returns the URL-ready form (bracketed for IPv6); falls
+ * back to the formatted input if it isn't a parseable URL host.
+ */
+function canonicalUrlHost(host: string): string {
+  const formatted = formatHostForUrl(host.trim().toLowerCase());
+  try {
+    return new URL(`http://${formatted}`).hostname;
+  } catch {
+    return formatted;
+  }
+}
+
 export function defaultAllowedOrigins(
   hostname: string,
   port: number,
 ): string[] {
-  const h = hostname.toLowerCase();
+  const h = canonicalUrlHost(hostname);
   if (LOOPBACK_HOSTNAMES.has(h)) {
     return loopbackOrigins(port);
   }
@@ -277,7 +296,8 @@ export function defaultAllowedOrigins(
       httpOrigin("[::]", port),
     ];
   }
-  return [httpOrigin(formatHostForUrl(h), port)];
+  // `h` is already the canonical, URL-ready host (bracketed for IPv6).
+  return [httpOrigin(h, port)];
 }
 
 /**
@@ -330,11 +350,12 @@ export function buildWebServerConfig(
   }
 
   // Parse ALLOWED_ORIGINS into canonical origins. Each entry is normalized via
-  // `new URL(o).origin` (drops a trailing slash/path, lowercases the host, drops
-  // the default :80) so the natural copy-paste forms — `http://localhost:6274/`
-  // from the address bar, an uppercase host, an explicit `:80` — match the
-  // canonical `Origin` the browser sends rather than 403ing on an exact-string
-  // compare. Unparseable entries are warned and dropped.
+  // `new URL(o).origin` (drops a trailing slash/path and any userinfo, lowercases
+  // and punycodes the host, drops the default :80) so the natural copy-paste
+  // forms — `http://localhost:6274/` from the address bar, an uppercase or IDN
+  // host, an explicit `:80` — match the canonical `Origin` the browser sends
+  // rather than 403ing on an exact-string compare. Unparseable, opaque, and
+  // wildcard entries are warned and dropped (see inline).
   //
   // When nothing survives (unset, `""`, `" "`, `","`, or all-invalid) we fall
   // back to `defaultAllowedOrigins` below — critically NOT to `[]`, which the
@@ -352,6 +373,12 @@ export function buildWebServerConfig(
         // send from opaque origins (a sandboxed iframe, a `data:` doc), so
         // allow-listing it would erode the guard. Entries must carry a scheme.
         if (origin === "null") throw new Error("opaque origin");
+        // A wildcard (`http://*.example.com`) survives `new URL` but can never
+        // match the exact-compare origin guard — yet `*.example.com` IS a legal
+        // CSP host-source, so it would silently work for the sandbox iframe and
+        // silently 403 every connect (the most confusing split). Reject it so it
+        // fails loudly and consistently; list exact origins instead.
+        if (origin.includes("*")) throw new Error("wildcard origin");
         return origin;
       } catch {
         console.warn(`Ignoring invalid ALLOWED_ORIGINS entry: ${o}`);
