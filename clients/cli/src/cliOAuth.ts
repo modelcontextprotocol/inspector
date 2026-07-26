@@ -41,12 +41,17 @@ export type CliOAuthConnectOptions = {
    */
   autoOpenControl?: CliOAuthAutoOpenControl;
   /**
-   * Override “human present” detection for interactive-OAuth gating (tests).
-   * When omitted, production uses `stdin.isTTY || stderr.isTTY` so
-   * `2>&1 | tee` still works (stdin remains a TTY).
+   * Override “human present” / interactive-terminal detection (tests and
+   * programmatic callers). When omitted, production uses
+   * `stdin.isTTY || stderr.isTTY` so `2>&1 | tee` still works (stdin remains a
+   * TTY). Also used as the stdin-readiness override for the step-up [y/N]
+   * prompt when {@link confirmStepUp} is not provided.
    */
   isTTY?: boolean;
-  /** Override the step-up [y/N] confirmer (tests). */
+  /**
+   * Override the step-up [y/N] confirmer (tests and programmatic callers).
+   * When omitted, prompts on stderr and reads from stdin.
+   */
   confirmStepUp?: () => Promise<boolean>;
 };
 
@@ -56,15 +61,14 @@ function authRequiredFailure(message: string): never {
   });
 }
 
-function storedAuthOnlyFailure(message: string): never {
-  authRequiredFailure(message);
-}
-
 /**
  * Interactive OAuth waits up to 15 minutes on the loopback callback. Admit the
  * flow when a human is present (`stdin` or `stderr` is a TTY — so `2>&1 | tee`
  * still works), or when `MCP_AUTO_OPEN_ENABLED=true` (explicit non-TTY /
  * automation opt-in, which also force-opens a browser).
+ *
+ * Browser auto-open stays stderr-only — see {@link createCliOAuthNavigation}.
+ * Step-up [y/N] needs readable stdin — see {@link assertStepUpPromptAllowed}.
  */
 export function assertInteractiveOAuthAllowed(
   options?: Pick<CliOAuthConnectOptions, "isTTY">,
@@ -79,6 +83,23 @@ export function assertInteractiveOAuthAllowed(
   );
 }
 
+/**
+ * Standard-OAuth step-up asks [y/N] on stdin. Admit-on-stderr / force-open is
+ * not enough — without a TTY stdin the readline `question` never settles on
+ * EOF. Custom {@link CliOAuthConnectOptions.confirmStepUp} skips this gate.
+ */
+export function assertStepUpPromptAllowed(
+  options?: Pick<CliOAuthConnectOptions, "isTTY" | "confirmStepUp">,
+): void {
+  if (options?.confirmStepUp) return;
+  const stdinReady =
+    options?.isTTY !== undefined ? options.isTTY : process.stdin.isTTY === true;
+  if (stdinReady) return;
+  authRequiredFailure(
+    "Step-up authorization requires a TTY on stdin. For CI/non-interactive runs use --stored-auth-only.",
+  );
+}
+
 /** Standard-OAuth step-up (not EMA silent re-mint). */
 export function isStandardOAuthStepUp(
   challenge: AuthChallenge,
@@ -89,10 +110,27 @@ export function isStandardOAuthStepUp(
   });
 }
 
+/**
+ * Read [y/N] from stdin. On EOF / interface close (e.g. `< /dev/null`), treat
+ * as decline so CI never hangs forever on `rl.question`.
+ */
 async function confirmStepUpFromStdin(): Promise<boolean> {
   const rl = createInterface({ input: process.stdin, output: process.stderr });
   try {
-    const answer = await rl.question("");
+    const answer = await new Promise<string>((resolve) => {
+      const onClose = () => resolve("n");
+      rl.once("close", onClose);
+      void rl.question("").then(
+        (line) => {
+          rl.removeListener("close", onClose);
+          resolve(line);
+        },
+        () => {
+          rl.removeListener("close", onClose);
+          resolve("n");
+        },
+      );
+    });
     const normalized = answer.trim().toLowerCase();
     return normalized === "y" || normalized === "yes";
   } finally {
@@ -165,6 +203,7 @@ export async function handleCliAuthRecoveryRequired(
       return;
     }
     assertInteractiveOAuthAllowed(options);
+    assertStepUpPromptAllowed(options);
     const proceed = await promptStepUpConfirm(
       error.authChallenge,
       confirmStepUp,
@@ -212,7 +251,7 @@ export async function connectInspectorWithOAuth(
           await inspectorClient.connect();
           return;
         }
-        storedAuthOnlyFailure(
+        authRequiredFailure(
           err.message ||
             "Authentication required and --stored-auth-only is set; refusing interactive OAuth.",
         );
@@ -234,7 +273,7 @@ export async function connectInspectorWithOAuth(
 
     if (isUnauthorizedError(err)) {
       if (options?.storedAuthOnly) {
-        storedAuthOnlyFailure(
+        authRequiredFailure(
           err instanceof Error
             ? err.message
             : "Authentication required and --stored-auth-only is set; refusing interactive OAuth.",
@@ -288,7 +327,7 @@ export async function withCliAuthRecoveryRetry<T>(
         ) {
           return await fn();
         }
-        storedAuthOnlyFailure(
+        authRequiredFailure(
           err.message ||
             "Authentication required and --stored-auth-only is set; refusing interactive OAuth.",
         );
@@ -310,7 +349,7 @@ export async function withCliAuthRecoveryRetry<T>(
 
     if (isUnauthorizedError(err)) {
       if (options?.storedAuthOnly) {
-        storedAuthOnlyFailure(
+        authRequiredFailure(
           err instanceof Error
             ? err.message
             : "Authentication required and --stored-auth-only is set; refusing interactive OAuth.",

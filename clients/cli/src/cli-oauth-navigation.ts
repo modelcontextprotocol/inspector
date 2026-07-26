@@ -13,7 +13,13 @@ export type CliOAuthAutoOpenControl = {
 };
 
 export type CliOAuthNavigationOptions = {
-  /** Override TTY detection (tests). Defaults to stderr.isTTY. */
+  /**
+   * Override stderr TTY detection (tests / programmatic callers). Defaults to
+   * `process.stderr.isTTY`. Browser auto-open and OSC 8 stay stderr-only on
+   * purpose — `2>&1 | tee` still prints a plain URL into the tee stream;
+   * admit-to-flow gating (`stdin || stderr`) lives in
+   * `assertInteractiveOAuthAllowed`, not here.
+   */
   isTTY?: boolean;
   /** Override NO_COLOR (tests). */
   noColorEnv?: string | undefined;
@@ -40,7 +46,8 @@ export type CliOAuthNavigationOptions = {
   autoOpenEnabled?: boolean;
   /**
    * When true, open even if stderr is not a TTY. Independent of
-   * {@link autoOpenEnabled}. Defaults to {@link isCliAutoOpenForced}.
+   * {@link autoOpenEnabled}. Defaults to {@link isCliAutoOpenForced}
+   * (`MCP_AUTO_OPEN_ENABLED=true`).
    */
   forceAutoOpen?: boolean;
 };
@@ -74,8 +81,11 @@ export function isCliAutoOpenForced(
  * silent no-ops so SDK-internal `auth()` during connect cannot emit an
  * uncompletable "Please navigate to:" line.
  *
- * Browser open: off when env disables it; on a TTY when enabled; forced open
- * (TTY optional) when `MCP_AUTO_OPEN_ENABLED=true` / {@link forceAutoOpen}.
+ * Browser open: off when env disables it; on a **stderr** TTY when enabled;
+ * forced open (TTY optional) when `MCP_AUTO_OPEN_ENABLED=true` /
+ * {@link forceAutoOpen}. Stderr-only (not `stdin || stderr`): piping stderr
+ * still gets a clickable plain URL; launching a browser from a redirected
+ * stderr session would be surprising.
  */
 export function createCliOAuthNavigation(
   options: CliOAuthNavigationOptions = {},
@@ -85,6 +95,7 @@ export function createCliOAuthNavigation(
     if (options.disableAutoOpen || !armed) return;
 
     const href = url.href;
+    // stderr-only — do not widen to stdin; see file-level note above.
     const tty =
       options.isTTY !== undefined
         ? options.isTTY
