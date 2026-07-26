@@ -81,7 +81,8 @@ describe("writeFormattedResult", () => {
     process.stdout.write = ((chunk: unknown, ...rest: unknown[]) => {
       out += String(chunk);
       const cb = rest.find((x) => typeof x === "function") as
-        (() => void) | undefined;
+        | (() => void)
+        | undefined;
       cb?.();
       return true;
     }) as typeof process.stdout.write;

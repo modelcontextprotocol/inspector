@@ -53,7 +53,10 @@ export type DaemonRequest = {
    */
   token?: string;
   params?:
-    ConnectParams | SessionNameParams | RpcParams | Record<string, never>;
+    | ConnectParams
+    | SessionNameParams
+    | RpcParams
+    | Record<string, never>;
 };
 
 export type DaemonErrorBody = {
@@ -69,7 +72,8 @@ export type DaemonResponse =
 
 /** Frames after the initial ok response on a `stream` connection. */
 export type DaemonStreamFrame =
-  { id: string; stream: "data"; data: unknown } | { id: string; stream: "end" };
+  | { id: string; stream: "data"; data: unknown }
+  | { id: string; stream: "end" };
 
 export type SessionInfo = {
   name: string;

@@ -20,7 +20,8 @@ describe("dispatchSessionRpc", () => {
     process.stdout.write = ((chunk: unknown, ...rest: unknown[]) => {
       stdout += typeof chunk === "string" ? chunk : String(chunk);
       const cb = rest.find((r) => typeof r === "function") as
-        (() => void) | undefined;
+        | (() => void)
+        | undefined;
       cb?.();
       return true;
     }) as typeof process.stdout.write;
