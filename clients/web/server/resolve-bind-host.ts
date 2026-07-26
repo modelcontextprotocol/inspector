@@ -7,28 +7,33 @@
  * dev server) so both bind points enforce the same policy.
  */
 
-// Re-exported so the two web bind points can keep importing the URL formatter
-// from this module; the implementation is shared with the CLI via core/node.
-export { formatHostForUrl } from "../../../core/node/hostUrl.ts";
+import { isIPv6 } from "node:net";
 
 /** Env var that opts into binding all network interfaces (see {@link resolveBindHostname}). */
 export const BIND_ALL_INTERFACES_ENV = "DANGEROUSLY_BIND_ALL_INTERFACES";
 
 /**
- * Exact spellings of the all-interfaces (unspecified) address. `0.0.0.0` (IPv4
- * wildcard), `::` and its expansions (IPv6 wildcard), the IPv4-mapped wildcard,
- * and the empty string (Node's `listen()` treats "" as the unspecified address)
- * all bind *every* interface. {@link isAllInterfacesHost} also catches the
- * legacy numeric spellings the OS resolver still folds to `0.0.0.0`.
+ * Canonical spellings of the all-interfaces (unspecified) address. Every IPv6
+ * wildcard spelling (`::`, `::0`, `0:0:…:0`, `::0.0.0.0`, …) canonicalizes to
+ * `::` and the IPv4-mapped wildcard to `::ffff:0:0` (see {@link canonicalizeIpv6}),
+ * so those two entries cover the whole IPv6 family; `0.0.0.0` is the IPv4
+ * wildcard and `""` is Node's `listen()` unspecified address. All bind *every*
+ * interface. {@link isAllInterfacesHost} additionally folds the legacy IPv4
+ * spellings the OS resolver still binds as `0.0.0.0`.
  */
-const ALL_INTERFACES_LITERALS = new Set([
-  "",
-  "0.0.0.0",
-  "::",
-  "0:0:0:0:0:0:0:0",
-  "::ffff:0.0.0.0",
-  "::ffff:0:0",
-]);
+const ALL_INTERFACES_LITERALS = new Set(["", "0.0.0.0", "::", "::ffff:0:0"]);
+
+/**
+ * Canonicalize an IPv6 literal via the WHATWG URL serializer, which compresses
+ * zero-runs — so `::0`, `0::0`, `::0.0.0.0`, and the fully-expanded
+ * `0000:…:0000` all collapse to `::`, and `::ffff:0.0.0.0` → `::ffff:0:0`. This
+ * is what lets a small literal set catch every all-zero IPv6 spelling rather
+ * than only the handful written out. Non-IPv6 input passes through unchanged.
+ */
+function canonicalizeIpv6(value: string): string {
+  if (!isIPv6(value)) return value;
+  return new URL(`http://[${value}]`).hostname.slice(1, -1);
+}
 
 /**
  * Parse one dotted-address part (or a bare address) the way the C `inet_aton`
@@ -60,7 +65,9 @@ function stripIpv6Brackets(host: string): string {
 
 /** True when `host` binds all interfaces rather than loopback only. */
 export function isAllInterfacesHost(host: string): boolean {
-  const normalized = stripIpv6Brackets(host.trim().toLowerCase());
+  const normalized = canonicalizeIpv6(
+    stripIpv6Brackets(host.trim().toLowerCase()),
+  );
   return ALL_INTERFACES_LITERALS.has(normalized) || isAllZeroIpv4(normalized);
 }
 

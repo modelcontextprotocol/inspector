@@ -3,7 +3,30 @@ import { createServer, type Server } from "node:http";
 import {
   createSandboxController,
   resolveSandboxPort,
+  sandboxFrameAncestors,
 } from "../../../../server/sandbox-controller.js";
+
+describe("sandboxFrameAncestors", () => {
+  it("derives the directive from the provided allow-list", () => {
+    expect(
+      sandboxFrameAncestors([
+        "http://192.168.1.50:6274",
+        "https://inspector.example.com",
+      ]),
+    ).toBe(
+      "frame-ancestors http://192.168.1.50:6274 https://inspector.example.com",
+    );
+  });
+
+  it.each([[undefined], [[]]])(
+    "falls back to the loopback family when the list is %j",
+    (origins) => {
+      expect(sandboxFrameAncestors(origins as string[] | undefined)).toBe(
+        "frame-ancestors http://127.0.0.1:* http://localhost:* http://[::1]:*",
+      );
+    },
+  );
+});
 
 describe("resolveSandboxPort", () => {
   let envSnapshot: { mcp?: string; server?: string };

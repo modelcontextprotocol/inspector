@@ -16,7 +16,8 @@ import {
 import type { InitialConfigPayload } from "../../../core/mcp/remote/node/server.ts";
 import { readInspectorVersionSafe } from "../../../core/node/version.ts";
 import { resolveSandboxPort } from "./sandbox-controller.js";
-import { formatHostForUrl, resolveBindHostname } from "./resolve-bind-host.js";
+import { resolveBindHostname } from "./resolve-bind-host.js";
+import { formatHostForUrl } from "../../../core/node/hostUrl.ts";
 
 // The single-source Inspector version (root package.json), read once at load.
 // The browser can't read the filesystem the way the CLI/TUI do, so the backend
@@ -218,19 +219,27 @@ const LOOPBACK_HOSTNAMES = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
  * a real hostname) we return the single exact origin — lowercased and, for an
  * IPv6 literal, bracketed, so it matches the `Origin` header the browser
  * actually sends (browsers lowercase the host and bracket IPv6).
+ *
+ * The port is omitted when it's the http scheme default (80): browsers drop the
+ * default port from `Origin`, and the guard is an exact string match, so
+ * `http://host:80` could never match a real request.
  */
+function httpOrigin(host: string, port: number): string {
+  return port === 80 ? `http://${host}` : `http://${host}:${port}`;
+}
+
 export function defaultAllowedOrigins(
   hostname: string,
   port: number,
 ): string[] {
   if (LOOPBACK_HOSTNAMES.has(hostname.toLowerCase())) {
     return [
-      `http://localhost:${port}`,
-      `http://127.0.0.1:${port}`,
-      `http://[::1]:${port}`,
+      httpOrigin("localhost", port),
+      httpOrigin("127.0.0.1", port),
+      httpOrigin("[::1]", port),
     ];
   }
-  return [`http://${formatHostForUrl(hostname.toLowerCase())}:${port}`];
+  return [httpOrigin(formatHostForUrl(hostname.toLowerCase()), port)];
 }
 
 /**

@@ -16,6 +16,12 @@ describe("isAllInterfacesHost", () => {
     "0:0:0:0:0:0:0:0",
     "::ffff:0.0.0.0",
     "::ffff:0:0",
+    // IPv6 wildcard spellings that canonicalize to `::`.
+    "::0",
+    "0::0",
+    "::0.0.0.0",
+    "0:0::0",
+    "0000:0000:0000:0000:0000:0000:0000:0000",
     // Legacy inet_aton spellings the OS still binds as 0.0.0.0.
     "0",
     "0x0",
@@ -34,6 +40,8 @@ describe("isAllInterfacesHost", () => {
     "192.168.1.50",
     "1.0.0.0",
     "0.0.0.1",
+    "::ffff:0", // canonicalizes to ::ffff:0, a distinct address — not the wildcard
+    "0.0.0.0.0", // 5 octets — not a valid IPv4, must not be flagged (parts.length > 4)
   ])("does not flag the loopback/specific host %j", (host) => {
     expect(isAllInterfacesHost(host)).toBe(false);
   });

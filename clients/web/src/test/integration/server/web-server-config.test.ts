@@ -256,8 +256,21 @@ describe("defaultAllowedOrigins", () => {
   });
 
   it("lowercases a non-loopback hostname to match the browser's Origin", () => {
-    expect(defaultAllowedOrigins("Example.COM", 80)).toEqual([
-      "http://example.com:80",
+    expect(defaultAllowedOrigins("Example.COM", 6274)).toEqual([
+      "http://example.com:6274",
+    ]);
+  });
+
+  it("omits the port from the origin when it's the http default (80)", () => {
+    // Browsers drop :80 from the Origin header, and the guard is an exact
+    // match, so an origin with :80 could never match a real request.
+    expect(defaultAllowedOrigins("192.168.1.50", 80)).toEqual([
+      "http://192.168.1.50",
+    ]);
+    expect(defaultAllowedOrigins("localhost", 80)).toEqual([
+      "http://localhost",
+      "http://127.0.0.1",
+      "http://[::1]",
     ]);
   });
 

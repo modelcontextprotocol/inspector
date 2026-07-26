@@ -10,6 +10,8 @@
  * unsupported; override via `--callback-url` / `MCP_OAUTH_CALLBACK_URL`.
  */
 
+import { formatHostForUrl } from "../../node/hostUrl.js";
+
 export const RUNNER_OAUTH_CALLBACK_DEFAULT_HOSTNAME = "127.0.0.1";
 /** Default loopback port for TUI/CLI OAuth callback (6276 ≈ T9 "MCPO", MCP OAuth). */
 export const RUNNER_OAUTH_CALLBACK_DEFAULT_PORT = 6276;
@@ -87,10 +89,5 @@ export function parseRunnerOAuthCallbackUrl(
 export function formatRunnerOAuthRedirectUrl(
   config: RunnerOAuthCallbackConfig,
 ): string {
-  const needsBrackets =
-    config.hostname.includes(":") && !config.hostname.startsWith("[");
-  const formattedHost = needsBrackets
-    ? `[${config.hostname}]`
-    : config.hostname;
-  return `http://${formattedHost}:${config.port}${config.pathname}`;
+  return `http://${formatHostForUrl(config.hostname)}:${config.port}${config.pathname}`;
 }

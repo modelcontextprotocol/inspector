@@ -7,7 +7,7 @@ import { createServer, type Server } from "node:http";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { formatHostForUrl } from "./resolve-bind-host.js";
+import { formatHostForUrl } from "../../../core/node/hostUrl.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -16,6 +16,29 @@ export interface SandboxControllerOptions {
   port: number;
   /** Host to bind (default localhost). */
   host?: string;
+  /**
+   * The backend's origin allow-list (the embedder origins). Used to build the
+   * proxy's `frame-ancestors` so the sandbox iframe isn't CSP-blocked when the
+   * inspector is served on a non-loopback host (network hosting / Docker). When
+   * empty or omitted, falls back to loopback-only.
+   */
+  allowedOrigins?: string[];
+}
+
+/**
+ * The proxy's `frame-ancestors` sources. The embedder is the inspector app
+ * page, whose origin is (by construction) in the backend's `allowedOrigins`, so
+ * derive the directive from that list — this keeps the MCP Apps iframe working
+ * on whatever host the app is actually served from, not just loopback. Falls
+ * back to the loopback family (any port) when the list is empty — the "origin
+ * check disabled" case — so the sandbox still loads locally.
+ */
+export function sandboxFrameAncestors(allowedOrigins?: string[]): string {
+  const sources =
+    allowedOrigins && allowedOrigins.length > 0
+      ? allowedOrigins
+      : ["http://127.0.0.1:*", "http://localhost:*", "http://[::1]:*"];
+  return `frame-ancestors ${sources.join(" ")}`;
 }
 
 export interface SandboxController {
@@ -44,7 +67,7 @@ export function resolveSandboxPort(): number {
 export function createSandboxController(
   options: SandboxControllerOptions,
 ): SandboxController {
-  const { port, host = "localhost" } = options;
+  const { port, host = "localhost", allowedOrigins } = options;
   let server: Server | null = null;
   let sandboxUrl: string | null = null;
 
@@ -55,15 +78,10 @@ export function createSandboxController(
   // the inner app document and, since multiple CSPs intersect, would override
   // the per-app `connect-src`/`img-src` allowlists the host bakes into the
   // wrapped HTML (see src/utils/sandbox-csp.ts). The opaque-origin sandbox on
-  // the inner frame is the structural boundary; `frame-ancestors` ensures the
-  // proxy can only be embedded by the local inspector itself.
-  // Loopback embedders only. `[::1]` is included alongside the IPv4/name forms
-  // because `localhost` resolves to either family and Node/Vite may bind the
-  // IPv6 loopback — so the browser can legitimately embed the proxy from
-  // `http://[::1]:PORT` (same reasoning as `defaultAllowedOrigins`). Omitting it
-  // CSP-blocks the sandbox iframe for exactly that case.
-  const SANDBOX_PROXY_CSP =
-    "frame-ancestors http://127.0.0.1:* http://localhost:* http://[::1]:*";
+  // the inner frame is the structural boundary; `frame-ancestors` restricts the
+  // proxy to being embedded by the inspector app itself — see
+  // `sandboxFrameAncestors` for how the embedder origins are derived.
+  const SANDBOX_PROXY_CSP = sandboxFrameAncestors(allowedOrigins);
 
   let sandboxHtml: string;
   try {

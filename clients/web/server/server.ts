@@ -40,6 +40,7 @@ export async function startHonoServer(
   const sandboxController = createSandboxController({
     port: config.sandboxPort,
     host: config.sandboxHost,
+    allowedOrigins: config.allowedOrigins,
   });
   await sandboxController.start();
 
