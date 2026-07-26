@@ -20,8 +20,10 @@ export interface SandboxControllerOptions {
   /**
    * The backend's origin allow-list (the embedder origins). Used to build the
    * proxy's `frame-ancestors` so the sandbox iframe isn't CSP-blocked when the
-   * inspector is served on a non-loopback host (network hosting / Docker). When
-   * empty or omitted, falls back to loopback-only.
+   * inspector is served on a non-loopback host (network hosting / Docker). The
+   * real callers always pass a non-empty list (`buildWebServerConfig` never
+   * produces an empty `allowedOrigins` since #1795's H1 fix); an empty/omitted
+   * list (only a hand-constructed caller or a test) falls back to loopback-only.
    */
   allowedOrigins?: string[];
 }
@@ -55,9 +57,10 @@ const CSP_HOST_SOURCE = /^[a-z][a-z0-9+.-]*:\/\/[^\s;,'"[\]]+$/i;
  * derive the directive from that list — this keeps the MCP Apps iframe working
  * on whatever host the app is actually served from, not just loopback.
  * Malformed entries are dropped (see {@link CSP_HOST_SOURCE}); if nothing valid
- * remains (empty list, or the "origin check disabled" case), falls back to the
- * loopback family so the sandbox still loads locally and the header can't be
- * corrupted.
+ * remains (the real backend always passes a non-empty list, so this is a
+ * hand-constructed caller, a test, or an all-malformed `ALLOWED_ORIGINS`), it
+ * falls back to the loopback family so the sandbox still loads locally and the
+ * header can't be corrupted.
  */
 export function sandboxFrameAncestors(allowedOrigins?: string[]): string {
   const valid = (allowedOrigins ?? []).filter((o) => CSP_HOST_SOURCE.test(o));
@@ -199,9 +202,11 @@ export function createSandboxController(
           // wildcard bind serves loopback, so `localhost` is. Otherwise use the
           // same canonical host the origin allow-list emits, so the served URL
           // is reachable and its origin is allow-listed (matches the app banner).
-          const urlHost = isAllInterfacesHost(host)
+          // One normalized value drives both the predicate and the value.
+          const canonicalHost = canonicalUrlHost(host);
+          const urlHost = isAllInterfacesHost(canonicalHost)
             ? "localhost"
-            : canonicalUrlHost(host);
+            : canonicalHost;
           sandboxUrl = `http://${urlHost}:${actualPort}/sandbox`;
           settle({ port: actualPort, url: sandboxUrl });
         });

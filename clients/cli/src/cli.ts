@@ -23,7 +23,7 @@ import {
   parseHeaderPair,
 } from "@inspector/core/mcp/node/index.js";
 import type { JsonValue } from "@inspector/core/mcp/index.js";
-import { formatHostForUrl } from "@inspector/core/node/hostUrl.js";
+import { canonicalUrlHost } from "@inspector/core/node/hostUrl.js";
 import { getStateFilePath } from "@inspector/core/auth/node/storage-node.js";
 import { consumeMethodOutcome } from "./handlers/consume-outcome.js";
 import { runMethod } from "./handlers/run-method.js";
@@ -441,7 +441,7 @@ function buildHandoff(
   if (apiToken) params.set("autoConnect", apiToken);
   return {
     serverUrl: normalizedUrl,
-    deepLink: `http://${formatHostForUrl(host)}:${clientPort}/?${params.toString()}`,
+    deepLink: `http://${canonicalUrlHost(host)}:${clientPort}/?${params.toString()}`,
     portForwardCmd: `coder port-forward <workspace> --tcp ${clientPort}:${clientPort} --tcp ${sandboxPort}:${sandboxPort}`,
     oauthStatePath: statePath,
     apiToken: apiToken ?? null,

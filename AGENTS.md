@@ -54,10 +54,12 @@ inspector/
 │   │   │   └── node/                   # Hono-based remote server backend (used by remote/ above)
 │   │   └── state/                      # InspectorClient state stores consumed by core/react/
 │   ├── node/                           # Node-only shared helpers: version.ts (readInspectorVersion,
-│   │                                   #   walks to the root package.json), hostUrl.ts (formatHostForUrl —
-│   │                                   #   brackets IPv6 for a URL authority; used by the web origin
-│   │                                   #   allow-list/banner/sandbox URL, the CLI deep-link, and
-│   │                                   #   core/auth/node redirect URLs — #1795)
+│   │                                   #   walks to the root package.json), hostUrl.ts (shared host
+│   │                                   #   normalization — formatHostForUrl brackets IPv6, canonicalUrlHost
+│   │                                   #   canonicalizes a bind host the way a browser builds `Origin` so
+│   │                                   #   the web origin allow-list/banner/sandbox URL + the CLI deep-link
+│   │                                   #   agree; also stripBrackets. Used across clients/web/server,
+│   │                                   #   clients/cli, and core/auth/node — #1795)
 │   ├── react/                          # React hooks over the state stores
 │   └── storage/                        # File I/O helpers (store-io.ts) used by OAuth persist backends
 ├── test-servers/                       # Composable MCP test servers + fixtures used by integration tests.

@@ -580,6 +580,25 @@ describe("--print-handoff", () => {
     expect(out.apiToken).toBe("tok123");
   });
 
+  it("canonicalizes the deep-link host so it matches the web allow-list (mapped IPv4)", async () => {
+    // HOST=::ffff:127.0.0.1 binds/serves 127.0.0.1; the deep link must advertise
+    // that canonical host, not [::ffff:127.0.0.1], or the web autoConnect POST
+    // 403s (the web allow-list emits the loopback trio for this HOST).
+    const result = await runCli(
+      ["--print-handoff", "--server-url", "https://x.example/mcp"],
+      {
+        env: {
+          MCP_INSPECTOR_API_TOKEN: "tok123",
+          HOST: "::ffff:127.0.0.1",
+          CLIENT_PORT: "16274",
+        },
+      },
+    );
+    expectCliSuccess(result);
+    const out = JSON.parse(result.stdout) as { deepLink: string };
+    expect(out.deepLink.startsWith("http://127.0.0.1:16274/?")).toBe(true);
+  });
+
   it("derives transport=sse for an SSE server (auto-detected from the /sse path)", async () => {
     const result = await runCli(
       ["--print-handoff", "--server-url", "https://x.example/sse"],

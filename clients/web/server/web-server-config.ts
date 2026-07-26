@@ -174,10 +174,10 @@ export function printServerBanner(
   // advertised URL's origin is always a member of `allowedOrigins`
   // (`banner ⊆ allowedOrigins`) — including the IPv4-mapped case where
   // `canonicalUrlHost` unmaps but `formatHostForUrl` wouldn't. `httpOrigin`
-  // keeps the banner and the list agreeing on the default-port form (both drop :80).
-  const bannerHost = isAllInterfacesHost(config.hostname)
-    ? "localhost"
-    : canonicalUrlHost(config.hostname);
+  // keeps the banner and the list agreeing on the default-port form (both drop
+  // :80). One normalized value (`h`) drives both the predicate and the value.
+  const h = canonicalUrlHost(config.hostname);
+  const bannerHost = isAllInterfacesHost(h) ? "localhost" : h;
   const baseUrl = httpOrigin(bannerHost, actualPort);
   const url =
     config.dangerouslyOmitAuth || !resolvedToken
