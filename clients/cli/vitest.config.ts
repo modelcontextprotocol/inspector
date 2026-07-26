@@ -12,6 +12,7 @@ export default defineConfig({
     globals: false,
     environment: "node",
     include: ["__tests__/**/*.test.ts"],
+    setupFiles: ["__tests__/helpers/mock-open-url.ts"],
     testTimeout: 15000,
     // The in-process runner (__tests__/helpers/cli-runner.ts) patches
     // process.std{out,err}.write to capture CLI output. Test files run in

@@ -1,16 +1,16 @@
 # MCP Inspector CLI Client
 
-The CLI mode enables programmatic interaction with MCP servers from the command line. It is ideal for scripting, automation, continuous integration, and establishing an efficient feedback loop with AI coding assistants.
+CLI for the Inspector: connect, run a `--method`, disconnect. Invoked as `mcp-inspector --cli`.
 
 ## Running the CLI
 
-You can run the CLI client directly via `npx`:
+You can run the CLI via `npx`:
 
 ```bash
 npx @modelcontextprotocol/inspector --cli node build/index.js
 ```
 
-The CLI mode supports operations across tools, resources, and prompts, returning structured JSON output.
+Supports tools, resources, and prompts (plus `--method servers/list` / `servers/show` for catalog entries without connecting).
 
 ### Examples
 
@@ -98,7 +98,7 @@ Options that specify the MCP server (catalog/config file, ad-hoc command/URL, en
 
 | Option                        | Description                                                                               |
 | ----------------------------- | ----------------------------------------------------------------------------------------- |
-| `--method <method>`           | MCP method to invoke. Supports `initialize` (connect-only probe → `{serverInfo, protocolVersion, capabilities, instructions}`), `tools/list`, `tools/call`, `resources/list`, `resources/read`, `resources/templates/list`, `prompts/list`, `prompts/get`, `logging/setLevel`. |
+| `--method <method>`           | MCP method to invoke. Supports `initialize` (connect-only probe → `{serverInfo, protocolVersion, capabilities, instructions}`), `tools/list`, `tools/call`, `resources/list`, `resources/read`, `resources/templates/list`, `prompts/list`, `prompts/get`, `logging/setLevel`, plus catalog-only `servers/list` / `servers/show` (no MCP connect). Stream / session-only methods (e.g. `logging/tail`) are rejected. |
 | `--tool-name <name>`          | Tool name (for `tools/call`).                                                             |
 | `--tool-arg <key=value>`      | Tool argument; repeat for multiple. Use `key='{"json":true}'` for JSON. Values are coerced (JSON-parsed, so `count=1` becomes a number). |
 | `--tool-args-json <json>`     | Tool arguments as a single JSON object (e.g. `'{"zip":"10001"}'`). Passed verbatim — no `key=value` coercion, so `"012"` stays a string. Mutually exclusive with `--tool-arg`. |
@@ -111,6 +111,10 @@ Options that specify the MCP server (catalog/config file, ad-hoc command/URL, en
 | `--connect-timeout <ms>`      | Connection timeout in ms. Defaults to `15000` for ad-hoc `--server-url`/target runs (so a black-holed host fails fast) and to the file-level timeout for `--catalog`/`--config` runs. `0` disables the timeout. |
 | `--app-info`                  | Probe a tool's MCP App UI metadata without invoking it. With `--method tools/call --tool-name <name>`: prints one JSON line (`hasApp`, `resourceUri`, `csp`, `permissions`, `domain`, …) and exits `0` if the tool has an app or `2` (`no_app`) if not. With `--method tools/list`: emits NDJSON — one app-info line per tool over a single connection. |
 | `--format <text\|json>`       | Output format. `text` (default) pretty-prints the result. `json` emits a single JSON object on stdout (`{ "result": … }`, plus `{ "appInfo": … }` as a sibling key for App tools) with no banners, so the whole output pipes cleanly into `jq`. |
+| `--relogin`                   | Delete stored OAuth for this server URL from the shared store before connect; interactive login still only runs if the server requires auth. Requires an HTTP/SSE URL (rejected for stdio). Conflicts with `--stored-auth-only` / `--use-stored-auth` / `--wait-for-auth` / catalog short-circuits. |
+| `--stored-auth-only`          | **CI / non-interactive safe:** never start interactive OAuth / step-up (and never auto-open a browser); use the shared store if present, otherwise fail immediately with `auth_required`. Prefer this over a bare pipe/CI run that would otherwise attempt interactive login. |
+
+`servers/show` redacts secret-bearing fields (`env` values, sensitive headers / `settings.metadata` keys, `requestInit` / `eventSourceInit` headers, `oauthClientSecret`). It does **not** scrub credentials embedded in a server `url` (userinfo or query tokens) or in stdio `args` — treat `detail` / raw URL fields as potentially sensitive before pasting into issues.
 
 #### App probing (`--app-info`) and machine-readable output (`--format json`)
 
@@ -140,13 +144,17 @@ A `tools/call` that returns `isError:true` still prints its payload but exits `5
 
 ### CLI-specific (OAuth for HTTP servers)
 
-The CLI runs the same loopback callback server as the TUI (`http://127.0.0.1:6276/oauth/callback` by default). On connect **401** or mid-session interactive auth (re-login / step-up), it:
+The CLI runs the same loopback callback server as the TUI (`http://127.0.0.1:6276/oauth/callback` by default).
+
+**CLI (`mcp-inspector --cli`):** on connect **401** or mid-session interactive auth (re-login / step-up), it:
 
 1. Starts the callback listener on `--callback-url` (or `MCP_OAUTH_CALLBACK_URL`)
-2. Prints the authorization URL to the console (`ConsoleNavigation`)
+2. Prints the authorization URL to stderr (OSC 8 hyperlink when stderr is a TTY) and **opens the default browser** when allowed. Default: open on a **stderr** TTY (so `2>&1 | tee` prints a plain URL into the log but does not auto-open); plain URL only when stderr is non-TTY. `MCP_AUTO_OPEN_ENABLED=false` never opens; `=true` forces open even on a non-TTY (same as the web launcher).
 3. Waits for the browser redirect, exchanges the code, and retries connect or the failed RPC
 
-**Step-up (standard OAuth):** when an RPC needs extra scopes, the CLI prompts on stderr: `Proceed with step-up authorization? [y/N]`. **y** continues; **N** exits with an error. EMA step-up re-mints silently (no prompt).
+Interactive OAuth (connect-time or mid-RPC) requires a TTY on **stdin or stderr** (so `2>&1 | tee` still works — stdin stays a TTY), or `MCP_AUTO_OPEN_ENABLED=true`. When neither stdin nor stderr is a TTY and that env is unset (typical CI), the CLI fails fast with `auth_required` instead of waiting up to 15 minutes on the loopback callback. Use **`--stored-auth-only`** for non-interactive runs that should only consume the shared store.
+
+**Step-up (standard OAuth):** when an RPC needs extra scopes, the CLI prompts on stderr: `Proceed with step-up authorization? [y/N]`. **y** continues (including piped stdin — `echo y | …` or `printf y | …`); **N** or EOF with no answer (`< /dev/null` / Ctrl-D) declines. Piped answers must be **newline-terminated, or stdin must close** — a bare `y` held open without `\n` or EOF is not flushed as a line and times out. A non-TTY stdin that never sends a line within **5 seconds** fails with `auth_required` (`timed out`, not the same as an explicit **N**). Answering **y** only confirms step-up — the following browser/loopback OAuth can still wait up to 15 minutes; for headless CI prefer **`--stored-auth-only`** with tokens already in the store. EMA step-up re-mints silently (no prompt).
 
 **Shared OAuth storage:** the CLI **reuses** tokens from `~/.mcp-inspector/storage/oauth.json` when they already exist (same file as other Inspector clients). That is passive file sharing, not launching another app.
 
@@ -176,6 +184,7 @@ Register `http://127.0.0.1:6276/oauth/callback` on static or enterprise IdPs tha
 | `--client-secret <secret>`    | —                        | OAuth client secret; overrides `client.json`.                                                    |
 | `--client-metadata-url <url>` | —                        | CIMD metadata URL; overrides `client.json`.                                                      |
 | `--callback-url <url>`        | `MCP_OAUTH_CALLBACK_URL` | Redirect URI sent to the authorization server (default: `http://127.0.0.1:6276/oauth/callback`). |
+| —                             | `MCP_AUTO_OPEN_ENABLED`  | Browser auto-open **and** non-TTY interactive-OAuth admit: `true` (allow interactive OAuth without a TTY **and** force-open the browser — same as the web launcher), `false` (never open), unset (open on a TTY unless `VITEST` is set). For CI that must not hang, prefer `--stored-auth-only`. |
 
 **Example** — list tools on an OAuth-protected server using stored tokens and CIMD from the command line:
 
@@ -256,17 +265,16 @@ While the Web Client provides a rich visual interface, the CLI is designed for:
 Like the other clients, the CLI self-validates from its own folder:
 
 ```bash
-npm run validate       # format:check && lint && test:coverage
+npm run validate       # format:check && lint && typecheck && test  (fast; no coverage gate)
 npm test               # build test-servers + binary, then run all tests
-npm run test:coverage  # build + tests under the per-file coverage gate
+npm run test:coverage  # build + tests under the per-file ≥90 coverage gate
 ```
 
-The CLI's `test:coverage` **builds the binary first** (its out-of-process
-`e2e.test.ts` spawns it, so it must run against a fresh build). `validate`
-therefore folds the build into `test:coverage` rather than repeating it — it is
-`format:check && lint && test:coverage`, with no separate `build` step (the
-other clients, whose tests don't spawn their bundle, keep an explicit `build`).
-The repo-root `validate:cli` just delegates here.
+The CLI's `test` / `test:coverage` **build the binary first** (out-of-process
+`e2e.test.ts` spawns it). `validate` is `format:check && lint && typecheck && test`
+with no separate `build` step (`pretest` builds). Repo-root `validate:cli`
+delegates here; the coverage gate is `npm run coverage` / `coverage:cli` (also in
+`npm run ci`), matching AGENTS.md.
 
 Tests run the CLI **in-process** (importing `runCli()`) so `src/` is measured
 under coverage, with a thin out-of-process spawn layer for the real binary. See

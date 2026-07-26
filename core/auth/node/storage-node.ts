@@ -53,7 +53,8 @@ function getSharedMemory(stateFilePath?: string): OAuthMemoryStore {
 
 /**
  * Drop cached in-memory and {@link NodeOAuthStorage} instances for a path.
- * @internal Test isolation only.
+ * Used for test isolation and by CLI `--relogin` after clearing on-disk state
+ * so the next connect cannot reuse a stale in-process storage singleton.
  */
 export function resetNodeOAuthStorageCache(stateFilePath?: string): void {
   const key = getStateFilePath(stateFilePath);
