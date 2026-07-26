@@ -182,8 +182,8 @@ have no v1.5 equivalent):
 or transport concept. Place it under `clients/web/src/types/navigation.ts`
 rather than in `core/mcp/types.ts`. Everything else lives in `core/mcp/types.ts`.
 
-**Custom headers**: copy `clients/web/src/utils/customHeaders.ts` from
-v1.5 verbatim. It owns `CustomHeader` / `CustomHeaders` shape used by
+**Custom headers**: `clients/web/src/utils/customHeaders.ts` is a verbatim
+copy of the v1.5 module. It owns `CustomHeader` / `CustomHeaders` shape used by
 `ServerSettingsForm` and the experimental panel.
 
 **JSON Schema typing for `SchemaForm`**: copy v1.5's
