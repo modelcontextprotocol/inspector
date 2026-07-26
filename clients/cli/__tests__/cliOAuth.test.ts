@@ -82,6 +82,37 @@ describe("cliOAuth", () => {
     expect(stderrSpy).toHaveBeenCalledWith("Authorization complete.\n");
   });
 
+  it("runCliInteractiveOAuth arms autoOpenControl only for the interactive flow", async () => {
+    const autoOpenControl = { armed: false };
+    let armedDuringCall = false;
+    vi.spyOn(runnerInteractive, "runRunnerInteractiveOAuth").mockImplementation(
+      async () => {
+        armedDuringCall = autoOpenControl.armed;
+        return { kind: "success" };
+      },
+    );
+    const client = {
+      authenticate: vi.fn(),
+      beginInteractiveAuthorization: vi.fn(),
+      completeOAuthFlow: vi.fn(),
+      checkAuthChallengeSatisfied: vi.fn(),
+    };
+    const stderrSpy = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+
+    await runCliInteractiveOAuth(
+      client,
+      new MutableRedirectUrlProvider(),
+      { hostname: "127.0.0.1", port: 6276, pathname: "/oauth/callback" },
+      { autoOpenControl },
+    );
+
+    expect(armedDuringCall).toBe(true);
+    expect(autoOpenControl.armed).toBe(false);
+    expect(stderrSpy).toHaveBeenCalledWith("Authorization complete.\n");
+  });
+
   it("runCliInteractiveOAuth throws when scopes remain insufficient", async () => {
     const challenge = {
       reason: "insufficient_scope" as const,
