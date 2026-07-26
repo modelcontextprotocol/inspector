@@ -60,10 +60,39 @@ function tokenize(command) {
   return tokens;
 }
 
-/** Extract the path/glob args from every `prettier --check …` in a manifest. */
+/**
+ * Names of scripts transitively reachable from `entry` by following `npm run
+ * <name>` references within a manifest. Used so we only trust a `format:check`
+ * glob that CI actually runs — a `prettier --check` script that nothing invokes
+ * from `validate` doesn't gate anything, and counting its globs would let the
+ * gate be silently unwired (the file still "matches a glob" that never runs).
+ */
+function reachableScripts(scripts, entry = "validate") {
+  const reached = new Set();
+  const queue = [entry];
+  const runRef = /npm run ([\w:-]+)/g;
+  while (queue.length > 0) {
+    const name = queue.shift();
+    if (reached.has(name)) continue;
+    reached.add(name);
+    const cmd = scripts?.[name];
+    if (typeof cmd !== "string") continue;
+    for (const m of cmd.matchAll(runRef)) queue.push(m[1]);
+  }
+  return reached;
+}
+
+/**
+ * Extract the path/glob args from every `prettier --check …` in a manifest's
+ * scripts that is reachable from `validate`. Restricting to reachable scripts is
+ * what makes the guard assert "this file is checked by CI", not merely "some
+ * glob covers it".
+ */
 function prettierCheckArgs(scripts) {
+  const reachable = reachableScripts(scripts);
   const args = [];
-  for (const value of Object.values(scripts ?? {})) {
+  for (const [name, value] of Object.entries(scripts ?? {})) {
+    if (!reachable.has(name)) continue;
     if (typeof value !== "string" || !value.includes("prettier --check"))
       continue;
     // A manifest may chain `prettier --check …` inside a larger script; take the
