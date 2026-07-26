@@ -57,18 +57,18 @@ Object.defineProperty(globalThis, "fetch", {
     ),
 });
 
-// happy-dom doesn't implement `matchMedia`, so anything reading it (Mantine's
-// `useReducedMotion`, `useMediaQuery`-driven layout) would otherwise throw.
-// Provide a stub. We report `prefers-reduced-motion: reduce` and keep all other
-// queries `false` (matching the prior absent-matchMedia layout behavior). Note
-// this does *not*, on its own, disable Mantine transitions: `useTransition`
-// only honors reduced motion when `theme.respectReducedMotion` is true, and
-// Mantine 8 defaults it to `false` (the project theme doesn't override it). The
-// actual protection against the #1760 post-teardown `window is not defined`
-// leak is `env="test"` in `renderWithMantine`, which forces transitions
-// synchronous regardless; this stub just keeps `matchMedia` callers from
-// blowing up. Tests that need specific media results still mock `@mantine/hooks`
-// or stub `matchMedia` themselves.
+// happy-dom (v20) *does* implement `matchMedia`/`MediaQueryList`, so this isn't
+// a polyfill for a missing API — it's a deliberate **override** of happy-dom's
+// implementation, pinning `prefers-reduced-motion: reduce` and reporting `false`
+// for every other query (preserving the historical absent-matchMedia layout
+// behavior for `useMediaQuery`-driven code). Note this does *not*, on its own,
+// disable Mantine transitions: `useTransition` only honors reduced motion when
+// `theme.respectReducedMotion` is true, and Mantine 8 defaults it to `false`
+// (the project theme doesn't override it). The actual protection against the
+// #1760 post-teardown `window is not defined` leak is `env="test"` in
+// `renderWithMantine`, which forces transitions synchronous regardless. Tests
+// that need specific media results still mock `@mantine/hooks` or stub
+// `matchMedia` themselves.
 Object.defineProperty(window, "matchMedia", {
   configurable: true,
   writable: true,

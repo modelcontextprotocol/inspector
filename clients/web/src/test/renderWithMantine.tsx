@@ -8,7 +8,7 @@ import { theme } from "../theme/theme";
 // `wrapper`, which we own) plus an optional forced `colorScheme`. The default
 // is "light"; pass "dark" to exercise `useComputedColorScheme` dark branches
 // without hand-rolling a bare `MantineProvider` (the #1760 anti-pattern).
-type MantineRenderOptions = Omit<RenderOptions, "wrapper"> & {
+export type MantineRenderOptions = Omit<RenderOptions, "wrapper"> & {
   colorScheme?: MantineColorScheme;
 };
 
@@ -52,26 +52,30 @@ export function renderWithMantineTransitions(
   return render(ui, { wrapper: makeWrapper("default", colorScheme), ...rest });
 }
 
-// Fallback settle window: Mantine's default header transitions run ~300ms, so
-// 500ms clears them plus the two-frame rAF scheduling slack. Callers that know
-// their component's animation duration should pass it (duration + slack) rather
-// than rely on this.
+// Fallback settle window: ≈500ms clears a typical few-hundred-millisecond
+// transition plus the two-frame rAF scheduling slack. Callers that know their
+// component's animation duration should pass it (duration + slack) rather than
+// rely on this default.
 const DEFAULT_SETTLE_MS = 500;
 
 // Flush any in-flight `renderWithMantineTransitions` animation before the test
-// ends. Mantine's `useTransition` cancels its own timers on unmount (its
-// `useEffect` cleanup clears the rAF + `setTimeout`), so the hazard isn't a
-// timer surviving unmount — it's the React state update that Mantine's inner
-// rAF schedules *outside* `act` (`setStatus("entering"/"exiting")` → the
-// terminal `setStatus`). Left in flight, that work resolves after happy-dom
-// tears down `window` and throws `ReferenceError: window is not defined` from
-// react-dom's `dispatchSetState → resolveUpdatePriority`, failing the whole run
-// even when every assertion passed (#1760/#1786). This awaits a real timer
-// inside `act` so those queued rAF callbacks and the React updates they schedule
-// run and flush against the still-mounted tree — the ordering that keeps the
-// settling `setState` on a live component. Because it awaits a *real*
-// `setTimeout`, it deadlocks under fake timers, so guard against that with a
-// clear message rather than a 5s test-timeout hang.
+// ends. What's observed when it isn't flushed: an in-flight Mantine transition
+// produces an uncaught, post-teardown `dispatchSetState` that throws
+// `ReferenceError: window is not defined` from react-dom's
+// `resolveUpdatePriority` (React 19 reads `window.event` there) — after
+// happy-dom has torn down `window` — failing the whole run even though every
+// assertion passed (#1760/#1786). What's known: Mantine's `useTransition` does
+// have an unmount cleanup (`useEffect` clearing its rAF + `setTimeout`), yet the
+// failing frame is an rAF callback executing *after* teardown, so the precise
+// escape route (a cancelAnimationFrame that doesn't fully cancel under
+// happy-dom, an rAF re-armed after cleanup, or a scheduler-flushed
+// continuation) isn't pinned down. The fix doesn't depend on which: awaiting a
+// real timer inside `act` drains the queued rAF callbacks, the terminal
+// `setTimeout`, and the React work they schedule against the still-mounted tree
+// — whichever is the actual escapee, it resolves on a live component before
+// cleanup unmounts. Because it awaits a *real* `setTimeout`, it deadlocks under
+// fake timers, so guard against that with a clear message rather than a 5s
+// test-timeout hang.
 export async function settleTransitions(ms: number = DEFAULT_SETTLE_MS) {
   if (vi.isFakeTimers()) {
     throw new Error(
