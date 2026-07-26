@@ -210,7 +210,8 @@ export class TestServerHttp {
   private recordedRequests: RecordedRequest[] = [];
   private httpServer?: HttpServer;
   private transport?:
-    WebStandardStreamableHTTPServerTransport | SSEServerTransport;
+    | WebStandardStreamableHTTPServerTransport
+    | SSEServerTransport;
   private baseUrl?: string;
   private currentRequestHeaders?: Record<string, string>;
   private currentLogLevel: string | null = null;

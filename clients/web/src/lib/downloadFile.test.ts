@@ -11,7 +11,7 @@ import {
   buildExportFilename,
   fileNameFromUri,
   isHttpUrl,
-} from "../../lib/downloadFile";
+} from "./downloadFile";
 
 describe("downloadBlob / downloadJsonFile", () => {
   const originalCreate = URL.createObjectURL;

@@ -178,7 +178,7 @@ import {
   oauthResumeToastMessage,
   writeOAuthResumeSnapshot,
   type OAuthResumeAuthKind,
-} from "./utils/oauthResume";
+} from "./lib/oauthResume";
 import { createWebEnvironment } from "./lib/environmentFactory";
 import { OAUTH_CALLBACK_PATH, isUnauthorizedError } from "./utils/oauthFlow";
 import { AuthRecoveryRequiredError } from "@inspector/core/auth/challenge.js";
@@ -193,7 +193,7 @@ import {
   isEmaStepUp as isCoreEmaStepUp,
   isStepUpConfirmation as isCoreStepUpConfirmation,
 } from "@inspector/core/auth/oauthUx.js";
-import { clearServerOAuthState } from "./utils/clearServerOAuthState";
+import { clearServerOAuthState } from "./lib/clearServerOAuthState";
 import {
   authRecoveryRestoredMessage,
   isReAuthBannerReason,
@@ -206,7 +206,7 @@ import {
 import {
   isBrowserTabVisible,
   onBrowserTabVisible,
-} from "./utils/browserTabVisibility";
+} from "./lib/browserTabVisibility";
 import type { PendingReauth } from "./utils/pendingReauth";
 
 // OAuth redirect URL provider — points at the dev backend's `/oauth/callback`

@@ -97,7 +97,7 @@ describe("RequestsTab", () => {
       />,
     );
     const frame = lastFrame() ?? "";
-    expect(frame).toContain("Requests (0)");
+    expect(frame).toContain("Network (0)");
     expect(frame).toContain("No requests");
     expect(frame).toContain("Select a request to view details");
     expect(onCountChange).toHaveBeenCalledWith(0);
@@ -107,7 +107,7 @@ describe("RequestsTab", () => {
     const { lastFrame } = render(
       <RequestsTab serverName="srv" requests={[]} width={120} height={30} />,
     );
-    expect(lastFrame() ?? "").toContain("Requests (0)");
+    expect(lastFrame() ?? "").toContain("Network (0)");
   });
 
   it("renders the list with status colors, labels and durations", () => {
@@ -125,7 +125,7 @@ describe("RequestsTab", () => {
       />,
     );
     const frame = lastFrame() ?? "";
-    expect(frame).toContain("Requests (4)");
+    expect(frame).toContain("Network (4)");
     // category labels
     expect(frame).toContain("AUTH");
     expect(frame).toContain("MCP");
@@ -272,7 +272,7 @@ describe("RequestsTab", () => {
     // up moves back toward the top
     stdin.write(UP);
     await tick();
-    expect(lastFrame() ?? "").toContain("Requests (8)");
+    expect(lastFrame() ?? "").toContain("Network (8)");
   });
 
   it("clamps at the bottom when paging past the end", async () => {

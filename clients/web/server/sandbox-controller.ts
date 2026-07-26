@@ -53,7 +53,7 @@ export function createSandboxController(
   // policy container: any fetch directive on this header would be inherited by
   // the inner app document and, since multiple CSPs intersect, would override
   // the per-app `connect-src`/`img-src` allowlists the host bakes into the
-  // wrapped HTML (see src/lib/sandbox-csp.ts). The opaque-origin sandbox on
+  // wrapped HTML (see src/utils/sandbox-csp.ts). The opaque-origin sandbox on
   // the inner frame is the structural boundary; `frame-ancestors` ensures the
   // proxy can only be embedded by the local inspector itself.
   const SANDBOX_PROXY_CSP =

@@ -38,7 +38,7 @@ describe("NotificationsTab", () => {
       <NotificationsTab stderrLogs={[]} width={80} height={20} />,
     );
     const frame = lastFrame() ?? "";
-    expect(frame).toContain("Logging (0)");
+    expect(frame).toContain("Console (0)");
     expect(frame).toContain("No stderr output yet");
   });
 
@@ -48,7 +48,7 @@ describe("NotificationsTab", () => {
       <NotificationsTab stderrLogs={logs} width={80} height={20} />,
     );
     const frame = lastFrame() ?? "";
-    expect(frame).toContain("Logging (2)");
+    expect(frame).toContain("Console (2)");
     expect(frame).toContain("first error");
     expect(frame).toContain("second error");
     expect(frame).not.toContain("No stderr output yet");
@@ -134,7 +134,7 @@ describe("NotificationsTab", () => {
     const { lastFrame, stdin } = render(
       <NotificationsTab stderrLogs={logs} width={80} height={20} focused />,
     );
-    expect(lastFrame() ?? "").toContain("Logging (2)");
+    expect(lastFrame() ?? "").toContain("Console (2)");
 
     // Drive every useInput branch
     stdin.write(UP);

@@ -1,8 +1,8 @@
-import js from '@eslint/js';
-import globals from 'globals';
-import reactHooks from 'eslint-plugin-react-hooks';
-import tseslint from 'typescript-eslint';
-import { defineConfig, globalIgnores } from 'eslint/config';
+import js from "@eslint/js";
+import globals from "globals";
+import reactHooks from "eslint-plugin-react-hooks";
+import tseslint from "typescript-eslint";
+import { defineConfig, globalIgnores } from "eslint/config";
 
 // The TUI is Node + React (Ink) TypeScript. This mirrors the web client's flat
 // config minus the browser-only plugins (react-refresh / Storybook).
@@ -15,19 +15,19 @@ import { defineConfig, globalIgnores } from 'eslint/config';
 // component/hook surface that is itself the interim-excluded one tracked in
 // #1501. Enforcing them would require refactoring code out of scope here.
 export default defineConfig([
-  globalIgnores(['build', 'coverage']),
+  globalIgnores(["build", "coverage"]),
   {
-    files: ['**/*.{ts,tsx}'],
-    plugins: { 'react-hooks': reactHooks },
+    files: ["**/*.{ts,tsx}"],
+    plugins: { "react-hooks": reactHooks },
     extends: [js.configs.recommended, tseslint.configs.recommended],
     languageOptions: {
       ecmaVersion: 2022,
-      sourceType: 'module',
+      sourceType: "module",
       globals: globals.node,
     },
     rules: {
-      'react-hooks/rules-of-hooks': 'error',
-      'react-hooks/exhaustive-deps': 'warn',
+      "react-hooks/rules-of-hooks": "error",
+      "react-hooks/exhaustive-deps": "warn",
     },
   },
 ]);

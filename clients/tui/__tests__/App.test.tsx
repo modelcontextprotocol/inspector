@@ -686,7 +686,7 @@ describe("App (status, layout, modals)", () => {
     h.ctrl.fetchRequests = [{ ...errorRequest, responseStatus: 401 }];
     const r = await mount(oneHttp());
     await expectFrame(r, "error");
-    await expectFrame(r, "HTTP Requests (1)");
+    await expectFrame(r, "Network (1)");
   });
 
   it("updates dimensions when the terminal resizes", async () => {
@@ -752,7 +752,7 @@ describe("App (status, layout, modals)", () => {
     h.ctrl.status = "connected";
     h.ctrl.prompts = [promptWithArgs];
     const r = await mount(oneStdio());
-    await press(r, ["p", TAB, ENTER]);
+    await press(r, ["m", TAB, ENTER]);
     await expectFrame(r, "MOCK_FORM");
     await press(r, [ESC]);
     expect(r.lastFrame() ?? "").not.toContain("MOCK_FORM");
@@ -762,7 +762,7 @@ describe("App (status, layout, modals)", () => {
     h.ctrl.status = "connected";
     h.ctrl.prompts = [promptWithArgs];
     const r = await mount(oneStdio());
-    await press(r, ["p", TAB, TAB, "+"]);
+    await press(r, ["m", TAB, TAB, "+"]);
     const f = r.lastFrame() ?? "";
     expect(f).toContain("Arguments:");
     expect(f).toContain("Full JSON:");
@@ -772,7 +772,7 @@ describe("App (status, layout, modals)", () => {
     h.ctrl.status = "connected";
     h.ctrl.prompts = [promptNoName];
     const r = await mount(oneStdio());
-    await press(r, ["p", TAB, TAB, "+"]);
+    await press(r, ["m", TAB, TAB, "+"]);
     const f = r.lastFrame() ?? "";
     expect(f).toContain("Prompt: Unknown");
     expect(f).not.toContain("Arguments:");
@@ -781,7 +781,7 @@ describe("App (status, layout, modals)", () => {
   it("opens message details for a request message (with response)", async () => {
     h.ctrl.messages = [reqMessage];
     const r = await mount(oneStdio());
-    await press(r, ["m", TAB, TAB, "+"]);
+    await press(r, ["p", TAB, TAB, "+"]);
     const f = r.lastFrame() ?? "";
     expect(f).toContain("Direction: request");
     expect(f).toContain("Response:");
@@ -790,14 +790,14 @@ describe("App (status, layout, modals)", () => {
   it("opens message details for a notification message", async () => {
     h.ctrl.messages = [notifMessage];
     const r = await mount(oneStdio());
-    await press(r, ["m", TAB, TAB, "+"]);
+    await press(r, ["p", TAB, TAB, "+"]);
     await expectFrame(r, "Notification:");
   });
 
   it("opens message details for a response message", async () => {
     h.ctrl.messages = [respMessage];
     const r = await mount(oneStdio());
-    await press(r, ["m", TAB, TAB, "+"]);
+    await press(r, ["p", TAB, TAB, "+"]);
     await expectFrame(r, "Response:");
   });
 
@@ -805,7 +805,7 @@ describe("App (status, layout, modals)", () => {
     h.ctrl.status = "connected";
     h.ctrl.fetchRequests = [bareRequest];
     const r = await mount(oneHttp());
-    await press(r, ["h", TAB, TAB, "+"]);
+    await press(r, ["n", TAB, TAB, "+"]);
     await expectFrame(r, "Request Headers:");
   });
 
@@ -825,11 +825,11 @@ describe("App (status, layout, modals)", () => {
     expect(h.disconnect).toHaveBeenCalled();
   });
 
-  it("renders the HTTP requests tab and opens full request details", async () => {
+  it("renders the Network tab and opens full request details", async () => {
     h.ctrl.status = "connected";
     h.ctrl.fetchRequests = [fullRequest];
     const r = await mount(oneHttp());
-    await press(r, ["h", TAB, TAB, "+"]);
+    await press(r, ["n", TAB, TAB, "+"]);
     const f = r.lastFrame() ?? "";
     expect(f).toContain("Request Headers:");
     expect(f).toContain("Status: 200");
@@ -839,17 +839,17 @@ describe("App (status, layout, modals)", () => {
     h.ctrl.status = "connected";
     h.ctrl.fetchRequests = [errorRequest];
     const r = await mount(oneHttp());
-    await press(r, ["h", TAB, TAB, "+"]);
+    await press(r, ["n", TAB, TAB, "+"]);
     await expectFrame(r, "Error: boom");
   });
 
-  it("renders the Logging tab for a stdio server", async () => {
+  it("renders the Console tab for a stdio server", async () => {
     h.ctrl.status = "connected";
     h.ctrl.stderrLogs = [stderrLog];
     const r = await mount(oneStdio());
-    await press(r, ["l"]);
+    await press(r, ["o"]);
     const f = r.lastFrame() ?? "";
-    expect(f).toContain("Logging (1)");
+    expect(f).toContain("Console (1)");
     expect(f).toContain("log line");
   });
 });
@@ -913,20 +913,20 @@ describe("App (input handling, focus, effects)", () => {
   it("cycles focus order through the messages tab panes", async () => {
     h.ctrl.messages = [reqMessage];
     const r = await mount(oneStdio());
-    await press(r, ["m"]);
+    await press(r, ["p"]);
     await press(r, [TAB, TAB, TAB, TAB]); // forward through messages focusOrder
     await press(r, [STAB, STAB]); // reverse
-    await expectFrame(r, "Messages");
+    await expectFrame(r, "Protocol");
   });
 
   it("cycles focus order through the requests tab panes", async () => {
     h.ctrl.status = "connected";
     h.ctrl.fetchRequests = [fullRequest];
     const r = await mount(oneHttp());
-    await press(r, ["h"]);
+    await press(r, ["n"]);
     await press(r, [TAB, TAB, TAB, TAB]);
     await press(r, [STAB, STAB]);
-    await expectFrame(r, "Requests");
+    await expectFrame(r, "Network");
   });
 
   it("switches away from the Auth tab when selecting a non-OAuth server", async () => {
@@ -937,11 +937,11 @@ describe("App (input handling, focus, effects)", () => {
     expect(r.lastFrame() ?? "").not.toContain("No OAuth information yet");
   });
 
-  it("switches away from the Logging tab when selecting a non-stdio server", async () => {
+  it("switches away from the Console tab when selecting a non-stdio server", async () => {
     const r = await mount(stdioThenHttp());
-    await press(r, ["l"]); // Logging tab (stdio)
+    await press(r, ["o"]); // Console tab (stdio)
     await press(r, [STAB]); // tabs -> serverList
-    await press(r, [DOWN]); // select the http server -> effect leaves Logging
+    await press(r, [DOWN]); // select the http server -> effect leaves Console
     await expectFrame(r, "Server Configuration");
   });
 

@@ -45,7 +45,12 @@ import { join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 
 const repoRoot = resolve(import.meta.dirname, "..");
-const testServer = join(repoRoot, "test-servers", "build", "test-server-stdio.js");
+const testServer = join(
+  repoRoot,
+  "test-servers",
+  "build",
+  "test-server-stdio.js",
+);
 
 // Mirrors INSPECTOR_API_TOKEN_GLOBAL in core/mcp/remote/constants.ts; kept as a
 // literal because this plain .mjs script can't import the TS source.
@@ -72,7 +77,9 @@ function fail(message) {
   if (workDir) {
     rmSync(workDir, { recursive: true, force: true });
     // `tarball` is initialized before `workDir` is ever set, so this is safe.
-    console.error(`pack:verify — tarball retained for inspection at ${tarball}`);
+    console.error(
+      `pack:verify — tarball retained for inspection at ${tarball}`,
+    );
   }
   process.exit(1);
 }
@@ -97,7 +104,9 @@ function ensureTestServer() {
   step("building test-servers (missing build output)...");
   const status = runInherit("npx", ["tsc", "-p", "test-servers", "--noCheck"]);
   if (status !== 0 || !existsSync(testServer)) {
-    fail("could not build the stdio test server (test-servers/build/test-server-stdio.js)");
+    fail(
+      "could not build the stdio test server (test-servers/build/test-server-stdio.js)",
+    );
   }
 }
 
@@ -175,10 +184,16 @@ const work = mkdtempSync(join(tmpdir(), "pack-verify-"));
 workDir = work; // from now on, fail() cleans this up
 try {
   ensureTestServer();
-  step(`installing the tarball into a clean consumer at ${work} (pulls runtime deps)...`);
+  step(
+    `installing the tarball into a clean consumer at ${work} (pulls runtime deps)...`,
+  );
   writeFileSync(
     join(work, "package.json"),
-    JSON.stringify({ name: "pack-verify-consumer", private: true, version: "0.0.0" }),
+    JSON.stringify({
+      name: "pack-verify-consumer",
+      private: true,
+      version: "0.0.0",
+    }),
   );
   const install = runInherit(
     "npm",
@@ -189,8 +204,18 @@ try {
     fail("`npm install <tarball>` into the throwaway consumer failed");
   }
 
-  const installedPkg = join(work, "node_modules", "@modelcontextprotocol", "inspector");
-  const bin = join(work, "node_modules", ".bin", process.platform === "win32" ? "mcp-inspector.cmd" : "mcp-inspector");
+  const installedPkg = join(
+    work,
+    "node_modules",
+    "@modelcontextprotocol",
+    "inspector",
+  );
+  const bin = join(
+    work,
+    "node_modules",
+    ".bin",
+    process.platform === "win32" ? "mcp-inspector.cmd" : "mcp-inspector",
+  );
   if (!existsSync(bin)) {
     fail(`installed \`mcp-inspector\` bin not found at ${bin}`);
   }
@@ -213,7 +238,11 @@ try {
       env: { ...process.env, ...extraEnv },
       shell: process.platform === "win32",
     });
-    return { status: r.status, output: `${r.stdout ?? ""}${r.stderr ?? ""}`, stdout: r.stdout ?? "" };
+    return {
+      status: r.status,
+      output: `${r.stdout ?? ""}${r.stderr ?? ""}`,
+      stdout: r.stdout ?? "",
+    };
   };
 
   // ---------------------------------------------------------------------------
@@ -223,17 +252,33 @@ try {
   //     build from its installed location.
   step("verifying help dispatch (--help, --cli --help, --tui --help)...");
   const helpChecks = [
-    { args: ["--help"], marker: "Mode flags (--web, --cli, --tui)", label: "launcher --help" },
-    { args: ["--cli", "--help"], marker: "Usage: inspector-cli", label: "--cli dispatch" },
-    { args: ["--tui", "--help"], marker: "Usage: mcp-inspector-tui", label: "--tui dispatch" },
+    {
+      args: ["--help"],
+      marker: "Mode flags (--web, --cli, --tui)",
+      label: "launcher --help",
+    },
+    {
+      args: ["--cli", "--help"],
+      marker: "Usage: inspector-cli",
+      label: "--cli dispatch",
+    },
+    {
+      args: ["--tui", "--help"],
+      marker: "Usage: mcp-inspector-tui",
+      label: "--tui dispatch",
+    },
   ];
   for (const { args, marker, label } of helpChecks) {
     const r = runBin(args);
     if (r.status !== 0) {
-      fail(`\`${args.join(" ")}\` exited ${r.status}\n${r.output.slice(0, 800)}`);
+      fail(
+        `\`${args.join(" ")}\` exited ${r.status}\n${r.output.slice(0, 800)}`,
+      );
     }
     if (!r.output.includes(marker)) {
-      fail(`\`${args.join(" ")}\` (${label}) did not print "${marker}"\n${r.output.slice(0, 800)}`);
+      fail(
+        `\`${args.join(" ")}\` (${label}) did not print "${marker}"\n${r.output.slice(0, 800)}`,
+      );
     }
   }
 
@@ -250,7 +295,15 @@ try {
       },
     }),
   );
-  const list = runBin(["--cli", "--catalog", catalogPath, "--server", "test", "--method", "tools/list"]);
+  const list = runBin([
+    "--cli",
+    "--catalog",
+    catalogPath,
+    "--server",
+    "test",
+    "--method",
+    "tools/list",
+  ]);
   if (list.status !== 0) {
     fail(`\`--cli … tools/list\` exited ${list.status}\n${list.output}`);
   }
@@ -258,7 +311,9 @@ try {
   try {
     parsed = JSON.parse(list.stdout);
   } catch {
-    fail(`\`--cli … tools/list\` did not return JSON on stdout:\n${list.stdout}`);
+    fail(
+      `\`--cli … tools/list\` did not return JSON on stdout:\n${list.stdout}`,
+    );
   }
   if (!(parsed.tools ?? []).some((t) => t.name === "echo")) {
     fail(`\`--cli … tools/list\` missing expected "echo" tool`);
@@ -291,7 +346,9 @@ try {
  * shipped `dist`. Kills the server before returning.
  */
 async function verifyWeb(bin, cwd) {
-  step("verifying prod `--web` serves the shipped dist from the installed package...");
+  step(
+    "verifying prod `--web` serves the shipped dist from the installed package...",
+  );
   const host = "127.0.0.1";
   const port = process.env.PACK_VERIFY_WEB_PORT ?? "6399";
   const token = "pack-verify-token";
@@ -326,7 +383,9 @@ async function verifyWeb(bin, cwd) {
     let res = null;
     for (let attempt = 0; attempt < 120 && !res; attempt++) {
       if (exited) {
-        fail(`\`--web\` exited (code ${exitCode}) before serving — see output above`);
+        fail(
+          `\`--web\` exited (code ${exitCode}) before serving — see output above`,
+        );
       }
       try {
         res = await fetch(`http://${host}:${port}/`);
@@ -342,7 +401,9 @@ async function verifyWeb(bin, cwd) {
     }
     const body = await res.text();
     if (!body.includes(TOKEN_GLOBAL)) {
-      fail(`\`--web\` served HTML is missing the ${TOKEN_GLOBAL} global (token not injected)`);
+      fail(
+        `\`--web\` served HTML is missing the ${TOKEN_GLOBAL} global (token not injected)`,
+      );
     }
     if (!body.includes(token)) {
       fail("`--web` served HTML is missing the injected auth-token value");
