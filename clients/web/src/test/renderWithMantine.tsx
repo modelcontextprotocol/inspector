@@ -74,17 +74,22 @@ export function renderWithMantineTransitions(
     wrapper: makeWrapper("default", colorScheme),
     ...rest,
   });
-  armedContainer = result.container;
-  // If the test unmounts the tree itself, disarm: there's nothing left to settle
-  // against a live tree (Mantine's `useTransition` unmount cleanup applies), and
-  // otherwise the auto-settle's detached-tree check would misread the test's own
-  // `unmount()` as a broken cleanup ordering. Wrap rather than mutate RTL's
-  // result so `rerender`/`container`/etc. pass through unchanged.
-  const disarmingUnmount = () => {
-    disarmSettle();
+  liveArmedContainers.add(result.container);
+  // If the test unmounts this tree itself, *downgrade* — don't disarm. The drain
+  // still runs (it's mechanism-independent: flushing the queued rAF/`setTimeout`
+  // while `window` is alive is what avoids the #1760 leak, and a `setState`
+  // landing on the now-unmounted tree is a React no-op — this is exactly the
+  // mid-flight-unmount case that most needs the drain). We only drop this
+  // container from the liveness set, so the auto-settle's `isConnected` check
+  // doesn't misread the test's own `unmount()` as a broken cleanup ordering, and
+  // — because it's per-container — unmounting one tree doesn't cancel the settle
+  // for another still-mounted one. Wrap rather than mutate RTL's result so
+  // `rerender`/`container`/etc. pass through unchanged.
+  const downgradingUnmount = () => {
+    liveArmedContainers.delete(result.container);
     result.unmount();
   };
-  return { ...result, unmount: disarmingUnmount };
+  return { ...result, unmount: downgradingUnmount };
 }
 
 // Fallback settle window: ≈500ms clears a typical few-hundred-millisecond
@@ -97,19 +102,20 @@ const DEFAULT_SETTLE_MS = 500;
 // Set by `renderWithMantineTransitions`; consumed once by the `afterEach` below.
 // `armedSettleMs === null` means no real-transitions render happened this test,
 // so nothing to settle (every `renderWithMantine` / `env="test"` test skips the
-// wait entirely). `armedContainer` is the most recent such render's container.
-// Last-write-wins here (unlike the max-wins `armedSettleMs`) is fine: it's only
-// used to detect that `cleanup()` ran, and cleanup detaches *every* mounted
-// container at once — so the last one is a faithful proxy for "cleanup ran".
-// This module-level state assumes **sequential** tests: it isn't concurrency-
-// safe, so don't use `renderWithMantineTransitions` under `test.concurrent` /
+// wait entirely). `liveArmedContainers` holds the containers this test rendered
+// and did NOT unmount itself — the `afterEach` asserts each is still connected
+// (a still-mounted tree that got detached means `cleanup()` ran too early). A
+// test's own `unmount()` removes its container from the set (its detach is
+// legitimate) but leaves `armedSettleMs` armed so the drain still runs. This
+// module-level state assumes **sequential** tests: it isn't concurrency-safe, so
+// don't use `renderWithMantineTransitions` under `test.concurrent` /
 // `describe.concurrent` (two in-flight tests would share this arming).
 let armedSettleMs: number | null = null;
-let armedContainer: HTMLElement | null = null;
+const liveArmedContainers = new Set<HTMLElement>();
 
-function disarmSettle() {
+function resetArming() {
   armedSettleMs = null;
-  armedContainer = null;
+  liveArmedContainers.clear();
 }
 
 // Flush any in-flight `renderWithMantineTransitions` animation before the test
@@ -153,16 +159,18 @@ export async function settleTransitions(ms: number = DEFAULT_SETTLE_MS) {
 // same-suite `afterEach(cleanup)` probe (where the ordering *can* break) does
 // trip them. So `sequence.hooks` isn't actually load-bearing here; the unit
 // project still pins "stack" (conventional LIFO) as defense-in-depth.
-// Enforcement is the two `container.isConnected` checks, which guard against a
-// future regression that makes cleanup run before this settle finishes — e.g.
-// cleanup moved to a *same-level* hook: the pre-settle check catches it running
-// entirely first, the post-settle check catches it detaching the tree
-// concurrently while this hook awaits (a same-level "parallel" race the pre-check
-// can't see). Neither fires in the current outer-cleanup setup.
+// Enforcement is the `container.isConnected` checks over the still-live armed
+// containers, which guard against a future regression that makes cleanup run
+// before this settle finishes — e.g. cleanup moved to a *same-level* hook: the
+// pre-settle check catches it running entirely first, the post-settle check
+// catches it detaching the tree concurrently while this hook awaits (a
+// same-level "parallel" race the pre-check can't see). Neither fires in the
+// current outer-cleanup setup. A container the test unmounted itself isn't in
+// the set, so its legitimate detach is never mistaken for that regression.
 afterEach(async () => {
   const ms = armedSettleMs;
-  const container = armedContainer;
-  disarmSettle();
+  const liveContainers = [...liveArmedContainers];
+  resetArming();
   if (ms === null) return;
   // A `renderWithMantineTransitions` test that also used fake timers can't be
   // drained by a real-timer wait; skip, but warn — silence here is how the leak
@@ -178,33 +186,38 @@ afterEach(async () => {
     );
     return;
   }
-  assertConnectedForSettle(container, "before");
+  // Drain regardless of whether any tree is still mounted: a test that unmounted
+  // mid-transition still needs the queued rAF/`setTimeout` flushed while `window`
+  // is alive (the #1760 case). The liveness assertions apply only to trees the
+  // test left mounted.
+  assertLiveContainersConnected(liveContainers, "before");
   await settleTransitions(ms);
-  // Re-assert after the await: a same-level concurrent cleanup() could unmount
-  // the tree while the settle is in flight, which the pre-check can't see.
-  assertConnectedForSettle(container, "after");
+  // Re-assert after the await: a same-level concurrent cleanup() could unmount a
+  // still-live tree while the settle is in flight, which the pre-check can't see.
+  assertLiveContainersConnected(liveContainers, "after");
 });
 
-// Throw if the armed tree was detached at the given point relative to the
-// settle — meaning the settle drained nothing and the #1760 leak is reopened. In
-// the current setup the only cause is a broken afterEach ordering (setup.ts's
-// cleanup() ran before this hook finished): a test that unmounts the tree
-// *itself* disarms via the wrapped `unmount()`, so it never reaches here.
-function assertConnectedForSettle(
-  container: HTMLElement | null,
+// Throw if any still-live armed tree was detached at the given point relative to
+// the settle — meaning `cleanup()` ran before this settle finished, so it
+// drained against a dead tree and the #1760 leak is reopened. Only trees the
+// test left mounted are passed here; a tree the test unmounted itself (via the
+// wrapped `unmount()`) is excluded, so its legitimate detach never lands here.
+function assertLiveContainersConnected(
+  containers: HTMLElement[],
   when: "before" | "after",
 ) {
-  if (container && !container.isConnected) {
+  if (containers.some((c) => !c.isConnected)) {
     throw new Error(
-      `renderWithMantineTransitions auto-settle: tree was unmounted ${when} ` +
-        "the settle. Expected cause: setup.ts's cleanup() ran " +
+      `renderWithMantineTransitions auto-settle: a still-mounted tree was ` +
+        `detached ${when} the settle. Expected cause: setup.ts's cleanup() ran ` +
         (when === "before" ? "entirely first" : "concurrently mid-settle") +
         " — the afterEach ordering this depends on broke, so the settle drained " +
         "nothing and the #1760 leak is reopened (this hook must run and complete " +
         "before cleanup; see the ordering note here and the `sequence.hooks: " +
         '"stack"` pin in vite.config.ts). If instead the test unmounted the tree ' +
         "itself, use the `unmount()` returned by renderWithMantineTransitions " +
-        "(which disarms the auto-settle) rather than a bare RTL unmount.",
+        "(which drops the tree from the liveness set) rather than a bare RTL " +
+        "unmount.",
     );
   }
 }
