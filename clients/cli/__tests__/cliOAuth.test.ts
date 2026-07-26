@@ -31,6 +31,16 @@ const CALLBACK_URL_CONFIG = {
   pathname: "/oauth/callback",
 };
 
+const OAUTH_HTTP_CONFIG = {
+  type: "streamable-http",
+  url: "https://as.example/mcp",
+} as MCPServerConfig;
+
+const STDIO_CONFIG = {
+  type: "stdio",
+  command: "x",
+} as MCPServerConfig;
+
 describe("cliOAuth", () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -255,7 +265,10 @@ describe("cliOAuth", () => {
     vi.spyOn(runnerInteractive, "runRunnerInteractiveOAuth").mockResolvedValue({
       kind: "success",
     });
+    const connect = vi.fn().mockResolvedValue(undefined);
     const client = {
+      connect,
+      disconnect: vi.fn(),
       authenticate: vi.fn(),
       beginInteractiveAuthorization: vi.fn(),
       completeOAuthFlow: vi.fn(),
@@ -272,6 +285,7 @@ describe("cliOAuth", () => {
 
     const result = await withCliAuthRecoveryRetry(
       client,
+      OAUTH_HTTP_CONFIG,
       new MutableRedirectUrlProvider(),
       { hostname: "127.0.0.1", port: 6276, pathname: "/oauth/callback" },
       { enterpriseManaged: true },
@@ -280,6 +294,7 @@ describe("cliOAuth", () => {
     );
 
     expect(result).toBe("ok");
+    expect(connect).toHaveBeenCalledOnce();
     expect(fn).toHaveBeenCalledTimes(2);
   });
 
@@ -355,10 +370,7 @@ describe("cliOAuth", () => {
   });
 
   describe("connectInspectorWithOAuth recovery branch", () => {
-    const oauthServerConfig = {
-      type: "streamable-http",
-      url: "https://as.example/mcp",
-    } as MCPServerConfig;
+    const oauthServerConfig = OAUTH_HTTP_CONFIG;
 
     it("resumes without re-auth when storage already satisfies the challenge", async () => {
       const runSpy = vi.spyOn(runnerInteractive, "runRunnerInteractiveOAuth");
@@ -583,6 +595,7 @@ describe("cliOAuth", () => {
           completeOAuthFlow: vi.fn(),
           checkAuthChallengeSatisfied,
         },
+        OAUTH_HTTP_CONFIG,
         new MutableRedirectUrlProvider(),
         CALLBACK_URL_CONFIG,
         undefined,
@@ -619,6 +632,7 @@ describe("cliOAuth", () => {
         completeOAuthFlow: vi.fn(),
         checkAuthChallengeSatisfied,
       },
+      OAUTH_HTTP_CONFIG,
       new MutableRedirectUrlProvider(),
       CALLBACK_URL_CONFIG,
       undefined,
@@ -637,24 +651,36 @@ describe("cliOAuth", () => {
     const runSpy = vi
       .spyOn(runnerInteractive, "runRunnerInteractiveOAuth")
       .mockResolvedValue({ kind: "success" });
+    const connect = vi.fn().mockResolvedValue(undefined);
     const disconnect = vi.fn().mockResolvedValue(undefined);
+    const callOrder: string[] = [];
+    connect.mockImplementation(async () => {
+      callOrder.push("connect");
+    });
     const fn = vi
       .fn()
-      .mockRejectedValueOnce(new Error("RPC failed (401)"))
-      .mockResolvedValueOnce("ok");
+      .mockImplementationOnce(async () => {
+        callOrder.push("fn1");
+        throw new Error("RPC failed (401)");
+      })
+      .mockImplementationOnce(async () => {
+        callOrder.push("fn2");
+        return "ok";
+      });
     const stderrSpy = vi
       .spyOn(process.stderr, "write")
       .mockImplementation(() => true);
 
     const result = await withCliAuthRecoveryRetry(
       {
-        connect: vi.fn(),
+        connect,
         disconnect,
         authenticate: vi.fn(),
         beginInteractiveAuthorization: vi.fn(),
         completeOAuthFlow: vi.fn(),
         checkAuthChallengeSatisfied: vi.fn(),
       },
+      OAUTH_HTTP_CONFIG,
       new MutableRedirectUrlProvider(),
       CALLBACK_URL_CONFIG,
       undefined,
@@ -664,7 +690,8 @@ describe("cliOAuth", () => {
     expect(result).toBe("ok");
     expect(disconnect).toHaveBeenCalledOnce();
     expect(runSpy).toHaveBeenCalledOnce();
-    expect(fn).toHaveBeenCalledTimes(2);
+    expect(connect).toHaveBeenCalledOnce();
+    expect(callOrder).toEqual(["fn1", "connect", "fn2"]);
     expect(stderrSpy).toHaveBeenCalledWith(
       "Authorization complete. Retrying…\n",
     );
@@ -684,6 +711,7 @@ describe("cliOAuth", () => {
           completeOAuthFlow: vi.fn(),
           checkAuthChallengeSatisfied: vi.fn(),
         },
+        OAUTH_HTTP_CONFIG,
         new MutableRedirectUrlProvider(),
         CALLBACK_URL_CONFIG,
         undefined,
@@ -692,6 +720,85 @@ describe("cliOAuth", () => {
         { storedAuthOnly: true },
       ),
     ).rejects.toMatchObject({ exitCode: 3 });
+    expect(runSpy).not.toHaveBeenCalled();
+  });
+
+  it("withCliAuthRecoveryRetry rethrows unauthorized errors for non-OAuth configs", async () => {
+    const runSpy = vi.spyOn(runnerInteractive, "runRunnerInteractiveOAuth");
+    const err = new Error("proxied backend failed with status (401)");
+    const fn = vi.fn().mockRejectedValue(err);
+
+    await expect(
+      withCliAuthRecoveryRetry(
+        {
+          connect: vi.fn(),
+          disconnect: vi.fn(),
+          authenticate: vi.fn(),
+          beginInteractiveAuthorization: vi.fn(),
+          completeOAuthFlow: vi.fn(),
+          checkAuthChallengeSatisfied: vi.fn(),
+        },
+        STDIO_CONFIG,
+        new MutableRedirectUrlProvider(),
+        CALLBACK_URL_CONFIG,
+        undefined,
+        fn,
+      ),
+    ).rejects.toBe(err);
+    expect(runSpy).not.toHaveBeenCalled();
+  });
+
+  it("withCliAuthRecoveryRetry rethrows unrelated errors unchanged", async () => {
+    const runSpy = vi.spyOn(runnerInteractive, "runRunnerInteractiveOAuth");
+    const err = new Error("something else went wrong");
+    const fn = vi.fn().mockRejectedValue(err);
+
+    await expect(
+      withCliAuthRecoveryRetry(
+        {
+          connect: vi.fn(),
+          disconnect: vi.fn(),
+          authenticate: vi.fn(),
+          beginInteractiveAuthorization: vi.fn(),
+          completeOAuthFlow: vi.fn(),
+          checkAuthChallengeSatisfied: vi.fn(),
+        },
+        OAUTH_HTTP_CONFIG,
+        new MutableRedirectUrlProvider(),
+        CALLBACK_URL_CONFIG,
+        undefined,
+        fn,
+      ),
+    ).rejects.toBe(err);
+    expect(runSpy).not.toHaveBeenCalled();
+  });
+
+  it("withCliAuthRecoveryRetry stored-auth-only uses a fallback message for non-Error 401s", async () => {
+    const runSpy = vi.spyOn(runnerInteractive, "runRunnerInteractiveOAuth");
+    const fn = vi.fn().mockRejectedValue({ status: 401 });
+
+    await expect(
+      withCliAuthRecoveryRetry(
+        {
+          connect: vi.fn(),
+          disconnect: vi.fn(),
+          authenticate: vi.fn(),
+          beginInteractiveAuthorization: vi.fn(),
+          completeOAuthFlow: vi.fn(),
+          checkAuthChallengeSatisfied: vi.fn(),
+        },
+        OAUTH_HTTP_CONFIG,
+        new MutableRedirectUrlProvider(),
+        CALLBACK_URL_CONFIG,
+        undefined,
+        fn,
+        undefined,
+        { storedAuthOnly: true },
+      ),
+    ).rejects.toMatchObject({
+      exitCode: 3,
+      message: expect.stringMatching(/--stored-auth-only/),
+    });
     expect(runSpy).not.toHaveBeenCalled();
   });
 });

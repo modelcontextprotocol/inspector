@@ -225,6 +225,7 @@ describe("CLI interactive OAuth (integration)", () => {
     try {
       const result = await withCliAuthRecoveryRetry(
         client,
+        { type: "streamable-http", url: `${serverUrl}/mcp` },
         redirectUrlProvider,
         callbackUrlConfig,
         {},

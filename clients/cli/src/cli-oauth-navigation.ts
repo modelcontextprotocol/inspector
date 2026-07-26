@@ -39,8 +39,8 @@ export type CliOAuthNavigationOptions = {
    */
   autoOpenEnabled?: boolean;
   /**
-   * When true, open even if stderr is not a TTY (matches web's explicit
-   * `MCP_AUTO_OPEN_ENABLED=true`). When omitted, inferred from the env flag.
+   * When true, open even if stderr is not a TTY. Independent of
+   * {@link autoOpenEnabled}. Defaults to {@link isCliAutoOpenForced}.
    */
   forceAutoOpen?: boolean;
 };
@@ -105,10 +105,7 @@ export function createCliOAuthNavigation(
         : resolveCliAutoOpenEnabled();
     if (!envAllows) return;
 
-    const forced =
-      options.forceAutoOpen !== undefined
-        ? options.forceAutoOpen
-        : options.autoOpenEnabled === undefined && isCliAutoOpenForced();
+    const forced = options.forceAutoOpen ?? isCliAutoOpenForced();
     if (!forced && !tty) return;
 
     try {

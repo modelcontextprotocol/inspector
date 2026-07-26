@@ -3,8 +3,9 @@
 Tests live under `__tests__/` and run via Vitest.
 
 - Most tests import `runCli()` **in-process** (see `helpers/cli-runner.ts`) so
-  `clients/cli/src` is measured under the coverage gate. That helper mocks
-  `open-url` so an armed interactive OAuth path cannot launch a real browser.
+  `clients/cli/src` is measured under the coverage gate. Suite-wide
+  `helpers/mock-open-url.ts` (vitest `setupFiles`) mocks `open-url` so an armed
+  interactive OAuth path cannot launch a real browser.
 - `e2e.test.ts` (and root `scripts/smoke-cli.mjs`) spawn the built binary for
   shebang / `process.exit` paths — `pretest` builds `test-servers` + the CLI
   bundle first.
@@ -53,11 +54,12 @@ npm run validate          # format:check && lint && typecheck && test
 
 ## Helpers
 
-| Helper                  | Role                                                             |
-| ----------------------- | ---------------------------------------------------------------- |
-| `helpers/cli-runner.ts` | In-process `runCli` with stdout/stderr capture + `open-url` mock |
-| `helpers/assertions.ts` | `expectCliSuccess` / `expectCliFailure` / output matchers        |
-| `helpers/fixtures.ts`   | Temp config / client.json factories                              |
+| Helper                     | Role                                                      |
+| -------------------------- | --------------------------------------------------------- |
+| `helpers/cli-runner.ts`    | In-process `runCli` with stdout/stderr capture            |
+| `helpers/mock-open-url.ts` | Suite-wide `open-url` mock (vitest `setupFiles`)          |
+| `helpers/assertions.ts`    | `expectCliSuccess` / `expectCliFailure` / output matchers |
+| `helpers/fixtures.ts`      | Temp config / client.json factories                       |
 
 OAuth interactive tests stub or drive the loopback callback in-process rather
 than requiring a real browser.

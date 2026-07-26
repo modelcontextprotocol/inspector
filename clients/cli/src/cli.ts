@@ -164,6 +164,7 @@ async function callMethod(
 
     const outcome = await withCliAuthRecoveryRetry(
       inspectorClient,
+      serverConfig,
       redirectUrlProvider,
       callbackUrlConfig,
       serverSettings,
@@ -740,6 +741,11 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     if (options.useStoredAuth || options.waitForAuth !== undefined) {
       throw new Error(
         "--relogin cannot be combined with --use-stored-auth or --wait-for-auth",
+      );
+    }
+    if (options.listStoredAuth || options.printHandoff) {
+      throw new Error(
+        "--relogin cannot be combined with --list-stored-auth or --print-handoff",
       );
     }
     if (

@@ -170,6 +170,12 @@ describe("CLI --relogin flag conflicts", () => {
     expect(result.stderr).toMatch(/servers\/list or servers\/show/);
   });
 
+  it("rejects --relogin with --list-stored-auth", async () => {
+    const result = await runCli(["--relogin", "--list-stored-auth"]);
+    expectCliFailure(result);
+    expect(result.stderr).toMatch(/--list-stored-auth or --print-handoff/);
+  });
+
   it("accepts --relogin and clears stored auth before connect", async () => {
     // Unreachable port: proves --relogin runs (clears store) then fails connect.
     const result = await runCli([

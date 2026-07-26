@@ -217,13 +217,15 @@ export async function connectInspectorWithOAuth(
 }
 
 /**
- * Run `fn` once; on auth recovery errors, complete interactive OAuth and retry
- * `fn` a single time (no further recovery attempts). Mirrors
+ * Run `fn` once; on auth recovery errors, complete interactive OAuth,
+ * reconnect, and retry `fn` a single time. Mirrors
  * {@link connectInspectorWithOAuth}: handles both
- * {@link AuthRecoveryRequiredError} and plain unauthorized errors.
+ * {@link AuthRecoveryRequiredError} and plain unauthorized errors, and skips
+ * OAuth machinery for non-OAuth-capable server configs.
  */
 export async function withCliAuthRecoveryRetry<T>(
   inspectorClient: CliOAuthClient,
+  serverConfig: MCPServerConfig,
   redirectUrlProvider: MutableRedirectUrlProvider,
   callbackUrlConfig: RunnerOAuthCallbackConfig,
   serverSettings: InspectorServerSettings | undefined,
@@ -234,6 +236,10 @@ export async function withCliAuthRecoveryRetry<T>(
   try {
     return await fn();
   } catch (err) {
+    if (!isOAuthCapableServerConfig(serverConfig)) {
+      throw err;
+    }
+
     if (err instanceof AuthRecoveryRequiredError) {
       // Satisfied-check lives in handleCliAuthRecoveryRequired for the
       // interactive path; under --stored-auth-only check once here then bail.
@@ -257,6 +263,8 @@ export async function withCliAuthRecoveryRetry<T>(
         confirmStepUp,
         options?.autoOpenControl,
       );
+      // completeOAuthFlow only reconnects under directAuthRecovery (off in CLI).
+      await inspectorClient.connect();
       process.stderr.write("Authorization complete. Retrying…\n");
       return await fn();
     }
@@ -276,6 +284,9 @@ export async function withCliAuthRecoveryRetry<T>(
         callbackUrlConfig,
         { autoOpenControl: options?.autoOpenControl },
       );
+      // Mirror connectInspectorWithOAuth: reconnect before retrying the RPC.
+      // connect() is a no-op when already connected.
+      await inspectorClient.connect();
       process.stderr.write("Authorization complete. Retrying…\n");
       return await fn();
     }
