@@ -18,6 +18,9 @@ export type MantineRenderOptions = Omit<RenderOptions, "wrapper"> & {
 // `enterDelay`/`exitDelay` plus two-frame rAF slack. Omit to use the generic
 // default. Pass `0` as a deliberate opt-out for a test that provably drove every
 // transition to completion itself: the `act` flush still runs, but with no wait.
+// Arming is per *test*, not per render: in a test that renders more than one
+// tree the longest `settleMs` wins (so a `0` here is superseded by a longer
+// sibling render).
 export type MantineTransitionsRenderOptions = MantineRenderOptions & {
   settleMs?: number;
 };
@@ -186,15 +189,32 @@ afterEach(async () => {
     );
     return;
   }
-  // Drain regardless of whether any tree is still mounted: a test that unmounted
-  // mid-transition still needs the queued rAF/`setTimeout` flushed while `window`
-  // is alive (the #1760 case). The liveness assertions apply only to trees the
-  // test left mounted.
-  assertLiveContainersConnected(liveContainers, "before");
+  // Drain regardless of whether any tree is still mounted, and even if the
+  // liveness check has already failed: a test that unmounted mid-transition still
+  // needs the queued rAF/`setTimeout` flushed while `window` is alive (the #1760
+  // case), and on the ordering regression the checks exist to catch, draining
+  // best-effort keeps the explanatory error below from *also* racing an uncaught
+  // post-teardown `window is not defined` in some unrelated file. So capture a
+  // liveness failure, always drain, then throw. The pre-settle check catches
+  // cleanup() running entirely first; the post-settle check (only meaningful if
+  // the pre one passed) catches a same-level concurrent cleanup() detaching a
+  // still-live tree mid-settle, which the pre-check can't see. Both apply only to
+  // trees the test left mounted.
+  let livenessError: unknown;
+  try {
+    assertLiveContainersConnected(liveContainers, "before");
+  } catch (error) {
+    livenessError = error;
+  }
   await settleTransitions(ms);
-  // Re-assert after the await: a same-level concurrent cleanup() could unmount a
-  // still-live tree while the settle is in flight, which the pre-check can't see.
-  assertLiveContainersConnected(liveContainers, "after");
+  if (livenessError === undefined) {
+    try {
+      assertLiveContainersConnected(liveContainers, "after");
+    } catch (error) {
+      livenessError = error;
+    }
+  }
+  if (livenessError !== undefined) throw livenessError;
 });
 
 // Throw if any still-live armed tree was detached at the given point relative to
