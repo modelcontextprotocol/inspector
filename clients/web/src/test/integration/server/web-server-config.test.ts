@@ -222,13 +222,42 @@ describe("buildWebServerConfigFromEnv", () => {
     }
   });
 
-  it.each(["0", "abc", "70000", "-1"])(
+  it('drops scheme-less / opaque ALLOWED_ORIGINS entries rather than allow-listing "null"', () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      // `new URL("localhost:6274").origin` is the literal "null" (not a throw) —
+      // must be dropped, not allow-listed (it'd match a real `Origin: null`).
+      process.env.ALLOWED_ORIGINS =
+        "localhost:6274, file:///srv, http://real:1";
+      const cfg = buildWebServerConfigFromEnv();
+      expect(cfg.allowedOrigins).toEqual(["http://real:1"]);
+
+      // All scheme-less → nothing survives → fail-closed fallback to default.
+      process.env.ALLOWED_ORIGINS = "localhost:6274, myhost:8080";
+      const cfg2 = buildWebServerConfigFromEnv();
+      expect(cfg2.allowedOrigins).toEqual([
+        "http://localhost:6274",
+        "http://127.0.0.1:6274",
+        "http://[::1]:6274",
+      ]);
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it.each(["0", "abc", "70000", "-1", "6274abc", "80.9"])(
     "rejects an unusable CLIENT_PORT %j with an actionable error",
     (value) => {
       process.env.CLIENT_PORT = value;
       expect(() => buildWebServerConfigFromEnv()).toThrow(/CLIENT_PORT/);
     },
   );
+
+  it("treats an empty CLIENT_PORT as unset (defaults to 6274)", () => {
+    process.env.CLIENT_PORT = "";
+    const cfg = buildWebServerConfigFromEnv();
+    expect(cfg.port).toBe(6274);
+  });
 
   it("resolves sandboxPort from MCP_SANDBOX_PORT", () => {
     process.env.MCP_SANDBOX_PORT = "9001";

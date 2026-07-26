@@ -293,12 +293,16 @@ export function buildWebServerConfig(
     writable = true,
     initialServers = null,
   } = options;
-  const port = parseInt(process.env.CLIENT_PORT ?? "6274", 10);
-  // A fixed port is required: the origin allow-list and the sandbox CSP are both
-  // built from it, so `0` (OS-assigned) would make them reference a port the
-  // server isn't on — every connect 403s and the MCP Apps iframe is blocked.
+  // Treat an empty CLIENT_PORT as unset (matches resolveSandboxPort's handling
+  // of MCP_SANDBOX_PORT / SERVER_PORT), then require a fixed port: the origin
+  // allow-list and the sandbox CSP are both built from it, so `0` (OS-assigned),
+  // a non-numeric value, or trailing garbage would make them reference a port
+  // the server isn't on — every connect 403s and the MCP Apps iframe is blocked.
+  // The `^\d+$` test rejects `parseInt`'s partial parses (`6274abc`, `80.9`).
   // Fail fast with an actionable message (run-web surfaces it cleanly).
-  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+  const rawPort = process.env.CLIENT_PORT?.trim() || "6274";
+  const port = parseInt(rawPort, 10);
+  if (!/^\d+$/.test(rawPort) || port < 1 || port > 65535) {
     throw new Error(
       `Invalid CLIENT_PORT="${process.env.CLIENT_PORT}": the web server needs a fixed port in 1–65535 (0 / dynamic is unsupported — the origin allow-list and sandbox CSP are derived from it).`,
     );
@@ -340,7 +344,15 @@ export function buildWebServerConfig(
     .filter(Boolean)
     .map((o) => {
       try {
-        return new URL(o).origin;
+        const { origin } = new URL(o);
+        // A scheme-less entry (`localhost:6274`) doesn't throw — `new URL` reads
+        // the host as the scheme and `.origin` is the literal string "null"
+        // (also `file:`, `about:`, `javascript:`, `data:`). Reject it: it's not
+        // the origin the user meant, AND "null" is a real header value browsers
+        // send from opaque origins (a sandboxed iframe, a `data:` doc), so
+        // allow-listing it would erode the guard. Entries must carry a scheme.
+        if (origin === "null") throw new Error("opaque origin");
+        return origin;
       } catch {
         console.warn(`Ignoring invalid ALLOWED_ORIGINS entry: ${o}`);
         return null;
