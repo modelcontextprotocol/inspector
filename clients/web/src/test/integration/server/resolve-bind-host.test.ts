@@ -1,7 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
   BIND_ALL_INTERFACES_ENV,
-  formatHostForUrl,
   isAllInterfacesHost,
   resolveBindHostname,
 } from "../../../../server/resolve-bind-host.js";
@@ -40,23 +39,6 @@ describe("isAllInterfacesHost", () => {
   });
 });
 
-describe("formatHostForUrl", () => {
-  it.each([
-    ["::1", "[::1]"],
-    ["fe80::1", "[fe80::1]"],
-    ["  ::1  ", "[::1]"],
-  ])("brackets the IPv6 literal %j", (host, expected) => {
-    expect(formatHostForUrl(host)).toBe(expected);
-  });
-
-  it.each(["localhost", "127.0.0.1", "192.168.1.50", "example.com", "[::1]"])(
-    "passes the non-IPv6 / already-bracketed host %j through",
-    (host) => {
-      expect(formatHostForUrl(host)).toBe(host.trim());
-    },
-  );
-});
-
 describe("resolveBindHostname", () => {
   it("defaults to localhost when HOST is unset", () => {
     expect(resolveBindHostname({})).toBe("localhost");
@@ -68,6 +50,10 @@ describe("resolveBindHostname", () => {
 
   it("trims the returned host so detection and the bind value agree", () => {
     expect(resolveBindHostname({ HOST: "  127.0.0.1  " })).toBe("127.0.0.1");
+  });
+
+  it("returns a bracketed IPv6 HOST bare so listen() can bind it", () => {
+    expect(resolveBindHostname({ HOST: "[::1]" })).toBe("::1");
   });
 
   it.each(["0.0.0.0", "::", "", "0", "0x0.0.0.0", "::ffff:0.0.0.0", "  0  "])(

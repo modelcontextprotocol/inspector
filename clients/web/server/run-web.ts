@@ -18,7 +18,10 @@ import {
   parseHeaderPair,
   type ServerConfigOptions,
 } from "../../../core/mcp/node/config.ts";
-import { buildWebServerConfig } from "./web-server-config.js";
+import {
+  buildWebServerConfig,
+  type WebServerConfig,
+} from "./web-server-config.js";
 import { startViteDevServer } from "./start-vite-dev-server.js";
 import { startHonoServer } from "./server.js";
 import { ensureWebBuild } from "./ensure-web-build.js";
@@ -232,7 +235,7 @@ export async function runWeb(argv: string[]): Promise<number> {
     process.exit(1);
   }
 
-  let webConfig;
+  let webConfig: WebServerConfig;
   try {
     webConfig = buildWebServerConfig({
       initialMcpConfig,
@@ -245,7 +248,7 @@ export async function runWeb(argv: string[]): Promise<number> {
     // message rather than a raw stack trace from the launcher's top-level handler.
     const message =
       err instanceof Error ? err.message : "Invalid web server configuration.";
-    console.error(`Error: ${message}`);
+    console.error("Error:", message);
     process.exit(1);
   }
   const webRoot = join(__dirname, "..");

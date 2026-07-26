@@ -7,6 +7,10 @@
  * dev server) so both bind points enforce the same policy.
  */
 
+// Re-exported so the two web bind points can keep importing the URL formatter
+// from this module; the implementation is shared with the CLI via core/node.
+export { formatHostForUrl } from "../../../core/node/hostUrl.ts";
+
 /** Env var that opts into binding all network interfaces (see {@link resolveBindHostname}). */
 export const BIND_ALL_INTERFACES_ENV = "DANGEROUSLY_BIND_ALL_INTERFACES";
 
@@ -44,32 +48,20 @@ function parseAddressPart(part: string): number {
  * of these.) Guards the near-miss bypasses of the literal set above.
  */
 function isAllZeroIpv4(value: string): boolean {
-  if (value === "") return false;
   const parts = value.split(".");
   if (parts.length > 4) return false;
   return parts.every((part) => parseAddressPart(part) === 0);
 }
 
-/** True when `host` binds all interfaces rather than loopback only. */
-export function isAllInterfacesHost(host: string): boolean {
-  const normalized = host
-    .trim()
-    .toLowerCase()
-    .replace(/^\[|\]$/g, "");
-  return ALL_INTERFACES_LITERALS.has(normalized) || isAllZeroIpv4(normalized);
+/** Strip a single surrounding `[...]` pair from a bracketed IPv6 literal; other hosts pass through. */
+function stripIpv6Brackets(host: string): string {
+  return host.replace(/^\[(.+)\]$/, "$1");
 }
 
-/**
- * Wrap an IPv6 literal in brackets so it's a valid URL authority
- * (`http://[::1]:6274`), and pass every other host (loopback names, IPv4,
- * hostnames, already-bracketed IPv6) through unchanged. Shared by the origin
- * allow-list, the startup banner, and the sandbox URL so all three format a
- * bound IPv6 host the same way.
- */
-export function formatHostForUrl(host: string): string {
-  const h = host.trim();
-  if (h.startsWith("[") || !h.includes(":")) return h;
-  return `[${h}]`;
+/** True when `host` binds all interfaces rather than loopback only. */
+export function isAllInterfacesHost(host: string): boolean {
+  const normalized = stripIpv6Brackets(host.trim().toLowerCase());
+  return ALL_INTERFACES_LITERALS.has(normalized) || isAllZeroIpv4(normalized);
 }
 
 /**
@@ -88,8 +80,10 @@ function isEnabled(value: string | undefined): boolean {
  * legacy spellings) unless {@link BIND_ALL_INTERFACES_ENV} is explicitly
  * enabled — the published Docker image sets it, since a container must bind
  * `0.0.0.0` to be reachable through `-p`. Throws (fail fast, loudly) rather than
- * silently binding wide open. The returned value is trimmed so detection and
- * the value handed to `listen()` agree.
+ * silently binding wide open. The returned value is trimmed and de-bracketed
+ * (an IPv6 literal is returned bare, e.g. `HOST=[::1]` → `::1`) so detection,
+ * `listen()`, and the origin list all consume the same value; `formatHostForUrl`
+ * re-adds the brackets wherever a URL is built.
  */
 export function resolveBindHostname(
   env: NodeJS.ProcessEnv = process.env,
@@ -105,5 +99,5 @@ export function resolveBindHostname(
         `${BIND_ALL_INTERFACES_ENV}=true.`,
     );
   }
-  return host;
+  return stripIpv6Brackets(host);
 }

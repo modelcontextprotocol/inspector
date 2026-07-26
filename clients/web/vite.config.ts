@@ -95,9 +95,14 @@ function browserExternalizedBuiltinGate(): Plugin {
 export default defineConfig(({ command }) => {
   const isDevServer = command === "serve" && !process.env.VITEST;
   return {
-    // `honoMiddlewarePlugin` is gated by `apply: 'serve'` so it only attaches
-    // during `vite dev` / `vite preview` — vitest projects share this config
-    // but never invoke `configureServer`, so the plugin stays inert there.
+    // `honoMiddlewarePlugin` only attaches during `vite dev` / `vite preview`.
+    // It's included conditionally on `isDevServer` (not merely `apply: 'serve'`)
+    // because its config *argument* — `buildWebServerConfigFromEnv()`, which
+    // calls `resolveBindHostname()` — is evaluated eagerly when this array is
+    // built. Left unconditional, an ambient `HOST=0.0.0.0` would make the guard
+    // throw at config load for `vite build` and every vitest project too, not
+    // just when serving. Gating the whole plugin also skips that wasted config
+    // build for non-serve commands.
     //
     // The plugin statically imports the node-only dev backend
     // (`core/mcp/remote/node/server.ts`), so Vite's config bundler (Rolldown)
@@ -114,7 +119,9 @@ export default defineConfig(({ command }) => {
     // reaches the browser bundle (#1769) — see its definition above.
     plugins: [
       react(),
-      honoMiddlewarePlugin(buildWebServerConfigFromEnv()),
+      ...(isDevServer
+        ? [honoMiddlewarePlugin(buildWebServerConfigFromEnv())]
+        : []),
       browserExternalizedBuiltinGate(),
     ],
     // Shared optimizeDeps exclusions so node-only packages
@@ -158,14 +165,14 @@ export default defineConfig(({ command }) => {
     // pointing at the wrong host and break browser fetches).
     server: {
       port: parseInt(process.env.CLIENT_PORT ?? "6274", 10),
-      // Only enforce the bind-host guard when actually serving. `vite build` and
-      // the vitest projects evaluate this same config but never bind, so an
-      // ambient HOST=0.0.0.0 (e.g. exported in CI) must not fail them at config
-      // load with a message about binding.
-      host:
-        command === "serve"
-          ? resolveBindHostname()
-          : (process.env.HOST ?? "localhost"),
+      // Only enforce the bind-host guard when actually serving (`isDevServer`
+      // also excludes vitest, whose `command` is `serve`). `vite build` and the
+      // vitest projects evaluate this same config but never bind, so an ambient
+      // HOST=0.0.0.0 (e.g. exported in CI) must not fail them at config load
+      // with a message about binding.
+      host: isDevServer
+        ? resolveBindHostname()
+        : (process.env.HOST ?? "localhost"),
       strictPort: true,
       fs: {
         allow: [path.resolve(dirname, "../..")],

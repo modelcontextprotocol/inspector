@@ -15,6 +15,7 @@ import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { createRemoteApp } from "../../../core/mcp/remote/node/server.ts";
+import { formatHostForUrl } from "../../../core/node/hostUrl.ts";
 import { createSandboxController } from "./sandbox-controller.js";
 import { injectAuthToken } from "./inject-auth-token.js";
 import type { WebServerConfig } from "./web-server-config.js";
@@ -131,7 +132,7 @@ export async function startHonoServer(
   httpServer.on("error", (err: Error) => {
     if (err.message.includes("EADDRINUSE")) {
       console.error(
-        `MCP Inspector PORT IS IN USE at http://${config.hostname}:${config.port}`,
+        `MCP Inspector PORT IS IN USE at http://${formatHostForUrl(config.hostname)}:${config.port}`,
       );
       process.exit(1);
     } else {

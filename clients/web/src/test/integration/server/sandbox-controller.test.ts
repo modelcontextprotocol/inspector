@@ -85,7 +85,12 @@ describe("createSandboxController", () => {
       // container, so any default-src/connect-src here would intersect with and
       // override the per-app CSP baked into the inner document.
       const csp = res.headers.get("content-security-policy") ?? "";
-      expect(csp).toContain("frame-ancestors http://127.0.0.1:*");
+      // Assert the full directive (not a prefix) so the loopback family is
+      // regression-guarded — including the IPv6 loopback embedder, which is
+      // exactly the case a prefix match would let silently regress.
+      expect(csp).toContain(
+        "frame-ancestors http://127.0.0.1:* http://localhost:* http://[::1]:*",
+      );
       expect(csp).not.toContain("default-src");
       expect(csp).not.toContain("connect-src");
       const body = await res.text();
