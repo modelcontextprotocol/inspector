@@ -45,7 +45,7 @@ export default defineConfig([
   },
   {
     files: [
-      "test-servers/src/**/*.ts",
+      "test-servers/src/**/*.{ts,tsx,mts,cts}",
       "vitest.shared.mts",
       "eslint.config.js",
     ],

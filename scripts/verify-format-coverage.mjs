@@ -147,6 +147,30 @@ function globToRegExp(glob) {
   return new RegExp("^" + re + "$");
 }
 
+/**
+ * Assert the root `validate` chain actually invokes each non-root manifest's
+ * `validate` (via `cd <dir> && npm run validate`). Without this, a client's
+ * globs would still be harvested from its own `validate` and count as coverage
+ * even if the root chain stopped running that client — the same "gate silently
+ * stops gating" failure as the reachable-script check, one level up. Returns the
+ * list of manifest dirs the root chain does NOT reach.
+ */
+function clientsUnreachedFromRoot() {
+  const rootPkg = JSON.parse(
+    readFileSync(path.join(repoRoot, "package.json"), "utf8"),
+  );
+  const reachedNames = reachableScripts(rootPkg.scripts);
+  const reachedCommands = [...reachedNames]
+    .map((n) => rootPkg.scripts?.[n])
+    .filter((c) => typeof c === "string");
+  return MANIFESTS.filter((dir) => dir !== ".").filter(
+    (dir) =>
+      !reachedCommands.some(
+        (c) => c.includes(`cd ${dir}`) && /npm run validate/.test(c),
+      ),
+  );
+}
+
 /** Build the set of coverage predicates from all manifests' format globs. */
 function buildMatchers() {
   const matchers = [];
@@ -174,6 +198,22 @@ function trackedSourceFiles() {
     { cwd: repoRoot, encoding: "utf8" },
   );
   return out.split("\n").filter(Boolean);
+}
+
+const unreachedClients = clientsUnreachedFromRoot();
+if (unreachedClients.length > 0) {
+  console.error(
+    `verify:format-coverage — the root \`validate\` chain does not invoke ${unreachedClients.length} client validation(s):\n`,
+  );
+  for (const dir of unreachedClients)
+    console.error(`  ${dir} (expected \`cd ${dir} && npm run validate\`)`);
+  console.error(
+    "\nA client whose `validate` the root chain never runs is not format-gated by CI,",
+  );
+  console.error(
+    "even though its globs exist. Restore the `validate:<client>` link in the root `validate`.",
+  );
+  process.exit(1);
 }
 
 const matchers = buildMatchers();
