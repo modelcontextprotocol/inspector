@@ -290,18 +290,20 @@ export default defineConfig(({ command }) => {
             // Integration tests run in the integration project below (node env).
             exclude: [integrationGlob],
             setupFiles: [path.join(dirname, "src/test/setup.ts")],
-            // Run after-hooks LIFO (reverse registration) instead of Vitest's
-            // default "parallel". This is defense-in-depth, NOT load-bearing:
-            // the real-transitions auto-settle in `src/test/renderWithMantine.tsx`
-            // needs its `afterEach` to complete before `setup.ts`'s setupFile
-            // `cleanup()` unmounts the tree (avoiding the #1760 post-teardown
-            // `window is not defined` leak, #1786), and that already holds in
-            // *every* `sequence.hooks` mode because `cleanup()` is a setupFile
-            // (outer) hook, which Vitest runs after inner afterEach hooks
-            // regardless of this setting (verified across stack/list/parallel).
-            // Pinning "stack" just makes the conventional LIFO ordering explicit;
-            // the settle's own before/after `container.isConnected` self-checks
-            // are the real guard against a future regression.
+            // Pin after-hooks to LIFO (reverse registration). This is Vitest 4's
+            // own default (`resolved.sequence.hooks ??= "stack"` — the CLI
+            // help-text's "parallel" is stale), so this line documents intent and
+            // guards a future default change rather than overriding anything. It's
+            // defense-in-depth, NOT load-bearing: the real-transitions auto-settle
+            // in `src/test/renderWithMantine.tsx` needs its `afterEach` to complete
+            // before `setup.ts`'s setupFile `cleanup()` unmounts the tree (avoiding
+            // the #1760 post-teardown `window is not defined` leak, #1786), and
+            // that already holds in *every* `sequence.hooks` mode because
+            // `cleanup()` is a setupFile (outer) hook, which Vitest runs after
+            // inner afterEach hooks regardless of this setting (verified across
+            // stack/list/parallel). The settle's own before/after
+            // `container.isConnected` self-checks are the real guard against a
+            // future regression.
             sequence: { hooks: "stack" },
           },
         },

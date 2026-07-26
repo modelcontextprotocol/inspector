@@ -166,9 +166,11 @@ export async function settleTransitions(ms: number = DEFAULT_SETTLE_MS) {
 // containers, which guard against a future regression that makes cleanup run
 // before this settle finishes — e.g. cleanup moved to a *same-level* hook: the
 // pre-settle check catches it running entirely first, the post-settle check
-// catches it detaching the tree concurrently while this hook awaits (a
-// same-level "parallel" race the pre-check can't see). Neither fires in the
-// current outer-cleanup setup. A container the test unmounted itself isn't in
+// catches it detaching the tree concurrently while this hook awaits — a race
+// that can only arise if the unit project's `sequence.hooks` is changed from
+// "stack" to "parallel" (same-level hooks run sequentially under "stack"/"list"),
+// which is exactly why the pre-check can't see it. Neither fires in the current
+// outer-cleanup setup. A container the test unmounted itself isn't in
 // the set, so its legitimate detach is never mistaken for that regression.
 afterEach(async () => {
   const ms = armedSettleMs;
