@@ -27,14 +27,20 @@ describe("resolveBindHostname", () => {
     expect(resolveBindHostname({ HOST: "fe80::1%eth0" })).toBe("fe80::1%eth0");
   });
 
-  it.each(["0.0.0.0", "::", "", "0", "0x0.0.0.0", "::ffff:0.0.0.0", "  0  "])(
-    "refuses the all-interfaces host %j without the opt-in",
-    (host) => {
-      expect(() => resolveBindHostname({ HOST: host })).toThrow(
-        new RegExp(BIND_ALL_INTERFACES_ENV),
-      );
-    },
-  );
+  it.each([
+    "0.0.0.0",
+    "::",
+    "",
+    "0",
+    "0x0.0.0.0",
+    "::ffff:0.0.0.0",
+    "  0  ",
+    "０", // fullwidth "0" — the resolver binds it as 0.0.0.0, so the guard must refuse it
+  ])("refuses the all-interfaces host %j without the opt-in", (host) => {
+    expect(() => resolveBindHostname({ HOST: host })).toThrow(
+      new RegExp(BIND_ALL_INTERFACES_ENV),
+    );
+  });
 
   it.each(["true", "TRUE", "1", " true "])(
     "allows 0.0.0.0 when the opt-in is %j",

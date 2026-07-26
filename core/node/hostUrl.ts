@@ -132,8 +132,15 @@ function isAllZeroIpv4(value: string): boolean {
  * True when `host` binds all interfaces (`0.0.0.0` / `::` / empty / their legacy
  * spellings) rather than loopback only. Shared by the web bind guard, the
  * banner/sandbox wildcard→`localhost` substitution, and the CLI deep-link.
+ *
+ * The value is run through {@link canonicalUrlHost} first — Node's resolver
+ * applies the IDNA Unicode→ASCII mapping before parsing the literal, so a
+ * fullwidth `HOST="０"` (U+FF10) binds `0.0.0.0`; canonicalizing (via `new URL`,
+ * which applies the same mapping) before the address check catches those
+ * spellings and keeps this predicate reasoning about the *address* the socket
+ * binds, not the raw string. Idempotent for ASCII hosts.
  */
 export function isAllInterfacesHost(host: string): boolean {
-  const normalized = canonicalizeIpv6(stripBrackets(host.trim().toLowerCase()));
+  const normalized = canonicalizeIpv6(stripBrackets(canonicalUrlHost(host)));
   return ALL_INTERFACES_LITERALS.has(normalized) || isAllZeroIpv4(normalized);
 }

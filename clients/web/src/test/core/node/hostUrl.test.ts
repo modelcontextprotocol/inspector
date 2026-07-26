@@ -35,6 +35,11 @@ describe("isAllInterfacesHost", () => {
     "0.0.0",
     "00000000000", // bare octal zero — parseAddressPart's [0-9]+ handles octal
     "0x00000000", // bare hex zero
+    // Fullwidth (IDNA-mapped) spellings the resolver folds to 0.0.0.0 before
+    // binding — the guard must canonicalize, not read the raw string.
+    "０", // fullwidth "0"
+    "０0.0.0", // fullwidth "0" + ".0.0"
+    "0．0．0．0", // fullwidth dots
   ])("flags the all-interfaces host %j", (host) => {
     expect(isAllInterfacesHost(host)).toBe(true);
   });
@@ -52,6 +57,7 @@ describe("isAllInterfacesHost", () => {
     "0.0.0.0.0", // 5 octets — not a valid IPv4, must not be flagged (parts.length > 4)
     "fe80::1%eth0", // a zone-scoped link-local — a real bind host, not the wildcard
     "::1%lo0", // zone-scoped loopback — must not be flagged and must not throw
+    "１２７.0.0.1", // fullwidth 127 → 127.0.0.1, a real loopback address, not the wildcard
   ])("does not flag the loopback/specific host %j", (host) => {
     expect(isAllInterfacesHost(host)).toBe(false);
   });
