@@ -165,6 +165,16 @@ Both the prod backend (`server/web-server-config.ts`) and the dev Vite server (`
 
 The backend's `/api/*` routes also enforce an **origin allow-list** (`allowedOrigins`) as DNS-rebinding protection. When left to default on a loopback host, it expands to all three interchangeable loopback origin forms for the port — `http://localhost:PORT`, `http://127.0.0.1:PORT`, and `http://[::1]:PORT` — because `localhost` resolves to either IPv4 or IPv6 loopback and Node/Vite may bind the IPv6 form, so the browser can legitimately arrive at `http://[::1]:PORT`. Set `ALLOWED_ORIGINS` (comma-separated) to override.
 
+### Hosting on a network
+
+The guard blocks only the **wildcard** all-interfaces addresses. Binding a **specific** IP or hostname is allowed with no opt-in — that's a single, deliberate exposure, unlike the wildcard which binds every interface at once (the pattern DNS-rebinding exploits). To serve the Inspector on a LAN or the internet:
+
+- **Bind a specific address.** `HOST=192.168.1.50` (a LAN IP), a public IP, or a resolvable hostname all work directly. The default origin allow-list follows the bind host, so `allowedOrigins` becomes `http://<that-host>:PORT` and a browser hitting that address is accepted with no extra config.
+- **Behind TLS or a reverse proxy**, the browser's `Origin` becomes the public origin (e.g. `https://inspector.example.com`, often without a port), which won't match the auto-derived `http://<bind-host>:PORT`. Set `ALLOWED_ORIGINS` to the real public origin(s): `ALLOWED_ORIGINS=https://inspector.example.com`.
+- **Using the `0.0.0.0` wildcard** (opt-in via `DANGEROUSLY_BIND_ALL_INTERFACES=true`) you **must** also set `ALLOWED_ORIGINS`: the default becomes `http://0.0.0.0:PORT`, which no browser ever sends as its `Origin`, so connects would 403. List the origin(s) clients actually use: `ALLOWED_ORIGINS=http://192.168.1.50:PORT,https://inspector.example.com`.
+
+In every case, exposing the Inspector beyond loopback also means anyone who can reach it can drive its backend — keep authentication on (do **not** set `DANGEROUSLY_OMIT_AUTH`) and prefer a specific bind address over the wildcard.
+
 ## HTTP proxy support
 
 The web backend connects to remote MCP servers through the shared Node transport (`core/mcp/node/transport.ts`), which honors the conventional proxy environment variables: `HTTPS_PROXY` / `HTTP_PROXY` (and their lowercase forms) select the proxy, and `NO_PROXY` exempts hosts. Routing is powered by [`undici`](https://www.npmjs.com/package/undici)'s `EnvHttpProxyAgent`, imported lazily only when a proxy variable is set, so runs without a proxy configured pay no cost. See the CLI README for more detail.
