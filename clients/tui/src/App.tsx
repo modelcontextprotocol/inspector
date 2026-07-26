@@ -1289,7 +1289,7 @@ function App({
       exit();
     }
 
-    // Tab switching with accelerator keys (first character of tab name)
+    // Tab switching with accelerator keys (letter from the tab label)
     const showAuthTab =
       !!selectedServer &&
       !!selectedServerConfig &&

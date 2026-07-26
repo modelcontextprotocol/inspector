@@ -56,7 +56,13 @@ export type MethodOutcome =
       start: (writeLine: (obj: unknown) => void) => () => void;
     };
 
-/** Methods supported by {@link runMethod}. */
+/**
+ * Full method set supported by {@link runMethod}.
+ *
+ * TODO(#1432): several of these (subscribe, tasks, roots, logging/tail, …) are
+ * not exposed by `mcp-inspector --cli` today; they exist for the experimental
+ * session CLI (`mcpi`) and other Node runners that share this dispatcher.
+ */
 export const SESSION_RPC_METHODS = [
   "initialize",
   "tools/list",

@@ -19,7 +19,7 @@ import {
   approveCspSources,
   buildSandboxCspPolicy,
   wrapSandboxedHtml,
-} from "../../../lib/sandbox-csp";
+} from "../../../utils/sandbox-csp";
 import {
   downloadBlob,
   fileNameFromUri,

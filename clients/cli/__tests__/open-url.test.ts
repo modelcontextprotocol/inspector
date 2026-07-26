@@ -6,6 +6,9 @@ vi.mock("open", () => ({
   default: (...args: unknown[]) => openMock(...args),
 }));
 
+// Suite-wide setup mocks open-url; this file exercises the real wrapper.
+vi.unmock("../src/open-url.js");
+
 describe("openUrl", () => {
   beforeEach(() => {
     openMock.mockClear();

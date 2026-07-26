@@ -56,7 +56,7 @@ export function NotificationsTab({
     <Box width={width} height={height} flexDirection="column" paddingX={1}>
       <Box paddingY={1} flexShrink={0}>
         <Text bold backgroundColor={focused ? "yellow" : undefined}>
-          Logging ({stderrLogs.length})
+          Console ({stderrLogs.length})
         </Text>
       </Box>
       {stderrLogs.length === 0 ? (

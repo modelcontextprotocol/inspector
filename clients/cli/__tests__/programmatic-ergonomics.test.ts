@@ -164,6 +164,31 @@ describe("CLI --relogin flag conflicts", () => {
     expect(result.stderr).toMatch(/--use-stored-auth/);
   });
 
+  it("rejects --relogin with catalog-only methods", async () => {
+    const result = await runCli(["--relogin", "--method", "servers/list"]);
+    expectCliFailure(result);
+    expect(result.stderr).toMatch(/servers\/list or servers\/show/);
+  });
+
+  it("rejects --relogin with --list-stored-auth", async () => {
+    const result = await runCli(["--relogin", "--list-stored-auth"]);
+    expectCliFailure(result);
+    expect(result.stderr).toMatch(/--list-stored-auth or --print-handoff/);
+  });
+
+  it("rejects --relogin for stdio servers", async () => {
+    const { command, args } = getTestMcpServerCommand();
+    const result = await runCli([
+      command,
+      ...args,
+      "--relogin",
+      "--method",
+      "tools/list",
+    ]);
+    expectCliFailure(result);
+    expect(result.stderr).toMatch(/HTTP\/SSE server URL/);
+  });
+
   it("accepts --relogin and clears stored auth before connect", async () => {
     // Unreachable port: proves --relogin runs (clears store) then fails connect.
     const result = await runCli([
@@ -178,6 +203,27 @@ describe("CLI --relogin flag conflicts", () => {
       "initialize",
     ]);
     expectCliFailure(result);
+  });
+});
+
+describe("CLI --stored-auth-only wiring", () => {
+  it("accepts the flag and fails connect without interactive OAuth prompts", async () => {
+    // Unreachable host: proves the flag is accepted through parse → callMethod
+    // and does not hang on an interactive OAuth prompt.
+    const result = await runCli([
+      "--stored-auth-only",
+      "--server-url",
+      "http://127.0.0.1:1/mcp",
+      "--transport",
+      "http",
+      "--connect-timeout",
+      "200",
+      "--method",
+      "initialize",
+    ]);
+    expectCliFailure(result);
+    expect(result.stderr).not.toMatch(/Please navigate to:/);
+    expect(result.stderr).not.toMatch(/Proceed with step-up/);
   });
 });
 

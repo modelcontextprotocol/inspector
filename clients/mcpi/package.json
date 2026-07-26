@@ -21,8 +21,8 @@
     "test-servers:build": "tsc -p ../../test-servers --noCheck",
     "pretest": "npm run test-servers:build && npm run build",
     "lint": "eslint .",
-    "format": "prettier --write src __tests__",
-    "format:check": "prettier --check src __tests__"
+    "format": "prettier --write src __tests__ \"*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}\"",
+    "format:check": "prettier --check src __tests__ \"*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}\""
   },
   "dependencies": {
     "@modelcontextprotocol/client": "2.0.0-beta.5",
@@ -44,7 +44,7 @@
     "@vitest/coverage-v8": "^4.1.0",
     "eslint": "^9.39.4",
     "globals": "^17.4.0",
-    "prettier": "^3.8.1",
+    "prettier": "3.8.4",
     "tsup": "^8.5.0",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.56.1",

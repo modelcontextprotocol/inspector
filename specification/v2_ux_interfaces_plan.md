@@ -48,7 +48,7 @@ spec. After this work, every dumb component consumes either:
     `Tool[]`, `Prompt[]`, `Resource[]`, `ResourceTemplate[]`, `Task[]`.
   - `core/react/{useMessageLog,useStderrLog,useFetchRequestLog}.ts` — log
     wrapper consumers.
-  - `clients/web/src/lib/types/customHeaders.ts` — `CustomHeader` /
+  - `clients/web/src/utils/customHeaders.ts` — `CustomHeader` /
     `CustomHeaders` shape, used by `ServerSettingsForm`.
   - `clients/web/src/utils/schemaUtils.ts` + `clients/web/src/utils/jsonUtils.ts`
     — JSON Schema typing (`JsonValue`, `JsonSchemaType`, `JsonObject`) and
@@ -82,7 +82,7 @@ and should be replaced verbatim during the refactor:
 | `InspectorServerSettings` | Closest v1.5 analog is `InspectorClientOptions` (timeouts, OAuth, sampling/elicit/roots flags). Settings form should accept the relevant subset. | `core/mcp/types.ts` |
 | `InspectorRequestHistoryItem` | Subset of `MessageEntry` filtered to outbound requests. No new type needed. | `core/mcp/types.ts` |
 | `InspectorUrlElicitRequest` | URL-mode elicitation IS supported by v1.5 via `InspectorClientOptions.elicit: { url: true }`; the request/response shape lives in `core/mcp/elicitationCreateMessage.ts`. v2 should mirror that file's types rather than invent. | `core/mcp/elicitationCreateMessage.ts` |
-| `InspectorTab` | No v1.5 analog — v2-only enum. Place under `clients/web/src/types/` or alongside `ViewHeader`. | new (v2-only) |
+| `InspectorTab` | No v1.5 analog — v2-only enum. Superseded by `InspectorTabId` in `clients/web/src/utils/inspectorTabs.ts` (#1785). | new (v2-only) |
 
 ## Non-goals
 
@@ -181,9 +181,10 @@ have no v1.5 equivalent):
 **Tab enum placement**: `InspectorTab` is a UI-routing concept, not an MCP
 or transport concept. Place it under `clients/web/src/types/navigation.ts`
 rather than in `core/mcp/types.ts`. Everything else lives in `core/mcp/types.ts`.
+_(Superseded by [#1785](https://github.com/modelcontextprotocol/inspector/issues/1785): the live tab-id type is `InspectorTabId` in `clients/web/src/utils/inspectorTabs.ts`, and the dead `navigation.ts` `InspectorTab` was removed — a pure UI domain type belongs in `utils/`, not `src/types/`, per the `src/lib` vs `src/utils` rule in AGENTS.md.)_
 
-**Custom headers**: copy `clients/web/src/lib/types/customHeaders.ts` from
-v1.5 verbatim. It owns `CustomHeader` / `CustomHeaders` shape used by
+**Custom headers**: `clients/web/src/utils/customHeaders.ts` is a verbatim
+copy of the v1.5 module. It owns `CustomHeader` / `CustomHeaders` shape used by
 `ServerSettingsForm` and the experimental panel.
 
 **JSON Schema typing for `SchemaForm`**: copy v1.5's

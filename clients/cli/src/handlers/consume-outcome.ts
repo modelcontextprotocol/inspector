@@ -5,6 +5,9 @@ import type { MethodArgs, MethodOutcome } from "./method-types.js";
 /**
  * Write a {@link MethodOutcome} to stdout (result / NDJSON / long-lived stream).
  * Stream methods stay attached until SIGINT/SIGTERM.
+ *
+ * TODO(#1432): long-lived stream path does not yet handle EPIPE / stdout error
+ * (session CLI / `mcpi` follow-up).
  */
 export async function consumeMethodOutcome(
   outcome: MethodOutcome,

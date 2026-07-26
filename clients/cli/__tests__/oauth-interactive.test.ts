@@ -147,6 +147,8 @@ describe("CLI interactive OAuth (integration)", () => {
       { type: "streamable-http", url: `${serverUrl}/mcp` },
       redirectUrlProvider,
       callbackUrlConfig,
+      undefined,
+      { isTTY: true },
     );
 
     const tools = await client.listTools();
@@ -206,6 +208,8 @@ describe("CLI interactive OAuth (integration)", () => {
       { type: "streamable-http", url: `${serverUrl}/mcp` },
       redirectUrlProvider,
       callbackUrlConfig,
+      undefined,
+      { isTTY: true },
     );
 
     const tools = await client.listTools();
@@ -225,6 +229,7 @@ describe("CLI interactive OAuth (integration)", () => {
     try {
       const result = await withCliAuthRecoveryRetry(
         client,
+        { type: "streamable-http", url: `${serverUrl}/mcp` },
         redirectUrlProvider,
         callbackUrlConfig,
         {},
@@ -233,7 +238,7 @@ describe("CLI interactive OAuth (integration)", () => {
             city: "NYC",
             units: "C",
           }),
-        async () => true,
+        { confirmStepUp: async () => true, isTTY: true },
       );
 
       expect(stepUpPrompted).toBe(true);

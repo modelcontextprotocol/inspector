@@ -57,25 +57,30 @@ Object.defineProperty(globalThis, "fetch", {
     ),
 });
 
-// happy-dom doesn't implement `matchMedia`, so Mantine's `useReducedMotion`
-// resolves to "motion allowed" and every `Transition` (ScreenStage, Modal, …)
-// schedules real enter/exit `setTimeout`s. A timer that outlives its test fires
-// after the environment is torn down and throws `window is not defined` from
-// deep in react-dom — an unhandled error that fails the run even though every
-// test passed. Report `prefers-reduced-motion: reduce` so Mantine transitions
-// render instantly (no timers); all other queries stay `false`, matching the
-// prior (absent-matchMedia) behavior so `useMediaQuery`-driven layout is
-// unchanged. Tests that need specific media results still mock `@mantine/hooks`
-// or stub `matchMedia` themselves.
+// happy-dom (v20) *does* implement `matchMedia`/`MediaQueryList`, so this isn't
+// a polyfill for a missing API — it's a deliberate **override** of happy-dom's
+// implementation, pinning `prefers-reduced-motion: reduce` and reporting `false`
+// for every other query (preserving the historical absent-matchMedia layout
+// behavior for `useMediaQuery`-driven code). Note this does *not*, on its own,
+// disable Mantine transitions: `useTransition` only honors reduced motion when
+// `theme.respectReducedMotion` is true, and Mantine 8 defaults it to `false`
+// (the project theme doesn't override it). The actual protection against the
+// #1760 post-teardown `window is not defined` leak is `env="test"` in
+// `renderWithMantine`, which forces transitions synchronous regardless. Tests
+// that need specific media results still mock `@mantine/hooks` or stub
+// `matchMedia` themselves.
 Object.defineProperty(window, "matchMedia", {
   configurable: true,
   writable: true,
-  // Partial `matchMedia` mock: happy-dom doesn't implement it, and the members
-  // below are all the app touches. The stub omits the rest of `MediaQueryList`,
-  // so the double cast bridges the deliberately-incomplete shape.
+  // Partial `matchMedia` override: the members below are all the app touches.
+  // The stub omits the rest of `MediaQueryList`, so the double cast bridges the
+  // deliberately-incomplete shape. The `matches` regex is anchored to the
+  // `reduce` form so the stub doesn't also answer `true` to
+  // `(prefers-reduced-motion: no-preference)` (claiming both preferences at
+  // once); Mantine only ever queries the `reduce` form.
   value: (query: string): MediaQueryList =>
     ({
-      matches: /prefers-reduced-motion/.test(query),
+      matches: /prefers-reduced-motion:\s*reduce/.test(query),
       media: query,
       onchange: null,
       addEventListener: () => {},

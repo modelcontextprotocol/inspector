@@ -1,5 +1,12 @@
 import type { OutputFormat } from "./handlers/format-output.js";
 
+/**
+ * ANSI / OSC 8 styling helpers.
+ *
+ * TODO(#1432): the CLI OAuth path only needs {@link Style.link} today; bold /
+ * color helpers and {@link styleFromOpts} are used by the experimental session
+ * CLI (`mcpi`) human formatter.
+ */
 export type Style = {
   /** Whether ANSI styling is enabled. */
   readonly ansi: boolean;
@@ -58,7 +65,8 @@ export type ResolveAnsiOptions = {
 
 /**
  * Decide whether session human output should use ANSI.
- * Off when: `--plain`, `NO_COLOR` set, `--format json`, or stdout is not a TTY.
+ * Off when: `--plain`, `NO_COLOR` set, `--format json`, or the caller's stream
+ * is not a TTY (override via `isTTY`; default checks `process.stdout`).
  */
 export function resolveAnsiEnabled(opts: ResolveAnsiOptions = {}): boolean {
   if (opts.plain) return false;

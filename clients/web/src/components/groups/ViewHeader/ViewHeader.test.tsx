@@ -7,24 +7,18 @@ import {
   screen,
   waitFor,
 } from "../../../test/renderWithMantine";
-import { render } from "@testing-library/react";
-import { MantineProvider } from "@mantine/core";
-import { theme } from "../../../theme/theme";
-import { ViewHeader } from "./ViewHeader";
+import { HEADER_ANIM_MS, ViewHeader } from "./ViewHeader";
 
-// Render under a forced-dark MantineProvider so `useComputedColorScheme`
-// returns "dark" (the light/dark icon + logo branches). `env="test"` disables
-// timer-driven transitions, matching the shared `renderWithMantine` wrapper and
-// avoiding post-teardown `window is not defined` races (#1760).
-function renderDark(ui: React.ReactElement) {
-  return render(ui, {
-    wrapper: ({ children }) => (
-      <MantineProvider theme={theme} defaultColorScheme="dark" env="test">
-        {children}
-      </MantineProvider>
-    ),
-  });
-}
+// The `renderWithMantineTransitions` tests use real (env="default") Mantine
+// transitions to observe mid-flight "in"/"out" cells. Waiting for one cell to
+// unmount doesn't settle the *sibling* enter cells (a completed enter leaves no
+// DOM signal to `waitFor`), which would leak the #1760 timer class. Passing
+// `settleMs` arms the helper's automatic post-test settle to drain the in-flight
+// animation before teardown (#1786). Derive the window from the component's real
+// duration plus rAF scheduling slack, so bumping HEADER_ANIM_MS can't silently
+// make the settle insufficient. (This is why ViewHeader.tsx exports
+// HEADER_ANIM_MS — the settle window must track the animation it settles.)
+const TRANSITION_SETTLE_MS = HEADER_ANIM_MS + 200;
 
 // Mock @mantine/hooks so we can control useMediaQuery results per test.
 const mediaQueryMock = vi.hoisted(() => ({ value: false }));
@@ -243,10 +237,12 @@ describe("ViewHeader", () => {
 
     it("crossfades on disconnect: tab bar exits while the title enters, then the bar unmounts (#1450)", async () => {
       mediaQueryMock.value = true;
-      // Asserts the mid-flight exit ("out") state, so it needs real transitions;
-      // it drives them to completion below (waitFor unmount).
+      // Asserts the mid-flight exit ("out") state, so it needs real transitions.
+      // The title's concurrent *enter* leaves no unmount to await, so the armed
+      // settle (settleMs) drains it before teardown (#1786).
       const { rerender } = renderWithMantineTransitions(
         <ViewHeader {...connectedProps} />,
+        { settleMs: TRANSITION_SETTLE_MS },
       );
       expect(screen.getAllByRole("radio").length).toBeGreaterThan(0);
 
@@ -314,10 +310,12 @@ describe("ViewHeader", () => {
 
     it("animates the server name and disconnect controls in on connect, out on disconnect (#1450)", async () => {
       mediaQueryMock.value = true;
-      // Asserts the mid-flight exit ("out") state, so it needs real transitions;
-      // it drives them to completion below (waitFor unmount).
+      // Asserts the mid-flight exit ("out") state, so it needs real transitions.
+      // The concurrent enter cells leave no unmount to await, so the armed settle
+      // (settleMs) drains them before teardown (#1786).
       const { rerender } = renderWithMantineTransitions(
         <ViewHeader {...connectedProps} />,
+        { settleMs: TRANSITION_SETTLE_MS },
       );
       // Connected: the server name and the Disconnect control are in their
       // enter cells.
@@ -372,7 +370,9 @@ describe("ViewHeader", () => {
     it("renders the dark-scheme icon/logo branch under a dark color scheme", () => {
       // Rendering under a forced-dark provider exercises the
       // `colorScheme === "dark"` branches for the theme icon and the logo src.
-      renderDark(<ViewHeader {...connectedProps} />);
+      renderWithMantine(<ViewHeader {...connectedProps} />, {
+        colorScheme: "dark",
+      });
       expect(
         screen.getByRole("button", { name: "Toggle color scheme" }),
       ).toBeInTheDocument();
@@ -381,8 +381,10 @@ describe("ViewHeader", () => {
 
     it("crossfades the title out and the connected header in on connect (#1450)", async () => {
       mediaQueryMock.value = true;
-      // Asserts the mid-flight exit ("out") state, so it needs real transitions;
-      // it drives them to completion below (findByText for the entering header).
+      // Asserts the mid-flight exit ("out") state, so it needs real transitions.
+      // The title's exit and the server name's enter stay in flight past the
+      // assertions (the enter leaves no unmount to await), so the armed settle
+      // (settleMs) drains them before teardown (#1786).
       // Start disconnected: the title cell is the entering one.
       const { rerender } = renderWithMantineTransitions(
         <ViewHeader
@@ -390,6 +392,7 @@ describe("ViewHeader", () => {
           onToggleTheme={vi.fn()}
           onOpenClientSettings={vi.fn()}
         />,
+        { settleMs: TRANSITION_SETTLE_MS },
       );
       expect(
         screen

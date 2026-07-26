@@ -71,7 +71,7 @@ describe("CLI method coverage", () => {
     expectOutputContains(unknown, "Unsupported method");
     expectOutputContains(unknown, "definitely/not-a-real-method");
 
-    // Stream methods used to hang via consumeMethodOutcome; now rejected.
+    // Long-lived / stream methods are rejected by the CLI method allowlist.
     const tail = await runCli([
       command,
       ...args,

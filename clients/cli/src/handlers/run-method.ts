@@ -20,6 +20,10 @@ import type {
 /**
  * Run one MCP method against a connected {@link InspectorClient}.
  * Core method dispatch used by the CLI (and other Inspector Node runners).
+ *
+ * TODO(#1432): stream / task / roots / subscribe paths are exercised by the
+ * experimental session CLI (`mcpi`); `mcp-inspector --cli` only admits
+ * {@link ONE_SHOT_METHODS} plus catalog `servers/*`.
  */
 export async function runMethod(
   inspectorClient: InspectorClient,
@@ -64,6 +68,10 @@ export async function runMethod(
     if (args.method === "tools/list") {
       const tools = managedToolsState!.getTools();
       if (args.appInfo) {
+        // Collect every probe first, then emit NDJSON as a batch. A piped
+        // consumer therefore sees lines only after all tools are probed (not
+        // as each completes). Preferable to a partial stream when one tool's
+        // probe fails mid-list; collectAppInfo never throws for a single tool.
         const lines: unknown[] = [];
         for (const tool of tools) {
           lines.push(
@@ -84,6 +92,8 @@ export async function runMethod(
         .getTools()
         .find((t) => t.name === args.toolName);
       if (!tool) {
+        // Distinct from tools/call isError:true (tool ran, reported failure)
+        // and from "no App" under --app-info — the tool simply isn't listed.
         throw new CliExitCodeError(
           EXIT_CODES.TOOL_ERROR,
           `Tool '${args.toolName}' not found on server.`,
@@ -91,6 +101,8 @@ export async function runMethod(
         );
       }
 
+      // collectAppInfo only for --app-info / --format json — text mode skips
+      // the resources/read probe so a plain tools/call stays a single RPC.
       if (args.appInfo || args.format === "json") {
         appInfo = await collectAppInfo(inspectorClient, tool, args.metadata);
       }

@@ -95,7 +95,19 @@ async function callMethod(
   cliAuthOverrides: RunnerClientConfigOverrides,
   callbackUrlConfig: RunnerOAuthCallbackConfig,
   storedAuthOnly: boolean,
+  relogin: boolean,
 ): Promise<void> {
+  // Clear after parse-time validation so a bad flag combo never deletes store
+  // entries. Deletes the shared URL-keyed OAuth entry (not "ignore for this run").
+  if (relogin) {
+    if (!("url" in serverConfig && serverConfig.url)) {
+      throw new Error(
+        "--relogin requires an HTTP/SSE server URL (no OAuth store entry for stdio)",
+      );
+    }
+    await clearStoredAuthForRelogin(serverConfig.url);
+  }
+
   // Version comes from the single source of truth — the root package.json —
   // via the shared core reader, not the CLI's own manifest.
   const clientIdentity = {
@@ -107,12 +119,18 @@ async function callMethod(
     transport: createTransportNode,
   };
   const redirectUrlProvider = new MutableRedirectUrlProvider();
+  // Disarmed until the CLI-owned interactive OAuth flow runs — SDK `auth()`
+  // during connect must not open a browser before `--stored-auth-only` / gates.
+  const autoOpenControl = { armed: false };
   if (isOAuthCapableServerConfig(serverConfig)) {
     redirectUrlProvider.redirectUrl =
       formatRunnerOAuthRedirectUrl(callbackUrlConfig);
     environment.oauth = {
       storage: new NodeOAuthStorage(),
-      navigation: createCliOAuthNavigation(),
+      navigation: createCliOAuthNavigation({
+        autoOpenControl,
+        disableAutoOpen: storedAuthOnly,
+      }),
       redirectUrlProvider,
     };
   }
@@ -146,17 +164,17 @@ async function callMethod(
       redirectUrlProvider,
       callbackUrlConfig,
       serverSettings,
-      { storedAuthOnly },
+      { storedAuthOnly, autoOpenControl },
     );
 
     const outcome = await withCliAuthRecoveryRetry(
       inspectorClient,
+      serverConfig,
       redirectUrlProvider,
       callbackUrlConfig,
       serverSettings,
       () => runMethod(inspectorClient, args),
-      undefined,
-      { storedAuthOnly },
+      { storedAuthOnly, autoOpenControl },
     );
 
     await consumeMethodOutcome(outcome, args);
@@ -469,6 +487,7 @@ type ParseResult =
       clientMetadataUrl?: string;
       callbackUrl?: string;
       storedAuthOnly?: boolean;
+      relogin?: boolean;
     }
   // Short-circuit modes (`--list-stored-auth`, `--print-handoff`) do their own
   // output and need no server connection; runCli returns immediately.
@@ -654,11 +673,11 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     )
     .option(
       "--stored-auth-only",
-      "Never start interactive OAuth; use the shared store if present, otherwise fail with auth_required. No-op when the server does not require auth.",
+      "Never start interactive OAuth; use the shared store if present, otherwise fail with auth_required. Preferred for CI/non-interactive runs. No-op when the server does not require auth.",
     )
     .option(
       "--relogin",
-      "Ignore stored OAuth for this run (HTTP/SSE URL keys only); interactive login runs only if the server requires auth. No-op for stdio / servers with no stored entry",
+      "Delete stored OAuth for this server URL from the shared store before connect (HTTP/SSE URL keys only); interactive login runs only if the server requires auth. Rejected for stdio (no URL-keyed store entry)",
     )
     .option(
       "--wait-for-auth <sec>",
@@ -726,6 +745,19 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     if (options.useStoredAuth || options.waitForAuth !== undefined) {
       throw new Error(
         "--relogin cannot be combined with --use-stored-auth or --wait-for-auth",
+      );
+    }
+    if (options.listStoredAuth || options.printHandoff) {
+      throw new Error(
+        "--relogin cannot be combined with --list-stored-auth or --print-handoff",
+      );
+    }
+    if (
+      options.method === "servers/list" ||
+      options.method === "servers/show"
+    ) {
+      throw new Error(
+        "--relogin cannot be combined with --method servers/list or servers/show (no OAuth connect)",
       );
     }
   }
@@ -797,6 +829,30 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     headers: options.header as Record<string, string> | undefined,
   };
 
+  // Catalog list / show — no MCP connection. Run before stored-auth refresh so
+  // a catalog-only command never triggers a token round-trip it won't use.
+  if (options.method === "servers/list") {
+    const servers = await listServerEntries(serverOptions);
+    await writeFormattedResult(
+      { servers },
+      options.format === "json" ? "json" : "text",
+    );
+    return { shortCircuit: true };
+  }
+  if (options.method === "servers/show") {
+    if (!options.server?.trim()) {
+      throw new Error(
+        "servers/show requires --server <name> to select a catalog entry.",
+      );
+    }
+    const server = await showServerEntry(options.server, serverOptions);
+    await writeFormattedResult(
+      server,
+      options.format === "json" ? "json" : "text",
+    );
+    return { shortCircuit: true };
+  }
+
   if (options.waitForAuth !== undefined || options.useStoredAuth) {
     if (!options.serverUrl) {
       throw new Error(
@@ -862,29 +918,6 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     };
   }
 
-  // Catalog list / show — no MCP connection.
-  if (options.method === "servers/list") {
-    const servers = await listServerEntries(serverOptions);
-    await writeFormattedResult(
-      { servers },
-      options.format === "json" ? "json" : "text",
-    );
-    return { shortCircuit: true };
-  }
-  if (options.method === "servers/show") {
-    if (!options.server?.trim()) {
-      throw new Error(
-        "servers/show requires --server <name> to select a catalog entry.",
-      );
-    }
-    const server = await showServerEntry(options.server, serverOptions);
-    await writeFormattedResult(
-      server,
-      options.format === "json" ? "json" : "text",
-    );
-    return { shortCircuit: true };
-  }
-
   // Shared with the TUI: resolves the catalog/config source (or ad-hoc target),
   // enforces the conflict matrix, and lifts disk headers/timeouts/OAuth into
   // per-server settings. `--server` selects one when the file has several.
@@ -898,10 +931,6 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     selected.settings,
     options.connectTimeout ?? (adHoc ? DEFAULT_CONNECT_TIMEOUT_MS : undefined),
   );
-
-  if (options.relogin && "url" in serverConfig && serverConfig.url) {
-    await clearStoredAuthForRelogin(serverConfig.url);
-  }
 
   if (
     options.appInfo &&
@@ -978,6 +1007,7 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     clientMetadataUrl: options.clientMetadataUrl,
     callbackUrl: options.callbackUrl,
     storedAuthOnly: options.storedAuthOnly === true,
+    relogin: options.relogin === true,
   };
 }
 
@@ -995,6 +1025,7 @@ export async function runCli(argv?: string[]): Promise<void> {
     clientMetadataUrl,
     callbackUrl,
     storedAuthOnly,
+    relogin,
   } = parsed;
   const clientConfig = await loadRunnerClientConfig({ clientConfigPath });
   const callbackUrlConfig = parseRunnerOAuthCallbackUrl(callbackUrl);
@@ -1010,5 +1041,6 @@ export async function runCli(argv?: string[]): Promise<void> {
     },
     callbackUrlConfig,
     storedAuthOnly === true,
+    relogin === true,
   );
 }

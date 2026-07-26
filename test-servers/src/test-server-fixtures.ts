@@ -1575,7 +1575,8 @@ export function createAddToolTool(): ToolDefinition {
         {
           description: params.description as string,
           inputSchema: params.inputSchema as
-            Record<string, z.ZodType> | undefined,
+            | Record<string, z.ZodType>
+            | undefined,
         },
         async () => {
           return {
@@ -1679,7 +1680,8 @@ export function createAddPromptTool(): ToolDefinition {
         {
           description: params.description as string | undefined,
           argsSchema: params.argsSchema as
-            Record<string, z.ZodType> | undefined,
+            | Record<string, z.ZodType>
+            | undefined,
         },
         async () => {
           return {
@@ -1823,7 +1825,9 @@ export function createSendProgressTool(
 
       // Extract progressToken from metadata
       const progressToken = extra?._meta?.progressToken as
-        string | number | undefined;
+        | string
+        | number
+        | undefined;
 
       // Send progress notifications
       let sent = 0;
@@ -2264,9 +2268,12 @@ export function createTaskTool(
     handler: {
       createTask: async (args, extra) => {
         const message = (args as Record<string, unknown>)?.message as
-          string | undefined;
+          | string
+          | undefined;
         const progressToken = extra._meta?.progressToken as
-          string | number | undefined;
+          | string
+          | number
+          | undefined;
         const task = await extra.taskStore.createTask({});
         runTaskExecution({
           task,

@@ -16,19 +16,19 @@ import type {
 } from "../components/groups/ImportServerJsonPanel/ImportServerJsonPanel";
 
 /** Debounce (ms) before a textarea edit re-triggers parse/validation. */
-const VALIDATE_DEBOUNCE_MS = 300;
+export const VALIDATE_DEBOUNCE_MS = 300;
 
 /**
  * Delay (ms) after content is loaded/pasted before the File Contents disclosure
  * auto-collapses — long enough to read as "the content was accepted".
  */
-const COLLAPSE_DELAY_MS = 1000;
+export const COLLAPSE_DELAY_MS = 1000;
 
 /**
  * How long (ms) to flash the disclosure with its hover background just before it
  * collapses, so the collapse reads as intentional rather than abrupt.
  */
-const HIGHLIGHT_DURATION_MS = 250;
+export const HIGHLIGHT_DURATION_MS = 250;
 
 const EMPTY_DRAFT: InspectorServerJsonDraft = {
   rawText: "",

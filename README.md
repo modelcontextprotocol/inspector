@@ -35,7 +35,7 @@ inspector/
 │   ├── react/        # React hooks over the state stores
 │   └── storage/      # File I/O helpers for the OAuth persist backends
 ├── test-servers/     # Composable MCP test servers + fixtures used by integration tests
-├── scripts/          # Root build/verify tooling (install cascade, smokes, pack:verify)
+├── scripts/          # Root build/verify tooling (install cascade, smokes, verify-build-gate, verify-format-coverage, pack:verify)
 ├── specification/    # Design/build specifications
 ├── AGENTS.md         # Contribution rules for agents AND humans (see below)
 └── README.md         # You are here
@@ -140,13 +140,15 @@ Each client self-validates from its own folder; the root scripts chain them. The
 
 | Script                | What it does                                                                                                                                                                                                                                              |
 | --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `npm run validate`    | Runs `validate:core` (the shared `core/` `format:check` + `lint` gate) first, then per client: `format:check` + `lint` + **`typecheck`** (cli/tui only) + `build` + fast unit tests. The quick inner-loop check.                                          |
+| `npm run validate`    | Runs `verify:format-coverage` (asserts every tracked source file is format-gated) first, then `validate:core` (the shared `core/` `format:check` + `lint` gate), then per client: `format:check` + `lint` + **`typecheck`** (cli/tui only) + `build` + fast unit tests. The quick inner-loop check.                                          |
 | `npm run coverage`    | The **per-file ≥90% gate** (lines/statements/functions/branches) under v8 instrumentation, per client. CI-enforced. For web this also runs the integration project and covers the shared `core/` runtime (including `core/json` and `core/client`).       |
 | `npm run smoke`       | End-to-end smokes through the built launcher (`--help` dispatch + prod cli/tui/web), plus a headless-Chromium boot smoke that runs the prod web bundle and asserts a clean first render (no uncaught error — sync exception or unhandled rejection, how a Node built-in reaching the browser bundle manifests).                               |
-| `npm run ci`          | **Mandatory pre-push command.** `validate` → `coverage` → `smoke` → Storybook. A true superset of GitHub CI.                                                                                                                                             |
+| `npm run verify:build-gate` | Runs a real `vite build` with a Node built-in forced into the browser graph and asserts the build **fails** via the #1769 gate (which turns Vite's browser-externalization warning into a hard error). Guards against the warning phrasing drifting in a Vite bump and silently disabling the gate. Part of `npm run ci`.                        |
+| `npm run verify:format-coverage` | Parses the `format:check` globs out of every `package.json` (only those reachable from `validate`), enumerates all tracked source files, and **fails** listing any not covered by a glob — the durable guard for the "every first-party source file is format-gated" invariant (#1792). Runs first in `validate`.                        |
+| `npm run ci`          | **Mandatory pre-push command.** `validate` → `coverage` → `verify:build-gate` → `smoke` → Storybook. A true superset of GitHub CI.                                                                                                                        |
 | `npm run pack:verify` | Publish smoke — see [Publishing](#publishing).                                                                                                                                                                                                          |
 
-Per-client scripts exist too (`validate:web`, `coverage:cli`, `smoke:tui`, …), plus root `validate:core` / `format:core` for the shared `core/` package. Run `npm run format` before committing — the root `format` fixes `core/` and every client; `validate` runs the non-fixing `format:check` and fails CI on any unformatted file.
+Per-client scripts exist too (`validate:web`, `coverage:cli`, `smoke:tui`, …), plus root `validate:core` / `format:core` for the shared `core/` package, `format:scripts` for the root `scripts/` tooling, and `format:shared` / `lint:shared` for the root "shared" surface (`test-servers/src/**`, `vitest.shared.mts`, the root `eslint.config.js`). Run `npm run format` before committing — the root `format` fixes `core/`, the root `scripts/`, the shared surface, and every client; `validate` runs the non-fixing `format:check` and fails CI on any unformatted file.
 
 For the full testing rules — the ≥90% per-file gate, where test files live, the unit vs. integration vs. storybook projects, and the `v8 ignore` policy — see [`AGENTS.md`](./AGENTS.md).
 

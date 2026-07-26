@@ -19,6 +19,7 @@ The `server/` directory holds the Node-only backend:
 - **`web-server-config.ts`** — env parsing, the `GET /api/config` payload, the startup banner.
 - **`inject-auth-token.ts`** — embeds the API token into the served `index.html` (see [Auth token](#auth-token)).
 - **`sandbox-controller.ts`** — the MCP Apps sandbox HTTP server; **`ensure-web-build.ts`** — builds `dist/` on demand for prod `--web`; **`vite-base-config.ts`** — shared `optimizeDeps` exclusions.
+- **`browser-externalized-builtin-gate.ts`** — Vite-agnostic build-gate logic that fails `vite build` when a Node built-in reaches the browser bundle (#1769); the thin Vite plugin wiring lives in `vite.config.ts`. It sits under `server/` (rather than `src/`) as the home for Node-only, build-time tooling — it's imported by the Vite config, never by the browser — alongside the other `vite-*` config helpers here.
 
 ## Development
 
@@ -53,6 +54,20 @@ Components live under `src/components/` in four layers, smallest to largest:
 | `views/` | 1 | `InspectorView` — the top-level layout that composes the screens. |
 
 Every screen and element has a `*.stories.tsx` (see [Storybook](#storybook)). Styling follows the Mantine-first rules in [`AGENTS.md`](../../AGENTS.md) — theme variants and component props over CSS, `--inspector-*` tokens over raw colors.
+
+## Non-component code: `src/lib` vs `src/utils`
+
+Two grab-bag directories, split by one rule: **`utils` = functions that compute; `lib` = things that instantiate, adapt, or touch the environment.** If it does I/O or wraps a subsystem, it's `lib`; if it's a pure transform, it's `utils`.
+
+- **`src/utils/`** — pure, side-effect-free functions (no DOM/`window`/`sessionStorage` I/O, no subsystem ownership), trivially unit-testable with no mocks. Examples: `jsonUtils`, `schemaUtils`, `toolUtils`, `maskSecrets`, `inspectorTabs`, `deepLink`, `mcpNetworkHeaders`. Carve-outs that stay `utils`:
+  - _Diagnostic logging_ (`console.warn`/`console.error`) doesn't count as a side effect.
+  - _Importing from `@inspector/core`_ — neither a type-only import nor re-exporting core's pure functions/constants is a subsystem dependency (what makes a module `lib` is wrapping core's stateful runtime).
+  - _Pure domain types + their constructors_ (`customHeaders`) — there is no `types/` sub-bucket inside `lib`/`utils`.
+- **`src/lib/`** — infrastructure / stateful adapters: modules that compose subsystems, wrap the `@inspector/core` **runtime**, or produce side effects. Examples: `environmentFactory`, `remoteOAuthStorage`, `oauthResume` (sessionStorage), `browserTabVisibility` (DOM listeners), `clearServerOAuthState`, `downloadFile`.
+
+The top-level `src/types/` is a separate sibling — ambient `.d.ts` module stubs, not the place for new domain types (the one that lingers there, dead `navigation.ts`, is tracked for removal in [#1785](https://github.com/modelcontextprotocol/inspector/issues/1785)).
+
+Nothing _enforces_ the boundary — no path alias keys off it, and the coverage `include` in `vite.config.ts` lists both directories, so a move between them is coverage-neutral. It's a human-legible import-time signal. See [`AGENTS.md`](../../AGENTS.md) for the full rule (including the whitelist caveat — a module placed outside `components`/`lib`/`utils`/`server` falls out of the ≥90 gate).
 
 ## MCP Apps screen automation contract
 

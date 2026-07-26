@@ -53,6 +53,15 @@ jobs:
         # running the integration suite twice.
         run: npm run coverage
 
+      - name: Verify the browser-externalized-builtin build gate (#1769)
+        # Runs a real `vite build` with a Node built-in forced into the browser
+        # graph and asserts the build FAILS via the #1769 gate. The unit tests
+        # cover the detection logic against a captured message; only this real
+        # build catches the risk the issue calls out — that the Vite warning
+        # phrasing drifts across releases, silently disabling the message-keyed
+        # gate. It restores the mutated entry afterward (see the script).
+        run: npm run verify:build-gate
+
       # Playwright chromium is installed BEFORE the smokes because
       # `smoke:web:browser` (the headless-browser boot smoke, #1615) drives the
       # prod web bundle in chromium — restoring/installing it here lets that

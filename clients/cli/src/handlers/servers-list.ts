@@ -2,6 +2,7 @@ import type {
   InspectorServerSettings,
   MCPServerConfig,
 } from "@inspector/core/mcp/types.js";
+import { InMemorySecretStore } from "@inspector/core/auth/node/secret-store.js";
 import {
   loadServerEntries,
   selectServerEntry,
@@ -32,6 +33,9 @@ export type SessionListRef = {
 /**
  * Mark catalog entries that have a live session with the same name.
  * Does not mutate `entries`.
+ *
+ * TODO(#1432): consumed by the experimental session CLI (`mcpi`); kept here so
+ * that client can reuse catalog listing without duplicating this helper.
  */
 export function annotateServerEntriesWithSessions(
   entries: ServerListEntry[],
@@ -80,11 +84,16 @@ export function summarizeServerConfig(config: MCPServerConfig): {
 
 /**
  * Load catalog/config entries and return a sorted name + summary list.
+ * Uses an empty in-memory secret store by default so listing never touches the
+ * OS keychain (names/types/details do not need rehydrated secrets).
  */
 export async function listServerEntries(
   serverOptions: ServerLoadOptions = {},
 ): Promise<ServerListEntry[]> {
-  const entries = await loadServerEntries(serverOptions);
+  const entries = await loadServerEntries({
+    ...serverOptions,
+    secretStore: serverOptions.secretStore ?? new InMemorySecretStore(),
+  });
   return Object.entries(entries)
     .map(([name, resolved]) => {
       const { type, detail } = summarizeServerConfig(resolved.config);
@@ -144,11 +153,15 @@ export function sanitizeServerSettings(
 ): Record<string, unknown> {
   const out: Record<string, unknown> = {
     ...settings,
-    headers: settings.headers.map((h) => ({
+    headers: (settings.headers ?? []).map((h) => ({
       key: h.key,
       value: isSensitiveHeader(h.key) ? REDACTED : h.value,
     })),
-    env: settings.env.map((e) => ({
+    metadata: (settings.metadata ?? []).map((m) => ({
+      key: m.key,
+      value: isSensitiveHeader(m.key) ? REDACTED : m.value,
+    })),
+    env: (settings.env ?? []).map((e) => ({
       key: e.key,
       value: REDACTED,
     })),
@@ -202,7 +215,8 @@ function sanitizeInitRecord(
 function isSensitiveHeader(key: string): boolean {
   const k = key.toLowerCase();
   return (
-    k === "authorization" ||
+    k.includes("auth") ||
+    k.includes("cookie") ||
     k.includes("secret") ||
     k.includes("token") ||
     k.includes("password") ||
