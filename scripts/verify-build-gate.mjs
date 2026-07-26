@@ -33,7 +33,10 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const repoRoot = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "..",
+);
 const webDir = path.join(repoRoot, "clients/web");
 // Hardcoded browser entry. If it's ever renamed, the guarded read below fails
 // with an actionable message rather than a raw ENOENT stack.
