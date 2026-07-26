@@ -380,6 +380,18 @@ describe("defaultAllowedOrigins", () => {
     ]);
   });
 
+  it("handles an empty host (canonicalUrlHost's non-URL fallback) as the wildcard", () => {
+    // `new URL("http://")` throws, so canonicalUrlHost falls back to "" — which
+    // isAllInterfacesHost treats as the wildcard. No `http://:PORT` garbage.
+    expect(defaultAllowedOrigins("", 8123)).toEqual([
+      "http://localhost:8123",
+      "http://127.0.0.1:8123",
+      "http://[::1]:8123",
+      "http://0.0.0.0:8123",
+      "http://[::]:8123",
+    ]);
+  });
+
   // Any wildcard spelling yields the loopback trio + the CANONICAL wildcard pair
   // (0.0.0.0 / [::]) — not the typed spelling, which the browser canonicalizes
   // away (HOST=0 / 0x0 / 0.0.0 all send http://0.0.0.0:PORT; ::0 sends [::]).

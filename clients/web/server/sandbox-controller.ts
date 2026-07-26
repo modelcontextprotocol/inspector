@@ -72,20 +72,29 @@ export interface SandboxController {
 }
 
 /**
+ * A usable listen port from a raw env value, or `undefined` if it isn't a plain
+ * integer in `0`–`65535` (0 = OS-assigned). The `^\d+$` test rejects `parseInt`
+ * partial parses (`6274abc`) and the upper bound keeps an out-of-range value
+ * (`70000`) from reaching `server.listen`, which throws `ERR_SOCKET_BAD_PORT`
+ * synchronously — matching the strict `CLIENT_PORT` validation.
+ */
+function parseListenPort(raw: string | undefined): number | undefined {
+  const v = raw?.trim();
+  if (!v || !/^\d+$/.test(v)) return undefined;
+  const n = parseInt(v, 10);
+  return n <= 65535 ? n : undefined;
+}
+
+/**
  * Resolve sandbox port from env: MCP_SANDBOX_PORT → SERVER_PORT → 0 (dynamic).
+ * An invalid value in either falls through rather than crashing the boot.
  */
 export function resolveSandboxPort(): number {
-  const fromSandbox = process.env.MCP_SANDBOX_PORT;
-  if (fromSandbox !== undefined && fromSandbox !== "") {
-    const n = parseInt(fromSandbox, 10);
-    if (!Number.isNaN(n) && n >= 0) return n;
-  }
-  const fromServer = process.env.SERVER_PORT;
-  if (fromServer !== undefined && fromServer !== "") {
-    const n = parseInt(fromServer, 10);
-    if (!Number.isNaN(n) && n >= 0) return n;
-  }
-  return 0;
+  return (
+    parseListenPort(process.env.MCP_SANDBOX_PORT) ??
+    parseListenPort(process.env.SERVER_PORT) ??
+    0
+  );
 }
 
 export function createSandboxController(

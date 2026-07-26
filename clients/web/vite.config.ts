@@ -175,7 +175,9 @@ export default defineConfig(({ command }) => {
       port:
         devConfig?.port ??
         parseInt(process.env.CLIENT_PORT?.trim() || "6274", 10),
-      host: devConfig?.hostname ?? process.env.HOST ?? "localhost",
+      // `|| "localhost"` (empty ⇒ unset) like the port above — an ambient
+      // HOST="" is Node's all-interfaces address, the one value this guards.
+      host: devConfig?.hostname ?? (process.env.HOST?.trim() || "localhost"),
       strictPort: true,
       fs: {
         allow: [path.resolve(dirname, "../..")],

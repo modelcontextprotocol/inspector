@@ -217,37 +217,9 @@ export interface BuildWebServerConfigOptions {
 const LOOPBACK_HOSTNAMES = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
 
 /**
- * The default allowed-origins list for a given bind host/port.
- *
- * When the bind host is loopback, `localhost`, `127.0.0.1`, and `[::1]` are
- * interchangeable ways to reach the same server, so the origin the browser
- * actually sends is nondeterministic (it depends on how `localhost` resolved
- * and which family got bound). Returning all three loopback origin forms keeps
- * the DNS-rebinding guard effective — still scoped to loopback at this exact
- * port — while not 403-ing a browser that landed on `[::1]` instead of the
- * `localhost` the banner advertised.
- *
- * An **all-interfaces** bind (`0.0.0.0` / `::`, the opt-in path the Docker image
- * uses) also serves loopback, so it gets the loopback trio *plus the canonical
- * wildcard origins* `http://0.0.0.0:PORT` and `http://[::]:PORT`. Both are
- * locally connectable, the image/docs describe binding to `0.0.0.0:6274`, and a
- * dual-stack `::` bind serves IPv4 too — so a browser may send either. We emit
- * the **canonical** pair rather than the typed `HOST` spelling because browsers
- * canonicalize the address before building the `Origin` (`HOST=0` / `0x0` /
- * `0.0.0` all send `http://0.0.0.0:PORT`, `::0` sends `http://[::]:PORT`), so
- * echoing the raw spelling would emit an entry the browser can never match.
- * Including these weakens nothing (no attacker document can claim a loopback /
- * `0.0.0.0` origin without the user having navigated there). Reaching the server
- * at a non-loopback address — a LAN IP, a public hostname — still needs
- * `ALLOWED_ORIGINS`, since those origins can't be enumerated from the wildcard.
- *
- * For a specific non-loopback host (a real IP/hostname) we return the single
- * exact origin — lowercased and, for an IPv6 literal, bracketed, so it matches
- * the `Origin` header the browser actually sends.
- *
- * The port is omitted when it's the http scheme default (80): browsers drop the
- * default port from `Origin`, and the guard is an exact string match, so
- * `http://host:80` could never match a real request.
+ * Build an http origin string. The port is omitted when it's the http scheme
+ * default (80): browsers drop the default port from `Origin`, and the guard is
+ * an exact string match, so `http://host:80` could never match a real request.
  */
 function httpOrigin(host: string, port: number): string {
   return port === 80 ? `http://${host}` : `http://${host}:${port}`;
@@ -281,6 +253,37 @@ function canonicalUrlHost(host: string): string {
   }
 }
 
+/**
+ * The default allowed-origins list for a given bind host/port.
+ *
+ * When the bind host is loopback, `localhost`, `127.0.0.1`, and `[::1]` are
+ * interchangeable ways to reach the same server, so the origin the browser
+ * actually sends is nondeterministic (it depends on how `localhost` resolved
+ * and which family got bound). Returning all three loopback origin forms keeps
+ * the DNS-rebinding guard effective — still scoped to loopback at this exact
+ * port — while not 403-ing a browser that landed on `[::1]` instead of the
+ * `localhost` the banner advertised. The host is canonicalized first
+ * ({@link canonicalUrlHost}), so a non-canonical spelling of a loopback address
+ * still lands in the loopback branch.
+ *
+ * An **all-interfaces** bind (`0.0.0.0` / `::`, the opt-in path the Docker image
+ * uses) also serves loopback, so it gets the loopback trio *plus the canonical
+ * wildcard origins* `http://0.0.0.0:PORT` and `http://[::]:PORT`. Both are
+ * locally connectable, the image/docs describe binding to `0.0.0.0:6274`, and a
+ * dual-stack `::` bind serves IPv4 too — so a browser may send either. We emit
+ * the **canonical** pair rather than the typed `HOST` spelling because browsers
+ * canonicalize the address before building the `Origin` (`HOST=0` / `0x0` /
+ * `0.0.0` all send `http://0.0.0.0:PORT`, `::0` sends `http://[::]:PORT`), so
+ * echoing the raw spelling would emit an entry the browser can never match.
+ * Including these weakens nothing (no attacker document can claim a loopback /
+ * `0.0.0.0` origin without the user having navigated there). Reaching the server
+ * at a non-loopback address — a LAN IP, a public hostname — still needs
+ * `ALLOWED_ORIGINS`, since those origins can't be enumerated from the wildcard.
+ *
+ * For a specific non-loopback host (a real IP/hostname) we return the single
+ * exact origin — canonicalized and, for an IPv6 literal, bracketed, so it
+ * matches the `Origin` header the browser actually sends.
+ */
 export function defaultAllowedOrigins(
   hostname: string,
   port: number,
@@ -368,10 +371,12 @@ export function buildWebServerConfig(
         const { origin } = new URL(o);
         // A scheme-less entry (`localhost:6274`) doesn't throw — `new URL` reads
         // the host as the scheme and `.origin` is the literal string "null"
-        // (also `file:`, `about:`, `javascript:`, `data:`). Reject it: it's not
-        // the origin the user meant, AND "null" is a real header value browsers
-        // send from opaque origins (a sandboxed iframe, a `data:` doc), so
-        // allow-listing it would erode the guard. Entries must carry a scheme.
+        // (also non-special schemes: `file:`, `about:`, `javascript:`, `data:`,
+        // and browser-extension schemes like `chrome-extension:`). Reject it:
+        // it's not the origin the user meant, AND "null" is a real header value
+        // browsers send from opaque origins (a sandboxed iframe, a `data:` doc),
+        // so allow-listing it would erode the guard. Only http(s)/ws(s) origins
+        // are supported (the app is served over http(s)); entries need a scheme.
         if (origin === "null") throw new Error("opaque origin");
         // A wildcard (`http://*.example.com`) survives `new URL` but can never
         // match the exact-compare origin guard — yet `*.example.com` IS a legal

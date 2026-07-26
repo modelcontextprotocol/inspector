@@ -111,6 +111,17 @@ describe("resolveSandboxPort", () => {
     process.env.MCP_SANDBOX_PORT = "-1";
     expect(resolveSandboxPort()).toBe(0);
   });
+
+  it("rejects a partial-parse value (6274abc) rather than binding 6274", () => {
+    process.env.MCP_SANDBOX_PORT = "6274abc";
+    process.env.SERVER_PORT = "9100";
+    expect(resolveSandboxPort()).toBe(9100);
+  });
+
+  it("rejects an out-of-range value (70000) so it can't crash listen", () => {
+    process.env.MCP_SANDBOX_PORT = "70000";
+    expect(resolveSandboxPort()).toBe(0);
+  });
 });
 
 describe("createSandboxController", () => {
