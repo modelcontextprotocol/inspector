@@ -112,7 +112,14 @@ describe("buildWebServerConfigFromEnv", () => {
     process.env.DANGEROUSLY_BIND_ALL_INTERFACES = "true";
     const cfg = buildWebServerConfigFromEnv();
     expect(cfg.hostname).toBe("0.0.0.0");
-    expect(cfg.allowedOrigins).toEqual(["http://0.0.0.0:8123"]);
+    // A wildcard bind serves loopback, so the default allow-list is the
+    // loopback trio (what a `docker run -p` browser actually sends), not the
+    // unmatchable http://0.0.0.0:PORT.
+    expect(cfg.allowedOrigins).toEqual([
+      "http://localhost:8123",
+      "http://127.0.0.1:8123",
+      "http://[::1]:8123",
+    ]);
   });
 
   it("expands a loopback HOST into all equivalent loopback origins", () => {
@@ -246,14 +253,24 @@ describe("defaultAllowedOrigins", () => {
     },
   );
 
-  it("returns a single exact origin for a non-loopback host", () => {
-    expect(defaultAllowedOrigins("0.0.0.0", 8123)).toEqual([
-      "http://0.0.0.0:8123",
-    ]);
+  it("returns a single exact origin for a specific non-loopback host", () => {
     expect(defaultAllowedOrigins("192.168.1.50", 6274)).toEqual([
       "http://192.168.1.50:6274",
     ]);
   });
+
+  it.each(["0.0.0.0", "::", "::0"])(
+    "returns the loopback trio for the all-interfaces host %j",
+    (host) => {
+      // A wildcard bind serves loopback; the wildcard address itself is never
+      // sent as an Origin, so http://<wildcard>:PORT would be dead weight.
+      expect(defaultAllowedOrigins(host, 8123)).toEqual([
+        "http://localhost:8123",
+        "http://127.0.0.1:8123",
+        "http://[::1]:8123",
+      ]);
+    },
+  );
 
   it("lowercases a non-loopback hostname to match the browser's Origin", () => {
     expect(defaultAllowedOrigins("Example.COM", 6274)).toEqual([

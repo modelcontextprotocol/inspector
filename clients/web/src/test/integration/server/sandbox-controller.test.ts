@@ -21,29 +21,33 @@ describe("sandboxFrameAncestors", () => {
   it.each([[undefined], [[]]])(
     "falls back to the loopback family when the list is %j",
     (origins) => {
+      // No `[::1]` source — a bracketed IPv6 literal is not a valid CSP
+      // host-source (see sandbox-controller.ts).
       expect(sandboxFrameAncestors(origins as string[] | undefined)).toBe(
-        "frame-ancestors http://127.0.0.1:* http://localhost:* http://[::1]:*",
+        "frame-ancestors http://127.0.0.1:* http://localhost:*",
       );
     },
   );
 
-  it("drops malformed entries that could inject CSP directives or crash writeHead", () => {
+  it("drops malformed and IPv6-literal entries that can't be valid CSP sources", () => {
     // A newline would make writeHead throw ERR_INVALID_CHAR; a ';' would inject
-    // extra directives. Only the well-formed origin survives.
+    // extra directives; a bracketed IPv6 literal isn't a valid CSP host-source.
+    // Only the well-formed origin survives.
     expect(
       sandboxFrameAncestors([
         "http://good.example:6274",
         "http://a:1; sandbox",
         "http://b:2\nX-Evil: 1",
+        "http://[::1]:6274",
         "not a url",
       ]),
     ).toBe("frame-ancestors http://good.example:6274");
   });
 
-  it("falls back to loopback when every entry is malformed", () => {
-    expect(sandboxFrameAncestors(["http://a:1; sandbox", "garbage"])).toBe(
-      "frame-ancestors http://127.0.0.1:* http://localhost:* http://[::1]:*",
-    );
+  it("falls back to loopback when every entry is malformed or IPv6-literal", () => {
+    expect(
+      sandboxFrameAncestors(["http://a:1; sandbox", "http://[::1]:6274"]),
+    ).toBe("frame-ancestors http://127.0.0.1:* http://localhost:*");
   });
 });
 
@@ -127,11 +131,11 @@ describe("createSandboxController", () => {
       // container, so any default-src/connect-src here would intersect with and
       // override the per-app CSP baked into the inner document.
       const csp = res.headers.get("content-security-policy") ?? "";
-      // Assert the full directive (not a prefix) so the loopback family is
-      // regression-guarded — including the IPv6 loopback embedder, which is
-      // exactly the case a prefix match would let silently regress.
+      // Assert the full directive (not a prefix) so the fallback is
+      // regression-guarded. No `[::1]` — a bracketed IPv6 literal is not a
+      // valid CSP host-source.
       expect(csp).toContain(
-        "frame-ancestors http://127.0.0.1:* http://localhost:* http://[::1]:*",
+        "frame-ancestors http://127.0.0.1:* http://localhost:*",
       );
       expect(csp).not.toContain("default-src");
       expect(csp).not.toContain("connect-src");
@@ -139,6 +143,29 @@ describe("createSandboxController", () => {
       // Either the real proxy file (sandbox-resource-ready) or the fallback
       // "Sandbox not loaded" string, depending on whether static/ resolves.
       expect(body.length).toBeGreaterThan(0);
+    } finally {
+      await controller.close();
+    }
+  });
+
+  it("serves a CSP derived from allowedOrigins (the shipped default path)", async () => {
+    // Both real callers always pass allowedOrigins, so the header the product
+    // actually serves is the derived exact-origin directive, not the fallback.
+    const controller = createSandboxController({
+      port: 0,
+      allowedOrigins: [
+        "http://localhost:6274",
+        "http://127.0.0.1:6274",
+        "http://[::1]:6274", // dropped — not a valid CSP host-source
+      ],
+    });
+    try {
+      const { url } = await controller.start();
+      const res = await fetch(url);
+      const csp = res.headers.get("content-security-policy") ?? "";
+      expect(csp).toBe(
+        "frame-ancestors http://localhost:6274 http://127.0.0.1:6274",
+      );
     } finally {
       await controller.close();
     }

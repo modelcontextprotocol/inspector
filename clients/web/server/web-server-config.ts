@@ -16,7 +16,10 @@ import {
 import type { InitialConfigPayload } from "../../../core/mcp/remote/node/server.ts";
 import { readInspectorVersionSafe } from "../../../core/node/version.ts";
 import { resolveSandboxPort } from "./sandbox-controller.js";
-import { resolveBindHostname } from "./resolve-bind-host.js";
+import {
+  isAllInterfacesHost,
+  resolveBindHostname,
+} from "./resolve-bind-host.js";
 import { formatHostForUrl } from "../../../core/node/hostUrl.ts";
 
 // The single-source Inspector version (root package.json), read once at load.
@@ -217,10 +220,20 @@ const LOOPBACK_HOSTNAMES = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
  * and which family got bound). Returning all three loopback origin forms keeps
  * the DNS-rebinding guard effective — still scoped to loopback at this exact
  * port — while not 403-ing a browser that landed on `[::1]` instead of the
- * `localhost` the banner advertised. For a non-loopback host (e.g. `0.0.0.0` or
- * a real hostname) we return the single exact origin — lowercased and, for an
- * IPv6 literal, bracketed, so it matches the `Origin` header the browser
- * actually sends (browsers lowercase the host and bracket IPv6).
+ * `localhost` the banner advertised.
+ *
+ * An **all-interfaces** bind (`0.0.0.0` / `::`, the opt-in path the Docker image
+ * uses) also serves loopback, so it gets the same loopback trio: a browser
+ * reaching the container via `docker run -p 6274:6274` navigates to
+ * `http://localhost:6274` and sends that as its `Origin`. The bind host itself
+ * (`0.0.0.0`) is never sent as an `Origin`, so a `http://0.0.0.0:PORT` entry
+ * would only ever be dead weight. (Reaching the server at a non-loopback
+ * address — a LAN IP, a public hostname — still needs `ALLOWED_ORIGINS`, since
+ * those origins can't be enumerated from the wildcard.)
+ *
+ * For a specific non-loopback host (a real IP/hostname) we return the single
+ * exact origin — lowercased and, for an IPv6 literal, bracketed, so it matches
+ * the `Origin` header the browser actually sends.
  *
  * The port is omitted when it's the http scheme default (80): browsers drop the
  * default port from `Origin`, and the guard is an exact string match, so
@@ -234,14 +247,15 @@ export function defaultAllowedOrigins(
   hostname: string,
   port: number,
 ): string[] {
-  if (LOOPBACK_HOSTNAMES.has(hostname.toLowerCase())) {
+  const h = hostname.toLowerCase();
+  if (LOOPBACK_HOSTNAMES.has(h) || isAllInterfacesHost(hostname)) {
     return [
       httpOrigin("localhost", port),
       httpOrigin("127.0.0.1", port),
       httpOrigin("[::1]", port),
     ];
   }
-  return [httpOrigin(formatHostForUrl(hostname.toLowerCase()), port)];
+  return [httpOrigin(formatHostForUrl(h), port)];
 }
 
 /**

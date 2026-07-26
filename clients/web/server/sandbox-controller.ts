@@ -25,21 +25,27 @@ export interface SandboxControllerOptions {
   allowedOrigins?: string[];
 }
 
-const LOOPBACK_FRAME_ANCESTORS = [
-  "http://127.0.0.1:*",
-  "http://localhost:*",
-  "http://[::1]:*",
-];
+// Loopback fallback. NB: no `http://[::1]:*` — a **bracketed IPv6 literal is not
+// a valid CSP `host-source`** (the CSP3 `host-char` grammar is ALPHA/DIGIT/"-"
+// only). Chromium rejects `http://[::1]:*` and, if it's the sole source, the
+// directive degrades to `frame-ancestors 'none'` and blocks the frame — verified
+// empirically. So MCP Apps requires browsing the app at a name or IPv4
+// (`localhost` / `127.0.0.1`), which these two cover; a bare `[::1]` embedder
+// can't be admitted by any frame-ancestors source and is unsupported for Apps.
+const LOOPBACK_FRAME_ANCESTORS = ["http://127.0.0.1:*", "http://localhost:*"];
 
 /**
- * A well-formed CSP host-source: `scheme://host[:port]` with no whitespace or
- * CSP metacharacters. `allowedOrigins` is user-controlled (the `ALLOWED_ORIGINS`
- * env var), and its values are interpolated into the `Content-Security-Policy`
- * response header — so a newline would make `writeHead` throw `ERR_INVALID_CHAR`
- * (killing the sandbox page) and a `;` would inject extra CSP directives. Only
- * values matching this shape are allowed through {@link sandboxFrameAncestors}.
+ * A well-formed CSP host-source: `scheme://host[:port]` with no whitespace, CSP
+ * metacharacters, or brackets. `allowedOrigins` is user-controlled (the
+ * `ALLOWED_ORIGINS` env var) and its values are interpolated into the
+ * `Content-Security-Policy` response header — so a newline would make
+ * `writeHead` throw `ERR_INVALID_CHAR` (killing the sandbox page) and a `;`
+ * would inject extra CSP directives. Brackets are excluded too: a bracketed IPv6
+ * literal (`http://[::1]:PORT`) is not a valid CSP host-source, so emitting it
+ * is at best dead weight and — as the only source — would block the frame.
+ * Only values matching this shape survive into {@link sandboxFrameAncestors}.
  */
-const CSP_HOST_SOURCE = /^[a-z][a-z0-9+.-]*:\/\/[^\s;,'"]+$/i;
+const CSP_HOST_SOURCE = /^[a-z][a-z0-9+.-]*:\/\/[^\s;,'"[\]]+$/i;
 
 /**
  * The proxy's `frame-ancestors` sources. The embedder is the inspector app
