@@ -55,6 +55,15 @@ Components live under `src/components/` in four layers, smallest to largest:
 
 Every screen and element has a `*.stories.tsx` (see [Storybook](#storybook)). Styling follows the Mantine-first rules in [`AGENTS.md`](../../AGENTS.md) — theme variants and component props over CSS, `--inspector-*` tokens over raw colors.
 
+## Non-component code: `src/lib` vs `src/utils`
+
+Two grab-bag directories, split by one rule: **`utils` = functions that compute; `lib` = things that instantiate, adapt, or touch the environment.** If it does I/O or wraps a subsystem, it's `lib`; if it's a pure transform, it's `utils`.
+
+- **`src/utils/`** — pure, side-effect-free functions (no DOM/`window`/`sessionStorage` I/O, no subsystem ownership), trivially unit-testable with no mocks. A type-only import from `@inspector/core` doesn't count as a subsystem dependency. Examples: `jsonUtils`, `schemaUtils`, `toolUtils`, `maskSecrets`, `deepLink`, `sandbox-csp`.
+- **`src/lib/`** — infrastructure / stateful adapters: modules that compose subsystems, wrap the `@inspector/core` **runtime**, or produce side effects. Examples: `environmentFactory`, `remoteOAuthStorage`, `oauthResume` (sessionStorage), `browserTabVisibility` (DOM listeners), `clearServerOAuthState`, `downloadFile`.
+
+Nothing keys off the boundary — it's a human-legible import-time signal. See [`AGENTS.md`](../../AGENTS.md) for the full rule.
+
 ## MCP Apps screen automation contract
 
 The Apps screen exposes a small, stable set of `data-testid` / `data-*` attributes so an automated driver (deep-link auto-open, CI review harness) can `waitForSelector` on a deterministic signal instead of sleeping. Treat these as a public contract — drivers depend on them staying stable:

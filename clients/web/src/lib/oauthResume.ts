@@ -26,14 +26,14 @@ import {
   INSPECTOR_SERVERS_TAB,
   type InspectorTabId,
   isInspectorTabId,
-} from "./inspectorTabs.js";
+} from "../utils/inspectorTabs.js";
 import type { AuthChallenge } from "@inspector/core/auth/challenge.js";
 import {
   oauthResumeSuccessMessage,
   stepUpInsufficientScopeMessage,
   type OAuthRecoverySource,
 } from "@inspector/core/auth/oauthUx.js";
-import { OAUTH_PENDING_SERVER_KEY } from "./oauthFlow.js";
+import { OAUTH_PENDING_SERVER_KEY } from "../utils/oauthFlow.js";
 
 export const OAUTH_RESUME_KEY = "mcp-inspector:oauth-resume";
 

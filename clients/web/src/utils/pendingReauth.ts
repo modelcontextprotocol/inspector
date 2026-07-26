@@ -1,6 +1,6 @@
 import type { AuthChallenge } from "@inspector/core/auth/challenge.js";
 import type { OAuthRecoverySource } from "@inspector/core/auth/oauthUx.js";
-import type { OAuthResumeAuthKind } from "./oauthResume.js";
+import type { OAuthResumeAuthKind } from "../lib/oauthResume.js";
 
 /** Origin of a deferred or resumed auth recovery flow (matches web `StepUpSource`). */
 export type PendingReauthSource = OAuthRecoverySource;

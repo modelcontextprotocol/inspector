@@ -556,7 +556,7 @@ import {
   readOAuthResumeSnapshot,
   writeOAuthResumeSnapshot,
   type OAuthResumeSnapshot,
-} from "./utils/oauthResume.js";
+} from "./lib/oauthResume.js";
 import * as McpIndex from "@inspector/core/mcp/index.js";
 import * as FetchLogModule from "@inspector/core/mcp/state/fetchRequestLogState.js";
 import { useManagedRequestorTasks } from "@inspector/core/react/useManagedRequestorTasks.js";
