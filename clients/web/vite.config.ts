@@ -291,18 +291,17 @@ export default defineConfig(({ command }) => {
             exclude: [integrationGlob],
             setupFiles: [path.join(dirname, "src/test/setup.ts")],
             // Run after-hooks LIFO (reverse registration) instead of Vitest's
-            // default "parallel". Defense-in-depth for the real-transitions
-            // auto-settle in `src/test/renderWithMantine.tsx`: its `afterEach`
-            // must run *before* `setup.ts`'s setupFile `cleanup()` so it drains
-            // an in-flight Mantine transition against the still-mounted tree
-            // (avoiding the #1760 post-teardown `window is not defined` leak,
-            // #1786). That ordering already holds in *every* `sequence.hooks`
-            // mode here — setupFile hooks are outer, so they run after this
-            // import-registered inner hook (verified across stack/list/parallel)
-            // — and the settle self-checks `container.isConnected` and throws if
-            // it's ever broken. Pinning "stack" makes the intended LIFO ordering
-            // explicit and guards a future Vitest default change up front rather
-            // than relying on that runtime check to catch it.
+            // default "parallel". This is defense-in-depth, NOT load-bearing:
+            // the real-transitions auto-settle in `src/test/renderWithMantine.tsx`
+            // needs its `afterEach` to complete before `setup.ts`'s setupFile
+            // `cleanup()` unmounts the tree (avoiding the #1760 post-teardown
+            // `window is not defined` leak, #1786), and that already holds in
+            // *every* `sequence.hooks` mode because `cleanup()` is a setupFile
+            // (outer) hook, which Vitest runs after inner afterEach hooks
+            // regardless of this setting (verified across stack/list/parallel).
+            // Pinning "stack" just makes the conventional LIFO ordering explicit;
+            // the settle's own before/after `container.isConnected` self-checks
+            // are the real guard against a future regression.
             sequence: { hooks: "stack" },
           },
         },

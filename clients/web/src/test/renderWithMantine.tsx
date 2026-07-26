@@ -1,7 +1,7 @@
 import type { ReactElement, ReactNode } from "react";
 import { act, render, type RenderOptions } from "@testing-library/react";
 import { MantineProvider, type MantineColorScheme } from "@mantine/core";
-import { afterEach, vi } from "vitest";
+import { afterEach, expect, vi } from "vitest";
 import { theme } from "../theme/theme";
 
 // Options accepted by both render helpers: the standard RTL options (minus
@@ -88,8 +88,10 @@ const DEFAULT_SETTLE_MS = 500;
 // Set by `renderWithMantineTransitions`; consumed once by the `afterEach` below.
 // `armedSettleMs === null` means no real-transitions render happened this test,
 // so nothing to settle (every `renderWithMantine` / `env="test"` test skips the
-// wait entirely). `armedContainer` is the most recent such render's container,
-// used by the `afterEach` to assert it settles *before* cleanup unmounts.
+// wait entirely). `armedContainer` is the most recent such render's container.
+// Last-write-wins here (unlike the max-wins `armedSettleMs`) is fine: it's only
+// used to detect that `cleanup()` ran, and cleanup detaches *every* mounted
+// container at once — so the last one is a faithful proxy for "cleanup ran".
 let armedSettleMs: number | null = null;
 let armedContainer: HTMLElement | null = null;
 
@@ -124,15 +126,22 @@ export async function settleTransitions(ms: number = DEFAULT_SETTLE_MS) {
   });
 }
 
-// Auto-settle any armed real transition. This runs *before* `setup.ts`'s
-// setupFile `cleanup()` unmounts the tree — the ordering the fix depends on, so
-// the settling `setState` targets a still-live component. setupFile afterEach
-// hooks are outer relative to this import-registered inner hook, so this runs
-// first in every `sequence.hooks` mode (verified across stack/list/parallel);
-// the unit project additionally pins "stack" as defense-in-depth. The
-// `container.isConnected` check below is the actual enforcement — it turns a
-// broken ordering into a loud failure rather than a silently-reopened leak,
-// regardless of what guarantees it.
+// Auto-settle any armed real transition. This must run — and *complete* — before
+// `setup.ts`'s `cleanup()` unmounts the tree, so the settling `setState` targets
+// a still-live component. That holds because `cleanup()` is a setupFile hook,
+// which Vitest treats as *outer* relative to this import-registered inner hook:
+// an inner afterEach runs to completion before an outer one, in *every*
+// `sequence.hooks` mode. Verified — ViewHeader's real-transitions tests pass
+// under "stack", "list", and "parallel" with neither check below tripping, and a
+// same-suite `afterEach(cleanup)` probe (where the ordering *can* break) does
+// trip them. So `sequence.hooks` isn't actually load-bearing here; the unit
+// project still pins "stack" (conventional LIFO) as defense-in-depth.
+// Enforcement is the two `container.isConnected` checks, which guard against a
+// future regression that makes cleanup run before this settle finishes — e.g.
+// cleanup moved to a *same-level* hook: the pre-settle check catches it running
+// entirely first, the post-settle check catches it detaching the tree
+// concurrently while this hook awaits (a same-level "parallel" race the pre-check
+// can't see). Neither fires in the current outer-cleanup setup.
 afterEach(async () => {
   const ms = armedSettleMs;
   const container = armedContainer;
@@ -145,25 +154,38 @@ afterEach(async () => {
   // test exists today.
   if (vi.isFakeTimers()) {
     console.warn(
-      "renderWithMantineTransitions auto-settle skipped: the test is under " +
-        "vi.useFakeTimers(). A real-transitions test should not use fake " +
-        "timers — the #1760 leak is unprotected once the settle no-ops.",
+      `renderWithMantineTransitions auto-settle skipped for "${expect.getState().currentTestName}": ` +
+        "the test is under vi.useFakeTimers(). A real-transitions test should " +
+        "not use fake timers — the #1760 leak is unprotected once the settle " +
+        "no-ops.",
     );
     return;
   }
-  // If the tree is already detached, cleanup() ran first — the afterEach
-  // ordering this depends on broke, and the settle would drain nothing,
-  // silently reopening the #1760 leak. Fail loudly instead.
+  assertConnectedForSettle(container, "before");
+  await settleTransitions(ms);
+  // Re-assert after the await: a same-level concurrent cleanup() could unmount
+  // the tree while the settle is in flight, which the pre-check can't see.
+  assertConnectedForSettle(container, "after");
+});
+
+// Throw if the armed tree was detached at the given point relative to the
+// settle — cleanup() ran first ("before") or concurrently mid-settle ("after"),
+// meaning the settle drained nothing and the #1760 leak is reopened. Either way
+// the load-bearing afterEach ordering broke.
+function assertConnectedForSettle(
+  container: HTMLElement | null,
+  when: "before" | "after",
+) {
   if (container && !container.isConnected) {
     throw new Error(
-      "renderWithMantineTransitions auto-settle ran after cleanup() unmounted " +
-        "the tree — the afterEach ordering it depends on broke, so the settle " +
-        "drained nothing and the #1760 leak is reopened. This hook must run " +
-        "before setup.ts's cleanup (see the ordering note here and the " +
-        '`sequence.hooks: "stack"` pin in vite.config.ts).',
+      `renderWithMantineTransitions auto-settle: tree was unmounted ${when} ` +
+        "the settle — setup.ts's cleanup() ran " +
+        (when === "before" ? "entirely first" : "concurrently mid-settle") +
+        ", so the settle drained nothing and the #1760 leak is reopened. This " +
+        "hook must run and complete before cleanup (see the ordering note here " +
+        'and the `sequence.hooks: "stack"` pin in vite.config.ts).',
     );
   }
-  await settleTransitions(ms);
-});
+}
 
 export * from "@testing-library/react";
