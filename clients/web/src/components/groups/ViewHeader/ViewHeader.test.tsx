@@ -5,29 +5,19 @@ import {
   renderWithMantine,
   renderWithMantineTransitions,
   screen,
+  settleTransitions,
   waitFor,
 } from "../../../test/renderWithMantine";
-import { ViewHeader } from "./ViewHeader";
-
-// The header Transitions run for HEADER_ANIM_MS (300ms); this exceeds that plus
-// the two-frame rAF scheduling slack so a real-timer transition is guaranteed
-// to have reached its terminal ("entered"/"exited") state after the wait.
-const TRANSITION_SETTLE_MS = 500;
+import { HEADER_ANIM_MS, ViewHeader } from "./ViewHeader";
 
 // The `renderWithMantineTransitions` tests use real (env="default") Mantine
-// transitions to observe mid-flight "in"/"out" cells. A `Transition` schedules a
-// rAF→`setTimeout` chain; a straggler that fires after happy-dom tears down
-// `window` throws `ReferenceError: window is not defined` from react-dom and
-// fails the whole run even when every assertion passed (#1760). Waiting for one
-// cell to unmount doesn't settle the *sibling* enter cells (a completed enter
-// leaves no DOM signal to `waitFor`). Drain every pending timer here — while the
-// tree is still mounted, so the settling setState targets a live component —
-// before the global cleanup() unmounts (#1786).
-async function settleTransitions() {
-  await act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, TRANSITION_SETTLE_MS));
-  });
-}
+// transitions to observe mid-flight "in"/"out" cells. Waiting for one cell to
+// unmount doesn't settle the *sibling* enter cells (a completed enter leaves no
+// DOM signal to `waitFor`), so those tests call `settleTransitions(...)` to
+// flush the in-flight animation before teardown (#1786). Derive the window from
+// the component's real duration plus rAF scheduling slack, so bumping
+// HEADER_ANIM_MS can't silently make the settle insufficient.
+const TRANSITION_SETTLE_MS = HEADER_ANIM_MS + 200;
 
 // Mock @mantine/hooks so we can control useMediaQuery results per test.
 const mediaQueryMock = vi.hoisted(() => ({ value: false }));
@@ -281,7 +271,7 @@ describe("ViewHeader", () => {
 
       // The title's *enter* runs concurrently and leaves no unmount to await;
       // settle it so no timer fires post-teardown (#1786).
-      await settleTransitions();
+      await settleTransitions(TRANSITION_SETTLE_MS);
     });
 
     it("glows a tab added after the connect grace window, not during it (#1450)", () => {
@@ -377,7 +367,7 @@ describe("ViewHeader", () => {
 
       // The title's concurrent *enter* leaves no unmount to await; settle it so
       // no timer fires post-teardown (#1786).
-      await settleTransitions();
+      await settleTransitions(TRANSITION_SETTLE_MS);
     });
 
     it("renders the dark-scheme icon/logo branch under a dark color scheme", () => {
@@ -427,7 +417,7 @@ describe("ViewHeader", () => {
       // Both the title's exit and the server name's enter are still in flight
       // (the enter leaves no unmount to await); settle them so no timer fires
       // post-teardown (#1786).
-      await settleTransitions();
+      await settleTransitions(TRANSITION_SETTLE_MS);
     });
 
     it("disarms the tab glow when the connection drops after the grace window", () => {

@@ -59,7 +59,7 @@ export type ViewHeaderProps = ConnectedProps | UnconnectedProps;
 // Disconnect controls (right) all fade + slide-down, staggered by half this
 // duration. The motion itself is CSS (`.header-anim`); keep the 300ms /
 // 150ms-stagger there in sync with this value.
-const HEADER_ANIM_MS = 300;
+export const HEADER_ANIM_MS = 300;
 // Grace window after a connection is established before the new-tab glow arms
 // (#1450). Primitive lists (prompts/resources/tasks) are fetched asynchronously
 // just after the handshake, so their tabs appear a few renders into the
