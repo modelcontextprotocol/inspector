@@ -16,7 +16,8 @@ The `server/` directory holds the Node-only backend:
 - **`vite-hono-plugin.ts`** — mounts the Hono `/api/*` middleware onto the Vite dev server (so `npm run dev` has a live backend).
 - **`server.ts`** — the standalone Hono production server (serves `dist/` + `/api/*`).
 - **`run-web.ts`** / **`start-vite-dev-server.ts`** — entry points the launcher calls for prod `--web` and `--web --dev`.
-- **`web-server-config.ts`** — env parsing, the `GET /api/config` payload, the startup banner.
+- **`web-server-config.ts`** — env parsing, the `GET /api/config` payload, the startup banner, the default origin allow-list.
+- **`resolve-bind-host.ts`** — the shared bind-host guard (refuses an all-interfaces `HOST` unless `DANGEROUSLY_BIND_ALL_INTERFACES`), used by both bind points (`web-server-config.ts` + `vite.config.ts`); see [Host binding & the origin allow-list](#host-binding--the-origin-allow-list).
 - **`inject-auth-token.ts`** — embeds the API token into the served `index.html` (see [Auth token](#auth-token)).
 - **`sandbox-controller.ts`** — the MCP Apps sandbox HTTP server; **`ensure-web-build.ts`** — builds `dist/` on demand for prod `--web`; **`vite-base-config.ts`** — shared `optimizeDeps` exclusions.
 - **`browser-externalized-builtin-gate.ts`** — Vite-agnostic build-gate logic that fails `vite build` when a Node built-in reaches the browser bundle (#1769); the thin Vite plugin wiring lives in `vite.config.ts`. It sits under `server/` (rather than `src/`) as the home for Node-only, build-time tooling — it's imported by the Vite config, never by the browser — alongside the other `vite-*` config helpers here.

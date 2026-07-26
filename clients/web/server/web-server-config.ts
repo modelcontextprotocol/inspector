@@ -307,11 +307,14 @@ export function defaultAllowedOrigins(
   hostname: string,
   port: number,
 ): string[] {
+  // One normalized value drives every branch (so they can't disagree about the
+  // same host): the loopback lookup, the wildcard check, and the emitted origin
+  // all read `h`.
   const h = canonicalUrlHost(hostname);
   if (LOOPBACK_HOSTNAMES.has(h)) {
     return loopbackOrigins(port);
   }
-  if (isAllInterfacesHost(hostname)) {
+  if (isAllInterfacesHost(h)) {
     return [
       ...loopbackOrigins(port),
       httpOrigin("0.0.0.0", port),

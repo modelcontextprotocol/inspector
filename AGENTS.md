@@ -17,6 +17,9 @@ inspector/
 │   │   │                               #   sandbox-controller.ts (MCP Apps sandbox HTTP server),
 │   │   │                               #   inject-auth-token.ts (embeds the API token into served index.html),
 │   │   │                               #   vite-base-config.ts (shared optimizeDeps exclusions),
+│   │   │                               #   resolve-bind-host.ts (shared bind-host guard: refuses an
+│   │   │                               #     all-interfaces HOST unless DANGEROUSLY_BIND_ALL_INTERFACES;
+│   │   │                               #     used by both bind points — web-server-config.ts + vite.config.ts — #1795),
 │   │   │                               #   browser-externalized-builtin-gate.ts (build-gate logic that fails
 │   │   │                               #     `vite build` on a browser-externalized Node built-in — #1769)
 │   │   └── static/                     # sandbox_proxy.html (served by sandbox-controller for MCP Apps tab)
@@ -50,6 +53,11 @@ inspector/
 │   │   ├── remote/                     # Browser HTTP/SSE transport + remote logger/fetch
 │   │   │   └── node/                   # Hono-based remote server backend (used by remote/ above)
 │   │   └── state/                      # InspectorClient state stores consumed by core/react/
+│   ├── node/                           # Node-only shared helpers: version.ts (readInspectorVersion,
+│   │                                   #   walks to the root package.json), hostUrl.ts (formatHostForUrl —
+│   │                                   #   brackets IPv6 for a URL authority; used by the web origin
+│   │                                   #   allow-list/banner/sandbox URL, the CLI deep-link, and
+│   │                                   #   core/auth/node redirect URLs — #1795)
 │   ├── react/                          # React hooks over the state stores
 │   └── storage/                        # File I/O helpers (store-io.ts) used by OAuth persist backends
 ├── test-servers/                       # Composable MCP test servers + fixtures used by integration tests.

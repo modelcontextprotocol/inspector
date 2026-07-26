@@ -32,6 +32,8 @@ describe("isAllInterfacesHost", () => {
     "000.000.000.000",
     "0.0", // short inet_aton form (1–3 parts) still binds the wildcard
     "0.0.0",
+    "00000000000", // bare octal zero — parseAddressPart's [0-9]+ handles octal
+    "0x00000000", // bare hex zero
   ])("flags the all-interfaces host %j", (host) => {
     expect(isAllInterfacesHost(host)).toBe(true);
   });

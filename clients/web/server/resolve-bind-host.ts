@@ -57,9 +57,13 @@ function parseAddressPart(part: string): number {
  * True when `value` is an all-zero IPv4 address in any legacy spelling the OS
  * still binds as the `0.0.0.0` wildcard: the bare integer `0`, `0x0`, dotted
  * `0.0.0.0`, `000.000.000.000`, `0x0.0.0.0`, and the short forms `0.0` / `0.0.0`
- * (Node/`inet_aton` accept 1–4 parts). Guards the near-miss bypasses of the
- * literal set above. The `> 4` reject is intentional — 1–3 parts are valid
- * `inet_aton` spellings, so this is deliberately NOT `parts.length === 4`.
+ * (Node/`inet_aton` accept 1–4 parts; `parseAddressPart`'s `[0-9]+` branch does
+ * double duty for decimal and `0`-prefixed octal). Guards the near-miss
+ * bypasses of the literal set above. The `> 4` reject is intentional — 1–3
+ * parts are valid `inet_aton` spellings, so this is deliberately NOT
+ * `parts.length === 4`. Called from {@link isAllInterfacesHost} with any
+ * normalized host, so it may receive an IPv6 literal (`::1`) — the dot-split
+ * yields a single non-numeric part → `NaN` → `false`, which is correct.
  */
 function isAllZeroIpv4(value: string): boolean {
   const parts = value.split(".");
