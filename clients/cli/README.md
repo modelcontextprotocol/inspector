@@ -114,6 +114,8 @@ Options that specify the MCP server (catalog/config file, ad-hoc command/URL, en
 | `--relogin`                   | Ignore any stored OAuth for this run’s server URL before connect; interactive login still only runs if the server requires auth. No-op for stdio (no URL-keyed store entry). Conflicts with `--stored-auth-only` / `--use-stored-auth` / `--wait-for-auth`. |
 | `--stored-auth-only`          | Never start interactive OAuth / step-up; use the shared store if present, otherwise fail with `auth_required`. |
 
+`servers/show` redacts secret-bearing fields (`env` values, sensitive headers in `requestInit` / `eventSourceInit` / settings, `oauthClientSecret`). It does **not** scrub credentials embedded in a server `url` (userinfo or query tokens) or in stdio `args` — treat `detail` / raw URL fields as potentially sensitive before pasting into issues.
+
 #### App probing (`--app-info`) and machine-readable output (`--format json`)
 
 `--app-info` inspects a tool's [MCP App](https://modelcontextprotocol.io) UI posture **without calling the tool**, so a pipeline can decide whether to open a browser before touching one:

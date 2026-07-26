@@ -506,6 +506,7 @@ describe("cliOAuth", () => {
   });
 
   it("withCliAuthRecoveryRetry respects storedAuthOnly", async () => {
+    const checkAuthChallengeSatisfied = vi.fn().mockResolvedValue(false);
     const fn = vi.fn().mockRejectedValue(
       new AuthRecoveryRequiredError(new URL("https://as.example/authorize"), {
         reason: "token_expired",
@@ -514,7 +515,7 @@ describe("cliOAuth", () => {
     await expect(
       withCliAuthRecoveryRetry(
         {
-          checkAuthChallengeSatisfied: vi.fn(),
+          checkAuthChallengeSatisfied,
         } as never,
         new MutableRedirectUrlProvider(),
         CALLBACK_URL_CONFIG,
@@ -524,5 +525,40 @@ describe("cliOAuth", () => {
         { storedAuthOnly: true },
       ),
     ).rejects.toMatchObject({ exitCode: 3 });
+    expect(checkAuthChallengeSatisfied).toHaveBeenCalledOnce();
+  });
+
+  it("withCliAuthRecoveryRetry under storedAuthOnly retries when the store satisfies the challenge", async () => {
+    const runSpy = vi.spyOn(runnerInteractive, "runRunnerInteractiveOAuth");
+    const challenge = {
+      reason: "token_expired" as const,
+    };
+    const fn = vi
+      .fn()
+      .mockRejectedValueOnce(
+        new AuthRecoveryRequiredError(
+          new URL("https://as.example/authorize"),
+          challenge,
+        ),
+      )
+      .mockResolvedValueOnce("ok");
+    const checkAuthChallengeSatisfied = vi.fn().mockResolvedValue(true);
+
+    const result = await withCliAuthRecoveryRetry(
+      {
+        checkAuthChallengeSatisfied,
+      } as never,
+      new MutableRedirectUrlProvider(),
+      CALLBACK_URL_CONFIG,
+      undefined,
+      fn,
+      undefined,
+      { storedAuthOnly: true },
+    );
+
+    expect(result).toBe("ok");
+    expect(fn).toHaveBeenCalledTimes(2);
+    expect(checkAuthChallengeSatisfied).toHaveBeenCalledWith(challenge);
+    expect(runSpy).not.toHaveBeenCalled();
   });
 });

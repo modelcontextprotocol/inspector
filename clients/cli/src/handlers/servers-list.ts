@@ -32,6 +32,9 @@ export type SessionListRef = {
 /**
  * Mark catalog entries that have a live session with the same name.
  * Does not mutate `entries`.
+ *
+ * TODO(#1432): consumed by the experimental session CLI (`mcpi`); kept here so
+ * that client can reuse catalog listing without duplicating this helper.
  */
 export function annotateServerEntriesWithSessions(
   entries: ServerListEntry[],
@@ -144,11 +147,11 @@ export function sanitizeServerSettings(
 ): Record<string, unknown> {
   const out: Record<string, unknown> = {
     ...settings,
-    headers: settings.headers.map((h) => ({
+    headers: (settings.headers ?? []).map((h) => ({
       key: h.key,
       value: isSensitiveHeader(h.key) ? REDACTED : h.value,
     })),
-    env: settings.env.map((e) => ({
+    env: (settings.env ?? []).map((e) => ({
       key: e.key,
       value: REDACTED,
     })),

@@ -1,5 +1,12 @@
 import type { OutputFormat } from "./handlers/format-output.js";
 
+/**
+ * ANSI / OSC 8 styling helpers.
+ *
+ * TODO(#1432): the CLI OAuth path only needs {@link Style.link} today; bold /
+ * color helpers and {@link styleFromOpts} are used by the experimental session
+ * CLI (`mcpi`) human formatter.
+ */
 export type Style = {
   /** Whether ANSI styling is enabled. */
   readonly ansi: boolean;

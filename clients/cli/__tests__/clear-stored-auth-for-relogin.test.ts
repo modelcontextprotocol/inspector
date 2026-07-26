@@ -65,4 +65,48 @@ describe("clearStoredAuthForRelogin", () => {
     };
     expect(blob.servers["not a url"]).toBeUndefined();
   });
+
+  it("clears both raw and URL-normalised keys (bare origin / mixed-case host)", async () => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "cli-relogin-norm-"));
+    const file = path.join(dir, "oauth.json");
+    // Runtime storage keys by the transport's raw url string — often without a
+    // trailing slash / with mixed-case host — while new URL().href normalises.
+    fs.writeFileSync(
+      file,
+      JSON.stringify({
+        servers: {
+          "https://example.com": {
+            tokens: { access_token: "bare", token_type: "Bearer" },
+          },
+          "https://example.com/": {
+            tokens: { access_token: "slash", token_type: "Bearer" },
+          },
+          "https://Example.com/mcp": {
+            tokens: { access_token: "mixed", token_type: "Bearer" },
+          },
+        },
+        idpSessions: {},
+      }),
+      "utf8",
+    );
+    prevPath = process.env.MCP_INSPECTOR_OAUTH_STATE_PATH;
+    process.env.MCP_INSPECTOR_OAUTH_STATE_PATH = file;
+    resetNodeOAuthStorageCache();
+
+    await clearStoredAuthForRelogin("https://example.com");
+    let blob = JSON.parse(fs.readFileSync(file, "utf8")) as {
+      servers: Record<string, unknown>;
+    };
+    expect(blob.servers["https://example.com"]).toBeUndefined();
+    expect(blob.servers["https://example.com/"]).toBeUndefined();
+    expect(blob.servers["https://Example.com/mcp"]).toBeDefined();
+
+    await clearStoredAuthForRelogin("https://Example.com/mcp");
+    blob = JSON.parse(fs.readFileSync(file, "utf8")) as {
+      servers: Record<string, unknown>;
+    };
+    expect(blob.servers["https://Example.com/mcp"]).toBeUndefined();
+    // Normalised key (lowercased host) is cleared too when distinct.
+    expect(blob.servers["https://example.com/mcp"]).toBeUndefined();
+  });
 });

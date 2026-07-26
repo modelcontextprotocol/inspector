@@ -797,6 +797,30 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     headers: options.header as Record<string, string> | undefined,
   };
 
+  // Catalog list / show — no MCP connection. Run before stored-auth refresh so
+  // a catalog-only command never triggers a token round-trip it won't use.
+  if (options.method === "servers/list") {
+    const servers = await listServerEntries(serverOptions);
+    await writeFormattedResult(
+      { servers },
+      options.format === "json" ? "json" : "text",
+    );
+    return { shortCircuit: true };
+  }
+  if (options.method === "servers/show") {
+    if (!options.server?.trim()) {
+      throw new Error(
+        "servers/show requires --server <name> to select a catalog entry.",
+      );
+    }
+    const server = await showServerEntry(options.server, serverOptions);
+    await writeFormattedResult(
+      server,
+      options.format === "json" ? "json" : "text",
+    );
+    return { shortCircuit: true };
+  }
+
   if (options.waitForAuth !== undefined || options.useStoredAuth) {
     if (!options.serverUrl) {
       throw new Error(
@@ -860,29 +884,6 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
       ...(serverOptions.headers ?? {}),
       Authorization: `Bearer ${token}`,
     };
-  }
-
-  // Catalog list / show — no MCP connection.
-  if (options.method === "servers/list") {
-    const servers = await listServerEntries(serverOptions);
-    await writeFormattedResult(
-      { servers },
-      options.format === "json" ? "json" : "text",
-    );
-    return { shortCircuit: true };
-  }
-  if (options.method === "servers/show") {
-    if (!options.server?.trim()) {
-      throw new Error(
-        "servers/show requires --server <name> to select a catalog entry.",
-      );
-    }
-    const server = await showServerEntry(options.server, serverOptions);
-    await writeFormattedResult(
-      server,
-      options.format === "json" ? "json" : "text",
-    );
-    return { shortCircuit: true };
   }
 
   // Shared with the TUI: resolves the catalog/config source (or ad-hoc target),

@@ -200,6 +200,12 @@ export async function withCliAuthRecoveryRetry<T>(
     if (!(err instanceof AuthRecoveryRequiredError)) {
       throw err;
     }
+    // Match connectInspectorWithOAuth: give the shared store a chance to
+    // satisfy the challenge (already-satisfied / EMA re-mint) before bailing
+    // under --stored-auth-only or opening interactive OAuth.
+    if (await inspectorClient.checkAuthChallengeSatisfied(err.authChallenge)) {
+      return await fn();
+    }
     if (options?.storedAuthOnly) {
       storedAuthOnlyFailure(
         err.message ||
