@@ -27,7 +27,7 @@ import { dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const CLIENTS = ["web", "cli", "tui", "launcher"];
+const CLIENTS = ["web", "cli", "mcpi", "tui", "launcher"];
 
 if (process.env.INSPECTOR_SKIP_CLIENT_INSTALL) {
   console.log(
