@@ -228,14 +228,17 @@ const LOOPBACK_HOSTNAMES = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
  * `localhost` the banner advertised.
  *
  * An **all-interfaces** bind (`0.0.0.0` / `::`, the opt-in path the Docker image
- * uses) also serves loopback, so it gets the loopback trio *plus the bound-host
- * origin*: a browser reaching the container via `docker run -p 6274:6274`
- * navigates to `http://localhost:6274` (the trio), but `0.0.0.0` is itself
- * locally connectable and the startup banner prints `http://0.0.0.0:PORT`, so a
- * user who pastes that URL sends `http://0.0.0.0:6274` as its `Origin` — hence
- * that entry is included too. Including it weakens nothing (no attacker document
- * can claim that origin without the user having navigated there). Reaching the
- * server at a non-loopback address — a LAN IP, a public hostname — still needs
+ * uses) also serves loopback, so it gets the loopback trio *plus the canonical
+ * wildcard origins* `http://0.0.0.0:PORT` and `http://[::]:PORT`. Both are
+ * locally connectable, the image/docs describe binding to `0.0.0.0:6274`, and a
+ * dual-stack `::` bind serves IPv4 too — so a browser may send either. We emit
+ * the **canonical** pair rather than the typed `HOST` spelling because browsers
+ * canonicalize the address before building the `Origin` (`HOST=0` / `0x0` /
+ * `0.0.0` all send `http://0.0.0.0:PORT`, `::0` sends `http://[::]:PORT`), so
+ * echoing the raw spelling would emit an entry the browser can never match.
+ * Including these weakens nothing (no attacker document can claim a loopback /
+ * `0.0.0.0` origin without the user having navigated there). Reaching the server
+ * at a non-loopback address — a LAN IP, a public hostname — still needs
  * `ALLOWED_ORIGINS`, since those origins can't be enumerated from the wildcard.
  *
  * For a specific non-loopback host (a real IP/hostname) we return the single
@@ -250,26 +253,28 @@ function httpOrigin(host: string, port: number): string {
   return port === 80 ? `http://${host}` : `http://${host}:${port}`;
 }
 
+/** The three interchangeable loopback origin forms for a port. */
+function loopbackOrigins(port: number): string[] {
+  return [
+    httpOrigin("localhost", port),
+    httpOrigin("127.0.0.1", port),
+    httpOrigin("[::1]", port),
+  ];
+}
+
 export function defaultAllowedOrigins(
   hostname: string,
   port: number,
 ): string[] {
   const h = hostname.toLowerCase();
   if (LOOPBACK_HOSTNAMES.has(h)) {
-    return [
-      httpOrigin("localhost", port),
-      httpOrigin("127.0.0.1", port),
-      httpOrigin("[::1]", port),
-    ];
+    return loopbackOrigins(port);
   }
   if (isAllInterfacesHost(hostname)) {
-    // Loopback trio (reachable via the wildcard) + the bound-host origin the
-    // banner prints (e.g. http://0.0.0.0:PORT), which is locally connectable.
     return [
-      httpOrigin("localhost", port),
-      httpOrigin("127.0.0.1", port),
-      httpOrigin("[::1]", port),
-      httpOrigin(formatHostForUrl(h), port),
+      ...loopbackOrigins(port),
+      httpOrigin("0.0.0.0", port),
+      httpOrigin("[::]", port),
     ];
   }
   return [httpOrigin(formatHostForUrl(h), port)];

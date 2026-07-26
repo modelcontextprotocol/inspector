@@ -14,8 +14,10 @@ import { isIPv6 } from "node:net";
  */
 export function formatHostForUrl(host: string): string {
   const h = host.trim();
-  // Strip surrounding brackets and any zone id first, so the helper is total —
-  // a bracketed-with-zone input (`[fe80::1%eth0]`) still yields a valid URL host.
+  // Strip surrounding brackets and any zone id before the IPv6 check, so a
+  // bracketed-with-zone input (`[fe80::1%eth0]`) still yields a valid URL host.
+  // (A non-IPv6 value is returned as-given — this normalizes IPv6 literals, it
+  // doesn't validate arbitrary hosts.)
   const bare = h.replace(/^\[(.*)\]$/, "$1").split("%")[0];
   return isIPv6(bare) ? `[${bare}]` : h;
 }

@@ -247,7 +247,10 @@ export async function runWeb(argv: string[]): Promise<number> {
     // e.g. the bind-host guard refusing HOST=0.0.0.0 — surface the actionable
     // message rather than a raw stack trace from the launcher's top-level handler.
     const message =
-      err instanceof Error ? err.message : "Invalid web server configuration.";
+      err instanceof Error
+        ? err.message
+        : /* v8 ignore next -- buildWebServerConfig only ever throws Error instances; this fallback is a defensive guard for the impossible non-Error throw. */
+          "Invalid web server configuration.";
     console.error("Error:", message);
     process.exit(1);
   }

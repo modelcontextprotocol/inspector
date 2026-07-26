@@ -114,12 +114,13 @@ describe("buildWebServerConfigFromEnv", () => {
     expect(cfg.hostname).toBe("0.0.0.0");
     // A wildcard bind serves loopback, so the default allow-list is the
     // loopback trio (what a `docker run -p` browser actually sends) plus the
-    // bound-host origin the banner prints (http://0.0.0.0:PORT).
+    // canonical wildcard pair (0.0.0.0 / [::]).
     expect(cfg.allowedOrigins).toEqual([
       "http://localhost:8123",
       "http://127.0.0.1:8123",
       "http://[::1]:8123",
       "http://0.0.0.0:8123",
+      "http://[::]:8123",
     ]);
   });
 
@@ -275,25 +276,21 @@ describe("defaultAllowedOrigins", () => {
     ]);
   });
 
-  it("returns the loopback trio plus the bound-host origin for the 0.0.0.0 wildcard", () => {
-    // A wildcard bind serves loopback (the trio) and 0.0.0.0 is itself locally
-    // connectable — the banner prints http://0.0.0.0:PORT, so it's included too.
-    expect(defaultAllowedOrigins("0.0.0.0", 8123)).toEqual([
-      "http://localhost:8123",
-      "http://127.0.0.1:8123",
-      "http://[::1]:8123",
-      "http://0.0.0.0:8123",
-    ]);
-  });
-
-  it("brackets the bound-host origin for the :: wildcard", () => {
-    expect(defaultAllowedOrigins("::", 8123)).toEqual([
-      "http://localhost:8123",
-      "http://127.0.0.1:8123",
-      "http://[::1]:8123",
-      "http://[::]:8123",
-    ]);
-  });
+  // Any wildcard spelling yields the loopback trio + the CANONICAL wildcard pair
+  // (0.0.0.0 / [::]) — not the typed spelling, which the browser canonicalizes
+  // away (HOST=0 / 0x0 / 0.0.0 all send http://0.0.0.0:PORT; ::0 sends [::]).
+  it.each(["0.0.0.0", "::", "::0", "0", "0x0", "0.0.0"])(
+    "returns the loopback trio + canonical wildcard pair for the all-interfaces host %j",
+    (host) => {
+      expect(defaultAllowedOrigins(host, 8123)).toEqual([
+        "http://localhost:8123",
+        "http://127.0.0.1:8123",
+        "http://[::1]:8123",
+        "http://0.0.0.0:8123",
+        "http://[::]:8123",
+      ]);
+    },
+  );
 
   it("lowercases a non-loopback hostname to match the browser's Origin", () => {
     expect(defaultAllowedOrigins("Example.COM", 6274)).toEqual([

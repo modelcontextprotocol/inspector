@@ -8,6 +8,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { formatHostForUrl } from "../../../core/node/hostUrl.ts";
+import { isAllInterfacesHost } from "./resolve-bind-host.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -178,7 +179,14 @@ export function createSandboxController(
                    string form only occurs for unix-socket/pipe listens, which
                    this controller never performs. */
                 (addr as unknown as number);
-          sandboxUrl = `http://${formatHostForUrl(host)}:${actualPort}/sandbox`;
+          // Advertise `localhost` for a wildcard bind: the sandbox URL is
+          // served to the browser (via /api/config) and printed in the banner,
+          // and `http://0.0.0.0:PORT` isn't reachable from the client — but a
+          // wildcard bind serves loopback, so `localhost` is.
+          const urlHost = isAllInterfacesHost(host)
+            ? "localhost"
+            : formatHostForUrl(host);
+          sandboxUrl = `http://${urlHost}:${actualPort}/sandbox`;
           settle({ port: actualPort, url: sandboxUrl });
         });
       });

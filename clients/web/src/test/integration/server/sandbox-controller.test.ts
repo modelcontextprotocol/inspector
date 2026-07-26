@@ -131,12 +131,10 @@ describe("createSandboxController", () => {
       // container, so any default-src/connect-src here would intersect with and
       // override the per-app CSP baked into the inner document.
       const csp = res.headers.get("content-security-policy") ?? "";
-      // Assert the full directive (not a prefix) so the fallback is
-      // regression-guarded. No `[::1]` — a bracketed IPv6 literal is not a
-      // valid CSP host-source.
-      expect(csp).toContain(
-        "frame-ancestors http://127.0.0.1:* http://localhost:*",
-      );
+      // Assert the FULL directive (toBe, not toContain) so re-adding a source —
+      // e.g. the `http://[::1]:*` that F2 proved harmful — would fail the test.
+      // No `[::1]` — a bracketed IPv6 literal is not a valid CSP host-source.
+      expect(csp).toBe("frame-ancestors http://127.0.0.1:* http://localhost:*");
       expect(csp).not.toContain("default-src");
       expect(csp).not.toContain("connect-src");
       const body = await res.text();
@@ -166,6 +164,19 @@ describe("createSandboxController", () => {
       expect(csp).toBe(
         "frame-ancestors http://localhost:6274 http://127.0.0.1:6274",
       );
+    } finally {
+      await controller.close();
+    }
+  });
+
+  it("advertises localhost in the sandbox URL for a wildcard bind", async () => {
+    // 0.0.0.0 isn't reachable from the browser, but a wildcard bind serves
+    // loopback — so the URL handed to the client (and printed in the banner)
+    // uses localhost.
+    const controller = createSandboxController({ port: 0, host: "0.0.0.0" });
+    try {
+      const { url, port } = await controller.start();
+      expect(url).toBe(`http://localhost:${port}/sandbox`);
     } finally {
       await controller.close();
     }
