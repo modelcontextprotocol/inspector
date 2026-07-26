@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import {
   buildWebServerConfig,
   buildWebServerConfigFromEnv,
+  defaultAllowedOrigins,
   printServerBanner,
   webServerConfigToInitialPayload,
   type WebServerConfig,
@@ -20,6 +21,7 @@ const MUTATED_ENV_KEYS = [
   "CLIENT_PORT",
   "HOST",
   "DANGEROUSLY_OMIT_AUTH",
+  "DANGEROUSLY_BIND_ALL_INTERFACES",
   "MCP_STORAGE_DIR",
   "ALLOWED_ORIGINS",
   "MCP_SANDBOX_PORT",
@@ -75,7 +77,11 @@ describe("buildWebServerConfigFromEnv", () => {
     expect(cfg.dangerouslyOmitAuth).toBe(false);
     expect(cfg.initialMcpConfig).toBeNull();
     expect(cfg.storageDir).toBeUndefined();
-    expect(cfg.allowedOrigins).toEqual(["http://localhost:6274"]);
+    expect(cfg.allowedOrigins).toEqual([
+      "http://localhost:6274",
+      "http://127.0.0.1:6274",
+      "http://[::1]:6274",
+    ]);
     expect(cfg.sandboxPort).toBe(0);
     expect(cfg.sandboxHost).toBe("localhost");
     expect(cfg.logger).toBeUndefined();
@@ -85,13 +91,45 @@ describe("buildWebServerConfigFromEnv", () => {
     expect(cfg.autoOpen).toBe(false);
   });
 
-  it("honors CLIENT_PORT and HOST", () => {
+  it("honors CLIENT_PORT and a loopback HOST", () => {
     process.env.CLIENT_PORT = "8123";
-    process.env.HOST = "0.0.0.0";
+    process.env.HOST = "127.0.0.1";
     const cfg = buildWebServerConfigFromEnv();
     expect(cfg.port).toBe(8123);
+    expect(cfg.hostname).toBe("127.0.0.1");
+  });
+
+  it("refuses HOST=0.0.0.0 without the bind-all opt-in", () => {
+    process.env.HOST = "0.0.0.0";
+    expect(() => buildWebServerConfigFromEnv()).toThrow(
+      /DANGEROUSLY_BIND_ALL_INTERFACES/,
+    );
+  });
+
+  it("allows HOST=0.0.0.0 when the bind-all opt-in is set", () => {
+    process.env.CLIENT_PORT = "8123";
+    process.env.HOST = "0.0.0.0";
+    process.env.DANGEROUSLY_BIND_ALL_INTERFACES = "true";
+    const cfg = buildWebServerConfigFromEnv();
     expect(cfg.hostname).toBe("0.0.0.0");
     expect(cfg.allowedOrigins).toEqual(["http://0.0.0.0:8123"]);
+  });
+
+  it("expands a loopback HOST into all equivalent loopback origins", () => {
+    // `localhost` resolves to either 127.0.0.1 or ::1 depending on the OS, and
+    // Node/Vite may bind the IPv6 form — so a browser can send `Origin:
+    // http://[::1]:PORT` even though the banner advertised `localhost`. The
+    // default must accept all three so the DNS-rebinding guard doesn't 403 a
+    // legitimate loopback connect (the exact bug behind an stdio server that
+    // "should always work" failing with a 403 Invalid origin).
+    process.env.HOST = "127.0.0.1";
+    process.env.CLIENT_PORT = "6274";
+    const cfg = buildWebServerConfigFromEnv();
+    expect(cfg.allowedOrigins).toEqual([
+      "http://localhost:6274",
+      "http://127.0.0.1:6274",
+      "http://[::1]:6274",
+    ]);
   });
 
   it("clears authToken when DANGEROUSLY_OMIT_AUTH is set even if AUTH_TOKEN is present", () => {
@@ -196,6 +234,28 @@ describe("buildWebServerConfigFromEnv", () => {
   });
 });
 
+describe("defaultAllowedOrigins", () => {
+  it.each(["localhost", "127.0.0.1", "::1", "[::1]", "LOCALHOST"])(
+    "expands the loopback host %s into all three loopback origins",
+    (host) => {
+      expect(defaultAllowedOrigins(host, 6274)).toEqual([
+        "http://localhost:6274",
+        "http://127.0.0.1:6274",
+        "http://[::1]:6274",
+      ]);
+    },
+  );
+
+  it("returns a single exact origin for a non-loopback host", () => {
+    expect(defaultAllowedOrigins("0.0.0.0", 8123)).toEqual([
+      "http://0.0.0.0:8123",
+    ]);
+    expect(defaultAllowedOrigins("example.com", 80)).toEqual([
+      "http://example.com:80",
+    ]);
+  });
+});
+
 describe("buildWebServerConfig", () => {
   it("matches buildWebServerConfigFromEnv when initialMcpConfig is omitted", () => {
     process.env[API_SERVER_ENV_VARS.AUTH_TOKEN] = "shared";
@@ -239,7 +299,11 @@ describe("buildWebServerConfig", () => {
     const cfg = buildWebServerConfig({ initialMcpConfig });
     expect(cfg.port).toBe(7000);
     expect(cfg.initialMcpConfig).toEqual(initialMcpConfig);
-    expect(cfg.allowedOrigins).toEqual(["http://localhost:7000"]);
+    expect(cfg.allowedOrigins).toEqual([
+      "http://localhost:7000",
+      "http://127.0.0.1:7000",
+      "http://[::1]:7000",
+    ]);
   });
 
   it("preserves remote transport initialMcpConfig", () => {

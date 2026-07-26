@@ -13,6 +13,7 @@ import {
   getViteDevOptimizeDeps,
 } from "./server/vite-base-config";
 import { buildWebServerConfigFromEnv } from "./server/web-server-config";
+import { resolveBindHostname } from "./server/resolve-bind-host";
 import { createBrowserExternalizedBuiltinGate } from "./server/browser-externalized-builtin-gate";
 import { vitestSharedPaths } from "../../vitest.shared.mts";
 const dirname =
@@ -157,7 +158,7 @@ export default defineConfig(({ command }) => {
     // pointing at the wrong host and break browser fetches).
     server: {
       port: parseInt(process.env.CLIENT_PORT ?? "6274", 10),
-      host: process.env.HOST ?? "localhost",
+      host: resolveBindHostname(),
       strictPort: true,
       fs: {
         allow: [path.resolve(dirname, "../..")],

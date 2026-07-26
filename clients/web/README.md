@@ -159,6 +159,12 @@ Storybook is first-class here because the components are presentational — each
 
 The dev/prod backend guards every `/api/*` route with `x-mcp-remote-auth: Bearer <MCP_INSPECTOR_API_TOKEN>`. The browser recovers the token, in priority order (see `App.tsx` `getAuthToken()`): the `window.__INSPECTOR_API_TOKEN__` global injected into `index.html` on every page load (`server/inject-auth-token.ts`), then a `?MCP_INSPECTOR_API_TOKEN=…` query param, then `sessionStorage`. Injection is a no-op when auth is disabled (`DANGEROUSLY_OMIT_AUTH`). See the root [AGENTS.md](../../AGENTS.md) for the full rationale.
 
+## Host binding & the origin allow-list
+
+Both the prod backend (`server/web-server-config.ts`) and the dev Vite server (`vite.config.ts`) resolve their bind host through one shared guard, `server/resolve-bind-host.ts`. It binds `localhost` by default and **refuses an all-interfaces host** (`0.0.0.0`, `::`, or empty) — which would expose the process-spawning backend to the whole network, the exposure DNS-rebinding attacks target — unless `DANGEROUSLY_BIND_ALL_INTERFACES=true` is set. The Docker image sets that flag (a container must bind `0.0.0.0` to be reachable through `-p`); a bare `HOST=0.0.0.0` anywhere else exits with an actionable error.
+
+The backend's `/api/*` routes also enforce an **origin allow-list** (`allowedOrigins`) as DNS-rebinding protection. When left to default on a loopback host, it expands to all three interchangeable loopback origin forms for the port — `http://localhost:PORT`, `http://127.0.0.1:PORT`, and `http://[::1]:PORT` — because `localhost` resolves to either IPv4 or IPv6 loopback and Node/Vite may bind the IPv6 form, so the browser can legitimately arrive at `http://[::1]:PORT`. Set `ALLOWED_ORIGINS` (comma-separated) to override.
+
 ## HTTP proxy support
 
 The web backend connects to remote MCP servers through the shared Node transport (`core/mcp/node/transport.ts`), which honors the conventional proxy environment variables: `HTTPS_PROXY` / `HTTP_PROXY` (and their lowercase forms) select the proxy, and `NO_PROXY` exempts hosts. Routing is powered by [`undici`](https://www.npmjs.com/package/undici)'s `EnvHttpProxyAgent`, imported lazily only when a proxy variable is set, so runs without a proxy configured pay no cost. See the CLI README for more detail.

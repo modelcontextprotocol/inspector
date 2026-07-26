@@ -16,6 +16,7 @@ import {
 import type { InitialConfigPayload } from "../../../core/mcp/remote/node/server.ts";
 import { readInspectorVersionSafe } from "../../../core/node/version.ts";
 import { resolveSandboxPort } from "./sandbox-controller.js";
+import { resolveBindHostname } from "./resolve-bind-host.js";
 
 // The single-source Inspector version (root package.json), read once at load.
 // The browser can't read the filesystem the way the CLI/TUI do, so the backend
@@ -197,6 +198,40 @@ export interface BuildWebServerConfigOptions {
 }
 
 /**
+ * Loopback hostnames that all address the local machine. `localhost` resolves
+ * to *either* `127.0.0.1` (IPv4) or `::1` (IPv6) depending on the OS resolver,
+ * and Node/Vite may bind the IPv6 form — so the browser can legitimately end up
+ * at `http://[::1]:PORT` even though the banner printed `http://localhost:PORT`.
+ */
+const LOOPBACK_HOSTNAMES = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
+
+/**
+ * The default allowed-origins list for a given bind host/port.
+ *
+ * When the bind host is loopback, `localhost`, `127.0.0.1`, and `[::1]` are
+ * interchangeable ways to reach the same server, so the origin the browser
+ * actually sends is nondeterministic (it depends on how `localhost` resolved
+ * and which family got bound). Returning all three loopback origin forms keeps
+ * the DNS-rebinding guard effective — still scoped to loopback at this exact
+ * port — while not 403-ing a browser that landed on `[::1]` instead of the
+ * `localhost` the banner advertised. For a non-loopback host (e.g. `0.0.0.0` or
+ * a real hostname) we return the single exact origin, unchanged.
+ */
+export function defaultAllowedOrigins(
+  hostname: string,
+  port: number,
+): string[] {
+  if (LOOPBACK_HOSTNAMES.has(hostname.toLowerCase())) {
+    return [
+      `http://localhost:${port}`,
+      `http://127.0.0.1:${port}`,
+      `http://[::1]:${port}`,
+    ];
+  }
+  return [`http://${hostname}:${port}`];
+}
+
+/**
  * Build WebServerConfig from process.env and optional initial MCP server config.
  * Used by the launcher runner, Vite dev (`buildWebServerConfigFromEnv`), and prod standalone.
  */
@@ -210,8 +245,7 @@ export function buildWebServerConfig(
     initialServers = null,
   } = options;
   const port = parseInt(process.env.CLIENT_PORT ?? "6274", 10);
-  const hostname = process.env.HOST ?? "localhost";
-  const baseUrl = `http://${hostname}:${port}`;
+  const hostname = resolveBindHostname();
   const dangerouslyOmitAuth = !!process.env.DANGEROUSLY_OMIT_AUTH;
   const authToken = dangerouslyOmitAuth
     ? ""
@@ -243,9 +277,9 @@ export function buildWebServerConfig(
     writable,
     initialServers,
     storageDir: process.env.MCP_STORAGE_DIR,
-    allowedOrigins: process.env.ALLOWED_ORIGINS?.split(",").filter(Boolean) ?? [
-      baseUrl,
-    ],
+    allowedOrigins:
+      process.env.ALLOWED_ORIGINS?.split(",").filter(Boolean) ??
+      defaultAllowedOrigins(hostname, port),
     sandboxPort,
     sandboxHost: hostname,
     logger,

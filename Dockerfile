@@ -25,8 +25,11 @@ COPY --from=builder /build/modelcontextprotocol-inspector-*.tgz /tmp/inspector.t
 RUN npm install -g /tmp/inspector.tgz && rm /tmp/inspector.tgz
 
 # Serve on all interfaces so the UI is reachable from outside the container, and
-# never try to open a browser from inside it.
+# never try to open a browser from inside it. Binding 0.0.0.0 is refused by
+# default (it exposes the process-spawning backend to the network); a container
+# is the sanctioned exception, so opt in explicitly via DANGEROUSLY_BIND_ALL_INTERFACES.
 ENV HOST=0.0.0.0 \
+    DANGEROUSLY_BIND_ALL_INTERFACES=true \
     CLIENT_PORT=6274 \
     MCP_AUTO_OPEN_ENABLED=false
 EXPOSE 6274
