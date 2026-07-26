@@ -41,33 +41,41 @@ export type CliOAuthConnectOptions = {
    */
   autoOpenControl?: CliOAuthAutoOpenControl;
   /**
-   * Override stderr TTY detection for interactive-OAuth gating (tests).
-   * Defaults to `process.stderr.isTTY`.
+   * Override “human present” detection for interactive-OAuth gating (tests).
+   * When omitted, production uses `stdin.isTTY || stderr.isTTY` so
+   * `2>&1 | tee` still works (stdin remains a TTY).
    */
   isTTY?: boolean;
+  /** Override the step-up [y/N] confirmer (tests). */
+  confirmStepUp?: () => Promise<boolean>;
 };
 
-function storedAuthOnlyFailure(message: string): never {
+function authRequiredFailure(message: string): never {
   throw new CliExitCodeError(EXIT_CODES.AUTH_REQUIRED, message, {
     code: "auth_required",
   });
 }
 
+function storedAuthOnlyFailure(message: string): never {
+  authRequiredFailure(message);
+}
+
 /**
- * Interactive OAuth waits up to 15 minutes on the loopback callback. On a
- * non-TTY (CI / piped stderr) nobody will complete that flow unless the caller
- * explicitly opted into browser open via `MCP_AUTO_OPEN_ENABLED=true`.
+ * Interactive OAuth waits up to 15 minutes on the loopback callback. Admit the
+ * flow when a human is present (`stdin` or `stderr` is a TTY — so `2>&1 | tee`
+ * still works), or when `MCP_AUTO_OPEN_ENABLED=true` (explicit non-TTY /
+ * automation opt-in, which also force-opens a browser).
  */
 export function assertInteractiveOAuthAllowed(
   options?: Pick<CliOAuthConnectOptions, "isTTY">,
 ): void {
-  const tty =
+  const humanPresent =
     options?.isTTY !== undefined
       ? options.isTTY
-      : process.stderr.isTTY === true;
-  if (tty || isCliAutoOpenForced()) return;
-  storedAuthOnlyFailure(
-    "Interactive OAuth requires a TTY (or MCP_AUTO_OPEN_ENABLED=true). For CI/non-interactive runs use --stored-auth-only.",
+      : process.stdin.isTTY === true || process.stderr.isTTY === true;
+  if (humanPresent || isCliAutoOpenForced()) return;
+  authRequiredFailure(
+    "Interactive OAuth requires a TTY on stdin or stderr (or MCP_AUTO_OPEN_ENABLED=true). For CI/non-interactive runs use --stored-auth-only.",
   );
 }
 
@@ -149,15 +157,14 @@ export async function handleCliAuthRecoveryRequired(
   redirectUrlProvider: MutableRedirectUrlProvider,
   callbackUrlConfig: RunnerOAuthCallbackConfig,
   serverSettings?: InspectorServerSettings,
-  confirmStepUp: () => Promise<boolean> = confirmStepUpFromStdin,
-  autoOpenControl?: CliOAuthAutoOpenControl,
-  isTTY?: boolean,
+  options?: CliOAuthConnectOptions,
 ): Promise<void> {
+  const confirmStepUp = options?.confirmStepUp ?? confirmStepUpFromStdin;
   if (isStandardOAuthStepUp(error.authChallenge, serverSettings)) {
     if (await client.checkAuthChallengeSatisfied(error.authChallenge)) {
       return;
     }
-    assertInteractiveOAuthAllowed({ isTTY });
+    assertInteractiveOAuthAllowed(options);
     const proceed = await promptStepUpConfirm(
       error.authChallenge,
       confirmStepUp,
@@ -168,12 +175,12 @@ export async function handleCliAuthRecoveryRequired(
   } else if (await client.checkAuthChallengeSatisfied(error.authChallenge)) {
     return;
   } else {
-    assertInteractiveOAuthAllowed({ isTTY });
+    assertInteractiveOAuthAllowed(options);
   }
 
   await runCliInteractiveOAuth(client, redirectUrlProvider, callbackUrlConfig, {
     authorizationUrl: error.authorizationUrl,
-    autoOpenControl,
+    autoOpenControl: options?.autoOpenControl,
     ...(error.authChallenge.reason === "insufficient_scope" && {
       authChallenge: error.authChallenge,
     }),
@@ -216,9 +223,7 @@ export async function connectInspectorWithOAuth(
         redirectUrlProvider,
         callbackUrlConfig,
         serverSettings,
-        confirmStepUpFromStdin,
-        options?.autoOpenControl,
-        options?.isTTY,
+        options,
       );
       // Belt-and-braces: this branch never disconnects today, so connect() is
       // usually a no-op (already connected). Fresh tokens are picked up from
@@ -265,7 +270,6 @@ export async function withCliAuthRecoveryRetry<T>(
   callbackUrlConfig: RunnerOAuthCallbackConfig,
   serverSettings: InspectorServerSettings | undefined,
   fn: () => Promise<T>,
-  confirmStepUp: () => Promise<boolean> = confirmStepUpFromStdin,
   options?: CliOAuthConnectOptions,
 ): Promise<T> {
   try {
@@ -295,9 +299,7 @@ export async function withCliAuthRecoveryRetry<T>(
         redirectUrlProvider,
         callbackUrlConfig,
         serverSettings,
-        confirmStepUp,
-        options?.autoOpenControl,
-        options?.isTTY,
+        options,
       );
       // Belt-and-braces: this branch never disconnects today, so connect() is
       // usually a no-op (already connected). See connectInspectorWithOAuth.

@@ -174,7 +174,6 @@ async function callMethod(
       callbackUrlConfig,
       serverSettings,
       () => runMethod(inspectorClient, args),
-      undefined,
       { storedAuthOnly, autoOpenControl },
     );
 

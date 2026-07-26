@@ -152,7 +152,7 @@ The CLI runs the same loopback callback server as the TUI (`http://127.0.0.1:627
 2. Prints the authorization URL to stderr (OSC 8 hyperlink when stderr is a TTY) and **opens the default browser** when allowed. Default: open on a TTY, plain URL only when non-TTY. `MCP_AUTO_OPEN_ENABLED=false` never opens; `=true` forces open even on a non-TTY (same as the web launcher).
 3. Waits for the browser redirect, exchanges the code, and retries connect or the failed RPC
 
-Interactive OAuth (connect-time or mid-RPC) **requires a TTY**, or `MCP_AUTO_OPEN_ENABLED=true`. On a non-TTY without that env (typical CI / piped stderr), the CLI fails fast with `auth_required` instead of waiting up to 15 minutes on the loopback callback. Use **`--stored-auth-only`** for non-interactive runs that should only consume the shared store.
+Interactive OAuth (connect-time or mid-RPC) requires a TTY on **stdin or stderr** (so `2>&1 | tee` still works — stdin stays a TTY), or `MCP_AUTO_OPEN_ENABLED=true`. When neither stdin nor stderr is a TTY and that env is unset (typical CI), the CLI fails fast with `auth_required` instead of waiting up to 15 minutes on the loopback callback. Use **`--stored-auth-only`** for non-interactive runs that should only consume the shared store.
 
 **Step-up (standard OAuth):** when an RPC needs extra scopes, the CLI prompts on stderr: `Proceed with step-up authorization? [y/N]`. **y** continues; **N** exits with an error. EMA step-up re-mints silently (no prompt).
 
@@ -184,7 +184,7 @@ Register `http://127.0.0.1:6276/oauth/callback` on static or enterprise IdPs tha
 | `--client-secret <secret>`    | —                        | OAuth client secret; overrides `client.json`.                                                    |
 | `--client-metadata-url <url>` | —                        | CIMD metadata URL; overrides `client.json`.                                                      |
 | `--callback-url <url>`        | `MCP_OAUTH_CALLBACK_URL` | Redirect URI sent to the authorization server (default: `http://127.0.0.1:6276/oauth/callback`). |
-| —                             | `MCP_AUTO_OPEN_ENABLED`  | Browser auto-open for interactive OAuth: `true` (always open, including non-TTY — same as the web launcher), `false` (never), unset (open on a TTY unless `VITEST` is set). |
+| —                             | `MCP_AUTO_OPEN_ENABLED`  | Browser auto-open **and** non-TTY interactive-OAuth admit: `true` (allow interactive OAuth without a TTY **and** force-open the browser — same as the web launcher), `false` (never open), unset (open on a TTY unless `VITEST` is set). For CI that must not hang, prefer `--stored-auth-only`. |
 
 **Example** — list tools on an OAuth-protected server using stored tokens and CIMD from the command line:
 

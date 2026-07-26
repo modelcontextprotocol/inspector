@@ -175,9 +175,7 @@ describe("cliOAuth", () => {
         new MutableRedirectUrlProvider(),
         { hostname: "127.0.0.1", port: 6276, pathname: "/oauth/callback" },
         {},
-        async () => false,
-        undefined,
-        true,
+        { confirmStepUp: async () => false, isTTY: true },
       ),
     ).rejects.toThrow("Step-up authorization declined.");
 
@@ -207,9 +205,7 @@ describe("cliOAuth", () => {
       new MutableRedirectUrlProvider(),
       { hostname: "127.0.0.1", port: 6276, pathname: "/oauth/callback" },
       {},
-      async () => true,
-      undefined,
-      true,
+      { confirmStepUp: async () => true, isTTY: true },
     );
 
     expect(runSpy).toHaveBeenCalledWith(
@@ -298,8 +294,7 @@ describe("cliOAuth", () => {
       { hostname: "127.0.0.1", port: 6276, pathname: "/oauth/callback" },
       { enterpriseManaged: true },
       fn,
-      async () => true,
-      INTERACTIVE,
+      { confirmStepUp: async () => true, isTTY: true },
     );
 
     expect(result).toBe("ok");
@@ -327,17 +322,15 @@ describe("cliOAuth", () => {
         .spyOn(runnerInteractive, "runRunnerInteractiveOAuth")
         .mockResolvedValue({ kind: "success" });
 
-      // Omitting the confirmStepUp argument exercises the default
-      // confirmStepUpFromStdin, which reads from the mocked readline interface.
+      // Omitting confirmStepUp exercises the default confirmStepUpFromStdin,
+      // which reads from the mocked readline interface.
       await handleCliAuthRecoveryRequired(
         clientNeedingStepUp(),
         standardStepUpError(),
         new MutableRedirectUrlProvider(),
         CALLBACK_URL_CONFIG,
         {},
-        undefined,
-        undefined,
-        true,
+        INTERACTIVE,
       );
 
       expect(mockQuestion).toHaveBeenCalled();
@@ -357,9 +350,7 @@ describe("cliOAuth", () => {
         new MutableRedirectUrlProvider(),
         CALLBACK_URL_CONFIG,
         {},
-        undefined,
-        undefined,
-        true,
+        INTERACTIVE,
       );
 
       expect(runSpy).toHaveBeenCalled();
@@ -376,9 +367,7 @@ describe("cliOAuth", () => {
           new MutableRedirectUrlProvider(),
           CALLBACK_URL_CONFIG,
           {},
-          undefined,
-          undefined,
-          true,
+          INTERACTIVE,
         ),
       ).rejects.toThrow("Step-up authorization declined.");
 
@@ -622,7 +611,6 @@ describe("cliOAuth", () => {
         CALLBACK_URL_CONFIG,
         undefined,
         fn,
-        undefined,
         { storedAuthOnly: true },
       ),
     ).rejects.toMatchObject({ exitCode: 3 });
@@ -659,7 +647,6 @@ describe("cliOAuth", () => {
       CALLBACK_URL_CONFIG,
       undefined,
       fn,
-      undefined,
       { storedAuthOnly: true },
     );
 
@@ -707,7 +694,6 @@ describe("cliOAuth", () => {
       CALLBACK_URL_CONFIG,
       undefined,
       fn,
-      undefined,
       INTERACTIVE,
     );
 
@@ -740,7 +726,6 @@ describe("cliOAuth", () => {
         CALLBACK_URL_CONFIG,
         undefined,
         fn,
-        undefined,
         { storedAuthOnly: true },
       ),
     ).rejects.toMatchObject({ exitCode: 3 });
@@ -816,7 +801,6 @@ describe("cliOAuth", () => {
         CALLBACK_URL_CONFIG,
         undefined,
         fn,
-        undefined,
         { storedAuthOnly: true },
       ),
     ).rejects.toMatchObject({
@@ -826,10 +810,106 @@ describe("cliOAuth", () => {
     expect(runSpy).not.toHaveBeenCalled();
   });
 
-  it("assertInteractiveOAuthAllowed fails fast on a non-TTY", () => {
+  it("assertInteractiveOAuthAllowed fails fast when neither stream is a TTY", () => {
     expect(() => assertInteractiveOAuthAllowed({ isTTY: false })).toThrow(
-      /Interactive OAuth requires a TTY/,
+      /Interactive OAuth requires a TTY on stdin or stderr/,
     );
+  });
+
+  it("assertInteractiveOAuthAllowed admits when isTTY override is true (stdin||stderr path)", () => {
+    expect(() => assertInteractiveOAuthAllowed({ isTTY: true })).not.toThrow();
+  });
+
+  it("assertInteractiveOAuthAllowed admits when stdin is a TTY even if stderr is not", () => {
+    const stdinDesc = Object.getOwnPropertyDescriptor(process.stdin, "isTTY");
+    const stderrDesc = Object.getOwnPropertyDescriptor(process.stderr, "isTTY");
+    Object.defineProperty(process.stdin, "isTTY", {
+      configurable: true,
+      get: () => true,
+    });
+    Object.defineProperty(process.stderr, "isTTY", {
+      configurable: true,
+      get: () => false,
+    });
+    try {
+      expect(() => assertInteractiveOAuthAllowed()).not.toThrow();
+    } finally {
+      if (stdinDesc) Object.defineProperty(process.stdin, "isTTY", stdinDesc);
+      else delete (process.stdin as { isTTY?: boolean }).isTTY;
+      if (stderrDesc)
+        Object.defineProperty(process.stderr, "isTTY", stderrDesc);
+      else delete (process.stderr as { isTTY?: boolean }).isTTY;
+    }
+  });
+
+  it("assertInteractiveOAuthAllowed fails when both stdin and stderr are non-TTY", () => {
+    const stdinDesc = Object.getOwnPropertyDescriptor(process.stdin, "isTTY");
+    const stderrDesc = Object.getOwnPropertyDescriptor(process.stderr, "isTTY");
+    Object.defineProperty(process.stdin, "isTTY", {
+      configurable: true,
+      get: () => false,
+    });
+    Object.defineProperty(process.stderr, "isTTY", {
+      configurable: true,
+      get: () => false,
+    });
+    try {
+      expect(() => assertInteractiveOAuthAllowed()).toThrow(
+        /Interactive OAuth requires a TTY on stdin or stderr/,
+      );
+    } finally {
+      if (stdinDesc) Object.defineProperty(process.stdin, "isTTY", stdinDesc);
+      else delete (process.stdin as { isTTY?: boolean }).isTTY;
+      if (stderrDesc)
+        Object.defineProperty(process.stderr, "isTTY", stderrDesc);
+      else delete (process.stderr as { isTTY?: boolean }).isTTY;
+    }
+  });
+
+  it("runCliInteractiveOAuth is quiet on already_authorized", async () => {
+    vi.spyOn(runnerInteractive, "runRunnerInteractiveOAuth").mockResolvedValue({
+      kind: "already_authorized",
+    });
+    const stderrSpy = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+    await runCliInteractiveOAuth(
+      {
+        authenticate: vi.fn(),
+        beginInteractiveAuthorization: vi.fn(),
+        completeOAuthFlow: vi.fn(),
+        checkAuthChallengeSatisfied: vi.fn(),
+      },
+      new MutableRedirectUrlProvider(),
+      CALLBACK_URL_CONFIG,
+    );
+    expect(stderrSpy).not.toHaveBeenCalledWith("Authorization complete.\n");
+  });
+
+  it("connectInspectorWithOAuth stored-auth-only uses fallback when AuthRecovery message is empty", async () => {
+    const err = new AuthRecoveryRequiredError(
+      new URL("https://as.example/authorize"),
+      { reason: "token_expired" },
+    );
+    Object.defineProperty(err, "message", { value: "" });
+    const connect = vi.fn().mockRejectedValue(err);
+    await expect(
+      connectInspectorWithOAuth(
+        {
+          connect,
+          disconnect: vi.fn(),
+          checkAuthChallengeSatisfied: vi.fn().mockResolvedValue(false),
+        },
+        OAUTH_HTTP_CONFIG,
+        new MutableRedirectUrlProvider(),
+        CALLBACK_URL_CONFIG,
+        undefined,
+        { storedAuthOnly: true },
+      ),
+    ).rejects.toMatchObject({
+      exitCode: 3,
+      message: expect.stringMatching(/--stored-auth-only/),
+    });
   });
 
   it("withCliAuthRecoveryRetry refuses interactive OAuth on a non-TTY", async () => {
@@ -851,7 +931,6 @@ describe("cliOAuth", () => {
         CALLBACK_URL_CONFIG,
         undefined,
         fn,
-        undefined,
         { isTTY: false },
       ),
     ).rejects.toMatchObject({
@@ -889,7 +968,6 @@ describe("cliOAuth", () => {
         CALLBACK_URL_CONFIG,
         undefined,
         fn,
-        undefined,
         { isTTY: false },
       );
 

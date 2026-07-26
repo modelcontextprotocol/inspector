@@ -238,8 +238,7 @@ describe("CLI interactive OAuth (integration)", () => {
             city: "NYC",
             units: "C",
           }),
-        async () => true,
-        { isTTY: true },
+        { confirmStepUp: async () => true, isTTY: true },
       );
 
       expect(stepUpPrompted).toBe(true);
