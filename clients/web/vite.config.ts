@@ -167,9 +167,16 @@ export default defineConfig(({ command }) => {
       coverage: {
         provider: "v8",
         reporter: ["text", "html", "json-summary"],
+        // Whitelist of gated directories. NOTE: `src/App.tsx` is deliberately
+        // NOT listed — it is a ~4.5k-line composition root at ~42% branch
+        // coverage, so gating it is a dedicated testing/decomposition effort,
+        // not a whitelist tweak. Its omission is intentional and documented
+        // here (and in AGENTS.md) rather than silent. Every *other* src
+        // directory is gated; add new ones here as they appear.
         include: [
           "src/components/**/*.{ts,tsx}",
           "src/hooks/**/*.{ts,tsx}",
+          "src/theme/**/*.{ts,tsx}",
           "src/lib/**/*.{ts,tsx}",
           "src/utils/**/*.{ts,tsx}",
           "clients/web/server/**/*.{ts,tsx}",

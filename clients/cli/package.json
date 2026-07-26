@@ -28,8 +28,8 @@
     "test:cli-metadata": "vitest run metadata.test.ts",
     "pretest": "npm run test-servers:build && npm run build",
     "lint": "eslint .",
-    "format": "prettier --write src __tests__ \"*.{ts,js}\"",
-    "format:check": "prettier --check src __tests__ \"*.{ts,js}\""
+    "format": "prettier --write src __tests__ \"*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}\"",
+    "format:check": "prettier --check src __tests__ \"*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}\""
   },
   "dependencies": {
     "@modelcontextprotocol/client": "2.0.0-beta.5",
