@@ -34,12 +34,13 @@ import {
   type OAuthRecoverySource,
 } from "@inspector/core/auth/oauthUx.js";
 import { OAUTH_PENDING_SERVER_KEY } from "../utils/oauthFlow.js";
+import type { OAuthResumeAuthKind } from "../utils/pendingReauth.js";
 
 export const OAUTH_RESUME_KEY = "mcp-inspector:oauth-resume";
 
 export { OAUTH_PENDING_SERVER_KEY };
 
-export type OAuthResumeAuthKind = "step_up" | "reauth";
+export type { OAuthResumeAuthKind };
 
 export interface OAuthResumeSnapshot {
   version: 1;

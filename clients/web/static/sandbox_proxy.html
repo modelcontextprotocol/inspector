@@ -18,7 +18,7 @@
          Network/resource egress from the inner document is constrained by a
          Content-Security-Policy that the HOST builds and bakes into the
          delivered HTML before it reaches this proxy (see
-         src/lib/sandbox-csp.ts). The proxy assigns that pre-wrapped document
+         src/utils/sandbox-csp.ts). The proxy assigns that pre-wrapped document
          to `srcdoc` verbatim — it never parses or injects into the untrusted
          bytes — so the CSP `<meta>` is guaranteed to be the first `<head>`
          child of the inner document. -->
