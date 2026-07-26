@@ -7,6 +7,7 @@ import { createServer, type Server } from "node:http";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { formatHostForUrl } from "./resolve-bind-host.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -56,8 +57,13 @@ export function createSandboxController(
   // wrapped HTML (see src/utils/sandbox-csp.ts). The opaque-origin sandbox on
   // the inner frame is the structural boundary; `frame-ancestors` ensures the
   // proxy can only be embedded by the local inspector itself.
+  // Loopback embedders only. `[::1]` is included alongside the IPv4/name forms
+  // because `localhost` resolves to either family and Node/Vite may bind the
+  // IPv6 loopback — so the browser can legitimately embed the proxy from
+  // `http://[::1]:PORT` (same reasoning as `defaultAllowedOrigins`). Omitting it
+  // CSP-blocks the sandbox iframe for exactly that case.
   const SANDBOX_PROXY_CSP =
-    "frame-ancestors http://127.0.0.1:* http://localhost:*";
+    "frame-ancestors http://127.0.0.1:* http://localhost:* http://[::1]:*";
 
   let sandboxHtml: string;
   try {
@@ -132,7 +138,7 @@ export function createSandboxController(
                    string form only occurs for unix-socket/pipe listens, which
                    this controller never performs. */
                 (addr as unknown as number);
-          sandboxUrl = `http://${host}:${actualPort}/sandbox`;
+          sandboxUrl = `http://${formatHostForUrl(host)}:${actualPort}/sandbox`;
           settle({ port: actualPort, url: sandboxUrl });
         });
       });

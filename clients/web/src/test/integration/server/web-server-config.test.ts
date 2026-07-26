@@ -159,10 +159,10 @@ describe("buildWebServerConfigFromEnv", () => {
     expect(cfg.authToken).toBe("primary");
   });
 
-  it("parses ALLOWED_ORIGINS and filters empty entries", () => {
-    process.env.ALLOWED_ORIGINS = "http://a,,http://b";
+  it("parses ALLOWED_ORIGINS, trimming entries and filtering empties", () => {
+    process.env.ALLOWED_ORIGINS = "http://a:1, ,  http://b:2  ";
     const cfg = buildWebServerConfigFromEnv();
-    expect(cfg.allowedOrigins).toEqual(["http://a", "http://b"]);
+    expect(cfg.allowedOrigins).toEqual(["http://a:1", "http://b:2"]);
   });
 
   it("resolves sandboxPort from MCP_SANDBOX_PORT", () => {
@@ -250,8 +250,20 @@ describe("defaultAllowedOrigins", () => {
     expect(defaultAllowedOrigins("0.0.0.0", 8123)).toEqual([
       "http://0.0.0.0:8123",
     ]);
-    expect(defaultAllowedOrigins("example.com", 80)).toEqual([
+    expect(defaultAllowedOrigins("192.168.1.50", 6274)).toEqual([
+      "http://192.168.1.50:6274",
+    ]);
+  });
+
+  it("lowercases a non-loopback hostname to match the browser's Origin", () => {
+    expect(defaultAllowedOrigins("Example.COM", 80)).toEqual([
       "http://example.com:80",
+    ]);
+  });
+
+  it("brackets a non-loopback IPv6 literal so it's a valid origin", () => {
+    expect(defaultAllowedOrigins("fe80::1", 6274)).toEqual([
+      "http://[fe80::1]:6274",
     ]);
   });
 });
@@ -430,6 +442,13 @@ describe("printServerBanner", () => {
   it("omits the query string when no token is supplied", () => {
     const url = printServerBanner(baseConfig(), 6274, "", undefined);
     expect(url).toBe("http://localhost:6274");
+  });
+
+  it("brackets an IPv6 bind host in the printed URL", () => {
+    const cfg = baseConfig();
+    cfg.hostname = "::1";
+    const url = printServerBanner(cfg, 6274, "", undefined);
+    expect(url).toBe("http://[::1]:6274");
   });
 
   it("prints the sandbox URL when provided", () => {

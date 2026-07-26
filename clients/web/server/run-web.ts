@@ -232,12 +232,22 @@ export async function runWeb(argv: string[]): Promise<number> {
     process.exit(1);
   }
 
-  const webConfig = buildWebServerConfig({
-    initialMcpConfig,
-    mcpConfigPath,
-    writable,
-    initialServers,
-  });
+  let webConfig;
+  try {
+    webConfig = buildWebServerConfig({
+      initialMcpConfig,
+      mcpConfigPath,
+      writable,
+      initialServers,
+    });
+  } catch (err) {
+    // e.g. the bind-host guard refusing HOST=0.0.0.0 — surface the actionable
+    // message rather than a raw stack trace from the launcher's top-level handler.
+    const message =
+      err instanceof Error ? err.message : "Invalid web server configuration.";
+    console.error(`Error: ${message}`);
+    process.exit(1);
+  }
   const webRoot = join(__dirname, "..");
   const distRoot = join(webRoot, "dist");
   if (!isDev) {

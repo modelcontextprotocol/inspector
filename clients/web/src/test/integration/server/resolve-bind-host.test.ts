@@ -1,22 +1,58 @@
 import { describe, it, expect } from "vitest";
 import {
   BIND_ALL_INTERFACES_ENV,
+  formatHostForUrl,
   isAllInterfacesHost,
   resolveBindHostname,
 } from "../../../../server/resolve-bind-host.js";
 
 describe("isAllInterfacesHost", () => {
-  it.each(["0.0.0.0", "::", "", "  0.0.0.0  ", "::"])(
-    "flags the all-interfaces host %j",
-    (host) => {
-      expect(isAllInterfacesHost(host)).toBe(true);
-    },
-  );
+  it.each([
+    "0.0.0.0",
+    "::",
+    "",
+    "  0.0.0.0  ",
+    "  ::  ",
+    "[::]",
+    "0:0:0:0:0:0:0:0",
+    "::ffff:0.0.0.0",
+    "::ffff:0:0",
+    // Legacy inet_aton spellings the OS still binds as 0.0.0.0.
+    "0",
+    "0x0",
+    "0x0.0.0.0",
+    "000.000.000.000",
+  ])("flags the all-interfaces host %j", (host) => {
+    expect(isAllInterfacesHost(host)).toBe(true);
+  });
 
-  it.each(["localhost", "127.0.0.1", "::1", "[::1]", "example.com"])(
-    "does not flag the loopback/named host %j",
+  it.each([
+    "localhost",
+    "127.0.0.1",
+    "::1",
+    "[::1]",
+    "example.com",
+    "192.168.1.50",
+    "1.0.0.0",
+    "0.0.0.1",
+  ])("does not flag the loopback/specific host %j", (host) => {
+    expect(isAllInterfacesHost(host)).toBe(false);
+  });
+});
+
+describe("formatHostForUrl", () => {
+  it.each([
+    ["::1", "[::1]"],
+    ["fe80::1", "[fe80::1]"],
+    ["  ::1  ", "[::1]"],
+  ])("brackets the IPv6 literal %j", (host, expected) => {
+    expect(formatHostForUrl(host)).toBe(expected);
+  });
+
+  it.each(["localhost", "127.0.0.1", "192.168.1.50", "example.com", "[::1]"])(
+    "passes the non-IPv6 / already-bracketed host %j through",
     (host) => {
-      expect(isAllInterfacesHost(host)).toBe(false);
+      expect(formatHostForUrl(host)).toBe(host.trim());
     },
   );
 });
@@ -30,7 +66,11 @@ describe("resolveBindHostname", () => {
     expect(resolveBindHostname({ HOST: "127.0.0.1" })).toBe("127.0.0.1");
   });
 
-  it.each(["0.0.0.0", "::", ""])(
+  it("trims the returned host so detection and the bind value agree", () => {
+    expect(resolveBindHostname({ HOST: "  127.0.0.1  " })).toBe("127.0.0.1");
+  });
+
+  it.each(["0.0.0.0", "::", "", "0", "0x0.0.0.0", "::ffff:0.0.0.0", "  0  "])(
     "refuses the all-interfaces host %j without the opt-in",
     (host) => {
       expect(() => resolveBindHostname({ HOST: host })).toThrow(

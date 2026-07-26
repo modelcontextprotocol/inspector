@@ -169,9 +169,11 @@ The backend's `/api/*` routes also enforce an **origin allow-list** (`allowedOri
 
 The guard blocks only the **wildcard** all-interfaces addresses. Binding a **specific** IP or hostname is allowed with no opt-in — that's a single, deliberate exposure, unlike the wildcard which binds every interface at once (the pattern DNS-rebinding exploits). To serve the Inspector on a LAN or the internet:
 
-- **Bind a specific address.** `HOST=192.168.1.50` (a LAN IP), a public IP, or a resolvable hostname all work directly. The default origin allow-list follows the bind host, so `allowedOrigins` becomes `http://<that-host>:PORT` and a browser hitting that address is accepted with no extra config.
+- **Bind a specific address.** `HOST=192.168.1.50` (a LAN IP) or a public IP works directly: the default origin allow-list follows the bind host, so `allowedOrigins` becomes `http://<that-host>:PORT` and a browser hitting that address is accepted with no extra config.
 - **Behind TLS or a reverse proxy**, the browser's `Origin` becomes the public origin (e.g. `https://inspector.example.com`, often without a port), which won't match the auto-derived `http://<bind-host>:PORT`. Set `ALLOWED_ORIGINS` to the real public origin(s): `ALLOWED_ORIGINS=https://inspector.example.com`.
 - **Using the `0.0.0.0` wildcard** (opt-in via `DANGEROUSLY_BIND_ALL_INTERFACES=true`) you **must** also set `ALLOWED_ORIGINS`: the default becomes `http://0.0.0.0:PORT`, which no browser ever sends as its `Origin`, so connects would 403. List the origin(s) clients actually use: `ALLOWED_ORIGINS=http://192.168.1.50:PORT,https://inspector.example.com`.
+
+The bind-host guard and the `ALLOWED_ORIGINS` allow-list apply to both the prod server and `--dev`. Note that in **`--dev`** the Vite dev server _additionally_ enforces its own `server.allowedHosts` Host-header check, whose default accepts loopback and IP-literal hosts but **rejects a named hostname** unless you add it. So a bare `HOST=<hostname>` works out of the box for the prod server but needs `server.allowedHosts` configured (or a specific IP) under `--dev` — for network hosting, prefer the prod server (`mcp-inspector --web`) or bind a specific IP.
 
 In every case, exposing the Inspector beyond loopback also means anyone who can reach it can drive its backend — keep authentication on (do **not** set `DANGEROUSLY_OMIT_AUTH`) and prefer a specific bind address over the wildcard.
 

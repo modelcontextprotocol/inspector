@@ -11,18 +11,65 @@
 export const BIND_ALL_INTERFACES_ENV = "DANGEROUSLY_BIND_ALL_INTERFACES";
 
 /**
- * Hostnames that bind *every* network interface rather than just loopback:
- * `0.0.0.0` (IPv4 wildcard), `::` (IPv6 wildcard), and the empty string (Node's
- * `listen()` treats "" as the unspecified/all-interfaces address). Binding any
- * of these makes the backend — which can spawn local processes and reach MCP
- * servers on behalf of the browser — reachable from the local network, which is
- * the exact exposure DNS-rebinding attacks exploit.
+ * Exact spellings of the all-interfaces (unspecified) address. `0.0.0.0` (IPv4
+ * wildcard), `::` and its expansions (IPv6 wildcard), the IPv4-mapped wildcard,
+ * and the empty string (Node's `listen()` treats "" as the unspecified address)
+ * all bind *every* interface. {@link isAllInterfacesHost} also catches the
+ * legacy numeric spellings the OS resolver still folds to `0.0.0.0`.
  */
-const ALL_INTERFACES_HOSTS = new Set(["0.0.0.0", "::", ""]);
+const ALL_INTERFACES_LITERALS = new Set([
+  "",
+  "0.0.0.0",
+  "::",
+  "0:0:0:0:0:0:0:0",
+  "::ffff:0.0.0.0",
+  "::ffff:0:0",
+]);
+
+/**
+ * Parse one dotted-address part (or a bare address) the way the C `inet_aton`
+ * resolver does — decimal, `0`-prefixed octal, and `0x`-prefixed hex are all
+ * accepted. Returns `NaN` for anything non-numeric (e.g. a hostname label).
+ */
+function parseAddressPart(part: string): number {
+  if (/^0x[0-9a-f]+$/.test(part)) return parseInt(part, 16);
+  if (/^[0-9]+$/.test(part)) return parseInt(part, 10);
+  return NaN;
+}
+
+/**
+ * True when `value` is an all-zero IPv4 address in any legacy spelling the OS
+ * still binds as the `0.0.0.0` wildcard: the bare integer `0`, `0x0`, dotted
+ * `0.0.0.0`, `000.000.000.000`, `0x0.0.0.0`, etc. (Node/`inet_aton` accept all
+ * of these.) Guards the near-miss bypasses of the literal set above.
+ */
+function isAllZeroIpv4(value: string): boolean {
+  if (value === "") return false;
+  const parts = value.split(".");
+  if (parts.length > 4) return false;
+  return parts.every((part) => parseAddressPart(part) === 0);
+}
 
 /** True when `host` binds all interfaces rather than loopback only. */
 export function isAllInterfacesHost(host: string): boolean {
-  return ALL_INTERFACES_HOSTS.has(host.trim().toLowerCase());
+  const normalized = host
+    .trim()
+    .toLowerCase()
+    .replace(/^\[|\]$/g, "");
+  return ALL_INTERFACES_LITERALS.has(normalized) || isAllZeroIpv4(normalized);
+}
+
+/**
+ * Wrap an IPv6 literal in brackets so it's a valid URL authority
+ * (`http://[::1]:6274`), and pass every other host (loopback names, IPv4,
+ * hostnames, already-bracketed IPv6) through unchanged. Shared by the origin
+ * allow-list, the startup banner, and the sandbox URL so all three format a
+ * bound IPv6 host the same way.
+ */
+export function formatHostForUrl(host: string): string {
+  const h = host.trim();
+  if (h.startsWith("[") || !h.includes(":")) return h;
+  return `[${h}]`;
 }
 
 /**
@@ -37,15 +84,17 @@ function isEnabled(value: string | undefined): boolean {
 
 /**
  * Resolve the bind hostname from `env` (default `process.env`), defaulting to
- * `localhost`. Refuses an all-interfaces host (`0.0.0.0` / `::` / empty) unless
- * {@link BIND_ALL_INTERFACES_ENV} is explicitly enabled — the published Docker
- * image sets it, since a container must bind `0.0.0.0` to be reachable through
- * `-p`. Throws (fail fast, loudly) rather than silently binding wide open.
+ * `localhost`. Refuses an all-interfaces host (`0.0.0.0` / `::` / empty / their
+ * legacy spellings) unless {@link BIND_ALL_INTERFACES_ENV} is explicitly
+ * enabled — the published Docker image sets it, since a container must bind
+ * `0.0.0.0` to be reachable through `-p`. Throws (fail fast, loudly) rather than
+ * silently binding wide open. The returned value is trimmed so detection and
+ * the value handed to `listen()` agree.
  */
 export function resolveBindHostname(
   env: NodeJS.ProcessEnv = process.env,
 ): string {
-  const host = env.HOST ?? "localhost";
+  const host = (env.HOST ?? "localhost").trim();
   if (isAllInterfacesHost(host) && !isEnabled(env[BIND_ALL_INTERFACES_ENV])) {
     throw new Error(
       `Refusing to bind HOST="${host}": this exposes the MCP Inspector to your ` +

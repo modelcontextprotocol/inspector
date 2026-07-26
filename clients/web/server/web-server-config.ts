@@ -16,7 +16,7 @@ import {
 import type { InitialConfigPayload } from "../../../core/mcp/remote/node/server.ts";
 import { readInspectorVersionSafe } from "../../../core/node/version.ts";
 import { resolveSandboxPort } from "./sandbox-controller.js";
-import { resolveBindHostname } from "./resolve-bind-host.js";
+import { formatHostForUrl, resolveBindHostname } from "./resolve-bind-host.js";
 
 // The single-source Inspector version (root package.json), read once at load.
 // The browser can't read the filesystem the way the CLI/TUI do, so the backend
@@ -164,7 +164,7 @@ export function printServerBanner(
   resolvedToken: string,
   sandboxUrl: string | undefined,
 ): string {
-  const baseUrl = `http://${config.hostname}:${actualPort}`;
+  const baseUrl = `http://${formatHostForUrl(config.hostname)}:${actualPort}`;
   const url =
     config.dangerouslyOmitAuth || !resolvedToken
       ? baseUrl
@@ -215,7 +215,9 @@ const LOOPBACK_HOSTNAMES = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
  * the DNS-rebinding guard effective — still scoped to loopback at this exact
  * port — while not 403-ing a browser that landed on `[::1]` instead of the
  * `localhost` the banner advertised. For a non-loopback host (e.g. `0.0.0.0` or
- * a real hostname) we return the single exact origin, unchanged.
+ * a real hostname) we return the single exact origin — lowercased and, for an
+ * IPv6 literal, bracketed, so it matches the `Origin` header the browser
+ * actually sends (browsers lowercase the host and bracket IPv6).
  */
 export function defaultAllowedOrigins(
   hostname: string,
@@ -228,7 +230,7 @@ export function defaultAllowedOrigins(
       `http://[::1]:${port}`,
     ];
   }
-  return [`http://${hostname}:${port}`];
+  return [`http://${formatHostForUrl(hostname.toLowerCase())}:${port}`];
 }
 
 /**
@@ -278,8 +280,9 @@ export function buildWebServerConfig(
     initialServers,
     storageDir: process.env.MCP_STORAGE_DIR,
     allowedOrigins:
-      process.env.ALLOWED_ORIGINS?.split(",").filter(Boolean) ??
-      defaultAllowedOrigins(hostname, port),
+      process.env.ALLOWED_ORIGINS?.split(",")
+        .map((o) => o.trim())
+        .filter(Boolean) ?? defaultAllowedOrigins(hostname, port),
     sandboxPort,
     sandboxHost: hostname,
     logger,

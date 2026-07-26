@@ -158,7 +158,14 @@ export default defineConfig(({ command }) => {
     // pointing at the wrong host and break browser fetches).
     server: {
       port: parseInt(process.env.CLIENT_PORT ?? "6274", 10),
-      host: resolveBindHostname(),
+      // Only enforce the bind-host guard when actually serving. `vite build` and
+      // the vitest projects evaluate this same config but never bind, so an
+      // ambient HOST=0.0.0.0 (e.g. exported in CI) must not fail them at config
+      // load with a message about binding.
+      host:
+        command === "serve"
+          ? resolveBindHostname()
+          : (process.env.HOST ?? "localhost"),
       strictPort: true,
       fs: {
         allow: [path.resolve(dirname, "../..")],
