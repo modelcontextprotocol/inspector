@@ -13,8 +13,9 @@ function normalizeServerUrl(serverUrl: string): string {
 }
 
 /**
- * Drop stored OAuth state for an HTTP(S) server URL so the next connect cannot
- * silently reuse tokens (`--relogin`). No-op when `serverUrl` is missing.
+ * Delete stored OAuth state for an HTTP(S) server URL from the shared store
+ * (`--relogin`) so the next connect cannot silently reuse tokens. This removes
+ * the store entry (not a per-run ignore). No-op when `serverUrl` is missing.
  *
  * Clears **both** the raw URL and the `new URL().href`-normalised form. Runtime
  * OAuth storage is keyed by the transport's raw `url` string, while some writers

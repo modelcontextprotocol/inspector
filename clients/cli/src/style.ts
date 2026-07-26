@@ -65,7 +65,8 @@ export type ResolveAnsiOptions = {
 
 /**
  * Decide whether session human output should use ANSI.
- * Off when: `--plain`, `NO_COLOR` set, `--format json`, or stdout is not a TTY.
+ * Off when: `--plain`, `NO_COLOR` set, `--format json`, or the caller's stream
+ * is not a TTY (override via `isTTY`; default checks `process.stdout`).
  */
 export function resolveAnsiEnabled(opts: ResolveAnsiOptions = {}): boolean {
   if (opts.plain) return false;

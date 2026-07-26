@@ -111,8 +111,8 @@ Options that specify the MCP server (catalog/config file, ad-hoc command/URL, en
 | `--connect-timeout <ms>`      | Connection timeout in ms. Defaults to `15000` for ad-hoc `--server-url`/target runs (so a black-holed host fails fast) and to the file-level timeout for `--catalog`/`--config` runs. `0` disables the timeout. |
 | `--app-info`                  | Probe a tool's MCP App UI metadata without invoking it. With `--method tools/call --tool-name <name>`: prints one JSON line (`hasApp`, `resourceUri`, `csp`, `permissions`, `domain`, …) and exits `0` if the tool has an app or `2` (`no_app`) if not. With `--method tools/list`: emits NDJSON — one app-info line per tool over a single connection. |
 | `--format <text\|json>`       | Output format. `text` (default) pretty-prints the result. `json` emits a single JSON object on stdout (`{ "result": … }`, plus `{ "appInfo": … }` as a sibling key for App tools) with no banners, so the whole output pipes cleanly into `jq`. |
-| `--relogin`                   | Ignore any stored OAuth for this run’s server URL before connect; interactive login still only runs if the server requires auth. No-op for stdio (no URL-keyed store entry). Conflicts with `--stored-auth-only` / `--use-stored-auth` / `--wait-for-auth`. |
-| `--stored-auth-only`          | Never start interactive OAuth / step-up; use the shared store if present, otherwise fail with `auth_required`. |
+| `--relogin`                   | Delete stored OAuth for this server URL from the shared store before connect; interactive login still only runs if the server requires auth. No-op for stdio (no URL-keyed store entry). Conflicts with `--stored-auth-only` / `--use-stored-auth` / `--wait-for-auth`. |
+| `--stored-auth-only`          | Never start interactive OAuth / step-up (and never auto-open a browser); use the shared store if present, otherwise fail with `auth_required`. |
 
 `servers/show` redacts secret-bearing fields (`env` values, sensitive headers in `requestInit` / `eventSourceInit` / settings, `oauthClientSecret`). It does **not** scrub credentials embedded in a server `url` (userinfo or query tokens) or in stdio `args` — treat `detail` / raw URL fields as potentially sensitive before pasting into issues.
 
@@ -262,15 +262,15 @@ While the Web Client provides a rich visual interface, the CLI is designed for:
 Like the other clients, the CLI self-validates from its own folder:
 
 ```bash
-npm run validate       # format:check && lint && test  (fast; no coverage gate)
+npm run validate       # format:check && lint && typecheck && test  (fast; no coverage gate)
 npm test               # build test-servers + binary, then run all tests
 npm run test:coverage  # build + tests under the per-file ≥90 coverage gate
 ```
 
 The CLI's `test` / `test:coverage` **build the binary first** (out-of-process
-`e2e.test.ts` spawns it). `validate` is `format:check && lint && test` with no
-separate `build` step (`pretest` builds). Repo-root `validate:cli` delegates
-here; the coverage gate is `npm run coverage` / `coverage:cli` (also in
+`e2e.test.ts` spawns it). `validate` is `format:check && lint && typecheck && test`
+with no separate `build` step (`pretest` builds). Repo-root `validate:cli`
+delegates here; the coverage gate is `npm run coverage` / `coverage:cli` (also in
 `npm run ci`), matching AGENTS.md.
 
 Tests run the CLI **in-process** (importing `runCli()`) so `src/` is measured

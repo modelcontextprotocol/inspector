@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach } from "vitest";
 import { runCli } from "./helpers/cli-runner.js";
 import {
   createSampleTestConfig,
+  createTestConfig,
   deleteConfigFile,
 } from "./helpers/fixtures.js";
 import { expectCliSuccess } from "./helpers/assertions.js";
@@ -18,6 +19,11 @@ import type {
   MCPServerConfig,
 } from "@inspector/core/mcp/types.js";
 import { expectCliFailure } from "./helpers/assertions.js";
+import {
+  InMemorySecretStore,
+  SECRET_FIELD_OAUTH_CLIENT_SECRET,
+  envSecretField,
+} from "@inspector/core/auth/node/secret-store.js";
 
 describe("summarizeServerConfig", () => {
   it("summarises stdio, sse, and streamable-http configs", () => {
@@ -243,6 +249,50 @@ describe("showServerEntry / servers/show", () => {
       command: expect.any(String),
     });
     expect(entry.config.env).toEqual({ HELLO: "[redacted]" });
+  });
+
+  it("redacts secrets rehydrated from an injected secret store", async () => {
+    configPath = createTestConfig({
+      mcpServers: {
+        "secret-stdio": {
+          type: "stdio",
+          command: "node",
+          env: { HELLO: "" },
+        },
+        "secret-http": {
+          type: "streamable-http",
+          url: "https://example.com/mcp",
+          // Disk keeps clientId only; secret lives in the store.
+          oauth: { clientId: "cid" },
+        } as MCPServerConfig,
+      },
+    });
+    const secretStore = new InMemorySecretStore();
+    await secretStore.set(
+      "secret-stdio",
+      envSecretField("HELLO"),
+      "top-secret-env",
+    );
+    await secretStore.set(
+      "secret-http",
+      SECRET_FIELD_OAUTH_CLIENT_SECRET,
+      "top-secret-oauth",
+    );
+
+    const stdio = await showServerEntry("secret-stdio", {
+      configPath,
+      secretStore,
+    });
+    expect(stdio.config.env).toEqual({ HELLO: "[redacted]" });
+    expect(JSON.stringify(stdio)).not.toContain("top-secret-env");
+
+    const http = await showServerEntry("secret-http", {
+      configPath,
+      secretStore,
+    });
+    expect(http.settings?.oauthClientSecret).toBe("[redacted]");
+    expect(http.settings?.oauthClientId).toBe("cid");
+    expect(JSON.stringify(http)).not.toContain("top-secret-oauth");
   });
 
   it("works via --method servers/show --server", async () => {

@@ -95,7 +95,14 @@ async function callMethod(
   cliAuthOverrides: RunnerClientConfigOverrides,
   callbackUrlConfig: RunnerOAuthCallbackConfig,
   storedAuthOnly: boolean,
+  relogin: boolean,
 ): Promise<void> {
+  // Clear after parse-time validation so a bad flag combo never deletes store
+  // entries. Deletes the shared URL-keyed OAuth entry (not "ignore for this run").
+  if (relogin && "url" in serverConfig && serverConfig.url) {
+    await clearStoredAuthForRelogin(serverConfig.url);
+  }
+
   // Version comes from the single source of truth — the root package.json —
   // via the shared core reader, not the CLI's own manifest.
   const clientIdentity = {
@@ -107,12 +114,18 @@ async function callMethod(
     transport: createTransportNode,
   };
   const redirectUrlProvider = new MutableRedirectUrlProvider();
+  // Disarmed until the CLI-owned interactive OAuth flow runs — SDK `auth()`
+  // during connect must not open a browser before `--stored-auth-only` / gates.
+  const autoOpenControl = { armed: false };
   if (isOAuthCapableServerConfig(serverConfig)) {
     redirectUrlProvider.redirectUrl =
       formatRunnerOAuthRedirectUrl(callbackUrlConfig);
     environment.oauth = {
       storage: new NodeOAuthStorage(),
-      navigation: createCliOAuthNavigation(),
+      navigation: createCliOAuthNavigation({
+        autoOpenControl,
+        disableAutoOpen: storedAuthOnly,
+      }),
       redirectUrlProvider,
     };
   }
@@ -146,7 +159,7 @@ async function callMethod(
       redirectUrlProvider,
       callbackUrlConfig,
       serverSettings,
-      { storedAuthOnly },
+      { storedAuthOnly, autoOpenControl },
     );
 
     const outcome = await withCliAuthRecoveryRetry(
@@ -156,7 +169,7 @@ async function callMethod(
       serverSettings,
       () => runMethod(inspectorClient, args),
       undefined,
-      { storedAuthOnly },
+      { storedAuthOnly, autoOpenControl },
     );
 
     await consumeMethodOutcome(outcome, args);
@@ -469,6 +482,7 @@ type ParseResult =
       clientMetadataUrl?: string;
       callbackUrl?: string;
       storedAuthOnly?: boolean;
+      relogin?: boolean;
     }
   // Short-circuit modes (`--list-stored-auth`, `--print-handoff`) do their own
   // output and need no server connection; runCli returns immediately.
@@ -658,7 +672,7 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     )
     .option(
       "--relogin",
-      "Ignore stored OAuth for this run (HTTP/SSE URL keys only); interactive login runs only if the server requires auth. No-op for stdio / servers with no stored entry",
+      "Delete stored OAuth for this server URL from the shared store before connect (HTTP/SSE URL keys only); interactive login runs only if the server requires auth. No-op for stdio / servers with no stored entry",
     )
     .option(
       "--wait-for-auth <sec>",
@@ -900,10 +914,6 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     options.connectTimeout ?? (adHoc ? DEFAULT_CONNECT_TIMEOUT_MS : undefined),
   );
 
-  if (options.relogin && "url" in serverConfig && serverConfig.url) {
-    await clearStoredAuthForRelogin(serverConfig.url);
-  }
-
   if (
     options.appInfo &&
     options.method !== "tools/call" &&
@@ -979,6 +989,7 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     clientMetadataUrl: options.clientMetadataUrl,
     callbackUrl: options.callbackUrl,
     storedAuthOnly: options.storedAuthOnly === true,
+    relogin: options.relogin === true,
   };
 }
 
@@ -996,6 +1007,7 @@ export async function runCli(argv?: string[]): Promise<void> {
     clientMetadataUrl,
     callbackUrl,
     storedAuthOnly,
+    relogin,
   } = parsed;
   const clientConfig = await loadRunnerClientConfig({ clientConfigPath });
   const callbackUrlConfig = parseRunnerOAuthCallbackUrl(callbackUrl);
@@ -1011,5 +1023,6 @@ export async function runCli(argv?: string[]): Promise<void> {
     },
     callbackUrlConfig,
     storedAuthOnly === true,
+    relogin === true,
   );
 }

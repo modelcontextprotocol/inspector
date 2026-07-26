@@ -18,6 +18,7 @@ import { isOAuthCapableServerConfig } from "@inspector/core/client/runner.js";
 import type { MCPServerConfig } from "@inspector/core/mcp/types.js";
 import { createInterface } from "node:readline/promises";
 import { CliExitCodeError, EXIT_CODES } from "./error-handler.js";
+import type { CliOAuthAutoOpenControl } from "./cli-oauth-navigation.js";
 
 export type CliOAuthConnectOptions = {
   /**
@@ -25,6 +26,11 @@ export type CliOAuthConnectOptions = {
    * store if it can satisfy the challenge; otherwise fail with AUTH_REQUIRED.
    */
   storedAuthOnly?: boolean;
+  /**
+   * Arms browser auto-open only around the CLI-owned interactive OAuth flow
+   * (callback server listening). See {@link createCliOAuthNavigation}.
+   */
+  autoOpenControl?: CliOAuthAutoOpenControl;
 };
 
 function storedAuthOnlyFailure(message: string): never {
@@ -63,6 +69,19 @@ async function promptStepUpConfirm(
   return confirmStepUp();
 }
 
+async function withArmedAutoOpen<T>(
+  control: CliOAuthAutoOpenControl | undefined,
+  fn: () => Promise<T>,
+): Promise<T> {
+  if (!control) return fn();
+  control.armed = true;
+  try {
+    return await fn();
+  } finally {
+    control.armed = false;
+  }
+}
+
 export async function runCliInteractiveOAuth(
   client: InspectorClient,
   redirectUrlProvider: MutableRedirectUrlProvider,
@@ -70,16 +89,19 @@ export async function runCliInteractiveOAuth(
   options?: {
     authorizationUrl?: URL;
     authChallenge?: AuthChallenge;
+    autoOpenControl?: CliOAuthAutoOpenControl;
   },
 ): Promise<void> {
-  const result = await runRunnerInteractiveOAuth({
-    client,
-    redirectUrlProvider,
-    callbackListen: callbackUrlConfig,
-    createCallbackServer: createOAuthCallbackServer,
-    authorizationUrl: options?.authorizationUrl,
-    authChallenge: options?.authChallenge,
-  });
+  const result = await withArmedAutoOpen(options?.autoOpenControl, () =>
+    runRunnerInteractiveOAuth({
+      client,
+      redirectUrlProvider,
+      callbackListen: callbackUrlConfig,
+      createCallbackServer: createOAuthCallbackServer,
+      authorizationUrl: options?.authorizationUrl,
+      authChallenge: options?.authChallenge,
+    }),
+  );
 
   if (result.kind === "insufficient_scope") {
     throw new Error(stepUpInsufficientScopeMessage(result.challenge));
@@ -96,6 +118,7 @@ export async function handleCliAuthRecoveryRequired(
   callbackUrlConfig: RunnerOAuthCallbackConfig,
   serverSettings?: InspectorServerSettings,
   confirmStepUp: () => Promise<boolean> = confirmStepUpFromStdin,
+  autoOpenControl?: CliOAuthAutoOpenControl,
 ): Promise<void> {
   if (isStandardOAuthStepUp(error.authChallenge, serverSettings)) {
     if (await client.checkAuthChallengeSatisfied(error.authChallenge)) {
@@ -114,6 +137,7 @@ export async function handleCliAuthRecoveryRequired(
 
   await runCliInteractiveOAuth(client, redirectUrlProvider, callbackUrlConfig, {
     authorizationUrl: error.authorizationUrl,
+    autoOpenControl,
     ...(error.authChallenge.reason === "insufficient_scope" && {
       authChallenge: error.authChallenge,
     }),
@@ -154,6 +178,8 @@ export async function connectInspectorWithOAuth(
         redirectUrlProvider,
         callbackUrlConfig,
         serverSettings,
+        confirmStepUpFromStdin,
+        options?.autoOpenControl,
       );
       await inspectorClient.connect();
       return;
@@ -172,6 +198,7 @@ export async function connectInspectorWithOAuth(
         inspectorClient,
         redirectUrlProvider,
         callbackUrlConfig,
+        { autoOpenControl: options?.autoOpenControl },
       );
       await inspectorClient.connect();
       return;
@@ -219,6 +246,7 @@ export async function withCliAuthRecoveryRetry<T>(
       callbackUrlConfig,
       serverSettings,
       confirmStepUp,
+      options?.autoOpenControl,
     );
     process.stderr.write("Authorization complete. Retrying…\n");
     return await fn();

@@ -181,6 +181,27 @@ describe("CLI --relogin flag conflicts", () => {
   });
 });
 
+describe("CLI --stored-auth-only wiring", () => {
+  it("accepts the flag and fails connect without interactive OAuth prompts", async () => {
+    // Unreachable host: proves the flag is accepted through parse → callMethod
+    // and does not hang on an interactive OAuth prompt.
+    const result = await runCli([
+      "--stored-auth-only",
+      "--server-url",
+      "http://127.0.0.1:1/mcp",
+      "--transport",
+      "http",
+      "--connect-timeout",
+      "200",
+      "--method",
+      "initialize",
+    ]);
+    expectCliFailure(result);
+    expect(result.stderr).not.toMatch(/Please navigate to:/);
+    expect(result.stderr).not.toMatch(/Proceed with step-up/);
+  });
+});
+
 describe("MCP_CATALOG_PATH with an ad-hoc target", () => {
   it("does not conflict with an ad-hoc target (env catalog is ignored)", async () => {
     const { command, args } = getTestMcpServerCommand();

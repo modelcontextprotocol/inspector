@@ -2,6 +2,7 @@ import type {
   InspectorServerSettings,
   MCPServerConfig,
 } from "@inspector/core/mcp/types.js";
+import { InMemorySecretStore } from "@inspector/core/auth/node/secret-store.js";
 import {
   loadServerEntries,
   selectServerEntry,
@@ -83,11 +84,16 @@ export function summarizeServerConfig(config: MCPServerConfig): {
 
 /**
  * Load catalog/config entries and return a sorted name + summary list.
+ * Uses an empty in-memory secret store by default so listing never touches the
+ * OS keychain (names/types/details do not need rehydrated secrets).
  */
 export async function listServerEntries(
   serverOptions: ServerLoadOptions = {},
 ): Promise<ServerListEntry[]> {
-  const entries = await loadServerEntries(serverOptions);
+  const entries = await loadServerEntries({
+    ...serverOptions,
+    secretStore: serverOptions.secretStore ?? new InMemorySecretStore(),
+  });
   return Object.entries(entries)
     .map(([name, resolved]) => {
       const { type, detail } = summarizeServerConfig(resolved.config);
