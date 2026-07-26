@@ -1049,6 +1049,208 @@ export class InspectorClient extends InspectorClientEventTarget {
   }
 
   /**
+   * Register the handlers for requests the *server* makes of *us* —
+   * `roots/list`, `sampling/createMessage`, `elicitation/create`, and the
+   * receiver-side `tasks/*` polls.
+   *
+   * MUST be called before `client.connect()`. The matching capabilities are
+   * advertised on the `Client` at construction time, so from the moment
+   * `connect()` sends `notifications/initialized` the server is entitled to
+   * issue any of these requests. Registering afterwards leaves a window in
+   * which the SDK `Client` has no handler and answers `-32601 Method not
+   * found` — which is exactly what a server that asks for roots the instant it
+   * is initialized (e.g. `server-filesystem`, which learns its allowed
+   * directories that way) hits, while a server that asks later does not (#1797).
+   *
+   * Nothing here depends on the server's capabilities — only on constructor-set
+   * state — so there is nothing to wait for. The *notification* handlers that
+   * do gate on `this.capabilities` stay in `connect()`, after the handshake.
+   */
+  private registerPeerRequestHandlers(): void {
+    // Set up sampling request handler if sampling capability is enabled
+    if (this.sample && this.client) {
+      const samplingHandler = (
+        request: CreateMessageRequest,
+      ): Promise<CreateMessageResult> => {
+        const paramsTask = (request.params as { task?: { ttl?: number } })
+          ?.task;
+        if (this.receiverTasks && paramsTask != null) {
+          const record = this.createReceiverTask({
+            ttl: paramsTask.ttl,
+            initialStatus: "input_required",
+            statusMessage: "Awaiting user input",
+          });
+          void (async () => {
+            const samplingRequest = new SamplingCreateMessage(
+              request,
+              (result) => {
+                record.resolvePayload(result);
+                const now = new Date().toISOString();
+                const updated: Task = {
+                  ...record.task,
+                  status: "completed",
+                  lastUpdatedAt: now,
+                };
+                record.task = updated;
+                this.upsertReceiverTask(updated);
+              },
+              (error) => {
+                record.rejectPayload(error);
+                const now = new Date().toISOString();
+                const updated: Task = {
+                  ...record.task,
+                  status: "failed",
+                  lastUpdatedAt: now,
+                  statusMessage:
+                    error instanceof Error ? error.message : String(error),
+                };
+                record.task = updated;
+                this.upsertReceiverTask(updated);
+              },
+              (id) => this.removePendingSample(id),
+            );
+            this.addPendingSample(samplingRequest);
+          })();
+          // Task-augmented (2025-11-25) response: the server sent a
+          // task-augmented `sampling/createMessage`, so we reply with a
+          // `CreateTaskResult` (`{ task }`) rather than a `CreateMessageResult`.
+          // The v2 Client validates a spec handler's result and would reject
+          // `{ task }` with -32602; `installReceiverTaskResponseBypass` below
+          // routes this task-augmented branch around that validation so the
+          // legacy `{ task }` response reaches the wire. `taskResult` is typed
+          // as `CreateTaskResult` so its shape IS checked; the unavoidable
+          // `as unknown as CreateMessageResult` bridges the SDK gap — the 2-arg
+          // `setRequestHandler` overload types a sampling handler's return as
+          // `CreateMessageResult` only and doesn't model the (deprecated but
+          // wire-valid) task-augmented `CreateTaskResult`. A handler-result
+          // union `CreateMessageResult | CreateTaskResult` on the SDK side
+          // would remove this cast.
+          const taskResult: CreateTaskResult = { task: record.task };
+          return Promise.resolve(taskResult as unknown as CreateMessageResult);
+        }
+        return this.enqueuePendingSample(request, "server-request");
+      };
+      this.client.setRequestHandler("sampling/createMessage", samplingHandler);
+      if (this.receiverTasks) {
+        this.installReceiverTaskResponseBypass(
+          "sampling/createMessage",
+          samplingHandler,
+        );
+      }
+    }
+
+    // Set up elicitation request handler if elicitation capability is enabled
+    if (this.elicit && this.client) {
+      const elicitHandler = (request: ElicitRequest): Promise<ElicitResult> => {
+        const paramsTask = (request.params as { task?: { ttl?: number } })
+          ?.task;
+        if (this.receiverTasks && paramsTask != null) {
+          const record = this.createReceiverTask({
+            ttl: paramsTask.ttl,
+            initialStatus: "input_required",
+            statusMessage: "Awaiting user input",
+          });
+          void (async () => {
+            const elicitationRequest = new ElicitationCreateMessage(
+              request,
+              (result) => {
+                record.resolvePayload(result);
+                const now = new Date().toISOString();
+                const updated: Task = {
+                  ...record.task,
+                  status: "completed",
+                  lastUpdatedAt: now,
+                };
+                record.task = updated;
+                this.upsertReceiverTask(updated);
+              },
+              (id) => this.removePendingElicitation(id),
+              (error) => {
+                record.rejectPayload(error);
+                const now = new Date().toISOString();
+                const updated: Task = {
+                  ...record.task,
+                  status: "failed",
+                  lastUpdatedAt: now,
+                  statusMessage: error.message,
+                };
+                record.task = updated;
+                this.upsertReceiverTask(updated);
+              },
+            );
+            this.addPendingElicitation(elicitationRequest);
+          })();
+          // Task-augmented (2025-11-25) response — see the sampling handler
+          // above. Reply with a `CreateTaskResult` (`{ task }`), routed around
+          // the v2 Client's result validation by
+          // `installReceiverTaskResponseBypass` below. `taskResult` is typed so
+          // its shape is checked; the `as unknown as ElicitResult` bridges the
+          // same SDK gap as the sampling handler — the 2-arg `setRequestHandler`
+          // overload types an elicitation handler's return as `ElicitResult`
+          // only and doesn't model the task-augmented `CreateTaskResult`.
+          const taskResult: CreateTaskResult = { task: record.task };
+          return Promise.resolve(taskResult as unknown as ElicitResult);
+        }
+        return this.enqueuePendingElicitation(request, "server-request");
+      };
+      this.client.setRequestHandler("elicitation/create", elicitHandler);
+      if (this.receiverTasks) {
+        this.installReceiverTaskResponseBypass(
+          "elicitation/create",
+          elicitHandler,
+        );
+      }
+    }
+
+    // Set up roots/list request handler if roots capability is enabled
+    if (this.roots !== undefined && this.client) {
+      this.client.setRequestHandler("roots/list", async () => {
+        return { roots: this.roots ?? [] };
+      });
+    }
+
+    // Set up receiver-task request handlers (server polls us for tasks/list,
+    // tasks/get, tasks/result, tasks/cancel). SDK v2 removed tasks from the
+    // spec-method set, so these register through the 3-arg custom form with an
+    // explicit params schema (from the deprecated-but-importable task request
+    // schemas). The `result` schema is intentionally omitted so the SDK does
+    // not validate our responder return — matching v1, where only the
+    // requester validated (our receiver `Task` may omit fields a strict result
+    // schema would require).
+    if (this.receiverTasks && this.client) {
+      this.client.setRequestHandler(
+        "tasks/list",
+        { params: ListTasksRequestSchema.shape.params },
+        async () => ({ tasks: this.listReceiverTasks() }),
+      );
+      this.client.setRequestHandler(
+        "tasks/get",
+        { params: GetTaskRequestSchema.shape.params },
+        async (params) => {
+          const record = this.getReceiverTask(params.taskId);
+          if (!record) {
+            throw new ProtocolError(
+              ProtocolErrorCode.InvalidParams,
+              `Unknown taskId: ${params.taskId}`,
+            );
+          }
+          return record.task;
+        },
+      );
+      this.client.setRequestHandler(
+        "tasks/result",
+        { params: GetTaskPayloadRequestSchema.shape.params },
+        async (params) => this.getReceiverTaskPayload(params.taskId),
+      );
+      this.client.setRequestHandler(
+        "tasks/cancel",
+        { params: CancelTaskRequestSchema.shape.params },
+        async (params) => this.cancelReceiverTask(params.taskId),
+      );
+    }
+  }
+
+  /**
    * Connect to the MCP server
    */
   async connect(): Promise<void> {
@@ -1165,6 +1367,10 @@ export class InspectorClient extends InspectorClientEventTarget {
       this.status = "connecting";
       this.dispatchTypedEvent("statusChange", this.status);
 
+      // Register the handlers for server→client requests before the handshake —
+      // see `registerPeerRequestHandlers` for why the ordering is load-bearing.
+      this.registerPeerRequestHandlers();
+
       // Optional connect-time timeout from per-server settings. The MCP SDK
       // has no connect-time timeout option, so we wrap the handshake in a
       // Promise.race. On timeout, tear the transport down so the next
@@ -1221,195 +1427,6 @@ export class InspectorClient extends InspectorClientEventTarget {
         await this.client.setLoggingLevel(
           this.initialLoggingLevel,
           this.getRequestOptions(),
-        );
-      }
-
-      // Set up sampling request handler if sampling capability is enabled
-      if (this.sample && this.client) {
-        const samplingHandler = (
-          request: CreateMessageRequest,
-        ): Promise<CreateMessageResult> => {
-          const paramsTask = (request.params as { task?: { ttl?: number } })
-            ?.task;
-          if (this.receiverTasks && paramsTask != null) {
-            const record = this.createReceiverTask({
-              ttl: paramsTask.ttl,
-              initialStatus: "input_required",
-              statusMessage: "Awaiting user input",
-            });
-            void (async () => {
-              const samplingRequest = new SamplingCreateMessage(
-                request,
-                (result) => {
-                  record.resolvePayload(result);
-                  const now = new Date().toISOString();
-                  const updated: Task = {
-                    ...record.task,
-                    status: "completed",
-                    lastUpdatedAt: now,
-                  };
-                  record.task = updated;
-                  this.upsertReceiverTask(updated);
-                },
-                (error) => {
-                  record.rejectPayload(error);
-                  const now = new Date().toISOString();
-                  const updated: Task = {
-                    ...record.task,
-                    status: "failed",
-                    lastUpdatedAt: now,
-                    statusMessage:
-                      error instanceof Error ? error.message : String(error),
-                  };
-                  record.task = updated;
-                  this.upsertReceiverTask(updated);
-                },
-                (id) => this.removePendingSample(id),
-              );
-              this.addPendingSample(samplingRequest);
-            })();
-            // Task-augmented (2025-11-25) response: the server sent a
-            // task-augmented `sampling/createMessage`, so we reply with a
-            // `CreateTaskResult` (`{ task }`) rather than a `CreateMessageResult`.
-            // The v2 Client validates a spec handler's result and would reject
-            // `{ task }` with -32602; `installReceiverTaskResponseBypass` below
-            // routes this task-augmented branch around that validation so the
-            // legacy `{ task }` response reaches the wire. `taskResult` is typed
-            // as `CreateTaskResult` so its shape IS checked; the unavoidable
-            // `as unknown as CreateMessageResult` bridges the SDK gap — the 2-arg
-            // `setRequestHandler` overload types a sampling handler's return as
-            // `CreateMessageResult` only and doesn't model the (deprecated but
-            // wire-valid) task-augmented `CreateTaskResult`. A handler-result
-            // union `CreateMessageResult | CreateTaskResult` on the SDK side
-            // would remove this cast.
-            const taskResult: CreateTaskResult = { task: record.task };
-            return Promise.resolve(
-              taskResult as unknown as CreateMessageResult,
-            );
-          }
-          return this.enqueuePendingSample(request, "server-request");
-        };
-        this.client.setRequestHandler(
-          "sampling/createMessage",
-          samplingHandler,
-        );
-        if (this.receiverTasks) {
-          this.installReceiverTaskResponseBypass(
-            "sampling/createMessage",
-            samplingHandler,
-          );
-        }
-      }
-
-      // Set up elicitation request handler if elicitation capability is enabled
-      if (this.elicit && this.client) {
-        const elicitHandler = (
-          request: ElicitRequest,
-        ): Promise<ElicitResult> => {
-          const paramsTask = (request.params as { task?: { ttl?: number } })
-            ?.task;
-          if (this.receiverTasks && paramsTask != null) {
-            const record = this.createReceiverTask({
-              ttl: paramsTask.ttl,
-              initialStatus: "input_required",
-              statusMessage: "Awaiting user input",
-            });
-            void (async () => {
-              const elicitationRequest = new ElicitationCreateMessage(
-                request,
-                (result) => {
-                  record.resolvePayload(result);
-                  const now = new Date().toISOString();
-                  const updated: Task = {
-                    ...record.task,
-                    status: "completed",
-                    lastUpdatedAt: now,
-                  };
-                  record.task = updated;
-                  this.upsertReceiverTask(updated);
-                },
-                (id) => this.removePendingElicitation(id),
-                (error) => {
-                  record.rejectPayload(error);
-                  const now = new Date().toISOString();
-                  const updated: Task = {
-                    ...record.task,
-                    status: "failed",
-                    lastUpdatedAt: now,
-                    statusMessage: error.message,
-                  };
-                  record.task = updated;
-                  this.upsertReceiverTask(updated);
-                },
-              );
-              this.addPendingElicitation(elicitationRequest);
-            })();
-            // Task-augmented (2025-11-25) response — see the sampling handler
-            // above. Reply with a `CreateTaskResult` (`{ task }`), routed around
-            // the v2 Client's result validation by
-            // `installReceiverTaskResponseBypass` below. `taskResult` is typed so
-            // its shape is checked; the `as unknown as ElicitResult` bridges the
-            // same SDK gap as the sampling handler — the 2-arg `setRequestHandler`
-            // overload types an elicitation handler's return as `ElicitResult`
-            // only and doesn't model the task-augmented `CreateTaskResult`.
-            const taskResult: CreateTaskResult = { task: record.task };
-            return Promise.resolve(taskResult as unknown as ElicitResult);
-          }
-          return this.enqueuePendingElicitation(request, "server-request");
-        };
-        this.client.setRequestHandler("elicitation/create", elicitHandler);
-        if (this.receiverTasks) {
-          this.installReceiverTaskResponseBypass(
-            "elicitation/create",
-            elicitHandler,
-          );
-        }
-      }
-
-      // Set up roots/list request handler if roots capability is enabled
-      if (this.roots !== undefined && this.client) {
-        this.client.setRequestHandler("roots/list", async () => {
-          return { roots: this.roots ?? [] };
-        });
-      }
-
-      // Set up receiver-task request handlers (server polls us for tasks/list,
-      // tasks/get, tasks/result, tasks/cancel). SDK v2 removed tasks from the
-      // spec-method set, so these register through the 3-arg custom form with an
-      // explicit params schema (from the deprecated-but-importable task request
-      // schemas). The `result` schema is intentionally omitted so the SDK does
-      // not validate our responder return — matching v1, where only the
-      // requester validated (our receiver `Task` may omit fields a strict result
-      // schema would require).
-      if (this.receiverTasks && this.client) {
-        this.client.setRequestHandler(
-          "tasks/list",
-          { params: ListTasksRequestSchema.shape.params },
-          async () => ({ tasks: this.listReceiverTasks() }),
-        );
-        this.client.setRequestHandler(
-          "tasks/get",
-          { params: GetTaskRequestSchema.shape.params },
-          async (params) => {
-            const record = this.getReceiverTask(params.taskId);
-            if (!record) {
-              throw new ProtocolError(
-                ProtocolErrorCode.InvalidParams,
-                `Unknown taskId: ${params.taskId}`,
-              );
-            }
-            return record.task;
-          },
-        );
-        this.client.setRequestHandler(
-          "tasks/result",
-          { params: GetTaskPayloadRequestSchema.shape.params },
-          async (params) => this.getReceiverTaskPayload(params.taskId),
-        );
-        this.client.setRequestHandler(
-          "tasks/cancel",
-          { params: CancelTaskRequestSchema.shape.params },
-          async (params) => this.cancelReceiverTask(params.taskId),
         );
       }
 
