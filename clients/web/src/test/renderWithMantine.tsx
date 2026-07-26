@@ -219,8 +219,15 @@ afterEach(async () => {
   if (livenessError === undefined) captureLiveness("after");
   // A liveness error explains the actual regression; a drain-time throw
   // (realistically only `act` surfacing an error flushed during the settle) is a
-  // downstream symptom — so prefer the liveness error, else rethrow the drain's.
-  if (livenessError !== undefined) throw livenessError;
+  // downstream symptom — so prefer the liveness error. Preserve the drain error
+  // as its `cause` rather than dropping it, so a component error flushed during
+  // the settle isn't lost when both fire. Otherwise rethrow the drain's.
+  if (livenessError !== undefined) {
+    if (drainError !== undefined && livenessError instanceof Error) {
+      livenessError.cause = drainError;
+    }
+    throw livenessError;
+  }
   if (drainError !== undefined) throw drainError;
 });
 
@@ -236,15 +243,16 @@ function assertLiveContainersConnected(
   if (containers.some((c) => !c.isConnected)) {
     throw new Error(
       `renderWithMantineTransitions auto-settle: a still-mounted tree was ` +
-        `detached ${when} the settle. Expected cause: setup.ts's cleanup() ran ` +
+        `detached ${when} the settle — setup.ts's cleanup() ran ` +
         (when === "before" ? "entirely first" : "concurrently mid-settle") +
-        " — the afterEach ordering this depends on broke, so the settle drained " +
-        "nothing and the #1760 leak is reopened (this hook must run and complete " +
-        "before cleanup; see the ordering note here and the `sequence.hooks: " +
-        '"stack"` pin in vite.config.ts). If instead the test unmounted the tree ' +
-        "itself, use the `unmount()` returned by renderWithMantineTransitions " +
-        "(which drops the tree from the liveness set) rather than a bare RTL " +
-        "unmount.",
+        ", so the settle drained nothing and the #1760 leak is reopened. This " +
+        "hook must run and complete before cleanup, which holds because " +
+        "cleanup() is a setupFile (outer) hook; the likely cause is cleanup " +
+        "having been moved to a same-level afterEach (the `sequence.hooks` pin " +
+        "is defense-in-depth, not the guarantee — see the ordering note here). " +
+        "If instead the test unmounted the tree itself, use the `unmount()` " +
+        "returned by renderWithMantineTransitions (which drops the tree from the " +
+        "liveness set) rather than a bare mid-body `cleanup()`.",
     );
   }
 }
