@@ -276,7 +276,10 @@ describe("useImportClientConfig", () => {
     act(() => result.current.setResolution("beta", "rename"));
     act(() => result.current.setRenameTo("alpha", "shared"));
     act(() => result.current.setRenameTo("beta", "shared"));
-    // Each rename sees the other's target already claimed.
+    // The collision check is symmetric — each rename sees the other's target
+    // already claimed, so both must be flagged (asserting only one would pass
+    // even if the check regressed to one-directional).
+    expect(result.current.renameErrors["alpha"]).toContain("already in use");
     expect(result.current.renameErrors["beta"]).toContain("already in use");
     expect(result.current.canImport).toBe(false);
   });
@@ -293,6 +296,10 @@ describe("useImportClientConfig", () => {
     });
     act(() => result.current.setResolution("alpha", "rename"));
     act(() => result.current.setRenameTo("alpha", "   "));
+    // A blank rename also sets renameErrors, so canImport is false and the real
+    // UI blocks submit here — this exercises the defensive fallback at
+    // useImportClientConfig.ts (`res.renameTo.trim() || conflict.id`)
+    // programmatically, which the UI can't reach.
     await act(async () => {
       await result.current.runImport();
     });

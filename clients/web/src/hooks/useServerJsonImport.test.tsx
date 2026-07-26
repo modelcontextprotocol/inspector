@@ -2,6 +2,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 import {
   useServerJsonImport,
+  VALIDATE_DEBOUNCE_MS,
+  COLLAPSE_DELAY_MS,
+  HIGHLIGHT_DURATION_MS,
   type UseServerJsonImportOptions,
 } from "./useServerJsonImport";
 
@@ -44,7 +47,7 @@ function typeAndFlush(
 ) {
   act(() => result.current.setRawText(content));
   act(() => {
-    vi.advanceTimersByTime(300);
+    vi.advanceTimersByTime(VALIDATE_DEBOUNCE_MS);
   });
 }
 
@@ -145,11 +148,11 @@ describe("useServerJsonImport", () => {
     act(() => result.current.setRawText(VALID_SERVER_JSON));
     expect(result.current.fileContentsOpen).toBe(true);
     act(() => {
-      vi.advanceTimersByTime(1000);
+      vi.advanceTimersByTime(COLLAPSE_DELAY_MS);
     });
     expect(result.current.fileContentsHighlight).toBe(true);
     act(() => {
-      vi.advanceTimersByTime(250);
+      vi.advanceTimersByTime(HIGHLIGHT_DURATION_MS);
     });
     expect(result.current.fileContentsHighlight).toBe(false);
     expect(result.current.fileContentsOpen).toBe(false);
