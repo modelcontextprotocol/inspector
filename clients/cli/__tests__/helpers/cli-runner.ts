@@ -1,3 +1,12 @@
+import { vi } from "vitest";
+
+// Structural guard: any in-process `runCli` path that arms interactive OAuth
+// must not shell out to a real browser. Do not rely on `VITEST` alone —
+// `cli-oauth-navigation` also honors `MCP_AUTO_OPEN_ENABLED=true`.
+vi.mock("../../src/open-url.js", () => ({
+  openUrl: vi.fn().mockResolvedValue(undefined),
+}));
+
 import { runCli as invokeCli } from "../../src/cli.js";
 import { formatErrorOutput } from "../../src/error-handler.js";
 

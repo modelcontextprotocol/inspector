@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createCliOAuthNavigation,
+  isCliAutoOpenForced,
   resolveCliAutoOpenEnabled,
 } from "../src/cli-oauth-navigation.js";
 import { openUrl } from "../src/open-url.js";
@@ -27,6 +28,14 @@ describe("resolveCliAutoOpenEnabled", () => {
     ).toBe(false);
     expect(resolveCliAutoOpenEnabled({ VITEST: "true" })).toBe(false);
     expect(resolveCliAutoOpenEnabled({})).toBe(true);
+  });
+});
+
+describe("isCliAutoOpenForced", () => {
+  it("is true only for the explicit string true", () => {
+    expect(isCliAutoOpenForced({ MCP_AUTO_OPEN_ENABLED: "true" })).toBe(true);
+    expect(isCliAutoOpenForced({ MCP_AUTO_OPEN_ENABLED: "false" })).toBe(false);
+    expect(isCliAutoOpenForced({})).toBe(false);
   });
 });
 
@@ -114,7 +123,7 @@ describe("createCliOAuthNavigation", () => {
     expect(openBrowser).not.toHaveBeenCalled();
   });
 
-  it("prints a plain URL and does not open a browser when not a TTY", async () => {
+  it("prints a plain URL and does not open a browser when not a TTY (unless forced)", async () => {
     const lines: string[] = [];
     const openBrowser = vi.fn();
     const nav = createCliOAuthNavigation({
@@ -132,6 +141,46 @@ describe("createCliOAuthNavigation", () => {
     expect(lines.join("")).not.toContain("\u001b]8;;");
     expect(openBrowser).not.toHaveBeenCalled();
     expect(openUrlMock).not.toHaveBeenCalled();
+  });
+
+  it("opens on a non-TTY when forceAutoOpen is set (MCP_AUTO_OPEN_ENABLED=true)", async () => {
+    const lines: string[] = [];
+    const openBrowser = vi.fn().mockResolvedValue(undefined);
+    const nav = createCliOAuthNavigation({
+      isTTY: false,
+      noColorEnv: "1",
+      write: (line) => lines.push(line),
+      openBrowser,
+      autoOpenControl: { armed: true },
+      autoOpenEnabled: true,
+      forceAutoOpen: true,
+    });
+    nav.navigateToAuthorization(new URL("https://as.example/authorize"));
+    await vi.waitFor(() => expect(openBrowser).toHaveBeenCalledOnce());
+    expect(lines.join("")).toContain("Please navigate to:");
+  });
+
+  it("infers force-open from MCP_AUTO_OPEN_ENABLED=true when options omit overrides", async () => {
+    const prev = process.env.MCP_AUTO_OPEN_ENABLED;
+    process.env.MCP_AUTO_OPEN_ENABLED = "true";
+    try {
+      const openBrowser = vi.fn().mockResolvedValue(undefined);
+      const nav = createCliOAuthNavigation({
+        isTTY: false,
+        noColorEnv: "1",
+        write: () => {},
+        openBrowser,
+        autoOpenControl: { armed: true },
+      });
+      nav.navigateToAuthorization(new URL("https://as.example/authorize"));
+      await vi.waitFor(() => expect(openBrowser).toHaveBeenCalledOnce());
+    } finally {
+      if (prev === undefined) {
+        delete process.env.MCP_AUTO_OPEN_ENABLED;
+      } else {
+        process.env.MCP_AUTO_OPEN_ENABLED = prev;
+      }
+    }
   });
 
   it("skips OSC 8 when NO_COLOR is set but still opens on a TTY when armed", async () => {

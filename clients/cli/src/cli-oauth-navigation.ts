@@ -38,6 +38,11 @@ export type CliOAuthNavigationOptions = {
    * `MCP_AUTO_OPEN_ENABLED` / `VITEST` the same way the web server does.
    */
   autoOpenEnabled?: boolean;
+  /**
+   * When true, open even if stderr is not a TTY (matches web's explicit
+   * `MCP_AUTO_OPEN_ENABLED=true`). When omitted, inferred from the env flag.
+   */
+  forceAutoOpen?: boolean;
 };
 
 /**
@@ -55,12 +60,22 @@ export function resolveCliAutoOpenEnabled(
   return !env.VITEST;
 }
 
+/** True when `MCP_AUTO_OPEN_ENABLED=true` (explicit force, including non-TTY). */
+export function isCliAutoOpenForced(
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  return env.MCP_AUTO_OPEN_ENABLED === "true";
+}
+
 /**
  * CLI OAuth navigation: print the authorization URL (OSC 8 when TTY allows
  * ANSI) and optionally open the browser — but only when armed for the
  * CLI-owned interactive flow. Disarmed / `--stored-auth-only` navigations are
  * silent no-ops so SDK-internal `auth()` during connect cannot emit an
  * uncompletable "Please navigate to:" line.
+ *
+ * Browser open: off when env disables it; on a TTY when enabled; forced open
+ * (TTY optional) when `MCP_AUTO_OPEN_ENABLED=true` / {@link forceAutoOpen}.
  */
 export function createCliOAuthNavigation(
   options: CliOAuthNavigationOptions = {},
@@ -88,7 +103,13 @@ export function createCliOAuthNavigation(
       options.autoOpenEnabled !== undefined
         ? options.autoOpenEnabled
         : resolveCliAutoOpenEnabled();
-    if (!envAllows || !tty) return;
+    if (!envAllows) return;
+
+    const forced =
+      options.forceAutoOpen !== undefined
+        ? options.forceAutoOpen
+        : options.autoOpenEnabled === undefined && isCliAutoOpenForced();
+    if (!forced && !tty) return;
 
     try {
       await (options.openBrowser ?? openUrl)(href);

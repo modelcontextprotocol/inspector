@@ -511,6 +511,36 @@ describe("cliOAuth", () => {
       expect(runSpy).not.toHaveBeenCalled();
     });
 
+    it("under --stored-auth-only reconnects when the store already satisfies", async () => {
+      const runSpy = vi.spyOn(runnerInteractive, "runRunnerInteractiveOAuth");
+      const connect = vi
+        .fn()
+        .mockRejectedValueOnce(
+          new AuthRecoveryRequiredError(
+            new URL("https://as.example/authorize"),
+            { reason: "token_expired" },
+          ),
+        )
+        .mockResolvedValueOnce(undefined);
+      const client = {
+        connect,
+        disconnect: vi.fn(),
+        checkAuthChallengeSatisfied: vi.fn().mockResolvedValue(true),
+      };
+
+      await connectInspectorWithOAuth(
+        client,
+        oauthServerConfig,
+        new MutableRedirectUrlProvider(),
+        CALLBACK_URL_CONFIG,
+        undefined,
+        { storedAuthOnly: true },
+      );
+
+      expect(connect).toHaveBeenCalledTimes(2);
+      expect(runSpy).not.toHaveBeenCalled();
+    });
+
     it("fails stored-auth-only on plain unauthorized errors", async () => {
       const runSpy = vi.spyOn(runnerInteractive, "runRunnerInteractiveOAuth");
       const connect = vi
@@ -546,8 +576,13 @@ describe("cliOAuth", () => {
     await expect(
       withCliAuthRecoveryRetry(
         {
+          connect: vi.fn(),
+          disconnect: vi.fn(),
+          authenticate: vi.fn(),
+          beginInteractiveAuthorization: vi.fn(),
+          completeOAuthFlow: vi.fn(),
           checkAuthChallengeSatisfied,
-        } as never,
+        },
         new MutableRedirectUrlProvider(),
         CALLBACK_URL_CONFIG,
         undefined,
@@ -577,8 +612,13 @@ describe("cliOAuth", () => {
 
     const result = await withCliAuthRecoveryRetry(
       {
+        connect: vi.fn(),
+        disconnect: vi.fn(),
+        authenticate: vi.fn(),
+        beginInteractiveAuthorization: vi.fn(),
+        completeOAuthFlow: vi.fn(),
         checkAuthChallengeSatisfied,
-      } as never,
+      },
       new MutableRedirectUrlProvider(),
       CALLBACK_URL_CONFIG,
       undefined,
@@ -590,6 +630,68 @@ describe("cliOAuth", () => {
     expect(result).toBe("ok");
     expect(fn).toHaveBeenCalledTimes(2);
     expect(checkAuthChallengeSatisfied).toHaveBeenCalledWith(challenge);
+    expect(runSpy).not.toHaveBeenCalled();
+  });
+
+  it("withCliAuthRecoveryRetry recovers plain unauthorized errors like connect", async () => {
+    const runSpy = vi
+      .spyOn(runnerInteractive, "runRunnerInteractiveOAuth")
+      .mockResolvedValue({ kind: "success" });
+    const disconnect = vi.fn().mockResolvedValue(undefined);
+    const fn = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("RPC failed (401)"))
+      .mockResolvedValueOnce("ok");
+    const stderrSpy = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+
+    const result = await withCliAuthRecoveryRetry(
+      {
+        connect: vi.fn(),
+        disconnect,
+        authenticate: vi.fn(),
+        beginInteractiveAuthorization: vi.fn(),
+        completeOAuthFlow: vi.fn(),
+        checkAuthChallengeSatisfied: vi.fn(),
+      },
+      new MutableRedirectUrlProvider(),
+      CALLBACK_URL_CONFIG,
+      undefined,
+      fn,
+    );
+
+    expect(result).toBe("ok");
+    expect(disconnect).toHaveBeenCalledOnce();
+    expect(runSpy).toHaveBeenCalledOnce();
+    expect(fn).toHaveBeenCalledTimes(2);
+    expect(stderrSpy).toHaveBeenCalledWith(
+      "Authorization complete. Retrying…\n",
+    );
+  });
+
+  it("withCliAuthRecoveryRetry fails stored-auth-only on plain unauthorized errors", async () => {
+    const runSpy = vi.spyOn(runnerInteractive, "runRunnerInteractiveOAuth");
+    const fn = vi.fn().mockRejectedValue(new Error("RPC failed (401)"));
+
+    await expect(
+      withCliAuthRecoveryRetry(
+        {
+          connect: vi.fn(),
+          disconnect: vi.fn(),
+          authenticate: vi.fn(),
+          beginInteractiveAuthorization: vi.fn(),
+          completeOAuthFlow: vi.fn(),
+          checkAuthChallengeSatisfied: vi.fn(),
+        },
+        new MutableRedirectUrlProvider(),
+        CALLBACK_URL_CONFIG,
+        undefined,
+        fn,
+        undefined,
+        { storedAuthOnly: true },
+      ),
+    ).rejects.toMatchObject({ exitCode: 3 });
     expect(runSpy).not.toHaveBeenCalled();
   });
 });

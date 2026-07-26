@@ -11,14 +11,20 @@ import {
   createOAuthCallbackServer,
   runRunnerInteractiveOAuth,
 } from "@inspector/core/auth/node/index.js";
+import type { RunnerInteractiveOAuthClient } from "@inspector/core/auth/node/runner-interactive-oauth.js";
 import type { RunnerOAuthCallbackConfig } from "@inspector/core/auth/node/runner-oauth-callback.js";
-import type { InspectorClient } from "@inspector/core/mcp/index.js";
 import type { InspectorServerSettings } from "@inspector/core/mcp/types.js";
 import { isOAuthCapableServerConfig } from "@inspector/core/client/runner.js";
 import type { MCPServerConfig } from "@inspector/core/mcp/types.js";
 import { createInterface } from "node:readline/promises";
 import { CliExitCodeError, EXIT_CODES } from "./error-handler.js";
 import type { CliOAuthAutoOpenControl } from "./cli-oauth-navigation.js";
+
+/** Client surface needed for connect + mid-RPC OAuth recovery. */
+export type CliOAuthClient = RunnerInteractiveOAuthClient & {
+  connect(): Promise<void>;
+  disconnect(): Promise<void>;
+};
 
 export type CliOAuthConnectOptions = {
   /**
@@ -83,7 +89,7 @@ async function withArmedAutoOpen<T>(
 }
 
 export async function runCliInteractiveOAuth(
-  client: InspectorClient,
+  client: RunnerInteractiveOAuthClient,
   redirectUrlProvider: MutableRedirectUrlProvider,
   callbackUrlConfig: RunnerOAuthCallbackConfig,
   options?: {
@@ -112,7 +118,7 @@ export async function runCliInteractiveOAuth(
 }
 
 export async function handleCliAuthRecoveryRequired(
-  client: InspectorClient,
+  client: RunnerInteractiveOAuthClient,
   error: AuthRecoveryRequiredError,
   redirectUrlProvider: MutableRedirectUrlProvider,
   callbackUrlConfig: RunnerOAuthCallbackConfig,
@@ -145,7 +151,7 @@ export async function handleCliAuthRecoveryRequired(
 }
 
 export async function connectInspectorWithOAuth(
-  inspectorClient: InspectorClient,
+  inspectorClient: CliOAuthClient,
   serverConfig: MCPServerConfig,
   redirectUrlProvider: MutableRedirectUrlProvider,
   callbackUrlConfig: RunnerOAuthCallbackConfig,
@@ -160,13 +166,15 @@ export async function connectInspectorWithOAuth(
     }
 
     if (err instanceof AuthRecoveryRequiredError) {
-      if (
-        await inspectorClient.checkAuthChallengeSatisfied(err.authChallenge)
-      ) {
-        await inspectorClient.connect();
-        return;
-      }
+      // Under --stored-auth-only, give the store one chance then bail — avoid
+      // calling handle (which would re-check) on the failure path.
       if (options?.storedAuthOnly) {
+        if (
+          await inspectorClient.checkAuthChallengeSatisfied(err.authChallenge)
+        ) {
+          await inspectorClient.connect();
+          return;
+        }
         storedAuthOnlyFailure(
           err.message ||
             "Authentication required and --stored-auth-only is set; refusing interactive OAuth.",
@@ -209,11 +217,13 @@ export async function connectInspectorWithOAuth(
 }
 
 /**
- * Run `fn` once; on {@link AuthRecoveryRequiredError}, complete interactive OAuth
- * and retry `fn` a single time (no further recovery attempts).
+ * Run `fn` once; on auth recovery errors, complete interactive OAuth and retry
+ * `fn` a single time (no further recovery attempts). Mirrors
+ * {@link connectInspectorWithOAuth}: handles both
+ * {@link AuthRecoveryRequiredError} and plain unauthorized errors.
  */
 export async function withCliAuthRecoveryRetry<T>(
-  inspectorClient: InspectorClient,
+  inspectorClient: CliOAuthClient,
   redirectUrlProvider: MutableRedirectUrlProvider,
   callbackUrlConfig: RunnerOAuthCallbackConfig,
   serverSettings: InspectorServerSettings | undefined,
@@ -224,31 +234,52 @@ export async function withCliAuthRecoveryRetry<T>(
   try {
     return await fn();
   } catch (err) {
-    if (!(err instanceof AuthRecoveryRequiredError)) {
-      throw err;
-    }
-    // Match connectInspectorWithOAuth: give the shared store a chance to
-    // satisfy the challenge (already-satisfied / EMA re-mint) before bailing
-    // under --stored-auth-only or opening interactive OAuth.
-    if (await inspectorClient.checkAuthChallengeSatisfied(err.authChallenge)) {
+    if (err instanceof AuthRecoveryRequiredError) {
+      // Satisfied-check lives in handleCliAuthRecoveryRequired for the
+      // interactive path; under --stored-auth-only check once here then bail.
+      if (options?.storedAuthOnly) {
+        if (
+          await inspectorClient.checkAuthChallengeSatisfied(err.authChallenge)
+        ) {
+          return await fn();
+        }
+        storedAuthOnlyFailure(
+          err.message ||
+            "Authentication required and --stored-auth-only is set; refusing interactive OAuth.",
+        );
+      }
+      await handleCliAuthRecoveryRequired(
+        inspectorClient,
+        err,
+        redirectUrlProvider,
+        callbackUrlConfig,
+        serverSettings,
+        confirmStepUp,
+        options?.autoOpenControl,
+      );
+      process.stderr.write("Authorization complete. Retrying…\n");
       return await fn();
     }
-    if (options?.storedAuthOnly) {
-      storedAuthOnlyFailure(
-        err.message ||
-          "Authentication required and --stored-auth-only is set; refusing interactive OAuth.",
+
+    if (isUnauthorizedError(err)) {
+      if (options?.storedAuthOnly) {
+        storedAuthOnlyFailure(
+          err instanceof Error
+            ? err.message
+            : "Authentication required and --stored-auth-only is set; refusing interactive OAuth.",
+        );
+      }
+      await inspectorClient.disconnect().catch(() => {});
+      await runCliInteractiveOAuth(
+        inspectorClient,
+        redirectUrlProvider,
+        callbackUrlConfig,
+        { autoOpenControl: options?.autoOpenControl },
       );
+      process.stderr.write("Authorization complete. Retrying…\n");
+      return await fn();
     }
-    await handleCliAuthRecoveryRequired(
-      inspectorClient,
-      err,
-      redirectUrlProvider,
-      callbackUrlConfig,
-      serverSettings,
-      confirmStepUp,
-      options?.autoOpenControl,
-    );
-    process.stderr.write("Authorization complete. Retrying…\n");
-    return await fn();
+
+    throw err;
   }
 }

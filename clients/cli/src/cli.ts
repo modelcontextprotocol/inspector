@@ -742,6 +742,14 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
         "--relogin cannot be combined with --use-stored-auth or --wait-for-auth",
       );
     }
+    if (
+      options.method === "servers/list" ||
+      options.method === "servers/show"
+    ) {
+      throw new Error(
+        "--relogin cannot be combined with --method servers/list or servers/show (no OAuth connect)",
+      );
+    }
   }
 
   // State-path precedence (getStateFilePath): MCP_INSPECTOR_OAUTH_STATE_PATH →

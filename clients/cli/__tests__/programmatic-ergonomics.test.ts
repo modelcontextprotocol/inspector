@@ -164,6 +164,12 @@ describe("CLI --relogin flag conflicts", () => {
     expect(result.stderr).toMatch(/--use-stored-auth/);
   });
 
+  it("rejects --relogin with catalog-only methods", async () => {
+    const result = await runCli(["--relogin", "--method", "servers/list"]);
+    expectCliFailure(result);
+    expect(result.stderr).toMatch(/servers\/list or servers\/show/);
+  });
+
   it("accepts --relogin and clears stored auth before connect", async () => {
     // Unreachable port: proves --relogin runs (clears store) then fails connect.
     const result = await runCli([
