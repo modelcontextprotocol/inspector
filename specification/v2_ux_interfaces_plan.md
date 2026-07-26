@@ -48,7 +48,7 @@ spec. After this work, every dumb component consumes either:
     `Tool[]`, `Prompt[]`, `Resource[]`, `ResourceTemplate[]`, `Task[]`.
   - `core/react/{useMessageLog,useStderrLog,useFetchRequestLog}.ts` — log
     wrapper consumers.
-  - `clients/web/src/lib/types/customHeaders.ts` — `CustomHeader` /
+  - `clients/web/src/utils/customHeaders.ts` — `CustomHeader` /
     `CustomHeaders` shape, used by `ServerSettingsForm`.
   - `clients/web/src/utils/schemaUtils.ts` + `clients/web/src/utils/jsonUtils.ts`
     — JSON Schema typing (`JsonValue`, `JsonSchemaType`, `JsonObject`) and
@@ -182,7 +182,7 @@ have no v1.5 equivalent):
 or transport concept. Place it under `clients/web/src/types/navigation.ts`
 rather than in `core/mcp/types.ts`. Everything else lives in `core/mcp/types.ts`.
 
-**Custom headers**: copy `clients/web/src/lib/types/customHeaders.ts` from
+**Custom headers**: copy `clients/web/src/utils/customHeaders.ts` from
 v1.5 verbatim. It owns `CustomHeader` / `CustomHeaders` shape used by
 `ServerSettingsForm` and the experimental panel.
 

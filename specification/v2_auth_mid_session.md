@@ -139,7 +139,7 @@ RemoteClientTransport                  StreamableHTTPClientTransport
 | EMA                       | `core/auth/ema/emaFlow.ts`, `core/auth/ema/resourceContext.ts` — see [v2_auth_ema.md](v2_auth_ema.md)                                              |
 | Web remote backend        | `core/mcp/remote/node/server.ts`, `remote-session.ts`, `core/mcp/node/authChallengeFetch.ts`                                                       |
 | Web remote client         | `core/mcp/remote/remoteClientTransport.ts`, `core/mcp/inspectorClient.ts`                                                                          |
-| Web app                   | `clients/web/src/App.tsx`, `lib/oauthResume.ts`, `utils/pendingReauth.ts`, `lib/browserTabVisibility.ts`, `components/groups/StepUpAuthModal/` |
+| Web app                   | `clients/web/src/App.tsx`, `lib/oauthResume.ts`, `utils/pendingReauth.ts`, `lib/browserTabVisibility.ts`, `components/groups/StepUpAuthModal/`     |
 | TUI                       | `clients/tui/src/App.tsx`, `utils/tuiOAuth.ts`                                                                                                     |
 | CLI                       | `clients/cli/src/cliOAuth.ts`                                                                                                                      |
 | Runner OAuth (TUI/CLI)    | `core/auth/node/runner-interactive-oauth.ts`, `oauth-callback-server.ts`                                                                           |
