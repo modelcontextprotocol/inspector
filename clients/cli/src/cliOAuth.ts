@@ -105,9 +105,14 @@ export function isStandardOAuthStepUp(
 }
 
 /**
- * Read [y/N] from stdin. Piped answers work (`echo y | …`). On EOF / interface
- * close (e.g. `< /dev/null`), or when a non-TTY stdin never sends a line
- * within {@link STEP_UP_PIPE_TIMEOUT_MS}, treat as decline so CI never hangs.
+ * Read [y/N] from stdin. Piped answers work (`echo y | …`, `printf y | …`).
+ * On EOF with no line (e.g. `< /dev/null`), decline. A non-TTY stdin that
+ * never sends a line within {@link STEP_UP_PIPE_TIMEOUT_MS} fails with
+ * `auth_required` (distinct from an explicit **N**).
+ *
+ * Partial last lines without a trailing newline are captured via the `line`
+ * event — on stream end readline emits the buffer then `close` without
+ * settling `question()`, so close alone would otherwise silently decline.
  */
 async function confirmStepUpFromStdin(timeoutMs?: number): Promise<boolean> {
   const rl = createInterface({ input: process.stdin, output: process.stderr });
@@ -118,26 +123,47 @@ async function confirmStepUpFromStdin(timeoutMs?: number): Promise<boolean> {
         ? undefined
         : STEP_UP_PIPE_TIMEOUT_MS;
   try {
-    const answer = await new Promise<string>((resolve) => {
+    const answer = await new Promise<string>((resolve, reject) => {
       let settled = false;
+      let lastLine: string | undefined;
       let timer: ReturnType<typeof setTimeout> | undefined;
+      function cleanup(): void {
+        if (timer !== undefined) clearTimeout(timer);
+        rl.removeListener("close", onClose);
+        rl.removeListener("line", onLine);
+      }
       function finish(value: string): void {
         if (settled) return;
         settled = true;
-        if (timer !== undefined) clearTimeout(timer);
-        rl.removeListener("close", onClose);
+        cleanup();
         resolve(value);
       }
-      function onClose(): void {
-        finish("n");
+      function finishTimeout(): void {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        reject(
+          new CliExitCodeError(
+            EXIT_CODES.AUTH_REQUIRED,
+            `Step-up authorization declined (no answer on stdin within ${String(applyTimeoutMs)}ms). For CI/non-interactive runs use --stored-auth-only.`,
+            { code: "auth_required" },
+          ),
+        );
       }
+      function onLine(line: string): void {
+        lastLine = line;
+      }
+      function onClose(): void {
+        finish(lastLine ?? "n");
+      }
+      rl.on("line", onLine);
       rl.once("close", onClose);
       if (applyTimeoutMs !== undefined) {
-        timer = setTimeout(() => finish("n"), applyTimeoutMs);
+        timer = setTimeout(finishTimeout, applyTimeoutMs);
       }
       void rl.question("").then(
         (line) => finish(line),
-        () => finish("n"),
+        () => finish(lastLine ?? "n"),
       );
     });
     const normalized = answer.trim().toLowerCase();

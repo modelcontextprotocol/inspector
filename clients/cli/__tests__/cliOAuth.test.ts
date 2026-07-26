@@ -9,6 +9,7 @@ import {
   runCliInteractiveOAuth,
   assertInteractiveOAuthAllowed,
   withCliAuthRecoveryRetry,
+  STEP_UP_PIPE_TIMEOUT_MS,
 } from "../src/cliOAuth.js";
 import type { MCPServerConfig } from "@inspector/core/mcp/types.js";
 import { createInterface } from "node:readline/promises";
@@ -21,14 +22,19 @@ const { mockQuestion, mockClose, createMockReadline } = vi.hoisted(() => {
   const mockClose = vi.fn();
   function createMockReadline(options?: {
     question?: () => Promise<string>;
-    /** When set, emit `close` on the next microtask (EOF). */
+    /** When set, emit `close` on the next microtask (EOF, no partial line). */
     emitClose?: boolean;
+    /**
+     * Emit a `line` then `close` on the next microtask — models
+     * `printf 'y' | …` (partial last line without trailing newline).
+     */
+    emitLineThenClose?: string;
   }) {
     const listeners = new Map<string, Set<(...args: unknown[]) => void>>();
     const rl = {
       question: options?.question ?? mockQuestion,
       close: mockClose,
-      once(event: string, cb: (...args: unknown[]) => void) {
+      on(event: string, cb: (...args: unknown[]) => void) {
         let set = listeners.get(event);
         if (!set) {
           set = new Set();
@@ -37,15 +43,25 @@ const { mockQuestion, mockClose, createMockReadline } = vi.hoisted(() => {
         set.add(cb);
         return rl;
       },
+      once(event: string, cb: (...args: unknown[]) => void) {
+        // Match EventEmitter.removeListener(originalFn) after once(fn).
+        return rl.on(event, cb);
+      },
       removeListener(event: string, cb: (...args: unknown[]) => void) {
         listeners.get(event)?.delete(cb);
         return rl;
       },
-      emit(event: string) {
-        for (const cb of listeners.get(event) ?? []) cb();
+      emit(event: string, ...args: unknown[]) {
+        for (const cb of [...(listeners.get(event) ?? [])]) cb(...args);
       },
     };
-    if (options?.emitClose) {
+    if (options?.emitLineThenClose !== undefined) {
+      const line = options.emitLineThenClose;
+      queueMicrotask(() => {
+        rl.emit("line", line);
+        rl.emit("close");
+      });
+    } else if (options?.emitClose) {
       queueMicrotask(() => rl.emit("close"));
     }
     return rl;
@@ -447,6 +463,32 @@ describe("cliOAuth", () => {
       expect(runSpy).not.toHaveBeenCalled();
     });
 
+    it("accepts a partial last line without trailing newline (printf y | …)", async () => {
+      // On stream end, readline emits the buffered partial line then close
+      // without settling question() — close must use the captured line.
+      const runSpy = vi
+        .spyOn(runnerInteractive, "runRunnerInteractiveOAuth")
+        .mockResolvedValue({ kind: "success" });
+      vi.mocked(createInterface).mockImplementationOnce(
+        () =>
+          createMockReadline({
+            question: () => new Promise(() => {}),
+            emitLineThenClose: "y",
+          }) as unknown as ReturnType<typeof createInterface>,
+      );
+
+      await handleCliAuthRecoveryRequired(
+        clientNeedingStepUp(),
+        standardStepUpError(),
+        new MutableRedirectUrlProvider(),
+        CALLBACK_URL_CONFIG,
+        {},
+        INTERACTIVE,
+      );
+
+      expect(runSpy).toHaveBeenCalled();
+    });
+
     it("accepts a piped y when stdin is non-TTY (echo y | …)", async () => {
       // Force-admit interactive OAuth without a TTY; the confirmer still reads
       // the piped answer (round-9: do not hard-require stdin.isTTY).
@@ -470,7 +512,7 @@ describe("cliOAuth", () => {
       }
     });
 
-    it("declines when a non-TTY stdin never answers (pipe timeout)", async () => {
+    it("fails with auth_required when a non-TTY stdin never answers (pipe timeout)", async () => {
       mockQuestion.mockImplementation(() => new Promise(() => {}));
       const runSpy = vi.spyOn(runnerInteractive, "runRunnerInteractiveOAuth");
 
@@ -483,9 +525,54 @@ describe("cliOAuth", () => {
           {},
           { isTTY: true, stepUpPromptTimeoutMs: 20 },
         ),
-      ).rejects.toThrow("Step-up authorization declined.");
+      ).rejects.toMatchObject({
+        exitCode: 3,
+        message: expect.stringMatching(/no answer on stdin within 20ms/),
+      });
 
       expect(runSpy).not.toHaveBeenCalled();
+    });
+
+    it("does not apply the pipe timeout when stdin is a TTY", async () => {
+      vi.useFakeTimers();
+      const stdinDesc = Object.getOwnPropertyDescriptor(process.stdin, "isTTY");
+      Object.defineProperty(process.stdin, "isTTY", {
+        configurable: true,
+        get: () => true,
+      });
+      let resolveQuestion!: (value: string) => void;
+      mockQuestion.mockImplementation(
+        () =>
+          new Promise<string>((resolve) => {
+            resolveQuestion = resolve;
+          }),
+      );
+      const runSpy = vi
+        .spyOn(runnerInteractive, "runRunnerInteractiveOAuth")
+        .mockResolvedValue({ kind: "success" });
+      try {
+        const pending = handleCliAuthRecoveryRequired(
+          clientNeedingStepUp(),
+          standardStepUpError(),
+          new MutableRedirectUrlProvider(),
+          CALLBACK_URL_CONFIG,
+          {},
+          INTERACTIVE,
+        );
+        await vi.advanceTimersByTimeAsync(STEP_UP_PIPE_TIMEOUT_MS + 60_000);
+        const raced = await Promise.race([
+          pending.then(() => "done" as const),
+          Promise.resolve("still-waiting" as const),
+        ]);
+        expect(raced).toBe("still-waiting");
+        resolveQuestion("y");
+        await pending;
+        expect(runSpy).toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+        if (stdinDesc) Object.defineProperty(process.stdin, "isTTY", stdinDesc);
+        else delete (process.stdin as { isTTY?: boolean }).isTTY;
+      }
     });
   });
 
