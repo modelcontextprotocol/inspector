@@ -109,10 +109,25 @@ const DEFAULT_SETTLE_MS = 500;
 // and did NOT unmount itself — the `afterEach` asserts each is still connected
 // (a still-mounted tree that got detached means `cleanup()` ran too early). A
 // test's own `unmount()` removes its container from the set (its detach is
-// legitimate) but leaves `armedSettleMs` armed so the drain still runs. This
-// module-level state assumes **sequential** tests: it isn't concurrency-safe, so
-// don't use `renderWithMantineTransitions` under `test.concurrent` /
-// `describe.concurrent` (two in-flight tests would share this arming).
+// legitimate) but leaves `armedSettleMs` armed so the drain still runs.
+//
+// Two config assumptions this module-level state depends on:
+//   1. **Sequential tests.** It isn't concurrency-safe, so don't use
+//      `renderWithMantineTransitions` under `test.concurrent` /
+//      `describe.concurrent` (two in-flight tests would share this arming).
+//   2. **`isolate: true`** (Vitest's default; nothing in vite.config.ts
+//      overrides it). The `afterEach` below is registered when this module is
+//      first evaluated during a test file's collection, so isolation — a fresh
+//      module registry per file — is what re-registers it for every file. Under
+//      `isolate: false` the module evaluates once per worker, so the hook binds
+//      to only the first importing file; other files then arm with no hook to
+//      consume it — the drain silently never runs (reopening #1760/#1786 with no
+//      guard trip) and this state leaks across files. Confirmed by probe:
+//      `vitest --no-isolate --pool=threads --no-file-parallelism` over two
+//      real-transitions files leaves one file's arming unconsumed. If isolation
+//      is ever disabled, move arming to `onTestFinished` inside
+//      `renderWithMantineTransitions` (per-test, immune to module caching) — but
+//      mind that its ordering vs `setup.ts`'s `cleanup()` must be re-established.
 let armedSettleMs: number | null = null;
 const liveArmedContainers = new Set<HTMLElement>();
 
@@ -166,11 +181,13 @@ export async function settleTransitions(ms: number = DEFAULT_SETTLE_MS) {
 // containers, which guard against a future regression that makes cleanup run
 // before this settle finishes — e.g. cleanup moved to a *same-level* hook: the
 // pre-settle check catches it running entirely first, the post-settle check
-// catches it detaching the tree concurrently while this hook awaits — a race
-// that can only arise if the unit project's `sequence.hooks` is changed from
-// "stack" to "parallel" (same-level hooks run sequentially under "stack"/"list"),
-// which is exactly why the pre-check can't see it. Neither fires in the current
-// outer-cleanup setup. A container the test unmounted itself isn't in
+// catches it detaching the tree concurrently while this hook awaits. The
+// pre-check runs synchronously *before* the await, so it structurally can't
+// observe a mid-settle detach — that's why the post-check exists. That
+// concurrent case additionally needs the unit project's `sequence.hooks` set to
+// "parallel" (same-level hooks run sequentially under "stack"/"list", so they
+// can't overlap this hook's await). Neither fires in the current outer-cleanup
+// setup. A container the test unmounted itself isn't in
 // the set, so its legitimate detach is never mistaken for that regression.
 afterEach(async () => {
   const ms = armedSettleMs;
