@@ -1,14 +1,14 @@
-import { defineConfig } from 'vitest/config';
+import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
     globals: false,
-    environment: 'node',
-    include: ['__tests__/**/*.test.ts'],
+    environment: "node",
+    include: ["__tests__/**/*.test.ts"],
     coverage: {
-      provider: 'v8',
-      reporter: ['text', 'html', 'json-summary'],
-      include: ['src/**/*.ts'],
+      provider: "v8",
+      reporter: ["text", "html", "json-summary"],
+      include: ["src/**/*.ts"],
       exclude: [
         // Binary bootstrap: shebang + commander wiring that dynamically imports
         // each client's build/index.js and dispatches via process.exit. It only
@@ -16,7 +16,7 @@ export default defineConfig({
         // launcher smokes (smoke:launcher / smoke:cli / smoke:tui / smoke:web).
         // Mirrors the cli/web `index.ts` exclusion. The pure arg-parsing logic
         // lives in parse-launcher-argv.ts, which is unit-tested and gated below.
-        'src/index.ts',
+        "src/index.ts",
       ],
       thresholds: {
         perFile: true,

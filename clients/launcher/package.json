@@ -15,8 +15,8 @@
     "build": "tsc",
     "postbuild": "node scripts/make-executable.js",
     "lint": "eslint .",
-    "format": "prettier --write src __tests__",
-    "format:check": "prettier --check src __tests__",
+    "format": "prettier --write src __tests__ \"*.{ts,js}\"",
+    "format:check": "prettier --check src __tests__ \"*.{ts,js}\"",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "validate": "npm run format:check && npm run lint && npm run build && npm run test"
@@ -30,7 +30,7 @@
     "@vitest/coverage-v8": "^4.1.0",
     "eslint": "^9.39.4",
     "globals": "^17.4.0",
-    "prettier": "^3.8.1",
+    "prettier": "3.8.4",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.56.1",
     "vitest": "^4.1.0"
