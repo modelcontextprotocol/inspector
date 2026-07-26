@@ -559,12 +559,18 @@ describe("cliOAuth", () => {
           {},
           INTERACTIVE,
         );
+        let settled = false;
+        void pending.then(
+          () => {
+            settled = true;
+          },
+          () => {
+            settled = true;
+          },
+        );
         await vi.advanceTimersByTimeAsync(STEP_UP_PIPE_TIMEOUT_MS + 60_000);
-        const raced = await Promise.race([
-          pending.then(() => "done" as const),
-          Promise.resolve("still-waiting" as const),
-        ]);
-        expect(raced).toBe("still-waiting");
+        await Promise.resolve(); // flush microtasks from any premature settle
+        expect(settled).toBe(false);
         resolveQuestion("y");
         await pending;
         expect(runSpy).toHaveBeenCalled();

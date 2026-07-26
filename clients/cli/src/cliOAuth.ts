@@ -105,14 +105,16 @@ export function isStandardOAuthStepUp(
 }
 
 /**
- * Read [y/N] from stdin. Piped answers work (`echo y | …`, `printf y | …`).
- * On EOF with no line (e.g. `< /dev/null`), decline. A non-TTY stdin that
- * never sends a line within {@link STEP_UP_PIPE_TIMEOUT_MS} fails with
- * `auth_required` (distinct from an explicit **N**).
+ * Read [y/N] from stdin. Piped answers work when newline-terminated or when
+ * stdin closes (`echo y | …`, `printf y | …`). On EOF with no line
+ * (`< /dev/null`), decline. A non-TTY stdin that never sends a line within
+ * {@link STEP_UP_PIPE_TIMEOUT_MS} fails with `auth_required` (timed out —
+ * distinct from an explicit **N**).
  *
  * Partial last lines without a trailing newline are captured via the `line`
  * event — on stream end readline emits the buffer then `close` without
  * settling `question()`, so close alone would otherwise silently decline.
+ * An open pipe that writes `y` without `\n` or EOF never flushes that buffer.
  */
 async function confirmStepUpFromStdin(timeoutMs?: number): Promise<boolean> {
   const rl = createInterface({ input: process.stdin, output: process.stderr });
@@ -145,7 +147,7 @@ async function confirmStepUpFromStdin(timeoutMs?: number): Promise<boolean> {
         reject(
           new CliExitCodeError(
             EXIT_CODES.AUTH_REQUIRED,
-            `Step-up authorization declined (no answer on stdin within ${String(applyTimeoutMs)}ms). For CI/non-interactive runs use --stored-auth-only.`,
+            `Step-up authorization timed out (no answer on stdin within ${String(applyTimeoutMs)}ms). For CI/non-interactive runs use --stored-auth-only.`,
             { code: "auth_required" },
           ),
         );
