@@ -12,13 +12,8 @@ export type MantineRenderOptions = Omit<RenderOptions, "wrapper"> & {
   colorScheme?: MantineColorScheme;
 };
 
-// Build a MantineProvider wrapper for the given `env` + forced color scheme.
-// `env="test"` makes Mantine render transitions synchronously (no internal
-// `setTimeout`). Without it, a `Transition`/`Modal` open/close timer can fire
-// after happy-dom tears down `window` at the end of the run, throwing an
-// uncaught `ReferenceError: window is not defined` that fails the whole run
-// even when every assertion passed (#1760). This is the right default for the
-// vast majority of tests, which don't assert on mid-transition state.
+// Build a MantineProvider wrapper for the given Mantine `env` + forced color
+// scheme. See the two render helpers below for what each `env` value is for.
 function makeWrapper(env: "test" | "default", colorScheme: MantineColorScheme) {
   return function Wrapper({ children }: { children: ReactNode }) {
     return (
@@ -29,6 +24,13 @@ function makeWrapper(env: "test" | "default", colorScheme: MantineColorScheme) {
   };
 }
 
+// Default render helper. `env="test"` makes Mantine render transitions
+// synchronously (no internal `setTimeout`). Without it, a `Transition`/`Modal`
+// open/close timer can fire after happy-dom tears down `window` at the end of
+// the run, throwing an uncaught `ReferenceError: window is not defined` that
+// fails the whole run even when every assertion passed (#1760). This is the
+// right default for the vast majority of tests, which don't assert on
+// mid-transition state.
 export function renderWithMantine(
   ui: ReactElement,
   options?: MantineRenderOptions,

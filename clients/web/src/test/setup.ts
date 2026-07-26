@@ -72,12 +72,15 @@ Object.defineProperty(globalThis, "fetch", {
 Object.defineProperty(window, "matchMedia", {
   configurable: true,
   writable: true,
-  // Partial `matchMedia` mock: happy-dom doesn't implement it, and the members
-  // below are all the app touches. The stub omits the rest of `MediaQueryList`,
-  // so the double cast bridges the deliberately-incomplete shape.
+  // Partial `matchMedia` override: the members below are all the app touches.
+  // The stub omits the rest of `MediaQueryList`, so the double cast bridges the
+  // deliberately-incomplete shape. The `matches` regex is anchored to the
+  // `reduce` form so the stub doesn't also answer `true` to
+  // `(prefers-reduced-motion: no-preference)` (claiming both preferences at
+  // once); Mantine only ever queries the `reduce` form.
   value: (query: string): MediaQueryList =>
     ({
-      matches: /prefers-reduced-motion/.test(query),
+      matches: /prefers-reduced-motion:\s*reduce/.test(query),
       media: query,
       onchange: null,
       addEventListener: () => {},
