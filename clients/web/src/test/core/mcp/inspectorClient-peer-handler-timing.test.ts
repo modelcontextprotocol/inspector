@@ -39,12 +39,15 @@ import { InspectorClient } from "@inspector/core/mcp/inspectorClient.js";
  * normalization — same #1797 thread, since answering `roots/list` promptly is
  * only useful if what we answer with is well-formed.
  *
- * The last two cover the flip side of the same move. Registering the handlers
- * before the handshake also widened the window in which a server can queue a
- * request with us, so the two paths that end a connection without going through
- * `disconnect()` — a failed `connect()` and a mid-session transport close — must
- * clear that queue *and* announce it, or the web pending-request modal outlives
- * the connection it belongs to.
+ * The teardown cases cover the flip side of the same move. Registering the
+ * handlers before the handshake also widened the window in which a server can
+ * queue a request with us, so every path that ends a connection has to clear
+ * that queue and announce it — otherwise the web pending-request modal outlives
+ * the connection it belongs to. There are three: a failed `connect()`, a
+ * mid-session transport close, and an explicit `disconnect()`. All three clear
+ * before announcing the teardown; the first two emit the change events
+ * immediately, while `disconnect()` batches them with its other teardown
+ * dispatches.
  */
 class InitializedRacingTransport implements Transport {
   onmessage?: (message: JSONRPCMessage) => void;
@@ -452,10 +455,19 @@ describe("InspectorClient peer-handler timing (#1797)", () => {
     client.addEventListener("disconnect", () => {
       queueDuringDisconnectEvent = client.getPendingElicitations().length;
     });
+    // The array is what a `disconnect` handler reads; the change event is what
+    // drives the modal. `disconnect()` batches the latter after its `disconnect`
+    // dispatch, so this is asserted after the await rather than inside the
+    // listener — pinning that it happens, not where it interleaves.
+    const elicitationCounts: number[] = [];
+    client.addEventListener("pendingElicitationsChange", (event) => {
+      elicitationCounts.push((event as CustomEvent).detail.length);
+    });
     // This fixture's close() never fires onclose, so the clear under test is
     // `disconnect()`'s own, not the crash path's.
     await client.disconnect();
 
     expect(queueDuringDisconnectEvent).toBe(0);
+    expect(elicitationCounts.at(-1)).toBe(0);
   });
 });
