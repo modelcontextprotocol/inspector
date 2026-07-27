@@ -90,6 +90,16 @@ export const isDisablingFlag = (t) => /^--(noCheck|listFilesOnly)$/i.test(t);
  */
 export const matchesTestGlob = (file, glob) => path.matchesGlob(file, glob);
 
+// `node --test` flags that make it execute only PART of the suite its globs
+// match, while still exiting 0. This is `--noCheck` for the test runner: the
+// gate runs, but gates less than it appears to.
+const NARROWING_TEST_FLAGS = new Set([
+  "--test-shard",
+  "--test-only",
+  "--test-name-pattern",
+  "--test-skip-pattern",
+]);
+
 // `node --test` flags whose VALUE is a separate token — never a positional glob.
 const VALUE_TAKING_TEST_FLAGS = new Set([
   "--test-coverage-include",
@@ -129,13 +139,16 @@ const VALUE_TAKING_TEST_FLAGS = new Set([
  * accepts — would otherwise match nothing and blame every file for a rename that
  * never happened (`rootRunsClientValidate` normalizes it for the same reason).
  */
-export const testScriptGlobs = (scripts) =>
+const testRunnerSegments = (scripts) =>
   [...reachableScripts(scripts, "test:scripts")]
     .map((n) => scripts?.[n])
     .filter((c) => typeof c === "string")
     .flatMap((c) => c.split(/&&|\|\||;/))
     .map((segment) => tokenize(segment))
-    .filter((tokens) => tokens.includes("--test")) // only `node --test` names test files
+    .filter((tokens) => tokens.includes("--test")); // only `node --test` names test files
+
+export const testScriptGlobs = (scripts) =>
+  testRunnerSegments(scripts)
     .flatMap((tokens) =>
       tokens.filter(
         (t, i) =>
@@ -145,6 +158,22 @@ export const testScriptGlobs = (scripts) =>
       ),
     )
     .map((g) => g.replace(/^\.\//, ""));
+
+/**
+ * Suite-narrowing flags the `test:scripts` runner is given. The other three axes
+ * ask whether the tests are RUN, whether there are any, and whether the runner
+ * is told about each — none asks what it then DOES with them. `--test-shard 1/2`
+ * keeps every glob intact and executes half the suite, exiting 0; `--test-only`
+ * and the name/skip patterns are the same shape. Three of these are already in
+ * `VALUE_TAKING_TEST_FLAGS` — the guard knew them well enough to drop their
+ * values, but not that they shrink the run.
+ */
+export const testScriptNarrowingFlags = (scripts) =>
+  testRunnerSegments(scripts)
+    .flat()
+    // `--flag=value` and `--flag value` both report as the bare flag name.
+    .map((t) => t.split("=")[0])
+    .filter((t) => NARROWING_TEST_FLAGS.has(t));
 
 /**
  * Gate-integrity problems with `test:scripts` — this guard's OWN parser tests —
@@ -179,6 +208,10 @@ export function testScriptProblems(scripts, testFiles) {
     );
     return problems;
   }
+  for (const flag of testScriptNarrowingFlags(scripts))
+    problems.push(
+      `\`test:scripts\` passes \`${flag}\` — \`node --test\` then runs only part of the matched suite and still exits 0, so the parsers this guard gates are partly unrun. Drop it.`,
+    );
   for (const f of testFiles)
     if (!globs.some((g) => matchesTestGlob(f, g)))
       problems.push(
@@ -579,6 +612,25 @@ function trackedNonClientSource() {
 }
 
 /**
+ * The remediation footer for a set of gate-integrity problems, or `null` when
+ * none of them is about the typecheck wiring. Not every phase-1 problem is: the
+ * sibling-guard vouch (`verify:format-coverage`), client enrollment (a
+ * manifest-less `clients/*`, a stale `EXEMPT` key), and the `test:scripts` axes
+ * each carry their own per-line remediation, and appending `--noCheck`/`tsc -b`
+ * advice under one of those sends the reader after the wrong thing.
+ *
+ * Pure and outside `main()` on purpose — this is the third consecutive round in
+ * which the newest branch in `main()` turned out to be the one mutation testing
+ * couldn't reach, including the branch this function replaces.
+ */
+export function integrityAdvice(problems, nonTypecheckProblems) {
+  const isTypecheck = (f) => !nonTypecheckProblems.includes(f);
+  return problems.some(isTypecheck)
+    ? "\nRestore the `typecheck` wiring (client `validate` → `typecheck`, root `validate` → each client), and drop any `--noCheck`/`--listFilesOnly`/`noCheck` from the typecheck pass."
+    : null;
+}
+
+/**
  * Run the guard: enumerate clients, check gate integrity (phase 1), then file
  * coverage (phase 2). Prints its verdict and `process.exit(1)`s on any failure.
  * Called only when this file is executed directly — importing it (for tests)
@@ -614,11 +666,13 @@ export function main() {
   // Vouch for the sibling guard — a guard can't detect being unrun itself, but the
   // two can each assert the other is still wired into `validate`, so dropping
   // either is caught here (only deleting both slips through).
+  const siblingVouchIssues = [];
   if (!rootReachesScript(rootPkg.scripts, "verify:format-coverage")) {
-    integrity.push(
+    siblingVouchIssues.push(
       "the root `validate` no longer runs `verify:format-coverage` (its sibling guard) — restore it.",
     );
   }
+  integrity.push(...siblingVouchIssues);
 
   const testScriptIssues = testScriptProblems(
     rootPkg.scripts,
@@ -698,14 +752,12 @@ export function main() {
       `verify:typecheck-coverage — ${integrity.length} gate-integrity issue(s): a typecheck gate is not run, or runs but checks nothing:\n`,
     );
     for (const f of integrity) console.error("  " + f);
-    // Only advise on the typecheck wiring when something above is ABOUT it — a
-    // `test:scripts` issue carries its own remediation per line, and appending
-    // `--noCheck`/`tsc -b` advice under a renamed-test-file message sends the
-    // reader after the wrong thing.
-    if (integrity.some((f) => !testScriptIssues.includes(f)))
-      console.error(
-        "\nRestore the `typecheck` wiring (client `validate` → `typecheck`, root `validate` → each client), and drop any `--noCheck`/`--listFilesOnly`/`noCheck` from the typecheck pass.",
-      );
+    const advice = integrityAdvice(integrity, [
+      ...enrollmentProblems,
+      ...siblingVouchIssues,
+      ...testScriptIssues,
+    ]);
+    if (advice) console.error(advice);
     process.exit(1);
   }
 

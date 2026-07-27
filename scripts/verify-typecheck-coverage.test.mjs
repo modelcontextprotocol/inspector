@@ -13,7 +13,9 @@ import {
   parseTsconfigReferences,
   projectConfigFile,
   refToProject,
+  integrityAdvice,
   testScriptGlobs,
+  testScriptNarrowingFlags,
   testScriptProblems,
   tscBuildStatus,
   typecheckProjects,
@@ -273,6 +275,72 @@ test("testScriptProblems: all three axes (r33 finding 2)", () => {
       ),
     ),
     /names no path\/glob/,
+  );
+});
+
+test("testScriptNarrowingFlags: flags that shrink the run (r35 finding 1)", () => {
+  const flags = (cmd) => testScriptNarrowingFlags({ "test:scripts": cmd });
+  const GLOB = '"scripts/**/*.test.mjs"';
+  // `--test-shard 1/2` keeps every glob intact and runs half the suite, exit 0.
+  assert.deepEqual(flags(`node --test --test-shard 1/2 ${GLOB}`), [
+    "--test-shard",
+  ]);
+  assert.deepEqual(flags(`node --test --test-only ${GLOB}`), ["--test-only"]);
+  assert.deepEqual(flags(`node --test --test-name-pattern zzz ${GLOB}`), [
+    "--test-name-pattern",
+  ]);
+  assert.deepEqual(flags(`node --test --test-skip-pattern=zzz ${GLOB}`), [
+    "--test-skip-pattern",
+  ]); // `=` form
+  // Not narrowing: the plain form, and a coverage flag that only reports.
+  assert.deepEqual(flags(`node --test ${GLOB}`), []);
+  assert.deepEqual(
+    flags(
+      `node --test --experimental-test-coverage --test-coverage-include "scripts/**/*.mjs" ${GLOB}`,
+    ),
+    [],
+  );
+  // A narrowing flag on a NON-runner segment isn't the runner's (r33 gate).
+  assert.deepEqual(
+    testScriptNarrowingFlags({
+      "test:scripts": `node --test ${GLOB}`,
+      "pretest:scripts": "some-tool --test-only",
+    }),
+    [],
+  );
+  // Reported as a gate-integrity problem, with the globs still harvested.
+  const wired = {
+    validate: "npm run test:scripts",
+    "test:scripts": `node --test --test-shard 1/2 ${GLOB}`,
+  };
+  assert.deepEqual(testScriptGlobs(wired), ["scripts/**/*.test.mjs"]);
+  const problems = testScriptProblems(wired, ["scripts/a.test.mjs"]);
+  assert.equal(problems.length, 1);
+  assert.match(
+    problems[0],
+    /--test-shard.*runs only part of the matched suite/,
+  );
+});
+
+test("integrityAdvice: typecheck footer only for typecheck issues (r35 finding 2 / nit 3)", () => {
+  const TYPECHECK = "clients/cli: the root `validate` chain no longer runs …";
+  const SIBLING =
+    "the root `validate` no longer runs `verify:format-coverage` …";
+  const TESTS = "scripts/a.spec.mjs: not matched by the `test:scripts` glob …";
+  // Only typecheck-wiring issues → advise.
+  assert.match(
+    integrityAdvice([TYPECHECK], []),
+    /Restore the `typecheck` wiring/,
+  );
+  // Every issue is a non-typecheck one → stay silent. The sibling-guard vouch
+  // and client-enrollment problems count here too, not just `test:scripts`.
+  assert.equal(integrityAdvice([TESTS], [TESTS]), null);
+  assert.equal(integrityAdvice([SIBLING], [SIBLING]), null);
+  assert.equal(integrityAdvice([SIBLING, TESTS], [SIBLING, TESTS]), null);
+  // A mix still advises — the typecheck issue is real.
+  assert.match(
+    integrityAdvice([SIBLING, TYPECHECK, TESTS], [SIBLING, TESTS]),
+    /Restore the `typecheck` wiring/,
   );
 });
 
