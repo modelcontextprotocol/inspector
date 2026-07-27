@@ -617,6 +617,11 @@ describe("InspectorClient peer-handler timing (#1797)", () => {
         // Short, so a regression run doesn't leave the raw-wire request's own
         // timer armed past the failing test — and so its message ("timed out
         // after 50 ms") beats a generic race message at describing the failure.
+        // Note this is the *client-wide* request timeout, not a per-call one;
+        // it is safe here only because this test issues no SDK request after
+        // connect (`fetchServerInfo` reads cached values, and no
+        // `setLoggingLevel` since the fixture advertises no logging). Anything
+        // added later would inherit the 50ms budget.
         timeout: 50,
       },
     );

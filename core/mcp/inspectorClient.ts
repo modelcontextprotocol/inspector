@@ -1228,7 +1228,9 @@ export class InspectorClient extends InspectorClientEventTarget {
         return this.enqueuePendingSample(request, "server-request");
       };
       this.client.setRequestHandler("sampling/createMessage", samplingHandler);
-      if (this.receiverTasks) {
+      // Registration, like the `setRequestHandler` above it — so it reads
+      // the advertisement, not the option (equivalent today).
+      if (this.tasksCapabilityAdvertised) {
         this.installReceiverTaskResponseBypass(
           "sampling/createMessage",
           samplingHandler,
@@ -1293,7 +1295,9 @@ export class InspectorClient extends InspectorClientEventTarget {
         return this.enqueuePendingElicitation(request, "server-request");
       };
       this.client.setRequestHandler("elicitation/create", elicitHandler);
-      if (this.receiverTasks) {
+      // Registration, like the `setRequestHandler` above it — so it reads
+      // the advertisement, not the option (equivalent today).
+      if (this.tasksCapabilityAdvertised) {
         this.installReceiverTaskResponseBypass(
           "elicitation/create",
           elicitHandler,
