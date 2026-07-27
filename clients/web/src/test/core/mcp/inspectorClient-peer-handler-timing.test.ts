@@ -883,9 +883,20 @@ describe("InspectorClient peer-handler timing (#1797)", () => {
     // stream still open on the server. Nothing else can close it afterwards:
     // the `closed` handler bails on the bumped generation.
     const transport = new SampleAfterConnectTransport();
+    // Counted, because transport *reuse* is what makes "a stream still open on
+    // the server" true — if a future change recreated it here, the scenario
+    // would quietly stop applying while the test kept passing.
+    let created = 0;
     const client = new InspectorClient(
       { type: "stdio", command: "noop", args: [] },
-      { environment: { transport: () => ({ transport }) } },
+      {
+        environment: {
+          transport: () => {
+            created++;
+            return { transport };
+          },
+        },
+      },
     );
     await client.connect();
 
@@ -906,6 +917,7 @@ describe("InspectorClient peer-handler timing (#1797)", () => {
     await client.connect();
 
     expect(closed).toBe(true);
+    expect(created).toBe(1);
 
     await client.disconnect();
   });

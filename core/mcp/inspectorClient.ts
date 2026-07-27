@@ -1458,9 +1458,11 @@ export class InspectorClient extends InspectorClientEventTarget {
    * own `finally` once the SDK rejects it, the rest by `disconnect()` and the
    * crash path.
    *
-   * `disconnect()` clears all of this on the way out too — two members through
-   * the same helpers, the other two hand-rolled in both places, so a sixth
-   * member added here has to be added there as well. It is not the only
+   * `disconnect()` touches all of this on the way out too — two members through
+   * the same helpers, three hand-rolled in both places — so a sixth member
+   * added here has to be added there as well. One of the three is *paired*
+   * rather than duplicated: `modernLogLevel` is re-derived here and blanked
+   * there, deliberately (see the comment at that site). It is not the only
    * way a session ends — a crash, or a failed connect the caller retries on
    * this same instance (the auth-recovery path), both leave it behind. Called
    * start-clean from `connect()` so every route in is covered.
@@ -4705,9 +4707,15 @@ export class InspectorClient extends InspectorClientEventTarget {
     });
 
     // Observe termination; an unexpected drop reconnects by re-listing.
-    void subscription.closed.then((reason) =>
-      this.onModernSubscriptionClosed(subscription, reason, generation),
-    );
+    void subscription.closed
+      .then((reason) =>
+        this.onModernSubscriptionClosed(subscription, reason, generation),
+      )
+      // A `closed` that rejects carries no reason to act on — and an unhandled
+      // rejection ends a Node process by default. Reachable since the
+      // connect-path reset started closing streams that previously sat with
+      // `closed` pending forever.
+      .catch(() => {});
   }
 
   /**
