@@ -1428,10 +1428,13 @@ export class InspectorClient extends InspectorClientEventTarget {
    * drop back off as if it were the old session's nth. Both axes are announced:
    * every other mutation of the set dispatches, and so does the stream state.
    *
-   * The live subscription's best-effort `close()` stays with `disconnect()` —
-   * that is the only caller with a stream still worth closing.
+   * Closes the stream itself, best-effort. `disconnect()` is the obvious caller
+   * with a live one, but not the only one: an `onerror` without an `onclose`
+   * leaves the transport up, and `connect()` then reuses it — so the reference
+   * dropped here can be the last one to a stream still open on the server.
    */
   private resetSubscriptionStream(): void {
+    const closing = this.modernSubscription;
     this.subscribedResources.clear();
     this.modernListenGeneration++;
     this.clearModernReconnectTimer();
@@ -1442,6 +1445,8 @@ export class InspectorClient extends InspectorClientEventTarget {
     // helper exists to prevent, so its own dispatches must not expose it.
     this.setModernStreamState(INACTIVE_SUBSCRIPTION_STREAM_STATE);
     this.dispatchSubscriptionsChange();
+    // After the dispatches, so the ordering above is unaffected.
+    closing?.close().catch(() => {});
   }
 
   /**
@@ -1449,9 +1454,13 @@ export class InspectorClient extends InspectorClientEventTarget {
    * next server could be told about, or that would change how we treat its
    * traffic. State that only needs settling on the way out (the peer-request
    * queues, the raw-wire map, the in-flight tool call) is handled by the
-   * teardown paths instead, not here.
+   * teardown paths instead, not here — the in-flight tool call by `callTool`'s
+   * own `finally` once the SDK rejects it, the rest by `disconnect()` and the
+   * crash path.
    *
-   * `disconnect()` clears all of this on the way out, but it is not the only
+   * `disconnect()` clears all of this on the way out too — two members through
+   * the same helpers, the other two hand-rolled in both places, so a sixth
+   * member added here has to be added there as well. It is not the only
    * way a session ends — a crash, or a failed connect the caller retries on
    * this same instance (the auth-recovery path), both leave it behind. Called
    * start-clean from `connect()` so every route in is covered.
@@ -1935,9 +1944,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     // Clear resource subscriptions on disconnect. Tear down the modern listen
     // stream (best-effort — the transport is already going away) and bump the
     // generation so any in-flight re-listen/reconnect bails (#1630).
-    const closingSubscription = this.modernSubscription;
     this.resetSubscriptionStream();
-    closingSubscription?.close().catch(() => {});
     this.cancelledTaskIds.clear();
     // Settle any pending raw-wire (modern tasks/*) requests so their callers
     // don't hang past teardown. Rejected outright on every disconnect: the

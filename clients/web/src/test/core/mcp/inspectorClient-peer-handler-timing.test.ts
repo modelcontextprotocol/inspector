@@ -785,6 +785,13 @@ describe("InspectorClient peer-handler timing (#1797)", () => {
     client.addEventListener("resourceSubscriptionStreamChange", (event) => {
       streamStates.push((event as CustomEvent).detail);
     });
+    // Same for the set: `ResourceSubscriptionsState` reads `event.detail` and
+    // never the client's field, so clearing without announcing would leave the
+    // Resources tiles standing on a reconnected session.
+    const subscriptionLists: string[][] = [];
+    client.addEventListener("resourceSubscriptionsChange", (event) => {
+      subscriptionLists.push((event as CustomEvent).detail);
+    });
 
     transport.onclose?.();
     await client.connect();
@@ -797,6 +804,7 @@ describe("InspectorClient peer-handler timing (#1797)", () => {
       active: false,
     });
     expect(streamStates.at(-1)).toMatchObject({ active: false });
+    expect(subscriptionLists.at(-1)).toEqual([]);
 
     await client.disconnect();
   });
@@ -865,6 +873,39 @@ describe("InspectorClient peer-handler timing (#1797)", () => {
     await client.connect();
 
     expect(controller.signal.aborted).toBe(true);
+
+    await client.disconnect();
+  });
+
+  it("closes a live listen stream the next connect drops", async () => {
+    // An `onerror` without an `onclose` leaves the transport up, and `connect()`
+    // reuses it — so the reference the reset drops can be the last one to a
+    // stream still open on the server. Nothing else can close it afterwards:
+    // the `closed` handler bails on the bumped generation.
+    const transport = new SampleAfterConnectTransport();
+    const client = new InspectorClient(
+      { type: "stdio", command: "noop", args: [] },
+      { environment: { transport: () => ({ transport }) } },
+    );
+    await client.connect();
+
+    let closed = false;
+    // Seeded directly: establishing a real listen stream needs a modern server
+    // answering `subscriptions/listen`, which adds nothing to what is tested.
+    (
+      client as unknown as {
+        modernSubscription: { close: () => Promise<void> } | null;
+      }
+    ).modernSubscription = {
+      close: async () => {
+        closed = true;
+      },
+    };
+
+    transport.onerror?.(new Error("stream broke, transport still up"));
+    await client.connect();
+
+    expect(closed).toBe(true);
 
     await client.disconnect();
   });
