@@ -80,6 +80,29 @@ describe("InspectorClient connect() after a silently satisfied auth challenge", 
     }
   }
 
+  /** Rejects the handshake for a non-auth reason (no recovery re-entry). */
+  class FailingTransport implements Transport {
+    onclose?: () => void;
+    onerror?: (error: Error) => void;
+    onmessage?: (message: JSONRPCMessage) => void;
+
+    private readonly reason: string;
+
+    // A parameter property would trip `erasableSyntaxOnly`.
+    constructor(reason: string) {
+      this.reason = reason;
+    }
+
+    async start(): Promise<void> {}
+    async close(): Promise<void> {
+      this.onclose?.();
+    }
+
+    async send(): Promise<void> {
+      throw new Error(this.reason);
+    }
+  }
+
   it("resolves, reports connected, and dispatches exactly one connect event", async () => {
     let transportsCreated = 0;
     const client = new InspectorClient(
@@ -137,13 +160,25 @@ describe("InspectorClient connect() after a silently satisfied auth challenge", 
   });
 
   it("still rejects when the reconnect underneath the recovery fails", async () => {
-    // The short-circuit must not mask a failed re-handshake: the nested
-    // connect() throws, so connect() rejects and the status lands on "error".
+    // The short-circuit must not mask a failed re-handshake. The reconnect
+    // fails for a *non-auth* reason, so recovery does not re-enter: the outer
+    // connect() surfaces that error and lands on "error" (a second auth
+    // challenge instead would be held by isConnectAuthRecoveryError, which is
+    // the bounded chain the next test covers).
+    let transportsCreated = 0;
     const client = new InspectorClient(
       { type: "streamable-http", url: "https://mcp.example/mcp" },
       {
         environment: {
-          transport: () => ({ transport: new ChallengingTransport() }),
+          transport: () => {
+            transportsCreated += 1;
+            return {
+              transport:
+                transportsCreated === 1
+                  ? new ChallengingTransport()
+                  : new FailingTransport("handshake refused"),
+            };
+          },
           oauth: oauthEnvironment(),
         },
         oauth: { clientId: "satisfied-recovery-test" },
@@ -154,7 +189,47 @@ describe("InspectorClient connect() after a silently satisfied auth challenge", 
       kind: "satisfied",
     });
 
-    await expect(client.connect()).rejects.toThrow();
+    await expect(client.connect()).rejects.toThrow(/handshake refused/);
+    expect(client.getStatus()).toBe("error");
+  });
+
+  it("reports the teardown, not the stale challenge, when the recovered session dies first", async () => {
+    // The retry leg is reached only after the nested connect() completed, but
+    // the session can die in between. Simulated deterministically: the nested
+    // connect dispatches `connect` after setting "connected", so closing the
+    // live transport from that listener flips the status before the retry leg
+    // runs. It must report why the session died rather than rethrowing the
+    // original 401 the recovery already dealt with.
+    let transportsCreated = 0;
+    let live: HandshakingTransport | undefined;
+    const client = new InspectorClient(
+      { type: "streamable-http", url: "https://mcp.example/mcp" },
+      {
+        environment: {
+          transport: () => {
+            transportsCreated += 1;
+            if (transportsCreated === 1) {
+              return { transport: new ChallengingTransport() };
+            }
+            live = new HandshakingTransport();
+            return { transport: live };
+          },
+          oauth: oauthEnvironment(),
+        },
+        oauth: { clientId: "satisfied-recovery-test" },
+        directAuthRecovery: true,
+      },
+    );
+    vi.spyOn(client, "handleAuthChallenge").mockResolvedValue({
+      kind: "satisfied",
+    });
+    client.addEventListener("connect", () => {
+      live?.onclose?.();
+    });
+
+    await expect(client.connect()).rejects.toThrow(
+      /Connection closed during authorization recovery/,
+    );
     expect(client.getStatus()).not.toBe("connected");
   });
 
