@@ -536,6 +536,22 @@ export class InspectorClient extends InspectorClientEventTarget {
   /** null until first transport is built; then true for in-process OAuth runners. */
   private directAuthRecoveryActive: boolean | null = null;
   /**
+   * Nesting depth of in-flight silent auth recoveries. `withDirectAuthRecovery`
+   * bounds retries per call (`attempt >= 1`), but a satisfied outcome recovers
+   * by running a *nested* `connect()`, which starts its own recovery with a
+   * fresh counter — so a server that keeps answering 401 with freshly refreshed
+   * tokens would recurse without bound. Counted across the nesting boundary and
+   * capped at {@link InspectorClient.MAX_NESTED_AUTH_RECOVERIES}.
+   */
+  private authRecoveryDepth = 0;
+  /**
+   * Cap on nested silent recoveries. One is the normal case (challenge →
+   * refresh → reconnect); a couple more absorb a legitimately re-challenged
+   * reconnect. Beyond that the credentials are not fixing the challenge, so the
+   * challenge is surfaced to the caller instead of recovered again.
+   */
+  private static readonly MAX_NESTED_AUTH_RECOVERIES = 3;
+  /**
    * Opt-in from {@link InspectorClientOptions.directAuthRecovery}: when true and
    * the live transport is direct (not {@link RemoteClientTransport}), RPCs use
    * fetch intercept + {@link withDirectAuthRecovery}.
@@ -1809,10 +1825,10 @@ export class InspectorClient extends InspectorClientEventTarget {
       // Set when a satisfied auth recovery already completed a full connect()
       // underneath us — see the short-circuit in `runConnect`.
       let recoveredByNestedConnect = false;
-      const runConnect = async (): Promise<void> => {
-        if (this.status === "connected") {
-          // We are the *retry* leg of `withDirectAuthRecovery`: the challenge
-          // was satisfied silently (e.g. a refresh token), so
+      const runConnect = async (attempt: number): Promise<void> => {
+        if (attempt > 0) {
+          // The *retry* leg of `withDirectAuthRecovery`: the challenge was
+          // satisfied silently (e.g. a refresh token), so
           // `reconnectAfterAuthRecovery()` has already run a complete
           // `connect()` — handshake, server info, `connect` event and all.
           // `connectPromise` is created once, outside this closure, so
@@ -1821,7 +1837,17 @@ export class InspectorClient extends InspectorClientEventTarget {
           // circuit instead, and let the caller skip the post-connect block the
           // nested connect already ran (dispatching a second `connect` event
           // would re-trigger every list-state manager's refresh).
+          //
+          // Keyed off the leg rather than live status: an `onclose` landing
+          // between the nested connect and here would flip status off
+          // "connected" and fall through to the rejected `connectPromise`,
+          // reporting the stale handshake 401 as the reason the session died.
           recoveredByNestedConnect = true;
+          if (this.status !== "connected") {
+            throw new Error(
+              "Connection closed during authorization recovery, after re-authorizing successfully",
+            );
+          }
           return;
         }
         if (connectTimeoutMs > 0) {
@@ -5336,17 +5362,27 @@ export class InspectorClient extends InspectorClientEventTarget {
   }
 
   private async withDirectAuthRecovery<T>(
-    operation: () => Promise<T>,
+    operation: (attempt: number) => Promise<T>,
     context?: { method?: string; toolName?: string },
     attempt = 0,
   ): Promise<T> {
     try {
-      return await operation();
+      // `attempt` is passed through so an operation can tell the first leg from
+      // the post-recovery retry leg — `connect()` needs that distinction, and
+      // live connection status is a racy proxy for it.
+      return await operation(attempt);
     } catch (err) {
       if (attempt >= 1 || !this.usesDirectAuthRecovery()) {
         throw err;
       }
       if (!isAuthChallengeError(err)) {
+        throw err;
+      }
+      if (
+        this.authRecoveryDepth >= InspectorClient.MAX_NESTED_AUTH_RECOVERIES
+      ) {
+        // Refreshed credentials are not satisfying the server: recovering again
+        // would just re-enter the nested connect() below. Surface the challenge.
         throw err;
       }
       const challenge = parseAuthChallengeFromError(err, context);
@@ -5367,7 +5403,12 @@ export class InspectorClient extends InspectorClientEventTarget {
         if (this.activeToolCallAbortController) {
           this.activeToolCallAbortController = undefined;
         }
-        await this.reconnectAfterAuthRecovery();
+        this.authRecoveryDepth += 1;
+        try {
+          await this.reconnectAfterAuthRecovery();
+        } finally {
+          this.authRecoveryDepth -= 1;
+        }
         this.dispatchTypedEvent("authChallengeRecovered", { challenge });
         return this.withDirectAuthRecovery(operation, context, attempt + 1);
       }
@@ -5390,11 +5431,11 @@ export class InspectorClient extends InspectorClientEventTarget {
   }
 
   private async invokeMcpClient<T>(
-    operation: () => Promise<T>,
+    operation: (attempt: number) => Promise<T>,
     context?: { method?: string; toolName?: string },
   ): Promise<T> {
     if (!this.usesDirectAuthRecovery()) {
-      return operation();
+      return operation(0);
     }
     return this.withDirectAuthRecovery(operation, context);
   }

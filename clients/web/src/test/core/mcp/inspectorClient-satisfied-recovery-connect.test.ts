@@ -114,9 +114,19 @@ describe("InspectorClient connect() after a silently satisfied auth challenge", 
     client.addEventListener("connect", () => {
       connectEvents += 1;
     });
+    let connectedStatusEvents = 0;
+    client.addEventListener("statusChange", (event) => {
+      if (event.detail === "connected") connectedStatusEvents += 1;
+    });
 
     await expect(client.connect()).resolves.toBeUndefined();
     expect(client.getStatus()).toBe("connected");
+    // The outer call skips fetchServerInfo(); this pins that the nested connect
+    // populated it, i.e. the early return loses nothing.
+    expect(client.getServerInfo()?.name).toBe("recovered-server");
+    // The duplicate statusChange("connected") is suppressed with the duplicate
+    // connect event.
+    expect(connectedStatusEvents).toBe(1);
     expect(transportsCreated).toBe(2);
     // The nested connect() already ran the post-connect block; the outer call
     // must not run it a second time (a duplicate `connect` re-triggers every
@@ -124,5 +134,57 @@ describe("InspectorClient connect() after a silently satisfied auth challenge", 
     expect(connectEvents).toBe(1);
 
     await client.disconnect();
+  });
+
+  it("still rejects when the reconnect underneath the recovery fails", async () => {
+    // The short-circuit must not mask a failed re-handshake: the nested
+    // connect() throws, so connect() rejects and the status lands on "error".
+    const client = new InspectorClient(
+      { type: "streamable-http", url: "https://mcp.example/mcp" },
+      {
+        environment: {
+          transport: () => ({ transport: new ChallengingTransport() }),
+          oauth: oauthEnvironment(),
+        },
+        oauth: { clientId: "satisfied-recovery-test" },
+        directAuthRecovery: true,
+      },
+    );
+    vi.spyOn(client, "handleAuthChallenge").mockResolvedValue({
+      kind: "satisfied",
+    });
+
+    await expect(client.connect()).rejects.toThrow();
+    expect(client.getStatus()).not.toBe("connected");
+  });
+
+  it("bounds nested recoveries when refreshed credentials keep being rejected", async () => {
+    // Every transport challenges and every challenge reports satisfied, so each
+    // recovery reconnects into a fresh challenge. Recovery is counted across
+    // the nesting boundary, so this terminates instead of recursing forever.
+    let transportsCreated = 0;
+    const client = new InspectorClient(
+      { type: "streamable-http", url: "https://mcp.example/mcp" },
+      {
+        environment: {
+          transport: () => {
+            transportsCreated += 1;
+            return { transport: new ChallengingTransport() };
+          },
+          oauth: oauthEnvironment(),
+        },
+        oauth: { clientId: "satisfied-recovery-test" },
+        directAuthRecovery: true,
+      },
+    );
+    vi.spyOn(client, "handleAuthChallenge").mockResolvedValue({
+      kind: "satisfied",
+    });
+
+    await expect(client.connect()).rejects.toBeInstanceOf(AuthChallengeError);
+    // One transport per connect attempt: the initial one plus the three
+    // bounded nested recoveries (MAX_NESTED_AUTH_RECOVERIES), not an unbounded
+    // chain.
+    expect(transportsCreated).toBe(4);
   });
 });
