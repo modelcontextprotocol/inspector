@@ -46,11 +46,14 @@ const repoRoot = path.resolve(
 // explicit list, mirroring `verify-format-coverage.mjs`'s `MANIFESTS`.
 const CLIENTS = ["clients/cli", "clients/tui", "clients/launcher"];
 
-// Ambient declaration files are excluded from the required set: an unreferenced
-// `*.d.ts` shim (e.g. web's `vitest.shims.d.ts`) is type-only and not a real
-// gap. There are none under cli/tui/launcher today; this pre-empts one.
+// TypeScript source extensions this guard requires a tsc pass for. Matches its
+// sibling's TS set (`verify-format-coverage.mjs` — `.mts` is already the idiom
+// for shared config here, e.g. `vitest.shared.mts`, so a client `.mts`/`.cts`
+// must be gated too). Ambient declaration files are excluded: an unreferenced
+// `*.d.{ts,mts,cts}` shim (e.g. web's `vitest.shims.d.ts`) is type-only and not
+// a real gap. There are no client `.mts`/`.cts` today; this pre-empts one.
 const isRequiredSource = (rel) =>
-  /\.(ts|tsx)$/.test(rel) && !rel.endsWith(".d.ts");
+  /\.(ts|tsx|mts|cts)$/.test(rel) && !/\.d\.(ts|mts|cts)$/.test(rel);
 
 /**
  * The tsconfig projects a client's `typecheck` names via `-p`/`--project`,
@@ -118,10 +121,11 @@ function projectFiles(clientDir, project) {
 
 /** Tracked first-party `.ts`/`.tsx` under a client (excludes build output). */
 function trackedSourceFiles(clientDir) {
-  const out = execFileSync("git", ["ls-files", "*.ts", "*.tsx"], {
-    cwd: path.join(repoRoot, clientDir),
-    encoding: "utf8",
-  });
+  const out = execFileSync(
+    "git",
+    ["ls-files", "*.ts", "*.tsx", "*.mts", "*.cts"],
+    { cwd: path.join(repoRoot, clientDir), encoding: "utf8" },
+  );
   return out
     .split("\n")
     .filter(Boolean)

@@ -27,7 +27,7 @@ export function reachableScripts(scripts, entry = "validate") {
 }
 
 /** The command strings of every script reachable from the root `validate`. */
-export function rootReachedCommands(rootScripts) {
+function rootReachedCommands(rootScripts) {
   return [...reachableScripts(rootScripts)]
     .map((n) => rootScripts?.[n])
     .filter((c) => typeof c === "string");
