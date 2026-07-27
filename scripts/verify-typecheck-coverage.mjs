@@ -200,7 +200,12 @@ export const testScriptNarrowingFlags = (scripts) =>
  * is by whether it registers tests, so read that instead of guessing.
  */
 export const isScriptsTestFile = (file, source) =>
-  /\.(c|m)?js$/.test(file) && /["']node:test["']/.test(source);
+  /\.(c|m)?js$/.test(file) &&
+  // Node's actual criterion is REGISTERING tests, not mentioning the module: a
+  // shared helper importing `node:test`'s `mock` registers none, and telling it
+  // to rename itself to `*.test.mjs` would only make node run an empty file.
+  /(?:\bfrom|\brequire\(\s*)\s*["']node:test["']/.test(source) &&
+  /\b(?:test|it|describe|suite)\s*\(/.test(source);
 
 /**
  * Gate-integrity problems with `test:scripts` — this guard's OWN parser tests —
@@ -712,9 +717,24 @@ export function main() {
     })
       .split("\n")
       .filter(Boolean)
-      .filter((f) =>
-        isScriptsTestFile(f, readFileSync(path.join(repoRoot, f), "utf8")),
-      ),
+      // Extension first, and the read guarded: a file in the index but not the
+      // worktree (`rm` without `git rm`, an ordinary mid-work state) would
+      // otherwise abort phase 1 with a raw ENOENT stack, masking every real
+      // finding — the round-6 precedent, where a failed `tsc` echoes its
+      // diagnostic instead of dying.
+      .filter((f) => /\.(c|m)?js$/.test(f))
+      .filter((f) => {
+        let src;
+        try {
+          src = readFileSync(path.join(repoRoot, f), "utf8");
+        } catch (err) {
+          console.warn(
+            `verify:typecheck-coverage — skipping tracked-but-unreadable ${f}: ${err.message}`,
+          );
+          return false;
+        }
+        return isScriptsTestFile(f, src);
+      }),
   );
   integrity.push(...testScriptIssues);
 

@@ -287,7 +287,20 @@ test("isScriptsTestFile: discovery by content, not name (r36 finding 1)", () => 
   assert.ok(isScriptsTestFile("scripts/lib/npm-scripts-test.mjs", TEST_SRC));
   assert.ok(isScriptsTestFile("scripts/tokenize-tests.mjs", TEST_SRC));
   assert.ok(isScriptsTestFile("scripts/a.test.js", TEST_SRC));
-  assert.ok(isScriptsTestFile("scripts/a.test.cjs", "require('node:test')"));
+  assert.ok(
+    isScriptsTestFile(
+      "scripts/a.test.cjs",
+      "const { test } = require('node:test');\ntest('x', () => {});\n",
+    ),
+  );
+  // A shared helper importing `node:test`'s `mock` registers no tests — telling
+  // it to rename itself to `*.test.mjs` would make node run an empty file.
+  assert.ok(
+    !isScriptsTestFile(
+      "scripts/lib/test-mocks.mjs",
+      'import { mock } from "node:test";\nexport const resetAll = () => mock.reset();\n',
+    ),
+  );
   // A guard script that merely mentions testing is not a test.
   assert.ok(
     !isScriptsTestFile(
