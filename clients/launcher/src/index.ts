@@ -13,6 +13,20 @@ function clientEntry(client: "web" | "cli" | "tui"): string {
   ).href;
 }
 
+/**
+ * Whether to append the error stack on a top-level failure. Gated on `MCP_DEBUG`
+ * or `DEBUG` being *meaningfully* set — `"0"` / `"false"` / empty read as off, so
+ * a stray `DEBUG=0` doesn't turn stacks on (and `DEBUG` stays useful for the
+ * `debug` package's namespace filter, which is any non-empty value).
+ */
+function wantsDebugStack(): boolean {
+  const on = (v: string | undefined): boolean => {
+    const s = v?.trim().toLowerCase();
+    return !!s && s !== "0" && s !== "false";
+  };
+  return on(process.env.MCP_DEBUG) || on(process.env.DEBUG);
+}
+
 const program = new Command();
 
 program
@@ -56,8 +70,15 @@ async function run(): Promise<void> {
     // exit-1 catch-all below.
     const { runCli, handleError } = await import(clientEntry("cli"));
     try {
+      // On success, let `run()` resolve and the event loop drain (rather than a
+      // `process.exit(0)`) — the CLI closes its own transports, and an eager exit
+      // risks truncating a large stdout payload on a pipe (async on macOS).
       await runCli(forwardedArgv);
     } catch (err) {
+      // A stale `cli/build` (built before handleError was exported) would make
+      // this `undefined`; fall through to the generic sink with the real message
+      // rather than throwing "handleError is not a function" over it.
+      if (typeof handleError !== "function") throw err;
       handleError(err); // writes the envelope + process.exit(code); never returns
     }
   } else {
@@ -74,7 +95,7 @@ run().catch((err: unknown) => {
     "Error running MCP Inspector:",
     err instanceof Error ? err.message : err,
   );
-  if ((process.env.DEBUG || process.env.MCP_DEBUG) && err instanceof Error) {
+  if (wantsDebugStack() && err instanceof Error) {
     console.error(err.stack);
   }
   process.exit(1);

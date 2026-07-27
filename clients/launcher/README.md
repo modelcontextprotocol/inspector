@@ -10,6 +10,8 @@ The launcher is the package that provides the global `mcp-inspector` binary (e.g
 
 All configuration parsing, config-file loading, and server setup are handled by the app runners and by **core**; the launcher does not interpret config or env vars.
 
+**Error reporting.** A `--cli` failure is routed through the CLI's own error sink, so `mcp-inspector --cli` preserves the CLI exit-code map (`1` usage, `2` no-app, `3` auth-required, `4` unreachable, `5` tool-error) and its machine-readable `{"error":{…}}` stderr envelope — the same as invoking the CLI bin directly. `--web` / `--tui` failures print a human-readable `Error: <message>` and exit `1` (append `MCP_DEBUG=1` for the stack).
+
 ## Web server-list flags (`--web`)
 
 `mcp-inspector --web` chooses which server list the UI shows and whether it is

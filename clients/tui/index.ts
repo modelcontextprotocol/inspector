@@ -18,7 +18,16 @@ if (isMain) {
     // an internal fault. Matches run-web.ts's house pattern. The stack is still
     // available under DEBUG / MCP_DEBUG for a real fault.
     console.error("Error:", err instanceof Error ? err.message : err);
-    if ((process.env.DEBUG || process.env.MCP_DEBUG) && err instanceof Error) {
+    // Append the stack only when DEBUG / MCP_DEBUG is *meaningfully* set — "0" /
+    // "false" / empty read as off, so a stray DEBUG=0 doesn't force a stack.
+    const debugOn = (v: string | undefined): boolean => {
+      const s = v?.trim().toLowerCase();
+      return !!s && s !== "0" && s !== "false";
+    };
+    if (
+      (debugOn(process.env.MCP_DEBUG) || debugOn(process.env.DEBUG)) &&
+      err instanceof Error
+    ) {
       console.error(err.stack);
     }
     process.exit(1);

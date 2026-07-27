@@ -439,12 +439,46 @@ try {
     );
   }
 
+  // 10) A NON-1 exit code survives the launcher too (the actual AK1 claim — the
+  //     whole EXIT_CODES map, not just the exit-1 the old catch-all produced).
+  //     --use-stored-auth with no stored token throws AUTH_REQUIRED (3) with
+  //     envelope code "no_stored_token" *before* any connect, so it's offline.
+  const noStoredAuth = runCli(
+    [
+      "--server-url",
+      "http://example.invalid/mcp",
+      "--method",
+      "tools/list",
+      "--use-stored-auth",
+    ],
+    { HOME: fakeHome, USERPROFILE: fakeHome },
+  );
+  if (noStoredAuth.status !== 3) {
+    fail(
+      `--use-stored-auth with no token should exit 3 (auth_required) through the launcher, got ${noStoredAuth.status}\n${noStoredAuth.stderr}`,
+    );
+  }
+  let authEnvelope;
+  try {
+    authEnvelope = JSON.parse(noStoredAuth.stderr.trim());
+  } catch {
+    fail(
+      `--use-stored-auth should emit a JSON envelope through the launcher; got:\n${noStoredAuth.stderr}`,
+    );
+  }
+  if (authEnvelope?.error?.code !== "no_stored_token") {
+    fail(
+      `--use-stored-auth envelope should be code "no_stored_token", got ${JSON.stringify(authEnvelope)}`,
+    );
+  }
+
   console.log(
     "smoke:cli OK — tools/list over stdio via --catalog; default-catalog seed; " +
       "read-only --config error (no seed); --catalog/--config conflict; " +
       "unknown --server error; multi-server --server selection; --header merge; " +
       "HTTP config-header lift + --header override on the wire; " +
-      "launcher --cli usage error → JSON envelope + exit 1",
+      "launcher --cli usage error → JSON envelope + exit 1; " +
+      "launcher --cli auth error → JSON envelope + exit 3",
   );
 } finally {
   rmSync(work, { recursive: true, force: true });
