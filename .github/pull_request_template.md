@@ -26,3 +26,8 @@
 > before continuing. If you're an external contributor, open an issue (and
 > share the prompt you used, if you've already built the change) rather than
 > this PR.
+>
+> Want to work on the Inspector with us directly? Come say hello in
+> **`#inspector-dev`** on the
+> [MCP Contributor Discord](https://discord.gg/6CSzBmMkjX) — we're happy to
+> scope work with you.
