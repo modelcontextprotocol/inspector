@@ -1725,6 +1725,14 @@ export class InspectorClient extends InspectorClientEventTarget {
         // auth-required. `findNestedAuthError` is the permanent fix; the
         // `|| this.probesProtocolEra()` clause below exists only to compensate
         // for that upstream gap and should be deleted with it.
+        //
+        // Known, accepted side effect of turning intercept on with no stored
+        // tokens: `parseAuthChallengeFromResponse` treats 403 as a challenge
+        // too, so a probe answered 403 for a *non-auth* reason (a gateway
+        // rejecting the unknown `server/discover` method, say) now starts OAuth
+        // discovery instead of letting "auto" fall back to the legacy
+        // `initialize`. The outcome is a surfaced `oauthError`, not a hang, and
+        // it goes away with this clause.
         (transportOptions.authProvider || this.probesProtocolEra())
       ) {
         transportOptions.interceptAuthChallenges = true;
@@ -1798,7 +1806,24 @@ export class InspectorClient extends InspectorClientEventTarget {
         .catch((err: unknown) => {
           throw findNestedAuthError(err) ?? err;
         });
+      // Set when a satisfied auth recovery already completed a full connect()
+      // underneath us — see the short-circuit in `runConnect`.
+      let recoveredByNestedConnect = false;
       const runConnect = async (): Promise<void> => {
+        if (this.status === "connected") {
+          // We are the *retry* leg of `withDirectAuthRecovery`: the challenge
+          // was satisfied silently (e.g. a refresh token), so
+          // `reconnectAfterAuthRecovery()` has already run a complete
+          // `connect()` — handshake, server info, `connect` event and all.
+          // `connectPromise` is created once, outside this closure, so
+          // re-awaiting it here would rethrow the *original* rejection and
+          // reject a `connect()` whose client is in fact connected. Short-
+          // circuit instead, and let the caller skip the post-connect block the
+          // nested connect already ran (dispatching a second `connect` event
+          // would re-trigger every list-state manager's refresh).
+          recoveredByNestedConnect = true;
+          return;
+        }
         if (connectTimeoutMs > 0) {
           connectPromise.catch(() => {});
           let timer: ReturnType<typeof setTimeout> | undefined;
@@ -1830,6 +1855,10 @@ export class InspectorClient extends InspectorClientEventTarget {
           await this.disconnect().catch(() => {});
         }
         throw err;
+      }
+      if (recoveredByNestedConnect) {
+        // The nested connect() from the auth recovery did all of the below.
+        return;
       }
       this.status = "connected";
       this.dispatchTypedEvent("statusChange", this.status);
@@ -5290,8 +5319,16 @@ export class InspectorClient extends InspectorClientEventTarget {
 
   /**
    * True when connect() sends the SDK's `server/discover` negotiation probe —
-   * i.e. `protocolEra` is "auto" or "modern" (`{ pin }`). Legacy is the default
-   * for an absent `mode`, matching the SDK.
+   * i.e. `protocolEra` is "auto", or "modern" (`{ pin: MODERN_PROTOCOL_VERSION }`).
+   * Legacy is the default for an absent `mode`, matching the SDK.
+   *
+   * `versionNegotiation` is a public option, so a caller can pin a revision the
+   * repo's own {@link eraToVersionNegotiation} never produces (it only ever
+   * pins {@link MODERN_PROTOCOL_VERSION}). That is still "probing" and
+   * deliberately reports true: per the SDK, *any* `{ pin }` sends the
+   * connect-time `server/discover` — "the connect-time `server/discover` must
+   * offer it. No fallback" — so the pinned revision doesn't change whether the
+   * probe (and hence the buried-401 problem) happens. Only "legacy" skips it.
    */
   private probesProtocolEra(): boolean {
     const mode = this.versionNegotiation.mode;

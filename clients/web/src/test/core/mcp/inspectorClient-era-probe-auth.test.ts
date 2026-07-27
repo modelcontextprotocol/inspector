@@ -1,11 +1,43 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   AuthChallengeError,
   AuthRecoveryRequiredError,
 } from "@inspector/core/auth/challenge.js";
 import { InspectorClient } from "@inspector/core/mcp/inspectorClient.js";
 import { eraToVersionNegotiation } from "@inspector/core/mcp/types.js";
+import type { CreateTransportOptions } from "@inspector/core/mcp/types.js";
+import { BrowserOAuthStorage } from "@inspector/core/auth/browser/storage.js";
 import type { JSONRPCMessage, Transport } from "@modelcontextprotocol/client";
+
+/**
+ * Minimal transport whose `send` rejects — which is what the probe's
+ * `server/discover` exchange hits. The remote path rejects with
+ * `AuthRecoveryRequiredError` (after the backend intercepted the 401 and
+ * `handleAuthChallenge` returned `interactive`); a direct transport with
+ * challenge interception rejects with `AuthChallengeError`.
+ */
+class RejectingTransport implements Transport {
+  onclose?: () => void;
+  onerror?: (error: Error) => void;
+  onmessage?: (message: JSONRPCMessage) => void;
+
+  private readonly rejection: Error;
+
+  // A parameter property would trip `erasableSyntaxOnly`.
+  constructor(rejection: Error) {
+    this.rejection = rejection;
+  }
+
+  async start(): Promise<void> {}
+
+  async send(): Promise<void> {
+    throw this.rejection;
+  }
+
+  async close(): Promise<void> {
+    this.onclose?.();
+  }
+}
 
 /**
  * Connecting with `protocolEra: "auto" | "modern"` sends the SDK's
@@ -21,36 +53,6 @@ import type { JSONRPCMessage, Transport } from "@modelcontextprotocol/client";
  * `src/test/integration/mcp/inspectorClient-modern-era-oauth.test.ts`.
  */
 describe("InspectorClient connect() era-probe auth unwrapping (#1805)", () => {
-  /**
-   * Minimal transport whose `send` rejects — which is what the probe's
-   * `server/discover` exchange hits. The remote path rejects with
-   * `AuthRecoveryRequiredError` (after the backend intercepted the 401 and
-   * `handleAuthChallenge` returned `interactive`); a direct transport with
-   * challenge interception rejects with `AuthChallengeError`.
-   */
-  class RejectingTransport implements Transport {
-    onclose?: () => void;
-    onerror?: (error: Error) => void;
-    onmessage?: (message: JSONRPCMessage) => void;
-
-    private readonly rejection: Error;
-
-    // A parameter property would trip `erasableSyntaxOnly`.
-    constructor(rejection: Error) {
-      this.rejection = rejection;
-    }
-
-    async start(): Promise<void> {}
-
-    async send(): Promise<void> {
-      throw this.rejection;
-    }
-
-    async close(): Promise<void> {
-      this.onclose?.();
-    }
-  }
-
   function makeClient(
     rejection: Error,
     era: "legacy" | "auto" | "modern",
@@ -94,10 +96,21 @@ describe("InspectorClient connect() era-probe auth unwrapping (#1805)", () => {
     it(`leaves a non-auth probe failure untouched on the "${era}" era`, async () => {
       const client = makeClient(new Error("ECONNREFUSED"), era);
 
-      // No auth error in the chain: the SDK's typed negotiation error stands, so
-      // callers still report a plain connection failure.
-      await expect(client.connect()).rejects.toThrow(
-        /Version negotiation|ECONNREFUSED/,
+      // No auth error in the chain, so nothing is unwrapped: whatever the SDK
+      // produced reaches the caller as a plain connection failure. Pin that it
+      // is *not* an auth error rather than matching a message alternation
+      // (which would pass on either branch and assert nothing) — "auto" falls
+      // back to the legacy handshake and rejects with the raw error, while
+      // "modern" pins and rejects with the wrapped negotiation error.
+      const error = await client.connect().then(
+        () => undefined,
+        (err: unknown) => err,
+      );
+      expect(error).toBeInstanceOf(Error);
+      expect(error).not.toBeInstanceOf(AuthChallengeError);
+      expect(error).not.toBeInstanceOf(AuthRecoveryRequiredError);
+      expect((error as Error).message).toMatch(
+        era === "auto" ? /ECONNREFUSED/ : /Version negotiation/,
       );
     });
   }
@@ -112,32 +125,64 @@ describe("InspectorClient connect() era-probe auth unwrapping (#1805)", () => {
   });
 });
 
-describe("InspectorClient probesProtocolEra (#1805)", () => {
-  function probesFor(
+/**
+ * The workaround half of #1805: with no stored tokens there is no authProvider,
+ * so the direct path only intercepts the probe's 401 — turning it into a typed
+ * `AuthChallengeError` that survives as `data.cause` — when the era actually
+ * probes. Asserted through the transport options the factory receives (the
+ * load-bearing effect) rather than the private predicate behind it.
+ */
+describe("InspectorClient era-scoped interceptAuthChallenges (#1805)", () => {
+  async function interceptFlagFor(
     versionNegotiation:
       | { mode?: "legacy" | "auto" | { pin: string } }
       | undefined,
-  ): boolean {
+  ): Promise<boolean | undefined> {
+    let seen: CreateTransportOptions | undefined;
     const client = new InspectorClient(
       { type: "streamable-http", url: "https://mcp.example/mcp" },
       {
-        environment: { transport: () => ({}) as never },
+        environment: {
+          transport: (_config, options) => {
+            seen = options;
+            return {
+              transport: new RejectingTransport(new Error("ECONNREFUSED")),
+            };
+          },
+          // Real but empty storage (sessionStorage under happy-dom) plus the
+          // other two components an OAuthManager requires. No stored tokens, so
+          // `isOAuthAuthorized()` is false and no authProvider is attached —
+          // the case this clause exists for.
+          oauth: {
+            storage: new BrowserOAuthStorage(),
+            navigation: { navigateToAuthorization: vi.fn() },
+            redirectUrlProvider: {
+              getRedirectUrl: () => "http://localhost/callback",
+            },
+          },
+        },
+        oauth: { clientId: "era-probe-test" },
+        directAuthRecovery: true,
         ...(versionNegotiation ? { versionNegotiation } : {}),
       },
     );
-    return (
-      client as unknown as { probesProtocolEra: () => boolean }
-    ).probesProtocolEra();
+
+    await client.connect().catch(() => {});
+    return seen?.interceptAuthChallenges;
   }
 
-  it("is true for the probing eras and false for legacy", () => {
-    expect(probesFor(eraToVersionNegotiation("auto"))).toBe(true);
-    expect(probesFor(eraToVersionNegotiation("modern"))).toBe(true);
-    expect(probesFor(eraToVersionNegotiation("legacy"))).toBe(false);
+  it("is enabled for the probing eras and left off for legacy", async () => {
+    expect(await interceptFlagFor(eraToVersionNegotiation("auto"))).toBe(true);
+    expect(await interceptFlagFor(eraToVersionNegotiation("modern"))).toBe(
+      true,
+    );
+    expect(
+      await interceptFlagFor(eraToVersionNegotiation("legacy")),
+    ).toBeFalsy();
   });
 
-  it("treats an absent mode and an absent option as legacy (the SDK default)", () => {
-    expect(probesFor({})).toBe(false);
-    expect(probesFor(undefined)).toBe(false);
+  it("treats an absent mode and an absent option as legacy (the SDK default)", async () => {
+    expect(await interceptFlagFor({})).toBeFalsy();
+    expect(await interceptFlagFor(undefined)).toBeFalsy();
   });
 });
