@@ -50,8 +50,10 @@ const LOOPBACK_FRAME_ANCESTORS = ["http://127.0.0.1:*", "http://localhost:*"];
  * takes the list from a caller, not from env directly, so a future caller that
  * doesn't pre-canonicalize can't corrupt or widen the header — `*` is excluded
  * too, so a `http://*.example.com` entry (which the origin allow-list already
- * rejects, but a future caller might not) can't broaden the embedder set. Only
- * values matching this shape survive into {@link sandboxFrameAncestors}.
+ * rejects, but a future caller might not) can't broaden the embedder set. This
+ * filters the caller-supplied `allowedOrigins` only; {@link LOOPBACK_FRAME_ANCESTORS}
+ * is a trusted constant that deliberately uses the `:*` port-wildcard and is
+ * emitted as-is (it does NOT pass this regex, by design).
  */
 const CSP_HOST_SOURCE = /^[a-z][a-z0-9+.-]*:\/\/[^\s;,'"[\]*]+$/i;
 

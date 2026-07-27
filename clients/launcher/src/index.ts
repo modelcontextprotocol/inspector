@@ -49,8 +49,17 @@ async function run(): Promise<void> {
     const { runWeb } = await import(clientEntry("web"));
     await runWeb(forwardedArgv);
   } else if (mode === "cli") {
-    const { runCli } = await import(clientEntry("cli"));
-    await runCli(forwardedArgv);
+    // Route a CLI failure through the CLI's own error sink so `mcp-inspector
+    // --cli` (a module import here, so the CLI bin's own `.catch(handleError)`
+    // never fires) still honors the EXIT_CODES map and emits the JSON
+    // `{"error":…}` envelope its README documents — instead of the generic
+    // exit-1 catch-all below.
+    const { runCli, handleError } = await import(clientEntry("cli"));
+    try {
+      await runCli(forwardedArgv);
+    } catch (err) {
+      handleError(err); // writes the envelope + process.exit(code); never returns
+    }
   } else {
     const { runTui } = await import(clientEntry("tui"));
     await runTui(forwardedArgv);
@@ -60,9 +69,13 @@ async function run(): Promise<void> {
 run().catch((err: unknown) => {
   // Print the message, not the Error stack — a startup config error (a bad flag,
   // the OAuth callback loopback guard) should read as actionable, not internal.
+  // The stack is still available under DEBUG / MCP_DEBUG for real faults.
   console.error(
     "Error running MCP Inspector:",
     err instanceof Error ? err.message : err,
   );
+  if ((process.env.DEBUG || process.env.MCP_DEBUG) && err instanceof Error) {
+    console.error(err.stack);
+  }
   process.exit(1);
 });

@@ -404,11 +404,47 @@ try {
     await httpServer.stop();
   }
 
+  // 9) A usage error through the launcher --cli path still emits the JSON
+  //    envelope and the right exit code (#1795 AK1): the launcher imports runCli
+  //    as a module, so the CLI's own error sink must be routed through, or the
+  //    documented EXIT_CODES/envelope contract is lost. A bad --callback-url is
+  //    a usage error whose message contains "OAuth" (would otherwise misclassify
+  //    as auth_required/exit 3).
+  const badCallback = runCli([
+    "--catalog",
+    catalogPath,
+    "--server",
+    "test",
+    "--method",
+    "tools/list",
+    "--callback-url",
+    "http://0.0.0.0:6276/oauth/callback",
+  ]);
+  if (badCallback.status !== 1) {
+    fail(
+      `bad --callback-url should exit 1 (usage) through the launcher, got ${badCallback.status}\n${badCallback.stderr}`,
+    );
+  }
+  let envelope;
+  try {
+    envelope = JSON.parse(badCallback.stderr.trim());
+  } catch {
+    fail(
+      `bad --callback-url should emit a JSON {"error":…} envelope through the launcher; got:\n${badCallback.stderr}`,
+    );
+  }
+  if (envelope?.error?.code !== "error") {
+    fail(
+      `bad --callback-url envelope should be code "error", got ${JSON.stringify(envelope)}`,
+    );
+  }
+
   console.log(
     "smoke:cli OK — tools/list over stdio via --catalog; default-catalog seed; " +
       "read-only --config error (no seed); --catalog/--config conflict; " +
       "unknown --server error; multi-server --server selection; --header merge; " +
-      "HTTP config-header lift + --header override on the wire",
+      "HTTP config-header lift + --header override on the wire; " +
+      "launcher --cli usage error → JSON envelope + exit 1",
   );
 } finally {
   rmSync(work, { recursive: true, force: true });

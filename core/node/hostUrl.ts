@@ -132,6 +132,7 @@ function isAllZeroIpv4(value: string): boolean {
  * True when `host` binds all interfaces (`0.0.0.0` / `::` / empty / their legacy
  * spellings) rather than loopback only. Shared by the web bind guard, the
  * banner/sandbox wildcard→`localhost` substitution, and the CLI deep-link.
+ * Expects a bare host (no port) — callers pass `url.hostname` or an env `HOST`.
  *
  * The value is run through {@link canonicalUrlHost} first — Node's resolver
  * applies the IDNA Unicode→ASCII mapping before parsing the literal, so a
@@ -152,6 +153,7 @@ export function isAllInterfacesHost(host: string): boolean {
  * `2130706433`, `0:0:…:1`) resolve correctly. Used to constrain the OAuth
  * callback listener, which must be loopback (it receives the authorization code
  * over plaintext `http`; RFC 8252 §7.3 only sanctions that for loopback).
+ * Expects a bare host (no port) — the caller passes `url.hostname`.
  */
 export function isLoopbackHost(host: string): boolean {
   // Drop a root FQDN dot (`localhost.` binds loopback but WHATWG keeps the dot);
