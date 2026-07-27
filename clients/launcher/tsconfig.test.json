@@ -9,6 +9,8 @@
     "rootDir": ".",
     "types": ["node"]
   },
-  "include": ["__tests__/**/*"],
+  // `vitest.config.ts` lives here (not the src project) because the build
+  // config's `rootDir: ./src` rejects it — same reason as the tests.
+  "include": ["__tests__/**/*", "vitest.config.ts"],
   "exclude": ["node_modules", "build"]
 }

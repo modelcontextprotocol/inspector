@@ -59,14 +59,16 @@ const h = vi.hoisted(() => {
     authenticate: vi.fn<InspectorClient["authenticate"]>(
       async () => new URL("https://auth.example/start"),
     ),
-    clearOAuthTokens: vi.fn<InspectorClient["clearOAuthTokens"]>(),
+    clearOAuthTokens: vi.fn<InspectorClient["clearOAuthTokens"]>(
+      async () => {},
+    ),
     completeOAuthFlow: vi.fn<InspectorClient["completeOAuthFlow"]>(
       async () => {},
     ),
     getOAuthState: vi.fn<InspectorClient["getOAuthState"]>(
       async () => undefined,
     ),
-    callTool: vi.fn(),
+    callTool: vi.fn<InspectorClient["callTool"]>(),
     checkAuthChallengeSatisfied: vi.fn<
       InspectorClient["checkAuthChallengeSatisfied"]
     >(async () => false),
@@ -145,7 +147,8 @@ const h = vi.hoisted(() => {
       ...a: Parameters<InspectorClient["completeOAuthFlow"]>
     ) => clientSpies.completeOAuthFlow(...a);
     getOAuthState = () => clientSpies.getOAuthState();
-    callTool = (...a: unknown[]) => clientSpies.callTool(...a);
+    callTool = (...a: Parameters<InspectorClient["callTool"]>) =>
+      clientSpies.callTool(...a);
     checkAuthChallengeSatisfied = (
       ...a: Parameters<InspectorClient["checkAuthChallengeSatisfied"]>
     ) => clientSpies.checkAuthChallengeSatisfied(...a);
