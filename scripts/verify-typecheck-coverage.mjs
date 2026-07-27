@@ -82,18 +82,13 @@ const isTsc = (t) => /(?:^|[\\/])tsc(?:\.(?:cmd|exe|ps1))?$/.test(t);
 const isDisablingFlag = (t) => /^--(noCheck|listFilesOnly)$/i.test(t);
 
 /**
- * The `references` paths in a client's root `tsconfig.json` (a `tsc -b` solution
- * config), or `[]` if it has none / no readable tsconfig. These are the projects
- * a reference (`tsc -b`) client — one with no `typecheck` script, like
- * `clients/web` — is typechecked through, so this guard measures them directly
- * instead of exempting the whole tree.
+ * The `references` paths declared in the tsconfig at repo-relative `tsconfigRel`
+ * (a `tsc -b` solution config), or `[]` if it has none / isn't readable. Paths
+ * are as written (relative to that tsconfig's own directory).
  */
-function clientTsconfigReferences(clientDir) {
+function tsconfigReferences(tsconfigRel) {
   try {
-    const raw = readFileSync(
-      path.join(repoRoot, clientDir, "tsconfig.json"),
-      "utf8",
-    );
+    const raw = readFileSync(path.join(repoRoot, tsconfigRel), "utf8");
     // Tolerate JSONC — block AND line comments + trailing commas (tsconfig
     // allows all; block comments are in fact the style of every other tsconfig
     // here). Block comments are stripped first so a `//` inside one doesn't
@@ -111,6 +106,15 @@ function clientTsconfigReferences(clientDir) {
   } catch {
     return [];
   }
+}
+
+/**
+ * The `references` in a client's root `tsconfig.json`. Non-empty for a `tsc -b`
+ * client (like `clients/web`, which has no `typecheck` script) — this guard
+ * enrolls it through these instead of exempting the whole tree.
+ */
+function clientTsconfigReferences(clientDir) {
+  return tsconfigReferences(path.posix.join(clientDir, "tsconfig.json"));
 }
 
 /**
@@ -218,18 +222,19 @@ const { clients: CLIENTS, problems: enrollmentProblems } = nodeClients();
  * checking nothing. The config-file form (`noCheck` set in the tsconfig) is
  * caught separately by {@link projectDisablesChecking}.
  *
- * Two limitations, both unreachable today (cli/tui/launcher use plain `-p`
- * `--noEmit` passes; web, the only `tsc -b` client, is out of scope): a
- * **solution-style** `-b` config (`"files": []` + `references`) is run here as
- * `-p … --listFilesOnly`, which lists nothing — a client adopting it would need
- * its `references` expanded to their paths. The implicit-`./tsconfig.json`
- * fallback assumes **no file operands** — `tsc <file>` ignores the config and
- * checks only that file, but would be credited the whole config's file list.
- * The `--noCheck`/`--listFilesOnly` detection ignores a following boolean, so
- * the contrived explicit `--noCheck false` (checking *on*) is still treated as
- * disabling. And the `&&`/`||`/`;` split runs before tokenizing, so a quoted
- * operator inside an arg would split mid-token (unreachable — project paths
- * carry none of those).
+ * A harvested `tsc -b` **solution config** (`"files": []` + `references`) lists
+ * nothing itself; {@link projectFiles} expands it to its references, so this
+ * form is measured whether it reaches here (a `typecheck: "tsc -b"`) or the
+ * dedicated reference path (`clients/web`, which declares no `typecheck`).
+ *
+ * Minor limitations, all unreachable with the plain `-p --noEmit` passes here:
+ * the implicit-`./tsconfig.json` fallback assumes **no file operands** (`tsc
+ * <file>` ignores the config and checks only that file, but would be credited
+ * the whole config's file list); the `--noCheck`/`--listFilesOnly` detection
+ * ignores a following boolean, so the contrived explicit `--noCheck false`
+ * (checking *on*) is still treated as disabling; and the `&&`/`||`/`;` split
+ * runs before tokenizing, so a quoted operator inside an arg would split
+ * mid-token (project paths carry none of those).
  */
 function typecheckProjects(scripts) {
   const projects = [];
@@ -283,9 +288,13 @@ function projectDisablesChecking(clientDir, project) {
  * Repo-relative POSIX paths of the files a project typechecks. Absolute paths
  * outside the repo root (lib.d.ts) and anything under `node_modules` are
  * dropped; the aliased `core/` + `test-servers/` sources stay in the set but
- * are harmless — the set is only ever queried with client-relative paths.
+ * are harmless — the set is only ever queried with client-relative paths. A
+ * **solution config** (`{"files": [], "references": […]}`) lists nothing under
+ * `--listFilesOnly`, so it's expanded to its references and those measured
+ * (recursively) — this is what makes a `tsc -b` project measurable no matter
+ * which enrollment path harvests it (`typecheck` script or the reference path).
  */
-function projectFiles(clientDir, project) {
+function projectFiles(clientDir, project, seen = new Set()) {
   const absClient = path.join(repoRoot, clientDir);
   let stdout;
   try {
@@ -321,6 +330,21 @@ function projectFiles(clientDir, project) {
     const rel = path.relative(repoRoot, abs);
     if (rel.startsWith("..") || rel.includes("node_modules")) continue;
     covered.add(rel.split(path.sep).join("/"));
+  }
+  // A solution config lists nothing — expand it to its references (relative to
+  // the solution's own dir) and measure those, so a `tsc -b` project counts.
+  if (covered.size === 0) {
+    const projectRel = path.posix.join(clientDir, project);
+    const projectDir = path.posix.dirname(projectRel);
+    for (const ref of tsconfigReferences(projectRel)) {
+      const refProject = path.posix.relative(
+        clientDir,
+        path.posix.join(projectDir, ref),
+      );
+      if (seen.has(refProject)) continue;
+      seen.add(refProject);
+      for (const f of projectFiles(clientDir, refProject, seen)) covered.add(f);
+    }
   }
   return covered;
 }
@@ -531,7 +555,7 @@ if (failures.length > 0) {
     );
   if (nonClientMisses.some((f) => f.startsWith("core/")))
     console.error(
-      "For a `core/` file (a `*.tsx`/`*.mts` or co-located test web's `tsc -b` doesn't reach), widen `clients/web/tsconfig.app.json`'s `include` — not a cli/tui project, which shouldn't own `core`.",
+      "For a `core/` file web's `tsc -b` doesn't reach, widen the web project that owns it — `tsconfig.test.json` for `core/**/__tests__/**`, else `tsconfig.app.json` — not a cli/tui project, which shouldn't own `core`.",
     );
   console.error("See AGENTS.md.");
   process.exit(1);
