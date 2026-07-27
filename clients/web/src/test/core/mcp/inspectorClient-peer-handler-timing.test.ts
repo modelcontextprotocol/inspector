@@ -34,6 +34,10 @@ import { InspectorClient } from "@inspector/core/mcp/inspectorClient.js";
  * the *other* way (client→server), so the inbound handler is defensive rather
  * than something a conformant server exercises — this pins where it is
  * registered, not a behaviour real servers depend on.
+ *
+ * The last case is the odd one out: it never connects, and covers the
+ * constructor's `cleanRoots` normalization — same #1797 thread, since answering
+ * `roots/list` promptly is only useful if what we answer with is well-formed.
  */
 class InitializedRacingTransport implements Transport {
   onmessage?: (message: JSONRPCMessage) => void;

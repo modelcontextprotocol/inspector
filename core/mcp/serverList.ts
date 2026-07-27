@@ -88,13 +88,16 @@ export function normalizeServerType(
 }
 
 /**
- * Normalize the form's controlled root rows into the shape the Inspector
- * advertises and persists: drop rows whose `uri` is blank (the form leaves a
- * new row empty mid-edit) and drop a blank/whitespace `name`. Any other fields
- * a root carries (e.g. `_meta` from a hand-edited `mcp.json`) are preserved —
- * only `uri`/`name` are normalized. Shared by the settings → disk converter
- * (`inspectorSettingsToStoredFields`) and all three clients' connect-time +
- * `setRoots` wiring so the roots told to the server match what hits disk.
+ * The shared roots normalizer — for a list from the web settings form, from
+ * `mcp.json`, or from `setRoots()`. Puts them in the shape the Inspector
+ * advertises and persists: drop entries whose `uri` is blank (the settings form
+ * leaves a new row empty mid-edit) and drop a blank/whitespace `name`. Any other
+ * fields a root carries (e.g. `_meta` from a hand-edited `mcp.json`) are
+ * preserved — only `uri`/`name` are normalized. Every path roots take runs
+ * through here — the settings → disk converter
+ * (`inspectorSettingsToStoredFields`), the `InspectorClient` constructor and
+ * `setRoots`, and all three clients' connect-time wiring — so what the server is
+ * told matches what hits disk.
  *
  * `Root[]` is a compile-time type over hand-editable `mcp.json`, and every
  * client now feeds this straight from disk (#1797), so the shape is validated
@@ -103,12 +106,15 @@ export function normalizeServerType(
  * dropped from an otherwise-usable entry. Each case warns.
  */
 export function cleanRoots(roots: Root[]): Root[] {
+  // Keep: the `Root[]` parameter narrows this branch to `never`, but the type is
+  // a promise hand-edited `mcp.json` does not keep. Not dead code (#1797).
   if (!Array.isArray(roots)) {
     console.warn("Ignoring `roots`: expected an array, got", typeof roots);
     return [];
   }
   return roots
     .filter((r) => {
+      // Keep: unreachable per the parameter type, reachable from disk.
       if (typeof r?.uri !== "string") {
         console.warn("Dropping root without a string `uri`:", r);
         return false;
