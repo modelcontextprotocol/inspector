@@ -65,15 +65,26 @@ import { ModernGetTaskResultSchema } from "@inspector/core/mcp/modernTaskSchemas
  * catch needs no such call, because nothing populates the map before the
  * handshake and both terminal paths clear it.
  *
+ * Both directions carry the same caveat, and it is covered for each: those
+ * paths are every way *out*, which is not every way *in*. An `onerror` without
+ * an `onclose` only flips the status — it runs none of them, and leaves the
+ * transport cached for the next `connect()` to reuse — so the queue and the
+ * raw-wire map are swept start-clean at the top of `connect()` as well. The
+ * end-clean clears stay where they are regardless: a consumer handling the
+ * `disconnect` event has to see them already empty, which a sweep on the way
+ * back in cannot provide.
+ *
  * A further category is session scoping. Receiver tasks, resource
  * subscriptions, cancelled task ids, paused task-input aborts and the modern
  * log-level opt-in are all scoped to one connection — `tasks/list` is answered
  * from that map, and a stale subscription makes the modern subscribe a silent
  * no-op — so they belong to the session that created them. Note the contrast
- * with the teardown cases above: the peer-request queue is cleared end-clean
- * on all three teardown paths, while this is *reset* start-clean at the top of
- * `connect()`, because a crash or a failed connect the caller retries on the
- * same instance means ending a session is not the only way a new one begins.
+ * with the teardown cases above: the peer-request queue is cleared end-clean,
+ * because its emptiness has to be observable from the `disconnect` event, and
+ * only swept on the way in as a backstop; this has no such consumer, so it is
+ * *reset* start-clean at the top of `connect()` and nowhere else — a crash, or
+ * a failed connect the caller retries on the same instance, means ending a
+ * session is not the only way a new one begins.
  * Reset, not cleared: the log level is re-derived from the server setting
  * rather than dropped, so a mid-session override does not carry over and the
  * configured level is not lost. The same category covers a release obligation,
@@ -928,6 +939,94 @@ describe("InspectorClient peer-handler timing (#1797)", () => {
 
     expect(closed).toBe(true);
     expect(created).toBe(1);
+
+    await client.disconnect();
+  });
+
+  it("clears a peer request the next connect would otherwise inherit", async () => {
+    // Same route as the test above, for the other collection it strands. An
+    // `onerror` without an `onclose` runs neither teardown path, so the queue
+    // the three teardown paths clear end-clean is still populated when
+    // `connect()` reuses the live transport — and the web modal is derived from
+    // its length with no status gate, so answering it would write a response
+    // for the old session's request id onto the new connection. `connect()`
+    // sweeps it start-clean for exactly this route.
+    const transport = new ElicitAfterConnectTransport();
+    // Counted for the same reason as above: transport *reuse* is the premise.
+    let created = 0;
+    const client = new InspectorClient(
+      { type: "stdio", command: "noop", args: [] },
+      {
+        environment: {
+          transport: () => {
+            created++;
+            return { transport };
+          },
+        },
+      },
+    );
+    const elicitationCounts: number[] = [];
+    client.addEventListener("pendingElicitationsChange", (event) => {
+      elicitationCounts.push((event as CustomEvent).detail.length);
+    });
+
+    await client.connect();
+    const queued = waitForNewPendingRequest(client, "newPendingElicitation");
+    transport.elicit();
+    await queued;
+    expect(client.getPendingElicitations()).toHaveLength(1);
+
+    // Status goes to "error" and stops — no `onclose`, transport left cached.
+    transport.onerror?.(new Error("stream broke, transport still up"));
+    expect(client.getPendingElicitations()).toHaveLength(1);
+
+    await client.connect();
+
+    expect(client.getPendingElicitations()).toEqual([]);
+    // Announced, not just emptied: the modal reads the change event.
+    expect(elicitationCounts.at(-1)).toBe(0);
+    expect(created).toBe(1);
+
+    await client.disconnect();
+  });
+
+  it("rejects an in-flight raw-wire request the next connect would inherit", async () => {
+    // The outbound half of the same route. Milder than the queue — the id is
+    // instance-scoped and monotonic, so a stale entry can't be resolved by the
+    // new session's traffic — but it is round 30's symptom exactly: without the
+    // sweep the poll waits out its own 30s timer and blames a timeout for what
+    // was a crash.
+    const transport = new ElicitAfterConnectTransport();
+    const client = new InspectorClient(
+      { type: "stdio", command: "noop", args: [] },
+      {
+        environment: { transport: () => ({ transport }) },
+        // As in the crash-path case above: short so a regression names itself,
+        // and safe only because no SDK request is issued after connect.
+        timeout: 50,
+      },
+    );
+    await client.connect();
+
+    const pending = (
+      client as unknown as {
+        rawWireRequest: (
+          method: string,
+          params: Record<string, unknown>,
+          schema: { parse: (v: unknown) => unknown },
+        ) => Promise<unknown>;
+      }
+    ).rawWireRequest("tasks/get", { taskId: "t1" }, ModernGetTaskResultSchema);
+    const settled = expect(pending).rejects.toThrow(/Connection ended/);
+
+    // No `onclose`, so nothing settles it on the way out.
+    transport.onerror?.(new Error("stream broke, transport still up"));
+    await client.connect();
+
+    await withTimeout(
+      settled,
+      "raw-wire request not settled by the next connect",
+    );
 
     await client.disconnect();
   });

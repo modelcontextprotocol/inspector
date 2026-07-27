@@ -244,6 +244,26 @@ const TOOL_CALL_CANCELLED_REASON = "Tool call cancelled by user";
 const DEFAULT_TASK_POLL_INTERVAL_MS = 500;
 
 /**
+ * Close a modern listen stream best-effort, absorbing both failure modes a
+ * third-party `close()` can produce: a rejected promise and a synchronous
+ * throw. Every close in this file goes through here, because at each of the
+ * three sites the caller has already dropped its reference to the stream, so
+ * an escaping failure abandons a stream that may still be open on the server
+ * *and* takes the caller's remaining work with it — teardown that most callers
+ * of `disconnect()` would never see skipped, or the re-listen that was about to
+ * replace the stream being closed (#1630, #1797).
+ */
+async function closeSubscriptionBestEffort(
+  subscription: Pick<McpSubscription, "close">,
+): Promise<void> {
+  try {
+    await subscription.close();
+  } catch {
+    // Best-effort: there is nothing to do about a stream that won't close.
+  }
+}
+
+/**
  * Extract the method literal from an MCP notification Zod schema (e.g.
  * `ToolListChangedNotificationSchema`), or `undefined` if the shape isn't
  * recognized. Used by the App-renderer client proxy to translate the SDK-v1
@@ -1445,26 +1465,25 @@ export class InspectorClient extends InspectorClientEventTarget {
     // helper exists to prevent, so its own dispatches must not expose it.
     this.setModernStreamState(INACTIVE_SUBSCRIPTION_STREAM_STATE);
     this.dispatchSubscriptionsChange();
-    // After the dispatches, so the ordering above is unaffected. Best-effort
-    // against both failure modes: `.catch` covers a rejected promise, the
-    // `try` a synchronous throw from a third-party `close()` — which would
-    // otherwise abort the caller's remaining teardown, and `disconnect()` runs
-    // most of its outside any `try`.
-    try {
-      closing?.close().catch(() => {});
-    } catch {
-      // best-effort
-    }
+    // After the dispatches, so the ordering above is unaffected, and
+    // fire-and-forget because nothing downstream depends on it. Absorbing both
+    // failure modes matters most here: `disconnect()` calls this from the
+    // middle of a straight-line teardown that runs outside any `try`.
+    if (closing) void closeSubscriptionBestEffort(closing);
   }
 
   /**
    * Drop the session-scoped state a *new* session would misread — anything the
    * next server could be told about, or that would change how we treat its
    * traffic. State that only needs settling on the way out (the peer-request
-   * queues, the raw-wire map, the in-flight tool call) is handled by the
-   * teardown paths instead, not here — the in-flight tool call by `callTool`'s
-   * own `finally` once the SDK rejects it, the rest by `disconnect()` and the
-   * crash path.
+   * queues, the raw-wire map, the in-flight tool call) is not reset here — the
+   * in-flight tool call because `callTool`'s own `finally` releases it once the
+   * SDK rejects it, the other two because they are settled *end*-clean, by
+   * `disconnect()` and the crash path, so that a consumer handling the
+   * `disconnect` event already sees them empty. That is a difference in when,
+   * not in whether: the routes out do not cover every route *in* (an `onerror`
+   * without an `onclose` runs neither), so `connect()` sweeps those two beside
+   * this call as a backstop — see the comment there.
    *
    * `disconnect()` touches all of this on the way out too — two members through
    * the same helpers, three hand-rolled in both places — so a sixth member
@@ -1569,6 +1588,22 @@ export class InspectorClient extends InspectorClientEventTarget {
     // Start from a clean session — see `resetSessionState` for why this is
     // start-clean rather than relying on `disconnect()`.
     this.resetSessionState();
+    // The two collections `resetSessionState` excludes as "settled on the way
+    // out", swept here as well — because one route out settles nothing. An
+    // `onerror` without an `onclose` only flips status to `"error"`: it runs
+    // neither teardown path, and it leaves `baseTransport` cached, so a
+    // `connect()` on this same instance reuses a *live* transport. That is the
+    // route the subscription-stream close exists for, and it strands these two
+    // the same way. The peer queue is the sharper of them — the web
+    // pending-request modal is derived from its length with no status gate, so
+    // it outlives the session, and answering it writes a response for the old
+    // request id onto the reused connection. Both helpers are idempotent (one
+    // guards on a non-empty queue, the other clears its map and re-rejecting a
+    // settled promise is a no-op), so these are no-ops on the routes that
+    // already ran them; and anything still pending here belongs to a session
+    // that is, by definition, no longer connected.
+    this.clearAndAnnouncePendingPeerRequests();
+    this.rejectPendingRawWireRequests("Connection ended");
 
     const oauthManager = this.oauthManager;
     if (
@@ -4683,7 +4718,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     const previous = this.modernSubscription;
     this.modernSubscription = null;
     if (previous) {
-      await previous.close().catch(() => {});
+      await closeSubscriptionBestEffort(previous);
     }
 
     // Nothing subscribed → keep the stream closed.
@@ -4699,7 +4734,7 @@ export class InspectorClient extends InspectorClientEventTarget {
 
     // A newer refresh superseded us while awaiting the ack — discard this one.
     if (generation !== this.modernListenGeneration) {
-      await subscription.close().catch(() => {});
+      await closeSubscriptionBestEffort(subscription);
       return;
     }
 
