@@ -290,31 +290,39 @@ class ElicitAfterConnectTransport implements Transport {
 }
 
 /**
+ * Race `promise` against a short reject, so a regression fails where it
+ * happened instead of hanging to the vitest timeout — which names the test
+ * rather than the thing that didn't occur. The timer is cleared on settle so
+ * nothing armed outlives the test (the #1760 class).
+ */
+function withTimeout<T>(
+  promise: Promise<T>,
+  message: string,
+  ms = 1000,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const expired = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), ms);
+  });
+  return Promise.race([promise, expired]).finally(() => clearTimeout(timer));
+}
+
+/**
  * Resolve when the client enqueues a pending peer request. Waits on the
  * client's own signal rather than counting microtasks — the enqueue is one tick
  * deep today with no margin, and an added await on the SDK's inbound path would
- * flake it. Raced with a reject for the same reason `injectRequest` is: a
- * regression that stops the enqueue should fail here, not hang to the vitest
- * timeout.
+ * flake it.
  */
 function waitForNewPendingRequest(
   client: InspectorClient,
   event: "newPendingElicitation" | "newPendingSample",
 ): Promise<void> {
-  return new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(
-      () => reject(new Error(`No ${event} after the request was delivered`)),
-      1000,
-    );
-    client.addEventListener(
-      event,
-      () => {
-        clearTimeout(timer);
-        resolve();
-      },
-      { once: true },
-    );
-  });
+  return withTimeout(
+    new Promise<void>((resolve) => {
+      client.addEventListener(event, () => resolve(), { once: true });
+    }),
+    `No ${event} after the request was delivered`,
+  );
 }
 
 /** Connects cleanly, then samples on demand so a test can tear the client down. */
@@ -631,22 +639,12 @@ describe("InspectorClient peer-handler timing (#1797)", () => {
 
     transport.onclose?.();
 
-    // Raced for the same reason `waitForNewPendingRequest` is: without the
-    // teardown rejection this waits out the request's own timeout, so a
-    // regression would surface as a bare vitest timeout naming the test rather
-    // than the thing that didn't happen.
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const unsettled = new Promise<never>((_, reject) => {
-      timer = setTimeout(
-        () => reject(new Error("raw-wire request not settled by teardown")),
-        1000,
-      );
-    });
-    try {
-      await Promise.race([settled, unsettled]);
-    } finally {
-      clearTimeout(timer);
-    }
+    // If the teardown rejection is missing, `settled` waits out the request's
+    // own 30s timer instead — and would then reject with nobody awaiting it, so
+    // mark it handled before racing. (The race itself is why the failure names
+    // this expectation rather than the test.)
+    void settled.catch(() => {});
+    await withTimeout(settled, "raw-wire request not settled by teardown");
   });
 
   it("connects when an elicit option enables no mode", async () => {

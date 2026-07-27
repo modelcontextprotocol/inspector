@@ -1852,7 +1852,9 @@ export class InspectorClient extends InspectorClientEventTarget {
     );
     this.cancelledTaskIds.clear();
     // Settle any pending raw-wire (modern tasks/*) requests so their callers
-    // don't hang past teardown.
+    // don't hang past teardown. Unlike the SDK's own in-flight requests, these
+    // get no share of the drain above: the user asked to disconnect, and a
+    // Tasks poll is not worth delaying that for.
     this.rejectPendingRawWireRequests("Disconnected");
     // Abort any task paused at input_required so its poll loop unwinds.
     for (const [, controller] of this.taskInputAbortControllers) {
