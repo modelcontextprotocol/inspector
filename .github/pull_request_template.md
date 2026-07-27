@@ -11,19 +11,19 @@
 
   If you've found a bug or want a feature:
     → Open an issue instead, labeled for the version you're targeting
-      (`v1` for `main`, `v2` for `v2/main`).
+      (`v1` for `v1/main`, `v2` for `main`).
 
   If you've already built the change locally:
     → Open an issue and share the PROMPT(S) you used to generate it, not a
       diff. We'll reproduce it through our own workflow.
 
-  Full policy: https://github.com/modelcontextprotocol/inspector/blob/v2/main/CONTRIBUTORS.md
+  Full policy: https://github.com/modelcontextprotocol/inspector/blob/main/CONTRIBUTORS.md
 
   Maintainers: delete this template body and describe your change normally.
 -->
 
 > **Heads up:** this repository accepts **issues, not pull requests** from
-> external contributors. Please read [`CONTRIBUTORS.md`](../blob/v2/main/CONTRIBUTORS.md)
+> external contributors. Please read [`CONTRIBUTORS.md`](../blob/main/CONTRIBUTORS.md)
 > before continuing. If you're an external contributor, open an issue (and
 > share the prompt you used, if you've already built the change) rather than
 > this PR.

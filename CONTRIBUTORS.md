@@ -48,16 +48,16 @@ targets:
 
 | Version | Base branch | Label |
 | ------- | ----------- | ----- |
-| v1      | `main`      | `v1`  |
-| v2      | `v2/main`   | `v2`  |
+| v1      | `v1/main`   | `v1`  |
+| v2      | `main`      | `v2`  |
 
-- **v1** (`main`) is the legacy Inspector — it takes **security fixes only**.
-- **v2** (`v2/main`) is where all current work happens — when in doubt, target
-  v2.
+- **v1** (`v1/main`) is the legacy Inspector — it takes **security fixes
+  only**.
+- **v2** (`main`) is where all current work happens — when in doubt, target v2.
 
 **Label by version.** Every issue (and the PRs maintainers open for it) must
-carry the label matching the target branch — `v1` for `main` and `v2` for
-`v2/main`. This mirrors the "Label by version" convention documented in
+carry the label matching the target branch — `v1` for `v1/main` and `v2` for
+`main`. This mirrors the "Label by version" convention documented in
 [`AGENTS.md`](./AGENTS.md).
 
 ## If you've already fixed it locally
