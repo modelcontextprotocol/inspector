@@ -1445,8 +1445,16 @@ export class InspectorClient extends InspectorClientEventTarget {
     // helper exists to prevent, so its own dispatches must not expose it.
     this.setModernStreamState(INACTIVE_SUBSCRIPTION_STREAM_STATE);
     this.dispatchSubscriptionsChange();
-    // After the dispatches, so the ordering above is unaffected.
-    closing?.close().catch(() => {});
+    // After the dispatches, so the ordering above is unaffected. Best-effort
+    // against both failure modes: `.catch` covers a rejected promise, the
+    // `try` a synchronous throw from a third-party `close()` — which would
+    // otherwise abort the caller's remaining teardown, and `disconnect()` runs
+    // most of its outside any `try`.
+    try {
+      closing?.close().catch(() => {});
+    } catch {
+      // best-effort
+    }
   }
 
   /**
@@ -4707,15 +4715,18 @@ export class InspectorClient extends InspectorClientEventTarget {
     });
 
     // Observe termination; an unexpected drop reconnects by re-listing.
-    void subscription.closed
-      .then((reason) =>
+    void subscription.closed.then(
+      (reason) =>
         this.onModernSubscriptionClosed(subscription, reason, generation),
-      )
-      // A `closed` that rejects carries no reason to act on — and an unhandled
-      // rejection ends a Node process by default. Reachable since the
-      // connect-path reset started closing streams that previously sat with
-      // `closed` pending forever.
-      .catch(() => {});
+      // A `closed` that rejects carries no reason to act on, and an unhandled
+      // rejection ends a Node process by default. Scoped to the rejection, not
+      // chained after the handler: a throw from `onModernSubscriptionClosed`
+      // should surface rather than silently abandon a re-listen. (Closing a
+      // stream *resolves* `closed`; what the connect-path close newly reaches
+      // is the handler running at all, where the reference used to be dropped
+      // with `closed` pending forever.)
+      () => {},
+    );
   }
 
   /**

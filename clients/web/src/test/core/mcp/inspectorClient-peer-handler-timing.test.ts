@@ -76,7 +76,10 @@ import { ModernGetTaskResultSchema } from "@inspector/core/mcp/modernTaskSchemas
  * same instance means ending a session is not the only way a new one begins.
  * Reset, not cleared: the log level is re-derived from the server setting
  * rather than dropped, so a mid-session override does not carry over and the
- * configured level is not lost.
+ * configured level is not lost. The same category covers a release obligation,
+ * not just a misread one: the reset must close what it drops, since a
+ * `connect()` reusing a transport an `onerror` left up can be holding the last
+ * reference to a live stream.
  *
  * Some cases cover the other side of the registration gates. Client capabilities
  * are fixed at construction, so each gate must key off what was actually
@@ -881,7 +884,8 @@ describe("InspectorClient peer-handler timing (#1797)", () => {
     // An `onerror` without an `onclose` leaves the transport up, and `connect()`
     // reuses it — so the reference the reset drops can be the last one to a
     // stream still open on the server. Nothing else can close it afterwards:
-    // the `closed` handler bails on the bumped generation.
+    // the `closed` handler bails on the bumped generation (Production behaviour;
+    // the stub here has no `closed` promise, so that handler never runs.)
     const transport = new SampleAfterConnectTransport();
     // Counted, because transport *reuse* is what makes "a stream still open on
     // the server" true — if a future change recreated it here, the scenario
