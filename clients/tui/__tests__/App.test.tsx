@@ -141,12 +141,16 @@ const h = vi.hoisted(() => {
           | "sse"
           | "streamable-http",
     );
-    authenticate = () => clientSpies.authenticate();
-    clearOAuthTokens = () => clientSpies.clearOAuthTokens();
+    authenticate = (...a: Parameters<InspectorClient["authenticate"]>) =>
+      clientSpies.authenticate(...a);
+    clearOAuthTokens = (
+      ...a: Parameters<InspectorClient["clearOAuthTokens"]>
+    ) => clientSpies.clearOAuthTokens(...a);
     completeOAuthFlow = (
       ...a: Parameters<InspectorClient["completeOAuthFlow"]>
     ) => clientSpies.completeOAuthFlow(...a);
-    getOAuthState = () => clientSpies.getOAuthState();
+    getOAuthState = (...a: Parameters<InspectorClient["getOAuthState"]>) =>
+      clientSpies.getOAuthState(...a);
     callTool = (...a: Parameters<InspectorClient["callTool"]>) =>
       clientSpies.callTool(...a);
     checkAuthChallengeSatisfied = (

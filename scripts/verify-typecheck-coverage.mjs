@@ -12,9 +12,9 @@
 // This is the typecheck-coverage analog of `verify:format-coverage`: for each
 // client it runs every project its `typecheck` script names with `tsc
 // --listFilesOnly` (the accurate measure — it includes import-reached files),
-// unions the result, and asserts every tracked first-party `.ts`/`.tsx` under
-// the client is in that union. Exits non-zero, listing the offenders, on any
-// miss.
+// unions the result, and asserts every tracked first-party `.ts`/`.tsx`/`.mts`/
+// `.cts` under the client is in that union. Exits non-zero, listing the
+// offenders, on any miss.
 //
 // Like its sibling it also asserts the gate is actually WIRED: each client's
 // `typecheck` must be reachable from that client's `validate`, and the root
@@ -119,7 +119,7 @@ function projectFiles(clientDir, project) {
   return covered;
 }
 
-/** Tracked first-party `.ts`/`.tsx` under a client (excludes build output). */
+/** Tracked first-party TS (`.ts`/`.tsx`/`.mts`/`.cts`) under a client (excludes build output). */
 function trackedSourceFiles(clientDir) {
   const out = execFileSync(
     "git",

@@ -41,16 +41,15 @@ const entry = (over: Partial<MessageEntry>): MessageEntry =>
     direction: "request",
     message: { jsonrpc: "2.0", id: 1, method: "ping" },
     ...over,
-  }) as unknown as MessageEntry;
+  }) as MessageEntry;
 
-// Cast for the two intentionally-malformed wire messages only. A single `as`
-// won't bridge (the shapes don't overlap the union), so `as unknown as` is the
-// only option; scoping it to a named helper keeps `entry()`'s `message`
-// otherwise gate-checked. See the comment on `entry` above.
+// Cast for the two intentionally-malformed wire messages only, scoped to a named
+// helper so `entry()`'s `message` stays gate-checked for every well-formed
+// fixture. See the comment on `entry` above.
 const MALFORMED = (m: {
   jsonrpc: "2.0";
   id?: number;
-}): MessageEntry["message"] => m as unknown as MessageEntry["message"];
+}): MessageEntry["message"] => m as MessageEntry["message"];
 
 // One entry exercising each label / direction / detail branch.
 const reqWithResponse = entry({
