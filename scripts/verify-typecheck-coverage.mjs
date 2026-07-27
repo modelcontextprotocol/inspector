@@ -79,14 +79,30 @@ export const isTsc = (t) => /(?:^|[\\/])tsc(?:\.(?:cmd|exe|ps1))?$/.test(t);
 // `typecheck`-script path and the reference (`tsc -b`) path.
 export const isDisablingFlag = (t) => /^--(noCheck|listFilesOnly)$/i.test(t);
 
+/** A glob (with `**`/`*`) anchored to a RegExp over POSIX paths. Used to check a
+ * tracked test file is matched by the `test:scripts` command's glob. */
+export function globToRegExp(glob) {
+  let re = "";
+  for (let i = 0; i < glob.length; i++) {
+    const c = glob[i];
+    if (c === "*") {
+      if (glob[i + 1] === "*") {
+        re += glob[i + 2] === "/" ? "(?:.*/)?" : ".*";
+        i += glob[i + 2] === "/" ? 2 : 1;
+      } else re += "[^/]*";
+    } else if (".+^${}()|[]\\".includes(c)) re += "\\" + c;
+    else re += c;
+  }
+  return new RegExp("^" + re + "$");
+}
+
 /**
  * The `references` paths declared in the tsconfig at repo-relative `tsconfigRel`
  * (a `tsc -b` solution config), or `[]` if it has none / isn't readable. Paths
  * are as written (relative to that tsconfig's own directory).
  */
-export function tsconfigReferences(tsconfigRel) {
+export function parseTsconfigReferences(raw) {
   try {
-    const raw = readFileSync(path.join(repoRoot, tsconfigRel), "utf8");
     // Tolerate JSONC — block AND line comments + trailing commas (tsconfig
     // allows all; block comments are in fact the style of every other tsconfig
     // here). Block comments are stripped first so a `//` inside one doesn't
@@ -103,6 +119,16 @@ export function tsconfigReferences(tsconfigRel) {
       : [];
   } catch {
     return [];
+  }
+}
+
+export function tsconfigReferences(tsconfigRel) {
+  try {
+    return parseTsconfigReferences(
+      readFileSync(path.join(repoRoot, tsconfigRel), "utf8"),
+    );
+  } catch {
+    return []; // unreadable file (e.g. a directory / missing path)
   }
 }
 
@@ -483,6 +509,36 @@ export function main() {
     integrity.push(
       "the root `validate` no longer runs `verify:format-coverage` (its sibling guard) — restore it.",
     );
+  }
+
+  // Vouch for `test:scripts` (this guard's OWN parser tests) the same way the
+  // guard vouches for a `tsc` pass: it must be run from `validate`, and its file
+  // set must be non-empty and fully covered by the command's glob — so a rename
+  // to `*.spec.mjs` / `*.test.mts` (which `node --test` silently skips, still
+  // exiting 0) can't quietly shrink the suite to nothing.
+  if (!rootReachesScript(rootPkg.scripts, "test:scripts")) {
+    integrity.push(
+      "the root `validate` no longer runs `test:scripts` — the guard's own parser tests run nowhere; restore it.",
+    );
+  } else {
+    const testGlobs = tokenize(rootPkg.scripts["test:scripts"] ?? "").filter(
+      (t) => !t.startsWith("-") && t !== "node",
+    );
+    const testFiles = execFileSync("git", ["ls-files", "scripts"], {
+      cwd: repoRoot,
+      encoding: "utf8",
+    })
+      .split("\n")
+      .filter((f) => /\.(test|spec)\.[^/]+$/.test(f));
+    if (testFiles.length === 0)
+      integrity.push(
+        "no `scripts/**/*.test.*` files are tracked — the guard's parser tests are gone.",
+      );
+    for (const f of testFiles)
+      if (!testGlobs.some((g) => globToRegExp(g).test(f)))
+        integrity.push(
+          `${f}: not matched by the \`test:scripts\` glob — \`node --test\` won't run it (a rename to a form it skips). Rename it back to \`*.test.mjs\`.`,
+        );
   }
 
   for (const clientDir of CLIENTS) {

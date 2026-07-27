@@ -60,8 +60,9 @@ test("reachableScripts: a `prevalidate`-hosted typecheck is reachable (r10)", ()
 });
 
 test("rootRunsClientValidate: forms that count vs. don't", () => {
+  // `cmd` lives in `vt`, reached from `validate` via `npm run vt`.
   const runs = (cmd) =>
-    rootRunsClientValidate({ validate: cmd, x: cmd }, "clients/tui");
+    rootRunsClientValidate({ validate: "npm run vt", vt: cmd }, "clients/tui");
   // Counts:
   assert.ok(runs("cd clients/tui && npm run validate"), "plain cd");
   assert.ok(runs("cd ./clients/tui && npm run validate"), "leading ./ (r15)");
@@ -85,6 +86,32 @@ test("rootRunsClientValidate: forms that count vs. don't", () => {
     "`run validate:fast` is a different script (r20)",
   );
   assert.ok(!runs("cd clients/tui && npm run build"), "no validate");
+});
+
+test("rootRunsClientValidate: only counts a reachable script (r5)", () => {
+  // A cd-validate call in a script nothing reachable from `validate` runs must
+  // NOT count — that's the whole reason the reachability restriction exists.
+  assert.ok(
+    !rootRunsClientValidate(
+      {
+        validate: "npm run something-else",
+        orphan: "cd clients/tui && npm run validate",
+      },
+      "clients/tui",
+    ),
+    "orphan script isn't reachable from validate",
+  );
+  // Reached via one hop of indirection counts.
+  assert.ok(
+    rootRunsClientValidate(
+      {
+        validate: "npm run validate:tui",
+        "validate:tui": "cd clients/tui && npm run validate",
+      },
+      "clients/tui",
+    ),
+    "reached via validate:tui",
+  );
 });
 
 test("rootReachesScript: sibling-guard vouching", () => {

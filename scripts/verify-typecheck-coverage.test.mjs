@@ -6,9 +6,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  globToRegExp,
   isDisablingFlag,
   isRequiredSource,
   isTsc,
+  parseTsconfigReferences,
   tscBuildStatus,
   typecheckProjects,
 } from "./verify-typecheck-coverage.mjs";
@@ -68,6 +70,15 @@ test("typecheckProjects: harvests -p / --project / -b, implicit tsconfig.json (r
     typecheckProjects({ typecheck: `tsc -p "tsconfig.test.json"` }).projects,
     ["tsconfig.test.json"],
   );
+
+  // `--project` long form, and `-b`/`--build` project paths (r13).
+  const proj = (cmd) => typecheckProjects({ typecheck: cmd }).projects;
+  assert.deepEqual(proj("tsc --noEmit --project tsconfig.json"), [
+    "tsconfig.json",
+  ]);
+  assert.deepEqual(proj("tsc -b tsconfig.json"), ["tsconfig.json"]);
+  assert.deepEqual(proj("tsc --build tsconfig.json"), ["tsconfig.json"]);
+  assert.deepEqual(proj("tsc -b"), ["tsconfig.json"]); // implicit fallback
 });
 
 test("typecheckProjects: neutered by --noCheck / --listFilesOnly (r10)", () => {
@@ -96,4 +107,28 @@ test("tscBuildStatus: ok / neutered / none (r25)", () => {
   assert.equal(status("tsc -b --noCheck && vite build"), "neutered");
   assert.equal(status("vite build"), "none");
   assert.equal(status("tsc --noEmit -p tsconfig.json"), "none"); // -b required
+});
+
+test("parseTsconfigReferences: JSONC tolerance (r17-nit2 block comments)", () => {
+  const refs = (raw) => parseTsconfigReferences(raw);
+  assert.deepEqual(refs('{ "references": [{ "path": "./a" }] }'), ["./a"]);
+  assert.deepEqual(
+    refs('/* solution */\n{ "references": [{ "path": "./a" }] }'),
+    ["./a"],
+  );
+  assert.deepEqual(refs('{ "references": [{ "path": "./a" }] } // trailing'), [
+    "./a",
+  ]);
+  assert.deepEqual(refs('{ "references": [{ "path": "./a" },] }'), ["./a"]); // trailing comma
+  assert.deepEqual(refs('{ "files": [] }'), []); // no references
+  assert.deepEqual(refs("{ not json"), []); // malformed
+  assert.deepEqual(refs('{ "references": [{ "prepend": true }] }'), []); // no path
+});
+
+test("globToRegExp: matches the test:scripts glob shape", () => {
+  const g = globToRegExp("scripts/**/*.test.mjs");
+  assert.ok(g.test("scripts/lib/npm-scripts.test.mjs"));
+  assert.ok(g.test("scripts/verify-typecheck-coverage.test.mjs")); // zero-depth **
+  assert.ok(!g.test("scripts/lib/npm-scripts.spec.mjs")); // wrong suffix
+  assert.ok(!g.test("scripts/lib/npm-scripts.test.mts")); // wrong ext
 });
