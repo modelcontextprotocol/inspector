@@ -970,13 +970,23 @@ describe("InspectorClient peer-handler timing (#1797)", () => {
     ],
   ] as const) {
     it(`continues teardown when the dropped stream's close() ${label}`, async () => {
-      // The close is best-effort against *both* failure modes because it runs
-      // from `disconnect()`, whose teardown is straight-line: an escaping
-      // failure would skip the raw-wire rejects, the paused task-input aborts,
-      // the in-flight tool-call abort and `clearReceiverTasks()` — silently,
-      // since most callers catch `disconnect()`. So the release obligation is
-      // pinned from the other side too: the reset closes what it drops, and a
-      // `close()` that fails does not take the rest of teardown with it.
+      // The release obligation from the other side: the reset closes what it
+      // drops, and a `close()` that fails either way is absorbed. Be precise
+      // about *which* harm is absorbed at this site, because the two are not
+      // interchangeable: the call is `void`-ed onto an `async` helper, so even
+      // the synchronous throw becomes a dropped rejection rather than reaching
+      // `disconnect()` — the teardown below it runs regardless. What the
+      // wrapping prevents is the rejection going *unhandled*, which ends a Node
+      // process by default. Hence the listener: it is the assertion that fails
+      // if the helper's `try/catch` is removed. The two teardown assertions are
+      // kept for the neighbouring regression — unwrapping this to a bare
+      // `void closing.close()`, where the synchronous half would propagate.
+      const unhandled: unknown[] = [];
+      const onUnhandled = (reason: unknown): void => {
+        unhandled.push(reason);
+      };
+      process.on("unhandledRejection", onUnhandled);
+
       const transport = new SampleAfterConnectTransport();
       const client = new InspectorClient(
         { type: "stdio", command: "noop", args: [] },
@@ -984,8 +994,9 @@ describe("InspectorClient peer-handler timing (#1797)", () => {
       );
       await client.connect();
 
-      // Seeded directly, for the reasons the two tests above give. No public
-      // writer for either, hence the casts.
+      // Seeded directly, for the reasons `closes a live listen stream the next
+      // connect drops` and `aborts a paused task-input wait when the session
+      // ends` give. No public writer for either, hence the casts.
       (
         client as unknown as {
           modernSubscription: { close: () => Promise<void> } | null;
@@ -1000,13 +1011,24 @@ describe("InspectorClient peer-handler timing (#1797)", () => {
         }
       ).taskInputAbortControllers.set("task-1", controller);
 
-      await expect(client.disconnect()).resolves.toBeUndefined();
-      expect(controller.signal.aborted).toBe(true);
+      try {
+        await expect(client.disconnect()).resolves.toBeUndefined();
+        expect(controller.signal.aborted).toBe(true);
+
+        // Node reports an unhandled rejection after the microtask checkpoint,
+        // so yield to the macrotask queue before reading the listener — nothing
+        // else in this test would give it a chance to fire.
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(unhandled).toEqual([]);
+      } finally {
+        process.off("unhandledRejection", onUnhandled);
+      }
     });
   }
 
   it("clears a peer request the next connect would otherwise inherit", async () => {
-    // Same route as the test above, for the other collection it strands. An
+    // Same route as `closes a live listen stream the next connect drops`, for
+    // the other collection it strands. An
     // `onerror` without an `onclose` runs neither teardown path, so the queue
     // the three teardown paths clear end-clean is still populated when
     // `connect()` reuses the live transport — and the web modal is derived from
@@ -1014,7 +1036,8 @@ describe("InspectorClient peer-handler timing (#1797)", () => {
     // for the old session's request id onto the new connection. `connect()`
     // sweeps it start-clean for exactly this route.
     const transport = new ElicitAfterConnectTransport();
-    // Counted for the same reason as above: transport *reuse* is the premise.
+    // Counted for the same reason as that test: transport *reuse* is the
+    // premise.
     let created = 0;
     const client = new InspectorClient(
       { type: "stdio", command: "noop", args: [] },

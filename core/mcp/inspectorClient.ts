@@ -246,15 +246,25 @@ const DEFAULT_TASK_POLL_INTERVAL_MS = 500;
 /**
  * Close a modern listen stream best-effort, absorbing both failure modes a
  * third-party `close()` can produce: a rejected promise and a synchronous
- * throw. All three stream closes go through here. At two of them the caller has
- * already dropped its reference, so an escaping failure abandons a stream that
- * may still be open on the server *and* takes the caller's remaining work with
- * it — teardown that most callers of `disconnect()` would never see skipped, or
- * the re-listen that was about to replace the stream being closed. The third
- * (discarding a stream a newer refresh superseded) is milder: nothing stored it
- * and nothing follows it, so an escaping failure would only reject a
- * `subscribeToResource` whose replacement had already succeeded. Wrapped all the
- * same, so the rule is one rule (#1630, #1797).
+ * throw. All three stream closes go through here, and every one of them has
+ * already dropped its reference to the stream — so in each case an escaping
+ * failure abandons a stream that may still be open on the server. What it does
+ * *besides* that differs per site, because the shape of the call does:
+ *
+ * - `resetSubscriptionStream` — fire-and-forget (`void`), and the last statement
+ *   of the method. Because this helper is `async`, even a synchronous throw
+ *   becomes a rejection of the promise it returns, which the `void` then drops:
+ *   the caller is unaffected, and the harm is an *unhandled rejection* — fatal
+ *   to a Node process by default, a console error in the browser. That, not
+ *   skipped teardown, is what the wrapping buys at this site.
+ * - `refreshModernSubscription`'s re-listen close — awaited, with the
+ *   replacement `listen()` after it, so an escaping failure skips the re-listen
+ *   and leaves a non-empty subscription set with no stream.
+ * - the superseded-generation discard — awaited, but `return` follows, so an
+ *   escaping failure would only reject a `subscribeToResource` whose
+ *   replacement had already succeeded. The mildest of the three.
+ *
+ * Wrapped identically all the same, so the rule is one rule (#1630, #1797).
  */
 async function closeSubscriptionBestEffort(
   subscription: Pick<McpSubscription, "close">,
@@ -1469,9 +1479,11 @@ export class InspectorClient extends InspectorClientEventTarget {
     this.setModernStreamState(INACTIVE_SUBSCRIPTION_STREAM_STATE);
     this.dispatchSubscriptionsChange();
     // After the dispatches, so the ordering above is unaffected, and
-    // fire-and-forget because nothing downstream depends on it. Absorbing both
-    // failure modes matters most here: `disconnect()` calls this from the
-    // middle of a straight-line teardown that runs outside any `try`.
+    // fire-and-forget because nothing downstream depends on it. That is also
+    // why the wrapping matters here in a different way than at the awaited
+    // sites: the `void` means a failure cannot reach the caller at all — so it
+    // cannot cut `disconnect()`'s straight-line teardown short — and what it
+    // would do instead is go unhandled, which ends a Node process by default.
     if (closing) void closeSubscriptionBestEffort(closing);
   }
 
@@ -1607,12 +1619,17 @@ export class InspectorClient extends InspectorClientEventTarget {
     // *their* answer for the previous session's request id onto the new
     // connection, arbitrarily far past the re-handshake. Note what the sweep
     // does instead is emit a *cancel* for that same id, right here: still the
-    // settle-don't-discard rule, and this is the best moment for it, since the
-    // old connection is on the wire until `dropCachedTransport()` below. Both helpers are idempotent (one
-    // guards on a non-empty queue, the other clears its map and re-rejecting a
-    // settled promise is a no-op), so these are no-ops on the routes that
-    // already ran them; and anything still pending here belongs to a session
-    // that is, by definition, no longer connected.
+    // settle-don't-discard rule, and this is the earliest moment available:
+    // the old connection is still the one on the wire here, and stays so at
+    // least until the conditional `dropCachedTransport()` below — which on a
+    // stdio server never runs at all, so the same transport carries straight
+    // through the re-handshake.
+    //
+    // Both helpers are idempotent (one guards on a non-empty queue, the other
+    // clears its map and re-rejecting a settled promise is a no-op), so these
+    // are no-ops on the routes that already ran them; and anything still
+    // pending here belongs to a session that is, by definition, no longer
+    // connected.
     //
     // Must stay *after* `resetSessionState()`, which reads as independent of it
     // but is not: cancelling a task-augmented peer request settles it
