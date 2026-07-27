@@ -21,6 +21,7 @@ import {
   reachableScripts,
   rootReachesScript,
   rootRunsClientValidate,
+  tokenize,
 } from "./lib/npm-scripts.mjs";
 
 const repoRoot = path.resolve(
@@ -53,17 +54,6 @@ const MANIFESTS = [
   "clients/tui",
   "clients/launcher",
 ];
-
-/** Split a shell-ish command string into args, honoring double quotes. */
-function tokenize(command) {
-  const tokens = [];
-  const re = /"([^"]*)"|(\S+)/g;
-  let m;
-  while ((m = re.exec(command)) !== null) {
-    tokens.push(m[1] !== undefined ? m[1] : m[2]);
-  }
-  return tokens;
-}
 
 /**
  * Extract the path/glob args from every `prettier --check …` in a manifest's

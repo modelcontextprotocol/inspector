@@ -37,6 +37,7 @@ import {
   reachableScripts,
   rootReachesScript,
   rootRunsClientValidate,
+  tokenize,
 } from "./lib/npm-scripts.mjs";
 
 const repoRoot = path.resolve(
@@ -111,6 +112,16 @@ function nodeClients() {
         `${dir}: declares no \`typecheck\` script and isn't in the EXEMPT set — it gets no tsc pass. Add a \`typecheck\` (or exempt it with a reason).`,
       );
   }
+  // A stale EXEMPT key would otherwise be asserted in the success line while
+  // naming a dir that no longer exists — the exemption outliving its subject.
+  const present = new Set(
+    entries.filter((e) => e.isDirectory()).map((e) => `clients/${e.name}`),
+  );
+  for (const dir of EXEMPT.keys())
+    if (!present.has(dir))
+      problems.push(
+        `${dir}: listed in EXEMPT but is not a \`clients/*\` directory — remove the stale exemption.`,
+      );
   return { clients, problems };
 }
 
@@ -143,20 +154,26 @@ const { clients: CLIENTS, problems: enrollmentProblems } = nodeClients();
 function typecheckProjects(scripts) {
   const projects = [];
   const neutered = [];
+  const isFlag = (t) => t.startsWith("-");
+  const isProjectFlag = (t) => ["-p", "--project", "-b", "--build"].includes(t);
   for (const name of reachableScripts(scripts, "typecheck")) {
     const cmd = scripts?.[name];
     if (typeof cmd !== "string") continue;
     for (const segment of cmd.split(/&&|\|\||;/)) {
-      if (!/\btsc\b/.test(segment)) continue; // only tsc commands name projects
-      const disabling = /--noCheck|--listFilesOnly/i.exec(segment);
-      // `-p`/`--project`/`-b`/`--build` each take a project path (the capture
-      // rejects a following flag); a tsc command with none uses ./tsconfig.json.
-      const named = [
-        ...segment.matchAll(/(?:-p|--project|-b|--build)\s+([^\s-]\S*)/g),
-      ].map((m) => m[1]);
+      const tokens = tokenize(segment);
+      if (!tokens.includes("tsc")) continue; // only tsc commands name projects
+      const disabling = tokens.find((t) =>
+        /^--(noCheck|listFilesOnly)$/i.test(t),
+      );
+      // A project path follows `-p`/`--project`/`-b`/`--build`; a tsc command
+      // with none uses the implicit `./tsconfig.json` (tsc's own default).
+      const named = [];
+      for (let i = 0; i < tokens.length; i++)
+        if (isProjectFlag(tokens[i]) && tokens[i + 1] && !isFlag(tokens[i + 1]))
+          named.push(tokens[i + 1]);
       if (named.length === 0) named.push("tsconfig.json");
       for (const project of named) {
-        if (disabling) neutered.push({ project, flag: disabling[0] });
+        if (disabling) neutered.push({ project, flag: disabling });
         else projects.push(project);
       }
     }
