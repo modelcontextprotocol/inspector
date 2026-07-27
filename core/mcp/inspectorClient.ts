@@ -1063,8 +1063,10 @@ export class InspectorClient extends InspectorClientEventTarget {
    * directories that way) hits, while a server that asks later does not (#1797).
    *
    * Nothing here depends on the server's capabilities — only on constructor-set
-   * state — so there is nothing to wait for. The *notification* handlers that
-   * do gate on `this.capabilities` stay in `connect()`, after the handshake.
+   * state — so there is nothing to wait for. Its sibling
+   * {@link registerPeerNotificationHandlers} does the same for the one
+   * notification handler in that position; the notification handlers that *do*
+   * gate on `this.capabilities` stay in `connect()`, after the handshake.
    */
   private registerPeerRequestHandlers(): void {
     // Set up sampling request handler if sampling capability is enabled
@@ -1251,6 +1253,32 @@ export class InspectorClient extends InspectorClientEventTarget {
   }
 
   /**
+   * Register the server→client *notification* handlers that depend on nothing
+   * but constructor-set state, and so belong before the handshake for the same
+   * reason as {@link registerPeerRequestHandlers} (#1797).
+   *
+   * `notifications/roots/list_changed` is the only one: a server may emit it as
+   * soon as it is initialized, and a notification with no registered handler is
+   * silently dropped by the SDK (no error goes back on the wire, so the symptom
+   * is a missed UI refresh rather than a visible failure). The rest of the
+   * listChanged handlers gate on `this.capabilities`, which is not populated
+   * until `fetchServerInfo()` runs, so they stay in `connect()`.
+   */
+  private registerPeerNotificationHandlers(): void {
+    if (!this.client) return;
+    this.client.setNotificationHandler(
+      "notifications/roots/list_changed",
+      async () => {
+        // Dispatch event to notify UI that server's roots may have changed
+        // Note: rootsChange is a CustomEvent with Root[] payload, not a signal event
+        // We'll reload roots when the UI requests them, so we don't need to pass data here
+        // For now, we'll just dispatch an empty array as a signal to reload
+        this.dispatchTypedEvent("rootsChange", this.roots || []);
+      },
+    );
+  }
+
+  /**
    * Connect to the MCP server
    */
   async connect(): Promise<void> {
@@ -1367,9 +1395,11 @@ export class InspectorClient extends InspectorClientEventTarget {
       this.status = "connecting";
       this.dispatchTypedEvent("statusChange", this.status);
 
-      // Register the handlers for server→client requests before the handshake —
-      // see `registerPeerRequestHandlers` for why the ordering is load-bearing.
+      // Register the handlers for server→client requests and the
+      // capability-independent notifications before the handshake — see
+      // `registerPeerRequestHandlers` for why the ordering is load-bearing.
       this.registerPeerRequestHandlers();
+      this.registerPeerNotificationHandlers();
 
       // Optional connect-time timeout from per-server settings. The MCP SDK
       // has no connect-time timeout option, so we wrap the handshake in a
@@ -1427,20 +1457,6 @@ export class InspectorClient extends InspectorClientEventTarget {
         await this.client.setLoggingLevel(
           this.initialLoggingLevel,
           this.getRequestOptions(),
-        );
-      }
-
-      // Set up notification handler for roots/list_changed from server
-      if (this.client) {
-        this.client.setNotificationHandler(
-          "notifications/roots/list_changed",
-          async () => {
-            // Dispatch event to notify UI that server's roots may have changed
-            // Note: rootsChange is a CustomEvent with Root[] payload, not a signal event
-            // We'll reload roots when the UI requests them, so we don't need to pass data here
-            // For now, we'll just dispatch an empty array as a signal to reload
-            this.dispatchTypedEvent("rootsChange", this.roots || []);
-          },
         );
       }
 
