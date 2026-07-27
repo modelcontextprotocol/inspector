@@ -79,10 +79,26 @@ export const isTsc = (t) => /(?:^|[\\/])tsc(?:\.(?:cmd|exe|ps1))?$/.test(t);
 // `typecheck`-script path and the reference (`tsc -b`) path.
 export const isDisablingFlag = (t) => /^--(noCheck|listFilesOnly)$/i.test(t);
 
-/** A glob (with `**`/`*`) anchored to a RegExp over POSIX paths. Used to check a
- * tracked test file is matched by the `test:scripts` command's glob. */
+/** A glob anchored to a RegExp over POSIX paths. Used to check a tracked test
+ * file is matched by the `test:scripts` command's glob. Supports the forms
+ * `node --test`'s own glob does: `**` (any depth), `*` and `?` (within one
+ * segment), and brace alternation (`*.{test,spec}.mjs`) — the last two because
+ * `*.{test,spec}.mjs` is the natural widening here (the tracked-file scan
+ * already treats a `.spec.` file as a test), and a `?` left as a regex
+ * quantifier silently means "optional previous char" (or throws outright). */
 export function globToRegExp(glob) {
+  // Only treat braces as alternation when they're balanced; an unbalanced one
+  // is a literal brace (and would otherwise emit an unclosed group).
+  let depth = 0;
+  let balanced = true;
+  for (const c of glob) {
+    if (c === "{") depth++;
+    else if (c === "}" && depth-- === 0) balanced = false;
+  }
+  if (depth !== 0) balanced = false;
+
   let re = "";
+  let open = 0;
   for (let i = 0; i < glob.length; i++) {
     const c = glob[i];
     if (c === "*") {
@@ -90,7 +106,15 @@ export function globToRegExp(glob) {
         re += glob[i + 2] === "/" ? "(?:.*/)?" : ".*";
         i += glob[i + 2] === "/" ? 2 : 1;
       } else re += "[^/]*";
-    } else if (".+^${}()|[]\\".includes(c)) re += "\\" + c;
+    } else if (c === "?") re += "[^/]";
+    else if (balanced && c === "{") {
+      open++;
+      re += "(?:";
+    } else if (balanced && c === "}" && open > 0) {
+      open--;
+      re += ")";
+    } else if (balanced && c === "," && open > 0) re += "|";
+    else if (".+^${}()|[]\\".includes(c)) re += "\\" + c;
     else re += c;
   }
   return new RegExp("^" + re + "$");
@@ -368,6 +392,30 @@ function rawProjectFiles(clientDir, project) {
  * the same graph, so a `noCheck` in a *referenced* project is caught no matter
  * which enrollment path harvested the solution.
  */
+/**
+ * The repo-relative tsconfig FILE a `clientDir`-relative `project` entry names.
+ * A directory-form entry (`{ "path": "./packages/a" }`, or `tsc -p src`) means
+ * `<dir>/tsconfig.json` — tsc's own rule.
+ */
+export function projectConfigFile(clientDir, project) {
+  const projectRel = path.posix.join(clientDir, project);
+  return projectRel.endsWith(".json")
+    ? projectRel
+    : path.posix.join(projectRel, "tsconfig.json");
+}
+
+/**
+ * A `references` entry `ref` (written relative to `fromConfigFile`'s own
+ * directory) as a `clientDir`-relative project path, the form the rest of the
+ * graph walk uses.
+ */
+export function refToProject(clientDir, fromConfigFile, ref) {
+  return path.posix.relative(
+    clientDir,
+    path.posix.join(path.posix.dirname(fromConfigFile), ref),
+  );
+}
+
 export function resolveLeafProjects(clientDir, project, seen = new Set()) {
   if (seen.has(project)) return [];
   seen.add(project);
@@ -375,19 +423,13 @@ export function resolveLeafProjects(clientDir, project, seen = new Set()) {
   // that errored — either way the reference expansion below is the right next
   // step: a broken config yields no references too.)
   if (rawProjectFiles(clientDir, project).size > 0) return [project];
-  // The config file `project` resolves to — a directory-form reference
-  // (`{ "path": "./packages/a" }`) means `<dir>/tsconfig.json`.
-  const projectRel = path.posix.join(clientDir, project);
-  const configFile = projectRel.endsWith(".json")
-    ? projectRel
-    : path.posix.join(projectRel, "tsconfig.json");
+  const configFile = projectConfigFile(clientDir, project);
   const refs = tsconfigReferences(configFile);
   if (refs.length === 0) return [project]; // no files, no refs — itself
-  const configDir = path.posix.dirname(configFile);
   return refs.flatMap((ref) =>
     resolveLeafProjects(
       clientDir,
-      path.posix.relative(clientDir, path.posix.join(configDir, ref)),
+      refToProject(clientDir, configFile, ref),
       seen,
     ),
   );
@@ -521,9 +563,17 @@ export function main() {
       "the root `validate` no longer runs `test:scripts` — the guard's own parser tests run nowhere; restore it.",
     );
   } else {
-    const testGlobs = tokenize(rootPkg.scripts["test:scripts"] ?? "").filter(
-      (t) => !t.startsWith("-") && t !== "node",
-    );
+    // Harvest across every script reachable FROM `test:scripts`, not just its
+    // own string — a delegating `test:scripts` ("npm run test:scripts:lib &&
+    // npm run test:scripts:guard", the way other scripts here split) genuinely
+    // runs every test, and reading the one literal string would report each
+    // file as unmatched with unfollowable advice. Same fix as the `typecheck`
+    // harvest, and it picks up a `pretest:scripts` hook for free.
+    const testGlobs = [...reachableScripts(rootPkg.scripts, "test:scripts")]
+      .map((n) => rootPkg.scripts?.[n])
+      .filter((c) => typeof c === "string")
+      .flatMap((c) => tokenize(c))
+      .filter((t) => !t.startsWith("-") && t !== "node");
     const testFiles = execFileSync("git", ["ls-files", "scripts"], {
       cwd: repoRoot,
       encoding: "utf8",

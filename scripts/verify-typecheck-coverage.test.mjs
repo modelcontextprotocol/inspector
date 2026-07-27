@@ -11,6 +11,8 @@ import {
   isRequiredSource,
   isTsc,
   parseTsconfigReferences,
+  projectConfigFile,
+  refToProject,
   tscBuildStatus,
   typecheckProjects,
 } from "./verify-typecheck-coverage.mjs";
@@ -131,4 +133,60 @@ test("globToRegExp: matches the test:scripts glob shape", () => {
   assert.ok(g.test("scripts/verify-typecheck-coverage.test.mjs")); // zero-depth **
   assert.ok(!g.test("scripts/lib/npm-scripts.spec.mjs")); // wrong suffix
   assert.ok(!g.test("scripts/lib/npm-scripts.test.mts")); // wrong ext
+});
+
+test("globToRegExp: brace alternation and ? (r31 finding 2)", () => {
+  // `node --test` expands braces, so the natural widening must match too.
+  const b = globToRegExp("scripts/**/*.{test,spec}.mjs");
+  assert.ok(b.test("scripts/lib/npm-scripts.test.mjs"));
+  assert.ok(b.test("scripts/verify-typecheck-coverage.spec.mjs"));
+  assert.ok(!b.test("scripts/a.other.mjs"));
+  // `?` is exactly one non-separator char, not a regex quantifier.
+  const q = globToRegExp("scripts/a?.test.mjs");
+  assert.ok(q.test("scripts/ab.test.mjs"));
+  assert.ok(!q.test("scripts/a.test.mjs")); // would pass if `?` stayed a quantifier
+  assert.ok(!q.test("scripts/a/.test.mjs")); // never crosses a separator
+  assert.doesNotThrow(() => globToRegExp("?.mjs")); // segment-leading `?` isn't `Nothing to repeat`
+  // An unbalanced brace is a literal brace, not an unclosed group.
+  assert.doesNotThrow(() => globToRegExp("scripts/{a.mjs"));
+  assert.ok(globToRegExp("scripts/{a.mjs").test("scripts/{a.mjs"));
+});
+
+test("projectConfigFile: directory-form entry means <dir>/tsconfig.json (r26)", () => {
+  assert.equal(
+    projectConfigFile("clients/cli", "tsconfig.test.json"),
+    "clients/cli/tsconfig.test.json",
+  );
+  assert.equal(
+    projectConfigFile("clients/cli", "packages/a"),
+    "clients/cli/packages/a/tsconfig.json",
+  );
+  assert.equal(
+    projectConfigFile("clients/cli", "."),
+    "clients/cli/tsconfig.json",
+  );
+});
+
+test("refToProject: refs resolve against the REFERRING config's dir (r26)", () => {
+  // A ref is relative to the tsconfig that declares it, not to clientDir.
+  assert.equal(
+    refToProject(
+      "clients/web",
+      "clients/web/tsconfig.json",
+      "./tsconfig.app.json",
+    ),
+    "tsconfig.app.json",
+  );
+  assert.equal(
+    refToProject(
+      "clients/web",
+      "clients/web/sub/tsconfig.json",
+      "../other.json",
+    ),
+    "other.json",
+  );
+  assert.equal(
+    refToProject("clients/web", "clients/web/sub/tsconfig.json", "./deep"),
+    "sub/deep",
+  );
 });
