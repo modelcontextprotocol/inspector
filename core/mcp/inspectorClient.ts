@@ -1852,9 +1852,11 @@ export class InspectorClient extends InspectorClientEventTarget {
     );
     this.cancelledTaskIds.clear();
     // Settle any pending raw-wire (modern tasks/*) requests so their callers
-    // don't hang past teardown. Unlike the SDK's own in-flight requests, these
-    // get no share of the drain above: the user asked to disconnect, and a
-    // Tasks poll is not worth delaying that for.
+    // don't hang past teardown. Rejected outright on every disconnect: the
+    // drain above polls the SDK's own response-handler map, which never holds
+    // raw-wire ids (those frames go straight through the transport), and it is
+    // opt-in anyway — every production caller leaves `safeDisconnectTimeout` at
+    // 0, so nothing is drained for anyone.
     this.rejectPendingRawWireRequests("Disconnected");
     // Abort any task paused at input_required so its poll loop unwinds.
     for (const [, controller] of this.taskInputAbortControllers) {
