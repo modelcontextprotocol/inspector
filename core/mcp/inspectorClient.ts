@@ -1301,6 +1301,23 @@ export class InspectorClient extends InspectorClientEventTarget {
   }
 
   /**
+   * Settle and drop the queued peer requests (sampling / elicitation).
+   *
+   * Each elicitation is cancelled before being dropped, so an error-path
+   * `awaitUrlElicitation` — which blocks `callTool` — doesn't hang forever when
+   * the queue goes away. Callers dispatch the change events themselves:
+   * `disconnect()` batches them with its other teardown events, while the
+   * `connect()` failure path emits them on its own.
+   */
+  private clearPendingPeerRequests(): void {
+    this.pendingSamples = [];
+    for (const elicitation of this.pendingElicitations) {
+      elicitation.cancel();
+    }
+    this.pendingElicitations = [];
+  }
+
+  /**
    * Connect to the MCP server
    */
   async connect(): Promise<void> {
@@ -1607,6 +1624,23 @@ export class InspectorClient extends InspectorClientEventTarget {
       if (this.baseTransport && !this.transportHasAuthProvider) {
         await this.dropCachedTransport();
       }
+      // The peer handlers are registered before the handshake (#1797), so a
+      // server can queue a sampling/elicitation request during it — and this is
+      // where that connect attempt dies. Drop the queue: otherwise the UI keeps
+      // a live pending-request modal for a connection that never came up, and
+      // answering it would route to a torn-down transport. `disconnect()` does
+      // the same, but `connect()` only reaches it on the connect-timeout path.
+      if (
+        this.pendingSamples.length > 0 ||
+        this.pendingElicitations.length > 0
+      ) {
+        this.clearPendingPeerRequests();
+        this.dispatchTypedEvent("pendingSamplesChange", this.pendingSamples);
+        this.dispatchTypedEvent(
+          "pendingElicitationsChange",
+          this.pendingElicitations,
+        );
+      }
       // Deliberately do NOT dispatch the `error` event here: this is the
       // awaited `connect()` path, so re-throwing hands the reason straight to
       // the caller. The `error` event is reserved for non-awaited transitions
@@ -1679,14 +1713,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     }
 
     // Clear server state on disconnect (list state is in state managers).
-    // Settle any outstanding elicitations as cancelled before dropping them, so
-    // an error-path `awaitUrlElicitation` (which blocks `callTool`) doesn't hang
-    // forever when the queue is cleared on teardown.
-    this.pendingSamples = [];
-    for (const elicitation of this.pendingElicitations) {
-      elicitation.cancel();
-    }
-    this.pendingElicitations = [];
+    this.clearPendingPeerRequests();
     // Clear resource subscriptions on disconnect. Tear down the modern listen
     // stream (best-effort — the transport is already going away) and bump the
     // generation so any in-flight re-listen/reconnect bails (#1630).

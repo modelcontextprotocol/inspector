@@ -138,6 +138,62 @@ class InitializedRacingTransport implements Transport {
   }
 }
 
+/**
+ * Delivers an `elicitation/create` at `initialized` — the earliest a server
+ * could — and then fails the `logging/setLevel` that `connect()` issues after
+ * the handshake, so the connect attempt dies with a peer request already queued.
+ */
+class ElicitThenFailTransport implements Transport {
+  onmessage?: (message: JSONRPCMessage) => void;
+  onclose?: () => void;
+  onerror?: (error: Error) => void;
+
+  async start(): Promise<void> {}
+  async close(): Promise<void> {}
+
+  async send(message: JSONRPCMessage): Promise<void> {
+    if (!("method" in message)) return;
+    if (message.method === "initialize" && "id" in message) {
+      const params = message.params as { protocolVersion: string };
+      this.onmessage?.({
+        jsonrpc: "2.0",
+        id: message.id,
+        result: {
+          protocolVersion: params.protocolVersion,
+          // Advertise logging so connect() issues the setLevel we fail below.
+          capabilities: { logging: {} },
+          serverInfo: { name: "failing-server", version: "1.0.0" },
+        },
+      });
+      return;
+    }
+    if (message.method === "notifications/initialized") {
+      this.onmessage?.({
+        jsonrpc: "2.0",
+        id: 9201,
+        method: "elicitation/create",
+        // `properties` is required — the SDK validates inbound params, and a
+        // schema without it is rejected before our handler ever enqueues.
+        params: {
+          message: "Your name?",
+          requestedSchema: {
+            type: "object",
+            properties: { name: { type: "string" } },
+          },
+        },
+      });
+      return;
+    }
+    if (message.method === "logging/setLevel" && "id" in message) {
+      this.onmessage?.({
+        jsonrpc: "2.0",
+        id: message.id,
+        error: { code: -32603, message: "no logging for you" },
+      });
+    }
+  }
+}
+
 describe("InspectorClient peer-handler timing (#1797)", () => {
   it("serves server→client traffic that arrives with notifications/initialized", async () => {
     const roots = [{ uri: "file:///work", name: "Work" }];
@@ -232,5 +288,26 @@ describe("InspectorClient peer-handler timing (#1797)", () => {
     });
 
     await client.disconnect();
+  });
+  it("drops a peer request queued during a connect that then fails", async () => {
+    // Registering the handlers before the handshake (#1797) widened the window
+    // in which a server can queue a request to include the part of connect()
+    // that can still fail. The failure path must not leave the queue behind:
+    // web derives its pending-request modal from these lengths with no status
+    // gate, so a stranded entry means a live modal on a dead connection, and a
+    // URL elicitation's waiter would never settle.
+    const transport = new ElicitThenFailTransport();
+    const client = new InspectorClient(
+      { type: "stdio", command: "noop", args: [] },
+      {
+        environment: { transport: () => ({ transport }) },
+        initialLoggingLevel: "debug",
+      },
+    );
+
+    await expect(client.connect()).rejects.toThrow();
+
+    expect(client.getPendingElicitations()).toEqual([]);
+    expect(client.getPendingSamples()).toEqual([]);
   });
 });
