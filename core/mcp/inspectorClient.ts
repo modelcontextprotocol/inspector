@@ -1418,6 +1418,33 @@ export class InspectorClient extends InspectorClientEventTarget {
   }
 
   /**
+   * Reset the modern listen-stream cluster: the subscribed set, the stream
+   * state derived from it, and the reconnect machinery that reports on it.
+   *
+   * One helper because these move together — the rest of the file derives the
+   * stream's `active` from `subscribedResources.size > 0`, so clearing one
+   * without the other leaves a combination those readers treat as impossible,
+   * and a surviving `modernReconnectAttempts` makes a *new* session's first
+   * drop back off as if it were the old session's nth. Both axes are announced:
+   * every other mutation of the set dispatches, and so does the stream state.
+   *
+   * The live subscription's best-effort `close()` stays with `disconnect()` —
+   * that is the only caller with a stream still worth closing.
+   */
+  private resetSubscriptionStream(): void {
+    this.subscribedResources.clear();
+    this.modernListenGeneration++;
+    this.clearModernReconnectTimer();
+    this.modernReconnectAttempts = 0;
+    this.modernSubscription = null;
+    // Announced only once both have moved: a listener that ran between them
+    // would see an empty set with an `active` stream — the combination this
+    // helper exists to prevent, so its own dispatches must not expose it.
+    this.setModernStreamState(INACTIVE_SUBSCRIPTION_STREAM_STATE);
+    this.dispatchSubscriptionsChange();
+  }
+
+  /**
    * Drop the session-scoped state a *new* session would misread — anything the
    * next server could be told about, or that would change how we treat its
    * traffic. State that only needs settling on the way out (the peer-request
@@ -1441,30 +1468,6 @@ export class InspectorClient extends InspectorClientEventTarget {
    * in a `finally`, so nothing leaks permanently; the abort just closes the
    * window between the crash and the unwind (#1797).
    */
-  /**
-   * Reset the modern listen-stream cluster: the subscribed set, the stream
-   * state derived from it, and the reconnect machinery that reports on it.
-   *
-   * One helper because these move together — the rest of the file derives the
-   * stream's `active` from `subscribedResources.size > 0`, so clearing one
-   * without the other leaves a combination those readers treat as impossible,
-   * and a surviving `modernReconnectAttempts` makes a *new* session's first
-   * drop back off as if it were the old session's nth. Both axes are announced:
-   * every other mutation of the set dispatches, and so does the stream state.
-   *
-   * The live subscription's best-effort `close()` stays with `disconnect()` —
-   * that is the only caller with a stream still worth closing.
-   */
-  private resetSubscriptionStream(): void {
-    this.subscribedResources.clear();
-    this.dispatchSubscriptionsChange();
-    this.modernListenGeneration++;
-    this.clearModernReconnectTimer();
-    this.modernReconnectAttempts = 0;
-    this.modernSubscription = null;
-    this.setModernStreamState(INACTIVE_SUBSCRIPTION_STREAM_STATE);
-  }
-
   private resetSessionState(): void {
     this.clearReceiverTasks();
     this.resetSubscriptionStream();
@@ -4728,10 +4731,9 @@ export class InspectorClient extends InspectorClientEventTarget {
       // "stream gone but subscriptions remain" renders the same whether we gave
       // up after failed reconnects or the server closed it gracefully: keep the
       // ended badge while URIs are still subscribed. (A `disconnect()` clears
-      // the set and forces the inactive state. A *crash* leaves this state in
-      // place until the next `connect()` calls `resetSubscriptionStream` — so
-      // the pair can read "active with an empty set" only in that window, which
-      // is what nothing else in this file is written to expect.)
+      // the set and forces the inactive state; a *crash* leaves both in place
+      // until the next `connect()` calls `resetSubscriptionStream`, which moves
+      // them together — so "active with an empty set" is never observable.)
       this.setModernStreamState({
         active: this.subscribedResources.size > 0,
         status: "ended",

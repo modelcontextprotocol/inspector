@@ -66,15 +66,17 @@ import { ModernGetTaskResultSchema } from "@inspector/core/mcp/modernTaskSchemas
  * handshake and both terminal paths clear it.
  *
  * A further category is session scoping. Receiver tasks, resource
- * subscriptions, cancelled task ids, paused task-input aborts and the
- * modern log-level opt-in are all scoped to one connection —
- * `tasks/list` is answered from that map, and a stale subscription makes the
- * modern subscribe a silent no-op — so they belong to the session that created
- * them. Note the contrast with the teardown cases above: the peer-request queue
- * is cleared end-clean on all three teardown paths, while this is cleared
- * start-clean at the top of `connect()`, because a crash or a failed connect
- * the caller retries on the same instance means ending a session is not the
- * only way a new one begins.
+ * subscriptions, cancelled task ids, paused task-input aborts and the modern
+ * log-level opt-in are all scoped to one connection — `tasks/list` is answered
+ * from that map, and a stale subscription makes the modern subscribe a silent
+ * no-op — so they belong to the session that created them. Note the contrast
+ * with the teardown cases above: the peer-request queue is cleared end-clean
+ * on all three teardown paths, while this is *reset* start-clean at the top of
+ * `connect()`, because a crash or a failed connect the caller retries on the
+ * same instance means ending a session is not the only way a new one begins.
+ * Reset, not cleared: the log level is re-derived from the server setting
+ * rather than dropped, so a mid-session override does not carry over and the
+ * configured level is not lost.
  *
  * Some cases cover the other side of the registration gates. Client capabilities
  * are fixed at construction, so each gate must key off what was actually
