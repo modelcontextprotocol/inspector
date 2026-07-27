@@ -388,13 +388,14 @@ describe("resource subscriptions era fork (#1630)", () => {
       expect(state.status).toBe("acknowledged");
     });
 
-    it("ends the badge when both overlapping subscribes fail", async () => {
+    it("retries rather than stranding the URIs when both overlapping subscribes fail", async () => {
       // The other half of the gate: skipping the superseded call's rollback is
       // only safe if the superseding call reconciles when *it* fails too.
       // Otherwise the set keeps the first URI while the state keeps the
-      // optimistic "connecting" — a badge that will never change, with no
-      // stream and no reconnect armed (neither `onModernSubscriptionClosed` nor
-      // `onModernReconnectFailed` ran, so nothing self-heals).
+      // optimistic "connecting" — a badge that never changes, over a
+      // subscription no server ever honored, with nothing armed to fix it
+      // (neither `onModernSubscriptionClosed` nor `onModernReconnectFailed`
+      // ran). The reconcile hands it to the reconnect machinery instead.
       const started = await startServer({});
       const { connected } = await connect(started.url, "modern");
       const int = internals(connected);
@@ -416,15 +417,23 @@ describe("resource subscriptions era fork (#1630)", () => {
       failFirst(new Error("listen boom"));
       await firstSettled;
 
-      // Its own URI rolled back; the superseded one survives, and the badge
-      // reports the stream honestly rather than "connecting" forever.
+      // Its own URI rolled back; the superseded one survives — and rather than
+      // sitting at "connecting" forever it is now a retry in progress.
       expect(connected.getSubscribedResources()).toEqual([RESOURCE_URI]);
-      const state = connected.getResourceSubscriptionStreamState();
-      expect(state.active).toBe(true);
-      expect(state.status).toBe("ended");
+      expect(connected.getResourceSubscriptionStreamState().status).toBe(
+        "reconnecting",
+      );
+
+      // And the retry makes the state true: the next re-listen acknowledges.
+      int.client.listen = () => Promise.resolve(makeFakeSub().sub);
+      await vi.waitFor(() => {
+        expect(connected.getResourceSubscriptionStreamState().status).toBe(
+          "acknowledged",
+        );
+      });
     });
 
-    it("ends the badge when the unsubscribe's re-listen fails", async () => {
+    it("retries rather than stranding the URIs when the unsubscribe's re-listen fails", async () => {
       // `unsubscribeFromResource` keeps its removal when the re-listen fails,
       // so nothing is rolled back — but the stream is gone with URIs still
       // subscribed, and without the reconcile the badge would keep reporting
@@ -444,9 +453,38 @@ describe("resource subscriptions era fork (#1630)", () => {
       ).rejects.toThrow(/re-listen boom/);
 
       expect(connected.getSubscribedResources()).toEqual([RESOURCE_URI]);
-      const state = connected.getResourceSubscriptionStreamState();
-      expect(state.active).toBe(true);
-      expect(state.status).toBe("ended");
+      expect(connected.getResourceSubscriptionStreamState().status).toBe(
+        "reconnecting",
+      );
+    });
+
+    it("never announces an empty subscription set with an active stream", async () => {
+      // The pair `resetSubscriptionStream` orders its own writes to prevent,
+      // asserted from the consumer's side at the two sites that empty the set
+      // outside it: the last-URI unsubscribe (happy path, where the re-listen
+      // that would set INACTIVE is a round-trip away) and the last-URI rollback
+      // of a failed subscribe (where the state still reads "connecting").
+      const started = await startServer({});
+      const { connected } = await connect(started.url, "modern");
+      const seen: { size: number; active: boolean }[] = [];
+      connected.addEventListener("resourceSubscriptionsChange", () => {
+        seen.push({
+          size: connected.getSubscribedResources().length,
+          active: connected.getResourceSubscriptionStreamState().active,
+        });
+      });
+
+      await connected.subscribeToResource(RESOURCE_URI);
+      await connected.unsubscribeFromResource(RESOURCE_URI);
+
+      const int = internals(connected);
+      int.client.listen = () => Promise.reject(new Error("listen boom"));
+      await expect(connected.subscribeToResource(RESOURCE_URI)).rejects.toThrow(
+        /listen boom/,
+      );
+
+      expect(seen.length).toBeGreaterThan(0);
+      expect(seen.filter((s) => s.size === 0 && s.active)).toEqual([]);
     });
 
     it("rolls back the optimistic add when listen() fails", async () => {

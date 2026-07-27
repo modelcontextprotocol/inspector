@@ -4875,27 +4875,29 @@ export class InspectorClient extends InspectorClientEventTarget {
    * The empty case is the ordinary one: nothing subscribed, no stream, inactive.
    * The non-empty one exists because a failed re-listen leaves
    * `modernSubscription` null with URIs still subscribed, and nothing else will
-   * notice: `scheduleModernReconnect` is reachable only from a stream that
-   * closed or a reconnect that failed, and neither happened here. Left alone,
-   * the state keeps whatever the last success (or the optimistic
-   * `"connecting"`) wrote — a badge that will never change and a stream that
-   * will never arrive. `"ended"` is what `onModernSubscriptionClosed` already
-   * reports for this exact shape, so this reuses that vocabulary rather than
-   * inventing a state: honest about the stream without claiming the
-   * subscriptions are gone.
+   * notice: the reconnect machinery is reachable only from a stream that closed
+   * or a reconnect that failed, and neither happened here. Left alone, the state
+   * keeps whatever the last success (or the optimistic `"connecting"`) wrote — a
+   * badge that will never change over subscriptions the server may never have
+   * honored, recoverable only by an Unsubscribe/Subscribe toggle (a fresh
+   * Subscribe early-returns on the URI already being in the set).
+   *
+   * So it reconnects rather than settling for an honest-but-dead `"ended"`:
+   * every other route to "stream gone, URIs live" either expects the close or
+   * has exhausted the retry cap, and this is the one that has made no attempt
+   * at all. `scheduleModernReconnect` fits as-is — a user-initiated refresh
+   * already reset `modernReconnectAttempts`, so it starts at the base delay; the
+   * timer bails on a terminal status or an emptied set; and past the cap
+   * `onModernReconnectFailed` lands on the same `"ended"` badge. The state
+   * therefore becomes true or ends after a real attempt. The caller still sees
+   * its error either way — the retry is about the subscriptions, not the call.
    */
   private reconcileModernStreamStateAfterFailedRefresh(): void {
     if (this.subscribedResources.size === 0) {
       this.setModernStreamState(INACTIVE_SUBSCRIPTION_STREAM_STATE);
       return;
     }
-    if (this.modernSubscription === null) {
-      this.setModernStreamState({
-        active: true,
-        status: "ended",
-        honoredUris: [],
-      });
-    }
+    this.scheduleModernReconnect();
   }
 
   /**
@@ -5012,9 +5014,14 @@ export class InspectorClient extends InspectorClientEventTarget {
           // Either way the state is no longer ours to correct. The error is
           // still the caller's to see.
           if (this.modernListenGeneration === generationBefore + 1) {
+            // State before the announce, for `resetSubscriptionStream`'s
+            // reason: on a last-URI rollback, dispatching first would expose an
+            // empty set with a stream still reading `"connecting"` — the pair
+            // this file treats as impossible. The reverse intermediate is the
+            // benign one (and the optimistic add above already exposes it).
             this.subscribedResources.delete(uri);
-            this.dispatchSubscriptionsChange();
             this.reconcileModernStreamStateAfterFailedRefresh();
+            this.dispatchSubscriptionsChange();
           }
           throw error;
         }
@@ -5050,6 +5057,16 @@ export class InspectorClient extends InspectorClientEventTarget {
         if (!this.subscribedResources.delete(uri)) return;
         // The removal is the user's intent; keep it even if the re-listen fails
         // (the stale URI simply lingers in the server's honored filter).
+        //
+        // Removing the last URI moves the stream to inactive before announcing
+        // the set, rather than letting the re-listen below do it a round-trip
+        // later: dispatching first would expose an empty set with an `active`
+        // stream, which is the pair `resetSubscriptionStream` orders its own
+        // writes to prevent. The re-listen sets the same state on arrival, and
+        // sets it on the failure path too (see the catch).
+        if (this.subscribedResources.size === 0) {
+          this.setModernStreamState(INACTIVE_SUBSCRIPTION_STREAM_STATE);
+        }
         this.dispatchSubscriptionsChange();
         // Same ownership test as `subscribeToResource` — see the long comment
         // there. Nothing to undo on this path (the removal is kept
