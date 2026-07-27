@@ -42,8 +42,9 @@ import { InspectorClient } from "@inspector/core/mcp/inspectorClient.js";
  * The teardown cases cover the flip side of the same move. Registering the
  * handlers before the handshake also widened the window in which a server can
  * queue a request with us, so every path that ends a connection has to clear
- * that queue and announce it — otherwise the web pending-request modal outlives
- * the connection it belongs to. There are three: a failed `connect()`, a
+ * that queue, announce it, and settle each entry — otherwise the web
+ * pending-request modal outlives the connection it belongs to, and the server
+ * is left waiting on a request we accepted and never answered. There are three: a failed `connect()`, a
  * mid-session transport close, and an explicit `disconnect()`. `disconnect()`
  * and the crash path clear before dispatching `disconnect`, so a handler
  * reading the queue sees it empty. `connect()`'s own catch dispatches no
@@ -269,20 +270,24 @@ class ElicitAfterConnectTransport implements Transport {
 }
 
 /**
- * Resolve when the client enqueues an elicitation. Waits on the client's own
- * signal rather than counting microtasks — the enqueue is one tick deep today
- * with no margin, and an added await on the SDK's inbound path would flake it.
- * Raced with a reject for the same reason `injectRequest` is: a regression that
- * stops the enqueue should fail here, not hang to the vitest timeout.
+ * Resolve when the client enqueues a pending peer request. Waits on the
+ * client's own signal rather than counting microtasks — the enqueue is one tick
+ * deep today with no margin, and an added await on the SDK's inbound path would
+ * flake it. Raced with a reject for the same reason `injectRequest` is: a
+ * regression that stops the enqueue should fail here, not hang to the vitest
+ * timeout.
  */
-function waitForNewPendingElicitation(client: InspectorClient): Promise<void> {
+function waitForNewPendingRequest(
+  client: InspectorClient,
+  event: "newPendingElicitation" | "newPendingSample",
+): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     const timer = setTimeout(
-      () => reject(new Error("No newPendingElicitation after elicit()")),
+      () => reject(new Error(`No ${event} after the request was delivered`)),
       1000,
     );
     client.addEventListener(
-      "newPendingElicitation",
+      event,
       () => {
         clearTimeout(timer);
         resolve();
@@ -292,7 +297,7 @@ function waitForNewPendingElicitation(client: InspectorClient): Promise<void> {
   });
 }
 
-/** Connects cleanly, then samples on demand and records the client's reply. */
+/** Connects cleanly, then samples on demand so a test can tear the client down. */
 class SampleAfterConnectTransport implements Transport {
   onmessage?: (message: JSONRPCMessage) => void;
   onclose?: () => void;
@@ -485,7 +490,7 @@ describe("InspectorClient peer-handler timing (#1797)", () => {
     });
 
     await client.connect();
-    const queued = waitForNewPendingElicitation(client);
+    const queued = waitForNewPendingRequest(client, "newPendingElicitation");
     transport.elicit();
     await queued;
     expect(client.getPendingElicitations()).toHaveLength(1);
@@ -495,6 +500,42 @@ describe("InspectorClient peer-handler timing (#1797)", () => {
 
     expect(client.getPendingElicitations()).toEqual([]);
     expect(elicitationCounts.at(-1)).toBe(0);
+  });
+
+  it("answers a queued sampling request when the connection is torn down", async () => {
+    // We accepted the server's `sampling/createMessage`, so dropping it without
+    // settling means no response frame is ever written and the server waits
+    // forever. Reachable because the transport can outlive a failed attempt —
+    // `connect()` keeps it when an auth provider holds it open.
+    const transport = new SampleAfterConnectTransport();
+    const client = new InspectorClient(
+      { type: "stdio", command: "noop", args: [] },
+      { environment: { transport: () => ({ transport }) } },
+    );
+
+    await client.connect();
+    const queued = waitForNewPendingRequest(client, "newPendingSample");
+    transport.sample();
+    await queued;
+    const [pending] = client.getPendingSamples();
+    expect(pending).toBeDefined();
+
+    await client.disconnect();
+
+    expect(client.getPendingSamples()).toEqual([]);
+    // Settled, not merely discarded: `respond` refuses a request that already
+    // has an answer, so this throwing is the proof the promise was settled.
+    // (Whether the response frame reaches the wire depends on whether the
+    // transport outlived the teardown — on this path `disconnect()` closed it
+    // first, which is why the assertion is on the settle rather than on a
+    // recorded reply.)
+    await expect(
+      pending!.respond({
+        role: "assistant",
+        content: { type: "text", text: "late" },
+        model: "test",
+      }),
+    ).rejects.toThrow(/already resolved or rejected/);
   });
 
   it("has already cleared the queue by the time `disconnect` fires", async () => {
@@ -510,7 +551,7 @@ describe("InspectorClient peer-handler timing (#1797)", () => {
     );
 
     await client.connect();
-    const queued = waitForNewPendingElicitation(client);
+    const queued = waitForNewPendingRequest(client, "newPendingElicitation");
     transport.elicit();
     await queued;
     expect(client.getPendingElicitations()).toHaveLength(1);
@@ -593,46 +634,6 @@ describe("InspectorClient peer-handler timing (#1797)", () => {
     );
     expect(noRequests.getClientCapabilities().tasks).toBeDefined();
     expect(noRequests.getClientCapabilities().tasks?.requests).toBeUndefined();
-  });
-
-  it("answers a queued sampling request when the connection is torn down", async () => {
-    // We accepted the server's `sampling/createMessage`, so dropping it without
-    // settling means no response frame is ever written and the server waits
-    // forever. Reachable because the transport can outlive a failed attempt —
-    // `connect()` keeps it when an auth provider holds it open.
-    const transport = new SampleAfterConnectTransport();
-    const client = new InspectorClient(
-      { type: "stdio", command: "noop", args: [] },
-      { environment: { transport: () => ({ transport }) } },
-    );
-
-    await client.connect();
-    const queued = new Promise<void>((resolve) =>
-      client.addEventListener("newPendingSample", () => resolve(), {
-        once: true,
-      }),
-    );
-    transport.sample();
-    await queued;
-    const [pending] = client.getPendingSamples();
-    expect(pending).toBeDefined();
-
-    await client.disconnect();
-
-    expect(client.getPendingSamples()).toEqual([]);
-    // Settled, not merely discarded: `respond` refuses a request that already
-    // has an answer, so this throwing is the proof the promise was settled.
-    // (Whether the response frame reaches the wire depends on whether the
-    // transport outlived the teardown — on this path `disconnect()` closed it
-    // first, which is why the assertion is on the settle rather than on a
-    // recorded reply.)
-    await expect(
-      pending!.respond({
-        role: "assistant",
-        content: { type: "text", text: "late" },
-        model: "test",
-      }),
-    ).rejects.toThrow(/already resolved or rejected/);
   });
 
   it("can reconnect after setRoots() on a client built without roots", async () => {

@@ -92,14 +92,21 @@ export class SamplingCreateMessage {
    * serves all three teardown paths — an explicit `disconnect()`, a failed
    * `connect()`, and a mid-session transport close.
    *
-   * Unlike an elicitation there is no internal awaiter to unblock, but the
-   * *server* is one: we accepted its `sampling/createMessage`, so dropping the
-   * request without settling means no response frame is ever written and it
-   * waits forever. That is reachable when the transport outlives the failed
-   * attempt — `connect()` keeps it when an auth provider holds it open — so
-   * settle rather than discard. Rejecting is the right settle: it is what the
-   * UI's decline path sends, and the SDK turns it into a JSON-RPC error
-   * response. No-op once already resolved.
+   * Unlike an elicitation there is no internal awaiter to unblock, but on the
+   * plain server-request shape the *server* is one: we accepted its
+   * `sampling/createMessage`, so dropping the request without settling means no
+   * response frame is ever written and it waits forever. That is reachable when
+   * the transport outlives the failed attempt — `connect()` keeps it when an
+   * auth provider holds it open — so settle rather than discard. Rejecting is
+   * the right settle: it is what the UI's decline path sends, and the SDK turns
+   * it into a JSON-RPC error response. No-op once already resolved.
+   *
+   * A *task-augmented* sample sits in the same queue but already answered the
+   * wire request synchronously with a `CreateTaskResult`, so nothing is waiting
+   * on a frame; settling there is about not leaving the task in
+   * `input_required` limbo. Its reject reaches the receiver task's payload
+   * promise, which `InspectorClient` marks handled at creation for exactly this
+   * reason.
    *
    * Deliberately does not call `onRemove`, for the same reason as
    * `ElicitationCreateMessage.cancel()`: the caller iterates the queue and

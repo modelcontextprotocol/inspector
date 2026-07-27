@@ -57,23 +57,6 @@ async function getTool(client: InspectorClient, name: string): Promise<Tool> {
   return tool;
 }
 
-/**
- * Attach a no-op catch to every outstanding receiver-task payload promise so a
- * deliberate reject (failure-path test) doesn't bubble up as an unhandled
- * rejection. The real consumer (the server polling tasks/result) handles the
- * rejection, but it may not have a handler attached at the instant we reject.
- */
-function suppressReceiverPayloadRejections(client: InspectorClient): void {
-  const records = (
-    client as unknown as {
-      receiverTaskRecords: Map<string, { payloadPromise: Promise<unknown> }>;
-    }
-  ).receiverTaskRecords;
-  for (const record of records.values()) {
-    record.payloadPromise.catch(() => {});
-  }
-}
-
 describe("InspectorClient coverage backfill", () => {
   let client: InspectorClient | null = null;
   let server: TestServerHttp | null = null;
@@ -328,7 +311,6 @@ describe("InspectorClient coverage backfill", () => {
       const sample = await samplingPromise;
       // Pre-attach a catch to the receiver task's payload promise so its
       // rejection (driven below) doesn't surface as an unhandled rejection.
-      suppressReceiverPayloadRejections(client);
       // Reject instead of respond — drives the receiver-task error callback,
       // which sets status "failed" and calls upsertReceiverTask.
       await sample.reject(new Error("user rejected sampling"));
@@ -377,7 +359,6 @@ describe("InspectorClient coverage backfill", () => {
         .catch((e: unknown) => e);
 
       const elicitation = await elicitationPromise;
-      suppressReceiverPayloadRejections(client);
       await elicitation.reject(new Error("user declined elicitation"));
 
       const outcome = await callPromise;

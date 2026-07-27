@@ -1006,6 +1006,13 @@ export class InspectorClient extends InspectorClientEventTarget {
       resolvePayload = resolve;
       rejectPayload = reject;
     });
+    // Mark it handled. The real consumer is the server polling `tasks/result`
+    // (`getReceiverTaskPayload` returns this same promise, so a real awaiter
+    // still sees the rejection), but nothing has attached a handler while the
+    // task sits in `input_required` — and it can be rejected from there, by an
+    // explicit `tasks/cancel` or by teardown settling a queued sample. Without
+    // this, that reject surfaces as an unhandled rejection.
+    void payloadPromise.catch(() => {});
     const record: ReceiverTaskRecord = {
       task,
       payloadPromise,
