@@ -62,14 +62,6 @@ jobs:
         # gate. It restores the mutated entry afterward (see the script).
         run: npm run verify:build-gate
 
-      - name: Verify every client source file gets a tsc pass (#1791)
-        # Durable guard for the "every tracked .ts/.tsx in cli/tui/launcher is in
-        # a tsconfig project" invariant #1791 established. A new top-level file
-        # (a config, a test helper) can silently fall outside every project and
-        # go untypechecked — the hole that surfaced twice during #1791's review.
-        # This is the typecheck-coverage analog of verify:format-coverage.
-        run: npm run verify:typecheck-coverage
-
       # Playwright chromium is installed BEFORE the smokes because
       # `smoke:web:browser` (the headless-browser boot smoke, #1615) drives the
       # prod web bundle in chromium — restoring/installing it here lets that

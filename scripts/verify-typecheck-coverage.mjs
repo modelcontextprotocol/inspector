@@ -11,9 +11,16 @@
 //
 // This is the typecheck-coverage analog of `verify:format-coverage`: for each
 // client it runs every project its `typecheck` script names with `tsc
-// --listFiles` (the accurate measure — it includes import-reached files), unions
-// the result, and asserts every tracked first-party `.ts`/`.tsx` under the
-// client is in that union. Exits non-zero, listing the offenders, on any miss.
+// --listFilesOnly` (the accurate measure — it includes import-reached files),
+// unions the result, and asserts every tracked first-party `.ts`/`.tsx` under
+// the client is in that union. Exits non-zero, listing the offenders, on any
+// miss.
+//
+// Like its sibling it also asserts the gate is actually WIRED: each client's
+// `typecheck` must be reachable from that client's `validate`, and the root
+// `validate` chain must invoke each client's `validate` — otherwise the guard
+// could measure a `typecheck` script that CI no longer runs and stay green while
+// nothing is typechecked ("gate silently stops gating").
 //
 // Source of truth is the `typecheck` scripts themselves — this parser reads the
 // `-p <project>` args out of them, so adding/removing a project is reflected
@@ -31,7 +38,8 @@ const repoRoot = path.resolve(
 
 // The clients whose `typecheck` runs explicit `-p <project>` passes (#1791).
 // web is intentionally out: it typechecks via `tsc -b` over a project-reference
-// graph (app/node/storybook/test) that already reaches its whole tree.
+// graph (app/node/storybook/test) that already reaches its whole tree. Kept an
+// explicit list, mirroring `verify-format-coverage.mjs`'s `MANIFESTS`.
 const CLIENTS = ["clients/cli", "clients/tui", "clients/launcher"];
 
 // Ambient declaration files are excluded from the required set: an unreferenced
@@ -39,21 +47,41 @@ const CLIENTS = ["clients/cli", "clients/tui", "clients/launcher"];
 const isRequiredSource = (rel) =>
   /\.(ts|tsx)$/.test(rel) && !rel.endsWith(".d.ts");
 
+/**
+ * Names of scripts transitively reachable from `entry` by following `npm run
+ * <name>` references within a manifest. Used to assert a client's `typecheck`
+ * is actually invoked by its `validate` — a `typecheck` script nothing runs
+ * gates nothing, and measuring its projects would let the gate be silently
+ * unwired. (Same technique as `verify-format-coverage.mjs`.)
+ */
+function reachableScripts(scripts, entry = "validate") {
+  const reached = new Set();
+  const queue = [entry];
+  const runRef = /npm run ([\w:-]+)/g;
+  while (queue.length > 0) {
+    const name = queue.shift();
+    if (reached.has(name)) continue;
+    reached.add(name);
+    const cmd = scripts?.[name];
+    if (typeof cmd !== "string") continue;
+    for (const m of cmd.matchAll(runRef)) queue.push(m[1]);
+  }
+  return reached;
+}
+
 /** The tsconfig projects a client's `typecheck` script names via `-p <file>`. */
-function typecheckProjects(clientDir) {
-  const pkg = JSON.parse(
-    readFileSync(path.join(repoRoot, clientDir, "package.json"), "utf8"),
-  );
-  const script = pkg.scripts?.typecheck ?? "";
+function typecheckProjects(scripts) {
+  const script = scripts?.typecheck ?? "";
   const projects = [];
   for (const m of script.matchAll(/-p\s+(\S+)/g)) projects.push(m[1]);
   return projects;
 }
 
 /**
- * Repo-relative POSIX paths of the files a project typechecks, restricted to
- * those under `clientDir` (drops lib.d.ts, node_modules, and the aliased
- * `core/` + `test-servers/` sources — those are gated by their own owners).
+ * Repo-relative POSIX paths of the files a project typechecks. Absolute paths
+ * outside the repo root (lib.d.ts) and anything under `node_modules` are
+ * dropped; the aliased `core/` + `test-servers/` sources stay in the set but
+ * are harmless — the set is only ever queried with client-relative paths.
  */
 function projectFiles(clientDir, project) {
   const absClient = path.join(repoRoot, clientDir);
@@ -61,13 +89,14 @@ function projectFiles(clientDir, project) {
   try {
     stdout = execFileSync(
       "npx",
-      ["tsc", "--noEmit", "-p", project, "--listFiles"],
+      ["--no-install", "tsc", "-p", project, "--listFilesOnly"],
       { cwd: absClient, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
     );
   } catch (err) {
-    // A type error makes tsc exit non-zero but it still prints the file list to
-    // stdout; keep it so a failing project doesn't mask a coverage gap. The
-    // type error itself is the `typecheck` script's job to fail on.
+    // `--listFilesOnly` doesn't type-check, but a config error (an unreadable or
+    // malformed tsconfig) still exits non-zero while printing the resolved file
+    // list; keep stdout so a broken config doesn't mask a coverage gap. The
+    // config error itself is the `typecheck` script's job to fail on.
     stdout = typeof err.stdout === "string" ? err.stdout : "";
   }
   const covered = new Set();
@@ -95,10 +124,63 @@ function trackedSourceFiles(clientDir) {
     .filter((f) => !f.includes("/build/") && !f.includes("/dist/"));
 }
 
+/**
+ * Assert the gate is wired: the root `validate` chain invokes each client's
+ * `validate`, and each client's `validate` reaches its `typecheck`. Returns a
+ * list of human-readable wiring failures. Without this the guard could run a
+ * `typecheck` script that CI never invokes and still report OK.
+ */
+function wiringFailures() {
+  const failures = [];
+  const rootPkg = JSON.parse(
+    readFileSync(path.join(repoRoot, "package.json"), "utf8"),
+  );
+  const rootReachedCommands = [...reachableScripts(rootPkg.scripts)]
+    .map((n) => rootPkg.scripts?.[n])
+    .filter((c) => typeof c === "string");
+
+  for (const clientDir of CLIENTS) {
+    if (
+      !rootReachedCommands.some(
+        (c) => c.includes(`cd ${clientDir}`) && /npm run validate/.test(c),
+      )
+    ) {
+      failures.push(
+        `${clientDir}: the root \`validate\` chain no longer runs \`cd ${clientDir} && npm run validate\` — its typecheck isn't invoked by CI.`,
+      );
+      continue;
+    }
+    const scripts = JSON.parse(
+      readFileSync(path.join(repoRoot, clientDir, "package.json"), "utf8"),
+    ).scripts;
+    if (!reachableScripts(scripts, "validate").has("typecheck")) {
+      failures.push(
+        `${clientDir}: \`typecheck\` is not reachable from its \`validate\` — the typecheck it measures gates nothing.`,
+      );
+    }
+  }
+  return failures;
+}
+
+const wiring = wiringFailures();
+if (wiring.length > 0) {
+  console.error(
+    `verify:typecheck-coverage — ${wiring.length} wiring issue(s): a typecheck gate is not actually run:\n`,
+  );
+  for (const f of wiring) console.error("  " + f);
+  console.error(
+    "\nRestore the `typecheck` link in the client's `validate` (and the `validate:<client>` link in the root `validate`).",
+  );
+  process.exit(1);
+}
+
 let totalChecked = 0;
 const failures = [];
 for (const clientDir of CLIENTS) {
-  const projects = typecheckProjects(clientDir);
+  const scripts = JSON.parse(
+    readFileSync(path.join(repoRoot, clientDir, "package.json"), "utf8"),
+  ).scripts;
+  const projects = typecheckProjects(scripts);
   if (projects.length === 0) {
     failures.push(
       `${clientDir}: its \`typecheck\` script names no \`-p <project>\` — nothing is typechecked.`,
