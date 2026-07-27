@@ -21,9 +21,12 @@ import type { CliOAuthClient } from "../../src/cliOAuth.js";
 export function makeFakeCliOAuthClient(
   overrides: Partial<CliOAuthClient> = {},
 ): CliOAuthClient {
-  // Each member is typed against the real CliOAuthClient signature (not a bare
-  // vi.fn()) so an override with a wrong implementation/return is rejected, the
-  // same way the tui App spies are typed.
+  // The defaults are typed against the real CliOAuthClient signatures (not bare
+  // vi.fn()s) so a default with a wrong implementation/return would be rejected,
+  // the same way the tui App spies are typed. Note this does NOT extend to
+  // `overrides`: a caller passing a bare `vi.fn()` gets `Mock<(...args) => any>`,
+  // assignable to any member, so an override's implementation is unchecked — the
+  // factory guarantees the object's shape, not each override's signature.
   return {
     connect: vi.fn<CliOAuthClient["connect"]>().mockResolvedValue(undefined),
     disconnect: vi

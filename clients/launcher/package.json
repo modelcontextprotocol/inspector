@@ -15,12 +15,12 @@
     "build": "tsc",
     "postbuild": "node scripts/make-executable.js",
     "lint": "eslint .",
-    "typecheck": "tsc --noEmit -p tsconfig.test.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.test.json",
     "format": "prettier --write src __tests__ scripts \"*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}\"",
     "format:check": "prettier --check src __tests__ scripts \"*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}\"",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
-    "validate": "npm run format:check && npm run lint && npm run build && npm run typecheck && npm run test"
+    "validate": "npm run format:check && npm run lint && npm run typecheck && npm run build && npm run test"
   },
   "dependencies": {
     "commander": "^13.1.0"
