@@ -26,7 +26,9 @@ export function makeFakeCliOAuthClient(
   // the same way the tui App spies are typed. Note this does NOT extend to
   // `overrides`: a caller passing a bare `vi.fn()` gets `Mock<(...args) => any>`,
   // assignable to any member, so an override's implementation is unchecked — the
-  // factory guarantees the object's shape, not each override's signature.
+  // factory guarantees the object's shape, not each override's signature. (And
+  // since `exactOptionalPropertyTypes` is off, `Partial<…>` even admits an
+  // explicit `undefined` for a required member.)
   return {
     connect: vi.fn<CliOAuthClient["connect"]>().mockResolvedValue(undefined),
     disconnect: vi
@@ -52,7 +54,9 @@ export function makeFakeCliOAuthClient(
  * A full {@link InspectorServerSettings} with representative defaults for its
  * required fields (the timeouts at 0 = "SDK default", `taskTtl` /
  * `maxFetchRequests` at their product defaults, empty lists elsewhere). Pass
- * `overrides` for the field(s) under test (e.g. `{ enterpriseManaged: true }`).
+ * `overrides` for the field(s) under test (e.g. `{ enterpriseManaged: true }`);
+ * as a `Partial<…>` with `exactOptionalPropertyTypes` off it also admits an
+ * explicit `undefined` for a required field, so don't rely on it to reject one.
  */
 export function makeFakeServerSettings(
   overrides: Partial<InspectorServerSettings> = {},

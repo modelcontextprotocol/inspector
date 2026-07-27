@@ -6,10 +6,12 @@
 
 /**
  * Names of scripts transitively reachable from `entry` by following `npm run
- * <name>` references within a single manifest's `scripts`. A gate harvested from
- * a script that nothing reachable from `entry` invokes gates nothing, so callers
- * restrict to this set to assert "CI actually runs this", not merely "the script
- * exists".
+ * <name>` references within a single manifest's `scripts`, plus npm's implicit
+ * `pre<name>`/`post<name>` lifecycle hooks (npm runs those around `<name>`
+ * without an explicit `npm run`, so a gate moved into e.g. `prevalidate` is
+ * still reached). A gate harvested from a script that nothing reachable from
+ * `entry` invokes gates nothing, so callers restrict to this set to assert "CI
+ * actually runs this", not merely "the script exists".
  */
 export function reachableScripts(scripts, entry = "validate") {
   const reached = new Set();
@@ -19,6 +21,9 @@ export function reachableScripts(scripts, entry = "validate") {
     const name = queue.shift();
     if (reached.has(name)) continue;
     reached.add(name);
+    // npm runs pre<name>/post<name> implicitly around <name>.
+    for (const hook of [`pre${name}`, `post${name}`])
+      if (typeof scripts?.[hook] === "string") queue.push(hook);
     const cmd = scripts?.[name];
     if (typeof cmd !== "string") continue;
     for (const m of cmd.matchAll(runRef)) queue.push(m[1]);

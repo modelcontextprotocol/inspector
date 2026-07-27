@@ -61,17 +61,27 @@ const isRequiredSource = (rel) =>
  * harvested from **every** script reachable from `typecheck` (not just the one
  * string) so a delegating `typecheck` (`npm run typecheck:src && …`) still
  * counts — matching how `verify-format-coverage.mjs` harvests globs across
- * reachable scripts.
+ * reachable scripts. Splits each script on `&&`/`||`/`;` so a flag on one
+ * command doesn't leak onto another. Returns `{ projects, neutered }`:
+ * `neutered` names any `-p` whose own command carries `--noCheck` or
+ * `--listFilesOnly` — a pass that lists files without type-checking them, which
+ * would otherwise satisfy the guard while checking nothing.
  */
 function typecheckProjects(scripts) {
   const projects = [];
+  const neutered = [];
   for (const name of reachableScripts(scripts, "typecheck")) {
     const cmd = scripts?.[name];
     if (typeof cmd !== "string") continue;
-    for (const m of cmd.matchAll(/(?:-p|--project)\s+(\S+)/g))
-      projects.push(m[1]);
+    for (const segment of cmd.split(/&&|\|\||;/)) {
+      const disabling = /--noCheck|--listFilesOnly/.exec(segment);
+      for (const m of segment.matchAll(/(?:-p|--project)\s+(\S+)/g)) {
+        if (disabling) neutered.push({ project: m[1], flag: disabling[0] });
+        else projects.push(m[1]);
+      }
+    }
   }
-  return projects;
+  return { projects, neutered };
 }
 
 /**
@@ -193,11 +203,17 @@ for (const clientDir of CLIENTS) {
   const scripts = JSON.parse(
     readFileSync(path.join(repoRoot, clientDir, "package.json"), "utf8"),
   ).scripts;
-  const projects = typecheckProjects(scripts);
-  if (projects.length === 0) {
+  const { projects, neutered } = typecheckProjects(scripts);
+  for (const { project, flag } of neutered) {
     failures.push(
-      `${clientDir}: its \`typecheck\` script names no \`-p <project>\` — nothing is typechecked.`,
+      `${clientDir}: its \`typecheck\` runs \`-p ${project}\` with \`${flag}\` — that pass lists files without type-checking them, so it gates nothing.`,
     );
+  }
+  if (projects.length === 0) {
+    if (neutered.length === 0)
+      failures.push(
+        `${clientDir}: its \`typecheck\` script names no \`-p <project>\` — nothing is typechecked.`,
+      );
     continue;
   }
   const covered = new Set();
