@@ -105,10 +105,10 @@ const child = spawn(
 
 let output = "";
 let settled = false;
-let childExited = false;
+let childClosed = false;
 
 // How long to let the TUI wind down after SIGTERM before escalating to SIGKILL,
-// and then before giving up on the exit event entirely.
+// and then before giving up on the close event entirely.
 const EXIT_GRACE_MS = Number(process.env.SMOKE_TUI_EXIT_GRACE_MS ?? 5000);
 
 function cleanup() {
@@ -124,12 +124,20 @@ function cleanup() {
   }
 }
 
+// `message` may be a string or a thunk. Callers that quote the child's output
+// pass a thunk so it is rendered here — after the wait below, by which point
+// `close` guarantees stdout/stderr have been fully drained. Building the string
+// at call time instead can truncate the crash reason that matters most.
+let finished = false;
 function finish(code, message) {
+  if (finished) return;
+  finished = true;
   cleanup();
+  const text = typeof message === "function" ? message() : message;
   if (code === 0) {
-    console.log(`smoke:tui OK — ${message}`);
+    console.log(`smoke:tui OK — ${text}`);
   } else {
-    console.error(`smoke:tui FAILED — ${message}`);
+    console.error(`smoke:tui FAILED — ${text}`);
   }
   process.exit(code);
 }
@@ -138,7 +146,7 @@ function done(code, message) {
   if (settled) return;
   settled = true;
   clearTimeout(timer);
-  if (childExited) {
+  if (childClosed) {
     finish(code, message);
     return;
   }
@@ -146,6 +154,11 @@ function done(code, message) {
   // The dir doubles as the TUI's HOME, so the Ink process is still writing into
   // it when we signal; an rmSync racing those writes fails with ENOTEMPTY when
   // a file lands after a directory has been read but before it is removed.
+  //
+  // Wait on `close`, not `exit`: a *spawn failure* emits `error` + `close` and
+  // never `exit`, so an `exit` wait would hang here until the give-up timer and
+  // then blame a SIGTERM the child never received. `close` also guarantees the
+  // stdio pipes are drained, which is what makes the thunked messages complete.
   const forceKill = setTimeout(() => child.kill("SIGKILL"), EXIT_GRACE_MS);
   const giveUp = setTimeout(() => {
     console.warn(
@@ -153,12 +166,17 @@ function done(code, message) {
     );
     finish(code, message);
   }, EXIT_GRACE_MS * 2);
-  child.once("exit", () => {
+  child.once("close", () => {
     clearTimeout(forceKill);
     clearTimeout(giveUp);
     finish(code, message);
   });
-  if (!child.killed) child.kill("SIGTERM");
+  // Only signal a child that is still running: on the crash-before-render and
+  // spawn-failure paths there is nothing left to signal, and we are here purely
+  // to wait out the remaining `close`.
+  if (child.exitCode === null && child.signalCode === null && !child.killed) {
+    child.kill("SIGTERM");
+  }
 }
 
 function onData(chunk) {
@@ -171,15 +189,19 @@ function onData(chunk) {
 child.stdout.on("data", onData);
 child.stderr.on("data", onData);
 
+// Registered before done()'s own one-shot listener, so this always runs first —
+// done() can trust `childClosed` even when called from inside a close handler.
+child.on("close", () => {
+  childClosed = true;
+});
+
 child.on("exit", (code) => {
-  // Registered before done()'s own one-shot listener, so this always runs first
-  // — done() can trust `childExited` when it is called from inside this handler.
-  childExited = true;
   if (settled) return;
   // Exiting before the render marker appeared is a failure (crash on boot).
   done(
     1,
-    `TUI exited (code ${code}) before rendering "${RENDER_MARKER}"\n${output.slice(0, 800)}`,
+    () =>
+      `TUI exited (code ${code}) before rendering "${RENDER_MARKER}"\n${output.slice(0, 800)}`,
   );
 });
 
@@ -190,6 +212,7 @@ child.on("error", (err) => {
 const timer = setTimeout(() => {
   done(
     1,
-    `TUI did not render "${RENDER_MARKER}" within ${TIMEOUT_MS}ms\n${output.slice(0, 800)}`,
+    () =>
+      `TUI did not render "${RENDER_MARKER}" within ${TIMEOUT_MS}ms\n${output.slice(0, 800)}`,
   );
 }, TIMEOUT_MS);
