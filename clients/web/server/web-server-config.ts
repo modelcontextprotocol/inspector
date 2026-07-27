@@ -366,8 +366,10 @@ export function buildWebServerConfig(
         // and browser-extension schemes like `chrome-extension:`). Reject it:
         // it's not the origin the user meant, AND "null" is a real header value
         // browsers send from opaque origins (a sandboxed iframe, a `data:` doc),
-        // so allow-listing it would erode the guard. Only http(s)/ws(s) origins
-        // are supported (the app is served over http(s)); entries need a scheme.
+        // so allow-listing it would erode the guard. Entries need an http(s)
+        // scheme — the app is served over http(s), and a browser's `Origin` on
+        // any request (including a WebSocket handshake) is its page's http(s)
+        // origin, never a `ws:` one, so a `ws://` entry could never match anyway.
         if (origin === "null") throw new Error("opaque origin");
         // A wildcard (`http://*.example.com`) survives `new URL` but can never
         // match the exact-compare origin guard — yet `*.example.com` IS a legal

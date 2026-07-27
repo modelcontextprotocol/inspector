@@ -47,8 +47,10 @@ export function resolveBindHostname(
     // `HOST="０"` renders like `0`, `HOST=0` / `0x0` / `::0` bind `0.0.0.0`), and
     // "bind a loopback host" reads as a non-sequitur without that hint.
     const resolved = canonicalUrlHost(host);
+    // Compare de-bracketed so a plain `HOST="::"` isn't reported as "(resolves
+    // to [::])" — the bracketing is a URL-authority detail, not a resolution.
     const shown =
-      resolved === host.toLowerCase()
+      stripBrackets(resolved) === host.toLowerCase()
         ? `HOST="${host}"`
         : `HOST="${host}" (resolves to ${resolved})`;
     throw new Error(

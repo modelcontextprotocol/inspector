@@ -10,7 +10,7 @@
  * unsupported; override via `--callback-url` / `MCP_OAUTH_CALLBACK_URL`.
  */
 
-import { formatHostForUrl } from "../../node/hostUrl.js";
+import { formatHostForUrl, isAllInterfacesHost } from "../../node/hostUrl.js";
 
 export const RUNNER_OAUTH_CALLBACK_DEFAULT_HOSTNAME = "127.0.0.1";
 /** Default loopback port for TUI/CLI OAuth callback (6276 ≈ T9 "MCPO", MCP OAuth). */
@@ -60,6 +60,17 @@ export function parseRunnerOAuthCallbackUrl(
     throw new Error("OAuth callback URL must include a hostname");
   }
   /* v8 ignore stop */
+  // The callback listener receives the OAuth *authorization code*, so it must be
+  // loopback — binding all interfaces would expose the credential to the local
+  // network. Same guard the web bind points enforce (isAllInterfacesHost).
+  if (isAllInterfacesHost(hostname)) {
+    throw new Error(
+      `OAuth callback URL must bind a loopback host, not the all-interfaces ` +
+        `address "${hostname}": the callback listener receives the OAuth ` +
+        `authorization code, so exposing it to the network risks credential ` +
+        `interception. Use 127.0.0.1.`,
+    );
+  }
   /* v8 ignore next -- an http: URL always has a non-empty pathname (min "/"), so the fallback is unreachable */
   const pathname = url.pathname || "/";
   let port: number;
