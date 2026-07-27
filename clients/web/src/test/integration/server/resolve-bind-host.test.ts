@@ -51,14 +51,18 @@ describe("resolveBindHostname", () => {
 
   it("does not add a resolved-address hint for an already-canonical bracketed HOST", () => {
     // `HOST="[::]"` is accepted-then-refused as the wildcard; the message must
-    // not read "(resolves to [::])" — same value, just bracketed.
-    try {
-      resolveBindHostname({ HOST: "[::]" });
-      throw new Error("expected resolveBindHostname to throw");
-    } catch (err) {
-      expect((err as Error).message).not.toContain("resolves to");
-      expect((err as Error).message).toContain(BIND_ALL_INTERFACES_ENV);
-    }
+    // not read "(resolves to [::])" — same value, just bracketed. Capture the
+    // message outside try/catch so a stopped-throwing regression reports clearly.
+    let message = "";
+    expect(() => {
+      try {
+        resolveBindHostname({ HOST: "[::]" });
+      } catch (err) {
+        message = (err as Error).message;
+        throw err;
+      }
+    }).toThrow(BIND_ALL_INTERFACES_ENV);
+    expect(message).not.toContain("resolves to");
   });
 
   it.each(["true", "TRUE", "1", " true "])(

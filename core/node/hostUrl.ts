@@ -154,6 +154,14 @@ export function isAllInterfacesHost(host: string): boolean {
  * over plaintext `http`; RFC 8252 §7.3 only sanctions that for loopback).
  */
 export function isLoopbackHost(host: string): boolean {
-  const h = canonicalUrlHost(host);
-  return h === "localhost" || h === "[::1]" || /^127(\.\d{1,3}){3}$/.test(h);
+  // Drop a root FQDN dot (`localhost.` binds loopback but WHATWG keeps the dot);
+  // IP literals never carry one (WHATWG strips it for those).
+  const h = canonicalUrlHost(host).replace(/\.$/, "");
+  // Octets are range-bounded (`canonicalUrlHost` returns the raw input when
+  // `new URL` throws, so `\d{1,3}` alone would pass `127.999.0.1`).
+  return (
+    h === "localhost" ||
+    h === "[::1]" ||
+    /^127(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}$/.test(h)
+  );
 }

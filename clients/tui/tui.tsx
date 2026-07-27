@@ -59,7 +59,7 @@ export async function runTui(args?: string[]): Promise<void> {
     )
     .option(
       "--callback-url <url>",
-      `OAuth redirect/callback listener URL (default: ${DEFAULT_RUNNER_OAUTH_CALLBACK_URL}, or MCP_OAUTH_CALLBACK_URL)`,
+      `OAuth redirect/callback listener URL; must be loopback (default: ${DEFAULT_RUNNER_OAUTH_CALLBACK_URL}, or MCP_OAUTH_CALLBACK_URL)`,
     )
     .argument(
       "[target...]",

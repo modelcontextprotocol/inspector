@@ -19,6 +19,9 @@ describe("isLoopbackHost", () => {
     "[::1]",
     "0:0:0:0:0:0:0:1",
     "::ffff:127.0.0.1", // IPv4-mapped loopback → unmapped to 127.0.0.1
+    "127.255.255.255", // top of 127.0.0.0/8
+    "localhost.", // root-anchored FQDN (WHATWG keeps the dot; binds loopback)
+    "127.0.0.1.", // trailing dot on an IP literal (WHATWG strips it)
   ])("flags the loopback host %j", (host) => {
     expect(isLoopbackHost(host)).toBe(true);
   });
@@ -31,6 +34,10 @@ describe("isLoopbackHost", () => {
     "126.0.0.1", // adjacent to but outside 127/8
     "128.0.0.1",
     "0.0.0.127", // bare "127" resolves here, not loopback
+    // Out-of-range octets survive canonicalUrlHost's non-URL fallback — the
+    // bounded regex must still reject them.
+    "127.999.0.1",
+    "127.0.0.256",
   ])("does not flag the non-loopback host %j", (host) => {
     expect(isLoopbackHost(host)).toBe(false);
   });
