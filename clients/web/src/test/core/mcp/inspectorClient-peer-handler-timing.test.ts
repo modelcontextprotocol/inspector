@@ -45,7 +45,12 @@ import { ModernGetTaskResultSchema } from "@inspector/core/mcp/modernTaskSchemas
  * queue a request with us, so every path that ends a connection has to clear
  * that queue, announce it, and settle each entry — otherwise the web
  * pending-request modal outlives the connection it belongs to, and the server
- * is left waiting on a request we accepted and never answered. There are three: a
+ * is left waiting on a request we accepted and never answered. The outbound
+ * direction needs the same: the raw-wire modern `tasks/*` map is ours — the
+ * SDK's era gate keeps those frames out of its own `_responseHandlers`, so its
+ * teardown can't settle them — and a Tasks-tab poll in flight when the server
+ * dies would otherwise wait out its own 30s timeout and blame the timeout for
+ * a crash. There are three: a
  * failed `connect()`, a mid-session transport close, and an explicit
  * `disconnect()`. `disconnect()` and the crash path clear before dispatching
  * `disconnect`, so a handler reading the queue sees it empty. `connect()`'s
@@ -587,6 +592,44 @@ describe("InspectorClient peer-handler timing (#1797)", () => {
     expect(elicitationCounts.at(-1)).toBe(0);
   });
 
+  it("rejects an in-flight raw-wire request when the connection dies", async () => {
+    // The modern `tasks/*` frames ride a raw-wire channel the SDK's era gate
+    // refuses to route, so the SDK's own teardown doesn't know about them. A
+    // Tasks-tab poll in flight when the server dies would otherwise wait out
+    // its own 30s timeout and report a timeout for what was a crash.
+    const transport = new ElicitAfterConnectTransport();
+    const client = new InspectorClient(
+      { type: "stdio", command: "noop", args: [] },
+      { environment: { transport: () => ({ transport }) } },
+    );
+    await client.connect();
+
+    // `rawWireRequest` is private, and every public route to it
+    // (`getRequestorTask` / `updateRequestorTask` / `cancelRequestorTask`) is
+    // gated on `isTasksExtensionNegotiated()`, which needs a modern-era
+    // handshake this fixture doesn't perform — so driving the channel directly
+    // is the only way to exercise it. The cast asserts only the method's real
+    // signature.
+    const pending = (
+      client as unknown as {
+        rawWireRequest: (
+          method: string,
+          params: Record<string, unknown>,
+          schema: { parse: (v: unknown) => unknown },
+        ) => Promise<unknown>;
+      }
+    ).rawWireRequest("tasks/get", { taskId: "t1" }, ModernGetTaskResultSchema);
+    // Attach the rejection handler before the crash so it is never unhandled.
+    // No tick in between: `rawWireRequest` registers its pending entry
+    // synchronously (the promise executor runs during the call), so the entry
+    // is already there — asserting that ordering rather than papering over it.
+    const settled = expect(pending).rejects.toThrow(/Connection closed/);
+
+    transport.onclose?.();
+
+    await settled;
+  });
+
   it("connects when an elicit option enables no mode", async () => {
     // `{ form: false, url: false }` is a valid option that advertises no
     // elicitation capability. Registering `elicitation/create` on `this.elicit`
@@ -632,36 +675,6 @@ describe("InspectorClient peer-handler timing (#1797)", () => {
     expect(client.getRoots()).toEqual([{ uri: "file:///late" }]);
 
     await client.disconnect();
-  });
-
-  it("rejects an in-flight raw-wire request when the connection dies", async () => {
-    // The modern `tasks/*` frames ride a raw-wire channel the SDK's era gate
-    // refuses to route, so the SDK's own teardown doesn't know about them. A
-    // Tasks-tab poll in flight when the server dies would otherwise wait out
-    // its own 30s timeout and report a timeout for what was a crash.
-    const transport = new ElicitAfterConnectTransport();
-    const client = new InspectorClient(
-      { type: "stdio", command: "noop", args: [] },
-      { environment: { transport: () => ({ transport }) } },
-    );
-    await client.connect();
-
-    const pending = (
-      client as unknown as {
-        rawWireRequest: (
-          method: string,
-          params: Record<string, unknown>,
-          schema: { parse: (v: unknown) => unknown },
-        ) => Promise<unknown>;
-      }
-    ).rawWireRequest("tasks/get", { taskId: "t1" }, ModernGetTaskResultSchema);
-    const settled = expect(pending).rejects.toThrow(/Connection closed/);
-    // Let the send register the pending entry before the crash.
-    await Promise.resolve();
-
-    transport.onclose?.();
-
-    await settled;
   });
 
   it("advertises task requests only for capabilities it advertised", async () => {
