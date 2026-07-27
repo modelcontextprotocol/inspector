@@ -274,26 +274,24 @@ function trackedSourceFiles(clientDir) {
     .filter((f) => !f.includes("/build/") && !f.includes("/dist/"));
 }
 
-// Roots this guard defers to another gate, dir → reason (surfaced in the OK
-// line). `core/` is typechecked by web's `tsc -b` — but only the shape web's app
-// project actually includes: `../../core/**/*.ts` MINUS co-located
-// `*.test.ts(x)` (`isExemptCoreFile` mirrors that). A core `*.tsx`/`*.mts`/`*.cts`
-// or a co-located `core` test is NOT covered there and stays required here. The
-// exemption is subtractive → fail-CLOSED on staleness: a renamed `core/` (or a
-// core file outside web's include) surfaces as required rather than dropping out
-// silently (the failure mode the old `SHARED_ROOTS` allowlist had, #1799 r21).
-const EXEMPT_ROOTS = new Map([
-  [
-    "core",
-    "typechecked by web's `tsc -b` (`core/**/*.ts` minus co-located tests)",
-  ],
-]);
+// `core/` is deferred to web's `tsc -b`; this reason is surfaced in the OK line.
+// The exemption is subtractive (a `core/` file web does NOT check falls into the
+// required set) → fail-CLOSED on staleness: a renamed `core/`, or a core file
+// outside web's include, surfaces as required rather than dropping out silently
+// (the failure mode the old `SHARED_ROOTS` allowlist had, #1799 r21/r22).
+const CORE_EXEMPT_REASON =
+  "typechecked by web's `tsc -b` (`core/**/*.ts` + `core/**/__tests__/**`)";
 
-// A `core/` file web's app project (`clients/web/tsconfig.app.json`) includes:
-// `../../core/**/*.ts` and NOT the excluded co-located `*.test.ts`/`*.test.tsx`.
-// Only these are safe to exempt from the non-client requirement.
-const isExemptCoreFile = (f) =>
-  f.startsWith("core/") && /\.ts$/.test(f) && !/\.test\.tsx?$/.test(f);
+// Exempt exactly what web's `tsc -b` covers across its projects — the UNION of
+// `tsconfig.app.json` (`../../core/**/*.ts` minus co-located `*.test.ts(x)`) and
+// `tsconfig.test.json` (`../../core/**/__tests__/**/*.{ts,tsx}`). A core `*.tsx`/
+// `*.mts`/`*.cts` outside `__tests__`, or a co-located `*.test.ts(x)`, is covered
+// by neither and stays required here.
+const isExemptCoreFile = (f) => {
+  if (!f.startsWith("core/")) return false;
+  if (f.includes("/__tests__/")) return /\.tsx?$/.test(f);
+  return /\.ts$/.test(f) && !/\.test\.tsx?$/.test(f);
+};
 
 /**
  * Tracked first-party TS that is neither under a `clients/*` dir (covered by the
@@ -462,9 +460,7 @@ if (failures.length > 0) {
 
 const exemptNote = [
   ...[...EXEMPT.entries()].map(([dir, reason]) => `${dir} exempt: ${reason}`),
-  ...[...EXEMPT_ROOTS.entries()].map(
-    ([dir, reason]) => `${dir}/ exempt: ${reason}`,
-  ),
+  `core/ exempt: ${CORE_EXEMPT_REASON}`,
 ].join("; ");
 console.log(
   `verify:typecheck-coverage — OK: all ${totalChecked} tracked source files ` +
