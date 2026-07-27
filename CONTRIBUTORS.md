@@ -51,8 +51,7 @@ targets:
 | v1      | `main`      | `v1`  |
 | v2      | `v2/main`   | `v2`  |
 
-- **v1** (`main`) is the legacy Inspector — it takes bug fixes and minor
-  improvements only.
+- **v1** (`main`) is the legacy Inspector — it takes **security fixes only**.
 - **v2** (`v2/main`) is where all current work happens — when in doubt, target
   v2.
 
