@@ -56,6 +56,15 @@ const EXEMPT = new Map([
   ["clients/web", "typechecks via `tsc -b` over project references"],
 ]);
 
+// TypeScript source extensions this guard requires a tsc pass for. Matches its
+// sibling's TS set (`verify-format-coverage.mjs` — `.mts` is already the idiom
+// for shared config here, e.g. `vitest.shared.mts`, so a client `.mts`/`.cts`
+// must be gated too). Ambient declaration files are excluded: an unreferenced
+// `*.d.{ts,mts,cts}` shim (e.g. web's `vitest.shims.d.ts`) is type-only and not
+// a real gap. There are no client `.mts`/`.cts` today; this pre-empts one.
+const isRequiredSource = (rel) =>
+  /\.(ts|tsx|mts|cts)$/.test(rel) && !/\.d\.(ts|mts|cts)$/.test(rel);
+
 /**
  * The Node clients this guard covers (#1791): every `clients/<name>` dir with a
  * readable `package.json` is required to **either** declare a `typecheck` script
@@ -63,25 +72,39 @@ const EXEMPT = new Map([
  * else is a gate-integrity failure. Enumerated from **disk** so it's fail-closed
  * on every axis: a new client is auto-required (a hardcoded list wouldn't pick
  * it up), a client can't be dropped by a root-chain edit (the chain isn't the
- * source), and — unlike keying on the presence of a `typecheck` script —
- * renaming that script doesn't silently drop the client (it's no longer enrolled
- * and isn't exempt, so it hard-fails). Returns `{ clients, problems }`.
+ * source), renaming the `typecheck` script doesn't silently drop the client (it
+ * hard-fails — no longer enrolled, not exempt), and a `clients/*` dir holding
+ * tracked TS but no manifest hard-fails too (rather than being taken for
+ * "not a client"). Returns `{ clients, problems }`.
  */
 function nodeClients() {
   const clientsDir = path.join(repoRoot, "clients");
   const clients = [];
   const problems = [];
-  for (const name of readdirSync(clientsDir).sort()) {
-    const dir = `clients/${name}`;
+  let entries;
+  try {
+    entries = readdirSync(clientsDir, { withFileTypes: true });
+  } catch {
+    return { clients, problems }; // `clients/` missing — the caller's bail fires.
+  }
+  for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+    if (!entry.isDirectory()) continue;
+    const dir = `clients/${entry.name}`;
+    if (EXEMPT.has(dir)) continue;
     let scripts;
     try {
       scripts = JSON.parse(
-        readFileSync(path.join(clientsDir, name, "package.json"), "utf8"),
+        readFileSync(path.join(clientsDir, entry.name, "package.json"), "utf8"),
       ).scripts;
     } catch {
-      continue; // no readable package.json — not a client dir
+      // No readable manifest. If the dir still holds tracked TS its source gets
+      // no tsc pass — a gate hole; otherwise it just isn't a client.
+      if (trackedSourceFiles(dir).length > 0)
+        problems.push(
+          `${dir}: holds tracked TypeScript but has no readable \`package.json\` — its source gets no tsc pass. Add a client manifest with a \`typecheck\` (or exempt it).`,
+        );
+      continue;
     }
-    if (EXEMPT.has(dir)) continue;
     if (typeof scripts?.typecheck === "string") clients.push(dir);
     else
       problems.push(
@@ -92,15 +115,6 @@ function nodeClients() {
 }
 
 const { clients: CLIENTS, problems: enrollmentProblems } = nodeClients();
-
-// TypeScript source extensions this guard requires a tsc pass for. Matches its
-// sibling's TS set (`verify-format-coverage.mjs` — `.mts` is already the idiom
-// for shared config here, e.g. `vitest.shared.mts`, so a client `.mts`/`.cts`
-// must be gated too). Ambient declaration files are excluded: an unreferenced
-// `*.d.{ts,mts,cts}` shim (e.g. web's `vitest.shims.d.ts`) is type-only and not
-// a real gap. There are no client `.mts`/`.cts` today; this pre-empts one.
-const isRequiredSource = (rel) =>
-  /\.(ts|tsx|mts|cts)$/.test(rel) && !/\.d\.(ts|mts|cts)$/.test(rel);
 
 /**
  * The tsconfig projects a client's `typecheck` names, harvested from **every**
@@ -346,6 +360,10 @@ if (failures.length > 0) {
   process.exit(1);
 }
 
+const exemptNote = [...EXEMPT.entries()]
+  .map(([dir, reason]) => `${dir} exempt: ${reason}`)
+  .join("; ");
 console.log(
-  `verify:typecheck-coverage — OK: all ${totalChecked} tracked source files across ${CLIENTS.length} clients get a tsc pass.`,
+  `verify:typecheck-coverage — OK: all ${totalChecked} tracked source files across ${CLIENTS.length} clients get a tsc pass` +
+    (exemptNote ? ` (${exemptNote}).` : "."),
 );

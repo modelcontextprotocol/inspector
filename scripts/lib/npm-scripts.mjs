@@ -45,12 +45,14 @@ function rootReachedCommands(rootScripts) {
  * — the "gate silently stops gating" failure, one level up.
  */
 export function rootRunsClientValidate(rootScripts, clientDir) {
+  // Anchored match: an optional leading `./` (`cd ./clients/x` genuinely runs
+  // the client) and a boundary after the dir, so a prefix-sibling (`clients/x`
+  // vs `clients/x-next`) can't satisfy the check for the shorter name — a bare
+  // substring `includes` would let a sibling silently vouch for a dropped client.
+  const escaped = clientDir.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const re = new RegExp(`cd \\.?/?${escaped}(?=$|[\\s&;"'])`);
   return rootReachedCommands(rootScripts).some(
-    // Normalize a leading `./` (`cd ./clients/x` genuinely runs the client) so
-    // that path form isn't a false "no longer runs" alarm.
-    (c) =>
-      c.replace(/cd \.\//g, "cd ").includes(`cd ${clientDir}`) &&
-      /npm run validate/.test(c),
+    (c) => re.test(c) && /npm run validate/.test(c),
   );
 }
 
