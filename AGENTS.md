@@ -213,6 +213,8 @@ gh project item-edit --project-id PVT_kwDOCt2Azc4BJVxt --id "$ITEM_ID" --field-i
 For an issue **already on the board** (moving an existing card, e.g. to **In Review** when its PR opens), look its item id up by issue number instead of re-adding it. Keep `--limit` above the board's item count (~200 as of 2026-07-27) — past it `item-list` truncates silently, `select` matches nothing, and `item-edit --id ""` fails with an opaque node-resolution error rather than saying the limit was too low:
 
 ```sh
+# --limit must stay above the board's item count (~200 today) — past it the
+# list truncates silently and item-edit fails with an opaque node-resolution error.
 ITEM_ID=$(gh project item-list 28 --owner modelcontextprotocol --format json --limit 500 \
   --jq '.items[] | select(.content.number==<ISSUE_NUMBER>) | .id')
 gh project item-edit --project-id PVT_kwDOCt2Azc4BJVxt --id "$ITEM_ID" --field-id PVTSSF_lADOCt2Azc4BJVxtzg5iI8c --single-select-option-id 159c8a02
