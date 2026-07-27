@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 // Durable guard for the "every tracked source file gets a `tsc` pass" invariant
 // that #1791 established for the Node clients — every `clients/*`, enrolled via
-// its `typecheck` script's projects (cli, tui, launcher) or, for a `tsc -b`
-// client with no `typecheck` script (clients/web), via its `tsconfig.json`
-// `references`; a new client is picked up from disk automatically (nodeClients).
+// its `typecheck` script's projects (cli, tui, launcher) or, for a client with
+// no `typecheck` script (clients/web), via its `tsconfig.json` `references`; a
+// new client is picked up from disk automatically (nodeClients). Either way a
+// `tsc -b` solution config is reduced to the real projects it references
+// (resolveLeafProjects), so coverage and the non-inertness check both follow it.
 // A tsconfig
 // project only typechecks the files its `include`/`files` name plus whatever
 // those transitively import — so a new top-level `.ts` (a fresh config file, a
@@ -285,16 +287,17 @@ function projectDisablesChecking(clientDir, project) {
 }
 
 /**
- * Repo-relative POSIX paths of the files a project typechecks. Absolute paths
- * outside the repo root (lib.d.ts) and anything under `node_modules` are
- * dropped; the aliased `core/` + `test-servers/` sources stay in the set but
- * are harmless — the set is only ever queried with client-relative paths. A
- * **solution config** (`{"files": [], "references": […]}`) lists nothing under
- * `--listFilesOnly`, so it's expanded to its references and those measured
- * (recursively) — this is what makes a `tsc -b` project measurable no matter
- * which enrollment path harvests it (`typecheck` script or the reference path).
+ * Repo-relative POSIX paths of the files ONE project (no reference expansion)
+ * typechecks. Absolute paths outside the repo root (lib.d.ts) and anything under
+ * `node_modules` are dropped; the aliased `core/` + `test-servers/` sources stay
+ * in the set but are harmless — the set is only ever queried with client-relative
+ * paths. Cached: `resolveLeafProjects` and `projectFiles` both list a project.
  */
-function projectFiles(clientDir, project, seen = new Set()) {
+const rawFilesCache = new Map();
+function rawProjectFiles(clientDir, project) {
+  const key = `${clientDir}|${project}`;
+  const cached = rawFilesCache.get(key);
+  if (cached) return cached;
   const absClient = path.join(repoRoot, clientDir);
   let stdout;
   try {
@@ -331,22 +334,71 @@ function projectFiles(clientDir, project, seen = new Set()) {
     if (rel.startsWith("..") || rel.includes("node_modules")) continue;
     covered.add(rel.split(path.sep).join("/"));
   }
-  // A solution config lists nothing — expand it to its references (relative to
-  // the solution's own dir) and measure those, so a `tsc -b` project counts.
-  if (covered.size === 0) {
-    const projectRel = path.posix.join(clientDir, project);
-    const projectDir = path.posix.dirname(projectRel);
-    for (const ref of tsconfigReferences(projectRel)) {
-      const refProject = path.posix.relative(
-        clientDir,
-        path.posix.join(projectDir, ref),
-      );
-      if (seen.has(refProject)) continue;
-      seen.add(refProject);
-      for (const f of projectFiles(clientDir, refProject, seen)) covered.add(f);
-    }
-  }
+  rawFilesCache.set(key, covered);
   return covered;
+}
+
+/**
+ * The leaf tsconfig projects `project` resolves to (paths relative to
+ * `clientDir`): itself if it lists files (or has no `references`), else its
+ * `references` expanded recursively. A `tsc -b` **solution config** (`{"files":
+ * [], "references": […]}`) lists nothing under `--listFilesOnly`, so this is how
+ * it's reduced to the real projects — and doing it here (not just inside
+ * `projectFiles`) is what lets BOTH coverage and the non-inertness check follow
+ * the same graph, so a `noCheck` in a *referenced* project is caught no matter
+ * which enrollment path harvested the solution.
+ */
+function resolveLeafProjects(clientDir, project, seen = new Set()) {
+  if (seen.has(project)) return [];
+  seen.add(project);
+  // Lists files → a real leaf. (An empty set is a solution config, or a config
+  // that errored — either way the reference expansion below is the right next
+  // step: a broken config yields no references too.)
+  if (rawProjectFiles(clientDir, project).size > 0) return [project];
+  // The config file `project` resolves to — a directory-form reference
+  // (`{ "path": "./packages/a" }`) means `<dir>/tsconfig.json`.
+  const projectRel = path.posix.join(clientDir, project);
+  const configFile = projectRel.endsWith(".json")
+    ? projectRel
+    : path.posix.join(projectRel, "tsconfig.json");
+  const refs = tsconfigReferences(configFile);
+  if (refs.length === 0) return [project]; // no files, no refs — itself
+  const configDir = path.posix.dirname(configFile);
+  return refs.flatMap((ref) =>
+    resolveLeafProjects(
+      clientDir,
+      path.posix.relative(clientDir, path.posix.join(configDir, ref)),
+      seen,
+    ),
+  );
+}
+
+/** Repo-relative files a project covers, following a solution config's references. */
+function projectFiles(clientDir, project) {
+  const covered = new Set();
+  for (const leaf of resolveLeafProjects(clientDir, project))
+    for (const f of rawProjectFiles(clientDir, leaf)) covered.add(f);
+  return covered;
+}
+
+/**
+ * The leaf projects (across `projects`, solutions expanded) that genuinely
+ * type-check — i.e. minus any whose tsconfig sets `noCheck`, each of which is
+ * pushed to `integrity`. Shared by both enrollment paths so a `noCheck` in a
+ * referenced project is caught whether the solution was harvested from a
+ * `typecheck` script or is the reference-path client's own `tsconfig.json`.
+ */
+function checkingLeaves(clientDir, projects, integrity) {
+  const checking = [];
+  for (const project of projects)
+    for (const leaf of resolveLeafProjects(clientDir, project)) {
+      if (projectDisablesChecking(clientDir, leaf))
+        integrity.push(
+          `${clientDir}: \`${leaf}\` sets \`noCheck\` in its tsconfig — that project lists files without type-checking them, so it gates nothing.`,
+        );
+      else if (!checking.includes(leaf)) checking.push(leaf);
+    }
+  return checking;
 }
 
 /** Tracked first-party TS (`.ts`/`.tsx`/`.mts`/`.cts`) under a client (excludes build output). */
@@ -447,18 +499,9 @@ for (const clientDir of CLIENTS) {
       );
       continue;
     }
-    const refs = clientTsconfigReferences(clientDir);
     checkingProjects.set(
       clientDir,
-      refs.filter((project) => {
-        if (projectDisablesChecking(clientDir, project)) {
-          integrity.push(
-            `${clientDir}: reference \`${project}\` sets \`noCheck\` in its tsconfig — that project lists files without type-checking them.`,
-          );
-          return false;
-        }
-        return true;
-      }),
+      checkingLeaves(clientDir, clientTsconfigReferences(clientDir), integrity),
     );
     continue;
   }
@@ -474,15 +517,6 @@ for (const clientDir of CLIENTS) {
     integrity.push(
       `${clientDir}: its \`typecheck\` runs \`-p ${project}\` with \`${flag}\` — that pass lists files without type-checking them, so it gates nothing.`,
     );
-  const checking = projects.filter((project) => {
-    if (projectDisablesChecking(clientDir, project)) {
-      integrity.push(
-        `${clientDir}: \`-p ${project}\` sets \`noCheck\` in its tsconfig — that pass lists files without type-checking them, so it gates nothing.`,
-      );
-      return false;
-    }
-    return true;
-  });
   // Fire only when nothing was harvested at all — not when projects WERE named
   // but every one is neutered (command flag) or config-disabled (`projects` was
   // non-empty in that case; those get their own lines above).
@@ -490,7 +524,12 @@ for (const clientDir of CLIENTS) {
     integrity.push(
       `${clientDir}: its \`typecheck\` names no \`-p <project>\` — nothing is typechecked.`,
     );
-  checkingProjects.set(clientDir, checking);
+  // Resolve each harvested project to its leaves (a `tsc -b` solution expands),
+  // and disable-check each leaf — so a `noCheck` in a referenced project counts.
+  checkingProjects.set(
+    clientDir,
+    checkingLeaves(clientDir, projects, integrity),
+  );
 }
 
 if (integrity.length > 0) {
