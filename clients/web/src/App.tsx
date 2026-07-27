@@ -1228,7 +1228,12 @@ function App() {
     const activeSettings = serversRef.current.find(
       (s) => s.id === activeServerIdRef.current,
     )?.settings;
-    setModernLogLevel(resolveModernLogLevel(activeSettings) ?? null);
+    // No server found is Off, not the default — `resolveModernLogLevel`
+    // returns the default for absent *settings*, which is the right answer for
+    // a server that has none but the wrong one for no server at all.
+    setModernLogLevel(
+      activeSettings ? (resolveModernLogLevel(activeSettings) ?? null) : null,
+    );
     setPendingStepUp(null);
     setPendingReauth(null);
     setReAuthBanner(null);

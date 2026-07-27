@@ -1433,8 +1433,10 @@ export class InspectorClient extends InspectorClientEventTarget {
    * entry makes the modern `subscribeToResource` early-return, so the user's
    * Subscribe click silently sends nothing to the new server; a stale
    * `cancelledTaskIds` entry mislabels a *new* task sharing the id as
-   * `cancelled` rather than `failed`; a receiver-task record is reported to the
-   * new server by `tasks/list`; and an un-aborted `taskInputAbortControllers`
+   * `cancelled` rather than `failed`; a stale subscription stream state reads
+   * `active` for a set that is now empty, which every reader of it treats as
+   * impossible; a receiver-task record is reported to the new server by
+   * `tasks/list`; and an un-aborted `taskInputAbortControllers`
    * entry delays a paused poll loop unwinding — both registration sites release
    * in a `finally`, so nothing leaks permanently; the abort just closes the
    * window between the crash and the unwind (#1797).
@@ -1442,6 +1444,11 @@ export class InspectorClient extends InspectorClientEventTarget {
   private resetSessionState(): void {
     this.clearReceiverTasks();
     this.subscribedResources.clear();
+    // With the set, not after it: the rest of the file derives the stream's
+    // `active` from `subscribedResources.size > 0`, so clearing one without the
+    // other leaves a combination those readers treat as impossible. This also
+    // announces the reset — every other mutation of that set dispatches.
+    this.setModernStreamState(INACTIVE_SUBSCRIPTION_STREAM_STATE);
     this.cancelledTaskIds.clear();
     for (const [, controller] of this.taskInputAbortControllers) {
       controller.abort(new Error("Connection ended"));

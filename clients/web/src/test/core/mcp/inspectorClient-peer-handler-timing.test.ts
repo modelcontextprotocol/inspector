@@ -126,20 +126,13 @@ class InitializedRacingTransport implements Transport {
    * regression fails where it happened.
    */
   injectRequest(method: string, id: number): Promise<JSONRPCMessage> {
-    const reply = new Promise<JSONRPCMessage>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.waiters.delete(id);
-        reject(new Error(`No reply to injected ${method} (id ${id})`));
-      }, 1000);
-      // Cleared on reply — an armed timer outliving the test is the #1760
-      // teardown-crash class, even though this callback touches no `window`.
-      this.waiters.set(id, (m) => {
-        clearTimeout(timer);
-        resolve(m);
-      });
+    const reply = new Promise<JSONRPCMessage>((resolve) => {
+      this.waiters.set(id, resolve);
     });
     this.deliver({ jsonrpc: "2.0", id, method });
-    return reply;
+    return withTimeout(reply, `No reply to injected ${method} (id ${id})`, {
+      onTimeout: () => this.waiters.delete(id),
+    });
   }
 
   async start(): Promise<void> {}
@@ -309,11 +302,14 @@ class ElicitAfterConnectTransport implements Transport {
 function withTimeout<T>(
   promise: Promise<T>,
   message: string,
-  ms = 1000,
+  { ms = 1000, onTimeout }: { ms?: number; onTimeout?: () => void } = {},
 ): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const expired = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error(message)), ms);
+    timer = setTimeout(() => {
+      onTimeout?.();
+      reject(new Error(message));
+    }, ms);
   });
   return Promise.race([promise, expired]).finally(() => clearTimeout(timer));
 }
@@ -347,13 +343,20 @@ class SampleAfterConnectTransport implements Transport {
   /** Resolvers for {@link injectRequest}, keyed by the id awaiting a reply. */
   private readonly waiters = new Map<number, (m: JSONRPCMessage) => void>();
 
-  /** Deliver a server→client request, resolving with the client's reply. */
+  /**
+   * Deliver a server→client request, resolving with the client's reply. The
+   * handler is async, so awaiting the reply beats guessing how many microtasks
+   * it takes; the timeout drops the waiter so a failing run leaves nothing in
+   * the map.
+   */
   injectRequest(method: string, id: number): Promise<JSONRPCMessage> {
     const reply = new Promise<JSONRPCMessage>((resolve) => {
       this.waiters.set(id, resolve);
     });
     this.onmessage?.({ jsonrpc: "2.0", id, method });
-    return withTimeout(reply, `No reply to injected ${method} (id ${id})`);
+    return withTimeout(reply, `No reply to injected ${method} (id ${id})`, {
+      onTimeout: () => this.waiters.delete(id),
+    });
   }
 
   async start(): Promise<void> {}
@@ -759,15 +762,23 @@ describe("InspectorClient peer-handler timing (#1797)", () => {
     const internals = client as unknown as {
       subscribedResources: Set<string>;
       cancelledTaskIds: Set<string>;
+      modernStreamState: { active: boolean; status: string };
     };
     internals.subscribedResources.add("file:///watched");
     internals.cancelledTaskIds.add("task-1");
+    // The stream state a live modern subscription would have left behind.
+    internals.modernStreamState = { active: true, status: "ended" };
 
     transport.onclose?.();
     await client.connect();
 
     expect(client.getSubscribedResources()).toEqual([]);
     expect(internals.cancelledTaskIds.size).toBe(0);
+    // Cleared with the set it is derived from, not left reading `active` for
+    // an empty one.
+    expect(client.getResourceSubscriptionStreamState()).toMatchObject({
+      active: false,
+    });
 
     await client.disconnect();
   });
