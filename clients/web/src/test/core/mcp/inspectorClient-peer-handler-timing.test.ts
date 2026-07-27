@@ -231,6 +231,9 @@ class ElicitAfterConnectTransport implements Transport {
   onclose?: () => void;
   onerror?: (error: Error) => void;
 
+  /** Methods of every client→server notification sent, in order. */
+  readonly sentNotifications: string[] = [];
+
   async start(): Promise<void> {}
   async close(): Promise<void> {}
 
@@ -250,6 +253,10 @@ class ElicitAfterConnectTransport implements Transport {
   }
 
   async send(message: JSONRPCMessage): Promise<void> {
+    if ("method" in message && !("id" in message)) {
+      this.sentNotifications.push(message.method);
+      return;
+    }
     if (
       "method" in message &&
       message.method === "initialize" &&
@@ -596,6 +603,69 @@ describe("InspectorClient peer-handler timing (#1797)", () => {
     await client.disconnect();
   });
 
+  it("announces roots/list_changed only when roots were advertised", async () => {
+    // Pins the end state rather than this client's guard: the SDK also refuses
+    // the notification from a client that never declared `roots.listChanged`
+    // (it rejects, which `setRoots` used to log as a send *failure*), so the
+    // wire stays clean either way. What this asserts is that a server is never
+    // invited to re-read roots we have no handler to serve.
+    const withRoots = new ElicitAfterConnectTransport();
+    const advertised = new InspectorClient(
+      { type: "stdio", command: "noop", args: [] },
+      {
+        environment: { transport: () => ({ transport: withRoots }) },
+        roots: [],
+      },
+    );
+    await advertised.connect();
+    await advertised.setRoots([{ uri: "file:///a" }]);
+    expect(withRoots.sentNotifications).toContain(
+      "notifications/roots/list_changed",
+    );
+    await advertised.disconnect();
+
+    const withoutRoots = new ElicitAfterConnectTransport();
+    const silent = new InspectorClient(
+      { type: "stdio", command: "noop", args: [] },
+      { environment: { transport: () => ({ transport: withoutRoots }) } },
+    );
+    await silent.connect();
+    await silent.setRoots([{ uri: "file:///a" }]);
+    expect(withoutRoots.sentNotifications).not.toContain(
+      "notifications/roots/list_changed",
+    );
+    // Still stored locally — only the announcement is withheld.
+    expect(silent.getRoots()).toEqual([{ uri: "file:///a" }]);
+    await silent.disconnect();
+  });
+
+  it("can reconnect after setRoots() on a client built without roots", async () => {
+    // `setRoots()` makes `this.roots` defined on a client that never advertised
+    // the capability. Gating the `roots/list` registration on that would throw
+    // "Client does not support roots capability" from `setRequestHandler` on
+    // every later connect() — before the handshake, so the client could never
+    // reconnect. The gate reads what was advertised at construction instead.
+    const client = new InspectorClient(
+      { type: "stdio", command: "noop", args: [] },
+      {
+        environment: {
+          transport: () => ({ transport: new ElicitAfterConnectTransport() }),
+        },
+      },
+    );
+
+    await client.connect();
+    await client.setRoots([{ uri: "file:///late" }]);
+    await client.disconnect();
+
+    await expect(client.connect()).resolves.toBeUndefined();
+    // Stored and readable, but no server can ask for them — the capability was
+    // never advertised, so no handler is registered.
+    expect(client.getRoots()).toEqual([{ uri: "file:///late" }]);
+
+    await client.disconnect();
+  });
+
   it("advertises task requests only for capabilities it advertised", async () => {
     // `capabilities.tasks.requests` tells the server which server→client
     // requests we accept as tasks. Built from `receiverTasks` alone it would
@@ -634,32 +704,5 @@ describe("InspectorClient peer-handler timing (#1797)", () => {
     );
     expect(noRequests.getClientCapabilities().tasks).toBeDefined();
     expect(noRequests.getClientCapabilities().tasks?.requests).toBeUndefined();
-  });
-
-  it("can reconnect after setRoots() on a client built without roots", async () => {
-    // `setRoots()` makes `this.roots` defined on a client that never advertised
-    // the capability. Gating the `roots/list` registration on that would throw
-    // "Client does not support roots capability" from `setRequestHandler` on
-    // every later connect() — before the handshake, so the client could never
-    // reconnect. The gate reads what was advertised at construction instead.
-    const client = new InspectorClient(
-      { type: "stdio", command: "noop", args: [] },
-      {
-        environment: {
-          transport: () => ({ transport: new ElicitAfterConnectTransport() }),
-        },
-      },
-    );
-
-    await client.connect();
-    await client.setRoots([{ uri: "file:///late" }]);
-    await client.disconnect();
-
-    await expect(client.connect()).resolves.toBeUndefined();
-    // Stored and readable, but no server can ask for them — the capability was
-    // never advertised, so no handler is registered.
-    expect(client.getRoots()).toEqual([{ uri: "file:///late" }]);
-
-    await client.disconnect();
   });
 });

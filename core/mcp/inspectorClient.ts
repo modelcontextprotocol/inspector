@@ -4388,10 +4388,12 @@ export class InspectorClient extends InspectorClientEventTarget {
    * negotiated at `initialize` and the
    * SDK refuses `registerCapabilities` after connect, so such a client has no
    * `roots/list` handler (see {@link registerPeerRequestHandlers}) and would
-   * answer `-32601` to a server taking up the `roots/list_changed` invitation
-   * below — the roots set here are stored and readable via {@link getRoots},
-   * but no server can ask for them. Pass `roots` at construction — `[]` is
-   * enough — in any client that may call this (#1797).
+   * have to answer `-32601` if a server asked. So on such a client the roots
+   * set here are stored and readable via {@link getRoots}, but no server can
+   * ask for them and the change is not announced — the SDK refuses
+   * `roots/list_changed` from a client that never declared `roots.listChanged`,
+   * so the notification could not have gone out anyway. Pass `roots` at construction — `[]` is enough — in any
+   * client that may call this (#1797).
    *
    * The argument runs through `cleanRoots`, the same normalizer the
    * connect-time and settings-save paths use, so all three ways roots enter the
@@ -4409,8 +4411,21 @@ export class InspectorClient extends InspectorClientEventTarget {
     // list we advertise.
     this.dispatchTypedEvent("rootsChange", [...this.roots]);
 
-    // Send notification to server - clients can send this notification to any server
-    // The server doesn't need to advertise support for it
+    // The *server* needn't advertise support for this notification, but the
+    // *client* must have declared `roots.listChanged` to send it. The SDK
+    // enforces that itself — `notification()` rejects with "Client does not
+    // support roots list changed notifications" — so nothing reaches the wire
+    // on a client built without `roots`, and the server is never invited to
+    // re-fetch something we'd answer `-32601`. Returning early only avoids
+    // provoking that rejection and logging it as a *failure*: it isn't one, it
+    // is a client that was never able to announce (#1797).
+    if (!this.rootsCapabilityAdvertised) {
+      this.logger.warn(
+        "setRoots() on a client that did not advertise the roots capability; " +
+          "roots are stored locally but the change is not announced",
+      );
+      return;
+    }
     try {
       await this.client.notification({
         method: "notifications/roots/list_changed",
