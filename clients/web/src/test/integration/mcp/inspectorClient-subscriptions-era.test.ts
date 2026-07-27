@@ -388,6 +388,67 @@ describe("resource subscriptions era fork (#1630)", () => {
       expect(state.status).toBe("acknowledged");
     });
 
+    it("ends the badge when both overlapping subscribes fail", async () => {
+      // The other half of the gate: skipping the superseded call's rollback is
+      // only safe if the superseding call reconciles when *it* fails too.
+      // Otherwise the set keeps the first URI while the state keeps the
+      // optimistic "connecting" — a badge that will never change, with no
+      // stream and no reconnect armed (neither `onModernSubscriptionClosed` nor
+      // `onModernReconnectFailed` ran, so nothing self-heals).
+      const started = await startServer({});
+      const { connected } = await connect(started.url, "modern");
+      const int = internals(connected);
+
+      let failFirst: (error: Error) => void = () => {};
+      int.client.listen = () =>
+        new Promise<McpSubscription>((_, reject) => {
+          failFirst = reject;
+        });
+      const first = connected.subscribeToResource(RESOURCE_URI);
+      const firstSettled = expect(first).rejects.toThrow(/listen boom/);
+
+      // The superseding call fails on its own listen.
+      int.client.listen = () => Promise.reject(new Error("listen boom 2"));
+      await expect(
+        connected.subscribeToResource(RESOURCE_URI_2),
+      ).rejects.toThrow(/listen boom 2/);
+
+      failFirst(new Error("listen boom"));
+      await firstSettled;
+
+      // Its own URI rolled back; the superseded one survives, and the badge
+      // reports the stream honestly rather than "connecting" forever.
+      expect(connected.getSubscribedResources()).toEqual([RESOURCE_URI]);
+      const state = connected.getResourceSubscriptionStreamState();
+      expect(state.active).toBe(true);
+      expect(state.status).toBe("ended");
+    });
+
+    it("ends the badge when the unsubscribe's re-listen fails", async () => {
+      // `unsubscribeFromResource` keeps its removal when the re-listen fails,
+      // so nothing is rolled back — but the stream is gone with URIs still
+      // subscribed, and without the reconcile the badge would keep reporting
+      // the previous success ("acknowledged"/Listening) over no stream at all.
+      const started = await startServer({});
+      const { connected } = await connect(started.url, "modern");
+      await connected.subscribeToResource(RESOURCE_URI);
+      await connected.subscribeToResource(RESOURCE_URI_2);
+      expect(connected.getResourceSubscriptionStreamState().status).toBe(
+        "acknowledged",
+      );
+
+      const int = internals(connected);
+      int.client.listen = () => Promise.reject(new Error("re-listen boom"));
+      await expect(
+        connected.unsubscribeFromResource(RESOURCE_URI_2),
+      ).rejects.toThrow(/re-listen boom/);
+
+      expect(connected.getSubscribedResources()).toEqual([RESOURCE_URI]);
+      const state = connected.getResourceSubscriptionStreamState();
+      expect(state.active).toBe(true);
+      expect(state.status).toBe("ended");
+    });
+
     it("rolls back the optimistic add when listen() fails", async () => {
       const started = await startServer({});
       const { connected } = await connect(started.url, "modern");
