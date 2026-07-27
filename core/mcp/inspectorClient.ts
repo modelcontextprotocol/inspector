@@ -724,7 +724,8 @@ export class InspectorClient extends InspectorClientEventTarget {
       // A mid-session crash ends the connection without going through
       // `disconnect()`, so drop anything the server had queued with us — the
       // same reasoning as the `connect()` failure path. Cleared before the
-      // `disconnect` event so a consumer reacting to it sees an empty queue.
+      // `disconnect` event so a consumer reacting to it sees an empty queue, as
+      // `disconnect()` also does.
       this.clearAndAnnouncePendingPeerRequests();
       this.dispatchTypedEvent("disconnect");
     };
@@ -1311,8 +1312,9 @@ export class InspectorClient extends InspectorClientEventTarget {
    * Each elicitation is cancelled before being dropped, so an error-path
    * `awaitUrlElicitation` — which blocks `callTool` — doesn't hang forever when
    * the queue goes away. Callers dispatch the change events themselves:
-   * `disconnect()` batches them with its other teardown events, while the
-   * `connect()` failure path emits them on its own.
+   * `disconnect()` batches them with its other teardown dispatches, and
+   * {@link clearAndAnnouncePendingPeerRequests} emits them immediately for the
+   * paths that end a connection without going through `disconnect()`.
    */
   private clearPendingPeerRequests(): void {
     this.pendingSamples = [];
@@ -1724,6 +1726,11 @@ export class InspectorClient extends InspectorClientEventTarget {
     this.baseTransport = null;
     this.transport = null;
     this.transportHasAuthProvider = false;
+    // Drop anything the server had queued with us before announcing the
+    // teardown, so a `disconnect` consumer sees an empty queue here as it does
+    // on the crash path. The change events stay batched with the other teardown
+    // dispatches below.
+    this.clearPendingPeerRequests();
     // Update status - any onclose fired during close() above deferred to us
     // (see `disconnecting`), so this is the single place the explicit-disconnect
     // path settles the status and emits `disconnect`.
@@ -1733,8 +1740,7 @@ export class InspectorClient extends InspectorClientEventTarget {
       this.dispatchTypedEvent("disconnect");
     }
 
-    // Clear server state on disconnect (list state is in state managers).
-    this.clearPendingPeerRequests();
+    // Clear the rest of the server state (list state is in state managers).
     // Clear resource subscriptions on disconnect. Tear down the modern listen
     // stream (best-effort — the transport is already going away) and bump the
     // generation so any in-flight re-listen/reconnect bails (#1630).

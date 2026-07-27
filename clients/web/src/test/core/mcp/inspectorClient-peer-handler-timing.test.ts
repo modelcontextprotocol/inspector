@@ -35,9 +35,16 @@ import { InspectorClient } from "@inspector/core/mcp/inspectorClient.js";
  * than something a conformant server exercises — this pins where it is
  * registered, not a behaviour real servers depend on.
  *
- * The last case is the odd one out: it never connects, and covers the
- * constructor's `cleanRoots` normalization — same #1797 thread, since answering
- * `roots/list` promptly is only useful if what we answer with is well-formed.
+ * One case never connects at all: it covers the constructor's `cleanRoots`
+ * normalization — same #1797 thread, since answering `roots/list` promptly is
+ * only useful if what we answer with is well-formed.
+ *
+ * The last two cover the flip side of the same move. Registering the handlers
+ * before the handshake also widened the window in which a server can queue a
+ * request with us, so the two paths that end a connection without going through
+ * `disconnect()` — a failed `connect()` and a mid-session transport close — must
+ * clear that queue *and* announce it, or the web pending-request modal outlives
+ * the connection it belongs to.
  */
 class InitializedRacingTransport implements Transport {
   onmessage?: (message: JSONRPCMessage) => void;
@@ -333,6 +340,7 @@ describe("InspectorClient peer-handler timing (#1797)", () => {
 
     await client.disconnect();
   });
+
   it("drops a peer request queued during a connect that then fails", async () => {
     // Registering the handlers before the handshake (#1797) widened the window
     // in which a server can queue a request to include the part of connect()
@@ -366,6 +374,8 @@ describe("InspectorClient peer-handler timing (#1797)", () => {
     expect(client.getPendingElicitations()).toEqual([]);
     expect(client.getPendingSamples()).toEqual([]);
     expect(elicitationCounts.at(-1)).toBe(0);
+    // The helper announces both queues whenever either was non-empty, so the
+    // sampling event fires here too even though nothing sampled.
     expect(sampleCounts.at(-1)).toBe(0);
   });
 
@@ -384,8 +394,16 @@ describe("InspectorClient peer-handler timing (#1797)", () => {
     });
 
     await client.connect();
+    // Wait on the client's own signal rather than counting microtasks — the
+    // enqueue is one tick deep today with no margin, and an added await on the
+    // SDK's inbound path would flake this (see `injectRequest` above).
+    const queued = new Promise<void>((resolve) =>
+      client.addEventListener("newPendingElicitation", () => resolve(), {
+        once: true,
+      }),
+    );
     transport.elicit();
-    await Promise.resolve();
+    await queued;
     expect(client.getPendingElicitations()).toHaveLength(1);
 
     // The server process dies.
