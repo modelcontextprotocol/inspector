@@ -724,8 +724,10 @@ export class InspectorClient extends InspectorClientEventTarget {
       // A mid-session crash ends the connection without going through
       // `disconnect()`, so drop anything the server had queued with us — the
       // same reasoning as the `connect()` failure path. Cleared before the
-      // `disconnect` event so a consumer reacting to it sees an empty queue, as
-      // `disconnect()` also does.
+      // `disconnect` event so a consumer reading the queue while handling it
+      // sees it empty. `disconnect()` clears at the same point, but batches its
+      // change events with the rest of its teardown dispatches — so on that
+      // path the *events* land just after its `disconnect`, not before.
       this.clearAndAnnouncePendingPeerRequests();
       this.dispatchTypedEvent("disconnect");
     };

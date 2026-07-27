@@ -397,11 +397,22 @@ describe("InspectorClient peer-handler timing (#1797)", () => {
     // Wait on the client's own signal rather than counting microtasks — the
     // enqueue is one tick deep today with no margin, and an added await on the
     // SDK's inbound path would flake this (see `injectRequest` above).
-    const queued = new Promise<void>((resolve) =>
-      client.addEventListener("newPendingElicitation", () => resolve(), {
-        once: true,
-      }),
-    );
+    // Raced with a reject for the same reason `injectRequest` is: a regression
+    // that stops the enqueue should fail here, not hang to the vitest timeout.
+    const queued = new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error("No newPendingElicitation after elicit()")),
+        1000,
+      );
+      client.addEventListener(
+        "newPendingElicitation",
+        () => {
+          clearTimeout(timer);
+          resolve();
+        },
+        { once: true },
+      );
+    });
     transport.elicit();
     await queued;
     expect(client.getPendingElicitations()).toHaveLength(1);
