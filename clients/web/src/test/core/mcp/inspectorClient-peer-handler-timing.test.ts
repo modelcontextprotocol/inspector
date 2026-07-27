@@ -54,13 +54,20 @@ import { InspectorClient } from "@inspector/core/mcp/inspectorClient.js";
  * failure paths emit the change events immediately; `disconnect()` batches them
  * with its other teardown dispatches.
  *
- * Two cases cover the other side of the registration gates. Client capabilities
+ * Some cases cover the other side of the registration gates. Client capabilities
  * are fixed at construction, so each gate must key off what was actually
  * advertised rather than the option it was derived from: a later `setRoots()`
  * must not make a subsequent `connect()` register a roots handler that was
  * never advertised, and an `elicit` option that enables no mode must not
  * register an elicitation handler. Either mistake throws before the handshake,
  * so the client cannot connect at all.
+ *
+ * The converse category is the advertised capability object itself: it must
+ * only invite requests we actually serve. `capabilities.tasks.requests` names
+ * the server→client requests we accept as tasks, so it is built from the
+ * sampling/elicitation capabilities rather than from `receiverTasks` alone —
+ * otherwise a server takes an invitation we answer `-32601` on, which is where
+ * this whole thread started.
  */
 class InitializedRacingTransport implements Transport {
   onmessage?: (message: JSONRPCMessage) => void;
@@ -525,6 +532,23 @@ describe("InspectorClient peer-handler timing (#1797)", () => {
     expect(capabilities.tasks?.requests?.elicitation).toBeUndefined();
     expect(capabilities.tasks?.requests?.sampling).toBeDefined();
     expect(capabilities.elicitation).toBeUndefined();
+
+    // Neither advertised: `requests` is omitted rather than sent empty, which
+    // would claim "I accept no task-augmented requests" instead of saying
+    // nothing. `tasks` itself stays — list/cancel are still serviceable.
+    const noRequests = new InspectorClient(
+      { type: "stdio", command: "noop", args: [] },
+      {
+        environment: {
+          transport: () => ({ transport: new ElicitAfterConnectTransport() }),
+        },
+        receiverTasks: true,
+        sample: false,
+        elicit: false,
+      },
+    );
+    expect(noRequests.getClientCapabilities().tasks).toBeDefined();
+    expect(noRequests.getClientCapabilities().tasks?.requests).toBeUndefined();
   });
 
   it("can reconnect after setRoots() on a client built without roots", async () => {
