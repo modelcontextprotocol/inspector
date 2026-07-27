@@ -63,9 +63,11 @@ const isRequiredSource = (rel) =>
  * counts — matching how `verify-format-coverage.mjs` harvests globs across
  * reachable scripts. Splits each script on `&&`/`||`/`;` so a flag on one
  * command doesn't leak onto another. Returns `{ projects, neutered }`:
- * `neutered` names any `-p` whose own command carries `--noCheck` or
- * `--listFilesOnly` — a pass that lists files without type-checking them, which
- * would otherwise satisfy the guard while checking nothing.
+ * `neutered` names any `-p` whose own command carries `--noCheck`/`--nocheck` or
+ * `--listFilesOnly` (matched case-insensitively — tsc's option parsing is) — a
+ * pass that lists files without type-checking them, which would otherwise
+ * satisfy the guard while checking nothing. The config-file form (`noCheck` set
+ * in the tsconfig) is caught separately by {@link projectDisablesChecking}.
  */
 function typecheckProjects(scripts) {
   const projects = [];
@@ -74,7 +76,7 @@ function typecheckProjects(scripts) {
     const cmd = scripts?.[name];
     if (typeof cmd !== "string") continue;
     for (const segment of cmd.split(/&&|\|\||;/)) {
-      const disabling = /--noCheck|--listFilesOnly/.exec(segment);
+      const disabling = /--noCheck|--listFilesOnly/i.exec(segment);
       for (const m of segment.matchAll(/(?:-p|--project)\s+(\S+)/g)) {
         if (disabling) neutered.push({ project: m[1], flag: disabling[0] });
         else projects.push(m[1]);
@@ -82,6 +84,26 @@ function typecheckProjects(scripts) {
     }
   }
   return { projects, neutered };
+}
+
+/**
+ * Whether the tsconfig `project` sets `noCheck` (which disables type-checking as
+ * thoroughly as the CLI flag, but can't be seen in the `typecheck` script
+ * string). `tsc --showConfig` emits the merged compilerOptions, surfacing a
+ * `noCheck` from the config or its `extends` chain. Best-effort: on any error
+ * (e.g. an unreadable config, already reported elsewhere) it returns false.
+ */
+function projectDisablesChecking(clientDir, project) {
+  try {
+    const out = execFileSync(
+      "npx",
+      ["--no-install", "tsc", "-p", project, "--showConfig"],
+      { cwd: path.join(repoRoot, clientDir), encoding: "utf8" },
+    );
+    return JSON.parse(out)?.compilerOptions?.noCheck === true;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -145,79 +167,85 @@ function trackedSourceFiles(clientDir) {
     .filter((f) => !f.includes("/build/") && !f.includes("/dist/"));
 }
 
-/**
- * Assert the gate is wired: the root `validate` chain invokes each client's
- * `validate`, and each client's `validate` reaches its `typecheck`. Returns a
- * list of human-readable wiring failures. Without this the guard could run a
- * `typecheck` script that CI never invokes and still report OK.
- */
-function wiringFailures() {
-  const failures = [];
-  const rootPkg = JSON.parse(
-    readFileSync(path.join(repoRoot, "package.json"), "utf8"),
+// ---------------------------------------------------------------------------
+// Phase 1 — gate integrity: is each client's `typecheck` actually run, and does
+// it actually type-check? Reported (and exited) before the file-coverage pass
+// so a mis-wired / inert gate isn't buried under a flood of consequent
+// "in no tsconfig project" lines (which would list every file that gate covered).
+// Also records, per client, the projects that genuinely type-check, for phase 2.
+// ---------------------------------------------------------------------------
+const integrity = [];
+const checkingProjects = new Map();
+const rootPkg = JSON.parse(
+  readFileSync(path.join(repoRoot, "package.json"), "utf8"),
+);
+
+// Vouch for the sibling guard — a guard can't detect being unrun itself, but the
+// two can each assert the other is still wired into `validate`, so dropping
+// either is caught here (only deleting both slips through).
+if (!rootReachesScript(rootPkg.scripts, "verify:format-coverage")) {
+  integrity.push(
+    "the root `validate` no longer runs `verify:format-coverage` (its sibling guard) — restore it.",
   );
-
-  // Assert the sibling guard is still wired — a guard can't detect being unrun
-  // itself, but each can vouch for the other, so dropping either from `validate`
-  // is caught here (only deleting both slips through).
-  if (!rootReachesScript(rootPkg.scripts, "verify:format-coverage")) {
-    failures.push(
-      "the root `validate` no longer runs `verify:format-coverage` (its sibling guard) — restore it.",
-    );
-  }
-
-  for (const clientDir of CLIENTS) {
-    if (!rootRunsClientValidate(rootPkg.scripts, clientDir)) {
-      failures.push(
-        `${clientDir}: the root \`validate\` chain no longer runs \`cd ${clientDir} && npm run validate\` — its typecheck isn't invoked by CI.`,
-      );
-      continue;
-    }
-    const scripts = JSON.parse(
-      readFileSync(path.join(repoRoot, clientDir, "package.json"), "utf8"),
-    ).scripts;
-    if (!reachableScripts(scripts, "validate").has("typecheck")) {
-      failures.push(
-        `${clientDir}: \`typecheck\` is not reachable from its \`validate\` — the typecheck it measures gates nothing.`,
-      );
-    }
-  }
-  return failures;
 }
 
-const wiring = wiringFailures();
-if (wiring.length > 0) {
+for (const clientDir of CLIENTS) {
+  checkingProjects.set(clientDir, []);
+  if (!rootRunsClientValidate(rootPkg.scripts, clientDir)) {
+    integrity.push(
+      `${clientDir}: the root \`validate\` chain no longer runs \`cd ${clientDir} && npm run validate\` — its typecheck isn't invoked by CI.`,
+    );
+    continue;
+  }
+  const scripts = JSON.parse(
+    readFileSync(path.join(repoRoot, clientDir, "package.json"), "utf8"),
+  ).scripts;
+  if (!reachableScripts(scripts, "validate").has("typecheck")) {
+    integrity.push(
+      `${clientDir}: \`typecheck\` is not reachable from its \`validate\` — the typecheck it measures gates nothing.`,
+    );
+    continue;
+  }
+  const { projects, neutered } = typecheckProjects(scripts);
+  for (const { project, flag } of neutered)
+    integrity.push(
+      `${clientDir}: its \`typecheck\` runs \`-p ${project}\` with \`${flag}\` — that pass lists files without type-checking them, so it gates nothing.`,
+    );
+  const checking = projects.filter((project) => {
+    if (projectDisablesChecking(clientDir, project)) {
+      integrity.push(
+        `${clientDir}: \`-p ${project}\` sets \`noCheck\` in its tsconfig — that pass lists files without type-checking them, so it gates nothing.`,
+      );
+      return false;
+    }
+    return true;
+  });
+  if (checking.length === 0 && neutered.length === 0)
+    integrity.push(
+      `${clientDir}: its \`typecheck\` names no \`-p <project>\` — nothing is typechecked.`,
+    );
+  checkingProjects.set(clientDir, checking);
+}
+
+if (integrity.length > 0) {
   console.error(
-    `verify:typecheck-coverage — ${wiring.length} wiring issue(s): a typecheck gate is not actually run:\n`,
+    `verify:typecheck-coverage — ${integrity.length} gate-integrity issue(s): a typecheck gate is not run, or runs but checks nothing:\n`,
   );
-  for (const f of wiring) console.error("  " + f);
+  for (const f of integrity) console.error("  " + f);
   console.error(
-    "\nRestore the `typecheck` link in the client's `validate` (and the `validate:<client>` link in the root `validate`).",
+    "\nRestore the `typecheck` wiring (client `validate` → `typecheck`, root `validate` → each client), and drop any `--noCheck`/`--listFilesOnly`/`noCheck` from the typecheck pass.",
   );
   process.exit(1);
 }
 
+// ---------------------------------------------------------------------------
+// Phase 2 — file coverage: every tracked source file lands in a checking project.
+// ---------------------------------------------------------------------------
 let totalChecked = 0;
 const failures = [];
 for (const clientDir of CLIENTS) {
-  const scripts = JSON.parse(
-    readFileSync(path.join(repoRoot, clientDir, "package.json"), "utf8"),
-  ).scripts;
-  const { projects, neutered } = typecheckProjects(scripts);
-  for (const { project, flag } of neutered) {
-    failures.push(
-      `${clientDir}: its \`typecheck\` runs \`-p ${project}\` with \`${flag}\` — that pass lists files without type-checking them, so it gates nothing.`,
-    );
-  }
-  if (projects.length === 0) {
-    if (neutered.length === 0)
-      failures.push(
-        `${clientDir}: its \`typecheck\` script names no \`-p <project>\` — nothing is typechecked.`,
-      );
-    continue;
-  }
   const covered = new Set();
-  for (const project of projects)
+  for (const project of checkingProjects.get(clientDir))
     for (const f of projectFiles(clientDir, project)) covered.add(f);
 
   const tracked = trackedSourceFiles(clientDir);
@@ -228,7 +256,7 @@ for (const clientDir of CLIENTS) {
 
 if (failures.length > 0) {
   console.error(
-    `verify:typecheck-coverage — ${failures.length} issue(s): tracked source files that get no \`tsc\` pass:\n`,
+    `verify:typecheck-coverage — ${failures.length} tracked source file(s) get no \`tsc\` pass:\n`,
   );
   for (const f of failures) console.error("  " + f);
   console.error(
