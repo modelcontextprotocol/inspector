@@ -390,13 +390,19 @@ function projectFiles(clientDir, project) {
  */
 function checkingLeaves(clientDir, projects, integrity) {
   const checking = [];
+  // Dedup across all harvested projects (a leaf can be reached from two of them
+  // — `resolveLeafProjects` only dedups within one) so a shared leaf isn't
+  // reported twice, nor `--showConfig`-spawned twice.
+  const seen = new Set();
   for (const project of projects)
     for (const leaf of resolveLeafProjects(clientDir, project)) {
+      if (seen.has(leaf)) continue;
+      seen.add(leaf);
       if (projectDisablesChecking(clientDir, leaf))
         integrity.push(
           `${clientDir}: \`${leaf}\` sets \`noCheck\` in its tsconfig — that project lists files without type-checking them, so it gates nothing.`,
         );
-      else if (!checking.includes(leaf)) checking.push(leaf);
+      else checking.push(leaf);
     }
   return checking;
 }
