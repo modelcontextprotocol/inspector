@@ -154,7 +154,7 @@ All work should be driven by items on the project board.
 - When work begins, create a feature branch and set the item's Status to **In Progress** (or **V2 Go Live** for a card in the go-live phases, #1804).
 - When work is complete:
   - Run format, lint, typecheck, build, and test — ensure all checks pass
-  - Open a PR against the matching base branch (`main` for v1, `v2/main` for v2) and set the item's Status to **In review**
+  - Open a PR against the matching base branch (`main` for v1, `v2/main` for v2) and set the item's Status to **In Review**
   - **Link the PR to its issue.** The PR body's **first line must be `Closes #<ISSUE_NUMBER>`**. ⚠️ Note: closing keywords only auto-link/auto-close for PRs targeting the repo's **default branch** (`main`). Because v2 PRs target `v2/main` (a non-default branch), `Closes #N` there is only a cross-reference — it will **not** create a hard link or close the issue on merge. (There is no `gh` flag for manual linking — `gh pr edit` has no `--add-issue`; closing keywords are the only mechanism GitHub exposes, and they're gated to the default branch.)
   - **On merge of a v2 PR, manually close its issue and move the board item to Done** (option id `248a3910`), since auto-close won't fire on `v2/main`. Keep the `Closes #N` line anyway so the issues close automatically if/when `v2/main` is eventually merged to `main`.
 - If new tasks are discovered or requested during development, create issues and add them to the board.
@@ -189,7 +189,7 @@ Use **Todo** for approved-but-not-started work, **In Progress** for general acti
 > 1. **Add/rename/remove a column in the GitHub web UI** (Project #28 → Status field settings). This preserves ids of untouched options and never orphans cards.
 > 2. If you must script it, first `gh api graphql` the current options **with their `id`s**, then call `updateProjectV2Field` echoing back every existing option **including its `id`**, appending only the new one. Verify afterward that no card lost its Status.
 >
-> `gh project item-add` and `gh project item-edit` are always safe — they set a card's value and never touch the field schema. When option ids change for any reason, **re-verify and update the table above** (and the `248a3910` / `195df262` references in the recipes below and the merge step above).
+> `gh project item-add` and `gh project item-edit` are always safe — they set a card's value and never touch the field schema. When option ids change for any reason, **re-verify and update the table above** (and the `248a3910` / `195df262` / `159c8a02` references in the recipes below and the merge step above).
 
 ```sh
 # 1. Add an issue to the board — prints the item id (PVTI_…); capture it.
@@ -210,7 +210,7 @@ ITEM_ID=$(gh project item-add 28 --owner modelcontextprotocol --url <issue-url> 
 gh project item-edit --project-id PVT_kwDOCt2Azc4BJVxt --id "$ITEM_ID" --field-id PVTSSF_lADOCt2Azc4BJVxtzg5iI8c --single-select-option-id 195df262
 ```
 
-For an issue **already on the board** (moving an existing card, e.g. to **In Review** when its PR opens), look its item id up by issue number instead of re-adding it:
+For an issue **already on the board** (moving an existing card, e.g. to **In Review** when its PR opens), look its item id up by issue number instead of re-adding it. Keep `--limit` above the board's item count (~200 as of 2026-07-27) — past it `item-list` truncates silently, `select` matches nothing, and `item-edit --id ""` fails with an opaque node-resolution error rather than saying the limit was too low:
 
 ```sh
 ITEM_ID=$(gh project item-list 28 --owner modelcontextprotocol --format json --limit 500 \
