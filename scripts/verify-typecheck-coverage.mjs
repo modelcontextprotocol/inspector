@@ -15,8 +15,12 @@
 // client it runs every project its `typecheck` script names with `tsc
 // --listFilesOnly` (the accurate measure — it includes import-reached files),
 // unions the result, and asserts every tracked first-party `.ts`/`.tsx`/`.mts`/
-// `.cts` under the client is in that union. Exits non-zero, listing the
-// offenders, on any miss.
+// `.cts` under the client is in that union. It also covers, deny-by-default, the
+// tracked TS that lives OUTSIDE any client and outside an exempt root (`core/`,
+// covered by web's `tsc -b`) — the shared surface (`test-servers/src`,
+// `vitest.shared.mts`) plus anything at a new top-level location — requiring
+// each to land in the global union of client projects. Exits non-zero, listing
+// the offenders, on any miss.
 //
 // Like its sibling it also asserts the gate is actually WIRED: each client's
 // `typecheck` must be reachable from that client's `validate`, and the root
@@ -270,27 +274,41 @@ function trackedSourceFiles(clientDir) {
     .filter((f) => !f.includes("/build/") && !f.includes("/dist/"));
 }
 
-// First-party TS that lives outside any client but is still first-party source
-// no client "owns" — the same surface `format:check:shared` + `lint:shared`
-// gate (#1767). It has no `__tests__`/client project of its own; it must get a
-// tsc pass from SOME client project (cli aliases the test-server source, and
-// each client's `vitest.config.ts` imports `vitest.shared.mts`). Checked against
-// the GLOBAL union of all clients' project files, not per-client — which is why
-// a *new* unimported `test-servers/src` bin entry (nothing reaches it) is caught
-// here rather than slipping through as `server-composable.ts` once did.
-const SHARED_ROOTS = ["test-servers/src", "vitest.shared.mts"];
+// Roots this guard does NOT require to land in a client project, with the
+// reason. `core/` is typechecked by web's `tsc -b` (its projects `include`
+// `core/**` by path, so it's covered even without an importer — verified) and
+// isn't modeled here. Subtractive, so it's fail-CLOSED on staleness: if `core/`
+// were renamed, its files would fall into the required "other" set and be
+// flagged, rather than silently dropping out (the failure mode an *allowlist*
+// like the old `SHARED_ROOTS` had — see #1799 review round 21).
+const EXEMPT_ROOTS = ["core"];
 
-/** Tracked first-party TS under the shared roots (repo-relative POSIX paths). */
-function trackedSharedSource() {
-  const out = execFileSync("git", ["ls-files", ...SHARED_ROOTS], {
-    cwd: repoRoot,
-    encoding: "utf8",
-  });
+/**
+ * Tracked first-party TS that is neither under a `clients/*` dir (covered by the
+ * per-client pass) nor under an {@link EXEMPT_ROOTS} root — i.e. the shared
+ * surface no client owns (`test-servers/src/**`, the root `vitest.shared.mts`)
+ * plus anything new at a fresh top-level location. Deny-by-default: a new such
+ * file is required without editing this guard, matching the repo-wide reach of
+ * the sibling `verify-format-coverage`. Each must still get a tsc pass from SOME
+ * client project — cli aliases the test-server source; each client's
+ * `vitest.config.ts` imports `vitest.shared.mts` — checked against the GLOBAL
+ * union of client projects (not per-client), which is why a new unimported
+ * `test-servers/src` bin entry is caught rather than slipping through as
+ * `server-composable.ts` once did.
+ */
+function trackedNonClientSource() {
+  const out = execFileSync(
+    "git",
+    ["ls-files", "*.ts", "*.tsx", "*.mts", "*.cts"],
+    { cwd: repoRoot, encoding: "utf8" },
+  );
   return out
     .split("\n")
     .filter(Boolean)
     .filter(isRequiredSource)
-    .filter((f) => !f.includes("/build/") && !f.includes("/dist/"));
+    .filter((f) => !f.includes("/build/") && !f.includes("/dist/"))
+    .filter((f) => !f.startsWith("clients/"))
+    .filter((f) => !EXEMPT_ROOTS.some((r) => f === r || f.startsWith(`${r}/`)));
 }
 
 // ---------------------------------------------------------------------------
@@ -396,12 +414,13 @@ for (const clientDir of CLIENTS) {
     if (!covered.has(f)) failures.push(`${f} — in no tsconfig project`);
 }
 
-// Shared first-party TS gets no client of its own; require each to land in the
-// GLOBAL union of client projects (so a new unimported one is caught, not just
-// the file round 19 named explicitly).
-const sharedTracked = trackedSharedSource();
-totalChecked += sharedTracked.length;
-for (const f of sharedTracked)
+// Non-client first-party TS (shared source, plus anything at a new top-level
+// location) gets no client of its own; require each to land in the GLOBAL union
+// of client projects, so it's deny-by-default rather than an allowlist that a
+// new location could fall outside.
+const otherTracked = trackedNonClientSource();
+totalChecked += otherTracked.length;
+for (const f of otherTracked)
   if (!globalCovered.has(f))
     failures.push(`${f} — shared source in no client's tsconfig project`);
 
