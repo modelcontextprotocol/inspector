@@ -1719,6 +1719,12 @@ export class InspectorClient extends InspectorClientEventTarget {
         // discarded entirely: no status, not even a cause. Intercepting makes
         // the 401 a typed AuthChallengeError, which survives the probe as
         // `data.cause` for `findNestedAuthError` to recover (#1805).
+        //
+        // WORKAROUND (#1807, upstream modelcontextprotocol/typescript-sdk#2561):
+        // remove this clause once the SDK classifies a probe 401/403 as
+        // auth-required. `findNestedAuthError` is the permanent fix; the
+        // `|| this.probesProtocolEra()` clause below exists only to compensate
+        // for that upstream gap and should be deleted with it.
         (transportOptions.authProvider || this.probesProtocolEra())
       ) {
         transportOptions.interceptAuthChallenges = true;
