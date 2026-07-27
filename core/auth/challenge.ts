@@ -103,6 +103,62 @@ export function isConnectAuthRecoveryError(err: unknown): boolean {
   return isUnauthorizedError(err);
 }
 
+/**
+ * Recover a typed auth error that another error is carrying in its cause chain.
+ *
+ * Under `protocolEra: auto|modern` the SDK sends a `server/discover` negotiation
+ * probe before anything else, and its classifier reports whatever the transport
+ * threw as `SdkError(ERA_NEGOTIATION_FAILED)` with the original error moved to
+ * `data.cause`. That buries the two connect-time auth signals recovery keys off
+ * — {@link AuthRecoveryRequiredError} on the remote path (it carries the
+ * authorization URL and is matched with `instanceof`), and
+ * {@link AuthChallengeError} on a direct transport — so a modern-era connect
+ * against an OAuth server reported "Version negotiation probe failed" instead of
+ * starting authorization (#1805).
+ *
+ * Walks `cause` and `data.cause` (the same two links {@link isUnauthorizedError}
+ * follows for a nested 401) and returns the first such error. Deliberately not
+ * gated on the SDK's error code or message: any wrapper that keeps the cause
+ * chain intact should surface the same signal, so this survives SDK rewording.
+ */
+export function findNestedAuthError(
+  err: unknown,
+): AuthRecoveryRequiredError | AuthChallengeError | undefined {
+  return findNestedAuthErrorDeep(err, new Set());
+}
+
+function findNestedAuthErrorDeep(
+  err: unknown,
+  seen: Set<unknown>,
+): AuthRecoveryRequiredError | AuthChallengeError | undefined {
+  if (err === null || typeof err !== "object" || seen.has(err)) {
+    return undefined;
+  }
+  seen.add(err);
+
+  if (
+    err instanceof AuthRecoveryRequiredError ||
+    err instanceof AuthChallengeError
+  ) {
+    return err;
+  }
+
+  const nested = findNestedAuthErrorDeep(
+    (err as { cause?: unknown }).cause,
+    seen,
+  );
+  if (nested) {
+    return nested;
+  }
+
+  const data = (err as { data?: unknown }).data;
+  if (data !== null && typeof data === "object") {
+    return findNestedAuthErrorDeep((data as { cause?: unknown }).cause, seen);
+  }
+
+  return undefined;
+}
+
 export interface WwwAuthenticateBearerParams {
   error?: string;
   scope?: string;

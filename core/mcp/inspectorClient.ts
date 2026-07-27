@@ -185,6 +185,7 @@ import type {
 import {
   AuthRecoveryRequiredError,
   EMA_STEP_UP_PENDING_URL,
+  findNestedAuthError,
   isAuthChallengeError,
   isConnectAuthRecoveryError,
   parseAuthChallengeFromError,
@@ -1114,7 +1115,15 @@ export class InspectorClient extends InspectorClientEventTarget {
         this.directAuthRecoveryActive !== false &&
         this.isHttpOAuthConfig() &&
         oauthManager &&
-        transportOptions.authProvider
+        // No stored tokens means no authProvider (see above), and then a 401 on
+        // the era-negotiation probe reaches the SDK as a raw `SdkHttpError`.
+        // The probe's classifier ignores the HTTP status — it only looks for a
+        // JSON-RPC error body — so it verdicts "not a modern server", and pin
+        // ("modern") mode rethrows that as ERA_NEGOTIATION_FAILED with the 401
+        // discarded entirely: no status, not even a cause. Intercepting makes
+        // the 401 a typed AuthChallengeError, which survives the probe as
+        // `data.cause` for `findNestedAuthError` to recover (#1805).
+        (transportOptions.authProvider || this.probesProtocolEra())
       ) {
         transportOptions.interceptAuthChallenges = true;
       }
@@ -1170,7 +1179,17 @@ export class InspectorClient extends InspectorClientEventTarget {
       // Promise.race. On timeout, tear the transport down so the next
       // connect() starts clean and the upstream socket isn't left hanging.
       const connectTimeoutMs = this.serverSettings?.connectionTimeout ?? 0;
-      const connectPromise = this.client.connect(this.transport);
+      // Unwrap here — the earliest point — so an auth error the SDK's
+      // era-negotiation probe buried in its cause chain is surfaced before
+      // anything downstream inspects it: `withDirectAuthRecovery` (whose
+      // `isAuthChallengeError` check is shallow), the outer catch's
+      // `isConnectAuthRecoveryError` status guard, and every client's connect
+      // error handling. See {@link findNestedAuthError} (#1805).
+      const connectPromise = this.client
+        .connect(this.transport)
+        .catch((err: unknown) => {
+          throw findNestedAuthError(err) ?? err;
+        });
       const runConnect = async (): Promise<void> => {
         if (connectTimeoutMs > 0) {
           connectPromise.catch(() => {});
@@ -4738,6 +4757,16 @@ export class InspectorClient extends InspectorClientEventTarget {
   /** Direct (non-remote) OAuth transports recover via fetch intercept + handleAuthChallenge. */
   private usesDirectAuthRecovery(): boolean {
     return this.directAuthRecovery && this.directAuthRecoveryActive === true;
+  }
+
+  /**
+   * True when connect() sends the SDK's `server/discover` negotiation probe —
+   * i.e. `protocolEra` is "auto" or "modern" (`{ pin }`). Legacy is the default
+   * for an absent `mode`, matching the SDK.
+   */
+  private probesProtocolEra(): boolean {
+    const mode = this.versionNegotiation.mode;
+    return mode !== undefined && mode !== "legacy";
   }
 
   private async withDirectAuthRecovery<T>(

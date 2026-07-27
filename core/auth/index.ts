@@ -78,6 +78,7 @@ export {
   unionAuthorizationScopes,
   isAuthChallengeError,
   isConnectAuthRecoveryError,
+  findNestedAuthError,
   EMA_STEP_UP_PENDING_URL,
 } from "./challenge.js";
 
