@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 // Durable guard for the "every tracked source file gets a `tsc` pass" invariant
-// that #1791 established for the Node clients — every `clients/*` that declares a
-// `typecheck` script (cli, tui, launcher today; a new one is picked up from disk
-// automatically, see nodeClients). A tsconfig
+// that #1791 established for the Node clients — every `clients/*`, enrolled via
+// its `typecheck` script's projects (cli, tui, launcher) or, for a `tsc -b`
+// client with no `typecheck` script (clients/web), via its `tsconfig.json`
+// `references`; a new client is picked up from disk automatically (nodeClients).
+// A tsconfig
 // project only typechecks the files its `include`/`files` name plus whatever
 // those transitively import — so a new top-level `.ts` (a fresh config file, a
 // new test helper) can silently fall outside every project and get no
@@ -34,7 +36,7 @@
 // adding/removing a project is reflected here with no second list to keep in sync.
 
 import { execFileSync } from "node:child_process";
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -53,13 +55,13 @@ const rootPkg = JSON.parse(
   readFileSync(path.join(repoRoot, "package.json"), "utf8"),
 );
 
-// Clients this guard deliberately does NOT gate, with the reason. `clients/web`
-// typechecks via `tsc -b` over a project-reference graph (app/node/storybook/
-// test) this guard can't model. An exemption is explicit so it's a stated
-// decision, not an accident of which scripts a manifest happens to declare.
-const EXEMPT = new Map([
-  ["clients/web", "typechecks via `tsc -b` over project references"],
-]);
+// Clients this guard deliberately does NOT gate, with the reason. The escape
+// hatch for a genuinely-ungateable client. Empty today: `clients/web` used to be
+// here (it has no `typecheck` script — its `build` runs `tsc -b`) but is now
+// ENROLLED through its `tsconfig.json` `references`, so its package-root files
+// are checked rather than whole-tree-exempted (an exemption wider than the gate
+// it defers to — #1799 review r24).
+const EXEMPT = new Map();
 
 // TypeScript source extensions this guard requires a tsc pass for. Matches its
 // sibling's TS set (`verify-format-coverage.mjs` — `.mts` is already the idiom
@@ -70,17 +72,65 @@ const EXEMPT = new Map([
 const isRequiredSource = (rel) =>
   /\.(ts|tsx|mts|cts)$/.test(rel) && !/\.d\.(ts|mts|cts)$/.test(rel);
 
+// Match `tsc` by token basename so a path-invoked binary (`node_modules/.bin/
+// tsc`, `./node_modules/.bin/tsc.cmd`) counts, not just the bare `tsc` token.
+const isTsc = (t) => /(?:^|[\\/])tsc(?:\.(?:cmd|exe|ps1))?$/.test(t);
+
+/**
+ * The `references` paths in a client's root `tsconfig.json` (a `tsc -b` solution
+ * config), or `[]` if it has none / no readable tsconfig. These are the projects
+ * a reference (`tsc -b`) client — one with no `typecheck` script, like
+ * `clients/web` — is typechecked through, so this guard measures them directly
+ * instead of exempting the whole tree.
+ */
+function clientTsconfigReferences(clientDir) {
+  try {
+    const raw = readFileSync(
+      path.join(repoRoot, clientDir, "tsconfig.json"),
+      "utf8",
+    );
+    // Tolerate JSONC line comments + trailing commas (tsconfig allows both).
+    const cfg = JSON.parse(
+      raw.replace(/\/\/.*$/gm, "").replace(/,(\s*[}\]])/g, "$1"),
+    );
+    return Array.isArray(cfg.references)
+      ? cfg.references.map((r) => r?.path).filter((p) => typeof p === "string")
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Whether a script reachable from the client's `validate` runs `tsc -b`/`--build`. */
+function validateRunsTscBuild(scripts) {
+  for (const name of reachableScripts(scripts, "validate")) {
+    const cmd = scripts?.[name];
+    if (typeof cmd !== "string") continue;
+    for (const segment of cmd.split(/&&|\|\||;/)) {
+      const tokens = tokenize(segment);
+      if (
+        tokens.some(isTsc) &&
+        tokens.some((t) => t === "-b" || t === "--build")
+      )
+        return true;
+    }
+  }
+  return false;
+}
+
 /**
  * The Node clients this guard covers (#1791): every `clients/<name>` dir with a
- * readable `package.json` is required to **either** declare a `typecheck` script
- * (→ enrolled) **or** be in {@link EXEMPT} (→ skipped, with a reason). Anything
- * else is a gate-integrity failure. Enumerated from **disk** so it's fail-closed
- * on every axis: a new client is auto-required (a hardcoded list wouldn't pick
- * it up), a client can't be dropped by a root-chain edit (the chain isn't the
- * source), renaming the `typecheck` script doesn't silently drop the client (it
- * hard-fails — no longer enrolled, not exempt), and a `clients/*` dir holding
- * tracked TS but no manifest hard-fails too (rather than being taken for
- * "not a client"). Returns `{ clients, problems }`.
+ * readable `package.json` is required to be **enrolled** — either it declares a
+ * `typecheck` script (measured through that script's projects) or its root
+ * `tsconfig.json` has `references` (a `tsc -b` solution like `clients/web`,
+ * measured through those reference projects) — **or** be in {@link EXEMPT}.
+ * Anything else is a gate-integrity failure. Enumerated from **disk** so it's
+ * fail-closed on every axis: a new client is auto-required (a hardcoded list
+ * wouldn't pick it up), a client can't be dropped by a root-chain edit (the
+ * chain isn't the source), renaming the `typecheck` script doesn't silently drop
+ * the client (it hard-fails — no longer enrolled, not exempt), and a `clients/*`
+ * dir holding tracked TS but no manifest hard-fails too. Returns
+ * `{ clients, problems }`.
  */
 function nodeClients() {
   const clientsDir = path.join(repoRoot, "clients");
@@ -110,10 +160,14 @@ function nodeClients() {
         );
       continue;
     }
-    if (typeof scripts?.typecheck === "string") clients.push(dir);
+    if (
+      typeof scripts?.typecheck === "string" ||
+      clientTsconfigReferences(dir).length > 0
+    )
+      clients.push(dir);
     else
       problems.push(
-        `${dir}: declares no \`typecheck\` script and isn't in the EXEMPT set — it gets no tsc pass. Add a \`typecheck\` (or exempt it with a reason).`,
+        `${dir}: declares no \`typecheck\` script, has no \`tsconfig.json\` \`references\`, and isn't in the EXEMPT set — it gets no tsc pass. Add a \`typecheck\` (or exempt it with a reason).`,
       );
   }
   // A stale EXEMPT key would otherwise be asserted in the success line while
@@ -165,9 +219,6 @@ function typecheckProjects(scripts) {
   const neutered = [];
   const isFlag = (t) => t.startsWith("-");
   const isProjectFlag = (t) => ["-p", "--project", "-b", "--build"].includes(t);
-  // Match `tsc` by token basename so a path-invoked binary (`node_modules/.bin/
-  // tsc`, `./node_modules/.bin/tsc.cmd`) counts, not just the bare `tsc` token.
-  const isTsc = (t) => /(?:^|[\\/])tsc(?:\.(?:cmd|exe|ps1))?$/.test(t);
   for (const name of reachableScripts(scripts, "typecheck")) {
     const cmd = scripts?.[name];
     if (typeof cmd !== "string") continue;
@@ -344,6 +395,16 @@ if (CLIENTS.length === 0 && integrity.length === 0) {
   process.exit(1);
 }
 
+// The OK line unconditionally states the `core/` exemption; assert its subject
+// exists so the exemption can't outlive it (parity with the EXEMPT stale-key
+// check). Subtractive coverage stays fail-closed regardless — a renamed `core/`
+// surfaces as required — this only keeps the *note* honest.
+if (!existsSync(path.join(repoRoot, "core"))) {
+  integrity.push(
+    "`core/` is stated as exempt (CORE_EXEMPT_REASON) but does not exist — update it.",
+  );
+}
+
 // Vouch for the sibling guard — a guard can't detect being unrun itself, but the
 // two can each assert the other is still wired into `validate`, so dropping
 // either is caught here (only deleting both slips through).
@@ -364,6 +425,32 @@ for (const clientDir of CLIENTS) {
   const scripts = JSON.parse(
     readFileSync(path.join(repoRoot, clientDir, "package.json"), "utf8"),
   ).scripts;
+
+  // Reference (`tsc -b`) client — no `typecheck` script; measured through its
+  // `tsconfig.json` `references`, and wired iff its `validate` runs `tsc -b`.
+  if (typeof scripts?.typecheck !== "string") {
+    if (!validateRunsTscBuild(scripts)) {
+      integrity.push(
+        `${clientDir}: no \`typecheck\` script and its \`validate\` never runs \`tsc -b\` — its \`tsconfig.json\` references are typechecked by nothing.`,
+      );
+      continue;
+    }
+    const refs = clientTsconfigReferences(clientDir);
+    checkingProjects.set(
+      clientDir,
+      refs.filter((project) => {
+        if (projectDisablesChecking(clientDir, project)) {
+          integrity.push(
+            `${clientDir}: reference \`${project}\` sets \`noCheck\` in its tsconfig — that project lists files without type-checking them.`,
+          );
+          return false;
+        }
+        return true;
+      }),
+    );
+    continue;
+  }
+
   if (!reachableScripts(scripts, "validate").has("typecheck")) {
     integrity.push(
       `${clientDir}: \`typecheck\` is not reachable from its \`validate\` — the typecheck it measures gates nothing.`,
@@ -453,6 +540,10 @@ if (failures.length > 0) {
   if (nonClientMisses.some((f) => f.startsWith("test-servers/")))
     console.error(
       "For a shared-source file no client imports (e.g. a `test-servers/src` bin entry), name it in a client `tsconfig.test.json`'s `include`, as `server-composable.ts` is.",
+    );
+  if (nonClientMisses.some((f) => f.startsWith("core/")))
+    console.error(
+      "For a `core/` file (a `*.tsx`/`*.mts` or co-located test web's `tsc -b` doesn't reach), widen `clients/web/tsconfig.app.json`'s `include` — not a cli/tui project, which shouldn't own `core`.",
     );
   console.error("See AGENTS.md.");
   process.exit(1);
