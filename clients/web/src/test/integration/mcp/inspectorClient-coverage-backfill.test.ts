@@ -200,8 +200,11 @@ describe("InspectorClient coverage backfill", () => {
   });
 
   describe("setRoots", () => {
-    it("enables roots when previously undefined and dispatches rootsChange", async () => {
-      // No roots option → this.roots is undefined initially.
+    it("stores roots and dispatches rootsChange when none were configured", async () => {
+      // No roots option → this.roots is undefined initially. Note setRoots does
+      // *not* enable the capability: this client still has no `roots/list`
+      // handler and no `capabilities.roots`, so only `getRoots()` reflects the
+      // change — see the note on setRoots (#1797).
       client = stdioClient();
       await client.connect();
       const rootsChange = waitForEvent(client, "rootsChange", {

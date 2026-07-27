@@ -494,8 +494,14 @@ export class InspectorClient extends InspectorClientEventTarget {
     // the SDK guidance that a debugging tool must not auto-probe (#1626).
     this.versionNegotiation = options.versionNegotiation ?? { mode: "legacy" };
     this.directAuthRecovery = options.directAuthRecovery ?? false;
-    // Only set roots if explicitly provided (even if empty array) - this enables roots capability
-    this.roots = options.roots;
+    // Only set roots if explicitly provided (even if empty array) - this enables
+    // roots capability. Normalized here as well as in `setRoots`, so core owns
+    // the invariant rather than trusting each client to clean at its call site
+    // (they do, and `cleanRoots` is idempotent, so this costs nothing). The
+    // ternary preserves the `undefined`-vs-`[]` distinction the capability
+    // advertisement below gates on.
+    this.roots =
+      options.roots !== undefined ? cleanRoots(options.roots) : undefined;
     // Initialize listChangedNotifications config (default: all enabled)
     this.listChangedNotifications = {
       tools: options.listChangedNotifications?.tools ?? true,
@@ -4268,7 +4274,9 @@ export class InspectorClient extends InspectorClientEventTarget {
     }
 
     this.roots = cleanRoots(roots);
-    this.dispatchTypedEvent("rootsChange", this.roots);
+    // Copy, as `getRoots()` does — a listener must not be able to push into the
+    // list we advertise.
+    this.dispatchTypedEvent("rootsChange", [...this.roots]);
 
     // Send notification to server - clients can send this notification to any server
     // The server doesn't need to advertise support for it

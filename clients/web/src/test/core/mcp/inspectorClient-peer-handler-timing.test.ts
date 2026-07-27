@@ -1,5 +1,9 @@
-import { describe, it, expect } from "vitest";
-import type { JSONRPCMessage, Transport } from "@modelcontextprotocol/client";
+import { describe, it, expect, vi } from "vitest";
+import type {
+  JSONRPCMessage,
+  Root,
+  Transport,
+} from "@modelcontextprotocol/client";
 import { InspectorClient } from "@inspector/core/mcp/inspectorClient.js";
 
 /**
@@ -174,6 +178,26 @@ describe("InspectorClient peer-handler timing (#1797)", () => {
     expect(rootsChanges).toEqual([roots]);
 
     await client.disconnect();
+  });
+
+  it("normalizes a malformed roots option at construction", async () => {
+    // Core owns the invariant rather than trusting each client to clean at its
+    // call site — the constructor is the fourth way roots enter the client, and
+    // the option can come straight off hand-edited mcp.json.
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const client = new InspectorClient(
+        { type: "stdio", command: "noop", args: [] },
+        {
+          environment: { transport: () => ({}) as never },
+          roots: [{ name: "no uri" }, { uri: "file:///keep" }] as Root[],
+        },
+      );
+      expect(client.getRoots()).toEqual([{ uri: "file:///keep" }]);
+      expect(warn).toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it("serves roots set after connect, given roots were advertised at construction", async () => {

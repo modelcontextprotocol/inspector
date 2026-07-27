@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import { getTestMcpServerCommand } from "@modelcontextprotocol/inspector-test-server";
 import { InspectorClient } from "@inspector/core/mcp/index.js";
 import { createTransportNode } from "@inspector/core/mcp/node/index.js";
@@ -25,6 +25,9 @@ describe("runMethod", () => {
         progress: false,
         sample: false,
         elicit: false,
+        // Mirrors `cli.ts`, which always passes the option so the capability is
+        // negotiated and the `roots/list` handler registered (#1797).
+        roots: [],
       },
     );
     await client.connect();
@@ -98,13 +101,24 @@ describe("runMethod", () => {
     // the `roots/list` reply — an invalid Root on the wire, echoed back to the
     // user as success. `setRoots` normalizes through `cleanRoots` now (#1797).
     const c = await connectStdio();
-    const set = await runMethod(c, {
-      method: "roots/set",
-      rootsJson: JSON.stringify([{ name: "no uri" }, { uri: "file:///keep" }]),
-    });
-    expect(set.kind).toBe("result");
-    if (set.kind === "result") {
-      expect(set.result.roots).toEqual([{ uri: "file:///keep" }]);
+    // cleanRoots reports the drop; suppress it here and assert it happened, so
+    // the test also covers that a dropped root is not dropped silently.
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const set = await runMethod(c, {
+        method: "roots/set",
+        rootsJson: JSON.stringify([
+          { name: "no uri" },
+          { uri: "file:///keep" },
+        ]),
+      });
+      expect(set.kind).toBe("result");
+      if (set.kind === "result") {
+        expect(set.result.roots).toEqual([{ uri: "file:///keep" }]);
+      }
+      expect(warn).toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
     }
   });
 
