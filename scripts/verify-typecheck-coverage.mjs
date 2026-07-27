@@ -40,7 +40,7 @@
 import { execFileSync } from "node:child_process";
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   reachableScripts,
   rootReachesScript,
@@ -51,10 +51,6 @@ import {
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",
-);
-
-const rootPkg = JSON.parse(
-  readFileSync(path.join(repoRoot, "package.json"), "utf8"),
 );
 
 // Clients this guard deliberately does NOT gate, with the reason. The escape
@@ -71,24 +67,24 @@ const EXEMPT = new Map();
 // must be gated too). Ambient declaration files are excluded: an unreferenced
 // `*.d.{ts,mts,cts}` shim (e.g. web's `vitest.shims.d.ts`) is type-only and not
 // a real gap. There are no client `.mts`/`.cts` today; this pre-empts one.
-const isRequiredSource = (rel) =>
+export const isRequiredSource = (rel) =>
   /\.(ts|tsx|mts|cts)$/.test(rel) && !/\.d\.(ts|mts|cts)$/.test(rel);
 
 // Match `tsc` by token basename so a path-invoked binary (`node_modules/.bin/
 // tsc`, `./node_modules/.bin/tsc.cmd`) counts, not just the bare `tsc` token.
-const isTsc = (t) => /(?:^|[\\/])tsc(?:\.(?:cmd|exe|ps1))?$/.test(t);
+export const isTsc = (t) => /(?:^|[\\/])tsc(?:\.(?:cmd|exe|ps1))?$/.test(t);
 
 // A flag that makes a `tsc` pass list files without type-checking them (so it
 // gates nothing). Case-insensitive — tsc's own option parsing is. Shared by the
 // `typecheck`-script path and the reference (`tsc -b`) path.
-const isDisablingFlag = (t) => /^--(noCheck|listFilesOnly)$/i.test(t);
+export const isDisablingFlag = (t) => /^--(noCheck|listFilesOnly)$/i.test(t);
 
 /**
  * The `references` paths declared in the tsconfig at repo-relative `tsconfigRel`
  * (a `tsc -b` solution config), or `[]` if it has none / isn't readable. Paths
  * are as written (relative to that tsconfig's own directory).
  */
-function tsconfigReferences(tsconfigRel) {
+export function tsconfigReferences(tsconfigRel) {
   try {
     const raw = readFileSync(path.join(repoRoot, tsconfigRel), "utf8");
     // Tolerate JSONC — block AND line comments + trailing commas (tsconfig
@@ -115,7 +111,7 @@ function tsconfigReferences(tsconfigRel) {
  * client (like `clients/web`, which has no `typecheck` script) — this guard
  * enrolls it through these instead of exempting the whole tree.
  */
-function clientTsconfigReferences(clientDir) {
+export function clientTsconfigReferences(clientDir) {
   return tsconfigReferences(path.posix.join(clientDir, "tsconfig.json"));
 }
 
@@ -125,7 +121,7 @@ function clientTsconfigReferences(clientDir) {
  * `--noCheck`/`--listFilesOnly` — lists files but checks nothing, the same hole
  * the `typecheck`-script path rejects), or `"none"` (no `tsc -b` at all).
  */
-function tscBuildStatus(scripts) {
+export function tscBuildStatus(scripts) {
   let status = "none";
   for (const name of reachableScripts(scripts, "validate")) {
     const cmd = scripts?.[name];
@@ -206,8 +202,6 @@ function nodeClients() {
   return { clients, problems };
 }
 
-const { clients: CLIENTS, problems: enrollmentProblems } = nodeClients();
-
 /**
  * The tsconfig projects a client's `typecheck` names, harvested from **every**
  * script reachable from `typecheck` (not just the one string) so a delegating
@@ -238,7 +232,7 @@ const { clients: CLIENTS, problems: enrollmentProblems } = nodeClients();
  * runs before tokenizing, so a quoted operator inside an arg would split
  * mid-token (project paths carry none of those).
  */
-function typecheckProjects(scripts) {
+export function typecheckProjects(scripts) {
   const projects = [];
   const neutered = [];
   const isFlag = (t) => t.startsWith("-");
@@ -348,7 +342,7 @@ function rawProjectFiles(clientDir, project) {
  * the same graph, so a `noCheck` in a *referenced* project is caught no matter
  * which enrollment path harvested the solution.
  */
-function resolveLeafProjects(clientDir, project, seen = new Set()) {
+export function resolveLeafProjects(clientDir, project, seen = new Set()) {
   if (seen.has(project)) return [];
   seen.add(project);
   // Lists files → a real leaf. (An empty set is a solution config, or a config
@@ -449,168 +443,193 @@ function trackedNonClientSource() {
     .filter((f) => !f.startsWith("clients/"));
 }
 
-// ---------------------------------------------------------------------------
-// Phase 1 — gate integrity: is each client's `typecheck` actually run, and does
-// it actually type-check? Reported (and exited) before the file-coverage pass
-// so a mis-wired / inert gate isn't buried under a flood of consequent
-// "in no tsconfig project" lines (which would list every file that gate covered).
-// Also records, per client, the projects that genuinely type-check, for phase 2.
-// Boundary: this does NOT detect shell-level failure suppression on the pass
-// (`… || true`, `; exit 0`) — a pass that runs and checks but can't fail CI.
-// ---------------------------------------------------------------------------
-// A client that declares no `typecheck` and isn't exempt is a gate-integrity
-// failure (seeded here so a renamed/removed `typecheck` is loud, not a silent
-// drop). If that leaves nothing enrolled AND surfaced no such problem, the
-// enumeration itself is broken (a moved `clients/` dir) — fail rather than no-op.
-const integrity = [...enrollmentProblems];
-const checkingProjects = new Map();
-if (CLIENTS.length === 0 && integrity.length === 0) {
-  console.error(
-    "verify:typecheck-coverage — found no `clients/*` dir to check. The guard would check nothing; fix the enumeration.",
+/**
+ * Run the guard: enumerate clients, check gate integrity (phase 1), then file
+ * coverage (phase 2). Prints its verdict and `process.exit(1)`s on any failure.
+ * Called only when this file is executed directly — importing it (for tests)
+ * gives access to the pure helpers above without running any of this.
+ */
+export function main() {
+  const rootPkg = JSON.parse(
+    readFileSync(path.join(repoRoot, "package.json"), "utf8"),
   );
-  process.exit(1);
-}
+  const { clients: CLIENTS, problems: enrollmentProblems } = nodeClients();
 
-// Vouch for the sibling guard — a guard can't detect being unrun itself, but the
-// two can each assert the other is still wired into `validate`, so dropping
-// either is caught here (only deleting both slips through).
-if (!rootReachesScript(rootPkg.scripts, "verify:format-coverage")) {
-  integrity.push(
-    "the root `validate` no longer runs `verify:format-coverage` (its sibling guard) — restore it.",
-  );
-}
-
-for (const clientDir of CLIENTS) {
-  checkingProjects.set(clientDir, []);
-  if (!rootRunsClientValidate(rootPkg.scripts, clientDir)) {
-    integrity.push(
-      `${clientDir}: the root \`validate\` chain no longer runs \`cd ${clientDir} && npm run validate\` (or \`npm --prefix ${clientDir} run validate\`) — its typecheck isn't invoked by CI.`,
+  // -------------------------------------------------------------------------
+  // Phase 1 — gate integrity: is each client's `typecheck` actually run, and
+  // does it actually type-check? Reported (and exited) before the file-coverage
+  // pass so a mis-wired / inert gate isn't buried under a flood of consequent
+  // "in no tsconfig project" lines. Records, per client, the projects that
+  // genuinely type-check, for phase 2. Boundary: does NOT detect shell-level
+  // failure suppression (`… || true`, `; exit 0`).
+  // -------------------------------------------------------------------------
+  // A client that declares no `typecheck` and isn't exempt is a gate-integrity
+  // failure (seeded so a renamed/removed `typecheck` is loud, not a silent
+  // drop). If that leaves nothing enrolled AND surfaced no such problem, the
+  // enumeration itself is broken (a moved `clients/` dir) — fail, don't no-op.
+  const integrity = [...enrollmentProblems];
+  const checkingProjects = new Map();
+  if (CLIENTS.length === 0 && integrity.length === 0) {
+    console.error(
+      "verify:typecheck-coverage — found no `clients/*` dir to check. The guard would check nothing; fix the enumeration.",
     );
-    continue;
+    process.exit(1);
   }
-  const scripts = JSON.parse(
-    readFileSync(path.join(repoRoot, clientDir, "package.json"), "utf8"),
-  ).scripts;
 
-  // Reference (`tsc -b`) client — no `typecheck` script; measured through its
-  // `tsconfig.json` `references`, and wired iff its `validate` runs a real
-  // (checking) `tsc -b`.
-  if (typeof scripts?.typecheck !== "string") {
-    const status = tscBuildStatus(scripts);
-    if (status !== "ok") {
+  // Vouch for the sibling guard — a guard can't detect being unrun itself, but the
+  // two can each assert the other is still wired into `validate`, so dropping
+  // either is caught here (only deleting both slips through).
+  if (!rootReachesScript(rootPkg.scripts, "verify:format-coverage")) {
+    integrity.push(
+      "the root `validate` no longer runs `verify:format-coverage` (its sibling guard) — restore it.",
+    );
+  }
+
+  for (const clientDir of CLIENTS) {
+    checkingProjects.set(clientDir, []);
+    if (!rootRunsClientValidate(rootPkg.scripts, clientDir)) {
       integrity.push(
-        status === "neutered"
-          ? `${clientDir}: its \`validate\`'s \`tsc -b\` carries \`--noCheck\`/\`--listFilesOnly\` — it lists files without type-checking them, so its references are gated by nothing.`
-          : `${clientDir}: no \`typecheck\` script and its \`validate\` never runs \`tsc -b\` — its \`tsconfig.json\` references are typechecked by nothing.`,
+        `${clientDir}: the root \`validate\` chain no longer runs \`cd ${clientDir} && npm run validate\` (or \`npm --prefix ${clientDir} run validate\`) — its typecheck isn't invoked by CI.`,
       );
       continue;
     }
-    checkingProjects.set(
-      clientDir,
-      checkingLeaves(clientDir, clientTsconfigReferences(clientDir), integrity),
-    );
-    continue;
-  }
+    const scripts = JSON.parse(
+      readFileSync(path.join(repoRoot, clientDir, "package.json"), "utf8"),
+    ).scripts;
 
-  if (!reachableScripts(scripts, "validate").has("typecheck")) {
-    integrity.push(
-      `${clientDir}: \`typecheck\` is not reachable from its \`validate\` — the typecheck it measures gates nothing.`,
-    );
-    continue;
-  }
-  const { projects, neutered } = typecheckProjects(scripts);
-  for (const { project, flag } of neutered)
-    integrity.push(
-      `${clientDir}: its \`typecheck\` runs \`-p ${project}\` with \`${flag}\` — that pass lists files without type-checking them, so it gates nothing.`,
-    );
-  // Fire only when nothing was harvested at all — not when projects WERE named
-  // but every one is neutered (command flag) or config-disabled (`projects` was
-  // non-empty in that case; those get their own lines above).
-  if (projects.length === 0 && neutered.length === 0)
-    integrity.push(
-      `${clientDir}: its \`typecheck\` names no \`-p <project>\` — nothing is typechecked.`,
-    );
-  // Resolve each harvested project to its leaves (a `tsc -b` solution expands),
-  // and disable-check each leaf — so a `noCheck` in a referenced project counts.
-  checkingProjects.set(
-    clientDir,
-    checkingLeaves(clientDir, projects, integrity),
-  );
-}
-
-if (integrity.length > 0) {
-  console.error(
-    `verify:typecheck-coverage — ${integrity.length} gate-integrity issue(s): a typecheck gate is not run, or runs but checks nothing:\n`,
-  );
-  for (const f of integrity) console.error("  " + f);
-  console.error(
-    "\nRestore the `typecheck` wiring (client `validate` → `typecheck`, root `validate` → each client), and drop any `--noCheck`/`--listFilesOnly`/`noCheck` from the typecheck pass.",
-  );
-  process.exit(1);
-}
-
-// ---------------------------------------------------------------------------
-// Phase 2 — file coverage: every tracked source file lands in a checking project.
-// ---------------------------------------------------------------------------
-let totalChecked = 0;
-const failures = [];
-const globalCovered = new Set();
-for (const clientDir of CLIENTS) {
-  const covered = new Set();
-  for (const project of checkingProjects.get(clientDir))
-    for (const f of projectFiles(clientDir, project)) {
-      covered.add(f);
-      globalCovered.add(f);
+    // Reference (`tsc -b`) client — no `typecheck` script; measured through its
+    // `tsconfig.json` `references`, and wired iff its `validate` runs a real
+    // (checking) `tsc -b`.
+    if (typeof scripts?.typecheck !== "string") {
+      const status = tscBuildStatus(scripts);
+      if (status !== "ok") {
+        integrity.push(
+          status === "neutered"
+            ? `${clientDir}: its \`validate\`'s \`tsc -b\` carries \`--noCheck\`/\`--listFilesOnly\` — it lists files without type-checking them, so its references are gated by nothing.`
+            : `${clientDir}: no \`typecheck\` script and its \`validate\` never runs \`tsc -b\` — its \`tsconfig.json\` references are typechecked by nothing.`,
+        );
+        continue;
+      }
+      checkingProjects.set(
+        clientDir,
+        checkingLeaves(
+          clientDir,
+          clientTsconfigReferences(clientDir),
+          integrity,
+        ),
+      );
+      continue;
     }
 
-  const tracked = trackedSourceFiles(clientDir);
-  totalChecked += tracked.length;
-  for (const f of tracked)
-    if (!covered.has(f)) failures.push(`${f} — in no tsconfig project`);
-}
-
-// Non-client first-party TS (shared source, plus anything at a new top-level
-// location) gets no client of its own; require each to land in the GLOBAL union
-// of client projects, so it's deny-by-default rather than an allowlist that a
-// new location could fall outside.
-const otherTracked = trackedNonClientSource();
-totalChecked += otherTracked.length;
-const nonClientMisses = [];
-for (const f of otherTracked)
-  if (!globalCovered.has(f)) {
-    nonClientMisses.push(f);
-    failures.push(`${f} — in no client's tsconfig project`);
+    if (!reachableScripts(scripts, "validate").has("typecheck")) {
+      integrity.push(
+        `${clientDir}: \`typecheck\` is not reachable from its \`validate\` — the typecheck it measures gates nothing.`,
+      );
+      continue;
+    }
+    const { projects, neutered } = typecheckProjects(scripts);
+    for (const { project, flag } of neutered)
+      integrity.push(
+        `${clientDir}: its \`typecheck\` runs \`-p ${project}\` with \`${flag}\` — that pass lists files without type-checking them, so it gates nothing.`,
+      );
+    // Fire only when nothing was harvested at all — not when projects WERE named
+    // but every one is neutered (command flag) or config-disabled (`projects` was
+    // non-empty in that case; those get their own lines above).
+    if (projects.length === 0 && neutered.length === 0)
+      integrity.push(
+        `${clientDir}: its \`typecheck\` names no \`-p <project>\` — nothing is typechecked.`,
+      );
+    // Resolve each harvested project to its leaves (a `tsc -b` solution expands),
+    // and disable-check each leaf — so a `noCheck` in a referenced project counts.
+    checkingProjects.set(
+      clientDir,
+      checkingLeaves(clientDir, projects, integrity),
+    );
   }
 
-if (failures.length > 0) {
-  console.error(
-    `verify:typecheck-coverage — ${failures.length} tracked source file(s) get no \`tsc\` pass:\n`,
+  if (integrity.length > 0) {
+    console.error(
+      `verify:typecheck-coverage — ${integrity.length} gate-integrity issue(s): a typecheck gate is not run, or runs but checks nothing:\n`,
+    );
+    for (const f of integrity) console.error("  " + f);
+    console.error(
+      "\nRestore the `typecheck` wiring (client `validate` → `typecheck`, root `validate` → each client), and drop any `--noCheck`/`--listFilesOnly`/`noCheck` from the typecheck pass.",
+    );
+    process.exit(1);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Phase 2 — file coverage: every tracked source file lands in a checking project.
+  // ---------------------------------------------------------------------------
+  let totalChecked = 0;
+  const failures = [];
+  const globalCovered = new Set();
+  for (const clientDir of CLIENTS) {
+    const covered = new Set();
+    for (const project of checkingProjects.get(clientDir))
+      for (const f of projectFiles(clientDir, project)) {
+        covered.add(f);
+        globalCovered.add(f);
+      }
+
+    const tracked = trackedSourceFiles(clientDir);
+    totalChecked += tracked.length;
+    for (const f of tracked)
+      if (!covered.has(f)) failures.push(`${f} — in no tsconfig project`);
+  }
+
+  // Non-client first-party TS (shared source, plus anything at a new top-level
+  // location) gets no client of its own; require each to land in the GLOBAL union
+  // of client projects, so it's deny-by-default rather than an allowlist that a
+  // new location could fall outside.
+  const otherTracked = trackedNonClientSource();
+  totalChecked += otherTracked.length;
+  const nonClientMisses = [];
+  for (const f of otherTracked)
+    if (!globalCovered.has(f)) {
+      nonClientMisses.push(f);
+      failures.push(`${f} — in no client's tsconfig project`);
+    }
+
+  if (failures.length > 0) {
+    console.error(
+      `verify:typecheck-coverage — ${failures.length} tracked source file(s) get no \`tsc\` pass:\n`,
+    );
+    for (const f of failures) console.error("  " + f);
+    console.error(
+      "\nAdd the file to a client's `tsconfig.json` / `tsconfig.test.json` `include` (a top-level config the build config's `rootDir` rejects goes in the test project).",
+    );
+    if (failures.some((f) => /\.test\./.test(f)))
+      console.error(
+        "For a co-located test, instead move it to `__tests__/` — adding it to the src `include` would make the build emit it.",
+      );
+    if (nonClientMisses.some((f) => f.startsWith("test-servers/")))
+      console.error(
+        "For a shared-source file no client imports (e.g. a `test-servers/src` bin entry), name it in a client `tsconfig.test.json`'s `include`, as `server-composable.ts` is.",
+      );
+    if (nonClientMisses.some((f) => f.startsWith("core/")))
+      console.error(
+        "For a `core/` file web's `tsc -b` doesn't reach, widen the web project that owns it — `tsconfig.test.json` for `core/**/__tests__/**`, else `tsconfig.app.json` — not a cli/tui project, which shouldn't own `core`.",
+      );
+    if (nonClientMisses.some((f) => f.startsWith("scripts/")))
+      console.error(
+        "For root tooling under `scripts/`, keep it `.mjs` (the convention there — prettier-gated via `format:check:scripts`, and `.mjs` isn't in this guard's required set), or give `scripts/` its own tsconfig project and enroll it here.",
+      );
+    console.error("See AGENTS.md.");
+    process.exit(1);
+  }
+
+  const exemptNote = [...EXEMPT.entries()]
+    .map(([dir, reason]) => `${dir} exempt: ${reason}`)
+    .join("; ");
+  console.log(
+    `verify:typecheck-coverage — OK: all ${totalChecked} tracked source files ` +
+      `(${CLIENTS.length} clients + non-client) get a tsc pass` +
+      (exemptNote ? ` (${exemptNote}).` : "."),
   );
-  for (const f of failures) console.error("  " + f);
-  console.error(
-    "\nAdd the file to a client's `tsconfig.json` / `tsconfig.test.json` `include` (a top-level config the build config's `rootDir` rejects goes in the test project).",
-  );
-  if (failures.some((f) => /\.test\./.test(f)))
-    console.error(
-      "For a co-located test, instead move it to `__tests__/` — adding it to the src `include` would make the build emit it.",
-    );
-  if (nonClientMisses.some((f) => f.startsWith("test-servers/")))
-    console.error(
-      "For a shared-source file no client imports (e.g. a `test-servers/src` bin entry), name it in a client `tsconfig.test.json`'s `include`, as `server-composable.ts` is.",
-    );
-  if (nonClientMisses.some((f) => f.startsWith("core/")))
-    console.error(
-      "For a `core/` file web's `tsc -b` doesn't reach, widen the web project that owns it — `tsconfig.test.json` for `core/**/__tests__/**`, else `tsconfig.app.json` — not a cli/tui project, which shouldn't own `core`.",
-    );
-  console.error("See AGENTS.md.");
-  process.exit(1);
 }
 
-const exemptNote = [...EXEMPT.entries()]
-  .map(([dir, reason]) => `${dir} exempt: ${reason}`)
-  .join("; ");
-console.log(
-  `verify:typecheck-coverage — OK: all ${totalChecked} tracked source files ` +
-    `(${CLIENTS.length} clients + non-client) get a tsc pass` +
-    (exemptNote ? ` (${exemptNote}).` : "."),
-);
+// Run only when executed directly (`node scripts/verify-typecheck-coverage.mjs`);
+// importing this file (tests) exposes the pure helpers without running the guard.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href)
+  main();
