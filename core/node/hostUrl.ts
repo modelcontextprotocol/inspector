@@ -70,23 +70,31 @@ export function canonicalUrlHost(host: string): string {
   }
 }
 
+// NB on layering: since round-19 (#1795 AD1), {@link isAllInterfacesHost} runs
+// `canonicalUrlHost` FIRST, and that (via `new URL()`) already compresses IPv6
+// zero-runs, unmaps IPv4-mapped addresses, and folds every legacy `inet_aton`
+// and IDNA spelling to `0.0.0.0`. So `canonicalUrlHost` is the actual wildcard
+// cover; `ALL_INTERFACES_LITERALS`'s `::ffff:0:0` entry, `canonicalizeIpv6`, and
+// `isAllZeroIpv4` below are a **redundant second layer** — measured to change no
+// verdict for any bindable input. They're kept as defense-in-depth (and they do
+// cover `canonicalUrlHost`'s non-URL `catch` fallback), but do NOT remove the
+// `canonicalUrlHost` call from `isAllInterfacesHost` on the assumption these
+// still catch the legacy spellings — they don't anymore.
+
 /**
- * Canonical spellings of the all-interfaces (unspecified) address. Every IPv6
- * wildcard spelling (`::`, `::0`, `0:0:…:0`, `::0.0.0.0`, …) canonicalizes to
- * `::` and the IPv4-mapped wildcard to `::ffff:0:0` (see {@link canonicalizeIpv6}),
- * so those two entries cover the whole IPv6 family; `0.0.0.0` is the IPv4
- * wildcard and `""` is Node's `listen()` unspecified address. All bind *every*
- * interface. {@link isAllInterfacesHost} additionally folds the legacy IPv4
- * spellings the OS resolver still binds as `0.0.0.0`.
+ * Canonical spellings of the all-interfaces (unspecified) address: `0.0.0.0`
+ * (IPv4 wildcard), `::` (IPv6 wildcard), `::ffff:0:0` (IPv4-mapped wildcard —
+ * redundant now that `canonicalUrlHost` unmaps it to `0.0.0.0`), and `""`
+ * (Node's `listen()` unspecified address). See the layering note above.
  */
 const ALL_INTERFACES_LITERALS = new Set(["", "0.0.0.0", "::", "::ffff:0:0"]);
 
 /**
  * Canonicalize an IPv6 literal via the WHATWG URL serializer, which compresses
- * zero-runs — so `::0`, `0::0`, `::0.0.0.0`, and the fully-expanded
- * `0000:…:0000` all collapse to `::`, and `::ffff:0.0.0.0` → `::ffff:0:0`. This
- * is what lets a small literal set catch every all-zero IPv6 spelling rather
- * than only the handful written out. Non-IPv6 input passes through unchanged.
+ * zero-runs — `::0` / `0::0` / `::0.0.0.0` / `0000:…:0000` → `::`, `::ffff:0.0.0.0`
+ * → `::ffff:0:0`. Redundant second layer (see the note above): `canonicalUrlHost`
+ * already ran the value through `new URL()`, so for any host it can produce this
+ * is the identity; kept for defense-in-depth. Non-IPv6 input passes through.
  *
  * The zone index (`%eth0`) is stripped first: `net.isIPv6` accepts it but
  * `new URL()` rejects a zone id outright (even `%25`-encoded), so passing it
@@ -115,12 +123,17 @@ function parseAddressPart(part: string): number {
  * still binds as the `0.0.0.0` wildcard: the bare integer `0`, `0x0`, dotted
  * `0.0.0.0`, `000.000.000.000`, `0x0.0.0.0`, and the short forms `0.0` / `0.0.0`
  * (Node/`inet_aton` accept 1–4 parts; `parseAddressPart`'s `[0-9]+` branch does
- * double duty for decimal and `0`-prefixed octal). Guards the near-miss
- * bypasses of the literal set above. The `> 4` reject is intentional — 1–3
- * parts are valid `inet_aton` spellings, so this is deliberately NOT
- * `parts.length === 4`. Called from {@link isAllInterfacesHost} with any
- * normalized host, so it may receive an IPv6 literal (`::1`) — the dot-split
- * yields a single non-numeric part → `NaN` → `false`, which is correct.
+ * double duty for decimal and `0`-prefixed octal). The `> 4` reject is
+ * intentional — 1–3 parts are valid `inet_aton` spellings, so this is
+ * deliberately NOT `parts.length === 4`. Called from {@link isAllInterfacesHost}
+ * with any normalized host, so it may receive an IPv6 literal (`::1`) — the
+ * dot-split yields a single non-numeric part → `NaN` → `false`, which is correct.
+ *
+ * Redundant second layer (see the note above `ALL_INTERFACES_LITERALS`): every
+ * bindable legacy spelling (`0`, `0x0`, `0.0`, `000.000.000.000`, `０`, …) is
+ * already folded to `0.0.0.0` by `canonicalUrlHost`, so this changes no verdict
+ * for a real host; its only live input is `canonicalUrlHost`'s non-URL `catch`
+ * fallback (e.g. bracketed non-IPv6 `[0.0.0]`, which fails `ENOTFOUND` anyway).
  */
 function isAllZeroIpv4(value: string): boolean {
   const parts = value.split(".");

@@ -35,6 +35,7 @@ describe("isLoopbackHost", () => {
     "126.0.0.1", // adjacent to but outside 127/8
     "128.0.0.1",
     "0.0.0.127", // bare "127" resolves here, not loopback
+    "", // empty is the wildcard (isAllInterfacesHost's job), not loopback
     // Out-of-range octets survive canonicalUrlHost's non-URL fallback — the
     // bounded regex must still reject them.
     "127.999.0.1",
