@@ -28,14 +28,13 @@ const PAGE_DOWN = `${ESC}[6~`;
 
 const ts = new Date("2024-01-01T12:34:56Z");
 
-// `message` is deliberately typed `unknown`: several entries below construct
-// malformed wire messages (a response with neither result nor error; a
-// notification with no method) to exercise HistoryTab's defensive rendering
-// branches, which the strict JSONRPCMessage union can't represent. The return
-// cast is the existing scaffolding cast that carries those shapes through.
-const entry = (
-  over: Omit<Partial<MessageEntry>, "message"> & { message?: unknown },
-): MessageEntry =>
+// `message` stays fully typed so a malformed field in a well-formed fixture is
+// caught. The two intentionally-malformed messages below (a response with
+// neither result nor error; a notification with no method) exercise HistoryTab's
+// defensive branches and cannot be represented by the strict JSONRPCMessage
+// union, so they carry a local `MALFORMED` cast at their own call sites rather
+// than loosening the whole helper.
+const entry = (over: Partial<MessageEntry>): MessageEntry =>
   ({
     id: "id",
     timestamp: ts,
@@ -43,6 +42,15 @@ const entry = (
     message: { jsonrpc: "2.0", id: 1, method: "ping" },
     ...over,
   }) as unknown as MessageEntry;
+
+// Cast for the two intentionally-malformed wire messages only. A single `as`
+// won't bridge (the shapes don't overlap the union), so `as unknown as` is the
+// only option; scoping it to a named helper keeps `entry()`'s `message`
+// otherwise gate-checked. See the comment on `entry` above.
+const MALFORMED = (m: {
+  jsonrpc: "2.0";
+  id?: number;
+}): MessageEntry["message"] => m as unknown as MessageEntry["message"];
 
 // One entry exercising each label / direction / detail branch.
 const reqWithResponse = entry({
@@ -70,7 +78,7 @@ const respError = entry({
 const respPlain = entry({
   id: "m4",
   direction: "response",
-  message: { jsonrpc: "2.0", id: 5 },
+  message: MALFORMED({ jsonrpc: "2.0", id: 5 }),
 });
 const notification = entry({
   id: "m5",
@@ -80,7 +88,7 @@ const notification = entry({
 const unknownEntry = entry({
   id: "m6",
   direction: "notification",
-  message: { jsonrpc: "2.0" },
+  message: MALFORMED({ jsonrpc: "2.0" }),
 });
 
 const allMessages: MessageEntry[] = [

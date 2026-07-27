@@ -21,13 +21,26 @@ import type { CliOAuthClient } from "../../src/cliOAuth.js";
 export function makeFakeCliOAuthClient(
   overrides: Partial<CliOAuthClient> = {},
 ): CliOAuthClient {
+  // Each member is typed against the real CliOAuthClient signature (not a bare
+  // vi.fn()) so an override with a wrong implementation/return is rejected, the
+  // same way the tui App spies are typed.
   return {
-    connect: vi.fn().mockResolvedValue(undefined),
-    disconnect: vi.fn().mockResolvedValue(undefined),
-    authenticate: vi.fn().mockResolvedValue(undefined),
-    beginInteractiveAuthorization: vi.fn().mockResolvedValue(undefined),
-    completeOAuthFlow: vi.fn().mockResolvedValue(undefined),
-    checkAuthChallengeSatisfied: vi.fn().mockResolvedValue(false),
+    connect: vi.fn<CliOAuthClient["connect"]>().mockResolvedValue(undefined),
+    disconnect: vi
+      .fn<CliOAuthClient["disconnect"]>()
+      .mockResolvedValue(undefined),
+    authenticate: vi
+      .fn<CliOAuthClient["authenticate"]>()
+      .mockResolvedValue(undefined),
+    beginInteractiveAuthorization: vi
+      .fn<CliOAuthClient["beginInteractiveAuthorization"]>()
+      .mockResolvedValue(undefined),
+    completeOAuthFlow: vi
+      .fn<CliOAuthClient["completeOAuthFlow"]>()
+      .mockResolvedValue(undefined),
+    checkAuthChallengeSatisfied: vi
+      .fn<CliOAuthClient["checkAuthChallengeSatisfied"]>()
+      .mockResolvedValue(false),
     ...overrides,
   };
 }

@@ -1,0 +1,14 @@
+{
+  // Typecheck the __tests__ dir. The build config (`tsconfig.json`) emits with
+  // `rootDir: ./src`, so the tests can't join it — this is a `noEmit` sibling
+  // rooted at the package so it can reach both `__tests__` and the `src` the
+  // tests import. See #1791.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": ".",
+    "types": ["node"]
+  },
+  "include": ["__tests__/**/*"],
+  "exclude": ["node_modules", "build"]
+}

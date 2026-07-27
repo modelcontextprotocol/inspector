@@ -48,15 +48,16 @@ const h = vi.hoisted(() => {
   const openUrl = vi.fn().mockResolvedValue(undefined);
   // Shared OAuth-related spies so a test can configure resolve/reject and
   // assert calls regardless of which per-server FakeClient instance App built.
-  // Each spy is typed against the real InspectorClient method signature so that
-  // `toHaveBeenCalledWith(...)` assertions against them stay argument-checked
-  // under the new gate — and the FakeClient wrappers below forward the same
+  // Each spy is typed against the real InspectorClient method signature so its
+  // implementation and `mockResolvedValue` / return payloads stay in sync with
+  // the client (this is what keeps a stale `{ kind: "satisfied" }` literal from
+  // narrowing `handleAuthChallenge`'s return). Note vitest does NOT type-check
+  // `toHaveBeenCalledWith(...)` arguments against the mock's signature, so those
+  // assertions stay runtime-only. The FakeClient wrappers below forward the same
   // `Parameters<…>` tuple, which spreads cleanly (a tuple, not `unknown[]`).
-  // `authenticate` keeps a string-returning stub (the real method returns a
-  // `URL`); it takes no arguments, so there is nothing to arg-check there.
   const clientSpies = {
-    authenticate: vi.fn<() => Promise<string | undefined>>(
-      async () => "https://auth.example/start",
+    authenticate: vi.fn<InspectorClient["authenticate"]>(
+      async () => new URL("https://auth.example/start"),
     ),
     clearOAuthTokens: vi.fn<InspectorClient["clearOAuthTokens"]>(),
     completeOAuthFlow: vi.fn<InspectorClient["completeOAuthFlow"]>(
@@ -599,7 +600,9 @@ beforeEach(() => {
   h.clientInstances.length = 0;
   h.runner.override = null;
   h.clientSpies.authenticate.mockReset();
-  h.clientSpies.authenticate.mockResolvedValue("https://auth.example/start");
+  h.clientSpies.authenticate.mockResolvedValue(
+    new URL("https://auth.example/start"),
+  );
   h.clientSpies.clearOAuthTokens.mockReset();
   h.clientSpies.completeOAuthFlow.mockReset();
   h.clientSpies.completeOAuthFlow.mockResolvedValue(undefined);
