@@ -194,6 +194,50 @@ class ElicitThenFailTransport implements Transport {
   }
 }
 
+/** Connects cleanly, then elicits on demand so a test can kill the transport. */
+class ElicitAfterConnectTransport implements Transport {
+  onmessage?: (message: JSONRPCMessage) => void;
+  onclose?: () => void;
+  onerror?: (error: Error) => void;
+
+  async start(): Promise<void> {}
+  async close(): Promise<void> {}
+
+  elicit(): void {
+    this.onmessage?.({
+      jsonrpc: "2.0",
+      id: 9301,
+      method: "elicitation/create",
+      params: {
+        message: "Your name?",
+        requestedSchema: {
+          type: "object",
+          properties: { name: { type: "string" } },
+        },
+      },
+    });
+  }
+
+  async send(message: JSONRPCMessage): Promise<void> {
+    if (
+      "method" in message &&
+      message.method === "initialize" &&
+      "id" in message
+    ) {
+      const params = message.params as { protocolVersion: string };
+      this.onmessage?.({
+        jsonrpc: "2.0",
+        id: message.id,
+        result: {
+          protocolVersion: params.protocolVersion,
+          capabilities: {},
+          serverInfo: { name: "dying-server", version: "1.0.0" },
+        },
+      });
+    }
+  }
+}
+
 describe("InspectorClient peer-handler timing (#1797)", () => {
   it("serves server→client traffic that arrives with notifications/initialized", async () => {
     const roots = [{ uri: "file:///work", name: "Work" }];
@@ -304,10 +348,50 @@ describe("InspectorClient peer-handler timing (#1797)", () => {
         initialLoggingLevel: "debug",
       },
     );
+    // The events, not the arrays, are what removes the modal:
+    // `usePendingClientRequests` tracks its own state off them, so clearing
+    // without dispatching would leave a live modal on a dead connection —
+    // invisible to a getter-only assertion.
+    const elicitationCounts: number[] = [];
+    client.addEventListener("pendingElicitationsChange", (event) => {
+      elicitationCounts.push((event as CustomEvent).detail.length);
+    });
+    const sampleCounts: number[] = [];
+    client.addEventListener("pendingSamplesChange", (event) => {
+      sampleCounts.push((event as CustomEvent).detail.length);
+    });
 
     await expect(client.connect()).rejects.toThrow();
 
     expect(client.getPendingElicitations()).toEqual([]);
     expect(client.getPendingSamples()).toEqual([]);
+    expect(elicitationCounts.at(-1)).toBe(0);
+    expect(sampleCounts.at(-1)).toBe(0);
+  });
+
+  it("drops a peer request queued when the connection dies mid-session", async () => {
+    // The other way a connection ends without `disconnect()`: the server goes
+    // away. Same hazards — a modal for a dead connection, and a URL
+    // elicitation's waiter (which blocks `callTool`) never settling.
+    const transport = new ElicitAfterConnectTransport();
+    const client = new InspectorClient(
+      { type: "stdio", command: "noop", args: [] },
+      { environment: { transport: () => ({ transport }) } },
+    );
+    const elicitationCounts: number[] = [];
+    client.addEventListener("pendingElicitationsChange", (event) => {
+      elicitationCounts.push((event as CustomEvent).detail.length);
+    });
+
+    await client.connect();
+    transport.elicit();
+    await Promise.resolve();
+    expect(client.getPendingElicitations()).toHaveLength(1);
+
+    // The server process dies.
+    transport.onclose?.();
+
+    expect(client.getPendingElicitations()).toEqual([]);
+    expect(elicitationCounts.at(-1)).toBe(0);
   });
 });

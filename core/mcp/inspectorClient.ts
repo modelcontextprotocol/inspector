@@ -721,6 +721,11 @@ export class InspectorClient extends InspectorClientEventTarget {
         this.status = "disconnected";
         this.dispatchTypedEvent("statusChange", this.status);
       }
+      // A mid-session crash ends the connection without going through
+      // `disconnect()`, so drop anything the server had queued with us — the
+      // same reasoning as the `connect()` failure path. Cleared before the
+      // `disconnect` event so a consumer reacting to it sees an empty queue.
+      this.clearAndAnnouncePendingPeerRequests();
       this.dispatchTypedEvent("disconnect");
     };
     baseTransport.onerror = (error: Error) => {
@@ -1318,6 +1323,32 @@ export class InspectorClient extends InspectorClientEventTarget {
   }
 
   /**
+   * {@link clearPendingPeerRequests} plus the change events, for the paths that
+   * end a connection without going through `disconnect()` — a failed
+   * `connect()` and a mid-session transport close.
+   *
+   * The events are the load-bearing half: `usePendingClientRequests` tracks its
+   * own state off them, so clearing the arrays without dispatching leaves the
+   * web pending-request modal on screen for a connection that is gone. Guarded
+   * on a non-empty queue so the paths that overlap (a `connect()` failure whose
+   * `dropCachedTransport` also fires `onclose`) announce it once.
+   */
+  private clearAndAnnouncePendingPeerRequests(): void {
+    if (
+      this.pendingSamples.length === 0 &&
+      this.pendingElicitations.length === 0
+    ) {
+      return;
+    }
+    this.clearPendingPeerRequests();
+    this.dispatchTypedEvent("pendingSamplesChange", this.pendingSamples);
+    this.dispatchTypedEvent(
+      "pendingElicitationsChange",
+      this.pendingElicitations,
+    );
+  }
+
+  /**
    * Connect to the MCP server
    */
   async connect(): Promise<void> {
@@ -1630,17 +1661,7 @@ export class InspectorClient extends InspectorClientEventTarget {
       // a live pending-request modal for a connection that never came up, and
       // answering it would route to a torn-down transport. `disconnect()` does
       // the same, but `connect()` only reaches it on the connect-timeout path.
-      if (
-        this.pendingSamples.length > 0 ||
-        this.pendingElicitations.length > 0
-      ) {
-        this.clearPendingPeerRequests();
-        this.dispatchTypedEvent("pendingSamplesChange", this.pendingSamples);
-        this.dispatchTypedEvent(
-          "pendingElicitationsChange",
-          this.pendingElicitations,
-        );
-      }
+      this.clearAndAnnouncePendingPeerRequests();
       // Deliberately do NOT dispatch the `error` event here: this is the
       // awaited `connect()` path, so re-throwing hands the reason straight to
       // the caller. The `error` event is reserved for non-awaited transitions
