@@ -31,6 +31,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  clientsRunByRootValidate,
   reachableScripts,
   rootReachesScript,
   rootRunsClientValidate,
@@ -41,11 +42,24 @@ const repoRoot = path.resolve(
   "..",
 );
 
-// The clients whose `typecheck` runs explicit `-p <project>` passes (#1791).
-// web is intentionally out: it typechecks via `tsc -b` over a project-reference
-// graph (app/node/storybook/test) that already reaches its whole tree. Kept an
-// explicit list, mirroring `verify-format-coverage.mjs`'s `MANIFESTS`.
-const CLIENTS = ["clients/cli", "clients/tui", "clients/launcher"];
+const rootPkg = JSON.parse(
+  readFileSync(path.join(repoRoot, "package.json"), "utf8"),
+);
+
+// web is intentionally out of this guard: it typechecks via `tsc -b` over a
+// project-reference graph (app/node/storybook/test) that already reaches its
+// whole tree, and has no `-p`-based `typecheck` script for this guard to model.
+const EXCLUDED_CLIENTS = new Set(["clients/web"]);
+
+// The Node clients this guard covers (#1791). Derived from the `cd clients/<x>
+// && npm run validate` entries in the root `validate` chain (minus the excluded
+// ones), so a NEW node client is picked up automatically — unlike a hardcoded
+// list, which would silently leave a new client's `__tests__` ungated (its
+// repo-wide sibling `verify-format-coverage` would still catch the *format* gap,
+// but not the typecheck one).
+const CLIENTS = clientsRunByRootValidate(rootPkg.scripts).filter(
+  (dir) => !EXCLUDED_CLIENTS.has(dir),
+);
 
 // TypeScript source extensions this guard requires a tsc pass for. Matches its
 // sibling's TS set (`verify-format-coverage.mjs` — `.mts` is already the idiom
@@ -57,17 +71,20 @@ const isRequiredSource = (rel) =>
   /\.(ts|tsx|mts|cts)$/.test(rel) && !/\.d\.(ts|mts|cts)$/.test(rel);
 
 /**
- * The tsconfig projects a client's `typecheck` names via `-p`/`--project`,
- * harvested from **every** script reachable from `typecheck` (not just the one
- * string) so a delegating `typecheck` (`npm run typecheck:src && …`) still
- * counts — matching how `verify-format-coverage.mjs` harvests globs across
- * reachable scripts. Splits each script on `&&`/`||`/`;` so a flag on one
- * command doesn't leak onto another. Returns `{ projects, neutered }`:
- * `neutered` names any `-p` whose own command carries `--noCheck`/`--nocheck` or
- * `--listFilesOnly` (matched case-insensitively — tsc's option parsing is) — a
- * pass that lists files without type-checking them, which would otherwise
- * satisfy the guard while checking nothing. The config-file form (`noCheck` set
- * in the tsconfig) is caught separately by {@link projectDisablesChecking}.
+ * The tsconfig projects a client's `typecheck` names, harvested from **every**
+ * script reachable from `typecheck` (not just the one string) so a delegating
+ * `typecheck` (`npm run typecheck:src && …`) still counts — matching how
+ * `verify-format-coverage.mjs` harvests globs across reachable scripts. Splits
+ * each script on `&&`/`||`/`;` so a flag on one command doesn't leak onto
+ * another. Each `tsc` command's project comes from `-p`/`--project` (or a
+ * `-b`/`--build` path); a `tsc` command with **no** project flag resolves the
+ * implicit `./tsconfig.json` (tsc's own default), so that idiomatic form counts
+ * too. Returns `{ projects, neutered }`: `neutered` names any project whose own
+ * command carries `--noCheck`/`--nocheck` or `--listFilesOnly` (matched
+ * case-insensitively — tsc's option parsing is) — a pass that lists files
+ * without type-checking them, which would otherwise satisfy the guard while
+ * checking nothing. The config-file form (`noCheck` set in the tsconfig) is
+ * caught separately by {@link projectDisablesChecking}.
  */
 function typecheckProjects(scripts) {
   const projects = [];
@@ -76,10 +93,17 @@ function typecheckProjects(scripts) {
     const cmd = scripts?.[name];
     if (typeof cmd !== "string") continue;
     for (const segment of cmd.split(/&&|\|\||;/)) {
+      if (!/\btsc\b/.test(segment)) continue; // only tsc commands name projects
       const disabling = /--noCheck|--listFilesOnly/i.exec(segment);
-      for (const m of segment.matchAll(/(?:-p|--project)\s+(\S+)/g)) {
-        if (disabling) neutered.push({ project: m[1], flag: disabling[0] });
-        else projects.push(m[1]);
+      // `-p`/`--project`/`-b`/`--build` each take a project path (the capture
+      // rejects a following flag); a tsc command with none uses ./tsconfig.json.
+      const named = [
+        ...segment.matchAll(/(?:-p|--project|-b|--build)\s+([^\s-]\S*)/g),
+      ].map((m) => m[1]);
+      if (named.length === 0) named.push("tsconfig.json");
+      for (const project of named) {
+        if (disabling) neutered.push({ project, flag: disabling[0] });
+        else projects.push(project);
       }
     }
   }
@@ -176,11 +200,17 @@ function trackedSourceFiles(clientDir) {
 // Boundary: this does NOT detect shell-level failure suppression on the pass
 // (`… || true`, `; exit 0`) — a pass that runs and checks but can't fail CI.
 // ---------------------------------------------------------------------------
+// Derivation must not silently yield an empty set (a broken root `validate` or a
+// changed `cd clients/<x>` idiom would otherwise make the whole guard a no-op).
+if (CLIENTS.length === 0) {
+  console.error(
+    "verify:typecheck-coverage — derived no clients from the root `validate` chain (expected `cd clients/<x> && npm run validate` entries). The guard would check nothing; fix the derivation.",
+  );
+  process.exit(1);
+}
+
 const integrity = [];
 const checkingProjects = new Map();
-const rootPkg = JSON.parse(
-  readFileSync(path.join(repoRoot, "package.json"), "utf8"),
-);
 
 // Vouch for the sibling guard — a guard can't detect being unrun itself, but the
 // two can each assert the other is still wired into `validate`, so dropping
@@ -265,11 +295,13 @@ if (failures.length > 0) {
   );
   for (const f of failures) console.error("  " + f);
   console.error(
-    "\nFor a co-located test, move it to `__tests__/` (never add it to the src `include` — the build would emit it).",
+    "\nAdd the file to a client's `tsconfig.json` / `tsconfig.test.json` `include` (a top-level config the build config's `rootDir` rejects goes in the test project).",
   );
-  console.error(
-    "Otherwise add the file to a client's `tsconfig.json` / `tsconfig.test.json` `include` (a top-level config the build config's `rootDir` rejects goes in the test project). See AGENTS.md.",
-  );
+  if (failures.some((f) => /\.test\./.test(f)))
+    console.error(
+      "For a co-located test, instead move it to `__tests__/` — adding it to the src `include` would make the build emit it.",
+    );
+  console.error("See AGENTS.md.");
   process.exit(1);
 }
 

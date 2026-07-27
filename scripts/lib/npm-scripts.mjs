@@ -59,3 +59,17 @@ export function rootRunsClientValidate(rootScripts, clientDir) {
 export function rootReachesScript(rootScripts, scriptName) {
   return reachableScripts(rootScripts, "validate").has(scriptName);
 }
+
+/**
+ * The `clients/<name>` dirs the root `validate` chain runs via `cd clients/<x>
+ * && npm run validate`, in encounter order. Lets a guard derive its client list
+ * from the chain rather than a hardcoded list, so a new client is picked up
+ * automatically.
+ */
+export function clientsRunByRootValidate(rootScripts) {
+  const dirs = [];
+  for (const c of rootReachedCommands(rootScripts))
+    for (const m of c.matchAll(/cd (clients\/[\w-]+)\s*&&\s*npm run validate/g))
+      if (!dirs.includes(m[1])) dirs.push(m[1]);
+  return dirs;
+}
