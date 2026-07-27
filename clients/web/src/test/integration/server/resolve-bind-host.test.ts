@@ -49,6 +49,18 @@ describe("resolveBindHostname", () => {
     );
   });
 
+  it("does not add a resolved-address hint for an already-canonical bracketed HOST", () => {
+    // `HOST="[::]"` is accepted-then-refused as the wildcard; the message must
+    // not read "(resolves to [::])" — same value, just bracketed.
+    try {
+      resolveBindHostname({ HOST: "[::]" });
+      throw new Error("expected resolveBindHostname to throw");
+    } catch (err) {
+      expect((err as Error).message).not.toContain("resolves to");
+      expect((err as Error).message).toContain(BIND_ALL_INTERFACES_ENV);
+    }
+  });
+
   it.each(["true", "TRUE", "1", " true "])(
     "allows 0.0.0.0 when the opt-in is %j",
     (flag) => {

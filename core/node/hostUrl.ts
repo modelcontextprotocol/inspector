@@ -144,3 +144,16 @@ export function isAllInterfacesHost(host: string): boolean {
   const normalized = canonicalizeIpv6(stripBrackets(canonicalUrlHost(host)));
   return ALL_INTERFACES_LITERALS.has(normalized) || isAllZeroIpv4(normalized);
 }
+
+/**
+ * True when `host` is a loopback address — `localhost`, anything in `127.0.0.0/8`
+ * (incl. IPv4-mapped `::ffff:127.x`, which {@link canonicalUrlHost} unmaps), or
+ * `::1`. Canonicalized first, so non-canonical spellings (`127.1`, `0x7f.1`,
+ * `2130706433`, `0:0:…:1`) resolve correctly. Used to constrain the OAuth
+ * callback listener, which must be loopback (it receives the authorization code
+ * over plaintext `http`; RFC 8252 §7.3 only sanctions that for loopback).
+ */
+export function isLoopbackHost(host: string): boolean {
+  const h = canonicalUrlHost(host);
+  return h === "localhost" || h === "[::1]" || /^127(\.\d{1,3}){3}$/.test(h);
+}

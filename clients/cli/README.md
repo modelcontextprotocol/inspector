@@ -183,7 +183,7 @@ Register `http://127.0.0.1:6276/oauth/callback` on static or enterprise IdPs tha
 | `--client-id <id>`            | —                        | OAuth client ID (static client); overrides `client.json`.                                        |
 | `--client-secret <secret>`    | —                        | OAuth client secret; overrides `client.json`.                                                    |
 | `--client-metadata-url <url>` | —                        | CIMD metadata URL; overrides `client.json`.                                                      |
-| `--callback-url <url>`        | `MCP_OAUTH_CALLBACK_URL` | Redirect URI sent to the authorization server (default: `http://127.0.0.1:6276/oauth/callback`). |
+| `--callback-url <url>`        | `MCP_OAUTH_CALLBACK_URL` | Redirect URI sent to the authorization server (default: `http://127.0.0.1:6276/oauth/callback`). Must bind a **loopback** host (`localhost` / `127.0.0.0/8` / `[::1]`) — the listener receives the authorization code over plaintext `http`, so a non-loopback host hard-errors (no opt-in; use a port-forward if the browser is elsewhere). |
 | —                             | `MCP_AUTO_OPEN_ENABLED`  | Browser auto-open **and** non-TTY interactive-OAuth admit: `true` (allow interactive OAuth without a TTY **and** force-open the browser — same as the web launcher), `false` (never open), unset (open on a TTY unless `VITEST` is set). For CI that must not hang, prefer `--stored-auth-only`. |
 
 **Example** — list tools on an OAuth-protected server using stored tokens and CIMD from the command line:

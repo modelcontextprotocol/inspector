@@ -3,8 +3,38 @@ import {
   canonicalUrlHost,
   formatHostForUrl,
   isAllInterfacesHost,
+  isLoopbackHost,
   stripBrackets,
 } from "@inspector/core/node/hostUrl.js";
+
+describe("isLoopbackHost", () => {
+  it.each([
+    "localhost",
+    "LOCALHOST",
+    "127.0.0.1",
+    "127.5", // 127.0.0.0/8 shorthand
+    "0x7f.0.0.1",
+    "2130706433",
+    "::1",
+    "[::1]",
+    "0:0:0:0:0:0:0:1",
+    "::ffff:127.0.0.1", // IPv4-mapped loopback → unmapped to 127.0.0.1
+  ])("flags the loopback host %j", (host) => {
+    expect(isLoopbackHost(host)).toBe(true);
+  });
+
+  it.each([
+    "0.0.0.0",
+    "::",
+    "192.168.1.50",
+    "example.com",
+    "126.0.0.1", // adjacent to but outside 127/8
+    "128.0.0.1",
+    "0.0.0.127", // bare "127" resolves here, not loopback
+  ])("does not flag the non-loopback host %j", (host) => {
+    expect(isLoopbackHost(host)).toBe(false);
+  });
+});
 
 describe("isAllInterfacesHost", () => {
   it.each([

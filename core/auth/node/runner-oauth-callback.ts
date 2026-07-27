@@ -10,7 +10,11 @@
  * unsupported; override via `--callback-url` / `MCP_OAUTH_CALLBACK_URL`.
  */
 
-import { formatHostForUrl, isAllInterfacesHost } from "../../node/hostUrl.js";
+import {
+  formatHostForUrl,
+  isLoopbackHost,
+  stripBrackets,
+} from "../../node/hostUrl.js";
 
 export const RUNNER_OAUTH_CALLBACK_DEFAULT_HOSTNAME = "127.0.0.1";
 /** Default loopback port for TUI/CLI OAuth callback (6276 ≈ T9 "MCPO", MCP OAuth). */
@@ -60,15 +64,17 @@ export function parseRunnerOAuthCallbackUrl(
     throw new Error("OAuth callback URL must include a hostname");
   }
   /* v8 ignore stop */
-  // The callback listener receives the OAuth *authorization code*, so it must be
-  // loopback — binding all interfaces would expose the credential to the local
-  // network. Same guard the web bind points enforce (isAllInterfacesHost).
-  if (isAllInterfacesHost(hostname)) {
+  // The callback listener receives the OAuth *authorization code* over plaintext
+  // http, so it must be loopback (RFC 8252 §7.3) — a routable host would deliver
+  // the credential in cleartext over the network. Reject anything non-loopback,
+  // not just the all-interfaces wildcard.
+  if (!isLoopbackHost(hostname)) {
     throw new Error(
-      `OAuth callback URL must bind a loopback host, not the all-interfaces ` +
-        `address "${hostname}": the callback listener receives the OAuth ` +
-        `authorization code, so exposing it to the network risks credential ` +
-        `interception. Use 127.0.0.1.`,
+      `OAuth callback URL must bind a loopback host (localhost / 127.0.0.1 / ` +
+        `[::1]), not "${hostname}": the callback listener receives the OAuth ` +
+        `authorization code over plaintext http, so a network-reachable host ` +
+        `risks credential interception. Use 127.0.0.1 (and a port-forward if the ` +
+        `browser is elsewhere).`,
     );
   }
   /* v8 ignore next -- an http: URL always has a non-empty pathname (min "/"), so the fallback is unreachable */
@@ -89,7 +95,10 @@ export function parseRunnerOAuthCallbackUrl(
     }
     /* v8 ignore stop */
   }
-  return { hostname, port, pathname };
+  // De-bracket an IPv6 host (`url.hostname` keeps the brackets) so `listen()` can
+  // consume it — `[::1]` fails ENOTFOUND, `::1` binds. formatRunnerOAuthRedirectUrl
+  // re-brackets via formatHostForUrl for the redirect URI.
+  return { hostname: stripBrackets(hostname), port, pathname };
 }
 
 /**
