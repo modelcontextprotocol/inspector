@@ -394,6 +394,16 @@ export class InspectorClient extends InspectorClientEventTarget {
   private readonly tasksCapabilityAdvertised: boolean;
   /** As above, for `capabilities.elicitation.url` (the URL-mode completion). */
   private readonly urlElicitationCapabilityAdvertised: boolean;
+  /**
+   * As above, for `capabilities.roots.listChanged` — the predicate the SDK
+   * asserts before letting us *send* `roots/list_changed`, which is narrower
+   * than the `capabilities.roots` presence it asserts before letting us
+   * *register* `roots/list`. They coincide today (roots are only ever
+   * advertised as `{ listChanged: true }`), but reading each assertion's own
+   * predicate is what keeps a future conditional advertisement from silently
+   * un-gating one of them.
+   */
+  private readonly rootsListChangedCapabilityAdvertised: boolean;
   // Content cache
   // ListChanged notification configuration
   private listChangedNotifications: {
@@ -678,6 +688,8 @@ export class InspectorClient extends InspectorClientEventTarget {
     this.tasksCapabilityAdvertised = capabilities.tasks !== undefined;
     this.urlElicitationCapabilityAdvertised =
       capabilities.elicitation?.url !== undefined;
+    this.rootsListChangedCapabilityAdvertised =
+      capabilities.roots?.listChanged === true;
 
     this.appRendererClientProxy = null;
     this.clientInfo = options.clientIdentity ?? {
@@ -4385,15 +4397,15 @@ export class InspectorClient extends InspectorClientEventTarget {
    *
    * Note this does **not** enable the roots capability on a client that was
    * built without the constructor's `roots` option. `capabilities.roots` is
-   * negotiated at `initialize` and the
-   * SDK refuses `registerCapabilities` after connect, so such a client has no
-   * `roots/list` handler (see {@link registerPeerRequestHandlers}) and would
-   * have to answer `-32601` if a server asked. So on such a client the roots
-   * set here are stored and readable via {@link getRoots}, but no server can
-   * ask for them and the change is not announced — the SDK refuses
-   * `roots/list_changed` from a client that never declared `roots.listChanged`,
-   * so the notification could not have gone out anyway. Pass `roots` at construction — `[]` is enough — in any
-   * client that may call this (#1797).
+   * negotiated at `initialize` and the SDK refuses `registerCapabilities`
+   * after connect, so such a client has no `roots/list` handler (see {@link
+   * registerPeerRequestHandlers}) and would have to answer `-32601` if a
+   * server asked. So on such a client the roots set here are stored and
+   * readable via {@link getRoots}, but no server can ask for them and the
+   * change is not announced — the SDK refuses `roots/list_changed` from a
+   * client that never declared `roots.listChanged`, so the notification could
+   * not have gone out anyway. Pass `roots` at construction — `[]` is enough —
+   * in any client that may call this (#1797).
    *
    * The argument runs through `cleanRoots`, the same normalizer the
    * connect-time and settings-save paths use, so all three ways roots enter the
@@ -4419,7 +4431,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     // re-fetch something we'd answer `-32601`. Returning early only avoids
     // provoking that rejection and logging it as a *failure*: it isn't one, it
     // is a client that was never able to announce (#1797).
-    if (!this.rootsCapabilityAdvertised) {
+    if (!this.rootsListChangedCapabilityAdvertised) {
       this.logger.warn(
         "setRoots() on a client that did not advertise the roots capability; " +
           "roots are stored locally but the change is not announced",

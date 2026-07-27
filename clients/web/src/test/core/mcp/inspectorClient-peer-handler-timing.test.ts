@@ -64,11 +64,14 @@ import { InspectorClient } from "@inspector/core/mcp/inspectorClient.js";
  * so the client cannot connect at all.
  *
  * The converse category is the advertised capability object itself: it must
- * only invite requests we actually serve. `capabilities.tasks.requests` names
- * the server→client requests we accept as tasks, so it is built from the
- * sampling/elicitation capabilities rather than from `receiverTasks` alone —
- * otherwise a server takes an invitation we answer `-32601` on, which is where
- * this whole thread started.
+ * only invite requests we actually serve, and so must the notifications we
+ * emit. `capabilities.tasks.requests` names the server→client requests we
+ * accept as tasks, so it is built from the sampling/elicitation capabilities
+ * rather than from `receiverTasks` alone; and a `roots/list_changed` is an
+ * invitation to re-read roots, so it is withheld on a client that never
+ * advertised the capability (the SDK refuses it too — the guard only avoids
+ * provoking that rejection). Otherwise a server takes an invitation we answer
+ * `-32601` on, which is where this whole thread started.
  */
 class InitializedRacingTransport implements Transport {
   onmessage?: (message: JSONRPCMessage) => void;
@@ -603,42 +606,6 @@ describe("InspectorClient peer-handler timing (#1797)", () => {
     await client.disconnect();
   });
 
-  it("announces roots/list_changed only when roots were advertised", async () => {
-    // Pins the end state rather than this client's guard: the SDK also refuses
-    // the notification from a client that never declared `roots.listChanged`
-    // (it rejects, which `setRoots` used to log as a send *failure*), so the
-    // wire stays clean either way. What this asserts is that a server is never
-    // invited to re-read roots we have no handler to serve.
-    const withRoots = new ElicitAfterConnectTransport();
-    const advertised = new InspectorClient(
-      { type: "stdio", command: "noop", args: [] },
-      {
-        environment: { transport: () => ({ transport: withRoots }) },
-        roots: [],
-      },
-    );
-    await advertised.connect();
-    await advertised.setRoots([{ uri: "file:///a" }]);
-    expect(withRoots.sentNotifications).toContain(
-      "notifications/roots/list_changed",
-    );
-    await advertised.disconnect();
-
-    const withoutRoots = new ElicitAfterConnectTransport();
-    const silent = new InspectorClient(
-      { type: "stdio", command: "noop", args: [] },
-      { environment: { transport: () => ({ transport: withoutRoots }) } },
-    );
-    await silent.connect();
-    await silent.setRoots([{ uri: "file:///a" }]);
-    expect(withoutRoots.sentNotifications).not.toContain(
-      "notifications/roots/list_changed",
-    );
-    // Still stored locally — only the announcement is withheld.
-    expect(silent.getRoots()).toEqual([{ uri: "file:///a" }]);
-    await silent.disconnect();
-  });
-
   it("can reconnect after setRoots() on a client built without roots", async () => {
     // `setRoots()` makes `this.roots` defined on a client that never advertised
     // the capability. Gating the `roots/list` registration on that would throw
@@ -704,5 +671,41 @@ describe("InspectorClient peer-handler timing (#1797)", () => {
     );
     expect(noRequests.getClientCapabilities().tasks).toBeDefined();
     expect(noRequests.getClientCapabilities().tasks?.requests).toBeUndefined();
+  });
+
+  it("announces roots/list_changed only when roots were advertised", async () => {
+    // Pins the end state rather than this client's guard: the SDK also refuses
+    // the notification from a client that never declared `roots.listChanged`
+    // (it rejects, which `setRoots` used to log as a send *failure*), so the
+    // wire stays clean either way. What this asserts is that a server is never
+    // invited to re-read roots we have no handler to serve.
+    const withRoots = new ElicitAfterConnectTransport();
+    const advertised = new InspectorClient(
+      { type: "stdio", command: "noop", args: [] },
+      {
+        environment: { transport: () => ({ transport: withRoots }) },
+        roots: [],
+      },
+    );
+    await advertised.connect();
+    await advertised.setRoots([{ uri: "file:///a" }]);
+    expect(withRoots.sentNotifications).toContain(
+      "notifications/roots/list_changed",
+    );
+    await advertised.disconnect();
+
+    const withoutRoots = new ElicitAfterConnectTransport();
+    const silent = new InspectorClient(
+      { type: "stdio", command: "noop", args: [] },
+      { environment: { transport: () => ({ transport: withoutRoots }) } },
+    );
+    await silent.connect();
+    await silent.setRoots([{ uri: "file:///a" }]);
+    expect(withoutRoots.sentNotifications).not.toContain(
+      "notifications/roots/list_changed",
+    );
+    // Still stored locally — only the announcement is withheld.
+    expect(silent.getRoots()).toEqual([{ uri: "file:///a" }]);
+    await silent.disconnect();
   });
 });
