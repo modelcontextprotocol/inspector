@@ -105,16 +105,26 @@ const child = spawn(
 
 let output = "";
 let settled = false;
+let childExited = false;
+
+// How long to let the TUI wind down after SIGTERM before escalating to SIGKILL,
+// and then before giving up on the exit event entirely.
+const EXIT_GRACE_MS = Number(process.env.SMOKE_TUI_EXIT_GRACE_MS ?? 5000);
 
 function cleanup() {
-  rmSync(work, { recursive: true, force: true });
+  try {
+    rmSync(work, { recursive: true, force: true });
+  } catch (err) {
+    // Never turn a passing smoke into a failure over a leftover temp dir; the
+    // OS reclaims tmpdir anyway. This should not fire now that removal waits
+    // for the child to exit (see finish()), so say so loudly if it does.
+    console.warn(
+      `smoke:tui — could not remove temp dir ${work}: ${err.message}`,
+    );
+  }
 }
 
-function done(code, message) {
-  if (settled) return;
-  settled = true;
-  clearTimeout(timer);
-  if (!child.killed) child.kill("SIGTERM");
+function finish(code, message) {
   cleanup();
   if (code === 0) {
     console.log(`smoke:tui OK — ${message}`);
@@ -122,6 +132,33 @@ function done(code, message) {
     console.error(`smoke:tui FAILED — ${message}`);
   }
   process.exit(code);
+}
+
+function done(code, message) {
+  if (settled) return;
+  settled = true;
+  clearTimeout(timer);
+  if (childExited) {
+    finish(code, message);
+    return;
+  }
+  // Wait for the child to actually exit before removing the work dir (#1801).
+  // The dir doubles as the TUI's HOME, so the Ink process is still writing into
+  // it when we signal; an rmSync racing those writes fails with ENOTEMPTY when
+  // a file lands after a directory has been read but before it is removed.
+  const forceKill = setTimeout(() => child.kill("SIGKILL"), EXIT_GRACE_MS);
+  const giveUp = setTimeout(() => {
+    console.warn(
+      `smoke:tui — TUI did not exit within ${EXIT_GRACE_MS * 2}ms of SIGTERM; cleaning up anyway`,
+    );
+    finish(code, message);
+  }, EXIT_GRACE_MS * 2);
+  child.once("exit", () => {
+    clearTimeout(forceKill);
+    clearTimeout(giveUp);
+    finish(code, message);
+  });
+  if (!child.killed) child.kill("SIGTERM");
 }
 
 function onData(chunk) {
@@ -135,6 +172,9 @@ child.stdout.on("data", onData);
 child.stderr.on("data", onData);
 
 child.on("exit", (code) => {
+  // Registered before done()'s own one-shot listener, so this always runs first
+  // — done() can trust `childExited` when it is called from inside this handler.
+  childExited = true;
   if (settled) return;
   // Exiting before the render marker appeared is a failure (crash on boot).
   done(
