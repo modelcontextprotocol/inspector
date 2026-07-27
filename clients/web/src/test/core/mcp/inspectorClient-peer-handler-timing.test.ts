@@ -5,6 +5,7 @@ import type {
   Transport,
 } from "@modelcontextprotocol/client";
 import { InspectorClient } from "@inspector/core/mcp/inspectorClient.js";
+import { ModernGetTaskResultSchema } from "@inspector/core/mcp/modernTaskSchemas.js";
 
 /**
  * Regression coverage for #1797: a server may talk to us the instant it is
@@ -631,6 +632,36 @@ describe("InspectorClient peer-handler timing (#1797)", () => {
     expect(client.getRoots()).toEqual([{ uri: "file:///late" }]);
 
     await client.disconnect();
+  });
+
+  it("rejects an in-flight raw-wire request when the connection dies", async () => {
+    // The modern `tasks/*` frames ride a raw-wire channel the SDK's era gate
+    // refuses to route, so the SDK's own teardown doesn't know about them. A
+    // Tasks-tab poll in flight when the server dies would otherwise wait out
+    // its own 30s timeout and report a timeout for what was a crash.
+    const transport = new ElicitAfterConnectTransport();
+    const client = new InspectorClient(
+      { type: "stdio", command: "noop", args: [] },
+      { environment: { transport: () => ({ transport }) } },
+    );
+    await client.connect();
+
+    const pending = (
+      client as unknown as {
+        rawWireRequest: (
+          method: string,
+          params: Record<string, unknown>,
+          schema: { parse: (v: unknown) => unknown },
+        ) => Promise<unknown>;
+      }
+    ).rawWireRequest("tasks/get", { taskId: "t1" }, ModernGetTaskResultSchema);
+    const settled = expect(pending).rejects.toThrow(/Connection closed/);
+    // Let the send register the pending entry before the crash.
+    await Promise.resolve();
+
+    transport.onclose?.();
+
+    await settled;
   });
 
   it("advertises task requests only for capabilities it advertised", async () => {

@@ -793,6 +793,14 @@ export class InspectorClient extends InspectorClientEventTarget {
       // change events with the rest of its teardown dispatches — so on that
       // path the *events* land just after its `disconnect`, not before.
       this.clearAndAnnouncePendingPeerRequests();
+      // Same for what *we* asked the server. The SDK's chained `_onclose`
+      // settles its own `_responseHandlers`, but the raw-wire map (the modern
+      // `tasks/*` frames its era gate refuses to route) is ours and it doesn't
+      // know about it — so a Tasks-tab poll in flight when the server dies
+      // would otherwise wait out its own 30s timeout and blame the timeout for
+      // a crash. Rejecting a settled promise is a no-op and the helper clears
+      // the map, so this can't double-settle with `disconnect()`.
+      this.rejectPendingRawWireRequests("Connection closed");
       this.dispatchTypedEvent("disconnect");
     };
     baseTransport.onerror = (error: Error) => {
