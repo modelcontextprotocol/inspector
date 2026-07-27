@@ -364,6 +364,19 @@ export class InspectorClient extends InspectorClientEventTarget {
   private pendingElicitations: ElicitationCreateMessage[] = [];
   // Roots (undefined means roots capability not enabled, empty array means enabled but no roots)
   private roots: Root[] | undefined;
+  /**
+   * Whether `capabilities.roots` was advertised at `initialize` — i.e. whether
+   * the constructor was given a `roots` option. Fixed for the client's lifetime,
+   * because the capability is negotiated at construction and the SDK refuses
+   * `registerCapabilities` after connect.
+   *
+   * The `roots/list` registration gates on *this*, not on `this.roots`, which
+   * `setRoots()` can make defined later: the SDK throws "Client does not support
+   * roots capability" from `setRequestHandler` when the capability was never
+   * advertised, and that throw would land before the handshake on every
+   * subsequent `connect()` — wedging the client permanently (#1797).
+   */
+  private readonly rootsCapabilityAdvertised: boolean;
   // Content cache
   // ListChanged notification configuration
   private listChangedNotifications: {
@@ -502,6 +515,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     // advertisement below gates on.
     this.roots =
       options.roots !== undefined ? cleanRoots(options.roots) : undefined;
+    this.rootsCapabilityAdvertised = options.roots !== undefined;
     // Initialize listChangedNotifications config (default: all enabled)
     this.listChangedNotifications = {
       tools: options.listChangedNotifications?.tools ?? true,
@@ -1219,7 +1233,7 @@ export class InspectorClient extends InspectorClientEventTarget {
       }
     }
 
-    // Gated on the *constructor* value, and it has to be: the SDK asserts the
+    // Gated on what was advertised at construction, and it has to be: the SDK asserts the
     // matching client capability inside `setRequestHandler`, so registering
     // this on a client built without `roots` throws "Client does not support
     // roots capability". Since `capabilities.roots` is negotiated at
@@ -1227,7 +1241,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     // to run after connect, a client that omits the option can never serve
     // `roots/list` — which is why every client that may call `setRoots()` later
     // must pass `roots` up front (web does; the CLI and TUI now do too — #1797).
-    if (this.roots !== undefined && this.client) {
+    if (this.rootsCapabilityAdvertised && this.client) {
       this.client.setRequestHandler("roots/list", async () => {
         return { roots: this.roots ?? [] };
       });
@@ -4317,8 +4331,9 @@ export class InspectorClient extends InspectorClientEventTarget {
    * SDK refuses `registerCapabilities` after connect, so such a client has no
    * `roots/list` handler (see {@link registerPeerRequestHandlers}) and would
    * answer `-32601` to a server taking up the `roots/list_changed` invitation
-   * below. Pass `roots` at construction — `[]` is enough — in any client that
-   * may call this (#1797).
+   * below — the roots set here are stored and readable via {@link getRoots},
+   * but no server can ask for them. Pass `roots` at construction — `[]` is
+   * enough — in any client that may call this (#1797).
    *
    * The argument runs through `cleanRoots`, the same normalizer the
    * connect-time and settings-save paths use, so all three ways roots enter the

@@ -44,12 +44,15 @@ import { InspectorClient } from "@inspector/core/mcp/inspectorClient.js";
  * queue a request with us, so every path that ends a connection has to clear
  * that queue and announce it — otherwise the web pending-request modal outlives
  * the connection it belongs to. There are three: a failed `connect()`, a
- * mid-session transport close, and an explicit `disconnect()`. The two that
- * emit a `disconnect` event clear before it, so a handler reading the queue
- * sees it empty; the connect-failure path emits no `disconnect` at all and
- * clears after its `statusChange` to `"error"`. The two crash/failure paths
- * emit the change events immediately, while `disconnect()` batches them with
- * its other teardown dispatches.
+ * mid-session transport close, and an explicit `disconnect()`. `disconnect()`
+ * and the crash path clear before dispatching `disconnect`, so a handler
+ * reading the queue sees it empty. `connect()`'s own catch dispatches no
+ * `disconnect` — though on a real transport its `dropCachedTransport()` usually
+ * fires `onclose` first, which clears, announces and *does* dispatch one, so
+ * the catch's own call is really the backstop for the auth-recovery sub-case,
+ * where the transport is retained and no `onclose` fires. The crash and
+ * failure paths emit the change events immediately; `disconnect()` batches them
+ * with its other teardown dispatches.
  */
 class InitializedRacingTransport implements Transport {
   onmessage?: (message: JSONRPCMessage) => void;
@@ -433,6 +436,33 @@ describe("InspectorClient peer-handler timing (#1797)", () => {
 
     expect(client.getPendingElicitations()).toEqual([]);
     expect(elicitationCounts.at(-1)).toBe(0);
+  });
+
+  it("can reconnect after setRoots() on a client built without roots", async () => {
+    // `setRoots()` makes `this.roots` defined on a client that never advertised
+    // the capability. Gating the `roots/list` registration on that would throw
+    // "Client does not support roots capability" from `setRequestHandler` on
+    // every later connect() — before the handshake, so the client could never
+    // reconnect. The gate reads what was advertised at construction instead.
+    const client = new InspectorClient(
+      { type: "stdio", command: "noop", args: [] },
+      {
+        environment: {
+          transport: () => ({ transport: new ElicitAfterConnectTransport() }),
+        },
+      },
+    );
+
+    await client.connect();
+    await client.setRoots([{ uri: "file:///late" }]);
+    await client.disconnect();
+
+    await expect(client.connect()).resolves.toBeUndefined();
+    // Stored and readable, but no server can ask for them — the capability was
+    // never advertised, so no handler is registered.
+    expect(client.getRoots()).toEqual([{ uri: "file:///late" }]);
+
+    await client.disconnect();
   });
 
   it("has already cleared the queue by the time `disconnect` fires", async () => {
