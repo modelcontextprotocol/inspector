@@ -23,6 +23,14 @@
  *   8. Over an HTTP transport (in-process test server), a config-file `headers`
  *      object is lifted onto the wire, and a CLI `--header` overrides it — the
  *      headline lift→transport path of #1482, verified end to end.
+ *   9. A usage error through the launcher `--cli` path emits the JSON `{"error":…}`
+ *      envelope and exits 1 (a bad `--callback-url`, whose message contains
+ *      "OAuth", must NOT misclassify as auth_required — #1795 AK1/AJ1).
+ *  10. A non-1 exit code survives the launcher too: `--use-stored-auth` with no
+ *      stored token exits 3 with envelope code `no_stored_token`, pinning that the
+ *      whole EXIT_CODES map — not just exit 1 — reaches an automated caller
+ *      through `mcp-inspector --cli`. (Steps 9–10 are the ONLY guard on that
+ *      contract: `clients/{launcher,cli}/src/index.ts` are coverage-excluded.)
  *
  * Exits non-zero (failing CI / `npm run validate`) on any mismatch.
  *
@@ -77,11 +85,18 @@ function ensureTestServer() {
   }
 }
 
+// Neutralize env that would make an unrelated step fail: parseRunnerOAuthCallbackUrl
+// runs on every --cli invocation, so an ambient MCP_OAUTH_CALLBACK_URL pointing at
+// a non-loopback host would fail steps 1–8. Empty reads as unset in the parser
+// (default 127.0.0.1:6276 applies); per-call extraEnv is spread after, so step 9
+// can still pass --callback-url explicitly. Mirrors prod-web-server.mjs's HOST pin.
+const SMOKE_BASE_ENV = { MCP_OAUTH_CALLBACK_URL: "" };
+
 /** Run the launcher in --cli mode. Returns { status, stdout, stderr }. */
 function runCli(args, extraEnv = {}) {
   const r = spawnSync(process.execPath, [launcher, "--cli", ...args], {
     cwd: repoRoot,
-    env: { ...process.env, ...extraEnv },
+    env: { ...process.env, ...SMOKE_BASE_ENV, ...extraEnv },
     encoding: "utf-8",
   });
   return { status: r.status, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
@@ -97,7 +112,7 @@ function runCliAsync(args, extraEnv = {}) {
   return new Promise((resolveRun) => {
     const child = spawn(process.execPath, [launcher, "--cli", ...args], {
       cwd: repoRoot,
-      env: { ...process.env, ...extraEnv },
+      env: { ...process.env, ...SMOKE_BASE_ENV, ...extraEnv },
     });
     let stdout = "";
     let stderr = "";

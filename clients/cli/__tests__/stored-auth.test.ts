@@ -634,8 +634,8 @@ describe("--print-handoff", () => {
     const envelope = JSON.parse(result.stderr.trim()) as {
       error: { code: string; message: string };
     };
+    // "error" (USAGE), not "auth_required" — the point of pinning the exit code.
     expect(envelope.error.code).toBe("error");
-    expect(envelope.error.code).not.toBe("auth_required");
     expect(envelope.error.message).toContain("must bind a loopback host");
   });
 

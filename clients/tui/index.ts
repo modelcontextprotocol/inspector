@@ -20,6 +20,8 @@ if (isMain) {
     console.error("Error:", err instanceof Error ? err.message : err);
     // Append the stack only when DEBUG / MCP_DEBUG is *meaningfully* set — "0" /
     // "false" / empty read as off, so a stray DEBUG=0 doesn't force a stack.
+    // (Duplicated from the launcher's `wantsDebugStack` — the two bins can't
+    // import each other; keep them in sync if this logic changes.)
     const debugOn = (v: string | undefined): boolean => {
       const s = v?.trim().toLowerCase();
       return !!s && s !== "0" && s !== "false";
