@@ -336,6 +336,20 @@ class SampleAfterConnectTransport implements Transport {
   async start(): Promise<void> {}
   async close(): Promise<void> {}
 
+  /** A task-augmented sample, which creates a receiver-task record. */
+  sampleAsTask(): void {
+    this.onmessage?.({
+      jsonrpc: "2.0",
+      id: SampleAfterConnectTransport.SAMPLE_ID + 1,
+      method: "sampling/createMessage",
+      params: {
+        messages: [{ role: "user", content: { type: "text", text: "hi" } }],
+        maxTokens: 10,
+        task: { ttl: 60_000 },
+      },
+    });
+  }
+
   sample(): void {
     this.onmessage?.({
       jsonrpc: "2.0",
@@ -656,6 +670,39 @@ describe("InspectorClient peer-handler timing (#1797)", () => {
     // narrower case where the request's own timer is broken too, so nothing
     // settles at all.
     await withTimeout(settled, "raw-wire request not settled by teardown");
+  });
+
+  it("does not carry receiver tasks into the next session", async () => {
+    // A record is a task the *server* created with us, and `tasks/list` is
+    // answered from that map — so one surviving a reconnect reports a task the
+    // new server never created. `disconnect()` cleared them, but that is not
+    // the only way a session ends: a crash, or a failed connect the caller
+    // retries on this same instance, both leave them behind.
+    const transport = new SampleAfterConnectTransport();
+    const client = new InspectorClient(
+      { type: "stdio", command: "noop", args: [] },
+      {
+        environment: { transport: () => ({ transport }) },
+        receiverTasks: true,
+      },
+    );
+    await client.connect();
+
+    const queued = waitForNewPendingRequest(client, "newPendingSample");
+    transport.sampleAsTask();
+    await queued;
+    const internals = client as unknown as {
+      listReceiverTasks: () => unknown[];
+    };
+    expect(internals.listReceiverTasks()).toHaveLength(1);
+
+    // The server dies; the caller reconnects on the same instance.
+    transport.onclose?.();
+    await client.connect();
+
+    expect(internals.listReceiverTasks()).toEqual([]);
+
+    await client.disconnect();
   });
 
   it("connects when an elicit option enables no mode", async () => {

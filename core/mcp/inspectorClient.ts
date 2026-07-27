@@ -1400,6 +1400,26 @@ export class InspectorClient extends InspectorClientEventTarget {
   }
 
   /**
+   * Stop the receiver tasks' TTL timers and drop the records.
+   *
+   * These are tasks a *server* created with us, so they belong to the session
+   * that created them: `listReceiverTasks()` is what the `tasks/list` handler
+   * answers with, and a record surviving into the next session would report a
+   * task the new server never created. `disconnect()` clears them, and so does
+   * `connect()` — the auth-recovery retry reconnects the *same* client
+   * instance, so ending the session isn't the only way a new one begins
+   * (#1797).
+   */
+  private clearReceiverTasks(): void {
+    for (const record of this.receiverTaskRecords.values()) {
+      if (record.cleanupTimeoutId != null) {
+        clearTimeout(record.cleanupTimeoutId);
+      }
+    }
+    this.receiverTaskRecords.clear();
+  }
+
+  /**
    * Settle and drop the queued peer requests (sampling / elicitation).
    *
    * Every entry is settled before being dropped rather than discarded: an
@@ -1462,6 +1482,13 @@ export class InspectorClient extends InspectorClientEventTarget {
     if (this.status === "connected") {
       return;
     }
+
+    // Start from a clean session. `disconnect()` clears these, but it is not
+    // the only way a session ends — a crash, or a failed connect the caller
+    // retries on this same instance (the auth-recovery path), both leave the
+    // previous session's records behind, and `tasks/list` would then report
+    // them to a server that never created them.
+    this.clearReceiverTasks();
 
     const oauthManager = this.oauthManager;
     if (
@@ -1876,13 +1903,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     // hanging past teardown; drop the controller reference either way.
     this.activeToolCallAbortController?.abort("Disconnected");
     this.activeToolCallAbortController = undefined;
-    // Clear receiver tasks: stop TTL timers and drop records
-    for (const record of this.receiverTaskRecords.values()) {
-      if (record.cleanupTimeoutId != null) {
-        clearTimeout(record.cleanupTimeoutId);
-      }
-    }
-    this.receiverTaskRecords.clear();
+    this.clearReceiverTasks();
     this.appRendererClientProxy = null;
     this.capabilities = undefined;
     this.serverInfo = undefined;
