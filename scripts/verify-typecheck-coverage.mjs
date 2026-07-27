@@ -23,13 +23,17 @@
 // nothing is typechecked ("gate silently stops gating").
 //
 // Source of truth is the `typecheck` scripts themselves — this parser reads the
-// `-p <project>` args out of them, so adding/removing a project is reflected
-// here with no second list to keep in sync.
+// `-p`/`--project` args out of every script reachable from `typecheck`, so
+// adding/removing a project is reflected here with no second list to keep in sync.
 
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  reachableScripts,
+  rootRunsClientValidate,
+} from "./lib/npm-scripts.mjs";
 
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -43,37 +47,26 @@ const repoRoot = path.resolve(
 const CLIENTS = ["clients/cli", "clients/tui", "clients/launcher"];
 
 // Ambient declaration files are excluded from the required set: an unreferenced
-// `*.d.ts` shim (e.g. a `vitest.shims.d.ts`) is type-only and not a real gap.
+// `*.d.ts` shim (e.g. web's `vitest.shims.d.ts`) is type-only and not a real
+// gap. There are none under cli/tui/launcher today; this pre-empts one.
 const isRequiredSource = (rel) =>
   /\.(ts|tsx)$/.test(rel) && !rel.endsWith(".d.ts");
 
 /**
- * Names of scripts transitively reachable from `entry` by following `npm run
- * <name>` references within a manifest. Used to assert a client's `typecheck`
- * is actually invoked by its `validate` — a `typecheck` script nothing runs
- * gates nothing, and measuring its projects would let the gate be silently
- * unwired. (Same technique as `verify-format-coverage.mjs`.)
+ * The tsconfig projects a client's `typecheck` names via `-p`/`--project`,
+ * harvested from **every** script reachable from `typecheck` (not just the one
+ * string) so a delegating `typecheck` (`npm run typecheck:src && …`) still
+ * counts — matching how `verify-format-coverage.mjs` harvests globs across
+ * reachable scripts.
  */
-function reachableScripts(scripts, entry = "validate") {
-  const reached = new Set();
-  const queue = [entry];
-  const runRef = /npm run ([\w:-]+)/g;
-  while (queue.length > 0) {
-    const name = queue.shift();
-    if (reached.has(name)) continue;
-    reached.add(name);
+function typecheckProjects(scripts) {
+  const projects = [];
+  for (const name of reachableScripts(scripts, "typecheck")) {
     const cmd = scripts?.[name];
     if (typeof cmd !== "string") continue;
-    for (const m of cmd.matchAll(runRef)) queue.push(m[1]);
+    for (const m of cmd.matchAll(/(?:-p|--project)\s+(\S+)/g))
+      projects.push(m[1]);
   }
-  return reached;
-}
-
-/** The tsconfig projects a client's `typecheck` script names via `-p <file>`. */
-function typecheckProjects(scripts) {
-  const script = scripts?.typecheck ?? "";
-  const projects = [];
-  for (const m of script.matchAll(/-p\s+(\S+)/g)) projects.push(m[1]);
   return projects;
 }
 
@@ -95,9 +88,22 @@ function projectFiles(clientDir, project) {
   } catch (err) {
     // `--listFilesOnly` doesn't type-check, but a config error (an unreadable or
     // malformed tsconfig) still exits non-zero while printing the resolved file
-    // list; keep stdout so a broken config doesn't mask a coverage gap. The
-    // config error itself is the `typecheck` script's job to fail on.
+    // list; keep stdout so a broken config doesn't mask a coverage gap. Echo the
+    // diagnostic — since this guard runs before any client's own `typecheck`,
+    // it's the first place a bad `-p` config surfaces, and without the reason
+    // the resulting "file in no project" report is misleading. tsc prints config
+    // errors (`error TS…`) to stdout, so scan both streams for them.
     stdout = typeof err.stdout === "string" ? err.stdout : "";
+    const streams =
+      stdout + "\n" + (typeof err.stderr === "string" ? err.stderr : "");
+    const diagnostic = streams
+      .split("\n")
+      .filter((l) => /error TS\d+/.test(l))
+      .join("\n")
+      .trim();
+    console.warn(
+      `verify:typecheck-coverage — \`tsc -p ${project}\` (in ${clientDir}) exited non-zero:\n${diagnostic || "(no diagnostic captured)"}\n`,
+    );
   }
   const covered = new Set();
   for (const line of stdout.split("\n")) {
@@ -135,16 +141,9 @@ function wiringFailures() {
   const rootPkg = JSON.parse(
     readFileSync(path.join(repoRoot, "package.json"), "utf8"),
   );
-  const rootReachedCommands = [...reachableScripts(rootPkg.scripts)]
-    .map((n) => rootPkg.scripts?.[n])
-    .filter((c) => typeof c === "string");
 
   for (const clientDir of CLIENTS) {
-    if (
-      !rootReachedCommands.some(
-        (c) => c.includes(`cd ${clientDir}`) && /npm run validate/.test(c),
-      )
-    ) {
+    if (!rootRunsClientValidate(rootPkg.scripts, clientDir)) {
       failures.push(
         `${clientDir}: the root \`validate\` chain no longer runs \`cd ${clientDir} && npm run validate\` — its typecheck isn't invoked by CI.`,
       );

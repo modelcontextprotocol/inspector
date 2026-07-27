@@ -28,8 +28,10 @@ jobs:
         # clients/launcher, so this single step sets up every client.
         run: npm install
 
-      - name: Validate (format, lint, build, fast tests)
-        # Each client self-validates: format:check + lint + build + test (no
+      - name: Validate (coverage guards, format, lint, typecheck, build, fast tests)
+        # Runs the two coverage guards first (verify:format-coverage +
+        # verify:typecheck-coverage), then validate:core, then each client's
+        # self-validation: format:check + lint + typecheck + build + test (no
         # coverage instrumentation — fast). This also builds every client bundle
         # (web dist, cli/tui/launcher) that the smokes below need. The heavier
         # per-file coverage gate runs in its own step below. Unit tests run in

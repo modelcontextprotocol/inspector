@@ -17,6 +17,10 @@ import { readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  reachableScripts,
+  rootRunsClientValidate,
+} from "./lib/npm-scripts.mjs";
 
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -58,28 +62,6 @@ function tokenize(command) {
     tokens.push(m[1] !== undefined ? m[1] : m[2]);
   }
   return tokens;
-}
-
-/**
- * Names of scripts transitively reachable from `entry` by following `npm run
- * <name>` references within a manifest. Used so we only trust a `format:check`
- * glob that CI actually runs — a `prettier --check` script that nothing invokes
- * from `validate` doesn't gate anything, and counting its globs would let the
- * gate be silently unwired (the file still "matches a glob" that never runs).
- */
-function reachableScripts(scripts, entry = "validate") {
-  const reached = new Set();
-  const queue = [entry];
-  const runRef = /npm run ([\w:-]+)/g;
-  while (queue.length > 0) {
-    const name = queue.shift();
-    if (reached.has(name)) continue;
-    reached.add(name);
-    const cmd = scripts?.[name];
-    if (typeof cmd !== "string") continue;
-    for (const m of cmd.matchAll(runRef)) queue.push(m[1]);
-  }
-  return reached;
 }
 
 /**
@@ -159,15 +141,8 @@ function clientsUnreachedFromRoot() {
   const rootPkg = JSON.parse(
     readFileSync(path.join(repoRoot, "package.json"), "utf8"),
   );
-  const reachedNames = reachableScripts(rootPkg.scripts);
-  const reachedCommands = [...reachedNames]
-    .map((n) => rootPkg.scripts?.[n])
-    .filter((c) => typeof c === "string");
   return MANIFESTS.filter((dir) => dir !== ".").filter(
-    (dir) =>
-      !reachedCommands.some(
-        (c) => c.includes(`cd ${dir}`) && /npm run validate/.test(c),
-      ),
+    (dir) => !rootRunsClientValidate(rootPkg.scripts, dir),
   );
 }
 
