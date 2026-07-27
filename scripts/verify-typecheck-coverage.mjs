@@ -23,15 +23,15 @@
 // nothing is typechecked ("gate silently stops gating").
 //
 // Source of truth is the `typecheck` scripts themselves — this parser reads the
-// `-p`/`--project` args out of every script reachable from `typecheck`, so
+// `-p`/`--project`/`-b`/`--build` args (and the implicit `./tsconfig.json` a
+// bare `tsc` resolves) out of every script reachable from `typecheck`, so
 // adding/removing a project is reflected here with no second list to keep in sync.
 
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  clientsRunByRootValidate,
   reachableScripts,
   rootReachesScript,
   rootRunsClientValidate,
@@ -46,20 +46,36 @@ const rootPkg = JSON.parse(
   readFileSync(path.join(repoRoot, "package.json"), "utf8"),
 );
 
-// web is intentionally out of this guard: it typechecks via `tsc -b` over a
-// project-reference graph (app/node/storybook/test) that already reaches its
-// whole tree, and has no `-p`-based `typecheck` script for this guard to model.
-const EXCLUDED_CLIENTS = new Set(["clients/web"]);
+/**
+ * The Node clients this guard covers (#1791): every `clients/<name>` dir whose
+ * `package.json` declares a `typecheck` script. Enumerated from **disk** — not a
+ * hardcoded list (which wouldn't pick up a new client) and not the root
+ * `validate` chain (a root-chain edit could then silently drop a client from the
+ * required set, fail-open — the guard would go green while gating less). Disk is
+ * fail-closed: a new client with a `typecheck` is auto-required, and none can be
+ * silently dropped. `clients/web` has no `typecheck` script (it builds via `tsc
+ * -b` over a project-reference graph that reaches its whole tree), so it's
+ * excluded on its own — no explicit exclusion needed. The `rootRunsClientValidate`
+ * wiring check below then verifies the root chain actually runs each of these.
+ */
+function nodeClients() {
+  const clientsDir = path.join(repoRoot, "clients");
+  const dirs = [];
+  for (const name of readdirSync(clientsDir)) {
+    let scripts;
+    try {
+      scripts = JSON.parse(
+        readFileSync(path.join(clientsDir, name, "package.json"), "utf8"),
+      ).scripts;
+    } catch {
+      continue; // no readable package.json (not a client dir)
+    }
+    if (typeof scripts?.typecheck === "string") dirs.push(`clients/${name}`);
+  }
+  return dirs.sort();
+}
 
-// The Node clients this guard covers (#1791). Derived from the `cd clients/<x>
-// && npm run validate` entries in the root `validate` chain (minus the excluded
-// ones), so a NEW node client is picked up automatically — unlike a hardcoded
-// list, which would silently leave a new client's `__tests__` ungated (its
-// repo-wide sibling `verify-format-coverage` would still catch the *format* gap,
-// but not the typecheck one).
-const CLIENTS = clientsRunByRootValidate(rootPkg.scripts).filter(
-  (dir) => !EXCLUDED_CLIENTS.has(dir),
-);
+const CLIENTS = nodeClients();
 
 // TypeScript source extensions this guard requires a tsc pass for. Matches its
 // sibling's TS set (`verify-format-coverage.mjs` — `.mts` is already the idiom
@@ -85,6 +101,14 @@ const isRequiredSource = (rel) =>
  * without type-checking them, which would otherwise satisfy the guard while
  * checking nothing. The config-file form (`noCheck` set in the tsconfig) is
  * caught separately by {@link projectDisablesChecking}.
+ *
+ * Two limitations, both unreachable today (cli/tui/launcher use plain `-p`
+ * `--noEmit` passes; web, the only `tsc -b` client, is out of scope): a
+ * **solution-style** `-b` config (`"files": []` + `references`) is run here as
+ * `-p … --listFilesOnly`, which lists nothing — a client adopting it would need
+ * its `references` expanded to their paths. And the implicit-`./tsconfig.json`
+ * fallback assumes **no file operands** — `tsc <file>` ignores the config and
+ * checks only that file, but would be credited the whole config's file list.
  */
 function typecheckProjects(scripts) {
   const projects = [];
@@ -200,11 +224,11 @@ function trackedSourceFiles(clientDir) {
 // Boundary: this does NOT detect shell-level failure suppression on the pass
 // (`… || true`, `; exit 0`) — a pass that runs and checks but can't fail CI.
 // ---------------------------------------------------------------------------
-// Derivation must not silently yield an empty set (a broken root `validate` or a
-// changed `cd clients/<x>` idiom would otherwise make the whole guard a no-op).
+// Enumeration must not silently yield an empty set (a moved `clients/` dir or a
+// renamed `typecheck` script would otherwise make the whole guard a no-op).
 if (CLIENTS.length === 0) {
   console.error(
-    "verify:typecheck-coverage — derived no clients from the root `validate` chain (expected `cd clients/<x> && npm run validate` entries). The guard would check nothing; fix the derivation.",
+    "verify:typecheck-coverage — found no `clients/*` dir with a `typecheck` script. The guard would check nothing; fix the enumeration.",
   );
   process.exit(1);
 }
