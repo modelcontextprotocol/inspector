@@ -5,7 +5,7 @@ import {
   stepUpConfirmMessage,
   stepUpInsufficientScopeMessage,
 } from "../src/utils/tuiOAuth.js";
-import { makeFakeServerSettings } from "./helpers/server-settings.js";
+import { makeFakeServerSettings } from "./helpers/oauth-test-fakes.js";
 
 describe("tuiOAuth", () => {
   it("detects standard OAuth step-up", () => {

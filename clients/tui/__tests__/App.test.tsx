@@ -48,28 +48,30 @@ const h = vi.hoisted(() => {
   const openUrl = vi.fn().mockResolvedValue(undefined);
   // Shared OAuth-related spies so a test can configure resolve/reject and
   // assert calls regardless of which per-server FakeClient instance App built.
-  // The OAuth-lifecycle spies are given explicit `(...a: unknown[]) => …`
-  // signatures so the FakeClient wrappers below (which forward `...a`) typecheck
-  // against them, and so a wide return type (e.g. AuthChallengeOutcome) lets a
-  // test `mockResolvedValue` any variant rather than only the impl's literal.
+  // Each spy is typed against the real InspectorClient method signature so that
+  // `toHaveBeenCalledWith(...)` assertions against them stay argument-checked
+  // under the new gate — and the FakeClient wrappers below forward the same
+  // `Parameters<…>` tuple, which spreads cleanly (a tuple, not `unknown[]`).
+  // `authenticate` keeps a string-returning stub (the real method returns a
+  // `URL`); it takes no arguments, so there is nothing to arg-check there.
   const clientSpies = {
-    authenticate: vi.fn<(...a: unknown[]) => Promise<string | undefined>>(
+    authenticate: vi.fn<() => Promise<string | undefined>>(
       async () => "https://auth.example/start",
     ),
-    clearOAuthTokens: vi.fn(),
-    completeOAuthFlow: vi.fn<(...a: unknown[]) => Promise<void>>(
+    clearOAuthTokens: vi.fn<InspectorClient["clearOAuthTokens"]>(),
+    completeOAuthFlow: vi.fn<InspectorClient["completeOAuthFlow"]>(
       async () => {},
     ),
-    getOAuthState: vi.fn<(...a: unknown[]) => Promise<undefined>>(
+    getOAuthState: vi.fn<InspectorClient["getOAuthState"]>(
       async () => undefined,
     ),
     callTool: vi.fn(),
-    checkAuthChallengeSatisfied: vi.fn<(...a: unknown[]) => Promise<boolean>>(
-      async () => false,
+    checkAuthChallengeSatisfied: vi.fn<
+      InspectorClient["checkAuthChallengeSatisfied"]
+    >(async () => false),
+    handleAuthChallenge: vi.fn<InspectorClient["handleAuthChallenge"]>(
+      async () => ({ kind: "satisfied" }),
     ),
-    handleAuthChallenge: vi.fn<
-      (...a: unknown[]) => Promise<AuthChallengeOutcome>
-    >(async () => ({ kind: "satisfied" })),
   };
   // Captured options from the most recent callbackServer.start(), so a test can
   // drive the onCallback / onError handlers the OAuth flows register.
@@ -136,16 +138,19 @@ const h = vi.hoisted(() => {
           | "sse"
           | "streamable-http",
     );
-    authenticate = (...a: unknown[]) => clientSpies.authenticate(...a);
-    clearOAuthTokens = (...a: unknown[]) => clientSpies.clearOAuthTokens(...a);
-    completeOAuthFlow = (...a: unknown[]) =>
-      clientSpies.completeOAuthFlow(...a);
-    getOAuthState = (...a: unknown[]) => clientSpies.getOAuthState(...a);
+    authenticate = () => clientSpies.authenticate();
+    clearOAuthTokens = () => clientSpies.clearOAuthTokens();
+    completeOAuthFlow = (
+      ...a: Parameters<InspectorClient["completeOAuthFlow"]>
+    ) => clientSpies.completeOAuthFlow(...a);
+    getOAuthState = () => clientSpies.getOAuthState();
     callTool = (...a: unknown[]) => clientSpies.callTool(...a);
-    checkAuthChallengeSatisfied = (...a: unknown[]) =>
-      clientSpies.checkAuthChallengeSatisfied(...a);
-    handleAuthChallenge = (...a: unknown[]) =>
-      clientSpies.handleAuthChallenge(...a);
+    checkAuthChallengeSatisfied = (
+      ...a: Parameters<InspectorClient["checkAuthChallengeSatisfied"]>
+    ) => clientSpies.checkAuthChallengeSatisfied(...a);
+    handleAuthChallenge = (
+      ...a: Parameters<InspectorClient["handleAuthChallenge"]>
+    ) => clientSpies.handleAuthChallenge(...a);
     readResource = vi.fn(async () => ({
       result: { contents: [{ uri: "file://x", text: "hello" }] },
     }));
@@ -275,12 +280,12 @@ vi.mock("../src/utils/openUrl.js", () => ({
 }));
 
 import App from "../src/App.js";
+import type { InspectorClient } from "@inspector/core/mcp/index.js";
 import type { TuiServer } from "../src/tui-servers.js";
 import {
   AuthRecoveryRequiredError,
   EMA_STEP_UP_PENDING_URL,
 } from "@inspector/core/auth/challenge.js";
-import type { AuthChallengeOutcome } from "@inspector/core/auth/challenge.js";
 import { EmaClientNotConfiguredError } from "@inspector/core/auth/ema/clientConfigError.js";
 
 const tick = () => new Promise((r) => setTimeout(r, 25));

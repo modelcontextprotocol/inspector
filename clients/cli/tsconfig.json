@@ -20,6 +20,6 @@
       "@inspector/core/*": ["../../core/*"]
     }
   },
-  "include": ["src/**/*"],
+  "include": ["src/**/*", "vitest.config.ts", "tsup.config.ts"],
   "exclude": ["node_modules", "**/*.test.ts", "**/*.test.tsx", "build"]
 }

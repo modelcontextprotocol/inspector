@@ -33,8 +33,9 @@ export function makeFakeCliOAuthClient(
 }
 
 /**
- * A full {@link InspectorServerSettings} carrying the same product defaults the
- * server-list loader applies (`storedFieldsToInspectorSettings`). Pass
+ * A full {@link InspectorServerSettings} with representative defaults for its
+ * required fields (the timeouts at 0 = "SDK default", `taskTtl` /
+ * `maxFetchRequests` at their product defaults, empty lists elsewhere). Pass
  * `overrides` for the field(s) under test (e.g. `{ enterpriseManaged: true }`).
  */
 export function makeFakeServerSettings(

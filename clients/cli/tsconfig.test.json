@@ -16,6 +16,9 @@
       "vitest": ["./node_modules/vitest"]
     }
   },
-  "include": ["src/**/*", "__tests__/**/*"],
+  // Only the tests root the project; tsc pulls in the `src` they import. The
+  // src-only tsconfig.json already validates all of `src` (without the
+  // test-only aliases), so listing it here too would just check it twice.
+  "include": ["__tests__/**/*"],
   "exclude": ["node_modules", "build"]
 }
