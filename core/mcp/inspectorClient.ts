@@ -321,8 +321,8 @@ export class InspectorClient extends InspectorClientEventTarget {
   // request so server logs arrive on each request's stream; `undefined` means
   // "don't opt in" (logs stay silently absent). Only honored on the modern era.
   private modernLogLevel?: LoggingLevel;
-  private sample: boolean;
-  private elicit: boolean | { form?: boolean; url?: boolean };
+  private readonly sample: boolean;
+  private readonly elicit: boolean | { form?: boolean; url?: boolean };
   private progress: boolean;
   private resetTimeoutOnProgress: boolean;
   private requestTimeout: number | undefined;
@@ -378,6 +378,16 @@ export class InspectorClient extends InspectorClientEventTarget {
    * subsequent `connect()` — wedging the client permanently (#1797).
    */
   private readonly rootsCapabilityAdvertised: boolean;
+  /**
+   * Whether `capabilities.elicitation` was advertised, on the same terms as
+   * {@link rootsCapabilityAdvertised}. Not the same question as `this.elicit`
+   * being truthy: `{}` / `{ form: false, url: false }` are valid options that
+   * enable no mode, so nothing is advertised — and registering
+   * `elicitation/create` anyway throws "Client does not support elicitation
+   * capability" before the handshake, leaving the client unable to connect
+   * at all (#1797).
+   */
+  private readonly elicitationCapabilityAdvertised: boolean;
   // Content cache
   // ListChanged notification configuration
   private listChangedNotifications: {
@@ -445,10 +455,10 @@ export class InspectorClient extends InspectorClientEventTarget {
   // `cancelRequestorTask` instead, so they don't use this (#1458).
   private activeToolCallAbortController?: AbortController;
   // Receiver tasks (server-initiated: server sends createMessage/elicit with params.task, server polls us)
-  private receiverTasks: boolean;
+  private readonly receiverTasks: boolean;
   // Per-extension advertise overrides (#1738); undefined key falls back to the
   // registry default in ADVERTISABLE_EXTENSIONS.
-  private advertisedExtensions?: Record<string, boolean>;
+  private readonly advertisedExtensions?: Record<string, boolean>;
   private receiverTaskTtlMs: number | (() => number);
   private receiverTaskRecords: Map<string, ReceiverTaskRecord> = new Map();
   // OAuth support (config owned by oauthManager; client delegates and uses !!oauthManager for "is OAuth configured")
@@ -645,6 +655,8 @@ export class InspectorClient extends InspectorClientEventTarget {
     // independent derivations of the same fact can drift (a `readonly` field is
     // assignable anywhere in the constructor).
     this.rootsCapabilityAdvertised = capabilities.roots !== undefined;
+    this.elicitationCapabilityAdvertised =
+      capabilities.elicitation !== undefined;
 
     this.appRendererClientProxy = null;
     this.clientInfo = options.clientIdentity ?? {
@@ -1175,8 +1187,10 @@ export class InspectorClient extends InspectorClientEventTarget {
       }
     }
 
-    // Set up elicitation request handler if elicitation capability is enabled
-    if (this.elicit && this.client) {
+    // Gated on what was advertised, not on `this.elicit` — see the field's doc:
+    // an elicit option that enables no mode advertises nothing, and registering
+    // regardless throws before the handshake.
+    if (this.elicitationCapabilityAdvertised && this.client) {
       const elicitHandler = (request: ElicitRequest): Promise<ElicitResult> => {
         const paramsTask = (request.params as { task?: { ttl?: number } })
           ?.task;

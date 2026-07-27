@@ -54,11 +54,13 @@ import { InspectorClient } from "@inspector/core/mcp/inspectorClient.js";
  * failure paths emit the change events immediately; `disconnect()` batches them
  * with its other teardown dispatches.
  *
- * One case covers the other side of the registration gate: `capabilities.roots`
- * is fixed at construction, so the gate must key off what was advertised rather
- * than the mutable `this.roots` — otherwise a later `setRoots()` makes every
- * subsequent `connect()` try to register a handler the SDK refuses, and the
- * client can never reconnect.
+ * Two cases cover the other side of the registration gates. Client capabilities
+ * are fixed at construction, so each gate must key off what was actually
+ * advertised rather than the option it was derived from: a later `setRoots()`
+ * must not make a subsequent `connect()` register a roots handler that was
+ * never advertised, and an `elicit` option that enables no mode must not
+ * register an elicitation handler. Either mistake throws before the handshake,
+ * so the client cannot connect at all.
  */
 class InitializedRacingTransport implements Transport {
   onmessage?: (message: JSONRPCMessage) => void;
@@ -480,6 +482,26 @@ describe("InspectorClient peer-handler timing (#1797)", () => {
 
     expect(queueDuringDisconnectEvent).toBe(0);
     expect(elicitationCounts.at(-1)).toBe(0);
+  });
+
+  it("connects when an elicit option enables no mode", async () => {
+    // `{ form: false, url: false }` is a valid option that advertises no
+    // elicitation capability. Registering `elicitation/create` on `this.elicit`
+    // being truthy would throw "Client does not support elicitation capability"
+    // before the handshake — so the client could not connect at all.
+    const client = new InspectorClient(
+      { type: "stdio", command: "noop", args: [] },
+      {
+        environment: {
+          transport: () => ({ transport: new ElicitAfterConnectTransport() }),
+        },
+        elicit: { form: false, url: false },
+      },
+    );
+
+    await expect(client.connect()).resolves.toBeUndefined();
+
+    await client.disconnect();
   });
 
   it("can reconnect after setRoots() on a client built without roots", async () => {
