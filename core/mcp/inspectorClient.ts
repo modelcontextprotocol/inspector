@@ -1253,18 +1253,26 @@ export class InspectorClient extends InspectorClientEventTarget {
   }
 
   /**
-   * Register the server→client *notification* handlers that depend on nothing
-   * but constructor-set state, and so belong before the handshake for the same
+   * Register the inbound *notification* handlers that depend on nothing but
+   * constructor-set state, and so belong before the handshake for the same
    * reason as {@link registerPeerRequestHandlers} (#1797).
    *
-   * `notifications/roots/list_changed` is the only one: a server may emit it as
-   * soon as it is initialized, and a notification with no registered handler is
-   * silently dropped by the SDK (no error goes back on the wire, so the symptom
-   * is a missed UI refresh rather than a visible failure). The rest of the
-   * listChanged handlers gate on `this.capabilities`, which is not populated
-   * until `fetchServerInfo()` runs, so they stay in `connect()`.
+   * `notifications/roots/list_changed` is the only one — and note it is a
+   * **client**→server notification in the spec (`ClientNotification`): we send
+   * it from {@link setRoots}, servers do not normally send it to us. This
+   * inbound handler is defensive coverage for a non-conformant or experimental
+   * server, and its body dispatches `rootsChange` with our own already-known
+   * roots, i.e. a refresh signal carrying no new data. It sits here for
+   * consistency with the request handlers — it gates on no server capability,
+   * so there is nothing to wait for, and an unhandled notification is dropped
+   * silently by the SDK (no wire error) rather than answered `-32601`.
+   *
+   * The remaining listChanged handlers gate on `this.capabilities`, which is
+   * not populated until `fetchServerInfo()` runs, so they stay in `connect()`.
    */
   private registerPeerNotificationHandlers(): void {
+    /* v8 ignore next -- unreachable: the sole caller is connect(), past its
+       `if (!this.client) throw`; the guard exists only to narrow the type. */
     if (!this.client) return;
     this.client.setNotificationHandler(
       "notifications/roots/list_changed",

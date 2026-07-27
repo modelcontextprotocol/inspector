@@ -24,6 +24,12 @@ import { InspectorClient } from "@inspector/core/mcp/inspectorClient.js";
  * it back after `connect()` fails here. (`sampling/createMessage` and
  * `elicitation/create` are deliberately left out: they park a pending request
  * awaiting user input, so they have no reply to assert on.)
+ *
+ * The `roots/list_changed` notification is injected too, covering the sibling
+ * `registerPeerNotificationHandlers()`. Note the spec sends that notification
+ * the *other* way (client→server), so the inbound handler is defensive rather
+ * than something a conformant server exercises — this pins where it is
+ * registered, not a behaviour real servers depend on.
  */
 class InitializedRacingTransport implements Transport {
   onmessage?: (message: JSONRPCMessage) => void;
@@ -35,8 +41,6 @@ class InitializedRacingTransport implements Transport {
 
   /** The client's replies to the injected requests, keyed by request id. */
   readonly replies = new Map<number, JSONRPCMessage>();
-  /** Whether the client accepted the `roots/list_changed` notification. */
-  notificationRejected = false;
 
   async start(): Promise<void> {}
   async close(): Promise<void> {}
@@ -72,18 +76,17 @@ class InitializedRacingTransport implements Transport {
       });
       return;
     }
-    if ("id" in message && typeof message.id === "number") {
+    if (
+      "id" in message &&
+      typeof message.id === "number" &&
+      ("result" in message || "error" in message)
+    ) {
       this.replies.set(message.id, message);
     }
   }
 
   private deliver(message: JSONRPCMessage): void {
-    try {
-      this.onmessage?.(message);
-    } catch {
-      // An unhandled notification would surface here rather than on the wire.
-      this.notificationRejected = true;
-    }
+    this.onmessage?.(message);
   }
 }
 
@@ -125,9 +128,9 @@ describe("InspectorClient peer-handler timing (#1797)", () => {
     expect(tasksReply).not.toHaveProperty("error");
     expect(tasksReply).toMatchObject({ result: { tasks: [] } });
 
-    // notifications/roots/list_changed — dropped silently when unregistered,
-    // so assert on the effect (the rootsChange event) rather than a reply.
-    expect(transport.notificationRejected).toBe(false);
+    // notifications/roots/list_changed — a notification has no reply, and an
+    // unhandled one is dropped silently (no wire error), so the effect is the
+    // only observable: the handler dispatches `rootsChange`.
     expect(rootsChanges).toEqual([roots]);
 
     await client.disconnect();
