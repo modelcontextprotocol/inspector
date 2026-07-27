@@ -55,24 +55,26 @@ function rootReachedCommands(rootScripts) {
 }
 
 /**
- * Whether the root `validate` chain invokes `cd <clientDir> && npm run validate`.
- * Without this a per-client gate would still be harvested from that client's own
- * `validate` and count as coverage even after the root chain stopped running it
- * — the "gate silently stops gating" failure, one level up.
+ * Whether the root `validate` chain runs a client's `validate` — either
+ * `cd <clientDir> && npm run validate` or `npm --prefix <clientDir> run
+ * validate`. Without this a per-client gate would still be harvested from that
+ * client's own `validate` and count as coverage even after the root chain
+ * stopped running it — the "gate silently stops gating" failure, one level up.
  */
 export function rootRunsClientValidate(rootScripts, clientDir) {
-  // Anchored match: an optional leading `./` (`cd ./clients/x` genuinely runs
-  // the client) and a boundary after the dir, so a prefix-sibling (`clients/x`
-  // vs `clients/x-next`) can't satisfy the check for the shorter name — a bare
-  // substring `includes` would let a sibling silently vouch for a dropped client.
-  // Quotes are stripped first so `cd "clients/x"` (a valid form) still matches.
-  // Both `cd <dir> && npm run validate` and `npm --prefix <dir> run validate`
-  // count as running the client.
+  // Anchored on both ends: an optional leading `./` (`cd ./clients/x` genuinely
+  // runs the client) and a boundary after the dir, so a prefix-sibling
+  // (`clients/x` vs `clients/x-next`) can't satisfy the check for the shorter
+  // name; and a boundary after `validate` so `run validate:fast` (a *different*
+  // script that may skip typecheck) doesn't count as running `validate`. A bare
+  // `includes`/`\b` on either would let a sibling silently vouch for a dropped
+  // client. Quotes are stripped first so `cd "clients/x"` still matches. Both
+  // `cd <dir> && npm run validate` and `npm --prefix <dir> run validate` count.
   const escaped = clientDir.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const dirRe = new RegExp(`(?:cd|--prefix) \\.?/?${escaped}(?=$|[\\s&;])`);
   return rootReachedCommands(rootScripts).some((c) => {
     const stripped = c.replace(/["']/g, ""); // both halves see quotes stripped
-    return dirRe.test(stripped) && /\brun validate\b/.test(stripped);
+    return dirRe.test(stripped) && /\brun validate(?=$|[\s&;])/.test(stripped);
   });
 }
 

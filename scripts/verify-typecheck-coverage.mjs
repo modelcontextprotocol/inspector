@@ -270,6 +270,29 @@ function trackedSourceFiles(clientDir) {
     .filter((f) => !f.includes("/build/") && !f.includes("/dist/"));
 }
 
+// First-party TS that lives outside any client but is still first-party source
+// no client "owns" — the same surface `format:check:shared` + `lint:shared`
+// gate (#1767). It has no `__tests__`/client project of its own; it must get a
+// tsc pass from SOME client project (cli aliases the test-server source, and
+// each client's `vitest.config.ts` imports `vitest.shared.mts`). Checked against
+// the GLOBAL union of all clients' project files, not per-client — which is why
+// a *new* unimported `test-servers/src` bin entry (nothing reaches it) is caught
+// here rather than slipping through as `server-composable.ts` once did.
+const SHARED_ROOTS = ["test-servers/src", "vitest.shared.mts"];
+
+/** Tracked first-party TS under the shared roots (repo-relative POSIX paths). */
+function trackedSharedSource() {
+  const out = execFileSync("git", ["ls-files", ...SHARED_ROOTS], {
+    cwd: repoRoot,
+    encoding: "utf8",
+  });
+  return out
+    .split("\n")
+    .filter(Boolean)
+    .filter(isRequiredSource)
+    .filter((f) => !f.includes("/build/") && !f.includes("/dist/"));
+}
+
 // ---------------------------------------------------------------------------
 // Phase 1 — gate integrity: is each client's `typecheck` actually run, and does
 // it actually type-check? Reported (and exited) before the file-coverage pass
@@ -305,7 +328,7 @@ for (const clientDir of CLIENTS) {
   checkingProjects.set(clientDir, []);
   if (!rootRunsClientValidate(rootPkg.scripts, clientDir)) {
     integrity.push(
-      `${clientDir}: the root \`validate\` chain no longer runs \`cd ${clientDir} && npm run validate\` — its typecheck isn't invoked by CI.`,
+      `${clientDir}: the root \`validate\` chain no longer runs \`cd ${clientDir} && npm run validate\` (or \`npm --prefix ${clientDir} run validate\`) — its typecheck isn't invoked by CI.`,
     );
     continue;
   }
@@ -358,16 +381,29 @@ if (integrity.length > 0) {
 // ---------------------------------------------------------------------------
 let totalChecked = 0;
 const failures = [];
+const globalCovered = new Set();
 for (const clientDir of CLIENTS) {
   const covered = new Set();
   for (const project of checkingProjects.get(clientDir))
-    for (const f of projectFiles(clientDir, project)) covered.add(f);
+    for (const f of projectFiles(clientDir, project)) {
+      covered.add(f);
+      globalCovered.add(f);
+    }
 
   const tracked = trackedSourceFiles(clientDir);
   totalChecked += tracked.length;
   for (const f of tracked)
     if (!covered.has(f)) failures.push(`${f} — in no tsconfig project`);
 }
+
+// Shared first-party TS gets no client of its own; require each to land in the
+// GLOBAL union of client projects (so a new unimported one is caught, not just
+// the file round 19 named explicitly).
+const sharedTracked = trackedSharedSource();
+totalChecked += sharedTracked.length;
+for (const f of sharedTracked)
+  if (!globalCovered.has(f))
+    failures.push(`${f} — shared source in no client's tsconfig project`);
 
 if (failures.length > 0) {
   console.error(
@@ -381,6 +417,10 @@ if (failures.length > 0) {
     console.error(
       "For a co-located test, instead move it to `__tests__/` — adding it to the src `include` would make the build emit it.",
     );
+  if (failures.some((f) => f.includes("shared source")))
+    console.error(
+      "For a shared-source file no client imports (e.g. a `test-servers/src` bin entry), name it in a client `tsconfig.test.json`'s `include`, as `server-composable.ts` is.",
+    );
   console.error("See AGENTS.md.");
   process.exit(1);
 }
@@ -389,6 +429,7 @@ const exemptNote = [...EXEMPT.entries()]
   .map(([dir, reason]) => `${dir} exempt: ${reason}`)
   .join("; ");
 console.log(
-  `verify:typecheck-coverage — OK: all ${totalChecked} tracked source files across ${CLIENTS.length} clients get a tsc pass` +
+  `verify:typecheck-coverage — OK: all ${totalChecked} tracked source files ` +
+    `(${CLIENTS.length} clients + shared) get a tsc pass` +
     (exemptNote ? ` (${exemptNote}).` : "."),
 );
