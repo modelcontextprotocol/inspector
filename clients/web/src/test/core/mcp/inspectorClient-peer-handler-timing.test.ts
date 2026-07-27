@@ -56,6 +56,16 @@ import { ModernGetTaskResultSchema } from "@inspector/core/mcp/modernTaskSchemas
  * no `onclose` fires. The crash and failure paths emit the change events
  * immediately; `disconnect()` batches them with its other teardown dispatches.
  *
+ * A further category is session scoping. Receiver tasks, resource
+ * subscriptions and cancelled task ids are state a server created *with* us —
+ * `tasks/list` is answered from that map, and a stale subscription makes the
+ * modern subscribe a silent no-op — so they belong to the session that created
+ * them. Note the contrast with the teardown cases above: the peer-request queue
+ * is cleared end-clean on all three teardown paths, while this is cleared
+ * start-clean at the top of `connect()`, because a crash or a failed connect
+ * the caller retries on the same instance means ending a session is not the
+ * only way a new one begins.
+ *
  * The outbound direction needs settling too, on its own terms. The raw-wire
  * modern `tasks/*` map is ours — the SDK's era gate keeps those frames out of
  * its own `_responseHandlers`, so its teardown can't settle them — and a
@@ -333,6 +343,18 @@ class SampleAfterConnectTransport implements Transport {
 
   static readonly SAMPLE_ID = 9401;
 
+  /** Resolvers for {@link injectRequest}, keyed by the id awaiting a reply. */
+  private readonly waiters = new Map<number, (m: JSONRPCMessage) => void>();
+
+  /** Deliver a server→client request, resolving with the client's reply. */
+  injectRequest(method: string, id: number): Promise<JSONRPCMessage> {
+    const reply = new Promise<JSONRPCMessage>((resolve) => {
+      this.waiters.set(id, resolve);
+    });
+    this.onmessage?.({ jsonrpc: "2.0", id, method });
+    return withTimeout(reply, `No reply to injected ${method} (id ${id})`);
+  }
+
   async start(): Promise<void> {}
   async close(): Promise<void> {}
 
@@ -379,6 +401,14 @@ class SampleAfterConnectTransport implements Transport {
         },
       });
       return;
+    }
+    if (
+      "id" in message &&
+      typeof message.id === "number" &&
+      ("result" in message || "error" in message)
+    ) {
+      this.waiters.get(message.id)?.(message);
+      this.waiters.delete(message.id);
     }
   }
 }
@@ -691,16 +721,52 @@ describe("InspectorClient peer-handler timing (#1797)", () => {
     const queued = waitForNewPendingRequest(client, "newPendingSample");
     transport.sampleAsTask();
     await queued;
-    const internals = client as unknown as {
-      listReceiverTasks: () => unknown[];
-    };
-    expect(internals.listReceiverTasks()).toHaveLength(1);
+    // Asserted through `tasks/list` — that handler is what a server actually
+    // sees, and it is the symptom: a surviving record is reported to a server
+    // that never created it.
+    expect(await transport.injectRequest("tasks/list", 9501)).toMatchObject({
+      result: { tasks: [expect.anything()] },
+    });
 
     // The server dies; the caller reconnects on the same instance.
     transport.onclose?.();
     await client.connect();
 
-    expect(internals.listReceiverTasks()).toEqual([]);
+    expect(await transport.injectRequest("tasks/list", 9502)).toMatchObject({
+      result: { tasks: [] },
+    });
+
+    await client.disconnect();
+  });
+
+  it("does not carry subscriptions or cancelled task ids into the next session", async () => {
+    // Same class as the receiver tasks, with sharper symptoms: a stale
+    // subscription makes the modern `subscribeToResource` early-return, so the
+    // user's next Subscribe click silently sends nothing; a stale cancelled-id
+    // mislabels a *new* task sharing that id as cancelled rather than failed.
+    const transport = new SampleAfterConnectTransport();
+    const client = new InspectorClient(
+      { type: "stdio", command: "noop", args: [] },
+      { environment: { transport: () => ({ transport }) } },
+    );
+    await client.connect();
+
+    // Seeded directly: subscribing for real needs a server that answers
+    // `resources/subscribe` and cancelling needs a live task, neither of which
+    // adds to what is under test — that a new session starts empty. The cast is
+    // the only route to `cancelledTaskIds`, which has no public reader.
+    const internals = client as unknown as {
+      subscribedResources: Set<string>;
+      cancelledTaskIds: Set<string>;
+    };
+    internals.subscribedResources.add("file:///watched");
+    internals.cancelledTaskIds.add("task-1");
+
+    transport.onclose?.();
+    await client.connect();
+
+    expect(client.getSubscribedResources()).toEqual([]);
+    expect(internals.cancelledTaskIds.size).toBe(0);
 
     await client.disconnect();
   });

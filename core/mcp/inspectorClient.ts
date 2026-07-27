@@ -1420,6 +1420,40 @@ export class InspectorClient extends InspectorClientEventTarget {
   }
 
   /**
+   * Drop every piece of state scoped to one connection, so a new session never
+   * inherits the last one's.
+   *
+   * `disconnect()` clears all of this on the way out, but it is not the only
+   * way a session ends — a crash, or a failed connect the caller retries on
+   * this same instance (the auth-recovery path), both leave it behind. Called
+   * start-clean from `connect()` so every route in is covered.
+   *
+   * Each member has a symptom, not just untidiness: a stale `subscribedResources`
+   * entry makes the modern `subscribeToResource` early-return, so the user's
+   * Subscribe click silently sends nothing to the new server; a stale
+   * `cancelledTaskIds` entry mislabels a *new* task sharing the id as
+   * `cancelled` rather than `failed`; a receiver-task record is reported to the
+   * new server by `tasks/list`; and an un-aborted `taskInputAbortControllers`
+   * entry leaks a paused poll loop (#1797).
+   */
+  private resetSessionState(): void {
+    this.clearReceiverTasks();
+    this.subscribedResources.clear();
+    this.cancelledTaskIds.clear();
+    for (const [, controller] of this.taskInputAbortControllers) {
+      controller.abort(new Error("Connection ended"));
+    }
+    this.taskInputAbortControllers.clear();
+    // Restore the configured opt-in rather than carrying a mid-session
+    // `setModernLogLevel` override into the next connection — and rather than
+    // leaving it `undefined` after a `disconnect()` cleared it, which silently
+    // dropped the user's configured level on reconnect (#1629, #1797).
+    const settingLevel =
+      this.serverSettings?.modernLogLevel ?? DEFAULT_MODERN_LOG_LEVEL;
+    this.modernLogLevel = settingLevel === "off" ? undefined : settingLevel;
+  }
+
+  /**
    * Settle and drop the queued peer requests (sampling / elicitation).
    *
    * Every entry is settled before being dropped rather than discarded: an
@@ -1483,12 +1517,9 @@ export class InspectorClient extends InspectorClientEventTarget {
       return;
     }
 
-    // Start from a clean session. `disconnect()` clears these, but it is not
-    // the only way a session ends — a crash, or a failed connect the caller
-    // retries on this same instance (the auth-recovery path), both leave the
-    // previous session's records behind, and `tasks/list` would then report
-    // them to a server that never created them.
-    this.clearReceiverTasks();
+    // Start from a clean session — see `resetSessionState` for why this is
+    // start-clean rather than relying on `disconnect()`.
+    this.resetSessionState();
 
     const oauthManager = this.oauthManager;
     if (
