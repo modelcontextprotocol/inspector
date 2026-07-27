@@ -18,11 +18,11 @@
 // --listFilesOnly` (the accurate measure — it includes import-reached files),
 // unions the result, and asserts every tracked first-party `.ts`/`.tsx`/`.mts`/
 // `.cts` under the client is in that union. It also covers, deny-by-default, the
-// tracked TS that lives OUTSIDE any client and outside an exempt root (`core/`,
-// covered by web's `tsc -b`) — the shared surface (`test-servers/src`,
-// `vitest.shared.mts`) plus anything at a new top-level location — requiring
-// each to land in the global union of client projects. Exits non-zero, listing
-// the offenders, on any miss.
+// tracked TS that lives OUTSIDE any client — the shared surface (`test-servers/
+// src`, `vitest.shared.mts`), all of `core/` (covered by web's enrolled `tsc -b`
+// projects), plus anything at a new top-level location — requiring each to land
+// in the global union of client projects. Exits non-zero, listing the offenders,
+// on any miss.
 //
 // Like its sibling it also asserts the gate is actually WIRED: each client's
 // `typecheck` must be reachable from that client's `validate`, and the root
@@ -36,7 +36,7 @@
 // adding/removing a project is reflected here with no second list to keep in sync.
 
 import { execFileSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -76,6 +76,11 @@ const isRequiredSource = (rel) =>
 // tsc`, `./node_modules/.bin/tsc.cmd`) counts, not just the bare `tsc` token.
 const isTsc = (t) => /(?:^|[\\/])tsc(?:\.(?:cmd|exe|ps1))?$/.test(t);
 
+// A flag that makes a `tsc` pass list files without type-checking them (so it
+// gates nothing). Case-insensitive — tsc's own option parsing is. Shared by the
+// `typecheck`-script path and the reference (`tsc -b`) path.
+const isDisablingFlag = (t) => /^--(noCheck|listFilesOnly)$/i.test(t);
+
 /**
  * The `references` paths in a client's root `tsconfig.json` (a `tsc -b` solution
  * config), or `[]` if it has none / no readable tsconfig. These are the projects
@@ -89,9 +94,16 @@ function clientTsconfigReferences(clientDir) {
       path.join(repoRoot, clientDir, "tsconfig.json"),
       "utf8",
     );
-    // Tolerate JSONC line comments + trailing commas (tsconfig allows both).
+    // Tolerate JSONC — block AND line comments + trailing commas (tsconfig
+    // allows all; block comments are in fact the style of every other tsconfig
+    // here). Block comments are stripped first so a `//` inside one doesn't
+    // survive; a `//` inside a string value (e.g. an `https://` URL) is a
+    // theoretical false strip this guard's tsconfigs never hit.
     const cfg = JSON.parse(
-      raw.replace(/\/\/.*$/gm, "").replace(/,(\s*[}\]])/g, "$1"),
+      raw
+        .replace(/\/\*[\s\S]*?\*\//g, "")
+        .replace(/\/\/.*$/gm, "")
+        .replace(/,(\s*[}\]])/g, "$1"),
     );
     return Array.isArray(cfg.references)
       ? cfg.references.map((r) => r?.path).filter((p) => typeof p === "string")
@@ -101,21 +113,26 @@ function clientTsconfigReferences(clientDir) {
   }
 }
 
-/** Whether a script reachable from the client's `validate` runs `tsc -b`/`--build`. */
-function validateRunsTscBuild(scripts) {
+/**
+ * How the client's `validate` runs `tsc -b` (the pass that typechecks a
+ * reference client): `"ok"` (a real `tsc -b`), `"neutered"` (a `tsc -b` carrying
+ * `--noCheck`/`--listFilesOnly` — lists files but checks nothing, the same hole
+ * the `typecheck`-script path rejects), or `"none"` (no `tsc -b` at all).
+ */
+function tscBuildStatus(scripts) {
+  let status = "none";
   for (const name of reachableScripts(scripts, "validate")) {
     const cmd = scripts?.[name];
     if (typeof cmd !== "string") continue;
     for (const segment of cmd.split(/&&|\|\||;/)) {
       const tokens = tokenize(segment);
-      if (
-        tokens.some(isTsc) &&
-        tokens.some((t) => t === "-b" || t === "--build")
-      )
-        return true;
+      if (!tokens.some(isTsc)) continue;
+      if (!tokens.some((t) => t === "-b" || t === "--build")) continue;
+      if (tokens.some(isDisablingFlag)) status = "neutered";
+      else return "ok"; // a real, checking `tsc -b`
     }
   }
-  return false;
+  return status;
 }
 
 /**
@@ -225,9 +242,7 @@ function typecheckProjects(scripts) {
     for (const segment of cmd.split(/&&|\|\||;/)) {
       const tokens = tokenize(segment);
       if (!tokens.some(isTsc)) continue; // only tsc commands name projects
-      const disabling = tokens.find((t) =>
-        /^--(noCheck|listFilesOnly)$/i.test(t),
-      );
+      const disabling = tokens.find(isDisablingFlag);
       // A project path follows `-p`/`--project`/`-b`/`--build`; a tsc command
       // with none uses the implicit `./tsconfig.json` (tsc's own default).
       const named = [];
@@ -325,38 +340,18 @@ function trackedSourceFiles(clientDir) {
     .filter((f) => !f.includes("/build/") && !f.includes("/dist/"));
 }
 
-// `core/` is deferred to web's `tsc -b`; this reason is surfaced in the OK line.
-// The exemption is subtractive (a `core/` file web does NOT check falls into the
-// required set) → fail-CLOSED on staleness: a renamed `core/`, or a core file
-// outside web's include, surfaces as required rather than dropping out silently
-// (the failure mode the old `SHARED_ROOTS` allowlist had, #1799 r21/r22).
-const CORE_EXEMPT_REASON =
-  "typechecked by web's `tsc -b` (`core/**/*.ts` + `core/**/__tests__/**`)";
-
-// Exempt exactly what web's `tsc -b` covers across its projects — the UNION of
-// `tsconfig.app.json` (`../../core/**/*.ts` minus co-located `*.test.ts(x)`) and
-// `tsconfig.test.json` (`../../core/**/__tests__/**/*.{ts,tsx}`). A core `*.tsx`/
-// `*.mts`/`*.cts` outside `__tests__`, or a co-located `*.test.ts(x)`, is covered
-// by neither and stays required here.
-const isExemptCoreFile = (f) => {
-  if (!f.startsWith("core/")) return false;
-  if (f.includes("/__tests__/")) return /\.tsx?$/.test(f);
-  return /\.ts$/.test(f) && !/\.test\.tsx?$/.test(f);
-};
-
 /**
- * Tracked first-party TS that is neither under a `clients/*` dir (covered by the
- * per-client pass) nor exempt (a `core/` file web's `tsc -b` checks — see
- * {@link isExemptCoreFile}) — i.e. the shared surface no client owns
- * (`test-servers/src`, the root `vitest.shared.mts`), a `core` `*.tsx`/`*.mts`/
- * co-located test web doesn't reach, plus anything new at a fresh top-level
- * location. Deny-by-default: a new such file is required without editing this
- * guard, matching the repo-wide reach of the sibling `verify-format-coverage`.
- * Each must still get a tsc pass from SOME client project — cli aliases the
- * test-server source; each client's `vitest.config.ts` imports
- * `vitest.shared.mts` — checked against the GLOBAL union of client projects (not
- * per-client), which is why a new unimported `test-servers/src` bin entry is
- * caught rather than slipping through as `server-composable.ts` once did.
+ * Tracked first-party TS that is not under a `clients/*` dir (which the
+ * per-client pass covers) — the shared surface no client owns (`test-servers/src`,
+ * the root `vitest.shared.mts`), all of `core/` (which web's enrolled `tsc -b`
+ * projects cover — measured, not hand-modeled), plus anything new at a fresh
+ * top-level location. Deny-by-default: a new such file is required without
+ * editing this guard, matching the repo-wide reach of the sibling
+ * `verify-format-coverage`. Each must get a tsc pass from SOME client project
+ * (cli aliases the test-server source; web's app/test projects include `core/`;
+ * each client's `vitest.config.ts` imports `vitest.shared.mts`) — checked against
+ * the GLOBAL union of client projects, which is why a new unimported
+ * `test-servers/src` bin entry or a `core` `*.tsx` web doesn't reach is caught.
  */
 function trackedNonClientSource() {
   const out = execFileSync(
@@ -369,8 +364,7 @@ function trackedNonClientSource() {
     .filter(Boolean)
     .filter(isRequiredSource)
     .filter((f) => !f.includes("/build/") && !f.includes("/dist/"))
-    .filter((f) => !f.startsWith("clients/"))
-    .filter((f) => !isExemptCoreFile(f));
+    .filter((f) => !f.startsWith("clients/"));
 }
 
 // ---------------------------------------------------------------------------
@@ -395,16 +389,6 @@ if (CLIENTS.length === 0 && integrity.length === 0) {
   process.exit(1);
 }
 
-// The OK line unconditionally states the `core/` exemption; assert its subject
-// exists so the exemption can't outlive it (parity with the EXEMPT stale-key
-// check). Subtractive coverage stays fail-closed regardless — a renamed `core/`
-// surfaces as required — this only keeps the *note* honest.
-if (!existsSync(path.join(repoRoot, "core"))) {
-  integrity.push(
-    "`core/` is stated as exempt (CORE_EXEMPT_REASON) but does not exist — update it.",
-  );
-}
-
 // Vouch for the sibling guard — a guard can't detect being unrun itself, but the
 // two can each assert the other is still wired into `validate`, so dropping
 // either is caught here (only deleting both slips through).
@@ -427,11 +411,15 @@ for (const clientDir of CLIENTS) {
   ).scripts;
 
   // Reference (`tsc -b`) client — no `typecheck` script; measured through its
-  // `tsconfig.json` `references`, and wired iff its `validate` runs `tsc -b`.
+  // `tsconfig.json` `references`, and wired iff its `validate` runs a real
+  // (checking) `tsc -b`.
   if (typeof scripts?.typecheck !== "string") {
-    if (!validateRunsTscBuild(scripts)) {
+    const status = tscBuildStatus(scripts);
+    if (status !== "ok") {
       integrity.push(
-        `${clientDir}: no \`typecheck\` script and its \`validate\` never runs \`tsc -b\` — its \`tsconfig.json\` references are typechecked by nothing.`,
+        status === "neutered"
+          ? `${clientDir}: its \`validate\`'s \`tsc -b\` carries \`--noCheck\`/\`--listFilesOnly\` — it lists files without type-checking them, so its references are gated by nothing.`
+          : `${clientDir}: no \`typecheck\` script and its \`validate\` never runs \`tsc -b\` — its \`tsconfig.json\` references are typechecked by nothing.`,
       );
       continue;
     }
@@ -549,10 +537,9 @@ if (failures.length > 0) {
   process.exit(1);
 }
 
-const exemptNote = [
-  ...[...EXEMPT.entries()].map(([dir, reason]) => `${dir} exempt: ${reason}`),
-  `core/ exempt: ${CORE_EXEMPT_REASON}`,
-].join("; ");
+const exemptNote = [...EXEMPT.entries()]
+  .map(([dir, reason]) => `${dir} exempt: ${reason}`)
+  .join("; ");
 console.log(
   `verify:typecheck-coverage — OK: all ${totalChecked} tracked source files ` +
     `(${CLIENTS.length} clients + non-client) get a tsc pass` +
