@@ -34,14 +34,13 @@ const ts = new Date("2024-01-01T12:34:56Z");
 // defensive branches and cannot be represented by the strict JSONRPCMessage
 // union, so they carry a local `MALFORMED` cast at their own call sites rather
 // than loosening the whole helper.
-const entry = (over: Partial<MessageEntry>): MessageEntry =>
-  ({
-    id: "id",
-    timestamp: ts,
-    direction: "request",
-    message: { jsonrpc: "2.0", id: 1, method: "ping" },
-    ...over,
-  }) as MessageEntry;
+const entry = (over: Partial<MessageEntry>): MessageEntry => ({
+  id: "id",
+  timestamp: ts,
+  direction: "request",
+  message: { jsonrpc: "2.0", id: 1, method: "ping" },
+  ...over,
+});
 
 // Cast for the two intentionally-malformed wire messages only, scoped to a named
 // helper so `entry()`'s `message` stays gate-checked for every well-formed

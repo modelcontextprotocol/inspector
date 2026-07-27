@@ -32,6 +32,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   reachableScripts,
+  rootReachesScript,
   rootRunsClientValidate,
 } from "./lib/npm-scripts.mjs";
 
@@ -145,6 +146,15 @@ function wiringFailures() {
   const rootPkg = JSON.parse(
     readFileSync(path.join(repoRoot, "package.json"), "utf8"),
   );
+
+  // Assert the sibling guard is still wired — a guard can't detect being unrun
+  // itself, but each can vouch for the other, so dropping either from `validate`
+  // is caught here (only deleting both slips through).
+  if (!rootReachesScript(rootPkg.scripts, "verify:format-coverage")) {
+    failures.push(
+      "the root `validate` no longer runs `verify:format-coverage` (its sibling guard) — restore it.",
+    );
+  }
 
   for (const clientDir of CLIENTS) {
     if (!rootRunsClientValidate(rootPkg.scripts, clientDir)) {

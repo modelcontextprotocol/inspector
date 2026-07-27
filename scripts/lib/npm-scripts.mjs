@@ -44,3 +44,13 @@ export function rootRunsClientValidate(rootScripts, clientDir) {
     (c) => c.includes(`cd ${clientDir}`) && /npm run validate/.test(c),
   );
 }
+
+/**
+ * Whether `scriptName` is reachable from the root `validate`. A guard can't
+ * assert it is *itself* run (an unrun guard runs no check), but the two coverage
+ * guards can each assert the *other* is still wired — so dropping either from
+ * `validate` is caught by its sibling. Only deleting both slips through.
+ */
+export function rootReachesScript(rootScripts, scriptName) {
+  return reachableScripts(rootScripts, "validate").has(scriptName);
+}

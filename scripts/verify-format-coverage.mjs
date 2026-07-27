@@ -19,6 +19,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   reachableScripts,
+  rootReachesScript,
   rootRunsClientValidate,
 } from "./lib/npm-scripts.mjs";
 
@@ -173,6 +174,19 @@ function trackedSourceFiles() {
     { cwd: repoRoot, encoding: "utf8" },
   );
   return out.split("\n").filter(Boolean);
+}
+
+// Vouch for the sibling guard: a guard can't detect being unrun itself, but the
+// two coverage guards can each assert the other is still wired into `validate`,
+// so dropping either is caught here. Only deleting both slips through.
+const rootScripts = JSON.parse(
+  readFileSync(path.join(repoRoot, "package.json"), "utf8"),
+).scripts;
+if (!rootReachesScript(rootScripts, "verify:typecheck-coverage")) {
+  console.error(
+    "verify:format-coverage — the root `validate` no longer runs `verify:typecheck-coverage` (its sibling guard). Restore it.",
+  );
+  process.exit(1);
 }
 
 const unreachedClients = clientsUnreachedFromRoot();
