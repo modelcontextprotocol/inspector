@@ -89,8 +89,9 @@ export class SamplingCreateMessage {
   /**
    * Settle a still-pending sample as cancelled, without removing it from the
    * queue. Called from `InspectorClient`'s `clearPendingPeerRequests()`, which
-   * serves all three teardown paths — an explicit `disconnect()`, a failed
-   * `connect()`, and a mid-session transport close.
+   * serves every route that drops the queue wholesale — each route out of a
+   * connection, and the top of `connect()` as a backstop for the one route in
+   * that settles nothing. The category, not a count: that set has grown.
    *
    * Unlike an elicitation there is no internal awaiter to unblock, but on the
    * plain server-request shape the *server* is one: we accepted its

@@ -246,8 +246,8 @@ const DEFAULT_TASK_POLL_INTERVAL_MS = 500;
 /**
  * Close a modern listen stream best-effort, absorbing both failure modes a
  * third-party `close()` can produce: a rejected promise and a synchronous
- * throw. Every close in this file goes through here, because at each of the
- * three sites the caller has already dropped its reference to the stream, so
+ * throw. All three stream closes go through here, because at each site the
+ * caller has already dropped its reference to the stream, so
  * an escaping failure abandons a stream that may still be open on the server
  * *and* takes the caller's remaining work with it — teardown that most callers
  * of `disconnect()` would never see skipped, or the re-listen that was about to
@@ -1531,8 +1531,8 @@ export class InspectorClient extends InspectorClientEventTarget {
    * failed attempt; see the `connect()` catch). Callers dispatch the change
    * events themselves:
    * `disconnect()` batches them with its other teardown dispatches, and
-   * {@link clearAndAnnouncePendingPeerRequests} emits them immediately for the
-   * paths that end a connection without going through `disconnect()`.
+   * {@link clearAndAnnouncePendingPeerRequests} emits them immediately
+   * everywhere else.
    */
   private clearPendingPeerRequests(): void {
     for (const sample of this.pendingSamples) {
@@ -1546,12 +1546,16 @@ export class InspectorClient extends InspectorClientEventTarget {
   }
 
   /**
-   * {@link clearPendingPeerRequests} plus the change events, for the paths that
-   * drop a queue without going through `disconnect()` — a failed `connect()`
-   * and a mid-session transport close. (The connect-failure case doesn't always
-   * end the connection: when an auth provider holds the transport open, the
-   * caller re-authenticates and retries over it, and what's dropped is the
-   * queue left by the attempt that failed.)
+   * {@link clearPendingPeerRequests} plus the change events, for every route
+   * that drops a queue without going through `disconnect()`: the routes *out*
+   * that end a connection some other way, plus the top of `connect()` as a
+   * backstop for the one route in that settles nothing (an `onerror` without an
+   * `onclose` — see the comment at that call). Named as a category rather than
+   * counted, because the set has grown before. (One of the routes out doesn't
+   * always end the connection: when a `connect()` failure leaves an auth
+   * provider holding the transport open, the caller re-authenticates and
+   * retries over it, and what's dropped is the queue left by the attempt that
+   * failed.)
    *
    * The events are the load-bearing half: `usePendingClientRequests` tracks its
    * own state off them, so clearing the arrays without dispatching leaves the
@@ -1602,6 +1606,15 @@ export class InspectorClient extends InspectorClientEventTarget {
     // settled promise is a no-op), so these are no-ops on the routes that
     // already ran them; and anything still pending here belongs to a session
     // that is, by definition, no longer connected.
+    //
+    // Must stay *after* `resetSessionState()`, which reads as independent of it
+    // but is not: cancelling a task-augmented peer request settles it
+    // synchronously into the record callback, which ends in
+    // `upsertReceiverTask`. That is a no-op only because `clearReceiverTasks()`
+    // just emptied the map — hoisted above the reset, it would instead emit a
+    // `notifications/tasks/status` for the outgoing session's task, onto the
+    // transport this connect is about to reuse, moments before the reset drops
+    // the record anyway.
     this.clearAndAnnouncePendingPeerRequests();
     this.rejectPendingRawWireRequests("Connection ended");
 
@@ -2295,7 +2308,11 @@ export class InspectorClient extends InspectorClientEventTarget {
     return true;
   }
 
-  /** Reject and clear all pending raw-wire requests (on disconnect/teardown). */
+  /**
+   * Reject and clear all pending raw-wire requests — on every route out that
+   * can hold one, and at the top of `connect()` for the route in that settles
+   * nothing (see the comment there).
+   */
   private rejectPendingRawWireRequests(reason: string): void {
     for (const [, pending] of this.pendingRawWireRequests) {
       clearTimeout(pending.timer);

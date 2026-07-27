@@ -361,6 +361,9 @@ class SampleAfterConnectTransport implements Transport {
 
   static readonly SAMPLE_ID = 9401;
 
+  /** Methods of every client→server notification sent, in order. */
+  readonly sentNotifications: string[] = [];
+
   /** Resolvers for {@link injectRequest}, keyed by the id awaiting a reply. */
   private readonly waiters = new Map<number, (m: JSONRPCMessage) => void>();
 
@@ -410,6 +413,10 @@ class SampleAfterConnectTransport implements Transport {
   }
 
   async send(message: JSONRPCMessage): Promise<void> {
+    if ("method" in message && !("id" in message)) {
+      this.sentNotifications.push(message.method);
+      return;
+    }
     if (
       "method" in message &&
       message.method === "initialize" &&
@@ -990,6 +997,41 @@ describe("InspectorClient peer-handler timing (#1797)", () => {
     await client.disconnect();
   });
 
+  it("sweeps the queue without reporting the outgoing session's task", async () => {
+    // The sweep must stay *after* `resetSessionState()`, and the two calls read
+    // as independent. Cancelling a task-augmented peer request settles it
+    // synchronously into the record callback, which ends in
+    // `upsertReceiverTask` — a no-op only because `clearReceiverTasks()` just
+    // emptied the map. Hoisted above the reset, it would emit a
+    // `notifications/tasks/status` for the ending session's task onto the
+    // transport this connect is about to reuse. This is what notices.
+    const transport = new SampleAfterConnectTransport();
+    const client = new InspectorClient(
+      { type: "stdio", command: "noop", args: [] },
+      {
+        environment: { transport: () => ({ transport }) },
+        receiverTasks: true,
+      },
+    );
+    await client.connect();
+
+    const queued = waitForNewPendingRequest(client, "newPendingSample");
+    transport.sampleAsTask();
+    await queued;
+
+    transport.onerror?.(new Error("stream broke, transport still up"));
+    // Only the reconnect's frames are under test; the first session legitimately
+    // reported the task it created.
+    transport.sentNotifications.length = 0;
+    await client.connect();
+
+    expect(transport.sentNotifications).not.toContain(
+      "notifications/tasks/status",
+    );
+
+    await client.disconnect();
+  });
+
   it("rejects an in-flight raw-wire request the next connect would inherit", async () => {
     // The outbound half of the same route. Milder than the queue — the id is
     // instance-scoped and monotonic, so a stale entry can't be resolved by the
@@ -1001,8 +1043,12 @@ describe("InspectorClient peer-handler timing (#1797)", () => {
       { type: "stdio", command: "noop", args: [] },
       {
         environment: { transport: () => ({ transport }) },
-        // As in the crash-path case above: short so a regression names itself,
-        // and safe only because no SDK request is issued after connect.
+        // Short so a regression names itself, as in the crash-path case above
+        // — but safe here for a different reason than that one gives: this
+        // test connects twice, so an SDK `initialize` *is* issued under the
+        // client-wide budget. It can't race because this fixture answers
+        // `initialize` synchronously from inside `send()`, so no timer is ever
+        // in play. A fixture that answered a macrotask later would flake.
         timeout: 50,
       },
     );

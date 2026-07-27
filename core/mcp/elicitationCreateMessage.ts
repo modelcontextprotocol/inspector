@@ -103,11 +103,11 @@ export class ElicitationCreateMessage {
   /**
    * Settle a still-pending elicitation as cancelled, without removing it from
    * the queue. Called from `InspectorClient`'s `clearPendingPeerRequests()`,
-   * which serves all three teardown paths — an explicit `disconnect()`, a
-   * failed `connect()`, and a mid-session transport close — so an awaiting
-   * caller (notably the error-path `awaitUrlElicitation` that blocks
-   * `callTool`) doesn't hang forever when the pending queue is dropped
-   * wholesale. No-op once already resolved.
+   * which serves every route that drops the queue wholesale — each route out of
+   * a connection, and the top of `connect()` as a backstop for the one route in
+   * that settles nothing — so an awaiting caller (notably the error-path
+   * `awaitUrlElicitation` that blocks `callTool`) doesn't hang forever. The
+   * category, not a count: that set has grown. No-op once already resolved.
    *
    * Deliberately does not call `onRemove`: that caller iterates the queue and
    * clears it itself, so removing here would splice mid-iteration — skipping

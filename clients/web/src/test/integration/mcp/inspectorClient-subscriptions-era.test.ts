@@ -297,6 +297,54 @@ describe("resource subscriptions era fork (#1630)", () => {
       return fake;
     }
 
+    for (const [label, close] of [
+      [
+        "throws synchronously",
+        (): Promise<void> => {
+          throw new Error("close blew up");
+        },
+      ],
+      [
+        "returns a rejected promise",
+        (): Promise<void> => Promise.reject(new Error("close blew up")),
+      ],
+    ] as const) {
+      it(`re-lists when the superseded stream's close() ${label}`, async () => {
+        // A re-list drops its reference to the previous stream *before* closing
+        // it, so an escaping failure would both abandon a stream that may still
+        // be open on the server and abort the refresh before its replacement
+        // `listen()` — leaving a non-empty subscription set with no stream. The
+        // close is best-effort against both failure modes for that reason; this
+        // is the site where being best-effort against the *synchronous* one
+        // changed behaviour (a `.catch()` alone never caught it).
+        const started = await startServer({});
+        const { connected } = await connect(started.url, "modern");
+        await connected.subscribeToResource(RESOURCE_URI);
+
+        const int = internals(connected);
+        // Swap the live stream for a poisoned one, closing the real stream so
+        // the wire is torn down (as `installFakeSubscription` does).
+        const real = int.modernSubscription;
+        int.modernSubscription = { close } as unknown as McpSubscription;
+        await real?.close().catch(() => {});
+
+        // A second URI changes the filter, so this re-lists over the poisoned
+        // stream.
+        await expect(
+          connected.subscribeToResource(RESOURCE_URI_2),
+        ).resolves.toBeUndefined();
+
+        expect(connected.getSubscribedResources()).toEqual([
+          RESOURCE_URI,
+          RESOURCE_URI_2,
+        ]);
+        const state = connected.getResourceSubscriptionStreamState();
+        expect(state.active).toBe(true);
+        expect(state.status).toBe("acknowledged");
+        expect(int.modernSubscription).not.toBeNull();
+      });
+    }
+
     it("rolls back the optimistic add when listen() fails", async () => {
       const started = await startServer({});
       const { connected } = await connect(started.url, "modern");

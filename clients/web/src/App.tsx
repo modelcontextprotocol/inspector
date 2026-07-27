@@ -1223,8 +1223,8 @@ function App() {
     // client instance rather than rebuilding it (#1629, #1797).
     // `activeServerIdRef` is synced in a passive effect, so it still holds the
     // outgoing server's id when this runs from `onDisconnect` — which is what
-    // lets the re-seed find its settings. Clearing that ref eagerly would
-    // silently drop this back to the default.
+    // lets the re-seed find its settings. Clearing that ref eagerly would take
+    // the no-server branch below and silently drop this to Off.
     // Branch on the *server*, not its settings: an entry with no settings node
     // is the common case (`mcp.json` written by hand, never opened in Server
     // Settings), and there the default is right — it is what the seed and the
