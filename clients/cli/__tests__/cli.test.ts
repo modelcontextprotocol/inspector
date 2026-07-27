@@ -20,6 +20,7 @@ import {
   getTestMcpServerCommand,
   createTestServerHttp,
   createEchoTool,
+  createListRootsTool,
   createTestServerInfo,
 } from "@modelcontextprotocol/inspector-test-server";
 import type { MCPServerConfig } from "@inspector/core/mcp/index.js";
@@ -321,6 +322,89 @@ describe("CLI Tests", () => {
         expect(result.stderr).toMatch(/--catalog cannot be combined/);
       } finally {
         deleteConfigFile(catalogPath);
+      }
+    });
+  });
+
+  describe("Roots capability (#1797)", () => {
+    it("answers a server's roots/list instead of -32601", async () => {
+      // The CLI used to omit `roots` when constructing its InspectorClient, so
+      // the capability was never advertised and no `roots/list` handler was
+      // registered — a server that asked got -32601 Method not found. (And
+      // `--method roots/set` could not announce the change: the SDK refuses
+      // `roots/list_changed` from a client that never declared it, so nothing
+      // reached the wire.) `cli.ts` now always passes the `roots` option —
+      // empty on this ad-hoc path, since there is no config file.
+      const server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        tools: [createListRootsTool()],
+      });
+      try {
+        await server.start();
+
+        const result = await runCli([
+          server.url,
+          "--cli",
+          "--method",
+          "tools/call",
+          "--tool-name",
+          "list_roots",
+        ]);
+
+        expectCliSuccess(result);
+        const json = expectValidJson(result);
+        // The tool asks the client for roots and renders what it got. An
+        // unregistered handler surfaces as an isError result quoting -32601.
+        expect(json.isError).toBeFalsy();
+        expect(JSON.stringify(json)).toContain("Roots:");
+        expect(JSON.stringify(json)).not.toContain("-32601");
+      } finally {
+        await server.stop();
+      }
+    });
+
+    it("answers with the roots configured for the server in the config file", async () => {
+      // Answering `roots/list` is only half the fix: the roots a user
+      // configured in mcp.json have to be the answer. They ride in on
+      // `serverSettings.roots` (lifted by `mcpConfigToServerEntries`), which is
+      // what web passes too — a CLI that seeded `[]` would let a server fall
+      // back to its own defaults, the outcome #1797 is about.
+      const server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        tools: [createListRootsTool()],
+      });
+      let configPath: string | undefined;
+      try {
+        await server.start();
+        configPath = createTestConfig({
+          mcpServers: {
+            web: {
+              type: "streamable-http",
+              url: server.url,
+              roots: [{ uri: "file:///configured", name: "Configured" }],
+            } as unknown as MCPServerConfig,
+          },
+        });
+
+        const result = await runCli([
+          "--config",
+          configPath,
+          "--server",
+          "web",
+          "--cli",
+          "--method",
+          "tools/call",
+          "--tool-name",
+          "list_roots",
+        ]);
+
+        expectCliSuccess(result);
+        const json = expectValidJson(result);
+        expect(json.isError).toBeFalsy();
+        expect(JSON.stringify(json)).toContain("file:///configured");
+      } finally {
+        await server.stop();
+        if (configPath) deleteConfigFile(configPath);
       }
     });
   });

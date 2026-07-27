@@ -44,9 +44,9 @@ import type {
 } from "@inspector/core/mcp/types.js";
 import {
   DEFAULT_MAX_FETCH_REQUESTS,
-  DEFAULT_MODERN_LOG_LEVEL,
   DEFAULT_TASK_TTL_MS,
   eraToVersionNegotiation,
+  resolveModernLogLevel,
 } from "@inspector/core/mcp/types.js";
 import {
   API_SERVER_ENV_VARS,
@@ -1216,7 +1216,27 @@ function App() {
     setConsoleUi(EMPTY_CONSOLE_UI);
     setProgressByTaskId({});
     setCurrentLogLevel("info");
-    setModernLogLevel(null);
+    // Re-seed rather than blank: the client restores its own opt-in from the
+    // server setting at connect (`resetSessionState`), so blanking here would
+    // leave the control reading Off while every modern request still carries
+    // the level — visible on the auth-recovery path, which reconnects the same
+    // client instance rather than rebuilding it (#1629, #1797).
+    // `activeServerIdRef` is synced in a passive effect, so it still holds the
+    // outgoing server's id when this runs from `onDisconnect` — which is what
+    // lets the re-seed find its settings. Clearing that ref eagerly would take
+    // the no-server branch below and silently drop this to Off.
+    // Branch on the *server*, not its settings: an entry with no settings node
+    // is the common case (`mcp.json` written by hand, never opened in Server
+    // Settings), and there the default is right — it is what the seed and the
+    // client both use. Only "no server at all" means Off.
+    const activeServer = serversRef.current.find(
+      (s) => s.id === activeServerIdRef.current,
+    );
+    setModernLogLevel(
+      activeServer
+        ? (resolveModernLogLevel(activeServer.settings) ?? null)
+        : null,
+    );
     setPendingStepUp(null);
     setPendingReauth(null);
     setReAuthBanner(null);
@@ -2337,9 +2357,7 @@ function App() {
       // setting so the Logs-tab control reflects what the client stamps by
       // default (the client was seeded the same way in its constructor). "off"
       // means not opted in (null). Only affects modern connections.
-      const seededModernLevel =
-        savedSettings?.modernLogLevel ?? DEFAULT_MODERN_LOG_LEVEL;
-      setModernLogLevel(seededModernLevel === "off" ? null : seededModernLevel);
+      setModernLogLevel(resolveModernLogLevel(savedSettings) ?? null);
       setManagedToolsState(new ManagedToolsState(client));
       setPagedToolsState(new PagedToolsState(client));
       setPagedPromptsState(new PagedPromptsState(client));

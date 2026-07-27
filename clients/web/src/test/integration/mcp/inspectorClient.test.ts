@@ -5560,7 +5560,9 @@ describe("InspectorClient", () => {
           initialStatus: "working",
           statusMessage: "running",
         });
-        // Pre-attach a catch so cancel's reject doesn't surface as unhandled
+        // Capture the rejection's message for the assertion below. (Not for
+        // unhandled-rejection suppression — `createReceiverTask` marks the
+        // promise handled at the source.)
         const payloadResult = record.payloadPromise.catch(
           (e) => (e as Error).message,
         );

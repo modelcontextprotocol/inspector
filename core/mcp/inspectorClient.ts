@@ -31,10 +31,11 @@ export type {
 } from "./types.js";
 import { getServerType as getServerTypeFromConfig } from "./config.js";
 import {
-  DEFAULT_MODERN_LOG_LEVEL,
   INACTIVE_SUBSCRIPTION_STREAM_STATE,
   isTerminalStatus,
+  resolveModernLogLevel,
 } from "./types.js";
+import { cleanRoots } from "./serverList.js";
 // Fallback client identity, used ONLY when a caller doesn't pass
 // `clientIdentity`. Real clients supply their own: the Node clients (CLI, TUI)
 // read the single-source version from the root package.json via
@@ -243,6 +244,52 @@ const TOOL_CALL_CANCELLED_REASON = "Tool call cancelled by user";
 const DEFAULT_TASK_POLL_INTERVAL_MS = 500;
 
 /**
+ * Close a modern listen stream best-effort, absorbing both failure modes a
+ * third-party `close()` can produce: a rejected promise and a synchronous
+ * throw. All three stream closes go through here, and every one of them has
+ * already dropped its reference to the stream — so in each case an escaping
+ * failure abandons a stream that may still be open on the server. What it does
+ * *besides* that differs per site, because the shape of the call does:
+ *
+ * - `resetSubscriptionStream` — fire-and-forget (`void`), and the last statement
+ *   of the method. Because this helper is `async`, even a synchronous throw
+ *   becomes a rejection of the promise it returns, which the `void` then drops:
+ *   the caller is unaffected, and the harm is an *unhandled rejection* — fatal
+ *   to a Node process by default, a console error in the browser. That, not
+ *   skipped teardown, is what the wrapping buys at this site.
+ * - `refreshModernSubscription`'s re-listen close — awaited, with the
+ *   replacement `listen()` after it, so an escaping failure skips the re-listen
+ *   and leaves a non-empty subscription set with no stream. On the reconnect
+ *   caller it is instead absorbed into the backoff run and retried.
+ * - the superseded-generation discard — awaited, but `return` follows, so
+ *   nothing local is skipped; the failure only propagates out of
+ *   `refreshModernSubscription` to whichever caller a newer refresh had already
+ *   superseded. Self-healing on the reconnect path; on the two user-initiated
+ *   paths it is a report of a failure that did not happen — for
+ *   `unsubscribeFromResource`, whose removal is kept regardless, a "Failed to
+ *   unsubscribe" for an unsubscribe that stuck. Both of those gate their
+ *   failure handling on still owning the re-listen, so a superseded call
+ *   reports its error without editing a filter or a badge that is no longer
+ *   its own (see `subscribeToResource`'s catch for the reasoning).
+ *
+ * Note what the generation bump proves in that last case is that a newer
+ * refresh had *started*, not that it succeeded — it may yet fail at its own
+ * `listen()`, making an escaping failure here a second one rather than a
+ * redundant one.
+ *
+ * Wrapped identically all the same, so the rule is one rule (#1630, #1797).
+ */
+async function closeSubscriptionBestEffort(
+  subscription: Pick<McpSubscription, "close">,
+): Promise<void> {
+  try {
+    await subscription.close();
+  } catch {
+    // Best-effort: there is nothing to do about a stream that won't close.
+  }
+}
+
+/**
  * Extract the method literal from an MCP notification Zod schema (e.g.
  * `ToolListChangedNotificationSchema`), or `undefined` if the shape isn't
  * recognized. Used by the App-renderer client proxy to translate the SDK-v1
@@ -320,8 +367,8 @@ export class InspectorClient extends InspectorClientEventTarget {
   // request so server logs arrive on each request's stream; `undefined` means
   // "don't opt in" (logs stay silently absent). Only honored on the modern era.
   private modernLogLevel?: LoggingLevel;
-  private sample: boolean;
-  private elicit: boolean | { form?: boolean; url?: boolean };
+  private readonly sample: boolean;
+  private readonly elicit: boolean | { form?: boolean; url?: boolean };
   private progress: boolean;
   private resetTimeoutOnProgress: boolean;
   private requestTimeout: number | undefined;
@@ -363,6 +410,46 @@ export class InspectorClient extends InspectorClientEventTarget {
   private pendingElicitations: ElicitationCreateMessage[] = [];
   // Roots (undefined means roots capability not enabled, empty array means enabled but no roots)
   private roots: Root[] | undefined;
+  /**
+   * Whether `capabilities.roots` was advertised at `initialize`, read off the
+   * capability object actually sent rather than re-derived from the constructor
+   * option. Fixed for the client's lifetime, because the capability is
+   * negotiated at construction and the SDK refuses `registerCapabilities` after
+   * connect.
+   *
+   * The `roots/list` registration gates on *this*, not on `this.roots`, which
+   * `setRoots()` can make defined later: the SDK throws "Client does not support
+   * roots capability" from `setRequestHandler` when the capability was never
+   * advertised, and that throw would land before the handshake on every
+   * subsequent `connect()` — wedging the client permanently (#1797).
+   */
+  private readonly rootsCapabilityAdvertised: boolean;
+  /**
+   * Whether `capabilities.elicitation` was advertised, on the same terms as
+   * {@link rootsCapabilityAdvertised}. Not the same question as `this.elicit`
+   * being truthy: `{}` / `{ form: false, url: false }` are valid options that
+   * enable no mode, so nothing is advertised — and registering
+   * `elicitation/create` anyway throws "Client does not support elicitation
+   * capability" before the handshake, leaving the client unable to connect
+   * at all (#1797).
+   */
+  private readonly elicitationCapabilityAdvertised: boolean;
+  /** As above, for `capabilities.sampling`. */
+  private readonly samplingCapabilityAdvertised: boolean;
+  /** As above, for `capabilities.tasks` (the receiver-side `tasks/*` polls). */
+  private readonly tasksCapabilityAdvertised: boolean;
+  /** As above, for `capabilities.elicitation.url` (the URL-mode completion). */
+  private readonly urlElicitationCapabilityAdvertised: boolean;
+  /**
+   * As above, for `capabilities.roots.listChanged` — the predicate the SDK
+   * asserts before letting us *send* `roots/list_changed`, which is narrower
+   * than the `capabilities.roots` presence it asserts before letting us
+   * *register* `roots/list`. They coincide today (roots are only ever
+   * advertised as `{ listChanged: true }`), but reading each assertion's own
+   * predicate is what keeps a future conditional advertisement from silently
+   * un-gating one of them.
+   */
+  private readonly rootsListChangedCapabilityAdvertised: boolean;
   // Content cache
   // ListChanged notification configuration
   private listChangedNotifications: {
@@ -430,10 +517,10 @@ export class InspectorClient extends InspectorClientEventTarget {
   // `cancelRequestorTask` instead, so they don't use this (#1458).
   private activeToolCallAbortController?: AbortController;
   // Receiver tasks (server-initiated: server sends createMessage/elicit with params.task, server polls us)
-  private receiverTasks: boolean;
+  private readonly receiverTasks: boolean;
   // Per-extension advertise overrides (#1738); undefined key falls back to the
   // registry default in ADVERTISABLE_EXTENSIONS.
-  private advertisedExtensions?: Record<string, boolean>;
+  private readonly advertisedExtensions?: Record<string, boolean>;
   private receiverTaskTtlMs: number | (() => number);
   private receiverTaskRecords: Map<string, ReceiverTaskRecord> = new Map();
   // OAuth support (config owned by oauthManager; client delegates and uses !!oauthManager for "is OAuth configured")
@@ -486,15 +573,19 @@ export class InspectorClient extends InspectorClientEventTarget {
     // the Logs-tab control. Absence means DEFAULT_MODERN_LOG_LEVEL; `"off"`
     // clears the opt-in. Only stamped on modern connections (see mergeMeta) —
     // legacy uses `logging/setLevel`.
-    const settingLevel =
-      options.serverSettings?.modernLogLevel ?? DEFAULT_MODERN_LOG_LEVEL;
-    this.modernLogLevel = settingLevel === "off" ? undefined : settingLevel;
+    this.modernLogLevel = resolveModernLogLevel(options.serverSettings);
     // Default to the legacy 2025-11-25 era when the caller doesn't pin one, per
     // the SDK guidance that a debugging tool must not auto-probe (#1626).
     this.versionNegotiation = options.versionNegotiation ?? { mode: "legacy" };
     this.directAuthRecovery = options.directAuthRecovery ?? false;
-    // Only set roots if explicitly provided (even if empty array) - this enables roots capability
-    this.roots = options.roots;
+    // Only set roots if explicitly provided (even if empty array) - this enables
+    // roots capability. Normalized here as well as in `setRoots`, so core owns
+    // the invariant rather than trusting each client to clean at its call site
+    // (they do, and `cleanRoots` is idempotent, so this costs nothing). The
+    // ternary preserves the `undefined`-vs-`[]` distinction the capability
+    // advertisement below gates on.
+    this.roots =
+      options.roots !== undefined ? cleanRoots(options.roots) : undefined;
     // Initialize listChangedNotifications config (default: all enabled)
     this.listChangedNotifications = {
       tools: options.listChangedNotifications?.tools ?? true,
@@ -590,13 +681,24 @@ export class InspectorClient extends InspectorClientEventTarget {
     }
     // Receiver tasks: advertise so server can send task-augmented createMessage/elicit and poll us
     if (this.receiverTasks) {
+      // `requests` declares which server→client requests we accept as tasks, so
+      // it must name only capabilities we actually advertised — both are decided
+      // above. Advertising a channel we then answer `-32601` on is the shape
+      // #1797 is about, and `{ receiverTasks: true, elicit: false }` would do
+      // exactly that.
+      const taskRequests: NonNullable<
+        NonNullable<ClientCapabilities["tasks"]>["requests"]
+      > = {};
+      if (capabilities.sampling) {
+        taskRequests.sampling = { createMessage: {} };
+      }
+      if (capabilities.elicitation) {
+        taskRequests.elicitation = { create: {} };
+      }
       capabilities.tasks = {
         list: {},
         cancel: {},
-        requests: {
-          sampling: { createMessage: {} },
-          elicitation: { create: {} },
-        },
+        ...(Object.keys(taskRequests).length > 0 && { requests: taskRequests }),
       };
     }
     // Assemble the advertised-extensions map from one builder (the single
@@ -619,6 +721,19 @@ export class InspectorClient extends InspectorClientEventTarget {
     }
     clientOptions.capabilities = capabilities;
     this.clientCapabilities = capabilities;
+    // Read off the built capability object rather than re-deriving from
+    // `options.roots`: the gate and the advertisement must agree, and two
+    // independent derivations of the same fact can drift (a `readonly` field is
+    // assignable anywhere in the constructor).
+    this.rootsCapabilityAdvertised = capabilities.roots !== undefined;
+    this.elicitationCapabilityAdvertised =
+      capabilities.elicitation !== undefined;
+    this.samplingCapabilityAdvertised = capabilities.sampling !== undefined;
+    this.tasksCapabilityAdvertised = capabilities.tasks !== undefined;
+    this.urlElicitationCapabilityAdvertised =
+      capabilities.elicitation?.url !== undefined;
+    this.rootsListChangedCapabilityAdvertised =
+      capabilities.roots?.listChanged === true;
 
     this.appRendererClientProxy = null;
     this.clientInfo = options.clientIdentity ?? {
@@ -714,6 +829,22 @@ export class InspectorClient extends InspectorClientEventTarget {
         this.status = "disconnected";
         this.dispatchTypedEvent("statusChange", this.status);
       }
+      // A mid-session crash ends the connection without going through
+      // `disconnect()`, so drop anything the server had queued with us — the
+      // same reasoning as the `connect()` failure path. Cleared before the
+      // `disconnect` event so a consumer reading the queue while handling it
+      // sees it empty. `disconnect()` clears at the same point, but batches its
+      // change events with the rest of its teardown dispatches — so on that
+      // path the *events* land just after its `disconnect`, not before.
+      this.clearAndAnnouncePendingPeerRequests();
+      // Same for what *we* asked the server. The SDK's chained `_onclose`
+      // settles its own `_responseHandlers`, but the raw-wire map (the modern
+      // `tasks/*` frames its era gate refuses to route) is ours and it doesn't
+      // know about it — so a Tasks-tab poll in flight when the server dies
+      // would otherwise wait out its own 30s timeout and blame the timeout for
+      // a crash. Rejecting a settled promise is a no-op and the helper clears
+      // the map, so this can't double-settle with `disconnect()`.
+      this.rejectPendingRawWireRequests("Connection closed");
       this.dispatchTypedEvent("disconnect");
     };
     baseTransport.onerror = (error: Error) => {
@@ -904,7 +1035,10 @@ export class InspectorClient extends InspectorClientEventTarget {
     if (!validating) return;
     internal._requestHandlers.set(method, (request, ctx) => {
       const task = (request as { params?: { task?: unknown } })?.params?.task;
-      if (this.receiverTasks && task != null) {
+      // The advertisement check is redundant here — this wrapper only exists
+      // when tasks are advertised — but it mirrors the handler branch below
+      // deliberately: the two must agree, so they read one predicate.
+      if (this.tasksCapabilityAdvertised && task != null) {
         return rawHandler(request as CreateMessageRequest & ElicitRequest);
       }
       return validating(request, ctx);
@@ -939,6 +1073,13 @@ export class InspectorClient extends InspectorClientEventTarget {
       resolvePayload = resolve;
       rejectPayload = reject;
     });
+    // Mark it handled. The real consumer is the server polling `tasks/result`
+    // (`getReceiverTaskPayload` returns this same promise, so a real awaiter
+    // still sees the rejection), but nothing has attached a handler while the
+    // task sits in `input_required` — and it can be rejected from there, by an
+    // explicit `tasks/cancel` or by teardown settling a queued sample. Without
+    // this, that reject surfaces as an unhandled rejection.
+    void payloadPromise.catch(() => {});
     const record: ReceiverTaskRecord = {
       task,
       payloadPromise,
@@ -1049,6 +1190,423 @@ export class InspectorClient extends InspectorClientEventTarget {
   }
 
   /**
+   * Register the handlers for requests the *server* makes of *us* —
+   * `roots/list`, `sampling/createMessage`, `elicitation/create`, and the
+   * receiver-side `tasks/*` polls.
+   *
+   * MUST be called before `client.connect()`. The matching capabilities are
+   * advertised on the `Client` at construction time, so from the moment
+   * `connect()` sends `notifications/initialized` the server is entitled to
+   * issue any of these requests. Registering afterwards leaves a window in
+   * which the SDK `Client` has no handler and answers `-32601 Method not
+   * found` — which is exactly what a server that asks for roots the instant it
+   * is initialized (e.g. `server-filesystem`, which learns its allowed
+   * directories that way) hits, while a server that asks later does not (#1797).
+   *
+   * Nothing here depends on the server's capabilities — only on constructor-set
+   * state — so there is nothing to wait for. Its sibling
+   * {@link registerPeerNotificationHandlers} does the same for the one
+   * notification handler in that position; the notification handlers that *do*
+   * gate on `this.capabilities` stay in `connect()`, after the handshake.
+   */
+  private registerPeerRequestHandlers(): void {
+    // Gated on what was advertised, like the others — see
+    // `rootsCapabilityAdvertised`.
+    if (this.samplingCapabilityAdvertised && this.client) {
+      const samplingHandler = (
+        request: CreateMessageRequest,
+      ): Promise<CreateMessageResult> => {
+        const paramsTask = (request.params as { task?: { ttl?: number } })
+          ?.task;
+        if (this.tasksCapabilityAdvertised && paramsTask != null) {
+          const record = this.createReceiverTask({
+            ttl: paramsTask.ttl,
+            initialStatus: "input_required",
+            statusMessage: "Awaiting user input",
+          });
+          void (async () => {
+            const samplingRequest = new SamplingCreateMessage(
+              request,
+              (result) => {
+                record.resolvePayload(result);
+                const now = new Date().toISOString();
+                const updated: Task = {
+                  ...record.task,
+                  status: "completed",
+                  lastUpdatedAt: now,
+                };
+                record.task = updated;
+                this.upsertReceiverTask(updated);
+              },
+              (error) => {
+                record.rejectPayload(error);
+                const now = new Date().toISOString();
+                const updated: Task = {
+                  ...record.task,
+                  status: "failed",
+                  lastUpdatedAt: now,
+                  statusMessage:
+                    error instanceof Error ? error.message : String(error),
+                };
+                record.task = updated;
+                this.upsertReceiverTask(updated);
+              },
+              (id) => this.removePendingSample(id),
+            );
+            this.addPendingSample(samplingRequest);
+          })();
+          // Task-augmented (2025-11-25) response: the server sent a
+          // task-augmented `sampling/createMessage`, so we reply with a
+          // `CreateTaskResult` (`{ task }`) rather than a `CreateMessageResult`.
+          // The v2 Client validates a spec handler's result and would reject
+          // `{ task }` with -32602; `installReceiverTaskResponseBypass` below
+          // routes this task-augmented branch around that validation so the
+          // legacy `{ task }` response reaches the wire. `taskResult` is typed
+          // as `CreateTaskResult` so its shape IS checked; the unavoidable
+          // `as unknown as CreateMessageResult` bridges the SDK gap — the 2-arg
+          // `setRequestHandler` overload types a sampling handler's return as
+          // `CreateMessageResult` only and doesn't model the (deprecated but
+          // wire-valid) task-augmented `CreateTaskResult`. A handler-result
+          // union `CreateMessageResult | CreateTaskResult` on the SDK side
+          // would remove this cast.
+          const taskResult: CreateTaskResult = { task: record.task };
+          return Promise.resolve(taskResult as unknown as CreateMessageResult);
+        }
+        return this.enqueuePendingSample(request, "server-request");
+      };
+      this.client.setRequestHandler("sampling/createMessage", samplingHandler);
+      // Registration, like the `setRequestHandler` above it — and the whole
+      // bypass mechanism (install, wrapper branch, handler branch) reads this
+      // one predicate, so the install can't drift from the branch it controls.
+      if (this.tasksCapabilityAdvertised) {
+        this.installReceiverTaskResponseBypass(
+          "sampling/createMessage",
+          samplingHandler,
+        );
+      }
+    }
+
+    // Gated on what was advertised, not on `this.elicit` — see the field's doc:
+    // an elicit option that enables no mode advertises nothing, and registering
+    // regardless throws before the handshake.
+    if (this.elicitationCapabilityAdvertised && this.client) {
+      const elicitHandler = (request: ElicitRequest): Promise<ElicitResult> => {
+        const paramsTask = (request.params as { task?: { ttl?: number } })
+          ?.task;
+        if (this.tasksCapabilityAdvertised && paramsTask != null) {
+          const record = this.createReceiverTask({
+            ttl: paramsTask.ttl,
+            initialStatus: "input_required",
+            statusMessage: "Awaiting user input",
+          });
+          void (async () => {
+            const elicitationRequest = new ElicitationCreateMessage(
+              request,
+              (result) => {
+                record.resolvePayload(result);
+                const now = new Date().toISOString();
+                const updated: Task = {
+                  ...record.task,
+                  status: "completed",
+                  lastUpdatedAt: now,
+                };
+                record.task = updated;
+                this.upsertReceiverTask(updated);
+              },
+              (id) => this.removePendingElicitation(id),
+              (error) => {
+                record.rejectPayload(error);
+                const now = new Date().toISOString();
+                const updated: Task = {
+                  ...record.task,
+                  status: "failed",
+                  lastUpdatedAt: now,
+                  statusMessage: error.message,
+                };
+                record.task = updated;
+                this.upsertReceiverTask(updated);
+              },
+            );
+            this.addPendingElicitation(elicitationRequest);
+          })();
+          // Task-augmented (2025-11-25) response — see the sampling handler
+          // above. Reply with a `CreateTaskResult` (`{ task }`), routed around
+          // the v2 Client's result validation by
+          // `installReceiverTaskResponseBypass` below. `taskResult` is typed so
+          // its shape is checked; the `as unknown as ElicitResult` bridges the
+          // same SDK gap as the sampling handler — the 2-arg `setRequestHandler`
+          // overload types an elicitation handler's return as `ElicitResult`
+          // only and doesn't model the task-augmented `CreateTaskResult`.
+          const taskResult: CreateTaskResult = { task: record.task };
+          return Promise.resolve(taskResult as unknown as ElicitResult);
+        }
+        return this.enqueuePendingElicitation(request, "server-request");
+      };
+      this.client.setRequestHandler("elicitation/create", elicitHandler);
+      // Registration, like the `setRequestHandler` above it — and the whole
+      // bypass mechanism (install, wrapper branch, handler branch) reads this
+      // one predicate, so the install can't drift from the branch it controls.
+      if (this.tasksCapabilityAdvertised) {
+        this.installReceiverTaskResponseBypass(
+          "elicitation/create",
+          elicitHandler,
+        );
+      }
+    }
+
+    // Gated on what was advertised at construction, and it has to be: the SDK
+    // asserts the matching client capability inside `setRequestHandler`, so
+    // registering this on a client built without `roots` throws "Client does
+    // not support roots capability". Since `capabilities.roots` is negotiated at
+    // `initialize` (set in the constructor) and `registerCapabilities` refuses
+    // to run after connect, a client that omits the option can never serve
+    // `roots/list` — which is why every client that may call `setRoots()` later
+    // must pass `roots` up front (web does; the CLI and TUI now do too — #1797).
+    if (this.rootsCapabilityAdvertised && this.client) {
+      this.client.setRequestHandler("roots/list", async () => {
+        return { roots: this.roots ?? [] };
+      });
+    }
+
+    // Set up receiver-task request handlers (server polls us for tasks/list,
+    // tasks/get, tasks/result, tasks/cancel). SDK v2 removed tasks from the
+    // spec-method set, so these register through the 3-arg custom form with an
+    // explicit params schema (from the deprecated-but-importable task request
+    // schemas). The `result` schema is intentionally omitted so the SDK does
+    // not validate our responder return — matching v1, where only the
+    // requester validated (our receiver `Task` may omit fields a strict result
+    // schema would require).
+    if (this.tasksCapabilityAdvertised && this.client) {
+      this.client.setRequestHandler(
+        "tasks/list",
+        { params: ListTasksRequestSchema.shape.params },
+        async () => ({ tasks: this.listReceiverTasks() }),
+      );
+      this.client.setRequestHandler(
+        "tasks/get",
+        { params: GetTaskRequestSchema.shape.params },
+        async (params) => {
+          const record = this.getReceiverTask(params.taskId);
+          if (!record) {
+            throw new ProtocolError(
+              ProtocolErrorCode.InvalidParams,
+              `Unknown taskId: ${params.taskId}`,
+            );
+          }
+          return record.task;
+        },
+      );
+      this.client.setRequestHandler(
+        "tasks/result",
+        { params: GetTaskPayloadRequestSchema.shape.params },
+        async (params) => this.getReceiverTaskPayload(params.taskId),
+      );
+      this.client.setRequestHandler(
+        "tasks/cancel",
+        { params: CancelTaskRequestSchema.shape.params },
+        async (params) => this.cancelReceiverTask(params.taskId),
+      );
+    }
+  }
+
+  /**
+   * Register the inbound *notification* handlers that depend on nothing but
+   * constructor-set state, and so belong before the handshake for the same
+   * reason as {@link registerPeerRequestHandlers} (#1797).
+   *
+   * `notifications/roots/list_changed` is the only one — and note it is a
+   * **client**→server notification in the spec (`ClientNotification`): we send
+   * it from {@link setRoots}, servers do not normally send it to us. This
+   * inbound handler is defensive coverage for a non-conformant or experimental
+   * server, and its body dispatches `rootsChange` with our own already-known
+   * roots, i.e. a refresh signal carrying no new data. It sits here for
+   * consistency with the request handlers — it gates on no server capability,
+   * so there is nothing to wait for, and an unhandled notification is dropped
+   * silently by the SDK (no wire error) rather than answered `-32601`.
+   *
+   * The remaining listChanged handlers gate on `this.capabilities`, which is
+   * not populated until `fetchServerInfo()` runs, so they stay in `connect()`.
+   */
+  private registerPeerNotificationHandlers(): void {
+    /* v8 ignore next -- unreachable: the sole caller is connect(), past its
+       `if (!this.client) throw`; the guard exists only to narrow the type. */
+    if (!this.client) return;
+    this.client.setNotificationHandler(
+      "notifications/roots/list_changed",
+      async () => {
+        // Re-dispatch our already-known roots as a refresh signal for the UI —
+        // the payload carries no new data (see the note on ownership above).
+        // Copied, as `setRoots` and `getRoots()` do: a listener must not be
+        // able to push into the list we advertise.
+        this.dispatchTypedEvent("rootsChange", [...(this.roots ?? [])]);
+      },
+    );
+  }
+
+  /**
+   * Stop the receiver tasks' TTL timers and drop the records.
+   *
+   * These are tasks a *server* created with us, so they belong to the session
+   * that created them: `listReceiverTasks()` is what the `tasks/list` handler
+   * answers with, and a record surviving into the next session would report a
+   * task the new server never created. `disconnect()` clears them, and so does
+   * `connect()` — the auth-recovery retry reconnects the *same* client
+   * instance, so ending the session isn't the only way a new one begins
+   * (#1797).
+   */
+  private clearReceiverTasks(): void {
+    for (const record of this.receiverTaskRecords.values()) {
+      if (record.cleanupTimeoutId != null) {
+        clearTimeout(record.cleanupTimeoutId);
+      }
+    }
+    this.receiverTaskRecords.clear();
+  }
+
+  /**
+   * Reset the modern listen-stream cluster: the subscribed set, the stream
+   * state derived from it, and the reconnect machinery that reports on it.
+   *
+   * One helper because these move together — the rest of the file derives the
+   * stream's `active` from `subscribedResources.size > 0`, so clearing one
+   * without the other leaves a combination those readers treat as impossible,
+   * and a surviving `modernReconnectAttempts` makes a *new* session's first
+   * drop back off as if it were the old session's nth. Both axes are announced:
+   * every other mutation of the set dispatches, and so does the stream state.
+   *
+   * Closes the stream itself, best-effort. `disconnect()` is the obvious caller
+   * with a live one, but not the only one: an `onerror` without an `onclose`
+   * leaves the transport up, and `connect()` then reuses it — so the reference
+   * dropped here can be the last one to a stream still open on the server.
+   */
+  private resetSubscriptionStream(): void {
+    const closing = this.modernSubscription;
+    this.subscribedResources.clear();
+    this.modernListenGeneration++;
+    this.clearModernReconnectTimer();
+    this.modernReconnectAttempts = 0;
+    this.modernSubscription = null;
+    // Announced only once both have moved: a listener that ran between them
+    // would see an empty set with an `active` stream — the combination this
+    // helper exists to prevent, so its own dispatches must not expose it.
+    this.setModernStreamState(INACTIVE_SUBSCRIPTION_STREAM_STATE);
+    this.dispatchSubscriptionsChange();
+    // After the dispatches, so the ordering above is unaffected, and
+    // fire-and-forget because nothing downstream depends on it. That is also
+    // why the wrapping matters here in a different way than at the awaited
+    // sites: the `void` means a failure cannot reach the caller at all — so it
+    // cannot cut `disconnect()`'s straight-line teardown short — and what it
+    // would do instead is go unhandled, which ends a Node process by default.
+    if (closing) void closeSubscriptionBestEffort(closing);
+  }
+
+  /**
+   * Drop the session-scoped state a *new* session would misread — anything the
+   * next server could be told about, or that would change how we treat its
+   * traffic. State that only needs settling on the way out (the peer-request
+   * queues, the raw-wire map, the in-flight tool call) is not reset here — the
+   * in-flight tool call because `callTool`'s own `finally` releases it once the
+   * SDK rejects it, the other two because they are settled *end*-clean, by
+   * `disconnect()` and the crash path, so that a consumer handling the
+   * `disconnect` event already sees them empty. That is a difference in when,
+   * not in whether: the routes out do not cover every route *in* (an `onerror`
+   * without an `onclose` runs neither), so `connect()` sweeps those two beside
+   * this call as a backstop — see the comment there.
+   *
+   * `disconnect()` touches all of this on the way out too — two members through
+   * the same helpers, three hand-rolled in both places — so a sixth member
+   * added here has to be added there as well. One of the three is *paired*
+   * rather than duplicated: `modernLogLevel` is re-derived here and blanked
+   * there, deliberately (see the comment at that site). It is not the only
+   * way a session ends — a crash, or a failed connect the caller retries on
+   * this same instance (the auth-recovery path), both leave it behind. Called
+   * start-clean from `connect()` so every route in is covered.
+   *
+   * Each member has a symptom, not just untidiness: a stale `subscribedResources`
+   * entry makes the modern `subscribeToResource` early-return, so the user's
+   * Subscribe click silently sends nothing to the new server; a stale
+   * `cancelledTaskIds` entry mislabels a *new* task sharing the id as
+   * `cancelled` rather than `failed`; a stale subscription stream state reads
+   * `active` for a set that is now empty, which every reader of it treats as
+   * impossible; a receiver-task record is reported to the new server by
+   * `tasks/list`; and an un-aborted `taskInputAbortControllers`
+   * entry delays a paused poll loop unwinding — both registration sites release
+   * in a `finally`, so nothing leaks permanently; the abort just closes the
+   * window between the crash and the unwind (#1797).
+   */
+  private resetSessionState(): void {
+    this.clearReceiverTasks();
+    this.resetSubscriptionStream();
+    this.cancelledTaskIds.clear();
+    for (const [, controller] of this.taskInputAbortControllers) {
+      controller.abort(new Error("Connection ended"));
+    }
+    this.taskInputAbortControllers.clear();
+    // Restore the configured opt-in rather than carrying a mid-session
+    // `setModernLogLevel` override into the next connection — and rather than
+    // leaving it `undefined` after a `disconnect()` cleared it, which silently
+    // dropped the user's configured level on reconnect (#1629, #1797).
+    this.modernLogLevel = resolveModernLogLevel(this.serverSettings);
+  }
+
+  /**
+   * Settle and drop the queued peer requests (sampling / elicitation).
+   *
+   * Every entry is settled before being dropped rather than discarded: an
+   * elicitation so an error-path `awaitUrlElicitation` — which blocks
+   * `callTool` — doesn't hang forever, and a sample so the *server* gets a
+   * response frame for the request we accepted (the transport can outlive a
+   * failed attempt; see the `connect()` catch). Callers dispatch the change
+   * events themselves:
+   * `disconnect()` batches them with its other teardown dispatches, and
+   * {@link clearAndAnnouncePendingPeerRequests} emits them immediately
+   * everywhere else.
+   */
+  private clearPendingPeerRequests(): void {
+    for (const sample of this.pendingSamples) {
+      sample.cancel();
+    }
+    this.pendingSamples = [];
+    for (const elicitation of this.pendingElicitations) {
+      elicitation.cancel();
+    }
+    this.pendingElicitations = [];
+  }
+
+  /**
+   * {@link clearPendingPeerRequests} plus the change events, for every route
+   * that drops a queue without going through `disconnect()`: the routes *out*
+   * that end a connection some other way, plus the top of `connect()` as a
+   * backstop for the one route in that settles nothing (an `onerror` without an
+   * `onclose` — see the comment at that call). Named as a category rather than
+   * counted, because the set has grown before. (One of the routes out doesn't
+   * always end the connection: when a `connect()` failure leaves an auth
+   * provider holding the transport open, the caller re-authenticates and
+   * retries over it, and what's dropped is the queue left by the attempt that
+   * failed.)
+   *
+   * The events are the load-bearing half: `usePendingClientRequests` tracks its
+   * own state off them, so clearing the arrays without dispatching leaves the
+   * web pending-request modal on screen for a connection that is gone. Guarded
+   * on a non-empty queue so the paths that overlap (a `connect()` failure whose
+   * `dropCachedTransport` also fires `onclose`) announce it once.
+   */
+  private clearAndAnnouncePendingPeerRequests(): void {
+    if (
+      this.pendingSamples.length === 0 &&
+      this.pendingElicitations.length === 0
+    ) {
+      return;
+    }
+    this.clearPendingPeerRequests();
+    this.dispatchTypedEvent("pendingSamplesChange", this.pendingSamples);
+    this.dispatchTypedEvent(
+      "pendingElicitationsChange",
+      this.pendingElicitations,
+    );
+  }
+
+  /**
    * Connect to the MCP server
    */
   async connect(): Promise<void> {
@@ -1058,6 +1616,44 @@ export class InspectorClient extends InspectorClientEventTarget {
     if (this.status === "connected") {
       return;
     }
+
+    // Start from a clean session — see `resetSessionState` for why this is
+    // start-clean rather than relying on `disconnect()`.
+    this.resetSessionState();
+    // The two collections `resetSessionState` excludes as "settled on the way
+    // out", swept here as well — because one route out settles nothing. An
+    // `onerror` without an `onclose` only flips status to `"error"`: it runs
+    // neither teardown path, and it leaves `baseTransport` cached, so a
+    // `connect()` on this same instance reuses a *live* transport. That is the
+    // route the subscription-stream close exists for, and it strands these two
+    // the same way. The peer queue is the sharper of them — the web
+    // pending-request modal is derived from its length with no status gate, so
+    // it outlives the session, and a user answering it later would write
+    // *their* answer for the previous session's request id onto the new
+    // connection, arbitrarily far past the re-handshake. Note what the sweep
+    // does instead is emit a *cancel* for that same id, right here: still the
+    // settle-don't-discard rule, and this is the earliest moment available:
+    // the old connection is still the one on the wire here, and stays so at
+    // least until the conditional `dropCachedTransport()` below — which on a
+    // stdio server never runs at all, so the same transport carries straight
+    // through the re-handshake.
+    //
+    // Both helpers are idempotent (one guards on a non-empty queue, the other
+    // clears its map and re-rejecting a settled promise is a no-op), so these
+    // are no-ops on the routes that already ran them; and anything still
+    // pending here belongs to a session that is, by definition, no longer
+    // connected.
+    //
+    // Must stay *after* `resetSessionState()`, which reads as independent of it
+    // but is not: cancelling a task-augmented peer request settles it
+    // synchronously into the record callback, which ends in
+    // `upsertReceiverTask`. That is a no-op only because `clearReceiverTasks()`
+    // just emptied the map — hoisted above the reset, it would instead emit a
+    // `notifications/tasks/status` for the outgoing session's task, onto the
+    // transport this connect is about to reuse, moments before the reset drops
+    // the record anyway.
+    this.clearAndAnnouncePendingPeerRequests();
+    this.rejectPendingRawWireRequests("Connection ended");
 
     const oauthManager = this.oauthManager;
     if (
@@ -1165,6 +1761,12 @@ export class InspectorClient extends InspectorClientEventTarget {
       this.status = "connecting";
       this.dispatchTypedEvent("statusChange", this.status);
 
+      // Register the handlers for server→client requests and the
+      // capability-independent notifications before the handshake — see
+      // `registerPeerRequestHandlers` for why the ordering is load-bearing.
+      this.registerPeerRequestHandlers();
+      this.registerPeerNotificationHandlers();
+
       // Optional connect-time timeout from per-server settings. The MCP SDK
       // has no connect-time timeout option, so we wrap the handshake in a
       // Promise.race. On timeout, tear the transport down so the next
@@ -1221,209 +1823,6 @@ export class InspectorClient extends InspectorClientEventTarget {
         await this.client.setLoggingLevel(
           this.initialLoggingLevel,
           this.getRequestOptions(),
-        );
-      }
-
-      // Set up sampling request handler if sampling capability is enabled
-      if (this.sample && this.client) {
-        const samplingHandler = (
-          request: CreateMessageRequest,
-        ): Promise<CreateMessageResult> => {
-          const paramsTask = (request.params as { task?: { ttl?: number } })
-            ?.task;
-          if (this.receiverTasks && paramsTask != null) {
-            const record = this.createReceiverTask({
-              ttl: paramsTask.ttl,
-              initialStatus: "input_required",
-              statusMessage: "Awaiting user input",
-            });
-            void (async () => {
-              const samplingRequest = new SamplingCreateMessage(
-                request,
-                (result) => {
-                  record.resolvePayload(result);
-                  const now = new Date().toISOString();
-                  const updated: Task = {
-                    ...record.task,
-                    status: "completed",
-                    lastUpdatedAt: now,
-                  };
-                  record.task = updated;
-                  this.upsertReceiverTask(updated);
-                },
-                (error) => {
-                  record.rejectPayload(error);
-                  const now = new Date().toISOString();
-                  const updated: Task = {
-                    ...record.task,
-                    status: "failed",
-                    lastUpdatedAt: now,
-                    statusMessage:
-                      error instanceof Error ? error.message : String(error),
-                  };
-                  record.task = updated;
-                  this.upsertReceiverTask(updated);
-                },
-                (id) => this.removePendingSample(id),
-              );
-              this.addPendingSample(samplingRequest);
-            })();
-            // Task-augmented (2025-11-25) response: the server sent a
-            // task-augmented `sampling/createMessage`, so we reply with a
-            // `CreateTaskResult` (`{ task }`) rather than a `CreateMessageResult`.
-            // The v2 Client validates a spec handler's result and would reject
-            // `{ task }` with -32602; `installReceiverTaskResponseBypass` below
-            // routes this task-augmented branch around that validation so the
-            // legacy `{ task }` response reaches the wire. `taskResult` is typed
-            // as `CreateTaskResult` so its shape IS checked; the unavoidable
-            // `as unknown as CreateMessageResult` bridges the SDK gap — the 2-arg
-            // `setRequestHandler` overload types a sampling handler's return as
-            // `CreateMessageResult` only and doesn't model the (deprecated but
-            // wire-valid) task-augmented `CreateTaskResult`. A handler-result
-            // union `CreateMessageResult | CreateTaskResult` on the SDK side
-            // would remove this cast.
-            const taskResult: CreateTaskResult = { task: record.task };
-            return Promise.resolve(
-              taskResult as unknown as CreateMessageResult,
-            );
-          }
-          return this.enqueuePendingSample(request, "server-request");
-        };
-        this.client.setRequestHandler(
-          "sampling/createMessage",
-          samplingHandler,
-        );
-        if (this.receiverTasks) {
-          this.installReceiverTaskResponseBypass(
-            "sampling/createMessage",
-            samplingHandler,
-          );
-        }
-      }
-
-      // Set up elicitation request handler if elicitation capability is enabled
-      if (this.elicit && this.client) {
-        const elicitHandler = (
-          request: ElicitRequest,
-        ): Promise<ElicitResult> => {
-          const paramsTask = (request.params as { task?: { ttl?: number } })
-            ?.task;
-          if (this.receiverTasks && paramsTask != null) {
-            const record = this.createReceiverTask({
-              ttl: paramsTask.ttl,
-              initialStatus: "input_required",
-              statusMessage: "Awaiting user input",
-            });
-            void (async () => {
-              const elicitationRequest = new ElicitationCreateMessage(
-                request,
-                (result) => {
-                  record.resolvePayload(result);
-                  const now = new Date().toISOString();
-                  const updated: Task = {
-                    ...record.task,
-                    status: "completed",
-                    lastUpdatedAt: now,
-                  };
-                  record.task = updated;
-                  this.upsertReceiverTask(updated);
-                },
-                (id) => this.removePendingElicitation(id),
-                (error) => {
-                  record.rejectPayload(error);
-                  const now = new Date().toISOString();
-                  const updated: Task = {
-                    ...record.task,
-                    status: "failed",
-                    lastUpdatedAt: now,
-                    statusMessage: error.message,
-                  };
-                  record.task = updated;
-                  this.upsertReceiverTask(updated);
-                },
-              );
-              this.addPendingElicitation(elicitationRequest);
-            })();
-            // Task-augmented (2025-11-25) response — see the sampling handler
-            // above. Reply with a `CreateTaskResult` (`{ task }`), routed around
-            // the v2 Client's result validation by
-            // `installReceiverTaskResponseBypass` below. `taskResult` is typed so
-            // its shape is checked; the `as unknown as ElicitResult` bridges the
-            // same SDK gap as the sampling handler — the 2-arg `setRequestHandler`
-            // overload types an elicitation handler's return as `ElicitResult`
-            // only and doesn't model the task-augmented `CreateTaskResult`.
-            const taskResult: CreateTaskResult = { task: record.task };
-            return Promise.resolve(taskResult as unknown as ElicitResult);
-          }
-          return this.enqueuePendingElicitation(request, "server-request");
-        };
-        this.client.setRequestHandler("elicitation/create", elicitHandler);
-        if (this.receiverTasks) {
-          this.installReceiverTaskResponseBypass(
-            "elicitation/create",
-            elicitHandler,
-          );
-        }
-      }
-
-      // Set up roots/list request handler if roots capability is enabled
-      if (this.roots !== undefined && this.client) {
-        this.client.setRequestHandler("roots/list", async () => {
-          return { roots: this.roots ?? [] };
-        });
-      }
-
-      // Set up receiver-task request handlers (server polls us for tasks/list,
-      // tasks/get, tasks/result, tasks/cancel). SDK v2 removed tasks from the
-      // spec-method set, so these register through the 3-arg custom form with an
-      // explicit params schema (from the deprecated-but-importable task request
-      // schemas). The `result` schema is intentionally omitted so the SDK does
-      // not validate our responder return — matching v1, where only the
-      // requester validated (our receiver `Task` may omit fields a strict result
-      // schema would require).
-      if (this.receiverTasks && this.client) {
-        this.client.setRequestHandler(
-          "tasks/list",
-          { params: ListTasksRequestSchema.shape.params },
-          async () => ({ tasks: this.listReceiverTasks() }),
-        );
-        this.client.setRequestHandler(
-          "tasks/get",
-          { params: GetTaskRequestSchema.shape.params },
-          async (params) => {
-            const record = this.getReceiverTask(params.taskId);
-            if (!record) {
-              throw new ProtocolError(
-                ProtocolErrorCode.InvalidParams,
-                `Unknown taskId: ${params.taskId}`,
-              );
-            }
-            return record.task;
-          },
-        );
-        this.client.setRequestHandler(
-          "tasks/result",
-          { params: GetTaskPayloadRequestSchema.shape.params },
-          async (params) => this.getReceiverTaskPayload(params.taskId),
-        );
-        this.client.setRequestHandler(
-          "tasks/cancel",
-          { params: CancelTaskRequestSchema.shape.params },
-          async (params) => this.cancelReceiverTask(params.taskId),
-        );
-      }
-
-      // Set up notification handler for roots/list_changed from server
-      if (this.client) {
-        this.client.setNotificationHandler(
-          "notifications/roots/list_changed",
-          async () => {
-            // Dispatch event to notify UI that server's roots may have changed
-            // Note: rootsChange is a CustomEvent with Root[] payload, not a signal event
-            // We'll reload roots when the UI requests them, so we don't need to pass data here
-            // For now, we'll just dispatch an empty array as a signal to reload
-            this.dispatchTypedEvent("rootsChange", this.roots || []);
-          },
         );
       }
 
@@ -1515,11 +1914,7 @@ export class InspectorClient extends InspectorClientEventTarget {
 
         // Elicitation complete notification (URL mode only): server notifies when out-of-band
         // elicitation completes; we resolve the corresponding pending elicitation
-        const urlElicitEnabled =
-          this.elicit &&
-          typeof this.elicit === "object" &&
-          this.elicit.url === true;
-        if (urlElicitEnabled) {
+        if (this.urlElicitationCapabilityAdvertised) {
           this.client.setNotificationHandler(
             "notifications/elicitation/complete",
             async (notification) => {
@@ -1552,6 +1947,18 @@ export class InspectorClient extends InspectorClientEventTarget {
       if (this.baseTransport && !this.transportHasAuthProvider) {
         await this.dropCachedTransport();
       }
+      // The peer handlers are registered before the handshake (#1797), so a
+      // server can queue a sampling/elicitation request during it — and this is
+      // where that connect attempt dies. Drop the queue: otherwise the UI keeps
+      // a live pending-request modal for a connection that never came up, and
+      // answering it would route to a transport that is either torn down or —
+      // when an auth provider holds it open, so the caller can re-authenticate
+      // and retry over it — carrying a queue from an attempt that already
+      // failed. Note the retention is gated on `transportHasAuthProvider`
+      // alone, independently of `isConnectAuthRecoveryError` above, which gates
+      // only the status hold. `disconnect()` does the same clearing, but
+      // `connect()` only reaches it on the connect-timeout path.
+      this.clearAndAnnouncePendingPeerRequests();
       // Deliberately do NOT dispatch the `error` event here: this is the
       // awaited `connect()` path, so re-throwing hands the reason straight to
       // the caller. The `error` event is reserved for non-awaited transitions
@@ -1614,6 +2021,11 @@ export class InspectorClient extends InspectorClientEventTarget {
     this.baseTransport = null;
     this.transport = null;
     this.transportHasAuthProvider = false;
+    // Drop anything the server had queued with us before announcing the
+    // teardown, so a `disconnect` consumer sees an empty queue here as it does
+    // on the crash path. The change events stay batched with the other teardown
+    // dispatches below.
+    this.clearPendingPeerRequests();
     // Update status - any onclose fired during close() above deferred to us
     // (see `disconnecting`), so this is the single place the explicit-disconnect
     // path settles the status and emits `disconnect`.
@@ -1623,33 +2035,18 @@ export class InspectorClient extends InspectorClientEventTarget {
       this.dispatchTypedEvent("disconnect");
     }
 
-    // Clear server state on disconnect (list state is in state managers).
-    // Settle any outstanding elicitations as cancelled before dropping them, so
-    // an error-path `awaitUrlElicitation` (which blocks `callTool`) doesn't hang
-    // forever when the queue is cleared on teardown.
-    this.pendingSamples = [];
-    for (const elicitation of this.pendingElicitations) {
-      elicitation.cancel();
-    }
-    this.pendingElicitations = [];
+    // Clear the rest of the server state (list state is in state managers).
     // Clear resource subscriptions on disconnect. Tear down the modern listen
     // stream (best-effort — the transport is already going away) and bump the
     // generation so any in-flight re-listen/reconnect bails (#1630).
-    this.subscribedResources.clear();
-    this.modernListenGeneration++;
-    this.clearModernReconnectTimer();
-    this.modernReconnectAttempts = 0;
-    const closingSubscription = this.modernSubscription;
-    this.modernSubscription = null;
-    closingSubscription?.close().catch(() => {});
-    this.modernStreamState = INACTIVE_SUBSCRIPTION_STREAM_STATE;
-    this.dispatchTypedEvent(
-      "resourceSubscriptionStreamChange",
-      INACTIVE_SUBSCRIPTION_STREAM_STATE,
-    );
+    this.resetSubscriptionStream();
     this.cancelledTaskIds.clear();
     // Settle any pending raw-wire (modern tasks/*) requests so their callers
-    // don't hang past teardown.
+    // don't hang past teardown. Rejected outright on every disconnect: the
+    // drain above polls the SDK's own response-handler map, which never holds
+    // raw-wire ids (those frames go straight through the transport), and it is
+    // opt-in anyway — every production caller leaves `safeDisconnectTimeout` at
+    // 0, so nothing is drained for anyone.
     this.rejectPendingRawWireRequests("Disconnected");
     // Abort any task paused at input_required so its poll loop unwinds.
     for (const [, controller] of this.taskInputAbortControllers) {
@@ -1660,13 +2057,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     // hanging past teardown; drop the controller reference either way.
     this.activeToolCallAbortController?.abort("Disconnected");
     this.activeToolCallAbortController = undefined;
-    // Clear receiver tasks: stop TTL timers and drop records
-    for (const record of this.receiverTaskRecords.values()) {
-      if (record.cleanupTimeoutId != null) {
-        clearTimeout(record.cleanupTimeoutId);
-      }
-    }
-    this.receiverTaskRecords.clear();
+    this.clearReceiverTasks();
     this.appRendererClientProxy = null;
     this.capabilities = undefined;
     this.serverInfo = undefined;
@@ -1675,8 +2066,12 @@ export class InspectorClient extends InspectorClientEventTarget {
     this.protocolEra = undefined;
     this.discoverResult = undefined;
     this.excludedTools = [];
-    // Drop the modern per-request log-level opt-in so it doesn't leak into the
-    // next connection's `_meta` (#1629).
+    // Read as "not opted in" while disconnected. This is no longer what stops
+    // it leaking into the next connection — `resetSessionState()` re-derives it
+    // at connect, so removing this would leak nothing (#1629). Note the web
+    // Logs control deliberately shows the *configured* level in this window
+    // (`resetSessionScopedUiState`), so the two disagree until the next
+    // connect re-seeds both; harmless, since nothing is sent meanwhile.
     this.modernLogLevel = undefined;
     this.dispatchTypedEvent("pendingSamplesChange", this.pendingSamples);
     this.dispatchTypedEvent(
@@ -1950,7 +2345,11 @@ export class InspectorClient extends InspectorClientEventTarget {
     return true;
   }
 
-  /** Reject and clear all pending raw-wire requests (on disconnect/teardown). */
+  /**
+   * Reject and clear all pending raw-wire requests — on every route out that
+   * can hold one, and at the top of `connect()` for the route in that settles
+   * nothing (see the comment there).
+   */
   private rejectPendingRawWireRequests(reason: string): void {
     for (const [, pending] of this.pendingRawWireRequests) {
       clearTimeout(pending.timer);
@@ -4198,23 +4597,51 @@ export class InspectorClient extends InspectorClientEventTarget {
   }
 
   /**
-   * Set roots and notify server if it supports roots/listChanged
-   * Note: This will enable roots capability if it wasn't already enabled
+   * Set roots and announce the change to the server.
+   *
+   * Note this does **not** enable the roots capability on a client that was
+   * built without the constructor's `roots` option. `capabilities.roots` is
+   * negotiated at `initialize` and the SDK refuses `registerCapabilities`
+   * after connect, so such a client has no `roots/list` handler (see {@link
+   * registerPeerRequestHandlers}) and would have to answer `-32601` if a
+   * server asked. So on such a client the roots set here are stored and
+   * readable via {@link getRoots}, but no server can ask for them and the
+   * change is not announced — the SDK refuses `roots/list_changed` from a
+   * client that never declared `roots.listChanged`, so the notification could
+   * not have gone out anyway. Pass `roots` at construction — `[]` is enough —
+   * in any client that may call this (#1797).
+   *
+   * The argument runs through `cleanRoots`, the same normalizer the
+   * connect-time and settings-save paths use, so all three ways roots enter the
+   * client agree and no caller can advertise a `Root` with no `uri` (the CLI's
+   * `--roots-json` only checks that the JSON is an array). It is idempotent, so
+   * a caller that already cleaned loses nothing.
    */
   async setRoots(roots: Root[]): Promise<void> {
     if (!this.client) {
       throw new Error("Client is not connected");
     }
 
-    // Enable roots capability if not already enabled
-    if (this.roots === undefined) {
-      this.roots = [];
-    }
-    this.roots = [...roots];
-    this.dispatchTypedEvent("rootsChange", this.roots);
+    this.roots = cleanRoots(roots);
+    // Copy, as `getRoots()` does — a listener must not be able to push into the
+    // list we advertise.
+    this.dispatchTypedEvent("rootsChange", [...this.roots]);
 
-    // Send notification to server - clients can send this notification to any server
-    // The server doesn't need to advertise support for it
+    // The *server* needn't advertise support for this notification, but the
+    // *client* must have declared `roots.listChanged` to send it. The SDK
+    // enforces that itself — `notification()` rejects with "Client does not
+    // support roots list changed notifications" — so nothing reaches the wire
+    // on a client built without `roots`, and the server is never invited to
+    // re-fetch something we'd answer `-32601`. Returning early only avoids
+    // provoking that rejection and logging it as a *failure*: it isn't one, it
+    // is a client that was never able to announce (#1797).
+    if (!this.rootsListChangedCapabilityAdvertised) {
+      this.logger.warn(
+        "setRoots() on a client that did not advertise `roots.listChanged`; " +
+          "roots are stored locally but the change is not announced",
+      );
+      return;
+    }
     try {
       await this.client.notification({
         method: "notifications/roots/list_changed",
@@ -4310,6 +4737,14 @@ export class InspectorClient extends InspectorClientEventTarget {
     return filter;
   }
 
+  /** Cancel a pending reconnect re-listen, if any (#1630). */
+  private clearModernReconnectTimer(): void {
+    if (this.modernReconnectTimer !== undefined) {
+      clearTimeout(this.modernReconnectTimer);
+      this.modernReconnectTimer = undefined;
+    }
+  }
+
   /**
    * (Re-)establish the modern `subscriptions/listen` stream to match the current
    * `subscribedResources` set (#1630). Because the stream is not resumable,
@@ -4320,14 +4755,6 @@ export class InspectorClient extends InspectorClientEventTarget {
    * while this one awaits its acknowledgement, the just-opened stream is
    * discarded rather than overwriting the newer one.
    */
-  /** Cancel a pending reconnect re-listen, if any (#1630). */
-  private clearModernReconnectTimer(): void {
-    if (this.modernReconnectTimer !== undefined) {
-      clearTimeout(this.modernReconnectTimer);
-      this.modernReconnectTimer = undefined;
-    }
-  }
-
   private async refreshModernSubscription(
     fromReconnect = false,
   ): Promise<void> {
@@ -4345,7 +4772,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     const previous = this.modernSubscription;
     this.modernSubscription = null;
     if (previous) {
-      await previous.close().catch(() => {});
+      await closeSubscriptionBestEffort(previous);
     }
 
     // Nothing subscribed → keep the stream closed.
@@ -4361,7 +4788,7 @@ export class InspectorClient extends InspectorClientEventTarget {
 
     // A newer refresh superseded us while awaiting the ack — discard this one.
     if (generation !== this.modernListenGeneration) {
-      await subscription.close().catch(() => {});
+      await closeSubscriptionBestEffort(subscription);
       return;
     }
 
@@ -4377,8 +4804,20 @@ export class InspectorClient extends InspectorClientEventTarget {
     });
 
     // Observe termination; an unexpected drop reconnects by re-listing.
-    void subscription.closed.then((reason) =>
-      this.onModernSubscriptionClosed(subscription, reason, generation),
+    void subscription.closed.then(
+      (reason) =>
+        this.onModernSubscriptionClosed(subscription, reason, generation),
+      // The rejection arm exists because a `closed` that rejects carries no
+      // reason to act on, and an unhandled rejection ends a Node process by
+      // default. It is scoped to the rejection rather than chained after the
+      // handler because the handler cannot throw today — it only assigns state,
+      // dispatches on a native `EventTarget` (which reports listener throws
+      // rather than propagating them) and arms a timer — and chaining a
+      // `.catch` after it would silently abandon a re-listen if that ever
+      // changed. (Closing a stream *resolves* `closed`; what the connect-path
+      // close newly reaches is the handler running at all, where the reference
+      // used to be dropped with `closed` pending forever.)
+      () => {},
     );
   }
 
@@ -4409,8 +4848,10 @@ export class InspectorClient extends InspectorClientEventTarget {
     if (!shouldReconnect) {
       // "stream gone but subscriptions remain" renders the same whether we gave
       // up after failed reconnects or the server closed it gracefully: keep the
-      // ended badge while URIs are still subscribed. (On a terminal-status drop
-      // the disconnect reset clears the set and forces the inactive state.)
+      // ended badge while URIs are still subscribed. (A `disconnect()` clears
+      // the set and forces the inactive state; a *crash* leaves both in place
+      // until the next `connect()` calls `resetSubscriptionStream`, which moves
+      // them together — so "active with an empty set" is never observable.)
       this.setModernStreamState({
         active: this.subscribedResources.size > 0,
         status: "ended",
@@ -4422,6 +4863,40 @@ export class InspectorClient extends InspectorClientEventTarget {
     // A drop of an established stream is not itself a failure — schedule a
     // re-listen at the current backoff (0 after a healthy stream, so the base
     // delay). The counter only advances when a re-listen actually fails.
+    this.scheduleModernReconnect();
+  }
+
+  /**
+   * Reconcile the stream state after a re-listen *this* call owned and lost
+   * (#1797). Only correct for a caller that has not been superseded — a newer
+   * refresh owns the state as well as the filter — so both call sites gate on
+   * the generation first.
+   *
+   * The empty case is the ordinary one: nothing subscribed, no stream, inactive.
+   * The non-empty one exists because a failed re-listen leaves
+   * `modernSubscription` null with URIs still subscribed, and nothing else will
+   * notice: the reconnect machinery is reachable only from a stream that closed
+   * or a reconnect that failed, and neither happened here. Left alone, the state
+   * keeps whatever the last success (or the optimistic `"connecting"`) wrote — a
+   * badge that will never change over subscriptions the server may never have
+   * honored, recoverable only by an Unsubscribe/Subscribe toggle (a fresh
+   * Subscribe early-returns on the URI already being in the set).
+   *
+   * So it reconnects rather than settling for an honest-but-dead `"ended"`:
+   * every other route to "stream gone, URIs live" either expects the close or
+   * has exhausted the retry cap, and this is the one that has made no attempt
+   * at all. `scheduleModernReconnect` fits as-is — a user-initiated refresh
+   * already reset `modernReconnectAttempts`, so it starts at the base delay; the
+   * timer bails on a terminal status or an emptied set; and past the cap
+   * `onModernReconnectFailed` lands on the same `"ended"` badge. The state
+   * therefore becomes true or ends after a real attempt. The caller still sees
+   * its error either way — the retry is about the subscriptions, not the call.
+   */
+  private reconcileModernStreamStateAfterFailedRefresh(): void {
+    if (this.subscribedResources.size === 0) {
+      this.setModernStreamState(INACTIVE_SUBSCRIPTION_STREAM_STATE);
+      return;
+    }
     this.scheduleModernReconnect();
   }
 
@@ -4513,15 +4988,40 @@ export class InspectorClient extends InspectorClientEventTarget {
           status: "connecting",
           honoredUris: this.modernStreamState.honoredUris,
         });
+        // Read before the call, to tell "our refresh failed" from "someone else
+        // took over" in the catch — see there.
+        const generationBefore = this.modernListenGeneration;
         try {
           await this.refreshModernSubscription();
         } catch (error) {
           // Roll back the optimistic add + stream state so both stay consistent
-          // with the (unchanged) server filter.
-          this.subscribedResources.delete(uri);
-          this.dispatchSubscriptionsChange();
-          if (this.subscribedResources.size === 0) {
-            this.setModernStreamState(INACTIVE_SUBSCRIPTION_STREAM_STATE);
+          // with the server filter — but only while this call still owns that
+          // filter. A refresh bumps the generation exactly once, synchronously,
+          // so anything past that bump means something else advanced it, and
+          // both bumpers make the rollback wrong:
+          //
+          // - a newer `refreshModernSubscription` built its filter from the set
+          //   *including* this URI, so if it succeeded the server is honoring
+          //   the subscription; deleting it here would leave the set missing a
+          //   URI the live stream carries, the UI showing it unsubscribed while
+          //   its `resources/updated` keep arriving.
+          // - `resetSubscriptionStream` (a `disconnect()`, or the start-clean
+          //   reset in `connect()`) already cleared the set and set the state,
+          //   so there is nothing to roll back — and if the caller has since
+          //   re-subscribed on the new session, this stale catch would delete a
+          //   URI that session legitimately holds.
+          //
+          // Either way the state is no longer ours to correct. The error is
+          // still the caller's to see.
+          if (this.modernListenGeneration === generationBefore + 1) {
+            // State before the announce, for `resetSubscriptionStream`'s
+            // reason: on a last-URI rollback, dispatching first would expose an
+            // empty set with a stream still reading `"connecting"` — the pair
+            // this file treats as impossible. The reverse intermediate is the
+            // benign one (and the optimistic add above already exposes it).
+            this.subscribedResources.delete(uri);
+            this.reconcileModernStreamStateAfterFailedRefresh();
+            this.dispatchSubscriptionsChange();
           }
           throw error;
         }
@@ -4557,8 +5057,31 @@ export class InspectorClient extends InspectorClientEventTarget {
         if (!this.subscribedResources.delete(uri)) return;
         // The removal is the user's intent; keep it even if the re-listen fails
         // (the stale URI simply lingers in the server's honored filter).
+        //
+        // Removing the last URI moves the stream to inactive before announcing
+        // the set, rather than letting the re-listen below do it a round-trip
+        // later: dispatching first would expose an empty set with an `active`
+        // stream, which is the pair `resetSubscriptionStream` orders its own
+        // writes to prevent. The re-listen sets the same state on arrival, and
+        // sets it on the failure path too (see the catch).
+        if (this.subscribedResources.size === 0) {
+          this.setModernStreamState(INACTIVE_SUBSCRIPTION_STREAM_STATE);
+        }
         this.dispatchSubscriptionsChange();
-        await this.refreshModernSubscription();
+        // Same ownership test as `subscribeToResource` — see the long comment
+        // there. Nothing to undo on this path (the removal is kept
+        // deliberately), but the *state* still needs reconciling when this call
+        // owned the re-listen that failed: it leaves no stream behind, and the
+        // badge would otherwise keep reporting the last success.
+        const generationBefore = this.modernListenGeneration;
+        try {
+          await this.refreshModernSubscription();
+        } catch (error) {
+          if (this.modernListenGeneration === generationBefore + 1) {
+            this.reconcileModernStreamStateAfterFailedRefresh();
+          }
+          throw error;
+        }
       } else {
         await this.client.unsubscribeResource(
           { uri },

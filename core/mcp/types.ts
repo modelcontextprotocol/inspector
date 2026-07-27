@@ -567,6 +567,24 @@ export type ModernLogLevel = LoggingLevel | "off";
  */
 export const DEFAULT_MODERN_LOG_LEVEL: ModernLogLevel = "debug";
 
+/**
+ * The live modern per-request log level a server's settings imply: the
+ * configured value, or {@link DEFAULT_MODERN_LOG_LEVEL} when unset, with
+ * `"off"` meaning not opted in.
+ *
+ * One derivation, because the client stamps `_meta` from it while the web Logs
+ * control displays it — computing it separately on each side is how the two
+ * come to disagree, which is a bad failure for a tool whose job is showing what
+ * it sent (#1629, #1797). The web maps `undefined` to `null` at its own
+ * boundary; that is display, not a second derivation.
+ */
+export function resolveModernLogLevel(
+  settings?: Pick<InspectorServerSettings, "modernLogLevel">,
+): LoggingLevel | undefined {
+  const level = settings?.modernLogLevel ?? DEFAULT_MODERN_LOG_LEVEL;
+  return level === "off" ? undefined : level;
+}
+
 /** All modern-log-level values, for form options and the runtime guard. */
 export const MODERN_LOG_LEVELS: ModernLogLevel[] = [
   "off",
