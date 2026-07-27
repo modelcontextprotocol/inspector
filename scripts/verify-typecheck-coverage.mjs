@@ -274,27 +274,40 @@ function trackedSourceFiles(clientDir) {
     .filter((f) => !f.includes("/build/") && !f.includes("/dist/"));
 }
 
-// Roots this guard does NOT require to land in a client project, with the
-// reason. `core/` is typechecked by web's `tsc -b` (its projects `include`
-// `core/**` by path, so it's covered even without an importer — verified) and
-// isn't modeled here. Subtractive, so it's fail-CLOSED on staleness: if `core/`
-// were renamed, its files would fall into the required "other" set and be
-// flagged, rather than silently dropping out (the failure mode an *allowlist*
-// like the old `SHARED_ROOTS` had — see #1799 review round 21).
-const EXEMPT_ROOTS = ["core"];
+// Roots this guard defers to another gate, dir → reason (surfaced in the OK
+// line). `core/` is typechecked by web's `tsc -b` — but only the shape web's app
+// project actually includes: `../../core/**/*.ts` MINUS co-located
+// `*.test.ts(x)` (`isExemptCoreFile` mirrors that). A core `*.tsx`/`*.mts`/`*.cts`
+// or a co-located `core` test is NOT covered there and stays required here. The
+// exemption is subtractive → fail-CLOSED on staleness: a renamed `core/` (or a
+// core file outside web's include) surfaces as required rather than dropping out
+// silently (the failure mode the old `SHARED_ROOTS` allowlist had, #1799 r21).
+const EXEMPT_ROOTS = new Map([
+  [
+    "core",
+    "typechecked by web's `tsc -b` (`core/**/*.ts` minus co-located tests)",
+  ],
+]);
+
+// A `core/` file web's app project (`clients/web/tsconfig.app.json`) includes:
+// `../../core/**/*.ts` and NOT the excluded co-located `*.test.ts`/`*.test.tsx`.
+// Only these are safe to exempt from the non-client requirement.
+const isExemptCoreFile = (f) =>
+  f.startsWith("core/") && /\.ts$/.test(f) && !/\.test\.tsx?$/.test(f);
 
 /**
  * Tracked first-party TS that is neither under a `clients/*` dir (covered by the
- * per-client pass) nor under an {@link EXEMPT_ROOTS} root — i.e. the shared
- * surface no client owns (`test-servers/src/**`, the root `vitest.shared.mts`)
- * plus anything new at a fresh top-level location. Deny-by-default: a new such
- * file is required without editing this guard, matching the repo-wide reach of
- * the sibling `verify-format-coverage`. Each must still get a tsc pass from SOME
- * client project — cli aliases the test-server source; each client's
- * `vitest.config.ts` imports `vitest.shared.mts` — checked against the GLOBAL
- * union of client projects (not per-client), which is why a new unimported
- * `test-servers/src` bin entry is caught rather than slipping through as
- * `server-composable.ts` once did.
+ * per-client pass) nor exempt (a `core/` file web's `tsc -b` checks — see
+ * {@link isExemptCoreFile}) — i.e. the shared surface no client owns
+ * (`test-servers/src`, the root `vitest.shared.mts`), a `core` `*.tsx`/`*.mts`/
+ * co-located test web doesn't reach, plus anything new at a fresh top-level
+ * location. Deny-by-default: a new such file is required without editing this
+ * guard, matching the repo-wide reach of the sibling `verify-format-coverage`.
+ * Each must still get a tsc pass from SOME client project — cli aliases the
+ * test-server source; each client's `vitest.config.ts` imports
+ * `vitest.shared.mts` — checked against the GLOBAL union of client projects (not
+ * per-client), which is why a new unimported `test-servers/src` bin entry is
+ * caught rather than slipping through as `server-composable.ts` once did.
  */
 function trackedNonClientSource() {
   const out = execFileSync(
@@ -308,7 +321,7 @@ function trackedNonClientSource() {
     .filter(isRequiredSource)
     .filter((f) => !f.includes("/build/") && !f.includes("/dist/"))
     .filter((f) => !f.startsWith("clients/"))
-    .filter((f) => !EXEMPT_ROOTS.some((r) => f === r || f.startsWith(`${r}/`)));
+    .filter((f) => !isExemptCoreFile(f));
 }
 
 // ---------------------------------------------------------------------------
@@ -420,9 +433,12 @@ for (const clientDir of CLIENTS) {
 // new location could fall outside.
 const otherTracked = trackedNonClientSource();
 totalChecked += otherTracked.length;
+const nonClientMisses = [];
 for (const f of otherTracked)
-  if (!globalCovered.has(f))
-    failures.push(`${f} — shared source in no client's tsconfig project`);
+  if (!globalCovered.has(f)) {
+    nonClientMisses.push(f);
+    failures.push(`${f} — in no client's tsconfig project`);
+  }
 
 if (failures.length > 0) {
   console.error(
@@ -436,7 +452,7 @@ if (failures.length > 0) {
     console.error(
       "For a co-located test, instead move it to `__tests__/` — adding it to the src `include` would make the build emit it.",
     );
-  if (failures.some((f) => f.includes("shared source")))
+  if (nonClientMisses.some((f) => f.startsWith("test-servers/")))
     console.error(
       "For a shared-source file no client imports (e.g. a `test-servers/src` bin entry), name it in a client `tsconfig.test.json`'s `include`, as `server-composable.ts` is.",
     );
@@ -444,11 +460,14 @@ if (failures.length > 0) {
   process.exit(1);
 }
 
-const exemptNote = [...EXEMPT.entries()]
-  .map(([dir, reason]) => `${dir} exempt: ${reason}`)
-  .join("; ");
+const exemptNote = [
+  ...[...EXEMPT.entries()].map(([dir, reason]) => `${dir} exempt: ${reason}`),
+  ...[...EXEMPT_ROOTS.entries()].map(
+    ([dir, reason]) => `${dir}/ exempt: ${reason}`,
+  ),
+].join("; ");
 console.log(
   `verify:typecheck-coverage — OK: all ${totalChecked} tracked source files ` +
-    `(${CLIENTS.length} clients + shared) get a tsc pass` +
+    `(${CLIENTS.length} clients + non-client) get a tsc pass` +
     (exemptNote ? ` (${exemptNote}).` : "."),
 );
