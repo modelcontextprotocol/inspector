@@ -245,6 +245,30 @@ class ElicitAfterConnectTransport implements Transport {
   }
 }
 
+/**
+ * Resolve when the client enqueues an elicitation. Waits on the client's own
+ * signal rather than counting microtasks — the enqueue is one tick deep today
+ * with no margin, and an added await on the SDK's inbound path would flake it.
+ * Raced with a reject for the same reason `injectRequest` is: a regression that
+ * stops the enqueue should fail here, not hang to the vitest timeout.
+ */
+function waitForNewPendingElicitation(client: InspectorClient): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error("No newPendingElicitation after elicit()")),
+      1000,
+    );
+    client.addEventListener(
+      "newPendingElicitation",
+      () => {
+        clearTimeout(timer);
+        resolve();
+      },
+      { once: true },
+    );
+  });
+}
+
 describe("InspectorClient peer-handler timing (#1797)", () => {
   it("serves server→client traffic that arrives with notifications/initialized", async () => {
     const roots = [{ uri: "file:///work", name: "Work" }];
@@ -394,25 +418,7 @@ describe("InspectorClient peer-handler timing (#1797)", () => {
     });
 
     await client.connect();
-    // Wait on the client's own signal rather than counting microtasks — the
-    // enqueue is one tick deep today with no margin, and an added await on the
-    // SDK's inbound path would flake this (see `injectRequest` above).
-    // Raced with a reject for the same reason `injectRequest` is: a regression
-    // that stops the enqueue should fail here, not hang to the vitest timeout.
-    const queued = new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(
-        () => reject(new Error("No newPendingElicitation after elicit()")),
-        1000,
-      );
-      client.addEventListener(
-        "newPendingElicitation",
-        () => {
-          clearTimeout(timer);
-          resolve();
-        },
-        { once: true },
-      );
-    });
+    const queued = waitForNewPendingElicitation(client);
     transport.elicit();
     await queued;
     expect(client.getPendingElicitations()).toHaveLength(1);
@@ -422,5 +428,34 @@ describe("InspectorClient peer-handler timing (#1797)", () => {
 
     expect(client.getPendingElicitations()).toEqual([]);
     expect(elicitationCounts.at(-1)).toBe(0);
+  });
+
+  it("has already cleared the queue by the time `disconnect` fires", async () => {
+    // `disconnect()` clears above its status block so a consumer handling the
+    // event sees an empty queue, matching the crash path. That ordering is the
+    // whole point of the clear's position, and moving it back below the block —
+    // which reads tidier, next to the batched change events — would silently
+    // restore the asymmetry. This is what notices.
+    const transport = new ElicitAfterConnectTransport();
+    const client = new InspectorClient(
+      { type: "stdio", command: "noop", args: [] },
+      { environment: { transport: () => ({ transport }) } },
+    );
+
+    await client.connect();
+    const queued = waitForNewPendingElicitation(client);
+    transport.elicit();
+    await queued;
+    expect(client.getPendingElicitations()).toHaveLength(1);
+
+    let queueDuringDisconnectEvent = -1;
+    client.addEventListener("disconnect", () => {
+      queueDuringDisconnectEvent = client.getPendingElicitations().length;
+    });
+    // This fixture's close() never fires onclose, so the clear under test is
+    // `disconnect()`'s own, not the crash path's.
+    await client.disconnect();
+
+    expect(queueDuringDisconnectEvent).toBe(0);
   });
 });
