@@ -109,6 +109,11 @@ const VALUE_TAKING_TEST_FLAGS = new Set([
   "--test-name-pattern",
   "--test-skip-pattern",
   "--test-shard",
+  // Threshold flags: numeric values, so harvesting one is inert rather than a
+  // suppression (a number can't be a BROADER glob) — listed for completeness.
+  "--test-coverage-lines",
+  "--test-coverage-branches",
+  "--test-coverage-functions",
 ]);
 
 /**
@@ -167,6 +172,11 @@ export const testScriptGlobs = (scripts) =>
  * and the name/skip patterns are the same shape. Three of these are already in
  * `VALUE_TAKING_TEST_FLAGS` — the guard knew them well enough to drop their
  * values, but not that they shrink the run.
+ *
+ * Known boundary: COMPLEMENTARY shards (`--test-shard 1/2` and `2/2` in two
+ * reachable scripts) do run the whole suite, and this flags them anyway. Fail-
+ * safe, and nobody shards a sub-100ms suite; reconstructing shard arithmetic to
+ * allow it would cost more than the case is worth.
  */
 export const testScriptNarrowingFlags = (scripts) =>
   testRunnerSegments(scripts)
@@ -174,6 +184,23 @@ export const testScriptNarrowingFlags = (scripts) =>
     // `--flag=value` and `--flag value` both report as the bare flag name.
     .map((t) => t.split("=")[0])
     .filter((t) => NARROWING_TEST_FLAGS.has(t));
+
+/**
+ * Whether a tracked `scripts/` file is one of this guard's own test files, by
+ * CONTENT rather than name: a JS file that registers tests with `node:test` is
+ * a test whatever it's called.
+ *
+ * Deciding it by name would key the required set off the same pattern the
+ * `test:scripts` glob uses, so a rename escaping BOTH is invisible to every axis
+ * — a dot→hyphen slip (`npm-scripts.test.mjs` → `npm-scripts-test.mjs`) drops
+ * the file from `testFiles` entirely, so nothing asks whether the runner is told
+ * about it, and the surviving file satisfies the non-empty axis. Round 30 fixed
+ * "renamed to a form the GLOB misses" by broadening the name pattern; a fifth
+ * name pattern only moves that boundary again. `node --test` decides what a test
+ * is by whether it registers tests, so read that instead of guessing.
+ */
+export const isScriptsTestFile = (file, source) =>
+  /\.(c|m)?js$/.test(file) && /["']node:test["']/.test(source);
 
 /**
  * Gate-integrity problems with `test:scripts` — this guard's OWN parser tests —
@@ -614,10 +641,13 @@ function trackedNonClientSource() {
 /**
  * The remediation footer for a set of gate-integrity problems, or `null` when
  * none of them is about the typecheck wiring. Not every phase-1 problem is: the
- * sibling-guard vouch (`verify:format-coverage`), client enrollment (a
- * manifest-less `clients/*`, a stale `EXEMPT` key), and the `test:scripts` axes
- * each carry their own per-line remediation, and appending `--noCheck`/`tsc -b`
- * advice under one of those sends the reader after the wrong thing.
+ * sibling-guard vouch (`verify:format-coverage`) and the `test:scripts` axes are
+ * about OTHER gates, and appending `--noCheck`/`tsc -b` advice under one of them
+ * sends the reader after the wrong thing. The criterion is "is this about the
+ * typecheck pass at all", not "does it carry its own per-line advice" — several
+ * typecheck problems do carry their own and still want the footer. Client
+ * enrollment ("declares no `typecheck` script …") is therefore NOT excluded: the
+ * footer's first clause is exactly its fix.
  *
  * Pure and outside `main()` on purpose — this is the third consecutive round in
  * which the newest branch in `main()` turned out to be the one mutation testing
@@ -681,7 +711,10 @@ export function main() {
       encoding: "utf8",
     })
       .split("\n")
-      .filter((f) => /\.(test|spec)\.[^/]+$/.test(f)),
+      .filter(Boolean)
+      .filter((f) =>
+        isScriptsTestFile(f, readFileSync(path.join(repoRoot, f), "utf8")),
+      ),
   );
   integrity.push(...testScriptIssues);
 
@@ -752,8 +785,9 @@ export function main() {
       `verify:typecheck-coverage — ${integrity.length} gate-integrity issue(s): a typecheck gate is not run, or runs but checks nothing:\n`,
     );
     for (const f of integrity) console.error("  " + f);
+    // NOT `enrollmentProblems`: "declares no `typecheck` script …" IS about the
+    // typecheck pass, and the footer's first clause is its canonical fix.
     const advice = integrityAdvice(integrity, [
-      ...enrollmentProblems,
       ...siblingVouchIssues,
       ...testScriptIssues,
     ]);

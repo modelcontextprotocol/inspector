@@ -14,6 +14,7 @@ import {
   projectConfigFile,
   refToProject,
   integrityAdvice,
+  isScriptsTestFile,
   testScriptGlobs,
   testScriptNarrowingFlags,
   testScriptProblems,
@@ -278,6 +279,27 @@ test("testScriptProblems: all three axes (r33 finding 2)", () => {
   );
 });
 
+test("isScriptsTestFile: discovery by content, not name (r36 finding 1)", () => {
+  const TEST_SRC = 'import { test } from "node:test";\ntest("x", () => {});\n';
+  // The name is irrelevant — a dot→hyphen rename escapes every name pattern,
+  // and that is exactly the rename that silently dropped 6 of 24 tests.
+  assert.ok(isScriptsTestFile("scripts/lib/npm-scripts.test.mjs", TEST_SRC));
+  assert.ok(isScriptsTestFile("scripts/lib/npm-scripts-test.mjs", TEST_SRC));
+  assert.ok(isScriptsTestFile("scripts/tokenize-tests.mjs", TEST_SRC));
+  assert.ok(isScriptsTestFile("scripts/a.test.js", TEST_SRC));
+  assert.ok(isScriptsTestFile("scripts/a.test.cjs", "require('node:test')"));
+  // A guard script that merely mentions testing is not a test.
+  assert.ok(
+    !isScriptsTestFile(
+      "scripts/verify-typecheck-coverage.mjs",
+      "// runs the test:scripts glob\nimport path from 'node:path';\n",
+    ),
+  );
+  // Non-JS never counts, whatever it contains.
+  assert.ok(!isScriptsTestFile("scripts/notes.md", TEST_SRC));
+  assert.ok(!isScriptsTestFile("scripts/a.test.ts", TEST_SRC));
+});
+
 test("testScriptNarrowingFlags: flags that shrink the run (r35 finding 1)", () => {
   const flags = (cmd) => testScriptNarrowingFlags({ "test:scripts": cmd });
   const GLOB = '"scripts/**/*.test.mjs"';
@@ -337,6 +359,14 @@ test("integrityAdvice: typecheck footer only for typecheck issues (r35 finding 2
   assert.equal(integrityAdvice([TESTS], [TESTS]), null);
   assert.equal(integrityAdvice([SIBLING], [SIBLING]), null);
   assert.equal(integrityAdvice([SIBLING, TESTS], [SIBLING, TESTS]), null);
+  // Client enrollment ("declares no `typecheck` script …") IS about the
+  // typecheck pass — the footer's first clause is its fix — so it advises.
+  const ENROLLMENT =
+    "clients/tui: declares no `typecheck` script, has no `tsconfig.json` `references` …";
+  assert.match(
+    integrityAdvice([ENROLLMENT], [SIBLING, TESTS]),
+    /Restore the `typecheck` wiring/,
+  );
   // A mix still advises — the typecheck issue is real.
   assert.match(
     integrityAdvice([SIBLING, TYPECHECK, TESTS], [SIBLING, TESTS]),
