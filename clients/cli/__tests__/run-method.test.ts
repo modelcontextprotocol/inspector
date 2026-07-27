@@ -92,6 +92,22 @@ describe("runMethod", () => {
     }
   });
 
+  it("roots/set drops a malformed root rather than advertising it", async () => {
+    // `--roots-json` only checks that the payload parses to an array, so a
+    // root with no `uri` used to be stored and then handed to the server in
+    // the `roots/list` reply — an invalid Root on the wire, echoed back to the
+    // user as success. `setRoots` normalizes through `cleanRoots` now (#1797).
+    const c = await connectStdio();
+    const set = await runMethod(c, {
+      method: "roots/set",
+      rootsJson: JSON.stringify([{ name: "no uri" }, { uri: "file:///keep" }]),
+    });
+    expect(set.kind).toBe("result");
+    if (set.kind === "result") {
+      expect(set.result.roots).toEqual([{ uri: "file:///keep" }]);
+    }
+  });
+
   it("consumeMethodOutcome writes result json", async () => {
     let stdout = "";
     const original = process.stdout.write;

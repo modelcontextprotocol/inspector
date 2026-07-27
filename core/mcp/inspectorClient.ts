@@ -35,6 +35,7 @@ import {
   INACTIVE_SUBSCRIPTION_STREAM_STATE,
   isTerminalStatus,
 } from "./types.js";
+import { cleanRoots } from "./serverList.js";
 // Fallback client identity, used ONLY when a caller doesn't pass
 // `clientIdentity`. Real clients supply their own: the Node clients (CLI, TUI)
 // read the single-source version from the root package.json via
@@ -4254,13 +4255,19 @@ export class InspectorClient extends InspectorClientEventTarget {
    * answer `-32601` to a server taking up the `roots/list_changed` invitation
    * below. Pass `roots` at construction — `[]` is enough — in any client that
    * may call this (#1797).
+   *
+   * The argument runs through `cleanRoots`, the same normalizer the
+   * connect-time and settings-save paths use, so all three ways roots enter the
+   * client agree and no caller can advertise a `Root` with no `uri` (the CLI's
+   * `--roots-json` only checks that the JSON is an array). It is idempotent, so
+   * a caller that already cleaned loses nothing.
    */
   async setRoots(roots: Root[]): Promise<void> {
     if (!this.client) {
       throw new Error("Client is not connected");
     }
 
-    this.roots = [...roots];
+    this.roots = cleanRoots(roots);
     this.dispatchTypedEvent("rootsChange", this.roots);
 
     // Send notification to server - clients can send this notification to any server
