@@ -64,11 +64,16 @@ class InitializedRacingTransport implements Transport {
    */
   injectRequest(method: string, id: number): Promise<JSONRPCMessage> {
     const reply = new Promise<JSONRPCMessage>((resolve, reject) => {
-      this.waiters.set(id, resolve);
-      setTimeout(() => {
+      const timer = setTimeout(() => {
         this.waiters.delete(id);
         reject(new Error(`No reply to injected ${method} (id ${id})`));
-      }, 1000).unref?.();
+      }, 1000);
+      // Cleared on reply — an armed timer outliving the test is the #1760
+      // teardown-crash class, even though this callback touches no `window`.
+      this.waiters.set(id, (m) => {
+        clearTimeout(timer);
+        resolve(m);
+      });
     });
     this.deliver({ jsonrpc: "2.0", id, method });
     return reply;
@@ -175,8 +180,9 @@ describe("InspectorClient peer-handler timing (#1797)", () => {
     // `setRoots()` announces `notifications/roots/list_changed`, inviting the
     // server to re-read — so the handler must answer with the *current* roots,
     // not the ones passed at construction. It reads `this.roots` live, so it
-    // does; this pins that, and the `roots: []` seed the CLI now passes
-    // (`clients/cli/src/cli.ts`) is what makes the handler exist at all. A
+    // does; this pins that. Passing the `roots` option at all — which the CLI
+    // now always does, empty when nothing is configured
+    // (`clients/cli/src/cli.ts`) — is what makes the handler exist. A
     // client built with no `roots` option cannot serve this: the SDK asserts
     // the capability in `setRequestHandler`, and the capability itself is
     // fixed at `initialize`.

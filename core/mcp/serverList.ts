@@ -93,12 +93,27 @@ export function normalizeServerType(
  * new row empty mid-edit) and drop a blank/whitespace `name`. Any other fields
  * a root carries (e.g. `_meta` from a hand-edited `mcp.json`) are preserved —
  * only `uri`/`name` are normalized. Shared by the settings → disk converter
- * (`inspectorSettingsToStoredFields`) and the web client's connect-time +
+ * (`inspectorSettingsToStoredFields`) and all three clients' connect-time +
  * `setRoots` wiring so the roots told to the server match what hits disk.
+ *
+ * `Root[]` is a compile-time type over hand-editable `mcp.json`, and every
+ * client now feeds this straight from disk (#1797), so the shape is validated
+ * at runtime too: a non-array bails to `[]` and an entry without a string
+ * `uri` is dropped with a warning, rather than throwing at connect.
  */
 export function cleanRoots(roots: Root[]): Root[] {
+  if (!Array.isArray(roots)) {
+    console.warn("Ignoring `roots`: expected an array, got", typeof roots);
+    return [];
+  }
   return roots
-    .filter((r) => r.uri.trim() !== "")
+    .filter((r) => {
+      if (typeof r?.uri !== "string") {
+        console.warn("Dropping root without a string `uri`:", r);
+        return false;
+      }
+      return r.uri.trim() !== "";
+    })
     .map((r) => {
       const trimmedName = r.name?.trim();
       // Strip `name` off the carried-through rest so a cleared optional name

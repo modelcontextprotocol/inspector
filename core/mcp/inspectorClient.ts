@@ -4247,8 +4247,8 @@ export class InspectorClient extends InspectorClientEventTarget {
    * Set roots and announce the change to the server.
    *
    * Note this does **not** enable the roots capability on a client that was
-   * built without the constructor's `roots` option, despite what this comment
-   * used to claim. `capabilities.roots` is negotiated at `initialize` and the
+   * built without the constructor's `roots` option. `capabilities.roots` is
+   * negotiated at `initialize` and the
    * SDK refuses `registerCapabilities` after connect, so such a client has no
    * `roots/list` handler (see {@link registerPeerRequestHandlers}) and would
    * answer `-32601` to a server taking up the `roots/list_changed` invitation

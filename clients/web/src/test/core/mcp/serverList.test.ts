@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   cleanRoots,
   DEFAULT_SEED_CONFIG,
@@ -23,6 +23,7 @@ import type {
   ServerEntry,
   StoredMCPServer,
 } from "@inspector/core/mcp/types.js";
+import type { Root } from "@modelcontextprotocol/client";
 
 describe("normalizeServerType", () => {
   it("defaults missing type to stdio", () => {
@@ -101,6 +102,42 @@ describe("cleanRoots", () => {
       { uri: "file:///a", name: "Alpha", _meta: { k: 1 } },
       { uri: "file:///b", _meta: { k: 2 } },
     ]);
+  });
+
+  // Every client now feeds this straight from hand-editable mcp.json (#1797),
+  // where `Root[]` is only a compile-time promise. Malformed input must be
+  // reported and skipped, not thrown at connect.
+  describe("malformed input from disk", () => {
+    let warn: ReturnType<typeof vi.spyOn>;
+    beforeEach(() => {
+      warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    });
+    afterEach(() => {
+      warn.mockRestore();
+    });
+
+    it("drops an entry with no uri instead of throwing", () => {
+      // A hand-edited `"roots": [{ "name": "Work" }]`.
+      const malformed = [{ name: "Work" }, { uri: "file:///ok" }];
+      expect(cleanRoots(malformed as unknown as Root[])).toEqual([
+        { uri: "file:///ok" },
+      ]);
+      expect(warn).toHaveBeenCalled();
+    });
+
+    it("drops an entry whose uri is not a string", () => {
+      const malformed = [{ uri: 42 }, { uri: "file:///ok" }];
+      expect(cleanRoots(malformed as unknown as Root[])).toEqual([
+        { uri: "file:///ok" },
+      ]);
+      expect(warn).toHaveBeenCalled();
+    });
+
+    it("bails to an empty list when roots is not an array", () => {
+      // A hand-edited `"roots": "file:///work"`.
+      expect(cleanRoots("file:///work" as unknown as Root[])).toEqual([]);
+      expect(warn).toHaveBeenCalled();
+    });
   });
 });
 

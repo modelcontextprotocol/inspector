@@ -78,7 +78,9 @@ npx @modelcontextprotocol/inspector --cli https://my-mcp-server.example.com --tr
 npx @modelcontextprotocol/inspector --cli https://my-mcp-server.example.com --transport http --method tools/list --header "X-API-Key: your-api-key"
 ```
 
-When a server is loaded from a `--catalog`/`--config` file, its per-server settings (headers, connection/request timeouts, and OAuth) are applied to the connection — the same resolution the TUI uses. A `--header` flag overrides the file's headers for that run while leaving the file's timeouts and OAuth in place.
+When a server is loaded from a `--catalog`/`--config` file, its per-server settings (headers, connection/request timeouts, OAuth, and `roots`) are applied to the connection — the same resolution the TUI uses. A `--header` flag overrides the file's headers for that run while leaving the file's timeouts and OAuth in place.
+
+The file is the only durable way to give a run its roots: there is no roots flag, and `--method roots/set` applies only to that one short-lived connection. Roots configured for a server (the same field the web UI's Server Settings writes) are advertised at connect, so a server that asks for `roots/list` — `@modelcontextprotocol/server-filesystem` does, to learn its allowed directories — gets them.
 
 **Environment-variable semantics.** `MCP_CATALOG_PATH` is honored only when no ad-hoc target is given (positional command, `--server-url`, or `--transport`) — so a shell that exports it can still run one-off ad-hoc invocations without hitting the catalog/ad-hoc conflict. `MCP_STORAGE_DIR` sets the storage directory used by the OAuth persist backend (`<MCP_STORAGE_DIR>/oauth.json`); the per-file `MCP_INSPECTOR_OAUTH_STATE_PATH` override still takes precedence over it.
 
