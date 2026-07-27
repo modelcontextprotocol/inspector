@@ -147,21 +147,29 @@ const { clients: CLIENTS, problems: enrollmentProblems } = nodeClients();
  * `--noEmit` passes; web, the only `tsc -b` client, is out of scope): a
  * **solution-style** `-b` config (`"files": []` + `references`) is run here as
  * `-p … --listFilesOnly`, which lists nothing — a client adopting it would need
- * its `references` expanded to their paths. And the implicit-`./tsconfig.json`
+ * its `references` expanded to their paths. The implicit-`./tsconfig.json`
  * fallback assumes **no file operands** — `tsc <file>` ignores the config and
  * checks only that file, but would be credited the whole config's file list.
+ * The `--noCheck`/`--listFilesOnly` detection ignores a following boolean, so
+ * the contrived explicit `--noCheck false` (checking *on*) is still treated as
+ * disabling. And the `&&`/`||`/`;` split runs before tokenizing, so a quoted
+ * operator inside an arg would split mid-token (unreachable — project paths
+ * carry none of those).
  */
 function typecheckProjects(scripts) {
   const projects = [];
   const neutered = [];
   const isFlag = (t) => t.startsWith("-");
   const isProjectFlag = (t) => ["-p", "--project", "-b", "--build"].includes(t);
+  // Match `tsc` by token basename so a path-invoked binary (`node_modules/.bin/
+  // tsc`, `./node_modules/.bin/tsc.cmd`) counts, not just the bare `tsc` token.
+  const isTsc = (t) => /(?:^|[\\/])tsc(?:\.(?:cmd|exe|ps1))?$/.test(t);
   for (const name of reachableScripts(scripts, "typecheck")) {
     const cmd = scripts?.[name];
     if (typeof cmd !== "string") continue;
     for (const segment of cmd.split(/&&|\|\||;/)) {
       const tokens = tokenize(segment);
-      if (!tokens.includes("tsc")) continue; // only tsc commands name projects
+      if (!tokens.some(isTsc)) continue; // only tsc commands name projects
       const disabling = tokens.find((t) =>
         /^--(noCheck|listFilesOnly)$/i.test(t),
       );

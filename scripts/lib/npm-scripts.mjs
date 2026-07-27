@@ -68,9 +68,10 @@ export function rootRunsClientValidate(rootScripts, clientDir) {
   // Quotes are stripped first so `cd "clients/x"` (a valid form) still matches.
   const escaped = clientDir.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const re = new RegExp(`cd \\.?/?${escaped}(?=$|[\\s&;])`);
-  return rootReachedCommands(rootScripts).some(
-    (c) => re.test(c.replace(/["']/g, "")) && /npm run validate/.test(c),
-  );
+  return rootReachedCommands(rootScripts).some((c) => {
+    const stripped = c.replace(/["']/g, ""); // both halves see quotes stripped
+    return re.test(stripped) && /npm run validate/.test(stripped);
+  });
 }
 
 /**
