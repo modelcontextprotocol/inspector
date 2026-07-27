@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   AuthChallengeError,
   AuthRecoveryRequiredError,
+  findNestedAuthError,
   isAuthChallengeError,
   isConnectAuthRecoveryError,
   parseAuthChallengeFromError,
@@ -389,5 +390,91 @@ describe("isConnectAuthRecoveryError", () => {
         new AuthChallengeError({ reason: "token_expired" }, 403),
       ),
     ).toBe(false);
+  });
+});
+
+/**
+ * The SDK's era-negotiation probe (protocolEra "auto"/"modern") reports a failed
+ * `server/discover` as `SdkError(ERA_NEGOTIATION_FAILED)` and moves the real
+ * error to `data.cause`, hiding the auth signal connect-time recovery matches on
+ * (#1805). These cover the recovery walk over both link names.
+ */
+describe("findNestedAuthError", () => {
+  const authorizationUrl = new URL("https://as.example/authorize");
+  const recoveryRequired = () =>
+    new AuthRecoveryRequiredError(authorizationUrl, { reason: "unauthorized" });
+
+  it("recovers an AuthRecoveryRequiredError from `data.cause` (the SDK probe wrapper)", () => {
+    const nested = recoveryRequired();
+    const wrapper = new Error(
+      "Version negotiation probe failed: Interactive auth recovery required",
+    ) as Error & { data?: { cause?: unknown } };
+    wrapper.data = { cause: nested };
+
+    expect(findNestedAuthError(wrapper)).toBe(nested);
+  });
+
+  it("recovers an AuthChallengeError from `data.cause` (direct transport, intercepted 401)", () => {
+    const nested = new AuthChallengeError({ reason: "token_expired" }, 401);
+    const wrapper = new Error("Version negotiation probe failed") as Error & {
+      data?: { cause?: unknown };
+    };
+    wrapper.data = { cause: nested };
+
+    expect(findNestedAuthError(wrapper)).toBe(nested);
+  });
+
+  it("follows the native `cause` link", () => {
+    const nested = recoveryRequired();
+    expect(findNestedAuthError(new Error("outer", { cause: nested }))).toBe(
+      nested,
+    );
+  });
+
+  it("walks more than one level and prefers the native `cause` branch", () => {
+    const nested = recoveryRequired();
+    const middle = new Error("middle") as Error & {
+      data?: { cause?: unknown };
+    };
+    middle.data = { cause: nested };
+
+    expect(findNestedAuthError(new Error("outer", { cause: middle }))).toBe(
+      nested,
+    );
+  });
+
+  it("returns the error itself when it is already a typed auth error", () => {
+    const err = recoveryRequired();
+    expect(findNestedAuthError(err)).toBe(err);
+  });
+
+  it("returns undefined when no auth error is in the chain", () => {
+    const plain = new Error("outer", { cause: new Error("inner") }) as Error & {
+      data?: { cause?: unknown };
+    };
+    plain.data = { cause: new Error("also not auth") };
+
+    expect(findNestedAuthError(plain)).toBeUndefined();
+  });
+
+  it("returns undefined for non-object errors and a non-object `data`", () => {
+    expect(findNestedAuthError(undefined)).toBeUndefined();
+    expect(findNestedAuthError(null)).toBeUndefined();
+    expect(findNestedAuthError("failed (401)")).toBeUndefined();
+    const stringData = new Error("outer") as Error & { data?: unknown };
+    stringData.data = "not an object";
+    expect(findNestedAuthError(stringData)).toBeUndefined();
+    const nullData = new Error("outer") as Error & { data?: unknown };
+    nullData.data = null;
+    expect(findNestedAuthError(nullData)).toBeUndefined();
+  });
+
+  it("terminates on a cyclic cause chain", () => {
+    const a = new Error("a") as Error & { cause?: unknown };
+    const b = new Error("b") as Error & { cause?: unknown };
+    a.cause = b;
+    b.cause = a;
+
+    expect(findNestedAuthError(a)).toBeUndefined();
   });
 });
