@@ -388,6 +388,12 @@ export class InspectorClient extends InspectorClientEventTarget {
    * at all (#1797).
    */
   private readonly elicitationCapabilityAdvertised: boolean;
+  /** As above, for `capabilities.sampling`. */
+  private readonly samplingCapabilityAdvertised: boolean;
+  /** As above, for `capabilities.tasks` (the receiver-side `tasks/*` polls). */
+  private readonly tasksCapabilityAdvertised: boolean;
+  /** As above, for `capabilities.elicitation.url` (the URL-mode completion). */
+  private readonly urlElicitationCapabilityAdvertised: boolean;
   // Content cache
   // ListChanged notification configuration
   private listChangedNotifications: {
@@ -621,13 +627,24 @@ export class InspectorClient extends InspectorClientEventTarget {
     }
     // Receiver tasks: advertise so server can send task-augmented createMessage/elicit and poll us
     if (this.receiverTasks) {
+      // `requests` declares which server→client requests we accept as tasks, so
+      // it must name only capabilities we actually advertised — both are decided
+      // above. Advertising a channel we then answer `-32601` on is the shape
+      // #1797 is about, and `{ receiverTasks: true, elicit: false }` would do
+      // exactly that.
+      const taskRequests: NonNullable<
+        NonNullable<ClientCapabilities["tasks"]>["requests"]
+      > = {};
+      if (capabilities.sampling) {
+        taskRequests.sampling = { createMessage: {} };
+      }
+      if (capabilities.elicitation) {
+        taskRequests.elicitation = { create: {} };
+      }
       capabilities.tasks = {
         list: {},
         cancel: {},
-        requests: {
-          sampling: { createMessage: {} },
-          elicitation: { create: {} },
-        },
+        ...(Object.keys(taskRequests).length > 0 && { requests: taskRequests }),
       };
     }
     // Assemble the advertised-extensions map from one builder (the single
@@ -657,6 +674,10 @@ export class InspectorClient extends InspectorClientEventTarget {
     this.rootsCapabilityAdvertised = capabilities.roots !== undefined;
     this.elicitationCapabilityAdvertised =
       capabilities.elicitation !== undefined;
+    this.samplingCapabilityAdvertised = capabilities.sampling !== undefined;
+    this.tasksCapabilityAdvertised = capabilities.tasks !== undefined;
+    this.urlElicitationCapabilityAdvertised =
+      capabilities.elicitation?.url !== undefined;
 
     this.appRendererClientProxy = null;
     this.clientInfo = options.clientIdentity ?? {
@@ -1115,8 +1136,9 @@ export class InspectorClient extends InspectorClientEventTarget {
    * gate on `this.capabilities` stay in `connect()`, after the handshake.
    */
   private registerPeerRequestHandlers(): void {
-    // Set up sampling request handler if sampling capability is enabled
-    if (this.sample && this.client) {
+    // Gated on what was advertised, like the others — see
+    // `rootsCapabilityAdvertised`.
+    if (this.samplingCapabilityAdvertised && this.client) {
       const samplingHandler = (
         request: CreateMessageRequest,
       ): Promise<CreateMessageResult> => {
@@ -1274,7 +1296,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     // not validate our responder return — matching v1, where only the
     // requester validated (our receiver `Task` may omit fields a strict result
     // schema would require).
-    if (this.receiverTasks && this.client) {
+    if (this.tasksCapabilityAdvertised && this.client) {
       this.client.setRequestHandler(
         "tasks/list",
         { params: ListTasksRequestSchema.shape.params },
@@ -1655,11 +1677,7 @@ export class InspectorClient extends InspectorClientEventTarget {
 
         // Elicitation complete notification (URL mode only): server notifies when out-of-band
         // elicitation completes; we resolve the corresponding pending elicitation
-        const urlElicitEnabled =
-          this.elicit &&
-          typeof this.elicit === "object" &&
-          this.elicit.url === true;
-        if (urlElicitEnabled) {
+        if (this.urlElicitationCapabilityAdvertised) {
           this.client.setNotificationHandler(
             "notifications/elicitation/complete",
             async (notification) => {

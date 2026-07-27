@@ -504,6 +504,29 @@ describe("InspectorClient peer-handler timing (#1797)", () => {
     await client.disconnect();
   });
 
+  it("advertises task requests only for capabilities it advertised", async () => {
+    // `capabilities.tasks.requests` tells the server which server→client
+    // requests we accept as tasks. Built from `receiverTasks` alone it would
+    // invite a task-augmented `elicitation/create` that no handler answers —
+    // advertise-then-refuse, the shape #1797 is about.
+    const client = new InspectorClient(
+      { type: "stdio", command: "noop", args: [] },
+      {
+        environment: {
+          transport: () => ({ transport: new ElicitAfterConnectTransport() }),
+        },
+        receiverTasks: true,
+        elicit: false,
+      },
+    );
+
+    const capabilities = client.getClientCapabilities();
+    expect(capabilities.tasks).toBeDefined();
+    expect(capabilities.tasks?.requests?.elicitation).toBeUndefined();
+    expect(capabilities.tasks?.requests?.sampling).toBeDefined();
+    expect(capabilities.elicitation).toBeUndefined();
+  });
+
   it("can reconnect after setRoots() on a client built without roots", async () => {
     // `setRoots()` makes `this.roots` defined on a client that never advertised
     // the capability. Gating the `roots/list` registration on that would throw
