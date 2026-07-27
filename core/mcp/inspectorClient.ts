@@ -991,7 +991,10 @@ export class InspectorClient extends InspectorClientEventTarget {
     if (!validating) return;
     internal._requestHandlers.set(method, (request, ctx) => {
       const task = (request as { params?: { task?: unknown } })?.params?.task;
-      if (this.receiverTasks && task != null) {
+      // The advertisement check is redundant here — this wrapper only exists
+      // when tasks are advertised — but it mirrors the handler branch below
+      // deliberately: the two must agree, so they read one predicate.
+      if (this.tasksCapabilityAdvertised && task != null) {
         return rawHandler(request as CreateMessageRequest & ElicitRequest);
       }
       return validating(request, ctx);
@@ -1171,7 +1174,7 @@ export class InspectorClient extends InspectorClientEventTarget {
       ): Promise<CreateMessageResult> => {
         const paramsTask = (request.params as { task?: { ttl?: number } })
           ?.task;
-        if (this.receiverTasks && paramsTask != null) {
+        if (this.tasksCapabilityAdvertised && paramsTask != null) {
           const record = this.createReceiverTask({
             ttl: paramsTask.ttl,
             initialStatus: "input_required",
@@ -1228,8 +1231,9 @@ export class InspectorClient extends InspectorClientEventTarget {
         return this.enqueuePendingSample(request, "server-request");
       };
       this.client.setRequestHandler("sampling/createMessage", samplingHandler);
-      // Registration, like the `setRequestHandler` above it — so it reads
-      // the advertisement, not the option (equivalent today).
+      // Registration, like the `setRequestHandler` above it — and the whole
+      // bypass mechanism (install, wrapper branch, handler branch) reads this
+      // one predicate, so the install can't drift from the branch it controls.
       if (this.tasksCapabilityAdvertised) {
         this.installReceiverTaskResponseBypass(
           "sampling/createMessage",
@@ -1245,7 +1249,7 @@ export class InspectorClient extends InspectorClientEventTarget {
       const elicitHandler = (request: ElicitRequest): Promise<ElicitResult> => {
         const paramsTask = (request.params as { task?: { ttl?: number } })
           ?.task;
-        if (this.receiverTasks && paramsTask != null) {
+        if (this.tasksCapabilityAdvertised && paramsTask != null) {
           const record = this.createReceiverTask({
             ttl: paramsTask.ttl,
             initialStatus: "input_required",
@@ -1295,8 +1299,9 @@ export class InspectorClient extends InspectorClientEventTarget {
         return this.enqueuePendingElicitation(request, "server-request");
       };
       this.client.setRequestHandler("elicitation/create", elicitHandler);
-      // Registration, like the `setRequestHandler` above it — so it reads
-      // the advertisement, not the option (equivalent today).
+      // Registration, like the `setRequestHandler` above it — and the whole
+      // bypass mechanism (install, wrapper branch, handler branch) reads this
+      // one predicate, so the install can't drift from the branch it controls.
       if (this.tasksCapabilityAdvertised) {
         this.installReceiverTaskResponseBypass(
           "elicitation/create",
