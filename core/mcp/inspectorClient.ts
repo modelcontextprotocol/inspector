@@ -1420,8 +1420,11 @@ export class InspectorClient extends InspectorClientEventTarget {
   }
 
   /**
-   * Drop every piece of state scoped to one connection, so a new session never
-   * inherits the last one's.
+   * Drop the session-scoped state a *new* session would misread — anything the
+   * next server could be told about, or that would change how we treat its
+   * traffic. State that only needs settling on the way out (the peer-request
+   * queues, the raw-wire map, the in-flight tool call) is handled by the
+   * teardown paths instead, not here.
    *
    * `disconnect()` clears all of this on the way out, but it is not the only
    * way a session ends — a crash, or a failed connect the caller retries on

@@ -1216,7 +1216,19 @@ function App() {
     setConsoleUi(EMPTY_CONSOLE_UI);
     setProgressByTaskId({});
     setCurrentLogLevel("info");
-    setModernLogLevel(null);
+    // Re-seed rather than blank: the client restores its own opt-in from the
+    // server setting at connect (`resetSessionState`), so blanking here would
+    // leave the control reading Off while every modern request still carries
+    // the level — visible on the auth-recovery path, which reconnects the same
+    // client instance rather than rebuilding it (#1629, #1797).
+    const activeSettings = serversRef.current.find(
+      (s) => s.id === activeServerIdRef.current,
+    )?.settings;
+    const reseededModernLevel =
+      activeSettings?.modernLogLevel ?? DEFAULT_MODERN_LOG_LEVEL;
+    setModernLogLevel(
+      reseededModernLevel === "off" ? null : reseededModernLevel,
+    );
     setPendingStepUp(null);
     setPendingReauth(null);
     setReAuthBanner(null);

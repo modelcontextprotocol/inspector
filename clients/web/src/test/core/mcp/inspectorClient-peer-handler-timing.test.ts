@@ -56,16 +56,6 @@ import { ModernGetTaskResultSchema } from "@inspector/core/mcp/modernTaskSchemas
  * no `onclose` fires. The crash and failure paths emit the change events
  * immediately; `disconnect()` batches them with its other teardown dispatches.
  *
- * A further category is session scoping. Receiver tasks, resource
- * subscriptions and cancelled task ids are state a server created *with* us —
- * `tasks/list` is answered from that map, and a stale subscription makes the
- * modern subscribe a silent no-op — so they belong to the session that created
- * them. Note the contrast with the teardown cases above: the peer-request queue
- * is cleared end-clean on all three teardown paths, while this is cleared
- * start-clean at the top of `connect()`, because a crash or a failed connect
- * the caller retries on the same instance means ending a session is not the
- * only way a new one begins.
- *
  * The outbound direction needs settling too, on its own terms. The raw-wire
  * modern `tasks/*` map is ours — the SDK's era gate keeps those frames out of
  * its own `_responseHandlers`, so its teardown can't settle them — and a
@@ -74,6 +64,17 @@ import { ModernGetTaskResultSchema } from "@inspector/core/mcp/modernTaskSchemas
  * paths that can hold one, `disconnect()` and the crash path; the `connect()`
  * catch needs no such call, because nothing populates the map before the
  * handshake and both terminal paths clear it.
+ *
+ * A further category is session scoping. Receiver tasks, resource
+ * subscriptions, cancelled task ids, paused task-input aborts and the
+ * modern log-level opt-in are all scoped to one connection —
+ * `tasks/list` is answered from that map, and a stale subscription makes the
+ * modern subscribe a silent no-op — so they belong to the session that created
+ * them. Note the contrast with the teardown cases above: the peer-request queue
+ * is cleared end-clean on all three teardown paths, while this is cleared
+ * start-clean at the top of `connect()`, because a crash or a failed connect
+ * the caller retries on the same instance means ending a session is not the
+ * only way a new one begins.
  *
  * Some cases cover the other side of the registration gates. Client capabilities
  * are fixed at construction, so each gate must key off what was actually
@@ -767,6 +768,45 @@ describe("InspectorClient peer-handler timing (#1797)", () => {
 
     expect(client.getSubscribedResources()).toEqual([]);
     expect(internals.cancelledTaskIds.size).toBe(0);
+
+    await client.disconnect();
+  });
+
+  it("restores the configured modern log level across a reconnect", async () => {
+    // Two halves of the same member. A mid-session override must not carry into
+    // the next session, and — the #1629 bug — a `disconnect()` must not leave
+    // the configured level dropped, which silently stopped stamping
+    // `_meta` logLevel on everything after a reconnect.
+    const transport = new SampleAfterConnectTransport();
+    const client = new InspectorClient(
+      { type: "stdio", command: "noop", args: [] },
+      {
+        environment: { transport: () => ({ transport }) },
+        serverSettings: {
+          headers: [],
+          env: [],
+          metadata: [],
+          connectionTimeout: 0,
+          requestTimeout: 0,
+          taskTtl: 0,
+          maxFetchRequests: 1000,
+          roots: [],
+          modernLogLevel: "info",
+        },
+      },
+    );
+
+    await client.connect();
+    expect(client.getModernLogLevel()).toBe("info");
+
+    client.setModernLogLevel("error");
+    transport.onclose?.();
+    await client.connect();
+    expect(client.getModernLogLevel()).toBe("info");
+
+    await client.disconnect();
+    await client.connect();
+    expect(client.getModernLogLevel()).toBe("info");
 
     await client.disconnect();
   });
