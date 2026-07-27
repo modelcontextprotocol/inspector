@@ -20,6 +20,7 @@ import {
   getTestMcpServerCommand,
   createTestServerHttp,
   createEchoTool,
+  createListRootsTool,
   createTestServerInfo,
 } from "@modelcontextprotocol/inspector-test-server";
 import type { MCPServerConfig } from "@modelcontextprotocol/inspector-core/mcp/index.js";
@@ -321,6 +322,42 @@ describe("CLI Tests", () => {
         expect(result.stderr).toMatch(/--catalog cannot be combined/);
       } finally {
         deleteConfigFile(catalogPath);
+      }
+    });
+  });
+
+  describe("Roots capability (#1797)", () => {
+    it("answers a server's roots/list instead of -32601", async () => {
+      // The CLI used to omit `roots` when constructing its InspectorClient, so
+      // the capability was never advertised and no `roots/list` handler was
+      // registered — a server that asked got -32601 Method not found, and
+      // `--method roots/set` announced `roots/list_changed` to a server it
+      // would then refuse to answer. `cli.ts` now seeds `roots: []`.
+      const server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        tools: [createListRootsTool()],
+      });
+      try {
+        await server.start();
+
+        const result = await runCli([
+          server.url,
+          "--cli",
+          "--method",
+          "tools/call",
+          "--tool-name",
+          "list_roots",
+        ]);
+
+        expectCliSuccess(result);
+        const json = expectValidJson(result);
+        // The tool asks the client for roots and renders what it got. An
+        // unregistered handler surfaces as an isError result quoting -32601.
+        expect(json.isError).toBeFalsy();
+        expect(JSON.stringify(json)).toContain("Roots:");
+        expect(JSON.stringify(json)).not.toContain("-32601");
+      } finally {
+        await server.stop();
       }
     });
   });

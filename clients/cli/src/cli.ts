@@ -148,6 +148,11 @@ async function callMethod(
     progress: false,
     sample: false,
     elicit: false,
+    // Advertise roots (empty until `--method roots/set` fills them in). The
+    // capability is negotiated at `initialize` and the `roots/list` handler is
+    // registered from this option, so omitting it left `roots/set` announcing
+    // `roots/list_changed` to a server that then got -32601 back (#1797).
+    roots: [],
     serverSettings,
     // Per-server protocol era (SEP §7.8) from mcp.json → SDK versionNegotiation.
     // Absent era defaults to legacy in the InspectorClient constructor (#1626).

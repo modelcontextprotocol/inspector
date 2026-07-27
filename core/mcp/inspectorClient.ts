@@ -1204,7 +1204,14 @@ export class InspectorClient extends InspectorClientEventTarget {
       }
     }
 
-    // Set up roots/list request handler if roots capability is enabled
+    // Gated on the *constructor* value, and it has to be: the SDK asserts the
+    // matching client capability inside `setRequestHandler`, so registering
+    // this on a client built without `roots` throws "Client does not support
+    // roots capability". Since `capabilities.roots` is negotiated at
+    // `initialize` (:588) and `registerCapabilities` refuses to run after
+    // connect, a client that omits the option can never serve `roots/list` —
+    // which is why every client that may call `setRoots()` later must pass
+    // `roots` up front (web does; the CLI now does too — #1797).
     if (this.roots !== undefined && this.client) {
       this.client.setRequestHandler("roots/list", async () => {
         return { roots: this.roots ?? [] };
@@ -4237,18 +4244,22 @@ export class InspectorClient extends InspectorClientEventTarget {
   }
 
   /**
-   * Set roots and notify server if it supports roots/listChanged
-   * Note: This will enable roots capability if it wasn't already enabled
+   * Set roots and announce the change to the server.
+   *
+   * Note this does **not** enable the roots capability on a client that was
+   * built without the constructor's `roots` option, despite what this comment
+   * used to claim. `capabilities.roots` is negotiated at `initialize` and the
+   * SDK refuses `registerCapabilities` after connect, so such a client has no
+   * `roots/list` handler (see {@link registerPeerRequestHandlers}) and would
+   * answer `-32601` to a server taking up the `roots/list_changed` invitation
+   * below. Pass `roots` at construction — `[]` is enough — in any client that
+   * may call this (#1797).
    */
   async setRoots(roots: Root[]): Promise<void> {
     if (!this.client) {
       throw new Error("Client is not connected");
     }
 
-    // Enable roots capability if not already enabled
-    if (this.roots === undefined) {
-      this.roots = [];
-    }
     this.roots = [...roots];
     this.dispatchTypedEvent("rootsChange", this.roots);
 

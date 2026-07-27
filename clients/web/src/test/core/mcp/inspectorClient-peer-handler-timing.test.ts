@@ -42,6 +42,32 @@ class InitializedRacingTransport implements Transport {
   /** The client's replies to the injected requests, keyed by request id. */
   readonly replies = new Map<number, JSONRPCMessage>();
 
+  /**
+   * Whether to fire the server→client burst at `initialized`. Off for the
+   * `setRoots()` test, which injects by hand once the client is connected.
+   */
+  private readonly burstOnInitialized: boolean;
+
+  constructor(burstOnInitialized = true) {
+    this.burstOnInitialized = burstOnInitialized;
+  }
+
+  /** Resolvers for {@link injectRequest}, keyed by the id awaiting a reply. */
+  private readonly waiters = new Map<number, (m: JSONRPCMessage) => void>();
+
+  /**
+   * Deliver a server→client request outside the `initialized` burst, resolving
+   * with the client's reply. The handler is async, so the reply lands some
+   * microtasks later — awaiting it here beats guessing how many.
+   */
+  injectRequest(method: string, id: number): Promise<JSONRPCMessage> {
+    const reply = new Promise<JSONRPCMessage>((resolve) =>
+      this.waiters.set(id, resolve),
+    );
+    this.deliver({ jsonrpc: "2.0", id, method });
+    return reply;
+  }
+
   async start(): Promise<void> {}
   async close(): Promise<void> {}
 
@@ -64,6 +90,7 @@ class InitializedRacingTransport implements Transport {
       return;
     }
     if ("method" in message && message.method === "notifications/initialized") {
+      if (!this.burstOnInitialized) return;
       // The moment the server learns we are initialized, it talks to us.
       for (const [method, id] of Object.entries(
         InitializedRacingTransport.REQUEST_IDS,
@@ -82,6 +109,7 @@ class InitializedRacingTransport implements Transport {
       ("result" in message || "error" in message)
     ) {
       this.replies.set(message.id, message);
+      this.waiters.get(message.id)?.(message);
     }
   }
 
@@ -132,6 +160,33 @@ describe("InspectorClient peer-handler timing (#1797)", () => {
     // unhandled one is dropped silently (no wire error), so the effect is the
     // only observable: the handler dispatches `rootsChange`.
     expect(rootsChanges).toEqual([roots]);
+
+    await client.disconnect();
+  });
+
+  it("serves roots set after connect, given roots were advertised at construction", async () => {
+    // `setRoots()` announces `notifications/roots/list_changed`, inviting the
+    // server to re-read — so the handler must answer with the *current* roots,
+    // not the ones passed at construction. It reads `this.roots` live, so it
+    // does; this pins that, and the `roots: []` seed the CLI now passes
+    // (`clients/cli/src/cli.ts`) is what makes the handler exist at all. A
+    // client built with no `roots` option cannot serve this: the SDK asserts
+    // the capability in `setRequestHandler`, and the capability itself is
+    // fixed at `initialize`.
+    const transport = new InitializedRacingTransport(false);
+    const client = new InspectorClient(
+      { type: "stdio", command: "noop", args: [] },
+      { environment: { transport: () => ({ transport }) }, roots: [] },
+    );
+
+    await client.connect();
+    await client.setRoots([{ uri: "file:///late", name: "Late" }]);
+
+    const reply = await transport.injectRequest("roots/list", 9101);
+    expect(reply).not.toHaveProperty("error");
+    expect(reply).toMatchObject({
+      result: { roots: [{ uri: "file:///late", name: "Late" }] },
+    });
 
     await client.disconnect();
   });
