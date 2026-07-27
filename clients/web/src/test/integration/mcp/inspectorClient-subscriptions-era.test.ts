@@ -345,6 +345,49 @@ describe("resource subscriptions era fork (#1630)", () => {
       });
     }
 
+    it("keeps the optimistic add when a newer refresh superseded the failure", async () => {
+      // The rollback's premise is that the server filter is unchanged, which is
+      // exactly what supersession falsifies: the newer refresh built its filter
+      // from the set *including* this URI, so on success the server honors it.
+      // Rolling back anyway would leave the set missing a URI the live stream
+      // carries — and with only one subscribed, an empty set with an active
+      // stream, the combination `resetSubscriptionStream` exists to prevent.
+      // Reachable without any close() failure: a rejecting `listen()` does it,
+      // which is what a user subscribing while the reconnect timer re-lists
+      // (i.e. exactly when the server is flaky) can produce.
+      const started = await startServer({});
+      const { connected } = await connect(started.url, "modern");
+      const int = internals(connected);
+
+      const real = int.client.listen;
+      // The first listen hangs, so the second can supersede it before it fails.
+      let failFirst: (error: Error) => void = () => {};
+      int.client.listen = () =>
+        new Promise<McpSubscription>((_, reject) => {
+          failFirst = reject;
+        });
+      const first = connected.subscribeToResource(RESOURCE_URI);
+      // Attached before the supersession so the rejection is never unhandled.
+      const firstSettled = expect(first).rejects.toThrow(/listen boom/);
+
+      // A newer refresh starts and acknowledges, carrying both URIs.
+      int.client.listen = real;
+      await connected.subscribeToResource(RESOURCE_URI_2);
+
+      failFirst(new Error("listen boom"));
+      await firstSettled;
+
+      // The superseded call still reports its failure, but leaves the filter to
+      // the refresh that owns it.
+      expect(connected.getSubscribedResources()).toEqual([
+        RESOURCE_URI,
+        RESOURCE_URI_2,
+      ]);
+      const state = connected.getResourceSubscriptionStreamState();
+      expect(state.active).toBe(true);
+      expect(state.status).toBe("acknowledged");
+    });
+
     it("rolls back the optimistic add when listen() fails", async () => {
       const started = await startServer({});
       const { connected } = await connect(started.url, "modern");

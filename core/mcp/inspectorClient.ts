@@ -264,11 +264,12 @@ const DEFAULT_TASK_POLL_INTERVAL_MS = 500;
  * - the superseded-generation discard — awaited, but `return` follows, so
  *   nothing local is skipped; the failure only propagates out of
  *   `refreshModernSubscription` to whichever caller a newer refresh had already
- *   superseded. Mild from `subscribeToResource` (which rolls the optimistic add
- *   back and rethrows) and self-healing on the reconnect path, but *not* from
- *   `unsubscribeFromResource`, which deliberately keeps the removal when a
- *   re-listen fails — so there it surfaces a "Failed to unsubscribe" for an
- *   unsubscribe that actually stuck.
+ *   superseded. Self-healing on the reconnect path, and on both user-initiated
+ *   paths a report of a failure that did not happen: `unsubscribeFromResource`
+ *   keeps its removal when a re-listen fails, so it surfaces a "Failed to
+ *   unsubscribe" for an unsubscribe that stuck, and `subscribeToResource` would
+ *   roll back an add the superseding refresh may already have had honored —
+ *   which is why that rollback is gated on not having been superseded (see it).
  *
  * Note what the generation bump proves in that last case is that a newer
  * refresh had *started*, not that it succeeded — it may yet fail at its own
@@ -4952,15 +4953,30 @@ export class InspectorClient extends InspectorClientEventTarget {
           status: "connecting",
           honoredUris: this.modernStreamState.honoredUris,
         });
+        // Read before the call, to tell "our refresh failed" from "a newer one
+        // took over" in the catch — see there.
+        const generationBefore = this.modernListenGeneration;
         try {
           await this.refreshModernSubscription();
         } catch (error) {
           // Roll back the optimistic add + stream state so both stay consistent
-          // with the (unchanged) server filter.
-          this.subscribedResources.delete(uri);
-          this.dispatchSubscriptionsChange();
-          if (this.subscribedResources.size === 0) {
-            this.setModernStreamState(INACTIVE_SUBSCRIPTION_STREAM_STATE);
+          // with the server filter — but only while that filter is still the
+          // unchanged one. A refresh bumps the generation exactly once, so
+          // anything beyond that means a newer refresh started, and it built
+          // its filter from the set *including* this URI: if it succeeded, the
+          // server is honoring the subscription, and rolling back would leave
+          // the set missing a URI the live stream carries (the UI showing it
+          // unsubscribed while its `resources/updated` keep arriving — and, if
+          // it was the only one, an empty set with an active stream, the
+          // combination `resetSubscriptionStream` exists to prevent). The newer
+          // refresh owns the filter either way, so leave it to say what the
+          // server honors. The error is still the caller's to see.
+          if (this.modernListenGeneration <= generationBefore + 1) {
+            this.subscribedResources.delete(uri);
+            this.dispatchSubscriptionsChange();
+            if (this.subscribedResources.size === 0) {
+              this.setModernStreamState(INACTIVE_SUBSCRIPTION_STREAM_STATE);
+            }
           }
           throw error;
         }

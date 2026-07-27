@@ -957,16 +957,20 @@ describe("InspectorClient peer-handler timing (#1797)", () => {
     await client.disconnect();
   });
 
-  for (const [label, close] of [
+  // Distinct reasons per arm, so the filter below excludes the sibling arm's
+  // late-reported rejection as well as a foreign one.
+  for (const [label, reason, close] of [
     [
       "throws synchronously",
+      "close blew up (sync)",
       (): Promise<void> => {
-        throw new Error("close blew up");
+        throw new Error("close blew up (sync)");
       },
     ],
     [
       "returns a rejected promise",
-      (): Promise<void> => Promise.reject(new Error("close blew up")),
+      "close blew up (async)",
+      (): Promise<void> => Promise.reject(new Error("close blew up (async)")),
     ],
   ] as const) {
     it(`continues teardown when the dropped stream's close() ${label}`, async () => {
@@ -1021,14 +1025,10 @@ describe("InspectorClient peer-handler timing (#1797)", () => {
         // so yield to the macrotask queue before reading the listener — nothing
         // else in this test would give it a chance to fire.
         await new Promise((resolve) => setTimeout(resolve, 0));
-        // Filtered to this fixture's own reason: the listener is process-wide,
-        // so a rejection another test left pending and Node reported late would
-        // otherwise fail here, blaming the wrong test.
-        expect(
-          unhandled.filter((reason) =>
-            String(reason).includes("close blew up"),
-          ),
-        ).toEqual([]);
+        // Filtered to this arm's own reason: the listener is process-wide, so a
+        // rejection another test — or the sibling arm — left pending and Node
+        // reported late would otherwise fail here, blaming the wrong one.
+        expect(unhandled.filter((r) => String(r).includes(reason))).toEqual([]);
       } finally {
         process.off("unhandledRejection", onUnhandled);
       }
