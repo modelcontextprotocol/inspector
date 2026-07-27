@@ -19,6 +19,15 @@
   // Only the tests root the project; tsc pulls in the `src` they import. The
   // src-only tsconfig.json already validates all of `src` (without the
   // test-only aliases), so listing it here too would just check it twice.
-  "include": ["__tests__/**/*"],
+  //
+  // `server-composable.ts` is listed explicitly because it's a `test-servers`
+  // bin entry nothing imports — the barrel alias above pulls in the other 13
+  // `test-servers/src` files transitively, but not this one, and its own build
+  // (`test-servers:build`) runs `tsc --noCheck`, so without this line it would
+  // get no tsc pass at all yet still be emitted into `test-servers/build`.
+  "include": [
+    "__tests__/**/*",
+    "../../test-servers/src/server-composable.ts"
+  ],
   "exclude": ["node_modules", "build"]
 }

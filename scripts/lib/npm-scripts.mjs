@@ -66,11 +66,13 @@ export function rootRunsClientValidate(rootScripts, clientDir) {
   // vs `clients/x-next`) can't satisfy the check for the shorter name — a bare
   // substring `includes` would let a sibling silently vouch for a dropped client.
   // Quotes are stripped first so `cd "clients/x"` (a valid form) still matches.
+  // Both `cd <dir> && npm run validate` and `npm --prefix <dir> run validate`
+  // count as running the client.
   const escaped = clientDir.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const re = new RegExp(`cd \\.?/?${escaped}(?=$|[\\s&;])`);
+  const dirRe = new RegExp(`(?:cd|--prefix) \\.?/?${escaped}(?=$|[\\s&;])`);
   return rootReachedCommands(rootScripts).some((c) => {
     const stripped = c.replace(/["']/g, ""); // both halves see quotes stripped
-    return re.test(stripped) && /npm run validate/.test(stripped);
+    return dirRe.test(stripped) && /\brun validate\b/.test(stripped);
   });
 }
 
