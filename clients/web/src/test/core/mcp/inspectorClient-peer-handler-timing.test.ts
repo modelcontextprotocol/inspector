@@ -79,7 +79,11 @@ import { ModernGetTaskResultSchema } from "@inspector/core/mcp/modernTaskSchemas
  * configured level is not lost. The same category covers a release obligation,
  * not just a misread one: the reset must close what it drops, since a
  * `connect()` reusing a transport an `onerror` left up can be holding the last
- * reference to a live stream.
+ * reference to a live stream. That release is best-effort in both directions —
+ * it is also covered that a `close()` failing either way, synchronously or by
+ * rejecting, does not escape into the straight-line teardown around the reset's
+ * other caller, `disconnect()`, whose remaining steps most callers would never
+ * see skipped.
  *
  * Some cases cover the other side of the registration gates. Client capabilities
  * are fixed at construction, so each gate must key off what was actually
@@ -884,8 +888,9 @@ describe("InspectorClient peer-handler timing (#1797)", () => {
     // An `onerror` without an `onclose` leaves the transport up, and `connect()`
     // reuses it — so the reference the reset drops can be the last one to a
     // stream still open on the server. Nothing else can close it afterwards:
-    // the `closed` handler bails on the bumped generation (Production behaviour;
-    // the stub here has no `closed` promise, so that handler never runs.)
+    // the `closed` handler bails on the bumped generation (production
+    // behaviour, not asserted here — the stub below has no `closed` promise, so
+    // that handler never runs).
     const transport = new SampleAfterConnectTransport();
     // Counted, because transport *reuse* is what makes "a stream still open on
     // the server" true — if a future change recreated it here, the scenario
@@ -907,6 +912,7 @@ describe("InspectorClient peer-handler timing (#1797)", () => {
     let closed = false;
     // Seeded directly: establishing a real listen stream needs a modern server
     // answering `subscriptions/listen`, which adds nothing to what is tested.
+    // No public writer, hence the cast.
     (
       client as unknown as {
         modernSubscription: { close: () => Promise<void> } | null;
@@ -925,6 +931,54 @@ describe("InspectorClient peer-handler timing (#1797)", () => {
 
     await client.disconnect();
   });
+
+  for (const [label, close] of [
+    [
+      "throws synchronously",
+      (): Promise<void> => {
+        throw new Error("close blew up");
+      },
+    ],
+    [
+      "returns a rejected promise",
+      (): Promise<void> => Promise.reject(new Error("close blew up")),
+    ],
+  ] as const) {
+    it(`continues teardown when the dropped stream's close() ${label}`, async () => {
+      // The close is best-effort against *both* failure modes because it runs
+      // from `disconnect()`, whose teardown is straight-line: an escaping
+      // failure would skip the raw-wire rejects, the paused task-input aborts,
+      // the in-flight tool-call abort and `clearReceiverTasks()` — silently,
+      // since most callers catch `disconnect()`. So the release obligation is
+      // pinned from the other side too: the reset closes what it drops, and a
+      // `close()` that fails does not take the rest of teardown with it.
+      const transport = new SampleAfterConnectTransport();
+      const client = new InspectorClient(
+        { type: "stdio", command: "noop", args: [] },
+        { environment: { transport: () => ({ transport }) } },
+      );
+      await client.connect();
+
+      // Seeded directly, for the reasons the two tests above give. No public
+      // writer for either, hence the casts.
+      (
+        client as unknown as {
+          modernSubscription: { close: () => Promise<void> } | null;
+        }
+      ).modernSubscription = { close };
+
+      // A downstream teardown step, to witness that teardown continued.
+      const controller = new AbortController();
+      (
+        client as unknown as {
+          taskInputAbortControllers: Map<string, AbortController>;
+        }
+      ).taskInputAbortControllers.set("task-1", controller);
+
+      await expect(client.disconnect()).resolves.toBeUndefined();
+      expect(controller.signal.aborted).toBe(true);
+    });
+  }
 
   it("connects when an elicit option enables no mode", async () => {
     // `{ form: false, url: false }` is a valid option that advertises no

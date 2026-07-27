@@ -4648,6 +4648,14 @@ export class InspectorClient extends InspectorClientEventTarget {
     return filter;
   }
 
+  /** Cancel a pending reconnect re-listen, if any (#1630). */
+  private clearModernReconnectTimer(): void {
+    if (this.modernReconnectTimer !== undefined) {
+      clearTimeout(this.modernReconnectTimer);
+      this.modernReconnectTimer = undefined;
+    }
+  }
+
   /**
    * (Re-)establish the modern `subscriptions/listen` stream to match the current
    * `subscribedResources` set (#1630). Because the stream is not resumable,
@@ -4658,14 +4666,6 @@ export class InspectorClient extends InspectorClientEventTarget {
    * while this one awaits its acknowledgement, the just-opened stream is
    * discarded rather than overwriting the newer one.
    */
-  /** Cancel a pending reconnect re-listen, if any (#1630). */
-  private clearModernReconnectTimer(): void {
-    if (this.modernReconnectTimer !== undefined) {
-      clearTimeout(this.modernReconnectTimer);
-      this.modernReconnectTimer = undefined;
-    }
-  }
-
   private async refreshModernSubscription(
     fromReconnect = false,
   ): Promise<void> {
@@ -4718,13 +4718,16 @@ export class InspectorClient extends InspectorClientEventTarget {
     void subscription.closed.then(
       (reason) =>
         this.onModernSubscriptionClosed(subscription, reason, generation),
-      // A `closed` that rejects carries no reason to act on, and an unhandled
-      // rejection ends a Node process by default. Scoped to the rejection, not
-      // chained after the handler: a throw from `onModernSubscriptionClosed`
-      // should surface rather than silently abandon a re-listen. (Closing a
-      // stream *resolves* `closed`; what the connect-path close newly reaches
-      // is the handler running at all, where the reference used to be dropped
-      // with `closed` pending forever.)
+      // The rejection arm exists because a `closed` that rejects carries no
+      // reason to act on, and an unhandled rejection ends a Node process by
+      // default. It is scoped to the rejection rather than chained after the
+      // handler because the handler cannot throw today — it only assigns state,
+      // dispatches on a native `EventTarget` (which reports listener throws
+      // rather than propagating them) and arms a timer — and chaining a
+      // `.catch` after it would silently abandon a re-listen if that ever
+      // changed. (Closing a stream *resolves* `closed`; what the connect-path
+      // close newly reaches is the handler running at all, where the reference
+      // used to be dropped with `closed` pending forever.)
       () => {},
     );
   }
