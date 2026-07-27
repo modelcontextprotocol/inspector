@@ -262,6 +262,23 @@ export function issuerMismatchTitle(): string {
 }
 
 /**
+ * Longest issuer we will echo back into user-facing copy.
+ *
+ * `currentIssuer` is remote-supplied (it comes from the configured server's AS
+ * metadata), so an overlong value could be used to abuse the notification
+ * layout. Rendering is escaped, so this is a presentation bound, not an
+ * injection defence.
+ */
+const MAX_DISPLAYED_ISSUER_LENGTH = 120;
+
+/** Bound an issuer for display, marking any truncation. */
+export function truncateIssuerForDisplay(issuer: string): string {
+  return issuer.length > MAX_DISPLAYED_ISSUER_LENGTH
+    ? `${issuer.slice(0, MAX_DISPLAYED_ISSUER_LENGTH)}…`
+    : issuer;
+}
+
+/**
  * Copy for a genuine SEP-2352 issuer mismatch. This is *not* offered a
  * one-click recovery: the authorization code and PKCE verifier are bound to the
  * server that minted them, and a different server answering the callback is a
@@ -275,8 +292,9 @@ export function issuerMismatchMessage(options: {
   const target = options.serverName ? `"${options.serverName}"` : "this server";
   return (
     `Authorization for ${target} was stopped: the flow started at ` +
-    `${options.recordedIssuer} but the callback resolved ` +
-    `${options.currentIssuer}. The authorization code was not exchanged. ` +
+    `${truncateIssuerForDisplay(options.recordedIssuer)} but the callback ` +
+    `resolved ${truncateIssuerForDisplay(options.currentIssuer)}. ` +
+    "The authorization code was not exchanged. " +
     "Verify the server's authorization configuration before trying again."
   );
 }

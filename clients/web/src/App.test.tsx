@@ -1,5 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { ProtocolErrorCode, ProtocolError } from "@modelcontextprotocol/client";
+import {
+  ProtocolErrorCode,
+  ProtocolError,
+  AuthorizationServerMismatchError,
+} from "@modelcontextprotocol/client";
 import { UrlElicitationLoopError } from "@inspector/core/mcp/urlElicitation.js";
 import { ToolCallCancelledError } from "@inspector/core/mcp/toolCallCancelledError.js";
 import {
@@ -2212,17 +2216,13 @@ describe("App OAuth callback issuer-binding failures (#1808)", () => {
     importSource: vi.fn().mockResolvedValue({ servers: {} }),
   });
 
-  const mismatchError = (recordedIssuer: string): Error => {
-    const err = new Error("Authorization server changed");
-    Object.defineProperty(err, "mcpBrand", {
-      value: "mcp.AuthorizationServerMismatchError",
-    });
-    Object.assign(err, {
+  // A real SDK error, not a look-alike: the SDK's `mcpBrand` is static, so a
+  // fabricated instance-branded object would exercise a shape that cannot occur.
+  const mismatchError = (recordedIssuer: string): Error =>
+    new AuthorizationServerMismatchError(
       recordedIssuer,
-      currentIssuer: "https://as.example.com",
-    });
-    return err;
-  };
+      "https://as.example.com",
+    );
 
   const renderCallbackWithFailure = (err: Error) => {
     writeOAuthResumeSnapshot({

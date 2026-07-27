@@ -109,7 +109,6 @@ export {
 
 export {
   findIssuerBindingFailure,
-  isLostAuthorizationStateError,
   type IssuerBindingFailure,
 } from "./issuerBinding.js";
 

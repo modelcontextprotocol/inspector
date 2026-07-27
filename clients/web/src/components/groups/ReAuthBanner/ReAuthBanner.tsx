@@ -13,10 +13,11 @@ export interface ReAuthBannerProps {
   onDismiss: () => void;
 }
 
+// `title` is intentionally not baked in here: the component always passes a
+// resolved `title`, whose parameter default is the single source of truth.
 const ReAuthAlert = Alert.withProps({
   color: "red",
   variant: "reauth",
-  title: DEFAULT_REAUTH_BANNER_TITLE,
   withCloseButton: true,
   // Mantine's close button renders icon-only; without a label it has no
   // accessible name (axe `button-name`).

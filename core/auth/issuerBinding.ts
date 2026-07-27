@@ -28,8 +28,7 @@
  * "not a URL" — so a reworded SDK sentence still classifies correctly.
  */
 
-/** Brand the SDK stamps on `AuthorizationServerMismatchError` instances. */
-const AS_MISMATCH_BRAND = "mcp.AuthorizationServerMismatchError";
+import { AuthorizationServerMismatchError } from "@modelcontextprotocol/client";
 
 /** Phrase the SDK puts in the `recordedIssuer` slot when nothing was recorded. */
 const MISSING_DISCOVERY_STATE_PHRASE = "discoveryState was not available";
@@ -57,11 +56,18 @@ interface AuthorizationServerMismatchShape {
 }
 
 /**
- * Structural check for the SDK's `AuthorizationServerMismatchError`.
+ * Recognize the SDK's `AuthorizationServerMismatchError`.
  *
- * Deliberately brand/shape based rather than `instanceof`: the error can be
- * constructed by a different copy of the SDK than the one this module imports
- * (bundled client vs. the backend's), which makes `instanceof` unreliable.
+ * Uses the SDK's own `isInstance` predicate, which is **cross-copy safe by
+ * construction**: the SDK stamps each instance with a brand set keyed by
+ * `Symbol.for("mcp.sdk.errorBrands")` and overrides `Symbol.hasInstance` to
+ * consult it, so an error thrown by a *different* bundled copy of the SDK still
+ * matches. (Note the brand constant itself is declared `static`, so it lives on
+ * the class and is never reachable as `err.mcpBrand` — checking that property on
+ * an instance always fails.)
+ *
+ * The `name` comparison is a deliberate fallback for a serialization boundary,
+ * where neither the brand set nor the prototype survives but `name` does.
  */
 function isAuthorizationServerMismatchShape(
   err: unknown,
@@ -70,14 +76,19 @@ function isAuthorizationServerMismatchShape(
     return false;
   }
   const candidate = err as {
-    mcpBrand?: unknown;
     recordedIssuer?: unknown;
     currentIssuer?: unknown;
+    name?: unknown;
   };
+  if (
+    typeof candidate.recordedIssuer !== "string" ||
+    typeof candidate.currentIssuer !== "string"
+  ) {
+    return false;
+  }
   return (
-    candidate.mcpBrand === AS_MISMATCH_BRAND &&
-    typeof candidate.recordedIssuer === "string" &&
-    typeof candidate.currentIssuer === "string"
+    AuthorizationServerMismatchError.isInstance(err) ||
+    candidate.name === "AuthorizationServerMismatchError"
   );
 }
 
@@ -153,9 +164,4 @@ function classifyAuthorizationServerMismatch(
     recordedIssuer: err.recordedIssuer,
     currentIssuer: err.currentIssuer,
   };
-}
-
-/** True when the callback failed only because the recorded state was lost. */
-export function isLostAuthorizationStateError(err: unknown): boolean {
-  return findIssuerBindingFailure(err)?.kind === "lost_authorization_state";
 }

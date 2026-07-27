@@ -375,6 +375,18 @@ describe("oauthUx issuer-binding copy", () => {
     expect(issuerMismatchTitle()).toBe("Authorization server mismatch");
   });
 
+  it("bounds an overlong remote-supplied issuer in the mismatch copy", () => {
+    const overlong = `https://evil.example.com/${"a".repeat(400)}`;
+    const message = issuerMismatchMessage({
+      recordedIssuer: "https://old.example.com",
+      currentIssuer: overlong,
+    });
+    expect(message).not.toContain(overlong);
+    expect(message).toContain("…");
+    // The short issuer on the same call is passed through untouched.
+    expect(message).toContain("https://old.example.com");
+  });
+
   it("issuerBindingFailureCopy dispatches on the failure kind", () => {
     expect(
       issuerBindingFailureCopy(

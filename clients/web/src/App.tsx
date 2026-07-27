@@ -199,7 +199,6 @@ import {
   isReAuthBannerReason,
   issuerBindingFailureCopy,
   lostAuthorizationStateActionLabel,
-  lostAuthorizationStateTitle,
   oauthPreRedirectToastCopy,
   oauthResumeAbandonedMessage,
   reAuthBannerMessage,
@@ -890,6 +889,13 @@ function App() {
      * starting a fresh authorization.
      */
     kind?: "lost_authorization_state";
+    /**
+     * Resolved at the point the banner is raised so `issuerBindingFailureCopy`
+     * stays the single source of the `kind → copy` mapping; both fall back to
+     * `ReAuthBanner`'s own defaults when absent.
+     */
+    title?: string;
+    actionLabel?: string;
   } | null>(null);
   const [pendingReauth, setPendingReauth] = useState<PendingReauth | null>(
     null,
@@ -2588,6 +2594,8 @@ function App() {
               serverId: server.id,
               message: copy.message,
               kind: "lost_authorization_state",
+              title: copy.title,
+              actionLabel: lostAuthorizationStateActionLabel(),
             });
           } else {
             notifications.show({
@@ -2906,6 +2914,9 @@ function App() {
               title: "Could not clear the stored authorization state",
               message: err instanceof Error ? err.message : String(err),
               color: "red",
+              // The banner is already dismissed and the flow is dead, so this
+              // is the only remaining explanation — don't time it out.
+              autoClose: false,
             });
             return;
           }
@@ -4334,16 +4345,8 @@ function App() {
           <ReAuthBannerBar>
             <ReAuthBanner
               message={reAuthBanner.message}
-              title={
-                reAuthBanner.kind === "lost_authorization_state"
-                  ? lostAuthorizationStateTitle()
-                  : undefined
-              }
-              actionLabel={
-                reAuthBanner.kind === "lost_authorization_state"
-                  ? lostAuthorizationStateActionLabel()
-                  : undefined
-              }
+              title={reAuthBanner.title}
+              actionLabel={reAuthBanner.actionLabel}
               onReauthenticate={onReauthenticateFromBanner}
               onDismiss={() => setReAuthBanner(null)}
             />

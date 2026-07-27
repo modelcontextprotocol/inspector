@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
+import { AuthorizationServerMismatchError } from "@modelcontextprotocol/client";
 import {
   runRunnerInteractiveOAuth,
   type RunnerInteractiveOAuthClient,
@@ -251,15 +252,12 @@ describe("runRunnerInteractiveOAuth", () => {
 
   it("rewrites a lost-authorization-state callback failure into actionable copy (#1808)", async () => {
     const redirectUrlProvider = { redirectUrl: "" };
-    const sdkError = new Error("Authorization server changed");
-    Object.defineProperty(sdkError, "mcpBrand", {
-      value: "mcp.AuthorizationServerMismatchError",
-    });
-    Object.assign(sdkError, {
-      recordedIssuer:
-        "discoveryState was not available on the callback leg; ensure your provider persists discoveryState alongside codeVerifier",
-      currentIssuer: "https://as.example",
-    });
+    // Real SDK error — its `mcpBrand` is static, so a fabricated
+    // instance-branded look-alike would not exercise the real shape.
+    const sdkError = new AuthorizationServerMismatchError(
+      "discoveryState was not available on the callback leg; ensure your provider persists discoveryState alongside codeVerifier",
+      "https://as.example",
+    );
     const client = mockClient({
       authenticate: vi.fn(async () => {
         await simulateCallback(handlers.current);
@@ -291,11 +289,10 @@ describe("runRunnerInteractiveOAuth", () => {
 
   it("keeps the security wording for a genuine issuer mismatch (#1808)", async () => {
     const redirectUrlProvider = { redirectUrl: "" };
-    const sdkError = Object.assign(new Error("Authorization server changed"), {
-      mcpBrand: "mcp.AuthorizationServerMismatchError",
-      recordedIssuer: "https://old.example",
-      currentIssuer: "https://evil.example",
-    });
+    const sdkError = new AuthorizationServerMismatchError(
+      "https://old.example",
+      "https://evil.example",
+    );
     const client = mockClient({
       authenticate: vi.fn(async () => {
         await simulateCallback(handlers.current);

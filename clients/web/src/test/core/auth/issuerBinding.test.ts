@@ -1,21 +1,61 @@
 import { describe, it, expect } from "vitest";
-import {
-  findIssuerBindingFailure,
-  isLostAuthorizationStateError,
-} from "@inspector/core/auth/issuerBinding.js";
+import { AuthorizationServerMismatchError } from "@modelcontextprotocol/client";
+import { findIssuerBindingFailure } from "@inspector/core/auth/issuerBinding.js";
 
 /**
- * Builds an object shaped like the SDK's `AuthorizationServerMismatchError`
- * (brand + the two issuer fields). The classifier is intentionally structural,
- * not `instanceof`, so a plain object is the honest fixture here.
+ * Builds a **real** SDK `AuthorizationServerMismatchError`.
+ *
+ * This must stay the real class rather than a look-alike plain object. The SDK
+ * declares `mcpBrand` in a `static {}` block, so it sits on the constructor and
+ * is invisible from the instance; a fabricated fixture carrying an own
+ * `mcpBrand` property would pass against a classifier that reads
+ * `err.mcpBrand` — which no real thrown error would ever satisfy.
  */
-function mismatchError(recordedIssuer: string, currentIssuer: string): Error {
+function mismatchError(
+  recordedIssuer: string,
+  currentIssuer: string,
+): AuthorizationServerMismatchError {
+  return new AuthorizationServerMismatchError(recordedIssuer, currentIssuer);
+}
+
+/**
+ * Documents why the classifier must not test `err.mcpBrand`: the SDK declares
+ * that brand `static`, so it lives on the class and instances never carry it.
+ * If a future SDK moves it onto the instance, this fails and the note in
+ * `issuerBinding.ts` can be revisited.
+ */
+describe("SDK brand placement", () => {
+  it("keeps `mcpBrand` on the class, not the instance", () => {
+    const err = mismatchError("https://a.example.com", "https://b.example.com");
+    expect("mcpBrand" in err).toBe(false);
+    // The brand is defined at runtime via `Object.defineProperty` in a static
+    // block, so it is absent from the SDK's published type declarations — hence
+    // the cast to read it.
+    const brandOnClass = (
+      AuthorizationServerMismatchError as { mcpBrand?: unknown }
+    ).mcpBrand;
+    expect(brandOnClass).toBe("mcp.AuthorizationServerMismatchError");
+  });
+
+  it("matches via `isInstance`, which survives a foreign SDK copy", () => {
+    const err = mismatchError("https://a.example.com", "https://b.example.com");
+    expect(AuthorizationServerMismatchError.isInstance(err)).toBe(true);
+  });
+});
+
+/**
+ * An error that crossed a serialization boundary: neither the SDK's
+ * `Symbol.for()`-keyed brand set nor the prototype survives, but `name` does.
+ * This is the fallback arm of the classifier's predicate.
+ */
+function serializedMismatchError(
+  recordedIssuer: string,
+  currentIssuer: string,
+): Error {
   const err = new Error(
     "Authorization server changed between redirect and callback",
   );
-  Object.defineProperty(err, "mcpBrand", {
-    value: "mcp.AuthorizationServerMismatchError",
-  });
+  err.name = "AuthorizationServerMismatchError";
   Object.assign(err, { recordedIssuer, currentIssuer });
   return err;
 }
@@ -118,43 +158,34 @@ describe("findIssuerBindingFailure", () => {
     expect(findIssuerBindingFailure("string")).toBeUndefined();
   });
 
-  it("ignores a branded error missing the issuer fields", () => {
+  it("ignores a matching error missing the issuer fields", () => {
     const err = new Error("half-shaped");
-    Object.defineProperty(err, "mcpBrand", {
-      value: "mcp.AuthorizationServerMismatchError",
-    });
+    err.name = "AuthorizationServerMismatchError";
     expect(findIssuerBindingFailure(err)).toBeUndefined();
 
     const halfShaped = new Error("only recorded");
-    Object.defineProperty(halfShaped, "mcpBrand", {
-      value: "mcp.AuthorizationServerMismatchError",
-    });
+    halfShaped.name = "AuthorizationServerMismatchError";
     Object.assign(halfShaped, { recordedIssuer: "https://as.example.com" });
     expect(findIssuerBindingFailure(halfShaped)).toBeUndefined();
   });
 
-  it("ignores a different SDK brand", () => {
+  it("classifies a serialized error via the `name` fallback", () => {
+    expect(
+      findIssuerBindingFailure(
+        serializedMismatchError(
+          MISSING_STATE_SENTINEL,
+          "https://as.example.com",
+        ),
+      )?.kind,
+    ).toBe("lost_authorization_state");
+  });
+
+  it("ignores a different SDK error carrying the same fields", () => {
     const err = Object.assign(new Error("other"), {
-      mcpBrand: "mcp.IssuerMismatchError",
       recordedIssuer: "https://a.example.com",
       currentIssuer: "https://b.example.com",
     });
+    err.name = "IssuerMismatchError";
     expect(findIssuerBindingFailure(err)).toBeUndefined();
-  });
-});
-
-describe("isLostAuthorizationStateError", () => {
-  it("is true only for the missing-discovery-state case", () => {
-    expect(
-      isLostAuthorizationStateError(
-        mismatchError(MISSING_STATE_SENTINEL, "https://as.example.com"),
-      ),
-    ).toBe(true);
-    expect(
-      isLostAuthorizationStateError(
-        mismatchError("https://a.example.com", "https://b.example.com"),
-      ),
-    ).toBe(false);
-    expect(isLostAuthorizationStateError(new Error("boom"))).toBe(false);
   });
 });
