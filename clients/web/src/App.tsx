@@ -1225,14 +1225,17 @@ function App() {
     // outgoing server's id when this runs from `onDisconnect` — which is what
     // lets the re-seed find its settings. Clearing that ref eagerly would
     // silently drop this back to the default.
-    const activeSettings = serversRef.current.find(
+    // Branch on the *server*, not its settings: an entry with no settings node
+    // is the common case (`mcp.json` written by hand, never opened in Server
+    // Settings), and there the default is right — it is what the seed and the
+    // client both use. Only "no server at all" means Off.
+    const activeServer = serversRef.current.find(
       (s) => s.id === activeServerIdRef.current,
-    )?.settings;
-    // No server found is Off, not the default — `resolveModernLogLevel`
-    // returns the default for absent *settings*, which is the right answer for
-    // a server that has none but the wrong one for no server at all.
+    );
     setModernLogLevel(
-      activeSettings ? (resolveModernLogLevel(activeSettings) ?? null) : null,
+      activeServer
+        ? (resolveModernLogLevel(activeServer.settings) ?? null)
+        : null,
     );
     setPendingStepUp(null);
     setPendingReauth(null);

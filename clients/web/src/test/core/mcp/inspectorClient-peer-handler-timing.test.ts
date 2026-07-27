@@ -297,7 +297,8 @@ class ElicitAfterConnectTransport implements Transport {
  * Race `promise` against a short reject, so a regression fails where it
  * happened instead of hanging to the vitest timeout — which names the test
  * rather than the thing that didn't occur. The timer is cleared on settle so
- * nothing armed outlives the test (the #1760 class).
+ * nothing armed outlives the test (the #1760 class). `onTimeout` runs only on
+ * the reject path, for callers with an entry to drop when nobody answered.
  */
 function withTimeout<T>(
   promise: Promise<T>,
@@ -762,12 +763,26 @@ describe("InspectorClient peer-handler timing (#1797)", () => {
     const internals = client as unknown as {
       subscribedResources: Set<string>;
       cancelledTaskIds: Set<string>;
-      modernStreamState: { active: boolean; status: string };
+      modernStreamState: {
+        active: boolean;
+        status: string;
+        honoredUris: string[];
+      };
     };
     internals.subscribedResources.add("file:///watched");
     internals.cancelledTaskIds.add("task-1");
     // The stream state a live modern subscription would have left behind.
-    internals.modernStreamState = { active: true, status: "ended" };
+    internals.modernStreamState = {
+      active: true,
+      status: "ended",
+      honoredUris: ["file:///watched"],
+    };
+    // The dispatch is the half the UI tracks — `ResourceSubscriptionsState`
+    // listens only to the event, never reading the field.
+    const streamStates: { active: boolean }[] = [];
+    client.addEventListener("resourceSubscriptionStreamChange", (event) => {
+      streamStates.push((event as CustomEvent).detail);
+    });
 
     transport.onclose?.();
     await client.connect();
@@ -779,6 +794,7 @@ describe("InspectorClient peer-handler timing (#1797)", () => {
     expect(client.getResourceSubscriptionStreamState()).toMatchObject({
       active: false,
     });
+    expect(streamStates.at(-1)).toMatchObject({ active: false });
 
     await client.disconnect();
   });
