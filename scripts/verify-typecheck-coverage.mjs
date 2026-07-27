@@ -90,6 +90,17 @@ export const isDisablingFlag = (t) => /^--(noCheck|listFilesOnly)$/i.test(t);
  */
 export const matchesTestGlob = (file, glob) => path.matchesGlob(file, glob);
 
+// `node --test` flags whose VALUE is a separate token — never a positional glob.
+const VALUE_TAKING_TEST_FLAGS = new Set([
+  "--test-coverage-include",
+  "--test-coverage-exclude",
+  "--test-reporter",
+  "--test-reporter-destination",
+  "--test-name-pattern",
+  "--test-skip-pattern",
+  "--test-shard",
+]);
+
 /**
  * The path/glob arguments `test:scripts` hands `node --test`, harvested across
  * every script reachable FROM it — not just its own literal string. A delegating
@@ -108,6 +119,15 @@ export const matchesTestGlob = (file, glob) => path.matchesGlob(file, glob);
  * is enough to do it: that glob matches a renamed `*.spec.mjs`, so the rename
  * `node --test` skips would pass the check. Reachability widened what's read;
  * this keeps what's *harvested* to the runner's own arguments.
+ *
+ * Within a kept segment only the POSITIONAL args count. `--test-coverage-include
+ * "scripts/**\/*.mjs"` is the same suppression one level in — a glob-valued flag
+ * broader than the test glob, which would vouch for the very file the runner
+ * skips (and it's the obvious next addition here, since `scripts/` sits outside
+ * the ≥90 coverage gate). A leading `./` is normalized off because `git ls-files`
+ * emits none, so `./scripts/…` — the common npm-script idiom, which `node --test`
+ * accepts — would otherwise match nothing and blame every file for a rename that
+ * never happened (`rootRunsClientValidate` normalizes it for the same reason).
  */
 export const testScriptGlobs = (scripts) =>
   [...reachableScripts(scripts, "test:scripts")]
@@ -116,8 +136,15 @@ export const testScriptGlobs = (scripts) =>
     .flatMap((c) => c.split(/&&|\|\||;/))
     .map((segment) => tokenize(segment))
     .filter((tokens) => tokens.includes("--test")) // only `node --test` names test files
-    .flat()
-    .filter((t) => !t.startsWith("-") && t !== "node");
+    .flatMap((tokens) =>
+      tokens.filter(
+        (t, i) =>
+          !t.startsWith("-") &&
+          t !== "node" &&
+          !VALUE_TAKING_TEST_FLAGS.has(tokens[i - 1]),
+      ),
+    )
+    .map((g) => g.replace(/^\.\//, ""));
 
 /**
  * Gate-integrity problems with `test:scripts` — this guard's OWN parser tests —
@@ -593,17 +620,16 @@ export function main() {
     );
   }
 
-  integrity.push(
-    ...testScriptProblems(
-      rootPkg.scripts,
-      execFileSync("git", ["ls-files", "scripts"], {
-        cwd: repoRoot,
-        encoding: "utf8",
-      })
-        .split("\n")
-        .filter((f) => /\.(test|spec)\.[^/]+$/.test(f)),
-    ),
+  const testScriptIssues = testScriptProblems(
+    rootPkg.scripts,
+    execFileSync("git", ["ls-files", "scripts"], {
+      cwd: repoRoot,
+      encoding: "utf8",
+    })
+      .split("\n")
+      .filter((f) => /\.(test|spec)\.[^/]+$/.test(f)),
   );
+  integrity.push(...testScriptIssues);
 
   for (const clientDir of CLIENTS) {
     checkingProjects.set(clientDir, []);
@@ -672,9 +698,14 @@ export function main() {
       `verify:typecheck-coverage — ${integrity.length} gate-integrity issue(s): a typecheck gate is not run, or runs but checks nothing:\n`,
     );
     for (const f of integrity) console.error("  " + f);
-    console.error(
-      "\nRestore the `typecheck` wiring (client `validate` → `typecheck`, root `validate` → each client), and drop any `--noCheck`/`--listFilesOnly`/`noCheck` from the typecheck pass.",
-    );
+    // Only advise on the typecheck wiring when something above is ABOUT it — a
+    // `test:scripts` issue carries its own remediation per line, and appending
+    // `--noCheck`/`tsc -b` advice under a renamed-test-file message sends the
+    // reader after the wrong thing.
+    if (integrity.some((f) => !testScriptIssues.includes(f)))
+      console.error(
+        "\nRestore the `typecheck` wiring (client `validate` → `typecheck`, root `validate` → each client), and drop any `--noCheck`/`--listFilesOnly`/`noCheck` from the typecheck pass.",
+      );
     process.exit(1);
   }
 

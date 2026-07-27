@@ -190,6 +190,38 @@ test("testScriptGlobs: only `node --test` segments contribute (r33 finding 1)", 
   );
 });
 
+test("testScriptGlobs: flag values and ./ prefixes (r34 findings 1 & 2)", () => {
+  // A glob-valued `--test-*` flag is NOT a positional arg. `scripts/**/*.mjs`
+  // matches a renamed `*.spec.mjs`, so harvesting it would vouch for the very
+  // file the runner skips — the r33 suppression one level in.
+  assert.deepEqual(
+    testScriptGlobs({
+      "test:scripts":
+        'node --test --experimental-test-coverage --test-coverage-include "scripts/**/*.mjs" "scripts/**/*.test.mjs"',
+    }),
+    ["scripts/**/*.test.mjs"],
+  );
+  // A leading `./` is normalized off — `node --test` accepts it, `git ls-files`
+  // never emits it, so keeping it would blame every file for a rename that
+  // never happened.
+  assert.deepEqual(
+    testScriptGlobs({
+      "test:scripts": 'node --test "./scripts/**/*.test.mjs"',
+    }),
+    ["scripts/**/*.test.mjs"],
+  );
+  // …and the normalized glob really does match what `git ls-files` emits.
+  assert.ok(
+    testScriptProblems(
+      {
+        validate: "npm run test:scripts",
+        "test:scripts": 'node --test "./scripts/**/*.test.mjs"',
+      },
+      ["scripts/lib/npm-scripts.test.mjs"],
+    ).length === 0,
+  );
+});
+
 test("testScriptGlobs: empty when no glob is named (r33 finding 2)", () => {
   // The condition the "`test:scripts` names no path/glob" branch keys off — a
   // bare `node --test` auto-discovers, so the guard can't tell what it runs.
