@@ -645,9 +645,11 @@ describe("InspectorClient peer-handler timing (#1797)", () => {
 
     transport.onclose?.();
 
-    // Raced so a regression names this expectation rather than hanging to a
-    // bare vitest timeout. The client's own request timeout is set short above,
-    // so nothing is left armed past a failing run.
+    // The short request timeout set above is what makes a regression fail fast
+    // and name itself — the assertion reports `timed out after 50 ms` against
+    // the expected /Connection closed/. The race is the backstop for the
+    // narrower case where the request's own timer is broken too, so nothing
+    // settles at all.
     await withTimeout(settled, "raw-wire request not settled by teardown");
   });
 
