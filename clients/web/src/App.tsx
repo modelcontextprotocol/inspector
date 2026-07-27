@@ -44,9 +44,9 @@ import type {
 } from "@inspector/core/mcp/types.js";
 import {
   DEFAULT_MAX_FETCH_REQUESTS,
-  DEFAULT_MODERN_LOG_LEVEL,
   DEFAULT_TASK_TTL_MS,
   eraToVersionNegotiation,
+  resolveModernLogLevel,
 } from "@inspector/core/mcp/types.js";
 import {
   API_SERVER_ENV_VARS,
@@ -1221,14 +1221,14 @@ function App() {
     // leave the control reading Off while every modern request still carries
     // the level — visible on the auth-recovery path, which reconnects the same
     // client instance rather than rebuilding it (#1629, #1797).
+    // `activeServerIdRef` is synced in a passive effect, so it still holds the
+    // outgoing server's id when this runs from `onDisconnect` — which is what
+    // lets the re-seed find its settings. Clearing that ref eagerly would
+    // silently drop this back to the default.
     const activeSettings = serversRef.current.find(
       (s) => s.id === activeServerIdRef.current,
     )?.settings;
-    const reseededModernLevel =
-      activeSettings?.modernLogLevel ?? DEFAULT_MODERN_LOG_LEVEL;
-    setModernLogLevel(
-      reseededModernLevel === "off" ? null : reseededModernLevel,
-    );
+    setModernLogLevel(resolveModernLogLevel(activeSettings) ?? null);
     setPendingStepUp(null);
     setPendingReauth(null);
     setReAuthBanner(null);
@@ -2349,9 +2349,7 @@ function App() {
       // setting so the Logs-tab control reflects what the client stamps by
       // default (the client was seeded the same way in its constructor). "off"
       // means not opted in (null). Only affects modern connections.
-      const seededModernLevel =
-        savedSettings?.modernLogLevel ?? DEFAULT_MODERN_LOG_LEVEL;
-      setModernLogLevel(seededModernLevel === "off" ? null : seededModernLevel);
+      setModernLogLevel(resolveModernLogLevel(savedSettings) ?? null);
       setManagedToolsState(new ManagedToolsState(client));
       setPagedToolsState(new PagedToolsState(client));
       setPagedPromptsState(new PagedPromptsState(client));

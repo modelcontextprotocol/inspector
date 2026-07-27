@@ -31,9 +31,9 @@ export type {
 } from "./types.js";
 import { getServerType as getServerTypeFromConfig } from "./config.js";
 import {
-  DEFAULT_MODERN_LOG_LEVEL,
   INACTIVE_SUBSCRIPTION_STREAM_STATE,
   isTerminalStatus,
+  resolveModernLogLevel,
 } from "./types.js";
 import { cleanRoots } from "./serverList.js";
 // Fallback client identity, used ONLY when a caller doesn't pass
@@ -527,9 +527,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     // the Logs-tab control. Absence means DEFAULT_MODERN_LOG_LEVEL; `"off"`
     // clears the opt-in. Only stamped on modern connections (see mergeMeta) —
     // legacy uses `logging/setLevel`.
-    const settingLevel =
-      options.serverSettings?.modernLogLevel ?? DEFAULT_MODERN_LOG_LEVEL;
-    this.modernLogLevel = settingLevel === "off" ? undefined : settingLevel;
+    this.modernLogLevel = resolveModernLogLevel(options.serverSettings);
     // Default to the legacy 2025-11-25 era when the caller doesn't pin one, per
     // the SDK guidance that a debugging tool must not auto-probe (#1626).
     this.versionNegotiation = options.versionNegotiation ?? { mode: "legacy" };
@@ -1437,7 +1435,9 @@ export class InspectorClient extends InspectorClientEventTarget {
    * `cancelledTaskIds` entry mislabels a *new* task sharing the id as
    * `cancelled` rather than `failed`; a receiver-task record is reported to the
    * new server by `tasks/list`; and an un-aborted `taskInputAbortControllers`
-   * entry leaks a paused poll loop (#1797).
+   * entry delays a paused poll loop unwinding — both registration sites release
+   * in a `finally`, so nothing leaks permanently; the abort just closes the
+   * window between the crash and the unwind (#1797).
    */
   private resetSessionState(): void {
     this.clearReceiverTasks();
@@ -1451,9 +1451,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     // `setModernLogLevel` override into the next connection — and rather than
     // leaving it `undefined` after a `disconnect()` cleared it, which silently
     // dropped the user's configured level on reconnect (#1629, #1797).
-    const settingLevel =
-      this.serverSettings?.modernLogLevel ?? DEFAULT_MODERN_LOG_LEVEL;
-    this.modernLogLevel = settingLevel === "off" ? undefined : settingLevel;
+    this.modernLogLevel = resolveModernLogLevel(this.serverSettings);
   }
 
   /**
@@ -1946,8 +1944,12 @@ export class InspectorClient extends InspectorClientEventTarget {
     this.protocolEra = undefined;
     this.discoverResult = undefined;
     this.excludedTools = [];
-    // Drop the modern per-request log-level opt-in so it doesn't leak into the
-    // next connection's `_meta` (#1629).
+    // Read as "not opted in" while disconnected. This is no longer what stops
+    // it leaking into the next connection — `resetSessionState()` re-derives it
+    // at connect, so removing this would leak nothing (#1629). Note the web
+    // Logs control deliberately shows the *configured* level in this window
+    // (`resetSessionScopedUiState`), so the two disagree until the next
+    // connect re-seeds both; harmless, since nothing is sent meanwhile.
     this.modernLogLevel = undefined;
     this.dispatchTypedEvent("pendingSamplesChange", this.pendingSamples);
     this.dispatchTypedEvent(

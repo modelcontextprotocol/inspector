@@ -811,6 +811,35 @@ describe("InspectorClient peer-handler timing (#1797)", () => {
     await client.disconnect();
   });
 
+  it("aborts a paused task-input wait when the session ends", async () => {
+    // The bounded-window member: both registration sites release in a
+    // `finally`, so nothing leaks permanently — this closes the gap between a
+    // crash and the loop unwinding on its own.
+    const transport = new SampleAfterConnectTransport();
+    const client = new InspectorClient(
+      { type: "stdio", command: "noop", args: [] },
+      { environment: { transport: () => ({ transport }) } },
+    );
+    await client.connect();
+
+    // Seeded directly: reaching this map for real needs a modern task paused at
+    // `input_required`, which adds nothing to what is under test. No public
+    // reader, hence the cast.
+    const controller = new AbortController();
+    (
+      client as unknown as {
+        taskInputAbortControllers: Map<string, AbortController>;
+      }
+    ).taskInputAbortControllers.set("task-1", controller);
+
+    transport.onclose?.();
+    await client.connect();
+
+    expect(controller.signal.aborted).toBe(true);
+
+    await client.disconnect();
+  });
+
   it("connects when an elicit option enables no mode", async () => {
     // `{ form: false, url: false }` is a valid option that advertises no
     // elicitation capability. Registering `elicitation/create` on `this.elicit`
