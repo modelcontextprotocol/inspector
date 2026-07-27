@@ -330,10 +330,11 @@ describe("CLI Tests", () => {
     it("answers a server's roots/list instead of -32601", async () => {
       // The CLI used to omit `roots` when constructing its InspectorClient, so
       // the capability was never advertised and no `roots/list` handler was
-      // registered — a server that asked got -32601 Method not found, and
-      // `--method roots/set` announced `roots/list_changed` to a server it
-      // would then refuse to answer. `cli.ts` now always passes the `roots`
-      // option — empty on this ad-hoc path, since there is no config file.
+      // registered — a server that asked got -32601 Method not found. (And
+      // `--method roots/set` could not announce the change: the SDK refuses
+      // `roots/list_changed` from a client that never declared it, so nothing
+      // reached the wire.) `cli.ts` now always passes the `roots` option —
+      // empty on this ad-hoc path, since there is no config file.
       const server = createTestServerHttp({
         serverInfo: createTestServerInfo(),
         tools: [createListRootsTool()],

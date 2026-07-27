@@ -4433,7 +4433,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     // is a client that was never able to announce (#1797).
     if (!this.rootsListChangedCapabilityAdvertised) {
       this.logger.warn(
-        "setRoots() on a client that did not advertise the roots capability; " +
+        "setRoots() on a client that did not advertise `roots.listChanged`; " +
           "roots are stored locally but the change is not announced",
       );
       return;

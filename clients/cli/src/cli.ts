@@ -156,9 +156,11 @@ async function callMethod(
     // Advertise the roots configured for this server in mcp.json, exactly as
     // web does (`App.tsx`) so both answer `roots/list` with the same content.
     // Passing the option (even empty) is what negotiates `capabilities.roots`
-    // at `initialize` and registers the `roots/list` handler — omitting it left
-    // `--method roots/set` announcing `roots/list_changed` to a server that
-    // then got -32601 back (#1797).
+    // at `initialize` and registers the `roots/list` handler. Omitting it meant
+    // a server that asks for roots on its own — `server-filesystem` does, at
+    // `initialize` — got -32601, and `--method roots/set` could not announce
+    // the change at all: the SDK refuses `roots/list_changed` from a client
+    // that never declared it, which `setRoots` logged as a send failure (#1797).
     roots: cleanRoots(serverSettings?.roots ?? []),
     serverSettings,
     // Per-server protocol era (SEP §7.8) from mcp.json → SDK versionNegotiation.
