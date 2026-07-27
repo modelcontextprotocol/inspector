@@ -1293,7 +1293,9 @@ export class InspectorClient extends InspectorClientEventTarget {
       async () => {
         // Re-dispatch our already-known roots as a refresh signal for the UI —
         // the payload carries no new data (see the note on ownership above).
-        this.dispatchTypedEvent("rootsChange", this.roots || []);
+        // Copied, as `setRoots` and `getRoots()` do: a listener must not be
+        // able to push into the list we advertise.
+        this.dispatchTypedEvent("rootsChange", [...(this.roots ?? [])]);
       },
     );
   }

@@ -180,7 +180,7 @@ describe("InspectorClient peer-handler timing (#1797)", () => {
     await client.disconnect();
   });
 
-  it("normalizes a malformed roots option at construction", async () => {
+  it("normalizes a malformed roots option at construction", () => {
     // Core owns the invariant rather than trusting each client to clean at its
     // call site — the constructor is the fourth way roots enter the client, and
     // the option can come straight off hand-edited mcp.json.
@@ -189,7 +189,9 @@ describe("InspectorClient peer-handler timing (#1797)", () => {
       const client = new InspectorClient(
         { type: "stdio", command: "noop", args: [] },
         {
-          environment: { transport: () => ({}) as never },
+          environment: {
+            transport: () => ({ transport: new InitializedRacingTransport() }),
+          },
           roots: [{ name: "no uri" }, { uri: "file:///keep" }] as Root[],
         },
       );
