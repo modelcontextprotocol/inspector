@@ -102,11 +102,17 @@ export class ElicitationCreateMessage {
 
   /**
    * Settle a still-pending elicitation as cancelled, without removing it from
-   * the queue. Used by `disconnect()` teardown so an awaiting caller — notably
-   * the error-path `awaitUrlElicitation` that blocks `callTool` — doesn't hang
-   * forever when the pending queue is dropped wholesale. No-op once already
-   * resolved; deliberately does not call `onRemove` (the caller clears the
-   * queue itself, so we must not splice it mid-iteration).
+   * the queue. Called from `InspectorClient`'s `clearPendingPeerRequests()`,
+   * which serves all three teardown paths — an explicit `disconnect()`, a
+   * failed `connect()`, and a mid-session transport close — so an awaiting
+   * caller (notably the error-path `awaitUrlElicitation` that blocks
+   * `callTool`) doesn't hang forever when the pending queue is dropped
+   * wholesale. No-op once already resolved.
+   *
+   * Deliberately does not call `onRemove`: that caller iterates the queue and
+   * clears it itself, so removing here would splice mid-iteration — skipping
+   * every other entry and leaving those promises unsettled, the exact hang this
+   * method exists to prevent.
    */
   cancel(): void {
     if (this.resolvePromise) {

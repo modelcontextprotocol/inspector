@@ -44,10 +44,12 @@ import { InspectorClient } from "@inspector/core/mcp/inspectorClient.js";
  * queue a request with us, so every path that ends a connection has to clear
  * that queue and announce it — otherwise the web pending-request modal outlives
  * the connection it belongs to. There are three: a failed `connect()`, a
- * mid-session transport close, and an explicit `disconnect()`. All three clear
- * before announcing the teardown; the first two emit the change events
- * immediately, while `disconnect()` batches them with its other teardown
- * dispatches.
+ * mid-session transport close, and an explicit `disconnect()`. The two that
+ * emit a `disconnect` event clear before it, so a handler reading the queue
+ * sees it empty; the connect-failure path emits no `disconnect` at all and
+ * clears after its `statusChange` to `"error"`. The two crash/failure paths
+ * emit the change events immediately, while `disconnect()` batches them with
+ * its other teardown dispatches.
  */
 class InitializedRacingTransport implements Transport {
   onmessage?: (message: JSONRPCMessage) => void;
