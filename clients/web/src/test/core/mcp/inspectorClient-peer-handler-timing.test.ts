@@ -45,12 +45,7 @@ import { ModernGetTaskResultSchema } from "@inspector/core/mcp/modernTaskSchemas
  * queue a request with us, so every path that ends a connection has to clear
  * that queue, announce it, and settle each entry — otherwise the web
  * pending-request modal outlives the connection it belongs to, and the server
- * is left waiting on a request we accepted and never answered. The outbound
- * direction needs the same: the raw-wire modern `tasks/*` map is ours — the
- * SDK's era gate keeps those frames out of its own `_responseHandlers`, so its
- * teardown can't settle them — and a Tasks-tab poll in flight when the server
- * dies would otherwise wait out its own 30s timeout and blame the timeout for
- * a crash. There are three: a
+ * is left waiting on a request we accepted and never answered. There are three: a
  * failed `connect()`, a mid-session transport close, and an explicit
  * `disconnect()`. `disconnect()` and the crash path clear before dispatching
  * `disconnect`, so a handler reading the queue sees it empty. `connect()`'s
@@ -60,6 +55,15 @@ import { ModernGetTaskResultSchema } from "@inspector/core/mcp/modernTaskSchemas
  * backstop for the auth-recovery sub-case, where the transport is retained and
  * no `onclose` fires. The crash and failure paths emit the change events
  * immediately; `disconnect()` batches them with its other teardown dispatches.
+ *
+ * The outbound direction needs settling too, on its own terms. The raw-wire
+ * modern `tasks/*` map is ours — the SDK's era gate keeps those frames out of
+ * its own `_responseHandlers`, so its teardown can't settle them — and a
+ * Tasks-tab poll in flight when the server dies would otherwise wait out its
+ * own 30s timeout and blame the timeout for a crash. It is rejected on the two
+ * paths that can hold one, `disconnect()` and the crash path; the `connect()`
+ * catch needs no such call, because nothing populates the map before the
+ * handshake and both terminal paths clear it.
  *
  * Some cases cover the other side of the registration gates. Client capabilities
  * are fixed at construction, so each gate must key off what was actually
@@ -627,7 +631,22 @@ describe("InspectorClient peer-handler timing (#1797)", () => {
 
     transport.onclose?.();
 
-    await settled;
+    // Raced for the same reason `waitForNewPendingRequest` is: without the
+    // teardown rejection this waits out the request's own timeout, so a
+    // regression would surface as a bare vitest timeout naming the test rather
+    // than the thing that didn't happen.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const unsettled = new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () => reject(new Error("raw-wire request not settled by teardown")),
+        1000,
+      );
+    });
+    try {
+      await Promise.race([settled, unsettled]);
+    } finally {
+      clearTimeout(timer);
+    }
   });
 
   it("connects when an elicit option enables no mode", async () => {
