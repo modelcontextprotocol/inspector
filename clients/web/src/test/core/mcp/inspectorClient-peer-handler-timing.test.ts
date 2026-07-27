@@ -44,16 +44,16 @@ import { InspectorClient } from "@inspector/core/mcp/inspectorClient.js";
  * queue a request with us, so every path that ends a connection has to clear
  * that queue, announce it, and settle each entry — otherwise the web
  * pending-request modal outlives the connection it belongs to, and the server
- * is left waiting on a request we accepted and never answered. There are three: a failed `connect()`, a
- * mid-session transport close, and an explicit `disconnect()`. `disconnect()`
- * and the crash path clear before dispatching `disconnect`, so a handler
- * reading the queue sees it empty. `connect()`'s own catch dispatches no
- * `disconnect` — though on a real transport its `dropCachedTransport()` usually
- * fires `onclose` first, which clears, announces and *does* dispatch one, so
- * the catch's own call is really the backstop for the auth-recovery sub-case,
- * where the transport is retained and no `onclose` fires. The crash and
- * failure paths emit the change events immediately; `disconnect()` batches them
- * with its other teardown dispatches.
+ * is left waiting on a request we accepted and never answered. There are three: a
+ * failed `connect()`, a mid-session transport close, and an explicit
+ * `disconnect()`. `disconnect()` and the crash path clear before dispatching
+ * `disconnect`, so a handler reading the queue sees it empty. `connect()`'s
+ * own catch dispatches no `disconnect` — though on a real transport its
+ * `dropCachedTransport()` usually fires `onclose` first, which clears,
+ * announces and *does* dispatch one, so the catch's own call is really the
+ * backstop for the auth-recovery sub-case, where the transport is retained and
+ * no `onclose` fires. The crash and failure paths emit the change events
+ * immediately; `disconnect()` batches them with its other teardown dispatches.
  *
  * Some cases cover the other side of the registration gates. Client capabilities
  * are fixed at construction, so each gate must key off what was actually

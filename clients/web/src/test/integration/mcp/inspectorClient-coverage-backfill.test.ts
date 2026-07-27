@@ -309,8 +309,6 @@ describe("InspectorClient coverage backfill", () => {
         .catch((e: unknown) => e);
 
       const sample = await samplingPromise;
-      // Pre-attach a catch to the receiver task's payload promise so its
-      // rejection (driven below) doesn't surface as an unhandled rejection.
       // Reject instead of respond — drives the receiver-task error callback,
       // which sets status "failed" and calls upsertReceiverTask.
       await sample.reject(new Error("user rejected sampling"));
