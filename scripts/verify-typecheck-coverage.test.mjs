@@ -6,13 +6,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  globToRegExp,
+  matchesTestGlob,
   isDisablingFlag,
   isRequiredSource,
   isTsc,
   parseTsconfigReferences,
   projectConfigFile,
   refToProject,
+  testScriptGlobs,
   tscBuildStatus,
   typecheckProjects,
 } from "./verify-typecheck-coverage.mjs";
@@ -127,29 +128,44 @@ test("parseTsconfigReferences: JSONC tolerance (r17-nit2 block comments)", () =>
   assert.deepEqual(refs('{ "references": [{ "prepend": true }] }'), []); // no path
 });
 
-test("globToRegExp: matches the test:scripts glob shape", () => {
-  const g = globToRegExp("scripts/**/*.test.mjs");
-  assert.ok(g.test("scripts/lib/npm-scripts.test.mjs"));
-  assert.ok(g.test("scripts/verify-typecheck-coverage.test.mjs")); // zero-depth **
-  assert.ok(!g.test("scripts/lib/npm-scripts.spec.mjs")); // wrong suffix
-  assert.ok(!g.test("scripts/lib/npm-scripts.test.mts")); // wrong ext
+test("matchesTestGlob: the guard's contract, not node's glob engine", () => {
+  // Only the two properties the guard actually relies on — the rest of node's
+  // glob semantics are node's to test, which is the point of delegating to it.
+  const g = "scripts/**/*.test.mjs";
+  assert.ok(matchesTestGlob("scripts/verify-typecheck-coverage.test.mjs", g)); // zero-depth **
+  assert.ok(matchesTestGlob("scripts/lib/npm-scripts.test.mjs", g)); // nested
+  assert.ok(!matchesTestGlob("scripts/lib/npm-scripts.spec.mjs", g)); // the probe-B rename
 });
 
-test("globToRegExp: brace alternation and ? (r31 finding 2)", () => {
-  // `node --test` expands braces, so the natural widening must match too.
-  const b = globToRegExp("scripts/**/*.{test,spec}.mjs");
-  assert.ok(b.test("scripts/lib/npm-scripts.test.mjs"));
-  assert.ok(b.test("scripts/verify-typecheck-coverage.spec.mjs"));
-  assert.ok(!b.test("scripts/a.other.mjs"));
-  // `?` is exactly one non-separator char, not a regex quantifier.
-  const q = globToRegExp("scripts/a?.test.mjs");
-  assert.ok(q.test("scripts/ab.test.mjs"));
-  assert.ok(!q.test("scripts/a.test.mjs")); // would pass if `?` stayed a quantifier
-  assert.ok(!q.test("scripts/a/.test.mjs")); // never crosses a separator
-  assert.doesNotThrow(() => globToRegExp("?.mjs")); // segment-leading `?` isn't `Nothing to repeat`
-  // An unbalanced brace is a literal brace, not an unclosed group.
-  assert.doesNotThrow(() => globToRegExp("scripts/{a.mjs"));
-  assert.ok(globToRegExp("scripts/{a.mjs").test("scripts/{a.mjs"));
+test("testScriptGlobs: harvests across delegation (r31 finding 1 / r32 finding 2)", () => {
+  // Direct form — the glob itself, with `node` and flags dropped.
+  assert.deepEqual(
+    testScriptGlobs({ "test:scripts": 'node --test "scripts/**/*.test.mjs"' }),
+    ["scripts/**/*.test.mjs"],
+  );
+  // Delegating form — BOTH child globs, not the literal npm/run/<name> tokens.
+  const delegating = testScriptGlobs({
+    "test:scripts": "npm run test:scripts:lib && npm run test:scripts:guard",
+    "test:scripts:lib": 'node --test "scripts/lib/**/*.test.mjs"',
+    "test:scripts:guard": 'node --test "scripts/*.test.mjs"',
+  });
+  assert.ok(delegating.includes("scripts/lib/**/*.test.mjs"));
+  assert.ok(delegating.includes("scripts/*.test.mjs"));
+  // A pre<name> hook is reached too (npm runs it implicitly).
+  assert.ok(
+    testScriptGlobs({
+      "test:scripts": "node --test scripts/a.test.mjs",
+      "pretest:scripts": "node --test scripts/b.test.mjs",
+    }).includes("scripts/b.test.mjs"),
+  );
+  // An unreachable script contributes nothing.
+  assert.deepEqual(
+    testScriptGlobs({
+      "test:scripts": "node --test scripts/a.test.mjs",
+      other: "node --test scripts/z.test.mjs",
+    }),
+    ["scripts/a.test.mjs"],
+  );
 });
 
 test("projectConfigFile: directory-form entry means <dir>/tsconfig.json (r26)", () => {

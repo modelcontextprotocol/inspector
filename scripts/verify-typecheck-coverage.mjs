@@ -79,46 +79,36 @@ export const isTsc = (t) => /(?:^|[\\/])tsc(?:\.(?:cmd|exe|ps1))?$/.test(t);
 // `typecheck`-script path and the reference (`tsc -b`) path.
 export const isDisablingFlag = (t) => /^--(noCheck|listFilesOnly)$/i.test(t);
 
-/** A glob anchored to a RegExp over POSIX paths. Used to check a tracked test
- * file is matched by the `test:scripts` command's glob. Supports the forms
- * `node --test`'s own glob does: `**` (any depth), `*` and `?` (within one
- * segment), and brace alternation (`*.{test,spec}.mjs`) — the last two because
- * `*.{test,spec}.mjs` is the natural widening here (the tracked-file scan
- * already treats a `.spec.` file as a test), and a `?` left as a regex
- * quantifier silently means "optional previous char" (or throws outright). */
-export function globToRegExp(glob) {
-  // Only treat braces as alternation when they're balanced; an unbalanced one
-  // is a literal brace (and would otherwise emit an unclosed group).
-  let depth = 0;
-  let balanced = true;
-  for (const c of glob) {
-    if (c === "{") depth++;
-    else if (c === "}" && depth-- === 0) balanced = false;
-  }
-  if (depth !== 0) balanced = false;
+/**
+ * Whether a tracked test file is matched by one of the `test:scripts` command's
+ * globs. Delegates to node's own `path.matchesGlob` (22.5.0+; the repo floor is
+ * `>=22.19.0`) rather than hand-translating the glob to a RegExp — `node --test`
+ * is the thing whose matching we're modeling, so measuring with node's matcher
+ * is exact for every form it accepts (`**` incl. zero depth, `*`, `?` as exactly
+ * one non-separator char, brace alternation, character classes) instead of
+ * false-failing on whichever form the translator hadn't covered yet.
+ */
+export const matchesTestGlob = (file, glob) => path.matchesGlob(file, glob);
 
-  let re = "";
-  let open = 0;
-  for (let i = 0; i < glob.length; i++) {
-    const c = glob[i];
-    if (c === "*") {
-      if (glob[i + 1] === "*") {
-        re += glob[i + 2] === "/" ? "(?:.*/)?" : ".*";
-        i += glob[i + 2] === "/" ? 2 : 1;
-      } else re += "[^/]*";
-    } else if (c === "?") re += "[^/]";
-    else if (balanced && c === "{") {
-      open++;
-      re += "(?:";
-    } else if (balanced && c === "}" && open > 0) {
-      open--;
-      re += ")";
-    } else if (balanced && c === "," && open > 0) re += "|";
-    else if (".+^${}()|[]\\".includes(c)) re += "\\" + c;
-    else re += c;
-  }
-  return new RegExp("^" + re + "$");
-}
+/**
+ * The path/glob arguments `test:scripts` hands `node --test`, harvested across
+ * every script reachable FROM it — not just its own literal string. A delegating
+ * `test:scripts` ("npm run test:scripts:lib && npm run test:scripts:guard", the
+ * way other scripts here split) genuinely runs every test, and reading the one
+ * string would instead harvest `npm`/`run`/`test:scripts:lib` and report each
+ * test file as unmatched with unfollowable advice. Same fix as the `typecheck`
+ * harvest, and it picks up a `pretest:scripts` hook for free.
+ *
+ * The filter is deliberately loose (any non-flag token that isn't `node`): a
+ * surplus token can only ADD a pattern that matches nothing, never suppress a
+ * real miss, since the call site requires SOME glob to match each file.
+ */
+export const testScriptGlobs = (scripts) =>
+  [...reachableScripts(scripts, "test:scripts")]
+    .map((n) => scripts?.[n])
+    .filter((c) => typeof c === "string")
+    .flatMap((c) => tokenize(c))
+    .filter((t) => !t.startsWith("-") && t !== "node");
 
 /**
  * The `references` paths declared in the tsconfig at repo-relative `tsconfigRel`
@@ -383,16 +373,6 @@ function rawProjectFiles(clientDir, project) {
 }
 
 /**
- * The leaf tsconfig projects `project` resolves to (paths relative to
- * `clientDir`): itself if it lists files (or has no `references`), else its
- * `references` expanded recursively. A `tsc -b` **solution config** (`{"files":
- * [], "references": […]}`) lists nothing under `--listFilesOnly`, so this is how
- * it's reduced to the real projects — and doing it here (not just inside
- * `projectFiles`) is what lets BOTH coverage and the non-inertness check follow
- * the same graph, so a `noCheck` in a *referenced* project is caught no matter
- * which enrollment path harvested the solution.
- */
-/**
  * The repo-relative tsconfig FILE a `clientDir`-relative `project` entry names.
  * A directory-form entry (`{ "path": "./packages/a" }`, or `tsc -p src`) means
  * `<dir>/tsconfig.json` — tsc's own rule.
@@ -416,6 +396,16 @@ export function refToProject(clientDir, fromConfigFile, ref) {
   );
 }
 
+/**
+ * The leaf tsconfig projects `project` resolves to (paths relative to
+ * `clientDir`): itself if it lists files (or has no `references`), else its
+ * `references` expanded recursively. A `tsc -b` **solution config** (`{"files":
+ * [], "references": […]}`) lists nothing under `--listFilesOnly`, so this is how
+ * it's reduced to the real projects — and doing it here (not just inside
+ * `projectFiles`) is what lets BOTH coverage and the non-inertness check follow
+ * the same graph, so a `noCheck` in a *referenced* project is caught no matter
+ * which enrollment path harvested the solution.
+ */
 export function resolveLeafProjects(clientDir, project, seen = new Set()) {
   if (seen.has(project)) return [];
   seen.add(project);
@@ -563,17 +553,7 @@ export function main() {
       "the root `validate` no longer runs `test:scripts` — the guard's own parser tests run nowhere; restore it.",
     );
   } else {
-    // Harvest across every script reachable FROM `test:scripts`, not just its
-    // own string — a delegating `test:scripts` ("npm run test:scripts:lib &&
-    // npm run test:scripts:guard", the way other scripts here split) genuinely
-    // runs every test, and reading the one literal string would report each
-    // file as unmatched with unfollowable advice. Same fix as the `typecheck`
-    // harvest, and it picks up a `pretest:scripts` hook for free.
-    const testGlobs = [...reachableScripts(rootPkg.scripts, "test:scripts")]
-      .map((n) => rootPkg.scripts?.[n])
-      .filter((c) => typeof c === "string")
-      .flatMap((c) => tokenize(c))
-      .filter((t) => !t.startsWith("-") && t !== "node");
+    const testGlobs = testScriptGlobs(rootPkg.scripts);
     const testFiles = execFileSync("git", ["ls-files", "scripts"], {
       cwd: repoRoot,
       encoding: "utf8",
@@ -584,11 +564,20 @@ export function main() {
       integrity.push(
         "no `scripts/**/*.test.*` files are tracked — the guard's parser tests are gone.",
       );
-    for (const f of testFiles)
-      if (!testGlobs.some((g) => globToRegExp(g).test(f)))
-        integrity.push(
-          `${f}: not matched by the \`test:scripts\` glob — \`node --test\` won't run it (a rename to a form it skips). Rename it back to \`*.test.mjs\`.`,
-        );
+    if (testGlobs.length === 0) {
+      // A bare `node --test` (auto-discovery from the cwd) harvests nothing, and
+      // `.some()` over an empty list would blame every file individually with
+      // advice none of them can follow. Say the actual problem once instead.
+      integrity.push(
+        '`test:scripts` names no path/glob — this guard can\'t tell which files `node --test` runs. Give it an explicit glob (e.g. `node --test "scripts/**/*.test.mjs"`).',
+      );
+    } else {
+      for (const f of testFiles)
+        if (!testGlobs.some((g) => matchesTestGlob(f, g)))
+          integrity.push(
+            `${f}: not matched by the \`test:scripts\` glob — \`node --test\` won't run it (a rename to a form it skips). Rename it back to \`*.test.mjs\`.`,
+          );
+    }
   }
 
   for (const clientDir of CLIENTS) {
