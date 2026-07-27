@@ -133,6 +133,17 @@ describe("cleanRoots", () => {
       expect(warn).toHaveBeenCalled();
     });
 
+    it("keeps a root whose name is not a string, dropping just the name", () => {
+      // `name` is optional, so a bad one costs the name, not the root.
+      expect(
+        cleanRoots([
+          { uri: "file:///a", name: 42 },
+          { uri: "file:///b", name: { x: 1 } },
+        ] as unknown as Root[]),
+      ).toEqual([{ uri: "file:///a" }, { uri: "file:///b" }]);
+      expect(warn).toHaveBeenCalledTimes(2);
+    });
+
     it("bails to an empty list when roots is not an array", () => {
       // A hand-edited `"roots": "file:///work"`.
       expect(cleanRoots("file:///work" as unknown as Root[])).toEqual([]);

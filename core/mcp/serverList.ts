@@ -98,8 +98,9 @@ export function normalizeServerType(
  *
  * `Root[]` is a compile-time type over hand-editable `mcp.json`, and every
  * client now feeds this straight from disk (#1797), so the shape is validated
- * at runtime too: a non-array bails to `[]` and an entry without a string
- * `uri` is dropped with a warning, rather than throwing at connect.
+ * at runtime too, rather than throwing at connect: a non-array bails to `[]`,
+ * an entry without a string `uri` is dropped, and a non-string `name` is
+ * dropped from an otherwise-usable entry. Each case warns.
  */
 export function cleanRoots(roots: Root[]): Root[] {
   if (!Array.isArray(roots)) {
@@ -115,7 +116,14 @@ export function cleanRoots(roots: Root[]): Root[] {
       return r.uri.trim() !== "";
     })
     .map((r) => {
-      const trimmedName = r.name?.trim();
+      // `?.` would guard null/undefined but not a non-string `name` from disk,
+      // which `.trim()` throws on — the `uri` case above, one field over.
+      const rawName = r.name;
+      if (rawName !== undefined && typeof rawName !== "string") {
+        console.warn("Dropping non-string `name` on root:", r);
+      }
+      const trimmedName =
+        typeof rawName === "string" ? rawName.trim() : undefined;
       // Strip `name` off the carried-through rest so a cleared optional name
       // doesn't persist as `name: ""`; re-add it only when non-empty.
       const { name: _name, ...rest } = r;

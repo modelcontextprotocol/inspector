@@ -332,7 +332,8 @@ describe("CLI Tests", () => {
       // the capability was never advertised and no `roots/list` handler was
       // registered — a server that asked got -32601 Method not found, and
       // `--method roots/set` announced `roots/list_changed` to a server it
-      // would then refuse to answer. `cli.ts` now seeds `roots: []`.
+      // would then refuse to answer. `cli.ts` now always passes the `roots`
+      // option — empty on this ad-hoc path, since there is no config file.
       const server = createTestServerHttp({
         serverInfo: createTestServerInfo(),
         tools: [createListRootsTool()],

@@ -1208,10 +1208,10 @@ export class InspectorClient extends InspectorClientEventTarget {
     // matching client capability inside `setRequestHandler`, so registering
     // this on a client built without `roots` throws "Client does not support
     // roots capability". Since `capabilities.roots` is negotiated at
-    // `initialize` (:588) and `registerCapabilities` refuses to run after
-    // connect, a client that omits the option can never serve `roots/list` —
-    // which is why every client that may call `setRoots()` later must pass
-    // `roots` up front (web does; the CLI now does too — #1797).
+    // `initialize` (set in the constructor) and `registerCapabilities` refuses
+    // to run after connect, a client that omits the option can never serve
+    // `roots/list` — which is why every client that may call `setRoots()` later
+    // must pass `roots` up front (web does; the CLI and TUI now do too — #1797).
     if (this.roots !== undefined && this.client) {
       this.client.setRequestHandler("roots/list", async () => {
         return { roots: this.roots ?? [] };
