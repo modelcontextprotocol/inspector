@@ -58,7 +58,7 @@ OAuth redirect URIs must match **exactly** what you register on the authorizatio
 | `--client-id <id>` | — | OAuth client ID (static client); overrides `client.json`. |
 | `--client-secret <secret>` | — | OAuth client secret (confidential clients); overrides `client.json`. |
 | `--client-metadata-url <url>` | — | Client ID Metadata Document URL (CIMD); overrides `client.json`. |
-| `--callback-url <url>` | `MCP_OAUTH_CALLBACK_URL` | OAuth redirect/callback listener (default: `http://127.0.0.1:6276/oauth/callback`). |
+| `--callback-url <url>` | `MCP_OAUTH_CALLBACK_URL` | OAuth redirect/callback listener (default: `http://127.0.0.1:6276/oauth/callback`). Must bind a **loopback** host (`localhost` / `127.0.0.0/8` / `[::1]`); a non-loopback host hard-errors, since the listener receives the authorization code over plaintext `http`. |
 
 #### Authenticating in the TUI
 

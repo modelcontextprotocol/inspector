@@ -5,7 +5,11 @@ import { fileURLToPath } from "url";
 import { runCli, validLogLevels } from "./cli.js";
 import { handleError } from "./error-handler.js";
 
-export { runCli, validLogLevels };
+// `handleError` is exported so the launcher (which imports `runCli` as a module
+// and owns the rejection) can route a `mcp-inspector --cli` failure through the
+// CLI's own sink — preserving the EXIT_CODES map and the JSON `{"error":…}`
+// envelope that this bin's own `.catch` provides only when run directly.
+export { runCli, validLogLevels, handleError };
 
 const __filename = fileURLToPath(import.meta.url);
 const isMain =

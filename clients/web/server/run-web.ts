@@ -18,7 +18,10 @@ import {
   parseHeaderPair,
   type ServerConfigOptions,
 } from "../../../core/mcp/node/config.ts";
-import { buildWebServerConfig } from "./web-server-config.js";
+import {
+  buildWebServerConfig,
+  type WebServerConfig,
+} from "./web-server-config.js";
 import { startViteDevServer } from "./start-vite-dev-server.js";
 import { startHonoServer } from "./server.js";
 import { ensureWebBuild } from "./ensure-web-build.js";
@@ -232,12 +235,25 @@ export async function runWeb(argv: string[]): Promise<number> {
     process.exit(1);
   }
 
-  const webConfig = buildWebServerConfig({
-    initialMcpConfig,
-    mcpConfigPath,
-    writable,
-    initialServers,
-  });
+  let webConfig: WebServerConfig;
+  try {
+    webConfig = buildWebServerConfig({
+      initialMcpConfig,
+      mcpConfigPath,
+      writable,
+      initialServers,
+    });
+  } catch (err) {
+    // e.g. the bind-host guard refusing HOST=0.0.0.0 — surface the actionable
+    // message rather than a raw stack trace from the launcher's top-level handler.
+    const message =
+      err instanceof Error
+        ? err.message
+        : /* v8 ignore next -- buildWebServerConfig only ever throws Error instances; this fallback is a defensive guard for the impossible non-Error throw. */
+          "Invalid web server configuration.";
+    console.error("Error:", message);
+    process.exit(1);
+  }
   const webRoot = join(__dirname, "..");
   const distRoot = join(webRoot, "dist");
   if (!isDev) {

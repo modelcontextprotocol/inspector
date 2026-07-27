@@ -76,6 +76,29 @@ describe("runner OAuth callback URL", () => {
     ).toThrow(/must use http scheme/);
   });
 
+  it.each([
+    "http://0.0.0.0:6276/oauth/callback", // wildcard
+    "http://[::]:6276/oauth/callback", // IPv6 wildcard
+    "http://192.168.1.50:6276/oauth/callback", // LAN — plaintext code over the network
+    "http://example.com:6276/oauth/callback", // routable hostname
+  ])(
+    "rejects a non-loopback callback host %j (the code listener must be loopback)",
+    (url) => {
+      expect(() => parseRunnerOAuthCallbackUrl(url)).toThrow(
+        /must bind a loopback host/,
+      );
+    },
+  );
+
+  it.each([
+    ["http://127.0.0.1:6276/oauth/callback", "127.0.0.1"],
+    ["http://localhost:6276/oauth/callback", "localhost"],
+    ["http://127.5:6276/oauth/callback", "127.0.0.5"], // 127.0.0.0/8, shorthand normalized by new URL
+    ["http://[::1]:6276/oauth/callback", "::1"], // de-bracketed so listen() can bind it
+  ])("accepts the loopback callback host %j", (url, expectedHostname) => {
+    expect(parseRunnerOAuthCallbackUrl(url).hostname).toBe(expectedHostname);
+  });
+
   it("formatRunnerOAuthRedirectUrl round-trips default config", () => {
     const config = parseRunnerOAuthCallbackUrl();
     expect(formatRunnerOAuthRedirectUrl(config)).toBe(

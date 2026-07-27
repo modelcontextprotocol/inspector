@@ -168,8 +168,13 @@ ssh -L 6274:127.0.0.1:6274 -L 6275:127.0.0.1:6275 <remote-host>
 
 Then open `http://127.0.0.1:6274/?MCP_INSPECTOR_API_TOKEN=$TOKEN` locally.
 
-- Use `127.0.0.1`, **not** `localhost` — the backend's origin guard checks the
-  literal `Origin` header against the configured `HOST`.
+- Use `127.0.0.1` or `localhost` — the default origin allow-list emits both (and
+  `[::1]`) for a loopback bind (#1795), so the guard accepts either, whichever
+  the browser sends. **Do not** use a bare `http://[::1]:…` URL for App review:
+  it connects, but a bracketed IPv6 literal isn't a valid CSP `frame-ancestors`
+  source, so the App sandbox iframe is CSP-blocked and the widget never renders
+  (see the MCP Apps caveat in [`clients/web/README.md`](../clients/web/README.md#host-binding--the-origin-allow-list)).
+  A **non-loopback** forward target needs `ALLOWED_ORIGINS` set to that origin.
 - Forward `:6275` (`MCP_SANDBOX_PORT`) as well: the Apps tab renders widgets in
   an iframe served from that second origin; without it the App frame stays
   blank.

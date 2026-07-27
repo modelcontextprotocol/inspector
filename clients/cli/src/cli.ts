@@ -24,6 +24,10 @@ import {
   parseHeaderPair,
 } from "@inspector/core/mcp/node/index.js";
 import type { JsonValue } from "@inspector/core/mcp/index.js";
+import {
+  canonicalUrlHost,
+  isAllInterfacesHost,
+} from "@inspector/core/node/hostUrl.js";
 import { getStateFilePath } from "@inspector/core/auth/node/storage-node.js";
 import { consumeMethodOutcome } from "./handlers/consume-outcome.js";
 import { runMethod } from "./handlers/run-method.js";
@@ -430,6 +434,13 @@ function buildHandoff(
   transport: "sse" | "http" | "stdio" | undefined,
 ): McpResponse {
   const host = process.env.HOST || "127.0.0.1";
+  // The deep link is a URL handed to a human, so advertise localhost for a
+  // wildcard bind (like the web banner/sandbox URL) rather than the awkward
+  // http://0.0.0.0 / http://[::] — both are allow-listed, but neither is a nice
+  // URL to click; otherwise use the canonical host so it matches the allow-list.
+  const linkHost = isAllInterfacesHost(host)
+    ? "localhost"
+    : canonicalUrlHost(host);
   const clientPort = process.env.CLIENT_PORT || "6274";
   const sandboxPort = process.env.MCP_SANDBOX_PORT || "6275";
   // Treat an empty MCP_INSPECTOR_API_TOKEN the same as unset — an empty token
@@ -448,7 +459,7 @@ function buildHandoff(
   if (apiToken) params.set("autoConnect", apiToken);
   return {
     serverUrl: normalizedUrl,
-    deepLink: `http://${host}:${clientPort}/?${params.toString()}`,
+    deepLink: `http://${linkHost}:${clientPort}/?${params.toString()}`,
     portForwardCmd: `coder port-forward <workspace> --tcp ${clientPort}:${clientPort} --tcp ${sandboxPort}:${sandboxPort}`,
     oauthStatePath: statePath,
     apiToken: apiToken ?? null,
@@ -673,7 +684,7 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     )
     .option(
       "--callback-url <url>",
-      `OAuth redirect/callback listener URL (default: ${DEFAULT_RUNNER_OAUTH_CALLBACK_URL}, or MCP_OAUTH_CALLBACK_URL)`,
+      `OAuth redirect/callback listener URL; must be loopback (default: ${DEFAULT_RUNNER_OAUTH_CALLBACK_URL}, or MCP_OAUTH_CALLBACK_URL)`,
     )
     .option(
       "--use-stored-auth",
@@ -1036,7 +1047,20 @@ export async function runCli(argv?: string[]): Promise<void> {
     relogin,
   } = parsed;
   const clientConfig = await loadRunnerClientConfig({ clientConfigPath });
-  const callbackUrlConfig = parseRunnerOAuthCallbackUrl(callbackUrl);
+  // A bad --callback-url / MCP_OAUTH_CALLBACK_URL is a *usage* error, but its
+  // messages contain "OAuth", which the exit-code heuristic (error-handler.ts)
+  // would otherwise classify as AUTH_REQUIRED (exit 3) — telling an automated
+  // caller to kick the auth flow instead of fixing the flag. `core/` can't
+  // import CliExitCodeError, so pin the class here.
+  let callbackUrlConfig: RunnerOAuthCallbackConfig;
+  try {
+    callbackUrlConfig = parseRunnerOAuthCallbackUrl(callbackUrl);
+  } catch (err) {
+    throw new CliExitCodeError(
+      EXIT_CODES.USAGE,
+      err instanceof Error ? err.message : String(err),
+    );
+  }
   await callMethod(
     serverConfig,
     serverSettings,

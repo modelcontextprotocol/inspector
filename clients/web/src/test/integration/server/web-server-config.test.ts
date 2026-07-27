@@ -1,7 +1,8 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   buildWebServerConfig,
   buildWebServerConfigFromEnv,
+  defaultAllowedOrigins,
   printServerBanner,
   webServerConfigToInitialPayload,
   type WebServerConfig,
@@ -20,6 +21,7 @@ const MUTATED_ENV_KEYS = [
   "CLIENT_PORT",
   "HOST",
   "DANGEROUSLY_OMIT_AUTH",
+  "DANGEROUSLY_BIND_ALL_INTERFACES",
   "MCP_STORAGE_DIR",
   "ALLOWED_ORIGINS",
   "MCP_SANDBOX_PORT",
@@ -75,7 +77,11 @@ describe("buildWebServerConfigFromEnv", () => {
     expect(cfg.dangerouslyOmitAuth).toBe(false);
     expect(cfg.initialMcpConfig).toBeNull();
     expect(cfg.storageDir).toBeUndefined();
-    expect(cfg.allowedOrigins).toEqual(["http://localhost:6274"]);
+    expect(cfg.allowedOrigins).toEqual([
+      "http://localhost:6274",
+      "http://127.0.0.1:6274",
+      "http://[::1]:6274",
+    ]);
     expect(cfg.sandboxPort).toBe(0);
     expect(cfg.sandboxHost).toBe("localhost");
     expect(cfg.logger).toBeUndefined();
@@ -85,13 +91,54 @@ describe("buildWebServerConfigFromEnv", () => {
     expect(cfg.autoOpen).toBe(false);
   });
 
-  it("honors CLIENT_PORT and HOST", () => {
+  it("honors CLIENT_PORT and a loopback HOST", () => {
     process.env.CLIENT_PORT = "8123";
-    process.env.HOST = "0.0.0.0";
+    process.env.HOST = "127.0.0.1";
     const cfg = buildWebServerConfigFromEnv();
     expect(cfg.port).toBe(8123);
+    expect(cfg.hostname).toBe("127.0.0.1");
+  });
+
+  it("refuses HOST=0.0.0.0 without the bind-all opt-in", () => {
+    process.env.HOST = "0.0.0.0";
+    expect(() => buildWebServerConfigFromEnv()).toThrow(
+      /DANGEROUSLY_BIND_ALL_INTERFACES/,
+    );
+  });
+
+  it("allows HOST=0.0.0.0 when the bind-all opt-in is set", () => {
+    process.env.CLIENT_PORT = "8123";
+    process.env.HOST = "0.0.0.0";
+    process.env.DANGEROUSLY_BIND_ALL_INTERFACES = "true";
+    const cfg = buildWebServerConfigFromEnv();
     expect(cfg.hostname).toBe("0.0.0.0");
-    expect(cfg.allowedOrigins).toEqual(["http://0.0.0.0:8123"]);
+    // A wildcard bind serves loopback, so the default allow-list is the
+    // loopback trio (what a `docker run -p` browser actually sends) plus the
+    // canonical wildcard pair (0.0.0.0 / [::]).
+    expect(cfg.allowedOrigins).toEqual([
+      "http://localhost:8123",
+      "http://127.0.0.1:8123",
+      "http://[::1]:8123",
+      "http://0.0.0.0:8123",
+      "http://[::]:8123",
+    ]);
+  });
+
+  it("expands a loopback HOST into all equivalent loopback origins", () => {
+    // `localhost` resolves to either 127.0.0.1 or ::1 depending on the OS, and
+    // Node/Vite may bind the IPv6 form — so a browser can send `Origin:
+    // http://[::1]:PORT` even though the banner advertised `localhost`. The
+    // default must accept all three so the DNS-rebinding guard doesn't 403 a
+    // legitimate loopback connect (the exact bug behind an stdio server that
+    // "should always work" failing with a 403 Invalid origin).
+    process.env.HOST = "127.0.0.1";
+    process.env.CLIENT_PORT = "6274";
+    const cfg = buildWebServerConfigFromEnv();
+    expect(cfg.allowedOrigins).toEqual([
+      "http://localhost:6274",
+      "http://127.0.0.1:6274",
+      "http://[::1]:6274",
+    ]);
   });
 
   it("clears authToken when DANGEROUSLY_OMIT_AUTH is set even if AUTH_TOKEN is present", () => {
@@ -121,10 +168,107 @@ describe("buildWebServerConfigFromEnv", () => {
     expect(cfg.authToken).toBe("primary");
   });
 
-  it("parses ALLOWED_ORIGINS and filters empty entries", () => {
-    process.env.ALLOWED_ORIGINS = "http://a,,http://b";
+  it("parses ALLOWED_ORIGINS, trimming entries and filtering empties", () => {
+    process.env.ALLOWED_ORIGINS = "http://a:1, ,  http://b:2  ";
     const cfg = buildWebServerConfigFromEnv();
-    expect(cfg.allowedOrigins).toEqual(["http://a", "http://b"]);
+    expect(cfg.allowedOrigins).toEqual(["http://a:1", "http://b:2"]);
+  });
+
+  it.each(["", " ", ","])(
+    "falls back to the default (not an empty allow-all) when ALLOWED_ORIGINS is %j",
+    (value) => {
+      // An empty parsed list must NOT reach the middleware — it treats an empty
+      // allow-list as allow-all, which would silently disable the origin guard.
+      process.env.ALLOWED_ORIGINS = value;
+      const cfg = buildWebServerConfigFromEnv();
+      expect(cfg.allowedOrigins).toEqual([
+        "http://localhost:6274",
+        "http://127.0.0.1:6274",
+        "http://[::1]:6274",
+      ]);
+    },
+  );
+
+  it("canonicalizes ALLOWED_ORIGINS entries so copy-paste forms still match", () => {
+    // Trailing slash, uppercase host, explicit default :80 — all normalized to
+    // the canonical Origin the browser actually sends.
+    process.env.ALLOWED_ORIGINS =
+      "http://localhost:6274/, http://Example.COM:6274, http://myhost:80";
+    const cfg = buildWebServerConfigFromEnv();
+    expect(cfg.allowedOrigins).toEqual([
+      "http://localhost:6274",
+      "http://example.com:6274",
+      "http://myhost",
+    ]);
+  });
+
+  it("drops unparseable ALLOWED_ORIGINS entries (and falls back if none survive)", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      process.env.ALLOWED_ORIGINS = "not a url, *, http://ok:1";
+      const cfg = buildWebServerConfigFromEnv();
+      // "not a url" / "*" throw; "http://ok:1" parses.
+      expect(cfg.allowedOrigins).toEqual(["http://ok:1"]);
+
+      process.env.ALLOWED_ORIGINS = "not a url, also bad";
+      const cfg2 = buildWebServerConfigFromEnv();
+      expect(cfg2.allowedOrigins).toEqual([
+        "http://localhost:6274",
+        "http://127.0.0.1:6274",
+        "http://[::1]:6274",
+      ]);
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('drops scheme-less / opaque ALLOWED_ORIGINS entries rather than allow-listing "null"', () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      // `new URL("localhost:6274").origin` is the literal "null" (not a throw) —
+      // must be dropped, not allow-listed (it'd match a real `Origin: null`).
+      process.env.ALLOWED_ORIGINS =
+        "localhost:6274, file:///srv, http://real:1";
+      const cfg = buildWebServerConfigFromEnv();
+      expect(cfg.allowedOrigins).toEqual(["http://real:1"]);
+
+      // All scheme-less → nothing survives → fail-closed fallback to default.
+      process.env.ALLOWED_ORIGINS = "localhost:6274, myhost:8080";
+      const cfg2 = buildWebServerConfigFromEnv();
+      expect(cfg2.allowedOrigins).toEqual([
+        "http://localhost:6274",
+        "http://127.0.0.1:6274",
+        "http://[::1]:6274",
+      ]);
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it("drops a wildcard ALLOWED_ORIGINS entry (works for CSP but never for the origin check)", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      process.env.ALLOWED_ORIGINS =
+        "http://*.example.com:6274, http://real.example.com:6274";
+      const cfg = buildWebServerConfigFromEnv();
+      expect(cfg.allowedOrigins).toEqual(["http://real.example.com:6274"]);
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it.each(["0", "abc", "70000", "-1", "6274abc", "80.9"])(
+    "rejects an unusable CLIENT_PORT %j with an actionable error",
+    (value) => {
+      process.env.CLIENT_PORT = value;
+      expect(() => buildWebServerConfigFromEnv()).toThrow(/CLIENT_PORT/);
+    },
+  );
+
+  it("treats an empty CLIENT_PORT as unset (defaults to 6274)", () => {
+    process.env.CLIENT_PORT = "";
+    const cfg = buildWebServerConfigFromEnv();
+    expect(cfg.port).toBe(6274);
   });
 
   it("resolves sandboxPort from MCP_SANDBOX_PORT", () => {
@@ -196,6 +340,110 @@ describe("buildWebServerConfigFromEnv", () => {
   });
 });
 
+describe("defaultAllowedOrigins", () => {
+  it.each(["localhost", "127.0.0.1", "::1", "[::1]", "LOCALHOST"])(
+    "expands the loopback host %s into all three loopback origins",
+    (host) => {
+      expect(defaultAllowedOrigins(host, 6274)).toEqual([
+        "http://localhost:6274",
+        "http://127.0.0.1:6274",
+        "http://[::1]:6274",
+      ]);
+    },
+  );
+
+  it("returns a single exact origin for a specific non-loopback host", () => {
+    expect(defaultAllowedOrigins("192.168.1.50", 6274)).toEqual([
+      "http://192.168.1.50:6274",
+    ]);
+  });
+
+  // A non-canonical spelling of a loopback address is canonicalized (the way the
+  // browser canonicalizes it into `Origin`), so it's recognized as loopback and
+  // gets the trio — not a single unmatchable entry.
+  it.each([
+    "127.1",
+    "0x7f.0.0.1",
+    "2130706433",
+    "0:0:0:0:0:0:0:1",
+    "::0001",
+    "::ffff:127.0.0.1", // IPv4-mapped loopback — the socket answers on 127.0.0.1
+  ])("canonicalizes the loopback spelling %j and returns the trio", (host) => {
+    expect(defaultAllowedOrigins(host, 6274)).toEqual([
+      "http://localhost:6274",
+      "http://127.0.0.1:6274",
+      "http://[::1]:6274",
+    ]);
+  });
+
+  it("unmaps an IPv4-mapped non-loopback host to its dotted form", () => {
+    expect(defaultAllowedOrigins("::ffff:192.168.1.50", 6274)).toEqual([
+      "http://192.168.1.50:6274",
+    ]);
+  });
+
+  it("keeps a distinct non-loopback address (127.0.0.2) as a single origin", () => {
+    // 127.0.0.2 is canonical and a bind there doesn't serve 127.0.0.1, so the
+    // single-origin branch is correct — only non-canonical *spellings* expand.
+    expect(defaultAllowedOrigins("127.0.0.2", 6274)).toEqual([
+      "http://127.0.0.2:6274",
+    ]);
+  });
+
+  it("handles an empty host (canonicalUrlHost's non-URL fallback) as the wildcard", () => {
+    // `new URL("http://")` throws, so canonicalUrlHost falls back to "" — which
+    // isAllInterfacesHost treats as the wildcard. No `http://:PORT` garbage.
+    expect(defaultAllowedOrigins("", 8123)).toEqual([
+      "http://localhost:8123",
+      "http://127.0.0.1:8123",
+      "http://[::1]:8123",
+      "http://0.0.0.0:8123",
+      "http://[::]:8123",
+    ]);
+  });
+
+  // Any wildcard spelling yields the loopback trio + the CANONICAL wildcard pair
+  // (0.0.0.0 / [::]) — not the typed spelling, which the browser canonicalizes
+  // away (HOST=0 / 0x0 / 0.0.0 all send http://0.0.0.0:PORT; ::0 sends [::]).
+  it.each(["0.0.0.0", "::", "::0", "0", "0x0", "0.0.0"])(
+    "returns the loopback trio + canonical wildcard pair for the all-interfaces host %j",
+    (host) => {
+      expect(defaultAllowedOrigins(host, 8123)).toEqual([
+        "http://localhost:8123",
+        "http://127.0.0.1:8123",
+        "http://[::1]:8123",
+        "http://0.0.0.0:8123",
+        "http://[::]:8123",
+      ]);
+    },
+  );
+
+  it("lowercases a non-loopback hostname to match the browser's Origin", () => {
+    expect(defaultAllowedOrigins("Example.COM", 6274)).toEqual([
+      "http://example.com:6274",
+    ]);
+  });
+
+  it("omits the port from the origin when it's the http default (80)", () => {
+    // Browsers drop :80 from the Origin header, and the guard is an exact
+    // match, so an origin with :80 could never match a real request.
+    expect(defaultAllowedOrigins("192.168.1.50", 80)).toEqual([
+      "http://192.168.1.50",
+    ]);
+    expect(defaultAllowedOrigins("localhost", 80)).toEqual([
+      "http://localhost",
+      "http://127.0.0.1",
+      "http://[::1]",
+    ]);
+  });
+
+  it("brackets a non-loopback IPv6 literal so it's a valid origin", () => {
+    expect(defaultAllowedOrigins("fe80::1", 6274)).toEqual([
+      "http://[fe80::1]:6274",
+    ]);
+  });
+});
+
 describe("buildWebServerConfig", () => {
   it("matches buildWebServerConfigFromEnv when initialMcpConfig is omitted", () => {
     process.env[API_SERVER_ENV_VARS.AUTH_TOKEN] = "shared";
@@ -239,7 +487,11 @@ describe("buildWebServerConfig", () => {
     const cfg = buildWebServerConfig({ initialMcpConfig });
     expect(cfg.port).toBe(7000);
     expect(cfg.initialMcpConfig).toEqual(initialMcpConfig);
-    expect(cfg.allowedOrigins).toEqual(["http://localhost:7000"]);
+    expect(cfg.allowedOrigins).toEqual([
+      "http://localhost:7000",
+      "http://127.0.0.1:7000",
+      "http://[::1]:7000",
+    ]);
   });
 
   it("preserves remote transport initialMcpConfig", () => {
@@ -366,6 +618,31 @@ describe("printServerBanner", () => {
   it("omits the query string when no token is supplied", () => {
     const url = printServerBanner(baseConfig(), 6274, "", undefined);
     expect(url).toBe("http://localhost:6274");
+  });
+
+  it("brackets an IPv6 bind host in the printed URL", () => {
+    const cfg = baseConfig();
+    cfg.hostname = "::1";
+    const url = printServerBanner(cfg, 6274, "", undefined);
+    expect(url).toBe("http://[::1]:6274");
+  });
+
+  it("advertises localhost for a wildcard bind rather than the wildcard host", () => {
+    const cfg = baseConfig();
+    cfg.hostname = "0.0.0.0";
+    const url = printServerBanner(cfg, 6274, "", undefined);
+    expect(url).toBe("http://localhost:6274");
+  });
+
+  it("advertises the canonical (unmapped) host so banner ⊆ allowedOrigins", () => {
+    // An IPv4-mapped bind host: the allow-list emits the loopback trio (which
+    // includes http://127.0.0.1), so the banner must advertise a member of it,
+    // not the [::ffff:127.0.0.1] form (whose Origin is [::ffff:7f00:1]).
+    const cfg = baseConfig();
+    cfg.hostname = "::ffff:127.0.0.1";
+    const url = printServerBanner(cfg, 6274, "", undefined);
+    expect(url).toBe("http://127.0.0.1:6274");
+    expect(defaultAllowedOrigins(cfg.hostname, 6274)).toContain(url);
   });
 
   it("prints the sandbox URL when provided", () => {

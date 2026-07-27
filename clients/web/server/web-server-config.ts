@@ -16,6 +16,11 @@ import {
 import type { InitialConfigPayload } from "../../../core/mcp/remote/node/server.ts";
 import { readInspectorVersionSafe } from "../../../core/node/version.ts";
 import { resolveSandboxPort } from "./sandbox-controller.js";
+import { resolveBindHostname } from "./resolve-bind-host.js";
+import {
+  canonicalUrlHost,
+  isAllInterfacesHost,
+} from "../../../core/node/hostUrl.ts";
 
 // The single-source Inspector version (root package.json), read once at load.
 // The browser can't read the filesystem the way the CLI/TUI do, so the backend
@@ -163,7 +168,19 @@ export function printServerBanner(
   resolvedToken: string,
   sandboxUrl: string | undefined,
 ): string {
-  const baseUrl = `http://${config.hostname}:${actualPort}`;
+  // Advertise `localhost` for a wildcard bind (`http://0.0.0.0:PORT` is an
+  // awkward URL to click and points the user at a reachable, allow-listed
+  // address); otherwise use the SAME canonical host the allow-list emits, so the
+  // advertised URL's origin is always a member of `allowedOrigins`
+  // (`banner ⊆ allowedOrigins`) — including the IPv4-mapped case where
+  // `canonicalUrlHost` unmaps but `formatHostForUrl` wouldn't. `httpOrigin`
+  // keeps the banner and the list agreeing on the default-port form (both drop
+  // :80). Computing `h` once keeps the predicate and the value reading the same
+  // form; `isAllInterfacesHost` also canonicalizes internally, so this is
+  // belt-and-braces, not what makes them agree.
+  const h = canonicalUrlHost(config.hostname);
+  const bannerHost = isAllInterfacesHost(h) ? "localhost" : h;
+  const baseUrl = httpOrigin(bannerHost, actualPort);
   const url =
     config.dangerouslyOmitAuth || !resolvedToken
       ? baseUrl
@@ -197,6 +214,87 @@ export interface BuildWebServerConfigOptions {
 }
 
 /**
+ * Loopback hostnames that all address the local machine. `localhost` resolves
+ * to *either* `127.0.0.1` (IPv4) or `::1` (IPv6) depending on the OS resolver,
+ * and Node/Vite may bind the IPv6 form — so the browser can legitimately end up
+ * at `http://[::1]:PORT` even though the banner printed `http://localhost:PORT`.
+ * IPv6 is the **bracketed** form only (`[::1]`): the sole caller looks up
+ * `canonicalUrlHost(hostname)`, which always brackets an IPv6 literal.
+ */
+const LOOPBACK_HOSTNAMES = new Set(["localhost", "127.0.0.1", "[::1]"]);
+
+/**
+ * Build an http origin string. The port is omitted when it's the http scheme
+ * default (80): browsers drop the default port from `Origin`, and the guard is
+ * an exact string match, so `http://host:80` could never match a real request.
+ */
+function httpOrigin(host: string, port: number): string {
+  return port === 80 ? `http://${host}` : `http://${host}:${port}`;
+}
+
+/** The three interchangeable loopback origin forms for a port. */
+function loopbackOrigins(port: number): string[] {
+  return [
+    httpOrigin("localhost", port),
+    httpOrigin("127.0.0.1", port),
+    httpOrigin("[::1]", port),
+  ];
+}
+
+/**
+ * The default allowed-origins list for a given bind host/port.
+ *
+ * When the bind host is loopback, `localhost`, `127.0.0.1`, and `[::1]` are
+ * interchangeable ways to reach the same server, so the origin the browser
+ * actually sends is nondeterministic (it depends on how `localhost` resolved
+ * and which family got bound). Returning all three loopback origin forms keeps
+ * the DNS-rebinding guard effective — still scoped to loopback at this exact
+ * port — while not 403-ing a browser that landed on `[::1]` instead of the
+ * `localhost` the banner advertised. The host is canonicalized first
+ * ({@link canonicalUrlHost}), so a non-canonical spelling of a loopback address
+ * still lands in the loopback branch.
+ *
+ * An **all-interfaces** bind (`0.0.0.0` / `::`, the opt-in path the Docker image
+ * uses) also serves loopback, so it gets the loopback trio *plus the canonical
+ * wildcard origins* `http://0.0.0.0:PORT` and `http://[::]:PORT`. Both are
+ * locally connectable, the image/docs describe binding to `0.0.0.0:6274`, and a
+ * dual-stack `::` bind serves IPv4 too — so a browser may send either. We emit
+ * the **canonical** pair rather than the typed `HOST` spelling because browsers
+ * canonicalize the address before building the `Origin` (`HOST=0` / `0x0` /
+ * `0.0.0` all send `http://0.0.0.0:PORT`, `::0` sends `http://[::]:PORT`), so
+ * echoing the raw spelling would emit an entry the browser can never match.
+ * Including these weakens nothing (no attacker document can claim a loopback /
+ * `0.0.0.0` origin without the user having navigated there). Reaching the server
+ * at a non-loopback address — a LAN IP, a public hostname — still needs
+ * `ALLOWED_ORIGINS`, since those origins can't be enumerated from the wildcard.
+ *
+ * For a specific non-loopback host (a real IP/hostname) we return the single
+ * exact origin — canonicalized and, for an IPv6 literal, bracketed, so it
+ * matches the `Origin` header the browser actually sends.
+ */
+export function defaultAllowedOrigins(
+  hostname: string,
+  port: number,
+): string[] {
+  // The loopback lookup and the emitted origin both read the canonicalized `h`
+  // (the wildcard check via `isAllInterfacesHost` canonicalizes internally), so
+  // every branch reasons about the same address.
+  const h = canonicalUrlHost(hostname);
+  if (LOOPBACK_HOSTNAMES.has(h)) {
+    return loopbackOrigins(port);
+  }
+  if (isAllInterfacesHost(h)) {
+    return [
+      ...loopbackOrigins(port),
+      httpOrigin("0.0.0.0", port),
+      httpOrigin("[::]", port),
+    ];
+  }
+  // `h` is already the canonical, URL-ready host (bracketed for IPv6).
+  return [httpOrigin(h, port)];
+}
+
+/**
  * Build WebServerConfig from process.env and optional initial MCP server config.
  * Used by the launcher runner, Vite dev (`buildWebServerConfigFromEnv`), and prod standalone.
  */
@@ -209,9 +307,21 @@ export function buildWebServerConfig(
     writable = true,
     initialServers = null,
   } = options;
-  const port = parseInt(process.env.CLIENT_PORT ?? "6274", 10);
-  const hostname = process.env.HOST ?? "localhost";
-  const baseUrl = `http://${hostname}:${port}`;
+  // Treat an empty CLIENT_PORT as unset (matches resolveSandboxPort's handling
+  // of MCP_SANDBOX_PORT / SERVER_PORT), then require a fixed port: the origin
+  // allow-list and the sandbox CSP are both built from it, so `0` (OS-assigned),
+  // a non-numeric value, or trailing garbage would make them reference a port
+  // the server isn't on — every connect 403s and the MCP Apps iframe is blocked.
+  // The `^\d+$` test rejects `parseInt`'s partial parses (`6274abc`, `80.9`).
+  // Fail fast with an actionable message (run-web surfaces it cleanly).
+  const rawPort = process.env.CLIENT_PORT?.trim() || "6274";
+  const port = parseInt(rawPort, 10);
+  if (!/^\d+$/.test(rawPort) || port < 1 || port > 65535) {
+    throw new Error(
+      `Invalid CLIENT_PORT="${process.env.CLIENT_PORT}": the web server needs a fixed port in 1–65535 (0 / dynamic is unsupported — the origin allow-list and sandbox CSP are derived from it).`,
+    );
+  }
+  const hostname = resolveBindHostname();
   const dangerouslyOmitAuth = !!process.env.DANGEROUSLY_OMIT_AUTH;
   const authToken = dangerouslyOmitAuth
     ? ""
@@ -233,6 +343,48 @@ export function buildWebServerConfig(
     );
   }
 
+  // Parse ALLOWED_ORIGINS into canonical origins. Each entry is normalized via
+  // `new URL(o).origin` (drops a trailing slash/path and any userinfo, lowercases
+  // and punycodes the host, drops the default :80) so the natural copy-paste
+  // forms — `http://localhost:6274/` from the address bar, an uppercase or IDN
+  // host, an explicit `:80` — match the canonical `Origin` the browser sends
+  // rather than 403ing on an exact-string compare. Unparseable, opaque, and
+  // wildcard entries are warned and dropped (see inline).
+  //
+  // When nothing survives (unset, `""`, `" "`, `","`, or all-invalid) we fall
+  // back to `defaultAllowedOrigins` below — critically NOT to `[]`, which the
+  // origin middleware treats as *allow-all*, silently disabling the guard.
+  const configuredOrigins = process.env.ALLOWED_ORIGINS?.split(",")
+    .map((o) => o.trim())
+    .filter(Boolean)
+    .map((o) => {
+      try {
+        const { origin } = new URL(o);
+        // A scheme-less entry (`localhost:6274`) doesn't throw — `new URL` reads
+        // the host as the scheme and `.origin` is the literal string "null"
+        // (also non-special schemes: `file:`, `about:`, `javascript:`, `data:`,
+        // and browser-extension schemes like `chrome-extension:`). Reject it:
+        // it's not the origin the user meant, AND "null" is a real header value
+        // browsers send from opaque origins (a sandboxed iframe, a `data:` doc),
+        // so allow-listing it would erode the guard. Entries need an http(s)
+        // scheme — the app is served over http(s), and a browser's `Origin` on
+        // any request (including a WebSocket handshake) is its page's http(s)
+        // origin, never a `ws:` one, so a `ws://` entry could never match anyway.
+        if (origin === "null") throw new Error("opaque origin");
+        // A wildcard (`http://*.example.com`) survives `new URL` but can never
+        // match the exact-compare origin guard — yet `*.example.com` IS a legal
+        // CSP host-source, so it would silently work for the sandbox iframe and
+        // silently 403 every connect (the most confusing split). Reject it so it
+        // fails loudly and consistently; list exact origins instead.
+        if (origin.includes("*")) throw new Error("wildcard origin");
+        return origin;
+      } catch {
+        console.warn(`Ignoring invalid ALLOWED_ORIGINS entry: ${o}`);
+        return null;
+      }
+    })
+    .filter((o): o is string => o !== null);
+
   return {
     port,
     hostname,
@@ -243,9 +395,9 @@ export function buildWebServerConfig(
     writable,
     initialServers,
     storageDir: process.env.MCP_STORAGE_DIR,
-    allowedOrigins: process.env.ALLOWED_ORIGINS?.split(",").filter(Boolean) ?? [
-      baseUrl,
-    ],
+    allowedOrigins: configuredOrigins?.length
+      ? configuredOrigins
+      : defaultAllowedOrigins(hostname, port),
     sandboxPort,
     sandboxHost: hostname,
     logger,

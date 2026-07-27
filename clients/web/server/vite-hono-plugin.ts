@@ -63,6 +63,7 @@ export function honoMiddlewarePlugin(config: WebServerConfig): Plugin {
       const sandboxController = createSandboxController({
         port: config.sandboxPort,
         host: config.sandboxHost,
+        allowedOrigins: config.allowedOrigins,
       });
       await sandboxController.start();
 

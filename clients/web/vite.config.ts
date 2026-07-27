@@ -93,10 +93,22 @@ function browserExternalizedBuiltinGate(): Plugin {
 // More info at: https://storybook.js.org/docs/next/writing-tests/integrations/vitest-addon
 export default defineConfig(({ command }) => {
   const isDevServer = command === "serve" && !process.env.VITEST;
+  // Build the validated dev backend config ONCE (when serving) and reuse it for
+  // both the Hono plugin and the `server` block below, so the dev server's
+  // `port`/`host` come from the same guard-checked source (`resolveBindHostname`
+  // + the CLIENT_PORT validation) rather than a second raw parse. This also
+  // removes the implicit "plugins must be evaluated before server" ordering the
+  // guard previously relied on to throw first.
+  const devConfig = isDevServer ? buildWebServerConfigFromEnv() : undefined;
   return {
-    // `honoMiddlewarePlugin` is gated by `apply: 'serve'` so it only attaches
-    // during `vite dev` / `vite preview` — vitest projects share this config
-    // but never invoke `configureServer`, so the plugin stays inert there.
+    // `honoMiddlewarePlugin` only attaches during `vite dev` / `vite preview`.
+    // It's included conditionally on `isDevServer` (not merely `apply: 'serve'`)
+    // because `devConfig` (from `buildWebServerConfigFromEnv()`, which calls
+    // `resolveBindHostname()`) is built eagerly above. Left unconditional, an
+    // ambient `HOST=0.0.0.0` would make the guard throw at config load for
+    // `vite build` and every vitest project too, not just when serving. Gating
+    // the whole plugin also skips that wasted config build for non-serve
+    // commands.
     //
     // The plugin statically imports the node-only dev backend
     // (`core/mcp/remote/node/server.ts`), so Vite's config bundler (Rolldown)
@@ -113,7 +125,7 @@ export default defineConfig(({ command }) => {
     // reaches the browser bundle (#1769) — see its definition above.
     plugins: [
       react(),
-      honoMiddlewarePlugin(buildWebServerConfigFromEnv()),
+      ...(devConfig ? [honoMiddlewarePlugin(devConfig)] : []),
       browserExternalizedBuiltinGate(),
     ],
     // Shared optimizeDeps exclusions so node-only packages
@@ -146,18 +158,26 @@ export default defineConfig(({ command }) => {
       // location (which has no node_modules of its own yet).
       dedupe: sharedDedupe,
     },
-    // Pin the Vite dev server to the same port (and host) the Hono plugin
-    // configures from env, so `allowedOrigins` actually matches the browser
-    // origin. Without this, `vite dev` falls back to Vite's default 5173
-    // while the dev backend's `buildWebServerConfigFromEnv()` defaults to
-    // CLIENT_PORT=6274 — origin check rejects every `/api/*` request from
-    // the browser. CLIENT_PORT / HOST overrides flow through here too.
-    // `strictPort: true` so a port collision fails loudly instead of
-    // silently picking a different port (which would leave `allowedOrigins`
-    // pointing at the wrong host and break browser fetches).
+    // Pin the Vite dev server to the same port and host the Hono plugin
+    // configures, so `allowedOrigins` actually matches the browser origin.
+    // Without this, `vite dev` falls back to Vite's default 5173 while the dev
+    // backend defaults to CLIENT_PORT=6274 — origin check rejects every `/api/*`
+    // request. When serving, both come from the already-validated `devConfig`
+    // (guard-checked host + CLIENT_PORT); `vite build` and the vitest projects
+    // evaluate this config but never bind, so they fall back to the raw env
+    // (an ambient HOST=0.0.0.0 must not fail them at config load).
+    // `strictPort: true` so a port collision fails loudly instead of silently
+    // picking a different port (which would leave `allowedOrigins` wrong).
     server: {
-      port: parseInt(process.env.CLIENT_PORT ?? "6274", 10),
-      host: process.env.HOST ?? "localhost",
+      // The `|| "6274"` (empty ⇒ unset) mirrors buildWebServerConfig, so the
+      // non-serve fallback agrees with the validated dev path on a blank
+      // CLIENT_PORT rather than parsing it to NaN.
+      port:
+        devConfig?.port ??
+        parseInt(process.env.CLIENT_PORT?.trim() || "6274", 10),
+      // `|| "localhost"` (empty ⇒ unset) like the port above — an ambient
+      // HOST="" is Node's all-interfaces address, the one value this guards.
+      host: devConfig?.hostname ?? (process.env.HOST?.trim() || "localhost"),
       strictPort: true,
       fs: {
         allow: [path.resolve(dirname, "../..")],

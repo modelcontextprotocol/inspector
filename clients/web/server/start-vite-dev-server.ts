@@ -57,6 +57,12 @@ export async function startViteDevServer(
     server: {
       port: config.port,
       host: config.hostname,
+      // `strictPort: true` (matching `vite.config.ts`) so a busy port fails
+      // loudly instead of silently binding a different one — the origin
+      // allow-list and the sandbox `frame-ancestors` are derived from
+      // `config.port`, so a drifted bind would 403 every connect and CSP-block
+      // the MCP Apps iframe while the banner advertises the unusable port.
+      strictPort: true,
       // Allow Vite to serve source files from the repo root (core/ lives
       // outside clients/web), matching `vite.config.ts`'s `server.fs.allow`.
       fs: {

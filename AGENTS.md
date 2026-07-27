@@ -17,6 +17,10 @@ inspector/
 │   │   │                               #   sandbox-controller.ts (MCP Apps sandbox HTTP server),
 │   │   │                               #   inject-auth-token.ts (embeds the API token into served index.html),
 │   │   │                               #   vite-base-config.ts (shared optimizeDeps exclusions),
+│   │   │                               #   resolve-bind-host.ts (bind-host POLICY: refuses an
+│   │   │                               #     all-interfaces HOST unless DANGEROUSLY_BIND_ALL_INTERFACES;
+│   │   │                               #     the all-interfaces DETECTION is core/node/hostUrl.isAllInterfacesHost.
+│   │   │                               #     Used by both bind points — web-server-config.ts + vite.config.ts — #1795),
 │   │   │                               #   browser-externalized-builtin-gate.ts (build-gate logic that fails
 │   │   │                               #     `vite build` on a browser-externalized Node built-in — #1769)
 │   │   └── static/                     # sandbox_proxy.html (served by sandbox-controller for MCP Apps tab)
@@ -50,6 +54,14 @@ inspector/
 │   │   ├── remote/                     # Browser HTTP/SSE transport + remote logger/fetch
 │   │   │   └── node/                   # Hono-based remote server backend (used by remote/ above)
 │   │   └── state/                      # InspectorClient state stores consumed by core/react/
+│   ├── node/                           # Node-only shared helpers: version.ts (readInspectorVersion,
+│   │                                   #   walks to the root package.json), hostUrl.ts (shared host
+│   │                                   #   normalization + detection — formatHostForUrl brackets IPv6,
+│   │                                   #   canonicalUrlHost canonicalizes a bind host the way a browser
+│   │                                   #   builds `Origin`, isAllInterfacesHost is the wildcard-bind
+│   │                                   #   predicate the guard is built on, isLoopbackHost gates the OAuth
+│   │                                   #   callback listener; also stripBrackets. Used across
+│   │                                   #   clients/web/server, clients/cli, and core/auth/node — #1795)
 │   ├── react/                          # React hooks over the state stores
 │   └── storage/                        # File I/O helpers (store-io.ts) used by OAuth persist backends
 ├── test-servers/                       # Composable MCP test servers + fixtures used by integration tests.

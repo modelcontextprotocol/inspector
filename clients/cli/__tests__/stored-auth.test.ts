@@ -580,6 +580,65 @@ describe("--print-handoff", () => {
     expect(out.apiToken).toBe("tok123");
   });
 
+  it("canonicalizes the deep-link host so it matches the web allow-list (mapped IPv4)", async () => {
+    // HOST=::ffff:127.0.0.1 binds/serves 127.0.0.1; the deep link must advertise
+    // that canonical host, not [::ffff:127.0.0.1], or the web autoConnect POST
+    // 403s (the web allow-list emits the loopback trio for this HOST).
+    const result = await runCli(
+      ["--print-handoff", "--server-url", "https://x.example/mcp"],
+      {
+        env: {
+          MCP_INSPECTOR_API_TOKEN: "tok123",
+          HOST: "::ffff:127.0.0.1",
+          CLIENT_PORT: "16274",
+        },
+      },
+    );
+    expectCliSuccess(result);
+    const out = JSON.parse(result.stdout) as { deepLink: string };
+    expect(out.deepLink.startsWith("http://127.0.0.1:16274/?")).toBe(true);
+  });
+
+  it("advertises localhost in the deep link for a wildcard HOST", async () => {
+    // 0.0.0.0 is allow-listed so it connects, but the deep link is handed to a
+    // human — advertise localhost like the web banner does.
+    const result = await runCli(
+      ["--print-handoff", "--server-url", "https://x.example/mcp"],
+      {
+        env: {
+          MCP_INSPECTOR_API_TOKEN: "tok123",
+          HOST: "0.0.0.0",
+          DANGEROUSLY_BIND_ALL_INTERFACES: "true",
+          CLIENT_PORT: "16274",
+        },
+      },
+    );
+    expectCliSuccess(result);
+    const out = JSON.parse(result.stdout) as { deepLink: string };
+    expect(out.deepLink.startsWith("http://localhost:16274/?")).toBe(true);
+  });
+
+  it("classifies a bad --callback-url as a usage error, not auth_required", async () => {
+    // The guard's message contains "OAuth"; without the explicit exit-code pin
+    // the heuristic would map it to auth_required (exit 3) and tell an automated
+    // caller to re-auth on a config error. Fires before connect, so any server.
+    const result = await runCli([
+      "--server-url",
+      "https://x.example/mcp",
+      "--method",
+      "tools/list",
+      "--callback-url",
+      "http://0.0.0.0:6276/oauth/callback",
+    ]);
+    expect(result.exitCode).toBe(1);
+    const envelope = JSON.parse(result.stderr.trim()) as {
+      error: { code: string; message: string };
+    };
+    // "error" (USAGE), not "auth_required" — the point of pinning the exit code.
+    expect(envelope.error.code).toBe("error");
+    expect(envelope.error.message).toContain("must bind a loopback host");
+  });
+
   it("derives transport=sse for an SSE server (auto-detected from the /sse path)", async () => {
     const result = await runCli(
       ["--print-handoff", "--server-url", "https://x.example/sse"],
