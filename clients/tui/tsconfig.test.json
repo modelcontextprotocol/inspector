@@ -1,0 +1,17 @@
+{
+  // Typecheck the __tests__ dir (the src-only tsconfig.json excludes tests).
+  // The tui tests don't import the test-server package, so this only re-adds
+  // the `@inspector/core/*` deep-path resolution and the react redirects the
+  // base config already carries, extended to include __tests__. See #1791.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "paths": {
+      "@inspector/core/*": ["../../core/*"],
+      "react": ["./node_modules/@types/react"],
+      "react/jsx-runtime": ["./node_modules/@types/react/jsx-runtime"],
+      "vitest": ["./node_modules/vitest"]
+    }
+  },
+  "include": ["index.ts", "tui.tsx", "src/**/*", "__tests__/**/*"],
+  "exclude": ["node_modules", "build"]
+}

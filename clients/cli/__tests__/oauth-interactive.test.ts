@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -21,6 +21,7 @@ import {
   withCliAuthRecoveryRetry,
 } from "../src/cliOAuth.js";
 import type { MCPServerConfig } from "@inspector/core/mcp/types.js";
+import { makeFakeServerSettings } from "./helpers/oauth-test-fakes.js";
 
 const oauthTestStatePath = join(
   tmpdir(),
@@ -216,15 +217,9 @@ describe("CLI interactive OAuth (integration)", () => {
     const getTempTool = tools.tools.find((tool) => tool.name === "get_temp");
     expect(getTempTool).toBeDefined();
 
-    let stepUpPrompted = false;
-    const originalWrite = process.stderr.write.bind(process.stderr);
-    process.stderr.write = ((chunk, ...rest) => {
-      const text = typeof chunk === "string" ? chunk : String(chunk);
-      if (text.includes("Proceed with step-up authorization?")) {
-        stepUpPrompted = true;
-      }
-      return originalWrite(chunk, ...rest);
-    }) as typeof process.stderr.write;
+    const stderrSpy = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
 
     try {
       const result = await withCliAuthRecoveryRetry(
@@ -232,7 +227,7 @@ describe("CLI interactive OAuth (integration)", () => {
         { type: "streamable-http", url: `${serverUrl}/mcp` },
         redirectUrlProvider,
         callbackUrlConfig,
-        {},
+        makeFakeServerSettings(),
         () =>
           client.callTool(getTempTool!, {
             city: "NYC",
@@ -241,10 +236,15 @@ describe("CLI interactive OAuth (integration)", () => {
         { confirmStepUp: async () => true, isTTY: true },
       );
 
+      const stepUpPrompted = stderrSpy.mock.calls.some(
+        ([chunk]) =>
+          typeof chunk === "string" &&
+          chunk.includes("Proceed with step-up authorization?"),
+      );
       expect(stepUpPrompted).toBe(true);
       expect(result.success).toBe(true);
     } finally {
-      process.stderr.write = originalWrite;
+      stderrSpy.mockRestore();
       await client.disconnect();
     }
   }, 30_000);

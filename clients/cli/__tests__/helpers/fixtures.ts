@@ -3,7 +3,7 @@ import * as path from "path";
 import * as os from "os";
 import * as crypto from "crypto";
 import { getTestMcpServerCommand } from "@modelcontextprotocol/inspector-test-server";
-import type { MCPServerConfig } from "@modelcontextprotocol/inspector-core/mcp/index.js";
+import type { MCPServerConfig } from "@inspector/core/mcp/index.js";
 
 /**
  * Sentinel value for tests that don't need a real server

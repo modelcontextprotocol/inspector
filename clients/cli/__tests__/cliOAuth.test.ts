@@ -13,6 +13,10 @@ import {
 } from "../src/cliOAuth.js";
 import type { MCPServerConfig } from "@inspector/core/mcp/types.js";
 import { createInterface } from "node:readline/promises";
+import {
+  makeFakeCliOAuthClient,
+  makeFakeServerSettings,
+} from "./helpers/oauth-test-fakes.js";
 
 // `confirmStepUpFromStdin` (the default step-up confirmer) reads a line from
 // stdin via node:readline/promises. Mock the module so the default path can be
@@ -103,7 +107,7 @@ describe("cliOAuth", () => {
       expect(
         isStandardOAuthStepUp(
           { reason: "insufficient_scope", requiredScopes: ["weather:read"] },
-          {},
+          makeFakeServerSettings(),
         ),
       ).toBe(true);
     });
@@ -112,7 +116,7 @@ describe("cliOAuth", () => {
       expect(
         isStandardOAuthStepUp(
           { reason: "insufficient_scope", requiredScopes: ["weather:read"] },
-          { enterpriseManaged: true },
+          makeFakeServerSettings({ enterpriseManaged: true }),
         ),
       ).toBe(false);
     });
@@ -220,7 +224,7 @@ describe("cliOAuth", () => {
         error,
         new MutableRedirectUrlProvider(),
         { hostname: "127.0.0.1", port: 6276, pathname: "/oauth/callback" },
-        {},
+        makeFakeServerSettings(),
         { confirmStepUp: async () => false, isTTY: true },
       ),
     ).rejects.toThrow("Step-up authorization declined.");
@@ -250,7 +254,7 @@ describe("cliOAuth", () => {
       error,
       new MutableRedirectUrlProvider(),
       { hostname: "127.0.0.1", port: 6276, pathname: "/oauth/callback" },
-      {},
+      makeFakeServerSettings(),
       { confirmStepUp: async () => true, isTTY: true },
     );
 
@@ -338,7 +342,7 @@ describe("cliOAuth", () => {
       OAUTH_HTTP_CONFIG,
       new MutableRedirectUrlProvider(),
       { hostname: "127.0.0.1", port: 6276, pathname: "/oauth/callback" },
-      { enterpriseManaged: true },
+      makeFakeServerSettings({ enterpriseManaged: true }),
       fn,
       { confirmStepUp: async () => true, isTTY: true },
     );
@@ -375,7 +379,7 @@ describe("cliOAuth", () => {
         standardStepUpError(),
         new MutableRedirectUrlProvider(),
         CALLBACK_URL_CONFIG,
-        {},
+        makeFakeServerSettings(),
         INTERACTIVE,
       );
 
@@ -395,7 +399,7 @@ describe("cliOAuth", () => {
         standardStepUpError(),
         new MutableRedirectUrlProvider(),
         CALLBACK_URL_CONFIG,
-        {},
+        makeFakeServerSettings(),
         INTERACTIVE,
       );
 
@@ -412,7 +416,7 @@ describe("cliOAuth", () => {
           standardStepUpError(),
           new MutableRedirectUrlProvider(),
           CALLBACK_URL_CONFIG,
-          {},
+          makeFakeServerSettings(),
           INTERACTIVE,
         ),
       ).rejects.toThrow("Step-up authorization declined.");
@@ -431,7 +435,7 @@ describe("cliOAuth", () => {
           standardStepUpError(),
           new MutableRedirectUrlProvider(),
           CALLBACK_URL_CONFIG,
-          {},
+          makeFakeServerSettings(),
           INTERACTIVE,
         ),
       ).rejects.toThrow("Step-up authorization declined.");
@@ -455,7 +459,7 @@ describe("cliOAuth", () => {
           standardStepUpError(),
           new MutableRedirectUrlProvider(),
           CALLBACK_URL_CONFIG,
-          {},
+          makeFakeServerSettings(),
           INTERACTIVE,
         ),
       ).rejects.toThrow("Step-up authorization declined.");
@@ -482,7 +486,7 @@ describe("cliOAuth", () => {
         standardStepUpError(),
         new MutableRedirectUrlProvider(),
         CALLBACK_URL_CONFIG,
-        {},
+        makeFakeServerSettings(),
         INTERACTIVE,
       );
 
@@ -503,7 +507,7 @@ describe("cliOAuth", () => {
           standardStepUpError(),
           new MutableRedirectUrlProvider(),
           CALLBACK_URL_CONFIG,
-          {},
+          makeFakeServerSettings(),
           { isTTY: false },
         );
         expect(runSpy).toHaveBeenCalled();
@@ -522,7 +526,7 @@ describe("cliOAuth", () => {
           standardStepUpError(),
           new MutableRedirectUrlProvider(),
           CALLBACK_URL_CONFIG,
-          {},
+          makeFakeServerSettings(),
           { isTTY: true, stepUpPromptTimeoutMs: 20 },
         ),
       ).rejects.toMatchObject({
@@ -556,7 +560,7 @@ describe("cliOAuth", () => {
           standardStepUpError(),
           new MutableRedirectUrlProvider(),
           CALLBACK_URL_CONFIG,
-          {},
+          makeFakeServerSettings(),
           INTERACTIVE,
         );
         let settled = false;
@@ -596,11 +600,10 @@ describe("cliOAuth", () => {
           ),
         )
         .mockResolvedValueOnce(undefined);
-      const client = {
+      const client = makeFakeCliOAuthClient({
         connect,
-        disconnect: vi.fn(),
         checkAuthChallengeSatisfied: vi.fn().mockResolvedValue(true),
-      };
+      });
 
       await connectInspectorWithOAuth(
         client,
@@ -626,11 +629,10 @@ describe("cliOAuth", () => {
           ),
         )
         .mockResolvedValueOnce(undefined);
-      const client = {
+      const client = makeFakeCliOAuthClient({
         connect,
-        disconnect: vi.fn(),
         checkAuthChallengeSatisfied: vi.fn().mockResolvedValue(false),
-      };
+      });
 
       await connectInspectorWithOAuth(
         client,
@@ -654,11 +656,11 @@ describe("cliOAuth", () => {
         .mockRejectedValueOnce(new Error("Connection failed for server (401)"))
         .mockResolvedValueOnce(undefined);
       // A rejecting disconnect exercises the `.catch(() => {})` guard.
-      const client = {
+      const client = makeFakeCliOAuthClient({
         connect,
         disconnect: vi.fn().mockRejectedValue(new Error("disconnect failed")),
         checkAuthChallengeSatisfied: vi.fn(),
-      };
+      });
 
       await connectInspectorWithOAuth(
         client,
@@ -679,11 +681,10 @@ describe("cliOAuth", () => {
       const connect = vi
         .fn()
         .mockRejectedValue(new Error("some unrelated failure"));
-      const client = {
+      const client = makeFakeCliOAuthClient({
         connect,
-        disconnect: vi.fn(),
         checkAuthChallengeSatisfied: vi.fn(),
-      };
+      });
 
       await expect(
         connectInspectorWithOAuth(
@@ -698,11 +699,10 @@ describe("cliOAuth", () => {
 
     it("rethrows when the server config is not OAuth-capable", async () => {
       const connect = vi.fn().mockRejectedValue(new Error("nope (401)"));
-      const client = {
+      const client = makeFakeCliOAuthClient({
         connect,
-        disconnect: vi.fn(),
         checkAuthChallengeSatisfied: vi.fn(),
-      };
+      });
 
       await expect(
         connectInspectorWithOAuth(
@@ -721,11 +721,10 @@ describe("cliOAuth", () => {
           reason: "token_expired",
         }),
       );
-      const client = {
+      const client = makeFakeCliOAuthClient({
         connect,
-        disconnect: vi.fn(),
         checkAuthChallengeSatisfied: vi.fn().mockResolvedValue(false),
-      };
+      });
 
       await expect(
         connectInspectorWithOAuth(
@@ -751,11 +750,10 @@ describe("cliOAuth", () => {
           ),
         )
         .mockResolvedValueOnce(undefined);
-      const client = {
+      const client = makeFakeCliOAuthClient({
         connect,
-        disconnect: vi.fn(),
         checkAuthChallengeSatisfied: vi.fn().mockResolvedValue(true),
-      };
+      });
 
       await connectInspectorWithOAuth(
         client,
@@ -775,11 +773,10 @@ describe("cliOAuth", () => {
       const connect = vi
         .fn()
         .mockRejectedValue(new Error("Connection failed for server (401)"));
-      const client = {
+      const client = makeFakeCliOAuthClient({
         connect,
-        disconnect: vi.fn(),
         checkAuthChallengeSatisfied: vi.fn(),
-      };
+      });
 
       await expect(
         connectInspectorWithOAuth(
@@ -1101,11 +1098,10 @@ describe("cliOAuth", () => {
     const connect = vi.fn().mockRejectedValue(err);
     await expect(
       connectInspectorWithOAuth(
-        {
+        makeFakeCliOAuthClient({
           connect,
-          disconnect: vi.fn(),
           checkAuthChallengeSatisfied: vi.fn().mockResolvedValue(false),
-        },
+        }),
         OAUTH_HTTP_CONFIG,
         new MutableRedirectUrlProvider(),
         CALLBACK_URL_CONFIG,

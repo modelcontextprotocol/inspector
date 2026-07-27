@@ -28,7 +28,14 @@ const PAGE_DOWN = `${ESC}[6~`;
 
 const ts = new Date("2024-01-01T12:34:56Z");
 
-const entry = (over: Partial<MessageEntry>): MessageEntry =>
+// `message` is deliberately typed `unknown`: several entries below construct
+// malformed wire messages (a response with neither result nor error; a
+// notification with no method) to exercise HistoryTab's defensive rendering
+// branches, which the strict JSONRPCMessage union can't represent. The return
+// cast is the existing scaffolding cast that carries those shapes through.
+const entry = (
+  over: Omit<Partial<MessageEntry>, "message"> & { message?: unknown },
+): MessageEntry =>
   ({
     id: "id",
     timestamp: ts,

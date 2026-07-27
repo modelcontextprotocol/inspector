@@ -18,7 +18,7 @@
   "scripts": {
     "dev": "vite-node --config vitest.config.ts dev.ts",
     "build": "tsup",
-    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.test.json",
     "validate": "npm run format:check && npm run lint && npm run typecheck && npm run build && npm run test",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",

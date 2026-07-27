@@ -16,7 +16,7 @@
   ],
   "scripts": {
     "build": "tsup",
-    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.test.json",
     "validate": "npm run format:check && npm run lint && npm run typecheck && npm run test",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -47,6 +47,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
+    "@types/express": "^5.0.6",
     "@types/node": "^24.12.4",
     "@vitest/coverage-v8": "^4.1.0",
     "eslint": "^9.39.4",

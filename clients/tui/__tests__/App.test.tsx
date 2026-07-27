@@ -48,21 +48,33 @@ const h = vi.hoisted(() => {
   const openUrl = vi.fn().mockResolvedValue(undefined);
   // Shared OAuth-related spies so a test can configure resolve/reject and
   // assert calls regardless of which per-server FakeClient instance App built.
+  // The OAuth-lifecycle spies are given explicit `(...a: unknown[]) => …`
+  // signatures so the FakeClient wrappers below (which forward `...a`) typecheck
+  // against them, and so a wide return type (e.g. AuthChallengeOutcome) lets a
+  // test `mockResolvedValue` any variant rather than only the impl's literal.
   const clientSpies = {
-    authenticate: vi.fn(
-      async (): Promise<string | undefined> => "https://auth.example/start",
+    authenticate: vi.fn<(...a: unknown[]) => Promise<string | undefined>>(
+      async () => "https://auth.example/start",
     ),
     clearOAuthTokens: vi.fn(),
-    completeOAuthFlow: vi.fn(async (): Promise<void> => {}),
-    getOAuthState: vi.fn(async () => undefined),
+    completeOAuthFlow: vi.fn<(...a: unknown[]) => Promise<void>>(
+      async () => {},
+    ),
+    getOAuthState: vi.fn<(...a: unknown[]) => Promise<undefined>>(
+      async () => undefined,
+    ),
     callTool: vi.fn(),
-    checkAuthChallengeSatisfied: vi.fn(async () => false),
-    handleAuthChallenge: vi.fn(async () => ({ kind: "satisfied" as const })),
+    checkAuthChallengeSatisfied: vi.fn<(...a: unknown[]) => Promise<boolean>>(
+      async () => false,
+    ),
+    handleAuthChallenge: vi.fn<
+      (...a: unknown[]) => Promise<AuthChallengeOutcome>
+    >(async () => ({ kind: "satisfied" })),
   };
   // Captured options from the most recent callbackServer.start(), so a test can
   // drive the onCallback / onError handlers the OAuth flows register.
   interface CallbackOpts {
-    onCallback: (p: { code: string }) => Promise<void> | void;
+    onCallback: (p: { code: string; iss?: string }) => Promise<void> | void;
     onError: (p: { error?: string; error_description?: string }) => void;
   }
   const cb: { opts: CallbackOpts | null } = { opts: null };
@@ -268,6 +280,7 @@ import {
   AuthRecoveryRequiredError,
   EMA_STEP_UP_PENDING_URL,
 } from "@inspector/core/auth/challenge.js";
+import type { AuthChallengeOutcome } from "@inspector/core/auth/challenge.js";
 import { EmaClientNotConfiguredError } from "@inspector/core/auth/ema/clientConfigError.js";
 
 const tick = () => new Promise((r) => setTimeout(r, 25));

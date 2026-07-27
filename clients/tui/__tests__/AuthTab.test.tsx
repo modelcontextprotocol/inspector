@@ -26,13 +26,17 @@ const sampleOAuthState: OAuthConnectionState = {
   client: {
     clientId: "abc123",
     registrationKind: "dcr",
+    hasClientSecret: false,
   },
   tokens: {
     access_token: "tok-abcdefghijklmnopqrstuvwxyz",
     token_type: "Bearer",
   },
   authorizationServerMetadata: {
+    issuer: "https://auth.example.com",
     authorization_endpoint: "https://auth.example.com/authorize",
+    token_endpoint: "https://auth.example.com/token",
+    response_types_supported: ["code"],
   },
   configuredScope: "read write",
 };
