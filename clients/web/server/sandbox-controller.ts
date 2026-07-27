@@ -48,10 +48,12 @@ const LOOPBACK_FRAME_ANCESTORS = ["http://127.0.0.1:*", "http://localhost:*"];
  * and, as the only source, would collapse the directive to `'none'`. The
  * whitespace/metacharacter exclusions are belt-and-braces: `sandboxFrameAncestors`
  * takes the list from a caller, not from env directly, so a future caller that
- * doesn't pre-canonicalize can't corrupt the header. Only values matching this
- * shape survive into {@link sandboxFrameAncestors}.
+ * doesn't pre-canonicalize can't corrupt or widen the header — `*` is excluded
+ * too, so a `http://*.example.com` entry (which the origin allow-list already
+ * rejects, but a future caller might not) can't broaden the embedder set. Only
+ * values matching this shape survive into {@link sandboxFrameAncestors}.
  */
-const CSP_HOST_SOURCE = /^[a-z][a-z0-9+.-]*:\/\/[^\s;,'"[\]]+$/i;
+const CSP_HOST_SOURCE = /^[a-z][a-z0-9+.-]*:\/\/[^\s;,'"[\]*]+$/i;
 
 /**
  * The proxy's `frame-ancestors` sources. The embedder is the inspector app

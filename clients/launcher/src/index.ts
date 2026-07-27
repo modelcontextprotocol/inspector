@@ -58,6 +58,11 @@ async function run(): Promise<void> {
 }
 
 run().catch((err: unknown) => {
-  console.error("Error running MCP Inspector:", err);
+  // Print the message, not the Error stack — a startup config error (a bad flag,
+  // the OAuth callback loopback guard) should read as actionable, not internal.
+  console.error(
+    "Error running MCP Inspector:",
+    err instanceof Error ? err.message : err,
+  );
   process.exit(1);
 });

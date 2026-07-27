@@ -618,6 +618,27 @@ describe("--print-handoff", () => {
     expect(out.deepLink.startsWith("http://localhost:16274/?")).toBe(true);
   });
 
+  it("classifies a bad --callback-url as a usage error, not auth_required", async () => {
+    // The guard's message contains "OAuth"; without the explicit exit-code pin
+    // the heuristic would map it to auth_required (exit 3) and tell an automated
+    // caller to re-auth on a config error. Fires before connect, so any server.
+    const result = await runCli([
+      "--server-url",
+      "https://x.example/mcp",
+      "--method",
+      "tools/list",
+      "--callback-url",
+      "http://0.0.0.0:6276/oauth/callback",
+    ]);
+    expect(result.exitCode).toBe(1);
+    const envelope = JSON.parse(result.stderr.trim()) as {
+      error: { code: string; message: string };
+    };
+    expect(envelope.error.code).toBe("error");
+    expect(envelope.error.code).not.toBe("auth_required");
+    expect(envelope.error.message).toContain("must bind a loopback host");
+  });
+
   it("derives transport=sse for an SSE server (auto-detected from the /sse path)", async () => {
     const result = await runCli(
       ["--print-handoff", "--server-url", "https://x.example/sse"],

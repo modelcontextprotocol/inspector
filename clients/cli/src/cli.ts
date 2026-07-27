@@ -1039,7 +1039,20 @@ export async function runCli(argv?: string[]): Promise<void> {
     relogin,
   } = parsed;
   const clientConfig = await loadRunnerClientConfig({ clientConfigPath });
-  const callbackUrlConfig = parseRunnerOAuthCallbackUrl(callbackUrl);
+  // A bad --callback-url / MCP_OAUTH_CALLBACK_URL is a *usage* error, but its
+  // messages contain "OAuth", which the exit-code heuristic (error-handler.ts)
+  // would otherwise classify as AUTH_REQUIRED (exit 3) — telling an automated
+  // caller to kick the auth flow instead of fixing the flag. `core/` can't
+  // import CliExitCodeError, so pin the class here.
+  let callbackUrlConfig: RunnerOAuthCallbackConfig;
+  try {
+    callbackUrlConfig = parseRunnerOAuthCallbackUrl(callbackUrl);
+  } catch (err) {
+    throw new CliExitCodeError(
+      EXIT_CODES.USAGE,
+      err instanceof Error ? err.message : String(err),
+    );
+  }
   await callMethod(
     serverConfig,
     serverSettings,

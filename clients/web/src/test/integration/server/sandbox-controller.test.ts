@@ -39,6 +39,7 @@ describe("sandboxFrameAncestors", () => {
         "http://a:1; sandbox",
         "http://b:2\nX-Evil: 1",
         "http://[::1]:6274",
+        "http://*.example.com", // a wildcard would widen the embedder set
         "not a url",
       ]),
     ).toBe("frame-ancestors http://good.example:6274");

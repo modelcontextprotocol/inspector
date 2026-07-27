@@ -19,6 +19,7 @@ describe("isLoopbackHost", () => {
     "[::1]",
     "0:0:0:0:0:0:0:1",
     "::ffff:127.0.0.1", // IPv4-mapped loopback → unmapped to 127.0.0.1
+    "::ffff:7f00:1", // its canonical serialization (what new URL().hostname yields)
     "127.255.255.255", // top of 127.0.0.0/8
     "localhost.", // root-anchored FQDN (WHATWG keeps the dot; binds loopback)
     "127.0.0.1.", // trailing dot on an IP literal (WHATWG strips it)

@@ -59,7 +59,8 @@ inspector/
 │   │                                   #   normalization + detection — formatHostForUrl brackets IPv6,
 │   │                                   #   canonicalUrlHost canonicalizes a bind host the way a browser
 │   │                                   #   builds `Origin`, isAllInterfacesHost is the wildcard-bind
-│   │                                   #   predicate the guard is built on; also stripBrackets. Used across
+│   │                                   #   predicate the guard is built on, isLoopbackHost gates the OAuth
+│   │                                   #   callback listener; also stripBrackets. Used across
 │   │                                   #   clients/web/server, clients/cli, and core/auth/node — #1795)
 │   ├── react/                          # React hooks over the state stores
 │   └── storage/                        # File I/O helpers (store-io.ts) used by OAuth persist backends

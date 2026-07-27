@@ -13,7 +13,10 @@ const isMain =
 
 if (isMain) {
   runTui(process.argv).catch((err: unknown) => {
-    console.error(err);
+    // Print the message, not the stack — a startup config error (e.g. the
+    // OAuth callback loopback guard) should read as an actionable message, not
+    // an internal fault. Matches run-web.ts's house pattern.
+    console.error("Error:", err instanceof Error ? err.message : err);
     process.exit(1);
   });
 }
