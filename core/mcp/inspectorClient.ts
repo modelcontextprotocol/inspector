@@ -246,12 +246,15 @@ const DEFAULT_TASK_POLL_INTERVAL_MS = 500;
 /**
  * Close a modern listen stream best-effort, absorbing both failure modes a
  * third-party `close()` can produce: a rejected promise and a synchronous
- * throw. All three stream closes go through here, because at each site the
- * caller has already dropped its reference to the stream, so
- * an escaping failure abandons a stream that may still be open on the server
- * *and* takes the caller's remaining work with it — teardown that most callers
- * of `disconnect()` would never see skipped, or the re-listen that was about to
- * replace the stream being closed (#1630, #1797).
+ * throw. All three stream closes go through here. At two of them the caller has
+ * already dropped its reference, so an escaping failure abandons a stream that
+ * may still be open on the server *and* takes the caller's remaining work with
+ * it — teardown that most callers of `disconnect()` would never see skipped, or
+ * the re-listen that was about to replace the stream being closed. The third
+ * (discarding a stream a newer refresh superseded) is milder: nothing stored it
+ * and nothing follows it, so an escaping failure would only reject a
+ * `subscribeToResource` whose replacement had already succeeded. Wrapped all the
+ * same, so the rule is one rule (#1630, #1797).
  */
 async function closeSubscriptionBestEffort(
   subscription: Pick<McpSubscription, "close">,
@@ -1600,8 +1603,12 @@ export class InspectorClient extends InspectorClientEventTarget {
     // route the subscription-stream close exists for, and it strands these two
     // the same way. The peer queue is the sharper of them — the web
     // pending-request modal is derived from its length with no status gate, so
-    // it outlives the session, and answering it writes a response for the old
-    // request id onto the reused connection. Both helpers are idempotent (one
+    // it outlives the session, and a user answering it later would write
+    // *their* answer for the previous session's request id onto the new
+    // connection, arbitrarily far past the re-handshake. Note what the sweep
+    // does instead is emit a *cancel* for that same id, right here: still the
+    // settle-don't-discard rule, and this is the best moment for it, since the
+    // old connection is on the wire until `dropCachedTransport()` below. Both helpers are idempotent (one
     // guards on a non-empty queue, the other clears its map and re-rejecting a
     // settled promise is a no-op), so these are no-ops on the routes that
     // already ran them; and anything still pending here belongs to a session

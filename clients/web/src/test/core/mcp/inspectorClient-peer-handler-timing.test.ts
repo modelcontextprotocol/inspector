@@ -104,6 +104,13 @@ import { ModernGetTaskResultSchema } from "@inspector/core/mcp/modernTaskSchemas
  * register an elicitation handler. Either mistake throws before the handshake,
  * so the client cannot connect at all.
  *
+ * A note on the ordering, since two axes describe this file equally well and
+ * they cut differently: the cases are grouped by *route* — everything the
+ * `onerror`-then-reconnect route has to settle sits together, rather than each
+ * collection sitting with its own category. Where a case is the counterpart of
+ * one in another group, it is placed next to its counterpart (the two halves of
+ * the stream-release obligation, one per route) rather than with its route.
+ *
  * The converse category is the advertised capability object itself: it must
  * only invite requests we actually serve, and so must the notifications we
  * emit. `capabilities.tasks.requests` names the server→client requests we
@@ -950,6 +957,54 @@ describe("InspectorClient peer-handler timing (#1797)", () => {
     await client.disconnect();
   });
 
+  for (const [label, close] of [
+    [
+      "throws synchronously",
+      (): Promise<void> => {
+        throw new Error("close blew up");
+      },
+    ],
+    [
+      "returns a rejected promise",
+      (): Promise<void> => Promise.reject(new Error("close blew up")),
+    ],
+  ] as const) {
+    it(`continues teardown when the dropped stream's close() ${label}`, async () => {
+      // The close is best-effort against *both* failure modes because it runs
+      // from `disconnect()`, whose teardown is straight-line: an escaping
+      // failure would skip the raw-wire rejects, the paused task-input aborts,
+      // the in-flight tool-call abort and `clearReceiverTasks()` — silently,
+      // since most callers catch `disconnect()`. So the release obligation is
+      // pinned from the other side too: the reset closes what it drops, and a
+      // `close()` that fails does not take the rest of teardown with it.
+      const transport = new SampleAfterConnectTransport();
+      const client = new InspectorClient(
+        { type: "stdio", command: "noop", args: [] },
+        { environment: { transport: () => ({ transport }) } },
+      );
+      await client.connect();
+
+      // Seeded directly, for the reasons the two tests above give. No public
+      // writer for either, hence the casts.
+      (
+        client as unknown as {
+          modernSubscription: { close: () => Promise<void> } | null;
+        }
+      ).modernSubscription = { close };
+
+      // A downstream teardown step, to witness that teardown continued.
+      const controller = new AbortController();
+      (
+        client as unknown as {
+          taskInputAbortControllers: Map<string, AbortController>;
+        }
+      ).taskInputAbortControllers.set("task-1", controller);
+
+      await expect(client.disconnect()).resolves.toBeUndefined();
+      expect(controller.signal.aborted).toBe(true);
+    });
+  }
+
   it("clears a peer request the next connect would otherwise inherit", async () => {
     // Same route as the test above, for the other collection it strands. An
     // `onerror` without an `onclose` runs neither teardown path, so the queue
@@ -1076,54 +1131,6 @@ describe("InspectorClient peer-handler timing (#1797)", () => {
 
     await client.disconnect();
   });
-
-  for (const [label, close] of [
-    [
-      "throws synchronously",
-      (): Promise<void> => {
-        throw new Error("close blew up");
-      },
-    ],
-    [
-      "returns a rejected promise",
-      (): Promise<void> => Promise.reject(new Error("close blew up")),
-    ],
-  ] as const) {
-    it(`continues teardown when the dropped stream's close() ${label}`, async () => {
-      // The close is best-effort against *both* failure modes because it runs
-      // from `disconnect()`, whose teardown is straight-line: an escaping
-      // failure would skip the raw-wire rejects, the paused task-input aborts,
-      // the in-flight tool-call abort and `clearReceiverTasks()` — silently,
-      // since most callers catch `disconnect()`. So the release obligation is
-      // pinned from the other side too: the reset closes what it drops, and a
-      // `close()` that fails does not take the rest of teardown with it.
-      const transport = new SampleAfterConnectTransport();
-      const client = new InspectorClient(
-        { type: "stdio", command: "noop", args: [] },
-        { environment: { transport: () => ({ transport }) } },
-      );
-      await client.connect();
-
-      // Seeded directly, for the reasons the two tests above give. No public
-      // writer for either, hence the casts.
-      (
-        client as unknown as {
-          modernSubscription: { close: () => Promise<void> } | null;
-        }
-      ).modernSubscription = { close };
-
-      // A downstream teardown step, to witness that teardown continued.
-      const controller = new AbortController();
-      (
-        client as unknown as {
-          taskInputAbortControllers: Map<string, AbortController>;
-        }
-      ).taskInputAbortControllers.set("task-1", controller);
-
-      await expect(client.disconnect()).resolves.toBeUndefined();
-      expect(controller.signal.aborted).toBe(true);
-    });
-  }
 
   it("connects when an elicit option enables no mode", async () => {
     // `{ form: false, url: false }` is a valid option that advertises no
