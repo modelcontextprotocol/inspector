@@ -47,6 +47,9 @@ vi.mock("@inspector/core/mcp/index.js", async (importOriginal) => {
   // When set, the next `connect()` rejects with this value (one-shot), so a test
   // can exercise the handshake-failure path. Cleared after it fires.
   let nextConnectRejection: unknown = null;
+  // Same one-shot arming for the `/oauth/callback` token exchange, so a test can
+  // exercise the callback-leg failure paths (#1808).
+  let nextResumeRejection: unknown = null;
   class FakeInspectorClient extends EventTarget {
     connect = vi.fn(() => {
       if (nextConnectRejection !== null) {
@@ -93,8 +96,16 @@ vi.mock("@inspector/core/mcp/index.js", async (importOriginal) => {
     getRoots = vi.fn().mockReturnValue([]);
     setRoots = vi.fn().mockResolvedValue(undefined);
     setServerSettings = vi.fn();
-    resumeAfterOAuth = vi.fn().mockResolvedValue(undefined);
+    resumeAfterOAuth = vi.fn(() => {
+      if (nextResumeRejection !== null) {
+        const err = nextResumeRejection;
+        nextResumeRejection = null;
+        return Promise.reject(err);
+      }
+      return Promise.resolve(undefined);
+    });
     checkAuthChallengeSatisfied = vi.fn().mockResolvedValue(true);
+    clearOAuthTokens = vi.fn().mockResolvedValue(undefined);
   }
   const instances: FakeInspectorClient[] = [];
   return {
@@ -109,6 +120,10 @@ vi.mock("@inspector/core/mcp/index.js", async (importOriginal) => {
     // Test-only: arm the next connect() to reject (handshake-failure path).
     __rejectNextConnect: (err: unknown) => {
       nextConnectRejection = err;
+    },
+    // Test-only: arm the next resumeAfterOAuth() to reject (callback-leg failure).
+    __rejectNextResumeAfterOAuth: (err: unknown) => {
+      nextResumeRejection = err;
     },
   };
 });
@@ -563,9 +578,11 @@ import { useManagedRequestorTasks } from "@inspector/core/react/useManagedReques
 import { useMessageLog } from "@inspector/core/react/useMessageLog.js";
 import { useInspectorClient } from "@inspector/core/react/useInspectorClient.js";
 import { useSettingsDraft } from "@inspector/core/react/useSettingsDraft.js";
+import { useServers } from "@inspector/core/react/useServers.js";
 import type {
   InspectorServerSettings,
   MessageEntry,
+  ServerEntry,
 } from "@inspector/core/mcp/types.js";
 
 // Default useInspectorClient return — capabilities empty (no task tool calls).
@@ -589,6 +606,12 @@ const clientInstances = (
 const rejectNextConnect = (
   McpIndex as unknown as { __rejectNextConnect: (err: unknown) => void }
 ).__rejectNextConnect;
+
+const rejectNextResumeAfterOAuth = (
+  McpIndex as unknown as {
+    __rejectNextResumeAfterOAuth: (err: unknown) => void;
+  }
+).__rejectNextResumeAfterOAuth;
 
 const fetchLogInstances = (
   FetchLogModule as unknown as { __fetchLogInstances: EventTarget[] }
@@ -2151,6 +2174,163 @@ describe("App OAuth resume lifecycle", () => {
         INSPECTOR_SERVERS_TAB,
       ),
     );
+  });
+});
+
+// A callback that lands without recorded SEP-2352 discovery state used to
+// dead-end with the SDK's raw `AuthorizationServerMismatchError` text. It now
+// raises an explicit recovery affordance — but only for that case; a genuine
+// cross-authorization-server mismatch stays a security error. See #1808.
+describe("App OAuth callback issuer-binding failures (#1808)", () => {
+  const storage = new Map<string, string>();
+  const HTTP_SERVER: ServerEntry = {
+    id: "A",
+    name: "PlotRocket",
+    config: { type: "streamable-http", url: "https://mcp.example.com/mcp" },
+    connection: { status: "disconnected" },
+  };
+  const STDIO_SERVER: ServerEntry = {
+    id: "A",
+    name: "PlotRocket",
+    config: { type: "stdio", command: "node" },
+    connection: { status: "disconnected" },
+  };
+
+  /** Full `useServers` shape so the override typechecks like the real hook. */
+  const useServersResult = (
+    servers: ServerEntry[],
+  ): ReturnType<typeof useServers> => ({
+    servers,
+    loading: false,
+    error: undefined,
+    refresh: vi.fn().mockResolvedValue(undefined),
+    addServer: vi.fn().mockResolvedValue(undefined),
+    updateServer: vi.fn().mockResolvedValue(undefined),
+    updateServerSettings: updateServerSettingsSpy,
+    removeServer: vi.fn().mockResolvedValue(undefined),
+    reorderServers: vi.fn().mockResolvedValue(undefined),
+    importSource: vi.fn().mockResolvedValue({ servers: {} }),
+  });
+
+  const mismatchError = (recordedIssuer: string): Error => {
+    const err = new Error("Authorization server changed");
+    Object.defineProperty(err, "mcpBrand", {
+      value: "mcp.AuthorizationServerMismatchError",
+    });
+    Object.assign(err, {
+      recordedIssuer,
+      currentIssuer: "https://as.example.com",
+    });
+    return err;
+  };
+
+  const renderCallbackWithFailure = (err: Error) => {
+    writeOAuthResumeSnapshot({
+      version: 1,
+      serverId: "A",
+      activeTab: "Tools",
+      authKind: "reauth",
+      tabUi: {},
+    });
+    window.history.replaceState({}, "", `${OAUTH_CALLBACK_PATH}?code=test`);
+    rejectNextResumeAfterOAuth(err);
+    renderWithMantine(<App />);
+  };
+
+  beforeEach(() => {
+    clientInstances.length = 0;
+    storage.clear();
+    notificationsMock.show.mockClear();
+    vi.mocked(useInspectorClient).mockReturnValue({
+      ...DEFAULT_USE_INSPECTOR_CLIENT,
+      status: "disconnected",
+    });
+    vi.mocked(useServers).mockReturnValue(useServersResult([HTTP_SERVER]));
+    vi.stubGlobal("sessionStorage", {
+      getItem: (key: string) => storage.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        storage.set(key, value);
+      },
+      removeItem: (key: string) => {
+        storage.delete(key);
+      },
+    });
+    window.history.replaceState({}, "", "/");
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.mocked(useInspectorClient).mockReturnValue(DEFAULT_USE_INSPECTOR_CLIENT);
+    vi.mocked(useServers).mockReturnValue(useServersResult([STDIO_SERVER]));
+    window.history.replaceState({}, "", "/");
+  });
+
+  it("offers an explicit re-authorize affordance when the recorded state was lost", async () => {
+    renderCallbackWithFailure(
+      mismatchError(
+        "discoveryState was not available on the callback leg; ensure your provider persists discoveryState alongside codeVerifier",
+      ),
+    );
+
+    expect(
+      await screen.findByText("Authorization state was lost"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Authorize again" }),
+    ).toBeInTheDocument();
+    // The raw SDK wording never reaches the user.
+    expect(screen.queryByText(/discoveryState/)).not.toBeInTheDocument();
+    expect(screen.queryByText("Re-authentication required")).toBeNull();
+  });
+
+  it("clears the stale OAuth state and reconnects when the affordance is used", async () => {
+    const user = userEvent.setup();
+    renderCallbackWithFailure(
+      mismatchError("discoveryState was not available on the callback leg"),
+    );
+
+    const button = await screen.findByRole("button", {
+      name: "Authorize again",
+    });
+    await waitFor(() => expect(clientInstances).toHaveLength(1));
+    const callbackClient = clientInstances[0] as unknown as {
+      clearOAuthTokens: ReturnType<typeof vi.fn>;
+    };
+
+    await user.click(button);
+
+    await waitFor(() =>
+      expect(callbackClient.clearOAuthTokens).toHaveBeenCalled(),
+    );
+    // A fresh client is built for the retry connect.
+    await waitFor(() => expect(clientInstances.length).toBeGreaterThan(1));
+    expect(screen.queryByText("Authorization state was lost")).toBeNull();
+  });
+
+  it("treats a genuine issuer mismatch as a security error with no recovery button", async () => {
+    renderCallbackWithFailure(mismatchError("https://old.example.com"));
+
+    await waitFor(() =>
+      expect(notificationsMock.show).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: "Authorization server mismatch",
+          color: "red",
+        }),
+      ),
+    );
+    expect(screen.queryByText("Authorization state was lost")).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Authorize again" }),
+    ).toBeNull();
+  });
+
+  it("falls back to the generic re-auth banner for an unrelated callback failure", async () => {
+    renderCallbackWithFailure(new Error("token endpoint exploded"));
+
+    expect(
+      await screen.findByText("Re-authentication required"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Authorization state was lost")).toBeNull();
   });
 });
 

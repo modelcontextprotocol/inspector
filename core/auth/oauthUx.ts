@@ -1,4 +1,5 @@
 import type { AuthChallenge } from "./challenge.js";
+import type { IssuerBindingFailure } from "./issuerBinding.js";
 
 export type OAuthInteractiveAuthKind = "step_up" | "reauth";
 
@@ -222,6 +223,83 @@ export function isReAuthBannerReason(
     reason === "unauthorized" ||
     reason === "invalid_token"
   );
+}
+
+/** Banner/alert heading when the recorded authorization state was lost. */
+export function lostAuthorizationStateTitle(): string {
+  return "Authorization state was lost";
+}
+
+/**
+ * Plain-language explanation for a callback that arrived with no recorded
+ * discovery state (SEP-2352). Deliberately does not surface the SDK's
+ * `AuthorizationServerMismatchError` text — that wording reads like a security
+ * failure, and this case is ordinary bookkeeping loss.
+ */
+export function lostAuthorizationStateMessage(options?: {
+  serverName?: string;
+}): string {
+  const target = options?.serverName
+    ? `"${options.serverName}"`
+    : "this server";
+  return (
+    `The stored authorization state for ${target} was lost before the ` +
+    "authorization server sent you back, so the sign-in could not be " +
+    "completed. This usually means a new browser session, a different tab, or " +
+    "authorization state that was cleared while the flow was in progress. " +
+    "Authorize again to reconnect."
+  );
+}
+
+/** Action label for the lost-authorization-state recovery affordance. */
+export function lostAuthorizationStateActionLabel(): string {
+  return "Authorize again";
+}
+
+/** Heading for a genuine cross-authorization-server mismatch (a security signal). */
+export function issuerMismatchTitle(): string {
+  return "Authorization server mismatch";
+}
+
+/**
+ * Copy for a genuine SEP-2352 issuer mismatch. This is *not* offered a
+ * one-click recovery: the authorization code and PKCE verifier are bound to the
+ * server that minted them, and a different server answering the callback is a
+ * credential-exfiltration signal the user must investigate.
+ */
+export function issuerMismatchMessage(options: {
+  recordedIssuer: string;
+  currentIssuer: string;
+  serverName?: string;
+}): string {
+  const target = options.serverName ? `"${options.serverName}"` : "this server";
+  return (
+    `Authorization for ${target} was stopped: the flow started at ` +
+    `${options.recordedIssuer} but the callback resolved ` +
+    `${options.currentIssuer}. The authorization code was not exchanged. ` +
+    "Verify the server's authorization configuration before trying again."
+  );
+}
+
+/** Title + message for a callback-leg issuer-binding failure. */
+export function issuerBindingFailureCopy(
+  failure: IssuerBindingFailure,
+  options?: { serverName?: string },
+): { title: string; message: string } {
+  if (failure.kind === "lost_authorization_state") {
+    return {
+      title: lostAuthorizationStateTitle(),
+      message: lostAuthorizationStateMessage(options),
+    };
+  }
+  return {
+    title: issuerMismatchTitle(),
+    message: issuerMismatchMessage({
+      recordedIssuer: failure.recordedIssuer,
+      currentIssuer: failure.currentIssuer,
+      serverName: options?.serverName,
+    }),
+  };
 }
 
 export function reAuthBannerMessage(options: {

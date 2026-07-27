@@ -31,7 +31,11 @@ inspector/
 │   ├── auth/                           # OAuth: providers, discovery, OAuthStorage + persist backends;
 │   │                                   #   mid-session recovery (challenge.ts WWW-Authenticate
 │   │                                   #   parsing, scopes.ts SEP-2350 scope union, oauthUx.ts
-│   │                                   #   shared copy, mcpAuth.ts force-reauthorization)
+│   │                                   #   shared copy, mcpAuth.ts force-reauthorization,
+│   │                                   #   issuerBinding.ts SEP-2352 callback-leg failure
+│   │                                   #   classification — separates a recoverable
+│   │                                   #   "lost authorization state" from a genuine
+│   │                                   #   cross-AS issuer mismatch — #1808)
 │   │   ├── browser/                    # Browser-side OAuth (sessionStorage, BrowserNavigation)
 │   │   ├── node/                       # Node-side OAuth (NodeOAuthStorage, OAuthCallbackServer,
 │   │   │                               #   runner-interactive-oauth loopback callback flow)

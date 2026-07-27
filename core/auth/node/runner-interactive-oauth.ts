@@ -1,4 +1,6 @@
 import type { AuthChallenge } from "../challenge.js";
+import { findIssuerBindingFailure } from "../issuerBinding.js";
+import { issuerBindingFailureCopy } from "../oauthUx.js";
 import {
   createOAuthCallbackServer,
   type OAuthCallbackServer,
@@ -41,6 +43,24 @@ export interface RunRunnerInteractiveOAuthOptions {
 }
 
 /**
+ * Replace an opaque SEP-2352 callback-leg failure with actionable copy (#1808).
+ *
+ * The runners have no banner to render, so their affordance is the message
+ * itself: it explains that the recorded authorization state was lost and that
+ * re-running authorization starts a fresh flow (the next `authenticate()`
+ * re-runs discovery and records new state). A *genuine* issuer mismatch gets
+ * the security-flavoured copy instead — never a "just try again" nudge.
+ */
+function toRunnerOAuthError(err: unknown): Error {
+  const failure = findIssuerBindingFailure(err);
+  if (failure) {
+    const copy = issuerBindingFailureCopy(failure);
+    return new Error(`${copy.title}. ${copy.message}`, { cause: err });
+  }
+  return err instanceof Error ? err : new Error(String(err));
+}
+
+/**
  * Run interactive OAuth for Node runners (TUI / CLI): loopback callback server,
  * browser redirect, authorization-code exchange via {@link completeOAuthFlow}.
  */
@@ -70,7 +90,7 @@ export async function runRunnerInteractiveOAuth(
           await options.client.completeOAuthFlow(params.code, params.iss);
           flowResolve();
         } catch (err) {
-          flowReject(err instanceof Error ? err : new Error(String(err)));
+          flowReject(toRunnerOAuthError(err));
         }
       },
       onError: (params) => {

@@ -98,8 +98,20 @@ export {
   oauthPreRedirectToastCopy,
   isReAuthBannerReason,
   reAuthBannerMessage,
+  lostAuthorizationStateTitle,
+  lostAuthorizationStateMessage,
+  lostAuthorizationStateActionLabel,
+  issuerMismatchTitle,
+  issuerMismatchMessage,
+  issuerBindingFailureCopy,
   type OAuthInteractiveAuthKind,
 } from "./oauthUx.js";
+
+export {
+  findIssuerBindingFailure,
+  isLostAuthorizationStateError,
+  type IssuerBindingFailure,
+} from "./issuerBinding.js";
 
 // Discovery
 export { discoverScopes } from "./discovery.js";

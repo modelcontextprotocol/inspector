@@ -197,12 +197,16 @@ import { clearServerOAuthState } from "./lib/clearServerOAuthState";
 import {
   authRecoveryRestoredMessage,
   isReAuthBannerReason,
+  issuerBindingFailureCopy,
+  lostAuthorizationStateActionLabel,
+  lostAuthorizationStateTitle,
   oauthPreRedirectToastCopy,
   oauthResumeAbandonedMessage,
   reAuthBannerMessage,
   type OAuthPreRedirectContext,
   type OAuthRecoverySource,
 } from "./utils/oauthUx";
+import { findIssuerBindingFailure } from "@inspector/core/auth/issuerBinding.js";
 import {
   isBrowserTabVisible,
   onBrowserTabVisible,
@@ -879,6 +883,13 @@ function App() {
   const [reAuthBanner, setReAuthBanner] = useState<{
     serverId: string;
     message: string;
+    /**
+     * `lost_authorization_state` marks the SEP-2352 recovery case (#1808): the
+     * callback arrived with no recorded discovery state, so the banner offers
+     * "Authorize again", which drops the stale/partial OAuth state before
+     * starting a fresh authorization.
+     */
+    kind?: "lost_authorization_state";
   } | null>(null);
   const [pendingReauth, setPendingReauth] = useState<PendingReauth | null>(
     null,
@@ -2559,6 +2570,35 @@ function App() {
           });
           return;
         }
+        // SEP-2352 issuer binding (#1808). Two very different failures share
+        // one SDK error class, so classify before falling through to the
+        // generic re-auth banner (whose detail line would otherwise be the raw
+        // "AuthorizationServerMismatchError" text):
+        //  - no discovery state was recorded → recoverable bookkeeping loss,
+        //    surface the "Authorize again" affordance;
+        //  - a *different* issuer answered the callback → security signal, so
+        //    no one-click recovery is offered.
+        const issuerBindingFailure = findIssuerBindingFailure(err);
+        if (issuerBindingFailure) {
+          const copy = issuerBindingFailureCopy(issuerBindingFailure, {
+            serverName: server.name,
+          });
+          if (issuerBindingFailure.kind === "lost_authorization_state") {
+            setReAuthBanner({
+              serverId: server.id,
+              message: copy.message,
+              kind: "lost_authorization_state",
+            });
+          } else {
+            notifications.show({
+              title: copy.title,
+              message: copy.message,
+              color: "red",
+              autoClose: false,
+            });
+          }
+          return;
+        }
         queueMicrotask(() => {
           showReAuthBanner(server.id, err instanceof Error ? err : String(err));
         });
@@ -2839,7 +2879,41 @@ function App() {
   const onReauthenticateFromBanner = useCallback(() => {
     if (!reAuthBanner) return;
     const serverId = reAuthBanner.serverId;
+    const bannerKind = reAuthBanner.kind;
     setReAuthBanner(null);
+
+    // Lost-authorization-state recovery (#1808). The stale half of the flow
+    // (code verifier without discovery state, possibly a stale registration)
+    // would make a plain retry fail the same way, so drop the persisted OAuth
+    // state for this server first, then start a fresh authorization. This
+    // banner is only raised from the `/oauth/callback` failure path, where the
+    // session never reached "connected", so connecting is always the right
+    // toggle direction here.
+    if (bannerKind === "lost_authorization_state") {
+      void (async () => {
+        const server = serversRef.current.find((s) => s.id === serverId);
+        if (server) {
+          try {
+            await clearServerOAuthState({
+              config: server.config,
+              inspectorClient:
+                serverId === activeServerId ? inspectorClient : null,
+              isActiveConnection: serverId === activeServerId,
+              oauthStorage: webOAuthStorage,
+            });
+          } catch (err) {
+            notifications.show({
+              title: "Could not clear the stored authorization state",
+              message: err instanceof Error ? err.message : String(err),
+              color: "red",
+            });
+            return;
+          }
+        }
+        await onToggleConnection(serverId);
+      })();
+      return;
+    }
 
     if (
       serverId === activeServerId &&
@@ -2888,6 +2962,7 @@ function App() {
     servers,
     prepareOAuthRedirect,
     onToggleConnection,
+    webOAuthStorage,
   ]);
 
   // --- Action handlers that route directly to the InspectorClient. ---
@@ -4259,6 +4334,16 @@ function App() {
           <ReAuthBannerBar>
             <ReAuthBanner
               message={reAuthBanner.message}
+              title={
+                reAuthBanner.kind === "lost_authorization_state"
+                  ? lostAuthorizationStateTitle()
+                  : undefined
+              }
+              actionLabel={
+                reAuthBanner.kind === "lost_authorization_state"
+                  ? lostAuthorizationStateActionLabel()
+                  : undefined
+              }
               onReauthenticate={onReauthenticateFromBanner}
               onDismiss={() => setReAuthBanner(null)}
             />

@@ -19,6 +19,12 @@ import {
   stepUpInsufficientScopeMessage,
   stepUpModalTitle,
   stepUpAuthorizeActionLabel,
+  issuerBindingFailureCopy,
+  issuerMismatchMessage,
+  issuerMismatchTitle,
+  lostAuthorizationStateActionLabel,
+  lostAuthorizationStateMessage,
+  lostAuthorizationStateTitle,
 } from "@inspector/core/auth/oauthUx.js";
 import type { AuthChallenge } from "@inspector/core/auth/challenge.js";
 
@@ -332,5 +338,69 @@ describe("oauthUx re-auth banner", () => {
       "Authentication needs attention. Token expired.",
     );
     expect(reAuthBannerMessage({})).toBe("Authentication needs attention.");
+  });
+});
+
+describe("oauthUx issuer-binding copy", () => {
+  it("explains lost authorization state in plain language, with the server name", () => {
+    const withName = lostAuthorizationStateMessage({ serverName: "svc" });
+    expect(withName).toContain('"svc"');
+    expect(withName).toContain("was lost");
+    expect(withName).toContain("Authorize again");
+    // Never leaks the SDK's security-flavoured wording.
+    expect(withName).not.toContain("discoveryState");
+    expect(withName).not.toContain("AuthorizationServerMismatchError");
+    expect(lostAuthorizationStateMessage()).toContain("this server");
+    expect(lostAuthorizationStateTitle()).toBe("Authorization state was lost");
+    expect(lostAuthorizationStateActionLabel()).toBe("Authorize again");
+  });
+
+  it("names both issuers for a genuine mismatch and offers no retry nudge", () => {
+    const message = issuerMismatchMessage({
+      recordedIssuer: "https://old.example.com",
+      currentIssuer: "https://evil.example.com",
+      serverName: "svc",
+    });
+    expect(message).toContain('"svc"');
+    expect(message).toContain("https://old.example.com");
+    expect(message).toContain("https://evil.example.com");
+    expect(message).toContain("was not exchanged");
+    expect(message).not.toContain("Authorize again");
+    expect(
+      issuerMismatchMessage({
+        recordedIssuer: "https://old.example.com",
+        currentIssuer: "https://evil.example.com",
+      }),
+    ).toContain("this server");
+    expect(issuerMismatchTitle()).toBe("Authorization server mismatch");
+  });
+
+  it("issuerBindingFailureCopy dispatches on the failure kind", () => {
+    expect(
+      issuerBindingFailureCopy(
+        {
+          kind: "lost_authorization_state",
+          currentIssuer: "https://as.example.com",
+        },
+        { serverName: "svc" },
+      ),
+    ).toEqual({
+      title: lostAuthorizationStateTitle(),
+      message: lostAuthorizationStateMessage({ serverName: "svc" }),
+    });
+
+    expect(
+      issuerBindingFailureCopy({
+        kind: "issuer_mismatch",
+        recordedIssuer: "https://old.example.com",
+        currentIssuer: "https://evil.example.com",
+      }),
+    ).toEqual({
+      title: issuerMismatchTitle(),
+      message: issuerMismatchMessage({
+        recordedIssuer: "https://old.example.com",
+        currentIssuer: "https://evil.example.com",
+      }),
+    });
   });
 });
