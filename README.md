@@ -45,7 +45,11 @@ inspector/
 Each client has its own README with client-specific detail:
 [web](./clients/web/README.md) · [cli](./clients/cli/README.md) · [tui](./clients/tui/README.md) · [launcher](./clients/launcher/README.md).
 
-Task-oriented guides live under [`docs/`](./docs) — see [Reviewing an MCP App](./docs/mcp-app-review.md), the CLI-first → one-shot-web recipe for automated App-tool review: `--app-info` probe → deep-link navigate → rendered widget, plus OAuth handoff and proxy support.
+Task-oriented guides live under [`docs/`](./docs):
+
+- [MCP server configuration](./docs/mcp-server-configuration.md) — which server(s) the Inspector connects to: `--catalog` vs. `--config`, ad-hoc targets, the `--` separator, the file format and its Inspector-specific per-server fields. Shared by all three clients; the cli and tui READMEs delegate their server-options sections to it.
+- [Reviewing an MCP App](./docs/mcp-app-review.md) — the CLI-first → one-shot-web recipe for automated App-tool review: `--app-info` probe → deep-link navigate → rendered widget, plus OAuth handoff and proxy support.
+- [Launcher and config consolidation](./docs/launcher-config-consolidation-plan.md) — why the launcher runs a client in-process rather than spawning it, and how the shared config processor fits in.
 
 ## Setup
 
