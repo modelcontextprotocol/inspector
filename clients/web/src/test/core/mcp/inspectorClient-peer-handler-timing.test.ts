@@ -985,33 +985,35 @@ describe("InspectorClient peer-handler timing (#1797)", () => {
       const onUnhandled = (reason: unknown): void => {
         unhandled.push(reason);
       };
+      // Registered from here, so every path out of the test removes it — a leak
+      // would otherwise accumulate across the rest of the file into an array
+      // nobody reads.
       process.on("unhandledRejection", onUnhandled);
-
-      const transport = new SampleAfterConnectTransport();
-      const client = new InspectorClient(
-        { type: "stdio", command: "noop", args: [] },
-        { environment: { transport: () => ({ transport }) } },
-      );
-      await client.connect();
-
-      // Seeded directly, for the reasons `closes a live listen stream the next
-      // connect drops` and `aborts a paused task-input wait when the session
-      // ends` give. No public writer for either, hence the casts.
-      (
-        client as unknown as {
-          modernSubscription: { close: () => Promise<void> } | null;
-        }
-      ).modernSubscription = { close };
-
-      // A downstream teardown step, to witness that teardown continued.
-      const controller = new AbortController();
-      (
-        client as unknown as {
-          taskInputAbortControllers: Map<string, AbortController>;
-        }
-      ).taskInputAbortControllers.set("task-1", controller);
-
       try {
+        const transport = new SampleAfterConnectTransport();
+        const client = new InspectorClient(
+          { type: "stdio", command: "noop", args: [] },
+          { environment: { transport: () => ({ transport }) } },
+        );
+        await client.connect();
+
+        // Seeded directly, for the reasons `closes a live listen stream the
+        // next connect drops` and `aborts a paused task-input wait when the
+        // session ends` give. No public writer for either, hence the casts.
+        (
+          client as unknown as {
+            modernSubscription: { close: () => Promise<void> } | null;
+          }
+        ).modernSubscription = { close };
+
+        // A downstream teardown step, to witness that teardown continued.
+        const controller = new AbortController();
+        (
+          client as unknown as {
+            taskInputAbortControllers: Map<string, AbortController>;
+          }
+        ).taskInputAbortControllers.set("task-1", controller);
+
         await expect(client.disconnect()).resolves.toBeUndefined();
         expect(controller.signal.aborted).toBe(true);
 
@@ -1019,7 +1021,14 @@ describe("InspectorClient peer-handler timing (#1797)", () => {
         // so yield to the macrotask queue before reading the listener — nothing
         // else in this test would give it a chance to fire.
         await new Promise((resolve) => setTimeout(resolve, 0));
-        expect(unhandled).toEqual([]);
+        // Filtered to this fixture's own reason: the listener is process-wide,
+        // so a rejection another test left pending and Node reported late would
+        // otherwise fail here, blaming the wrong test.
+        expect(
+          unhandled.filter((reason) =>
+            String(reason).includes("close blew up"),
+          ),
+        ).toEqual([]);
       } finally {
         process.off("unhandledRejection", onUnhandled);
       }

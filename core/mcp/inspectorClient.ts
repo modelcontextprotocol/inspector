@@ -259,10 +259,21 @@ const DEFAULT_TASK_POLL_INTERVAL_MS = 500;
  *   skipped teardown, is what the wrapping buys at this site.
  * - `refreshModernSubscription`'s re-listen close — awaited, with the
  *   replacement `listen()` after it, so an escaping failure skips the re-listen
- *   and leaves a non-empty subscription set with no stream.
- * - the superseded-generation discard — awaited, but `return` follows, so an
- *   escaping failure would only reject a `subscribeToResource` whose
- *   replacement had already succeeded. The mildest of the three.
+ *   and leaves a non-empty subscription set with no stream. On the reconnect
+ *   caller it is instead absorbed into the backoff run and retried.
+ * - the superseded-generation discard — awaited, but `return` follows, so
+ *   nothing local is skipped; the failure only propagates out of
+ *   `refreshModernSubscription` to whichever caller a newer refresh had already
+ *   superseded. Mild from `subscribeToResource` (which rolls the optimistic add
+ *   back and rethrows) and self-healing on the reconnect path, but *not* from
+ *   `unsubscribeFromResource`, which deliberately keeps the removal when a
+ *   re-listen fails — so there it surfaces a "Failed to unsubscribe" for an
+ *   unsubscribe that actually stuck.
+ *
+ * Note what the generation bump proves in that last case is that a newer
+ * refresh had *started*, not that it succeeded — it may yet fail at its own
+ * `listen()`, making an escaping failure here a second one rather than a
+ * redundant one.
  *
  * Wrapped identically all the same, so the rule is one rule (#1630, #1797).
  */
