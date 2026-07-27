@@ -46,7 +46,11 @@ function rootReachedCommands(rootScripts) {
  */
 export function rootRunsClientValidate(rootScripts, clientDir) {
   return rootReachedCommands(rootScripts).some(
-    (c) => c.includes(`cd ${clientDir}`) && /npm run validate/.test(c),
+    // Normalize a leading `./` (`cd ./clients/x` genuinely runs the client) so
+    // that path form isn't a false "no longer runs" alarm.
+    (c) =>
+      c.replace(/cd \.\//g, "cd ").includes(`cd ${clientDir}`) &&
+      /npm run validate/.test(c),
   );
 }
 

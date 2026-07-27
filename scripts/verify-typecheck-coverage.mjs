@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // Durable guard for the "every tracked source file gets a `tsc` pass" invariant
-// that #1791 established for the Node clients (cli, tui, launcher). A tsconfig
+// that #1791 established for the Node clients — every `clients/*` that declares a
+// `typecheck` script (cli, tui, launcher today; a new one is picked up from disk
+// automatically, see nodeClients). A tsconfig
 // project only typechecks the files its `include`/`files` name plus whatever
 // those transitively import — so a new top-level `.ts` (a fresh config file, a
 // new test helper) can silently fall outside every project and get no
@@ -46,36 +48,50 @@ const rootPkg = JSON.parse(
   readFileSync(path.join(repoRoot, "package.json"), "utf8"),
 );
 
+// Clients this guard deliberately does NOT gate, with the reason. `clients/web`
+// typechecks via `tsc -b` over a project-reference graph (app/node/storybook/
+// test) this guard can't model. An exemption is explicit so it's a stated
+// decision, not an accident of which scripts a manifest happens to declare.
+const EXEMPT = new Map([
+  ["clients/web", "typechecks via `tsc -b` over project references"],
+]);
+
 /**
- * The Node clients this guard covers (#1791): every `clients/<name>` dir whose
- * `package.json` declares a `typecheck` script. Enumerated from **disk** — not a
- * hardcoded list (which wouldn't pick up a new client) and not the root
- * `validate` chain (a root-chain edit could then silently drop a client from the
- * required set, fail-open — the guard would go green while gating less). Disk is
- * fail-closed: a new client with a `typecheck` is auto-required, and none can be
- * silently dropped. `clients/web` has no `typecheck` script (it builds via `tsc
- * -b` over a project-reference graph that reaches its whole tree), so it's
- * excluded on its own — no explicit exclusion needed. The `rootRunsClientValidate`
- * wiring check below then verifies the root chain actually runs each of these.
+ * The Node clients this guard covers (#1791): every `clients/<name>` dir with a
+ * readable `package.json` is required to **either** declare a `typecheck` script
+ * (→ enrolled) **or** be in {@link EXEMPT} (→ skipped, with a reason). Anything
+ * else is a gate-integrity failure. Enumerated from **disk** so it's fail-closed
+ * on every axis: a new client is auto-required (a hardcoded list wouldn't pick
+ * it up), a client can't be dropped by a root-chain edit (the chain isn't the
+ * source), and — unlike keying on the presence of a `typecheck` script —
+ * renaming that script doesn't silently drop the client (it's no longer enrolled
+ * and isn't exempt, so it hard-fails). Returns `{ clients, problems }`.
  */
 function nodeClients() {
   const clientsDir = path.join(repoRoot, "clients");
-  const dirs = [];
-  for (const name of readdirSync(clientsDir)) {
+  const clients = [];
+  const problems = [];
+  for (const name of readdirSync(clientsDir).sort()) {
+    const dir = `clients/${name}`;
     let scripts;
     try {
       scripts = JSON.parse(
         readFileSync(path.join(clientsDir, name, "package.json"), "utf8"),
       ).scripts;
     } catch {
-      continue; // no readable package.json (not a client dir)
+      continue; // no readable package.json — not a client dir
     }
-    if (typeof scripts?.typecheck === "string") dirs.push(`clients/${name}`);
+    if (EXEMPT.has(dir)) continue;
+    if (typeof scripts?.typecheck === "string") clients.push(dir);
+    else
+      problems.push(
+        `${dir}: declares no \`typecheck\` script and isn't in the EXEMPT set — it gets no tsc pass. Add a \`typecheck\` (or exempt it with a reason).`,
+      );
   }
-  return dirs.sort();
+  return { clients, problems };
 }
 
-const CLIENTS = nodeClients();
+const { clients: CLIENTS, problems: enrollmentProblems } = nodeClients();
 
 // TypeScript source extensions this guard requires a tsc pass for. Matches its
 // sibling's TS set (`verify-format-coverage.mjs` — `.mts` is already the idiom
@@ -224,17 +240,18 @@ function trackedSourceFiles(clientDir) {
 // Boundary: this does NOT detect shell-level failure suppression on the pass
 // (`… || true`, `; exit 0`) — a pass that runs and checks but can't fail CI.
 // ---------------------------------------------------------------------------
-// Enumeration must not silently yield an empty set (a moved `clients/` dir or a
-// renamed `typecheck` script would otherwise make the whole guard a no-op).
-if (CLIENTS.length === 0) {
+// A client that declares no `typecheck` and isn't exempt is a gate-integrity
+// failure (seeded here so a renamed/removed `typecheck` is loud, not a silent
+// drop). If that leaves nothing enrolled AND surfaced no such problem, the
+// enumeration itself is broken (a moved `clients/` dir) — fail rather than no-op.
+const integrity = [...enrollmentProblems];
+const checkingProjects = new Map();
+if (CLIENTS.length === 0 && integrity.length === 0) {
   console.error(
-    "verify:typecheck-coverage — found no `clients/*` dir with a `typecheck` script. The guard would check nothing; fix the enumeration.",
+    "verify:typecheck-coverage — found no `clients/*` dir to check. The guard would check nothing; fix the enumeration.",
   );
   process.exit(1);
 }
-
-const integrity = [];
-const checkingProjects = new Map();
 
 // Vouch for the sibling guard — a guard can't detect being unrun itself, but the
 // two can each assert the other is still wired into `validate`, so dropping
