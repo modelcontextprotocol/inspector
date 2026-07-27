@@ -1,4 +1,5 @@
 import { describe, it, beforeAll, afterAll, expect } from "vitest";
+import { LoggingLevelSchema } from "@modelcontextprotocol/sdk/types.js";
 import { runCli } from "./helpers/cli-runner.js";
 import {
   expectCliSuccess,
@@ -18,6 +19,7 @@ import {
   createEchoTool,
   createTestServerInfo,
 } from "./helpers/test-fixtures.js";
+import { validLogLevels } from "../src/client/connection.js";
 
 describe("CLI Tests", () => {
   describe("Basic CLI Mode", () => {
@@ -363,6 +365,10 @@ describe("CLI Tests", () => {
   });
 
   describe("Logging Options", () => {
+    it("should use MCP spec logging levels", () => {
+      expect(validLogLevels).toEqual(LoggingLevelSchema.options);
+    });
+
     it("should set log level", async () => {
       const server = createTestServerHttp({
         serverInfo: createTestServerInfo(),
@@ -396,7 +402,24 @@ describe("CLI Tests", () => {
       }
     });
 
-    it("should reject invalid log level", async () => {
+    it.each(["trace", "warn"])(
+      "should reject non-spec log level %s before connecting",
+      async (logLevel) => {
+        const result = await runCli([
+          NO_SERVER_SENTINEL,
+          "--cli",
+          "--method",
+          "logging/setLevel",
+          "--log-level",
+          logLevel,
+        ]);
+
+        expectCliFailure(result);
+        expect(result.output).toContain(`Invalid log level: ${logLevel}`);
+      },
+    );
+
+    it("should reject unknown log level", async () => {
       const { command, args } = getTestMcpServerCommand();
       const result = await runCli([
         command,

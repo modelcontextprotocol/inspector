@@ -1,14 +1,9 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
+import { LoggingLevelSchema } from "@modelcontextprotocol/sdk/types.js";
 import { McpResponse } from "./types.js";
 
-export const validLogLevels = [
-  "trace",
-  "debug",
-  "info",
-  "warn",
-  "error",
-] as const;
+export const validLogLevels = LoggingLevelSchema.options;
 
 export type LogLevel = (typeof validLogLevels)[number];
 
@@ -47,7 +42,7 @@ export async function setLoggingLevel(
   level: LogLevel,
 ): Promise<McpResponse> {
   try {
-    const response = await client.setLoggingLevel(level as any);
+    const response = await client.setLoggingLevel(level);
     return response;
   } catch (error) {
     throw new Error(
