@@ -20,6 +20,7 @@ import type {
   GetPromptResult,
 } from "@modelcontextprotocol/client";
 import { InspectorClient } from "@inspector/core/mcp/index.js";
+import { cleanRoots } from "@inspector/core/mcp/serverList.js";
 import { eraToVersionNegotiation } from "@inspector/core/mcp/types.js";
 import {
   ManagedToolsState,
@@ -304,6 +305,11 @@ function App({
               defaultMetadata,
             }),
           ...(savedSettings && { serverSettings: savedSettings }),
+          // Advertise the roots configured for this server in mcp.json, as web
+          // and the CLI do. The TUI has no roots editor, but a user who set
+          // roots in the web UI expects them to apply to the same server here
+          // (#1797).
+          roots: cleanRoots(savedSettings?.roots ?? []),
           // Per-server protocol era (SEP §7.8) from mcp.json → SDK
           // versionNegotiation; absent era defaults to legacy (#1626).
           ...(savedSettings?.protocolEra && {

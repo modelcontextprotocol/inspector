@@ -360,6 +360,51 @@ describe("CLI Tests", () => {
         await server.stop();
       }
     });
+
+    it("answers with the roots configured for the server in the config file", async () => {
+      // Answering `roots/list` is only half the fix: the roots a user
+      // configured in mcp.json have to be the answer. They ride in on
+      // `serverSettings.roots` (lifted by `mcpConfigToServerEntries`), which is
+      // what web passes too — a CLI that seeded `[]` would let a server fall
+      // back to its own defaults, the outcome #1797 is about.
+      const server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        tools: [createListRootsTool()],
+      });
+      let configPath: string | undefined;
+      try {
+        await server.start();
+        configPath = createTestConfig({
+          mcpServers: {
+            web: {
+              type: "streamable-http",
+              url: server.url,
+              roots: [{ uri: "file:///configured", name: "Configured" }],
+            } as unknown as MCPServerConfig,
+          },
+        });
+
+        const result = await runCli([
+          "--config",
+          configPath,
+          "--server",
+          "web",
+          "--cli",
+          "--method",
+          "tools/call",
+          "--tool-name",
+          "list_roots",
+        ]);
+
+        expectCliSuccess(result);
+        const json = expectValidJson(result);
+        expect(json.isError).toBeFalsy();
+        expect(JSON.stringify(json)).toContain("file:///configured");
+      } finally {
+        await server.stop();
+        if (configPath) deleteConfigFile(configPath);
+      }
+    });
   });
 
   describe("Config-file settings lifting (#1482)", () => {

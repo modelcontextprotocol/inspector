@@ -15,6 +15,7 @@ import { listServerEntries, showServerEntry } from "./handlers/servers-list.js";
 import { writeFormattedResult } from "./handlers/format-output.js";
 import { clearStoredAuthForRelogin } from "./clear-stored-auth-for-relogin.js";
 import { InspectorClient } from "@inspector/core/mcp/index.js";
+import { cleanRoots } from "@inspector/core/mcp/serverList.js";
 import {
   createTransportNode,
   loadServerEntries,
@@ -148,11 +149,13 @@ async function callMethod(
     progress: false,
     sample: false,
     elicit: false,
-    // Advertise roots (empty until `--method roots/set` fills them in). The
-    // capability is negotiated at `initialize` and the `roots/list` handler is
-    // registered from this option, so omitting it left `roots/set` announcing
-    // `roots/list_changed` to a server that then got -32601 back (#1797).
-    roots: [],
+    // Advertise the roots configured for this server in mcp.json, exactly as
+    // web does (`App.tsx`) so both answer `roots/list` with the same content.
+    // Passing the option (even empty) is what negotiates `capabilities.roots`
+    // at `initialize` and registers the `roots/list` handler — omitting it left
+    // `--method roots/set` announcing `roots/list_changed` to a server that
+    // then got -32601 back (#1797).
+    roots: cleanRoots(serverSettings?.roots ?? []),
     serverSettings,
     // Per-server protocol era (SEP §7.8) from mcp.json → SDK versionNegotiation.
     // Absent era defaults to legacy in the InspectorClient constructor (#1626).

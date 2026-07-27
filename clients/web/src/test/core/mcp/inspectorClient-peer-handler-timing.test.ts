@@ -42,6 +42,9 @@ class InitializedRacingTransport implements Transport {
   /** The client's replies to the injected requests, keyed by request id. */
   readonly replies = new Map<number, JSONRPCMessage>();
 
+  /** Resolvers for {@link injectRequest}, keyed by the id awaiting a reply. */
+  private readonly waiters = new Map<number, (m: JSONRPCMessage) => void>();
+
   /**
    * Whether to fire the server→client burst at `initialized`. Off for the
    * `setRoots()` test, which injects by hand once the client is connected.
@@ -52,18 +55,21 @@ class InitializedRacingTransport implements Transport {
     this.burstOnInitialized = burstOnInitialized;
   }
 
-  /** Resolvers for {@link injectRequest}, keyed by the id awaiting a reply. */
-  private readonly waiters = new Map<number, (m: JSONRPCMessage) => void>();
-
   /**
    * Deliver a server→client request outside the `initialized` burst, resolving
    * with the client's reply. The handler is async, so the reply lands some
-   * microtasks later — awaiting it here beats guessing how many.
+   * microtasks later — awaiting it here beats guessing how many. Rejects rather
+   * than hanging to the vitest timeout if the client never answers, so a
+   * regression fails where it happened.
    */
   injectRequest(method: string, id: number): Promise<JSONRPCMessage> {
-    const reply = new Promise<JSONRPCMessage>((resolve) =>
-      this.waiters.set(id, resolve),
-    );
+    const reply = new Promise<JSONRPCMessage>((resolve, reject) => {
+      this.waiters.set(id, resolve);
+      setTimeout(() => {
+        this.waiters.delete(id);
+        reject(new Error(`No reply to injected ${method} (id ${id})`));
+      }, 1000).unref?.();
+    });
     this.deliver({ jsonrpc: "2.0", id, method });
     return reply;
   }
@@ -110,6 +116,7 @@ class InitializedRacingTransport implements Transport {
     ) {
       this.replies.set(message.id, message);
       this.waiters.get(message.id)?.(message);
+      this.waiters.delete(message.id);
     }
   }
 
