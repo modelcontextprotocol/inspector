@@ -199,8 +199,12 @@ export const testScriptNarrowingFlags = (scripts) =>
  * name pattern only moves that boundary again. `node --test` decides what a test
  * is by whether it registers tests, so read that instead of guessing.
  */
+// The extension half, alone: `main()` needs it BEFORE reading a file, and the
+// predicate needs it as part of its contract. One definition, two positions.
+export const isJsFile = (file) => /\.(c|m)?js$/.test(file);
+
 export const isScriptsTestFile = (file, source) =>
-  /\.(c|m)?js$/.test(file) &&
+  isJsFile(file) &&
   // Node's actual criterion is REGISTERING tests, not mentioning the module: a
   // shared helper importing `node:test`'s `mock` registers none, and telling it
   // to rename itself to `*.test.mjs` would only make node run an empty file.
@@ -722,7 +726,7 @@ export function main() {
       // otherwise abort phase 1 with a raw ENOENT stack, masking every real
       // finding — the round-6 precedent, where a failed `tsc` echoes its
       // diagnostic instead of dying.
-      .filter((f) => /\.(c|m)?js$/.test(f))
+      .filter(isJsFile)
       .filter((f) => {
         let src;
         try {
