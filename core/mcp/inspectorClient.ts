@@ -1366,14 +1366,20 @@ export class InspectorClient extends InspectorClientEventTarget {
   /**
    * Settle and drop the queued peer requests (sampling / elicitation).
    *
-   * Each elicitation is cancelled before being dropped, so an error-path
-   * `awaitUrlElicitation` — which blocks `callTool` — doesn't hang forever when
-   * the queue goes away. Callers dispatch the change events themselves:
+   * Every entry is settled before being dropped rather than discarded: an
+   * elicitation so an error-path `awaitUrlElicitation` — which blocks
+   * `callTool` — doesn't hang forever, and a sample so the *server* gets a
+   * response frame for the request we accepted (the transport can outlive a
+   * failed attempt; see the `connect()` catch). Callers dispatch the change
+   * events themselves:
    * `disconnect()` batches them with its other teardown dispatches, and
    * {@link clearAndAnnouncePendingPeerRequests} emits them immediately for the
    * paths that end a connection without going through `disconnect()`.
    */
   private clearPendingPeerRequests(): void {
+    for (const sample of this.pendingSamples) {
+      sample.cancel();
+    }
     this.pendingSamples = [];
     for (const elicitation of this.pendingElicitations) {
       elicitation.cancel();
@@ -1383,8 +1389,11 @@ export class InspectorClient extends InspectorClientEventTarget {
 
   /**
    * {@link clearPendingPeerRequests} plus the change events, for the paths that
-   * end a connection without going through `disconnect()` — a failed
-   * `connect()` and a mid-session transport close.
+   * drop a queue without going through `disconnect()` — a failed `connect()`
+   * and a mid-session transport close. (The connect-failure case doesn't always
+   * end the connection: when an auth provider holds the transport open, the
+   * caller re-authenticates and retries over it, and what's dropped is the
+   * queue left by the attempt that failed.)
    *
    * The events are the load-bearing half: `usePendingClientRequests` tracks its
    * own state off them, so clearing the arrays without dispatching leaves the
@@ -1714,8 +1723,13 @@ export class InspectorClient extends InspectorClientEventTarget {
       // server can queue a sampling/elicitation request during it — and this is
       // where that connect attempt dies. Drop the queue: otherwise the UI keeps
       // a live pending-request modal for a connection that never came up, and
-      // answering it would route to a torn-down transport. `disconnect()` does
-      // the same, but `connect()` only reaches it on the connect-timeout path.
+      // answering it would route to a transport that is either torn down or —
+      // when an auth provider holds it open, so the caller can re-authenticate
+      // and retry over it — carrying a queue from an attempt that already
+      // failed. Note the retention is gated on `transportHasAuthProvider`
+      // alone, independently of `isConnectAuthRecoveryError` above, which gates
+      // only the status hold. `disconnect()` does the same clearing, but
+      // `connect()` only reaches it on the connect-timeout path.
       this.clearAndAnnouncePendingPeerRequests();
       // Deliberately do NOT dispatch the `error` event here: this is the
       // awaited `connect()` path, so re-throwing hands the reason straight to

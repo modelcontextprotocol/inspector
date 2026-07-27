@@ -87,6 +87,34 @@ export class SamplingCreateMessage {
   }
 
   /**
+   * Settle a still-pending sample as cancelled, without removing it from the
+   * queue. Called from `InspectorClient`'s `clearPendingPeerRequests()`, which
+   * serves all three teardown paths — an explicit `disconnect()`, a failed
+   * `connect()`, and a mid-session transport close.
+   *
+   * Unlike an elicitation there is no internal awaiter to unblock, but the
+   * *server* is one: we accepted its `sampling/createMessage`, so dropping the
+   * request without settling means no response frame is ever written and it
+   * waits forever. That is reachable when the transport outlives the failed
+   * attempt — `connect()` keeps it when an auth provider holds it open — so
+   * settle rather than discard. Rejecting is the right settle: it is what the
+   * UI's decline path sends, and the SDK turns it into a JSON-RPC error
+   * response. No-op once already resolved.
+   *
+   * Deliberately does not call `onRemove`, for the same reason as
+   * `ElicitationCreateMessage.cancel()`: the caller iterates the queue and
+   * clears it itself, so removing here would splice mid-iteration — skipping
+   * every other entry and leaving those requests unanswered.
+   */
+  cancel(): void {
+    if (this.rejectPromise) {
+      this.rejectPromise(new Error("Connection torn down"));
+    }
+    this.resolvePromise = undefined;
+    this.rejectPromise = undefined;
+  }
+
+  /**
    * Remove this pending sample from the list
    */
   remove(): void {

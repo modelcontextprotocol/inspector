@@ -292,6 +292,50 @@ function waitForNewPendingElicitation(client: InspectorClient): Promise<void> {
   });
 }
 
+/** Connects cleanly, then samples on demand and records the client's reply. */
+class SampleAfterConnectTransport implements Transport {
+  onmessage?: (message: JSONRPCMessage) => void;
+  onclose?: () => void;
+  onerror?: (error: Error) => void;
+
+  static readonly SAMPLE_ID = 9401;
+
+  async start(): Promise<void> {}
+  async close(): Promise<void> {}
+
+  sample(): void {
+    this.onmessage?.({
+      jsonrpc: "2.0",
+      id: SampleAfterConnectTransport.SAMPLE_ID,
+      method: "sampling/createMessage",
+      params: {
+        messages: [{ role: "user", content: { type: "text", text: "hi" } }],
+        maxTokens: 10,
+      },
+    });
+  }
+
+  async send(message: JSONRPCMessage): Promise<void> {
+    if (
+      "method" in message &&
+      message.method === "initialize" &&
+      "id" in message
+    ) {
+      const params = message.params as { protocolVersion: string };
+      this.onmessage?.({
+        jsonrpc: "2.0",
+        id: message.id,
+        result: {
+          protocolVersion: params.protocolVersion,
+          capabilities: {},
+          serverInfo: { name: "sampling-server", version: "1.0.0" },
+        },
+      });
+      return;
+    }
+  }
+}
+
 describe("InspectorClient peer-handler timing (#1797)", () => {
   it("serves server→client traffic that arrives with notifications/initialized", async () => {
     const roots = [{ uri: "file:///work", name: "Work" }];
@@ -549,6 +593,46 @@ describe("InspectorClient peer-handler timing (#1797)", () => {
     );
     expect(noRequests.getClientCapabilities().tasks).toBeDefined();
     expect(noRequests.getClientCapabilities().tasks?.requests).toBeUndefined();
+  });
+
+  it("answers a queued sampling request when the connection is torn down", async () => {
+    // We accepted the server's `sampling/createMessage`, so dropping it without
+    // settling means no response frame is ever written and the server waits
+    // forever. Reachable because the transport can outlive a failed attempt —
+    // `connect()` keeps it when an auth provider holds it open.
+    const transport = new SampleAfterConnectTransport();
+    const client = new InspectorClient(
+      { type: "stdio", command: "noop", args: [] },
+      { environment: { transport: () => ({ transport }) } },
+    );
+
+    await client.connect();
+    const queued = new Promise<void>((resolve) =>
+      client.addEventListener("newPendingSample", () => resolve(), {
+        once: true,
+      }),
+    );
+    transport.sample();
+    await queued;
+    const [pending] = client.getPendingSamples();
+    expect(pending).toBeDefined();
+
+    await client.disconnect();
+
+    expect(client.getPendingSamples()).toEqual([]);
+    // Settled, not merely discarded: `respond` refuses a request that already
+    // has an answer, so this throwing is the proof the promise was settled.
+    // (Whether the response frame reaches the wire depends on whether the
+    // transport outlived the teardown — on this path `disconnect()` closed it
+    // first, which is why the assertion is on the settle rather than on a
+    // recorded reply.)
+    await expect(
+      pending!.respond({
+        role: "assistant",
+        content: { type: "text", text: "late" },
+        model: "test",
+      }),
+    ).rejects.toThrow(/already resolved or rejected/);
   });
 
   it("can reconnect after setRoots() on a client built without roots", async () => {
