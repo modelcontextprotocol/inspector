@@ -90,7 +90,15 @@ const child = spawn(
   {
     cwd: repoRoot,
     // Redirect HOME so the TUI's storage never touches the real ~/.mcp-inspector.
-    env: { ...process.env, HOME: work, USERPROFILE: work },
+    // Pin MCP_OAUTH_CALLBACK_URL="" (empty reads as unset) so an ambient
+    // non-loopback value can't crash the TUI before render via the loopback
+    // callback guard — same class smoke-cli.mjs's SMOKE_BASE_ENV neutralizes.
+    env: {
+      ...process.env,
+      MCP_OAUTH_CALLBACK_URL: "",
+      HOME: work,
+      USERPROFILE: work,
+    },
     stdio: ["ignore", "pipe", "pipe"],
   },
 );
