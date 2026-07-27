@@ -53,6 +53,12 @@ import { InspectorClient } from "@inspector/core/mcp/inspectorClient.js";
  * where the transport is retained and no `onclose` fires. The crash and
  * failure paths emit the change events immediately; `disconnect()` batches them
  * with its other teardown dispatches.
+ *
+ * One case covers the other side of the registration gate: `capabilities.roots`
+ * is fixed at construction, so the gate must key off what was advertised rather
+ * than the mutable `this.roots` — otherwise a later `setRoots()` makes every
+ * subsequent `connect()` try to register a handler the SDK refuses, and the
+ * client can never reconnect.
  */
 class InitializedRacingTransport implements Transport {
   onmessage?: (message: JSONRPCMessage) => void;
@@ -438,33 +444,6 @@ describe("InspectorClient peer-handler timing (#1797)", () => {
     expect(elicitationCounts.at(-1)).toBe(0);
   });
 
-  it("can reconnect after setRoots() on a client built without roots", async () => {
-    // `setRoots()` makes `this.roots` defined on a client that never advertised
-    // the capability. Gating the `roots/list` registration on that would throw
-    // "Client does not support roots capability" from `setRequestHandler` on
-    // every later connect() — before the handshake, so the client could never
-    // reconnect. The gate reads what was advertised at construction instead.
-    const client = new InspectorClient(
-      { type: "stdio", command: "noop", args: [] },
-      {
-        environment: {
-          transport: () => ({ transport: new ElicitAfterConnectTransport() }),
-        },
-      },
-    );
-
-    await client.connect();
-    await client.setRoots([{ uri: "file:///late" }]);
-    await client.disconnect();
-
-    await expect(client.connect()).resolves.toBeUndefined();
-    // Stored and readable, but no server can ask for them — the capability was
-    // never advertised, so no handler is registered.
-    expect(client.getRoots()).toEqual([{ uri: "file:///late" }]);
-
-    await client.disconnect();
-  });
-
   it("has already cleared the queue by the time `disconnect` fires", async () => {
     // `disconnect()` clears above its status block so a consumer handling the
     // event sees an empty queue, matching the crash path. That ordering is the
@@ -501,5 +480,32 @@ describe("InspectorClient peer-handler timing (#1797)", () => {
 
     expect(queueDuringDisconnectEvent).toBe(0);
     expect(elicitationCounts.at(-1)).toBe(0);
+  });
+
+  it("can reconnect after setRoots() on a client built without roots", async () => {
+    // `setRoots()` makes `this.roots` defined on a client that never advertised
+    // the capability. Gating the `roots/list` registration on that would throw
+    // "Client does not support roots capability" from `setRequestHandler` on
+    // every later connect() — before the handshake, so the client could never
+    // reconnect. The gate reads what was advertised at construction instead.
+    const client = new InspectorClient(
+      { type: "stdio", command: "noop", args: [] },
+      {
+        environment: {
+          transport: () => ({ transport: new ElicitAfterConnectTransport() }),
+        },
+      },
+    );
+
+    await client.connect();
+    await client.setRoots([{ uri: "file:///late" }]);
+    await client.disconnect();
+
+    await expect(client.connect()).resolves.toBeUndefined();
+    // Stored and readable, but no server can ask for them — the capability was
+    // never advertised, so no handler is registered.
+    expect(client.getRoots()).toEqual([{ uri: "file:///late" }]);
+
+    await client.disconnect();
   });
 });

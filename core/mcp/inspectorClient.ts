@@ -365,10 +365,11 @@ export class InspectorClient extends InspectorClientEventTarget {
   // Roots (undefined means roots capability not enabled, empty array means enabled but no roots)
   private roots: Root[] | undefined;
   /**
-   * Whether `capabilities.roots` was advertised at `initialize` — i.e. whether
-   * the constructor was given a `roots` option. Fixed for the client's lifetime,
-   * because the capability is negotiated at construction and the SDK refuses
-   * `registerCapabilities` after connect.
+   * Whether `capabilities.roots` was advertised at `initialize`, read off the
+   * capability object actually sent rather than re-derived from the constructor
+   * option. Fixed for the client's lifetime, because the capability is
+   * negotiated at construction and the SDK refuses `registerCapabilities` after
+   * connect.
    *
    * The `roots/list` registration gates on *this*, not on `this.roots`, which
    * `setRoots()` can make defined later: the SDK throws "Client does not support
@@ -515,7 +516,6 @@ export class InspectorClient extends InspectorClientEventTarget {
     // advertisement below gates on.
     this.roots =
       options.roots !== undefined ? cleanRoots(options.roots) : undefined;
-    this.rootsCapabilityAdvertised = options.roots !== undefined;
     // Initialize listChangedNotifications config (default: all enabled)
     this.listChangedNotifications = {
       tools: options.listChangedNotifications?.tools ?? true,
@@ -640,6 +640,11 @@ export class InspectorClient extends InspectorClientEventTarget {
     }
     clientOptions.capabilities = capabilities;
     this.clientCapabilities = capabilities;
+    // Read off the built capability object rather than re-deriving from
+    // `options.roots`: the gate and the advertisement must agree, and two
+    // independent derivations of the same fact can drift (a `readonly` field is
+    // assignable anywhere in the constructor).
+    this.rootsCapabilityAdvertised = capabilities.roots !== undefined;
 
     this.appRendererClientProxy = null;
     this.clientInfo = options.clientIdentity ?? {
@@ -1233,10 +1238,10 @@ export class InspectorClient extends InspectorClientEventTarget {
       }
     }
 
-    // Gated on what was advertised at construction, and it has to be: the SDK asserts the
-    // matching client capability inside `setRequestHandler`, so registering
-    // this on a client built without `roots` throws "Client does not support
-    // roots capability". Since `capabilities.roots` is negotiated at
+    // Gated on what was advertised at construction, and it has to be: the SDK
+    // asserts the matching client capability inside `setRequestHandler`, so
+    // registering this on a client built without `roots` throws "Client does
+    // not support roots capability". Since `capabilities.roots` is negotiated at
     // `initialize` (set in the constructor) and `registerCapabilities` refuses
     // to run after connect, a client that omits the option can never serve
     // `roots/list` — which is why every client that may call `setRoots()` later
