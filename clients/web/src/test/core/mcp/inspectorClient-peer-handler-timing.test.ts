@@ -612,7 +612,13 @@ describe("InspectorClient peer-handler timing (#1797)", () => {
     const transport = new ElicitAfterConnectTransport();
     const client = new InspectorClient(
       { type: "stdio", command: "noop", args: [] },
-      { environment: { transport: () => ({ transport }) } },
+      {
+        environment: { transport: () => ({ transport }) },
+        // Short, so a regression run doesn't leave the raw-wire request's own
+        // timer armed past the failing test — and so its message ("timed out
+        // after 50 ms") beats a generic race message at describing the failure.
+        timeout: 50,
+      },
     );
     await client.connect();
 
@@ -639,11 +645,9 @@ describe("InspectorClient peer-handler timing (#1797)", () => {
 
     transport.onclose?.();
 
-    // If the teardown rejection is missing, `settled` waits out the request's
-    // own 30s timer instead — and would then reject with nobody awaiting it, so
-    // mark it handled before racing. (The race itself is why the failure names
-    // this expectation rather than the test.)
-    void settled.catch(() => {});
+    // Raced so a regression names this expectation rather than hanging to a
+    // bare vitest timeout. The client's own request timeout is set short above,
+    // so nothing is left armed past a failing run.
     await withTimeout(settled, "raw-wire request not settled by teardown");
   });
 
