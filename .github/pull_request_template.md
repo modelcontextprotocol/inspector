@@ -10,7 +10,8 @@
   change from your intent.
 
   If you've found a bug or want a feature:
-    → Open an issue on the appropriate version board instead.
+    → Open an issue instead, labeled for the version you're targeting
+      (`v1` for `main`, `v2` for `v2/main`).
 
   If you've already built the change locally:
     → Open an issue and share the PROMPT(S) you used to generate it, not a

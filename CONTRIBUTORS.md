@@ -40,16 +40,16 @@ see [What makes a good issue or prompt submission](#what-makes-a-good-issue-or-p
 below. That's the whole process: you describe the intent, we handle the design
 and implementation.
 
-### Which version, board, and label?
+### Which version and label?
 
-The Inspector is maintained across two versions, each with its own base branch,
-project board, and version label. File your issue against the version your
-report or request targets:
+The Inspector is maintained across two versions, each with its own base branch
+and version label. File your issue against the version your report or request
+targets:
 
-| Version | Base branch | Project board                                                        | Label |
-| ------- | ----------- | -------------------------------------------------------------------- | ----- |
-| v1      | `main`      | [v1 board](https://github.com/orgs/modelcontextprotocol/projects/11) | `v1`  |
-| v2      | `v2/main`   | [v2 board](https://github.com/orgs/modelcontextprotocol/projects/28) | `v2`  |
+| Version | Base branch | Label |
+| ------- | ----------- | ----- |
+| v1      | `main`      | `v1`  |
+| v2      | `v2/main`   | `v2`  |
 
 - **v1** (`main`) is the legacy Inspector — it takes bug fixes and minor
   improvements only.
@@ -57,8 +57,8 @@ report or request targets:
   v2.
 
 **Label by version.** Every issue (and the PRs maintainers open for it) must
-carry the label matching the target board / branch — `v1` for `main` and `v2`
-for `v2/main`. This mirrors the "Label by version" convention documented in
+carry the label matching the target branch — `v1` for `main` and `v2` for
+`v2/main`. This mirrors the "Label by version" convention documented in
 [`AGENTS.md`](./AGENTS.md).
 
 ## If you've already fixed it locally
