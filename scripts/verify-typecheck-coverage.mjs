@@ -173,6 +173,8 @@ function trackedSourceFiles(clientDir) {
 // so a mis-wired / inert gate isn't buried under a flood of consequent
 // "in no tsconfig project" lines (which would list every file that gate covered).
 // Also records, per client, the projects that genuinely type-check, for phase 2.
+// Boundary: this does NOT detect shell-level failure suppression on the pass
+// (`… || true`, `; exit 0`) — a pass that runs and checks but can't fail CI.
 // ---------------------------------------------------------------------------
 const integrity = [];
 const checkingProjects = new Map();
@@ -220,7 +222,10 @@ for (const clientDir of CLIENTS) {
     }
     return true;
   });
-  if (checking.length === 0 && neutered.length === 0)
+  // Fire only when nothing was harvested at all — not when projects WERE named
+  // but every one is neutered (command flag) or config-disabled (`projects` was
+  // non-empty in that case; those get their own lines above).
+  if (projects.length === 0 && neutered.length === 0)
     integrity.push(
       `${clientDir}: its \`typecheck\` names no \`-p <project>\` — nothing is typechecked.`,
     );
@@ -260,10 +265,10 @@ if (failures.length > 0) {
   );
   for (const f of failures) console.error("  " + f);
   console.error(
-    "\nAdd the file to a client's `tsconfig.json` / `tsconfig.test.json` `include`",
+    "\nFor a co-located test, move it to `__tests__/` (never add it to the src `include` — the build would emit it).",
   );
   console.error(
-    "(a top-level config file that the build config's `rootDir` rejects goes in the test project). See AGENTS.md.",
+    "Otherwise add the file to a client's `tsconfig.json` / `tsconfig.test.json` `include` (a top-level config the build config's `rootDir` rejects goes in the test project). See AGENTS.md.",
   );
   process.exit(1);
 }

@@ -10,9 +10,9 @@
   },
   "include": ["src/**/*"],
   // Exclude tests so `build` (an emitting `tsc`) never compiles a co-located
-  // `src/**/*.test.ts` into `build/` — which ships in the published tarball. It
+  // `src/**/*.test.*` into `build/` — which ships in the published tarball. It
   // also means such a test lands in no tsconfig project, so verify:typecheck-
   // coverage catches it, matching cli/tui. (Tests live in `__tests__/`, checked
   // via tsconfig.test.json.)
-  "exclude": ["node_modules", "build", "**/*.test.ts", "**/*.test.tsx"]
+  "exclude": ["node_modules", "build", "**/*.test.*"]
 }
