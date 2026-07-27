@@ -96,19 +96,69 @@ export const matchesTestGlob = (file, glob) => path.matchesGlob(file, glob);
  * `test:scripts` ("npm run test:scripts:lib && npm run test:scripts:guard", the
  * way other scripts here split) genuinely runs every test, and reading the one
  * string would instead harvest `npm`/`run`/`test:scripts:lib` and report each
- * test file as unmatched with unfollowable advice. Same fix as the `typecheck`
- * harvest, and it picks up a `pretest:scripts` hook for free.
+ * test file as unmatched with unfollowable advice. Reachability also picks up a
+ * `pretest:scripts` hook for free.
  *
- * The filter is deliberately loose (any non-flag token that isn't `node`): a
- * surplus token can only ADD a pattern that matches nothing, never suppress a
- * real miss, since the call site requires SOME glob to match each file.
+ * Scoped per COMMAND SEGMENT to the ones that actually invoke `node --test`,
+ * exactly as `typecheckProjects` gates on `tokens.some(isTsc)` before harvesting
+ * `-p` args. Without that scoping a glob belonging to a *neighbouring* command
+ * is attributed to the test runner — and since `.some()` only needs ONE glob to
+ * match, a broader one silently suppresses a real miss rather than adding an
+ * inert pattern. A `pretest:scripts` of `prettier --check "scripts/**\/*.mjs"`
+ * is enough to do it: that glob matches a renamed `*.spec.mjs`, so the rename
+ * `node --test` skips would pass the check. Reachability widened what's read;
+ * this keeps what's *harvested* to the runner's own arguments.
  */
 export const testScriptGlobs = (scripts) =>
   [...reachableScripts(scripts, "test:scripts")]
     .map((n) => scripts?.[n])
     .filter((c) => typeof c === "string")
-    .flatMap((c) => tokenize(c))
+    .flatMap((c) => c.split(/&&|\|\||;/))
+    .map((segment) => tokenize(segment))
+    .filter((tokens) => tokens.includes("--test")) // only `node --test` names test files
+    .flat()
     .filter((t) => !t.startsWith("-") && t !== "node");
+
+/**
+ * Gate-integrity problems with `test:scripts` — this guard's OWN parser tests —
+ * given the root `scripts` and the tracked `scripts/**` test files. Vouched for
+ * the same way the guard vouches for a `tsc` pass, on three axes: it must be run
+ * from `validate`, its file set must be non-empty, and every one of those files
+ * must be matched by a glob the runner is actually given — because `node --test`
+ * SKIPS a file its glob misses and still exits 0, so a rename to `*.spec.mjs`
+ * would shrink the suite with a green run.
+ *
+ * Pure, and separate from `main()`, so each branch below is reachable from the
+ * test suite: every previous round put the newest branch inside `main()`, where
+ * mutation testing found it untested three rounds running.
+ */
+export function testScriptProblems(scripts, testFiles) {
+  if (!rootReachesScript(scripts, "test:scripts"))
+    return [
+      "the root `validate` no longer runs `test:scripts` — the guard's own parser tests run nowhere; restore it.",
+    ];
+  const problems = [];
+  if (testFiles.length === 0)
+    problems.push(
+      "no `scripts/**/*.test.*` files are tracked — the guard's parser tests are gone.",
+    );
+  const globs = testScriptGlobs(scripts);
+  if (globs.length === 0) {
+    // A bare `node --test` (auto-discovery from the cwd) names no glob, and
+    // `.some()` over an empty list would blame every file individually with
+    // advice none of them can follow. Say the actual problem once instead.
+    problems.push(
+      '`test:scripts` names no path/glob — this guard can\'t tell which files `node --test` runs. Give it an explicit glob (e.g. `node --test "scripts/**/*.test.mjs"`).',
+    );
+    return problems;
+  }
+  for (const f of testFiles)
+    if (!globs.some((g) => matchesTestGlob(f, g)))
+      problems.push(
+        `${f}: not matched by the \`test:scripts\` glob — \`node --test\` won't run it (a rename to a form it skips). Rename it back to \`*.test.mjs\`.`,
+      );
+  return problems;
+}
 
 /**
  * The `references` paths declared in the tsconfig at repo-relative `tsconfigRel`
@@ -543,42 +593,17 @@ export function main() {
     );
   }
 
-  // Vouch for `test:scripts` (this guard's OWN parser tests) the same way the
-  // guard vouches for a `tsc` pass: it must be run from `validate`, and its file
-  // set must be non-empty and fully covered by the command's glob — so a rename
-  // to `*.spec.mjs` / `*.test.mts` (which `node --test` silently skips, still
-  // exiting 0) can't quietly shrink the suite to nothing.
-  if (!rootReachesScript(rootPkg.scripts, "test:scripts")) {
-    integrity.push(
-      "the root `validate` no longer runs `test:scripts` — the guard's own parser tests run nowhere; restore it.",
-    );
-  } else {
-    const testGlobs = testScriptGlobs(rootPkg.scripts);
-    const testFiles = execFileSync("git", ["ls-files", "scripts"], {
-      cwd: repoRoot,
-      encoding: "utf8",
-    })
-      .split("\n")
-      .filter((f) => /\.(test|spec)\.[^/]+$/.test(f));
-    if (testFiles.length === 0)
-      integrity.push(
-        "no `scripts/**/*.test.*` files are tracked — the guard's parser tests are gone.",
-      );
-    if (testGlobs.length === 0) {
-      // A bare `node --test` (auto-discovery from the cwd) harvests nothing, and
-      // `.some()` over an empty list would blame every file individually with
-      // advice none of them can follow. Say the actual problem once instead.
-      integrity.push(
-        '`test:scripts` names no path/glob — this guard can\'t tell which files `node --test` runs. Give it an explicit glob (e.g. `node --test "scripts/**/*.test.mjs"`).',
-      );
-    } else {
-      for (const f of testFiles)
-        if (!testGlobs.some((g) => matchesTestGlob(f, g)))
-          integrity.push(
-            `${f}: not matched by the \`test:scripts\` glob — \`node --test\` won't run it (a rename to a form it skips). Rename it back to \`*.test.mjs\`.`,
-          );
-    }
-  }
+  integrity.push(
+    ...testScriptProblems(
+      rootPkg.scripts,
+      execFileSync("git", ["ls-files", "scripts"], {
+        cwd: repoRoot,
+        encoding: "utf8",
+      })
+        .split("\n")
+        .filter((f) => /\.(test|spec)\.[^/]+$/.test(f)),
+    ),
+  );
 
   for (const clientDir of CLIENTS) {
     checkingProjects.set(clientDir, []);

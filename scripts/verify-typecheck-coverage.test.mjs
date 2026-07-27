@@ -14,6 +14,7 @@ import {
   projectConfigFile,
   refToProject,
   testScriptGlobs,
+  testScriptProblems,
   tscBuildStatus,
   typecheckProjects,
 } from "./verify-typecheck-coverage.mjs";
@@ -165,6 +166,81 @@ test("testScriptGlobs: harvests across delegation (r31 finding 1 / r32 finding 2
       other: "node --test scripts/z.test.mjs",
     }),
     ["scripts/a.test.mjs"],
+  );
+});
+
+test("testScriptGlobs: only `node --test` segments contribute (r33 finding 1)", () => {
+  // A reachable NON-runner command's glob must not be attributed to the runner:
+  // `scripts/**/*.mjs` matches a renamed `*.spec.mjs`, so harvesting it would
+  // make the probe-B rename pass while `node --test` silently ran 6 fewer tests.
+  assert.deepEqual(
+    testScriptGlobs({
+      "test:scripts": 'node --test "scripts/**/*.test.mjs"',
+      "pretest:scripts": 'prettier --check "scripts/**/*.mjs"',
+    }),
+    ["scripts/**/*.test.mjs"],
+  );
+  // Same within one command: only the `--test` segment's args are harvested.
+  assert.deepEqual(
+    testScriptGlobs({
+      "test:scripts":
+        'prettier --check "scripts/**/*.mjs" && node --test "scripts/**/*.test.mjs"',
+    }),
+    ["scripts/**/*.test.mjs"],
+  );
+});
+
+test("testScriptGlobs: empty when no glob is named (r33 finding 2)", () => {
+  // The condition the "`test:scripts` names no path/glob" branch keys off — a
+  // bare `node --test` auto-discovers, so the guard can't tell what it runs.
+  assert.deepEqual(testScriptGlobs({ "test:scripts": "node --test" }), []);
+  assert.deepEqual(testScriptGlobs({}), []);
+});
+
+test("testScriptProblems: all three axes (r33 finding 2)", () => {
+  const WIRED = {
+    validate: "npm run test:scripts",
+    "test:scripts": 'node --test "scripts/**/*.test.mjs"',
+  };
+  const only = (p) => (assert.equal(p.length, 1, p.join("\n")), p[0]);
+
+  // Green: wired, non-empty, every file glob-matched.
+  assert.deepEqual(testScriptProblems(WIRED, ["scripts/a.test.mjs"]), []);
+
+  // Axis 1 — not reachable from `validate`. Reported alone: with the tests
+  // unrun, the other two axes are moot.
+  assert.match(
+    only(
+      testScriptProblems(
+        { validate: "echo hi", "test:scripts": WIRED["test:scripts"] },
+        ["scripts/a.test.mjs"],
+      ),
+    ),
+    /no longer runs `test:scripts`/,
+  );
+
+  // Axis 2 — no tracked test files at all.
+  assert.match(
+    only(testScriptProblems(WIRED, [])),
+    /no `scripts\/\*\*\/\*\.test\.\*` files are tracked/,
+  );
+
+  // Axis 3 — a file `node --test` would skip (the probe-B rename).
+  assert.match(
+    only(testScriptProblems(WIRED, ["scripts/a.spec.mjs"])),
+    /^scripts\/a\.spec\.mjs: not matched by the `test:scripts` glob/,
+  );
+
+  // The empty-harvest branch: ONE message naming the real problem, not one
+  // unfollowable blame per file. (`if (false)`-mutating it yields 2 messages.)
+  assert.match(
+    only(
+      testScriptProblems(
+        { validate: "npm run test:scripts", "test:scripts": "node --test" },
+        ["scripts/a.test.mjs", "scripts/b.test.mjs"],
+      ),
+    ),
+    /names no path\/glob/,
   );
 });
 
