@@ -1277,10 +1277,8 @@ export class InspectorClient extends InspectorClientEventTarget {
     this.client.setNotificationHandler(
       "notifications/roots/list_changed",
       async () => {
-        // Dispatch event to notify UI that server's roots may have changed
-        // Note: rootsChange is a CustomEvent with Root[] payload, not a signal event
-        // We'll reload roots when the UI requests them, so we don't need to pass data here
-        // For now, we'll just dispatch an empty array as a signal to reload
+        // Re-dispatch our already-known roots as a refresh signal for the UI —
+        // the payload carries no new data (see the note on ownership above).
         this.dispatchTypedEvent("rootsChange", this.roots || []);
       },
     );
