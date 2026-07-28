@@ -105,11 +105,19 @@ const child = spawn(
 
 let output = "";
 let settled = false;
+let childExited = false;
 let childClosed = false;
 
 // How long to let the TUI wind down after SIGTERM before escalating to SIGKILL,
 // and then before giving up on the close event entirely.
 const EXIT_GRACE_MS = Number(process.env.SMOKE_TUI_EXIT_GRACE_MS ?? 5000);
+// Once the child itself is gone, only the pipe drain remains, so the wait drops
+// to this. `close` is bounded by whoever holds the stdio pipes, which can
+// outlive the direct child: any descendant that inherited them keeps it pending.
+// The TUI spawns nothing at boot today (it does not auto-connect), so this
+// never fires — but that reason lives outside this file, so cap it here rather
+// than inherit an unrelated process's lifetime if that ever changes.
+const DRAIN_MS = 500;
 
 function cleanup() {
   try {
@@ -117,7 +125,7 @@ function cleanup() {
   } catch (err) {
     // Never turn a passing smoke into a failure over a leftover temp dir; the
     // OS reclaims tmpdir anyway. This should not fire now that removal waits
-    // for the child to exit (see finish()), so say so loudly if it does.
+    // for the child's `close` (see done()), so say so loudly if it does.
     console.warn(
       `smoke:tui — could not remove temp dir ${work}: ${err.message}`,
     );
@@ -160,15 +168,37 @@ function done(code, message) {
   // then blame a SIGTERM the child never received. `close` also guarantees the
   // stdio pipes are drained, which is what makes the thunked messages complete.
   const forceKill = setTimeout(() => child.kill("SIGKILL"), EXIT_GRACE_MS);
-  const giveUp = setTimeout(() => {
-    console.warn(
-      `smoke:tui — TUI did not exit within ${EXIT_GRACE_MS * 2}ms of SIGTERM; cleaning up anyway`,
+
+  // Deadline for the wait. Re-armed shorter once the child is gone, since from
+  // that point we are only draining pipes. Each message describes what was
+  // actually being waited on — the timer can fire for a child that already
+  // exited and was never signalled, so it must not claim otherwise.
+  let deadline;
+  const armDeadline = (ms, warning) => {
+    clearTimeout(deadline);
+    deadline = setTimeout(() => {
+      console.warn(`smoke:tui — ${warning}`);
+      finish(code, message);
+    }, ms);
+  };
+  armDeadline(
+    EXIT_GRACE_MS * 2,
+    `TUI did not close its output streams within ${EXIT_GRACE_MS * 2}ms; cleaning up anyway`,
+  );
+
+  const drainOnly = () => {
+    clearTimeout(forceKill);
+    armDeadline(
+      DRAIN_MS,
+      `TUI exited but held its output streams open for ${DRAIN_MS}ms (a descendant may have inherited them); cleaning up anyway`,
     );
-    finish(code, message);
-  }, EXIT_GRACE_MS * 2);
+  };
+  if (childExited) drainOnly();
+  else child.once("exit", drainOnly);
+
   child.once("close", () => {
     clearTimeout(forceKill);
-    clearTimeout(giveUp);
+    clearTimeout(deadline);
     finish(code, message);
   });
   // Only signal a child that is still running: on the crash-before-render and
@@ -196,12 +226,13 @@ child.on("close", () => {
 });
 
 child.on("exit", (code) => {
+  childExited = true;
   if (settled) return;
   // Exiting before the render marker appeared is a failure (crash on boot).
   done(
     1,
     () =>
-      `TUI exited (code ${code}) before rendering "${RENDER_MARKER}"\n${output.slice(0, 800)}`,
+      `TUI exited (code ${code}) before rendering "${RENDER_MARKER}"\n${output.slice(-800)}`,
   );
 });
 
@@ -213,6 +244,6 @@ const timer = setTimeout(() => {
   done(
     1,
     () =>
-      `TUI did not render "${RENDER_MARKER}" within ${TIMEOUT_MS}ms\n${output.slice(0, 800)}`,
+      `TUI did not render "${RENDER_MARKER}" within ${TIMEOUT_MS}ms\n${output.slice(-800)}`,
   );
 }, TIMEOUT_MS);
