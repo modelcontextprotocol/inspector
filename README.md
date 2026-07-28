@@ -12,7 +12,7 @@ The MCP inspector is a developer tool for testing and debugging MCP servers.
 >
 > v1 receives **security fixes only**. All new development happens in v2.
 
-![MCP Inspector Screenshot](https://raw.githubusercontent.com/modelcontextprotocol/inspector/main/mcp-inspector.png)
+![MCP Inspector Screenshot](https://raw.githubusercontent.com/modelcontextprotocol/inspector/v1/main/mcp-inspector.png)
 
 ## Architecture Overview
 
