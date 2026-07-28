@@ -194,6 +194,125 @@ export function scanXMcpHeaderDeclarations(
     : { valid: false, reason: fault };
 }
 
+/**
+ * The `=?base64?…?=` sentinel wrapping a value that cannot be sent as a plain
+ * ASCII HTTP field value (SEP-2243 value-encoding rules).
+ */
+const BASE64_SENTINEL_PREFIX = "=?base64?";
+const BASE64_SENTINEL_SUFFIX = "?=";
+
+/**
+ * Convert a primitive argument value to its string form per the spec's
+ * type-conversion rules: strings pass through, booleans become lowercase
+ * `'true'`/`'false'`, integers/numbers become their decimal string. Non-finite
+ * numbers and integers outside the safe range are refused (returns `undefined`,
+ * meaning "do not emit a header for this value"). Anything non-primitive
+ * (object/array/null/undefined) also yields `undefined`.
+ */
+function mcpParamPrimitiveToString(value: unknown): string | undefined {
+  if (typeof value === "string") return value;
+  if (typeof value === "boolean") return value ? "true" : "false";
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) return undefined;
+    if (Number.isInteger(value) && !Number.isSafeInteger(value)) {
+      return undefined;
+    }
+    return String(value);
+  }
+  return undefined;
+}
+
+/**
+ * `true` when `s` cannot be safely represented as a plain ASCII HTTP field
+ * value (RFC 9110 §5.5): it is empty, contains a byte outside `0x20–0x7E`/`0x09`,
+ * has leading/trailing whitespace (which field parsing strips), or already
+ * matches the Base64 sentinel pattern (the spec's "to avoid ambiguity" rule).
+ */
+function needsBase64(s: string): boolean {
+  if (s.length === 0) return true;
+  if (
+    s.startsWith(BASE64_SENTINEL_PREFIX) &&
+    s.endsWith(BASE64_SENTINEL_SUFFIX)
+  ) {
+    return true;
+  }
+  if (s !== s.trim()) return true;
+  for (let i = 0; i < s.length; i++) {
+    // Non-null: `i` is always in bounds, so `codePointAt` returns a number.
+    const c = s.codePointAt(i)!;
+    if (c === 9 || (c >= 32 && c <= 126)) continue;
+    return true;
+  }
+  return false;
+}
+
+function utf8ToBase64(s: string): string {
+  const bytes = new TextEncoder().encode(s);
+  let bin = "";
+  for (const b of bytes) bin += String.fromCodePoint(b);
+  return btoa(bin);
+}
+
+/**
+ * Encode a string value as an HTTP field value per SEP-2243: a value that is
+ * already a safe plain-ASCII field value passes through unchanged; anything
+ * else is wrapped as `=?base64?{b64-of-utf8}?=`.
+ */
+function encodeMcpParamValue(value: string): string {
+  return needsBase64(value)
+    ? `${BASE64_SENTINEL_PREFIX}${utf8ToBase64(value)}${BASE64_SENTINEL_SUFFIX}`
+    : value;
+}
+
+function valueAtPath(root: unknown, path: string[]): unknown {
+  let node: unknown = root;
+  for (const key of path) {
+    if (node === null || typeof node !== "object") return undefined;
+    node = (node as Record<string, unknown>)[key];
+  }
+  return node;
+}
+
+/**
+ * Build the `Mcp-Param-{Name}` headers for one `tools/call` from validated
+ * `x-mcp-header` declarations and the call's `arguments`. A declaration whose
+ * value is `null` or absent is omitted (the spec's "client MUST omit the header"
+ * rows); a value that is not a primitive of the declared kind is omitted rather
+ * than emitted malformed. Faithful port of the SDK's internal helper (not part
+ * of its public surface), so the headers match what a conforming client sends.
+ */
+export function buildMcpParamHeaders(
+  declarations: XMcpHeaderDeclaration[],
+  args: Record<string, unknown>,
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const decl of declarations) {
+    const raw = valueAtPath(args, decl.path);
+    if (raw === undefined || raw === null) continue;
+    const stringValue = mcpParamPrimitiveToString(raw);
+    if (stringValue === undefined) continue;
+    out[`${MCP_PARAM_HEADER_PREFIX}${decl.headerName}`] =
+      encodeMcpParamValue(stringValue);
+  }
+  return out;
+}
+
+/**
+ * SEP-2243 `Mcp-Param-*` headers a `tools/call` must carry for a given tool and
+ * arguments. Returns `{}` when the tool declares no `x-mcp-header`, when its
+ * annotations are invalid (such a tool is excluded from `tools/list`), or when
+ * no declared argument has a mirrorable value. Callers attach the result to the
+ * `tools/call` request headers on a modern connection.
+ */
+export function mcpParamHeadersForTool(
+  tool: Tool,
+  args: Record<string, unknown>,
+): Record<string, string> {
+  const scan = scanXMcpHeaderDeclarations(tool.inputSchema);
+  if (!scan.valid || scan.declarations.length === 0) return {};
+  return buildMcpParamHeaders(scan.declarations, args);
+}
+
 /** A tool the Inspector keeps, paired with its mirrored-header declarations. */
 export interface MirroredHeaderParam {
   /** Dot-joined property path (e.g. `region` or `filter.city`). */

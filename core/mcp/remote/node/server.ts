@@ -705,7 +705,7 @@ export function createRemoteApp(
       return c.json({ error: "Invalid JSON body" }, 400);
     }
 
-    const { sessionId, message, relatedRequestId } = body;
+    const { sessionId, message, relatedRequestId, headers } = body;
     if (!sessionId || !message) {
       return c.json({ error: "Missing sessionId or message" }, 400);
     }
@@ -732,6 +732,10 @@ export function createRemoteApp(
     try {
       await session.transport.send(message, {
         relatedRequestId: relatedRequestId as string | number | undefined,
+        // SEP-2243: apply the client's mirrored `Mcp-Param-*` headers to the
+        // upstream request. The StreamableHTTP transport merges these onto the
+        // outbound fetch; other transports ignore unknown send options.
+        ...(headers != null && { headers }),
       });
       if (responseWait) {
         await responseWait;

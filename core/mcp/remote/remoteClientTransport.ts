@@ -704,6 +704,10 @@ export class RemoteClientTransport implements Transport {
       ...(options?.relatedRequestId != null && {
         relatedRequestId: options.relatedRequestId,
       }),
+      // Forward per-send headers (SEP-2243 `Mcp-Param-*` mirroring) so the
+      // backend applies them to the upstream `transport.send`. The browser
+      // can't set these on a cross-origin request, but the Node backend can.
+      ...(options?.headers != null && { headers: options.headers }),
     };
 
     const res = await this.fetchFn(`${this.baseUrl}/api/mcp/send`, {

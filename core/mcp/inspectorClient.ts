@@ -18,7 +18,10 @@ import type {
   ResourceSubscriptionStreamState,
   ExcludedTool,
 } from "./types.js";
-import { scanXMcpHeaderDeclarations } from "../json/xMcpHeader.js";
+import {
+  scanXMcpHeaderDeclarations,
+  mcpParamHeadersForTool,
+} from "../json/xMcpHeader.js";
 // Re-export so v1.5 tests that do `import { InspectorClientOptions } from
 // "@inspector/core/mcp/inspectorClient.js"` keep resolving.
 export type {
@@ -3367,6 +3370,24 @@ export class InspectorClient extends InspectorClientEventTarget {
       metadata?.progressToken,
       signal,
     );
+    // SEP-2243: mirror `x-mcp-header`-annotated arguments into `Mcp-Param-*`
+    // request headers on a modern connection. The SDK only mirrors inside
+    // `client.callTool()` (and skips it entirely in a browser environment), but
+    // we route `tools/call` through `client.request()` for manual MRTR driving
+    // (#1704), so the SDK never mirrors for us. We build the headers ourselves
+    // and attach them to the request options; `Protocol.request` forwards
+    // `headers` to the transport (and preserves them across MRTR retry legs),
+    // so the direct StreamableHTTP transport applies them, and the remote
+    // (web) transport forwards them to the backend's upstream send. The browser
+    // skip is intentionally not honored here: the Inspector's web request is
+    // issued server-side by the Node backend, where the mirroring is safe. On
+    // legacy/stdio there are no such annotations, so this is a no-op.
+    if (this.protocolEra === "modern") {
+      const paramHeaders = mcpParamHeadersForTool(tool, convertedArgs);
+      if (Object.keys(paramHeaders).length > 0) {
+        requestOptions.headers = { ...requestOptions.headers, ...paramHeaders };
+      }
+    }
     // Route through the MRTR driver (`requestWithInputRequired`) so a modern
     // `input_required` result pauses at the pending-request UI and retries with
     // the user's answer (#1704). Both eras use `client.request` with
