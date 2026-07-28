@@ -1,3 +1,13 @@
+> # ⚠️ Deprecated
+>
+> **`@modelcontextprotocol/inspector` v1 is deprecated.**
+>
+> ```
+> npx @modelcontextprotocol/inspector@latest
+> ```
+>
+> v1 receives **security fixes only**. All new development happens in v2.
+
 # React + TypeScript + Vite
 
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
