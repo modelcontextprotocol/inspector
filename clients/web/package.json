@@ -36,7 +36,7 @@
     "@dnd-kit/sortable": "^8.0.0",
     "@dnd-kit/utilities": "^3.2.2",
     "@emotion/react": "^11.14.0",
-    "@hono/node-server": "^1.19.14",
+    "@hono/node-server": "^2.0.12",
     "@mantine/core": "^8.3.17",
     "@mantine/form": "^8.3.17",
     "@mantine/hooks": "^8.3.17",
