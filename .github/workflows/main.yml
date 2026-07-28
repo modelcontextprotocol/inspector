@@ -8,6 +8,15 @@ on:
   release:
     types: [published]
 
+# Default least-privilege scope for GITHUB_TOKEN. Without this, jobs inherit the
+# repository's default token permissions, which are broader than any job here
+# needs (CodeQL `actions/missing-workflow-permissions`). The `publish` and
+# `publish-github-container-registry` jobs declare their own blocks below, which
+# override this one entirely rather than adding to it — so each publish job must
+# continue to list every scope it needs, including `contents: read`.
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
