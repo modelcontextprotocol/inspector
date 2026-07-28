@@ -19,7 +19,7 @@ flag it uses the default writable catalog `~/.mcp-inspector/mcp.json` (seeded
 empty if missing):
 
 ```bash
-npx @modelcontextprotocol/inspector --tui --catalog mcp.json   # writable catalog (seeded if missing)
+npx @modelcontextprotocol/inspector --tui --catalog mcp.json   # writable catalog (seeded empty if missing)
 npx @modelcontextprotocol/inspector --tui --config mcp.json    # read-only session (errors if absent)
 ```
 
@@ -29,7 +29,7 @@ npx @modelcontextprotocol/inspector --tui --config mcp.json    # read-only sessi
 
 ### MCP server (which server(s) to connect to)
 
-Options that specify the MCP server(s) (catalog/config file, ad-hoc command/URL, env vars, headers) are shared by the Web, CLI, and TUI and are documented in [MCP server configuration](../../docs/mcp-server-configuration.md): `--catalog` (writable catalog, seeded if missing; default `~/.mcp-inspector/mcp.json` or `MCP_CATALOG_PATH`), `--config` (read-only session, errors if absent), `-e`, `--cwd`, `--header`, `--transport`, `--server-url`, and the positional `[target...]`. `--catalog` and `--config` are mutually exclusive, and neither combines with an ad-hoc target.
+Options that specify the MCP server(s) (catalog/config file, ad-hoc command/URL, env vars, headers) are shared by the Web, CLI, and TUI and are documented in [MCP server configuration](../../docs/mcp-server-configuration.md): `--catalog` (writable catalog, seeded **empty** if missing; default `~/.mcp-inspector/mcp.json` or `MCP_CATALOG_PATH`), `--config` (read-only session, errors if absent), `-e`, `--cwd`, `--header`, `--transport`, `--server-url`, and the positional `[target...]`. `--catalog` and `--config` are mutually exclusive, and neither combines with an ad-hoc target.
 
 ### TUI-specific (OAuth for HTTP servers)
 
@@ -39,9 +39,9 @@ The TUI supports OAuth for **SSE** and **Streamable HTTP** servers. Per-server O
 
 The TUI starts a small loopback HTTP server to receive the authorization redirect after you sign in in the browser. Defaults:
 
-| Surface | Default callback |
-| ------- | ---------------- |
-| **Web** | `http://localhost:6274/oauth/callback` (main app server) |
+| Surface | Default callback                                                                                  |
+| ------- | ------------------------------------------------------------------------------------------------- |
+| **Web** | `http://localhost:6274/oauth/callback` (main app server)                                          |
 | **TUI** | `http://127.0.0.1:6276/oauth/callback` (dedicated runner port; avoids colliding with web on 6274) |
 
 **Why a fixed default port?** Enterprise-managed auth (EMA), CIMD, and many static OAuth apps require **pre-registered redirect URIs**. A predictable default (`http://127.0.0.1:6276/oauth/callback`) lets you register once on the IdP and reuse it across TUI sessions. Dynamic registration (DCR) can use ephemeral ports instead — see below.
@@ -52,13 +52,13 @@ OAuth redirect URIs must match **exactly** what you register on the authorizatio
 
 #### Flags
 
-| Option | Env | Description |
-| ------ | --- | ----------- |
-| `--client-config <path>` | `MCP_CLIENT_CONFIG_PATH` | Install-level client config (default: `~/.mcp-inspector/storage/client.json`). |
-| `--client-id <id>` | — | OAuth client ID (static client); overrides `client.json`. |
-| `--client-secret <secret>` | — | OAuth client secret (confidential clients); overrides `client.json`. |
-| `--client-metadata-url <url>` | — | Client ID Metadata Document URL (CIMD); overrides `client.json`. |
-| `--callback-url <url>` | `MCP_OAUTH_CALLBACK_URL` | OAuth redirect/callback listener (default: `http://127.0.0.1:6276/oauth/callback`). Must bind a **loopback** host (`localhost` / `127.0.0.0/8` / `[::1]`); a non-loopback host hard-errors, since the listener receives the authorization code over plaintext `http`. |
+| Option                        | Env                      | Description                                                                                                                                                                                                                                                           |
+| ----------------------------- | ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--client-config <path>`      | `MCP_CLIENT_CONFIG_PATH` | Install-level client config (default: `~/.mcp-inspector/storage/client.json`).                                                                                                                                                                                        |
+| `--client-id <id>`            | —                        | OAuth client ID (static client); overrides `client.json`.                                                                                                                                                                                                             |
+| `--client-secret <secret>`    | —                        | OAuth client secret (confidential clients); overrides `client.json`.                                                                                                                                                                                                  |
+| `--client-metadata-url <url>` | —                        | Client ID Metadata Document URL (CIMD); overrides `client.json`.                                                                                                                                                                                                      |
+| `--callback-url <url>`        | `MCP_OAUTH_CALLBACK_URL` | OAuth redirect/callback listener (default: `http://127.0.0.1:6276/oauth/callback`). Must bind a **loopback** host (`localhost` / `127.0.0.0/8` / `[::1]`); a non-loopback host hard-errors, since the listener receives the authorization code over plaintext `http`. |
 
 #### Authenticating in the TUI
 

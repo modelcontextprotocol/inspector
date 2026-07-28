@@ -94,27 +94,27 @@ Proxy routing is powered by the [`undici`](https://www.npmjs.com/package/undici)
 
 ### MCP server (which server to connect to)
 
-Options that specify the MCP server (catalog/config file, ad-hoc command/URL, env vars, headers) are shared by the Web, CLI, and TUI and are documented in [MCP server configuration](../../docs/mcp-server-configuration.md): `--catalog` (writable catalog, seeded if missing; default `~/.mcp-inspector/mcp.json` or `MCP_CATALOG_PATH`), `--config` (read-only session, errors if absent), `--server`, `-e`, `--cwd`, `--header`, `--transport`, `--server-url`, and the positional `[target...]`. `--catalog` and `--config` are mutually exclusive, and neither combines with an ad-hoc target.
+Options that specify the MCP server (catalog/config file, ad-hoc command/URL, env vars, headers) are shared by the Web, CLI, and TUI and are documented in [MCP server configuration](../../docs/mcp-server-configuration.md): `--catalog` (writable catalog, seeded **empty** if missing; default `~/.mcp-inspector/mcp.json` or `MCP_CATALOG_PATH`), `--config` (read-only session, errors if absent), `--server`, `-e`, `--cwd`, `--header`, `--transport`, `--server-url`, and the positional `[target...]`. `--catalog` and `--config` are mutually exclusive, and neither combines with an ad-hoc target.
 
 ### CLI-specific (what to invoke)
 
-| Option                        | Description                                                                               |
-| ----------------------------- | ----------------------------------------------------------------------------------------- |
+| Option                        | Description                                                                                                                                                                                                                                                                                                                                                                                                          |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `--method <method>`           | MCP method to invoke. Supports `initialize` (connect-only probe → `{serverInfo, protocolVersion, capabilities, instructions}`), `tools/list`, `tools/call`, `resources/list`, `resources/read`, `resources/templates/list`, `prompts/list`, `prompts/get`, `logging/setLevel`, plus catalog-only `servers/list` / `servers/show` (no MCP connect). Stream / session-only methods (e.g. `logging/tail`) are rejected. |
-| `--tool-name <name>`          | Tool name (for `tools/call`).                                                             |
-| `--tool-arg <key=value>`      | Tool argument; repeat for multiple. Use `key='{"json":true}'` for JSON. Values are coerced (JSON-parsed, so `count=1` becomes a number). |
-| `--tool-args-json <json>`     | Tool arguments as a single JSON object (e.g. `'{"zip":"10001"}'`). Passed verbatim — no `key=value` coercion, so `"012"` stays a string. Mutually exclusive with `--tool-arg`. |
-| `--uri <uri>`                 | Resource URI (for `resources/read`).                                                      |
-| `--prompt-name <name>`        | Prompt name (for `prompts/get`).                                                          |
-| `--prompt-args <key=value>`   | Prompt arguments; repeat for multiple.                                                    |
-| `--log-level <level>`         | Logging level for `logging/setLevel` (e.g. `debug`, `info`).                              |
-| `--metadata <key=value>`      | General metadata (key=value); applied to all methods.                                     |
-| `--tool-metadata <key=value>` | Tool-specific metadata for `tools/call`.                                                  |
-| `--connect-timeout <ms>`      | Connection timeout in ms. Defaults to `15000` for ad-hoc `--server-url`/target runs (so a black-holed host fails fast) and to the file-level timeout for `--catalog`/`--config` runs. `0` disables the timeout. |
-| `--app-info`                  | Probe a tool's MCP App UI metadata without invoking it. With `--method tools/call --tool-name <name>`: prints one JSON line (`hasApp`, `resourceUri`, `csp`, `permissions`, `domain`, …) and exits `0` if the tool has an app or `2` (`no_app`) if not. With `--method tools/list`: emits NDJSON — one app-info line per tool over a single connection. |
-| `--format <text\|json>`       | Output format. `text` (default) pretty-prints the result. `json` emits a single JSON object on stdout (`{ "result": … }`, plus `{ "appInfo": … }` as a sibling key for App tools) with no banners, so the whole output pipes cleanly into `jq`. |
-| `--relogin`                   | Delete stored OAuth for this server URL from the shared store before connect; interactive login still only runs if the server requires auth. Requires an HTTP/SSE URL (rejected for stdio). Conflicts with `--stored-auth-only` / `--use-stored-auth` / `--wait-for-auth` / catalog short-circuits. |
-| `--stored-auth-only`          | **CI / non-interactive safe:** never start interactive OAuth / step-up (and never auto-open a browser); use the shared store if present, otherwise fail immediately with `auth_required`. Prefer this over a bare pipe/CI run that would otherwise attempt interactive login. |
+| `--tool-name <name>`          | Tool name (for `tools/call`).                                                                                                                                                                                                                                                                                                                                                                                        |
+| `--tool-arg <key=value>`      | Tool argument; repeat for multiple. Use `key='{"json":true}'` for JSON. Values are coerced (JSON-parsed, so `count=1` becomes a number).                                                                                                                                                                                                                                                                             |
+| `--tool-args-json <json>`     | Tool arguments as a single JSON object (e.g. `'{"zip":"10001"}'`). Passed verbatim — no `key=value` coercion, so `"012"` stays a string. Mutually exclusive with `--tool-arg`.                                                                                                                                                                                                                                       |
+| `--uri <uri>`                 | Resource URI (for `resources/read`).                                                                                                                                                                                                                                                                                                                                                                                 |
+| `--prompt-name <name>`        | Prompt name (for `prompts/get`).                                                                                                                                                                                                                                                                                                                                                                                     |
+| `--prompt-args <key=value>`   | Prompt arguments; repeat for multiple.                                                                                                                                                                                                                                                                                                                                                                               |
+| `--log-level <level>`         | Logging level for `logging/setLevel` (e.g. `debug`, `info`).                                                                                                                                                                                                                                                                                                                                                         |
+| `--metadata <key=value>`      | General metadata (key=value); applied to all methods.                                                                                                                                                                                                                                                                                                                                                                |
+| `--tool-metadata <key=value>` | Tool-specific metadata for `tools/call`.                                                                                                                                                                                                                                                                                                                                                                             |
+| `--connect-timeout <ms>`      | Connection timeout in ms. Defaults to `15000` for ad-hoc `--server-url`/target runs (so a black-holed host fails fast) and to the file-level timeout for `--catalog`/`--config` runs. `0` disables the timeout.                                                                                                                                                                                                      |
+| `--app-info`                  | Probe a tool's MCP App UI metadata without invoking it. With `--method tools/call --tool-name <name>`: prints one JSON line (`hasApp`, `resourceUri`, `csp`, `permissions`, `domain`, …) and exits `0` if the tool has an app or `2` (`no_app`) if not. With `--method tools/list`: emits NDJSON — one app-info line per tool over a single connection.                                                              |
+| `--format <text\|json>`       | Output format. `text` (default) pretty-prints the result. `json` emits a single JSON object on stdout (`{ "result": … }`, plus `{ "appInfo": … }` as a sibling key for App tools) with no banners, so the whole output pipes cleanly into `jq`.                                                                                                                                                                      |
+| `--relogin`                   | Delete stored OAuth for this server URL from the shared store before connect; interactive login still only runs if the server requires auth. Requires an HTTP/SSE URL (rejected for stdio). Conflicts with `--stored-auth-only` / `--use-stored-auth` / `--wait-for-auth` / catalog short-circuits.                                                                                                                  |
+| `--stored-auth-only`          | **CI / non-interactive safe:** never start interactive OAuth / step-up (and never auto-open a browser); use the shared store if present, otherwise fail immediately with `auth_required`. Prefer this over a bare pipe/CI run that would otherwise attempt interactive login.                                                                                                                                        |
 
 `servers/show` redacts secret-bearing fields (`env` values, sensitive headers / `settings.metadata` keys, `requestInit` / `eventSourceInit` headers, `oauthClientSecret`). It does **not** scrub credentials embedded in a server `url` (userinfo or query tokens) or in stdio `args` — treat `detail` / raw URL fields as potentially sensitive before pasting into issues.
 
@@ -169,24 +169,24 @@ Interactive OAuth (connect-time or mid-RPC) requires a TTY on **stdin or stderr*
 
 #### OAuth callback URL
 
-| Surface | Default callback |
-| ------- | ---------------- |
-| **Web** | `http://localhost:6274/oauth/callback` |
-| **TUI** | `http://127.0.0.1:6276/oauth/callback` (interactive — callback server) |
+| Surface | Default callback                                                                   |
+| ------- | ---------------------------------------------------------------------------------- |
+| **Web** | `http://localhost:6274/oauth/callback`                                             |
+| **TUI** | `http://127.0.0.1:6276/oauth/callback` (interactive — callback server)             |
 | **CLI** | `http://127.0.0.1:6276/oauth/callback` (interactive — same callback server as TUI) |
 
 Register `http://127.0.0.1:6276/oauth/callback` on static or enterprise IdPs that require pre-registered redirect URIs before using the **TUI** or **CLI**. Override with `--callback-url` or `MCP_OAUTH_CALLBACK_URL`. Only one process should bind the default port at a time.
 
 #### Flags
 
-| Option                        | Env                      | Description                                                                                      |
-| ----------------------------- | ------------------------ | ------------------------------------------------------------------------------------------------ |
-| `--client-config <path>`      | `MCP_CLIENT_CONFIG_PATH` | Install-level client config (default: `~/.mcp-inspector/storage/client.json`).                   |
-| `--client-id <id>`            | —                        | OAuth client ID (static client); overrides `client.json`.                                        |
-| `--client-secret <secret>`    | —                        | OAuth client secret; overrides `client.json`.                                                    |
-| `--client-metadata-url <url>` | —                        | CIMD metadata URL; overrides `client.json`.                                                      |
+| Option                        | Env                      | Description                                                                                                                                                                                                                                                                                                                                  |
+| ----------------------------- | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--client-config <path>`      | `MCP_CLIENT_CONFIG_PATH` | Install-level client config (default: `~/.mcp-inspector/storage/client.json`).                                                                                                                                                                                                                                                               |
+| `--client-id <id>`            | —                        | OAuth client ID (static client); overrides `client.json`.                                                                                                                                                                                                                                                                                    |
+| `--client-secret <secret>`    | —                        | OAuth client secret; overrides `client.json`.                                                                                                                                                                                                                                                                                                |
+| `--client-metadata-url <url>` | —                        | CIMD metadata URL; overrides `client.json`.                                                                                                                                                                                                                                                                                                  |
 | `--callback-url <url>`        | `MCP_OAUTH_CALLBACK_URL` | Redirect URI sent to the authorization server (default: `http://127.0.0.1:6276/oauth/callback`). Must bind a **loopback** host (`localhost` / `127.0.0.0/8` / `[::1]`) — the listener receives the authorization code over plaintext `http`, so a non-loopback host hard-errors (no opt-in; use a port-forward if the browser is elsewhere). |
-| —                             | `MCP_AUTO_OPEN_ENABLED`  | Browser auto-open **and** non-TTY interactive-OAuth admit: `true` (allow interactive OAuth without a TTY **and** force-open the browser — same as the web launcher), `false` (never open), unset (open on a TTY unless `VITEST` is set). For CI that must not hang, prefer `--stored-auth-only`. |
+| —                             | `MCP_AUTO_OPEN_ENABLED`  | Browser auto-open **and** non-TTY interactive-OAuth admit: `true` (allow interactive OAuth without a TTY **and** force-open the browser — same as the web launcher), `false` (never open), unset (open on a TTY unless `VITEST` is set). For CI that must not hang, prefer `--stored-auth-only`.                                             |
 
 **Example** — list tools on an OAuth-protected server using stored tokens and CIMD from the command line:
 
@@ -202,12 +202,12 @@ See [EMA / enterprise-managed auth](../../specification/v2_auth_ema.md) and [OAu
 
 For the common case where OAuth was already completed in the **web inspector on the same machine**, the CLI can reuse the resulting token instead of running its own interactive flow. It reads the shared OAuth state file (the `oauth.json` the web backend writes) directly from disk and injects `Authorization: Bearer <token>` for `--server-url`.
 
-| Option                  | Description                                                                                                                                                                                    |
-| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--use-stored-auth`     | Read the stored auth for `--server-url` and inject `Authorization: Bearer`. When a `refresh_token` is stored, the CLI runs the OAuth refresh grant first and injects the **fresh** access token (persisting the rotation); otherwise it injects the stored access token. Exits `3` (`no_stored_token`) — listing the stored keys — when nothing matches. Requires `--server-url`. |
+| Option                  | Description                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--use-stored-auth`     | Read the stored auth for `--server-url` and inject `Authorization: Bearer`. When a `refresh_token` is stored, the CLI runs the OAuth refresh grant first and injects the **fresh** access token (persisting the rotation); otherwise it injects the stored access token. Exits `3` (`no_stored_token`) — listing the stored keys — when nothing matches. Requires `--server-url`.                                                   |
 | `--wait-for-auth <sec>` | Poll the OAuth state file (500 ms interval) until an access token for `--server-url` appears, then inject it. Times out at `<sec>` with exit `3` (`auth_wait_timeout`). Use after handing off to a human to complete OAuth in a browser. Unlike `--use-stored-auth`, this injects the freshly-landed access token directly (a token that just completed the browser flow is not expired), so it does **not** run the refresh grant. |
-| `--list-stored-auth`    | Print `{ oauthStatePath, storedServerUrls }` (the server keys that currently have a token) and exit. No server connection is made.                                                              |
-| `--print-handoff`       | Print a JSON handoff block (`deepLink`, `portForwardCmd`, `oauthStatePath`, `apiToken`) for `--server-url` and exit — everything a script/remote VM needs to drive the browser-side OAuth dance. Requires `--server-url`. |
+| `--list-stored-auth`    | Print `{ oauthStatePath, storedServerUrls }` (the server keys that currently have a token) and exit. No server connection is made.                                                                                                                                                                                                                                                                                                  |
+| `--print-handoff`       | Print a JSON handoff block (`deepLink`, `portForwardCmd`, `oauthStatePath`, `apiToken`) for `--server-url` and exit — everything a script/remote VM needs to drive the browser-side OAuth dance. Requires `--server-url`.                                                                                                                                                                                                           |
 
 **State-file resolution** follows `MCP_INSPECTOR_OAUTH_STATE_PATH` → `<MCP_STORAGE_DIR>/oauth.json` → `~/.mcp-inspector/storage/oauth.json` — the same precedence the rest of the Inspector uses, so the CLI and web backend agree on the file. Server keys are canonicalised with `new URL().href` (the scheme the web store writes), so a trailing-slash or case mismatch between the URL a human opened and the one the agent passed still resolves.
 
@@ -234,20 +234,27 @@ Every non-zero exit maps to a stable failure class, so a programmatic caller
 (CI, a script, an agent) can branch on _why_ the CLI failed without scraping
 prose from stderr:
 
-| Code | Meaning |
-| ---- | ------- |
-| `0` | Success. |
-| `1` | Usage / unexpected error (the catch-all). |
-| `2` | No MCP App found on the tool (`--app-info` probe). |
-| `3` | Server requires authentication (401/403, `WWW-Authenticate`, OAuth). |
-| `4` | Server unreachable (DNS, connection refused, timeout, `fetch failed`). |
-| `5` | Tool error (`tools/call` returned `isError:true`, or the tool was not found). |
+| Code | Meaning                                                                       |
+| ---- | ----------------------------------------------------------------------------- |
+| `0`  | Success.                                                                      |
+| `1`  | Usage / unexpected error (the catch-all).                                     |
+| `2`  | No MCP App found on the tool (`--app-info` probe).                            |
+| `3`  | Server requires authentication (401/403, `WWW-Authenticate`, OAuth).          |
+| `4`  | Server unreachable (DNS, connection refused, timeout, `fetch failed`).        |
+| `5`  | Tool error (`tools/call` returned `isError:true`, or the tool was not found). |
 
 On any non-zero exit the CLI also writes a single JSON line to **stderr** — the
 `ErrorEnvelope`:
 
 ```json
-{ "error": { "code": "auth_required", "message": "Unauthorized", "status": 401, "url": "https://api.example/mcp" } }
+{
+  "error": {
+    "code": "auth_required",
+    "message": "Unauthorized",
+    "status": 401,
+    "url": "https://api.example/mcp"
+  }
+}
 ```
 
 The `code` is a stable identifier for the failure class; `message` is the
