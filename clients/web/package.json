@@ -96,7 +96,7 @@
     "tsup": "^8.5.1",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.56.1",
-    "vite": "^8.0.0",
+    "vite": "^8.1.5",
     "vitest": "^4.1.0",
     "yaml": "^2.9.0"
   }
