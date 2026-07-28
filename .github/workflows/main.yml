@@ -2,7 +2,7 @@ on:
   push:
     branches:
       - main
-
+      - v1/main
   pull_request:
   release:
     types: [published]
