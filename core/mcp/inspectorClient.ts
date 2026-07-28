@@ -3371,17 +3371,13 @@ export class InspectorClient extends InspectorClientEventTarget {
       signal,
     );
     // SEP-2243: mirror `x-mcp-header`-annotated arguments into `Mcp-Param-*`
-    // request headers on a modern connection. The SDK only mirrors inside
-    // `client.callTool()` (and skips it entirely in a browser environment), but
-    // we route `tools/call` through `client.request()` for manual MRTR driving
-    // (#1704), so the SDK never mirrors for us. We build the headers ourselves
-    // and attach them to the request options; `Protocol.request` forwards
-    // `headers` to the transport (and preserves them across MRTR retry legs),
-    // so the direct StreamableHTTP transport applies them, and the remote
-    // (web) transport forwards them to the backend's upstream send. The browser
-    // skip is intentionally not honored here: the Inspector's web request is
-    // issued server-side by the Node backend, where the mirroring is safe. On
-    // legacy/stdio there are no such annotations, so this is a no-op.
+    // headers on a modern connection. The SDK only does this inside
+    // `client.callTool()` (and skips it in the browser), but we route
+    // `tools/call` through `client.request()` for manual MRTR driving (#1704),
+    // so we mirror ourselves. `Protocol.request` forwards `headers` (preserved
+    // across MRTR retry legs) to the transport, and the remote transport relays
+    // them to the backend's upstream send — issued server-side, where the
+    // browser skip doesn't apply. No-op on legacy/stdio (no annotations).
     if (this.protocolEra === "modern") {
       const paramHeaders = mcpParamHeadersForTool(tool, convertedArgs);
       if (Object.keys(paramHeaders).length > 0) {

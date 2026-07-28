@@ -22,6 +22,7 @@ import type pinoType from "pino";
 import {
   createRemoteApp,
   requestIdForSendWait,
+  mcpParamHeadersOnly,
 } from "@inspector/core/mcp/remote/node/server.js";
 import {
   InMemorySecretStore,
@@ -136,6 +137,43 @@ describe("server.ts supplemental coverage", () => {
           method: "notifications/initialized",
         }),
       ).toBeUndefined();
+    });
+  });
+
+  describe("mcpParamHeadersOnly (SEP-2243 upstream header allowlist, #1846)", () => {
+    it("keeps only Mcp-Param-* headers (case-insensitive)", () => {
+      expect(
+        mcpParamHeadersOnly({
+          "Mcp-Param-City": "London",
+          "mcp-param-owner": "octocat",
+        }),
+      ).toEqual({ "Mcp-Param-City": "London", "mcp-param-owner": "octocat" });
+    });
+
+    it("drops non-Mcp-Param headers a client tries to inject", () => {
+      expect(
+        mcpParamHeadersOnly({
+          Authorization: "Bearer evil",
+          "X-Custom": "nope",
+          "Mcp-Param-City": "London",
+        }),
+      ).toEqual({ "Mcp-Param-City": "London" });
+    });
+
+    it("drops non-string values", () => {
+      expect(
+        mcpParamHeadersOnly({
+          "Mcp-Param-Bad": 5,
+          "Mcp-Param-City": "London",
+        }),
+      ).toEqual({ "Mcp-Param-City": "London" });
+    });
+
+    it("returns undefined when nothing survives the filter", () => {
+      expect(mcpParamHeadersOnly({ Authorization: "x" })).toBeUndefined();
+      expect(mcpParamHeadersOnly(undefined)).toBeUndefined();
+      expect(mcpParamHeadersOnly(null)).toBeUndefined();
+      expect(mcpParamHeadersOnly("not-an-object")).toBeUndefined();
     });
   });
 

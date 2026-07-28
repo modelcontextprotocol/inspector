@@ -452,7 +452,7 @@ describe("Remote transport e2e", () => {
       }
     });
 
-    it("end-to-end: SEP-2243 Mcp-Param-* mirroring reaches the upstream modern server (#1810)", async () => {
+    it("end-to-end: SEP-2243 Mcp-Param-* mirroring reaches the upstream modern server (#1846)", async () => {
       // A modern (2026-07-28) server whose `get_weather` tool annotates `city`
       // with `x-mcp-header: "City"`. The SDK's modern handler validates the
       // mirrored header and rejects the call with -32020 when it is missing, so

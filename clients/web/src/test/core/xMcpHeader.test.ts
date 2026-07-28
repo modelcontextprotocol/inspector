@@ -326,6 +326,9 @@ describe("buildMcpParamHeaders", () => {
       [`${P}Flag`]: "false",
       [`${P}Ratio`]: "3.5",
     });
+    expect(buildMcpParamHeaders(decls, { flag: true })).toEqual({
+      [`${P}Flag`]: "true",
+    });
   });
 
   it("omits declarations whose value is absent or null", () => {

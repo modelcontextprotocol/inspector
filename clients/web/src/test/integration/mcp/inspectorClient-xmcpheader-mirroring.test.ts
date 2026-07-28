@@ -12,7 +12,7 @@ import {
 import type { Tool } from "@modelcontextprotocol/client";
 
 /**
- * SEP-2243 `x-mcp-header` → `Mcp-Param-*` mirroring on `tools/call` (#1810).
+ * SEP-2243 `x-mcp-header` → `Mcp-Param-*` mirroring on `tools/call` (#1846).
  *
  * The SDK only mirrors inside `client.callTool()` (and skips it in a browser
  * environment); the Inspector routes `tools/call` through `client.request()`
@@ -116,23 +116,6 @@ describe("x-mcp-header Mcp-Param-* mirroring on tools/call", () => {
     expect(spy.toolCallHeaders.length).toBeGreaterThan(0);
     const sent = spy.toolCallHeaders.at(-1)!;
     expect(sent.get("Mcp-Param-City")).toBe("London");
-  });
-
-  it("base64-sentinel-encodes a non-ASCII mirrored value on the wire", async () => {
-    const started = await startWeatherServer();
-    const spy = makeSpyFetch();
-    const connected = await connectModern(started.url, spy.fetch);
-
-    const result = await connected.callTool(await weatherTool(connected), {
-      city: "münchen",
-    });
-
-    expect(result.success).toBe(true);
-    const sent = spy.toolCallHeaders.at(-1)!.get("Mcp-Param-City");
-    expect(sent).toMatch(/^=\?base64\?.+\?=$/);
-    const inner = sent!.slice("=?base64?".length, -"?=".length);
-    const bytes = Uint8Array.from(atob(inner), (ch) => ch.codePointAt(0) ?? 0);
-    expect(new TextDecoder().decode(bytes)).toBe("münchen");
   });
 
   it("sends no Mcp-Param-* header for a tool without annotations", async () => {

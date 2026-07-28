@@ -33,6 +33,7 @@ import type {
 } from "../types.js";
 import type { JSONRPCMessage } from "@modelcontextprotocol/client";
 import { AuthChallengeError } from "../../../auth/challenge.js";
+import { MCP_PARAM_HEADER_PREFIX } from "../../../json/xMcpHeader.js";
 import {
   DEFAULT_MAX_FETCH_REQUESTS,
   DEFAULT_TASK_TTL_MS,
@@ -360,6 +361,28 @@ export function requestIdForSendWait(
     return message.id;
   }
   return undefined;
+}
+
+/**
+ * Restrict client-supplied per-send headers to SEP-2243 `Mcp-Param-*` mirroring
+ * with string values. The sanctioned channel for arbitrary upstream headers is
+ * the server's configured `settings.headers`; this per-send channel must not let
+ * a client inject other headers (e.g. `Authorization`) onto the upstream fetch.
+ */
+export function mcpParamHeadersOnly(
+  headers: unknown,
+): Record<string, string> | undefined {
+  if (headers === null || typeof headers !== "object") return undefined;
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(headers)) {
+    if (
+      typeof value === "string" &&
+      key.toLowerCase().startsWith(MCP_PARAM_HEADER_PREFIX.toLowerCase())
+    ) {
+      out[key] = value;
+    }
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
 }
 
 export function createRemoteApp(
@@ -730,12 +753,14 @@ export function createRemoteApp(
       void responseWait.catch(() => {});
     }
     try {
+      // SEP-2243: apply the client's mirrored headers to the upstream request,
+      // restricted to the `Mcp-Param-` prefix so a client can't inject other
+      // upstream headers. The StreamableHTTP transport merges these onto the
+      // outbound fetch; other transports ignore unknown send options.
+      const paramHeaders = mcpParamHeadersOnly(headers);
       await session.transport.send(message, {
         relatedRequestId: relatedRequestId as string | number | undefined,
-        // SEP-2243: apply the client's mirrored `Mcp-Param-*` headers to the
-        // upstream request. The StreamableHTTP transport merges these onto the
-        // outbound fetch; other transports ignore unknown send options.
-        ...(headers != null && { headers }),
+        ...(paramHeaders && { headers: paramHeaders }),
       });
       if (responseWait) {
         await responseWait;
