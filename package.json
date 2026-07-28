@@ -47,7 +47,7 @@
     "prettier-check": "prettier --check .",
     "lint": "prettier --check . && cd client && npm run lint",
     "prepare": "husky && npm run build",
-    "publish-all": "npm publish --workspaces --access public --tag v1 && npm publish --access public --tag v1",
+    "publish-all": "npm publish --workspaces --access public --tag v1-latest && npm publish --access public --tag v1-latest",
     "update-version": "node scripts/update-version.js",
     "check-version": "node scripts/check-version-consistency.js"
   },
