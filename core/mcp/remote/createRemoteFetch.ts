@@ -13,11 +13,12 @@
  *     on the browser path and reach the server through this proxy.
  *   - The custom `Mcp-Param-*` headers are gated on a non-browser environment in
  *     the SDK (`detectProbeEnvironment() !== "browser"`, avoiding a CORS
- *     preflight), so they are NEVER built in the browser — the proxy would
- *     forward them, but the SDK never creates them here. A tool with an
- *     `x-mcp-header` annotation is therefore uncallable from the web client
- *     against a strict modern server (it answers `-32020 HeaderMismatch`); such
- *     tools work from the Node CLI/TUI, where mirroring is active.
+ *     preflight), so the SDK never builds them here. The Inspector builds them
+ *     itself instead (`mcpParamHeadersForTool`, #1846) — but they do NOT travel
+ *     this path: they ride the transport's per-send `headers` through
+ *     `/api/mcp/send`, where the Node backend applies them to the upstream
+ *     request it issues. So an `x-mcp-header`-annotated tool IS callable from
+ *     the web client against a strict modern server, same as from the CLI/TUI.
  */
 
 export interface RemoteFetchOptions {

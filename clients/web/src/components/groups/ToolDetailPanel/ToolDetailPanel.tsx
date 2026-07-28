@@ -306,8 +306,8 @@ export function ToolDetailPanel({
               ))}
               <HeaderParamsNote>
                 These argument values are mirrored into HTTP headers on the
-                call. The SDK sends them only on a Node/proxy transport — the
-                browser omits <Code>Mcp-Param-*</Code> headers.
+                call. In the web client the <Code>Mcp-Param-*</Code> headers are
+                applied by the Node backend that issues the upstream request.
               </HeaderParamsNote>
             </HeaderParamsSection>
           )}
