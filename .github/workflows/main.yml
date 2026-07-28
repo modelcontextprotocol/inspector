@@ -154,6 +154,11 @@ jobs:
             exit 1
           fi
 
+      # OIDC trusted publishing requires npm >= 11.5.1; Node 22's bundled npm is
+      # 10.x, which fails with ENEEDAUTH before OIDC is ever attempted.
+      - name: Ensure npm CLI supports OIDC trusted publishing
+        run: npm install -g npm@^11.5.1
+
       - name: Install dependencies (root + all clients)
         run: npm install
 
@@ -178,6 +183,13 @@ jobs:
         # (`2.0.0-rc.1`); build metadata uses `+` and is not a prerelease. Done
         # in shell rather than with `semver` because that package is only a
         # transitive dependency here and must not be relied on in CI.
+        #
+        # There is deliberately NO `NODE_AUTH_TOKEN` here. Publishing uses npm
+        # OIDC trusted publishing (`id-token: write` + `environment: release`),
+        # which needs no token — and the repo has no `NPM_TOKEN` secret. Setting
+        # it from a non-existent secret writes an EMPTY `_authToken` into the
+        # `.npmrc` that `setup-node` generates, and npm then fails `ENEEDAUTH`
+        # before OIDC is ever attempted. Do not "restore" it.
         run: |
           VERSION="$(node -p "require('./package.json').version")"
           case "$VERSION" in
@@ -186,8 +198,6 @@ jobs:
           esac
           echo "Publishing $VERSION under dist-tag '$NPM_TAG'"
           npm publish --access public --provenance --tag "$NPM_TAG"
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   # Build and push the multi-arch container image to GHCR on a published
   # release. The image installs the packed tarball (`Dockerfile`) so it ships

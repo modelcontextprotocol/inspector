@@ -179,7 +179,7 @@ The `smoke:*` scripts run against the in-repo build tree, which is **not** the p
 
 Publishing is automated by two release-gated jobs in [`.github/workflows/main.yml`](.github/workflows/main.yml) (`github.event_name == 'release'`, both `needs: build`):
 
-- **`publish`** — the npm package. Runs `npm run pack:verify` as the pre-publish gate, asserts the release tag matches the root `package.json` version, then `npm publish --access public --provenance` — a single `npm publish` (v2 is not an npm workspace, so there is no v1-style `publish-all`/`--workspaces`), with a signed provenance attestation via GitHub OIDC (`id-token: write`, `environment: release`, `NPM_TOKEN`).
+- **`publish`** — the npm package. Runs `npm run pack:verify` as the pre-publish gate, asserts the release tag matches the root `package.json` version, then `npm publish --access public --provenance` — a single `npm publish` (v2 is not an npm workspace, so there is no v1-style `publish-all`/`--workspaces`), with a signed provenance attestation via GitHub OIDC (`id-token: write`, `environment: release`). Authentication is npm **trusted publishing** — there is no `NPM_TOKEN` secret, and adding one would break the publish (an empty `NODE_AUTH_TOKEN` makes npm fail `ENEEDAUTH` before OIDC is attempted). The job upgrades the npm CLI to `>=11.5.1` first, since trusted publishing requires it and Node 22 bundles npm 10.x.
 - **`publish-github-container-registry`** — the container image (see [Docker](#docker)).
 
 Because there is **one version number** (only the root `package.json` has one — the clients carry none, so there is nothing to keep in sync and no `check-version` step), the release flow is just:
