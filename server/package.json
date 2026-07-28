@@ -1,6 +1,6 @@
 {
   "name": "@modelcontextprotocol/inspector-server",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Server-side application for the Model Context Protocol inspector",
   "license": "SEE LICENSE IN LICENSE",
   "author": "Model Context Protocol a Series of LF Projects, LLC.",
