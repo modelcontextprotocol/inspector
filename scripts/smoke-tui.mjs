@@ -117,6 +117,12 @@ const EXIT_GRACE_MS = Number(process.env.SMOKE_TUI_EXIT_GRACE_MS ?? 5000);
 // The TUI spawns nothing at boot today (it does not auto-connect), so this
 // never fires — but that reason lives outside this file, so cap it here rather
 // than inherit an unrelated process's lifetime if that ever changes.
+//
+// The cost of capping: on that path we remove the work dir while a descendant
+// holding HOME=work may still be writing to it — the #1801 race, re-entered
+// deliberately. That is only acceptable because cleanup() warns instead of
+// throwing, so the worst case is a warning plus a leaked temp dir in tmpdir,
+// never a red smoke. The two are load-bearing for each other.
 const DRAIN_MS = 500;
 
 function cleanup() {
@@ -124,12 +130,23 @@ function cleanup() {
     rmSync(work, { recursive: true, force: true });
   } catch (err) {
     // Never turn a passing smoke into a failure over a leftover temp dir; the
-    // OS reclaims tmpdir anyway. This should not fire now that removal waits
-    // for the child's `close` (see done()), so say so loudly if it does.
+    // OS reclaims tmpdir anyway. On the normal path this should not fire, since
+    // removal waits for the child's `close` (see done()) — but the two give-up
+    // branches there call finish() without it, and a process may still hold the
+    // dir, so this is expected rather than anomalous on those.
     console.warn(
       `smoke:tui — could not remove temp dir ${work}: ${err.message}`,
     );
   }
+}
+
+// Tail of the child's output, for quoting in a diagnostic. Slicing an Ink
+// stream can land mid-CSI-sequence, so drop through the first newline rather
+// than lead with an escape-code fragment that mangles the line after it.
+function outputTail(limit = 800) {
+  const tail = output.slice(-limit);
+  const nl = tail.indexOf("\n");
+  return output.length > limit && nl !== -1 ? tail.slice(nl + 1) : tail;
 }
 
 // `message` may be a string or a thunk. Callers that quote the child's output
@@ -232,7 +249,7 @@ child.on("exit", (code) => {
   done(
     1,
     () =>
-      `TUI exited (code ${code}) before rendering "${RENDER_MARKER}"\n${output.slice(-800)}`,
+      `TUI exited (code ${code}) before rendering "${RENDER_MARKER}"\n${outputTail()}`,
   );
 });
 
@@ -244,6 +261,6 @@ const timer = setTimeout(() => {
   done(
     1,
     () =>
-      `TUI did not render "${RENDER_MARKER}" within ${TIMEOUT_MS}ms\n${output.slice(-800)}`,
+      `TUI did not render "${RENDER_MARKER}" within ${TIMEOUT_MS}ms\n${outputTail()}`,
   );
 }, TIMEOUT_MS);
