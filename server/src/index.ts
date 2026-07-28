@@ -4,6 +4,11 @@ import cors from "cors";
 import { parseArgs } from "node:util";
 import { parse as shellParseArgs } from "shell-quote";
 import nodeFetch, { Headers as NodeHeaders } from "node-fetch";
+import {
+  assertSafeProxyTarget,
+  createPinnedAgent,
+  ProxyTargetError,
+} from "./proxy-security.js";
 
 // Type-compatible wrappers for node-fetch to work with browser-style types
 const fetch = nodeFetch;
@@ -29,8 +34,6 @@ import rateLimit from "express-rate-limit";
 import { findActualExecutable } from "spawn-rx";
 import mcpProxy, { type ProxyHeaderHolder } from "./mcpProxy.js";
 import { randomUUID, randomBytes, timingSafeEqual } from "node:crypto";
-import { lookup as dnsLookup } from "node:dns/promises";
-import { isIP } from "node:net";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 import { readFileSync } from "fs";
@@ -863,91 +866,17 @@ app.get("/health", (req, res) => {
   });
 });
 
-// Raised when the /fetch proxy is asked to reach a disallowed target, so the
-// route can distinguish an SSRF rejection (403) from an upstream failure (500).
-class ProxyTargetError extends Error {}
-
 const MAX_PROXY_REDIRECTS = 5;
-
-// The /fetch proxy is used by the client to reach OAuth discovery/token
-// endpoints on the connected MCP server (bypassing browser CORS). Connecting
-// to loopback and RFC1918/private LAN hosts is a core use case (testing local
-// or self-hosted MCP servers), so those stay reachable. We only block
-// link-local addresses — 169.254.0.0/16 (the AWS/GCP/Azure/etc. cloud metadata
-// endpoint 169.254.169.254 lives here) and IPv6 link-local / the AWS IPv6 IMDS
-// address — which are never legitimate proxy targets and are the real SSRF
-// exfiltration vector.
-function isBlockedProxyAddress(ip: string): boolean {
-  const kind = isIP(ip);
-  if (kind === 4) {
-    const parts = ip.split(".").map(Number);
-    // 169.254.0.0/16 — IPv4 link-local (incl. cloud metadata 169.254.169.254)
-    return parts[0] === 169 && parts[1] === 254;
-  }
-  if (kind === 6) {
-    const addr = ip.toLowerCase();
-    // IPv4-mapped IPv6 (::ffff:x). The WHATWG URL parser serializes the embedded
-    // IPv4 in hex (::ffff:a9fe:a9fe for 169.254.169.254), while DNS and other
-    // sources may use the dotted form (::ffff:169.254.169.254) — handle both by
-    // extracting the IPv4 and re-checking it.
-    const mapped = addr.match(/^::ffff:(.+)$/);
-    if (mapped) {
-      const tail = mapped[1];
-      if (isIP(tail) === 4) {
-        return isBlockedProxyAddress(tail);
-      }
-      const hex = tail.match(/^([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
-      if (hex) {
-        const high = parseInt(hex[1], 16);
-        const low = parseInt(hex[2], 16);
-        return isBlockedProxyAddress(
-          `${high >> 8}.${high & 0xff}.${low >> 8}.${low & 0xff}`,
-        );
-      }
-    }
-    // fe80::/10 — IPv6 link-local
-    if (/^fe[89ab]/.test(addr)) {
-      return true;
-    }
-    // fd00:ec2::254 — AWS IPv6 instance metadata endpoint
-    return addr === "fd00:ec2::254";
-  }
-  return false;
-}
-
-// Resolves the target host and rejects it if any resolved address is a blocked
-// (link-local/metadata) address, mitigating SSRF including the DNS case where a
-// hostname resolves to the cloud metadata IP.
-async function assertSafeProxyTarget(parsedUrl: URL): Promise<void> {
-  const host = parsedUrl.hostname.replace(/^\[|\]$/g, ""); // strip IPv6 brackets
-
-  let addresses: string[];
-  if (isIP(host)) {
-    addresses = [host];
-  } else {
-    try {
-      addresses = (await dnsLookup(host, { all: true })).map((r) => r.address);
-    } catch {
-      throw new ProxyTargetError(`Could not resolve host: ${host}`);
-    }
-  }
-
-  if (addresses.length === 0) {
-    throw new ProxyTargetError(`Could not resolve host: ${host}`);
-  }
-
-  for (const address of addresses) {
-    if (isBlockedProxyAddress(address)) {
-      throw new ProxyTargetError(
-        `Refusing to proxy request to blocked address (${address})`,
-      );
-    }
-  }
-}
 
 // Fetch that follows redirects manually so every hop's target is re-validated
 // against assertSafeProxyTarget — otherwise an allowed host could redirect the
 // proxy into a blocked internal/metadata address.
+//
+// On each hop we call assertSafeProxyTarget (which resolves DNS and validates
+// every returned IP) and then pass a createPinnedAgent to node-fetch so it
+// connects to the IP we just validated instead of re-resolving the hostname.
+// This eliminates the TOCTOU window between the block-list check and the
+// actual TCP connection that a DNS-rebinding attack would exploit.
 async function safeProxyFetch(initialUrl: string, init?: RequestInit) {
   let currentUrl = new URL(initialUrl);
   let method = init?.method ?? "GET";
@@ -958,13 +887,19 @@ async function safeProxyFetch(initialUrl: string, init?: RequestInit) {
     if (!["http:", "https:"].includes(currentUrl.protocol)) {
       throw new ProxyTargetError("Only http/https URLs are allowed");
     }
-    await assertSafeProxyTarget(currentUrl);
+
+    // Resolve DNS once, validate every address, and pin the connection to the
+    // first validated IP so node-fetch never does a second DNS lookup.
+    const validatedAddresses = await assertSafeProxyTarget(currentUrl);
+    const agent = createPinnedAgent(currentUrl.protocol, validatedAddresses[0]);
 
     const response = await fetch(currentUrl.toString(), {
       method,
       headers,
       body,
       redirect: "manual",
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      agent: agent as any,
     });
 
     if (response.status >= 300 && response.status < 400) {
