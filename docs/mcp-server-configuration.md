@@ -9,19 +9,19 @@ Client-specific options (the web server port, the CLI method to invoke, TUI navi
 1. **From a file** — a catalog or session file listing one or more servers.
 2. **Ad-hoc** — a command (stdio) or a URL (SSE / Streamable HTTP) on the command line.
 
-The two do not mix. `--catalog` and `--config` are mutually exclusive with each other, and neither combines with an ad-hoc target. All three clients reject the combination identically (`serverSourceConflict`).
+The two do not mix. `--catalog` and `--config` are mutually exclusive with each other, and neither combines with an ad-hoc target. All three clients apply the same **source-selection** rules — the CLI and TUI through the shared `serverSourceConflict` helper (`core/mcp/node/config.ts`), web through an equivalent inline matrix in `clients/web/server/run-web.ts`. Web is deliberately stricter on one axis: it also rejects `--header` alongside `--catalog`/`--config`, because the CLI and TUI merge `--header` into per-server settings and web does not.
 
 ## From a file: `--catalog` vs. `--config`
 
 These look interchangeable and are not. The difference is **who owns the file**.
 
-| | `--catalog <path>` | `--config <path>` |
-| --- | --- | --- |
-| Writable by the Inspector | Yes — this is the Inspector's own server list | No. Served as-is; never written, seeded, or migrated |
-| When the file is missing | Created and seeded (see below) | **Errors** |
-| Default path | `~/.mcp-inspector/mcp.json`, or `MCP_CATALOG_PATH` | none — must be passed |
-| Editable in the web UI | Yes | No (catalog CRUD is hidden) |
-| Use it for | your own working set of servers | a read-only session against a file you didn't write |
+|                           | `--catalog <path>`                                 | `--config <path>`                                    |
+| ------------------------- | -------------------------------------------------- | ---------------------------------------------------- |
+| Writable by the Inspector | Yes — this is the Inspector's own server list      | No. Served as-is; never written, seeded, or migrated |
+| When the file is missing  | Created and seeded (see below)                     | **Errors**                                           |
+| Default path              | `~/.mcp-inspector/mcp.json`, or `MCP_CATALOG_PATH` | none — must be passed                                |
+| Editable in the web UI    | Yes                                                | No (catalog CRUD is hidden)                          |
+| Use it for                | your own working set of servers                    | a read-only session against a file you didn't write  |
 
 Use `--config` when pointing the Inspector at a config file belonging to something else — a coworker's, a client application's, one checked into a repo. It guarantees the Inspector will not touch the bytes on disk, including any plaintext secrets in them.
 
@@ -50,7 +50,7 @@ A missing **writable** catalog is created on first use, but **what gets written 
 
 - **CLI and TUI** seed an empty `{ "mcpServers": {} }` (`seedEmptyCatalog` in `core/mcp/node/config.ts`). They are non-interactive or list-driven, so sample entries would be noise rather than a starting point.
 
-Seeding happens **once**, only when the file is absent. An existing catalog is never re-seeded, and a read-only `--config` is never seeded on any surface.
+Seeding happens **once per file**, only when that file is absent — not once per client. All three surfaces default to the _same_ path (`~/.mcp-inspector/mcp.json`, `getDefaultMcpConfigPath()` in `core/storage/store-io.ts`), so whichever client runs first decides the contents: run `--cli` first and a later `--web` opens the empty catalog it wrote, with no sample servers. An existing catalog is never re-seeded, and a read-only `--config` is never seeded on any surface.
 
 ## Ad-hoc servers
 
@@ -66,29 +66,39 @@ mcp-inspector --cli --server-url https://api.example.com/mcp --transport http
 
 ### The `--` separator
 
-The **web and cli** clients split their arguments at a bare `--` and forward everything after it to the target command as its own arguments. This is how you pass a flag the Inspector would otherwise consume:
+A bare `--` is meaningful on every surface, but **web/tui and cli split it in opposite directions**. Read the one you're using.
+
+**Web and TUI — everything _after_ `--` goes to the target command.** This is how you pass a flag the Inspector would otherwise consume:
 
 ```bash
 mcp-inspector node build/index.js -- --config /etc/myserver.conf --verbose
 ```
 
-Without the separator, `--config` would be read as the Inspector's own read-only-session flag.
+Without the separator, `--config` would be read as the Inspector's own read-only-session flag. Web splits explicitly (`clients/web/server/run-web.ts`); the TUI has no split of its own but Commander's default end-of-options handling appends the remainder to the target, so the effect is the same.
+
+**CLI — reversed: everything _before_ `--` is the server target, everything _after_ is the Inspector's own options.**
+
+```bash
+mcp-inspector --cli node build/index.js -- --method tools/list
+```
+
+So under `--cli` the separator does **not** protect an argument from the Inspector — it does the opposite, and the web example above would have `--config /etc/myserver.conf` consumed as a read-only-session flag (then rejected as a catalog/ad-hoc conflict). There is currently no way to pass a leading-dash argument through to a stdio server on the `--cli` command line; put it in the server entry's `args` in a catalog or config file instead.
 
 ## The shared flags
 
-| Flag | Meaning | Notes |
-| --- | --- | --- |
-| `--catalog <path>` | Writable catalog file | Env fallback `MCP_CATALOG_PATH` |
-| `--config <path>` | Read-only session file | Errors if absent |
-| `--server <name>` | Select one named server from the file | **Web and CLI only.** The TUI loads every server in the file and you pick interactively |
-| `--transport <type>` | `stdio`, `sse`, or `http` | Ad-hoc targets only |
-| `--server-url <url>` | Server URL for SSE / Streamable HTTP | Ad-hoc targets only |
-| `--cwd <path>` | Working directory for a stdio server process | |
-| `-e <KEY=VALUE>` | Environment variable for a stdio server; repeatable | |
-| `--header "Name: Value"` | HTTP header for an HTTP/SSE server; repeatable | On web, requires an ad-hoc HTTP/SSE server |
-| `[target...]` | Positional command or URL for one ad-hoc server | |
+| Flag                     | Meaning                                             | Notes                                                                                   |
+| ------------------------ | --------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| `--catalog <path>`       | Writable catalog file                               | Env fallback `MCP_CATALOG_PATH`                                                         |
+| `--config <path>`        | Read-only session file                              | Errors if absent                                                                        |
+| `--server <name>`        | Select one named server from the file               | **Web and CLI only.** The TUI loads every server in the file and you pick interactively |
+| `--transport <type>`     | `stdio`, `sse`, or `http`                           | Ad-hoc targets only                                                                     |
+| `--server-url <url>`     | Server URL for SSE / Streamable HTTP                | Ad-hoc targets only                                                                     |
+| `--cwd <path>`           | Working directory for a stdio server process        |                                                                                         |
+| `-e <KEY=VALUE>`         | Environment variable for a stdio server; repeatable |                                                                                         |
+| `--header "Name: Value"` | HTTP header for an HTTP/SSE server; repeatable      | On web, requires an ad-hoc HTTP/SSE server                                              |
+| `[target...]`            | Positional command or URL for one ad-hoc server     |                                                                                         |
 
-`MCP_CATALOG_PATH` is honored **only when no ad-hoc target is given** (no positional command, `--server-url`, or `--transport`), so a shell that exports it can still run one-off ad-hoc invocations without tripping the catalog/ad-hoc conflict.
+**`MCP_CATALOG_PATH` and ad-hoc targets differ by client.** The **CLI** ignores the env var when an ad-hoc target is given (a positional command, `--server-url`, or `--transport`), so a shell that exports it can still run one-off ad-hoc invocations without tripping the catalog/ad-hoc conflict. **Web and TUI read it unconditionally** — with it exported, an ad-hoc invocation such as `mcp-inspector --tui node build/index.js` is rejected as `--catalog cannot be combined with an ad-hoc server URL/command`. Unset the variable for that invocation on those two surfaces.
 
 ## File format
 
@@ -130,19 +140,19 @@ The file is the familiar MCP client-config shape — an `mcpServers` object keye
 
 These have no analog in the broader `mcp.json` ecosystem. Each is **omitted on write when it equals its default**, so a round-trip through the Inspector keeps the file diff minimal.
 
-| Field | Default | Meaning |
-| --- | --- | --- |
-| `protocolEra` | `"legacy"` | `"legacy"` \| `"auto"` \| `"modern"` — which protocol era to negotiate, orthogonal to the transport |
-| `modernLogLevel` | `"debug"` | Per-request log level stamped on modern connections, or `"off"`. Legacy connections ignore it |
-| `roots` | — | Roots advertised via the `roots` client capability; each is `{ uri, name? }` |
-| `metadata` | — | Default `_meta` keys merged into every outgoing request |
-| `connectionTimeout` / `requestTimeout` | — | Timeouts in ms |
-| `taskTtl` | — | TTL in ms for tasks created via "Run as task" |
-| `autoRefreshOnListChanged` | `false` | Refresh lists automatically on `*/list_changed` instead of only flagging the indicator |
-| `paginatedLists` | `false` | Fetch tools/resources/prompts one page at a time instead of auto-aggregating |
-| `advertisedExtensions` | — | Per-extension overrides for what the Inspector declares in `capabilities.extensions` |
-| `maxFetchRequests` | — | Network-log retention for this server; `0` means unlimited |
-| `oauth` | — | `{ clientId, clientSecret, scopes, enterpriseManaged, onInsufficientScope }` |
+| Field                                  | Default    | Meaning                                                                                             |
+| -------------------------------------- | ---------- | --------------------------------------------------------------------------------------------------- |
+| `protocolEra`                          | `"legacy"` | `"legacy"` \| `"auto"` \| `"modern"` — which protocol era to negotiate, orthogonal to the transport |
+| `modernLogLevel`                       | `"debug"`  | Per-request log level stamped on modern connections, or `"off"`. Legacy connections ignore it       |
+| `roots`                                | —          | Roots advertised via the `roots` client capability; each is `{ uri, name? }`                        |
+| `metadata`                             | —          | Default `_meta` keys merged into every outgoing request                                             |
+| `connectionTimeout` / `requestTimeout` | —          | Timeouts in ms                                                                                      |
+| `taskTtl`                              | `60000`    | TTL in ms for tasks created via "Run as task" (`DEFAULT_TASK_TTL_MS`)                               |
+| `autoRefreshOnListChanged`             | `false`    | Refresh lists automatically on `*/list_changed` instead of only flagging the indicator              |
+| `paginatedLists`                       | `false`    | Fetch tools/resources/prompts one page at a time instead of auto-aggregating                        |
+| `advertisedExtensions`                 | —          | Per-extension overrides for what the Inspector declares in `capabilities.extensions`                |
+| `maxFetchRequests`                     | `1000`     | Network-log retention for this server (`DEFAULT_MAX_FETCH_REQUESTS`); `0` means unlimited           |
+| `oauth`                                | —          | `{ clientId, clientSecret, scopes, enterpriseManaged, onInsufficientScope }`                        |
 
 A catalog carrying these fields:
 
@@ -162,13 +172,13 @@ A catalog carrying these fields:
 
 ## Per-client behavior
 
-| | Web | CLI | TUI |
-| --- | --- | --- | --- |
-| Seeds a missing catalog with | two sample servers | `{}` | `{}` |
-| `--server` | yes (currently warns — the UI lists every server) | yes | no — all servers are listed |
-| `--` separator | yes | yes | no |
-| OAuth client flags | no (uses the Client Settings dialog) | yes | yes |
-| Catalog CRUD | yes | read-only consumer | read-only consumer |
+|                              | Web                                               | CLI                                 | TUI                                           |
+| ---------------------------- | ------------------------------------------------- | ----------------------------------- | --------------------------------------------- |
+| Seeds a missing catalog with | two sample servers                                | `{}`                                | `{}`                                          |
+| `--server`                   | yes (currently warns — the UI lists every server) | yes                                 | no — all servers are listed                   |
+| `--` separator               | yes — after `--` → target                         | **reversed** — before `--` → target | yes — after `--` → target (Commander default) |
+| OAuth client flags           | no (uses the Client Settings dialog)              | yes                                 | yes                                           |
+| Catalog CRUD                 | yes                                               | read-only consumer                  | read-only consumer                            |
 
 The CLI and TUI do not perform catalog CRUD yet — they are read consumers — so the writable/read-only split currently surfaces there only as **seed-if-missing** (`--catalog` / default) vs. **error-if-missing** (`--config`). Full writable persistence is tracked in [#1482](https://github.com/modelcontextprotocol/inspector/issues/1482) / [#1432](https://github.com/modelcontextprotocol/inspector/issues/1432).
 
