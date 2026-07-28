@@ -12,6 +12,8 @@ interface OAuthCallbackProps {
   onConnect: (serverUrl: string) => void;
 }
 
+const OAUTH_STATE_SESSION_KEY = "oauth_state";
+
 const OAuthCallback = ({ onConnect }: OAuthCallbackProps) => {
   const { toast } = useToast();
   const hasProcessedRef = useRef(false);
@@ -35,6 +37,13 @@ const OAuthCallback = ({ onConnect }: OAuthCallbackProps) => {
       if (!params.successful) {
         return notifyError(generateOAuthErrorDescription(params));
       }
+
+      const callbackState = new URLSearchParams(window.location.search).get("state");
+      const storedState = sessionStorage.getItem(OAUTH_STATE_SESSION_KEY);
+      if (!callbackState || !storedState || callbackState !== storedState) {
+        return notifyError("Invalid OAuth state");
+      }
+      sessionStorage.removeItem(OAUTH_STATE_SESSION_KEY);
 
       const serverUrl = sessionStorage.getItem(SESSION_KEYS.SERVER_URL);
       if (!serverUrl) {
