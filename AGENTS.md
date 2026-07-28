@@ -39,7 +39,9 @@ inspector/
 │   ├── json/                           # JSON utilities and parameter/argument conversion
 │   │                                   #   (xMcpHeader.ts: SEP-2243 `x-mcp-header`
 │   │                                   #   annotation scan/validation + mirrored-param
-│   │                                   #   derivation, used by the Tools tab — #1632)
+│   │                                   #   derivation, used by the Tools tab — #1632;
+│   │                                   #   plus `Mcp-Param-*` header building for the
+│   │                                   #   wire, used by both `tools/call` paths — #1846)
 │   ├── logging/                        # Silent pino logger singleton
 │   ├── mcp/                            # InspectorClient runtime + state stores
 │   │                                   #   (modernTaskSchemas.ts: SEP-2663 modern Tasks

@@ -118,6 +118,27 @@ describe("x-mcp-header Mcp-Param-* mirroring on tools/call", () => {
     expect(sent.get("Mcp-Param-City")).toBe("London");
   });
 
+  it("mirrors on the task-augmented tools/call too (callToolStream)", async () => {
+    // The "Run as task" path builds its own request options, so it needs the
+    // same mirroring — a strict modern server rejects the task-augmented
+    // `tools/call` with -32020 when the header is missing, exactly as it does
+    // the plain one.
+    const started = await startWeatherServer();
+    const spy = makeSpyFetch();
+    const connected = await connectModern(started.url, spy.fetch);
+
+    const result = await connected.callToolStream(
+      await weatherTool(connected),
+      { city: "London" },
+      undefined,
+      undefined,
+      { ttl: 60_000 },
+    );
+
+    expect(result.success).toBe(true);
+    expect(spy.toolCallHeaders.at(-1)!.get("Mcp-Param-City")).toBe("London");
+  });
+
   it("sends no Mcp-Param-* header for a tool without annotations", async () => {
     const started = await startWeatherServer();
     const spy = makeSpyFetch();
