@@ -65,6 +65,10 @@ jobs:
       - name: Ensure npm CLI supports OIDC trusted publishing
         run: npm install -g npm@^11.5.1
 
+      # `publish-all` pins `--tag v1` on all four packages. Do NOT remove it:
+      # without an explicit tag npm assigns `latest`, so a v1 security release
+      # would drag `latest` back from v2 and every `npx
+      # @modelcontextprotocol/inspector` would silently get deprecated v1.
       - run: npm run publish-all
         env:
           NPM_CONFIG_PROVENANCE: "true"
