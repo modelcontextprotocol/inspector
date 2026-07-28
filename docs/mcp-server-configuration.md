@@ -9,7 +9,10 @@ Client-specific options (the web server port, the CLI method to invoke, TUI navi
 1. **From a file** — a catalog or session file listing one or more servers.
 2. **Ad-hoc** — a command (stdio) or a URL (SSE / Streamable HTTP) on the command line.
 
-The two do not mix. `--catalog` and `--config` are mutually exclusive with each other, and neither combines with an ad-hoc target. All three clients apply the same **source-selection** rules — the CLI and TUI through the shared `serverSourceConflict` helper (`core/mcp/node/config.ts`), web through an equivalent inline matrix in `clients/web/server/run-web.ts`. Web is deliberately stricter on one axis: it also rejects `--header` alongside `--catalog`/`--config`, because the CLI and TUI merge `--header` into per-server settings and web does not.
+The two do not mix. `--catalog` and `--config` are mutually exclusive with each other, and neither combines with an ad-hoc target. All three clients apply the same **source-selection** rules — the CLI and TUI through the shared `serverSourceConflict` helper (`core/mcp/node/config.ts`), web through an equivalent inline matrix in `clients/web/server/run-web.ts`. The two implementations diverge on two narrow axes, in opposite directions:
+
+- **Web is stricter on `--header`:** it also rejects `--header` alongside `--catalog`/`--config`, because the CLI and TUI merge `--header` into per-server settings and web does not.
+- **Web is looser on `--transport stdio`:** the CLI and TUI treat _any_ `--transport` as an ad-hoc marker, so `--catalog c.json --transport stdio` is rejected as a catalog/ad-hoc conflict there; web excludes `stdio` from that test and accepts the same combination, silently ignoring the flag.
 
 ## From a file: `--catalog` vs. `--config`
 
@@ -64,7 +67,7 @@ mcp-inspector node build/index.js
 mcp-inspector --server-url https://api.example.com/mcp --transport http
 ```
 
-Those run as written in the default (web) mode. Under `--cli` two extra rules apply, both consequences of how it splits argv (see the `--` separator section below):
+Those run as written in the default (web) mode. Under `--cli` two extra rules apply:
 
 - A `--method` is required — a CLI invocation with no method exits with `Method is required.`
 - **The target must come first.** The CLI reads the leading run of non-dash tokens as the target, so anything after the first flag is no longer part of it:
@@ -100,17 +103,17 @@ So under `--cli` the separator does **not** protect an argument from the Inspect
 
 ## The shared flags
 
-| Flag                     | Meaning                                             | Notes                                                                                                                                                             |
-| ------------------------ | --------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--catalog <path>`       | Writable catalog file                               | Env fallback `MCP_CATALOG_PATH`                                                                                                                                   |
-| `--config <path>`        | Read-only session file                              | Errors if absent                                                                                                                                                  |
-| `--server <name>`        | Select one named server from the file               | **Selects only under `--cli`.** Web accepts it, warns, and ignores it (the UI lists every server); the TUI does not define it and rejects it as an unknown option |
-| `--transport <type>`     | `stdio`, `sse`, or `http`                           | Ad-hoc targets only                                                                                                                                               |
-| `--server-url <url>`     | Server URL for SSE / Streamable HTTP                | Ad-hoc targets only                                                                                                                                               |
-| `--cwd <path>`           | Working directory for a stdio server process        |                                                                                                                                                                   |
-| `-e <KEY=VALUE>`         | Environment variable for a stdio server; repeatable |                                                                                                                                                                   |
-| `--header "Name: Value"` | HTTP header for an HTTP/SSE server; repeatable      | On web, requires an ad-hoc HTTP/SSE server                                                                                                                        |
-| `[target...]`            | Positional command or URL for one ad-hoc server     |                                                                                                                                                                   |
+| Flag                     | Meaning                                             | Notes                                                                                                                                                                                |
+| ------------------------ | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `--catalog <path>`       | Writable catalog file                               | Env fallback `MCP_CATALOG_PATH`                                                                                                                                                      |
+| `--config <path>`        | Read-only session file                              | Errors if absent                                                                                                                                                                     |
+| `--server <name>`        | Select one named server from the file               | **Selects only under `--cli`.** Web ignores it — warning with `--catalog`/`--config`, silently with an ad-hoc target; the TUI does not define it and rejects it as an unknown option |
+| `--transport <type>`     | `stdio`, `sse`, or `http`                           | Ad-hoc targets only — enforced on cli/tui; web exempts `--transport stdio` (see above)                                                                                               |
+| `--server-url <url>`     | Server URL for SSE / Streamable HTTP                | Ad-hoc targets only                                                                                                                                                                  |
+| `--cwd <path>`           | Working directory for a stdio server process        |                                                                                                                                                                                      |
+| `-e <KEY=VALUE>`         | Environment variable for a stdio server; repeatable |                                                                                                                                                                                      |
+| `--header "Name: Value"` | HTTP header for an HTTP/SSE server; repeatable      | On web, requires an ad-hoc HTTP/SSE server                                                                                                                                           |
+| `[target...]`            | Positional command or URL for one ad-hoc server     |                                                                                                                                                                                      |
 
 **`MCP_CATALOG_PATH` and ad-hoc targets differ by client.** The **CLI** ignores the env var when an ad-hoc target is given (a positional command, `--server-url`, or `--transport`), so a shell that exports it can still run one-off ad-hoc invocations without tripping the catalog/ad-hoc conflict. **Web and TUI read it unconditionally** — with it exported, an ad-hoc invocation such as `mcp-inspector --tui node build/index.js` is rejected as `--catalog cannot be combined with an ad-hoc server URL/command`. Unset the variable for that invocation on those two surfaces.
 
@@ -186,13 +189,13 @@ A catalog carrying these fields:
 
 ## Per-client behavior
 
-|                              | Web                                              | CLI                                     | TUI                                              |
-| ---------------------------- | ------------------------------------------------ | --------------------------------------- | ------------------------------------------------ |
-| Seeds a missing catalog with | two sample servers                               | `{}`                                    | `{}`                                             |
-| `--server`                   | accepted but a no-op — warns, lists every server | yes — the only surface where it selects | not defined — `error: unknown option '--server'` |
-| `--` separator               | yes — after `--` → target                        | **reversed** — before `--` → target     | yes — after `--` → target (Commander default)    |
-| OAuth client flags           | no (uses the Client Settings dialog)             | yes                                     | yes                                              |
-| Catalog CRUD                 | yes                                              | read-only consumer                      | read-only consumer                               |
+|                              | Web                                                           | CLI                                     | TUI                                              |
+| ---------------------------- | ------------------------------------------------------------- | --------------------------------------- | ------------------------------------------------ |
+| Seeds a missing catalog with | two sample servers                                            | `{}`                                    | `{}`                                             |
+| `--server`                   | a no-op — warns with a file source, silent with an ad-hoc one | yes — the only surface where it selects | not defined — `error: unknown option '--server'` |
+| `--` separator               | yes — after `--` → target                                     | **reversed** — before `--` → target     | yes — after `--` → target (Commander default)    |
+| OAuth client flags           | no (uses the Client Settings dialog)                          | yes                                     | yes                                              |
+| Catalog CRUD                 | yes                                                           | read-only consumer                      | read-only consumer                               |
 
 The CLI and TUI do not perform catalog CRUD yet — they are read consumers — so the writable/read-only split currently surfaces there only as **seed-if-missing** (`--catalog` / default) vs. **error-if-missing** (`--config`). Full writable persistence is tracked in [#1482](https://github.com/modelcontextprotocol/inspector/issues/1482) / [#1432](https://github.com/modelcontextprotocol/inspector/issues/1432).
 
