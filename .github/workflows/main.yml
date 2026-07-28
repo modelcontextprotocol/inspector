@@ -169,7 +169,23 @@ jobs:
         # prepack); the redundancy is intentional — each is a clean-tree rebuild
         # and the `prepack` one is what actually populates the published tarball,
         # so don't "optimize" it away.
-        run: npm publish --access public --provenance
+        #
+        # The dist-tag is derived from the version, and passing it explicitly is
+        # NOT optional: `npm publish` defaults to `--tag latest` regardless of
+        # semver prerelease status, so publishing `2.0.0-rc.1` without this would
+        # point every `npx @modelcontextprotocol/inspector` at a release
+        # candidate. A prerelease is a hyphen after the patch component
+        # (`2.0.0-rc.1`); build metadata uses `+` and is not a prerelease. Done
+        # in shell rather than with `semver` because that package is only a
+        # transitive dependency here and must not be relied on in CI.
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+          case "$VERSION" in
+            *-*) NPM_TAG=next ;;
+            *)   NPM_TAG=latest ;;
+          esac
+          echo "Publishing $VERSION under dist-tag '$NPM_TAG'"
+          npm publish --access public --provenance --tag "$NPM_TAG"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
