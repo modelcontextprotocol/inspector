@@ -1,0 +1,88 @@
+version: 2
+
+# Version updates target `v2/main` (the develop branch), not the default
+# branch — `main` is release-only and takes milestone merges from `v2/main`.
+#
+# Two things to know about this file:
+#   1. Dependabot reads it from the DEFAULT branch (`main`). Changes here are
+#      inert until the next milestone merge carries them there.
+#   2. `target-branch` scopes VERSION updates. Dependabot SECURITY updates are
+#      enabled in repo settings, not here, and always target the default
+#      branch — they kept working while this file was missing entirely
+#      (see #1833, #1840).
+#
+# v2 is not an npm workspace: the root and each client under `clients/*` carry
+# their own package.json + lockfile, so each needs its own entry.
+
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    target-branch: "v2/main"
+    schedule:
+      interval: "monthly"
+    labels:
+      - "v2"
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+
+  - package-ecosystem: "npm"
+    directory: "/"
+    target-branch: "v2/main"
+    schedule:
+      interval: "monthly"
+    labels:
+      - "v2"
+    groups:
+      root-dependencies:
+        patterns:
+          - "*"
+
+  - package-ecosystem: "npm"
+    directory: "/clients/web"
+    target-branch: "v2/main"
+    schedule:
+      interval: "monthly"
+    labels:
+      - "v2"
+    groups:
+      web-dependencies:
+        patterns:
+          - "*"
+
+  - package-ecosystem: "npm"
+    directory: "/clients/cli"
+    target-branch: "v2/main"
+    schedule:
+      interval: "monthly"
+    labels:
+      - "v2"
+    groups:
+      cli-dependencies:
+        patterns:
+          - "*"
+
+  - package-ecosystem: "npm"
+    directory: "/clients/tui"
+    target-branch: "v2/main"
+    schedule:
+      interval: "monthly"
+    labels:
+      - "v2"
+    groups:
+      tui-dependencies:
+        patterns:
+          - "*"
+
+  - package-ecosystem: "npm"
+    directory: "/clients/launcher"
+    target-branch: "v2/main"
+    schedule:
+      interval: "monthly"
+    labels:
+      - "v2"
+    groups:
+      launcher-dependencies:
+        patterns:
+          - "*"
