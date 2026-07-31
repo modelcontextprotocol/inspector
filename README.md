@@ -14,7 +14,7 @@ npx @modelcontextprotocol/inspector --cli    # CLI
 npx @modelcontextprotocol/inspector --tui    # TUI
 ```
 
-> **Repo status.** This is the **v2** line of the Inspector (branch `v2/main`). The `main` branch is the legacy v1 implementation (bug fixes only). v2 will eventually replace `main`. See [`AGENTS.md`](./AGENTS.md) for branch/board conventions.
+> **Repo status.** This is the **v2** line of the Inspector. Active development happens on **`v2/main`** (the develop branch — all v2 PRs target it), which is merged into **`main`** at milestone releases; `main` is the default branch and holds the latest released v2, published to the npm `latest` tag. The legacy **v1** line lives on **`v1/main`** — security and bug fixes only, published straight from that branch to the npm `v1-latest` tag (`npx @modelcontextprotocol/inspector@v1-latest`). See [`AGENTS.md`](./AGENTS.md) for branch/board conventions.
 
 ## Project layout
 
@@ -29,6 +29,7 @@ inspector/
 │   └── launcher/     # Shared launcher — provides the `mcp-inspector` bin, dispatches to web/cli/tui
 ├── core/             # Shared code consumed via the `@inspector/core` alias (no package.json)
 │   ├── auth/         # OAuth: providers, discovery, storage, mid-session recovery (browser/node/remote backends)
+│   ├── client/       # Install-level client config (`client.json`): browser-safe parse/validate + Node load/save, remote backend, secrets
 │   ├── json/         # JSON + parameter/argument conversion utilities
 │   ├── logging/      # Silent pino logger singleton
 │   ├── mcp/          # InspectorClient runtime, state stores, transports, config import
@@ -37,6 +38,7 @@ inspector/
 │   └── storage/      # File I/O helpers for the OAuth persist backends
 ├── test-servers/     # Composable MCP test servers + fixtures used by integration tests
 ├── scripts/          # Root build/verify tooling (install cascade, smokes, verify-build-gate, verify-format-coverage, pack:verify)
+├── docs/             # Task-oriented guides (server configuration, MCP App review, launcher/config plan)
 ├── specification/    # Design/build specifications
 ├── AGENTS.md         # Contribution rules for agents AND humans (see below)
 └── README.md         # You are here
@@ -181,6 +183,8 @@ Publishing is automated by two release-gated jobs in [`.github/workflows/main.ym
 
 - **`publish`** — the npm package. Runs `npm run pack:verify` as the pre-publish gate, asserts the release tag matches the root `package.json` version, then `npm publish --access public --provenance` — a single `npm publish` (v2 is not an npm workspace, so there is no v1-style `publish-all`/`--workspaces`), with a signed provenance attestation via GitHub OIDC (`id-token: write`, `environment: release`, `NPM_TOKEN`).
 - **`publish-github-container-registry`** — the container image (see [Docker](#docker)).
+
+A v2 release is cut from **`main`**, after the milestone's work has been merged there from `v2/main` — not from `v2/main` itself. (The v1 line releases independently from `v1/main` to the `v1-latest` tag and never touches `main`; see [Repo status](#mcp-inspector).)
 
 Because there is **one version number** (only the root `package.json` has one — the clients carry none, so there is nothing to keep in sync and no `check-version` step), the release flow is just:
 

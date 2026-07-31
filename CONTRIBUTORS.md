@@ -8,7 +8,9 @@ form we can act on quickly and consistently.
 
 **We accept issues, not pull requests.** Design and implementation are done by
 the maintainers. If you've already built a fix or feature locally, share **the
-prompt you used** to produce it — not the source code.
+prompt you used** to produce it — not the source code. This applies to everyone
+outside the repo maintainers, including organization members who happen to have
+write access to this repository.
 
 ## Why this policy exists
 
@@ -32,6 +34,26 @@ than an issue, see
 [Want to work on the Inspector with us?](#want-to-work-on-the-inspector-with-us)
 below — we'd rather bring you into the workflow than turn you away.
 
+## Who opens pull requests
+
+Pull requests against this repository are opened by the **repo maintainers**
+only. That includes organization members with write access: being able to push
+a branch here isn't the same as being asked to — the constraint is the workflow
+described above, not permissions, so the same policy applies whether or not
+GitHub would let you click the button.
+
+If you're not a repo maintainer, open a **detailed issue** instead and a
+maintainer will pick it up. If you've already prototyped the change locally,
+say so in the issue and include the prompt you used (see
+[If you've already fixed it locally](#if-youve-already-fixed-it-locally)) —
+that's the fastest path from your work to a merged change.
+
+**Every pull request references an issue**, including the maintainers' own. The
+PR body's first line is `Closes #<ISSUE_NUMBER>`. Work is tracked on the project
+board through issues, so a PR without one is invisible to the board — which is
+why a well-formed issue is the useful contribution here, and why writing one is
+never wasted effort.
+
 ## How to contribute a bug report or feature request
 
 Open a well-formed issue describing the bug or the feature you have in mind.
@@ -46,18 +68,22 @@ The Inspector is maintained across two versions, each with its own base branch
 and version label. File your issue against the version your report or request
 targets:
 
-| Version | Base branch | Label |
-| ------- | ----------- | ----- |
-| v1      | `v1/main`   | `v1`  |
-| v2      | `main`      | `v2`  |
+| Version | Base branch | Label | npm tag      |
+| ------- | ----------- | ----- | ------------ |
+| v1      | `v1/main`   | `v1`  | `v1-latest`  |
+| v2      | `v2/main`   | `v2`  | `latest`     |
 
 - **v1** (`v1/main`) is the legacy Inspector — it takes **security fixes
-  only**.
-- **v2** (`main`) is where all current work happens — when in doubt, target v2.
+  only**, and is published straight from that branch to the `v1-latest` npm
+  tag (`npx @modelcontextprotocol/inspector@v1-latest`).
+- **v2** (`v2/main`) is where all current work happens — when in doubt, target
+  v2. `v2/main` is the develop branch; it is merged into `main` at milestone
+  releases, and `main` is what publishes the `latest` npm tag. Nothing targets
+  `main` directly.
 
 **Label by version.** Every issue (and the PRs maintainers open for it) must
 carry the label matching the target branch — `v1` for `v1/main` and `v2` for
-`main`. This mirrors the "Label by version" convention documented in
+`v2/main`. This mirrors the "Label by version" convention documented in
 [`AGENTS.md`](./AGENTS.md).
 
 ## If you've already fixed it locally
