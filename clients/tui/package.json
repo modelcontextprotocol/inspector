@@ -48,7 +48,7 @@
     "@eslint/js": "^9.39.4",
     "@types/node": "^24.12.4",
     "@types/react": "^19.2.14",
-    "@vitest/coverage-v8": "^4.1.0",
+    "@vitest/coverage-v8": "^4.1.10",
     "eslint": "^9.39.4",
     "eslint-plugin-react-hooks": "^7.0.1",
     "globals": "^17.4.0",
@@ -60,6 +60,6 @@
     "typescript-eslint": "^8.56.1",
     "vite": "^8.1.5",
     "vite-node": "^6.0.0",
-    "vitest": "^4.1.0"
+    "vitest": "^4.1.10"
   }
 }
