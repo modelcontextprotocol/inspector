@@ -109,7 +109,7 @@ After installing, `npm run build` builds all clients. The launcher scripts (`npm
 External contributions are accepted as **issues, not pull requests** —
 maintainers handle design and implementation through a prompt-driven workflow.
 If you've already built a change locally, share the **prompt** you used, not a
-diff. See [`CONTRIBUTORS.md`](./CONTRIBUTORS.md) for the full policy.
+diff. See [`CONTRIBUTING.md`](./CONTRIBUTING.md) for the full policy.
 
 ## Project Status and Direction
 * The main branch currently contains the legacy version of the Inspector, which we are accepting bug fixes and minor improvement PRs for.
