@@ -5,7 +5,7 @@ This is an application for inspecting MCP servers. Has three incarnations, Web, 
 ## Project Structure
 
 ```
-v2/main/
+inspector/
 ├── clients/
 │   ├── web/                            # Web client (Vite + React + Mantine)
 │   │   ├── src/                        # Browser source (React app, hooks, components)
