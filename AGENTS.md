@@ -179,7 +179,18 @@ All work should be driven by items on the project board.
 
 ## Setting issue priority
 
-Every issue gets a **Priority** on its board card. Score it rather than assert it: rate two axes 1–5, add the signal bonuses, and read the total off the band table. The point is that two people triaging the same issue land in the same place, and that the reasoning survives in a form someone can argue with later.
+Every issue gets a **Priority on its board card**, set when you add the issue to the board. Score it rather than assert it: rate two axes 1–5, add the signal bonuses, and read the total off the band table. The point is that two people triaging the same issue land in the same place, and that the reasoning survives in a form someone can argue with later.
+
+> ⚠️ **There are two different "Priority" fields on an issue page, and they are unrelated. Ours is the one under _Projects → Inspector V2_.**
+>
+> | Where it appears | What it is | Ours? |
+> | --- | --- | --- |
+> | **Projects → Inspector V2 → Priority** | The **project board** field on board #28 (`PVTSSF_lADOCt2Azc4BJVxtzg5iJE4`). Urgent/High/Medium/Low, each option carrying its rubric band in the description. | ✅ **Yes — this is the one this rubric sets.** |
+> | **Fields → Priority** (above _Projects_) | A GitHub **issue field**, `IFSS_kgDOAdAWeg`. Defined at the **`modelcontextprotocol` org** and shared by every repo in it (typescript-sdk, servers, registry, …), alongside `Effort`, `Start date`, and `Target date`. Created 2026-05-06, `ORG_ONLY`. | ❌ No. Not ours, not repo-scoped. |
+>
+> They look identical — same name, same four option names — but **nothing syncs them.** Setting one does not set the other, and they will happily disagree (this was first noticed on #1891 showing `Urgent` in Fields and `High` on the board). There is no pass-through, in either direction.
+>
+> **Leave the org-level `Fields → Priority` alone.** Don't set it, and don't delete it: it belongs to the whole org, so removing it would strip Priority from every other `modelcontextprotocol` repo. If a v2 issue has a stray value there, it is noise — the board card is the source of truth.
 
 **Axis 1 — Severity / impact (1–5).** How bad is it when it happens?
 
