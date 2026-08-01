@@ -116,7 +116,7 @@ After installing, `npm run build` builds all clients. The launcher scripts (`npm
 ## Contributing
 
 External contributions are accepted as **issues, not pull requests** — maintainers handle design and implementation through a prompt-driven workflow.
-If you've already built a change locally, share the **prompt** you used and screenshots if applicable, not a diff. See [`CONTRIBUTORS.md`](./CONTRIBUTORS.md) for the full policy.
+If you've already built a change locally, share the **prompt** you used and screenshots if applicable, not a diff. See [`CONTRIBUTING.md`](./CONTRIBUTING.md) for the full policy.
 
 **This applies to org members with write access too, not just outside contributors.** Having permission to push a branch is not authorization to open a PR. Pull requests against this repo are opened by the **repo maintainers** only. Anyone else — including organization members whose write access makes it technically possible — opens a **detailed issue** instead, and a maintainer takes it from there. A detailed issue means: the problem, how to reproduce it, the behavior you expected, and — if you've already prototyped a fix — the prompt you used and any screenshots, rather than a diff.
 
