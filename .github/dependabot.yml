@@ -1,8 +1,9 @@
 version: 2
 
-# Version updates target `v2/main`, the active development branch, not the
-# default branch — `main` still holds the legacy v1 implementation and takes
-# only security and bug fixes (see README.md "Repo status").
+# Version updates target `v2/main`, the develop branch where all v2 work lands,
+# not the default branch — `main` is release-only, holding the latest released
+# v2 and receiving milestone merges from `v2/main`. (The deprecated v1 line
+# lives on `v1/main` and takes security fixes only.)
 #
 # Two things to know about this file:
 #   1. Dependabot reads it from the DEFAULT branch (`main`). Changes here are
