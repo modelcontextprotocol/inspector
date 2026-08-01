@@ -10,8 +10,9 @@ assignees: ""
 Issues are how work reaches the Inspector — we accept issues, not pull
 requests. See CONTRIBUTORS.md for the full policy.
 
-Please label this issue `v2` (or `v1`, if it is a security or bug fix for the
-deprecated v1 line). When in doubt, it's `v2`.
+Just tick the version below — a maintainer applies the `v1` / `v2` label
+during triage (most reporters can't set labels themselves). When in doubt,
+it's v2.
 -->
 
 **Which version?**
