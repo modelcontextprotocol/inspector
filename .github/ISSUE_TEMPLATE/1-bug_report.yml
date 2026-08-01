@@ -58,7 +58,9 @@ body:
     id: node-version
     attributes:
       label: Node version
-      description: Output of `node --version`. The Inspector requires Node >= 22.19.0.
+      description: >
+        Output of `node --version`. The current v2 line requires Node >=
+        22.19.0; the deprecated v1 line has its own, older floor.
       placeholder: "v22.19.0"
     validations:
       required: true

@@ -11,7 +11,7 @@
 
   If you've found a bug or want a feature:
     → Open an issue instead, labeled for the version you're targeting
-      (`v1` for `v1/main`, `v2` for `main`).
+      (`v1` for `v1/main`, `v2` for `v2/main`).
 
   If you've already built the change locally:
     → Open an issue and share the PROMPT(S) you used to generate it, not a
