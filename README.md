@@ -174,7 +174,7 @@ It also serves four `trigger_*` tools that the modern leg's spec-error injector 
 
 Open the Network tab to see the mirrored `Mcp-*` headers highlighted, sentinel values decoded, and each error rendered distinctly.
 
-> **`Mcp-Param-*` mirroring is built by the Inspector, not the SDK.** The SDK only mirrors inside `client.callTool()`, and skips it in the browser (`detectProbeEnvironment() !== "browser"`). The Inspector routes `tools/call` through `client.request()` to drive MRTR manually, so it builds the mirrored headers itself ([#1846](https://github.com/modelcontextprotocol/inspector/pull/1846)) — on **every** client, web included, since the web client's upstream request is issued by the Node backend rather than the browser. So `get_weather` is callable from web, CLI, and TUI alike, in both the plain and "Run as task" forms.
+> **`Mcp-Param-*` mirroring is built by the Inspector, not the SDK.** The SDK only mirrors inside `client.callTool()`, and skips it in the browser (`detectProbeEnvironment() !== "browser"`). The Inspector routes `tools/call` through `client.request()` to drive MRTR manually, so it builds the mirrored headers itself ([#1846](https://github.com/modelcontextprotocol/inspector/issues/1846)) — on **every** client, web included, since the web client's upstream request is issued by the Node backend rather than the browser. So `get_weather` is callable from web, CLI, and TUI alike, in both the plain and "Run as task" forms.
 
 #### `x-mcp-header` in the Tools tab
 
