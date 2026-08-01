@@ -190,7 +190,9 @@ Every issue gets a **Priority on its board card**, set when you add the issue to
 >
 > They look identical — same name, same four option names — but **nothing syncs them.** Setting one does not set the other, and they will happily disagree (this was first noticed on #1891 showing `Urgent` in Fields and `High` on the board). There is no pass-through, in either direction.
 >
-> **Leave the org-level `Fields → Priority` alone.** Don't set it, and don't delete it: it belongs to the whole org, so removing it would strip Priority from every other `modelcontextprotocol` repo. If a v2 issue has a stray value there, it is noise — the board card is the source of truth.
+> **Never delete the org-level field.** It belongs to the whole org, so removing it would strip Priority from every other `modelcontextprotocol` repo.
+>
+> **Don't set it either — but do read it.** A value there is a *reporter's* opinion, not a maintainer's assessment, so it is **untrusted input**. It feeds the rubric as a capped +1 signal bonus and nothing more; see [Trust boundary](#trust-boundary-who-can-set-what) below.
 
 **Axis 1 — Severity / impact (1–5).** How bad is it when it happens?
 
@@ -219,8 +221,9 @@ Every issue gets a **Priority on its board card**, set when you add the issue to
 - High engagement (many comments or reactions)
 - Assigned to someone
 - A sub-issue of a larger epic
+- The reporter set `Fields → Priority` to **Urgent or High** — **+1, flat, whichever of the two they picked.** It does not map to a band, and `Urgent` earns exactly what `High` earns. See below.
 
-**Bands.** Axes give 2–10, bonuses add up to 5, so the total runs 2–15.
+**Bands.** Axes give 2–10 and there are six bonuses, so the total runs 2–16. (It was 2–15 before the reporter-set signal was added; scores recorded on issues triaged on 2026-08-01 cite `/15`.)
 
 | Total | Priority | Meaning |
 | --- | --- | --- |
@@ -232,6 +235,22 @@ Every issue gets a **Priority on its board card**, set when you add the issue to
 Note that severity alone doesn't reach Urgent: a 5/5 with no corroborating signals totals 10 and lands **High**. That's deliberate — Urgent is reserved for a severe problem that something *else* also confirms is burning, and a band that everything qualifies for stops carrying information. Override the band when it's plainly wrong, but say why in the issue; a rubric nobody may overrule is a rubric people route around.
 
 Set the resulting level on the board card with the Priority recipe in the [V2 board (#28) `gh` recipes](#v2-board-28-gh-recipes) below.
+
+### Trust boundary: who can set what
+
+**The boards are private** (`public: false`, both #28 and #11 — verified 2026-08-01). The Status and Priority a maintainer assigns are visible only to people with project access: a reporter cannot see them, cannot set them, and will never learn how their issue was scored. Board priority is a maintainers' working queue, not a published commitment.
+
+The org-level `Fields → Priority` is the opposite. It renders on the public issue page and is **not** part of maintainer triage, so any value there is **untrusted** — we didn't put it there, and it carries a preference rather than an assessment.
+
+That asymmetry is the whole reason the reporter's value earns a flat +1 and nothing more:
+
+- **It counts for something.** Someone flagging their own issue is real information about how much it hurts them. Discarding it throws away a signal we'd otherwise have to infer.
+- **It cannot decide an outcome.** The bonus is capped, identical for `Urgent` and `High`, and can lift an issue at most one band. Nothing a reporter can type reaches Urgent by itself: Urgent needs 12, so the issue must already sit at 11 on maintainer-assessed axes — at which point the reporter is not the reason.
+- **Never map the value across.** A reporter selecting `Urgent` does **not** make the board card Urgent. Doing that would hand queue position to anyone with a GitHub account, and the queue would sort by assertiveness instead of impact.
+
+Don't lean on GitHub's permission gate to enforce this. Whether an outside reporter can set that field today is an implementation detail that can change without notice; the rule holds either way, because it rests on *who assessed the issue* rather than on who was technically able to click.
+
+**Assess board Priority at boarding time**, from the issue as it stands. The reporter's value is one input among several, weighted as above.
 
 ## Repository & Project Boards
 
