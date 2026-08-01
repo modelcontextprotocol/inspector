@@ -137,6 +137,11 @@ Injection is a no-op when auth is disabled (`DANGEROUSLY_OMIT_AUTH`), and the gl
 - When the structure of the project, the tech stack, or the developer setup changes, update appropriate README.md files with the details.
 - When adding new commands, dependencies, or architectural patterns, update the relevant sections of appropriate README.md files as well.
 - When rules for implementation and testing change, update this file AGENTS.md
+- **Mirror review-relevant changes into [`.github/copilot-instructions.md`](.github/copilot-instructions.md).** That file is what GitHub Copilot reads when it reviews a PR, and it is a hand-maintained **distillation** of this one — there is no generation step and nothing detects drift, so it goes stale silently and Copilot then reviews against rules we no longer hold.
+  - **AGENTS.md remains the source of truth.** Never edit `copilot-instructions.md` alone to change a rule; change it here first, then mirror.
+  - **Review-relevant** means anything a reviewer would cite against a diff: the TypeScript rules, the Mantine/React conventions (including the `.withProps()` rule and its exceptions), the `lib` vs `utils` split, test placement, the ≥90% coverage gate and the `v8 ignore` policy, the `renderWithMantine` requirement, and the PR hygiene rules (`Closes #N`, version label). Changing any of these means updating both files in the **same PR**.
+  - **Not review-relevant, and deliberately absent** from the mirror: the board recipes and their IDs, milestone and branch-naming mechanics, release and publishing procedure, and the project-structure tree. Copying those in would double the maintenance surface for content no reviewer cites.
+  - Keep it a **distillation, not a copy** — it is read on every review, so length has a cost. Prefer tightening the summary over pasting a section wholesale.
 
 ### Issue-driven Work Style
 
