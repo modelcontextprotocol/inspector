@@ -7,9 +7,12 @@ version: 2
 #   1. Dependabot reads it from the DEFAULT branch (`main`). Changes here are
 #      inert until the next milestone merge carries them there.
 #   2. `target-branch` scopes VERSION updates. Dependabot SECURITY updates are
-#      enabled in repo settings, not here, and always target the default
+#      enabled in repo settings, not here, and are raised against the default
 #      branch — they kept working while this file was missing entirely
-#      (see #1833, #1840).
+#      (see #1833, #1840). Per GitHub's Dependabot options reference, an entry
+#      whose `target-branch` names a non-default branch is NOT applied to
+#      security updates, so the schedule/labels/groups below shape version
+#      updates only. Re-confirm security PRs still appear after this lands.
 #
 # v2 is not an npm workspace: the root and each client under `clients/*` carry
 # their own package.json + lockfile, so each needs its own entry.
