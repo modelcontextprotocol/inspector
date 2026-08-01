@@ -4160,6 +4160,7 @@ export class InspectorClient extends InspectorClientEventTarget {
         } catch (resultError) {
           throw new Error(
             `Tool call did not return a result: ${resultError instanceof Error ? resultError.message : String(resultError)}`,
+            { cause: resultError },
           );
         }
       }
@@ -4337,6 +4338,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     } catch (error) {
       throw new Error(
         `Failed to expand URI template "${uriTemplate}": ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
       );
     }
 
@@ -4597,6 +4599,7 @@ export class InspectorClient extends InspectorClientEventTarget {
       // Re-throw other errors
       throw new Error(
         `Failed to get completions: ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
       );
     }
   }
@@ -5146,6 +5149,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     } catch (error) {
       throw new Error(
         `Failed to subscribe to resource: ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
       );
     }
   }
@@ -5206,6 +5210,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     } catch (error) {
       throw new Error(
         `Failed to unsubscribe from resource: ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
       );
     }
   }

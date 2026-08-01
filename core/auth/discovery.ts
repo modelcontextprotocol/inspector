@@ -19,7 +19,9 @@ export function getAuthorizationServerUrl(
     return new URL("/", serverUrl);
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
-    throw new Error(`Invalid MCP server URL: "${serverUrl}" (${detail})`);
+    throw new Error(`Invalid MCP server URL: "${serverUrl}" (${detail})`, {
+      cause: err,
+    });
   }
 }
 

@@ -53,7 +53,7 @@ export function parseRunnerOAuthCallbackUrl(
   } catch (err) {
     /* v8 ignore next -- new URL() only throws an Error with a message; the String(err) fallback is unreachable */
     const reason = (err as Error)?.message ?? String(err);
-    throw new Error(`Invalid OAuth callback URL: ${reason}`);
+    throw new Error(`Invalid OAuth callback URL: ${reason}`, { cause: err });
   }
   if (url.protocol !== "http:") {
     throw new Error("OAuth callback URL must use http scheme");

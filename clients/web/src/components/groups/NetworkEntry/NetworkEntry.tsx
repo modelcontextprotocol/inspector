@@ -22,6 +22,7 @@ import { ExpandToggle } from "../../elements/ExpandToggle/ExpandToggle";
 import { MethodBadge } from "../../elements/MethodBadge/MethodBadge";
 import { CategoryBadge } from "../../elements/CategoryBadge/CategoryBadge";
 import { maskSecretsInBody } from "../../../utils/maskSecrets";
+import { useValueChange } from "../../../hooks/useValueChange";
 import {
   oauthNetworkPhase,
   oauthNetworkPhaseLabel,
@@ -443,30 +444,35 @@ export function NetworkEntry({
   revealed = false,
   onRevealComplete,
 }: NetworkEntryProps) {
-  const [isExpanded, setIsExpanded] = useState(isListExpanded);
+  // Seeded from both sources so an entry that mounts already targeted by
+  // "Reveal in Network" starts open — the render-time syncs below only fire on
+  // a *change*, so neither of them covers the first render.
+  const [isExpanded, setIsExpanded] = useState(isListExpanded || revealed);
   const rootRef = useRef<HTMLDivElement>(null);
 
   // The list-level Expand/Collapse toggle is authoritative: each time the
   // parent changes `isListExpanded`, every entry snaps to that state and
   // any per-entry override is intentionally discarded. Mirrors
-  // ProtocolEntry; do not change without aligning both. This re-runs on
-  // re-render when `isListExpanded` keeps its reference, but the setter
-  // is a no-op when the next value equals the current one.
-  useEffect(() => {
-    setIsExpanded(isListExpanded);
-  }, [isListExpanded]);
+  // ProtocolEntry; do not change without aligning both.
+  useValueChange(isListExpanded, setIsExpanded);
 
-  // "Reveal in Network" one-shot: when targeted, force this entry open and
-  // scroll it into view, then clear the signal. The scroll runs in a rAF so it
-  // lands after `useScrollMemory`'s layout-effect restore (which would otherwise
-  // fight it) and after the force-expand has grown the row. `onRevealComplete`
+  // "Reveal in Network" one-shot, part 1: force the targeted entry open. This
+  // is deliberately ordered *after* the list sync above, so that if both change
+  // in the same render the reveal wins.
+  useValueChange(revealed, (nextRevealed) => {
+    if (nextRevealed) setIsExpanded(true);
+  });
+
+  // "Reveal in Network" one-shot, part 2: scroll the entry into view, then
+  // clear the signal. The scroll runs in a rAF so it lands after
+  // `useScrollMemory`'s layout-effect restore (which would otherwise fight it)
+  // and after the force-expand above has grown the row. `onRevealComplete`
   // clears the parent's `revealId`, which flips `revealed` back to false and re-
   // runs this effect's cleanup — so it must fire *inside* the rAF, after the
   // scroll, otherwise the cleanup's `cancelAnimationFrame` would race and could
   // cancel the very frame doing the scroll.
   useEffect(() => {
     if (!revealed) return;
-    setIsExpanded(true);
     const raf = requestAnimationFrame(() => {
       rootRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
       onRevealComplete?.();

@@ -48,6 +48,12 @@ const CardContent = Group.withProps({
 - **`data-*` attributes** — not part of a component's typed props, so excess-property-checked out of a `withProps` literal. Pass at the call site.
 - **Anything that isn't a Mantine factory component** — a `react-icons` glyph, another library's component, or a first-party plain `export function`.
 
+### State and effects
+
+- **Never reset or re-sync local state from a prop inside a `useEffect`.** `useEffect(() => setX(prop), [prop])` paints the stale value first and renders twice; it is an error under `react-hooks/set-state-in-effect`.
+- Use **`useValueChange(value, onChange)`** (`src/hooks/useValueChange.ts`) — React's documented "adjusting state during render" pattern. It does not fire on the first render; seed the state with `useState`.
+- Effects remain correct for real external-system synchronization (DOM measurement, rAF, subscriptions, timers).
+
 ### Theme files vs. element components
 
 Both exist and do different jobs. Theme files (`src/theme/<Component>.ts`) customize a Mantine primitive **app-wide**. Element components (`src/components/elements/`) add **domain semantics** on top of primitives.

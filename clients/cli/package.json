@@ -46,11 +46,11 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@eslint/js": "^9.39.4",
+    "@eslint/js": "^10.0.1",
     "@types/express": "^5.0.6",
     "@types/node": "^24.12.4",
     "@vitest/coverage-v8": "^4.1.0",
-    "eslint": "^9.39.4",
+    "eslint": "^10.8.0",
     "globals": "^17.4.0",
     "prettier": "3.8.4",
     "tsup": "^8.5.0",

@@ -146,9 +146,13 @@ function loadMcpServersConfig(
     return { ...config, mcpServers: normalizedServers };
   } catch (error) {
     if (error instanceof Error) {
-      throw new Error(`Error loading configuration: ${error.message}`);
+      throw new Error(`Error loading configuration: ${error.message}`, {
+        cause: error,
+      });
     }
-    throw new Error("Error loading configuration: Unknown error");
+    throw new Error("Error loading configuration: Unknown error", {
+      cause: error,
+    });
   }
 }
 

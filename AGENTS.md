@@ -377,6 +377,10 @@ Nothing **enforces** the boundary: no path alias keys off it, and the coverage `
       // Component.tsx
       const MessageContainer = Paper.withProps({ variant: 'message' });
     ```
+- State and effects
+  - **NEVER reset or re-sync local state from a prop inside a `useEffect`.** `useEffect(() => setX(prop), [prop])` renders once with the stale value, paints it, and only then corrects itself — the user sees the wrong frame and React renders twice. It is an error under `react-hooks/set-state-in-effect`, which the web client's `eslint-plugin-react-hooks` recommended set enforces.
+  - Use **`useValueChange(value, onChange)`** (`clients/web/src/hooks/useValueChange.ts`) instead. It is React's documented ["adjusting state during render"](https://react.dev/reference/react/useState#storing-information-from-previous-renders) pattern: it compares `value` against the previous render's with `Object.is` and calls `onChange(next)` during render, so React discards the in-progress output and re-runs the component before anything reaches the DOM. It does **not** fire on the first render — seed the dependent state with `useState` instead.
+  - An effect is still the right tool for genuine synchronization with an external system (DOM measurement, `requestAnimationFrame`, subscriptions, timers). The rule is about deriving React state from React props, not about effects in general.
 - Theme files vs. Storybook element components
   - **Theme files** (`src/theme/<Component>.ts`) and **element components** (`src/components/elements/`) serve different purposes and both are needed.
   - Theme files customize every instance of a Mantine component app-wide — defaults (size, radius), custom variants, and global style overrides. They are applied automatically by `MantineProvider`.

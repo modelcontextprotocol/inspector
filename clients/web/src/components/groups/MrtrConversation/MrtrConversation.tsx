@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   Badge,
   Collapse,
@@ -13,6 +13,7 @@ import { ProtocolEntry } from "../ProtocolEntry/ProtocolEntry";
 import { ExpandToggle } from "../../elements/ExpandToggle/ExpandToggle";
 import { MethodBadge } from "../../elements/MethodBadge/MethodBadge";
 import { extractMethod, extractResultType } from "../protocolUtils.js";
+import { useValueChange } from "../../../hooks/useValueChange";
 
 export interface MrtrConversationProps {
   /** The opaque MRTR token that links this conversation's rounds. */
@@ -131,9 +132,9 @@ export function MrtrConversation({
 }: MrtrConversationProps) {
   const [isExpanded, setIsExpanded] = useState(isListExpanded);
 
-  useEffect(() => {
-    setIsExpanded(isListExpanded);
-  }, [isListExpanded]);
+  // The list-level Expand/Collapse toggle is authoritative: any per-entry
+  // override is discarded whenever the parent changes `isListExpanded`.
+  useValueChange(isListExpanded, setIsExpanded);
 
   // Always read the conversation chronologically (original → retries → final),
   // regardless of the list's newest-first/oldest-first sort.

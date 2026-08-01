@@ -9,6 +9,7 @@ import {
   Title,
 } from "@mantine/core";
 import { ClearButton } from "../../elements/ClearButton/ClearButton";
+import { useValueChange } from "../../../hooks/useValueChange";
 import type { Prompt } from "@modelcontextprotocol/client";
 
 export interface PromptArgumentsFormProps {
@@ -67,9 +68,9 @@ export function PromptArgumentsForm({
   // Reset completion state whenever the active prompt changes — completions
   // are keyed by argument name, and the same name could mean different
   // things across prompts.
-  useEffect(() => {
+  useValueChange(name, () => {
     setCompletions({});
-  }, [name]);
+  });
 
   // Per-arg in-flight controller (later keystroke aborts older request).
   const requestsRef = useRef<Map<string, AbortController>>(new Map());

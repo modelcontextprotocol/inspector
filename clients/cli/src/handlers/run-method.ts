@@ -301,6 +301,7 @@ export async function runMethod(
       } catch (e) {
         throw new Error(
           `--roots-json is invalid: ${e instanceof Error ? e.message : String(e)}`,
+          { cause: e },
         );
       }
       await inspectorClient.setRoots(roots);

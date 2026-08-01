@@ -91,7 +91,7 @@ export function createBearerTokenMiddleware(
 
     const token = authHeader.substring(7); // Remove "Bearer " prefix
 
-    let valid = false;
+    let valid: boolean;
     let grantedScopes: string[] = [];
     if (mode === "protected-resource") {
       try {

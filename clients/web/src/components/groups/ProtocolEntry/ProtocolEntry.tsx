@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   Alert,
   Anchor,
@@ -21,6 +21,7 @@ import { McpErrorBadge } from "../../elements/McpErrorBadge/McpErrorBadge";
 import { ExpandToggle } from "../../elements/ExpandToggle/ExpandToggle";
 import { PinToggle } from "../../elements/PinToggle/PinToggle";
 import { ReplayButton } from "../../elements/ReplayButton/ReplayButton";
+import { useValueChange } from "../../../hooks/useValueChange";
 import {
   classifyProtocolSpecError,
   type McpSpecError,
@@ -296,9 +297,10 @@ export function ProtocolEntry({
   const resultType = extractResultType(entry);
   const subscriptionId = extractSubscriptionId(entry);
 
-  useEffect(() => {
-    setIsExpanded(isListExpanded);
-  }, [isListExpanded]);
+  // The list-level Expand/Collapse toggle is authoritative: any per-entry
+  // override is discarded whenever the parent changes `isListExpanded`.
+  // Mirrors NetworkEntry; do not change without aligning both.
+  useValueChange(isListExpanded, setIsExpanded);
 
   const directionBadge = entry.origin && (
     <MessageDirectionBadge

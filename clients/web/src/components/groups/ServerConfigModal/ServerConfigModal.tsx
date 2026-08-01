@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ChangeEvent } from "react";
+import { useMemo, useState, type ChangeEvent } from "react";
 import {
   Button,
   Group,
@@ -10,6 +10,7 @@ import {
   Textarea,
 } from "@mantine/core";
 import { ClearButton } from "../../elements/ClearButton/ClearButton";
+import { useValueChange } from "../../../hooks/useValueChange";
 import type {
   MCPServerConfig,
   StdioServerConfig,
@@ -209,14 +210,17 @@ export function ServerConfigModal({
   const clearTextField = (field: TextField) => () =>
     setForm((f) => ({ ...f, [field]: "" }));
 
-  // Reset form whenever the modal opens with new inputs.
-  useEffect(() => {
-    if (opened) {
-      setForm(initial);
-      setSubmitError(undefined);
-      setSubmitting(false);
-    }
-  }, [opened, initial]);
+  // Reset the form whenever the modal opens, or whenever `initial` changes
+  // while it is open. Keying on `opened ? initial : undefined` collapses both
+  // triggers into one value: it flips to `initial` on open, tracks `initial`
+  // while open, and flips to `undefined` on close (where the guard below makes
+  // the reset a no-op, matching the previous effect's `if (opened)`).
+  useValueChange(opened ? initial : undefined, () => {
+    if (!opened) return;
+    setForm(initial);
+    setSubmitError(undefined);
+    setSubmitting(false);
+  });
 
   const trimmedId = form.id.trim();
   const idIsValid = ID_PATTERN.test(trimmedId);

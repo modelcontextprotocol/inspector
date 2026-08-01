@@ -110,7 +110,9 @@ function parseContent(
     return YAML.parse(content);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    throw new Error(`Failed to parse config file ${filePath}: ${msg}`);
+    throw new Error(`Failed to parse config file ${filePath}: ${msg}`, {
+      cause: err,
+    });
   }
 }
 

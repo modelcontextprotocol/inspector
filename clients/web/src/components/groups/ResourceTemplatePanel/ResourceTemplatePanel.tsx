@@ -10,6 +10,7 @@ import {
 } from "@mantine/core";
 import { accessibleTextColor } from "../../elements/accessibleTextColor";
 import { ClearButton } from "../../elements/ClearButton/ClearButton";
+import { useValueChange } from "../../../hooks/useValueChange";
 import type { ResourceTemplateType as ResourceTemplate } from "@modelcontextprotocol/client";
 import { AnnotationBadge } from "../../elements/AnnotationBadge/AnnotationBadge";
 import { CopyButton } from "../../elements/CopyButton/CopyButton";
@@ -117,11 +118,13 @@ export function ResourceTemplatePanel({
   );
   const [completions, setCompletions] = useState<Record<string, string[]>>({});
 
-  // Reset state when the user switches to a different template.
-  useEffect(() => {
+  // Reset state when the user switches to a different template. Keyed on
+  // `uriTemplate` alone because `variableNames` is memoized from it, so the two
+  // can never change independently.
+  useValueChange(uriTemplate, () => {
     setVariables(Object.fromEntries(variableNames.map((n) => [n, ""])));
     setCompletions({});
-  }, [uriTemplate, variableNames]);
+  });
 
   // Latest in-flight controller per argument, so a faster keystroke can
   // abort an outstanding completion request and the late response can't

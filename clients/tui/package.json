@@ -45,12 +45,12 @@
     "ink-select-input": "^6.2.0"
   },
   "devDependencies": {
-    "@eslint/js": "^9.39.4",
+    "@eslint/js": "^10.0.1",
     "@types/node": "^24.12.4",
     "@types/react": "^19.2.14",
     "@vitest/coverage-v8": "^4.1.0",
-    "eslint": "^9.39.4",
-    "eslint-plugin-react-hooks": "^7.0.1",
+    "eslint": "^10.8.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
     "globals": "^17.4.0",
     "ink-testing-library": "^4.0.0",
     "prettier": "3.8.4",

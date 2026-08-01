@@ -441,6 +441,28 @@ describe("ServerConfigModal", () => {
     expect(props.onSubmit).not.toHaveBeenCalled();
   });
 
+  it("discards in-progress edits when reopened, and leaves them alone while closed", async () => {
+    const user = userEvent.setup({ delay: null });
+    const props = base();
+    const { rerender } = renderWithMantine(
+      <ServerConfigModal {...props} opened={false} />,
+    );
+
+    // Open: the form is seeded from `initial`.
+    rerender(<ServerConfigModal {...props} opened />);
+    await user.type(screen.getByLabelText(/Server ID/i), "alpha");
+    expect(screen.getByLabelText(/Server ID/i)).toHaveValue("alpha");
+
+    // Close: nothing is reset while the modal is closed (it is unmounted, so
+    // there is nothing to observe) — this exercises the closed-path guard.
+    rerender(<ServerConfigModal {...props} opened={false} />);
+    expect(screen.queryByText("Add server")).not.toBeInTheDocument();
+
+    // Reopen: the abandoned "alpha" is gone.
+    rerender(<ServerConfigModal {...props} opened />);
+    expect(screen.getByLabelText(/Server ID/i)).toHaveValue("");
+  });
+
   it("calls onClose when Cancel is clicked", async () => {
     const user = userEvent.setup({ delay: null });
     const props = base();
