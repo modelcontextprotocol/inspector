@@ -92,8 +92,8 @@ body:
       label: MCP server under inspection
       description: >
         Which server, and how it is configured — the command or URL, the
-        protocol era (legacy / modern) if you selected one, and whether OAuth
-        is involved. Redact tokens and secrets.
+        protocol era you connected with (auto / legacy / modern), and whether
+        OAuth is involved. Redact tokens and secrets.
       placeholder: |
         Server: @modelcontextprotocol/server-everything (npx)
         Protocol era: modern
