@@ -1,6 +1,10 @@
 name: Feature request
 description: Suggest an improvement to the Inspector
-labels: ["enhancement"]
+# `v2` is safe to declare statically here: v1 takes security fixes only and
+# cannot receive a feature, so a feature request is v2 by construction. The bug
+# form can't do this — its version line is a reporter's answer, and `labels:`
+# is static.
+labels: ["enhancement", "v2"]
 body:
   - type: markdown
     attributes:
