@@ -977,7 +977,7 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
       parsed = JSON.parse(options.toolArgsJson);
     } catch (e) {
       throw new Error(
-        `--tool-args-json is not valid JSON: ${(e as Error).message}`,
+        `--tool-args-json is not valid JSON: ${e instanceof Error ? e.message : String(e)}`,
         { cause: e },
       );
     }
