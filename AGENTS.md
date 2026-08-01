@@ -155,8 +155,9 @@ All work should be driven by items on the project board.
   - `v2` — work targeting `v2/main` (active development; the default for anything new)
   Set the label at **create time** — `gh issue create --label v2 ...`, `gh pr create --label v2 ...` — never by backfilling later, since unlabeled items are exactly the ones missed when filtering by version. **If the target version isn't obvious, it's `v2`**: v2 is where all new work goes, and `v1` is reserved for the narrow case of patching the deprecated line. Only ask when the issue is specifically a fix *for released v1 behavior* and it's unclear whether v2 still has the bug. Note the label is a repo tag and is **not** the board — see the callout above; a `v2` issue also needs a board card with a Status.
 - **Prioritize every new issue.** Every new issue must have a Priority (Urgent, High, Medium, or Low) set at creation time. Priority is a **board field**, not a label, so it lives on the card and an unboarded issue has nowhere to store it. Derive it with the rubric in [Setting issue priority](#setting-issue-priority) rather than asserting it — an unscored "this feels urgent" is exactly what the rubric exists to replace.
-- **Add the issue to the board and set Status and Priority.** After creating an issue, add it to board #28 and set both fields. (PRs are never added to the board — they're tracked through their linked issue's card.) This is the step most easily forgotten because it needs several IDs — copy the recipes below verbatim.
-  - **New and untriaged → `Incoming`.** An issue nobody has evaluated yet belongs in **Incoming**, not Todo. Todo means a maintainer approved it and it is ready to be picked up; using Todo as the inbox erases that distinction and quietly promotes unreviewed work into the queue. Anything filed by an outside reporter starts in Incoming by default. Work you are starting immediately goes straight to In Progress.
+- **Add the issue to the board and set Status and Priority.** After creating an issue, add it to the board for its version — **`v2` → board #28**, **`v1` → board #11** — and set the fields. (PRs are never added to either board — they're tracked through their linked issue's card.) This is the step most easily forgotten because it needs several IDs — copy the recipes below verbatim, and take them from the section for the right board; the two projects' ids are not interchangeable.
+  - **New and untriaged → `Incoming`.** This is the **default status for a new item on either board.** An issue nobody has evaluated yet belongs in **Incoming**, not Todo. Todo means a maintainer approved it and it is ready to be picked up; using Todo as the inbox erases that distinction and quietly promotes unreviewed work into the queue. Anything filed by an outside reporter starts in Incoming. Work you are starting immediately goes straight to In Progress.
+  - **Priority is v2-only.** Board #28 has a Priority field; board #11 does not. A v1 issue gets a Status and nothing else.
 - **Every new issue gets a milestone — no exceptions.** Set it at create time with `gh issue create --milestone <title> ...`. **If the user didn't specify one, default to the current milestone**: the open milestone with the nearest due date. Never leave an issue unmilestoned pending a decision — an unmilestoned issue drops out of release planning silently, the same way an unlabeled one drops out of version filtering. Moving it later is one command; noticing it was never set is the hard part. Get the current milestone with:
 
   ```sh
@@ -236,6 +237,8 @@ Set the resulting level on the board card with the Priority recipe in the [V2 bo
 - **Project Boards**:
   - v2 - https://github.com/orgs/modelcontextprotocol/projects/28 (active board — all new work goes here)
   - v1 - https://github.com/orgs/modelcontextprotocol/projects/11 (legacy inspector version, no new activity except security fixes)
+
+  **Both boards start new items in `Incoming`.** A card only leaves Incoming when a maintainer has looked at it and approved the work — that is what Todo means on either board. The two boards are otherwise separate projects with their own field and option ids; never reuse one board's ids against the other (they are rejected with "option Id does not belong to the field", so the mistake is at least loud).
 
 #### V2 board (#28) `gh` recipes
 
@@ -348,6 +351,35 @@ ITEM_ID=$(gh project item-list 28 --owner modelcontextprotocol --format json --l
   --jq '.items[] | select(.content.number==<ISSUE_NUMBER>) | .id')
 gh project item-edit --project-id PVT_kwDOCt2Azc4BJVxt --id "$ITEM_ID" --field-id PVTSSF_lADOCt2Azc4BJVxtzg5iI8c --single-select-option-id 159c8a02
 ```
+
+#### V1 board (#11) `gh` recipes
+
+The v1 line takes **security fixes only**, so this board sees little traffic — but a v1 issue still gets a card, and it starts in **Incoming** like a v2 one. Board #11 is a separate org project with **its own ids**; none of the #28 ids above work here.
+
+| Thing | ID |
+| --- | --- |
+| Project node ID | `PVT_kwDOCt2Azc4BA5sz` |
+| Status field ID | `PVTSSF_lADOCt2Azc4BA5szzgzkS-g` |
+
+Status option IDs — **last verified 2026-08-01**.
+
+| Status | Option ID |
+| --- | --- |
+| Incoming | `831820cf` |
+| Todo | `f75ad846` |
+| In Progress | `47fc9ee4` |
+| In Review | `0439b2bf` |
+| Done | `98236657` |
+
+There is **no Priority field on this board** — the priority rubric applies to v2 only. Don't try to set one here; the field id doesn't exist.
+
+```sh
+# Add a v1 issue to board #11 and put it in Incoming.
+ITEM_ID=$(gh project item-add 11 --owner modelcontextprotocol --url <issue-url> --format json --jq '.id')
+gh project item-edit --project-id PVT_kwDOCt2Azc4BA5sz --id "$ITEM_ID" --field-id PVTSSF_lADOCt2Azc4BA5szzgzkS-g --single-select-option-id 831820cf
+```
+
+The ⚠️ option-deletion hazard, the snapshot rule, and the recovery recipe above apply to **this board too** — same mutation, same failure mode, different ids. Note that three cards on #11 already carry no Status; that predates the `Incoming` addition (verified by before/after diff on 2026-08-01) and is not evidence of an orphaning event.
 
 ### Always test new or modified code
 - Ensure all code has corresponding tests
