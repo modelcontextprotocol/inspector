@@ -26,6 +26,22 @@ import { rmSync } from "node:fs";
 export const DEFAULT_EXIT_GRACE_MS = 5000;
 
 /**
+ * Coerce a caller-supplied grace period to a usable one.
+ *
+ * Call sites read this from the environment (`Number(process.env.X ?? 5000)`),
+ * so a typo yields `NaN` — which `setTimeout` treats as `0`, silently turning
+ * the whole SIGTERM→SIGKILL escalation into an immediate double-kill and
+ * printing "did not exit within NaNms". Fall back to the default instead.
+ *
+ * @param {unknown} graceMs
+ */
+export function normalizeGraceMs(graceMs) {
+  return typeof graceMs === "number" && Number.isFinite(graceMs) && graceMs > 0
+    ? graceMs
+    : DEFAULT_EXIT_GRACE_MS;
+}
+
+/**
  * True once the child process is known to be gone (normal exit or signalled).
  * Both fields stay `null` while it is alive, and `killed` is NOT a substitute —
  * it only means a signal was delivered, not that the process is dead yet.
@@ -54,7 +70,7 @@ export function hasExited(child) {
  * @param {object} [opts]
  * @param {string} [opts.label]    prefix for warnings, e.g. "pack:verify"
  * @param {string} [opts.what]     what the child is, for warnings
- * @param {number} [opts.graceMs]
+ * @param {number} [opts.graceMs] non-finite/non-positive falls back to the default
  * @param {(msg: string) => void} [opts.warn]
  * @returns {Promise<"already-exited" | "exited" | "gave-up">}
  */
@@ -63,11 +79,12 @@ export function stopChild(
   {
     label = "cleanup",
     what = "child process",
-    graceMs = DEFAULT_EXIT_GRACE_MS,
+    graceMs: requestedGraceMs = DEFAULT_EXIT_GRACE_MS,
     warn = console.warn,
   } = {},
 ) {
   if (hasExited(child)) return Promise.resolve("already-exited");
+  const graceMs = normalizeGraceMs(requestedGraceMs);
 
   return new Promise((resolve) => {
     let settled = false;
@@ -111,7 +128,9 @@ export function stopChild(
  * @param {object} [opts]
  * @param {string} [opts.label]
  * @param {(msg: string) => void} [opts.warn]
- * @returns {boolean} true if the path was removed
+ * @returns {boolean} true if the path is gone — which includes a path that was
+ *   never there, since `force: true` makes a missing path a no-op success.
+ *   False means removal threw and a warning was emitted.
  */
 export function removeSafe(
   path,

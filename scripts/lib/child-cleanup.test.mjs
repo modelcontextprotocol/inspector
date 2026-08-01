@@ -9,7 +9,13 @@ import { mkdtempSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { hasExited, removeSafe, stopChild } from "./child-cleanup.mjs";
+import {
+  DEFAULT_EXIT_GRACE_MS,
+  hasExited,
+  normalizeGraceMs,
+  removeSafe,
+  stopChild,
+} from "./child-cleanup.mjs";
 
 /**
  * Minimal stand-in for a ChildProcess: records the signals it was sent and lets
@@ -42,6 +48,28 @@ test("hasExited: only exitCode/signalCode count, not `killed`", () => {
   const killed = fakeChild();
   killed.killed = true;
   assert.equal(hasExited(killed), false);
+});
+
+test("normalizeGraceMs: a bad env-derived value can't collapse the escalation", () => {
+  // `Number(process.env.X ?? 5000)` is how call sites build this, so a typo
+  // yields NaN — which setTimeout treats as 0, firing SIGTERM and SIGKILL in
+  // the same tick and printing "within NaNms".
+  for (const bad of [NaN, 0, -1, Infinity, undefined, null, "3000"])
+    assert.equal(normalizeGraceMs(bad), DEFAULT_EXIT_GRACE_MS, String(bad));
+  assert.equal(normalizeGraceMs(25), 25);
+});
+
+test("stopChild: a NaN graceMs falls back rather than double-killing at once", async () => {
+  const child = fakeChild();
+  const { warnings, warn } = collectWarnings();
+  const stopped = stopChild(child, { graceMs: NaN, warn });
+  // With NaN passed through, both timers would already have been scheduled at
+  // 0ms; a macrotask turn is enough to observe that.
+  await new Promise((r) => setImmediate(r));
+  assert.deepEqual(child.signals, ["SIGTERM"]);
+  assert.deepEqual(warnings, []);
+  child.emit("exit", 0);
+  assert.equal(await stopped, "exited");
 });
 
 test("stopChild: an already-exited child is not signalled again", async () => {
