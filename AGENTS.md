@@ -173,7 +173,7 @@ All work should be driven by items on the project board.
   - Open a PR against the matching base branch (`v1/main` for v1, `v2/main` for v2) and set the item's Status to **In Review**
   - **Attach screenshots as proof of functionality.** Any change to the web UI or the TUI must show its result: capture before/after screenshots (or a short GIF for an interaction) and put them in a **`pr-screenshots/` folder off the repo root**, creating it if it doesn't exist. That folder is **gitignored** — the images are working artifacts staged for upload, never committed to the source tree — so attach them to the PR body from there rather than referencing an in-repo path. Name them for what they show (`tools-tab-before.png`, `tools-tab-after.png`), not `Screenshot 2026-07-31 at 14.02.11.png`.
   - **Link the PR to its issue — mandatory for every PR, from anyone.** No PR is opened without an issue to reference; if one doesn't exist yet, create it first (labeled and on the board) rather than opening the PR and backfilling. Note also that only the **repo maintainers** open PRs at all (see [Contributing](#contributing)) — everyone else files a detailed issue. The PR body's **first line must be `Closes #<ISSUE_NUMBER>`**. ⚠️ Note: closing keywords only auto-link/auto-close for PRs targeting the repo's **default branch** (`main`). Because v2 PRs target `v2/main` (a non-default branch), `Closes #N` there is only a cross-reference — it will **not** create a hard link or close the issue on merge. (There is no `gh` flag for manual linking — `gh pr edit` has no `--add-issue`; closing keywords are the only mechanism GitHub exposes, and they're gated to the default branch.)
-  - **On merge of a v2 PR, manually close its issue and move the board item to Done** (option id `248a3910`), since auto-close won't fire on `v2/main`. Keep the `Closes #N` line anyway so the issues close automatically if/when `v2/main` is eventually merged to `main`.
+  - **On merge of a v2 PR, manually close its issue and move the board item to Done** (option id `259d6aab`), since auto-close won't fire on `v2/main`. Keep the `Closes #N` line anyway so the issues close automatically if/when `v2/main` is eventually merged to `main`.
 - If new tasks are discovered or requested during development, create issues and add them to the board.
 
 ## Setting issue priority
@@ -261,7 +261,7 @@ Status option IDs (`--single-select-option-id`) — **last verified 2026-08-01**
 | Todo | `fbdaf21e` |
 | In Progress | `195df262` |
 | In Review | `159c8a02` |
-| Done | `248a3910` |
+| Done | `259d6aab` |
 
 Use **Incoming** for newly filed, untriaged work, **Todo** once a maintainer has approved it and it's ready to pick up, **In Progress** for general active work (regardless of surface), **In Review** once a PR is open, and **Done** on merge. The Incoming/Todo line is the one that matters: Todo asserts approval, so an unreviewed issue parked there is a false claim that someone signed off on it.
 
@@ -275,12 +275,45 @@ Priority option IDs (`--single-select-option-id`) — **last verified 2026-08-01
 | Low | `d67ac7ce` | ≤5 |
 
 > ⚠️ **Never add, rename, or remove an option on a single-select board field (Status or Priority) with the `updateProjectV2Field` GraphQL mutation unless you pass every existing option's `id`.** That mutation does a **full replace** of the option list: if you resend options by name/color/description but omit their `id`s, GitHub **deletes all existing options and mints new ones**, which **orphans the Status of every card on the board** (all items go blank) *and* invalidates every option id in the table above. This has happened once (required reconstructing ~197 items' statuses by inference). Safe alternatives, in order of preference:
-> 1. **Add/rename/remove an option in the GitHub web UI** (Project #28 → the field's settings). This preserves ids of untouched options and never orphans cards.
+> 1. **Add or rename an option in the GitHub web UI** (Project #28 → the field's settings). This preserves ids of untouched options and never orphans the cards on *other* options. ⚠️ **Deleting is different, in the UI as much as in the API: removing an option blanks the Status of every card that held it, with no undo and no warning that says so.** Before deleting any option, snapshot the board (see recovery below).
 > 2. If you must script it, first `gh api graphql` the current options **with their `id`s**, then call `updateProjectV2Field` echoing back every existing option **including its `id`**, appending only the new one. `ProjectV2SingleSelectFieldOptionInput.id` is an optional `String`, so a mixed list works: echo the `id` for every option that already exists, omit it only for the one being added. Verify afterward that no card lost its value — snapshot `gh project item-list … --format json` before and after and diff, don't just spot-check.
 >
 > Both the `Incoming` Status option and the Urgent/High/Medium/Low `Priority` options were added this way (#1891), with the before/after diff confirming all 264 cards kept their Status.
 >
 > `gh project item-add` and `gh project item-edit` are always safe — they set a card's value and never touch the field schema. When option ids change for any reason, **re-verify and update the table above** (and the references in the recipes below and the merge step above).
+>
+> ### Always snapshot before touching a field's options
+>
+> One command, and it is the difference between a five-minute restore and reconstructing statuses by inference:
+>
+> ```sh
+> gh project item-list 28 --owner modelcontextprotocol --format json --limit 600 > board-snapshot.json
+> ```
+>
+> ### Recovering from a deleted option
+>
+> This has now happened twice — once via the API (~197 items, reconstructed by inference) and once via the UI (the `Done` column, 247 items, restored from a snapshot in minutes). With a snapshot the recovery is mechanical:
+>
+> ```sh
+> # 1. Which cards lost their value, and what did they hold?
+> gh project item-list 28 --owner modelcontextprotocol --format json --limit 600 > board-broken.json
+> jq -r '[.items[]|select(.status==null)|.id]' board-broken.json > lost-ids.json
+> jq -r --slurpfile L lost-ids.json '($L[0]) as $lost
+>   | [.items[] | select(.id as $i | $lost|index($i)) | .status // "(none)"]
+>   | group_by(.) | map({s:.[0],c:length}) | .[] | "was \(.s): \(.c)"' board-snapshot.json
+>
+> # 2. Recreate the option, echoing every surviving option's id (see above).
+> #    NOTE: the recreated option gets a NEW id — the deleted one never comes back.
+>
+> # 3. Re-apply it to the orphaned cards.
+> for id in $(jq -r '.[]' lost-ids.json); do
+>   gh project item-edit --project-id PVT_kwDOCt2Azc4BJVxt --id "$id" \
+>     --field-id PVTSSF_lADOCt2Azc4BJVxtzg5iI8c --single-select-option-id <NEW_OPTION_ID>
+>   sleep 0.4
+> done
+> ```
+>
+> Step 1's grouping is the safety check: confirm the orphaned set is exactly the cards that held the deleted option, so you don't overwrite a card someone legitimately moved in the meantime. And because the recreated option carries a **new id**, the table above and every reference to it must be updated in the same change — `grep` the old id across the repo. The `Done` id has been `248a3910` and is now `259d6aab` for exactly this reason.
 
 ```sh
 # 1. Add an issue to the board — prints the item id (PVTI_…); capture it.
