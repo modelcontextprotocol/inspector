@@ -223,7 +223,7 @@ Every issue gets a **Priority on its board card**, set when you add the issue to
 - A sub-issue of a larger epic
 - The reporter set `Fields → Priority` to **Urgent or High** — **+1, flat, whichever of the two they picked.** It does not map to a band, and `Urgent` earns exactly what `High` earns. See below.
 
-**Bands.** Axes give 2–10 and there are six bonuses, so the total runs 2–16. (It was 2–15 before the reporter-set signal was added; scores recorded on issues triaged on 2026-08-01 cite `/15`.)
+**Bands.** Axes give 2–10 and there are six bonuses, so the total runs 2–16.
 
 | Total | Priority | Meaning |
 | --- | --- | --- |
