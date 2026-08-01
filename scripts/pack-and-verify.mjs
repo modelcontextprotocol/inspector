@@ -39,10 +39,11 @@
  */
 
 import { spawn, spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, existsSync, writeFileSync } from "node:fs";
+import { mkdtempSync, existsSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
+import { hasExited, removeSafe, stopChild } from "./lib/child-cleanup.mjs";
 
 const repoRoot = resolve(import.meta.dirname, "..");
 const testServer = join(
@@ -69,13 +70,22 @@ let workDir = null;
 // own `finally { stop() }` is skipped when fail() calls process.exit()).
 let webChild = null;
 
+const LABEL = "pack:verify";
+
 function fail(message) {
   console.error(`\npack:verify FAILED — ${message}`);
-  if (webChild && webChild.exitCode === null) {
+  // fail() is the single failure-exit point and is called from synchronous
+  // contexts (top-level statements, loop bodies), so it cannot await the
+  // child's exit the way the success path does — it best-effort signals and
+  // moves on. That is why removeSafe() matters most here: this path is already
+  // exiting 1, so an ENOTEMPTY could only bury the real diagnostic under an
+  // rmSync stack (and skip the "tarball retained" hint below), never turn a
+  // green run red.
+  if (webChild && !hasExited(webChild)) {
     webChild.kill("SIGTERM");
   }
   if (workDir) {
-    rmSync(workDir, { recursive: true, force: true });
+    removeSafe(workDir, { label: LABEL });
     // `tarball` is initialized before `workDir` is ever set, so this is safe.
     console.error(
       `pack:verify — tarball retained for inspection at ${tarball}`,
@@ -327,8 +337,13 @@ try {
   // Success: clean up both the work dir and the tarball. (This is reached only
   // on success — every failure path goes through fail() → process.exit(), which
   // does its own cleanup above and never returns here.)
-  rmSync(work, { recursive: true, force: true });
-  rmSync(tarball, { force: true });
+  //
+  // verifyWeb() has already awaited the `--web` child's exit before returning
+  // (#1826), so nothing of ours is still running inside `work` here. Removal is
+  // still routed through removeSafe(): a leftover temp dir must never fail a run
+  // that actually passed.
+  removeSafe(work, { label: LABEL });
+  removeSafe(tarball, { label: LABEL });
 
   console.log(
     "\npack:verify OK — published tarball installs clean and the real bin drives " +
@@ -374,10 +389,21 @@ async function verifyWeb(bin, cwd) {
     exited = true;
     exitCode = code;
   });
-  const stop = () => {
-    if (!exited) child.kill("SIGTERM");
-    webChild = null;
-  };
+
+  // Signal the server AND wait for it to be gone before returning: the caller
+  // removes `work` (the installed package the child is running out of, and its
+  // cwd) as its very next statement, and `child.kill()` only delivers the
+  // signal (#1826 — the same kill-then-remove race #1801 hit in smoke:tui).
+  // Escalates to SIGKILL and ultimately proceeds with a warning, so a wedged
+  // server can never hang the verify.
+  const stop = () =>
+    stopChild(child, {
+      label: LABEL,
+      what: "`--web` server",
+      graceMs: Number(process.env.PACK_VERIFY_EXIT_GRACE_MS ?? 5000),
+    }).finally(() => {
+      webChild = null;
+    });
 
   try {
     let res = null;
@@ -409,6 +435,6 @@ async function verifyWeb(bin, cwd) {
       fail("`--web` served HTML is missing the injected auth-token value");
     }
   } finally {
-    stop();
+    await stop();
   }
 }

@@ -20,9 +20,10 @@
  */
 
 import { spawn, spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, existsSync, writeFileSync } from "node:fs";
+import { mkdtempSync, existsSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { removeSafe } from "./lib/child-cleanup.mjs";
 
 const repoRoot = resolve(import.meta.dirname, "..");
 const launcher = join(repoRoot, "clients", "launcher", "build", "index.js");
@@ -126,18 +127,12 @@ const EXIT_GRACE_MS = Number(process.env.SMOKE_TUI_EXIT_GRACE_MS ?? 5000);
 const DRAIN_MS = 500;
 
 function cleanup() {
-  try {
-    rmSync(work, { recursive: true, force: true });
-  } catch (err) {
-    // Never turn a passing smoke into a failure over a leftover temp dir; the
-    // OS reclaims tmpdir anyway. On the normal path this should not fire, since
-    // removal waits for the child's `close` (see done()) — but the two give-up
-    // branches there call finish() without it, and a process may still hold the
-    // dir, so this is expected rather than anomalous on those.
-    console.warn(
-      `smoke:tui — could not remove temp dir ${work}: ${err.message}`,
-    );
-  }
+  // Never turn a passing smoke into a failure over a leftover temp dir; the OS
+  // reclaims tmpdir anyway. On the normal path a warning should not fire, since
+  // removal waits for the child's `close` (see done()) — but the two give-up
+  // branches there call finish() without it, and a process may still hold the
+  // dir, so it is expected rather than anomalous on those.
+  removeSafe(work, { label: "smoke:tui" });
 }
 
 // Tail of the child's output, for quoting in a diagnostic. Slicing an Ink
@@ -184,6 +179,12 @@ function done(code, message) {
   // never `exit`, so an `exit` wait would hang here until the give-up timer and
   // then blame a SIGTERM the child never received. `close` also guarantees the
   // stdio pipes are drained, which is what makes the thunked messages complete.
+  //
+  // This deliberately does NOT use lib/child-cleanup.mjs's `stopChild()` (which
+  // pack-and-verify.mjs uses against the same race): that helper resolves on the
+  // FIRST of exit/close, whereas this wait is entangled with the drain phase —
+  // it must keep waiting for `close` after `exit`, on a shorter re-armed
+  // deadline, so the quoted output is complete. Only `removeSafe()` is shared.
   const forceKill = setTimeout(() => child.kill("SIGKILL"), EXIT_GRACE_MS);
 
   // Deadline for the wait. Re-armed shorter once the child is gone, since from
