@@ -5,7 +5,7 @@ This is an application for inspecting MCP servers. Has three incarnations, Web, 
 ## Project Structure
 
 ```
-inspector/
+v2/main/
 ├── clients/
 │   ├── web/                            # Web client (Vite + React + Mantine)
 │   │   ├── src/                        # Browser source (React app, hooks, components)
@@ -123,9 +123,9 @@ If you've already built a change locally, share the **prompt** you used and scre
 **Every PR must reference an issue. No exceptions, regardless of who opens it.** The PR body's first line is `Closes #<ISSUE_NUMBER>` (see the [Issue-driven Work Style](#issue-driven-work-style) rules below). A PR with no linked issue has no board card, so the work is invisible to the project board and untracked — if you're about to open one and there's no issue yet, create the issue first. This holds for a maintainer's own one-line fix as much as for a feature.
 
 ## Project Status and Direction
-* The v1/main branch currently contains the legacy version of the Inspector, which is in deprecated maintenance mode — **security and bug fixes only**, no new features. It is **published straight from the branch** to the `v1-latest` npm dist-tag — v1 releases never pass through `main`, and v1 PRs therefore target `v1/main` directly.
+* The v1/main branch currently contains the legacy version of the Inspector, which we are creating security fixes for in deprecated maintenance mode. It is **published straight from the branch** to the `v1-latest` npm dist-tag — v1 releases never pass through `main`, and v1 PRs therefore target `v1/main` directly.
 
-* The v2/main branch currently contains the new version of the Inspector, which is actively being developed and maintained. All new features, bug fixes, and refactors should be implemented in this branch. It acts as the **develop branch**: work accumulates here continuously and is merged into `main` at milestone releases.
+* The v2/main branch currently contains the the new version of the Inspector, which is actively being developed and maintained. All new features, bug fixes, and refactors should be implemented in this branch. It acts as the **develop branch**: work accumulates here continuously and is merged into `main` at milestone releases.
 
 * The main branch is the default branch for the repo, and it currently points to the latest v2 release. It is not a development branch, and no new features or bug fixes should be implemented here. It is only used for releases of the v2 Inspector via merge from v2/main, which is what publishes the `latest` npm dist-tag.
 
@@ -151,7 +151,7 @@ All work should be driven by items on the project board.
 - Before starting work, check the board for the relevant item.
 - **Every board item is a real GitHub issue.** Do not create draft items (board cards with no issue number). If you find work that needs tracking, create an actual issue and add that to the board. Before creating a new issue, check the board for a matching item to avoid duplicates — **never create a duplicate**.
 - **Label by version — every issue and every PR, no exceptions.** Each one carries **exactly one** of `v1` or `v2` at creation. There is no unlabeled state and no "decide later": an issue with neither label belongs to no version line, appears in no version-filtered query, and is effectively invisible.
-  - `v1` — work targeting `v1/main` (the deprecated line: security and bug fixes only)
+  - `v1` — work targeting `v1/main` (the deprecated line: security fixes only)
   - `v2` — work targeting `v2/main` (active development; the default for anything new)
 
   Set the label at **create time** — `gh issue create --label v2 ...`, `gh pr create --label v2 ...` — never by backfilling later, since unlabeled items are exactly the ones missed when filtering by version. **If the target version isn't obvious, it's `v2`**: v2 is where all new work goes, and `v1` is reserved for the narrow case of patching the deprecated line. Only ask when the issue is specifically a fix *for released v1 behavior* and it's unclear whether v2 still has the bug. Note the label is a repo tag and is **not** the board — see the callout above; a `v2` issue also needs a board card with a Status.
@@ -165,7 +165,7 @@ All work should be driven by items on the project board.
   ```
 
   Milestones are **release** buckets (`v2.1.0`, `v2.2.0`, …), so pick by *when the work ships*, not by size. If a new issue plainly can't make the current milestone, say so and put it in the next one rather than leaving it blank. Sub-issues normally inherit their parent's milestone — if a sub-task must ship with its parent, they belong in the same one.
-- When work begins, create a feature branch and set the item's Status to **In Progress**.
+- When work begins, create a feature branch and set the item's Status to **In Progress** (or **V2 Go Live** for a card in the go-live phases, #1804).
 - **Branch names start with the target version segment.** The first path segment must be the version whose base branch the PR targets — `v2/` for work on `v2/main`, `v1/` for work on `v1/main` — followed by the usual type and slug: `v2/ci/restore-claude-workflow`, `v2/fix/oauth-scope-union`, `v1/fix/proxy-ssrf-pin`. Not `ci/restore-claude-workflow`. This keeps the two lines legible in `git branch -a` and in the PR list once v1 and v2 branches coexist on the same remote, and it matches the base branches themselves (`v2/main`, `v1/main`).
 - When work is complete:
   - Run `npm run ci` from the root — the mandatory pre-push gate (see [Mandatory pre-push gate](#mandatory-pre-push-gate)). `npm run validate` is the fast inner-loop check and is **not** a substitute: it runs no coverage gate, no smokes, and no Storybook tests.
@@ -184,12 +184,12 @@ All work should be driven by items on the project board.
   | --- | --- | --- | --- |
   | `v2/main` | **Develop.** All active v2 work lands here. | **Yes** — every v2 PR | nothing directly; reaches npm via `main` |
   | `main` | **Release.** The repo's default branch; holds the latest released v2. Not a development branch. | **No** — it only receives milestone merges from `v2/main` | `latest` |
-  | `v1/main` | **Maintenance.** The deprecated v1 line, security and bug fixes only, no active development. | **Yes** — every v1 PR, directly | `v1-latest`, published straight from this branch |
+  | `v1/main` | **Maintenance.** The deprecated v1 line, security fixes only, no active development. | **Yes** — every v1 PR, directly | `v1-latest`, published straight from this branch |
 
   So v2 flows `feature branch → v2/main → (milestone) main → npm latest`, while v1 is flat: `feature branch → v1/main → npm v1-latest`, with no merge into `main` at any point. The two lines are published independently under separate dist-tags, which is why a v1 fix does **not** need to be forward-ported to reach users on v1 (`npx @modelcontextprotocol/inspector@v1-latest`).
 - **Project Boards**:
   - v2 - https://github.com/orgs/modelcontextprotocol/projects/28 (active board — all new work goes here)
-  - v1 - https://github.com/orgs/modelcontextprotocol/projects/11 (legacy inspector version, no new activity except security and bug fixes)
+  - v1 - https://github.com/orgs/modelcontextprotocol/projects/11 (legacy inspector version, no new activity except security fixes)
 
 #### V2 board (#28) `gh` recipes
 
@@ -205,7 +205,7 @@ gh project field-list 28 --owner modelcontextprotocol --format json \
 | Project node ID | `PVT_kwDOCt2Azc4BJVxt` |
 | Status field ID | `PVTSSF_lADOCt2Azc4BJVxtzg5iI8c` |
 
-Status option IDs (`--single-select-option-id`) — **last verified 2026-07-31**, when `V2 Go Live` was removed from the board along with the go-live phases it tracked. The four below are the complete current set; anything else (`V2 Go Live` `b3a6966e`, `SDK V2 + New Spec` `1bbb6f57`, `Building CLI / TUI / CORE` `4ac261ee`, `Building Web` `c28da89f`, `MCP Apps Extension` `73d0b807`) is a removed column whose id is now rejected.
+Status option IDs (`--single-select-option-id`) — **last verified 2026-07-27**. 
 
 | Status | Option ID |
 | --- | --- |
@@ -393,3 +393,4 @@ The dev/prod web backend protects every `/api/*` route with `x-mcp-remote-auth: 
 3. `sessionStorage` — backstop for navigations that land without either of the above.
 
 Injection is a no-op when auth is disabled (`DANGEROUSLY_OMIT_AUTH`), and the global name is the shared `INSPECTOR_API_TOKEN_GLOBAL` constant in `core/mcp/remote/constants.ts`.
+
