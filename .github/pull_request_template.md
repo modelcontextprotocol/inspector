@@ -17,14 +17,14 @@
     → Open an issue and share the PROMPT(S) you used to generate it, not a
       diff. We'll reproduce it through our own workflow.
 
-  Full policy: ../CONTRIBUTORS.md (relative to this template — the file lives
+  Full policy: ../CONTRIBUTING.md (relative to this template — the file lives
   at the repository root, on whatever branch you're reading).
 
   Maintainers: delete this template body and describe your change normally.
 -->
 
 > **Heads up:** this repository accepts **issues, not pull requests** from
-> external contributors. Please read [`CONTRIBUTORS.md`](../CONTRIBUTORS.md)
+> external contributors. Please read [`CONTRIBUTING.md`](../CONTRIBUTING.md)
 > before continuing. If you're an external contributor, open an issue (and
 > share the prompt you used, if you've already built the change) rather than
 > this PR.

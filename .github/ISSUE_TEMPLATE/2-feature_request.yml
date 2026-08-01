@@ -1,0 +1,84 @@
+name: Feature request
+description: Suggest an improvement to the Inspector
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for suggesting an improvement.
+
+        **Maintainers do the implementation here** — this repository accepts
+        **issues, not pull requests**
+        ([`CONTRIBUTING.md`](https://github.com/modelcontextprotocol/inspector/blob/main/CONTRIBUTING.md)).
+        That makes a sharply-stated **problem** the most valuable thing you can
+        give us: it is what we design against, and it survives after a specific
+        solution turns out not to fit.
+
+        So please describe the problem first, and treat the solution section as
+        one possible answer rather than the request itself.
+
+        > **This form targets v2.** The v1 line is deprecated and takes
+        > **security fixes only** — it does not take new features.
+
+  - type: dropdown
+    id: client
+    attributes:
+      label: Which client?
+      options:
+        - Web
+        - CLI
+        - TUI
+        - All / shared core
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: >
+        What are you trying to do, and what makes it hard or impossible today?
+        Describe the situation, not the feature — including how often you hit
+        it and what you do instead right now.
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Solution you have in mind (optional)
+      description: >
+        If you have a concrete idea, describe it here. It's fine to leave this
+        blank — the problem above is the part we need.
+    validations:
+      required: false
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives or workarounds you have tried
+    validations:
+      required: false
+
+  - type: textarea
+    id: prompt
+    attributes:
+      label: Already built it locally?
+      description: >
+        Please don't attach a diff or open a pull request — share the **exact
+        prompt(s)** you used, plus screenshots of the result. We reproduce the
+        work through our own workflow so it lands with the right conventions,
+        tests, and coverage.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: acknowledgements
+    attributes:
+      label: Before you submit
+      options:
+        - label: I searched existing issues and this is not a duplicate.
+          required: true
+        - label: This is a request for the Inspector itself, not for the MCP specification or an SDK.
+          required: true
