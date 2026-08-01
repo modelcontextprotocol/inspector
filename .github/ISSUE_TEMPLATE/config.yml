@@ -1,7 +1,8 @@
 # Issue chooser configuration.
 #
-# Blank issues are disabled so every report lands in a form with the fields
-# triage actually needs (client, version line, transport).
+# Blank issues are disabled so every report lands in a form. The bug form
+# requires the facts triage needs first (client, version line, transport); the
+# feature form requires the client and a problem statement, and is v2-only.
 #
 # Security reports are deliberately a *contact link* rather than a template:
 # a template would still open a public issue, which is exactly what a
