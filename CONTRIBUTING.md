@@ -62,6 +62,18 @@ see [What makes a good issue or prompt submission](#what-makes-a-good-issue-or-p
 below. That's the whole process: you describe the intent, we handle the design
 and implementation.
 
+[**New issue**](https://github.com/modelcontextprotocol/inspector/issues/new/choose)
+offers a **Bug report** and a **Feature request** form. Blank issues are
+disabled, so pick one of the two. The bug form requires the facts triage needs
+first — which client, which version line, which transport; the feature form
+asks for the client and the problem you are trying to solve, and targets v2
+only.
+(GitHub serves the chooser from the repository's **default branch**, so what
+you see when filing is whatever has reached `main`; a form added on `v2/main`
+appears at the next milestone merge.) The same chooser links out to the private
+security-advisory process, to this policy, and to the specification and SDK
+repositories for reports that aren't about the Inspector itself.
+
 ### Which version and label?
 
 The Inspector is maintained across two versions, each with its own base branch

@@ -1,0 +1,163 @@
+name: Bug report
+description: Report something broken in the Inspector (web, CLI, or TUI)
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug — **issues are how work reaches the Inspector.**
+
+        This repository accepts **issues, not pull requests**: design and
+        implementation are done by the maintainers through a prompt-driven
+        workflow ([`CONTRIBUTING.md`](https://github.com/modelcontextprotocol/inspector/blob/main/CONTRIBUTING.md)).
+        So if you have already prototyped a fix locally, **the prompt you used
+        plus screenshots is worth more to us than a diff** — there is a field
+        for it at the bottom of this form.
+
+        > 🔒 **Do not report security vulnerabilities here.** Use the
+        > [private advisory process](https://github.com/modelcontextprotocol/inspector/security/advisories/new)
+        > instead — see [`SECURITY.md`](https://github.com/modelcontextprotocol/inspector/blob/main/SECURITY.md).
+
+  - type: dropdown
+    id: version-line
+    attributes:
+      label: Which version line?
+      description: >
+        v2 is the current Inspector. v1 is deprecated and takes **security
+        fixes only**, so a v1 bug report gets a different answer. When in
+        doubt, it's v2.
+      options:
+        - v2 — current (`@modelcontextprotocol/inspector@latest`)
+        - v1 — deprecated (`@v1-latest`, security fixes only)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: client
+    attributes:
+      label: Which client?
+      description: The Inspector ships three clients from one package.
+      options:
+        - Web
+        - CLI
+        - TUI
+        - All / shared core
+    validations:
+      required: true
+
+  - type: input
+    id: inspector-version
+    attributes:
+      label: Inspector version
+      description: The version you actually ran, not "latest".
+      placeholder: "2.0.0"
+    validations:
+      required: true
+
+  - type: input
+    id: node-version
+    attributes:
+      label: Node version
+      description: >
+        Output of `node --version`. The current v2 line requires Node >=
+        22.19.0; the deprecated v1 line has its own, older floor.
+      placeholder: "v22.19.0"
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating system (and browser, for the web client)
+      placeholder: "macOS 15.5, Chrome 140"
+    validations:
+      required: false
+
+  - type: dropdown
+    id: transport
+    attributes:
+      label: Transport
+      description: How the Inspector was connected to the MCP server under inspection.
+      options:
+        - stdio
+        - Streamable HTTP
+        - SSE (legacy)
+        - Not applicable / never connected
+    validations:
+      required: true
+
+  - type: textarea
+    id: mcp-server
+    attributes:
+      label: MCP server under inspection
+      description: >
+        Which server, and how it is configured — the command or URL, the
+        protocol era you connected with (auto / legacy / modern), and whether
+        OAuth is involved. Redact tokens and secrets.
+      placeholder: |
+        Server: @modelcontextprotocol/server-everything (npx)
+        Protocol era: modern
+        OAuth: no
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Numbered steps, starting from a fresh launch of the Inspector.
+      placeholder: |
+        1. Run `npx @modelcontextprotocol/inspector`
+        2. Add the server above and connect
+        3. Open the Tools tab and call `echo`
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What you expected to happen.
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What happened instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs, errors, or screenshots
+      description: >
+        Console output, the Inspector's Protocol or Network tab, or a
+        screenshot. Redact tokens and secrets first. Screenshots can be pasted
+        directly into this field.
+    validations:
+      required: false
+
+  - type: textarea
+    id: prompt
+    attributes:
+      label: Already prototyped a fix?
+      description: >
+        Please don't attach a diff or open a pull request — share the **exact
+        prompt(s)** you used to produce the change, plus what you verified and
+        any before/after screenshots. We reproduce it through our own workflow
+        so it lands with the right conventions, tests, and coverage.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: acknowledgements
+    attributes:
+      label: Before you submit
+      options:
+        - label: I searched existing issues and this is not a duplicate.
+          required: true
+        - label: This is not a security vulnerability report (those go through the private advisory process).
+          required: true

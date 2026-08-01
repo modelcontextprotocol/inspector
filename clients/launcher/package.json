@@ -28,12 +28,12 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/node": "^24.12.4",
-    "@vitest/coverage-v8": "^4.1.0",
+    "@vitest/coverage-v8": "^4.1.10",
     "eslint": "^10.8.0",
     "globals": "^17.4.0",
     "prettier": "3.8.4",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.56.1",
-    "vitest": "^4.1.0"
+    "vitest": "^4.1.10"
   }
 }

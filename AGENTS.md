@@ -120,6 +120,8 @@ If you've already built a change locally, share the **prompt** you used and scre
 
 **This applies to org members with write access too, not just outside contributors.** Having permission to push a branch is not authorization to open a PR. Pull requests against this repo are opened by the **repo maintainers** only. Anyone else — including organization members whose write access makes it technically possible — opens a **detailed issue** instead, and a maintainer takes it from there. A detailed issue means: the problem, how to reproduce it, the behavior you expected, and — if you've already prototyped a fix — the prompt you used and any screenshots, rather than a diff.
 
+**Issues are filed through the forms in [`.github/ISSUE_TEMPLATE/`](./.github/ISSUE_TEMPLATE) — blank issues are disabled.** GitHub serves the chooser from the **default branch** only, so a form edited here on `v2/main` has no effect on the live chooser until the next milestone merge into `main` — and it cannot be previewed before then, which is why the schema notes below matter. There are two forms, **Bug report** (`1-bug_report.yml`, auto-labels `bug`) and **Feature request** (`2-feature_request.yml`, auto-labels `enhancement` **and `v2`**); `config.yml` holds the chooser's contact links. A form's `labels:` is **static** — GitHub cannot map a reporter's answer to a label — which splits the two cases: the **bug** form could target either line, so it carries a required version-line *dropdown* and a maintainer applies the matching label at triage per [Label by version](#issue-driven-work-style); the **feature** form is v2 by construction (v1 takes security fixes only and cannot receive a feature), so it needs no dropdown and declares `v2` statically. If v1 ever reopens to features, that static label is what has to change. **There is deliberately no security template**: a vulnerability report must not open a public issue, so the chooser routes it to the private advisory form as a contact link instead (see [`SECURITY.md`](./SECURITY.md)). When adding or changing a form, validate it against GitHub's issue-forms schema (`markdown` blocks take no `id` and no `validations`; `checkboxes` mark `required` per option, not under `validations`).
+
 **Every PR must reference an issue. No exceptions, regardless of who opens it.** The PR body's first line is `Closes #<ISSUE_NUMBER>` (see the [Issue-driven Work Style](#issue-driven-work-style) rules below). A PR with no linked issue has no board card, so the work is invisible to the project board and untracked — if you're about to open one and there's no issue yet, create the issue first. This holds for a maintainer's own one-line fix as much as for a feature.
 
 ## Project Status and Direction
@@ -146,16 +148,18 @@ If you've already built a change locally, share the **prompt** you used and scre
 
 All work should be driven by items on the project board.
 
-> **A v2 issue is not "created" until it is labeled `v2`, given a milestone, AND on board #28 with a Status set.** Labeling alone is not enough — a label is a repo tag, the milestone is a release bucket, and the board is a separate org project. Applying `--label v2` does **not** add the item to the board, and adding it to the board does **not** set a Status. All four are distinct steps; do all four (see the recipes below). **Only issues go on the board — never PRs.** A PR still gets the `v2` label, but it is tracked through its linked issue's card (via `Closes #N`), not its own board item.
+> **A v2 issue is not "created" until it is labeled `v2`, given a milestone, AND on board #28 with a Status *and* a Priority set.** Labeling alone is not enough — a label is a repo tag, the milestone is a release bucket, and the board is a separate org project. Applying `--label v2` does **not** add the item to the board, and adding it to the board does **not** set a Status or a Priority. All five are distinct steps; do all five (see the recipes below). **Only issues go on the board — never PRs.** A PR still gets the `v2` label, but it is tracked through its linked issue's card (via `Closes #N`), not its own board item.
 
 - Before starting work, check the board for the relevant item.
 - **Every board item is a real GitHub issue.** Do not create draft items (board cards with no issue number). If you find work that needs tracking, create an actual issue and add that to the board. Before creating a new issue, check the board for a matching item to avoid duplicates — **never create a duplicate**.
 - **Label by version — every issue and every PR, no exceptions.** Each one carries **exactly one** of `v1` or `v2` at creation. There is no unlabeled state and no "decide later": an issue with neither label belongs to no version line, appears in no version-filtered query, and is effectively invisible.
   - `v1` — work targeting `v1/main` (the deprecated line: security fixes only)
   - `v2` — work targeting `v2/main` (active development; the default for anything new)
-
-  Set the label at **create time** — `gh issue create --label v2 ...`, `gh pr create --label v2 ...` — never by backfilling later, since unlabeled items are exactly the ones missed when filtering by version. **If the target version isn't obvious, it's `v2`**: v2 is where all new work goes, and `v1` is reserved for the narrow case of patching the deprecated line. Only ask when the issue is specifically a fix *for released v1 behavior* and it's unclear whether v2 still has the bug. Note the label is a repo tag and is **not** the board — see the callout above; a `v2` issue also needs a board card with a Status.
-- **Add the issue to the board and set Status.** After creating an issue, add it to board #28 and set its Status. (PRs are never added to the board — they're tracked through their linked issue's card.) This is the step most easily forgotten because it needs several IDs — copy the recipes below verbatim.
+  Set the label at **create time** — `gh issue create --label v2 ...`, `gh pr create --label v2 ...` — never by backfilling later, since unlabeled items are exactly the ones missed when filtering by version. **If the target version isn't obvious, it's `v2`**: v2 is where all new work goes, and `v1` is reserved for the narrow case of patching the deprecated line. Only ask when the issue is specifically a fix *for released v1 behavior* and it's unclear whether v2 still has the bug. Note the label is a repo tag and is **not** the board — see the callout above; a `v2` issue also needs a board card with a Status **and** a Priority (a `v1` one needs a Status; board #11 has no Priority field).
+- **Prioritize every new issue.** Every new issue must have a Priority (Urgent, High, Medium, or Low) set at creation time. Priority is a **board field**, not a label, so it lives on the card and an unboarded issue has nowhere to store it. Derive it with the rubric in [Setting issue priority](#setting-issue-priority) rather than asserting it — an unscored "this feels urgent" is exactly what the rubric exists to replace.
+- **Add the issue to the board and set Status and Priority.** After creating an issue, add it to the board for its version — **`v2` → board #28**, **`v1` → board #11** — and set the fields. (PRs are never added to either board — they're tracked through their linked issue's card.) This is the step most easily forgotten because it needs several IDs — copy the recipes below verbatim, and take them from the section for the right board; the two projects' ids are not interchangeable.
+  - **New and untriaged → `Incoming`.** This is the **default status for a new item on either board.** An issue nobody has evaluated yet belongs in **Incoming**, not Todo. Todo means a maintainer approved it and it is ready to be picked up; using Todo as the inbox erases that distinction and quietly promotes unreviewed work into the queue. Anything filed by an outside reporter starts in Incoming. Work you are starting immediately goes straight to In Progress.
+  - **Priority is v2-only.** Board #28 has a Priority field; board #11 does not. A v1 issue gets a Status and nothing else.
 - **Every new issue gets a milestone — no exceptions.** Set it at create time with `gh issue create --milestone <title> ...`. **If the user didn't specify one, default to the current milestone**: the open milestone with the nearest due date. Never leave an issue unmilestoned pending a decision — an unmilestoned issue drops out of release planning silently, the same way an unlabeled one drops out of version filtering. Moving it later is one command; noticing it was never set is the hard part. Get the current milestone with:
 
   ```sh
@@ -165,15 +169,90 @@ All work should be driven by items on the project board.
   ```
 
   Milestones are **release** buckets (`v2.1.0`, `v2.2.0`, …), so pick by *when the work ships*, not by size. If a new issue plainly can't make the current milestone, say so and put it in the next one rather than leaving it blank. Sub-issues normally inherit their parent's milestone — if a sub-task must ship with its parent, they belong in the same one.
-- When work begins, create a feature branch and set the item's Status to **In Progress** (or **V2 Go Live** for a card in the go-live phases, #1804).
+- When work begins, create a feature branch and set the item's Status to **In Progress**.
 - **Branch names start with the target version segment.** The first path segment must be the version whose base branch the PR targets — `v2/` for work on `v2/main`, `v1/` for work on `v1/main` — followed by the usual type and slug: `v2/ci/restore-claude-workflow`, `v2/fix/oauth-scope-union`, `v1/fix/proxy-ssrf-pin`. Not `ci/restore-claude-workflow`. This keeps the two lines legible in `git branch -a` and in the PR list once v1 and v2 branches coexist on the same remote, and it matches the base branches themselves (`v2/main`, `v1/main`).
 - When work is complete:
   - Run `npm run ci` from the root — the mandatory pre-push gate (see [Mandatory pre-push gate](#mandatory-pre-push-gate)). `npm run validate` is the fast inner-loop check and is **not** a substitute: it runs no coverage gate, no smokes, and no Storybook tests.
   - Open a PR against the matching base branch (`v1/main` for v1, `v2/main` for v2) and set the item's Status to **In Review**
   - **Attach screenshots as proof of functionality.** Any change to the web UI or the TUI must show its result: capture before/after screenshots (or a short GIF for an interaction) and put them in a **`pr-screenshots/` folder off the repo root**, creating it if it doesn't exist. That folder is **gitignored** — the images are working artifacts staged for upload, never committed to the source tree — so attach them to the PR body from there rather than referencing an in-repo path. Name them for what they show (`tools-tab-before.png`, `tools-tab-after.png`), not `Screenshot 2026-07-31 at 14.02.11.png`.
   - **Link the PR to its issue — mandatory for every PR, from anyone.** No PR is opened without an issue to reference; if one doesn't exist yet, create it first (labeled and on the board) rather than opening the PR and backfilling. Note also that only the **repo maintainers** open PRs at all (see [Contributing](#contributing)) — everyone else files a detailed issue. The PR body's **first line must be `Closes #<ISSUE_NUMBER>`**. ⚠️ Note: closing keywords only auto-link/auto-close for PRs targeting the repo's **default branch** (`main`). Because v2 PRs target `v2/main` (a non-default branch), `Closes #N` there is only a cross-reference — it will **not** create a hard link or close the issue on merge. (There is no `gh` flag for manual linking — `gh pr edit` has no `--add-issue`; closing keywords are the only mechanism GitHub exposes, and they're gated to the default branch.)
-  - **On merge of a v2 PR, manually close its issue and move the board item to Done** (option id `248a3910`), since auto-close won't fire on `v2/main`. Keep the `Closes #N` line anyway so the issues close automatically if/when `v2/main` is eventually merged to `main`.
+  - **On merge of a v2 PR, manually close its issue and move the board item to Done** (option id `259d6aab`), since auto-close won't fire on `v2/main`. Keep the `Closes #N` line anyway so the issues close automatically if/when `v2/main` is eventually merged to `main`.
 - If new tasks are discovered or requested during development, create issues and add them to the board.
+
+## Setting issue priority
+
+Every issue gets a **Priority on its board card**, set when you add the issue to the board. Score it rather than assert it: rate two axes 1–5, add the signal bonuses, and read the total off the band table. The point is that two people triaging the same issue land in the same place, and that the reasoning survives in a form someone can argue with later.
+
+> ⚠️ **There are two different "Priority" fields on an issue page, and they are unrelated. Ours is the one under _Projects → Inspector V2_.**
+>
+> | Where it appears | What it is | Ours? |
+> | --- | --- | --- |
+> | **Projects → Inspector V2 → Priority** | The **project board** field on board #28 (`PVTSSF_lADOCt2Azc4BJVxtzg5iJE4`). Urgent/High/Medium/Low, each option carrying its rubric band in the description. | ✅ **Yes — this is the one this rubric sets.** |
+> | **Fields → Priority** (above _Projects_) | A GitHub **issue field**, `IFSS_kgDOAdAWeg`. Defined at the **`modelcontextprotocol` org** and shared by every repo in it (typescript-sdk, servers, registry, …), alongside `Effort`, `Start date`, and `Target date`. Created 2026-05-06, `ORG_ONLY`. | ❌ No. Not ours, not repo-scoped. |
+>
+> They look identical — same name, same four option names — but **nothing syncs them.** Setting one does not set the other, and they will happily disagree (this was first noticed on #1891 showing `Urgent` in Fields and `High` on the board). There is no pass-through, in either direction.
+>
+> **Never delete the org-level field.** It belongs to the whole org, so removing it would strip Priority from every other `modelcontextprotocol` repo.
+>
+> **Don't set it either — but do read it.** A value there is a *reporter's* opinion, not a maintainer's assessment, so it is **untrusted input**. It feeds the rubric as a capped +1 signal bonus and nothing more; see [Trust boundary](#trust-boundary-who-can-set-what) below.
+
+**Axis 1 — Severity / impact (1–5).** How bad is it when it happens?
+
+| Score | Means |
+| --- | --- |
+| 1 | Cosmetic — a typo, a misaligned control, a wording nit. |
+| 2 | Minor friction with an easy workaround. |
+| 3 | A real feature is broken or missing; the workaround is annoying or partial. |
+| 4 | A core workflow is unusable, or the Inspector reports something false about the server under test. |
+| 5 | Data loss, a security vulnerability, or a release that is broken on arrival for everyone. |
+
+**Axis 2 — Urgency / staleness (1–5).** How time-sensitive or neglected is it?
+
+| Score | Means |
+| --- | --- |
+| 1 | No time pressure; nothing waits on it. |
+| 2 | Wanted eventually. |
+| 3 | Wanted this milestone, or has sat >90 days with no activity. |
+| 4 | Blocking other work, or tied to a dated external dependency (an SDK release, a spec deadline). |
+| 5 | Blocking a release, or actively hurting users on a published version right now. |
+
+**Signal indicators (bonuses, +1 each — not an axis of their own).** These are corroborating evidence that the two axes may have undercounted, so they adjust the total rather than standing alone:
+
+- Carries a `bug` or security-related label
+- Linked to a milestone
+- High engagement (many comments or reactions)
+- Assigned to someone
+- A sub-issue of a larger epic
+- The reporter set `Fields → Priority` to **Urgent or High** — **+1, flat, whichever of the two they picked.** It does not map to a band, and `Urgent` earns exactly what `High` earns. See below.
+
+**Bands.** Axes give 2–10 and there are six bonuses, so the total runs 2–16.
+
+| Total | Priority | Meaning |
+| --- | --- | --- |
+| 12+ | **Urgent** | Drop what you're doing. |
+| 9–11 | **High** | Next up after current work. |
+| 6–8 | **Medium** | Scheduled normally. |
+| ≤5 | **Low** | Nice to have; may sit. |
+
+Note that severity alone doesn't reach Urgent: a 5/5 with no corroborating signals totals 10 and lands **High**. That's deliberate — Urgent is reserved for a severe problem that something *else* also confirms is burning, and a band that everything qualifies for stops carrying information. Override the band when it's plainly wrong, but say why in the issue; a rubric nobody may overrule is a rubric people route around.
+
+Set the resulting level on the board card with the Priority recipe in the [V2 board (#28) `gh` recipes](#v2-board-28-gh-recipes) below.
+
+### Trust boundary: who can set what
+
+**The boards are private** (`public: false`, both #28 and #11 — verified 2026-08-01). The Status and Priority a maintainer assigns are visible only to people with project access: a reporter cannot see them, cannot set them, and will never learn how their issue was scored. Board priority is a maintainers' working queue, not a published commitment.
+
+The org-level `Fields → Priority` is the opposite. It renders on the public issue page and is **not** part of maintainer triage, so any value there is **untrusted** — we didn't put it there, and it carries a preference rather than an assessment.
+
+That asymmetry is the whole reason the reporter's value earns a flat +1 and nothing more:
+
+- **It counts for something.** Someone flagging their own issue is real information about how much it hurts them. Discarding it throws away a signal we'd otherwise have to infer.
+- **It cannot decide an outcome.** The bonus is capped, identical for `Urgent` and `High`, and can lift an issue at most one band. Nothing a reporter can type reaches Urgent by itself: Urgent needs 12, so the issue must already sit at 11 on maintainer-assessed axes — at which point the reporter is not the reason.
+- **Never map the value across.** A reporter selecting `Urgent` does **not** make the board card Urgent. Doing that would hand queue position to anyone with a GitHub account, and the queue would sort by assertiveness instead of impact.
+
+Don't lean on GitHub's permission gate to enforce this. Whether an outside reporter can set that field today is an implementation detail that can change without notice; the rule holds either way, because it rests on *who assessed the issue* rather than on who was technically able to click.
+
+**Assess board Priority at boarding time**, from the issue as it stands. The reporter's value is one input among several, weighted as above.
 
 ## Repository & Project Boards
 
@@ -191,11 +270,14 @@ All work should be driven by items on the project board.
   - v2 - https://github.com/orgs/modelcontextprotocol/projects/28 (active board — all new work goes here)
   - v1 - https://github.com/orgs/modelcontextprotocol/projects/11 (legacy inspector version, no new activity except security fixes)
 
+  **Both boards start new items in `Incoming`.** A card only leaves Incoming when a maintainer has looked at it and approved the work — that is what Todo means on either board. The two boards are otherwise separate projects with their own field and option ids; never reuse one board's ids against the other (they are rejected with "option Id does not belong to the field", so the mistake is at least loud).
+
 #### V2 board (#28) `gh` recipes
 
-The board is an **org project**, so all commands use `--owner modelcontextprotocol` and the numeric project `28`. The project node id and Status field id are stable. **The Status *option* ids are NOT stable — they are regenerated whenever the Status field's option list is edited** (see the ⚠️ hazard below). If any option id here is rejected, re-fetch the current set with:
+The board is an **org project**, so all commands use `--owner modelcontextprotocol` and the numeric project `28`. The project node id and the field ids are stable. **The *option* ids are NOT stable — they are regenerated whenever a single-select field's option list is edited** (see the ⚠️ hazard below). If any option id here is rejected, re-fetch the current set with:
 
 ```sh
+# Swap "Status" for "Priority" to fetch the other field's options.
 gh project field-list 28 --owner modelcontextprotocol --format json \
   | jq '.fields[] | select(.name=="Status") | .options'
 ```
@@ -204,23 +286,71 @@ gh project field-list 28 --owner modelcontextprotocol --format json \
 | --- | --- |
 | Project node ID | `PVT_kwDOCt2Azc4BJVxt` |
 | Status field ID | `PVTSSF_lADOCt2Azc4BJVxtzg5iI8c` |
+| Priority field ID | `PVTSSF_lADOCt2Azc4BJVxtzg5iJE4` |
 
-Status option IDs (`--single-select-option-id`) — **last verified 2026-07-27**. 
+Status option IDs (`--single-select-option-id`) — **last verified 2026-08-01**.
 
 | Status | Option ID |
 | --- | --- |
+| Incoming | `721a3d4c` |
 | Todo | `fbdaf21e` |
 | In Progress | `195df262` |
 | In Review | `159c8a02` |
-| Done | `248a3910` |
+| Done | `259d6aab` |
 
-Use **Todo** for approved-but-not-started work, **In Progress** for general active work (regardless of surface), **In Review** once a PR is open, and **Done** on merge.
+Use **Incoming** for newly filed, untriaged work, **Todo** once a maintainer has approved it and it's ready to pick up, **In Progress** for general active work (regardless of surface), **In Review** once a PR is open, and **Done** on merge. The Incoming/Todo line is the one that matters: Todo asserts approval, so an unreviewed issue parked there is a false claim that someone signed off on it.
 
-> ⚠️ **Never add, rename, or remove a board column (Status option) with the `updateProjectV2Field` GraphQL mutation unless you pass every existing option's `id`.** That mutation does a **full replace** of the option list: if you resend options by name/color/description but omit their `id`s, GitHub **deletes all existing options and mints new ones**, which **orphans the Status of every card on the board** (all items go blank) *and* invalidates every option id in the table above. This has happened once (required reconstructing ~197 items' statuses by inference). Safe alternatives, in order of preference:
-> 1. **Add/rename/remove a column in the GitHub web UI** (Project #28 → Status field settings). This preserves ids of untouched options and never orphans cards.
-> 2. If you must script it, first `gh api graphql` the current options **with their `id`s**, then call `updateProjectV2Field` echoing back every existing option **including its `id`**, appending only the new one. Verify afterward that no card lost its Status.
+Priority option IDs (`--single-select-option-id`) — **last verified 2026-08-01**. Derive the level with the rubric in [Setting issue priority](#setting-issue-priority); don't eyeball it.
+
+| Priority | Option ID | Rubric total |
+| --- | --- | --- |
+| Urgent | `79628723` | 12+ |
+| High | `0a877460` | 9–11 |
+| Medium | `da944a9c` | 6–8 |
+| Low | `d67ac7ce` | ≤5 |
+
+> ⚠️ **Never add, rename, or remove an option on a single-select board field (Status or Priority) with the `updateProjectV2Field` GraphQL mutation unless you pass every existing option's `id`.** That mutation does a **full replace** of the option list: if you resend options by name/color/description but omit their `id`s, GitHub **deletes all existing options and mints new ones**, which **orphans that field's value on every card on the board** (all items go blank for the field you edited — Status if you were editing Status, Priority if you were editing Priority) *and* invalidates every option id in that field's table above. This has happened once, on Status (required reconstructing ~197 items' statuses by inference). Safe alternatives, in order of preference:
+> 1. **Add or rename an option in the GitHub web UI** (Project #28 → the field's settings). This preserves ids of untouched options and never orphans the cards on *other* options. ⚠️ **Deleting is different, in the UI as much as in the API: removing an option blanks that field's value on every card that held it, with no undo and no warning that says so.** Before deleting any option, snapshot the board (see recovery below).
+> 2. If you must script it, first `gh api graphql` the current options **with their `id`s**, then call `updateProjectV2Field` echoing back every existing option **including its `id`**, appending only the new one. `ProjectV2SingleSelectFieldOptionInput.id` is an optional `String`, so a mixed list works: echo the `id` for every option that already exists, omit it only for the one being added. Verify afterward that no card lost its value — snapshot `gh project item-list … --format json` before and after and diff, don't just spot-check.
+>
+> Both the `Incoming` Status option and the Urgent/High/Medium/Low `Priority` options were added this way (#1891), with the before/after diff confirming all 264 cards kept their Status.
 >
 > `gh project item-add` and `gh project item-edit` are always safe — they set a card's value and never touch the field schema. When option ids change for any reason, **re-verify and update the table above** (and the references in the recipes below and the merge step above).
+>
+> ### Always snapshot before touching a field's options
+>
+> One command, and it is the difference between a five-minute restore and reconstructing statuses by inference:
+>
+> ```sh
+> gh project item-list 28 --owner modelcontextprotocol --format json --limit 600 > board-snapshot.json
+> ```
+>
+> ### Recovering from a deleted option
+>
+> This has now happened twice — once via the API (~197 items, reconstructed by inference) and once via the UI (the `Done` column, 247 items, restored from a snapshot in minutes). With a snapshot the recovery is mechanical.
+>
+> **The recipe below is written for a deleted *Status* option** — it reads `.status` and writes the Status field id. For a deleted **Priority** option it is the same three steps with two substitutions: read `.priority` instead of `.status` (`gh project item-list --format json` exposes each single-select field under its lowercased name, so both keys are present), and pass the Priority field id `PVTSSF_lADOCt2Azc4BJVxtzg5iJE4` instead of the Status one. Everything else — the snapshot, the grouping safety check, the new-id caveat — applies unchanged.
+>
+> ```sh
+> # 1. Which cards lost their value, and what did they hold?
+> gh project item-list 28 --owner modelcontextprotocol --format json --limit 600 > board-broken.json
+> jq -r '[.items[]|select(.status==null)|.id]' board-broken.json > lost-ids.json
+> jq -r --slurpfile L lost-ids.json '($L[0]) as $lost
+>   | [.items[] | select(.id as $i | $lost|index($i)) | .status // "(none)"]
+>   | group_by(.) | map({s:.[0],c:length}) | .[] | "was \(.s): \(.c)"' board-snapshot.json
+>
+> # 2. Recreate the option, echoing every surviving option's id (see above).
+> #    NOTE: the recreated option gets a NEW id — the deleted one never comes back.
+>
+> # 3. Re-apply it to the orphaned cards.
+> for id in $(jq -r '.[]' lost-ids.json); do
+>   gh project item-edit --project-id PVT_kwDOCt2Azc4BJVxt --id "$id" \
+>     --field-id PVTSSF_lADOCt2Azc4BJVxtzg5iI8c --single-select-option-id <NEW_OPTION_ID>
+>   sleep 0.4
+> done
+> ```
+>
+> Step 1's grouping is the safety check: confirm the orphaned set is exactly the cards that held the deleted option, so you don't overwrite a card someone legitimately moved in the meantime. And because the recreated option carries a **new id**, the table above and every reference to it must be updated in the same change — `grep` the old id across the repo. The `Done` id has been `248a3910` and is now `259d6aab` for exactly this reason.
 
 ```sh
 # 1. Add an issue to the board — prints the item id (PVTI_…); capture it.
@@ -234,22 +364,56 @@ gh project item-edit \
   --single-select-option-id 195df262
 ```
 
-The one-liner that does both, capturing the item id (use the option id for the status you want):
+The full one-liner for a **new** issue — add it, then set Status and Priority (both are required; here Incoming + Medium):
 
 ```sh
 ITEM_ID=$(gh project item-add 28 --owner modelcontextprotocol --url <issue-url> --format json --jq '.id')
-gh project item-edit --project-id PVT_kwDOCt2Azc4BJVxt --id "$ITEM_ID" --field-id PVTSSF_lADOCt2Azc4BJVxtzg5iI8c --single-select-option-id 195df262
+# Status → Incoming
+gh project item-edit --project-id PVT_kwDOCt2Azc4BJVxt --id "$ITEM_ID" --field-id PVTSSF_lADOCt2Azc4BJVxtzg5iI8c --single-select-option-id 721a3d4c
+# Priority → Medium
+gh project item-edit --project-id PVT_kwDOCt2Azc4BJVxt --id "$ITEM_ID" --field-id PVTSSF_lADOCt2Azc4BJVxtzg5iJE4 --single-select-option-id da944a9c
 ```
 
-For an issue **already on the board** (moving an existing card, e.g. to **In Review** when its PR opens), look its item id up by issue number instead of re-adding it. Keep `--limit` above the board's item count (~200 as of 2026-07-27) — past it `item-list` truncates silently, `select` matches nothing, and `item-edit --id ""` fails with an opaque node-resolution error rather than saying the limit was too low:
+Each `item-edit` sets **one** field, so setting both takes two calls — there is no combined form.
+
+For an issue **already on the board** (moving an existing card, e.g. to **In Review** when its PR opens, or re-scoring its Priority), look its item id up by issue number instead of re-adding it. Keep `--limit` above the board's item count (~265 as of 2026-08-01) — past it `item-list` truncates silently, `select` matches nothing, and `item-edit --id ""` fails with an opaque node-resolution error rather than saying the limit was too low:
 
 ```sh
-# --limit must stay above the board's item count (~200 today) — past it the
+# --limit must stay above the board's item count (~265 today) — past it the
 # list truncates silently and item-edit fails with an opaque node-resolution error.
 ITEM_ID=$(gh project item-list 28 --owner modelcontextprotocol --format json --limit 500 \
   --jq '.items[] | select(.content.number==<ISSUE_NUMBER>) | .id')
 gh project item-edit --project-id PVT_kwDOCt2Azc4BJVxt --id "$ITEM_ID" --field-id PVTSSF_lADOCt2Azc4BJVxtzg5iI8c --single-select-option-id 159c8a02
 ```
+
+#### V1 board (#11) `gh` recipes
+
+The v1 line takes **security fixes only**, so this board sees little traffic — but a v1 issue still gets a card, and it starts in **Incoming** like a v2 one. Board #11 is a separate org project with **its own ids**; none of the #28 ids above work here.
+
+| Thing | ID |
+| --- | --- |
+| Project node ID | `PVT_kwDOCt2Azc4BA5sz` |
+| Status field ID | `PVTSSF_lADOCt2Azc4BA5szzgzkS-g` |
+
+Status option IDs — **last verified 2026-08-01**.
+
+| Status | Option ID |
+| --- | --- |
+| Incoming | `831820cf` |
+| Todo | `f75ad846` |
+| In Progress | `47fc9ee4` |
+| In Review | `0439b2bf` |
+| Done | `98236657` |
+
+There is **no Priority field on this board** — the priority rubric applies to v2 only. Don't try to set one here; the field id doesn't exist.
+
+```sh
+# Add a v1 issue to board #11 and put it in Incoming.
+ITEM_ID=$(gh project item-add 11 --owner modelcontextprotocol --url <issue-url> --format json --jq '.id')
+gh project item-edit --project-id PVT_kwDOCt2Azc4BA5sz --id "$ITEM_ID" --field-id PVTSSF_lADOCt2Azc4BA5szzgzkS-g --single-select-option-id 831820cf
+```
+
+The ⚠️ option-deletion hazard, the snapshot rule, and the recovery recipe above apply to **this board too** — same mutation, same failure mode, different ids. Note that three cards on #11 already carry no Status; that predates the `Incoming` addition (verified by before/after diff on 2026-08-01) and is not evidence of an orphaning event.
 
 ### Always test new or modified code
 - Ensure all code has corresponding tests

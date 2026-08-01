@@ -38,7 +38,7 @@ Please **do not** report security vulnerabilities through public GitHub issues, 
 or pull requests.
 
 Note that this repository does not accept pull requests from outside contributors
-(see [CONTRIBUTORS.md](./CONTRIBUTORS.md)) — **this does not apply to security
+(see [CONTRIBUTING.md](./CONTRIBUTING.md)) — **this does not apply to security
 reports**, which should always go through the advisory process above rather than
 any public channel.
 
