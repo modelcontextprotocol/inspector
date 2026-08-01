@@ -123,9 +123,9 @@ If you've already built a change locally, share the **prompt** you used and scre
 **Every PR must reference an issue. No exceptions, regardless of who opens it.** The PR body's first line is `Closes #<ISSUE_NUMBER>` (see the [Issue-driven Work Style](#issue-driven-work-style) rules below). A PR with no linked issue has no board card, so the work is invisible to the project board and untracked — if you're about to open one and there's no issue yet, create the issue first. This holds for a maintainer's own one-line fix as much as for a feature.
 
 ## Project Status and Direction
-* The v1/main branch currently contains the legacy version of the Inspector, which we are creating security fixes for in deprecated maintenance mode. It is **published straight from the branch** to the `v1-latest` npm dist-tag — v1 releases never pass through `main`, and v1 PRs therefore target `v1/main` directly.
+* The v1/main branch currently contains the legacy version of the Inspector, which is in deprecated maintenance mode — **security and bug fixes only**, no new features. It is **published straight from the branch** to the `v1-latest` npm dist-tag — v1 releases never pass through `main`, and v1 PRs therefore target `v1/main` directly.
 
-* The v2/main branch currently contains the the new version of the Inspector, which is actively being developed and maintained. All new features, bug fixes, and refactors should be implemented in this branch. It acts as the **develop branch**: work accumulates here continuously and is merged into `main` at milestone releases.
+* The v2/main branch currently contains the new version of the Inspector, which is actively being developed and maintained. All new features, bug fixes, and refactors should be implemented in this branch. It acts as the **develop branch**: work accumulates here continuously and is merged into `main` at milestone releases.
 
 * The main branch is the default branch for the repo, and it currently points to the latest v2 release. It is not a development branch, and no new features or bug fixes should be implemented here. It is only used for releases of the v2 Inspector via merge from v2/main, which is what publishes the `latest` npm dist-tag.
 
@@ -165,7 +165,7 @@ All work should be driven by items on the project board.
   ```
 
   Milestones are **release** buckets (`v2.1.0`, `v2.2.0`, …), so pick by *when the work ships*, not by size. If a new issue plainly can't make the current milestone, say so and put it in the next one rather than leaving it blank. Sub-issues normally inherit their parent's milestone — if a sub-task must ship with its parent, they belong in the same one.
-- When work begins, create a feature branch and set the item's Status to **In Progress** (or **V2 Go Live** for a card in the go-live phases, #1804).
+- When work begins, create a feature branch and set the item's Status to **In Progress**.
 - **Branch names start with the target version segment.** The first path segment must be the version whose base branch the PR targets — `v2/` for work on `v2/main`, `v1/` for work on `v1/main` — followed by the usual type and slug: `v2/ci/restore-claude-workflow`, `v2/fix/oauth-scope-union`, `v1/fix/proxy-ssrf-pin`. Not `ci/restore-claude-workflow`. This keeps the two lines legible in `git branch -a` and in the PR list once v1 and v2 branches coexist on the same remote, and it matches the base branches themselves (`v2/main`, `v1/main`).
 - When work is complete:
   - Run `npm run ci` from the root — the mandatory pre-push gate (see [Mandatory pre-push gate](#mandatory-pre-push-gate)). `npm run validate` is the fast inner-loop check and is **not** a substitute: it runs no coverage gate, no smokes, and no Storybook tests.
@@ -205,7 +205,7 @@ gh project field-list 28 --owner modelcontextprotocol --format json \
 | Project node ID | `PVT_kwDOCt2Azc4BJVxt` |
 | Status field ID | `PVTSSF_lADOCt2Azc4BJVxtzg5iI8c` |
 
-Status option IDs (`--single-select-option-id`) — **last verified 2026-07-27**. 
+Status option IDs (`--single-select-option-id`) — **last verified 2026-07-31**, when `V2 Go Live` was removed from the board along with the go-live phases it tracked. The four below are the complete current set; anything else (`V2 Go Live` `b3a6966e`, `SDK V2 + New Spec` `1bbb6f57`, `Building CLI / TUI / CORE` `4ac261ee`, `Building Web` `c28da89f`, `MCP Apps Extension` `73d0b807`) is a removed column whose id is now rejected.
 
 | Status | Option ID |
 | --- | --- |
@@ -393,4 +393,3 @@ The dev/prod web backend protects every `/api/*` route with `x-mcp-remote-auth: 
 3. `sessionStorage` — backstop for navigations that land without either of the above.
 
 Injection is a no-op when auth is disabled (`DANGEROUSLY_OMIT_AUTH`), and the global name is the shared `INSPECTOR_API_TOKEN_GLOBAL` constant in `core/mcp/remote/constants.ts`.
-

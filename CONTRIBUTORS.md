@@ -73,9 +73,9 @@ targets:
 | v1      | `v1/main`   | `v1`  | `v1-latest`  |
 | v2      | `v2/main`   | `v2`  | `latest`     |
 
-- **v1** (`v1/main`) is the legacy Inspector — it takes **security fixes
-  only**, and is published straight from that branch to the `v1-latest` npm
-  tag (`npx @modelcontextprotocol/inspector@v1-latest`).
+- **v1** (`v1/main`) is the legacy Inspector — it takes **security and bug
+  fixes only**, and is published straight from that branch to the `v1-latest`
+  npm tag (`npx @modelcontextprotocol/inspector@v1-latest`).
 - **v2** (`v2/main`) is where all current work happens — when in doubt, target
   v2. `v2/main` is the develop branch; it is merged into `main` at milestone
   releases, and `main` is what publishes the `latest` npm tag. Nothing targets
