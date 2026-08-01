@@ -74,7 +74,7 @@
     "postinstall": "node scripts/install-clients.mjs"
   },
   "dependencies": {
-    "@hono/node-server": "^1.19.14",
+    "@hono/node-server": "^2.0.12",
     "@modelcontextprotocol/client": "2.0.0-beta.5",
     "@modelcontextprotocol/core": "2.0.0-beta.5",
     "@modelcontextprotocol/ext-apps": "^1.7.4",
@@ -94,7 +94,7 @@
     "pino": "^9.14.0",
     "react": "^19.2.4",
     "undici": "^8.5.0",
-    "vite": "^8.0.0",
+    "vite": "^8.1.5",
     "yaml": "^2.9.0",
     "zod": "^4.3.6"
   },
