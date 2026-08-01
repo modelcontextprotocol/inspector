@@ -14,7 +14,7 @@ npx @modelcontextprotocol/inspector --cli    # CLI
 npx @modelcontextprotocol/inspector --tui    # TUI
 ```
 
-> **Repo status.** This is the **v2** line of the Inspector (branch `v2/main`). The `main` branch is the legacy v1 implementation (security fixes only). v2 will eventually replace `main`. See [`AGENTS.md`](./AGENTS.md) for branch/board conventions.
+> **Repo status.** This is the **v2** line of the Inspector (branch `v2/main`). The `main` branch is the legacy v1 implementation (bug fixes only). v2 will eventually replace `main`. See [`AGENTS.md`](./AGENTS.md) for branch/board conventions.
 
 ## Project layout
 
