@@ -68,10 +68,9 @@ disabled, so pick one of the two — the required fields (which client, which
 version line, which transport) are exactly the facts triage needs first.
 (GitHub serves the chooser from the repository's **default branch**, so what
 you see when filing is whatever has reached `main`; a form added on `v2/main`
-appears at the next milestone merge.) The
-same chooser links out to the private security-advisory process, to this
-policy, and to the specification and SDK repositories for reports that aren't
-about the Inspector itself.
+appears at the next milestone merge.) The same chooser links out to the private
+security-advisory process, to this policy, and to the specification and SDK
+repositories for reports that aren't about the Inspector itself.
 
 ### Which version and label?
 
