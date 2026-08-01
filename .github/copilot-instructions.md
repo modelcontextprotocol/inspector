@@ -51,7 +51,7 @@ const CardContent = Group.withProps({
 ### State and effects
 
 - **Never reset or re-sync local state from a prop inside a `useEffect`.** `useEffect(() => setX(prop), [prop])` paints the stale value first and renders twice; it is an error under `react-hooks/set-state-in-effect`.
-- Use **`useValueChange(value, onChange)`** (`src/hooks/useValueChange.ts`) — React's documented "adjusting state during render" pattern. It does not fire on the first render; seed the state with `useState`.
+- Use **`useValueChange(value, onChange)`** (`src/hooks/useValueChange.ts`) — React's documented "adjusting state during render" pattern. It does not fire on the first render; seed the state with `useState`. The comparison is `Object.is`, so pass a **referentially stable** value — a primitive key (id/name/URI) or a memoized one, never a fresh object literal.
 - Effects remain correct for real external-system synchronization (DOM measurement, rAF, subscriptions, timers).
 
 ### Theme files vs. element components

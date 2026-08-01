@@ -15,6 +15,16 @@ import { useState } from "react";
  * user sees one frame of the old state and React has to render twice. Adjusting
  * during render lets React discard the in-progress output and re-run the
  * component body before anything reaches the DOM.
+ *
+ * ⚠️ **`value` must be referentially stable across renders that mean "no
+ * change".** The comparison is `Object.is`, so an object or array literal built
+ * fresh in the component body looks different on every render — `onChange`
+ * would fire every render, and because it is what updates state, that is an
+ * infinite render loop rather than a merely wasteful one. Pass a **primitive
+ * key** derived from the data (an id, a name, a URI) wherever one exists, and
+ * otherwise a value that is already memoized or owned by the parent. This is
+ * the same stability requirement a `useEffect` dependency array carries; the
+ * difference is only that here the failure is loud and immediate.
  */
 export function useValueChange<T>(value: T, onChange: (next: T) => void): void {
   const [previous, setPrevious] = useState(value);
