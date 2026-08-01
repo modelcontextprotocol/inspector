@@ -5,7 +5,7 @@ This is an application for inspecting MCP servers. Has three incarnations, Web, 
 ## Project Structure
 
 ```
-inspector/
+v2/main/
 ├── clients/
 │   ├── web/                            # Web client (Vite + React + Mantine)
 │   │   ├── src/                        # Browser source (React app, hooks, components)
@@ -40,6 +40,13 @@ inspector/
 │   │   ├── node/                       # Node-side OAuth (NodeOAuthStorage, OAuthCallbackServer,
 │   │   │                               #   runner-interactive-oauth loopback callback flow)
 │   │   └── remote/                     # Remote OAuth storage (delegates to the remote server)
+│   ├── client/                         # Install-level client config (`client.json`): browser-safe
+│   │                                   #   parse/validate (config-parse.ts) + Node load/save
+│   │                                   #   (config.ts, node-persistence.ts), the remote backend
+│   │                                   #   (remote.ts), secrets (secrets.ts), and runner.ts.
+│   │                                   #   Consumed by both App.tsx trees (web + tui); gated by
+│   │                                   #   the web coverage `include`, tests in
+│   │                                   #   clients/web/src/test/core/client/.
 │   ├── json/                           # JSON utilities and parameter/argument conversion
 │   │                                   #   (xMcpHeader.ts: SEP-2243 `x-mcp-header`
 │   │                                   #   annotation scan/validation + mirrored-param
@@ -82,6 +89,16 @@ inspector/
 │                                       # in clients/web/vite.config.ts points at build/index.js
 │                                       # (not src/) so `getTestMcpServerPath()` returns a `.js` path.
 │                                       # tsconfig.test.json keeps paths pointing at src for typecheck.
+├── docs/                               # Task-oriented guides (mcp-server-configuration.md,
+│                                       #   mcp-app-review.md, launcher-config-consolidation-plan.md,
+│                                       #   images/). Linked from the root README.
+├── scripts/                            # Root build/verify tooling: install-clients.mjs (the
+│                                       #   postinstall cascade), the smoke-*.mjs runners,
+│                                       #   verify-build-gate / verify-format-coverage /
+│                                       #   verify-typecheck-coverage, pack-and-verify.mjs,
+│                                       #   and lib/ shared helpers. Prettier-gated via
+│                                       #   `format:check:scripts`; its own pure parsers are
+│                                       #   unit-tested by `npm run test:scripts` (node --test).
 ├── specification/                      # Build specification
 ...
 ```
@@ -96,39 +113,21 @@ v2 is **not** an npm workspace — each client under `clients/*` keeps its own `
 
 After installing, `npm run build` builds all clients. The launcher scripts (`npm run web` / `web:dev`) run the built launcher, so build first; for day-to-day web iteration use `cd clients/web && npm run dev`.
 
-## Repository & Project Board
-
-- **Repo**: https://github.com/modelcontextprotocol/inspector.git
-- **Base Branches**: v2/main (active), main (v1). v1.5/main is merged into v2/main and no longer takes new work.
-- **Project Boards**: 
-  - v2 - https://github.com/orgs/modelcontextprotocol/projects/28 (active board — all current work goes here)
-  - v1 - https://github.com/orgs/modelcontextprotocol/projects/11 (existing inspector version, no new activity except security and bug fixes)
-
 ## Contributing
 
-External contributions are accepted as **issues, not pull requests** —
-maintainers handle design and implementation through a prompt-driven workflow.
-If you've already built a change locally, share the **prompt** you used, not a
-diff. See [`CONTRIBUTORS.md`](./CONTRIBUTORS.md) for the full policy.
+External contributions are accepted as **issues, not pull requests** — maintainers handle design and implementation through a prompt-driven workflow.
+If you've already built a change locally, share the **prompt** you used and screenshots if applicable, not a diff. See [`CONTRIBUTING.md`](./CONTRIBUTING.md) for the full policy.
+
+**This applies to org members with write access too, not just outside contributors.** Having permission to push a branch is not authorization to open a PR. Pull requests against this repo are opened by the **repo maintainers** only. Anyone else — including organization members whose write access makes it technically possible — opens a **detailed issue** instead, and a maintainer takes it from there. A detailed issue means: the problem, how to reproduce it, the behavior you expected, and — if you've already prototyped a fix — the prompt you used and any screenshots, rather than a diff.
+
+**Every PR must reference an issue. No exceptions, regardless of who opens it.** The PR body's first line is `Closes #<ISSUE_NUMBER>` (see the [Issue-driven Work Style](#issue-driven-work-style) rules below). A PR with no linked issue has no board card, so the work is invisible to the project board and untracked — if you're about to open one and there's no issue yet, create the issue first. This holds for a maintainer's own one-line fix as much as for a feature.
 
 ## Project Status and Direction
-* The main branch currently contains the legacy version of the Inspector, which we are accepting bug fixes and minor improvement PRs for.
+* The v1/main branch currently contains the legacy version of the Inspector, which we are creating security fixes for in deprecated maintenance mode. It is **published straight from the branch** to the `v1-latest` npm dist-tag — v1 releases never pass through `main`, and v1 PRs therefore target `v1/main` directly.
 
-* The v1.5/main branch was the intermediate version of the Inspector, where the shared logic between the three incarnations of the Inspector was extracted into a core subsystem with InspectorClient class as the common entry point. It also included the TUI, a refactored CLI, and streamlined launcher. The branch still exists but is **frozen** — it takes no new work. It is kept as a reference point (e.g. for tracking down a regression introduced by the merge into v2/main), so do not delete it.
+* The v2/main branch currently contains the the new version of the Inspector, which is actively being developed and maintained. All new features, bug fixes, and refactors should be implemented in this branch. It acts as the **develop branch**: work accumulates here continuously and is merged into `main` at milestone releases.
 
-* The v2/main branch currently contains the new version of the web Inspector, composed of "dumb" components which accept data and callbacks as props and contain only display logic.
-
-The Launcher, TUI, CLI, and InspectorClient from v1.5/main have been merged into v2/main. InspectorClient is wired up to the new web Inspector. Eventually, we will replace main with v2/main, eliminating the legacy implementations.
-
-## Web backend auth token
-
-The dev/prod web backend protects every `/api/*` route with `x-mcp-remote-auth: Bearer <MCP_INSPECTOR_API_TOKEN>`. The browser recovers that token from three sources, in priority order (see `App.tsx` `getAuthToken()`):
-
-1. `window.__INSPECTOR_API_TOKEN__` — injected into `index.html` on every page load by the backend (the dev Vite plugin via `transformIndexHtml`, the prod Hono server on the `/` route), both routed through `clients/web/server/inject-auth-token.ts`. This is what makes a bare-URL reload, a bookmark, or a cleared `sessionStorage` keep working.
-2. `?MCP_INSPECTOR_API_TOKEN=…` query string — the URL the launcher banner prints; kept as a fallback for pasted full URLs.
-3. `sessionStorage` — backstop for navigations that land without either of the above.
-
-Injection is a no-op when auth is disabled (`DANGEROUSLY_OMIT_AUTH`), and the global name is the shared `INSPECTOR_API_TOKEN_GLOBAL` constant in `core/mcp/remote/constants.ts`.
+* The main branch is the default branch for the repo, and it currently points to the latest v2 release. It is not a development branch, and no new features or bug fixes should be implemented here. It is only used for releases of the v2 Inspector via merge from v2/main, which is what publishes the `latest` npm dist-tag.
 
 ## Maintenance Rules
 
@@ -137,29 +136,60 @@ Injection is a no-op when auth is disabled (`DANGEROUSLY_OMIT_AUTH`), and the gl
 - When the structure of the project, the tech stack, or the developer setup changes, update appropriate README.md files with the details.
 - When adding new commands, dependencies, or architectural patterns, update the relevant sections of appropriate README.md files as well.
 - When rules for implementation and testing change, update this file AGENTS.md
+- **Mirror review-relevant changes into [`.github/copilot-instructions.md`](.github/copilot-instructions.md).** That file is what GitHub Copilot reads when it reviews a PR, and it is a hand-maintained **distillation** of this one — there is no generation step and nothing detects drift, so it goes stale silently and Copilot then reviews against rules we no longer hold.
+  - **AGENTS.md remains the source of truth.** Never edit `copilot-instructions.md` alone to change a rule; change it here first, then mirror.
+  - **Review-relevant** means anything a reviewer would cite against a diff: the TypeScript rules, the Mantine/React conventions (including the `.withProps()` rule and its exceptions), the `lib` vs `utils` split, test placement, the ≥90% coverage gate and the `v8 ignore` policy, the `renderWithMantine` requirement, and the PR hygiene rules (`Closes #N`, version label). Changing any of these means updating both files in the **same PR**.
+  - **Not review-relevant, and deliberately absent** from the mirror: the board recipes and their IDs, milestone and branch-naming mechanics, release and publishing procedure, and the project-structure tree. Copying those in would double the maintenance surface for content no reviewer cites.
+  - Keep it a **distillation, not a copy** — it is read on every review, so length has a cost. Prefer tightening the summary over pasting a section wholesale.
 
 ### Issue-driven Work Style
 
 All work should be driven by items on the project board.
 
-> **A v2 issue is not "created" until it is BOTH labeled `v2` AND on board #28 with a Status set.** Labeling alone is not enough — a label is a repo tag; the board is a separate org project. Applying `--label v2` does **not** add the item to the board, and adding it to the board does **not** set a Status. All three are distinct steps; do all three (see the recipes below). **Only issues go on the board — never PRs.** A PR still gets the `v2` label, but it is tracked through its linked issue's card (via `Closes #N`), not its own board item.
+> **A v2 issue is not "created" until it is labeled `v2`, given a milestone, AND on board #28 with a Status set.** Labeling alone is not enough — a label is a repo tag, the milestone is a release bucket, and the board is a separate org project. Applying `--label v2` does **not** add the item to the board, and adding it to the board does **not** set a Status. All four are distinct steps; do all four (see the recipes below). **Only issues go on the board — never PRs.** A PR still gets the `v2` label, but it is tracked through its linked issue's card (via `Closes #N`), not its own board item.
 
 - Before starting work, check the board for the relevant item.
 - **Every board item is a real GitHub issue.** Do not create draft items (board cards with no issue number). If you find work that needs tracking, create an actual issue and add that to the board. Before creating a new issue, check the board for a matching item to avoid duplicates — **never create a duplicate**.
-- **Assign the issue to its creator.** When you create an issue, assign it to the user it is created on behalf of (`gh issue create --assignee @me ...`, or `--assignee <login>`). Board items should never be unassigned.
-- **Label by version.** New issues and PRs must carry the label matching the target board / branch:
-  - `main` → `v1`
-  - `v2/main` → `v2`
+- **Label by version — every issue and every PR, no exceptions.** Each one carries **exactly one** of `v1` or `v2` at creation. There is no unlabeled state and no "decide later": an issue with neither label belongs to no version line, appears in no version-filtered query, and is effectively invisible.
+  - `v1` — work targeting `v1/main` (the deprecated line: security fixes only)
+  - `v2` — work targeting `v2/main` (active development; the default for anything new)
 
-  Set the label at create time (`gh issue create --label v2 ...`, `gh pr create --label v2 ...`) — don't rely on backfilling later, since unlabeled PRs are easy to miss when filtering by version.
+  Set the label at **create time** — `gh issue create --label v2 ...`, `gh pr create --label v2 ...` — never by backfilling later, since unlabeled items are exactly the ones missed when filtering by version. **If the target version isn't obvious, it's `v2`**: v2 is where all new work goes, and `v1` is reserved for the narrow case of patching the deprecated line. Only ask when the issue is specifically a fix *for released v1 behavior* and it's unclear whether v2 still has the bug. Note the label is a repo tag and is **not** the board — see the callout above; a `v2` issue also needs a board card with a Status.
 - **Add the issue to the board and set Status.** After creating an issue, add it to board #28 and set its Status. (PRs are never added to the board — they're tracked through their linked issue's card.) This is the step most easily forgotten because it needs several IDs — copy the recipes below verbatim.
+- **Every new issue gets a milestone — no exceptions.** Set it at create time with `gh issue create --milestone <title> ...`. **If the user didn't specify one, default to the current milestone**: the open milestone with the nearest due date. Never leave an issue unmilestoned pending a decision — an unmilestoned issue drops out of release planning silently, the same way an unlabeled one drops out of version filtering. Moving it later is one command; noticing it was never set is the hard part. Get the current milestone with:
+
+  ```sh
+  # Open milestones, soonest due date first — the first row is the current one.
+  gh api repos/modelcontextprotocol/inspector/milestones --jq \
+    'map(select(.state=="open")) | sort_by(.due_on) | .[] | "\(.title)\tdue \(.due_on[0:10])\topen=\(.open_issues)"'
+  ```
+
+  Milestones are **release** buckets (`v2.1.0`, `v2.2.0`, …), so pick by *when the work ships*, not by size. If a new issue plainly can't make the current milestone, say so and put it in the next one rather than leaving it blank. Sub-issues normally inherit their parent's milestone — if a sub-task must ship with its parent, they belong in the same one.
 - When work begins, create a feature branch and set the item's Status to **In Progress** (or **V2 Go Live** for a card in the go-live phases, #1804).
+- **Branch names start with the target version segment.** The first path segment must be the version whose base branch the PR targets — `v2/` for work on `v2/main`, `v1/` for work on `v1/main` — followed by the usual type and slug: `v2/ci/restore-claude-workflow`, `v2/fix/oauth-scope-union`, `v1/fix/proxy-ssrf-pin`. Not `ci/restore-claude-workflow`. This keeps the two lines legible in `git branch -a` and in the PR list once v1 and v2 branches coexist on the same remote, and it matches the base branches themselves (`v2/main`, `v1/main`).
 - When work is complete:
-  - Run format, lint, typecheck, build, and test — ensure all checks pass
-  - Open a PR against the matching base branch (`main` for v1, `v2/main` for v2) and set the item's Status to **In Review**
-  - **Link the PR to its issue.** The PR body's **first line must be `Closes #<ISSUE_NUMBER>`**. ⚠️ Note: closing keywords only auto-link/auto-close for PRs targeting the repo's **default branch** (`main`). Because v2 PRs target `v2/main` (a non-default branch), `Closes #N` there is only a cross-reference — it will **not** create a hard link or close the issue on merge. (There is no `gh` flag for manual linking — `gh pr edit` has no `--add-issue`; closing keywords are the only mechanism GitHub exposes, and they're gated to the default branch.)
+  - Run `npm run ci` from the root — the mandatory pre-push gate (see [Mandatory pre-push gate](#mandatory-pre-push-gate)). `npm run validate` is the fast inner-loop check and is **not** a substitute: it runs no coverage gate, no smokes, and no Storybook tests.
+  - Open a PR against the matching base branch (`v1/main` for v1, `v2/main` for v2) and set the item's Status to **In Review**
+  - **Attach screenshots as proof of functionality.** Any change to the web UI or the TUI must show its result: capture before/after screenshots (or a short GIF for an interaction) and put them in a **`pr-screenshots/` folder off the repo root**, creating it if it doesn't exist. That folder is **gitignored** — the images are working artifacts staged for upload, never committed to the source tree — so attach them to the PR body from there rather than referencing an in-repo path. Name them for what they show (`tools-tab-before.png`, `tools-tab-after.png`), not `Screenshot 2026-07-31 at 14.02.11.png`.
+  - **Link the PR to its issue — mandatory for every PR, from anyone.** No PR is opened without an issue to reference; if one doesn't exist yet, create it first (labeled and on the board) rather than opening the PR and backfilling. Note also that only the **repo maintainers** open PRs at all (see [Contributing](#contributing)) — everyone else files a detailed issue. The PR body's **first line must be `Closes #<ISSUE_NUMBER>`**. ⚠️ Note: closing keywords only auto-link/auto-close for PRs targeting the repo's **default branch** (`main`). Because v2 PRs target `v2/main` (a non-default branch), `Closes #N` there is only a cross-reference — it will **not** create a hard link or close the issue on merge. (There is no `gh` flag for manual linking — `gh pr edit` has no `--add-issue`; closing keywords are the only mechanism GitHub exposes, and they're gated to the default branch.)
   - **On merge of a v2 PR, manually close its issue and move the board item to Done** (option id `248a3910`), since auto-close won't fire on `v2/main`. Keep the `Closes #N` line anyway so the issues close automatically if/when `v2/main` is eventually merged to `main`.
 - If new tasks are discovered or requested during development, create issues and add them to the board.
+
+## Repository & Project Boards
+
+- **Repo**: https://github.com/modelcontextprotocol/inspector.git
+- **Base Branches** — three branches, three distinct roles. Target the one matching the work; never open a PR against `main`.
+
+  | Branch | Role | PRs target it? | Publishes to |
+  | --- | --- | --- | --- |
+  | `v2/main` | **Develop.** All active v2 work lands here. | **Yes** — every v2 PR | nothing directly; reaches npm via `main` |
+  | `main` | **Release.** The repo's default branch; holds the latest released v2. Not a development branch. | **No** — it only receives milestone merges from `v2/main` | `latest` |
+  | `v1/main` | **Maintenance.** The deprecated v1 line, security fixes only, no active development. | **Yes** — every v1 PR, directly | `v1-latest`, published straight from this branch |
+
+  So v2 flows `feature branch → v2/main → (milestone) main → npm latest`, while v1 is flat: `feature branch → v1/main → npm v1-latest`, with no merge into `main` at any point. The two lines are published independently under separate dist-tags, which is why a v1 fix does **not** need to be forward-ported to reach users on v1 (`npx @modelcontextprotocol/inspector@v1-latest`).
+- **Project Boards**:
+  - v2 - https://github.com/orgs/modelcontextprotocol/projects/28 (active board — all new work goes here)
+  - v1 - https://github.com/orgs/modelcontextprotocol/projects/11 (legacy inspector version, no new activity except security fixes)
 
 #### V2 board (#28) `gh` recipes
 
@@ -175,23 +205,22 @@ gh project field-list 28 --owner modelcontextprotocol --format json \
 | Project node ID | `PVT_kwDOCt2Azc4BJVxt` |
 | Status field ID | `PVTSSF_lADOCt2Azc4BJVxtzg5iI8c` |
 
-Status option IDs (`--single-select-option-id`) — **last verified 2026-07-27**. `V2 Go Live` was added via the web UI on 2026-07-27 for the go-live phases (#1804); the other four IDs were unchanged by that addition, confirming the web-UI path is safe (see the ⚠️ hazard below). Removed columns whose IDs are now rejected: `SDK V2 + New Spec` (`1bbb6f57`), `Building CLI / TUI / CORE` (`4ac261ee`), `Building Web` (`c28da89f`), `MCP Apps Extension` (`73d0b807`).
+Status option IDs (`--single-select-option-id`) — **last verified 2026-07-27**. 
 
 | Status | Option ID |
 | --- | --- |
 | Todo | `fbdaf21e` |
-| V2 Go Live | `b3a6966e` |
 | In Progress | `195df262` |
 | In Review | `159c8a02` |
 | Done | `248a3910` |
 
-Use **Todo** for approved-but-not-started work, **In Progress** for general active work (regardless of surface), **V2 Go Live** for cards in the go-live phases (#1804), **In Review** once a PR is open, and **Done** on merge.
+Use **Todo** for approved-but-not-started work, **In Progress** for general active work (regardless of surface), **In Review** once a PR is open, and **Done** on merge.
 
 > ⚠️ **Never add, rename, or remove a board column (Status option) with the `updateProjectV2Field` GraphQL mutation unless you pass every existing option's `id`.** That mutation does a **full replace** of the option list: if you resend options by name/color/description but omit their `id`s, GitHub **deletes all existing options and mints new ones**, which **orphans the Status of every card on the board** (all items go blank) *and* invalidates every option id in the table above. This has happened once (required reconstructing ~197 items' statuses by inference). Safe alternatives, in order of preference:
 > 1. **Add/rename/remove a column in the GitHub web UI** (Project #28 → Status field settings). This preserves ids of untouched options and never orphans cards.
 > 2. If you must script it, first `gh api graphql` the current options **with their `id`s**, then call `updateProjectV2Field` echoing back every existing option **including its `id`**, appending only the new one. Verify afterward that no card lost its Status.
 >
-> `gh project item-add` and `gh project item-edit` are always safe — they set a card's value and never touch the field schema. When option ids change for any reason, **re-verify and update the table above** (and the `248a3910` / `195df262` / `159c8a02` references in the recipes below and the merge step above).
+> `gh project item-add` and `gh project item-edit` are always safe — they set a card's value and never touch the field schema. When option ids change for any reason, **re-verify and update the table above** (and the references in the recipes below and the merge step above).
 
 ```sh
 # 1. Add an issue to the board — prints the item id (PVTI_…); capture it.
@@ -229,12 +258,15 @@ gh project item-edit --project-id PVT_kwDOCt2Azc4BJVxt --id "$ITEM_ID" --field-i
 - Run unit tests with `npm run test` (or `npm run test:watch` during development) from `clients/web/`
 - Run CLI tests with `npm run test` from `clients/cli/` (builds test-servers + CLI bin first via `pretest`)
 - Run TUI tests with `npm run test` from `clients/tui/`
+- Run launcher tests with `npm run test` from `clients/launcher/`
+- Run the root tooling's own tests with `npm run test:scripts` from the root — `node --test "scripts/**/*.test.mjs"`, node's built-in runner (the root has no vitest harness by design). A new `scripts/*.mjs` helper with pure logic gets a sibling `*.test.mjs`; keep the filename `*.test.mjs`, since `node --test` silently **skips** a file its glob misses and still exits 0 (`verify:typecheck-coverage` guards against exactly that).
+- **The test tiers, shallowest first:** unit (`test`, per client) → web integration (`test:integration`, real transports/servers) → out-of-process (`clients/cli/__tests__/e2e.test.ts`, spawns the built binary) → smokes through the built launcher (`npm run smoke`) → Storybook play functions (`test:storybook`) → the published-tarball check (`npm run pack:verify`, local/release only — needs network). `validate` runs the per-client `test` scripts — so web **unit** plus cli's out-of-process `e2e.test.ts` (it's part of cli's `test`), but **not** web's integration project, which runs inside the `coverage` gate. Everything from `smoke` rightward is `npm run ci` only, and is described under [Mandatory pre-push gate](#mandatory-pre-push-gate).
 - The repo root has no aggregate `test` script — each client self-validates, so run `npm run validate` from the root (all clients, fast) or `cd clients/<name> && npm run validate` (one client). Each client still exposes its own `test` / `test:coverage` for quick iteration.
 - **`validate` is fast: it runs `test`, not `test:coverage`.** The coverage gate (slower — adds v8 instrumentation, and for web the integration project) is a **separate** top-level `npm run coverage` (and per-client `coverage:web` / `coverage:cli` / `coverage:tui` / `coverage:launcher`, each delegating to that client's `test:coverage`). Run `npm run coverage` when you want to reproduce the gate locally before pushing. **CI runs `coverage`** on every push (#1550): the per-file ≥90 gate is CI-enforced, so a PR that drops any file below 90 on lines/statements/functions/branches fails the job. CI runs `validate` (fast) for format/lint/build/unit tests, then `coverage` for the instrumented gate. Because web's `test:coverage` already runs the integration project, CI has no separate `test:integration` step — the integration paths are exercised inside the coverage gate.
 - Each client's `test:coverage` enforces a **uniform per-file gate of ≥ 90 on all four dimensions** — lines, statements, functions, and branches — across `clients/web`, `clients/cli`, `clients/tui`, and `clients/launcher` (CI enforces this gate). This is the result of a codebase-wide audit: the branch floor was first lifted 50 → 70 for web (#1271), then the whole gate raised to 90 with real tests added for every outlier. Genuinely-unreachable branches are **not** waved through by lowering the gate — they are annotated at the source with a justified `/* v8 ignore … -- <reason> */` comment. Acceptable reasons are happy-dom-inherent paths (Mantine portal mount points, `useMediaQuery` fallbacks, `typeof window` SSR guards), React StrictMode effect-replay blocks, and provably-dead defensive guards (e.g. a `?? fallback` for a value the types guarantee non-null, or a `Select.onChange` receiving a value outside the allowed list). New code must clear 90 on every dimension; reach for a justified `v8 ignore` only when a branch is genuinely impossible to exercise. The web coverage `include` (in `clients/web/vite.config.ts`) covers the shared `core/` runtime consumed by the browser — `core/mcp`, `core/react`, `core/auth`, `core/storage`, `core/logging`, `core/node`, **`core/json`, and `core/client`** (the last two folded in by #1689). When adding a `core/json/*` or `core/client/*` module, its tests live under `clients/web/src/test/core/…` and are gated the same ≥90 way.
 - The **same per-file gate** is enforced for the CLI and TUI (#1484), not just web:
   - **CLI** (`clients/cli`): tests run **in-process** by importing `runCli()` (see `__tests__/helpers/cli-runner.ts`) so `clients/cli/src` is measured under v8 instrumentation. A thin out-of-process layer (`__tests__/e2e.test.ts` + `scripts/smoke-cli.mjs`) still spawns the built binary for the shebang/`process.exit` paths; `src/index.ts` (binary bootstrap) is the only coverage exclusion. `commander` uses `.exitOverride()` so a parse error throws instead of tearing down the test worker.
-  - **TUI** (`clients/tui`): the gate covers the **non-React logic** only — `logger.ts`, `components/tabsConfig.ts`, and `utils/*` (server resolution lives in `core/` and is measured by the web suite). The Ink components, `App.tsx`, and `hooks/` are an **interim exclusion** in `clients/tui/vitest.config.ts` pending the renderer-based follow-up (#1501). When adding new **non-React** logic under `clients/tui/src`, it falls under the gate automatically — add tests for it.
+  - **TUI** (`clients/tui`): the gate now covers **all of `src/**`, React surface included** — the former interim exclusion of the Ink components, `App.tsx`, and `hooks/` was lifted in #1501. Components mount through `ink-testing-library` with the `ink-scroll-view` / `ink-form` passthrough doubles in `__tests__/helpers/`, `App.tsx` mounts against a controllable mock of the `@inspector/core` surface, and keypresses are driven through stdin. The **only** coverage exclusion left in `clients/tui/vitest.config.ts` is `src/tui-servers.ts` — a pure re-export + type alias of core's server resolver with no runtime statements of its own (the logic is measured in `core/` via the web suite; `tui-servers.test.ts` still exercises it behaviorally, and it's excluded only so it doesn't surface as a misleading 0/0 row). Any new logic under `clients/tui/src`, React or not, is held to the gate automatically.
 - Run `npm run test:integration` (also from `clients/web/`) for the InspectorClient + transport + auth integration suite. It runs under a separate `integration` vitest project in node env (no happy-dom) with 30s timeouts. The script builds `test-servers/` first via `tsc -p ../../test-servers --noCheck` so the stdio MCP test server can be spawned as a real subprocess. CI does not run `test:integration` as its own step — the integration project is covered by the CI `coverage` gate, whose web `test:coverage` runs `--project=unit --project=integration --coverage`.
 - Test files live alongside the source as `<Name>.test.tsx` (or `.test.ts` for non-React modules). Integration tests live under `clients/web/src/test/integration/`, mirroring the `core/` source layout (`mcp/`, `mcp/node/`, `mcp/remote/`, `auth/`, `auth/node/`, `storage/`). Any test file under that folder is automatically picked up by the `integration` vitest project (node env, 30s timeouts) via the folder glob in `vite.config.ts` — placement is the manifest, there is no enumeration to keep in sync. Tests outside the folder run in the `unit` project (happy-dom). When adding a new test for, e.g., `core/mcp/remote/foo.ts`, put it at `src/test/integration/mcp/remote/foo.test.ts`.
 - **Test placement: side-by-side by default, `src/test/` only for what can't be co-located.** These look like competing conventions but aren't — the split is: *tests live beside their source, **except** tests for the repo-root `core/` package (which lives outside `clients/web/`) and shared test scaffolding — both of which live under `src/test/`, with `core/` tests mirroring the `core/` layout and integration tests under `src/test/integration/`.*
@@ -351,3 +383,14 @@ Nothing **enforces** the boundary: no path alias keys off it, and the coverage `
   - Element components add domain-specific semantics on top of Mantine primitives. For example, `AnnotationBadge` maps domain concepts (audience, destructive, longRun) to Mantine's styling primitives (color, variant). Storybook documents these domain components for designers and developers.
   - Element components MUST import from `@mantine/core`, NOT from `src/theme/`. The theme layer is applied transparently by the provider — elements do not need to know about `Theme<Name>` constants.
   - NEVER push domain-specific variant logic (e.g., annotation types, transport types) into theme files. Domain variants belong in the element component that owns those semantics. Theme files are for styling that applies to the Mantine primitive globally.
+
+## Web backend auth token
+
+The dev/prod web backend protects every `/api/*` route with `x-mcp-remote-auth: Bearer <MCP_INSPECTOR_API_TOKEN>`. The browser recovers that token from three sources, in priority order (see `App.tsx` `getAuthToken()`):
+
+1. `window.__INSPECTOR_API_TOKEN__` — injected into `index.html` on every page load by the backend (the dev Vite plugin via `transformIndexHtml`, the prod Hono server on the `/` route), both routed through `clients/web/server/inject-auth-token.ts`. This is what makes a bare-URL reload, a bookmark, or a cleared `sessionStorage` keep working.
+2. `?MCP_INSPECTOR_API_TOKEN=…` query string — the URL the launcher banner prints; kept as a fallback for pasted full URLs.
+3. `sessionStorage` — backstop for navigations that land without either of the above.
+
+Injection is a no-op when auth is disabled (`DANGEROUSLY_OMIT_AUTH`), and the global name is the shared `INSPECTOR_API_TOKEN_GLOBAL` constant in `core/mcp/remote/constants.ts`.
+

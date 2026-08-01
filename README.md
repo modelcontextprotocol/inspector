@@ -14,7 +14,7 @@ npx @modelcontextprotocol/inspector --cli    # CLI
 npx @modelcontextprotocol/inspector --tui    # TUI
 ```
 
-> **Repo status.** This is the **v2** line of the Inspector (branch `v2/main`). The `main` branch is the legacy v1 implementation (bug fixes only). v2 will eventually replace `main`. See [`AGENTS.md`](./AGENTS.md) for branch/board conventions.
+> **Repo status.** This is the **v2** line of the Inspector. Active development happens on **`v2/main`** (the develop branch — all v2 PRs target it), which is merged into **`main`** at milestone releases; `main` is the default branch and holds the latest released v2, published to the npm `latest` tag. The legacy **v1** line lives on **`v1/main`** — security fixes only, published straight from that branch to the npm `v1-latest` tag (`npx @modelcontextprotocol/inspector@v1-latest`). See [`AGENTS.md`](./AGENTS.md) for branch/board conventions.
 
 ## Project layout
 
@@ -29,6 +29,7 @@ inspector/
 │   └── launcher/     # Shared launcher — provides the `mcp-inspector` bin, dispatches to web/cli/tui
 ├── core/             # Shared code consumed via the `@inspector/core` alias (no package.json)
 │   ├── auth/         # OAuth: providers, discovery, storage, mid-session recovery (browser/node/remote backends)
+│   ├── client/       # Install-level client config (`client.json`): browser-safe parse/validate + Node load/save, remote backend, secrets
 │   ├── json/         # JSON + parameter/argument conversion utilities
 │   ├── logging/      # Silent pino logger singleton
 │   ├── mcp/          # InspectorClient runtime, state stores, transports, config import
@@ -37,6 +38,7 @@ inspector/
 │   └── storage/      # File I/O helpers for the OAuth persist backends
 ├── test-servers/     # Composable MCP test servers + fixtures used by integration tests
 ├── scripts/          # Root build/verify tooling (install cascade, smokes, verify-build-gate, verify-format-coverage, pack:verify)
+├── docs/             # Task-oriented guides (server configuration, MCP App review, launcher/config plan)
 ├── specification/    # Design/build specifications
 ├── AGENTS.md         # Contribution rules for agents AND humans (see below)
 └── README.md         # You are here
@@ -115,21 +117,128 @@ npm run test-servers:build   # (from clients/web) → tsc -p test-servers, emits
 
 The Vite alias `@modelcontextprotocol/inspector-test-server` (in `clients/web/vite.config.ts`) points at `test-servers/build/index.js` so `getTestMcpServerPath()` resolves to a real `.js` path.
 
-A streamable-HTTP server can also serve the **modern (2026-07-28) protocol era** via the SDK's `createMcpHandler` — set `transport.modern` in the JSON config (`true` for dual-era stateless serving, or `{ "legacy": "reject" }` for modern-only strict), or pass `modern` on the `ServerConfig` for an in-process `createTestServerHttp`. This is what lets an Inspector connection negotiating `protocolEra: "auto" | "modern"` reach the modern leg (populated `server/discover`, sessionless). See `test-servers/configs/modern-http.json`. `test-servers/configs/modern-mrtr-http.json` additionally serves the `mrtr_confirm` tool (preset `mrtr_confirm`, `createMrtrTool`) over the modern leg: its handler returns `inputRequired(...)` embedding a form elicitation, so invoking it produces a real MRTR round-trip (`input_required` → the client fulfils the embedded elicitation and retries with a new id → `complete`). The Inspector drives MRTR manually (`inputRequired: { autoFulfill: false }`), so the embedded elicitation pauses at the pending-request modal (tagged "input_required") for you to answer, then the retry completes — useful for eyeballing both that pending-request UX and the Protocol view's MRTR conversation grouping. `test-servers/configs/mrtr-showcase-http.json` bundles every MRTR preset in one modern server for manual testing: `mrtr_confirm` (single round), `mrtr_two_step` (two elicitation rounds via `requestState`), `mrtr_sample` (embedded sampling → the Sampling panel), `mrtr_roots` (embedded `roots/list`, auto-answered silently from configured roots — no modal), `mrtr_edge` (an `inputRequests`-only round then a `requestState`-only round), and `mrtr_loop` (never completes → the `MRTR_MAX_ROUNDS` bound trips). (The legacy `collect_elicitation` preset calls `server.elicitInput`, which errors on the 2026-07-28 leg — server→client requests aren't allowed there; MRTR is the modern replacement.)
+### Serving the modern protocol era
 
-`test-servers/configs/modern-network-http.json` is the **Network-tab showcase** for the standardized HTTP headers and new error taxonomy (SEP-2243 / SEP-2575). It serves a `get_weather` tool whose `city` argument carries an `x-mcp-header: "City"` annotation (so a modern client mirrors it to `Mcp-Param-City`), plus four `trigger_*` tools that the modern leg's spec-error injector (`transport.modern.injectSpecErrors: true`) answers with a real HTTP status + JSON-RPC error body: `trigger_header_mismatch` → `400 / -32020`, `trigger_missing_capability` → `400 / -32021`, `trigger_unsupported_version` → `400 / -32022` (with `data.supported`), `trigger_method_not_found` → `404 / -32601`. Connect to it with **Protocol Era = Modern** and open the Network tab to see the mirrored `Mcp-*` headers highlighted, sentinel values decoded, and each error rendered distinctly. Note: the SDK only mirrors `Mcp-Param-*` inside `client.callTool()`, and skips it in the browser (`detectProbeEnvironment() !== "browser"`). The Inspector routes `tools/call` through `client.request()` to drive MRTR manually, so it builds the mirrored headers itself (#1846) — on **every** client, web included, since the web client's upstream request is issued by the Node backend rather than the browser. So `get_weather` is callable from web, CLI, and TUI alike, in both the plain and "Run as task" forms.
+A streamable-HTTP server can also serve the **modern (2026-07-28) protocol era** via the SDK's `createMcpHandler`:
 
-`test-servers/configs/xmcpheader-modern-http.json` is the **`x-mcp-header` Tools-tab showcase** (#1632). It serves `echo`, a `get_weather` tool with a **valid** `x-mcp-header: "City"` annotation on its `city` argument, an `invalid_header_tool` whose annotation uses the header name `"Bad Header"` (a space makes it an invalid RFC 9110 token, so the whole tool definition is invalid), and a `trigger_invalid_params` tool that the modern leg's spec-error injector (`transport.modern.injectSpecErrors: true`) answers with a real `-32602 Invalid params` JSON-RPC error whose message is not about a missing tool. Connect with **Protocol Era = Modern** and open the Tools tab: `get_weather`'s detail panel shows a **"Mirrored request headers (SEP-2243)"** section (`city → Mcp-Param-City`), and `invalid_header_tool` appears struck-through under an **"Excluded (SEP-2243)"** divider in the sidebar with the reason on hover (a conforming Streamable HTTP client MUST drop it from `tools/list`; the Inspector surfaces _why_). Under SDK v2 a `tools/call` that rejects with **`-32602`** now renders as a distinct error panel rather than an `isError` result — headed **"Unknown Tool"** when the message names a missing tool (reproduce by calling a tool the server dropped from its list), or **"Invalid Parameters"** for any other `-32602` (run `trigger_invalid_params`).
+- Set `transport.modern` in the JSON config — `true` for dual-era stateless serving, or `{ "legacy": "reject" }` for modern-only strict.
+- Or pass `modern` on the `ServerConfig` for an in-process `createTestServerHttp`.
 
-`test-servers/configs/pagination-http.json` is the **page-by-page fetch showcase** (#1721). It serves 12 tools, 12 resources, and 12 prompts (presets `numbered_tools` / `numbered_resources` / `numbered_prompts`, `count: 12`) with `maxPageSize` of 4 for each, so every list paginates into three pages. Turn on **"Fetch Lists One Page at a Time"** (Server Settings — the `paginatedLists` setting, or the **Paginated** switch in a list sidebar) and the Tools/Resources/Prompts lists load page 1 only (4 items) with a **Load next page** control and an _N pages loaded_ status; each click fetches the next 4 and appends them, and Refresh resets to page 1. With the switch off (the default), the same lists auto-aggregate all three pages on connect.
+This is what lets an Inspector connection negotiating `protocolEra: "auto" | "modern"` reach the modern leg (populated `server/discover`, sessionless). See `test-servers/configs/modern-http.json`.
 
-`test-servers/configs/advertised-extensions-http.json` is the **advertised-extensions showcase** (#1739). It serves `echo` (always) and a `get_weather` tool that is **gated on the `io.modelcontextprotocol/tasks` extension** (`extensionGatedTools`): the tool is registered but starts disabled, and the server enables it on `notifications/initialized` only when the connected client declared that extension in its `capabilities.extensions`. Connect (the Inspector advertises the Tasks extension by default) and the Tools list shows both `echo` and `get_weather`. Open **Server Settings → Advertised Extensions**, uncheck **Tasks (io.modelcontextprotocol/tasks)**, and reconnect: the client now advertises no extensions, the server never enables `get_weather`, and the Tools list shows only `echo`. This demonstrates the debugging knob — a server legitimately changing tool registration on what the client advertises. (Legacy stateful leg only; the modern per-request leg has no persistent `oninitialized`.)
+### Showcase configs
 
-`test-servers/configs/logging-legacy-http.json` and `test-servers/configs/logging-modern-http.json` are the **logging era-fork showcase** (#1629). Both serve `logging: true` plus a `send_notification` tool that emits a `notifications/message` at a chosen level; the legacy one is a plain streamable-HTTP server (`logging/setLevel` era) and the modern one sets `transport.modern: true`. Connect to the legacy server and open the **Logs** tab to get the session-scoped **Set Active Level** selector + **Set** button; calling `send_notification` streams the log into the panel. Connect to the modern one with **Protocol Era = Modern** and the same tab instead shows the **Log Level per Request** control — pick a level to opt in and the client stamps `_meta["io.modelcontextprotocol/logLevel"]` on every subsequent request (verify in the Network tab's request body); calling `send_notification` then streams the log into the panel over the request's SSE response. Set the control back to **Off** and the same call is silently gated — the request omits the `logLevel` key, so the log never arrives. That gating is faithful to the spec ("a server MUST NOT emit `notifications/message` for a request that didn't opt in") because `send_notification` emits through the SDK's request-scoped, threshold-aware `extra.log` (`ctx.mcpReq.log`): on the modern leg it reads the per-request `logLevel` opt-in from the request envelope and drops the message when the client didn't opt in or the level is below the requested severity; on legacy it honors the session level from `logging/setLevel`. Because it emits through the request's `notify`, the modern response upgrades to SSE and the log rides the originating request's stream.
+Each config below is a ready-made server for exercising one feature by hand. Load one with `--config`, and unless noted, connect with **Protocol Era = Modern**.
 
-`test-servers/configs/subscriptions-legacy-http.json` and `test-servers/configs/subscriptions-modern-http.json` are the **resource-subscription era-fork showcase** (#1630). Both serve three `numbered_resources` with `subscriptions: true`; the legacy one also serves an `update_resource` tool, and the modern one sets `transport.modern: true`. Connect to the **legacy** server, open a resource in the **Resources** tab and click **Subscribe** — the client sends `resources/subscribe` (Network/Protocol view) and the Subscriptions section lists the URI with no stream chrome; call `update_resource` with that URI and the server updates the content and emits `notifications/resources/updated`, stamping the subscribed tile's last-updated time. Connect to the **modern** server with **Protocol Era = Modern** and the same Subscribe instead sends **`subscriptions/listen`** (its filter carries `resourceSubscriptions` + the `resourcesListChanged` opt-in) and resolves on `notifications/subscriptions/acknowledged`; the Subscriptions section then shows the stream-status badge (`Connecting…` → `Listening`) in its header, and if the long-lived stream drops it reconnects by re-listing. The modern config deliberately **omits** `update_resource`: the SDK's modern leg is stateless/per-request (`createMcpHandler(() => createMcpServer(config))`), so the tool would run against a throwaway server instance — the content change wouldn't persist for the next `resources/read`, and its `resources/updated` wouldn't reach the (separate) listen stream — which is more confusing than useful. The live update-notification round-trip is therefore demonstrated on the legacy (stateful-session) server; the modern server is for the subscribe/listen/badge behavior. (The Inspector's _receive_ path is era-transparent, so a real stateful modern server that routes `resources/updated` onto the listen stream drives the subscribed tile the same way.)
+| Config                                    | Demonstrates                                       | Issue                                                                  |
+| ----------------------------------------- | -------------------------------------------------- | ---------------------------------------------------------------------- |
+| `modern-mrtr-http.json`                   | A single MRTR round-trip                           | —                                                                      |
+| `mrtr-showcase-http.json`                 | Every MRTR preset in one server                    | —                                                                      |
+| `modern-network-http.json`                | Network tab: `Mcp-*` headers + error taxonomy      | [#1628](https://github.com/modelcontextprotocol/inspector/issues/1628) |
+| `xmcpheader-modern-http.json`             | Tools tab: `x-mcp-header` mirroring and exclusions | [#1632](https://github.com/modelcontextprotocol/inspector/issues/1632) |
+| `pagination-http.json`                    | Page-by-page list fetching                         | [#1721](https://github.com/modelcontextprotocol/inspector/issues/1721) |
+| `advertised-extensions-http.json`         | Tool registration gated on advertised extensions   | [#1739](https://github.com/modelcontextprotocol/inspector/issues/1739) |
+| `logging-{legacy,modern}-http.json`       | Logging, both eras                                 | [#1629](https://github.com/modelcontextprotocol/inspector/issues/1629) |
+| `subscriptions-{legacy,modern}-http.json` | Resource subscriptions, both eras                  | [#1630](https://github.com/modelcontextprotocol/inspector/issues/1630) |
+| `tasks-{legacy,modern}-http.json`         | Tasks, both eras                                   | [#1631](https://github.com/modelcontextprotocol/inspector/issues/1631) |
 
-`test-servers/configs/tasks-legacy-http.json` and `test-servers/configs/tasks-modern-http.json` are the **Tasks era-fork showcase** (#1631). The legacy server advertises `capabilities.tasks` (`tasks: { list, cancel }`) with the `simple_task` / `progress_task` / `elicitation_task` presets — connect to it, run one of those tools with **Run as task** on, and the **Tasks** tab lists it (populated via `tasks/list`), polls `tasks/get`, fetches the payload with the blocking `tasks/result`, and cancels with `tasks/cancel`. The modern server sets `transport.modern: true` and `tasksExtension: true`, advertising the `io.modelcontextprotocol/tasks` extension (SEP-2663) and serving the `modern_task` / `modern_input_task` tools. Connect with **Protocol Era = Modern**: the **Tasks** tab is now gated on the negotiated extension (not `capabilities.tasks`). Run `modern_task` as a task — the `tools/call` returns a `CreateTaskResult` (`resultType: "task"`, visible in the Protocol/Network tabs), the client polls **`tasks/get`** (no `tasks/list`), and the completed task inlines its result (no blocking `tasks/result`). Run `modern_input_task` and the task moves to `input_required`, surfacing an embedded elicitation through the pending-request modal; answering it sends **`tasks/update`** with the `inputResponses`, and the next poll completes. SDK v2 removed all tasks support **and** era-gates the `tasks/*` spec methods out of the modern era on both sides — so the Inspector drives the extension itself (the `resultType: "task"` frame is rewritten at the transport into a `CallToolResult` carrying the handle; `tasks/get`/`update`/`cancel` ride a raw-wire request channel with the full modern envelope), and the test server serves `tasks/*` from an Express interceptor ahead of the SDK handler (the SDK's modern leg would answer them `-32601`). The Tasks tab's **Refresh** re-polls the handles already known to the client (modern has no server-side task list).
+#### MRTR
+
+`modern-mrtr-http.json` serves the `mrtr_confirm` tool (preset `mrtr_confirm`, `createMrtrTool`) over the modern leg. Its handler returns `inputRequired(...)` embedding a form elicitation, so invoking it produces a real round-trip: `input_required` → the client fulfils the embedded elicitation and retries with a new id → `complete`.
+
+The Inspector drives MRTR manually (`inputRequired: { autoFulfill: false }`), so the embedded elicitation pauses at the pending-request modal (tagged "input_required") for you to answer, then the retry completes. Useful for eyeballing both that pending-request UX and the Protocol view's MRTR conversation grouping.
+
+`mrtr-showcase-http.json` bundles every MRTR preset in one server:
+
+| Preset          | Behavior                                                                       |
+| --------------- | ------------------------------------------------------------------------------ |
+| `mrtr_confirm`  | Single round                                                                   |
+| `mrtr_two_step` | Two elicitation rounds via `requestState`                                      |
+| `mrtr_sample`   | Embedded sampling → the Sampling panel                                         |
+| `mrtr_roots`    | Embedded `roots/list`, auto-answered silently from configured roots (no modal) |
+| `mrtr_edge`     | An `inputRequests`-only round, then a `requestState`-only round                |
+| `mrtr_loop`     | Never completes → trips the `MRTR_MAX_ROUNDS` bound                            |
+
+> The legacy `collect_elicitation` preset calls `server.elicitInput`, which errors on the 2026-07-28 leg — server→client requests aren't allowed there. MRTR is the modern replacement.
+
+#### Network tab — standardized headers and error taxonomy
+
+`modern-network-http.json` covers SEP-2243 / SEP-2575. It serves a `get_weather` tool whose `city` argument carries an `x-mcp-header: "City"` annotation, so a modern client mirrors it to `Mcp-Param-City`.
+
+It also serves four `trigger_*` tools that the modern leg's spec-error injector (`transport.modern.injectSpecErrors: true`) answers with a real HTTP status plus JSON-RPC error body:
+
+| Tool                          | Response                                 |
+| ----------------------------- | ---------------------------------------- |
+| `trigger_header_mismatch`     | `400` / `-32020`                         |
+| `trigger_missing_capability`  | `400` / `-32021`                         |
+| `trigger_unsupported_version` | `400` / `-32022` (with `data.supported`) |
+| `trigger_method_not_found`    | `404` / `-32601`                         |
+
+Open the Network tab to see the mirrored `Mcp-*` headers highlighted, sentinel values decoded, and each error rendered distinctly.
+
+> **`Mcp-Param-*` mirroring is built by the Inspector, not the SDK.** The SDK only mirrors inside `client.callTool()`, and skips it in the browser (`detectProbeEnvironment() !== "browser"`). The Inspector routes `tools/call` through `client.request()` to drive MRTR manually, so it builds the mirrored headers itself ([#1846](https://github.com/modelcontextprotocol/inspector/issues/1846)) — on **every** client, web included, since the web client's upstream request is issued by the Node backend rather than the browser. So `get_weather` is callable from web, CLI, and TUI alike, in both the plain and "Run as task" forms.
+
+#### `x-mcp-header` in the Tools tab
+
+`xmcpheader-modern-http.json` serves:
+
+- `echo` — plain tool.
+- `get_weather` — a **valid** `x-mcp-header: "City"` annotation on its `city` argument.
+- `invalid_header_tool` — an annotation using the header name `"Bad Header"`. The space makes it an invalid RFC 9110 token, so the whole tool definition is invalid.
+- `trigger_invalid_params` — answered with a real `-32602 Invalid params` error whose message is _not_ about a missing tool.
+
+Open the Tools tab: `get_weather`'s detail panel shows a **"Mirrored request headers (SEP-2243)"** section (`city → Mcp-Param-City`), and `invalid_header_tool` appears struck-through under an **"Excluded (SEP-2243)"** divider with the reason on hover. A conforming Streamable HTTP client MUST drop it from `tools/list`; the Inspector surfaces _why_.
+
+Under SDK v2 a `tools/call` rejecting with `-32602` renders as a distinct error panel rather than an `isError` result — headed **"Unknown Tool"** when the message names a missing tool, or **"Invalid Parameters"** otherwise (run `trigger_invalid_params`).
+
+#### Page-by-page fetching
+
+`pagination-http.json` serves 12 tools, 12 resources, and 12 prompts (presets `numbered_tools` / `numbered_resources` / `numbered_prompts`, `count: 12`) with a `maxPageSize` of 4 each, so every list paginates into three pages.
+
+Turn on **"Fetch Lists One Page at a Time"** (Server Settings — the `paginatedLists` setting, or the **Paginated** switch in a list sidebar) and the lists load page 1 only (4 items) with a **Load next page** control and an _N pages loaded_ status. Each click fetches the next 4 and appends them; Refresh resets to page 1. With the switch off (the default), the same lists auto-aggregate all three pages on connect.
+
+#### Advertised extensions
+
+`advertised-extensions-http.json` serves `echo` (always) and a `get_weather` tool **gated on the `io.modelcontextprotocol/tasks` extension** (`extensionGatedTools`): the tool is registered but starts disabled, and the server enables it on `notifications/initialized` only when the client declared that extension in its `capabilities.extensions`.
+
+1. Connect — the Inspector advertises the Tasks extension by default, so the Tools list shows both `echo` and `get_weather`.
+2. Open **Server Settings → Advertised Extensions**, uncheck **Tasks (io.modelcontextprotocol/tasks)**, and reconnect.
+3. The client now advertises no extensions, the server never enables `get_weather`, and the Tools list shows only `echo`.
+
+This is the debugging knob for a server legitimately changing tool registration based on what the client advertises. Legacy stateful leg only — the modern per-request leg has no persistent `oninitialized`.
+
+#### Logging, both eras
+
+`logging-legacy-http.json` and `logging-modern-http.json` both serve `logging: true` plus a `send_notification` tool that emits a `notifications/message` at a chosen level. The legacy one is a plain streamable-HTTP server; the modern one sets `transport.modern: true`.
+
+- **Legacy** — the **Logs** tab gives a session-scoped **Set Active Level** selector + **Set** button. Calling `send_notification` streams the log into the panel.
+- **Modern** — the same tab instead shows **Log Level per Request**. Pick a level to opt in and the client stamps `_meta["io.modelcontextprotocol/logLevel"]` on every subsequent request (verify in the Network tab's request body). Calling `send_notification` streams the log over the request's SSE response. Set it back to **Off** and the same call is silently gated — the request omits the `logLevel` key, so the log never arrives.
+
+That gating is faithful to the spec ("a server MUST NOT emit `notifications/message` for a request that didn't opt in") because `send_notification` emits through the SDK's request-scoped, threshold-aware `extra.log` (`ctx.mcpReq.log`). On the modern leg it reads the per-request `logLevel` opt-in from the request envelope and drops the message when the client didn't opt in or the level is below the requested severity; on legacy it honors the session level from `logging/setLevel`. Because it emits through the request's `notify`, the modern response upgrades to SSE and the log rides the originating request's stream.
+
+#### Resource subscriptions, both eras
+
+`subscriptions-legacy-http.json` and `subscriptions-modern-http.json` both serve three `numbered_resources` with `subscriptions: true`. The legacy one also serves an `update_resource` tool; the modern one sets `transport.modern: true`.
+
+- **Legacy** — open a resource in the **Resources** tab and click **Subscribe**. The client sends `resources/subscribe` and the Subscriptions section lists the URI with no stream chrome. Call `update_resource` with that URI and the server updates the content and emits `notifications/resources/updated`, stamping the subscribed tile's last-updated time.
+- **Modern** — the same Subscribe instead sends **`subscriptions/listen`** (its filter carries `resourceSubscriptions` plus the `resourcesListChanged` opt-in) and resolves on `notifications/subscriptions/acknowledged`. The Subscriptions section then shows a stream-status badge (`Connecting…` → `Listening`) in its header, and reconnects by re-listing if the long-lived stream drops.
+
+The modern config deliberately **omits** `update_resource`. The SDK's modern leg is stateless/per-request (`createMcpHandler(() => createMcpServer(config))`), so the tool would run against a throwaway server instance — the content change wouldn't persist for the next `resources/read`, and its `resources/updated` wouldn't reach the separate listen stream. More confusing than useful.
+
+So the live update-notification round-trip is demonstrated on the legacy (stateful-session) server, and the modern server is for the subscribe/listen/badge behavior. The Inspector's _receive_ path is era-transparent, so a real stateful modern server that routes `resources/updated` onto the listen stream drives the subscribed tile the same way.
+
+#### Tasks, both eras
+
+**Legacy** (`tasks-legacy-http.json`) advertises `capabilities.tasks` (`tasks: { list, cancel }`) with the `simple_task` / `progress_task` / `elicitation_task` presets. Run one of those tools with **Run as task** on, and the **Tasks** tab lists it (populated via `tasks/list`), polls `tasks/get`, fetches the payload with the blocking `tasks/result`, and cancels with `tasks/cancel`.
+
+**Modern** (`tasks-modern-http.json`) sets `transport.modern: true` and `tasksExtension: true`, advertising the `io.modelcontextprotocol/tasks` extension (SEP-2663) and serving `modern_task` / `modern_input_task`. The **Tasks** tab is gated on the negotiated extension, not `capabilities.tasks`.
+
+- Run `modern_task` as a task — the `tools/call` returns a `CreateTaskResult` (`resultType: "task"`, visible in the Protocol/Network tabs), the client polls **`tasks/get`** (no `tasks/list`), and the completed task inlines its result (no blocking `tasks/result`).
+- Run `modern_input_task` — the task moves to `input_required`, surfacing an embedded elicitation through the pending-request modal. Answering it sends **`tasks/update`** with the `inputResponses`, and the next poll completes.
+
+SDK v2 removed all tasks support **and** era-gates the `tasks/*` spec methods out of the modern era on both sides. So the Inspector drives the extension itself — the `resultType: "task"` frame is rewritten at the transport into a `CallToolResult` carrying the handle, and `tasks/get` / `update` / `cancel` ride a raw-wire request channel with the full modern envelope. The test server serves `tasks/*` from an Express interceptor ahead of the SDK handler, since the SDK's modern leg would answer them `-32601`.
+
+The Tasks tab's **Refresh** re-polls the handles already known to the client — modern has no server-side task list.
 
 ## Building
 
@@ -181,6 +290,8 @@ Publishing is automated by two release-gated jobs in [`.github/workflows/main.ym
 
 - **`publish`** — the npm package. Runs `npm run pack:verify` as the pre-publish gate, asserts the release tag matches the root `package.json` version, then `npm publish --access public --provenance` — a single `npm publish` (v2 is not an npm workspace, so there is no v1-style `publish-all`/`--workspaces`), with a signed provenance attestation via GitHub OIDC (`id-token: write`, `environment: release`, `NPM_TOKEN`).
 - **`publish-github-container-registry`** — the container image (see [Docker](#docker)).
+
+A v2 release is cut from **`main`**, after the milestone's work has been merged there from `v2/main` — not from `v2/main` itself. (The v1 line releases independently from `v1/main` to the `v1-latest` tag and never touches `main`; see [Repo status](#mcp-inspector).)
 
 Because there is **one version number** (only the root `package.json` has one — the clients carry none, so there is nothing to keep in sync and no `check-version` step), the release flow is just:
 
