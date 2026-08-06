@@ -8,7 +8,7 @@
  * (`get` returns null on failure, destructive ops no-op, `set` is the
  * one operation that hard-fails with `KeychainUnavailableError`).
  */
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 // The mock must be hoisted above the `await import` of secret-store
 // inside the `KeyringSecretStore` describe block. Use `vi.hoisted` so
@@ -24,6 +24,7 @@ const keyringMocks = vi.hoisted(() => {
     deleteThrows: false,
     findThrows: false,
     deleteThrowsNoEntry: false,
+    constructorThrows: false,
   };
   const credentials = (): Array<{ account: string; password: string }> => {
     const out: Array<{ account: string; password: string }> = [];
@@ -35,6 +36,12 @@ const keyringMocks = vi.hoisted(() => {
   class AsyncEntry {
     private readonly key: string;
     constructor(_service: string, username: string) {
+      // `AsyncEntry::new` performs the platform-store setup and throws
+      // when no secret service is reachable (#1848) — the stub must be
+      // able to fail here, not just in the methods.
+      if (failures.constructorThrows) {
+        throw new Error("Couldn't access platform storage: PermissionDenied");
+      }
       this.key = username;
     }
     async getPassword(): Promise<string | undefined> {
@@ -215,6 +222,7 @@ describe("KeyringSecretStore (mocked native bindings)", () => {
     keyringMocks.failures.deleteThrows = false;
     keyringMocks.failures.findThrows = false;
     keyringMocks.failures.deleteThrowsNoEntry = false;
+    keyringMocks.failures.constructorThrows = false;
     store = new KeyringSecretStore();
   });
 
@@ -311,11 +319,45 @@ describe("KeyringSecretStore (mocked native bindings)", () => {
     ).toBe("p");
   });
 
+  it("get returns null when the AsyncEntry constructor throws (#1848)", async () => {
+    keyringMocks.failures.constructorThrows = true;
+    expect(await store.get("alpha", SECRET_FIELD_OAUTH_CLIENT_SECRET)).toBe(
+      null,
+    );
+  });
+
+  it("set throws KeychainUnavailableError when the AsyncEntry constructor throws (#1848)", async () => {
+    keyringMocks.failures.constructorThrows = true;
+    await expect(
+      store.set("alpha", SECRET_FIELD_OAUTH_CLIENT_SECRET, "v"),
+    ).rejects.toBeInstanceOf(KeychainUnavailableError);
+  });
+
+  it("delete silently no-ops when the AsyncEntry constructor throws (#1848)", async () => {
+    keyringMocks.failures.constructorThrows = true;
+    await expect(
+      store.delete("alpha", SECRET_FIELD_OAUTH_CLIENT_SECRET),
+    ).resolves.toBeUndefined();
+  });
+
   it("KeychainUnavailableError stringifies a non-Error cause", () => {
     const err = new KeychainUnavailableError("plain string cause");
     expect(err).toBeInstanceOf(KeychainUnavailableError);
     expect(err.message).toContain("plain string cause");
     expect(err.message).toMatch(/libsecret/);
+  });
+
+  it("KeychainUnavailableError steers a missing-native-binding cause to a reinstall hint (#1852)", () => {
+    const err = new KeychainUnavailableError(
+      new Error(
+        "Cannot find native binding. npm has a bug related to optional dependencies " +
+          "(https://github.com/npm/cli/issues/4828).",
+      ),
+    );
+    expect(err.message).toMatch(/reinstall the Inspector/);
+    expect(err.message).toMatch(/Cannot find native binding/);
+    // The Linux keyring-daemon advice is irrelevant to a broken install.
+    expect(err.message).not.toMatch(/libsecret/);
   });
 
   it("KeychainUnavailableError carries the underlying error message", async () => {
@@ -328,5 +370,65 @@ describe("KeyringSecretStore (mocked native bindings)", () => {
       expect((err as Error).message).toMatch(/keychain set unavailable/);
       expect((err as Error).message).toMatch(/libsecret/);
     }
+  });
+});
+
+describe("KeyringSecretStore (module load failure — #1852)", () => {
+  // `loadKeyring` caches its result per module instance, so each test
+  // takes a fresh copy of secret-store whose dynamic import of
+  // `@napi-rs/keyring` rejects the way the napi-rs loader does when the
+  // platform binary package is missing (npm's optional-deps bug,
+  // npm/cli#4828). The statically-imported copy at the top of this file
+  // is untouched — these tests only use the fresh module's exports.
+  const importWithLoadFailure = async () => {
+    vi.resetModules();
+    vi.doMock("@napi-rs/keyring", () => {
+      throw new Error(
+        "Cannot find native binding. npm has a bug related to optional dependencies " +
+          "(https://github.com/npm/cli/issues/4828). Please try `npm i` again after removing " +
+          "both package-lock.json and node_modules directory.",
+      );
+    });
+    return import("@inspector/core/auth/node/secret-store.js");
+  };
+
+  afterEach(() => {
+    vi.doUnmock("@napi-rs/keyring");
+    vi.resetModules();
+  });
+
+  it("get returns null instead of propagating the load error", async () => {
+    const mod = await importWithLoadFailure();
+    const store = new mod.KeyringSecretStore();
+    expect(await store.get("alpha", SECRET_FIELD_OAUTH_CLIENT_SECRET)).toBe(
+      null,
+    );
+    // The failed load is cached — a second call degrades the same way.
+    expect(await store.get("alpha", envSecretField("KEY"))).toBe(null);
+  });
+
+  it("delete and deleteAllForServer silently no-op", async () => {
+    const mod = await importWithLoadFailure();
+    const store = new mod.KeyringSecretStore();
+    await expect(
+      store.delete("alpha", SECRET_FIELD_OAUTH_CLIENT_SECRET),
+    ).resolves.toBeUndefined();
+    await expect(store.deleteAllForServer("alpha")).resolves.toBeUndefined();
+  });
+
+  it("set throws KeychainUnavailableError built from the cached load error", async () => {
+    // (vitest substitutes its own error text when a mock factory throws,
+    // so the loader's exact message can't be asserted here — the
+    // reinstall-hint wording is covered by the direct-construction test
+    // above. What matters here is the *typed* rejection: it's what the
+    // routes' 503 translation and the migratePlaintextSecrets skip
+    // branch dispatch on.)
+    const mod = await importWithLoadFailure();
+    const store = new mod.KeyringSecretStore();
+    await expect(
+      store.set("alpha", SECRET_FIELD_OAUTH_CLIENT_SECRET, "v"),
+      // Instance check against the fresh module's class — the statically
+      // imported KeychainUnavailableError is a different module instance.
+    ).rejects.toBeInstanceOf(mod.KeychainUnavailableError);
   });
 });
