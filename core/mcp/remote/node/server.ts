@@ -79,6 +79,27 @@ import { envSecretField } from "../../../auth/secret-fields.js";
 import { ZodError } from "zod";
 
 /**
+ * Written to every SSE stream the instant it opens, before anything else.
+ *
+ * Firefox does not hand a streaming `fetch()` response to JS until the first
+ * *body* byte arrives; Chromium resolves the promise as soon as the headers
+ * do. Both SSE endpoints here flush headers immediately and then stay silent
+ * until there is something to report, which deadlocks Firefox on
+ * `/api/mcp/events`: `RemoteClientTransport.openEventStream()` awaits that
+ * fetch *before* the MCP client sends `initialize`, so no `initialize` → no
+ * event to report → no body byte → the fetch never resolves → the web UI
+ * hangs on "Connecting…" forever with no error anywhere (#1858).
+ *
+ * A `:` comment line is inert per the SSE spec — conforming parsers ignore it
+ * — so priming with one unblocks the read without inventing a wire event.
+ *
+ * `X-Content-Type-Options: nosniff` does **not** fix this. Verified against
+ * Firefox 153: with the header and no body byte, the fetch still never
+ * resolves. The delay is not MIME sniffing.
+ */
+const SSE_PRIMING_COMMENT = ":\n\n";
+
+/**
  * Shape of the initial config returned by GET /api/config (defaults for client).
  */
 export interface InitialConfigPayload {
@@ -785,6 +806,7 @@ export function createRemoteApp(
     }
   });
 
+  // Prime every SSE stream the instant it opens — see SSE_PRIMING_COMMENT.
   app.get("/api/mcp/events", async (c) => {
     const sessionId = c.req.query("sessionId");
     if (!sessionId) {
@@ -817,6 +839,11 @@ export function createRemoteApp(
         sessions.delete(sessionId);
         return;
       }
+
+      // Prime only after the consumer is registered, so nothing observable
+      // to the client happens before this stream can actually report
+      // events. See SSE_PRIMING_COMMENT.
+      await stream.write(SSE_PRIMING_COMMENT);
 
       stream.onAbort(() => {
         // Client disconnected - clear event consumer
@@ -2388,6 +2415,16 @@ export function createRemoteApp(
         serverEventSubscribers.add(send);
         ensureWatcher();
       }
+
+      // Prime the stream so the client's fetch() actually resolves — on
+      // Firefox it otherwise stays pending until the first real change
+      // event, which for an unedited `mcp.json` is never. See
+      // SSE_PRIMING_COMMENT. Deliberately *after* the subscriber is
+      // registered and the watcher started: callers treat the arrival of
+      // this stream's first bytes as proof they are subscribed, so priming
+      // first would hand out that proof across an `await`, before the
+      // watcher exists, and drop an edit made in the gap.
+      await stream.write(SSE_PRIMING_COMMENT);
 
       stream.onAbort(() => {
         serverEventSubscribers.delete(send);

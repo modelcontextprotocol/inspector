@@ -969,6 +969,74 @@ describe("useServers", () => {
     );
   });
 
+  it("ignores the backend's inert priming comment frame (#1858)", async () => {
+    // The backend opens every SSE stream with a `:` comment so a streaming
+    // fetch() resolves on Firefox at all. That frame carries no event/data
+    // field and must NOT be read as a change — otherwise every connection
+    // would fire a spurious background re-fetch on open.
+    writeFileSync(
+      h.configPath,
+      JSON.stringify({
+        mcpServers: { seed: { type: "stdio", command: "s" } },
+      }),
+    );
+
+    // Count list GETs rather than watching the rendered list: a spurious
+    // refresh fires the instant the priming frame is read, so it would race
+    // ahead of any later disk mutation and land the same data — invisible in
+    // the output but a real extra round-trip on every connection.
+    let listGets = 0;
+    let reads = 0;
+    let releaseSecondRead: (() => void) | undefined;
+    const secondRead = new Promise<void>((r) => {
+      releaseSecondRead = r;
+    });
+    const encoder = new TextEncoder();
+    // Must be referentially stable: the hook's SSE effect keys off `fetchFn`,
+    // so an inline arrow would re-subscribe (and re-refresh) every render and
+    // inflate the very count this test asserts on.
+    const fetchFn: typeof fetch = async (input, init) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url.endsWith("/api/servers/events")) {
+        const body = {
+          getReader: () => ({
+            read: async () => {
+              reads += 1;
+              // Priming comment only — no `event:` / `data:` line.
+              if (reads === 1) {
+                return { done: false, value: encoder.encode(":\n\n") };
+              }
+              // Hold the stream open so the loop can't end and let a
+              // teardown-time settle hide a queued refresh.
+              await secondRead;
+              return { done: true, value: undefined };
+            },
+          }),
+        };
+        return { ok: true, body } as unknown as Response;
+      }
+      if (url.endsWith("/api/servers")) listGets += 1;
+      return h.fetchFn(url, init);
+    };
+    const { result } = renderHook(() =>
+      useServers({ baseUrl: "http://test.local", fetchFn }),
+    );
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.servers.map((s) => s.id)).toEqual(["seed"]);
+
+    // The priming frame has been consumed (the loop is parked on read #2).
+    await waitFor(() => expect(reads).toBeGreaterThanOrEqual(2));
+    await new Promise((r) => setTimeout(r, 100));
+
+    // Exactly one GET: the hook's mount refresh. The comment frame added none.
+    expect(listGets).toBe(1);
+
+    await act(async () => {
+      releaseSecondRead?.();
+      await Promise.resolve();
+    });
+  });
+
   it("falls back to globalThis.fetch when no fetchFn is provided", async () => {
     // No fetchFn → the `doFetch = fetchFn ?? globalThis.fetch` default branch.
     const globalFetch = vi

@@ -82,6 +82,18 @@ async function readErrorMessage(res: Response): Promise<string> {
   return `HTTP ${res.status}`;
 }
 
+/**
+ * Whether an SSE frame carries an actual event rather than only comment
+ * lines. The backend primes each stream with an inert `:` comment so a
+ * streaming `fetch()` resolves on Firefox at all (#1858); that frame must
+ * not be mistaken for a change notification.
+ */
+function isSseDataFrame(frame: string): boolean {
+  return frame
+    .split("\n")
+    .some((line) => line.startsWith("event:") || line.startsWith("data:"));
+}
+
 export function useServers(opts: UseServersOptions): UseServersResult {
   const { baseUrl, authToken, fetchFn } = opts;
   const doFetch = fetchFn ?? globalThis.fetch;
@@ -157,6 +169,10 @@ export function useServers(opts: UseServersOptions): UseServersResult {
         // single background refresh per decode chunk. Two `change`
         // broadcasts landing in the same chunk become one re-fetch instead
         // of two concurrent ones whose setState order is unspecified.
+        // Frames carrying no `event:`/`data:` field are skipped: the backend
+        // opens the stream with an inert `:` comment frame so Firefox
+        // resolves this fetch at all (see SSE_PRIMING_COMMENT in the remote
+        // server), and that must not read as a change.
         // Cross-chunk debounce is not added: `awaitWriteFinish`'s 100ms
         // stability threshold already serializes external edits at the
         // source, and chained fetches against the same GET endpoint are
@@ -169,8 +185,9 @@ export function useServers(opts: UseServersOptions): UseServersResult {
           let sawFrame = false;
           let frameEnd = buffer.indexOf("\n\n");
           while (frameEnd !== -1) {
+            const frame = buffer.slice(0, frameEnd);
             buffer = buffer.slice(frameEnd + 2);
-            sawFrame = true;
+            if (isSseDataFrame(frame)) sawFrame = true;
             frameEnd = buffer.indexOf("\n\n");
           }
           if (sawFrame) void refreshInternal(true);
