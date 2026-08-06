@@ -1076,6 +1076,36 @@ describe("expectedSecretFields", () => {
       }),
     ).toEqual([SECRET_FIELD_OAUTH_CLIENT_SECRET]);
   });
+
+  it("keeps a secret-only OAuth config reachable across the disk round trip", () => {
+    // The OAuth slot is unconditional, and that is load-bearing rather
+    // than merely defensive — skipping the keychain read for servers with
+    // "no OAuth config" is a tempting optimization that would silently
+    // stop rehydrating exactly this shape.
+    //
+    // `extractSecretsFromStored` deletes the `oauth` block outright when
+    // `clientSecret` was its only property, so the on-disk entry carries
+    // NO marker that a secret exists — the keychain is the only record.
+    // The unconditional slot is what finds it again.
+    const { stripped, secrets } = extractSecretsFromStored({
+      type: "streamable-http",
+      url: "https://x.test",
+      oauth: { clientSecret: "shh" },
+    });
+    expect(stripped).not.toHaveProperty("oauth");
+
+    // What a GET does: enumerate fields from the *stripped* on-disk shape,
+    // read those from the keychain, merge back.
+    const fields = expectedSecretFields(stripped);
+    expect(fields).toContain(SECRET_FIELD_OAUTH_CLIENT_SECRET);
+
+    const fromKeychain = Object.fromEntries(
+      fields.filter((f) => f in secrets).map((f) => [f, secrets[f]!]),
+    );
+    expect(mergeSecretsIntoStored(stripped, fromKeychain).oauth).toEqual({
+      clientSecret: "shh",
+    });
+  });
 });
 
 describe("enterpriseManaged oauth settings", () => {
