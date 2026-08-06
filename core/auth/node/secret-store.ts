@@ -80,18 +80,27 @@ export interface SecretStore {
  * a real value and must round-trip).
  *
  * **Availability behavior.** When the keychain is unavailable (the
- * typical case is Linux without libsecret / gnome-keyring), `set` is
- * the only operation that throws `KeychainUnavailableError` — that's
- * the moment where data would actually be lost. `get` returns `null`
- * (as if no entry existed) and the destructive operations silently
- * no-op (there's nothing to delete anyway). This keeps non-secret
- * flows working on a stock CI runner / minimal Linux box; the user
- * only hits a hard error when they actually try to save a secret.
+ * typical case is Linux without libsecret / gnome-keyring, or a
+ * container with no D-Bus session), `set` is the only operation that
+ * throws `KeychainUnavailableError` — that's the moment where data
+ * would actually be lost. `get` returns `null` (as if no entry
+ * existed) and the destructive operations silently no-op (there's
+ * nothing to delete anyway). This keeps non-secret flows working on a
+ * stock CI runner / minimal Linux box; the user only hits a hard error
+ * when they actually try to save a secret.
+ *
+ * The `AsyncEntry` construction is deliberately **inside** each
+ * method's `try`: `AsyncEntry::new` performs the platform-store setup
+ * (on Linux, the Secret Service connect with a keyutils fallback) and
+ * throws when no backend is reachable. Constructing it outside the
+ * `try` let that raw error escape, 500ing every `GET /api/servers`
+ * before any secret was involved — the contract above only holds if
+ * construction failures are funneled through the same handlers (#1848).
  */
 export class KeyringSecretStore implements SecretStore {
   async get(serverId: string, field: string): Promise<string | null> {
-    const entry = new AsyncEntry(SERVICE_NAME, buildAccount(serverId, field));
     try {
+      const entry = new AsyncEntry(SERVICE_NAME, buildAccount(serverId, field));
       const v = await entry.getPassword();
       return v ?? null;
     } catch {
@@ -104,8 +113,8 @@ export class KeyringSecretStore implements SecretStore {
   }
 
   async set(serverId: string, field: string, value: string): Promise<void> {
-    const entry = new AsyncEntry(SERVICE_NAME, buildAccount(serverId, field));
     try {
+      const entry = new AsyncEntry(SERVICE_NAME, buildAccount(serverId, field));
       await entry.setPassword(value);
     } catch (err) {
       // The only operation that hard-fails — if we can't persist the
@@ -116,17 +125,17 @@ export class KeyringSecretStore implements SecretStore {
   }
 
   async delete(serverId: string, field: string): Promise<void> {
-    const entry = new AsyncEntry(SERVICE_NAME, buildAccount(serverId, field));
     try {
+      const entry = new AsyncEntry(SERVICE_NAME, buildAccount(serverId, field));
       await entry.deleteCredential();
     } catch {
-      // Both reasons for a throw collapse to the same desired outcome
+      // Every reason for a throw collapses to the same desired outcome
       // ("the entry isn't there anymore"): `deleteCredential` raises
-      // NoEntry for a missing credential, and the native binding
-      // raises a runtime error when the keychain itself is unavailable.
-      // We treat both as success — there's no value to lose either
-      // way, and `set` is the operation that hard-fails when the
-      // keychain is actually down.
+      // NoEntry for a missing credential, and both the constructor and
+      // the native binding raise a runtime error when the keychain
+      // itself is unavailable. We treat all of them as success — there's
+      // no value to lose either way, and `set` is the operation that
+      // hard-fails when the keychain is actually down.
     }
   }
 
