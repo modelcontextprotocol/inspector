@@ -13,9 +13,49 @@
  * browser side never imports this; it gets values rehydrated into the
  * `/api/servers` response by the Hono handler.
  */
-import { AsyncEntry, findCredentialsAsync } from "@napi-rs/keyring";
 
 const SERVICE_NAME = "mcp-inspector";
+
+/**
+ * `@napi-rs/keyring` ships one prebuilt binary per platform triple, and
+ * loading the package *throws* on a platform it has no binary for —
+ * Android / Termux is the reported case (#1905), where the import fails
+ * with "Cannot find native binding" / "Cannot find module
+ * '@napi-rs/keyring-android-arm64'".
+ *
+ * A static top-level import made that a startup crash: the module never
+ * evaluated, so the Inspector exited before any of the
+ * keychain-unavailable handling below could run. Loading it lazily, and
+ * caching the *outcome* rather than only the module, folds an
+ * unsupported platform into the same degradation contract as an
+ * unreachable keychain (see `KeyringSecretStore`) — the store is simply
+ * unavailable, and callers see it through the documented behavior
+ * instead of a crash.
+ *
+ * The failure is cached alongside the success so a box without a binary
+ * doesn't re-attempt (and re-throw) the resolution on every secret
+ * operation, and so `set` can name the underlying cause in its
+ * `KeychainUnavailableError`.
+ *
+ * The cache is process-lifetime by design — there is no reset seam, since
+ * a platform does not grow a native binary mid-run. Tests reach the
+ * unloadable path through `vi.resetModules()` + `vi.doMock`, which gives
+ * them a fresh module (and so a fresh cache) instead.
+ */
+type KeyringModule = typeof import("@napi-rs/keyring");
+type KeyringLoad =
+  | { ok: true; mod: KeyringModule }
+  | { ok: false; err: unknown };
+
+let keyringLoad: Promise<KeyringLoad> | undefined;
+
+const loadKeyring = (): Promise<KeyringLoad> => {
+  keyringLoad ??= import("@napi-rs/keyring").then(
+    (mod): KeyringLoad => ({ ok: true, mod }),
+    (err: unknown): KeyringLoad => ({ ok: false, err }),
+  );
+  return keyringLoad;
+};
 
 export {
   SECRET_FIELD_OAUTH_CLIENT_SECRET,
@@ -79,28 +119,41 @@ export interface SecretStore {
  * can use `=== null` rather than truthiness (an empty-string secret is
  * a real value and must round-trip).
  *
- * **Availability behavior.** When the keychain is unavailable (the
- * typical case is Linux without libsecret / gnome-keyring, or a
- * container with no D-Bus session), `set` is the only operation that
- * throws `KeychainUnavailableError` — that's the moment where data
- * would actually be lost. `get` returns `null` (as if no entry
- * existed) and the destructive operations silently no-op (there's
- * nothing to delete anyway). This keeps non-secret flows working on a
- * stock CI runner / minimal Linux box; the user only hits a hard error
- * when they actually try to save a secret.
+ * **Availability behavior.** When the keychain is unavailable, `set` is
+ * the only operation that throws `KeychainUnavailableError` — that's
+ * the moment where data would actually be lost. `get` returns `null`
+ * (as if no entry existed) and the destructive operations silently
+ * no-op (there's nothing to delete anyway). This keeps non-secret flows
+ * working on a stock CI runner / minimal Linux box / unsupported
+ * platform; the user only hits a hard error when they actually try to
+ * save a secret.
  *
- * The `AsyncEntry` construction is deliberately **inside** each
- * method's `try`: `AsyncEntry::new` performs the platform-store setup
- * (on Linux, the Secret Service connect with a keyutils fallback) and
- * throws when no backend is reachable. Constructing it outside the
- * `try` let that raw error escape, 500ing every `GET /api/servers`
- * before any secret was involved — the contract above only holds if
- * construction failures are funneled through the same handlers (#1848).
+ * "Unavailable" covers three distinct failures, all funneled into that
+ * one contract — the contract is only as good as its narrowest funnel,
+ * and each of these escaped it at some point:
+ *
+ * 1. **The package won't load at all** — no prebuilt binary for this
+ *    platform (Android / Termux). A static top-level import made this a
+ *    startup crash before any handling ran (#1905); `loadKeyring()`
+ *    above defers and caches it instead.
+ * 2. **`AsyncEntry::new` throws** — it performs the platform-store setup
+ *    (on Linux, the Secret Service connect with a keyutils fallback) and
+ *    throws when no backend is reachable. Construction is therefore
+ *    deliberately **inside** each method's `try`; outside it, the raw
+ *    error escaped and 500'd every `GET /api/servers` before any secret
+ *    was involved (#1848).
+ * 3. **The operation itself throws** — the original case, and the only
+ *    one the first version of this contract actually handled.
  */
 export class KeyringSecretStore implements SecretStore {
   async get(serverId: string, field: string): Promise<string | null> {
     try {
-      const entry = new AsyncEntry(SERVICE_NAME, buildAccount(serverId, field));
+      const keyring = await loadKeyring();
+      if (!keyring.ok) return null;
+      const entry = new keyring.mod.AsyncEntry(
+        SERVICE_NAME,
+        buildAccount(serverId, field),
+      );
       const v = await entry.getPassword();
       return v ?? null;
     } catch {
@@ -114,9 +167,20 @@ export class KeyringSecretStore implements SecretStore {
 
   async set(serverId: string, field: string, value: string): Promise<void> {
     try {
-      const entry = new AsyncEntry(SERVICE_NAME, buildAccount(serverId, field));
+      const keyring = await loadKeyring();
+      // An unloadable package is as fatal to a write as an unreachable
+      // keychain, and for the same reason — the value would vanish.
+      if (!keyring.ok) throw new KeychainUnavailableError(keyring.err);
+      const entry = new keyring.mod.AsyncEntry(
+        SERVICE_NAME,
+        buildAccount(serverId, field),
+      );
       await entry.setPassword(value);
     } catch (err) {
+      // Already the typed error when the module failed to load — don't
+      // double-wrap it (that would bury the underlying cause one level
+      // deeper in the message).
+      if (err instanceof KeychainUnavailableError) throw err;
       // The only operation that hard-fails — if we can't persist the
       // secret, the user needs to know now rather than discover later
       // that their value disappeared. Routes translate this to a 503.
@@ -126,7 +190,12 @@ export class KeyringSecretStore implements SecretStore {
 
   async delete(serverId: string, field: string): Promise<void> {
     try {
-      const entry = new AsyncEntry(SERVICE_NAME, buildAccount(serverId, field));
+      const keyring = await loadKeyring();
+      if (!keyring.ok) return;
+      const entry = new keyring.mod.AsyncEntry(
+        SERVICE_NAME,
+        buildAccount(serverId, field),
+      );
       await entry.deleteCredential();
     } catch {
       // Every reason for a throw collapses to the same desired outcome
@@ -142,7 +211,9 @@ export class KeyringSecretStore implements SecretStore {
   async deleteAllForServer(serverId: string): Promise<void> {
     let creds: Array<{ account: string; password: string }>;
     try {
-      creds = await findCredentialsAsync(SERVICE_NAME);
+      const keyring = await loadKeyring();
+      if (!keyring.ok) return;
+      creds = await keyring.mod.findCredentialsAsync(SERVICE_NAME);
     } catch {
       // Same reasoning as `delete`: nothing was written, nothing to sweep.
       return;

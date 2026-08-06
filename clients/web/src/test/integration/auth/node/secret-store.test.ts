@@ -7,8 +7,14 @@
  * so the suite stubs the native side and asserts the tolerance contract
  * (`get` returns null on failure, destructive ops no-op, `set` is the
  * one operation that hard-fails with `KeychainUnavailableError`).
+ *
+ * The contract has three entry points for "unavailable" and the suite
+ * covers all three: the operation throwing, `AsyncEntry`'s constructor
+ * throwing (#1848), and the package failing to load at all (#1905). The
+ * last one can't use the shared stub — it needs the *import* to reject —
+ * so it lives in its own describe built on `vi.resetModules()`.
  */
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 // The mock must be hoisted above the `await import` of secret-store
 // inside the `KeyringSecretStore` describe block. Use `vi.hoisted` so
@@ -384,5 +390,111 @@ describe("KeyringSecretStore (mocked native bindings)", () => {
 
       await expect(store.deleteAllForServer("alpha")).resolves.toBeUndefined();
     });
+  });
+});
+
+describe("@napi-rs/keyring unloadable on this platform (#1905)", () => {
+  // `@napi-rs/keyring` ships one prebuilt binary per platform triple and
+  // throws on import where it has none — Android / Termux is the reported
+  // case. A static top-level import made that a startup crash: the module
+  // never evaluated, so none of the tolerance handling could run.
+  //
+  // The shared stub above can't express this: it models a keyring that
+  // loads. Here the *import itself* rejects, which needs a fresh module
+  // registry — hence `vi.resetModules()` + `vi.doMock` and a re-import
+  // rather than a flag. The re-imported module is a distinct instance, so
+  // its `KeychainUnavailableError` is a distinct class identity too; the
+  // assertions below use the freshly imported one.
+  // The real-world message on Termux. Documentary here — see the cause
+  // assertion below for why vitest doesn't let it through verbatim.
+  const LOAD_ERROR = "Cannot find module '@napi-rs/keyring-android-arm64'";
+
+  /** Fresh secret-store module whose `@napi-rs/keyring` import rejects. */
+  const importWithUnloadableKeyring = async (
+    onLoadAttempt: () => void = () => {},
+  ) => {
+    vi.resetModules();
+    vi.doMock("@napi-rs/keyring", () => {
+      onLoadAttempt();
+      throw new Error(LOAD_ERROR);
+    });
+    return await import("@inspector/core/auth/node/secret-store.js");
+  };
+
+  afterEach(() => {
+    vi.doUnmock("@napi-rs/keyring");
+    vi.resetModules();
+  });
+
+  it("the module still evaluates — importing it must not throw", async () => {
+    // The regression itself: with a static top-level import this rejects,
+    // and the Inspector exits before reaching any fallback.
+    await expect(importWithUnloadableKeyring()).resolves.toHaveProperty(
+      "KeyringSecretStore",
+    );
+  });
+
+  it("get returns null", async () => {
+    const mod = await importWithUnloadableKeyring();
+    const store = new mod.KeyringSecretStore();
+    expect(await store.get("alpha", "oauth-client-secret")).toBe(null);
+  });
+
+  it("set throws KeychainUnavailableError carrying the load failure as its cause", async () => {
+    const mod = await importWithUnloadableKeyring();
+    const store = new mod.KeyringSecretStore();
+    await expect(
+      store.set("alpha", "oauth-client-secret", "v"),
+    ).rejects.toBeInstanceOf(mod.KeychainUnavailableError);
+    // Asserted by shape, not by the literal text: vitest substitutes its
+    // own "error when mocking a module" message for a throwing `doMock`
+    // factory, so `LOAD_ERROR` never reaches the store here. What matters
+    // — and what is testable — is that the load failure is appended as
+    // the cause rather than swallowed. In production the real
+    // "Cannot find native binding" text lands in that slot.
+    await expect(
+      store.set("alpha", "oauth-client-secret", "v"),
+    ).rejects.toThrow(/Underlying error: .+/);
+  });
+
+  it("set does not double-wrap the typed error", async () => {
+    // The load failure is already a `KeychainUnavailableError` by the time
+    // the catch sees it; re-wrapping would bury the cause a level deeper.
+    const mod = await importWithUnloadableKeyring();
+    const store = new mod.KeyringSecretStore();
+    try {
+      await store.set("alpha", "oauth-client-secret", "v");
+      throw new Error("expected throw");
+    } catch (err) {
+      expect(err).toBeInstanceOf(mod.KeychainUnavailableError);
+      // One "OS keychain is not available" prefix, not two nested.
+      expect(
+        (err as Error).message.match(/OS keychain is not available/g),
+      ).toHaveLength(1);
+    }
+  });
+
+  it("delete and deleteAllForServer silently no-op", async () => {
+    const mod = await importWithUnloadableKeyring();
+    const store = new mod.KeyringSecretStore();
+    await expect(
+      store.delete("alpha", "oauth-client-secret"),
+    ).resolves.toBeUndefined();
+    await expect(store.deleteAllForServer("alpha")).resolves.toBeUndefined();
+  });
+
+  it("attempts the load once and caches the failure", async () => {
+    // Without the cache every secret operation re-attempts (and re-throws)
+    // the resolution — `expectedSecretFields` means that is once per
+    // server per `GET /api/servers`.
+    const onLoadAttempt = vi.fn();
+    const mod = await importWithUnloadableKeyring(onLoadAttempt);
+    const store = new mod.KeyringSecretStore();
+
+    await store.get("alpha", "oauth-client-secret");
+    await store.get("beta", "oauth-client-secret");
+    await store.delete("alpha", "oauth-client-secret");
+
+    expect(onLoadAttempt).toHaveBeenCalledTimes(1);
   });
 });
