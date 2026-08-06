@@ -24,6 +24,12 @@ const keyringMocks = vi.hoisted(() => {
     deleteThrows: false,
     findThrows: false,
     deleteThrowsNoEntry: false,
+    // `AsyncEntry::new` itself does the platform-store setup and throws
+    // when no backend is reachable (a container with no D-Bus session,
+    // Linux without libsecret). Modelling it is what catches #1848: a
+    // stub that can only fail per-method leaves the construction path
+    // untested, so an escaping constructor error looks green here.
+    constructorThrows: false,
   };
   const credentials = (): Array<{ account: string; password: string }> => {
     const out: Array<{ account: string; password: string }> = [];
@@ -35,6 +41,11 @@ const keyringMocks = vi.hoisted(() => {
   class AsyncEntry {
     private readonly key: string;
     constructor(_service: string, username: string) {
+      if (failures.constructorThrows) {
+        throw new Error(
+          "Couldn't access platform storage: PermissionDenied (constructor)",
+        );
+      }
       this.key = username;
     }
     async getPassword(): Promise<string | undefined> {
@@ -215,6 +226,7 @@ describe("KeyringSecretStore (mocked native bindings)", () => {
     keyringMocks.failures.deleteThrows = false;
     keyringMocks.failures.findThrows = false;
     keyringMocks.failures.deleteThrowsNoEntry = false;
+    keyringMocks.failures.constructorThrows = false;
     store = new KeyringSecretStore();
   });
 
@@ -328,5 +340,49 @@ describe("KeyringSecretStore (mocked native bindings)", () => {
       expect((err as Error).message).toMatch(/keychain set unavailable/);
       expect((err as Error).message).toMatch(/libsecret/);
     }
+  });
+
+  describe("keychain unreachable at AsyncEntry construction (#1848)", () => {
+    // `AsyncEntry::new` — not just its methods — throws when no platform
+    // store is reachable. The degradation contract must hold identically
+    // for that failure mode; constructing outside the `try` let the raw
+    // keyring error escape and 500 `GET /api/servers` before any secret
+    // was touched.
+    beforeEach(() => {
+      keyringMocks.failures.constructorThrows = true;
+    });
+
+    it("get returns null", async () => {
+      expect(await store.get("alpha", SECRET_FIELD_OAUTH_CLIENT_SECRET)).toBe(
+        null,
+      );
+    });
+
+    it("set throws KeychainUnavailableError, not the raw keyring error", async () => {
+      // The typed error is what the routes translate to a 503 and what
+      // `migratePlaintextSecrets` matches on to skip migration.
+      await expect(
+        store.set("alpha", SECRET_FIELD_OAUTH_CLIENT_SECRET, "v"),
+      ).rejects.toBeInstanceOf(KeychainUnavailableError);
+      await expect(
+        store.set("alpha", SECRET_FIELD_OAUTH_CLIENT_SECRET, "v"),
+      ).rejects.toThrow(/Couldn't access platform storage/);
+    });
+
+    it("delete silently no-ops", async () => {
+      await expect(
+        store.delete("alpha", SECRET_FIELD_OAUTH_CLIENT_SECRET),
+      ).resolves.toBeUndefined();
+    });
+
+    it("deleteAllForServer no-ops even when the credential sweep finds entries", async () => {
+      // findCredentialsAsync can succeed while per-entry construction
+      // fails; the sweep must still resolve rather than escape.
+      keyringMocks.failures.constructorThrows = false;
+      await store.set("alpha", SECRET_FIELD_OAUTH_CLIENT_SECRET, "a");
+      keyringMocks.failures.constructorThrows = true;
+
+      await expect(store.deleteAllForServer("alpha")).resolves.toBeUndefined();
+    });
   });
 });
