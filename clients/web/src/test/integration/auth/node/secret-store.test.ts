@@ -336,6 +336,34 @@ describe("KeyringSecretStore (mocked native bindings)", () => {
     expect(err.message).toMatch(/libsecret/);
   });
 
+  // The two hint branches are asserted by direct construction rather than
+  // through the store: the unloadable-package path can only be reached via
+  // a throwing `vi.doMock` factory, and vitest substitutes its own "error
+  // when mocking a module" message for whatever that factory throws — so
+  // the real loader text never reaches the constructor from there. These
+  // two cases pin the wording against the message the napi-rs loader
+  // actually produces.
+  it("KeychainUnavailableError steers a missing native binding to a reinstall", () => {
+    const err = new KeychainUnavailableError(
+      new Error(
+        "Cannot find native binding. npm has a bug related to optional dependencies…",
+      ),
+    );
+    expect(err.message).toMatch(/reinstall the Inspector/);
+    expect(err.message).toMatch(/npx cache/);
+    // The Linux keyring-daemon advice is irrelevant to this cause.
+    expect(err.message).not.toMatch(/libsecret/);
+    expect(err.message).toMatch(/Cannot find native binding/);
+  });
+
+  it("KeychainUnavailableError keeps the libsecret advice for other causes", () => {
+    const err = new KeychainUnavailableError(
+      new Error("failed to unlock the default collection"),
+    );
+    expect(err.message).toMatch(/libsecret/);
+    expect(err.message).not.toMatch(/reinstall the Inspector/);
+  });
+
   it("KeychainUnavailableError carries the underlying error message", async () => {
     keyringMocks.failures.setThrows = true;
     try {

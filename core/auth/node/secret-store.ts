@@ -79,18 +79,26 @@ const buildAccount = (serverId: string, field: string): string =>
   `${serverId}:${field}`;
 
 /**
- * Thrown when the OS keychain is unavailable — typically Linux without
- * libsecret / gnome-keyring installed. Surfaced as a 503 by the API
- * handlers so the UI can show an actionable error rather than a generic
- * 500. macOS and Windows always have a working keychain, so this only
- * realistically fires on minimal Linux installs.
+ * Thrown when the OS keychain is unavailable. Two realistic causes, and
+ * the advice for them is different: Linux without libsecret /
+ * gnome-keyring installed (the keychain is missing), and
+ * `@napi-rs/keyring` failing to load at all (the *package* is missing a
+ * binary for this platform triple — an unsupported OS like
+ * Android/Termux, #1905, or npm's optional-deps bug dropping the
+ * platform package on a supported one, npm/cli#4828). Surfaced as a 503
+ * by the API handlers so the UI can show an actionable error rather
+ * than a generic 500.
  */
 export class KeychainUnavailableError extends Error {
   constructor(cause: unknown) {
-    super(
-      `OS keychain is not available. On Linux, install libsecret / gnome-keyring. ` +
-        `Underlying error: ${cause instanceof Error ? cause.message : String(cause)}`,
-    );
+    const message = cause instanceof Error ? cause.message : String(cause);
+    // The napi-rs loader's throw for a missing platform binary starts
+    // with this phrase — steer those users to a reinstall rather than
+    // the (irrelevant) Linux keyring-daemon advice.
+    const hint = message.includes("Cannot find native binding")
+      ? `The @napi-rs/keyring platform package for this OS is missing or unavailable — reinstall the Inspector (for npx, clear the npx cache under your npm cache directory first).`
+      : `On Linux, install libsecret / gnome-keyring.`;
+    super(`OS keychain is not available. ${hint} Underlying error: ${message}`);
     this.name = "KeychainUnavailableError";
   }
 }
