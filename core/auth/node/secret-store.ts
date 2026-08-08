@@ -41,6 +41,26 @@ const SERVICE_NAME = "mcp-inspector";
  * a platform does not grow a native binary mid-run. Tests reach the
  * unloadable path through `vi.resetModules()` + `vi.doMock`, which gives
  * them a fresh module (and so a fresh cache) instead.
+ *
+ * A resolved import is also **shape-checked** before being accepted. The
+ * package is CJS, so the named exports we rely on come from interop, and
+ * a resolution that stopped yielding them (a default-only export in a
+ * future version, a bundler changing interop, a platform where the
+ * named-export detection fails) would land as `undefined`, making
+ * `new mod.AsyncEntry(...)` throw `TypeError: not a constructor` from
+ * inside the very `try` that implements graceful degradation.
+ *
+ * Be precise about what this buys, because it is narrower than it looks:
+ * it does **not** stop a bad shape from emptying the secret list. `get`
+ * returns `null` either way — that is its read-tolerance contract, and
+ * the `TypeError` lands in the same `catch` that a dead keychain does.
+ * What the check changes is *diagnosis*. Without it the only signal is
+ * `set` reporting "keyring.mod.AsyncEntry is not a constructor", an
+ * internal-looking message that reads like an Inspector bug; with it,
+ * `set` names the actual problem once, at the load boundary, in the same
+ * actionable 503 as every other flavor of unavailability. Detecting the
+ * silent-empty-list case itself would take a real round-trip against the
+ * unmocked package, which nothing in the suite does today.
  */
 type KeyringModule = typeof import("@napi-rs/keyring");
 type KeyringLoad =
@@ -49,9 +69,38 @@ type KeyringLoad =
 
 let keyringLoad: Promise<KeyringLoad> | undefined;
 
+/**
+ * Accept a resolved import only if it carries the two members we call.
+ *
+ * The member *access* is inside the `try` because reading a missing
+ * export is not always the harmless `undefined` a plain ESM namespace
+ * gives: a Proxy-based namespace can throw on an unknown key (vitest's
+ * module mocks do exactly that). Either way the answer is the same —
+ * unavailable — and returning it rather than throwing is what keeps the
+ * cached promise from ever rejecting.
+ */
+const checkKeyringShape = (mod: KeyringModule): KeyringLoad => {
+  try {
+    if (
+      typeof mod.AsyncEntry === "function" &&
+      typeof mod.findCredentialsAsync === "function"
+    ) {
+      return { ok: true, mod };
+    }
+    return {
+      ok: false,
+      err: new Error(
+        "@napi-rs/keyring loaded but did not expose AsyncEntry / findCredentialsAsync",
+      ),
+    };
+  } catch (err) {
+    return { ok: false, err };
+  }
+};
+
 const loadKeyring = (): Promise<KeyringLoad> => {
   keyringLoad ??= import("@napi-rs/keyring").then(
-    (mod): KeyringLoad => ({ ok: true, mod }),
+    checkKeyringShape,
     (err: unknown): KeyringLoad => ({ ok: false, err }),
   );
   return keyringLoad;
@@ -136,7 +185,7 @@ export interface SecretStore {
  * platform; the user only hits a hard error when they actually try to
  * save a secret.
  *
- * "Unavailable" covers three distinct failures, all funneled into that
+ * "Unavailable" covers four distinct failures, all funneled into that
  * one contract — the contract is only as good as its narrowest funnel,
  * and each of these escaped it at some point:
  *
@@ -144,13 +193,20 @@ export interface SecretStore {
  *    platform (Android / Termux). A static top-level import made this a
  *    startup crash before any handling ran (#1905); `loadKeyring()`
  *    above defers and caches it instead.
- * 2. **`AsyncEntry::new` throws** — it performs the platform-store setup
+ * 2. **The package loads but exposes the wrong shape** — the named
+ *    exports arrive via CJS interop, so a resolution that stopped
+ *    yielding them would hand us `undefined` and fail as a `TypeError`
+ *    swallowed by the degradation path. `loadKeyring()` shape-checks up
+ *    front so `set` can name that cause instead of surfacing an
+ *    "is not a constructor" message (see the note there — the check
+ *    improves the diagnosis, it does not change what `get` returns).
+ * 3. **`AsyncEntry::new` throws** — it performs the platform-store setup
  *    (on Linux, the Secret Service connect with a keyutils fallback) and
  *    throws when no backend is reachable. Construction is therefore
  *    deliberately **inside** each method's `try`; outside it, the raw
  *    error escaped and 500'd every `GET /api/servers` before any secret
  *    was involved (#1848).
- * 3. **The operation itself throws** — the original case, and the only
+ * 4. **The operation itself throws** — the original case, and the only
  *    one the first version of this contract actually handled.
  */
 export class KeyringSecretStore implements SecretStore {
