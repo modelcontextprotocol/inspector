@@ -362,9 +362,26 @@ describe("KeyringSecretStore (mocked native bindings)", () => {
   it("KeychainUnavailableError points a wrong-shape module at a reinstall, not at libsecret", () => {
     // A packaging/version mismatch is not a missing keyring daemon, so
     // the libsecret line would send the user somewhere that cannot help.
-    const err = new KeychainUnavailableError(new KeyringModuleShapeError());
+    const err = new KeychainUnavailableError(
+      new KeyringModuleShapeError("did not expose AsyncEntry"),
+    );
     expect(err.message).toMatch(/does not expose the API this build expects/);
     expect(err.message).not.toMatch(/libsecret/);
+  });
+
+  it("KeychainUnavailableError gives the same hint however the shape check failed", () => {
+    // The shape check fails two ways — members absent, or reading them
+    // throws. Both are the same underlying problem, so both must earn the
+    // packaging hint; only one of them carrying it was the original bug.
+    const err = new KeychainUnavailableError(
+      new KeyringModuleShapeError("its exports could not be read: boom", {
+        cause: new Error("boom"),
+      }),
+    );
+    expect(err.message).toMatch(/does not expose the API this build expects/);
+    expect(err.message).not.toMatch(/libsecret/);
+    // The original failure is still legible in the message.
+    expect(err.message).toMatch(/boom/);
   });
 
   it("KeychainUnavailableError keeps the libsecret advice for other causes", () => {
@@ -637,6 +654,15 @@ describe("@napi-rs/keyring loads but exposes the wrong shape", () => {
     await expect(
       store.set("alpha", "oauth-client-secret", "v"),
     ).rejects.toBeInstanceOf(mod.KeychainUnavailableError);
+    // …and it reaches the user as a packaging problem, not as "install
+    // libsecret". Returning the raw access error here would have been
+    // typed correctly but hinted wrongly.
+    await expect(
+      store.set("alpha", "oauth-client-secret", "v"),
+    ).rejects.toThrow(/does not expose the API this build expects/);
+    await expect(
+      store.set("alpha", "oauth-client-secret", "v"),
+    ).rejects.not.toThrow(/libsecret/);
     // Absorbed, not escaped: a rejected cached promise would surface here
     // as the raw access error instead of the typed one.
     await expect(store.deleteAllForServer("alpha")).resolves.toBeUndefined();

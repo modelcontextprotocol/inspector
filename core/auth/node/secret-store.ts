@@ -87,10 +87,8 @@ let keyringLoad: Promise<KeyringLoad> | undefined;
  * because that message comes from someone else's loader).
  */
 export class KeyringModuleShapeError extends Error {
-  constructor() {
-    super(
-      "@napi-rs/keyring loaded but did not expose AsyncEntry / findCredentialsAsync",
-    );
+  constructor(detail: string, options?: { cause?: unknown }) {
+    super(`@napi-rs/keyring loaded but ${detail}`, options);
     this.name = "KeyringModuleShapeError";
   }
 }
@@ -103,9 +101,25 @@ const checkKeyringShape = (mod: KeyringModule): KeyringLoad => {
     ) {
       return { ok: true, mod };
     }
-    return { ok: false, err: new KeyringModuleShapeError() };
+    return {
+      ok: false,
+      err: new KeyringModuleShapeError(
+        "did not expose AsyncEntry / findCredentialsAsync",
+      ),
+    };
   } catch (err) {
-    return { ok: false, err };
+    // Both ways of failing the shape check are the same problem — the
+    // module is not the API we expect — so both carry the type that
+    // earns the packaging hint. Returning the raw error here instead
+    // would drop it back to the libsecret advice, which is what this
+    // whole branch exists to avoid.
+    return {
+      ok: false,
+      err: new KeyringModuleShapeError(
+        `its exports could not be read: ${err instanceof Error ? err.message : String(err)}`,
+        { cause: err },
+      ),
+    };
   }
 };
 
