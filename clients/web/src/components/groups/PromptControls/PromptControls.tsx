@@ -2,6 +2,7 @@ import { Group, ScrollArea, Stack, TextInput, Title } from "@mantine/core";
 import { ClearButton } from "../../elements/ClearButton/ClearButton";
 import type { Prompt } from "@modelcontextprotocol/client";
 import { ListChangedIndicator } from "../../elements/ListChangedIndicator/ListChangedIndicator";
+import { ListLoadError } from "../../elements/ListLoadError/ListLoadError";
 import {
   ListPaginationControls,
   type ListPaginationControlsProps,
@@ -36,6 +37,11 @@ export interface PromptControlsProps {
   searchText?: string;
   listChanged: boolean;
   onRefreshList: () => void;
+  /**
+   * A failed list load, surfaced above the list instead of leaving the panel
+   * empty (which reads as "this server has none") (#1953).
+   */
+  loadError?: Error | null;
   /** Pagination controls (#1721). */
   pagination: ListPaginationControlsProps;
   onSearchChange: (value: string) => void;
@@ -48,6 +54,7 @@ export function PromptControls({
   searchText = "",
   listChanged,
   onRefreshList,
+  loadError,
   pagination,
   onSearchChange,
   onSelectPrompt,
@@ -75,6 +82,7 @@ export function PromptControls({
         }
       />
       <ListPaginationControls {...pagination} />
+      <ListLoadError error={loadError} what="prompts" onRetry={onRefreshList} />
       <ListScroll viewportRef={viewportRef}>
         <Stack gap="xs">
           {filteredPrompts.map((prompt) => (

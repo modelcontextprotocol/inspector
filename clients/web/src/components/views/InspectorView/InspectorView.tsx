@@ -435,6 +435,17 @@ export interface InspectorViewProps {
   toolsListChanged: boolean;
   promptsListChanged: boolean;
   resourcesListChanged: boolean;
+
+  // Last list-load failure per screen, sourced from the same managed-state
+  // layer. Rendered above the sidebar list so a failed load (including the
+  // connect-time one) can't read as "this server has none" (#1953).
+  toolsLoadError?: Error | null;
+  promptsLoadError?: Error | null;
+  /**
+   * The Resources sidebar lists resources AND templates behind a single
+   * Refresh, so App passes whichever of the two loads failed.
+   */
+  resourcesLoadError?: Error | null;
   logs: LogEntryData[];
   tasks: Task[];
   progressByTaskId?: Record<string, TaskProgress>;
@@ -627,6 +638,9 @@ export function InspectorView({
   toolsListChanged,
   promptsListChanged,
   resourcesListChanged,
+  toolsLoadError,
+  promptsLoadError,
+  resourcesLoadError,
   subscriptions,
   subscriptionStreamState,
   logs,
@@ -1354,6 +1368,7 @@ export function InspectorView({
                 callState={toolCallState}
                 ui={toolsUi}
                 listChanged={toolsListChanged}
+                loadError={toolsLoadError}
                 serverSupportsTaskToolCalls={serverSupportsTaskToolCalls}
                 modernTasks={
                   protocolEra === "modern" &&
@@ -1393,6 +1408,7 @@ export function InspectorView({
                 getPromptState={getPromptState}
                 ui={promptsUi}
                 listChanged={promptsListChanged}
+                loadError={promptsLoadError}
                 completionsSupported={completionsSupported}
                 onUiChange={onPromptsUiChange}
                 onRefreshList={onRefreshPrompts}
@@ -1412,6 +1428,7 @@ export function InspectorView({
                 readState={readResourceState}
                 ui={resourcesUi}
                 listChanged={resourcesListChanged}
+                loadError={resourcesLoadError}
                 completionsSupported={completionsSupported}
                 subscriptionsSupported={subscriptionsSupported}
                 onUiChange={onResourcesUiChange}

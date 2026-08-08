@@ -57,6 +57,8 @@ export interface ResourcesScreenProps {
   subscriptionsSupported?: boolean;
   onUiChange: (next: ResourcesUiState) => void;
   onRefreshList: () => void;
+  /** A failed list load, rendered above the sidebar list (#1953). */
+  loadError?: Error | null;
   /** Pagination controls rendered in the sidebar (#1721). */
   pagination: ListPaginationControlsProps;
   onReadResource: (uri: string) => void;
@@ -170,6 +172,7 @@ export function ResourcesScreen({
   subscriptionsSupported = true,
   onUiChange,
   onRefreshList,
+  loadError,
   pagination,
   onReadResource,
   onSubscribeResource,
@@ -325,6 +328,7 @@ export function ResourcesScreen({
             openSections={openSections}
             listChanged={listChanged}
             onRefreshList={onRefreshList}
+            loadError={loadError}
             pagination={pagination}
             onSearchChange={(value) => onUiChange({ ...ui, search: value })}
             onOpenSectionsChange={(value) =>

@@ -285,6 +285,14 @@ export interface MessageEntry {
     | JSONRPCErrorResponse;
   response?: JSONRPCResultResponse | JSONRPCErrorResponse;
   duration?: number; // Time between request and response in ms
+  /**
+   * Why the CLIENT rejected an otherwise well-formed response — e.g. the SDK's
+   * era codec refusing a 2026-07-28 `tools/list` result that omits
+   * `ttlMs`/`cacheScope`. Distinct from a JSON-RPC `error` response: the server
+   * answered successfully and the wire frame is valid, so without this the
+   * entry renders as a clean success even though the call failed (#1953).
+   */
+  clientError?: string;
 }
 
 /** Method name for any MessageEntry traffic, plus synthetic "response" for result/error entries. */

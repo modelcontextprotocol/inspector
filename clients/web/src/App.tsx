@@ -994,24 +994,33 @@ function App() {
   } = useInspectorClient(inspectorClient);
   const {
     tools: managedTools,
+    error: toolsLoadError,
     listChanged: toolsListChanged,
     refresh: refreshTools,
     clearListChanged: clearToolsListChanged,
   } = useManagedTools(inspectorClient, managedToolsState);
   const {
     prompts: managedPrompts,
+    error: promptsLoadError,
     listChanged: promptsListChanged,
     refresh: refreshPrompts,
     clearListChanged: clearPromptsListChanged,
   } = useManagedPrompts(inspectorClient, managedPromptsState);
   const {
     resources: managedResources,
+    error: resourcesLoadError,
     listChanged: resourcesListChanged,
     refresh: refreshResources,
     clearListChanged: clearResourcesListChanged,
   } = useManagedResources(inspectorClient, managedResourcesState);
-  const { resourceTemplates, refresh: refreshResourceTemplates } =
-    useManagedResourceTemplates(inspectorClient, managedResourceTemplatesState);
+  const {
+    resourceTemplates,
+    error: resourceTemplatesLoadError,
+    refresh: refreshResourceTemplates,
+  } = useManagedResourceTemplates(
+    inspectorClient,
+    managedResourceTemplatesState,
+  );
   // Paged (paginated) list sources. When `paginatedLists` is on the managed
   // states skip their all-page walk and these drive the sidebar instead (#1721).
   const {
@@ -4373,6 +4382,9 @@ function App() {
           toolsListChanged={toolsListChanged}
           promptsListChanged={promptsListChanged}
           resourcesListChanged={resourcesListChanged}
+          toolsLoadError={toolsLoadError}
+          promptsLoadError={promptsLoadError}
+          resourcesLoadError={resourcesLoadError ?? resourceTemplatesLoadError}
           subscriptions={subscriptions}
           subscriptionStreamState={subscriptionStreamState}
           logs={logs}

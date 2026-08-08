@@ -4,8 +4,15 @@ import type { ManagedToolsState } from "../mcp/state/managedToolsState.js";
 import type { ManagedToolsStateEventMap } from "../mcp/state/managedToolsState.js";
 import type { Tool } from "@modelcontextprotocol/client";
 import type { TypedEventGeneric } from "../mcp/typedEventTarget.js";
+import { useManagedListError } from "./useManagedListError.js";
 
 export interface UseManagedToolsResult {
+  /**
+   * The last fetch's failure (transport error, or a result the SDK codec
+   * rejected), or `null` when it succeeded. Includes the connect-time load,
+   * whose failure has no caller to surface it (#1953).
+   */
+  error: Error | null;
   tools: Tool[];
   /** True when a `tools/list_changed` arrived since the last user refresh. */
   listChanged: boolean;
@@ -65,6 +72,8 @@ export function useManagedTools(
     };
   }, [managedToolsState]);
 
+  const error = useManagedListError(managedToolsState);
+
   const refresh = useCallback(async (): Promise<Tool[]> => {
     if (!managedToolsState || !client) return [];
     // A user-initiated refresh acknowledges the change — clear the indicator
@@ -85,5 +94,5 @@ export function useManagedTools(
     managedToolsState?.clearListChanged();
   }, [managedToolsState]);
 
-  return { tools, listChanged, refresh, clearListChanged };
+  return { tools, error, listChanged, refresh, clearListChanged };
 }

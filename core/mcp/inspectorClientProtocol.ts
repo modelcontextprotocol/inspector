@@ -105,6 +105,15 @@ export interface InspectorClientProtocol extends InspectorClientEventTarget {
    * and the modern task store's poll-based refresh. */
   isTasksExtensionNegotiated(): boolean;
 
+  /**
+   * Mark the response that most recently answered `method` as rejected by the
+   * client, so its Protocol entry shows the reason instead of rendering as a
+   * clean success (#1953). Optional so existing test doubles satisfy the
+   * interface without implementing it; see `InspectorClient` for how the id is
+   * correlated and why that correlation is exact.
+   */
+  markResponseRejected?(method: string, reason: string): void;
+
   // Aggregate (all-page) list methods used by the managed state stores on
   // refresh. Unlike the single-page methods above, these route through the
   // SDK's cache-aware high-level verbs so `cacheMode` ('use' | 'refresh' |

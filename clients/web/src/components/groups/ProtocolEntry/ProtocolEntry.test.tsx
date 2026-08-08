@@ -711,3 +711,57 @@ describe("ProtocolEntry — modern vocabulary", () => {
     });
   });
 });
+
+// A response the server answered successfully but the CLIENT then refused —
+// e.g. the SDK's era codec rejecting a 2026-07-28 list result missing
+// `ttlMs`/`cacheScope`. The wire frame is a valid JSON-RPC result, so before
+// #1953 this rendered as a clean success.
+describe("ProtocolEntry — client-rejected response", () => {
+  const REASON = "Invalid result for tools/list: ttlMs required";
+
+  const rejectedEntry: MessageEntry = {
+    id: "rej-1",
+    timestamp: new Date("2026-07-28T10:00:00Z"),
+    direction: "request",
+    origin: "client",
+    message: { jsonrpc: "2.0", id: 9, method: "tools/list", params: {} },
+    response: {
+      jsonrpc: "2.0",
+      id: 9,
+      result: { resultType: "complete", tools: [] },
+    },
+    clientError: REASON,
+  };
+
+  it("renders Error rather than a success status", () => {
+    renderWithMantine(<ProtocolEntry {...baseProps} entry={rejectedEntry} />);
+    expect(screen.getByText("Error")).toBeInTheDocument();
+    expect(screen.queryByText("OK")).not.toBeInTheDocument();
+  });
+
+  it("shows the Error badge even though a resultType badge is present", () => {
+    // The resultType normally suppresses the status badge (a modern success
+    // says "complete"). A rejected result must not hide behind it — the wire
+    // said complete, the client disagreed, and both are worth seeing.
+    renderWithMantine(<ProtocolEntry {...baseProps} entry={rejectedEntry} />);
+    expect(screen.getByText("complete")).toBeInTheDocument();
+    expect(screen.getByText("Error")).toBeInTheDocument();
+  });
+
+  it("names the Inspector as the rejecter and gives the reason when expanded", () => {
+    renderWithMantine(
+      <ProtocolEntry {...baseProps} entry={rejectedEntry} isListExpanded />,
+    );
+    expect(screen.getByText("Rejected by the Inspector")).toBeInTheDocument();
+    expect(screen.getByText(REASON)).toBeInTheDocument();
+  });
+
+  it("shows no rejection alert on an ordinary success", () => {
+    renderWithMantine(
+      <ProtocolEntry {...baseProps} entry={successEntry} isListExpanded />,
+    );
+    expect(
+      screen.queryByText("Rejected by the Inspector"),
+    ).not.toBeInTheDocument();
+  });
+});

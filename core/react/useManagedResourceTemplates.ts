@@ -6,8 +6,15 @@ import type {
 } from "../mcp/state/managedResourceTemplatesState.js";
 import type { ResourceTemplateType as ResourceTemplate } from "@modelcontextprotocol/client";
 import type { TypedEventGeneric } from "../mcp/typedEventTarget.js";
+import { useManagedListError } from "./useManagedListError.js";
 
 export interface UseManagedResourceTemplatesResult {
+  /**
+   * The last fetch's failure (transport error, or a result the SDK codec
+   * rejected), or `null` when it succeeded. Includes the connect-time load,
+   * whose failure has no caller to surface it (#1953).
+   */
+  error: Error | null;
   resourceTemplates: ResourceTemplate[];
   refresh: () => Promise<ResourceTemplate[]>;
 }
@@ -50,6 +57,8 @@ export function useManagedResourceTemplates(
     };
   }, [managedResourceTemplatesState]);
 
+  const error = useManagedListError(managedResourceTemplatesState);
+
   const refresh = useCallback(async (): Promise<ResourceTemplate[]> => {
     if (!managedResourceTemplatesState || !client) return [];
     // A user-initiated refresh forces a cache-bypassing round trip
@@ -63,5 +72,5 @@ export function useManagedResourceTemplates(
     return next;
   }, [client, managedResourceTemplatesState]);
 
-  return { resourceTemplates, refresh };
+  return { resourceTemplates, error, refresh };
 }

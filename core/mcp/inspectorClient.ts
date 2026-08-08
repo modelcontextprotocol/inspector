@@ -358,6 +358,13 @@ export class InspectorClient extends InspectorClientEventTarget {
   private outputValidator: AjvJsonSchemaValidator | null = null;
   private transport: Transport | MessageTrackingTransport | null = null;
   private baseTransport: Transport | null = null;
+  // Correlation for `markResponseRejected` (#1953): the method of each
+  // outbound request still awaiting a response, and — once one is answered —
+  // the id of the most recently answered request per method. Entries are
+  // dropped as responses arrive, so this holds at most one id per method
+  // rather than growing with the session.
+  private outboundRequestMethods = new Map<string | number, string>();
+  private lastAnsweredRequestByMethod = new Map<string, string | number>();
   /** True when the cached transport was built with an OAuth authProvider attached. */
   private transportHasAuthProvider = false;
   /** Dedupes concurrent ambient auth challenges (reason + scopes). */
@@ -786,6 +793,9 @@ export class InspectorClient extends InspectorClientEventTarget {
   private createMessageTrackingCallbacks(): MessageTrackingCallbacks {
     return {
       trackRequest: (message: JSONRPCRequest, origin: MessageOrigin) => {
+        if (origin === "client") {
+          this.outboundRequestMethods.set(message.id, message.method);
+        }
         const entry: MessageEntry = {
           id: crypto.randomUUID(),
           timestamp: new Date(),
@@ -799,6 +809,19 @@ export class InspectorClient extends InspectorClientEventTarget {
         message: JSONRPCResultResponse | JSONRPCErrorResponse,
         origin: MessageOrigin,
       ) => {
+        // A response to one of OUR requests closes that id's correlation entry
+        // and becomes the method's most recent answer (#1953). The transport
+        // only tracks responses that carry an id, but the JSON-RPC types leave
+        // it optional for an error frame the server couldn't attribute — such a
+        // frame answers no specific request, so it is skipped.
+        const responseId = message.id;
+        if (origin === "server" && responseId !== undefined) {
+          const method = this.outboundRequestMethods.get(responseId);
+          this.outboundRequestMethods.delete(responseId);
+          if (method !== undefined) {
+            this.lastAnsweredRequestByMethod.set(method, responseId);
+          }
+        }
         const entry: MessageEntry = {
           id: crypto.randomUUID(),
           timestamp: new Date(),
@@ -3080,8 +3103,17 @@ export class InspectorClient extends InspectorClientEventTarget {
     // reflect the current wire truth. Accepted for a debugging tool where the
     // list is small and correctness of "why did this tool vanish" matters more
     // than the extra request; it's a no-op (no round trip) on legacy/stdio.
-    // Kept best-effort: an error here must never fail the tools list itself.
-    await this.refreshExcludedTools(options?.metadata).catch(() => {});
+    // Kept best-effort: an error here must never fail the tools list itself —
+    // but it is logged rather than dropped on the floor, so a failing
+    // excluded-tools walk is diagnosable instead of silently leaving the
+    // "Excluded (SEP-2243)" section empty and looking like a clean server
+    // (#1953).
+    await this.refreshExcludedTools(options?.metadata).catch((err: unknown) => {
+      this.logger.warn(
+        { err },
+        "Excluded-tools walk failed; the SEP-2243 excluded list may be incomplete",
+      );
+    });
     return { tools: [...response.tools] };
   }
 
@@ -3093,6 +3125,27 @@ export class InspectorClient extends InspectorClientEventTarget {
    */
   private excludesInvalidXMcpHeaderTools(): boolean {
     return this.isModernEra() && this.getServerType() !== "stdio";
+  }
+
+  /**
+   * Mark the response that most recently answered `method` as rejected by the
+   * client, so its Protocol entry shows why instead of rendering as a clean
+   * success (#1953).
+   *
+   * The SDK gives no request id with a decode failure — `SdkError` carries the
+   * method and nothing else — so the id is recovered by correlation: the last
+   * response received for that method. That is exact rather than approximate,
+   * because the SDK rejects synchronously while decoding the response (inside
+   * the transport's `onmessage`) and the caller's `catch` runs in the very next
+   * microtask. Delivering another response for the same method in that window
+   * would take a macrotask (a socket read), which cannot interleave there.
+   *
+   * A no-op when nothing has answered `method` this session.
+   */
+  markResponseRejected(method: string, reason: string): void {
+    const id = this.lastAnsweredRequestByMethod.get(method);
+    if (id === undefined) return;
+    this.dispatchTypedEvent("responseRejected", { id, reason });
   }
 
   /** The current SEP-2243 excluded-tools set (empty on legacy/stdio). */

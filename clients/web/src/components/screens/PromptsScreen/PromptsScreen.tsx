@@ -33,6 +33,8 @@ export interface PromptsScreenProps {
   completionsSupported?: boolean;
   onUiChange: (next: PromptsUiState) => void;
   onRefreshList: () => void;
+  /** A failed list load, rendered above the sidebar list (#1953). */
+  loadError?: Error | null;
   /** Pagination controls rendered in the sidebar (#1721). */
   pagination: ListPaginationControlsProps;
   onGetPrompt: (name: string, args: Record<string, string>) => void;
@@ -136,6 +138,7 @@ export function PromptsScreen({
   completionsSupported,
   onUiChange,
   onRefreshList,
+  loadError,
   pagination,
   onGetPrompt,
   onCopyMessages,
@@ -273,6 +276,7 @@ export function PromptsScreen({
             searchText={search}
             listChanged={listChanged}
             onRefreshList={onRefreshList}
+            loadError={loadError}
             pagination={pagination}
             onSearchChange={(value) => onUiChange({ ...ui, search: value })}
             onSelectPrompt={handleSelectPrompt}

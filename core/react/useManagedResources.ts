@@ -6,8 +6,15 @@ import type {
 } from "../mcp/state/managedResourcesState.js";
 import type { Resource } from "@modelcontextprotocol/client";
 import type { TypedEventGeneric } from "../mcp/typedEventTarget.js";
+import { useManagedListError } from "./useManagedListError.js";
 
 export interface UseManagedResourcesResult {
+  /**
+   * The last fetch's failure (transport error, or a result the SDK codec
+   * rejected), or `null` when it succeeded. Includes the connect-time load,
+   * whose failure has no caller to surface it (#1953).
+   */
+  error: Error | null;
   resources: Resource[];
   /**
    * True when a `resources/list_changed` arrived since the last user refresh.
@@ -76,6 +83,8 @@ export function useManagedResources(
     };
   }, [managedResourcesState]);
 
+  const error = useManagedListError(managedResourcesState);
+
   const refresh = useCallback(async (): Promise<Resource[]> => {
     if (!managedResourcesState || !client) return [];
     // A user-initiated refresh acknowledges the change — clear the indicator
@@ -96,5 +105,5 @@ export function useManagedResources(
     managedResourcesState?.clearListChanged();
   }, [managedResourcesState]);
 
-  return { resources, listChanged, refresh, clearListChanged };
+  return { resources, error, listChanged, refresh, clearListChanged };
 }

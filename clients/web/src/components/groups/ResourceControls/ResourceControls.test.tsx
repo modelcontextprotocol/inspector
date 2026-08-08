@@ -395,4 +395,29 @@ describe("ResourceControls", () => {
       expect(screen.queryByText("Listening")).not.toBeInTheDocument();
     });
   });
+
+  // A failed load is rendered above the list instead of leaving the panel
+  // empty, which is indistinguishable from a server that has none (#1953).
+  it("renders a failed load above the list and retries via onRefreshList", async () => {
+    const user = userEvent.setup();
+    const onRefreshList = vi.fn();
+    renderWithMantine(
+      <ResourceControls
+        {...baseProps}
+        loadError={new Error("codec said no")}
+        onRefreshList={onRefreshList}
+      />,
+    );
+
+    expect(screen.getByText("Couldn't load resources")).toBeInTheDocument();
+    expect(screen.getByText("codec said no")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    expect(onRefreshList).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders no load error by default", () => {
+    renderWithMantine(<ResourceControls {...baseProps} />);
+    expect(screen.queryByText(/Couldn't load/)).not.toBeInTheDocument();
+  });
 });

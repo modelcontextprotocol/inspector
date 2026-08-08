@@ -71,6 +71,15 @@ export interface InspectorClientEventMap {
   /** `server/discover` result on a probed/pinned connect; undefined on legacy. */
   discoverResultChange: DiscoverResult | undefined;
   message: MessageEntry;
+  /**
+   * A response the client REJECTED after it was logged — the server answered,
+   * but the SDK's era codec refused the result (e.g. a 2026-07-28 `tools/list`
+   * missing `ttlMs`/`cacheScope`). The wire frame is a valid JSON-RPC result,
+   * so the Protocol entry would otherwise render as a clean success; this
+   * carries the reason so it can be marked instead (#1953). `id` is the
+   * JSON-RPC id of the rejected response.
+   */
+  responseRejected: { id: string | number; reason: string };
   stderrLog: StderrLogEntry;
   fetchRequest: FetchRequestEntry;
   /** Fired when an in-flight fetch's response body is read asynchronously. */

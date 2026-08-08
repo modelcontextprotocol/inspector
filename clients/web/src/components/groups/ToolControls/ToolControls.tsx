@@ -14,6 +14,7 @@ import { ClearButton } from "../../elements/ClearButton/ClearButton";
 import type { Tool } from "@modelcontextprotocol/client";
 import type { ExcludedTool } from "@inspector/core/mcp/types.js";
 import { ListChangedIndicator } from "../../elements/ListChangedIndicator/ListChangedIndicator";
+import { ListLoadError } from "../../elements/ListLoadError/ListLoadError";
 import {
   ListPaginationControls,
   type ListPaginationControlsProps,
@@ -32,6 +33,11 @@ export interface ToolControlsProps {
   searchText?: string;
   listChanged: boolean;
   onRefreshList: () => void;
+  /**
+   * A failed list load, surfaced above the list instead of leaving the panel
+   * empty (which reads as "this server has none") (#1953).
+   */
+  loadError?: Error | null;
   /** Pagination controls (#1721). */
   pagination: ListPaginationControlsProps;
   onSearchChange: (value: string) => void;
@@ -109,6 +115,7 @@ export function ToolControls({
   searchText = "",
   listChanged,
   onRefreshList,
+  loadError,
   pagination,
   onSearchChange,
   onSelectTool,
@@ -146,6 +153,7 @@ export function ToolControls({
         }
       />
       <ListPaginationControls {...pagination} />
+      <ListLoadError error={loadError} what="tools" onRetry={onRefreshList} />
       <SidebarScroll viewportRef={viewportRef}>
         <Stack gap="xs">
           {filteredTools.map((tool) => (

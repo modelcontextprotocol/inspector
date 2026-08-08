@@ -60,6 +60,8 @@ export interface ToolsScreenProps {
   modernTasks?: boolean;
   onUiChange: (next: ToolsUiState) => void;
   onRefreshList: () => void;
+  /** A failed list load, rendered above the sidebar list (#1953). */
+  loadError?: Error | null;
   /** Pagination controls rendered in the sidebar (#1721). */
   pagination: ListPaginationControlsProps;
   onCallTool: (
@@ -152,6 +154,7 @@ export function ToolsScreen({
   modernTasks = false,
   onUiChange,
   onRefreshList,
+  loadError,
   pagination,
   onCallTool,
   onCancelCall,
@@ -192,6 +195,7 @@ export function ToolsScreen({
             searchText={search}
             listChanged={listChanged}
             onRefreshList={onRefreshList}
+            loadError={loadError}
             pagination={pagination}
             onSearchChange={(value) => onUiChange({ ...ui, search: value })}
             onSelectTool={handleSelectTool}

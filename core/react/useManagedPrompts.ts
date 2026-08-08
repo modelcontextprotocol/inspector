@@ -6,8 +6,15 @@ import type {
 } from "../mcp/state/managedPromptsState.js";
 import type { Prompt } from "@modelcontextprotocol/client";
 import type { TypedEventGeneric } from "../mcp/typedEventTarget.js";
+import { useManagedListError } from "./useManagedListError.js";
 
 export interface UseManagedPromptsResult {
+  /**
+   * The last fetch's failure (transport error, or a result the SDK codec
+   * rejected), or `null` when it succeeded. Includes the connect-time load,
+   * whose failure has no caller to surface it (#1953).
+   */
+  error: Error | null;
   prompts: Prompt[];
   /** True when a `prompts/list_changed` arrived since the last user refresh. */
   listChanged: boolean;
@@ -65,6 +72,8 @@ export function useManagedPrompts(
     };
   }, [managedPromptsState]);
 
+  const error = useManagedListError(managedPromptsState);
+
   const refresh = useCallback(async (): Promise<Prompt[]> => {
     if (!managedPromptsState || !client) return [];
     // A user-initiated refresh acknowledges the change — clear the indicator
@@ -85,5 +94,5 @@ export function useManagedPrompts(
     managedPromptsState?.clearListChanged();
   }, [managedPromptsState]);
 
-  return { prompts, listChanged, refresh, clearListChanged };
+  return { prompts, error, listChanged, refresh, clearListChanged };
 }

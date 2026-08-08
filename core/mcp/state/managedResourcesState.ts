@@ -8,17 +8,11 @@ import type { Resource } from "@modelcontextprotocol/client";
 import {
   ManagedListState,
   DEFAULT_LIST_CHANGED_DEBOUNCE_MS,
+  type ManagedListEventMap,
 } from "./managedListState.js";
 
-export interface ManagedResourcesStateEventMap {
+export interface ManagedResourcesStateEventMap extends ManagedListEventMap {
   resourcesChange: Resource[];
-  /**
-   * Fires when the "list changed since last refresh" flag flips. True when a
-   * `resources/list_changed` arrives (auto-refresh off), false once the user
-   * refreshes or the connection drops. Drives the list-changed indicator
-   * (#1402).
-   */
-  listChangedChange: boolean;
 }
 
 export class ManagedResourcesState extends ManagedListState<
@@ -30,6 +24,7 @@ export class ManagedResourcesState extends ManagedListState<
     debounceMs = DEFAULT_LIST_CHANGED_DEBOUNCE_MS,
   ) {
     super(client, {
+      listMethod: "resources/list",
       changeEvent: "resourcesChange",
       listChangedEvent: "resourcesListChanged",
       capabilityKey: "resources",

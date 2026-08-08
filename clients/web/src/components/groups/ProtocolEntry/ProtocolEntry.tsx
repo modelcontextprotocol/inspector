@@ -135,6 +135,16 @@ const SpecErrorAlert = Alert.withProps({
   icon: <RiErrorWarningLine />,
 });
 
+// The client rejected an otherwise well-formed response (#1953). Distinct from
+// SpecErrorAlert: nothing is wrong with the server's JSON-RPC frame — the
+// Inspector's own decoding refused the result — so the title says who rejected it.
+const ClientErrorAlert = Alert.withProps({
+  variant: "light",
+  color: "red",
+  icon: <RiErrorWarningLine />,
+  title: "Rejected by the Inspector",
+});
+
 // Link (button-styled) that jumps to the correlated HTTP entry in the Network tab.
 const RevealLink = Anchor.withProps({
   component: "button",
@@ -213,6 +223,9 @@ function extractStatus(
   if (entry.direction !== "request") return "none";
   if (!entry.response) return "pending";
   if ("error" in entry.response) return "error";
+  // The server answered with a valid result the CLIENT then refused (#1953).
+  // The call failed, so the entry must not read as a success.
+  if (entry.clientError) return "error";
   return "success";
 }
 
@@ -330,11 +343,12 @@ export function ProtocolEntry({
   // Suppress the redundant green "OK" when a `resultType` badge already conveys
   // the outcome (a modern success is `complete`/`input required`); errors and
   // pending have no `resultType`, so their status badge still shows.
-  const statusBadge = status !== "none" && !resultType && (
-    <Badge color={statusColor(status)} variant="status">
-      {statusLabel(status)}
-    </Badge>
-  );
+  const statusBadge = status !== "none" &&
+    (!resultType || entry.clientError) && (
+      <Badge color={statusColor(status)} variant="status">
+        {statusLabel(status)}
+      </Badge>
+    );
   const subscriptionBadge = subscriptionId && (
     <SubscriptionCluster>
       <SubscriptionLabel>sub</SubscriptionLabel>
@@ -431,6 +445,11 @@ export function ProtocolEntry({
         <Collapse in={isExpanded}>
           <Stack gap="sm">
             <Divider />
+            {entry.clientError && (
+              <ClientErrorAlert>
+                <Text size="xs">{entry.clientError}</Text>
+              </ClientErrorAlert>
+            )}
             {specError && (
               <McpSpecErrorAlert
                 error={specError}

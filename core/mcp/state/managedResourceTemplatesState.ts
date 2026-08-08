@@ -15,15 +15,11 @@ import type { ResourceTemplateType as ResourceTemplate } from "@modelcontextprot
 import {
   ManagedListState,
   DEFAULT_LIST_CHANGED_DEBOUNCE_MS,
+  type ManagedListEventMap,
 } from "./managedListState.js";
 
-export interface ManagedResourceTemplatesStateEventMap {
+export interface ManagedResourceTemplatesStateEventMap extends ManagedListEventMap {
   resourceTemplatesChange: ResourceTemplate[];
-  /**
-   * Carried only to satisfy the ManagedListState base; templates have no
-   * indicator, so this never fires.
-   */
-  listChangedChange: boolean;
 }
 
 export class ManagedResourceTemplatesState extends ManagedListState<
@@ -35,6 +31,7 @@ export class ManagedResourceTemplatesState extends ManagedListState<
     debounceMs = DEFAULT_LIST_CHANGED_DEBOUNCE_MS,
   ) {
     super(client, {
+      listMethod: "resources/templates/list",
       changeEvent: "resourceTemplatesChange",
       listChangedEvent: "resourceTemplatesListChanged",
       // Templates are gated on the broader `resources` capability.

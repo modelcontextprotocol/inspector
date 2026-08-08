@@ -412,6 +412,110 @@ describe("ManagedToolsState", () => {
     });
   });
 
+  // A failed load used to vanish: the connect-time refresh is fired with no
+  // caller to await it, so its rejection became an unhandled rejection and the
+  // panel just rendered an empty list — indistinguishable from a server with no
+  // tools (#1953).
+  describe("load errors", () => {
+    const boom = new Error("Invalid result for tools/list: ttlMs required");
+
+    function waitForError(state: ManagedToolsState): Promise<Error | null> {
+      return waitForChangeEvent(state, "errorChange");
+    }
+
+    it("starts with no error", () => {
+      expect(state.getError()).toBeNull();
+    });
+
+    it("records a failed refresh as state AND re-throws", async () => {
+      client.setStatus("connected");
+      client.listAllTools.mockRejectedValueOnce(boom);
+
+      // The rejection still propagates: App's auth-recovery wrapper keys off it
+      // to detect a 401 and start a re-authorization.
+      await expect(state.refresh()).rejects.toThrow(boom);
+      expect(state.getError()).toBe(boom);
+    });
+
+    it("dispatches errorChange with the error", async () => {
+      client.setStatus("connected");
+      client.listAllTools.mockRejectedValueOnce(boom);
+      const changed = waitForError(state);
+      await expect(state.refresh()).rejects.toThrow(boom);
+      expect(await changed).toBe(boom);
+    });
+
+    it("wraps a non-Error rejection", async () => {
+      client.setStatus("connected");
+      client.listAllTools.mockRejectedValueOnce("just a string");
+      await expect(state.refresh()).rejects.toBe("just a string");
+      expect(state.getError()).toBeInstanceOf(Error);
+      expect(state.getError()?.message).toBe("just a string");
+    });
+
+    it("attributes the failure to its Protocol entry", async () => {
+      client.setStatus("connected");
+      client.listAllTools.mockRejectedValueOnce(boom);
+      await expect(state.refresh()).rejects.toThrow(boom);
+      expect(client.markResponseRejected).toHaveBeenCalledWith(
+        "tools/list",
+        boom.message,
+      );
+    });
+
+    it("clears the error once a refresh succeeds", async () => {
+      client.setStatus("connected");
+      client.listAllTools.mockRejectedValueOnce(boom);
+      await expect(state.refresh()).rejects.toThrow(boom);
+
+      const cleared = waitForError(state);
+      client.queueToolPages({ tools: [tool("a")] });
+      await state.refresh();
+      expect(await cleared).toBeNull();
+      expect(state.getError()).toBeNull();
+    });
+
+    it("keeps the connect-time failure in state instead of rejecting unobserved", async () => {
+      client.listAllTools.mockRejectedValueOnce(boom);
+      const changed = waitForError(state);
+      await client.connect();
+      expect(await changed).toBe(boom);
+    });
+
+    it("keeps the auto-refresh failure in state instead of rejecting unobserved", async () => {
+      client.setServerSettings(AUTO_REFRESH_SETTINGS);
+      client.setStatus("connected");
+      client.listAllTools.mockRejectedValueOnce(boom);
+      const changed = waitForError(state);
+      client.dispatchTypedEvent("toolsListChanged");
+      expect(await changed).toBe(boom);
+    });
+
+    it("clears the error on disconnect so it can't outlive its session", async () => {
+      client.setStatus("connected");
+      client.listAllTools.mockRejectedValueOnce(boom);
+      await expect(state.refresh()).rejects.toThrow(boom);
+
+      const cleared = waitForError(state);
+      client.setStatus("disconnected");
+      expect(await cleared).toBeNull();
+      expect(state.getError()).toBeNull();
+    });
+
+    it("does not re-dispatch when the same error is recorded twice", async () => {
+      client.setStatus("connected");
+      client.listAllTools.mockRejectedValue(boom);
+      await expect(state.refresh()).rejects.toThrow(boom);
+
+      let fired = 0;
+      state.addEventListener("errorChange", () => {
+        fired++;
+      });
+      await expect(state.refresh()).rejects.toThrow(boom);
+      expect(fired).toBe(0);
+    });
+  });
+
   it("destroy is idempotent", () => {
     state.destroy();
     expect(() => state.destroy()).not.toThrow();

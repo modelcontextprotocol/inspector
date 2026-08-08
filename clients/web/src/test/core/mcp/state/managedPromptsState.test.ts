@@ -285,6 +285,22 @@ describe("ManagedPromptsState", () => {
     });
   });
 
+  // The base class owns the error plumbing (covered in managedToolsState); this
+  // pins THIS list's method string, which is what attributes a failure to the
+  // right Protocol entry (#1953).
+  it("records a failed load and attributes it to prompts/list", async () => {
+    const boom = new Error("nope");
+    client.setStatus("connected");
+    client.listAllPrompts.mockRejectedValueOnce(boom);
+
+    await expect(state.refresh()).rejects.toThrow(boom);
+    expect(state.getError()).toBe(boom);
+    expect(client.markResponseRejected).toHaveBeenCalledWith(
+      "prompts/list",
+      "nope",
+    );
+  });
+
   it("destroy is idempotent", () => {
     state.destroy();
     expect(() => state.destroy()).not.toThrow();

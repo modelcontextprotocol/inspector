@@ -133,6 +133,10 @@ export class FakeInspectorClient
     return this.tasksExtensionNegotiated;
   }
 
+  // Attributes a failed load back to its Protocol entry (#1953). A `vi.fn` so
+  // tests can assert the method name and reason a failing refresh reported.
+  markResponseRejected = vi.fn((_method: string, _reason: string) => {});
+
   // Aggregate variants used by the managed state stores on refresh: drain ALL
   // queued pages (mimicking the SDK's all-page walk) and return the flattened
   // list. The `options` (incl. `cacheMode`) is recorded by the `vi.fn` so tests
