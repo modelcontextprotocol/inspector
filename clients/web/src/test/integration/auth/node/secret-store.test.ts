@@ -89,6 +89,7 @@ import {
   InMemorySecretStore,
   KeyringSecretStore,
   KeychainUnavailableError,
+  KeyringModuleShapeError,
   SECRET_FIELD_OAUTH_CLIENT_SECRET,
   envSecretField,
   parseAccount,
@@ -358,6 +359,14 @@ describe("KeyringSecretStore (mocked native bindings)", () => {
     expect(err.message).toMatch(/Cannot find native binding/);
   });
 
+  it("KeychainUnavailableError points a wrong-shape module at a reinstall, not at libsecret", () => {
+    // A packaging/version mismatch is not a missing keyring daemon, so
+    // the libsecret line would send the user somewhere that cannot help.
+    const err = new KeychainUnavailableError(new KeyringModuleShapeError());
+    expect(err.message).toMatch(/does not expose the API this build expects/);
+    expect(err.message).not.toMatch(/libsecret/);
+  });
+
   it("KeychainUnavailableError keeps the libsecret advice for other causes", () => {
     const err = new KeychainUnavailableError(
       new Error("failed to unlock the default collection"),
@@ -565,12 +574,13 @@ describe("@napi-rs/keyring loads but exposes the wrong shape", () => {
     findCredentialsAsync: async () => [],
   };
 
-  it("treats a namespace without a callable AsyncEntry as unavailable rather than returning null secrets", async () => {
+  it("hard-fails set for a namespace without a callable AsyncEntry (get still returns null by contract)", async () => {
     const mod = await importWithKeyringShape(ENTRY_NOT_A_FUNCTION);
     const store = new mod.KeyringSecretStore();
 
-    // The dangerous half: a silent `null` here is indistinguishable from
-    // "no secret stored", which is why `set` must hard-fail below.
+    // `get` returning null is the read-tolerance contract, not something
+    // the shape check changes — it reads the same as "no secret stored",
+    // which is exactly why `set` has to be the operation that hard-fails.
     expect(await store.get("alpha", "oauth-client-secret")).toBe(null);
     await expect(
       store.set("alpha", "oauth-client-secret", "v"),

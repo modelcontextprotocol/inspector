@@ -79,6 +79,22 @@ let keyringLoad: Promise<KeyringLoad> | undefined;
  * unavailable — and returning it rather than throwing is what keeps the
  * cached promise from ever rejecting.
  */
+/**
+ * Marks the shape-check failure so `KeychainUnavailableError` can give
+ * advice that fits it. A distinct type rather than a string match on the
+ * message: this is our own error, so there is no reason to re-parse text
+ * we just wrote (the native-binding branch matches on a string only
+ * because that message comes from someone else's loader).
+ */
+export class KeyringModuleShapeError extends Error {
+  constructor() {
+    super(
+      "@napi-rs/keyring loaded but did not expose AsyncEntry / findCredentialsAsync",
+    );
+    this.name = "KeyringModuleShapeError";
+  }
+}
+
 const checkKeyringShape = (mod: KeyringModule): KeyringLoad => {
   try {
     if (
@@ -87,12 +103,7 @@ const checkKeyringShape = (mod: KeyringModule): KeyringLoad => {
     ) {
       return { ok: true, mod };
     }
-    return {
-      ok: false,
-      err: new Error(
-        "@napi-rs/keyring loaded but did not expose AsyncEntry / findCredentialsAsync",
-      ),
-    };
+    return { ok: false, err: new KeyringModuleShapeError() };
   } catch (err) {
     return { ok: false, err };
   }
@@ -128,29 +139,49 @@ const buildAccount = (serverId: string, field: string): string =>
   `${serverId}:${field}`;
 
 /**
- * Thrown when the OS keychain is unavailable. Two realistic causes, and
- * the advice for them is different: Linux without libsecret /
- * gnome-keyring installed (the keychain is missing), and
- * `@napi-rs/keyring` failing to load at all (the *package* is missing a
- * binary for this platform triple — an unsupported OS like
- * Android/Termux, #1905, or npm's optional-deps bug dropping the
- * platform package on a supported one, npm/cli#4828). Surfaced as a 503
- * by the API handlers so the UI can show an actionable error rather
- * than a generic 500.
+ * Thrown when the OS keychain is unavailable. Surfaced as a 503 by the
+ * API handlers so the UI can show an actionable error rather than a
+ * generic 500 — and "actionable" is the point: the causes need
+ * *different* fixes, so the message carries a hint chosen per cause
+ * (see `hintFor`). Three realistic ones:
+ *
+ * - **The keychain itself is missing** — Linux without libsecret /
+ *   gnome-keyring. Install it.
+ * - **`@napi-rs/keyring` won't load** — no platform binary for this
+ *   triple (Android/Termux, #1905) or npm's optional-deps bug dropping
+ *   it on a supported one (npm/cli#4828). Reinstall / clear the npx
+ *   cache; installing a keyring daemon would not help.
+ * - **It loads but exposes the wrong API** — a version or packaging
+ *   mismatch (`KeyringModuleShapeError`). Also not a daemon problem.
  */
 export class KeychainUnavailableError extends Error {
   constructor(cause: unknown) {
     const message = cause instanceof Error ? cause.message : String(cause);
-    // The napi-rs loader's throw for a missing platform binary starts
-    // with this phrase — steer those users to a reinstall rather than
-    // the (irrelevant) Linux keyring-daemon advice.
-    const hint = message.includes("Cannot find native binding")
-      ? `The @napi-rs/keyring platform package for this OS is missing or unavailable — reinstall the Inspector (for npx, clear the npx cache under your npm cache directory first).`
-      : `On Linux, install libsecret / gnome-keyring.`;
-    super(`OS keychain is not available. ${hint} Underlying error: ${message}`);
+    super(
+      `OS keychain is not available. ${hintFor(cause, message)} Underlying error: ${message}`,
+    );
     this.name = "KeychainUnavailableError";
   }
 }
+
+/**
+ * The remediation that fits the cause. Wrong advice is worse than none —
+ * telling someone on Windows to install libsecret sends them down a path
+ * that cannot work — so every cause that has its own fix gets its own
+ * branch, and the libsecret line is the fallback rather than the default.
+ */
+const hintFor = (cause: unknown, message: string): string => {
+  // Our own error, so match on the type rather than re-parsing text we wrote.
+  if (cause instanceof KeyringModuleShapeError) {
+    return `The @napi-rs/keyring package loaded but does not expose the API this build expects — most likely a version or packaging mismatch; reinstall the Inspector, and report this if it persists.`;
+  }
+  // This phrasing comes from the napi-rs loader, not from us: it is what
+  // the package throws when the platform binary is missing.
+  if (message.includes("Cannot find native binding")) {
+    return `The @napi-rs/keyring platform package for this OS is missing or unavailable — reinstall the Inspector (for npx, clear the npx cache under your npm cache directory first).`;
+  }
+  return `On Linux, install libsecret / gnome-keyring.`;
+};
 
 /**
  * Storage interface for the per-server secrets we lift off
