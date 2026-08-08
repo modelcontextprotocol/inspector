@@ -8,11 +8,13 @@
  * (`get` returns null on failure, destructive ops no-op, `set` is the
  * one operation that hard-fails with `KeychainUnavailableError`).
  *
- * The contract has three entry points for "unavailable" and the suite
- * covers all three: the operation throwing, `AsyncEntry`'s constructor
- * throwing (#1848), and the package failing to load at all (#1905). The
- * last one can't use the shared stub — it needs the *import* to reject —
- * so it lives in its own describe built on `vi.resetModules()`.
+ * The contract has four entry points for "unavailable" and the suite
+ * covers all four: the operation throwing, `AsyncEntry`'s constructor
+ * throwing (#1848), the package failing to load at all (#1905), and the
+ * package loading but exposing the wrong shape. The last two can't use
+ * the shared stub — one needs the *import* to reject, the other needs it
+ * to resolve to a namespace the stub can't express — so each lives in
+ * its own describe built on `vi.resetModules()`.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
