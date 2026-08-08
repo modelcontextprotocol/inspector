@@ -526,3 +526,138 @@ describe("@napi-rs/keyring unloadable on this platform (#1905)", () => {
     expect(onLoadAttempt).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("@napi-rs/keyring loads but exposes the wrong shape", () => {
+  // The package is CJS, so `AsyncEntry` / `findCredentialsAsync` reach us
+  // through named-export interop. That holds today — verified against the
+  // real package — but if it ever stopped (a default-only export upstream,
+  // a bundler changing interop, a platform where named-export detection
+  // fails), the members would be `undefined` and `new undefined(...)` would
+  // throw a TypeError *inside* the try that implements degradation.
+  //
+  // What the shape check fixes is the *diagnosis*, not the data loss: `get`
+  // returns null with or without it (read-tolerance is its contract), so
+  // the empty secret list looks the same either way. The difference is that
+  // `set` names the shape problem at the load boundary instead of reporting
+  // "keyring.mod.AsyncEntry is not a constructor". Only the cause-message
+  // test below actually fails without the guard — the others pin the
+  // surrounding contract and would pass either way.
+  const importWithKeyringShape = async (shape: Record<string, unknown>) => {
+    vi.resetModules();
+    vi.doMock("@napi-rs/keyring", () => shape);
+    return await import("@inspector/core/auth/node/secret-store.js");
+  };
+
+  afterEach(() => {
+    vi.doUnmock("@napi-rs/keyring");
+    vi.resetModules();
+  });
+
+  // The members are declared but not callable, rather than absent. That is
+  // the shape a default-only export would leave behind, and it keeps these
+  // cases on the `typeof !== "function"` branch deterministically: vitest's
+  // module mock *throws* on reading a key the factory never returned, which
+  // is a different path (covered by its own case at the end).
+  const ENTRY_NOT_A_FUNCTION = {
+    AsyncEntry: undefined,
+    findCredentialsAsync: async () => [],
+  };
+
+  it("treats a namespace without a callable AsyncEntry as unavailable rather than returning null secrets", async () => {
+    const mod = await importWithKeyringShape(ENTRY_NOT_A_FUNCTION);
+    const store = new mod.KeyringSecretStore();
+
+    // The dangerous half: a silent `null` here is indistinguishable from
+    // "no secret stored", which is why `set` must hard-fail below.
+    expect(await store.get("alpha", "oauth-client-secret")).toBe(null);
+    await expect(
+      store.set("alpha", "oauth-client-secret", "v"),
+    ).rejects.toBeInstanceOf(mod.KeychainUnavailableError);
+  });
+
+  it("names the shape problem as the cause, not a bare unavailability", async () => {
+    const mod = await importWithKeyringShape(ENTRY_NOT_A_FUNCTION);
+    const store = new mod.KeyringSecretStore();
+    try {
+      await store.set("alpha", "oauth-client-secret", "v");
+      throw new Error("expected throw");
+    } catch (err) {
+      expect((err as Error).message).toMatch(
+        /did not expose AsyncEntry \/ findCredentialsAsync/,
+      );
+      // Not double-wrapped: the load failure is already typed by the time
+      // `set`'s catch sees it.
+      expect(
+        (err as Error).message.match(/OS keychain is not available/g),
+      ).toHaveLength(1);
+    }
+  });
+
+  it("treats a namespace without a callable findCredentialsAsync as unavailable too", async () => {
+    // `deleteAllForServer` is the only caller of it, so a shape check on
+    // `AsyncEntry` alone would let this one through to a TypeError.
+    class StubEntry {
+      async getPassword(): Promise<string | undefined> {
+        return undefined;
+      }
+    }
+    const mod = await importWithKeyringShape({
+      AsyncEntry: StubEntry,
+      findCredentialsAsync: undefined,
+    });
+    const store = new mod.KeyringSecretStore();
+
+    await expect(
+      store.set("alpha", "oauth-client-secret", "v"),
+    ).rejects.toBeInstanceOf(mod.KeychainUnavailableError);
+    await expect(store.deleteAllForServer("alpha")).resolves.toBeUndefined();
+  });
+
+  it("treats a namespace that throws on member access as unavailable", async () => {
+    // Reading a missing export is not always a harmless `undefined` — a
+    // Proxy-backed namespace can throw, and vitest's module mock does. If
+    // that throw escaped the shape check it would reject the *cached*
+    // promise, so the check has to absorb it and report unavailable.
+    const mod = await importWithKeyringShape({});
+    const store = new mod.KeyringSecretStore();
+
+    expect(await store.get("alpha", "oauth-client-secret")).toBe(null);
+    await expect(
+      store.set("alpha", "oauth-client-secret", "v"),
+    ).rejects.toBeInstanceOf(mod.KeychainUnavailableError);
+    // Absorbed, not escaped: a rejected cached promise would surface here
+    // as the raw access error instead of the typed one.
+    await expect(store.deleteAllForServer("alpha")).resolves.toBeUndefined();
+  });
+
+  it("accepts a well-formed namespace", async () => {
+    // The guard must not reject the shape the package actually ships —
+    // otherwise it would turn a working keychain into a permanent 503.
+    const stored = new Map<string, string>();
+    class StubEntry {
+      // Declared explicitly rather than as a constructor parameter
+      // property: those are disallowed under `erasableSyntaxOnly`.
+      private readonly account: string;
+      constructor(_service: string, account: string) {
+        this.account = account;
+      }
+      async getPassword(): Promise<string | undefined> {
+        return stored.get(this.account);
+      }
+      async setPassword(value: string): Promise<void> {
+        stored.set(this.account, value);
+      }
+      async deleteCredential(): Promise<boolean> {
+        return stored.delete(this.account);
+      }
+    }
+    const mod = await importWithKeyringShape({
+      AsyncEntry: StubEntry,
+      findCredentialsAsync: async () => [],
+    });
+    const store = new mod.KeyringSecretStore();
+
+    await store.set("alpha", "oauth-client-secret", "shh");
+    expect(await store.get("alpha", "oauth-client-secret")).toBe("shh");
+  });
+});
