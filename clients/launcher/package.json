@@ -23,17 +23,17 @@
     "validate": "npm run format:check && npm run lint && npm run typecheck && npm run build && npm run test"
   },
   "dependencies": {
-    "commander": "^13.1.0"
+    "commander": "^15.0.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@types/node": "^24.12.4",
+    "@types/node": "^26.1.2",
     "@vitest/coverage-v8": "^4.1.10",
     "eslint": "^10.8.0",
-    "globals": "^17.4.0",
-    "prettier": "3.8.4",
-    "typescript": "~5.9.3",
-    "typescript-eslint": "^8.56.1",
+    "globals": "^17.9.0",
+    "prettier": "3.9.6",
+    "typescript": "~7.0.2",
+    "typescript-eslint": "^8.65.0",
     "vitest": "^4.1.10"
   }
 }
