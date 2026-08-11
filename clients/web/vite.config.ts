@@ -383,10 +383,21 @@ export default defineConfig(({ command }) => {
             // provisions the preview annotations (the Mantine theme decorator in
             // `.storybook/preview.tsx`) and the a11y addon's annotations itself,
             // so a `setProjectAnnotations` setup file is redundant — it printed a
-            // notice on every run and was deleted (#1898). Both halves of what it
-            // used to provide are asserted rather than assumed: the theme by
-            // `ThemeProvisioning.stories.tsx`, the a11y wiring by the
-            // `a11y.test: "error"` parameter in the preview.
+            // notice on every run and was deleted (#1898).
+            //
+            // The two halves it used to supply are covered unevenly, and the
+            // difference matters:
+            //
+            // - The **theme** is guarded permanently by
+            //   `src/test/ThemeProvisioning.stories.tsx`, which fails if the
+            //   provider is missing *or* is not this project's preview.
+            // - The **a11y** wiring was verified once, by hand, at the time of
+            //   removal (a deliberate `image-alt` violation turned the suite
+            //   red). Nothing enforces it going forward: `a11y.test: "error"` in
+            //   the preview is a parameter the annotations consume once loaded,
+            //   so if provisioning ever regresses the checks go inert and that
+            //   parameter goes with them — silently. Re-run the violation
+            //   experiment if a Storybook upgrade changes how annotations load.
           },
         },
       ],
