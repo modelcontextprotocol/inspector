@@ -379,7 +379,14 @@ export default defineConfig(({ command }) => {
                 },
               ],
             },
-            setupFiles: [".storybook/vitest.setup.ts"],
+            // No `setupFiles`: since Storybook 10.3 `@storybook/addon-vitest`
+            // provisions the preview annotations (the Mantine theme decorator in
+            // `.storybook/preview.tsx`) and the a11y addon's annotations itself,
+            // so a `setProjectAnnotations` setup file is redundant — it printed a
+            // notice on every run and was deleted (#1898). Both halves of what it
+            // used to provide are asserted rather than assumed: the theme by
+            // `ThemeProvisioning.stories.tsx`, the a11y wiring by the
+            // `a11y.test: "error"` parameter in the preview.
           },
         },
       ],
