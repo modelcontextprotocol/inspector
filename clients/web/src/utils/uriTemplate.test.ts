@@ -141,6 +141,50 @@ describe("expandTemplate", () => {
     it("omits the whole expression when no member is defined", () => {
       expect(expandTemplate("x://e{#a,b}", {})).toBe("x://e");
     });
+
+    // `variableNames` strips a trailing `*`, so the form stores `a`. A group
+    // that kept `a*` would look up a key the form never sets and silently drop
+    // a filled value.
+    it("matches the SDK's name for an exploded member", () => {
+      expect(templateVariableNames("x://e{/a*,b}")).toEqual(["a", "b"]);
+      expect(expandTemplate("x://e{/a*,b}", { a: "one", b: "two" })).toBe(
+        "x://e/one/two",
+      );
+    });
+
+    // A template may legitimately declare a variable named like the synthetic
+    // one; the rewrite must not overwrite the user's value with the group's.
+    it("does not collide with a variable named like the synthetic one", () => {
+      expect(
+        expandTemplate("x://{a,b}/{__inspectorGroup0__}", {
+          a: "one",
+          b: "two",
+          __inspectorGroup0__: "mine",
+        }),
+      ).toBe("x://one,two/mine");
+    });
+  });
+
+  // The SDK does not implement `;`: it reads `{;a}` as a variable literally
+  // named ";a" and expands it to the bare value, dropping the required `;a=`.
+  // No arrangement of its branches produces the right output, so decline rather
+  // than hand back a URI known to be invalid.
+  describe("the unsupported ; (path-parameter) operator", () => {
+    it.each([
+      ["single-name", "x://e{;a}"],
+      ["multi-name", "x://e{;a,b}"],
+    ])("returns null for a %s expression", (_label, template) => {
+      silenceWarn();
+      expect(expandTemplate(template, { a: "1", b: "2" })).toBeNull();
+    });
+
+    it("previews it as the template the server declared", () => {
+      expect(previewTemplate("x://e{;a,b}", { a: "1" })).toBe("x://e{;a,b}");
+    });
+
+    it("does not mistake a literal semicolon for the operator", () => {
+      expect(expandTemplate("x://e;q/{a}", { a: "1" })).toBe("x://e;q/1");
+    });
   });
 
   it("returns null when the template cannot be parsed", () => {
@@ -254,6 +298,15 @@ describe("previewTemplate", () => {
   // time. The base is now cleared in a single pass.
   it("resolves a padded-run collision without rescanning", () => {
     const template = `x://zzInspectorUnfilledzz${"z".repeat(5000)}/{a}`;
+    expect(previewTemplate(template, { a: "" })).toBe(template);
+  });
+
+  // The token starts and ends with `zz`, so it can overlap itself: this literal
+  // holds a second occurrence at index 19 whose trailing run is the longer one.
+  // A scan advancing by the token's length would miss it and pick a colliding
+  // placeholder, rewriting literal URI text into `{a}`.
+  it("measures an overlapping occurrence of the token", () => {
+    const template = "x://zzInspectorUnfilledzzInspectorUnfilledzzz0zz/{a}";
     expect(previewTemplate(template, { a: "" })).toBe(template);
   });
 });

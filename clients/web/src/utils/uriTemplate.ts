@@ -92,12 +92,41 @@ function uniqueNames(template: UriTemplate): string[] {
  * branch — which does apply the operator's encoding and separator, over an
  * array value — handles it instead.
  */
-const MULTI_NAME_EXPRESSION = /\{([+#./;]?)([^{}?&][^{}]*)\}/g;
+const MULTI_NAME_EXPRESSION = /\{([+#./]?)([^{}?&;][^{}]*)\}/g;
 
-/** Name given to the synthetic single variable a rewritten group expands from. */
-function groupName(index: number): string {
-  return `__inspectorGroup${index}__`;
+/**
+ * RFC 6570's path-parameter operator, which the SDK does not implement: it
+ * treats `{;a}` as a variable literally named `";a"` and expands it to the bare
+ * value, dropping the required `;a=`. There is no arrangement of the SDK's own
+ * branches that produces the right output, so a template using it cannot be
+ * expanded correctly here — `expandTemplate` declines rather than returning a
+ * URI known to be wrong, and the panel keeps its submit disabled.
+ */
+const PATH_PARAM_EXPRESSION = /\{;/;
+
+/**
+ * The name the SDK will parse out of a group member, so `applyGroups` looks up
+ * the same key the form stores.
+ *
+ * It strips a trailing explode modifier (`{a*}` → `a`) but *keeps* a prefix
+ * modifier (`{a:3}` → `a:3`, see `templateVariableNames`). Mirroring it exactly
+ * is the point: normalizing differently would silently drop a filled value.
+ */
+function memberName(raw: string): string {
+  return raw.trim().replace(/\*$/, "");
 }
+
+/**
+ * Name for the synthetic variable a rewritten group expands from, chosen so it
+ * cannot collide with a variable the template already declares — otherwise a
+ * template like `x://{a,b}/{__inspectorGroup0__}` would have the group's value
+ * overwrite the user's own, emitting the group twice.
+ */
+function groupName(prefix: string, index: number): string {
+  return `${prefix}${index}__`;
+}
+
+const GROUP_PREFIX = "__inspectorGroup";
 
 interface GroupedTemplate {
   /** The rewritten template string, safe to hand to the SDK. */
@@ -117,12 +146,15 @@ interface GroupedTemplate {
  */
 function groupMultiNameExpressions(uriTemplate: string): GroupedTemplate {
   const groups = new Map<string, string[]>();
+  // The prefix must not occur in the template, or a template declaring a
+  // variable of that name would have the group overwrite the user's value.
+  const prefix = padPastCollisions(GROUP_PREFIX, "_", uriTemplate);
   const text = uriTemplate.replace(
     MULTI_NAME_EXPRESSION,
     (match, operator: string, body: string) => {
       if (!body.includes(",")) return match;
-      const names = body.split(",").map((name) => name.trim());
-      const synthetic = groupName(groups.size);
+      const names = body.split(",").map(memberName);
+      const synthetic = groupName(prefix, groups.size);
       groups.set(synthetic, names);
       return `{${operator}${synthetic}}`;
     },
@@ -167,6 +199,12 @@ export function expandTemplate(
   uriTemplate: string,
   variables: Record<string, string>,
 ): string | null {
+  if (PATH_PARAM_EXPRESSION.test(uriTemplate)) {
+    console.warn(
+      `Cannot expand "${uriTemplate}": the ; (path-parameter) operator is unsupported.`,
+    );
+    return null;
+  }
   const { text, groups } = groupMultiNameExpressions(uriTemplate);
   const template = parseTemplate(text);
   if (!template) return null;
@@ -200,23 +238,51 @@ const UNFILLED_SENTINEL = "zzInspectorUnfilledzz";
  * occurrence and clear it by one, which no occurrence can then match.
  */
 function uncollidingBase(uriTemplate: string, filled: Record<string, string>) {
-  const haystack = [uriTemplate, ...Object.values(filled)].join("\n");
+  return padPastCollisions(
+    UNFILLED_SENTINEL,
+    "z",
+    [uriTemplate, ...Object.values(filled)].join("\n"),
+  );
+}
+
+/**
+ * Extend `token` with `pad` characters until it cannot occur in `haystack`.
+ *
+ * Done by measuring, in a single pass, the longest run of `pad` that follows
+ * any occurrence, then clearing it by one. The obvious `while
+ * (haystack.includes(candidate)) candidate += pad` is quadratic on exactly the
+ * input that motivates the check: a haystack holding the token followed by a
+ * long run of `pad` makes every successive candidate collide, each rescanning
+ * the whole string — and the template is server-supplied, up to 1 MB, scanned
+ * on the render thread.
+ *
+ * The scan advances one character at a time rather than by the token's length,
+ * because a token that begins and ends with the same characters can overlap
+ * itself: `zzInspectorUnfilledzzInspectorUnfilledzzz0zz` holds a second
+ * occurrence at index 19 whose trailing run is longer than the first's. Skipping
+ * it would choose a colliding token after all.
+ */
+function padPastCollisions(
+  token: string,
+  pad: string,
+  haystack: string,
+): string {
   let longestRun = -1;
   for (
-    let at = haystack.indexOf(UNFILLED_SENTINEL);
+    let at = haystack.indexOf(token);
     at !== -1;
-    at = haystack.indexOf(UNFILLED_SENTINEL, at + UNFILLED_SENTINEL.length)
+    at = haystack.indexOf(token, at + 1)
   ) {
     let run = 0;
-    let cursor = at + UNFILLED_SENTINEL.length;
-    while (haystack[cursor] === "z") {
+    let cursor = at + token.length;
+    while (haystack[cursor] === pad) {
       run++;
       cursor++;
     }
     if (run > longestRun) longestRun = run;
   }
-  // -1 means the token is absent, so the base needs no padding at all.
-  return UNFILLED_SENTINEL + "z".repeat(longestRun + 1);
+  // -1 means the token is absent, so it needs no padding at all.
+  return token + pad.repeat(longestRun + 1);
 }
 
 /**
@@ -261,6 +327,9 @@ export function previewTemplate(
   uriTemplate: string,
   variables: Record<string, string>,
 ): string {
+  // Nothing truthful to render for an expression the expander declines, so
+  // show the template as the server declared it.
+  if (PATH_PARAM_EXPRESSION.test(uriTemplate)) return uriTemplate;
   const { text, groups } = groupMultiNameExpressions(uriTemplate);
   const template = parseTemplate(text);
   if (!template) return uriTemplate;
