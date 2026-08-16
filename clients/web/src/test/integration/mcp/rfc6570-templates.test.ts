@@ -128,6 +128,7 @@ describe("RFC 6570 resource templates over the wire (#1919)", () => {
     const connected = await connectToShowcase();
     const uri = expandTemplate("foobar://events/{topic}", { topic: "foo/bar" });
     expect(uri).toBe("foobar://events/foo%2Fbar");
+    if (uri === null) throw new Error("unreachable — asserted above");
 
     expect(await readJson(connected, uri)).toEqual({
       topic: "foo%2Fbar",
@@ -139,6 +140,7 @@ describe("RFC 6570 resource templates over the wire (#1919)", () => {
     const connected = await connectToShowcase();
     const uri = expandTemplate("foobar://events{?topic}", { topic: "weather" });
     expect(uri).toBe("foobar://events?topic=weather");
+    if (uri === null) throw new Error("unreachable — asserted above");
 
     expect(await readJson(connected, uri)).toMatchObject({ topic: "weather" });
   });

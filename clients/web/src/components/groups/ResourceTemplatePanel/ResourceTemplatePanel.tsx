@@ -209,10 +209,18 @@ export function ResourceTemplatePanel({
     void runCompletion(varName, value, buildContext(varName));
   }
 
-  const canSubmit = variableNames.every((n) => variables[n]?.length > 0);
+  const allFilled = variableNames.every((n) => variables[n]?.length > 0);
+  // `null` means the template or a value could not be expanded (a malformed
+  // template, or a value past the SDK's length ceiling). Withhold the request
+  // rather than send a URI we know is wrong.
+  const expandedUri = allFilled ? expandTemplate(uriTemplate, variables) : null;
+  const canSubmit = expandedUri !== null;
 
   function handleSubmit() {
-    onReadResource(expandTemplate(uriTemplate, variables));
+    /* v8 ignore next -- unreachable: the button is disabled unless
+       `expandedUri` is non-null. */
+    if (expandedUri === null) return;
+    onReadResource(expandedUri);
   }
 
   const preview = previewTemplate(uriTemplate, variables);

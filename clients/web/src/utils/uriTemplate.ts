@@ -11,6 +11,11 @@
  * the TUI's form builder and `InspectorClient.readResourceFromTemplate` already
  * use, so all three surfaces agree on what a template's variables are and on
  * how a value is encoded.
+ *
+ * Neither helper throws: a template the SDK rejects, or a value it refuses to
+ * expand, yields `null` from `expandTemplate` (so the caller can withhold the
+ * request) and the raw template from `previewTemplate` (which runs during
+ * render, where a throw would take the panel down with it).
  */
 import { UriTemplate } from "@modelcontextprotocol/client";
 
@@ -25,6 +30,27 @@ function parseTemplate(uriTemplate: string): UriTemplate | null {
     return new UriTemplate(uriTemplate);
   } catch (error) {
     console.warn(`Failed to parse URI template "${uriTemplate}":`, error);
+    return null;
+  }
+}
+
+/**
+ * Expand, converting a throw into `null`.
+ *
+ * Parsing succeeding does not mean expanding will: the SDK also enforces a
+ * 1,000,000-character ceiling per *value*, which is checked at expansion time.
+ * The inputs have no matching limit, so a paste can reach it — and the preview
+ * expands during render, where an escaping throw unmounts the panel instead of
+ * showing a problem with the value.
+ */
+function tryExpand(
+  template: UriTemplate,
+  values: Record<string, string | string[]>,
+): string | null {
+  try {
+    return template.expand(values);
+  } catch (error) {
+    console.warn("Failed to expand URI template:", error);
     return null;
   }
 }
@@ -54,8 +80,82 @@ function uniqueNames(template: UriTemplate): string[] {
 }
 
 /**
+ * Matches a multi-name expression whose operator is *not* `?` or `&`.
+ *
+ * The SDK expands this shape through a branch that returns the raw values
+ * joined by `,`, skipping both `encodeValue` and the operator prefix — so
+ * `x://{a,b}` with `a = "foo/bar"` yields `x://foo/bar,x y` rather than
+ * `x://foo%2Fbar,x%20y`, and `{#a,b}` loses its `#` entirely. Its query
+ * counterpart (`{?a,b}`) takes a different, correct branch.
+ *
+ * `groupMultiNameExpressions` rewrites this shape so the SDK's *single*-name
+ * branch — which does apply the operator's encoding and separator, over an
+ * array value — handles it instead.
+ */
+const MULTI_NAME_EXPRESSION = /\{([+#./;]?)([^{}?&][^{}]*)\}/g;
+
+/** Name given to the synthetic single variable a rewritten group expands from. */
+function groupName(index: number): string {
+  return `__inspectorGroup${index}__`;
+}
+
+interface GroupedTemplate {
+  /** The rewritten template string, safe to hand to the SDK. */
+  text: string;
+  /** Synthetic variable name → the real names it stands for, in order. */
+  groups: Map<string, string[]>;
+}
+
+/**
+ * Rewrite each multi-name non-query expression into a single synthetic
+ * variable, so the SDK applies the operator's encoding and separator.
+ *
+ * `x://{a,b}` becomes `x://{__inspectorGroup0__}`, expanded with an *array* of
+ * the defined values — which the SDK's single-name branch encodes elementwise
+ * and joins with the operator's separator, exactly as RFC 6570 prescribes.
+ * Templates without this shape are returned unchanged and pay nothing.
+ */
+function groupMultiNameExpressions(uriTemplate: string): GroupedTemplate {
+  const groups = new Map<string, string[]>();
+  const text = uriTemplate.replace(
+    MULTI_NAME_EXPRESSION,
+    (match, operator: string, body: string) => {
+      if (!body.includes(",")) return match;
+      const names = body.split(",").map((name) => name.trim());
+      const synthetic = groupName(groups.size);
+      groups.set(synthetic, names);
+      return `{${operator}${synthetic}}`;
+    },
+  );
+  return { text, groups };
+}
+
+/**
+ * Project the caller's per-name values onto the synthetic group variables.
+ *
+ * A group is omitted when none of its names has a value, matching RFC 6570's
+ * rule that an expression with no defined variable contributes nothing.
+ */
+function applyGroups(
+  variables: Record<string, string>,
+  groups: Map<string, string[]>,
+): Record<string, string | string[]> {
+  if (groups.size === 0) return variables;
+  const projected: Record<string, string | string[]> = { ...variables };
+  for (const [synthetic, names] of groups) {
+    const present = names
+      .filter((name) => variables[name] !== undefined)
+      .map((name) => variables[name]);
+    if (present.length > 0) projected[synthetic] = present;
+  }
+  return projected;
+}
+
+/**
  * Expands `uriTemplate` per RFC 6570, percent-encoding each value according to
- * its expression's operator.
+ * its expression's operator. Returns `null` when the template cannot be parsed
+ * or a value cannot be expanded, so a caller can decline to issue the request
+ * rather than send a URI it knows is wrong.
  *
  * Values are passed through untouched, which preserves the spec's distinction
  * between an *undefined* variable and one defined as the empty string: an
@@ -66,10 +166,11 @@ function uniqueNames(template: UriTemplate): string[] {
 export function expandTemplate(
   uriTemplate: string,
   variables: Record<string, string>,
-): string {
-  const template = parseTemplate(uriTemplate);
-  if (!template) return uriTemplate;
-  return template.expand(variables);
+): string | null {
+  const { text, groups } = groupMultiNameExpressions(uriTemplate);
+  const template = parseTemplate(text);
+  if (!template) return null;
+  return tryExpand(template, applyGroups(variables, groups));
 }
 
 /**
@@ -89,14 +190,33 @@ const UNFILLED_SENTINEL = "zzInspectorUnfilledzz";
  *
  * Without this, a user who types the literal token as *another* variable's
  * value would see that value rewritten into a `{placeholder}` on substitution —
- * the preview would disagree with the URI actually submitted. Extending the
- * base until it is absent makes the token unambiguous for this call.
+ * the preview would disagree with the URI actually submitted.
+ *
+ * Done in one pass rather than by extending the base until it stops colliding:
+ * the template is server-supplied and may be up to 1 MB, and a template holding
+ * the token followed by a long run of `z`s would make every extended candidate
+ * collide in turn, each rescanning the whole input — quadratic work on the
+ * render thread. Instead, measure the longest run of `z` that follows any
+ * occurrence and clear it by one, which no occurrence can then match.
  */
 function uncollidingBase(uriTemplate: string, filled: Record<string, string>) {
   const haystack = [uriTemplate, ...Object.values(filled)].join("\n");
-  let base = UNFILLED_SENTINEL;
-  while (haystack.includes(base)) base += "z";
-  return base;
+  let longestRun = -1;
+  for (
+    let at = haystack.indexOf(UNFILLED_SENTINEL);
+    at !== -1;
+    at = haystack.indexOf(UNFILLED_SENTINEL, at + UNFILLED_SENTINEL.length)
+  ) {
+    let run = 0;
+    let cursor = at + UNFILLED_SENTINEL.length;
+    while (haystack[cursor] === "z") {
+      run++;
+      cursor++;
+    }
+    if (run > longestRun) longestRun = run;
+  }
+  // -1 means the token is absent, so the base needs no padding at all.
+  return UNFILLED_SENTINEL + "z".repeat(longestRun + 1);
 }
 
 /**
@@ -133,15 +253,25 @@ function enteredValues(
  * filled variables are expanded (and encoded) exactly as they would be on the
  * wire, while unfilled ones are shown as `{name}` so the shape of the URI stays
  * legible while the form is still being completed.
+ *
+ * Falls back to the raw template when it cannot be parsed or expanded — this
+ * runs during render, so it must not throw.
  */
 export function previewTemplate(
   uriTemplate: string,
   variables: Record<string, string>,
 ): string {
-  const template = parseTemplate(uriTemplate);
+  const { text, groups } = groupMultiNameExpressions(uriTemplate);
+  const template = parseTemplate(text);
   if (!template) return uriTemplate;
 
-  const names = uniqueNames(template);
+  // Map each synthetic group back to the real names it stands for, so the
+  // placeholders the user sees are the ones the form is asking them for.
+  const names = [
+    ...new Set(
+      uniqueNames(template).flatMap((name) => groups.get(name) ?? [name]),
+    ),
+  ];
   const filled = enteredValues(variables);
   const base = uncollidingBase(uriTemplate, filled);
   const values: Record<string, string> = { ...filled };
@@ -149,7 +279,10 @@ export function previewTemplate(
     if (values[name] === undefined) values[name] = sentinelFor(base, index);
   });
 
-  let preview = template.expand(values);
+  const expanded = tryExpand(template, applyGroups(values, groups));
+  if (expanded === null) return uriTemplate;
+
+  let preview = expanded;
   names.forEach((name, index) => {
     if (filled[name] !== undefined) return;
     // The sentinel is unreserved, so it appears in the expansion unencoded.

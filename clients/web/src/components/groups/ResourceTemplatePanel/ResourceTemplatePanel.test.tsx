@@ -1,7 +1,11 @@
 import { describe, it, expect, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import type { ResourceTemplateType as ResourceTemplate } from "@modelcontextprotocol/client";
-import { renderWithMantine, screen } from "../../../test/renderWithMantine";
+import {
+  renderWithMantine,
+  screen,
+  fireEvent,
+} from "../../../test/renderWithMantine";
 import { ResourceTemplatePanel } from "./ResourceTemplatePanel";
 
 const singleVarTemplate: ResourceTemplate = {
@@ -167,6 +171,30 @@ describe("ResourceTemplatePanel", () => {
     );
     await user.type(screen.getByLabelText("topic"), "a b");
     expect(screen.getByText("foobar://events/a%20b")).toBeInTheDocument();
+  });
+
+  // The SDK refuses a value past its 1,000,000-character ceiling at expansion
+  // time, and the input has no matching limit. Withhold the request rather than
+  // send a URI we know is wrong.
+  it("keeps Read Resource disabled when the value cannot be expanded", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const onReadResource = vi.fn();
+    renderWithMantine(
+      <ResourceTemplatePanel
+        template={simpleVarTemplate}
+        onReadResource={onReadResource}
+      />,
+    );
+    // fireEvent, not user.type — typing a million characters key by key would
+    // take longer than the suite's timeout.
+    fireEvent.change(screen.getByLabelText("topic"), {
+      target: { value: "z".repeat(1_000_001) },
+    });
+    expect(
+      screen.getByRole("button", { name: "Read Resource" }),
+    ).toBeDisabled();
+    expect(onReadResource).not.toHaveBeenCalled();
+    warn.mockRestore();
   });
 
   it("clears a variable via its Clear button (non-autocomplete branch)", async () => {

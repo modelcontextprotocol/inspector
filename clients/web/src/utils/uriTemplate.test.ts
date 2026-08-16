@@ -101,11 +101,58 @@ describe("expandTemplate", () => {
     );
   });
 
-  it("returns the raw template when it cannot be parsed", () => {
+  // The SDK's multi-name branch skips both encoding and the operator, so these
+  // expressions are rewritten to a single array-valued variable, which takes
+  // the branch that applies them.
+  //
+  // Covered here rather than in the integration suite on purpose: the SDK's
+  // `UriTemplate.match` cannot match a multi-name expression *either* (it
+  // returns null for every URI), so an SDK-based server can never route one and
+  // there is no round trip to drive. What the client can do is emit the
+  // spec-correct URI, which is what a conforming server needs — so that is what
+  // these assert.
+  describe("multi-name expressions", () => {
+    it.each([
+      ["simple", "x://{a,b}", "x://foo%2Fbar,x%20y"],
+      // `#`, like `+`, is a *reserved* expansion — `/` survives, a space does not.
+      ["fragment", "x://e{#a,b}", "x://e#foo/bar,x%20y"],
+      ["label", "x://e{.a,b}", "x://e.foo%2Fbar.x%20y"],
+      ["path segment", "x://e{/a,b}", "x://e/foo%2Fbar/x%20y"],
+    ])("encodes and applies the operator for a %s group", (_l, t, expected) => {
+      expect(expandTemplate(t, { a: "foo/bar", b: "x y" })).toBe(expected);
+    });
+
+    it("preserves reserved characters under the + operator", () => {
+      expect(expandTemplate("x://{+a,b}", { a: "foo/bar", b: "x y" })).toBe(
+        "x://foo/bar,x%20y",
+      );
+    });
+
+    it("still expands a multi-name query expression correctly", () => {
+      expect(expandTemplate("x://e{?a,b}", { a: "foo/bar", b: "x y" })).toBe(
+        "x://e?a=foo%2Fbar&b=x%20y",
+      );
+    });
+
+    it("drops an undefined member from the group", () => {
+      expect(expandTemplate("x://{a,b}", { b: "two" })).toBe("x://two");
+    });
+
+    it("omits the whole expression when no member is defined", () => {
+      expect(expandTemplate("x://e{#a,b}", {})).toBe("x://e");
+    });
+  });
+
+  it("returns null when the template cannot be parsed", () => {
     silenceWarn();
-    expect(expandTemplate("x://{unterminated", { a: "1" })).toBe(
-      "x://{unterminated",
-    );
+    expect(expandTemplate("x://{unterminated", { a: "1" })).toBeNull();
+  });
+
+  // Parsing succeeding does not mean expanding will — the SDK checks its
+  // per-value length ceiling at expansion time.
+  it("returns null when a value cannot be expanded", () => {
+    silenceWarn();
+    expect(expandTemplate("x://{a}", { a: "z".repeat(1_000_001) })).toBeNull();
   });
 });
 
@@ -182,8 +229,31 @@ describe("previewTemplate", () => {
     );
   });
 
+  it("shows a placeholder per member of a multi-name group", () => {
+    expect(previewTemplate("x://{a,b}", { a: "one", b: "" })).toBe(
+      "x://one,{b}",
+    );
+  });
+
   it("returns the raw template when it cannot be parsed", () => {
     silenceWarn();
     expect(previewTemplate("x://{unterminated", {})).toBe("x://{unterminated");
+  });
+
+  // Must not throw out of render — the panel expands its preview while
+  // rendering, so an escaping error would unmount the panel.
+  it("returns the raw template when a value cannot be expanded", () => {
+    silenceWarn();
+    expect(previewTemplate("x://{a}", { a: "z".repeat(1_000_001) })).toBe(
+      "x://{a}",
+    );
+  });
+
+  // A template holding the token followed by a long run of `z`s used to make
+  // every extended candidate collide in turn, rescanning the whole input each
+  // time. The base is now cleared in a single pass.
+  it("resolves a padded-run collision without rescanning", () => {
+    const template = `x://zzInspectorUnfilledzz${"z".repeat(5000)}/{a}`;
+    expect(previewTemplate(template, { a: "" })).toBe(template);
   });
 });
