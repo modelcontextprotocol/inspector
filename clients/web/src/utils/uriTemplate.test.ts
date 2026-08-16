@@ -41,6 +41,14 @@ describe("templateVariableNames", () => {
     expect(templateVariableNames("x://{a}/{b}/{a}")).toEqual(["a", "b"]);
   });
 
+  // The SDK's UriTemplate does not implement prefix modifiers: it treats
+  // `topic:3` as the whole variable name rather than a 3-char prefix of
+  // `topic`. Pinned here because that boundary is what the panel renders as a
+  // field label, and it is shared with the TUI and readResourceFromTemplate.
+  it("treats a prefix modifier as part of the variable name", () => {
+    expect(templateVariableNames("x://{topic:3}")).toEqual(["topic:3"]);
+  });
+
   it("returns an empty list for a template with no expressions", () => {
     expect(templateVariableNames("foobar://events")).toEqual([]);
   });
@@ -137,6 +145,16 @@ describe("previewTemplate", () => {
     const template = `x://${names.map((n) => `{${n}}`).join("/")}`;
     const empty = Object.fromEntries(names.map((n) => [n, ""]));
     expect(previewTemplate(template, empty)).toBe(template);
+  });
+
+  // A prefix modifier does not truncate here — the SDK folds it into the
+  // variable name (see the discovery test above) — so the sentinel survives
+  // expansion intact and the placeholder is restored like any other.
+  it("restores the placeholder for a variable carrying a prefix modifier", () => {
+    expect(previewTemplate("x://{topic:3}", {})).toBe("x://{topic:3}");
+    expect(previewTemplate("x://{?topic:3}", {})).toBe(
+      "x://?topic:3={topic:3}",
+    );
   });
 
   it("returns the raw template when it cannot be parsed", () => {

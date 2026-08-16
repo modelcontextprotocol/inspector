@@ -33,6 +33,11 @@ function parseTemplate(uriTemplate: string): UriTemplate | null {
  * The variable names declared by `uriTemplate`, in declaration order —
  * including those inside non-simple expressions (`{?topic}`, `{+path}`,
  * `{#frag}`, `{/seg*}`, …), which the old regex missed entirely.
+ *
+ * One boundary is inherited from the SDK rather than chosen here: it does not
+ * implement prefix modifiers, so `{topic:3}` yields the name `"topic:3"` and
+ * expands without truncating. That behavior is shared with the TUI's form
+ * builder and `readResourceFromTemplate`, which parse through the same class.
  */
 export function templateVariableNames(uriTemplate: string): string[] {
   const template = parseTemplate(uriTemplate);
