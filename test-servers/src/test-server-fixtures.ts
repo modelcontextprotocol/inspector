@@ -1475,6 +1475,51 @@ export function createFileResourceTemplate(
 }
 
 /**
+ * Create the pair of RFC 6570 templates from #1919: one simple expression whose
+ * value must be percent-encoded rather than injected verbatim, and one query
+ * expression — which a naive `/\{(\w+)\}/g` scan cannot see at all.
+ *
+ * Both echo the received variable back, so the rendered result shows whether the
+ * client encoded and routed the value the server actually expected.
+ */
+export function createRfc6570ResourceTemplates(): ResourceTemplateDefinition[] {
+  const describe = (uri: URL, topic: unknown) => ({
+    contents: [
+      {
+        uri: uri.toString(),
+        mimeType: "application/json",
+        text: JSON.stringify({ topic, matchedUri: uri.toString() }, null, 2),
+      },
+    ],
+  });
+
+  return [
+    {
+      name: "events-by-path",
+      uriTemplate: "foobar://events/{topic}",
+      description:
+        "Simple expression. A topic containing `/` must arrive percent-encoded, or it becomes a second path segment and no longer matches.",
+      inputSchema: {
+        topic: z.string().describe("Topic name — try `foo/bar`"),
+      },
+      handler: async (uri: URL, params: Record<string, unknown>) =>
+        describe(uri, params.topic),
+    },
+    {
+      name: "events-by-query",
+      uriTemplate: "foobar://events{?topic}",
+      description:
+        "Query expression. The variable is only discoverable through an RFC 6570 parser.",
+      inputSchema: {
+        topic: z.string().describe("Topic name"),
+      },
+      handler: async (uri: URL, params: Record<string, unknown>) =>
+        describe(uri, params.topic),
+    },
+  ];
+}
+
+/**
  * Create a "user" resource template that returns user data by ID
  */
 export function createUserResourceTemplate(

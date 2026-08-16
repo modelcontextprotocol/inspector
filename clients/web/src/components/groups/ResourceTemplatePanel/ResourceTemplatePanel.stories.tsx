@@ -46,6 +46,23 @@ export const WithAnnotations: Story = {
   },
 };
 
+/**
+ * An RFC 6570 query expression. The variable lives inside `{?…}` rather than a
+ * bare `{…}`, so it only produces an input once discovery goes through a real
+ * RFC 6570 parser (#1919); the preview shows where the value lands in the
+ * query string.
+ */
+export const QueryExpression: Story = {
+  args: {
+    template: {
+      name: "Events",
+      uriTemplate: "foobar://events{?topic}",
+      description:
+        "Filter the event stream by topic. The value is percent-encoded into the query string.",
+    },
+  },
+};
+
 export const NoDescription: Story = {
   args: {
     template: {

@@ -27,6 +27,18 @@ const noVarTemplate: ResourceTemplate = {
   uriTemplate: "file:///static.txt",
 };
 
+// #1919: a query expression declares a variable the old `/\{(\w+)\}/g` scan
+// could not see, so it rendered no input at all.
+const queryVarTemplate: ResourceTemplate = {
+  name: "Events",
+  uriTemplate: "foobar://events{?topic}",
+};
+
+const simpleVarTemplate: ResourceTemplate = {
+  name: "Events",
+  uriTemplate: "foobar://events/{topic}",
+};
+
 describe("ResourceTemplatePanel", () => {
   it("renders the template title (or name) and description", () => {
     renderWithMantine(
@@ -103,6 +115,58 @@ describe("ResourceTemplatePanel", () => {
     ).toBeInTheDocument();
     await user.type(screen.getByLabelText("userId"), "bob");
     expect(screen.getByText("file:///users/bob/profile")).toBeInTheDocument();
+  });
+
+  it("renders an input for a variable declared by a query expression", () => {
+    renderWithMantine(
+      <ResourceTemplatePanel
+        template={queryVarTemplate}
+        onReadResource={vi.fn()}
+      />,
+    );
+    expect(screen.getByLabelText("topic")).toBeInTheDocument();
+  });
+
+  it("expands a query expression per RFC 6570 when submitted", async () => {
+    const user = userEvent.setup();
+    const onReadResource = vi.fn();
+    renderWithMantine(
+      <ResourceTemplatePanel
+        template={queryVarTemplate}
+        onReadResource={onReadResource}
+      />,
+    );
+    await user.type(screen.getByLabelText("topic"), "weather");
+    await user.click(screen.getByRole("button", { name: "Read Resource" }));
+    expect(onReadResource).toHaveBeenCalledWith(
+      "foobar://events?topic=weather",
+    );
+  });
+
+  it("percent-encodes a reserved character rather than emitting a new path segment", async () => {
+    const user = userEvent.setup();
+    const onReadResource = vi.fn();
+    renderWithMantine(
+      <ResourceTemplatePanel
+        template={simpleVarTemplate}
+        onReadResource={onReadResource}
+      />,
+    );
+    await user.type(screen.getByLabelText("topic"), "foo/bar");
+    await user.click(screen.getByRole("button", { name: "Read Resource" }));
+    expect(onReadResource).toHaveBeenCalledWith("foobar://events/foo%2Fbar");
+  });
+
+  it("previews the encoded value, not the raw input", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(
+      <ResourceTemplatePanel
+        template={simpleVarTemplate}
+        onReadResource={vi.fn()}
+      />,
+    );
+    await user.type(screen.getByLabelText("topic"), "a b");
+    expect(screen.getByText("foobar://events/a%20b")).toBeInTheDocument();
   });
 
   it("clears a variable via its Clear button (non-autocomplete branch)", async () => {

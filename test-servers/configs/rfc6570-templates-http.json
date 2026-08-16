@@ -1,0 +1,11 @@
+{
+  "serverInfo": {
+    "name": "rfc6570-templates",
+    "version": "1.0.0"
+  },
+  "resourceTemplates": [{ "preset": "rfc6570_templates" }],
+  "transport": {
+    "type": "streamable-http",
+    "port": 3143
+  }
+}

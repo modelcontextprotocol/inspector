@@ -147,6 +147,7 @@ Each config below is a ready-made server for exercising one feature by hand. Loa
 | `structured-output-http.json`             | Tools tab: a result's `structuredContent` section  | [#1908](https://github.com/modelcontextprotocol/inspector/issues/1908) |
 | `duplicate-tool-names-http.json`          | A `tools/list` that repeats a tool name            | [#1957](https://github.com/modelcontextprotocol/inspector/issues/1957) |
 | `nullable-fields-http.json`               | Tools tab: nullable (`anyOf` + `null`) arguments   | [#1928](https://github.com/modelcontextprotocol/inspector/issues/1928) |
+| `rfc6570-templates-http.json`             | Resources tab: RFC 6570 template expansion         | [#1919](https://github.com/modelcontextprotocol/inspector/issues/1919) |
 | `advertised-extensions-http.json`         | Tool registration gated on advertised extensions   | [#1739](https://github.com/modelcontextprotocol/inspector/issues/1739) |
 | `logging-{legacy,modern}-http.json`       | Logging, both eras                                 | [#1629](https://github.com/modelcontextprotocol/inspector/issues/1629) |
 | `subscriptions-{legacy,modern}-http.json` | Resource subscriptions, both eras                  | [#1630](https://github.com/modelcontextprotocol/inspector/issues/1630) |
@@ -236,6 +237,16 @@ The duplicated copies are appended rather than placed beside their twin on purpo
 Open the Tools tab and select `record_shipment`: `direction` must render as a **Select** (`envio` / `recebimento`) with a clear button that sets it back to `null`, `reference` as a text input, `quantity` as a number input, and `express` as a checkbox. On the broken build every one of them fell through to the raw-JSON textarea, which re-escaped its own contents on each keystroke until the value was unusable ([#1928](https://github.com/modelcontextprotocol/inspector/issues/1928)). The tool echoes the arguments it received, so the result panel shows exactly what was sent.
 
 The **TUI** had the same gap and is worth checking against the same server (`--tui`, then test `record_shipment`): `direction` is a select, `quantity` an integer field, `express` a boolean. Both clients now share one collapse step — `normalizeNullableUnion` in [`core/json/nullableUnion.ts`](./core/json/nullableUnion.ts) — precisely so they cannot drift on which schemas they can render.
+
+#### RFC 6570 resource templates
+
+`rfc6570-templates-http.json` serves the two templates from [#1919](https://github.com/modelcontextprotocol/inspector/issues/1919) (preset `rfc6570_templates`): `foobar://events/{topic}` (simple expression) and `foobar://events{?topic}` (query expression). Each echoes back the `topic` it received and the URI that matched. Plain streamable-HTTP — connect with the **default (legacy)** protocol era.
+
+Open the Resources tab and select **events-by-path**, enter `foo/bar` for `topic`, and read it: the preview and the `resources/read` request must both show `foobar://events/foo%2Fbar`. On the broken build the web client substituted the value verbatim, producing `foobar://events/foo/bar` — a second path segment, which a spec-compliant matcher rejects with `-32602 Resource not found` (this server does exactly that, so the failure is visible rather than silent).
+
+Then select **events-by-query**: it must render a `topic` input at all. The old scan was `/\{(\w+)\}/g`, which sees only bare `{name}` expressions, so a query expression declared a variable the form never offered.
+
+Both surfaces now go through the SDK's `UriTemplate` — the same RFC 6570 implementation the TUI's form builder and `InspectorClient.readResourceFromTemplate` already used — so web, CLI, and TUI agree on a template's variables and on how a value is encoded.
 
 #### Advertised extensions
 

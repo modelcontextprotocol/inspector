@@ -62,6 +62,7 @@ import {
   createFileResourceTemplate,
   createUserResourceTemplate,
   createNumberedResourceTemplates,
+  createRfc6570ResourceTemplates,
   createSimplePrompt,
   createArgsPrompt,
   createNumberedPrompts,
@@ -260,6 +261,8 @@ function resolveResourceTemplatePreset(
       return createUserResourceTemplate();
     case "numbered_resource_templates":
       return createNumberedResourceTemplates(Number(get("count")) || 3);
+    case "rfc6570_templates":
+      return createRfc6570ResourceTemplates();
     default:
       throw new Error(`Unknown resource template preset: ${name}`);
   }

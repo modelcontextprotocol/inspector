@@ -14,6 +14,11 @@ import { useValueChange } from "../../../hooks/useValueChange";
 import type { ResourceTemplateType as ResourceTemplate } from "@modelcontextprotocol/client";
 import { AnnotationBadge } from "../../elements/AnnotationBadge/AnnotationBadge";
 import { CopyButton } from "../../elements/CopyButton/CopyButton";
+import {
+  expandTemplate,
+  previewTemplate,
+  templateVariableNames,
+} from "../../../utils/uriTemplate";
 
 export interface ResourceTemplatePanelProps {
   template: ResourceTemplate;
@@ -38,34 +43,6 @@ export interface ResourceTemplatePanelProps {
 }
 
 const COMPLETION_DEBOUNCE_MS = 300;
-
-function parseVariableNames(uriTemplate: string): string[] {
-  const names: string[] = [];
-  const regex = /\{(\w+)\}/g;
-  let match: RegExpExecArray | null;
-
-  while ((match = regex.exec(uriTemplate)) !== null) {
-    names.push(match[1]);
-  }
-
-  return names;
-}
-
-function resolveUri(
-  uriTemplate: string,
-  variables: Record<string, string>,
-): string {
-  return uriTemplate.replace(/\{(\w+)\}/g, (_, key: string) => variables[key]);
-}
-
-function previewUri(
-  uriTemplate: string,
-  variables: Record<string, string>,
-): string {
-  return uriTemplate.replace(/\{(\w+)\}/g, (match, key: string) =>
-    variables[key]?.length > 0 ? variables[key] : match,
-  );
-}
 
 const HeaderRow = Group.withProps({
   justify: "space-between",
@@ -109,7 +86,7 @@ export function ResourceTemplatePanel({
   const { name, title, uriTemplate, description, annotations } = template;
 
   const variableNames = useMemo(
-    () => parseVariableNames(uriTemplate),
+    () => templateVariableNames(uriTemplate),
     [uriTemplate],
   );
 
@@ -235,10 +212,10 @@ export function ResourceTemplatePanel({
   const canSubmit = variableNames.every((n) => variables[n]?.length > 0);
 
   function handleSubmit() {
-    onReadResource(resolveUri(uriTemplate, variables));
+    onReadResource(expandTemplate(uriTemplate, variables));
   }
 
-  const preview = previewUri(uriTemplate, variables);
+  const preview = previewTemplate(uriTemplate, variables);
 
   return (
     <Stack gap="md">
