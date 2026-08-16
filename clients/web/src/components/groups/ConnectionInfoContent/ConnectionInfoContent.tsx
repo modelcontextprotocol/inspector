@@ -14,8 +14,10 @@ import type {
   DiscoverResult,
   InitializeResult,
   ProtocolEra,
+  ServerCapabilities,
 } from "@modelcontextprotocol/client";
 import type { ServerType } from "@inspector/core/mcp/types.js";
+import { TASKS_EXTENSION_KEY } from "@inspector/core/mcp/modernTaskSchemas.js";
 import type { OAuthClientRegistrationKind } from "@inspector/core/auth/types.js";
 import {
   CapabilityItem,
@@ -189,14 +191,60 @@ const CLIENT_CAPABILITY_KEYS: CapabilityKey[] = [
 export const CLEAR_OAUTH_STATE_AND_DISCONNECT_LABEL =
   "Clear OAuth state and disconnect";
 
+/**
+ * Server capabilities the modern (2026-07-28) era expresses as a negotiated
+ * *extension* rather than a top-level `capabilities` key. `tasks` is the only
+ * one today: SEP-2663 moved task support to
+ * `capabilities.extensions["io.modelcontextprotocol/tasks"]`, so a modern
+ * tasks-capable server left the Tasks row showing a red ✗ while the very same
+ * extension id was listed under "Server Extensions" two sections below
+ * (#1887). Keyed the same way `InspectorClient.isTasksExtensionNegotiated()`
+ * gates the Tasks tab, so the checkmark and the tab agree.
+ */
+const MODERN_EXTENSION_BACKED_CAPABILITIES: Partial<
+  Record<CapabilityKey, string>
+> = {
+  tasks: TASKS_EXTENSION_KEY,
+};
+
+function isCapabilityPresent(
+  capabilities: Record<string, unknown>,
+  key: CapabilityKey,
+): boolean {
+  return key in capabilities && capabilities[key] != null;
+}
+
 function getCapabilityEntries(
   capabilities: Record<string, unknown>,
   knownKeys: CapabilityKey[],
 ): { capability: CapabilityKey; supported: boolean }[] {
   return knownKeys.map((key) => ({
     capability: key,
-    supported: key in capabilities && capabilities[key] != null,
+    supported: isCapabilityPresent(capabilities, key),
   }));
+}
+
+/**
+ * Server-side capability entries. Same presence rule as the client column,
+ * plus the modern extension fallback above — gated on the negotiated era so a
+ * legacy connection is still judged purely on its `initialize` capabilities.
+ */
+function getServerCapabilityEntries(
+  capabilities: ServerCapabilities,
+  era: ProtocolEra | undefined,
+): { capability: CapabilityKey; supported: boolean }[] {
+  const modern = isModernEra(era);
+  return SERVER_CAPABILITY_KEYS.map((key) => {
+    const extensionKey = MODERN_EXTENSION_BACKED_CAPABILITIES[key];
+    const viaExtension =
+      modern &&
+      extensionKey !== undefined &&
+      capabilities.extensions?.[extensionKey] != null;
+    return {
+      capability: key,
+      supported: isCapabilityPresent(capabilities, key) || viaExtension,
+    };
+  });
 }
 
 export function ConnectionInfoContent({
@@ -229,7 +277,7 @@ export function ConnectionInfoContent({
     ? serverInfo.version?.trim() || "—"
     : SERVER_INFO_NOT_REPORTED_LABEL;
 
-  const serverCaps = getCapabilityEntries(capabilities, SERVER_CAPABILITY_KEYS);
+  const serverCaps = getServerCapabilityEntries(capabilities, protocolEra);
   const clientCaps = getCapabilityEntries(
     clientCapabilities,
     CLIENT_CAPABILITY_KEYS,

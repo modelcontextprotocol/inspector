@@ -31,6 +31,21 @@ const fullClientCaps: ClientCapabilities = {
   experimental: {},
 };
 
+// The glyphs `CapabilityItem` renders beside each capability label.
+const SUPPORTED_MARK = "✓";
+const UNSUPPORTED_MARK = "✗";
+
+/**
+ * Read the ✓/✗ a capability row is showing. The mark is the label's preceding
+ * sibling inside the row `Group`, so asserting on it — rather than on the
+ * label's mere presence — is what distinguishes "supported" from "listed".
+ */
+function capabilityMark(label: string): string | undefined {
+  return (
+    screen.getByText(label).previousElementSibling?.textContent ?? undefined
+  );
+}
+
 describe("ConnectionInfoContent", () => {
   it("renders server implementation fields under the heading", () => {
     renderWithMantine(
@@ -179,6 +194,96 @@ describe("ConnectionInfoContent", () => {
     expect(screen.getByText("Resources")).toBeInTheDocument();
     expect(screen.getByText("Roots")).toBeInTheDocument();
     expect(screen.getByText("Sampling")).toBeInTheDocument();
+  });
+
+  it("marks Tasks supported on a modern connection that advertises the tasks extension (#1887)", () => {
+    renderWithMantine(
+      <ConnectionInfoContent
+        initializeResult={{
+          ...fullResult,
+          capabilities: {
+            ...fullResult.capabilities,
+            // SEP-2663: no top-level `tasks` key — support is the extension.
+            extensions: { "io.modelcontextprotocol/tasks": {} },
+          },
+        }}
+        clientCapabilities={fullClientCaps}
+        transport="streamable-http"
+        protocolEra="modern"
+      />,
+    );
+    expect(capabilityMark("Tasks")).toBe(SUPPORTED_MARK);
+  });
+
+  it("still marks Tasks unsupported on a modern connection without the extension (#1887)", () => {
+    renderWithMantine(
+      <ConnectionInfoContent
+        initializeResult={fullResult}
+        clientCapabilities={fullClientCaps}
+        transport="streamable-http"
+        protocolEra="modern"
+      />,
+    );
+    expect(capabilityMark("Tasks")).toBe(UNSUPPORTED_MARK);
+  });
+
+  it("does not read the tasks extension on a legacy connection (#1887)", () => {
+    renderWithMantine(
+      <ConnectionInfoContent
+        initializeResult={{
+          ...fullResult,
+          capabilities: {
+            ...fullResult.capabilities,
+            extensions: { "io.modelcontextprotocol/tasks": {} },
+          },
+        }}
+        clientCapabilities={fullClientCaps}
+        transport="streamable-http"
+        protocolEra="legacy"
+      />,
+    );
+    // Legacy tasks support is `capabilities.tasks`, which this server omits —
+    // an extension key alone must not turn the row green.
+    expect(capabilityMark("Tasks")).toBe(UNSUPPORTED_MARK);
+  });
+
+  it("marks Tasks supported on a legacy connection from capabilities.tasks", () => {
+    renderWithMantine(
+      <ConnectionInfoContent
+        initializeResult={{
+          ...fullResult,
+          capabilities: {
+            ...fullResult.capabilities,
+            // `ServerTasksCapability`'s sub-capabilities are objects, not
+            // booleans — `{}` is the "supported, no sub-options" shape.
+            tasks: { list: {}, cancel: {} },
+          },
+        }}
+        clientCapabilities={fullClientCaps}
+        transport="streamable-http"
+        protocolEra="legacy"
+      />,
+    );
+    expect(capabilityMark("Tasks")).toBe(SUPPORTED_MARK);
+  });
+
+  it("does not extension-promote a capability other than tasks (#1887)", () => {
+    renderWithMantine(
+      <ConnectionInfoContent
+        initializeResult={{
+          ...fullResult,
+          capabilities: {
+            tools: { listChanged: true },
+            extensions: { "io.modelcontextprotocol/ui": {} },
+          },
+        }}
+        clientCapabilities={fullClientCaps}
+        transport="streamable-http"
+        protocolEra="modern"
+      />,
+    );
+    expect(capabilityMark("Prompts")).toBe(UNSUPPORTED_MARK);
+    expect(capabilityMark("Tasks")).toBe(UNSUPPORTED_MARK);
   });
 
   it("renders instructions when present", () => {

@@ -77,6 +77,14 @@ export const ModernEra: Story = {
       },
     },
   },
+  // SEP-2663 moved task support to the extension map, so the Tasks capability
+  // row must read it there on a modern connection — otherwise a tasks-capable
+  // server shows ✗ while listing the extension below (#1887).
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const tasksRow = canvas.getByText("Tasks");
+    await expect(tasksRow.previousElementSibling).toHaveTextContent("✓");
+  },
 };
 
 // A modern server that omitted the optional `_meta` serverInfo stamp (#1772).
