@@ -87,9 +87,11 @@ describe("expandTemplate", () => {
     expect(expandTemplate("x://{+path}", { path: "a/b" })).toBe("x://a/b");
   });
 
-  it("omits a variable with no value rather than emitting a dangling key", () => {
+  // RFC 6570 distinguishes an *undefined* variable from one defined as the
+  // empty string, and the expansion must not collapse the two.
+  it("keeps a variable defined as the empty string", () => {
     expect(expandTemplate("foobar://events{?topic}", { topic: "" })).toBe(
-      "foobar://events",
+      "foobar://events?topic=",
     );
   });
 
@@ -108,6 +110,14 @@ describe("expandTemplate", () => {
 });
 
 describe("previewTemplate", () => {
+  // The preview's own notion, deliberately different from expandTemplate's: a
+  // text input cannot express "defined but empty", so within the preview an
+  // empty string means "not entered yet".
+  it("treats an empty string as unfilled rather than as an empty expansion", () => {
+    expect(expandTemplate("x://e{?t}", { t: "" })).toBe("x://e?t=");
+    expect(previewTemplate("x://e{?t}", { t: "" })).toBe("x://e?t={t}");
+  });
+
   it("shows an unfilled simple variable as its expression", () => {
     expect(previewTemplate("foobar://events/{topic}", { topic: "" })).toBe(
       "foobar://events/{topic}",

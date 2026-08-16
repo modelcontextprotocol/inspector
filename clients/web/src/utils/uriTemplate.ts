@@ -55,9 +55,13 @@ function uniqueNames(template: UriTemplate): string[] {
 
 /**
  * Expands `uriTemplate` per RFC 6570, percent-encoding each value according to
- * its expression's operator. Variables with no value are omitted, which is what
- * the spec prescribes and what keeps `{?topic}` from expanding to a dangling
- * `?topic=`.
+ * its expression's operator.
+ *
+ * Values are passed through untouched, which preserves the spec's distinction
+ * between an *undefined* variable and one defined as the empty string: an
+ * absent key drops out of the expansion entirely, while `{ topic: "" }` against
+ * `{?topic}` yields `?topic=`. Collapsing the two here would silently make a
+ * deliberately-empty value unexpressible.
  */
 export function expandTemplate(
   uriTemplate: string,
@@ -65,7 +69,7 @@ export function expandTemplate(
 ): string {
   const template = parseTemplate(uriTemplate);
   if (!template) return uriTemplate;
-  return template.expand(withoutEmptyValues(variables));
+  return template.expand(variables);
 }
 
 /**
@@ -107,7 +111,16 @@ function sentinelFor(base: string, index: number): string {
   return `${base}${index}zz`;
 }
 
-function withoutEmptyValues(
+/**
+ * The subset of `variables` the user has actually typed something into.
+ *
+ * This is a *preview* notion, not an RFC 6570 one — `expandTemplate`
+ * deliberately does not collapse `""` this way. The panel seeds every declared
+ * variable with `""` and a text input cannot express "defined but empty", so
+ * within the preview an empty string means "not entered yet" and earns a
+ * `{name}` placeholder rather than an empty expansion.
+ */
+function enteredValues(
   variables: Record<string, string>,
 ): Record<string, string> {
   return Object.fromEntries(
@@ -129,7 +142,7 @@ export function previewTemplate(
   if (!template) return uriTemplate;
 
   const names = uniqueNames(template);
-  const filled = withoutEmptyValues(variables);
+  const filled = enteredValues(variables);
   const base = uncollidingBase(uriTemplate, filled);
   const values: Record<string, string> = { ...filled };
   names.forEach((name, index) => {
