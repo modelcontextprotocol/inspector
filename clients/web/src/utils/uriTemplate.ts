@@ -76,6 +76,9 @@ const UNFILLED_SENTINEL = "zzInspectorUnfilledzz";
  * Keyed by the variable's position rather than its name: a name may legally
  * contain characters (`%`-encoded triplets) that `expand` would re-encode,
  * which would keep the sentinel from surviving the round trip.
+ *
+ * The trailing delimiter is load-bearing — without it index 1's token would be
+ * a prefix of index 11's, and substituting the first would corrupt the second.
  */
 function sentinelFor(index: number): string {
   return `${UNFILLED_SENTINEL}${index}zz`;

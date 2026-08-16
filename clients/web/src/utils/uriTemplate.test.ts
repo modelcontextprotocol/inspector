@@ -130,6 +130,15 @@ describe("previewTemplate", () => {
     );
   });
 
+  // The placeholder token for variable 1 must not be a prefix of the one for
+  // variable 11, or substituting the former would corrupt the latter.
+  it("keeps double-digit variable positions distinct", () => {
+    const names = Array.from({ length: 12 }, (_, i) => `v${i}`);
+    const template = `x://${names.map((n) => `{${n}}`).join("/")}`;
+    const empty = Object.fromEntries(names.map((n) => [n, ""]));
+    expect(previewTemplate(template, empty)).toBe(template);
+  });
+
   it("returns the raw template when it cannot be parsed", () => {
     silenceWarn();
     expect(previewTemplate("x://{unterminated", {})).toBe("x://{unterminated");
