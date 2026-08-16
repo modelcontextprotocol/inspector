@@ -69,13 +69,31 @@ export function expandTemplate(
 }
 
 /**
- * A token used to stand in for a variable the user hasn't filled yet, so the
- * preview can show `{topic}` in its place instead of silently dropping it.
+ * Base of the token used to stand in for a variable the user hasn't filled yet,
+ * so the preview can show `{topic}` in its place instead of silently dropping it.
  *
  * Every character is RFC 3986 *unreserved*, so `expand` passes it through
  * verbatim under every operator and it survives to be swapped back out.
+ * Percent-encoding can never *produce* this sequence either — it only emits
+ * `%` plus hex digits, and the base contains characters outside that set — so
+ * checking the raw inputs for a collision (below) is sufficient.
  */
 const UNFILLED_SENTINEL = "zzInspectorUnfilledzz";
+
+/**
+ * Pick a sentinel base that appears nowhere in the expansion's other inputs.
+ *
+ * Without this, a user who types the literal token as *another* variable's
+ * value would see that value rewritten into a `{placeholder}` on substitution —
+ * the preview would disagree with the URI actually submitted. Extending the
+ * base until it is absent makes the token unambiguous for this call.
+ */
+function uncollidingBase(uriTemplate: string, filled: Record<string, string>) {
+  const haystack = [uriTemplate, ...Object.values(filled)].join("\n");
+  let base = UNFILLED_SENTINEL;
+  while (haystack.includes(base)) base += "z";
+  return base;
+}
 
 /**
  * Keyed by the variable's position rather than its name: a name may legally
@@ -85,8 +103,8 @@ const UNFILLED_SENTINEL = "zzInspectorUnfilledzz";
  * The trailing delimiter is load-bearing — without it index 1's token would be
  * a prefix of index 11's, and substituting the first would corrupt the second.
  */
-function sentinelFor(index: number): string {
-  return `${UNFILLED_SENTINEL}${index}zz`;
+function sentinelFor(base: string, index: number): string {
+  return `${base}${index}zz`;
 }
 
 function withoutEmptyValues(
@@ -112,16 +130,17 @@ export function previewTemplate(
 
   const names = uniqueNames(template);
   const filled = withoutEmptyValues(variables);
+  const base = uncollidingBase(uriTemplate, filled);
   const values: Record<string, string> = { ...filled };
   names.forEach((name, index) => {
-    if (values[name] === undefined) values[name] = sentinelFor(index);
+    if (values[name] === undefined) values[name] = sentinelFor(base, index);
   });
 
   let preview = template.expand(values);
   names.forEach((name, index) => {
     if (filled[name] !== undefined) return;
     // The sentinel is unreserved, so it appears in the expansion unencoded.
-    preview = preview.split(sentinelFor(index)).join(`{${name}}`);
+    preview = preview.split(sentinelFor(base, index)).join(`{${name}}`);
   });
   return preview;
 }

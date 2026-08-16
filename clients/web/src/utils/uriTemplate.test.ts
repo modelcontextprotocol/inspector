@@ -157,6 +157,21 @@ describe("previewTemplate", () => {
     );
   });
 
+  // A filled value that happens to be the placeholder token must not be
+  // rewritten into a `{name}` — that would make the preview disagree with the
+  // URI actually submitted.
+  it("does not mistake a filled value for its own placeholder", () => {
+    expect(
+      previewTemplate("x://{a}/{b}", { a: "zzInspectorUnfilledzz1zz", b: "" }),
+    ).toBe("x://zzInspectorUnfilledzz1zz/{b}");
+  });
+
+  it("does not mistake the template's own literal text for a placeholder", () => {
+    expect(previewTemplate("x://zzInspectorUnfilledzz0zz/{a}", { a: "" })).toBe(
+      "x://zzInspectorUnfilledzz0zz/{a}",
+    );
+  });
+
   it("returns the raw template when it cannot be parsed", () => {
     silenceWarn();
     expect(previewTemplate("x://{unterminated", {})).toBe("x://{unterminated");
