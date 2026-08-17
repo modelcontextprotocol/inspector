@@ -58,6 +58,22 @@ describe("templateVariableNames", () => {
     expect(templateVariableNames("x://{unterminated")).toEqual([]);
     expect(warn).toHaveBeenCalled();
   });
+
+  // The SDK *accepts* these: `new UriTemplate("x://{}")` parses, reports no
+  // variables, and expands to `x://`. Left alone, the panel would render no
+  // inputs, find its "all filled" check vacuously true, and submit a URI that
+  // is not the template the server advertised.
+  it.each([
+    ["no name", "x://{}"],
+    ["a blank name", "x://{ }"],
+    ["only a separator", "x://{,}"],
+    ["a missing member", "x://{a,}"],
+    ["an operator and no name", "x://{?}"],
+  ])("rejects an expression with %s", (_label, template) => {
+    silenceWarn();
+    expect(templateVariableNames(template)).toEqual([]);
+    expect(expandTemplate(template, { a: "1" })).toBeNull();
+  });
 });
 
 describe("expandTemplate", () => {
@@ -140,6 +156,15 @@ describe("expandTemplate", () => {
 
     it("omits the whole expression when no member is defined", () => {
       expect(expandTemplate("x://e{#a,b}", {})).toBe("x://e");
+    });
+
+    // The projection copies every supplied variable, so a caller passing a key
+    // equal to the generated synthetic name must not have it stand in for the
+    // group — the SDK ignores undeclared variables, and so must this.
+    it("ignores a caller value keyed like the synthetic group name", () => {
+      expect(
+        expandTemplate("x://{a,b}", { __inspectorGroup0__: "injected" }),
+      ).toBe("x://");
     });
 
     // `variableNames` strips a trailing `*`, so the form stores `a`. A group

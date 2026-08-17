@@ -11,7 +11,7 @@
  *
  * These wrap the SDK's `UriTemplate`, correcting the two places its expander
  * departs from RFC 6570 (see `groupMultiNameExpressions` and
- * `PATH_PARAM_EXPRESSION`). Living in `core/` is what makes the correction
+ * `unsupportedReason`). Living in `core/` is what makes the correction
  * uniform: the web panel, the TUI's form builder, and
  * `InspectorClient.readResourceFromTemplate` all route through here rather than
  * calling the SDK directly, so web, CLI, and TUI agree on what a template's
@@ -37,6 +37,43 @@ function parseTemplate(uriTemplate: string): UriTemplate | null {
     console.warn(`Failed to parse URI template "${uriTemplate}":`, error);
     return null;
   }
+}
+
+/** Any `{…}` expression in the template, with its body captured. */
+const ANY_EXPRESSION = /\{([^{}]*)\}/g;
+
+/**
+ * Why this template cannot be handled, or `null` if it can.
+ *
+ * Checked on the template *as the server declared it*, before any rewriting —
+ * the multi-name grouping would otherwise mask an empty member by folding
+ * `{a,}` into a synthetic single-name expression.
+ *
+ * Two cases, both of which the SDK accepts and mishandles rather than
+ * rejecting:
+ *
+ * - **An expression declaring no variable.** `new UriTemplate("x://{}")`
+ *   parses, reports no variable names, and expands to `x://`. That defeats the
+ *   null-on-malformed contract in the most dangerous way: the panel renders no
+ *   inputs, so its "every variable is filled" check is vacuously true and it
+ *   submits a URI that is not the template the server advertised. `{ }`,
+ *   `{,}`, and `{a,}` are the same defect with some members missing.
+ * - **The `;` path-parameter operator**, which the SDK does not implement: it
+ *   reads `{;a}` as a variable literally named `";a"` and expands it to the
+ *   bare value, dropping the required `;a=`. No arrangement of its own branches
+ *   produces the right output.
+ */
+function unsupportedReason(uriTemplate: string): string | null {
+  for (const [, body] of uriTemplate.matchAll(ANY_EXPRESSION)) {
+    if (body.startsWith(";")) {
+      return "the ; (path-parameter) operator is unsupported";
+    }
+    const names = body.replace(/^[+#./?&]/, "").split(",");
+    if (names.some((name) => name.trim().length === 0)) {
+      return "an expression declares no variable";
+    }
+  }
+  return null;
 }
 
 /**
@@ -71,8 +108,17 @@ function tryExpand(
  * builder and `readResourceFromTemplate`, which parse through the same class.
  */
 export function templateVariableNames(uriTemplate: string): string[] {
+  if (warnIfUnsupported(uriTemplate)) return [];
   const template = parseTemplate(uriTemplate);
   return template ? uniqueNames(template) : [];
+}
+
+/** Warn once with the reason, and report whether the template is unsupported. */
+function warnIfUnsupported(uriTemplate: string): boolean {
+  const reason = unsupportedReason(uriTemplate);
+  if (reason === null) return false;
+  console.warn(`Cannot handle URI template "${uriTemplate}": ${reason}.`);
+  return true;
 }
 
 /**
@@ -98,16 +144,6 @@ function uniqueNames(template: UriTemplate): string[] {
  * array value — handles it instead.
  */
 const MULTI_NAME_EXPRESSION = /\{([+#./]?)([^{}?&;][^{}]*)\}/g;
-
-/**
- * RFC 6570's path-parameter operator, which the SDK does not implement: it
- * treats `{;a}` as a variable literally named `";a"` and expands it to the bare
- * value, dropping the required `;a=`. There is no arrangement of the SDK's own
- * branches that produces the right output, so a template using it cannot be
- * expanded correctly here — `expandTemplate` declines rather than returning a
- * URI known to be wrong, and the panel keeps its submit disabled.
- */
-const PATH_PARAM_EXPRESSION = /\{;/;
 
 /**
  * The name the SDK will parse out of a group member, so `applyGroups` looks up
@@ -183,7 +219,15 @@ function applyGroups(
     const present = names
       .filter((name) => variables[name] !== undefined)
       .map((name) => variables[name]);
+    // Assign or *delete* — never leave the caller's own value under this key.
+    // `projected` starts as a copy of every supplied variable, so a caller that
+    // happens to pass a key equal to the generated name would otherwise have it
+    // expand the group's expression: `expandTemplate("x://{a,b}",
+    // { __inspectorGroup0__: "injected" })` would emit `x://injected` for an
+    // expression whose real members are all undefined, where the SDK ignores
+    // undeclared variables entirely.
     if (present.length > 0) projected[synthetic] = present;
+    else delete projected[synthetic];
   }
   return projected;
 }
@@ -204,12 +248,7 @@ export function expandTemplate(
   uriTemplate: string,
   variables: Record<string, string>,
 ): string | null {
-  if (PATH_PARAM_EXPRESSION.test(uriTemplate)) {
-    console.warn(
-      `Cannot expand "${uriTemplate}": the ; (path-parameter) operator is unsupported.`,
-    );
-    return null;
-  }
+  if (warnIfUnsupported(uriTemplate)) return null;
   const { text, groups } = groupMultiNameExpressions(uriTemplate);
   const template = parseTemplate(text);
   if (!template) return null;
@@ -332,9 +371,9 @@ export function previewTemplate(
   uriTemplate: string,
   variables: Record<string, string>,
 ): string {
-  // Nothing truthful to render for an expression the expander declines, so
-  // show the template as the server declared it.
-  if (PATH_PARAM_EXPRESSION.test(uriTemplate)) return uriTemplate;
+  // Nothing truthful to render for a template the expander declines, so show it
+  // as the server declared it.
+  if (unsupportedReason(uriTemplate) !== null) return uriTemplate;
   const { text, groups } = groupMultiNameExpressions(uriTemplate);
   const template = parseTemplate(text);
   if (!template) return uriTemplate;

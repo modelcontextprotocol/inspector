@@ -197,6 +197,26 @@ describe("ResourceTemplatePanel", () => {
     warn.mockRestore();
   });
 
+  // `x://{}` parses in the SDK and reports no variables, so the panel renders
+  // no inputs and "every variable is filled" is vacuously true. Read Resource
+  // must stay disabled rather than submit a URI that is not the advertised
+  // template.
+  it("keeps Read Resource disabled for a template with an empty expression", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    renderWithMantine(
+      <ResourceTemplatePanel
+        template={{ name: "Empty", uriTemplate: "x://{}" }}
+        onReadResource={vi.fn()}
+      />,
+    );
+    expect(
+      screen.getByRole("button", { name: "Read Resource" }),
+    ).toBeDisabled();
+    // And it shows the template as declared, not the `x://` the SDK expands to.
+    expect(screen.getByText("x://{}")).toBeInTheDocument();
+    warn.mockRestore();
+  });
+
   it("clears a variable via its Clear button (non-autocomplete branch)", async () => {
     const user = userEvent.setup();
     renderWithMantine(
