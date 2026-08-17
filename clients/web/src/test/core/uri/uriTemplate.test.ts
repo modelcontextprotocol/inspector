@@ -321,6 +321,19 @@ describe("expandTemplate", () => {
     expect(expandTemplate("x://{unterminated", { a: "1" })).toBeNull();
   });
 
+  // The rewrite replaces variable names with short synthetics, shrinking both
+  // the template and every name — so validating only the rewritten text would
+  // accept a template the SDK rejects, and disagree with
+  // `templateVariableNames`, which parses the original.
+  it.each([
+    ["an over-long variable name", `x://{${"n".repeat(1_000_001)}}`],
+    ["an over-long template", `x://${"p".repeat(1_000_001)}/{a}`],
+  ])("returns null for %s, as discovery does", (_label, template) => {
+    silenceWarn();
+    expect(templateVariableNames(template)).toEqual([]);
+    expect(expandTemplate(template, { a: "1" })).toBeNull();
+  });
+
   // Parsing succeeding does not mean expanding will — the SDK checks its
   // per-value length ceiling at expansion time.
   it("returns null when a value cannot be expanded", () => {

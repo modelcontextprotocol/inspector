@@ -9,9 +9,24 @@
  * values verbatim, so a `topic` of `foo/bar` silently became a second path
  * segment instead of `foo%2Fbar` (#1919).
  *
- * These wrap the SDK's `UriTemplate`, correcting the two places its expander
- * departs from RFC 6570 (see `groupMultiNameExpressions` and
- * `unsupportedReason`). Living in `core/` is what makes the correction
+ * These wrap the SDK's `UriTemplate`, keeping what it gets right — the parse,
+ * the operators, the separators, which expressions appear at all — and
+ * correcting where it departs from RFC 6570:
+ *
+ * - **value encoding** is done here instead, against the explicit RFC 3986
+ *   character sets; the SDK's `encodeURIComponent` / `encodeURI` leave `!*'()`
+ *   bare, escape the gen-delims `[` `]` that reserved expansion should pass
+ *   through, and double-encode an existing pct-triplet (see `encodeValue`);
+ * - **multi-name expressions** (`{a,b}`) take a branch that skips both encoding
+ *   and the operator, and a **name repeated under different operators** cannot
+ *   be encoded per-occurrence when values are looked up by name — both are
+ *   handled by rewriting each non-query expression into its own synthetic
+ *   variable (see `rewriteExpressions`);
+ * - two shapes it accepts but mishandles — an expression declaring no variable,
+ *   and the unimplemented `;` operator — are **declined** rather than expanded
+ *   into a knowingly wrong URI (see `unsupportedReason`).
+ *
+ * Living in `core/` is what makes the correction
  * uniform: the web panel, the TUI's form builder, and
  * `InspectorClient.readResourceFromTemplate` all route through here rather than
  * calling the SDK directly, so web, CLI, and TUI agree on what a template's
@@ -315,8 +330,18 @@ function expandWithPlaceholders(
   variables: Record<string, string>,
   renderUnset: (name: string) => string | null,
 ): string | null {
+  // Validate the template **as the server sent it**, before rewriting. The
+  // rewrite replaces variable names with short synthetics, which shrinks both
+  // the template and every name — so a template the SDK would reject for
+  // exceeding its length limits could otherwise slip through here while
+  // `templateVariableNames` (which parses the original) rejected it, leaving the
+  // form empty and the expansion happily producing some shorter URI.
+  if (!parseTemplate(uriTemplate)) return null;
+
   const { text, slots, queryNames, order } = rewriteExpressions(uriTemplate);
   const template = parseTemplate(text);
+  /* v8 ignore next -- unreachable: the rewrite only ever shortens the template
+     and its names, so anything the original parse accepted parses here too. */
   if (!template) return null;
 
   for (const name of order) {

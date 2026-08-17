@@ -100,10 +100,14 @@ v2/main/
 │   ├── react/                          # React hooks over the state stores
 │   ├── storage/                        # File I/O helpers (store-io.ts) used by OAuth persist backends
 │   └── uri/                            # RFC 6570 URI Template discovery/expansion/preview
-│                                       #   (uriTemplate.ts) — wraps the SDK's UriTemplate and
-│                                       #   corrects the two places its expander departs from the
-│                                       #   RFC (multi-name expressions skip encoding + the
-│                                       #   operator; `;` is unimplemented). Shared by the web
+│                                       #   (uriTemplate.ts) — wraps the SDK's UriTemplate, keeping
+│                                       #   its parse/operators/separators and correcting where it
+│                                       #   departs from the RFC: value encoding is done here
+│                                       #   against the RFC 3986 sets, each non-query expression is
+│                                       #   rewritten to a synthetic variable (so multi-name
+│                                       #   expressions encode, and a name repeated under different
+│                                       #   operators encodes per occurrence), and the shapes it
+│                                       #   mishandles (`{}`, `;`) are declined. Shared by the web
 │                                       #   ResourceTemplatePanel, the TUI's uriTemplateToForm,
 │                                       #   and InspectorClient.readResourceFromTemplate, so a
 │                                       #   template cannot resolve differently per client — #1919.

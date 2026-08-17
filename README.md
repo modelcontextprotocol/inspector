@@ -247,7 +247,13 @@ Open the Resources tab and select **events-by-path**, enter `foo/bar` for `topic
 
 Then select **events-by-query**: it must render a `topic` input at all. The old scan was `/\{(\w+)\}/g`, which sees only bare `{name}` expressions, so a query expression declared a variable the form never offered.
 
-All three clients now go through one shared helper, [`core/uri/uriTemplate.ts`](./core/uri/uriTemplate.ts) — the web panel, the TUI's form builder, and `InspectorClient.readResourceFromTemplate` — so a template cannot resolve differently depending on where it is driven from. It wraps the SDK's `UriTemplate` and corrects the two places that expander departs from RFC 6570: a multi-name expression (`{a,b}`) skips both encoding and its operator, and the `;` path-parameter operator is unimplemented (such a template is declined rather than expanded to a knowingly invalid URI).
+All three clients now go through one shared helper, [`core/uri/uriTemplate.ts`](./core/uri/uriTemplate.ts) — the web panel, the TUI's form builder, and `InspectorClient.readResourceFromTemplate` — so a template cannot resolve differently depending on where it is driven from.
+
+It wraps the SDK's `UriTemplate`, keeping what that gets right (the parse, the operators and separators, which expressions appear at all) and correcting where it departs from RFC 6570:
+
+- **Value encoding** is done against the explicit RFC 3986 character sets. The SDK's `encodeURIComponent` leaves the sub-delimiters `!*'()` bare, its `encodeURI` escapes the gen-delims `[` and `]` that reserved expansion exists to pass through, and it double-encodes an existing percent triplet (`%41` → `%2541`).
+- **Multi-name expressions** (`{a,b}`) take an SDK branch that skips both encoding and the operator, and a **name repeated under different operators** (`{+a}-{a}`) has to encode differently per occurrence — which values looked up by name cannot express. Each non-query expression is rewritten to its own synthetic variable so both work.
+- Two shapes the SDK accepts but mishandles — an expression declaring no variable (`{}`), and the unimplemented `;` path-parameter operator — are **declined** rather than expanded into a knowingly invalid URI, so the panel withholds the request instead of sending it.
 
 #### Advertised extensions
 
