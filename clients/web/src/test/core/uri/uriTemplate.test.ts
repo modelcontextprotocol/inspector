@@ -103,6 +103,64 @@ describe("expandTemplate", () => {
     expect(expandTemplate("x://{+path}", { path: "a/b" })).toBe("x://a/b");
   });
 
+  // The SDK's own encoding is not RFC-conformant, and every case below is
+  // reachable from a plain text input. Simple and query expansions go through
+  // `encodeURIComponent`, which leaves these five bare; RFC 6570 §3.2.1 encodes
+  // everything outside the *unreserved* set.
+  describe("RFC 3986 character sets", () => {
+    it.each([
+      ["!", "%21"],
+      ["*", "%2A"],
+      ["'", "%27"],
+      ["(", "%28"],
+      [")", "%29"],
+    ])("encodes %j in a simple expansion", (value, encoded) => {
+      expect(expandTemplate("x://{v}", { v: value })).toBe(`x://${encoded}`);
+    });
+
+    it("encodes them in a query expansion too", () => {
+      expect(expandTemplate("x://e{?v}", { v: "!*'()" })).toBe(
+        "x://e?v=%21%2A%27%28%29",
+      );
+    });
+
+    // `+` and `#` use `encodeURI`, which escapes `[` and `]` — but those are
+    // gen-delims, exactly what reserved expansion exists to pass through.
+    it.each([
+      ["reserved", "x://{+v}", "x://[a]"],
+      ["fragment", "x://{#v}", "x://#[a]"],
+    ])("keeps gen-delims in a %s expansion", (_label, template, expected) => {
+      expect(expandTemplate(template, { v: "[a]" })).toBe(expected);
+    });
+
+    it("keeps every reserved character under the + operator", () => {
+      const reserved = ":/?#[]@!$&'()*+,;=";
+      expect(expandTemplate("x://{+v}", { v: reserved })).toBe(
+        `x://${reserved}`,
+      );
+    });
+
+    // A well-formed triplet is already pct-encoded; the SDK re-encoded it to
+    // `%2541`, which changes the value.
+    it("passes an existing pct-triplet through a reserved expansion", () => {
+      expect(expandTemplate("x://{+v}", { v: "%41" })).toBe("x://%41");
+    });
+
+    it("encodes a bare percent that is not a triplet", () => {
+      expect(expandTemplate("x://{+v}", { v: "100%" })).toBe("x://100%25");
+      expect(expandTemplate("x://{+v}", { v: "%zz" })).toBe("x://%25zz");
+    });
+
+    // A simple expansion has no triplet passthrough — the value is literal.
+    it("encodes a percent in a simple expansion", () => {
+      expect(expandTemplate("x://{v}", { v: "%41" })).toBe("x://%2541");
+    });
+
+    it("encodes a code point outside the BMP as its UTF-8 octets", () => {
+      expect(expandTemplate("x://{v}", { v: "😀" })).toBe("x://%F0%9F%98%80");
+    });
+  });
+
   // RFC 6570 distinguishes an *undefined* variable from one defined as the
   // empty string, and the expansion must not collapse the two.
   it("keeps a variable defined as the empty string", () => {
@@ -324,6 +382,22 @@ describe("previewTemplate", () => {
   it("resolves a padded-run collision without rescanning", () => {
     const template = `x://zzInspectorUnfilledzz${"z".repeat(5000)}/{a}`;
     expect(previewTemplate(template, { a: "" })).toBe(template);
+  });
+
+  // Substitution is one regex pass over the expansion rather than one pass per
+  // variable — the SDK accepts a 1 MB template with up to 10,000 expressions,
+  // and a per-variable rescan is O(variables × length) during render. This also
+  // covers the multi-digit index boundary at scale.
+  it("substitutes many variables correctly", () => {
+    const names = Array.from({ length: 200 }, (_, i) => `v${i}`);
+    const template = `x://${names.map((n) => `{${n}}`).join("/")}`;
+    const values = Object.fromEntries(
+      names.map((n, i) => [n, i % 2 === 0 ? `val${i}` : ""]),
+    );
+    const expected = `x://${names
+      .map((n, i) => (i % 2 === 0 ? `val${i}` : `{${n}}`))
+      .join("/")}`;
+    expect(previewTemplate(template, values)).toBe(expected);
   });
 
   // The token starts and ends with `zz`, so it can overlap itself: this literal
