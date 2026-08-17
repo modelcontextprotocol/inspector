@@ -109,8 +109,11 @@ function tryExpand(
  */
 export function templateVariableNames(uriTemplate: string): string[] {
   if (warnIfUnsupported(uriTemplate)) return [];
-  const template = parseTemplate(uriTemplate);
-  return template ? uniqueNames(template) : [];
+  // Parsed only to reject what the SDK rejects (an unterminated expression);
+  // the names themselves come from the same scan the expander uses, so the
+  // form's fields and its lookups are one list by construction.
+  if (!parseTemplate(uriTemplate)) return [];
+  return rewriteExpressions(uriTemplate).order;
 }
 
 /** Warn once with the reason, and report whether the template is unsupported. */
@@ -122,32 +125,8 @@ function warnIfUnsupported(uriTemplate: string): boolean {
 }
 
 /**
- * A name repeated across expressions (`x://{a}/{b}/{a}`) is one input, not two —
- * and the preview's sentinel bookkeeping is keyed by position, so a duplicate
- * would otherwise leave one occurrence un-substituted.
- */
-function uniqueNames(template: UriTemplate): string[] {
-  return [...new Set(template.variableNames)];
-}
-
-/**
- * Matches a multi-name expression whose operator is *not* `?` or `&`.
- *
- * The SDK expands this shape through a branch that returns the raw values
- * joined by `,`, skipping both `encodeValue` and the operator prefix — so
- * `x://{a,b}` with `a = "foo/bar"` yields `x://foo/bar,x y` rather than
- * `x://foo%2Fbar,x%20y`, and `{#a,b}` loses its `#` entirely. Its query
- * counterpart (`{?a,b}`) takes a different, correct branch.
- *
- * `groupMultiNameExpressions` rewrites this shape so the SDK's *single*-name
- * branch — which does apply the operator's encoding and separator, over an
- * array value — handles it instead.
- */
-const MULTI_NAME_EXPRESSION = /\{([+#./]?)([^{}?&;][^{}]*)\}/g;
-
-/**
- * The name the SDK will parse out of a group member, so `applyGroups` looks up
- * the same key the form stores.
+ * The name the SDK will parse out of an expression member, so the values handed
+ * back to it are keyed the way the form stores them.
  *
  * It strips a trailing explode modifier (`{a*}` → `a`) but *keeps* a prefix
  * modifier (`{a:3}` → `a:3`, see `templateVariableNames`). Mirroring it exactly
@@ -169,67 +148,67 @@ function groupName(prefix: string, index: number): string {
 
 const GROUP_PREFIX = "__inspectorGroup";
 
-interface GroupedTemplate {
+/** One expression of the template, as rewritten for the SDK. */
+interface Slot {
+  /** The real variable names it declares, in order. */
+  names: string[];
+  /** Its RFC 6570 operator (`""` for a simple expression). */
+  operator: string;
+}
+
+interface RewrittenTemplate {
   /** The rewritten template string, safe to hand to the SDK. */
   text: string;
-  /** Synthetic variable name → the real names it stands for, in order. */
-  groups: Map<string, string[]>;
+  /** Synthetic variable name → the expression it stands for. */
+  slots: Map<string, Slot>;
+  /** Names left under their own key, because a query expression emits them. */
+  queryNames: Set<string>;
+  /** Every declared name, in template order, deduplicated. */
+  order: string[];
 }
 
 /**
- * Rewrite each multi-name non-query expression into a single synthetic
- * variable, so the SDK applies the operator's encoding and separator.
+ * Rewrite each **non-query** expression to a single synthetic variable.
  *
- * `x://{a,b}` becomes `x://{__inspectorGroup0__}`, expanded with an *array* of
- * the defined values — which the SDK's single-name branch encodes elementwise
- * and joins with the operator's separator, exactly as RFC 6570 prescribes.
- * Templates without this shape are returned unchanged and pay nothing.
+ * Two problems this solves at once, both stemming from the SDK looking values up
+ * by variable name:
+ *
+ * - a *multi-name* expression takes a branch that returns the values joined raw,
+ *   skipping both `encodeValue` and the operator; giving the rewritten
+ *   expression an **array** value routes it through the single-name branch,
+ *   which applies them (`x://{a,b}` → `x://{__inspectorGroup0__}`);
+ * - a name **repeated under different operators** — `x://{+a}/{a}` — must be
+ *   encoded differently per occurrence (`/` preserved by `+`, `%2F` by the
+ *   simple expansion), which one value keyed by name cannot express. A synthetic
+ *   name per *occurrence* gives each its own value, hence its own encoding.
+ *
+ * Query expressions are deliberately left alone: `?`/`&` emit the variable's
+ * **name** into the URI, so renaming `{?topic}` would produce `?__inspectorGroup0__=`.
+ * They need no rewrite anyway — their branch already encodes correctly, and
+ * `?` and `&` share one encoding, so every query occurrence of a name can share
+ * a single value keyed by that name.
  */
-function groupMultiNameExpressions(uriTemplate: string): GroupedTemplate {
-  const groups = new Map<string, string[]>();
+function rewriteExpressions(uriTemplate: string): RewrittenTemplate {
+  const slots = new Map<string, Slot>();
+  const queryNames = new Set<string>();
+  // A Set, so the order is the template's and each name appears once.
+  const order = new Set<string>();
   // The prefix must not occur in the template, or a template declaring a
-  // variable of that name would have the group overwrite the user's value.
+  // variable of that name would have the slot overwrite the user's value.
   const prefix = padPastCollisions(GROUP_PREFIX, "_", uriTemplate);
-  const text = uriTemplate.replace(
-    MULTI_NAME_EXPRESSION,
-    (match, operator: string, body: string) => {
-      if (!body.includes(",")) return match;
-      const names = body.split(",").map(memberName);
-      const synthetic = groupName(prefix, groups.size);
-      groups.set(synthetic, names);
-      return `{${operator}${synthetic}}`;
-    },
-  );
-  return { text, groups };
-}
-
-/**
- * Project the caller's per-name values onto the synthetic group variables.
- *
- * A group is omitted when none of its names has a value, matching RFC 6570's
- * rule that an expression with no defined variable contributes nothing.
- */
-function applyGroups(
-  variables: Record<string, string>,
-  groups: Map<string, string[]>,
-): Record<string, string | string[]> {
-  if (groups.size === 0) return variables;
-  const projected: Record<string, string | string[]> = { ...variables };
-  for (const [synthetic, names] of groups) {
-    const present = names
-      .filter((name) => variables[name] !== undefined)
-      .map((name) => variables[name]);
-    // Assign or *delete* — never leave the caller's own value under this key.
-    // `projected` starts as a copy of every supplied variable, so a caller that
-    // happens to pass a key equal to the generated name would otherwise have it
-    // expand the group's expression: `expandTemplate("x://{a,b}",
-    // { __inspectorGroup0__: "injected" })` would emit `x://injected` for an
-    // expression whose real members are all undefined, where the SDK ignores
-    // undeclared variables entirely.
-    if (present.length > 0) projected[synthetic] = present;
-    else delete projected[synthetic];
-  }
-  return projected;
+  const text = uriTemplate.replace(ANY_EXPRESSION, (match, body: string) => {
+    const operator = /^[+#./?&]/.test(body) ? body[0] : "";
+    const names = body.slice(operator.length).split(",").map(memberName);
+    for (const name of names) order.add(name);
+    if (operator === "?" || operator === "&") {
+      for (const name of names) queryNames.add(name);
+      return match;
+    }
+    const synthetic = groupName(prefix, slots.size);
+    slots.set(synthetic, { names, operator });
+    return `{${operator}${synthetic}}`;
+  });
+  return { text, slots, queryNames, order: [...order] };
 }
 
 /** RFC 3986 §2.3 unreserved: the set never percent-encoded, under any operator. */
@@ -259,7 +238,7 @@ const UNDER_ENCODED_BY_ENCODE_URI_COMPONENT = /[!'()*]/g;
  * separators, which expressions appear at all — to the SDK. See
  * `expandWithPlaceholders` for how the two are combined.
  */
-function encodeValue(value: string, operator: string): string {
+function encodeValue(value: string, operator: string): string | null {
   const allowReserved = operator === "+" || operator === "#";
   let out = "";
   for (let at = 0; at < value.length; ) {
@@ -281,7 +260,13 @@ function encodeValue(value: string, operator: string): string {
     }
     // Encode a whole code point, so a surrogate pair yields its UTF-8 octets
     // rather than two lone-surrogate errors.
-    const codePoint = String.fromCodePoint(value.codePointAt(at) as number);
+    const point = value.codePointAt(at) as number;
+    // An *unpaired* surrogate has no UTF-8 encoding, and `encodeURIComponent`
+    // throws `URIError` on it. Report it instead: this runs outside `tryExpand`
+    // and, through the preview, during React render — an escaping throw would
+    // take the panel down rather than disable its submit.
+    if (point >= 0xd800 && point <= 0xdfff) return null;
+    const codePoint = String.fromCodePoint(point);
     out += encodeURIComponent(codePoint).replace(
       UNDER_ENCODED_BY_ENCODE_URI_COMPONENT,
       (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`,
@@ -302,19 +287,6 @@ function encodeValue(value: string, operator: string): string {
  */
 const MAX_VALUE_LENGTH = 1_000_000;
 
-/** Operator declared for each variable name, read off the original template. */
-function operatorsByName(uriTemplate: string): Map<string, string> {
-  const operators = new Map<string, string>();
-  for (const [, body] of uriTemplate.matchAll(ANY_EXPRESSION)) {
-    const operator = /^[+#./?&]/.test(body) ? body[0] : "";
-    const names = body.slice(operator.length).split(",").map(memberName);
-    for (const name of names) {
-      if (!operators.has(name)) operators.set(name, operator);
-    }
-  }
-  return operators;
-}
-
 /**
  * Expand `uriTemplate`, letting the SDK build the *structure* while this module
  * supplies each variable's *rendering*.
@@ -324,6 +296,11 @@ function operatorsByName(uriTemplate: string): Map<string, string> {
  * applies, and is swapped for its real rendering afterwards. That split is what
  * lets the operators, separators, and omission rules stay the SDK's job while
  * the encoding — which the SDK gets wrong (see `encodeValue`) — becomes ours.
+ *
+ * Renderings are per *occurrence*, not per name, which is what lets the same
+ * variable be encoded two ways in one template: `x://{+a}/{a}` with `a = "/"`
+ * must keep the `/` under the reserved operator and encode it as `%2F` in the
+ * simple expansion.
  *
  * `renderUnset` decides what an absent-or-empty variable becomes: `null` omits
  * it (the wire behavior), while returning a string substitutes it (the preview's
@@ -338,23 +315,11 @@ function expandWithPlaceholders(
   variables: Record<string, string>,
   renderUnset: (name: string) => string | null,
 ): string | null {
-  const { text, groups } = groupMultiNameExpressions(uriTemplate);
+  const { text, slots, queryNames, order } = rewriteExpressions(uriTemplate);
   const template = parseTemplate(text);
   if (!template) return null;
 
-  // Map each synthetic group back to the real names it stands for, so both the
-  // rendering and the preview's placeholders speak in the form's own names.
-  const names = [
-    ...new Set(
-      uniqueNames(template).flatMap((name) => groups.get(name) ?? [name]),
-    ),
-  ];
-  const operators = operatorsByName(uriTemplate);
-  const base = uncollidingBase(uriTemplate);
-
-  const renderings = new Map<number, string>();
-  const values: Record<string, string> = {};
-  for (const [index, name] of names.entries()) {
+  for (const name of order) {
     const value = variables[name];
     if (value !== undefined && value.length > MAX_VALUE_LENGTH) {
       console.warn(
@@ -362,16 +327,52 @@ function expandWithPlaceholders(
       );
       return null;
     }
-    const rendered =
-      value === undefined
-        ? renderUnset(name)
-        : encodeValue(value, operators.get(name) ?? "");
-    if (rendered === null) continue; // leave unset, so the expression omits it
-    renderings.set(index, rendered);
-    values[name] = sentinelFor(base, index);
   }
 
-  const expanded = tryExpand(template, applyGroups(values, groups));
+  const base = uncollidingBase(uriTemplate);
+  const renderings = new Map<number, string>();
+  const values: Record<string, string | string[]> = {};
+  let nextIndex = 0;
+
+  // An unpaired surrogate has no encoding under any operator, so it fails the
+  // whole expansion rather than silently dropping one variable. Checked up
+  // front, which also lets `place` treat a null rendering as "omit this one".
+  for (const name of order) {
+    const value = variables[name];
+    if (value !== undefined && encodeValue(value, "") === null) {
+      console.warn(
+        `Cannot expand URI template "${uriTemplate}": the value for "${name}" contains an unpaired surrogate.`,
+      );
+      return null;
+    }
+  }
+
+  /** Mint a sentinel for one occurrence, or report that it contributes nothing. */
+  function place(name: string, operator: string): string | null {
+    const value = variables[name];
+    const rendered =
+      value === undefined ? renderUnset(name) : encodeValue(value, operator);
+    if (rendered === null) return null;
+    const index = nextIndex++;
+    renderings.set(index, rendered);
+    return sentinelFor(base, index);
+  }
+
+  for (const [synthetic, slot] of slots) {
+    const placed = slot.names
+      .map((name) => place(name, slot.operator))
+      .filter((sentinel): sentinel is string => sentinel !== null);
+    // An expression with no defined variable contributes nothing (RFC 6570).
+    if (placed.length > 0) values[synthetic] = placed;
+  }
+  for (const name of queryNames) {
+    // `?` and `&` share one encoding, so every query occurrence of a name can
+    // share the single value the SDK will look up under that name.
+    const sentinel = place(name, "?");
+    if (sentinel !== null) values[name] = sentinel;
+  }
+
+  const expanded = tryExpand(template, values);
   if (expanded === null) return null;
 
   return expanded.replace(

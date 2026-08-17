@@ -159,6 +159,52 @@ describe("expandTemplate", () => {
     it("encodes a code point outside the BMP as its UTF-8 octets", () => {
       expect(expandTemplate("x://{v}", { v: "😀" })).toBe("x://%F0%9F%98%80");
     });
+
+    // An unpaired surrogate has no UTF-8 encoding and makes
+    // `encodeURIComponent` throw `URIError`. Encoding runs outside the SDK's
+    // try/catch — and, through the preview, during render — so it must be
+    // reported rather than thrown.
+    it.each([
+      ["a lone high surrogate", "\uD800"],
+      ["a lone low surrogate", "\uDC00"],
+      ["a surrogate among valid text", "ok\uD800ok"],
+    ])("declines %s instead of throwing", (_label, value) => {
+      silenceWarn();
+      expect(() => expandTemplate("x://{v}", { v: value })).not.toThrow();
+      expect(expandTemplate("x://{v}", { v: value })).toBeNull();
+    });
+
+    it("previews a lone surrogate as the raw template instead of throwing", () => {
+      silenceWarn();
+      expect(previewTemplate("x://{v}", { v: "\uD800" })).toBe("x://{v}");
+    });
+  });
+
+  // RFC 6570 allows one name in expressions with different operators, and each
+  // occurrence encodes per *its* operator. A single value keyed by name cannot
+  // express that, so each occurrence gets its own rendering.
+  describe("a name repeated under different operators", () => {
+    // `-` as the literal separator, so the slashes in the output are only ever
+    // the ones the expansion produced.
+    it("encodes each occurrence per its own operator", () => {
+      expect(expandTemplate("x://{+a}-{a}", { a: "/" })).toBe("x:///-%2F");
+    });
+
+    it("still offers the repeated name as one field", () => {
+      expect(templateVariableNames("x://{+a}-{a}")).toEqual(["a"]);
+    });
+
+    it("handles a simple/query pair", () => {
+      expect(expandTemplate("x://{+a}{?a}", { a: "a/b" })).toBe(
+        "x://a/b?a=a%2Fb",
+      );
+    });
+
+    it("handles a fragment/simple pair", () => {
+      expect(expandTemplate("x://{a}{#a}", { a: "[x]" })).toBe(
+        "x://%5Bx%5D#[x]",
+      );
+    });
   });
 
   // RFC 6570 distinguishes an *undefined* variable from one defined as the
