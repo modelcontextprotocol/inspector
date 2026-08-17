@@ -18,7 +18,7 @@ import {
   expandTemplate,
   previewTemplate,
   templateVariableNames,
-} from "../../../utils/uriTemplate";
+} from "@inspector/core/uri/uriTemplate.js";
 
 export interface ResourceTemplatePanelProps {
   template: ResourceTemplate;

@@ -3,7 +3,7 @@
  */
 
 import type { FormStructure, FormSection, FormField } from "ink-form";
-import { UriTemplate } from "@modelcontextprotocol/client";
+import { templateVariableNames } from "@inspector/core/uri/uriTemplate.js";
 
 /**
  * Converts a URI Template to ink-form structure
@@ -12,28 +12,18 @@ export function uriTemplateToForm(
   uriTemplate: string,
   templateName: string,
 ): FormStructure {
-  const fields: FormField[] = [];
-
-  try {
-    const template = new UriTemplate(uriTemplate);
-    /* v8 ignore next -- UriTemplate.variableNames is a getter that always
-       returns a string[]; the `|| []` fallback is an unreachable guard. */
-    const variableNames = template.variableNames || [];
-
-    for (const variableName of variableNames) {
-      const field: FormField = {
-        name: variableName,
-        label: variableName,
-        type: "string",
-        required: false, // URI template variables are typically optional
-      };
-
-      fields.push(field);
-    }
-  } catch (error) {
-    // If parsing fails, return empty form
-    console.error("Failed to parse URI template:", error);
-  }
+  // Shared with the web panel's field list (#1919), so the two clients offer
+  // the same inputs for a given template — including the variables inside
+  // non-simple expressions, and one field (not two) for a repeated name. It
+  // does not throw: a malformed template yields no names, so the form is empty.
+  const fields: FormField[] = templateVariableNames(uriTemplate).map(
+    (variableName) => ({
+      name: variableName,
+      label: variableName,
+      type: "string",
+      required: false, // URI template variables are typically optional
+    }),
+  );
 
   const sections: FormSection[] = [
     {

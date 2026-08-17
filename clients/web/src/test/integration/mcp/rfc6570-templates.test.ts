@@ -6,7 +6,7 @@ import { createTransportNode } from "@inspector/core/mcp/node/transport.js";
 import {
   expandTemplate,
   templateVariableNames,
-} from "../../../utils/uriTemplate";
+} from "@inspector/core/uri/uriTemplate.js";
 import {
   createTestServerHttp,
   type TestServerHttp,
@@ -143,6 +143,23 @@ describe("RFC 6570 resource templates over the wire (#1919)", () => {
     if (uri === null) throw new Error("unreachable — asserted above");
 
     expect(await readJson(connected, uri)).toMatchObject({ topic: "weather" });
+  });
+
+  // `readResourceFromTemplate` is the path the TUI and CLI submit through, and
+  // it used to call the SDK directly — so the same template could resolve one
+  // way in the web panel and another here. Both now route through
+  // `core/uri/uriTemplate`; this asserts the client-level path end to end.
+  it("encodes correctly through readResourceFromTemplate", async () => {
+    const connected = await connectToShowcase();
+    const invocation = await connected.readResourceFromTemplate(
+      "foobar://events/{topic}",
+      { topic: "foo/bar" },
+    );
+    expect(invocation.expandedUri).toBe("foobar://events/foo%2Fbar");
+    // Same URI the panel's `expandTemplate` produces — the two cannot drift.
+    expect(invocation.expandedUri).toBe(
+      expandTemplate("foobar://events/{topic}", { topic: "foo/bar" }),
+    );
   });
 
   // The old behavior, pinned from the server's side. If this ever starts

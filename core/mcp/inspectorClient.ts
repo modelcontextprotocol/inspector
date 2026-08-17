@@ -190,7 +190,7 @@ import {
   convertToolParameters,
   convertPromptArguments,
 } from "../json/jsonUtils.js";
-import { UriTemplate } from "@modelcontextprotocol/client";
+import { expandTemplate } from "../uri/uriTemplate.js";
 import {
   InspectorClientEventTarget,
   type TaskWithOptionalCreatedAt,
@@ -4971,15 +4971,14 @@ export class InspectorClient extends InspectorClientEventTarget {
 
     const uriTemplateString = uriTemplate;
 
-    // Expand the template's uriTemplate using the provided params
-    let expandedUri: string;
-    try {
-      const uriTemplate = new UriTemplate(uriTemplateString);
-      expandedUri = uriTemplate.expand(params);
-    } catch (error) {
+    // Expand through the shared RFC 6570 helper rather than the SDK directly,
+    // so this path and the web panel's cannot resolve the same template to
+    // different URIs (#1919). `null` means the template or a value could not be
+    // expanded correctly — better to fail loudly than to read a wrong URI.
+    const expandedUri = expandTemplate(uriTemplateString, params);
+    if (expandedUri === null) {
       throw new Error(
-        `Failed to expand URI template "${uriTemplate}": ${error instanceof Error ? error.message : String(error)}`,
-        { cause: error },
+        `Failed to expand URI template "${uriTemplateString}": the template or one of its values cannot be expanded per RFC 6570.`,
       );
     }
 

@@ -38,7 +38,8 @@ inspector/
 │   ├── mcp/          # InspectorClient runtime, state stores, transports, config import
 │   ├── node/         # Node-only shared helpers: version reader, hostUrl (host normalize/canonicalize + all-interfaces/loopback detection)
 │   ├── react/        # React hooks over the state stores
-│   └── storage/      # File I/O helpers for the OAuth persist backends
+│   ├── storage/      # File I/O helpers for the OAuth persist backends
+│   └── uri/          # RFC 6570 URI Template discovery/expansion/preview, shared by all clients
 ├── test-servers/     # Composable MCP test servers + fixtures used by integration tests
 ├── scripts/          # Root build/verify tooling (install cascade, smokes, verify-build-gate, verify-format-coverage, verify-dep-lockstep, pack:verify)
 ├── docs/             # Task-oriented guides (v1→v2 migration, server configuration, MCP App review, launcher/config plan)
@@ -246,7 +247,7 @@ Open the Resources tab and select **events-by-path**, enter `foo/bar` for `topic
 
 Then select **events-by-query**: it must render a `topic` input at all. The old scan was `/\{(\w+)\}/g`, which sees only bare `{name}` expressions, so a query expression declared a variable the form never offered.
 
-Both surfaces now go through the SDK's `UriTemplate` — the same RFC 6570 implementation the TUI's form builder and `InspectorClient.readResourceFromTemplate` already used — so web, CLI, and TUI agree on a template's variables and on how a value is encoded.
+All three clients now go through one shared helper, [`core/uri/uriTemplate.ts`](./core/uri/uriTemplate.ts) — the web panel, the TUI's form builder, and `InspectorClient.readResourceFromTemplate` — so a template cannot resolve differently depending on where it is driven from. It wraps the SDK's `UriTemplate` and corrects the two places that expander departs from RFC 6570: a multi-name expression (`{a,b}`) skips both encoding and its operator, and the `;` path-parameter operator is unimplemented (such a template is declined rather than expanded to a knowingly invalid URI).
 
 #### Advertised extensions
 

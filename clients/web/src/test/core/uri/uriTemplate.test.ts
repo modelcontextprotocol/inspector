@@ -3,7 +3,7 @@ import {
   expandTemplate,
   previewTemplate,
   templateVariableNames,
-} from "./uriTemplate";
+} from "@inspector/core/uri/uriTemplate.js";
 
 afterEach(() => {
   vi.restoreAllMocks();

@@ -1,5 +1,7 @@
 /**
- * RFC 6570 URI Template helpers for the Resources screen.
+ * RFC 6570 URI Template discovery, expansion, and preview — shared by every
+ * client so a template cannot resolve differently depending on where it is
+ * driven from.
  *
  * The web client used to discover variables with `/\{(\w+)\}/g` and expand them
  * with a plain `String.replace`. That only ever saw simple expressions — a
@@ -7,10 +9,13 @@
  * values verbatim, so a `topic` of `foo/bar` silently became a second path
  * segment instead of `foo%2Fbar` (#1919).
  *
- * These wrap the SDK's `UriTemplate`, which is the same RFC 6570 implementation
- * the TUI's form builder and `InspectorClient.readResourceFromTemplate` already
- * use, so all three surfaces agree on what a template's variables are and on
- * how a value is encoded.
+ * These wrap the SDK's `UriTemplate`, correcting the two places its expander
+ * departs from RFC 6570 (see `groupMultiNameExpressions` and
+ * `PATH_PARAM_EXPRESSION`). Living in `core/` is what makes the correction
+ * uniform: the web panel, the TUI's form builder, and
+ * `InspectorClient.readResourceFromTemplate` all route through here rather than
+ * calling the SDK directly, so web, CLI, and TUI agree on what a template's
+ * variables are and on how a value is encoded.
  *
  * Neither helper throws: a template the SDK rejects, or a value it refuses to
  * expand, yields `null` from `expandTemplate` (so the caller can withhold the
