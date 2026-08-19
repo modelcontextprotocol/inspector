@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   redactSensitiveEntries,
+  redactHeadersForLogging,
   redactQueryForLogging,
 } from "../src/redact.js";
 
@@ -66,4 +67,72 @@ test("redactQueryForLogging: missing env passes through unchanged", () => {
   assert.deepEqual(redactQueryForLogging({ transport: "sse" }), {
     transport: "sse",
   });
+});
+
+test("redactQueryForLogging: non-string env is redacted wholesale", () => {
+  // Express produces an array for `?env=a&env=b` and an object for `?env[x]=y`.
+  // Neither is a valid env payload, so neither may be logged verbatim.
+  assert.equal(
+    (redactQueryForLogging({ env: ["a", "b"] }) as Record<string, unknown>).env,
+    "***",
+  );
+  assert.equal(
+    (
+      redactQueryForLogging({ env: { PASSWORD: "p" } }) as Record<
+        string,
+        unknown
+      >
+    ).env,
+    "***",
+  );
+});
+
+test("redactQueryForLogging: env parsing to a non-flat value is redacted wholesale", () => {
+  // A nested object would otherwise slip past the shallow key-based redactor.
+  const nested = JSON.stringify({ SAFE: { PASSWORD: "p" } });
+  assert.equal(
+    (redactQueryForLogging({ env: nested }) as Record<string, unknown>).env,
+    "***",
+  );
+
+  const array = JSON.stringify(["PASSWORD=p"]);
+  assert.equal(
+    (redactQueryForLogging({ env: array }) as Record<string, unknown>).env,
+    "***",
+  );
+
+  const scalar = JSON.stringify(42);
+  assert.equal(
+    (redactQueryForLogging({ env: scalar }) as Record<string, unknown>).env,
+    "***",
+  );
+});
+
+test("redactHeadersForLogging: every forwarded header value is redacted by name-agnostic default", () => {
+  // `x-custom-auth-header(s)` lets a caller name any header as its credential
+  // carrier, so a name-pattern check would miss `X-Foo` entirely.
+  assert.deepEqual(
+    redactHeadersForLogging({
+      Authorization: "Bearer secret",
+      "X-Foo": "secret",
+      "X-Access-Key": "secret",
+      "mcp-protocol-version": "2025-06-18",
+    }),
+    {
+      Authorization: "***",
+      "X-Foo": "***",
+      "X-Access-Key": "***",
+      "mcp-protocol-version": "***",
+    },
+  );
+});
+
+test("redactHeadersForLogging: known non-credential headers keep their value", () => {
+  assert.deepEqual(
+    redactHeadersForLogging({
+      Accept: "text/event-stream",
+      "Last-Event-ID": "42",
+    }),
+    { Accept: "text/event-stream", "Last-Event-ID": "42" },
+  );
 });

@@ -28,7 +28,7 @@ import express from "express";
 import rateLimit from "express-rate-limit";
 import { findActualExecutable } from "spawn-rx";
 import mcpProxy, { type ProxyHeaderHolder } from "./mcpProxy.js";
-import { redactSensitiveEntries, redactQueryForLogging } from "./redact.js";
+import { redactHeadersForLogging, redactQueryForLogging } from "./redact.js";
 import { randomUUID, randomBytes, timingSafeEqual } from "node:crypto";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
@@ -466,7 +466,7 @@ const createTransport = async (
 
     console.log(
       `SSE transport: url=${url}, headers=${JSON.stringify(
-        redactSensitiveEntries(headers),
+        redactHeadersForLogging(headers),
       )}`,
     );
 
