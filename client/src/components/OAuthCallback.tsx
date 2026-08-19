@@ -35,11 +35,6 @@ const OAuthCallback = ({ onConnect }: OAuthCallbackProps) => {
           variant: "destructive",
         });
 
-      const params = parseOAuthCallbackParams(window.location.search);
-      if (!params.successful) {
-        return notifyError(generateOAuthErrorDescription(params));
-      }
-
       const serverUrl = sessionStorage.getItem(SESSION_KEYS.SERVER_URL);
       if (!serverUrl) {
         return notifyError("Missing Server URL");
@@ -48,18 +43,27 @@ const OAuthCallback = ({ onConnect }: OAuthCallbackProps) => {
       // Verify the CSRF `state` the authorization server echoed back matches the
       // one this browser session sent on the /authorize request. A mismatch (or a
       // missing value on either side) means the callback did not originate from a
-      // flow we started, so the code must not be exchanged.
+      // flow we started. This runs before the success/error branch: an error
+      // response MUST carry the `state` too (RFC 6749 §4.1.2.1), and validating it
+      // first keeps an unsolicited callback from putting attacker-chosen
+      // `error_description` text in front of the user.
       const callbackState = new URLSearchParams(window.location.search).get(
         "state",
       );
       const expectedState = getOAuthStateFromSessionStorage(serverUrl);
-      // Single-use: drop the stored value whether or not it matched, so a replayed
-      // callback cannot be validated against it a second time.
+      // Single-use: drop the stored value whether or not it matched, and whether the
+      // response was a code or an error, so a replayed callback cannot be validated
+      // against it a second time.
       clearOAuthStateFromSessionStorage(serverUrl);
       if (!callbackState || !expectedState || callbackState !== expectedState) {
         return notifyError(
           "Invalid OAuth state parameter. The authorization response did not match the request this session started.",
         );
+      }
+
+      const params = parseOAuthCallbackParams(window.location.search);
+      if (!params.successful) {
+        return notifyError(generateOAuthErrorDescription(params));
       }
 
       let result;

@@ -99,4 +99,69 @@ describe("OAuthCallback state validation", () => {
     expect(mockAuth).not.toHaveBeenCalled();
     expect(onConnect).not.toHaveBeenCalled();
   });
+
+  describe("error responses", () => {
+    it("surfaces the server's error once the state checks out", async () => {
+      storeExpectedState(STORED_STATE);
+      setSearch(
+        `?error=access_denied&error_description=User+said+no&state=${STORED_STATE}`,
+      );
+
+      render(<OAuthCallback onConnect={jest.fn()} />);
+
+      await waitFor(() =>
+        expect(errorDescriptions().join("\n")).toContain("access_denied"),
+      );
+      expect(errorDescriptions().join("\n")).toContain("User said no");
+      expect(mockAuth).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      {
+        name: "mismatched",
+        stored: STORED_STATE,
+        search: `?error=access_denied&error_description=Attacker+text&state=${"b".repeat(64)}`,
+      },
+      {
+        name: "missing",
+        stored: STORED_STATE,
+        search: "?error=access_denied&error_description=Attacker+text",
+      },
+      {
+        name: "unsolicited (nothing stored)",
+        stored: undefined,
+        search: `?error=access_denied&error_description=Attacker+text&state=${STORED_STATE}`,
+      },
+    ])(
+      "rejects a $name state on an error response without showing its description",
+      async ({ stored, search }) => {
+        if (stored) storeExpectedState(stored);
+        setSearch(search);
+
+        render(<OAuthCallback onConnect={jest.fn()} />);
+
+        await waitFor(() =>
+          expect(errorDescriptions().join("\n")).toContain(
+            "Invalid OAuth state parameter",
+          ),
+        );
+        expect(errorDescriptions().join("\n")).not.toContain("Attacker text");
+      },
+    );
+
+    it("consumes the stored state on an error response too", async () => {
+      storeExpectedState(STORED_STATE);
+      setSearch(`?error=access_denied&state=${STORED_STATE}`);
+
+      render(<OAuthCallback onConnect={jest.fn()} />);
+
+      await waitFor(() =>
+        expect(
+          sessionStorage.getItem(
+            getServerSpecificKey(SESSION_KEYS.OAUTH_STATE, SERVER_URL),
+          ),
+        ).toBeNull(),
+      );
+    });
+  });
 });
