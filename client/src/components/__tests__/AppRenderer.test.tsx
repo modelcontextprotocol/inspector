@@ -24,7 +24,12 @@ type MockMcpUiRendererProps = {
     params: { role: "user"; content: { type: "text"; text: string }[] },
     extra: RequestHandlerExtra,
   ) => Promise<McpUiMessageResult>;
+  onOpenLink?: (params: { url: string }) => Promise<{ isError: boolean }>;
 };
+
+// Set by the mocked renderer's "trigger-open-link" button so a test can assert
+// on what the host's onOpenLink handler returned.
+let lastOpenLinkResult: { isError: boolean } | undefined;
 
 const mockBridgeEvents: BridgeEvent[] = [];
 
@@ -55,6 +60,7 @@ jest.mock("@mcp-ui/client", () => {
       toolInput,
       toolResult,
       onMessage,
+      onOpenLink,
     }: MockMcpUiRendererProps) => {
       const [isInitialized, setIsInitialized] = React.useState(false);
 
@@ -108,6 +114,16 @@ jest.mock("@mcp-ui/client", () => {
           >
             Trigger Message
           </button>
+          <button
+            data-testid="trigger-open-link"
+            onClick={async () => {
+              lastOpenLinkResult = await onOpenLink?.({
+                url: document.body.dataset.openLinkUrl ?? "https://example.com",
+              });
+            }}
+          >
+            Trigger Open Link
+          </button>
         </div>
       );
     },
@@ -144,6 +160,8 @@ describe("AppRenderer", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockBridgeEvents.length = 0;
+    lastOpenLinkResult = undefined;
+    delete document.body.dataset.openLinkUrl;
   });
 
   it("should display waiting state when mcpClient is null", () => {
@@ -172,6 +190,51 @@ describe("AppRenderer", () => {
 
     expect(mockToast).toHaveBeenCalledWith({
       description: "Test message",
+    });
+  });
+
+  describe("onOpenLink", () => {
+    // Regression guard for reverse tabnabbing: a window opened without
+    // "noopener" hands the app's page a live `window.opener` reference, which
+    // it can use to navigate the Inspector tab to a page of its choosing.
+    it("should open external links with noopener,noreferrer", async () => {
+      const openSpy = jest
+        .spyOn(window, "open")
+        .mockReturnValue(null as unknown as Window);
+
+      render(<AppRenderer {...defaultProps} />);
+      document.body.dataset.openLinkUrl = "https://example.com/docs";
+
+      fireEvent.click(screen.getByTestId("trigger-open-link"));
+
+      await waitFor(() => {
+        expect(openSpy).toHaveBeenCalledWith(
+          "https://example.com/docs",
+          "_blank",
+          "noopener,noreferrer",
+        );
+        expect(lastOpenLinkResult).toEqual({ isError: false });
+      });
+
+      openSpy.mockRestore();
+    });
+
+    it("should refuse to open a non-http(s) url", async () => {
+      const openSpy = jest
+        .spyOn(window, "open")
+        .mockReturnValue(null as unknown as Window);
+
+      render(<AppRenderer {...defaultProps} />);
+      document.body.dataset.openLinkUrl = "javascript:alert(1)";
+
+      fireEvent.click(screen.getByTestId("trigger-open-link"));
+
+      await waitFor(() => {
+        expect(lastOpenLinkResult).toEqual({ isError: true });
+      });
+      expect(openSpy).not.toHaveBeenCalled();
+
+      openSpy.mockRestore();
     });
   });
 
