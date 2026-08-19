@@ -18,6 +18,8 @@ export const SESSION_KEYS = {
   SERVER_METADATA: "mcp_server_metadata",
   AUTH_DEBUGGER_STATE: "mcp_auth_debugger_state",
   SCOPE: "mcp_scope",
+  // CSRF `state` sent on the /authorize request, verified on the OAuth callback.
+  OAUTH_STATE: "mcp_oauth_state",
 } as const;
 
 // Generate server-specific session storage keys

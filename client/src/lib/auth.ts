@@ -129,6 +129,23 @@ export const clearScopeFromSessionStorage = (serverUrl: string) => {
   sessionStorage.removeItem(key);
 };
 
+/**
+ * Reads the CSRF `state` that was sent on the most recent /authorize request
+ * for `serverUrl`, so the OAuth callback can verify the value the
+ * authorization server echoed back.
+ */
+export const getOAuthStateFromSessionStorage = (
+  serverUrl: string,
+): string | undefined => {
+  const key = getServerSpecificKey(SESSION_KEYS.OAUTH_STATE, serverUrl);
+  return sessionStorage.getItem(key) || undefined;
+};
+
+export const clearOAuthStateFromSessionStorage = (serverUrl: string) => {
+  const key = getServerSpecificKey(SESSION_KEYS.OAUTH_STATE, serverUrl);
+  sessionStorage.removeItem(key);
+};
+
 export class InspectorOAuthClientProvider implements OAuthClientProvider {
   constructor(protected serverUrl: string) {
     // Save the server URL to session storage
@@ -178,8 +195,18 @@ export class InspectorOAuthClientProvider implements OAuthClientProvider {
     return metadata;
   }
 
-  state(): string | Promise<string> {
-    return generateOAuthState();
+  /**
+   * Called by the SDK immediately before it builds the /authorize URL. The
+   * generated value is persisted so `OAuthCallback` can verify the `state` the
+   * authorization server echoes back (CSRF protection, OAuth 2.1 §7.6).
+   */
+  state(): string {
+    const state = generateOAuthState();
+    sessionStorage.setItem(
+      getServerSpecificKey(SESSION_KEYS.OAUTH_STATE, this.serverUrl),
+      state,
+    );
+    return state;
   }
 
   async clientInformation() {
@@ -262,6 +289,7 @@ export class InspectorOAuthClientProvider implements OAuthClientProvider {
     sessionStorage.removeItem(
       getServerSpecificKey(SESSION_KEYS.CODE_VERIFIER, this.serverUrl),
     );
+    clearOAuthStateFromSessionStorage(this.serverUrl);
   }
 }
 

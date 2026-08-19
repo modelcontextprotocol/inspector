@@ -1,4 +1,9 @@
-import { discoverScopes } from "../auth";
+import {
+  clearOAuthStateFromSessionStorage,
+  discoverScopes,
+  getOAuthStateFromSessionStorage,
+  InspectorOAuthClientProvider,
+} from "../auth";
 import { discoverAuthorizationServerMetadata } from "@modelcontextprotocol/sdk/client/auth.js";
 
 jest.mock("@modelcontextprotocol/sdk/client/auth.js", () => ({
@@ -155,4 +160,57 @@ describe("discoverScopes", () => {
       expect(result).toBeUndefined();
     },
   );
+});
+
+describe("InspectorOAuthClientProvider state", () => {
+  const serverUrl = "https://example.com/mcp";
+
+  beforeEach(() => {
+    sessionStorage.clear();
+  });
+
+  it("persists the generated state under a server-specific key", () => {
+    const provider = new InspectorOAuthClientProvider(serverUrl);
+    const state = provider.state();
+
+    expect(state).toMatch(/^[0-9a-f]{64}$/);
+    expect(getOAuthStateFromSessionStorage(serverUrl)).toBe(state);
+  });
+
+  it("scopes the stored state to the server URL", () => {
+    const provider = new InspectorOAuthClientProvider(serverUrl);
+    const state = provider.state();
+
+    expect(getOAuthStateFromSessionStorage("https://other.com/mcp")).toBe(
+      undefined,
+    );
+    expect(getOAuthStateFromSessionStorage(serverUrl)).toBe(state);
+  });
+
+  it("overwrites the stored state on each new authorization request", () => {
+    const provider = new InspectorOAuthClientProvider(serverUrl);
+    const first = provider.state();
+    const second = provider.state();
+
+    expect(second).not.toBe(first);
+    expect(getOAuthStateFromSessionStorage(serverUrl)).toBe(second);
+  });
+
+  it("clearOAuthStateFromSessionStorage removes the stored state", () => {
+    const provider = new InspectorOAuthClientProvider(serverUrl);
+    provider.state();
+
+    clearOAuthStateFromSessionStorage(serverUrl);
+
+    expect(getOAuthStateFromSessionStorage(serverUrl)).toBe(undefined);
+  });
+
+  it("clear() drops the stored state along with the other session data", () => {
+    const provider = new InspectorOAuthClientProvider(serverUrl);
+    provider.state();
+
+    provider.clear();
+
+    expect(getOAuthStateFromSessionStorage(serverUrl)).toBe(undefined);
+  });
 });

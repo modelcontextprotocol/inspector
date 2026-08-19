@@ -1,5 +1,9 @@
 import { useEffect, useRef } from "react";
-import { InspectorOAuthClientProvider } from "../lib/auth";
+import {
+  clearOAuthStateFromSessionStorage,
+  getOAuthStateFromSessionStorage,
+  InspectorOAuthClientProvider,
+} from "../lib/auth";
 import { SESSION_KEYS } from "../lib/constants";
 import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
 import { useToast } from "@/lib/hooks/useToast";
@@ -11,8 +15,6 @@ import {
 interface OAuthCallbackProps {
   onConnect: (serverUrl: string) => void;
 }
-
-const OAUTH_STATE_SESSION_KEY = "oauth_state";
 
 const OAuthCallback = ({ onConnect }: OAuthCallbackProps) => {
   const { toast } = useToast();
@@ -38,16 +40,26 @@ const OAuthCallback = ({ onConnect }: OAuthCallbackProps) => {
         return notifyError(generateOAuthErrorDescription(params));
       }
 
-      const callbackState = new URLSearchParams(window.location.search).get("state");
-      const storedState = sessionStorage.getItem(OAUTH_STATE_SESSION_KEY);
-      if (!callbackState || !storedState || callbackState !== storedState) {
-        return notifyError("Invalid OAuth state");
-      }
-      sessionStorage.removeItem(OAUTH_STATE_SESSION_KEY);
-
       const serverUrl = sessionStorage.getItem(SESSION_KEYS.SERVER_URL);
       if (!serverUrl) {
         return notifyError("Missing Server URL");
+      }
+
+      // Verify the CSRF `state` the authorization server echoed back matches the
+      // one this browser session sent on the /authorize request. A mismatch (or a
+      // missing value on either side) means the callback did not originate from a
+      // flow we started, so the code must not be exchanged.
+      const callbackState = new URLSearchParams(window.location.search).get(
+        "state",
+      );
+      const expectedState = getOAuthStateFromSessionStorage(serverUrl);
+      // Single-use: drop the stored value whether or not it matched, so a replayed
+      // callback cannot be validated against it a second time.
+      clearOAuthStateFromSessionStorage(serverUrl);
+      if (!callbackState || !expectedState || callbackState !== expectedState) {
+        return notifyError(
+          "Invalid OAuth state parameter. The authorization response did not match the request this session started.",
+        );
       }
 
       let result;
