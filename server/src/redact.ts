@@ -1,67 +1,37 @@
-// Patterns matching env-var/header keys whose values may contain secrets.
-// When logging, we keep the key (so users can see what was passed) but
-// replace the value with `***` so tokens don't end up in stdout/log files.
-export const SENSITIVE_KEY_PATTERNS: RegExp[] = [
-  /token/i,
-  /secret/i,
-  /password/i,
-  /passwd/i,
-  /credential/i,
-  /api[-_]?key/i,
-  /(^|_)key($|_)/i,
-  /auth/i,
-  /session/i,
-  /private/i,
-  /^aws_/i,
-];
-
-// Header names that are never credentials: `Accept` is set by the proxy itself
-// and `Last-Event-ID` is an SSE resumption cursor defined by the spec, not a
-// secret. Every other forwarded header is redacted -- see
-// redactHeadersForLogging for why sensitivity cannot be inferred by name there.
-const NON_SENSITIVE_HEADERS = new Set(["accept", "last-event-id"]);
+// Helpers for logging connection parameters without disclosing credentials.
+//
+// Both the forwarded request headers and the caller-supplied `env` map are
+// redacted *by default* rather than by matching secret-looking names. Name
+// heuristics do not work for either surface:
+//
+//   - Header names are caller-chosen. `getHttpHeaders` forwards whatever name
+//     arrives in `x-custom-auth-header(s)`, so the credential can land under
+//     `X-Foo`, or under a name that a heuristic would consider safe.
+//   - Env-var names are arbitrary, and plenty of ordinary ones carry secrets
+//     inside their value: `DATABASE_URL=postgres://user:password@host/db`,
+//     `AZURE_STORAGE_CONNECTION_STRING=...`.
+//
+// Keys are preserved, so the log still answers the question it exists to
+// answer -- which headers and which env vars are being passed through -- while
+// asserting nothing about any value.
 
 export const REDACTED = "***";
 
-export const isSensitiveKey = (key: string): boolean =>
-  SENSITIVE_KEY_PATTERNS.some((re) => re.test(key));
-
-export const redactSensitiveEntries = (
-  obj: Record<string, unknown> | null | undefined,
-): Record<string, unknown> => {
-  if (!obj) return {};
-  const out: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(obj)) {
-    out[k] = isSensitiveKey(k) ? REDACTED : v;
-  }
-  return out;
-};
-
-// Redacts forwarded request headers for logging. Sensitivity cannot be inferred
-// from a header's name here: `x-custom-auth-header(s)` lets a caller nominate an
-// arbitrarily-named header (`X-Foo`, `X-Access-Key`) to carry its credential, so
-// anything not on the known-safe list has its value replaced. Names are kept so
-// the log still shows which headers are being forwarded.
-export const redactHeadersForLogging = (
-  headers: Record<string, string>,
+const redactAllValues = (
+  obj: Record<string, unknown>,
 ): Record<string, string> => {
   const out: Record<string, string> = {};
-  for (const [k, v] of Object.entries(headers)) {
-    out[k] = NON_SENSITIVE_HEADERS.has(k.toLowerCase()) ? v : REDACTED;
+  for (const key of Object.keys(obj)) {
+    out[key] = REDACTED;
   }
   return out;
 };
 
-// A real `env` payload is a flat string-to-string map. Anything else -- an
-// array, a nested object, non-string values -- cannot be redacted key-by-key by
-// the shallow redactor, so it is replaced wholesale rather than logged verbatim.
-const isFlatStringMap = (value: unknown): value is Record<string, string> =>
-  typeof value === "object" &&
-  value !== null &&
-  !Array.isArray(value) &&
-  Object.values(value as Record<string, unknown>).every(
-    (entry) => typeof entry === "string",
-  );
+// Redacts forwarded request headers for logging: every value is replaced,
+// names are kept.
+export const redactHeadersForLogging = (
+  headers: Record<string, string>,
+): Record<string, string> => redactAllValues(headers);
 
 const redactEnvForLogging = (env: unknown): unknown => {
   // Express query values are not necessarily strings: `?env=a&env=b` yields an
@@ -76,8 +46,13 @@ const redactEnvForLogging = (env: unknown): unknown => {
     return REDACTED;
   }
 
-  if (!isFlatStringMap(parsed)) return REDACTED;
-  return redactSensitiveEntries(parsed);
+  // Only a plain object has env-var names worth showing. An array or a scalar
+  // has none, so there is nothing to preserve and it is redacted whole.
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    return REDACTED;
+  }
+
+  return redactAllValues(parsed as Record<string, unknown>);
 };
 
 // Returns a copy of an Express query object with the `env` value replaced by a

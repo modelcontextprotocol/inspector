@@ -2,57 +2,67 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  redactSensitiveEntries,
   redactHeadersForLogging,
   redactQueryForLogging,
 } from "../src/redact.js";
 
-test("redactSensitiveEntries: redacts common secret-bearing env vars and keeps benign ones", () => {
-  const input = {
-    GITHUB_TOKEN: "ghp_xxx",
+test("redactHeadersForLogging: every forwarded header value is redacted", () => {
+  // Sensitivity cannot be inferred from a header name: `getHttpHeaders`
+  // forwards whatever name arrives in `x-custom-auth-header(s)`, so the
+  // credential can land under any name at all -- including one an allowlist
+  // would consider safe.
+  assert.deepEqual(
+    redactHeadersForLogging({
+      Authorization: "Bearer secret",
+      "X-Foo": "secret",
+      "X-Access-Key": "secret",
+      "mcp-protocol-version": "2025-06-18",
+      Accept: "text/event-stream",
+      accept: "secret",
+      "last-event-id": "secret",
+    }),
+    {
+      Authorization: "***",
+      "X-Foo": "***",
+      "X-Access-Key": "***",
+      "mcp-protocol-version": "***",
+      Accept: "***",
+      accept: "***",
+      "last-event-id": "***",
+    },
+  );
+});
+
+test("redactHeadersForLogging: an empty header set stays empty", () => {
+  assert.deepEqual(redactHeadersForLogging({}), {});
+});
+
+test("redactQueryForLogging: env var names are kept, every value is redacted", () => {
+  // A name-pattern denylist would have preserved DATABASE_URL and PATH; the
+  // former carries its credential inside the value.
+  const env = JSON.stringify({
+    PASSWORD: "p",
+    PORT: "5432",
     PATH: "/usr/bin",
-    AWS_ACCESS_KEY_ID: "AKIA...",
-  };
-  assert.deepEqual(redactSensitiveEntries(input), {
-    GITHUB_TOKEN: "***",
-    PATH: "/usr/bin",
-    AWS_ACCESS_KEY_ID: "***",
+    DATABASE_URL: "postgres://user:password@host/db",
   });
-});
-
-test("redactSensitiveEntries: bare KEY and API_KEY are redacted", () => {
-  assert.deepEqual(redactSensitiveEntries({ KEY: "k" }), { KEY: "***" });
-  assert.deepEqual(redactSensitiveEntries({ API_KEY: "k" }), {
-    API_KEY: "***",
-  });
-  assert.deepEqual(redactSensitiveEntries({ "api-key": "k" }), {
-    "api-key": "***",
-  });
-});
-
-test("redactSensitiveEntries: word containing 'key' is NOT redacted (boundary)", () => {
-  // The boundary in /(^|_)key($|_)/i prevents naive substring matches like
-  // MONKEY, KEYBOARD, etc. from being flagged as secrets.
-  assert.deepEqual(redactSensitiveEntries({ MONKEY: "m" }), { MONKEY: "m" });
-  assert.deepEqual(redactSensitiveEntries({ KEYBOARD: "k" }), {
-    KEYBOARD: "k",
-  });
-});
-
-test("redactSensitiveEntries: Authorization header is redacted", () => {
-  assert.deepEqual(redactSensitiveEntries({ Authorization: "Bearer x" }), {
-    Authorization: "***",
-  });
-});
-
-test("redactQueryForLogging: env JSON is parsed and redacted entry-by-entry", () => {
-  const env = JSON.stringify({ PASSWORD: "p", PORT: "5432" });
   const out = redactQueryForLogging({ env, transport: "stdio" }) as Record<
     string,
     unknown
   >;
-  assert.deepEqual(out.env, { PASSWORD: "***", PORT: "5432" });
+  assert.deepEqual(out.env, {
+    PASSWORD: "***",
+    PORT: "***",
+    PATH: "***",
+    DATABASE_URL: "***",
+  });
   assert.equal(out.transport, "stdio");
+});
+
+test("redactQueryForLogging: a nested env value is redacted, not descended into", () => {
+  const env = JSON.stringify({ SAFE: { PASSWORD: "p" } });
+  const out = redactQueryForLogging({ env }) as Record<string, unknown>;
+  assert.deepEqual(out.env, { SAFE: "***" });
 });
 
 test("redactQueryForLogging: malformed env falls back to ***", () => {
@@ -61,12 +71,6 @@ test("redactQueryForLogging: malformed env falls back to ***", () => {
     unknown
   >;
   assert.equal(out.env, "***");
-});
-
-test("redactQueryForLogging: missing env passes through unchanged", () => {
-  assert.deepEqual(redactQueryForLogging({ transport: "sse" }), {
-    transport: "sse",
-  });
 });
 
 test("redactQueryForLogging: non-string env is redacted wholesale", () => {
@@ -87,14 +91,8 @@ test("redactQueryForLogging: non-string env is redacted wholesale", () => {
   );
 });
 
-test("redactQueryForLogging: env parsing to a non-flat value is redacted wholesale", () => {
-  // A nested object would otherwise slip past the shallow key-based redactor.
-  const nested = JSON.stringify({ SAFE: { PASSWORD: "p" } });
-  assert.equal(
-    (redactQueryForLogging({ env: nested }) as Record<string, unknown>).env,
-    "***",
-  );
-
+test("redactQueryForLogging: env parsing to a non-object is redacted wholesale", () => {
+  // An array or a scalar has no env-var names worth preserving.
   const array = JSON.stringify(["PASSWORD=p"]);
   assert.equal(
     (redactQueryForLogging({ env: array }) as Record<string, unknown>).env,
@@ -106,33 +104,21 @@ test("redactQueryForLogging: env parsing to a non-flat value is redacted wholesa
     (redactQueryForLogging({ env: scalar }) as Record<string, unknown>).env,
     "***",
   );
-});
 
-test("redactHeadersForLogging: every forwarded header value is redacted by name-agnostic default", () => {
-  // `x-custom-auth-header(s)` lets a caller name any header as its credential
-  // carrier, so a name-pattern check would miss `X-Foo` entirely.
-  assert.deepEqual(
-    redactHeadersForLogging({
-      Authorization: "Bearer secret",
-      "X-Foo": "secret",
-      "X-Access-Key": "secret",
-      "mcp-protocol-version": "2025-06-18",
-    }),
-    {
-      Authorization: "***",
-      "X-Foo": "***",
-      "X-Access-Key": "***",
-      "mcp-protocol-version": "***",
-    },
+  const nullEnv = JSON.stringify(null);
+  assert.equal(
+    (redactQueryForLogging({ env: nullEnv }) as Record<string, unknown>).env,
+    "***",
   );
 });
 
-test("redactHeadersForLogging: known non-credential headers keep their value", () => {
-  assert.deepEqual(
-    redactHeadersForLogging({
-      Accept: "text/event-stream",
-      "Last-Event-ID": "42",
-    }),
-    { Accept: "text/event-stream", "Last-Event-ID": "42" },
-  );
+test("redactQueryForLogging: missing env passes through unchanged", () => {
+  assert.deepEqual(redactQueryForLogging({ transport: "sse" }), {
+    transport: "sse",
+  });
+});
+
+test("redactQueryForLogging: a non-object query passes through unchanged", () => {
+  assert.equal(redactQueryForLogging(undefined), undefined);
+  assert.equal(redactQueryForLogging("nope"), "nope");
 });
