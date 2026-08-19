@@ -25,7 +25,7 @@
     "start": "node build/index.js",
     "dev": "tsx watch --clear-screen=false src/index.ts",
     "dev:windows": "tsx watch --clear-screen=false src/index.ts < NUL",
-    "test": "vitest run",
+    "test": "tsc -p tsconfig.test.json && vitest run",
     "test:watch": "vitest"
   },
   "devDependencies": {

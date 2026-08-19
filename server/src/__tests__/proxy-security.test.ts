@@ -224,18 +224,18 @@ function pinnedLookup(agent: http.Agent | https.Agent): PinnedLookup {
 
 describe("createPinnedAgent", () => {
   it("returns an http.Agent for http: protocol", () => {
-    const agent = createPinnedAgent("http:", "127.0.0.1");
+    const agent = createPinnedAgent("http:", ["127.0.0.1"]);
     expect(agent).toBeInstanceOf(http.Agent);
     expect(agent).not.toBeInstanceOf(https.Agent);
   });
 
   it("returns an https.Agent for https: protocol", () => {
-    const agent = createPinnedAgent("https:", "127.0.0.1");
+    const agent = createPinnedAgent("https:", ["127.0.0.1"]);
     expect(agent).toBeInstanceOf(https.Agent);
   });
 
   it("pinned lookup returns the IPv4 address regardless of queried hostname", () => {
-    const lookup = pinnedLookup(createPinnedAgent("http:", "192.0.2.99"));
+    const lookup = pinnedLookup(createPinnedAgent("http:", ["192.0.2.99"]));
 
     const callback = vi.fn();
     lookup("example.com", {}, callback);
@@ -244,7 +244,7 @@ describe("createPinnedAgent", () => {
   });
 
   it("pinned lookup returns the IPv6 address and family 6", () => {
-    const lookup = pinnedLookup(createPinnedAgent("http:", "2001:db8::1"));
+    const lookup = pinnedLookup(createPinnedAgent("http:", ["2001:db8::1"]));
 
     const callback = vi.fn();
     lookup("example.com", {}, callback);
@@ -256,7 +256,7 @@ describe("createPinnedAgent", () => {
   // the hook with { all: true } and requires the ARRAY callback shape. Handing
   // it a scalar there fails every hostname request with ERR_INVALID_IP_ADDRESS.
   it("pinned lookup returns the array shape when called with { all: true }", () => {
-    const lookup = pinnedLookup(createPinnedAgent("http:", "192.0.2.99"));
+    const lookup = pinnedLookup(createPinnedAgent("http:", ["192.0.2.99"]));
 
     const callback = vi.fn();
     lookup("example.com", { all: true }, callback);
@@ -267,7 +267,7 @@ describe("createPinnedAgent", () => {
   });
 
   it("pinned lookup returns the array shape for IPv6 too", () => {
-    const lookup = pinnedLookup(createPinnedAgent("http:", "2001:db8::1"));
+    const lookup = pinnedLookup(createPinnedAgent("http:", ["2001:db8::1"]));
 
     const callback = vi.fn();
     lookup("example.com", { all: true }, callback);
@@ -277,8 +277,52 @@ describe("createPinnedAgent", () => {
     ]);
   });
 
+  // Every validated address is handed to the hook, so Node keeps its normal
+  // address-family fallback for a dual-stack host whose first address is
+  // unreachable — while still only ever seeing prevalidated addresses.
+  it("passes every validated address through for dual-stack fallback", () => {
+    const lookup = pinnedLookup(
+      createPinnedAgent("http:", ["2001:db8::1", "192.0.2.7"]),
+    );
+
+    const callback = vi.fn();
+    lookup("dual.example", { all: true }, callback);
+
+    expect(callback).toHaveBeenCalledWith(null, [
+      { address: "2001:db8::1", family: 6 },
+      { address: "192.0.2.7", family: 4 },
+    ]);
+  });
+
+  it("throws when given no validated address", () => {
+    expect(() => createPinnedAgent("http:", [])).toThrow(ProxyTargetError);
+  });
+
+  // A dual-stack host whose first (IPv6) address is dead: the connection must
+  // still complete via the second, validated address.
+  it("falls back to a later validated address when the first is unreachable", async () => {
+    const server = http.createServer((_req, res) => res.end("fallback-ok"));
+    await new Promise<void>((resolve) =>
+      server.listen(0, "127.0.0.1", () => resolve()),
+    );
+    const { port } = server.address() as AddressInfo;
+
+    try {
+      // 2001:db8::1 is the documentation range — nothing answers there.
+      const agent = createPinnedAgent("http:", ["2001:db8::1", "127.0.0.1"]);
+      const response = await nodeFetch(`http://dual.invalid:${port}/`, {
+        agent,
+      });
+
+      expect(response.status).toBe(200);
+      await expect(response.text()).resolves.toBe("fallback-ok");
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
   it("TOCTOU guarantee: lookup never invokes the OS resolver", () => {
-    const lookup = pinnedLookup(createPinnedAgent("http:", "10.0.0.1"));
+    const lookup = pinnedLookup(createPinnedAgent("http:", ["10.0.0.1"]));
 
     const callback = vi.fn();
     lookup("any-hostname.example", {}, callback);
@@ -300,7 +344,7 @@ describe("createPinnedAgent", () => {
     const { port } = server.address() as AddressInfo;
 
     try {
-      const agent = createPinnedAgent("http:", "127.0.0.1");
+      const agent = createPinnedAgent("http:", ["127.0.0.1"]);
       const response = await nodeFetch(
         `http://pinned-target.invalid:${port}/`,
         { agent },

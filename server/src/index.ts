@@ -888,10 +888,12 @@ async function safeProxyFetch(initialUrl: string, init?: RequestInit) {
       throw new ProxyTargetError("Only http/https URLs are allowed");
     }
 
-    // Resolve DNS once, validate every address, and pin the connection to the
-    // first validated IP so node-fetch never does a second DNS lookup.
+    // Resolve DNS once, validate every address, and pin the connection to that
+    // validated set so node-fetch never does a second DNS lookup. All of them
+    // are passed through, so Node's address-family fallback still works while
+    // the reachable set stays limited to what was just validated.
     const validatedAddresses = await assertSafeProxyTarget(currentUrl);
-    const agent = createPinnedAgent(currentUrl.protocol, validatedAddresses[0]);
+    const agent = createPinnedAgent(currentUrl.protocol, validatedAddresses);
 
     const response = await fetch(currentUrl.toString(), {
       method,

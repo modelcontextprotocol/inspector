@@ -1,0 +1,12 @@
+// The build config excludes __tests__ so the suite never lands in the
+// published `build/` output. This config exists only so the tests are still
+// type-checked; it emits nothing and is run by `npm test`.
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "types": ["node"]
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "packages"]
+}

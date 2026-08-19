@@ -125,20 +125,33 @@ export async function assertSafeProxyTarget(parsedUrl: URL): Promise<string[]> {
 
 /**
  * Creates an `http.Agent` or `https.Agent` whose internal `lookup` hook always
- * returns `pinnedIp`, bypassing the OS resolver entirely.
+ * returns `pinnedIps`, bypassing the OS resolver entirely.
  *
  * Pass this agent to `node-fetch` on every hop of `safeProxyFetch` so the TCP
- * connection always goes to the IP that was validated by `assertSafeProxyTarget`
+ * connection always goes to an IP that was validated by `assertSafeProxyTarget`
  * — even if the domain's DNS record changes mid-flight.
  *
+ * Every address `assertSafeProxyTarget` returned is handed to the hook, not
+ * just the first, so Node keeps its normal address-family fallback: a
+ * dual-stack host whose first address is unreachable (IPv6 on an IPv4-only
+ * network, say) still connects via a later one. The set it may choose from is
+ * exactly the prevalidated set, so the TOCTOU guarantee is unchanged.
+ *
  * @param protocol - `"http:"` or `"https:"` (from `URL.protocol`)
- * @param pinnedIp - A validated IPv4 or IPv6 address string
+ * @param pinnedIps - Validated IPv4/IPv6 address strings, in preference order
  */
 export function createPinnedAgent(
   protocol: string,
-  pinnedIp: string,
+  pinnedIps: string[],
 ): http.Agent | https.Agent {
-  const family = isIP(pinnedIp) === 6 ? 6 : 4;
+  if (pinnedIps.length === 0) {
+    throw new ProxyTargetError("No validated address to connect to");
+  }
+
+  const resolved: dns.LookupAddress[] = pinnedIps.map((address) => ({
+    address,
+    family: isIP(address) === 6 ? 6 : 4,
+  }));
 
   // Node.js lookup signature: (hostname, options, callback).
   //
@@ -157,10 +170,10 @@ export function createPinnedAgent(
     ) => void,
   ): void => {
     if (opts?.all) {
-      callback(null, [{ address: pinnedIp, family }]);
+      callback(null, resolved);
       return;
     }
-    callback(null, pinnedIp, family);
+    callback(null, resolved[0].address, resolved[0].family);
   };
 
   if (protocol === "https:") {
