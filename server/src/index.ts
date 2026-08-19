@@ -204,11 +204,17 @@ const originValidationMiddleware = (
   ];
 
   if (!origin || !allowedOrigins.includes(origin)) {
-    console.error(`Invalid origin: ${origin}`);
+    // Distinguish the two rejection causes so operators can tell a genuine
+    // cross-origin attempt from a non-browser client that sent no Origin at all.
+    console.error(
+      origin
+        ? `Invalid origin: ${origin}`
+        : "Missing origin header - request rejected",
+    );
     res.status(403).json({
       error: "Forbidden - invalid origin",
       message:
-        "Request blocked to prevent DNS rebinding attacks. Configure allowed origins via environment variable.",
+        "Request blocked to prevent DNS rebinding attacks. Requests must send an Origin header matching an allowed origin; configure allowed origins via the ALLOWED_ORIGINS environment variable.",
     });
     return;
   }

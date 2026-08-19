@@ -237,6 +237,8 @@ To prevent DNS rebinding attacks, the MCP Inspector validates the `Origin` heade
 ALLOWED_ORIGINS=http://localhost:6274,http://localhost:8000 npm start
 ```
 
+Validation fails closed: a request whose `Origin` header is **missing** is rejected with `403` just like one whose `Origin` is not on the allow list. Browsers always send `Origin` on the cross-origin requests the Inspector client makes, so normal use is unaffected — but a non-browser client (curl, Postman, a CI script) driving the proxy API directly must send the header explicitly, for example `-H "Origin: http://localhost:6274"`. The unauthenticated `/health` endpoint is not origin-checked, so container health checks are unaffected.
+
 ### Configuration
 
 The MCP Inspector supports the following configuration settings. To change them, click on the `Configuration` button in the MCP Inspector UI:
