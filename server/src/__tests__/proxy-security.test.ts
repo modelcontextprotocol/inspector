@@ -10,6 +10,9 @@
 
 import http from "node:http";
 import https from "node:https";
+import type dnsTypes from "node:dns";
+import type { AddressInfo } from "node:net";
+import nodeFetch from "node-fetch";
 import { vi, describe, it, expect, afterEach } from "vitest";
 
 // Mock node:dns/promises before importing the module under test so that
@@ -164,9 +167,7 @@ describe("assertSafeProxyTarget", () => {
   });
 
   it("skips DNS lookup for literal IPv4 hosts", async () => {
-    const addrs = await assertSafeProxyTarget(
-      new URL("http://127.0.0.1/path"),
-    );
+    const addrs = await assertSafeProxyTarget(new URL("http://127.0.0.1/path"));
     expect(addrs).toEqual(["127.0.0.1"]);
     expect(mockLookup).not.toHaveBeenCalled();
   });
@@ -201,6 +202,26 @@ describe("assertSafeProxyTarget", () => {
 // createPinnedAgent
 // ---------------------------------------------------------------------------
 
+/** The lookup hook `createPinnedAgent` installed on the agent. */
+type PinnedLookup = (
+  hostname: string,
+  options: dnsTypes.LookupOptions,
+  callback: (
+    err: NodeJS.ErrnoException | null,
+    address: string | dnsTypes.LookupAddress[],
+    family?: number,
+  ) => void,
+) => void;
+
+function pinnedLookup(agent: http.Agent | https.Agent): PinnedLookup {
+  const { lookup } = (agent as http.Agent & { options: http.AgentOptions })
+    .options;
+  if (typeof lookup !== "function") {
+    throw new Error("expected createPinnedAgent to install a lookup hook");
+  }
+  return lookup as PinnedLookup;
+}
+
 describe("createPinnedAgent", () => {
   it("returns an http.Agent for http: protocol", () => {
     const agent = createPinnedAgent("http:", "127.0.0.1");
@@ -213,53 +234,82 @@ describe("createPinnedAgent", () => {
     expect(agent).toBeInstanceOf(https.Agent);
   });
 
-  it("pinned lookup always returns the IPv4 address regardless of queried hostname", () =>
-    new Promise<void>((resolve) => {
-      const agent = createPinnedAgent("http:", "192.0.2.99");
-      const lookup = (agent as http.Agent & { options: { lookup: Function } })
-        .options.lookup;
+  it("pinned lookup returns the IPv4 address regardless of queried hostname", () => {
+    const lookup = pinnedLookup(createPinnedAgent("http:", "192.0.2.99"));
 
-      lookup(
-        "example.com",
-        {},
-        (err: Error | null, address: string, family: number) => {
-          expect(err).toBeNull();
-          expect(address).toBe("192.0.2.99");
-          expect(family).toBe(4);
-          resolve();
-        },
-      );
-    }));
+    const callback = vi.fn();
+    lookup("example.com", {}, callback);
 
-  it("pinned lookup always returns the IPv6 address and family 6", () =>
-    new Promise<void>((resolve) => {
-      const agent = createPinnedAgent("http:", "2001:db8::1");
-      const lookup = (agent as http.Agent & { options: { lookup: Function } })
-        .options.lookup;
+    expect(callback).toHaveBeenCalledWith(null, "192.0.2.99", 4);
+  });
 
-      lookup(
-        "example.com",
-        {},
-        (err: Error | null, address: string, family: number) => {
-          expect(err).toBeNull();
-          expect(address).toBe("2001:db8::1");
-          expect(family).toBe(6);
-          resolve();
-        },
-      );
-    }));
+  it("pinned lookup returns the IPv6 address and family 6", () => {
+    const lookup = pinnedLookup(createPinnedAgent("http:", "2001:db8::1"));
+
+    const callback = vi.fn();
+    lookup("example.com", {}, callback);
+
+    expect(callback).toHaveBeenCalledWith(null, "2001:db8::1", 6);
+  });
+
+  // Node's net.connect runs with autoSelectFamily on (Node >= 20), so it calls
+  // the hook with { all: true } and requires the ARRAY callback shape. Handing
+  // it a scalar there fails every hostname request with ERR_INVALID_IP_ADDRESS.
+  it("pinned lookup returns the array shape when called with { all: true }", () => {
+    const lookup = pinnedLookup(createPinnedAgent("http:", "192.0.2.99"));
+
+    const callback = vi.fn();
+    lookup("example.com", { all: true }, callback);
+
+    expect(callback).toHaveBeenCalledWith(null, [
+      { address: "192.0.2.99", family: 4 },
+    ]);
+  });
+
+  it("pinned lookup returns the array shape for IPv6 too", () => {
+    const lookup = pinnedLookup(createPinnedAgent("http:", "2001:db8::1"));
+
+    const callback = vi.fn();
+    lookup("example.com", { all: true }, callback);
+
+    expect(callback).toHaveBeenCalledWith(null, [
+      { address: "2001:db8::1", family: 6 },
+    ]);
+  });
 
   it("TOCTOU guarantee: lookup never invokes the OS resolver", () => {
-    const agent = createPinnedAgent("http:", "10.0.0.1");
-    const lookup = (agent as http.Agent & { options: { lookup: Function } })
-      .options.lookup;
+    const lookup = pinnedLookup(createPinnedAgent("http:", "10.0.0.1"));
 
-    const osDnsLookup = vi.fn();
-    lookup("any-hostname.example", {}, osDnsLookup);
+    const callback = vi.fn();
+    lookup("any-hostname.example", {}, callback);
 
-    // osDnsLookup was called as the callback, not as a resolver —
-    // the pinned implementation calls it synchronously with the fixed IP.
-    expect(osDnsLookup).toHaveBeenCalledTimes(1);
-    expect(osDnsLookup).toHaveBeenCalledWith(null, "10.0.0.1", 4);
+    // The callback is invoked synchronously with the fixed IP — no resolver.
+    expect(callback).toHaveBeenCalledTimes(1);
+    expect(callback).toHaveBeenCalledWith(null, "10.0.0.1", 4);
+  });
+
+  // End-to-end over the production call path: node-fetch → http.Agent →
+  // net.connect. The hostname is deliberately unresolvable, so the request can
+  // only succeed if the connection went to the pinned IP, and it exercises the
+  // real { all: true } callback shape rather than a hand-rolled invocation.
+  it("routes a real request to the pinned IP for an unresolvable hostname", async () => {
+    const server = http.createServer((_req, res) => res.end("pinned-ok"));
+    await new Promise<void>((resolve) =>
+      server.listen(0, "127.0.0.1", () => resolve()),
+    );
+    const { port } = server.address() as AddressInfo;
+
+    try {
+      const agent = createPinnedAgent("http:", "127.0.0.1");
+      const response = await nodeFetch(
+        `http://pinned-target.invalid:${port}/`,
+        { agent },
+      );
+
+      expect(response.status).toBe(200);
+      await expect(response.text()).resolves.toBe("pinned-ok");
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
   });
 });

@@ -898,8 +898,7 @@ async function safeProxyFetch(initialUrl: string, init?: RequestInit) {
       headers,
       body,
       redirect: "manual",
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      agent: agent as any,
+      agent,
     });
 
     if (response.status >= 300 && response.status < 400) {

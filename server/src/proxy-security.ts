@@ -21,6 +21,7 @@
 import http from "node:http";
 import https from "node:https";
 import { isIP } from "node:net";
+import type dns from "node:dns";
 import { lookup as dnsLookup } from "node:dns/promises";
 
 // ---------------------------------------------------------------------------
@@ -89,9 +90,7 @@ export class ProxyTargetError extends Error {}
  * @throws {ProxyTargetError} if the host cannot be resolved or any resolved
  *   address falls inside the block-list.
  */
-export async function assertSafeProxyTarget(
-  parsedUrl: URL,
-): Promise<string[]> {
+export async function assertSafeProxyTarget(parsedUrl: URL): Promise<string[]> {
   const host = parsedUrl.hostname.replace(/^\[|\]$/g, ""); // strip IPv6 brackets
 
   let addresses: string[];
@@ -141,12 +140,26 @@ export function createPinnedAgent(
 ): http.Agent | https.Agent {
   const family = isIP(pinnedIp) === 6 ? 6 : 4;
 
-  // Node.js lookup signature: (hostname, options, callback)
+  // Node.js lookup signature: (hostname, options, callback).
+  //
+  // The callback shape depends on `options.all`. Node's `net.connect` runs with
+  // `autoSelectFamily` enabled by default (Node >= 20), so it calls the hook
+  // with `{ all: true }` and expects an ARRAY of `{ address, family }` — handing
+  // it the scalar form there fails the connection with ERR_INVALID_IP_ADDRESS.
+  // Both shapes are supported so the agent works on either call path.
   const lookup = (
     _hostname: string,
-    _opts: unknown,
-    callback: (err: Error | null, address: string, family: number) => void,
+    opts: dns.LookupOptions | undefined,
+    callback: (
+      err: NodeJS.ErrnoException | null,
+      address: string | dns.LookupAddress[],
+      family?: number,
+    ) => void,
   ): void => {
+    if (opts?.all) {
+      callback(null, [{ address: pinnedIp, family }]);
+      return;
+    }
     callback(null, pinnedIp, family);
   };
 
