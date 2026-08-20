@@ -1,9 +1,18 @@
+# `v1/main` is the deprecated maintenance line: it publishes straight from this
+# branch to the `v1-latest` dist-tag and never merges into `main`, which now
+# carries v2. Keep these filters pinned to `v1/main` — a stale `main` entry here
+# describes a topology that no longer exists, and would start matching the moment
+# anything put a v1-shaped tree back on that branch.
+#
+# (For `push`, GitHub runs the workflow file from the pushed commit, so this file
+# is only ever consulted for `v1/main` regardless. The filter states intent.)
 on:
   push:
     branches:
-      - main
       - v1/main
   pull_request:
+    branches:
+      - v1/main
   release:
     types: [published]
 
