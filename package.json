@@ -1,6 +1,6 @@
 {
   "name": "@modelcontextprotocol/inspector",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Model Context Protocol inspector",
   "license": "SEE LICENSE IN LICENSE",
   "author": "Model Context Protocol a Series of LF Projects, LLC.",
@@ -48,14 +48,14 @@
     "prettier-check": "prettier --check .",
     "lint": "prettier --check . && cd client && npm run lint",
     "prepare": "husky && npm run build",
-    "publish-all": "npm publish --workspaces --access public && npm publish --access public",
+    "publish-all": "npm publish --workspaces --access public --tag v1-latest && npm publish --access public --tag v1-latest",
     "update-version": "node scripts/update-version.js",
     "check-version": "node scripts/check-version-consistency.js"
   },
   "dependencies": {
-    "@modelcontextprotocol/inspector-cli": "^1.0.0",
-    "@modelcontextprotocol/inspector-client": "^1.0.0",
-    "@modelcontextprotocol/inspector-server": "^1.0.0",
+    "@modelcontextprotocol/inspector-cli": "^1.0.1",
+    "@modelcontextprotocol/inspector-client": "^1.0.1",
+    "@modelcontextprotocol/inspector-server": "^1.0.1",
     "@modelcontextprotocol/sdk": "^1.25.2",
     "concurrently": "^9.2.0",
     "node-fetch": "^3.3.2",

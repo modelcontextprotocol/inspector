@@ -1024,6 +1024,11 @@ const HOST = process.env.HOST || "localhost";
 
 const server = app.listen(PORT, HOST);
 server.on("listening", () => {
+  console.log(
+    `\n⚠️  @modelcontextprotocol/inspector v1 is deprecated.\n` +
+      `    Upgrade:  npx @modelcontextprotocol/inspector@latest\n` +
+      `    v1 receives security fixes only.\n`,
+  );
   console.log(`⚙️ Proxy server listening on ${HOST}:${PORT}`);
   if (!authDisabled) {
     console.log(

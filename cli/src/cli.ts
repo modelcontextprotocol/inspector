@@ -9,6 +9,20 @@ import { fileURLToPath } from "url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
+/**
+ * v1 deprecation notice. Written to stderr, never stdout: `--cli` mode emits
+ * JSON on stdout and callers pipe it, so a banner there would corrupt output.
+ */
+const DEPRECATION_NOTICE = [
+  "⚠️  @modelcontextprotocol/inspector v1 is deprecated.",
+  "    Upgrade:  npx @modelcontextprotocol/inspector@latest",
+  "    v1 receives security fixes only.",
+].join("\n");
+
+function printDeprecationNotice(): void {
+  console.error(`\n${DEPRECATION_NOTICE}\n`);
+}
+
 type Args = {
   command: string;
   args: string[];
@@ -377,6 +391,8 @@ async function main(): Promise<void> {
   process.on("uncaughtException", (error) => {
     handleError(error);
   });
+
+  printDeprecationNotice();
 
   try {
     const args = parseArgs();
