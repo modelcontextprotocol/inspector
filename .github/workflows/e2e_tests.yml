@@ -1,10 +1,14 @@
 name: Playwright Tests
 
+# Pinned to `v1/main`, this branch's own base. These filters read `main`
+# historically, from when the v1 line was itself `main` — which meant they
+# matched nothing here and the suite silently never ran on this branch.
+# See #2065.
 on:
   push:
-    branches: [main]
+    branches: [v1/main]
   pull_request:
-    branches: [main]
+    branches: [v1/main]
 
 jobs:
   test:
