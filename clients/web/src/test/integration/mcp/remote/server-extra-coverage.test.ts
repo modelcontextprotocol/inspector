@@ -991,7 +991,9 @@ describe("server.ts supplemental coverage", () => {
         const warned = cap.records.filter(
           (r) =>
             r.level === "warn" &&
-            JSON.stringify(r.args).includes("Keychain unavailable"),
+            // Wording broadened with the store: a file-backed store fails for
+            // reasons that have nothing to do with a keychain.
+            JSON.stringify(r.args).includes("Secret store unavailable"),
         );
         expect(warned.length).toBeGreaterThan(0);
       } finally {

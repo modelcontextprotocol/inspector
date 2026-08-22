@@ -21,6 +21,7 @@ import { DEFAULT_SEED_CONFIG } from "@inspector/core/mcp/serverList.js";
 import {
   InMemorySecretStore,
   KeychainUnavailableError,
+  SessionSecretStore,
   SECRET_FIELD_OAUTH_CLIENT_SECRET,
   envSecretField,
   type SecretStore,
@@ -2620,5 +2621,102 @@ describe("/api/servers read-only sessions (#1481/#1483)", () => {
     } finally {
       await close(h);
     }
+  });
+});
+
+describe("plaintext migration against a session-scoped store (#1950)", () => {
+  // The container fallback selects an in-memory store in production. The
+  // migration must not take that as licence to delete the durable copy: it
+  // runs on an ordinary GET, so merely opening the app would move the user's
+  // secrets into RAM and lose them at exit.
+  let tempDir: string;
+  let configPath: string;
+
+  beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), "inspector-session-store-"));
+    configPath = join(tempDir, "mcp.json");
+    writeFileSync(
+      configPath,
+      JSON.stringify({
+        mcpServers: {
+          srv: {
+            type: "streamable-http",
+            url: "https://x.test/mcp",
+            oauth: { clientId: "cid", clientSecret: "must-survive" },
+          },
+        },
+      }),
+    );
+  });
+
+  afterEach(() => {
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it("leaves the disk plaintext alone and still serves the secret", async () => {
+    const { app } = createRemoteApp({
+      dangerouslyOmitAuth: true,
+      mcpConfigPath: configPath,
+      initialConfig: { defaultEnvironment: {} },
+      secretStore: new SessionSecretStore(),
+    });
+    const before = readFileSync(configPath, "utf-8");
+
+    const res = await app.request(new Request("http://test/api/servers"));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as MCPConfig;
+    // The session behaves normally — the value is loaded and served.
+    expect(
+      (body.mcpServers.srv as { oauth?: { clientSecret?: string } }).oauth
+        ?.clientSecret,
+    ).toBe("must-survive");
+    // But the durable copy is untouched.
+    expect(readFileSync(configPath, "utf-8")).toBe(before);
+  });
+
+  it("aborts the migration when the keychain read fails, preserving mcp.json", async () => {
+    // The keychain-wins lookup used the tolerant `get`, so an unreadable
+    // keychain read as "nothing there" — and the write that followed would
+    // put the older plaintext over a newer keychain value before the disk
+    // copy was stripped.
+    let wrote = false;
+    const flaky: SecretStore = {
+      get: async () => null,
+      getStrict: async () => {
+        throw new KeychainUnavailableError(new Error("temporarily down"));
+      },
+      set: async () => {
+        wrote = true;
+      },
+      delete: async () => {},
+      deleteAllForServer: async () => {},
+    };
+    const { app } = createRemoteApp({
+      dangerouslyOmitAuth: true,
+      mcpConfigPath: configPath,
+      initialConfig: { defaultEnvironment: {} },
+      secretStore: flaky,
+    });
+    const before = readFileSync(configPath, "utf-8");
+
+    const res = await app.request(new Request("http://test/api/servers"));
+    expect(res.status).toBe(200);
+    expect(wrote).toBe(false);
+    expect(readFileSync(configPath, "utf-8")).toBe(before);
+  });
+
+  it("still strips it against a durable store, so the guard is the difference", async () => {
+    // The control: same config, same request, a store that outlives the
+    // process — and the migration does what it always did.
+    const { app } = createRemoteApp({
+      dangerouslyOmitAuth: true,
+      mcpConfigPath: configPath,
+      initialConfig: { defaultEnvironment: {} },
+      secretStore: new InMemorySecretStore(),
+    });
+
+    const res = await app.request(new Request("http://test/api/servers"));
+    expect(res.status).toBe(200);
+    expect(readFileSync(configPath, "utf-8")).not.toContain("must-survive");
   });
 });

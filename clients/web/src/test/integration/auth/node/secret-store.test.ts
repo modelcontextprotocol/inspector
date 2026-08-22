@@ -17,6 +17,7 @@
  * its own describe built on `vi.resetModules()`.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { describeSecretStoreContract } from "./secretStoreContract.js";
 
 // The mock must be hoisted above the `await import` of secret-store
 // inside the `KeyringSecretStore` describe block. Use `vi.hoisted` so
@@ -24,6 +25,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 const keyringMocks = vi.hoisted(() => {
   const password = new Map<string, string | null>();
   const reset = () => password.clear();
+  const storedAccounts = (): string[] => [...password.keys()];
   // Behavior hooks each test can flip to simulate keychain unavailability
   // on specific operations. Defaults: real-ish in-memory behavior.
   const failures = {
@@ -77,7 +79,14 @@ const keyringMocks = vi.hoisted(() => {
     if (failures.findThrows) throw new Error("keychain find unavailable");
     return credentials();
   };
-  return { AsyncEntry, findCredentialsAsync, failures, password, reset };
+  return {
+    AsyncEntry,
+    findCredentialsAsync,
+    failures,
+    password,
+    reset,
+    storedAccounts,
+  };
 });
 
 vi.mock("@napi-rs/keyring", () => ({
@@ -90,115 +99,20 @@ import {
   KeyringSecretStore,
   KeychainUnavailableError,
   KeyringModuleShapeError,
+  probeKeyringAvailable,
   SECRET_FIELD_OAUTH_CLIENT_SECRET,
   envSecretField,
   parseAccount,
-  type SecretStore,
 } from "@inspector/core/auth/node/secret-store.js";
 
-describe("InMemorySecretStore", () => {
-  let store: SecretStore;
-
-  beforeEach(() => {
-    store = new InMemorySecretStore();
-  });
-
-  it("returns null for a missing entry", async () => {
-    expect(await store.get("alpha", SECRET_FIELD_OAUTH_CLIENT_SECRET)).toBe(
-      null,
-    );
-  });
-
-  it("round-trips a value set then get", async () => {
-    await store.set("alpha", SECRET_FIELD_OAUTH_CLIENT_SECRET, "shh");
-    expect(await store.get("alpha", SECRET_FIELD_OAUTH_CLIENT_SECRET)).toBe(
-      "shh",
-    );
-  });
-
-  it("treats different server ids as separate namespaces", async () => {
-    await store.set("alpha", SECRET_FIELD_OAUTH_CLIENT_SECRET, "alpha-secret");
-    await store.set("beta", SECRET_FIELD_OAUTH_CLIENT_SECRET, "beta-secret");
-    expect(await store.get("alpha", SECRET_FIELD_OAUTH_CLIENT_SECRET)).toBe(
-      "alpha-secret",
-    );
-    expect(await store.get("beta", SECRET_FIELD_OAUTH_CLIENT_SECRET)).toBe(
-      "beta-secret",
-    );
-  });
-
-  it("treats different fields under the same server id as separate entries", async () => {
-    await store.set("alpha", envSecretField("API_KEY"), "k1");
-    await store.set("alpha", envSecretField("DB_PASS"), "k2");
-    expect(await store.get("alpha", envSecretField("API_KEY"))).toBe("k1");
-    expect(await store.get("alpha", envSecretField("DB_PASS"))).toBe("k2");
-  });
-
-  it("overwrites an existing entry on set", async () => {
-    await store.set("alpha", SECRET_FIELD_OAUTH_CLIENT_SECRET, "v1");
-    await store.set("alpha", SECRET_FIELD_OAUTH_CLIENT_SECRET, "v2");
-    expect(await store.get("alpha", SECRET_FIELD_OAUTH_CLIENT_SECRET)).toBe(
-      "v2",
-    );
-  });
-
-  it("delete is a no-op for a missing entry", async () => {
-    await store.delete("alpha", SECRET_FIELD_OAUTH_CLIENT_SECRET);
-    // No throw, no state change.
-    expect(await store.get("alpha", SECRET_FIELD_OAUTH_CLIENT_SECRET)).toBe(
-      null,
-    );
-  });
-
-  it("delete removes only the targeted (id, field)", async () => {
-    await store.set("alpha", SECRET_FIELD_OAUTH_CLIENT_SECRET, "a");
-    await store.set("alpha", envSecretField("KEY"), "b");
-    await store.delete("alpha", SECRET_FIELD_OAUTH_CLIENT_SECRET);
-    expect(await store.get("alpha", SECRET_FIELD_OAUTH_CLIENT_SECRET)).toBe(
-      null,
-    );
-    expect(await store.get("alpha", envSecretField("KEY"))).toBe("b");
-  });
-
-  it("deleteAllForServer removes every field under that id", async () => {
-    await store.set("alpha", SECRET_FIELD_OAUTH_CLIENT_SECRET, "a");
-    await store.set("alpha", envSecretField("KEY1"), "b");
-    await store.set("alpha", envSecretField("KEY2"), "c");
-    await store.set("beta", SECRET_FIELD_OAUTH_CLIENT_SECRET, "untouched");
-
-    await store.deleteAllForServer("alpha");
-
-    expect(await store.get("alpha", SECRET_FIELD_OAUTH_CLIENT_SECRET)).toBe(
-      null,
-    );
-    expect(await store.get("alpha", envSecretField("KEY1"))).toBe(null);
-    expect(await store.get("alpha", envSecretField("KEY2"))).toBe(null);
-    expect(await store.get("beta", SECRET_FIELD_OAUTH_CLIENT_SECRET)).toBe(
-      "untouched",
-    );
-  });
-
-  it("deleteAllForServer does not delete entries on a different id that happens to share a prefix", async () => {
-    // The account scheme is `${serverId}:${field}` — a literal prefix match
-    // would incorrectly sweep "alpha-prime" entries when deleting "alpha".
-    await store.set("alpha", SECRET_FIELD_OAUTH_CLIENT_SECRET, "a");
-    await store.set("alpha-prime", SECRET_FIELD_OAUTH_CLIENT_SECRET, "p");
-
-    await store.deleteAllForServer("alpha");
-
-    expect(await store.get("alpha", SECRET_FIELD_OAUTH_CLIENT_SECRET)).toBe(
-      null,
-    );
-    expect(
-      await store.get("alpha-prime", SECRET_FIELD_OAUTH_CLIENT_SECRET),
-    ).toBe("p");
-  });
-
-  it("round-trips an empty-string value (set + get returns '')", async () => {
-    await store.set("alpha", SECRET_FIELD_OAUTH_CLIENT_SECRET, "");
-    expect(await store.get("alpha", SECRET_FIELD_OAUTH_CLIENT_SECRET)).toBe("");
-  });
-});
+// The generic cases live in `secretStoreContract.ts` and are shared with
+// `FileSecretStore` (#1950) — a contract asserted against one implementation
+// is not a contract. `KeyringSecretStore` keeps its own (failure-focused)
+// block below, since it has no reachable backend in CI.
+describeSecretStoreContract(
+  "InMemorySecretStore",
+  () => new InMemorySecretStore(),
+);
 
 describe("parseAccount", () => {
   it("splits `${serverId}:${field}` on the first colon", () => {
@@ -332,6 +246,22 @@ describe("KeyringSecretStore (mocked native bindings)", () => {
     ).toBe("p");
   });
 
+  it("deleteAllForServer skips an account it cannot parse", async () => {
+    // `findCredentialsAsync` returns whatever is in the keychain, including
+    // an entry this build didn't write. An empty field yields the account
+    // "alpha:", which `parseAccount` rejects — the guard is what keeps a
+    // stray entry from being treated as belonging to this server.
+    await store.set("alpha", "", "orphan");
+    await store.set("alpha", SECRET_FIELD_OAUTH_CLIENT_SECRET, "real");
+
+    await store.deleteAllForServer("alpha");
+
+    expect(await store.get("alpha", SECRET_FIELD_OAUTH_CLIENT_SECRET)).toBe(
+      null,
+    );
+    expect(await store.get("alpha", "")).toBe("orphan");
+  });
+
   it("KeychainUnavailableError stringifies a non-Error cause", () => {
     const err = new KeychainUnavailableError("plain string cause");
     expect(err).toBeInstanceOf(KeychainUnavailableError);
@@ -447,6 +377,81 @@ describe("KeyringSecretStore (mocked native bindings)", () => {
       await expect(store.deleteAllForServer("alpha")).resolves.toBeUndefined();
     });
   });
+
+  describe("getStrict wraps its failures (round 9)", () => {
+    // "Strict" must mean the caller *learns* the read failed, in a form it
+    // can act on. Both plaintext migrations keep their source file only when
+    // they catch `SecretStoreUnavailableError`; a raw binding error escaping
+    // here sails past that and 500s `GET /api/servers` instead of abandoning
+    // the migration.
+    it("returns the value when the keychain answers", async () => {
+      await store.set("alpha", SECRET_FIELD_OAUTH_CLIENT_SECRET, "shh");
+      expect(
+        await store.getStrict("alpha", SECRET_FIELD_OAUTH_CLIENT_SECRET),
+      ).toBe("shh");
+    });
+
+    it("throws the typed error when the read itself fails", async () => {
+      keyringMocks.failures.getThrows = true;
+      await expect(
+        store.getStrict("alpha", SECRET_FIELD_OAUTH_CLIENT_SECRET),
+      ).rejects.toBeInstanceOf(KeychainUnavailableError);
+    });
+
+    it("throws the typed error when AsyncEntry construction fails", async () => {
+      // #1848's shape: the platform store is unreachable, and it is the
+      // constructor that says so.
+      keyringMocks.failures.constructorThrows = true;
+      await expect(
+        store.getStrict("alpha", SECRET_FIELD_OAUTH_CLIENT_SECRET),
+      ).rejects.toBeInstanceOf(KeychainUnavailableError);
+    });
+
+    it("still answers null for a genuinely absent entry", async () => {
+      // Strictness is about the *store* failing, not about absence.
+      expect(
+        await store.getStrict("alpha", SECRET_FIELD_OAUTH_CLIENT_SECRET),
+      ).toBe(null);
+    });
+  });
+
+  describe("probeKeyringAvailable (#1950)", () => {
+    // The input to the automatic-fallback policy. It has to answer "is the
+    // keychain *usable*", not "did the package import" — the container that
+    // motivated #1848 imports the package fine and only fails when
+    // `AsyncEntry::new` reaches for a Secret Service that isn't there.
+    it("reports available when a read round-trips", async () => {
+      await expect(probeKeyringAvailable()).resolves.toEqual({
+        available: true,
+      });
+    });
+
+    it("reports unavailable, with the cause, when construction throws", async () => {
+      keyringMocks.failures.constructorThrows = true;
+      const result = await probeKeyringAvailable();
+      expect(result.available).toBe(false);
+      // The detail is what the fallback banner prints, and the three
+      // realistic causes need different fixes — so it is surfaced rather
+      // than summarized.
+      expect(result).toHaveProperty("detail");
+      expect((result as { detail: string }).detail).toContain(
+        "Couldn't access platform storage",
+      );
+    });
+
+    it("reports unavailable when the read itself throws", async () => {
+      keyringMocks.failures.getThrows = true;
+      expect((await probeKeyringAvailable()).available).toBe(false);
+    });
+
+    it("never writes to the user's keychain", async () => {
+      // Deliberate: a write probe would be a stronger signal but would
+      // deposit a value in someone's login keyring at every startup, for a
+      // store they may never use.
+      await probeKeyringAvailable();
+      expect(keyringMocks.storedAccounts()).toEqual([]);
+    });
+  });
 });
 
 describe("@napi-rs/keyring unloadable on this platform (#1905)", () => {
@@ -537,6 +542,21 @@ describe("@napi-rs/keyring unloadable on this platform (#1905)", () => {
       store.delete("alpha", "oauth-client-secret"),
     ).resolves.toBeUndefined();
     await expect(store.deleteAllForServer("alpha")).resolves.toBeUndefined();
+  });
+
+  it("the availability probe reports unavailable and names the load error", async () => {
+    // The fallback policy's input on Android/Termux: nothing to probe, so
+    // the answer must come from the load failure rather than from an
+    // attempted construction that would throw somewhere less legible.
+    const mod = await importWithUnloadableKeyring();
+    const result = await mod.probeKeyringAvailable();
+    expect(result.available).toBe(false);
+    // The detail carries the loader's own message. Asserted as non-empty
+    // rather than by content: vitest replaces whatever a throwing `doMock`
+    // factory threw with its own "error when mocking a module" text (see the
+    // hint-branch note above), so the literal `Cannot find module` string
+    // never reaches us here even though it does in production.
+    expect((result as { detail: string }).detail).not.toBe("");
   });
 
   it("attempts the load once and caches the failure", async () => {

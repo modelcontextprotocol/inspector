@@ -24,6 +24,13 @@
      light surfaces; a lighter red on the dark card/header (see dark override) —
      `red-6` fell just under WCAG AA on both. */
   --inspector-danger-text: var(--mantine-color-red-7);
+  /* Caution text (the secret-storage footer when secrets are unencrypted or
+     session-only, #1950). Yellow is the right *meaning* — this is "know what
+     you are doing", not "this failed" — but yellow is also the hardest hue to
+     make readable: `yellow-6`, the tone the log-level badges use on a filled
+     chip, is far under AA as body text on a light surface. `yellow-8` clears it
+     here, and the dark override lifts to `yellow-4` the same way danger does. */
+  --inspector-warning-text: var(--mantine-color-yellow-8);
 
   /* ── Surfaces ──────────────────────────────────────────── */
   /* Light-grey app background so the white cards read as raised. Drives
@@ -204,6 +211,9 @@
   --mantine-color-dimmed: var(--mantine-color-dark-1) !important;
   /* Lighter danger red for the dark card/header (deep red would fail AA). */
   --inspector-danger-text: var(--mantine-color-red-4);
+  /* Same inversion for caution text: the deep `yellow-8` is unreadable on a
+     dark surface. */
+  --inspector-warning-text: var(--mantine-color-yellow-4);
 }
 
 /* A11y contrast (light): Mantine sets these per-scheme on a selector more

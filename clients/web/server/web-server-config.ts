@@ -15,6 +15,8 @@ import {
   LEGACY_AUTH_TOKEN_ENV,
 } from "../../../core/mcp/remote/constants.ts";
 import type { InitialConfigPayload } from "../../../core/mcp/remote/node/server.ts";
+import type { SecretStorageInfo } from "../../../core/auth/secret-storage-info.ts";
+import { secretStorageSummary } from "../../../core/auth/secret-storage-info.ts";
 import { readInspectorVersionSafe } from "../../../core/node/version.ts";
 import { resolveSandboxPort } from "./sandbox-controller.js";
 import { resolveBindHostname } from "./resolve-bind-host.js";
@@ -112,8 +114,17 @@ function defaultEnvironmentFromProcess(
  */
 export function webServerConfigToInitialPayload(
   config: WebServerConfig,
+  secretStorage?: SecretStorageInfo,
 ): InitialConfigPayload {
-  return { ...transportDefaults(config), version: inspectorVersion };
+  return {
+    ...transportDefaults(config),
+    version: inspectorVersion,
+    // Omitted rather than defaulted when the caller didn't resolve a store:
+    // the UI treats an absent descriptor as "unknown" and shows nothing,
+    // which is the only honest rendering. A default of "keychain" would put a
+    // confident wrong answer under the field where a secret is typed.
+    ...(secretStorage ? { secretStorage } : {}),
+  };
 }
 
 /** The transport-specific defaults half of the `/api/config` payload. */
@@ -168,6 +179,7 @@ export function printServerBanner(
   actualPort: number,
   resolvedToken: string,
   sandboxUrl: string | undefined,
+  secretStorage?: SecretStorageInfo,
 ): string {
   // Advertise `localhost` for a wildcard bind (`http://0.0.0.0:PORT` is an
   // awkward URL to click and points the user at a reachable, allow-listed
@@ -195,6 +207,14 @@ export function printServerBanner(
     console.log("   Auth: disabled (DANGEROUSLY_OMIT_AUTH)\n");
   } else {
     console.log(`   Auth token: ${resolvedToken}\n`);
+  }
+
+  // Where a secret typed into this session lands (#1950). Printed for every
+  // store, not only the surprising ones: the fallback already warns
+  // separately at selection time, and a line that appears only when
+  // something is wrong can't be used to confirm that nothing is.
+  if (secretStorage) {
+    console.log(`   Secrets: ${secretStorageSummary(secretStorage)}\n`);
   }
 
   if (config.autoOpen) {

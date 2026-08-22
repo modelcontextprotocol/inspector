@@ -899,4 +899,46 @@ describe("ServerSettingsModal", () => {
       });
     });
   });
+
+  describe("secret-storage footer (#1950)", () => {
+    // The dialog holds the OAuth client secret and every stdio `env:` value, so
+    // the destination of what is typed here is stated permanently rather than
+    // in a toast that has long since gone.
+    it("names the active store", () => {
+      renderWithMantine(
+        <ServerSettingsModal
+          opened
+          settings={emptySettings}
+          serverType="streamable-http"
+          isStdio={false}
+          onClose={vi.fn()}
+          onSettingsChange={vi.fn()}
+          secretStorage={{
+            kind: "memory",
+            reason: "fallback",
+            durable: false,
+          }}
+        />,
+      );
+      // Full-text assertion: the "Secrets:" prefix is its own `<span>`, which
+      // `getByText`'s direct-text-node matching would not see as one string.
+      expect(screen.getByTestId("secret-storage-footer")).toHaveTextContent(
+        "Secrets: Memory (this session only)",
+      );
+    });
+
+    it("renders no footer when the backend didn't report a store", () => {
+      renderWithMantine(
+        <ServerSettingsModal
+          opened
+          settings={emptySettings}
+          serverType="streamable-http"
+          isStdio={false}
+          onClose={vi.fn()}
+          onSettingsChange={vi.fn()}
+        />,
+      );
+      expect(screen.queryByTestId("secret-storage-footer")).toBeNull();
+    });
+  });
 });

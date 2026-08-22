@@ -3,7 +3,9 @@
  */
 
 import {
-  KeychainUnavailableError,
+  secretStoreGetStrict,
+  secretStoreIsDurable,
+  SecretStoreUnavailableError,
   type SecretStore,
 } from "../auth/node/secret-store.js";
 import { SECRET_FIELD_IDP_CLIENT_SECRET } from "../auth/secret-fields.js";
@@ -44,7 +46,13 @@ async function migrateClientPlaintextSecret(
   if (!value) return config;
 
   try {
-    const existing = await secretStore.get(
+    // Strict: `get` answers `null` for an unreadable store as well as a
+    // missing entry, and the branch below *writes* on `null` — so a
+    // transient failure would overwrite a newer stored secret with the older
+    // `client.json` copy, inverting keychain-wins. A throw is caught below
+    // and leaves the plaintext file untouched for the next attempt.
+    const existing = await secretStoreGetStrict(
+      secretStore,
       CLIENT_KEYCHAIN_ID,
       SECRET_FIELD_IDP_CLIENT_SECRET,
     );
@@ -55,10 +63,18 @@ async function migrateClientPlaintextSecret(
         value,
       );
     }
+    // Only strip the plaintext once it is somewhere that outlives us.
+    // Against a session-scoped store (the container fallback added in
+    // #1950) this migration would trade a secret that survives restarts
+    // for one that dies with the process — and it runs on an ordinary
+    // read, so merely loading the app would destroy it. The value is
+    // still loaded into the store above, so this session behaves
+    // normally; only the delete is withheld.
+    if (!(await secretStoreIsDurable(secretStore))) return config;
     await writeStoreFile(filePath, serializeStore(stripped));
     return stripped;
   } catch (err) {
-    if (err instanceof KeychainUnavailableError) {
+    if (err instanceof SecretStoreUnavailableError) {
       return config;
     }
     throw err;

@@ -1,7 +1,5 @@
-import {
-  KeyringSecretStore,
-  type SecretStore,
-} from "../../auth/node/secret-store.js";
+import type { SecretStore } from "../../auth/node/secret-store.js";
+import { defaultSecretStore } from "../../auth/node/secret-store-selection.js";
 import type { InspectorServerSettings, MCPServerConfig } from "../types.js";
 import { DEFAULT_MAX_FETCH_REQUESTS, DEFAULT_TASK_TTL_MS } from "../types.js";
 import { mcpConfigToServerEntries } from "../serverList.js";
@@ -32,7 +30,8 @@ export type ResolvedServer = {
  * broadcast into every resolved server's settings. */
 export type ServerLoadOptions = ServerConfigOptions & {
   headers?: Record<string, string>;
-  /** Test injection; defaults to {@link KeyringSecretStore} for catalog/config loads. */
+  /** Test injection; defaults to the selected store (see
+   * `secret-store-selection.ts`) for catalog/config loads. */
   secretStore?: SecretStore;
 };
 
@@ -104,7 +103,7 @@ export async function loadServerEntries(
 
   if (source) {
     let config = readServerListFile(source.path, source.writable);
-    const secretStore = serverOptions.secretStore ?? new KeyringSecretStore();
+    const secretStore = serverOptions.secretStore ?? defaultSecretStore();
     config = await rehydrateMcpConfigFromKeychain(config, secretStore);
     const entries = mcpConfigToServerEntries(config);
     const result: Record<string, ResolvedServer> = {};

@@ -51,10 +51,30 @@ v2/main/
 │   │                                   #   wrapper that rewrites the discovered AS
 │   │                                   #   metadata document, the one seam SDK v2 routes
 │   │                                   #   BOTH endpoints through (neither reaches the
-│   │                                   #   OAuthClientProvider) — #1906)
+│   │                                   #   OAuthClientProvider) — #1906;
+│   │                                   #   secret-storage-info.ts browser-safe
+│   │                                   #   descriptor of WHERE a typed secret lands
+│   │                                   #   — kind/plaintext/durable plus the label,
+│   │                                   #   tone, caveat and summary helpers shared
+│   │                                   #   by the startup banner and the web UI, so
+│   │                                   #   terminal and browser cannot describe the
+│   │                                   #   same store differently — #1950)
 │   │   ├── browser/                    # Browser-side OAuth (sessionStorage, BrowserNavigation)
 │   │   ├── node/                       # Node-side OAuth (NodeOAuthStorage, OAuthCallbackServer,
-│   │   │                               #   runner-interactive-oauth loopback callback flow)
+│   │   │                               #   runner-interactive-oauth loopback callback flow);
+│   │   │                               #   plus the SecretStore backends and their selection —
+│   │   │                               #   secret-store.ts (KeyringSecretStore + InMemorySecretStore,
+│   │   │                               #   the SecretStoreUnavailableError base every store's `set`
+│   │   │                               #   throws and the routes turn into a 503, and the keychain
+│   │   │                               #   probe), file-secret-store.ts (0600 JSON, AES-256-GCM when
+│   │   │                               #   MCP_INSPECTOR_SECRET_KEY is set — refuses to overwrite a
+│   │   │                               #   file it cannot decrypt rather than destroying it), and
+│   │   │                               #   secret-store-selection.ts (the POLICY: explicit
+│   │   │                               #   MCP_INSPECTOR_SECRET_STORE wins, else probe the keychain,
+│   │   │                               #   else fall back LOUDLY — to memory in a container with
+│   │   │                               #   nothing mounted, to file otherwise; cached per process so
+│   │   │                               #   the banner, /api/config and the store doing the writing
+│   │   │                               #   cannot disagree — #1950)
 │   │   └── remote/                     # Remote OAuth storage (delegates to the remote server)
 │   ├── client/                         # Install-level client config (`client.json`): browser-safe
 │   │                                   #   parse/validate (config-parse.ts) + Node load/save

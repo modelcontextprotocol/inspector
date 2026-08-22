@@ -583,6 +583,28 @@ describe("webServerConfigToInitialPayload", () => {
     expect(payload.defaultTransport).toBe("streamable-http");
     expect(payload.defaultServerUrl).toBe("https://srv/other");
   });
+
+  it("omits secretStorage when the caller didn't resolve a store", () => {
+    // The UI treats an absent descriptor as "unknown" and shows nothing. A
+    // defaulted value would put a confident wrong answer under a secret field.
+    expect(webServerConfigToInitialPayload(baseConfig()).secretStorage).toBe(
+      undefined,
+    );
+  });
+
+  it("passes the resolved store through verbatim (#1950)", () => {
+    const secretStorage = {
+      kind: "file",
+      reason: "fallback",
+      durable: true,
+      plaintext: true,
+      path: "/home/node/.mcp-inspector/secrets.json",
+    } as const;
+    expect(
+      webServerConfigToInitialPayload(baseConfig(), secretStorage)
+        .secretStorage,
+    ).toEqual(secretStorage);
+  });
 });
 
 describe("printServerBanner", () => {
@@ -667,6 +689,38 @@ describe("printServerBanner", () => {
     withAuto.autoOpen = true;
     printServerBanner(withAuto, 6274, "tok", undefined);
     expect(logSpy.lines.some((l) => l.includes("Opening browser"))).toBe(true);
+  });
+
+  it("prints the secret store for every kind, not only the alarming ones", () => {
+    // A line that appears only when something is wrong can't be used to
+    // confirm that nothing is.
+    printServerBanner(baseConfig(), 6274, "tok", undefined, {
+      kind: "keyring",
+      reason: "default",
+      durable: true,
+    });
+    expect(logSpy.lines.some((l) => l.includes("Secrets: OS keychain"))).toBe(
+      true,
+    );
+  });
+
+  it("names the path and the fallback for a file-backed store", () => {
+    printServerBanner(baseConfig(), 6274, "tok", undefined, {
+      kind: "file",
+      reason: "fallback",
+      durable: true,
+      plaintext: true,
+      path: "/home/node/.mcp-inspector/secrets.json",
+    });
+    const line = logSpy.lines.find((l) => l.includes("Secrets:"));
+    expect(line).toContain("File (unencrypted)");
+    expect(line).toContain("/home/node/.mcp-inspector/secrets.json");
+    expect(line).toContain("fell back");
+  });
+
+  it("prints no secrets line when no store was resolved", () => {
+    printServerBanner(baseConfig(), 6274, "tok", undefined);
+    expect(logSpy.lines.some((l) => l.includes("Secrets:"))).toBe(false);
   });
 });
 

@@ -5,6 +5,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import {
   InMemorySecretStore,
+  SessionSecretStore,
   KeychainUnavailableError,
   SECRET_FIELD_IDP_CLIENT_SECRET,
   type SecretStore,
@@ -60,6 +61,52 @@ describe("client node-persistence", () => {
     expect(
       await secretStore.get(CLIENT_KEYCHAIN_ID, SECRET_FIELD_IDP_CLIENT_SECRET),
     ).toBe("plain");
+  });
+
+  it("aborts rather than overwriting when the keychain read fails", async () => {
+    // The keychain-wins lookup used the tolerant `get`, which maps an
+    // unreadable store to `null` — and the branch below writes on `null`. So
+    // a transient read failure let the older client.json copy overwrite a
+    // newer stored secret, and the disk copy was then stripped.
+    const filePath = await makeTmpFile(
+      JSON.stringify(configWithPlaintextSecret),
+    );
+    let wrote = false;
+    const flaky: SecretStore = {
+      get: async () => null,
+      getStrict: async () => {
+        throw new KeychainUnavailableError(new Error("temporarily down"));
+      },
+      set: async () => {
+        wrote = true;
+      },
+      delete: async () => {},
+      deleteAllForServer: async () => {},
+    };
+
+    const loaded = await readClientConfigStore(filePath, flaky);
+
+    expect(wrote).toBe(false);
+    // The plaintext survives for the next attempt.
+    expect(readFileSync(filePath, "utf-8")).toContain("plain");
+    expect(loaded.enterpriseManagedAuth?.idp.clientSecret).toBe("plain");
+  });
+
+  it("keeps the plaintext on disk when the store is session-scoped", async () => {
+    // The container fallback. Migrating here would delete a secret that
+    // survives restarts and keep only a copy that dies with the process —
+    // and it happens on an ordinary read, so merely loading the app would
+    // do it. The session still works: the value is loaded into the store.
+    const filePath = await makeTmpFile(
+      JSON.stringify(configWithPlaintextSecret),
+    );
+    const secretStore = new SessionSecretStore();
+
+    const loaded = await readClientConfigStore(filePath, secretStore);
+
+    expect(loaded.enterpriseManagedAuth?.idp.clientSecret).toBe("plain");
+    // The disk copy is deliberately left alone.
+    expect(readFileSync(filePath, "utf-8")).toContain("plain");
   });
 
   it("does not overwrite an existing keychain secret during migration", async () => {

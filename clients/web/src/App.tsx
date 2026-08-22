@@ -741,6 +741,7 @@ function App() {
     sandboxUrl,
     writable: serverListWritable,
     version: inspectorVersion,
+    secretStorage,
   } = useInitialConfig({
     baseUrl: configBaseUrl,
     authToken: getAuthToken(),
@@ -4618,6 +4619,7 @@ function App() {
         onClearStoredOAuth={
           settingsModalIsStdio ? undefined : handleClearStoredOAuthFromSettings
         }
+        secretStorage={secretStorage}
       />
       <ClientSettingsModal
         key={
@@ -4629,6 +4631,7 @@ function App() {
         onSettingsChange={onClientSettingsChange}
         emaIdpLoginState={emaIdpLoginState}
         onEmaIdpLogout={logoutEmaIdp}
+        secretStorage={secretStorage}
       />
       {initializeResult && activeServer && (
         <ConnectionInfoModal
