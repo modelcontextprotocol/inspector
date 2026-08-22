@@ -1,6 +1,6 @@
 {
   "name": "@modelcontextprotocol/inspector",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Model Context Protocol inspector",
   "license": "SEE LICENSE IN LICENSE",
   "author": "Model Context Protocol a Series of LF Projects, LLC.",
@@ -53,9 +53,9 @@
     "check-version": "node scripts/check-version-consistency.js"
   },
   "dependencies": {
-    "@modelcontextprotocol/inspector-cli": "^1.0.1",
-    "@modelcontextprotocol/inspector-client": "^1.0.1",
-    "@modelcontextprotocol/inspector-server": "^1.0.1",
+    "@modelcontextprotocol/inspector-cli": "^1.0.2",
+    "@modelcontextprotocol/inspector-client": "^1.0.2",
+    "@modelcontextprotocol/inspector-server": "^1.0.2",
     "@modelcontextprotocol/sdk": "^1.25.2",
     "concurrently": "^9.2.0",
     "node-fetch": "^3.3.2",
