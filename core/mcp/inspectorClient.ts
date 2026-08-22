@@ -133,6 +133,13 @@ import {
 } from "./modernTaskSchemas.js";
 import { buildClientExtensions } from "./extensions.js";
 import {
+  getElicitationUiResourceUri,
+  isFormElicitation,
+  supportsAppElicitation,
+  validateAppElicitResult,
+  type AppElicitationRenderer,
+} from "./appElicitation.js";
+import {
   EmptyResultSchema,
   CallToolResultSchema,
   GetPromptResultSchema,
@@ -562,6 +569,27 @@ export class InspectorClient extends InspectorClientEventTarget {
   // Per-extension advertise overrides (#1738); undefined key falls back to the
   // registry default in ADVERTISABLE_EXTENSIONS.
   private readonly advertisedExtensions?: Record<string, boolean>;
+  /**
+   * Host-supplied renderer for app-rendered form elicitations (#1854), or
+   * undefined on a client that cannot host MCP Apps. Its presence is what
+   * advertises the nested MCP Apps `elicitation` capability, so this is the one
+   * fact both the advertisement and the routing gate read.
+   */
+  private readonly appElicitationRenderer?: AppElicitationRenderer;
+
+  /**
+   * Monotonic counter behind the request-scoped id handed to the renderer. The
+   * association MUST be per request (a map keyed by this id owns the resource
+   * URI, renderer instance and promise on the host side) so two concurrent
+   * elicitations cannot resolve through each other's bridges.
+   */
+  private appElicitationSeq = 0;
+  /**
+   * Abort controllers for app-rendered elicitations still awaiting an answer.
+   * Aborted alongside the native pending queue on disconnect, so a rendered app
+   * cannot outlive the connection that asked for it.
+   */
+  private activeAppElicitations = new Set<AbortController>();
   private receiverTaskTtlMs: number | (() => number);
   private receiverTaskRecords: Map<string, ReceiverTaskRecord> = new Map();
   // OAuth support (config owned by oauthManager; client delegates and uses !!oauthManager for "is OAuth configured")
@@ -616,6 +644,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     this.elicit = options.elicit ?? true;
     this.receiverTasks = options.receiverTasks ?? false;
     this.advertisedExtensions = options.advertisedExtensions;
+    this.appElicitationRenderer = options.appElicitation;
     this.receiverTaskTtlMs = options.receiverTaskTtlMs ?? 60_000;
     this.progress = options.progress ?? true;
     this.resetTimeoutOnProgress = options.resetTimeoutOnProgress ?? true;
@@ -785,6 +814,14 @@ export class InspectorClient extends InspectorClientEventTarget {
     const advertisedExtensions = buildClientExtensions({
       enterpriseManaged: options.oauth?.enterpriseManaged ?? false,
       advertised: this.advertisedExtensions,
+      // Read off the built `capabilities.elicitation.form` rather than
+      // re-deriving from `options.elicit`: the nested MCP Apps `elicitation`
+      // setting must never be advertised without the core form capability it
+      // extends, and two derivations of the same fact can drift. Disabling form
+      // elicitation therefore drops both, as the contract requires. (#1854)
+      appElicitation:
+        this.appElicitationRenderer !== undefined &&
+        capabilities.elicitation?.form !== undefined,
     });
     if (Object.keys(advertisedExtensions).length > 0) {
       capabilities.extensions = {
@@ -1688,6 +1725,13 @@ export class InspectorClient extends InspectorClientEventTarget {
       elicitation.cancel();
     }
     this.pendingElicitations = [];
+    // App-rendered elicitations (#1854) are not in the queue above — they live
+    // in the host's renderer — so abort them here on the same teardown paths.
+    // `tryAppElicitation` removes each controller in its own `finally`.
+    for (const controller of this.activeAppElicitations) {
+      controller.abort();
+    }
+    this.activeAppElicitations.clear();
   }
 
   /**
@@ -2820,11 +2864,17 @@ export class InspectorClient extends InspectorClientEventTarget {
    * corresponding `ElicitResult` (echoed to the server on retry); only a
    * genuine failure or a `signal` abort rejects.
    */
-  private enqueuePendingElicitation(
+  private async enqueuePendingElicitation(
     request: ElicitRequest,
     origin: PendingRequestOrigin,
     signal?: AbortSignal,
   ): Promise<ElicitResult> {
+    // App-rendered form elicitation (#1854) is offered first and falls back to
+    // the native queue below on every failure. Both entry points — the inbound
+    // `elicitation/create` handler and the MRTR driver's embedded requests —
+    // funnel through here, so neither can miss the routing.
+    const appResult = await this.tryAppElicitation(request, signal);
+    if (appResult) return appResult;
     // See {@link enqueuePendingSample} — Promise settle is idempotent.
     return new Promise<ElicitResult>((resolvePromise, rejectPromise) => {
       const elicitation = new ElicitationCreateMessage(
@@ -2840,6 +2890,92 @@ export class InspectorClient extends InspectorClientEventTarget {
         rejectPromise(createPendingAbortError());
       });
     });
+  }
+
+  /**
+   * Attempt to resolve an `elicitation/create` request by rendering the MCP App
+   * the server attached to it (#1854), returning the app's standard
+   * `ElicitResult`.
+   *
+   * Returns `null` for "not app-rendered — use the native UI", which covers
+   * every negotiation gate and every failure mode the contract lists: either
+   * peer did not negotiate the capability, the metadata is absent or unusable,
+   * the mode is not `form`, the renderer failed (resource read, sandbox/bridge
+   * init, missing app capability, timeout), or the app returned something that
+   * is not a valid result for this request. An explicit `decline` or `cancel`
+   * is a *completed* elicitation and is returned, not fallen back on.
+   *
+   * The one case that does not fall back is an abort of the originating
+   * request: the caller is cancelling the whole elicitation, so re-opening it
+   * in the native queue would resurrect work the user just abandoned.
+   */
+  private async tryAppElicitation(
+    request: ElicitRequest,
+    signal?: AbortSignal,
+  ): Promise<ElicitResult | null> {
+    const renderer = this.appElicitationRenderer;
+    if (!renderer) return null;
+    // Gate 1-3 (client) + 4 (server), from the negotiated capabilities of this
+    // connection — `this.capabilities` is populated at initialize.
+    if (!supportsAppElicitation(this.clientCapabilities, this.capabilities)) {
+      return null;
+    }
+    // Only form mode is app-renderable; `url` keeps its existing path.
+    if (!isFormElicitation(request.params)) return null;
+    let resourceUri: string | undefined;
+    try {
+      resourceUri = getElicitationUiResourceUri(request.params);
+    } catch (error) {
+      this.logger.warn(
+        { error },
+        "Elicitation carried unusable _meta.ui.resourceUri; using the native elicitation UI",
+      );
+      return null;
+    }
+    if (!resourceUri) return null;
+
+    // Request-scoped abort: forwards the caller's signal (MRTR cancellation)
+    // and is aborted by `settleAndDropPendingPeerRequests` on disconnect, so a
+    // rendered app cannot outlive the connection that asked for it.
+    const controller = new AbortController();
+    const forwardAbort = () => controller.abort(signal?.reason);
+    if (signal) {
+      if (signal.aborted) forwardAbort();
+      else signal.addEventListener("abort", forwardAbort, { once: true });
+    }
+    this.activeAppElicitations.add(controller);
+    try {
+      const result = await renderer({
+        requestId: `app-elicitation-${++this.appElicitationSeq}`,
+        resourceUri,
+        params: request.params,
+        signal: controller.signal,
+      });
+      this.outputValidator ??= new AjvJsonSchemaValidator();
+      const invalid = validateAppElicitResult(
+        this.outputValidator,
+        request.params,
+        result,
+      );
+      if (invalid) {
+        this.logger.warn(
+          { resourceUri, reason: invalid },
+          "App-rendered elicitation returned an invalid result; using the native elicitation UI",
+        );
+        return null;
+      }
+      return result;
+    } catch (error) {
+      if (controller.signal.aborted) throw createPendingAbortError();
+      this.logger.warn(
+        { error, resourceUri },
+        "App-rendered elicitation failed; using the native elicitation UI",
+      );
+      return null;
+    } finally {
+      this.activeAppElicitations.delete(controller);
+      signal?.removeEventListener("abort", forwardAbort);
+    }
   }
 
   /**

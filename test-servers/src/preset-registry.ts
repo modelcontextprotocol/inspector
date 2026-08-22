@@ -55,6 +55,8 @@ import {
   createImmediateReturnTaskTool,
   createMcpAppDemoTool,
   createMcpAppDemoResource,
+  createAppElicitationTool,
+  createAppElicitationResource,
   createArchitectureResource,
   createTestCwdResource,
   createTestEnvResource,
@@ -223,6 +225,8 @@ function resolveToolPreset(
       );
     case "mcp_app_demo":
       return createMcpAppDemoTool();
+    case "app_choose_option":
+      return createAppElicitationTool();
     default:
       throw new Error(`Unknown tool preset: ${name}`);
   }
@@ -247,6 +251,8 @@ function resolveResourcePreset(
       return createNumberedResources(Number(get("count")) || 3);
     case "mcp_app_demo_widget":
       return createMcpAppDemoResource();
+    case "choose_option_app":
+      return createAppElicitationResource();
     case "rfc6570_base":
       return createRfc6570BaseResource();
     default:

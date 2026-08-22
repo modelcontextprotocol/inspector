@@ -50,6 +50,13 @@ import {
   wireModernTaskHandlers,
 } from "./modern-tasks.js";
 
+/**
+ * MCP Apps extension id. Hardcoded for the same reason the Inspector's
+ * `core/mcp/extensions.ts` hardcodes it: the constant lives on ext-apps'
+ * `/server` subpath, and the test servers have no reason to depend on it.
+ */
+const UI_EXTENSION_KEY = "io.modelcontextprotocol/ui";
+
 // Empty object JSON schema constant (from SDK's mcp.js)
 const EMPTY_OBJECT_JSON_SCHEMA = {
   type: "object",
@@ -523,6 +530,17 @@ export interface ServerConfig {
    */
   tasksExtension?: boolean;
   /**
+   * Advertise the MCP Apps `io.modelcontextprotocol/ui` extension with the
+   * nested `elicitation` setting — the server-side half of the app-rendered
+   * form elicitation negotiation (#1854, ext-apps#733).
+   *
+   * A client that also advertises it may render a `ui://` app for any
+   * `elicitation/create` this server attaches `_meta.ui.resourceUri` to; one
+   * that does not simply shows its own form, which is why this is safe to
+   * advertise unconditionally on a server that offers such a tool.
+   */
+  appElicitation?: boolean;
+  /**
    * Shared modern task runtime. Created lazily on first `createMcpServer` call
    * and cached here so the stateless modern leg's per-request server instances
    * share one task store (a task created by a `tools/call` must be visible to a
@@ -715,6 +733,15 @@ export function createMcpServer(config: ServerConfig): McpServer {
     capabilities.extensions = {
       ...(capabilities.extensions ?? {}),
       [TASKS_EXTENSION_KEY]: {},
+    };
+  }
+
+  // MCP Apps app-rendered elicitation (#1854): the server-side half of the
+  // negotiation, on the same extension the Apps work already uses.
+  if (config.appElicitation) {
+    capabilities.extensions = {
+      ...(capabilities.extensions ?? {}),
+      [UI_EXTENSION_KEY]: { elicitation: {} },
     };
   }
 

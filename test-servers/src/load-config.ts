@@ -60,6 +60,10 @@ export interface ConfigFile {
    * and wire its handlers + `modern_task` / `modern_input_task` tools. Pair with
    * `transport.modern`. */
   tasksExtension?: boolean;
+  /** Advertise the MCP Apps `io.modelcontextprotocol/ui` extension with the nested
+   * `elicitation` setting — the server half of app-rendered form elicitation
+   * (#1854). Pair with the `app_choose_option` tool + `choose_option_app` resource. */
+  appElicitation?: boolean;
   maxPageSize?: {
     tools?: number;
     resources?: number;

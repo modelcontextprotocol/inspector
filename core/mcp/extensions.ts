@@ -98,6 +98,19 @@ export interface BuildClientExtensionsInput {
    * over the registry's `defaultAdvertised`; an absent key falls back to it.
    */
   advertised?: Record<string, boolean>;
+  /**
+   * True when this client can render an MCP App and resolve an
+   * `elicitation/create` request through its bridge (#1854). Adds the nested
+   * `elicitation` setting to the UI extension's advertisement, which is half of
+   * the negotiation a server checks before attaching an App to an elicitation.
+   *
+   * Deliberately an input rather than a registry default: the shared
+   * `InspectorClient` knowing the MCP Apps MIME type says nothing about whether
+   * the *client* has a sandbox renderer, so CLI and TUI must never advertise it.
+   * Ignored when the UI extension itself is not advertised — a nested setting on
+   * an extension we did not declare would be meaningless.
+   */
+  appElicitation?: boolean;
 }
 
 /**
@@ -125,6 +138,14 @@ export function buildClientExtensions(
         ? structuredClone(ext.advertisement)
         : {};
     }
+  }
+  // Nested app-rendered-elicitation opt-in (#1854), layered onto the UI
+  // extension's own advertisement rather than added as a second extension.
+  // Guarded on the UI entry actually being present so turning the Apps
+  // extension off in Server Settings also turns this off.
+  const uiAdvertisement = map[UI_EXTENSION_KEY];
+  if (input.appElicitation && uiAdvertisement) {
+    map[UI_EXTENSION_KEY] = { ...uiAdvertisement, elicitation: {} };
   }
   if (input.enterpriseManaged) {
     map[EMA_EXTENSION_KEY] = {};

@@ -465,6 +465,182 @@ export function createCollectFormElicitationTool(): ToolDefinition {
   };
 }
 
+/** Canonical URI for {@link createAppElicitationResource}, referenced by {@link createAppElicitationTool}'s `_meta.ui.resourceUri`. */
+export const APP_ELICITATION_URI = "ui://demo/choose-option.html";
+
+/**
+ * Minimal MCP App that renders and resolves a form elicitation (#1854).
+ *
+ * Deliberately generic — "Choose option A or B" — because its purpose is to
+ * verify the protocol and renderer lifecycle, not to be a product example. It
+ * covers all three outcomes an `ElicitResult` can carry: `accept` with content,
+ * `decline`, and `cancel`.
+ *
+ * Like the `mcp_app_demo` widget it speaks the raw View↔Host protocol with no
+ * SDK, so the sandbox CSP's locked-down defaults suffice and there is nothing
+ * to bundle. The two differences from that widget are the whole point of the
+ * fixture: it advertises `appCapabilities.elicitation` in `ui/initialize`, and
+ * it answers the host's inbound `elicitation/create` REQUEST (every other
+ * host→view message in that widget is a notification).
+ *
+ * The lone `rgba(0,0,0,0.06)` is the same deliberate exception to the
+ * AGENTS.md color-token rule noted on `MCP_APP_DEMO_HTML`: a static fixture
+ * served into the sandbox is not a Mantine component.
+ */
+const APP_ELICITATION_HTML = `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>choose-option elicitation app</title>
+    <style>
+      body { margin: 0; font-family: system-ui, sans-serif; padding: 16px; }
+      button { font: inherit; padding: 8px 14px; margin-right: 8px; border-radius: 6px; }
+      #prompt { background: rgba(0,0,0,0.06); padding: 8px; border-radius: 6px; }
+    </style>
+  </head>
+  <body>
+    <h3 id="prompt">waiting for an elicitation…</h3>
+    <div id="choices" hidden>
+      <button id="a" data-testid="choose-a">Option A</button>
+      <button id="b" data-testid="choose-b">Option B</button>
+      <button id="decline" data-testid="decline">Decline</button>
+      <button id="cancel" data-testid="cancel">Cancel</button>
+    </div>
+    <script type="module">
+      const INIT_ID = 1;
+      let HOST_ORIGIN = null;
+      const send = (msg) =>
+        window.parent.postMessage(
+          { jsonrpc: "2.0", ...msg },
+          HOST_ORIGIN ?? "*",
+        );
+      // The id of the host's in-flight elicitation/create request. A response
+      // MUST echo it, and answering a request we were never sent would be a
+      // protocol violation — so the buttons do nothing until one arrives.
+      let pendingId = null;
+      const answer = (result) => {
+        if (pendingId === null) return;
+        send({ id: pendingId, result });
+        pendingId = null;
+        document.getElementById("choices").hidden = true;
+        document.getElementById("prompt").textContent = "answered";
+      };
+      document.getElementById("a").addEventListener("click", () =>
+        answer({ action: "accept", content: { choice: "option-a" } }),
+      );
+      document.getElementById("b").addEventListener("click", () =>
+        answer({ action: "accept", content: { choice: "option-b" } }),
+      );
+      document
+        .getElementById("decline")
+        .addEventListener("click", () => answer({ action: "decline" }));
+      document
+        .getElementById("cancel")
+        .addEventListener("click", () => answer({ action: "cancel" }));
+      window.addEventListener("message", (ev) => {
+        if (HOST_ORIGIN !== null && ev.origin !== HOST_ORIGIN) return;
+        const m = ev.data;
+        if (!m || m.jsonrpc !== "2.0") return;
+        if (m.id === INIT_ID && m.result) {
+          HOST_ORIGIN = ev.origin;
+          send({ method: "ui/notifications/initialized" });
+          send({
+            method: "ui/notifications/size-changed",
+            params: {
+              width: document.body.clientWidth,
+              height: document.body.scrollHeight,
+            },
+          });
+        } else if (m.method === "elicitation/create" && m.id !== undefined) {
+          pendingId = m.id;
+          document.getElementById("prompt").textContent =
+            m.params?.message ?? "Choose an option";
+          document.getElementById("choices").hidden = false;
+        }
+      });
+      send({
+        id: INIT_ID,
+        method: "ui/initialize",
+        params: {
+          protocolVersion: "2026-01-26",
+          appInfo: { name: "choose-option", version: "1.0.0" },
+          // The nested app-side half of the #1854 negotiation: without this the
+          // host fails closed and uses its native elicitation form instead.
+          appCapabilities: { elicitation: {} },
+        },
+      });
+    </script>
+  </body>
+</html>`;
+
+/** UI resource serving {@link APP_ELICITATION_HTML}. */
+export function createAppElicitationResource(): ResourceDefinition {
+  return {
+    name: "choose_option_app",
+    uri: APP_ELICITATION_URI,
+    description: "MCP App that renders and resolves a form elicitation",
+    mimeType: "text/html",
+    text: APP_ELICITATION_HTML,
+    _meta: {
+      ui: {
+        csp: { connectDomains: [], resourceDomains: [] },
+        prefersBorder: true,
+      },
+    },
+  };
+}
+
+/**
+ * Tool that asks the client to render {@link createAppElicitationResource} for a
+ * one-field choice, by attaching `_meta.ui.resourceUri` to an otherwise
+ * completely ordinary form `elicitation/create` (#1854).
+ *
+ * Nothing else about the request is special, which is the contract being
+ * demonstrated: a client that did not negotiate app-rendered elicitation simply
+ * ignores the `_meta` and shows its own form, and either way the server gets
+ * back the same standard `ElicitResult` — echoed into the tool result here so
+ * the round-trip is visible without reading the Protocol tab.
+ */
+export function createAppElicitationTool(): ToolDefinition {
+  return {
+    name: "app_choose_option",
+    description:
+      "Ask the client to choose an option, offering an MCP App to render the form",
+    inputSchema: {
+      prompt: z.string().optional().describe("Message shown above the choice"),
+    },
+    _meta: { ui: { visibility: ["model"] } },
+    handler: async (
+      params: Record<string, unknown>,
+      context?: TestServerContext,
+    ): Promise<CallToolResult> => {
+      if (!context) {
+        throw new Error("Server context not available");
+      }
+      const elicitationParams: ElicitRequestFormParams = {
+        message:
+          typeof params.prompt === "string"
+            ? params.prompt
+            : "Choose option A or B.",
+        requestedSchema: {
+          type: "object",
+          properties: {
+            choice: {
+              type: "string",
+              enum: ["option-a", "option-b"],
+              title: "Choice",
+            },
+          },
+          required: ["choice"],
+        },
+        _meta: { ui: { resourceUri: APP_ELICITATION_URI } },
+      };
+      const result = await context.server.server.elicitInput(elicitationParams);
+      return toToolResult(`Elicitation response: ${JSON.stringify(result)}`);
+    },
+  };
+}
+
 /**
  * Create an "mrtr_confirm" tool exercising the modern (2026-07-28) multi
  * round-trip request (MRTR) flow. On the first call it returns an

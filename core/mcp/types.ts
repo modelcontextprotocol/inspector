@@ -23,6 +23,7 @@ import type { Client } from "@modelcontextprotocol/client";
 import type { OAuthClientProvider } from "@modelcontextprotocol/client";
 import type { Transport } from "@modelcontextprotocol/client";
 import type { InspectorLogger } from "../logging/logger.js";
+import type { AppElicitationRenderer } from "./appElicitation.js";
 import type { JsonValue } from "../json/jsonUtils.js";
 import type {
   ClientConfig,
@@ -1024,6 +1025,21 @@ export interface InspectorClientOptions {
    * (#1633). EMA is not configured here (it follows the auth mode). (#1738)
    */
   advertisedExtensions?: Record<string, boolean>;
+
+  /**
+   * Renders an app-rendered form elicitation (#1854) and resolves with the
+   * app's standard `ElicitResult`.
+   *
+   * Supplying this is what opts a client into advertising the nested MCP Apps
+   * `elicitation` capability — so only a client that can actually host an MCP
+   * App and drive its bridge should pass one (today: the web client, when the
+   * sandbox renderer is available). CLI and TUI pass nothing and therefore
+   * never claim the capability, even though they share this client.
+   *
+   * A rejection means "fall back to the native elicitation UI"; a resolved
+   * `decline`/`cancel` is a completed elicitation and is returned to the server.
+   */
+  appElicitation?: AppElicitationRenderer;
 
   /**
    * Whether to enable listChanged notification handlers (default: true)

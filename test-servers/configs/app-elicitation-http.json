@@ -1,0 +1,13 @@
+{
+  "serverInfo": {
+    "name": "app-elicitation-showcase",
+    "version": "1.0.0"
+  },
+  "appElicitation": true,
+  "tools": [{ "preset": "echo" }, { "preset": "app_choose_option" }],
+  "resources": [{ "preset": "choose_option_app" }],
+  "transport": {
+    "type": "streamable-http",
+    "port": 3131
+  }
+}

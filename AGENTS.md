@@ -112,7 +112,17 @@ v2/main/
 │   │                                   #   listSalvage.ts: per-item salvage for list results —
 │   │                                   #   keeps the valid entries when one is non-conforming
 │   │                                   #   instead of losing the whole list, and owns the
-│   │                                   #   shared isClientDecodeRejection predicate — #1909)
+│   │                                   #   shared isClientDecodeRejection predicate — #1909;
+│   │                                   #   appElicitation.ts: app-rendered form elicitation
+│   │                                   #   (#1854) — the four negotiation gates, the
+│   │                                   #   `_meta.ui.resourceUri` reader/validator, and the
+│   │                                   #   result validator. Mirrors ext-apps#733 / SEP-3118
+│   │                                   #   because the released ext-apps (1.7.5) predates it;
+│   │                                   #   the host-side renderer is supplied by the CLIENT
+│   │                                   #   (`InspectorClientOptions.appElicitation`), and
+│   │                                   #   supplying one is what advertises the nested
+│   │                                   #   `elicitation` setting — so web opts in and
+│   │                                   #   cli/tui, which cannot host an App, do not)
 │   │   ├── import/                     # Config import strategies (#1348): client-config parsers
 │   │   │                               #   (Claude Desktop/Cursor/Cline/VS Code), registry
 │   │   │                               #   server.json parser, strategy registry + well-known

@@ -662,7 +662,7 @@ export function AppsScreen({
                   <AppRenderer
                     key={selectedTool.name}
                     sandboxPath={sandboxPath}
-                    tool={selectedTool}
+                    source={{ kind: "tool", tool: selectedTool }}
                     bridgeFactory={bridgeFactory}
                     onError={handleAppError}
                     onAppStatusChange={setAppStatus}

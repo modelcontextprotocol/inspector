@@ -113,7 +113,7 @@ describe("createAppBridgeFactory", () => {
       getClient: () => null,
       readResource: vi.fn(),
     });
-    await expect(factory(makeIframe(), tool)).rejects.toThrow(
+    await expect(factory(makeIframe(), { kind: "tool", tool })).rejects.toThrow(
       /no connected MCP client/,
     );
   });
@@ -123,7 +123,9 @@ describe("createAppBridgeFactory", () => {
       getClient: () => fakeClient,
       readResource: vi.fn(),
     });
-    await expect(factory(makeIframe(false), tool)).rejects.toThrow(/no window/);
+    await expect(
+      factory(makeIframe(false), { kind: "tool", tool }),
+    ).rejects.toThrow(/no window/);
   });
 
   it("constructs the bridge with the client, host info, capabilities and theme, then connects", async () => {
@@ -134,7 +136,7 @@ describe("createAppBridgeFactory", () => {
         getClient: () => fakeClient,
         readResource: vi.fn().mockResolvedValue(uiResource("<h1>hi</h1>")),
       });
-      await factory(makeIframe(), tool);
+      await factory(makeIframe(), { kind: "tool", tool });
       expect(bridgeInstances).toHaveLength(1);
       const bridge = bridgeInstances[0];
       expect(bridge.ctorArgs[0]).toBe(fakeClient);
@@ -167,7 +169,7 @@ describe("createAppBridgeFactory", () => {
       getClient: () => fakeClient,
       readResource,
     });
-    await factory(makeIframe(), tool);
+    await factory(makeIframe(), { kind: "tool", tool });
     const bridge = bridgeInstances[0];
 
     bridge.emit("sandboxready");
@@ -215,7 +217,7 @@ describe("createAppBridgeFactory", () => {
       getClient: () => fakeClient,
       readResource,
     });
-    await factory(makeIframe(), tool);
+    await factory(makeIframe(), { kind: "tool", tool });
     bridgeInstances[0].emit("sandboxready");
     await flush();
     expect(HOST_CAPABILITIES.sandbox).toBeUndefined();
@@ -235,7 +237,7 @@ describe("createAppBridgeFactory", () => {
       getClient: () => fakeClient,
       readResource,
     });
-    await factory(makeIframe(), tool);
+    await factory(makeIframe(), { kind: "tool", tool });
     const bridge = bridgeInstances[0];
     bridge.emit("sandboxready");
     await flush();
@@ -256,8 +258,8 @@ describe("createAppBridgeFactory", () => {
       readResource,
     });
     await factory(makeIframe(), {
-      name: "plain",
-      inputSchema: { type: "object" },
+      kind: "tool",
+      tool: { name: "plain", inputSchema: { type: "object" } },
     });
     bridgeInstances[0].emit("sandboxready");
     await flush();
@@ -274,7 +276,7 @@ describe("createAppBridgeFactory", () => {
       readResource,
       onResourceError,
     });
-    await factory(makeIframe(), tool);
+    await factory(makeIframe(), { kind: "tool", tool });
     const bridge = bridgeInstances[0];
     bridge.emit("sandboxready");
     await flush();
@@ -295,7 +297,7 @@ describe("createAppBridgeFactory", () => {
       readResource,
       onResourceError,
     });
-    await factory(makeIframe(), tool);
+    await factory(makeIframe(), { kind: "tool", tool });
     const bridge = bridgeInstances[0];
     bridge.emit("sandboxready");
     await flush();
@@ -317,7 +319,7 @@ describe("createAppBridgeFactory", () => {
       readResource,
       onResourceError,
     });
-    await factory(makeIframe(), tool);
+    await factory(makeIframe(), { kind: "tool", tool });
     const bridge = bridgeInstances[0];
     bridge.emit("sandboxready");
     await flush();
@@ -335,7 +337,7 @@ describe("createAppBridgeFactory", () => {
       getClient: () => fakeClient,
       readResource,
     });
-    await factory(makeIframe(), tool);
+    await factory(makeIframe(), { kind: "tool", tool });
     const bridge = bridgeInstances[0];
     bridge.emit("sandboxready");
     await flush();
@@ -352,7 +354,7 @@ describe("createAppBridgeFactory", () => {
       getClient: () => fakeClient,
       readResource: vi.fn().mockResolvedValue(uiResource("<h1>x</h1>")),
     });
-    await factory(makeIframe(), tool);
+    await factory(makeIframe(), { kind: "tool", tool });
     const bridge = bridgeInstances[0];
 
     await expect(
@@ -376,7 +378,7 @@ describe("createAppBridgeFactory", () => {
       getClient: () => fakeClient,
       readResource: vi.fn().mockResolvedValue(uiResource("<h1>x</h1>")),
     });
-    await factory(makeIframe(), tool);
+    await factory(makeIframe(), { kind: "tool", tool });
     expect(bridgeInstances[0].ctorArgs[2]).toMatchObject({ downloadFile: {} });
   });
 
@@ -394,7 +396,7 @@ describe("createAppBridgeFactory", () => {
         getClient: () => fakeClient,
         readResource: vi.fn().mockResolvedValue(uiResource("<h1>x</h1>")),
       });
-      await factory(makeIframe(), tool);
+      await factory(makeIframe(), { kind: "tool", tool });
       return bridgeInstances[0];
     }
 

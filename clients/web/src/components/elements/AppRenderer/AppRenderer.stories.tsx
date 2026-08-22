@@ -61,7 +61,7 @@ const meta: Meta<typeof AppRenderer> = {
   component: AppRenderer,
   args: {
     sandboxPath: PLACEHOLDER_SANDBOX,
-    tool: cohortTool,
+    source: { kind: "tool", tool: cohortTool },
     onError: fn(),
   },
   parameters: {

@@ -8,7 +8,7 @@ import type {
   McpUiHostCapabilities,
   McpUiResourceMeta,
 } from "@modelcontextprotocol/ext-apps/app-bridge";
-import type { Client } from "@modelcontextprotocol/client";
+import type { Client, Transport } from "@modelcontextprotocol/client";
 import type {
   EmbeddedResource,
   Implementation,
@@ -26,7 +26,21 @@ import {
   isHttpUrl,
 } from "../../../lib/downloadFile";
 import { snapshotHostContext } from "./hostContext";
-import type { BridgeFactory } from "./AppRenderer";
+import { observeAppCapabilities } from "./appCapabilities";
+import type { AppRenderSource, BridgeFactory } from "./AppRenderer";
+
+/**
+ * The `ui://` resource a render source loads, or `undefined` for an App tool
+ * whose `_meta` names none (in which case there is nothing to push into the
+ * sandbox and the frame stays empty).
+ */
+function resolveSourceUri(source: AppRenderSource): string | undefined {
+  return source.kind === "resource"
+    ? source.resourceUri
+    : getToolUiResourceUri(
+        source.tool as Parameters<typeof getToolUiResourceUri>[0],
+      );
+}
 
 /**
  * Host identity advertised to MCP Apps during the bridge handshake. Static —
@@ -74,6 +88,16 @@ export interface AppBridgeFactoryDeps {
    * frame; the error is also always console.error'd.
    */
   onResourceError?: (err: Error) => void;
+  /**
+   * Advertise `hostCapabilities.elicitation` — "this host can forward a
+   * form-mode `elicitation/create` to the app and return its result to the
+   * server" (#1854).
+   *
+   * Off by default, and deliberately per-factory rather than global: an App
+   * *tool* frame is never handed an elicitation, so claiming the capability
+   * there would tell the app something untrue about what its host will do.
+   */
+  advertiseElicitation?: boolean;
 }
 
 /** First text content block of a UI resource, plus its `_meta` (sandbox hints). */
@@ -198,7 +222,7 @@ function downloadResourceItem(item: EmbeddedResource | ResourceLink): boolean {
 export function createAppBridgeFactory(
   deps: AppBridgeFactoryDeps,
 ): BridgeFactory {
-  return async (iframe, tool) => {
+  return async (iframe, source) => {
     const client = deps.getClient();
     if (!client) {
       throw new Error("Cannot render MCP App: no connected MCP client.");
@@ -211,7 +235,17 @@ export function createAppBridgeFactory(
     // Per-app copy so the approved-sandbox echo (set on sandboxready below)
     // never mutates the shared HOST_CAPABILITIES constant — each app may
     // declare its own csp/permissions.
-    const hostCapabilities: McpUiHostCapabilities = { ...HOST_CAPABILITIES };
+    const hostCapabilities: McpUiHostCapabilities = {
+      ...HOST_CAPABILITIES,
+      // `elicitation` is not part of ext-apps 1.7.5's `McpUiHostCapabilities`
+      // (ext-apps#733 adds it), so it is spread in as an extra key. The bridge
+      // forwards the capabilities object verbatim in its `ui/initialize`
+      // response, which is exactly what the app reads. TODO: drop the cast when
+      // a release containing #733 ships.
+      ...(deps.advertiseElicitation
+        ? ({ elicitation: {} } as Partial<McpUiHostCapabilities>)
+        : {}),
+    };
     // ext-apps' `AppBridge` peers on SDK v1's `Client`/`Implementation`; both
     // are runtime-compatible with v2's. Cast at this single construction
     // boundary. TODO: drop when ext-apps#702 ships a v2 peer release.
@@ -234,9 +268,7 @@ export function createAppBridgeFactory(
     bridge.addEventListener("sandboxready", () => {
       void (async () => {
         try {
-          const uri = getToolUiResourceUri(
-            tool as Parameters<typeof getToolUiResourceUri>[0],
-          );
+          const uri = resolveSourceUri(source);
           if (!uri) return;
           const result = await deps.readResource(uri);
           const { html, meta } = extractHtmlAndMeta(result);
@@ -338,6 +370,10 @@ export function createAppBridgeFactory(
 
     const transport = new PostMessageTransport(targetWindow, targetWindow);
     await bridge.connect(transport);
+    // Record the view's raw `ui/initialize` capabilities before the bridge's
+    // own schema strips the keys it predates (#1854). Must follow `connect`,
+    // which is what installs the handler this wraps.
+    observeAppCapabilities(bridge, transport as unknown as Transport);
     return bridge;
   };
 }

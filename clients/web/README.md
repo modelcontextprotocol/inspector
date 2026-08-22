@@ -85,6 +85,15 @@ The Apps screen exposes a small, stable set of `data-testid` / `data-*` attribut
 | `data-testid="apps-messages"` | messages panel | `ui/message` submissions from the running view. |
 | `data-testid="apps-logs"` | app-logs panel | `notifications/message` log entries (default-expanded). |
 
+App-rendered **elicitations** (#1854) render through the same `AppRenderer` but outside the Apps screen — one modal per request, from `AppElicitationHost` — and carry their own pair:
+
+| Attribute | Where | Meaning |
+| --- | --- | --- |
+| `data-testid="app-elicitation"` | the elicitation modal | One per in-flight app-rendered elicitation. **Absent** means the request was answered by the native elicitation form instead, which is what a driver asserts to prove the negotiation gate held. |
+| `data-app-elicitation-status` | on `app-elicitation` | The same `AppRendererStatus` for that modal's app. `ready` is when the host forwards the `elicitation/create` through its bridge. |
+
+`scripts/smoke-web-elicitation.mjs` drives both halves against the public fixture (`test-servers/configs/app-elicitation-http.json` and its `-native-` sibling).
+
 The renderer lifecycle itself is `AppRendererStatus` (`loading` | `ready` | `error`) reported via `AppRenderer`'s `onAppStatusChange`; the screen maps it to `data-app-status`. Resource-read failures (malformed/404 UI resource) are surfaced as a toast via the bridge factory's `onResourceError`; because the app never reaches `ready` in that case, a driver times out on `data-app-status` and reads the toast.
 
 ## Deep-link auto-connect

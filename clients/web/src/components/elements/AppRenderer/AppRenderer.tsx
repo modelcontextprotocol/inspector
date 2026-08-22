@@ -15,9 +15,18 @@ import type {
 } from "@modelcontextprotocol/ext-apps/app-bridge";
 import type {
   CallToolResult,
+  ElicitRequest,
+  ElicitResult,
   LoggingMessageNotification,
-  Tool,
 } from "@modelcontextprotocol/client";
+import { requestAppElicitation } from "./requestAppElicitation";
+import {
+  appSourceTitle,
+  sameAppSource,
+  type AppRenderSource,
+} from "./appRenderSource";
+
+export type { AppRenderSource } from "./appRenderSource";
 import {
   currentStyles,
   currentTheme,
@@ -32,13 +41,23 @@ import {
  */
 export type BridgeFactory = (
   iframe: HTMLIFrameElement,
-  tool: Tool,
+  source: AppRenderSource,
 ) => AppBridge | Promise<AppBridge>;
 
 export interface AppRendererHandle {
   sendToolInput(args: Record<string, unknown>): Promise<void>;
   sendToolResult(result: CallToolResult): Promise<void>;
   sendToolCancelled(reason: string): Promise<void>;
+  /**
+   * Forward a form-mode `elicitation/create` through THIS renderer's bridge and
+   * resolve with the app's standard `ElicitResult` (#1854).
+   *
+   * Rejects — rather than resolving with anything invented — when the app is not
+   * live, did not advertise `elicitation`, or fails the request, because the
+   * caller's contract is that a rejection means "fall back to the native UI"
+   * while a resolution is a real user decision.
+   */
+  requestElicitation(params: ElicitRequest["params"]): Promise<ElicitResult>;
   teardown(): Promise<void>;
 }
 
@@ -54,7 +73,7 @@ export type AppRendererStatus = "loading" | "ready" | "error";
 
 export interface AppRendererProps {
   sandboxPath: string;
-  tool: Tool;
+  source: AppRenderSource;
   bridgeFactory: BridgeFactory;
   onError?: (err: Error) => void;
   /**
@@ -135,7 +154,7 @@ async function disposeBridge(bridge: AppBridge): Promise<void> {
 /**
  * Bridge lifecycle (the interlocking refs below):
  *
- *   mount ─▶ build (buildId++) ─▶ factory(iframe,tool) ─async─▶ bridgeRef set
+ *   mount ─▶ build (buildId++) ─▶ factory(iframe,source) ─async─▶ bridgeRef set
  *                                                              │ on "initialized"
  *                                                              ▼ → flushPending
  *   cleanup ─▶ scheduleDispose() ──microtask──▶ dispose (unless cancelled)
@@ -154,7 +173,7 @@ async function disposeBridge(bridge: AppBridge): Promise<void> {
  */
 export function AppRenderer({
   sandboxPath,
-  tool,
+  source,
   bridgeFactory,
   onError,
   onAppStatusChange,
@@ -182,7 +201,7 @@ export function AppRenderer({
   const lastDepsRef = useRef<{
     bridgeFactory: BridgeFactory;
     sandboxPath: string;
-    tool: Tool;
+    source: AppRenderSource;
   } | null>(null);
   const onErrorRef = useRef(onError);
   const onAppStatusChangeRef = useRef(onAppStatusChange);
@@ -268,7 +287,7 @@ export function AppRenderer({
       prev !== null &&
       prev.bridgeFactory === bridgeFactory &&
       prev.sandboxPath === sandboxPath &&
-      prev.tool === tool;
+      sameAppSource(prev.source, source);
 
     // A disposal scheduled by the immediately-preceding cleanup means we are in
     // a synchronous re-setup. If the inputs are identical (StrictMode's
@@ -298,7 +317,7 @@ export function AppRenderer({
       if (old) void disposeBridge(old);
     }
 
-    lastDepsRef.current = { bridgeFactory, sandboxPath, tool };
+    lastDepsRef.current = { bridgeFactory, sandboxPath, source };
     const buildId = ++buildIdRef.current;
     teardownStartedRef.current = false;
     initializedRef.current = false;
@@ -311,7 +330,7 @@ export function AppRenderer({
 
     let pending: Promise<AppBridge>;
     try {
-      pending = Promise.resolve(bridgeFactory(iframe, tool));
+      pending = Promise.resolve(bridgeFactory(iframe, source));
     } catch (err) {
       onAppStatusChangeRef.current?.("error");
       onErrorRef.current?.(toError(err));
@@ -391,7 +410,7 @@ export function AppRenderer({
   }, [
     bridgeFactory,
     sandboxPath,
-    tool,
+    source,
     containerRef,
     flushPending,
     scheduleDispose,
@@ -489,6 +508,18 @@ export function AppRenderer({
         pendingResultRef.current = result;
         flushPending();
       },
+      async requestElicitation(params) {
+        const bridge = bridgeRef.current;
+        // Not "not ready yet, buffer it" like tool input/result: an elicitation
+        // has a server waiting on it, so a caller that arrives before the
+        // handshake must learn that now and fall back, not block.
+        if (!bridge || !initializedRef.current) {
+          throw new Error(
+            "MCP App is not ready to receive an elicitation request",
+          );
+        }
+        return requestAppElicitation(bridge, params);
+      },
       async sendToolCancelled(reason) {
         const bridge = bridgeRef.current;
         if (!bridge) return;
@@ -528,7 +559,7 @@ export function AppRenderer({
       component="iframe"
       ref={iframeRef}
       src={sandboxPath}
-      title={tool.title ?? tool.name}
+      title={appSourceTitle(source)}
       w="100%"
       h="100%"
       bd={0}

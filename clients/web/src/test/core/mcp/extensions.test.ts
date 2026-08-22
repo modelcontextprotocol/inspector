@@ -145,4 +145,42 @@ describe("extensions (#1738, #1740)", () => {
       expect(map).toEqual({ [EMA_EXTENSION_KEY]: {} });
     });
   });
+
+  describe("app-rendered elicitation opt-in (#1854)", () => {
+    it("does not advertise the nested elicitation setting by default", () => {
+      const map = buildClientExtensions({ enterpriseManaged: false });
+      expect(map[UI_EXTENSION_KEY]).toEqual(UI_ADVERTISEMENT);
+    });
+
+    it("nests `elicitation` inside the UI extension when opted in", () => {
+      const map = buildClientExtensions({
+        enterpriseManaged: false,
+        appElicitation: true,
+      });
+      expect(map[UI_EXTENSION_KEY]).toEqual({
+        ...UI_ADVERTISEMENT,
+        elicitation: {},
+      });
+      // A nested setting, NOT a second extension — the contract is explicit
+      // that no new extension id is introduced.
+      expect(Object.keys(map)).toEqual([TASKS_EXTENSION_KEY, UI_EXTENSION_KEY]);
+    });
+
+    it("advertises nothing when the UI extension itself is turned off", () => {
+      const map = buildClientExtensions({
+        enterpriseManaged: false,
+        appElicitation: true,
+        advertised: { [UI_EXTENSION_KEY]: false },
+      });
+      expect(map).not.toHaveProperty(UI_EXTENSION_KEY);
+    });
+
+    it("does not mutate the shared registry advertisement", () => {
+      buildClientExtensions({ enterpriseManaged: false, appElicitation: true });
+      const ui = ADVERTISABLE_EXTENSIONS.find(
+        (e) => e.key === UI_EXTENSION_KEY,
+      );
+      expect(ui?.advertisement).toEqual(UI_ADVERTISEMENT);
+    });
+  });
 });
