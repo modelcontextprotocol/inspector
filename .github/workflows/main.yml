@@ -186,14 +186,29 @@ jobs:
           # for that reason; a dispatch from another branch warms only itself.
           ref: v2/main
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22.x'
+          # No `cache: 'npm'`: this job installs no dependencies, so an npm cache
+          # would only add a second entry to the repo's budget for nothing.
+
       - name: Resolve the pinned Playwright version
         id: playwright
-        # Must stay in lockstep with the `build` job's step of the same name.
-        # No `npm install` needed: this reads the committed lockfile, which is
-        # what a topic branch's install resolves to anyway — and skipping the
-        # install cascade keeps this job at a couple of minutes.
+        working-directory: ./clients/web
+        # This must resolve the SAME version the `build` job's step of the same
+        # name does, or the two write and read different keys and the warmed
+        # entry is never found. `build` reads the lockfile AFTER `npm install`,
+        # which rewrites it in place — so reading the committed file here would
+        # diverge whenever that install re-resolves anything (a lockfile that no
+        # longer satisfies package.json, most obviously after a dependency bump
+        # that touched only the manifest). `--package-lock-only` re-runs exactly
+        # that resolution and rewrites only the lockfile, in seconds, without
+        # installing a single package — so the two steps agree by construction
+        # while this job still skips the multi-minute install cascade.
         run: |
-          version="$(node -p "require('./clients/web/package-lock.json').packages['node_modules/playwright'].version")"
+          npm install --package-lock-only
+          version="$(node -p "require('./package-lock.json').packages['node_modules/playwright'].version")"
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "Playwright $version"
 

@@ -477,7 +477,7 @@ Three CI steps drive headless Chromium (the boot smoke, the MCP Apps smoke, and 
 - **The key is the resolved Playwright version, not a lockfile hash.** The browser revisions are a function of the Playwright version alone, so hashing `clients/web/package-lock.json` threw the whole cache away whenever any unrelated web dependency moved. The version is read from the lockfile _after_ `npm install` (which rewrites it in place), so the key reflects what npm actually resolved.
 - **A scheduled `warm-playwright-cache` job keeps the default branch's copy fresh.** Actions restores a cache from the current branch or from the **default branch** — and this repo's default branch is `main`, which only receives milestone merges, so nothing kept that fallback populated. Every topic branch's first run therefore missed, re-downloaded the browsers, and wrote its own ~270 MB entry against the repo's 10 GiB budget. A scheduled run always runs on the default branch, so the entry this nightly job writes is the one every branch can read; it checks out `v2/main` only to read the lockfile. Trigger it by hand with **Run workflow** on `main` after a Playwright bump (a dispatch from any other branch warms only that branch).
 
-Both jobs derive the key with the same one-line `node -p` read of the lockfile — keep them in lockstep.
+Both jobs must derive the **same** version or they write and read different keys and the warmed entry is never found — which is why the warmer runs `npm install --package-lock-only` before its `node -p` read. That re-runs npm's resolution (rewriting only the lockfile, installing nothing) so it matches the post-install file `build` reads, without paying for the install cascade. Keep the two steps in lockstep.
 
 ## Publishing
 
