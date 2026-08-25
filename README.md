@@ -470,6 +470,15 @@ Per-client scripts exist too (`validate:web`, `coverage:cli`, `smoke:tui`, …),
 
 For the full testing rules — the ≥90% per-file gate, where test files live, the unit vs. integration vs. storybook projects, and the `v8 ignore` policy — see [`AGENTS.md`](./AGENTS.md).
 
+### The CI Playwright browser cache
+
+Three CI steps drive headless Chromium (the boot smoke, the MCP Apps smoke, and the Storybook play functions), so [`.github/workflows/main.yml`](.github/workflows/main.yml) caches `~/.cache/ms-playwright` (~270 MB) rather than downloading the browsers on every run. Two things about that cache are easy to break:
+
+- **The key is the resolved Playwright version, not a lockfile hash.** The browser revisions are a function of the Playwright version alone, so hashing `clients/web/package-lock.json` threw the whole cache away whenever any unrelated web dependency moved. The version is read from the lockfile _after_ `npm install` (which rewrites it in place), so the key reflects what npm actually resolved.
+- **A scheduled `warm-playwright-cache` job keeps the default branch's copy fresh.** Actions restores a cache from the current branch or from the **default branch** — and this repo's default branch is `main`, which only receives milestone merges, so nothing kept that fallback populated. Every topic branch's first run therefore missed, re-downloaded the browsers, and wrote its own ~270 MB entry against the repo's 10 GiB budget. A scheduled run always runs on the default branch, so the entry this nightly job writes is the one every branch can read; it checks out `v2/main` only to read the lockfile. Trigger it by hand with **Run workflow** on `main` after a Playwright bump (a dispatch from any other branch warms only that branch).
+
+Both jobs derive the key with the same one-line `node -p` read of the lockfile — keep them in lockstep.
+
 ## Publishing
 
 The root `@modelcontextprotocol/inspector` package ships as **one tarball with a single version number** — no separate `-web` / `-cli` / `-tui` / `-core` packages. `npm run build` builds every client, then `prepack` runs before `npm publish`. Runtime dependencies are declared on the root `package.json`; client builds bundle `@inspector/core` and externalize npm packages resolved from the root install.

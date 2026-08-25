@@ -2,6 +2,13 @@ name: Run install, format, lint, build, and test on every push
 
 on:
   push:
+  # Both of these exist solely for the `warm-playwright-cache` job at the bottom
+  # of this file, which repopulates the Playwright browser cache in the DEFAULT
+  # branch's cache scope — the only scope every other branch can read from. The
+  # `build` job below is guarded off for both events; see the job comment there.
+  schedule:
+    - cron: '17 5 * * *'
+  workflow_dispatch:
   # A published GitHub release triggers the `publish` job below. The release's
   # target commit determines which workflow runs — so this only publishes when a
   # release is cut from a commit that carries this (v2) workflow.
@@ -20,6 +27,10 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # `schedule` and `workflow_dispatch` are the cache warmer's triggers, not
+    # this gate's — re-running the full validate/coverage/smoke chain nightly
+    # would burn ~20 minutes of runner time to re-test a commit nothing changed.
+    if: github.event_name != 'schedule' && github.event_name != 'workflow_dispatch'
 
     steps:
       - name: Checkout code
@@ -89,14 +100,43 @@ jobs:
       # prod web bundle in chromium — restoring/installing it here lets that
       # smoke reuse the cache instead of downloading its own copy. The Storybook
       # step below reuses the same install.
+      - name: Resolve the installed Playwright version
+        id: playwright
+        # The cache key below is built from this rather than from
+        # `hashFiles('clients/web/package-lock.json')`, because the browser
+        # revisions Playwright downloads are a function of the Playwright
+        # version ALONE. Hashing the whole lockfile threw a ~270MB browser cache
+        # away on every unrelated `clients/web` dependency change — a new
+        # storybook patch invalidated chromium.
+        #
+        # Read after `npm install`, not from the committed tree: install rewrites
+        # package-lock.json in place, so the on-disk file is what npm actually
+        # resolved. `clients/web` is the only install that carries playwright,
+        # and it carries exactly one hoisted copy (`@vitest/browser-playwright`
+        # shares that same playwright-core), so one entry is the whole answer.
+        run: |
+          version="$(node -p "require('./clients/web/package-lock.json').packages['node_modules/playwright'].version")"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Playwright $version"
+
       - name: Cache Playwright browsers
+        # Deliberately no `restore-keys`. With a version-keyed cache a miss means
+        # the Playwright version genuinely changed, which is exactly when new
+        # browser revisions must be downloaded — a partial restore would only
+        # add a stale revision to what the next save re-uploads, growing the
+        # entry on every bump.
         uses: actions/cache@v6
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('clients/web/package-lock.json') }}
+          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}
 
       - name: Install Playwright browsers
         working-directory: ./clients/web
+        # A no-op for the browsers themselves on a cache hit (`playwright
+        # install` verifies the revisions already on disk and skips them), but it
+        # still runs `--with-deps`, i.e. the apt install of chromium's system
+        # libraries — those live outside ~/.cache/ms-playwright and cannot be
+        # cached, so this step stays ~50s regardless.
         run: npx playwright install --with-deps chromium
 
       - name: Run cross-client smokes
@@ -114,6 +154,81 @@ jobs:
       - name: Run Storybook play-function tests
         working-directory: ./clients/web
         run: npm run test:storybook
+
+  # ── Playwright browser cache warmer ────────────────────────────────────────
+  # A cache entry written by a run on branch X is readable from X, from branches
+  # cut off X afterwards, and — as the universal fallback — from the repository's
+  # DEFAULT branch. Here the default branch is `main`, which only ever receives
+  # milestone merges, so nothing routinely populates that fallback scope: every
+  # topic branch's first run missed and re-downloaded chromium, then wrote its
+  # own ~270MB entry against the repo's 10GiB budget, evicting older entries by
+  # LRU. Both halves are in the logs — run 32852646099 (on v2/main) reported
+  # "Cache hit for: playwright-Linux-…", while run 32809629946 (on a topic
+  # branch, same key byte-for-byte) reported "Cache not found for input keys"
+  # and went on to download Chrome for Testing, Chrome Headless Shell, and
+  # FFmpeg. Identical keys, different scopes: the key was never the problem.
+  #
+  # A scheduled run always runs on the default branch, so this job's entry lands
+  # in precisely the scope every branch can read. Once it exists, topic-branch
+  # runs restore instead of downloading — and `actions/cache` skips saving on a
+  # hit, so they also stop writing duplicate copies.
+  warm-playwright-cache:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+
+    steps:
+      - name: Checkout the develop branch
+        uses: actions/checkout@v7
+        with:
+          # Read the lockfile from where development happens. This only selects
+          # the TREE — the cache scope follows the run's own ref (the default
+          # branch), which is the whole point. Dispatch manual runs from `main`
+          # for that reason; a dispatch from another branch warms only itself.
+          ref: v2/main
+
+      - name: Resolve the pinned Playwright version
+        id: playwright
+        # Must stay in lockstep with the `build` job's step of the same name.
+        # No `npm install` needed: this reads the committed lockfile, which is
+        # what a topic branch's install resolves to anyway — and skipping the
+        # install cascade keeps this job at a couple of minutes.
+        run: |
+          version="$(node -p "require('./clients/web/package-lock.json').packages['node_modules/playwright'].version")"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Playwright $version"
+
+      - name: Check whether the cache is already warm
+        id: cache
+        uses: actions/cache/restore@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}
+          # Probe only. This job never runs a browser, so on a hit there is
+          # nothing to do and no reason to pull ~270MB down to discover that.
+          lookup-only: true
+
+      - name: Install Playwright browsers
+        if: steps.cache.outputs.cache-hit != 'true'
+        # `npx --yes playwright@<version>` fetches just the CLI at the pinned
+        # version, which is all that is needed to download the browser revisions
+        # matching it. No `--with-deps`: the apt-installed system libraries live
+        # outside ~/.cache/ms-playwright and so are not part of what is cached.
+        env:
+          VERSION: ${{ steps.playwright.outputs.version }}
+        run: npx --yes "playwright@$VERSION" install chromium
+
+      - name: Save the Playwright browser cache
+        # Split restore/save rather than one `actions/cache` step so the entry is
+        # written only after a SUCCESSFUL install: the combined action's post-job
+        # save uploads whatever is on disk, which would pin a half-downloaded
+        # directory under this key until the next version bump. (A step with an
+        # `if` that names no status function still carries an implicit
+        # `success()`, so a failed install skips this.)
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}
 
   # Publish the single `@modelcontextprotocol/inspector` package to npm on a
   # published GitHub release. v2 is not an npm workspace, so there is no
