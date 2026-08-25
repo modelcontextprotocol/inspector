@@ -555,6 +555,7 @@ vi.mock("./components/views/InspectorView/InspectorView", () => ({
         switch-servers-tab
       </button>
       <button onClick={() => props.onToggleConnection("A")}>connect</button>
+      <button onClick={() => props.onToggleConnection("B")}>connect-b</button>
       <button onClick={() => props.onConnectionInfo()}>
         open-connection-info
       </button>
@@ -3537,6 +3538,66 @@ describe("App paginated list pagination toggle (#1721)", () => {
       paginatedLists?: boolean;
     };
     expect(lastPush?.paginatedLists).toBe(true);
+  });
+
+  it("keeps a server's override across a switch away and back (#2095)", async () => {
+    // The override stands in for a `servers` entry that no list read has
+    // corrected yet, so dropping it falls back to that stale entry — which is
+    // exactly what happened while it was one app-wide boolean cleared on every
+    // active-entry change: A → B → A put the sidebar back on the value the
+    // user had already changed away from. Keyed by server, the switch is a
+    // no-op for it.
+    const user = userEvent.setup();
+    const previousUseServers = vi.mocked(useServers).getMockImplementation();
+    try {
+      vi.mocked(useServers).mockReturnValue({
+        servers: [
+          SERVER_A as ServerEntry,
+          { ...SERVER_A, id: "B", name: "Other" } as ServerEntry,
+        ],
+        loading: false,
+        error: undefined,
+        refresh: vi.fn().mockResolvedValue(undefined),
+        addServer: vi.fn(),
+        updateServer: vi.fn(),
+        updateServerSettings: updateServerSettingsSpy,
+        removeServer: vi.fn(),
+        reorderServers: vi.fn(),
+        importSource: vi.fn().mockResolvedValue({ servers: {} }),
+      });
+      renderWithMantine(<App />);
+      await user.click(screen.getByText("connect"));
+      await waitFor(() => expect(clientInstances).toHaveLength(1));
+
+      // A write lands `true` for A while list reads are stale, so the entry
+      // keeps reporting `false` and only the override says otherwise.
+      const draftOptions = vi.mocked(useSettingsDraft).mock.calls.at(-1)?.[0];
+      if (!draftOptions) throw new Error("useSettingsDraft was never called");
+      await act(async () => {
+        await draftOptions.onPersist("A", {
+          ...settingsWithRoots([]),
+          paginatedLists: true,
+        });
+      });
+      await waitFor(() =>
+        expect(screen.getByTestId("tools-paginated")).toHaveTextContent("true"),
+      );
+
+      await user.click(screen.getByText("connect-b"));
+      await waitFor(() =>
+        expect(screen.getByTestId("active-server")).toHaveTextContent("B"),
+      );
+      await user.click(screen.getByText("connect"));
+      await waitFor(() =>
+        expect(screen.getByTestId("active-server")).toHaveTextContent("A"),
+      );
+
+      expect(screen.getByTestId("tools-paginated")).toHaveTextContent("true");
+    } finally {
+      if (previousUseServers) {
+        vi.mocked(useServers).mockImplementation(previousUseServers);
+      }
+    }
   });
 });
 
