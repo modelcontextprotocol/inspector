@@ -3594,8 +3594,13 @@ describe("App paginated list pagination toggle (#1721)", () => {
 
       expect(screen.getByTestId("tools-paginated")).toHaveTextContent("true");
     } finally {
+      // Unconditional: the `mockReturnValue` above outlives this test, so
+      // skipping the restore when there is no previous implementation would
+      // leak this two-server list into everything that runs after it.
       if (previousUseServers) {
         vi.mocked(useServers).mockImplementation(previousUseServers);
+      } else {
+        vi.mocked(useServers).mockReset();
       }
     }
   });
