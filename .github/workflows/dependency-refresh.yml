@@ -1,0 +1,48 @@
+# Monthly npm-outdated sweep (#2229), replacing Dependabot version-update PRs.
+#
+# Dependabot version updates are disabled in `.github/dependabot.yml` because a
+# version-update PR carries no issue and no board card. This workflow runs
+# `scripts/dependency-refresh.mjs` against `v2/main` once a month and files or
+# updates ONE tracking issue listing every outdated package across the root
+# install and each client — no PR is opened automatically. A maintainer reviews
+# the issue, picks what to bump, and opens a normal PR against `v2/main`.
+#
+# `GITHUB_TOKEN` is sufficient: it only needs to read milestones (public) and
+# create/edit an issue (`issues: write`). Board placement is intentionally NOT
+# attempted here — that needs an org-project PAT this token cannot have — so a
+# filed-but-unboarded issue is picked up by the next `/issue-triage` sweep,
+# same as any other maintainer-filed issue.
+name: Dependency Refresh
+
+on:
+  schedule:
+    - cron: "23 6 1 * *" # 06:23 UTC on the 1st of every month
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  npm-outdated:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout v2/main
+        uses: actions/checkout@v7
+        with:
+          ref: v2/main
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22.x'
+          cache: 'npm'
+
+      - name: Install dependencies (root + all clients)
+        run: npm install
+
+      - name: Run the npm-outdated sweep
+        run: node scripts/dependency-refresh.mjs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}

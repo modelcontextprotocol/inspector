@@ -1,23 +1,26 @@
 version: 2
 
-# Version updates target `v2/main`, the develop branch where all v2 work lands,
-# not the default branch — `main` is release-only, holding the latest released
-# v2 and receiving milestone merges from `v2/main`. (The deprecated v1 line
-# lives on `v1/main` and takes security fixes only.)
+# npm version updates are OFF (#2229): a Dependabot version-update PR carries no
+# issue and no board card, which is the same "every PR references an issue"
+# carve-out the security-update flow had. Routine npm bumps are handled instead
+# by a monthly `npm outdated` sweep (`.github/workflows/dependency-refresh.yml`)
+# that files ONE tracking issue per run, boarded and milestoned like any other
+# work — so a maintainer picks the bump and opens a normal PR against `v2/main`.
+#
+# Security updates are unaffected by this file either way: they are enabled in
+# repo settings, not here. #2229 additionally proposes consuming them as
+# Dependabot ALERTS rather than PRs (tracked, not yet built) — until that lands,
+# security-update PRs still open against `main` and still need retargeting by
+# hand, same as before.
+#
+# github-actions version updates stay on Dependabot's own PR flow below — out of
+# scope for #2229, which was about npm packages specifically.
 #
 # Two things to know about this file:
 #   1. Dependabot reads it from the DEFAULT branch (`main`). Changes here are
 #      inert until the next milestone merge carries them there.
-#   2. `target-branch` scopes VERSION updates. Dependabot SECURITY updates are
-#      enabled in repo settings, not here, and are raised against the default
-#      branch — they kept working while this file was missing entirely
-#      (see #1833, #1840). Per GitHub's Dependabot options reference, an entry
-#      whose `target-branch` names a non-default branch is NOT applied to
-#      security updates, so the schedule/labels/groups below shape version
-#      updates only. Re-confirm security PRs still appear after this lands.
-#
-# v2 is not an npm workspace: the root and each client under `clients/*` carry
-# their own package.json + lockfile, so each needs its own entry.
+#   2. `target-branch` scopes VERSION updates only (npm updates are removed
+#      here, so this now only applies to the github-actions entry below).
 
 updates:
   - package-ecosystem: "github-actions"
@@ -29,65 +32,5 @@ updates:
       - "v2"
     groups:
       github-actions:
-        patterns:
-          - "*"
-
-  - package-ecosystem: "npm"
-    directory: "/"
-    target-branch: "v2/main"
-    schedule:
-      interval: "monthly"
-    labels:
-      - "v2"
-    groups:
-      root-dependencies:
-        patterns:
-          - "*"
-
-  - package-ecosystem: "npm"
-    directory: "/clients/web"
-    target-branch: "v2/main"
-    schedule:
-      interval: "monthly"
-    labels:
-      - "v2"
-    groups:
-      web-dependencies:
-        patterns:
-          - "*"
-
-  - package-ecosystem: "npm"
-    directory: "/clients/cli"
-    target-branch: "v2/main"
-    schedule:
-      interval: "monthly"
-    labels:
-      - "v2"
-    groups:
-      cli-dependencies:
-        patterns:
-          - "*"
-
-  - package-ecosystem: "npm"
-    directory: "/clients/tui"
-    target-branch: "v2/main"
-    schedule:
-      interval: "monthly"
-    labels:
-      - "v2"
-    groups:
-      tui-dependencies:
-        patterns:
-          - "*"
-
-  - package-ecosystem: "npm"
-    directory: "/clients/launcher"
-    target-branch: "v2/main"
-    schedule:
-      interval: "monthly"
-    labels:
-      - "v2"
-    groups:
-      launcher-dependencies:
         patterns:
           - "*"
