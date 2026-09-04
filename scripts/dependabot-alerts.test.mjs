@@ -1415,6 +1415,41 @@ test("main omits the security-PR claim when the token could not read it", () => 
   );
 });
 
+test("main will not stand down an open alert that lost its patched version", () => {
+  // groupAlerts drops an alert with no first_patched_version, so the bump's key
+  // disappears — but the advisory is still OPEN. Reading the open-GHSA set from
+  // the groups instead of the raw feed would report it as fixed or dismissed.
+  const [filed] = groupAlerts([alert({ ghsa: "GHSA-a" })]);
+  const unpatched = alert({ ghsa: "GHSA-a" });
+  unpatched.security_vulnerability.first_patched_version = null;
+
+  const spawn = fakeSpawn({
+    alertPages: [[unpatched]],
+    issues: [
+      {
+        number: 41,
+        title: buildIssueTitle(filed),
+        body: buildIssueBody(filed, asInstalled()),
+      },
+    ],
+  });
+  inTempRepo({ "package-lock.json": lockWith("fast-uri", "3.1.5") }, () =>
+    withoutProjectToken(() =>
+      captureLog(() => main("o/r", spawn, "2026-09-04")),
+    ),
+  );
+  const edit = ghCall(spawn, "edit");
+  assert.ok(edit, "the issue is still reconciled");
+  const body = edit.args[edit.args.indexOf("--body") + 1];
+  assert.doesNotMatch(
+    body,
+    /fixed or dismissed/,
+    "a still-open advisory must never stand itself down",
+  );
+  assert.match(body, /superseded/);
+  assert.match(body, /`GHSA-a` is still open/);
+});
+
 test("main reads every page of open dependabot issues", () => {
   // The second page holds the matching marker. Truncating the lookup would
   // file a duplicate issue rather than recognising this one.

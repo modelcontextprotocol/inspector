@@ -1019,7 +1019,8 @@ export function main(
 
   const securityPrsOff = checkSecurityPrsStillDisabled(repo, spawn);
 
-  const groups = groupAlerts(openAlerts(repo, spawn));
+  const alerts = openAlerts(repo, spawn);
+  const groups = groupAlerts(alerts);
 
   // ⚠️ Loaded BEFORE the zero-group early return, and reconciled after the loop.
   // `openAlerts` asks for `state=open`, so an alert that is FIXED or DISMISSED
@@ -1036,8 +1037,23 @@ export function main(
   const boardProblems = [];
   /** Grouping keys this run actually saw in the open feed. */
   const seenKeys = new Set();
-  /** Every GHSA still open, in ANY group — the check a vanished key needs. */
-  const openGhsas = new Set(groups.flatMap((g) => g.ghsas));
+  /**
+   * Every GHSA still open, taken from the RAW feed rather than from `groups`.
+   *
+   * ⚠️ `groupAlerts` deliberately drops an alert with no `first_patched_version`
+   * — there is nothing to bump to, so nothing to file. Building this set from
+   * the groups would inherit that filter, so an advisory that stays open but
+   * LOSES its patched version would vanish from both the keys and this set, and
+   * reconciliation would call it "fixed or dismissed" (Copilot). Same wrong
+   * direction as the superseded case, reached a different way: what a still-open
+   * advisory must never do is stand itself down.
+   */
+  const openGhsas = new Set(
+    alerts
+      .filter((a) => a.state === "open")
+      .map((a) => a.security_advisory?.ghsa_id)
+      .filter(Boolean),
+  );
 
   for (const rawGroup of groups) {
     seenKeys.add(rawGroup.key);
