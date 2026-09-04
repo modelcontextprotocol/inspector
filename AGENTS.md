@@ -52,7 +52,8 @@ inspector/
 │   ├── react/        React hooks over the state stores (read during render — see React instructions)
 │   └── storage/      File I/O helpers for the OAuth persist backends
 ├── test-servers/     Composable MCP test servers + JSON configs
-├── scripts/          Root build/verify tooling: install cascade, smokes, verify:* guards
+├── scripts/          Root build/verify tooling (install cascade, smokes, verify:* guards)
+│                     plus repo automation run from CI (the dependency + alert sweeps)
 ├── docs/             Task-oriented guides
 ├── specification/    Design/build specifications
 └── .claude/skills/   The procedures (see the index above)
@@ -97,6 +98,31 @@ The reasoning behind each of these, and what breaks when it is ignored, is the
 - **A dependency that renders React components must be bundled** into the client that uses it (`noExternal`) and declared only there — an externalized one resolves its own `react` and splits the tree. `ink` is the single exemption, on cost, and it is only safe while the root `react` range stays open to the whole major (`^19.0.0`).
 - **One version per install-crossing dependency.** When bumping a dependency the shared sources pull in, bump it in every install that declares it. Consolidating to the root is what makes most of these unbumpable in two places at once, but it does not retire the rule — a client's `devDependencies`, and any package that arrives transitively into a client install, can still skew against the root. Never raise the tsc heap to work around one. `npm run verify:dep-lockstep` enforces this.
 - **Pin a transitive dependency with an `overrides` entry**, not with `npm audit fix` — which "resolves" an advisory with no upward escape by silently downgrading.
+
+### Dependency updates are issue-driven, like everything else
+
+**Dependabot opens no pull requests against this repo — neither version updates nor security updates.** A Dependabot PR carries no `Closes #N` and no board card, so it was the one standing exception to [Issue-driven Work Style](#issue-driven-work-style), enforced by nothing. Both halves are now replaced by scheduled workflows that file **issues**, and a maintainer writes the fix by hand against `v2/main`.
+
+| Half | Switched off by | Replaced by | Cadence |
+| --- | --- | --- | --- |
+| Version updates | Deleting `.github/dependabot.yml` outright (#2235) — an empty `updates:` list is not valid config | `.github/workflows/dependency-refresh.yml` → `scripts/dependency-refresh.mjs`: `npm outdated` across every install, plus a `uses:` check against each action's latest release, folded into **one** tracking issue | Monthly |
+| Security updates | `DELETE /repos/{owner}/{repo}/automated-security-fixes` — a **repo setting**, not a file | `.github/workflows/dependabot-alerts.yml` → `scripts/dependabot-alerts.mjs`: reads the alerts and files one issue **per bump** | Daily |
+
+Four things about this that are not obvious from the code:
+
+- **Dependabot *alerts* stay on.** Alerts and security-update PRs are independent settings; only the PRs are off. Turning alerts off would blind the sweep that replaced them.
+- **The security half is a schedule, not an event handler**, because there is no `dependabot_alert` workflow trigger — it is a webhook event only.
+- **Alerts are computed from the default branch (`main`), and we ship from `v2/main`.** So the sweep re-checks each alert's vulnerable range against `v2/main`'s own lockfile before filing, and skips one that is already fixed there. The converse is a real blind spot with no fix on this path: a vulnerable dependency introduced on `v2/main` and not yet merged to `main` produces **no alert at all**. The release-time `npm audit --audit-level=high` report (#2231) is the partial second signal — and only at release time.
+- **`automated-security-fixes` can be re-enabled from the UI without a commit**, so nothing in the repo would record it. The sweep reads it back and **fails loudly on an explicit `enabled: true`**. ⚠️ It is a *conditional* guard, not an invariant: the endpoint needs `administration: read`, which `GITHUB_TOKEN` cannot be granted (`permissions:` has no such key), so under the default token the sweep logs **UNVERIFIED** and carries on rather than going red every day for an unrelated reason. Only a token carrying that scope makes it a real assertion.
+
+An issue filed by either sweep is an ordinary board item — `v2` + `chore` + `dependabot`, the current milestone, and a card on #28. **How it gets its card differs, and the two sweeps are not interchangeable here:**
+
+| | files the card itself? |
+| --- | --- |
+| Monthly version sweep | **No, never.** It does not attempt a board write at all and has no `PROJECT_TOKEN`; the issue arrives labeled and milestoned, and `/issue-triage` places it. |
+| Daily security sweep | **Only when it can.** With an org-project PAT it places the card directly at **Todo / High**; without one it degrades to the same triage hand-off. |
+
+The board write needs `organization projects: write`, which `GITHUB_TOKEN` cannot have — hence "only when it can", and hence a filed-but-unboarded issue is a normal outcome rather than a failure. **Todo, not Incoming**, when the security sweep does place it: arriving through this pipeline *is* the approval. **`High` is a standing override** of the [priority rubric](.claude/skills/issue-triage/SKILL.md), which would otherwise score a routine bump Medium; the issue body records the override so it does not read as a mis-score. ⚠️ A milestone is a precondition for placing a card — `Incoming` ⇔ no milestone — so the security sweep leaves an issue **unboarded** rather than parked at Todo when no dated milestone is open. It picks the open milestone with the nearest **due date**, ignoring undated buckets; the monthly sweep's own selection does not yet filter those out (raised on #2239), so don't read this as a guarantee both scripts already implement.
 
 ## Contributing
 

@@ -1,0 +1,60 @@
+# Monthly dependency sweep (#2229), replacing Dependabot's VERSION-UPDATE PRs.
+#
+# A Dependabot version-update PR carries no issue and no board card, so
+# `.github/dependabot.yml` was removed outright in #2235 — npm and
+# github-actions alike. This workflow is what replaced those PRs (the
+# security-update half is a separate mechanism, switched off separately; see
+# below): it runs `scripts/dependency-refresh.mjs` against `v2/main` once a
+# month and files or updates ONE tracking issue listing every outdated npm
+# package across the root install and each client, plus any workflow `uses:`
+# ref behind its action's highest released version. No PR is opened
+# automatically. A maintainer reviews the issue, picks what to bump, and opens
+# a normal PR against `v2/main`.
+#
+# Dependabot SECURITY updates are the other half, and #2233 turned their PRs
+# off too — they were enabled in repo settings rather than in a config file,
+# which is why they kept working while `dependabot.yml` was missing entirely
+# (see #1833, #1840) and why deleting that file did not touch them. Its
+# ALERTS stay on and are swept into issues daily by the sibling
+# `dependabot-alerts.yml`. Between them, Dependabot opens no PRs here at all.
+#
+# `GITHUB_TOKEN` is sufficient: it only needs to read milestones and the public
+# release feeds of the actions we use, and to create/edit an issue
+# (`issues: write`). Board placement is intentionally NOT attempted here — that
+# needs an org-project PAT this token cannot have — so a filed-but-unboarded
+# issue is picked up by the next `/issue-triage` sweep, same as any other
+# maintainer-filed issue.
+name: Dependency Refresh
+
+on:
+  schedule:
+    - cron: "23 6 1 * *" # 06:23 UTC on the 1st of every month
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  dependency-sweep:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout v2/main
+        uses: actions/checkout@v7
+        with:
+          ref: v2/main
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22.x'
+          cache: 'npm'
+
+      - name: Install dependencies (root + all clients)
+        run: npm install
+
+      - name: Run the dependency sweep (npm packages + workflow actions)
+        run: node scripts/dependency-refresh.mjs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
