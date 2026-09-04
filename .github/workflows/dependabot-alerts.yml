@@ -12,8 +12,11 @@
 # security PRs off there is no mergeable-against-`main` artifact and no window to
 # race, so the merge guard #2060 needed has no analogue here. What replaces it is
 # a precondition inside the script: `automated-security-fixes` is a repo SETTING
-# and can be switched back on from the UI without a commit, so the sweep asserts
-# it is still disabled and fails loudly if it is not.
+# and can be switched back on from the UI without a commit, so the sweep reads it
+# back and fails loudly on an explicit `enabled: true`. That read needs a
+# permission `GITHUB_TOKEN` cannot hold, so with the default token it reports
+# UNVERIFIED instead — see the token notes below; it is a conditional guard, not
+# an invariant.
 #
 # ⚠️ GitHub computes the dependency graph, and therefore every alert, from the
 # DEFAULT branch (`main`), while we ship from `v2/main`. Two consequences:
@@ -24,9 +27,10 @@
 #    waiting on a milestone merge to close, so it is skipped silently.
 #  * A vulnerable dependency introduced on `v2/main` and not yet merged to
 #    `main` produces NO alert at all. No approach that consumes GitHub's alerts
-#    avoids that. The release-time `npm audit fix` from #2231 is a second signal
-#    that partially covers it; a scheduled `npm audit --audit-level=high` over
-#    `v2/main`'s lockfiles would close it fully and is a separable follow-up.
+#    avoids that. The release-time `npm audit --audit-level=high` report from
+#    #2231 is a second signal that partially covers it — at release time only;
+#    running that same report over `v2/main`'s lockfiles on a schedule would
+#    close it fully and is a separable follow-up.
 #
 # `vulnerability-alerts: read` is the one non-default permission, and
 # `GITHUB_TOKEN` supports it — no PAT is needed to read the alerts themselves.

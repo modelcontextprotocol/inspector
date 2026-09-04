@@ -20,11 +20,12 @@
 //     alerts are not minute-sensitive.
 //  2. `GITHUB_TOKEN` can read alerts with `vulnerability-alerts: read`, so no
 //     PAT is needed for the sweep itself. Two side steps DO need one, and both
-//     are best-effort rather than preconditions: writing the board card (an org
-//     project is outside `GITHUB_TOKEN`'s reach — an unboarded-but-milestoned
-//     issue is swept into Todo by the next `/issue-triage` pass), and reading
-//     back the `automated-security-fixes` setting (`administration: read`,
-//     which `permissions:` cannot grant at all).
+//     degrade rather than block: writing the board card (an org project is
+//     outside `GITHUB_TOKEN`'s reach — an unboarded-but-milestoned issue is
+//     swept into Todo by the next `/issue-triage` pass), and reading back the
+//     `automated-security-fixes` setting (`administration: read`, which
+//     `permissions:` cannot grant at all — so that guard reports UNVERIFIED
+//     rather than failing when the token cannot see it).
 //  3. Alerts are per-ADVISORY but a fix is per-BUMP. Today's seven open alerts
 //     are three `overrides` entries, so grouping by
 //     `(package, manifest_path, first_patched_version)` is what keeps this from
@@ -36,7 +37,8 @@
 // own lockfile before anything is filed. The blind spot that leaves is stated
 // plainly in the workflow header: a vulnerable dependency introduced on
 // `v2/main` and not yet merged to `main` produces no alert at all, and no
-// approach that consumes GitHub's alerts can see it.
+// approach that consumes GitHub's alerts can see it. The release-time
+// `npm audit --audit-level=high` report (#2231) is the partial second signal.
 //
 // Idempotency key is the marker comment at the top of each issue body, which
 // names the package, the manifest and every GHSA the issue covers. A second run
@@ -44,12 +46,12 @@
 // has an open issue lands as a comment on it and rewrites the marker, rather
 // than filing a second issue.
 //
-// The pure halves — `toSemverRange`, `lockfileVersions`, `isDirectDependency`,
-// `groupAlerts`, `buildMarker`, `parseMarker`, `mergeGhsas`, `buildIssueTitle`,
-// `buildIssueBody` and `buildNewAdvisoryComment` — are covered by
-// `dependabot-alerts.test.mjs`. `main()` is the CLI entry point, exercised
-// against the real repo only via `workflow_dispatch` in CI, per the same split
-// `dependency-refresh.mjs` and `verify-skills.mjs` already use.
+// Everything here is covered by `dependabot-alerts.test.mjs`: the pure halves
+// directly, and `main()` through an injected spawn function, the same way
+// `dependency-refresh.mjs` does it. `workflow_dispatch` is a production
+// trigger, not a test, so the orchestration that handles API failures, lockfile
+// filtering, issue idempotency and partial board writes is exercised here
+// rather than left to a real run (Copilot).
 
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
@@ -78,23 +80,32 @@ export const BOARD_PRIORITY = "High";
 export const TARGET_BRANCH = "v2/main";
 
 const MARKER_RE =
-  /^<!-- dependabot-alerts: pkg=(.+?); manifest=(.+?); ghsas=(.+?) -->/;
+  /^<!-- dependabot-alerts: pkg=(.+?); manifest=(.+?); fixed=(.+?); ghsas=(.+?) -->/;
+
+/** Marker on the comment that announces newly-seen advisories, keyed by GHSA. */
+const COMMENT_MARKER_RE = /^<!-- dependabot-alerts:added (.+?) -->/;
 
 /**
  * The issue body's first line: the idempotency key.
  *
- * @param {{package: string, manifestPath: string, ghsas: string[]}} group
+ * It carries `fixedIn` as well as the package and manifest because that triple
+ * IS the grouping key — two advisories on one package needing different patched
+ * versions are different bumps and get different issues. Keyed on the pair
+ * alone, a second bump would match the first issue and merge its GHSAs and its
+ * target version into the wrong one (Copilot).
+ *
+ * @param {{package: string, manifestPath: string, fixedIn: string, ghsas: string[]}} group
  * @returns {string}
  */
-export function buildMarker({ package: pkg, manifestPath, ghsas }) {
-  return `<!-- dependabot-alerts: pkg=${pkg}; manifest=${manifestPath}; ghsas=${[...ghsas].sort().join(",")} -->`;
+export function buildMarker({ package: pkg, manifestPath, fixedIn, ghsas }) {
+  return `<!-- dependabot-alerts: pkg=${pkg}; manifest=${manifestPath}; fixed=${fixedIn}; ghsas=${[...ghsas].sort().join(",")} -->`;
 }
 
 /**
  * Read a marker back off an issue body.
  *
  * @param {string | undefined} body
- * @returns {{package: string, manifestPath: string, ghsas: string[]} | null}
+ * @returns {{package: string, manifestPath: string, fixedIn: string, ghsas: string[]} | null}
  */
 export function parseMarker(body) {
   const match = MARKER_RE.exec(body ?? "");
@@ -102,8 +113,21 @@ export function parseMarker(body) {
   return {
     package: match[1],
     manifestPath: match[2],
-    ghsas: match[3].split(",").filter(Boolean),
+    fixedIn: match[3],
+    ghsas: match[4].split(",").filter(Boolean),
   };
+}
+
+/**
+ * The GHSAs a previously-posted "new advisories" comment already announced.
+ *
+ * @param {string | undefined} body
+ * @returns {string[] | null} `null` when the comment carries no marker
+ */
+export function parseCommentMarker(body) {
+  const match = COMMENT_MARKER_RE.exec(body ?? "");
+  if (!match) return null;
+  return match[1].split(",").filter(Boolean);
 }
 
 /**
@@ -284,7 +308,7 @@ export function buildIssueBody(group, { installed, direct, ghsas }) {
     .join("\n");
 
   const fix = direct
-    ? `\`${group.package}\` is a **direct** dependency of \`${group.manifestPath.replace(/package-lock\.json$/, "package.json")}\` — bump its declared range to \`>=${group.fixedIn}\`.`
+    ? `\`${group.package}\` is a **direct** dependency of \`${group.manifestPath.replace(/package-lock\.json$/, "package.json")}\` — raise its declared range so it can no longer resolve below \`${group.fixedIn}\`, keeping the operator the manifest already uses. Widening it to a bare \`>=\` would drop the compatibility bound with it (Copilot).`
     : `\`${group.package}\` is **transitive**, so the fix is an [\`overrides\`](${PLACEMENT_DOC}) entry pinning it to \`${group.fixedIn}\` — **not** \`npm audit fix\`, which "resolves" an advisory with no upward escape by silently downgrading.`;
 
   return [
@@ -316,6 +340,16 @@ export function buildIssueBody(group, { installed, direct, ghsas }) {
 }
 
 /**
+ * The marker that makes a "new advisories" comment idempotent on its own.
+ *
+ * @param {string[]} added
+ * @returns {string}
+ */
+export function buildCommentMarker(added) {
+  return `<!-- dependabot-alerts:added ${[...added].sort().join(",")} -->`;
+}
+
+/**
  * The comment a NEW advisory for an already-open issue gets, instead of a
  * second issue.
  *
@@ -332,6 +366,7 @@ export function buildNewAdvisoryComment(group, added) {
     )
     .join("\n");
   return [
+    buildCommentMarker(added),
     `${added.length} new Dependabot ${added.length === 1 ? "advisory" : "advisories"} for \`${group.package}\`, cleared by the same bump to \`${group.fixedIn}\`. The issue body's marker now covers ${added.length === 1 ? "it" : "them"} too.`,
     "",
     "| GHSA | Severity | Summary |",
@@ -341,22 +376,41 @@ export function buildNewAdvisoryComment(group, added) {
 }
 
 // ---------------------------------------------------------------------------
-// Impure half: everything below shells out to `gh` or `git`.
+// Impure half: everything below shells out to `gh`. Each takes its spawn
+// function as a parameter, defaulted to `spawnSync`, so `main()` is testable
+// with an injected fake rather than left to `workflow_dispatch` — the same
+// shape `dependency-refresh.mjs` uses.
 // ---------------------------------------------------------------------------
 
-function gh(args, { token } = {}) {
+function gh(spawn, args, { token } = {}) {
   const env = token ? { ...process.env, GH_TOKEN: token } : process.env;
-  const result = spawnSync("gh", args, { encoding: "utf8", env });
+  const result = spawn("gh", args, { encoding: "utf8", env });
   if (result.error) throw result.error;
   return result;
 }
 
-function ghJson(args) {
-  const result = gh(args);
+function ghJson(spawn, args) {
+  const result = gh(spawn, args);
   if (result.status !== 0) {
     throw new Error(`gh ${args[0]} failed: ${(result.stderr ?? "").trim()}`);
   }
   return JSON.parse(result.stdout || "null");
+}
+
+/**
+ * Is this failed lookup the "the token may not read this" answer, rather than a
+ * real API failure?
+ *
+ * The distinction is what keeps the security-PR guard honest: a bad token, a
+ * rate limit or a transient 5xx must NOT be waved through as "unverified", or
+ * the sweep exits green having silently skipped its own precondition
+ * (Copilot). Only an authorization-shaped status is tolerated.
+ *
+ * @param {string} stderr stderr from a non-zero `gh api` call
+ * @returns {boolean}
+ */
+export function isPermissionDenied(stderr) {
+  return /HTTP (401|403|404)\b/.test(stderr);
 }
 
 /**
@@ -370,22 +424,29 @@ function ghJson(args) {
  * ⚠️ **The endpoint needs `administration: read`, which `GITHUB_TOKEN` cannot
  * be granted** — `permissions:` has no such key. So with the default token the
  * call 403s, and treating that as failure would make every scheduled run red
- * for a reason unrelated to the alerts. It is therefore reported and skipped:
- * only an explicit `enabled: true` throws. Give `PROJECT_TOKEN` the extra
- * `administration: read` scope and the guard becomes a real assertion; without
- * it the sweep still does its job, it just cannot see that setting.
+ * for a reason unrelated to the alerts. An authorization-shaped failure is
+ * therefore reported and skipped; every other failure throws, and an explicit
+ * `enabled: true` throws. Give `PROJECT_TOKEN` the extra `administration: read`
+ * scope and the guard becomes a real assertion; without it the sweep still does
+ * its job, it just cannot see that setting.
+ *
+ * @returns {boolean} whether the setting was actually read
  */
-function checkSecurityPrsStillDisabled(repo) {
-  const result = gh(["api", `repos/${repo}/automated-security-fixes`], {
+function checkSecurityPrsStillDisabled(repo, spawn) {
+  const result = gh(spawn, ["api", `repos/${repo}/automated-security-fixes`], {
     token: process.env.PROJECT_TOKEN,
   });
   if (result.status !== 0) {
+    const stderr = (result.stderr ?? "").trim();
+    if (!isPermissionDenied(stderr)) {
+      throw new Error(`automated-security-fixes lookup failed: ${stderr}`);
+    }
     console.log(
-      "dependabot-alerts: cannot read automated-security-fixes " +
-        `(${(result.stderr ?? "").trim()}) — the token lacks \`administration: read\`, ` +
-        "so whether Dependabot security PRs are still off is UNVERIFIED this run",
+      `dependabot-alerts: cannot read automated-security-fixes (${stderr}) — ` +
+        "the token lacks `administration: read`, so whether Dependabot security " +
+        "PRs are still off is UNVERIFIED this run",
     );
-    return;
+    return false;
   }
   const state = JSON.parse(result.stdout || "{}");
   if (state.enabled === true) {
@@ -396,14 +457,25 @@ function checkSecurityPrsStillDisabled(repo) {
         `DELETE /repos/${repo}/automated-security-fixes) and re-run.`,
     );
   }
+  return true;
 }
 
-function openAlerts(repo) {
-  return ghJson([
+/**
+ * Every open Dependabot alert.
+ *
+ * ⚠️ `--slurp` is load-bearing. Without it `gh api --paginate` concatenates one
+ * top-level JSON array PER PAGE, which `JSON.parse` rejects outright the moment
+ * open alerts exceed the 100-per-page limit (Copilot). With it the pages arrive
+ * as an array of arrays, flattened here.
+ */
+function openAlerts(repo, spawn) {
+  const pages = ghJson(spawn, [
     "api",
     "--paginate",
+    "--slurp",
     `repos/${repo}/dependabot/alerts?state=open&per_page=100`,
   ]);
+  return (pages ?? []).flat();
 }
 
 /**
@@ -419,25 +491,43 @@ function readManifest(manifestPath) {
   }
 }
 
-function openDependabotIssues(repo) {
-  return ghJson([
-    "issue",
-    "list",
-    "--repo",
-    repo,
-    "--state",
-    "open",
-    "--label",
-    "dependabot",
-    "--json",
-    "number,body",
-    "--limit",
-    "100",
-  ]);
+function openDependabotIssues(repo, spawn) {
+  return (
+    ghJson(spawn, [
+      "issue",
+      "list",
+      "--repo",
+      repo,
+      "--state",
+      "open",
+      "--label",
+      "dependabot",
+      "--json",
+      "number,body",
+      "--limit",
+      "100",
+    ]) ?? []
+  );
 }
 
-function currentMilestone(repo) {
-  const result = gh([
+/** The GHSA sets already announced by comments on an issue. */
+function announcedAdvisories(repo, number, spawn) {
+  const issue = ghJson(spawn, [
+    "issue",
+    "view",
+    String(number),
+    "--repo",
+    repo,
+    "--json",
+    "comments",
+  ]);
+  return (issue?.comments ?? [])
+    .map((comment) => parseCommentMarker(comment.body))
+    .filter(Boolean);
+}
+
+function currentMilestone(repo, spawn) {
+  const result = gh(spawn, [
     "api",
     `repos/${repo}/milestones`,
     "--jq",
@@ -456,8 +546,9 @@ function currentMilestone(repo) {
  * looking them up each run is what keeps an unrelated board edit from turning
  * into a silently mis-set field here.
  */
-function optionId(fieldName, optionName, token) {
+function optionId(fieldName, optionName, token, spawn) {
   const result = gh(
+    spawn,
     [
       "project",
       "field-list",
@@ -487,24 +578,36 @@ function optionId(fieldName, optionName, token) {
 /**
  * Put the issue on board #28 at Todo / High.
  *
- * Best-effort by design: an org project is outside `GITHUB_TOKEN`'s reach, so
- * this needs a PAT the workflow may not have. A failure here is logged and the
- * run continues — the issue is already labeled and milestoned, which is enough
- * for the next `/issue-triage` sweep to board it (its documented exception
- * moves an unboarded-but-milestoned issue straight into Todo).
+ * Failing to add the card at all is benign — the issue is already labeled and
+ * milestoned, which is enough for the next `/issue-triage` sweep to board it
+ * (its documented exception moves an unboarded-but-milestoned issue straight
+ * into Todo). That is why an org-project PAT is an optimization here rather
+ * than a prerequisite.
+ *
+ * ⚠️ **Failing PART WAY through is not benign**, and the two cases must not be
+ * reported the same way (Copilot). Once `item-add` succeeds the issue IS
+ * boarded, so no later triage sweep will look at it — a failed field edit
+ * leaves a card sitting on the board with no Status or no Priority, in exactly
+ * the state nothing else will fix. So a partial placement is returned to the
+ * caller, which finishes every remaining group and then fails the run.
  *
  * Todo rather than Incoming: arriving through this pipeline IS the approval.
+ *
+ * @returns {string | null} a description of a PARTIAL placement, else `null`
  */
-function addToBoard(issueUrl) {
+function addToBoard(issueUrl, spawn) {
   const token = process.env.PROJECT_TOKEN;
   if (!token) {
     console.log(
       "dependabot-alerts: PROJECT_TOKEN unset — issue left unboarded for the next triage sweep",
     );
-    return;
+    return null;
   }
+
+  let itemId;
   try {
     const added = gh(
+      spawn,
       [
         "project",
         "item-add",
@@ -518,16 +621,24 @@ function addToBoard(issueUrl) {
       ],
       { token },
     );
-    if (added.status !== 0) {
-      throw new Error((added.stderr ?? "").trim());
-    }
-    const itemId = JSON.parse(added.stdout).id;
-    // Each item-edit sets exactly one field, so Status and Priority are two calls.
-    for (const [fieldId, fieldName, optionName] of [
-      [STATUS_FIELD_ID, "Status", BOARD_STATUS],
-      [PRIORITY_FIELD_ID, "Priority", BOARD_PRIORITY],
-    ]) {
+    if (added.status !== 0) throw new Error((added.stderr ?? "").trim());
+    itemId = JSON.parse(added.stdout).id;
+  } catch (error) {
+    // Nothing was added, so the issue is simply unboarded — recoverable.
+    console.log(
+      `dependabot-alerts: board add failed (${error.message}) — issue is labeled and milestoned, next triage sweep will board it`,
+    );
+    return null;
+  }
+
+  // Each item-edit sets exactly one field, so Status and Priority are two calls.
+  for (const [fieldId, fieldName, optionName] of [
+    [STATUS_FIELD_ID, "Status", BOARD_STATUS],
+    [PRIORITY_FIELD_ID, "Priority", BOARD_PRIORITY],
+  ]) {
+    try {
       const edit = gh(
+        spawn,
         [
           "project",
           "item-edit",
@@ -538,24 +649,27 @@ function addToBoard(issueUrl) {
           "--field-id",
           fieldId,
           "--single-select-option-id",
-          optionId(fieldName, optionName, token),
+          optionId(fieldName, optionName, token, spawn),
         ],
         { token },
       );
       if (edit.status !== 0) throw new Error((edit.stderr ?? "").trim());
+    } catch (error) {
+      return `${issueUrl} is on board #28 but its ${fieldName} was not set (${error.message}) — no triage sweep will fix this, set it by hand`;
     }
-    console.log(
-      `dependabot-alerts: boarded ${issueUrl} at ${BOARD_STATUS}/${BOARD_PRIORITY}`,
-    );
-  } catch (error) {
-    console.log(
-      `dependabot-alerts: board write failed (${error.message}) — issue is labeled and milestoned, next triage sweep will board it`,
-    );
   }
+
+  console.log(
+    `dependabot-alerts: boarded ${issueUrl} at ${BOARD_STATUS}/${BOARD_PRIORITY}`,
+  );
+  return null;
 }
 
-function createIssue(repo, group, body) {
-  const milestone = currentMilestone(repo);
+/**
+ * @returns {{url: string, milestone: string | null}}
+ */
+function createIssue(repo, group, body, spawn) {
+  const milestone = currentMilestone(repo, spawn);
   const args = [
     "issue",
     "create",
@@ -573,37 +687,34 @@ function createIssue(repo, group, body) {
     body,
   ];
   if (milestone) args.push("--milestone", milestone);
-  const result = gh(args);
+  const result = gh(spawn, args);
   if (result.status !== 0) {
     throw new Error(`gh issue create failed: ${(result.stderr ?? "").trim()}`);
   }
   const url = result.stdout.trim();
-  if (!milestone) {
-    console.log(
-      "dependabot-alerts: no open milestone — issue filed unmilestoned",
-    );
-  }
   console.log(`dependabot-alerts: filed ${url}`);
-  return url;
+  return { url, milestone };
 }
 
-export function main(repo = process.env.GITHUB_REPOSITORY) {
+export function main(repo = process.env.GITHUB_REPOSITORY, spawn = spawnSync) {
   if (!repo) throw new Error("repo not specified (GITHUB_REPOSITORY unset)");
 
-  checkSecurityPrsStillDisabled(repo);
+  checkSecurityPrsStillDisabled(repo, spawn);
 
-  const groups = groupAlerts(openAlerts(repo));
+  const groups = groupAlerts(openAlerts(repo, spawn));
   if (groups.length === 0) {
     console.log("dependabot-alerts: no open alerts — no-op");
     return;
   }
 
-  const existingIssues = openDependabotIssues(repo).map((issue) => ({
+  const existingIssues = openDependabotIssues(repo, spawn).map((issue) => ({
     ...issue,
     marker: parseMarker(issue.body),
   }));
 
   const manifests = new Map();
+  const boardProblems = [];
+
   for (const group of groups) {
     if (!manifests.has(group.manifestPath)) {
       manifests.set(group.manifestPath, readManifest(group.manifestPath));
@@ -630,19 +741,34 @@ export function main(repo = process.env.GITHUB_REPOSITORY) {
     }
 
     const direct = isDirectDependency(lock, group.package);
+    // Matched on the full grouping key, `fixedIn` included: a second bump of
+    // the same package is a different issue, not an update to this one.
     const existing = existingIssues.find(
       (i) =>
         i.marker?.package === group.package &&
-        i.marker?.manifestPath === group.manifestPath,
+        i.marker?.manifestPath === group.manifestPath &&
+        i.marker?.fixedIn === group.fixedIn,
     );
 
     if (!existing) {
-      const url = createIssue(
+      const { url, milestone } = createIssue(
         repo,
         group,
         buildIssueBody(group, { installed: affected, direct }),
+        spawn,
       );
-      addToBoard(url);
+      // `Incoming` <=> no milestone, everything past it <=> milestoned. With no
+      // open milestone to assign there is nothing to put the card past Incoming
+      // WITH, so boarding it at Todo would assert an approval the invariant
+      // reads off the milestone (Copilot). Leave it for triage instead.
+      if (!milestone) {
+        console.log(
+          "dependabot-alerts: no open milestone — issue filed unmilestoned and unboarded, next triage sweep places it",
+        );
+        continue;
+      }
+      const problem = addToBoard(url, spawn);
+      if (problem) boardProblems.push(problem);
       continue;
     }
 
@@ -654,7 +780,31 @@ export function main(repo = process.env.GITHUB_REPOSITORY) {
       continue;
     }
 
-    const edit = gh([
+    // ⚠️ Comment FIRST, then rewrite the marker. The marker is the idempotency
+    // key, so editing it first and failing on the comment would make the next
+    // run take the no-op branch above and skip the comment permanently
+    // (Copilot). In this order the worst case is a repeat, and the comment's
+    // own marker rules that out too.
+    const alreadyAnnounced = announcedAdvisories(repo, existing.number, spawn);
+    const marker = buildCommentMarker(added);
+    if (!alreadyAnnounced.some((set) => buildCommentMarker(set) === marker)) {
+      const comment = gh(spawn, [
+        "issue",
+        "comment",
+        String(existing.number),
+        "--repo",
+        repo,
+        "--body",
+        buildNewAdvisoryComment(group, added),
+      ]);
+      if (comment.status !== 0) {
+        throw new Error(
+          `gh issue comment failed: ${(comment.stderr ?? "").trim()}`,
+        );
+      }
+    }
+
+    const edit = gh(spawn, [
       "issue",
       "edit",
       String(existing.number),
@@ -666,22 +816,16 @@ export function main(repo = process.env.GITHUB_REPOSITORY) {
     if (edit.status !== 0) {
       throw new Error(`gh issue edit failed: ${(edit.stderr ?? "").trim()}`);
     }
-    const comment = gh([
-      "issue",
-      "comment",
-      String(existing.number),
-      "--repo",
-      repo,
-      "--body",
-      buildNewAdvisoryComment(group, added),
-    ]);
-    if (comment.status !== 0) {
-      throw new Error(
-        `gh issue comment failed: ${(comment.stderr ?? "").trim()}`,
-      );
-    }
     console.log(
       `dependabot-alerts: added ${added.join(", ")} to #${existing.number}`,
+    );
+  }
+
+  // Every group is processed before this throws: a half-placed card is worth
+  // failing the run over, but not at the cost of the issues still unfiled.
+  if (boardProblems.length > 0) {
+    throw new Error(
+      `dependabot-alerts: incomplete board placement —\n  ${boardProblems.join("\n  ")}`,
     );
   }
 }

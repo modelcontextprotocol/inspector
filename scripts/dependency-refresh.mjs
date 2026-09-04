@@ -191,7 +191,7 @@ export function buildIssueBody(installs, actions = []) {
 
   return [
     ISSUE_MARKER,
-    "Routine dependency refresh — `npm outdated` plus a workflow `uses:` check, run against `v2/main` on a monthly schedule. This sweep replaces Dependabot's version-update PRs (#2229, #2235); Dependabot security updates are a separate mechanism and remain enabled.",
+    "Routine dependency refresh — `npm outdated` plus a workflow `uses:` check, run against `v2/main` on a monthly schedule. This sweep replaces Dependabot's version-update PRs (#2229, #2235); its security-update PRs are off too (#2233), and the alerts they used to act on are swept into their own issues daily.",
     "",
     "This is a tracking issue, not a diff: pick what's worth bumping (`wanted` is the safe default; `latest` may cross a major and needs its own judgment call, especially for anything root-declared per [Dependency placement](https://github.com/modelcontextprotocol/inspector/blob/v2/main/AGENTS.md#dependency-placement)) and open a normal PR against `v2/main`.",
     "",
