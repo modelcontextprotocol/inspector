@@ -1,6 +1,6 @@
 ---
 name: release
-description: Cut an Inspector v2 release — npm audit fix and bump the version on v2/main first, merge the milestone into main, tag origin/main with a bare x.y.z, and publish via the GitHub Release. Also covers the v1 line and what the publish jobs gate on.
+description: Cut an Inspector v2 release — run npm audit and bump the version on v2/main first, merge the milestone into main, tag origin/main with a bare x.y.z, and publish via the GitHub Release. Also covers the v1 line and what the publish jobs gate on.
 disable-model-invocation: true
 ---
 
@@ -27,10 +27,11 @@ job or the coverage gate red:
 There is **one version number** (only the root `package.json` has one — the
 clients carry none), so the flow is three steps.
 
-## 1. `npm audit fix`, then bump, on `v2/main` — before the milestone merge
+## 1. `npm audit`, then bump, on `v2/main` — before the milestone merge
 
 Both are part of the milestone's work, so both belong on the develop branch and
-flow into `main` together, in the same PR, audit fix first.
+flow into `main` together, in the same PR — audit first, so the bump sits on top
+of a tree you have just checked.
 
 ```sh
 # Branch from the REMOTE ref, and read the version only once you are on it.
@@ -40,32 +41,43 @@ flow into `main` together, in the same PR, audit fix first.
 git fetch origin v2/main
 git checkout -b v2/chore/<ISSUE>-bump-<X-Y-Z> origin/v2/main
 
-# Audit + fix every install that has its own lockfile — root and each client.
-npm audit fix
-for c in web cli tui launcher; do (cd "clients/$c" && npm audit fix); done
-npm run local:gate   # confirm the fixes didn't break anything before bumping
+# Audit every install that has its own lockfile — root and each client.
+# REPORT ONLY. Read the output; do not let npm mutate the tree (see below).
+npm audit --audit-level=high
+for c in web cli tui launcher; do (cd "clients/$c" && npm audit --audit-level=high); done
 
 node -p "require('./package.json').version"          # what is on v2/main now
 npm version minor --no-git-tag-version   # or major / patch; bump only, no tag
 node -p "require('./package.json').version"          # confirm, then PR → v2/main
 ```
 
-**Never `npm audit fix --force`.** It will apply a fix outside a dependency's
-declared semver range — a major bump a client's code was never adjusted for —
-to close an advisory, silently trading a known vulnerability for an unvetted
-breaking change. If `npm audit` still reports something `fix` can't resolve
-(typically a transitive dependency needing an `overrides` pin per
-[Dependency placement](../../../AGENTS.md#dependency-placement)), commit
-whatever `fix` did resolve, leave the rest to the dependabot-alert pipeline
-(#2229) or a follow-up issue, and say so in the release notes rather than
+Anything it reports is fixed **deliberately** — a direct bump, or an
+`overrides` entry — and each fix is its own commit, gated by
+`npm run local:gate` before the version bump goes on top.
+
+⚠️ **Do not run `npm audit fix`, with or without `--force`.**
+[Dependency placement](../../../AGENTS.md#dependency-placement) rules it out,
+and the reason is not `--force`: plain `audit fix` resolves an advisory that has
+no *upward* escape inside a declared range by silently **downgrading**. That is
+not hypothetical here — `tsup@8.5.1` declares `esbuild: ^0.27.0` against an
+advisory covering `0.27.3 - 0.28.0`, and `audit fix` walked three installs back
+to `0.27.2` (~700 lines of lockfile churn for a low-severity dev-only advisory;
+tried and reverted in #2058, written up in the `local-dev` skill). `local:gate`
+does not detect a version regression, so nothing downstream would have caught
+it. `--force` is worse again — it applies fixes *outside* the declared range,
+trading a known vulnerability for an unvetted major.
+
+So the release step is the **report**, and the judgment stays with a person.
+Where `audit` names something with no in-range fix, pin it with `overrides`;
+where it needs a major, that is its own issue and its own PR, not a release-day
+edit. If something can't be resolved before the release ships, say so in the
+release notes and leave it to the alert-driven pipeline (#2229) rather than
 forcing it here.
 
 This step is a **backstop, not a substitute** for #2229's alert-driven issues —
-those are what surface a transitive vulnerability that needs an `overrides`
-entry `audit fix` cannot apply on its own, tracked and fixed as their own PRs
-well before a release is cut. This step exists for whatever's left standing
-right before a release ships, so a release is never gated on remembering to
-check `npm audit` separately.
+those are what surface a transitive vulnerability well before a release is cut,
+tracked and fixed as their own PRs. This exists so a release is never gated on
+remembering to check `npm audit` separately.
 
 The branch name carries the version you are bumping **to**, so it is named after
 that second reading. If you want it before branching:

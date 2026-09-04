@@ -17,11 +17,13 @@
 // (ISSUE_MARKER below), which is how a second run in the same month finds and
 // updates the existing open issue instead of filing a duplicate.
 //
-// `parseOutdated` and `buildIssueBody` are pure and covered by
-// `dependency-refresh.test.mjs`; `main()` is the CLI entry point, exercised
-// against the real repo only via `workflow_dispatch` in CI, not by the test
-// suite (it shells out to `npm outdated` and `gh`, per the workflow-script
-// convention `verify-skills.mjs` and its siblings already use).
+// `parseOutdated`, `buildIssueBody` and `buildClearedBody` are pure. `main()`
+// shells out to `npm outdated` and `gh`, so it takes its spawn function as a
+// parameter (defaulting to the real one) and `dependency-refresh.test.mjs`
+// drives it with a fake — covering npm failure, create vs. edit, the milestone
+// lookup and both no-op paths. `workflow_dispatch` is a production trigger,
+// not a substitute for that (Copilot): the helper-only tests it replaced let a
+// non-zero `npm outdated` exit report a clean sweep.
 
 import { spawnSync } from "node:child_process";
 
@@ -85,19 +87,53 @@ export function buildIssueBody(installs) {
   ].join("\n");
 }
 
-function runOutdated(dir) {
-  const result = spawnSync("npm", ["outdated", "--json"], {
+/**
+ * The body a still-open tracking issue is rewritten to once every install is
+ * current again. Without it the issue keeps its last package table forever and
+ * reads as live work that no longer exists (Copilot).
+ *
+ * The sweep rewrites rather than closes: it deliberately takes no board
+ * actions (see the workflow header), and closing an issue whose card a
+ * maintainer has already moved would make the board claim work shipped that
+ * this script cannot verify shipped. A maintainer closes it.
+ *
+ * @param {string} isoDate the sweep date, as `YYYY-MM-DD`
+ * @returns {string}
+ */
+export function buildClearedBody(isoDate) {
+  return [
+    ISSUE_MARKER,
+    `Every install is up to date as of ${isoDate} — nothing is outdated at the root or in any client.`,
+    "",
+    "This issue was filed by an earlier run of the monthly sweep (#2229) and its package table is gone because the packages it listed are no longer behind. Either they were bumped or their ranges caught up; nothing here is outstanding.",
+    "",
+    "Safe to close. A later sweep that finds something outdated will refile this body with a fresh table rather than open a duplicate.",
+  ].join("\n");
+}
+
+function runOutdated(dir, spawn) {
+  const result = spawn("npm", ["outdated", "--json"], {
     cwd: dir,
     encoding: "utf8",
   });
-  // `npm outdated` exits 1 when it finds anything outdated — that is not a
-  // failure of the command, only stderr / a thrown parse is.
   if (result.error) throw result.error;
+  // `npm outdated` exits 0 when everything is current and 1 when it finds
+  // something outdated — both are successful runs. Every other status is a
+  // real failure (a registry or config error exits 2), and it MUST throw
+  // rather than fall through: a failed run also prints nothing to stdout, so
+  // accepting it parses to an empty package list and reports a clean no-op.
+  // With five installs swept in a loop, that turns a total outage into a
+  // silent "nothing to do" (Copilot).
+  if (result.status !== 0 && result.status !== 1) {
+    throw new Error(
+      `npm outdated failed in ${dir} (exit ${result.status}): ${(result.stderr ?? "").trim()}`,
+    );
+  }
   return result.stdout ?? "";
 }
 
-function findExistingIssue(repo) {
-  const result = spawnSync(
+function findExistingIssue(repo, spawn) {
+  const result = spawn(
     "gh",
     [
       "issue",
@@ -122,8 +158,8 @@ function findExistingIssue(repo) {
   return issues.find((i) => i.body?.startsWith(ISSUE_MARKER)) ?? null;
 }
 
-function currentMilestone(repo) {
-  const result = spawnSync(
+function currentMilestone(repo, spawn) {
+  const result = spawn(
     "gh",
     [
       "api",
@@ -139,42 +175,55 @@ function currentMilestone(repo) {
   return result.stdout.trim() || null;
 }
 
-export function main(repo = process.env.GITHUB_REPOSITORY) {
+function editIssue(repo, number, body, spawn) {
+  const edit = spawn(
+    "gh",
+    ["issue", "edit", String(number), "--repo", repo, "--body", body],
+    { encoding: "utf8" },
+  );
+  if (edit.status !== 0)
+    throw new Error(`gh issue edit failed: ${edit.stderr}`);
+}
+
+export function main(repo = process.env.GITHUB_REPOSITORY, spawn = spawnSync) {
   if (!repo) throw new Error("repo not specified (GITHUB_REPOSITORY unset)");
 
   const installs = INSTALLS.map(({ dir, label }) => ({
     label,
-    packages: parseOutdated(runOutdated(dir)),
+    packages: parseOutdated(runOutdated(dir, spawn)),
   }));
 
+  // Look the existing issue up BEFORE branching on `body`: the nothing-
+  // outdated case still has to reach an open issue to clear it.
+  const existing = findExistingIssue(repo, spawn);
   const body = buildIssueBody(installs);
+
   if (body === null) {
-    console.log("dependency-refresh: nothing outdated in any install — no-op");
+    if (!existing) {
+      console.log(
+        "dependency-refresh: nothing outdated in any install — no-op",
+      );
+      return;
+    }
+    editIssue(
+      repo,
+      existing.number,
+      buildClearedBody(new Date().toISOString().slice(0, 10)),
+      spawn,
+    );
+    console.log(
+      `dependency-refresh: nothing outdated — cleared stale list on #${existing.number}`,
+    );
     return;
   }
 
-  const existing = findExistingIssue(repo);
   if (existing) {
-    const edit = spawnSync(
-      "gh",
-      [
-        "issue",
-        "edit",
-        String(existing.number),
-        "--repo",
-        repo,
-        "--body",
-        body,
-      ],
-      { encoding: "utf8" },
-    );
-    if (edit.status !== 0)
-      throw new Error(`gh issue edit failed: ${edit.stderr}`);
+    editIssue(repo, existing.number, body, spawn);
     console.log(`dependency-refresh: updated existing #${existing.number}`);
     return;
   }
 
-  const milestone = currentMilestone(repo);
+  const milestone = currentMilestone(repo, spawn);
   const args = [
     "issue",
     "create",
@@ -193,12 +242,14 @@ export function main(repo = process.env.GITHUB_REPOSITORY) {
   ];
   if (milestone) args.push("--milestone", milestone);
 
-  const create = spawnSync("gh", args, { encoding: "utf8" });
+  const create = spawn("gh", args, { encoding: "utf8" });
   if (create.status !== 0)
     throw new Error(`gh issue create failed: ${create.stderr}`);
   if (!milestone) {
+    // Unmilestoned means unapproved, so triage sweeps it into `Incoming` — NOT
+    // `Todo`, which asserts a maintainer signed off (Copilot).
     console.log(
-      "dependency-refresh: no open milestone — issue filed unmilestoned, will be swept into Todo at next triage",
+      "dependency-refresh: no open milestone — issue filed unmilestoned, will be swept into Incoming at next triage",
     );
   }
   console.log(`dependency-refresh: filed ${create.stdout.trim()}`);
