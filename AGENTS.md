@@ -114,7 +114,14 @@ Four things about this that are not obvious from the code:
 - **Alerts are computed from the default branch (`main`), and we ship from `v2/main`.** So the sweep re-checks each alert's vulnerable range against `v2/main`'s own lockfile before filing, and skips one that is already fixed there. The converse is a real blind spot with no fix on this path: a vulnerable dependency introduced on `v2/main` and not yet merged to `main` produces **no alert at all**. The release-time `npm audit --audit-level=high` report (#2231) is the partial second signal — and only at release time.
 - **`automated-security-fixes` can be re-enabled from the UI without a commit**, so nothing in the repo would record it. The sweep reads it back and **fails loudly on an explicit `enabled: true`**. ⚠️ It is a *conditional* guard, not an invariant: the endpoint needs `administration: read`, which `GITHUB_TOKEN` cannot be granted (`permissions:` has no such key), so under the default token the sweep logs **UNVERIFIED** and carries on rather than going red every day for an unrelated reason. Only a token carrying that scope makes it a real assertion.
 
-An issue filed by either sweep is an ordinary board item — `v2` + `chore` + `dependabot`, the current milestone, and a card on #28. A security issue lands at **Todo / High**: arriving through this pipeline *is* the approval, and `High` is a standing override of the [priority rubric](.claude/skills/issue-triage/SKILL.md), which would otherwise score a routine bump Medium. Board placement needs an org-project PAT that `GITHUB_TOKEN` cannot have, so it is **best-effort** — without the secret the issue is still created labeled and milestoned, and the next triage sweep boards it.
+An issue filed by either sweep is an ordinary board item — `v2` + `chore` + `dependabot`, the current milestone, and a card on #28. **How it gets its card differs, and the two sweeps are not interchangeable here:**
+
+| | files the card itself? |
+| --- | --- |
+| Monthly version sweep | **No, never.** It does not attempt a board write at all and has no `PROJECT_TOKEN`; the issue arrives labeled and milestoned, and `/issue-triage` places it. |
+| Daily security sweep | **Only when it can.** With an org-project PAT it places the card directly at **Todo / High**; without one it degrades to the same triage hand-off. |
+
+The board write needs `organization projects: write`, which `GITHUB_TOKEN` cannot have — hence "only when it can", and hence a filed-but-unboarded issue is a normal outcome rather than a failure. **Todo, not Incoming**, when the security sweep does place it: arriving through this pipeline *is* the approval. **`High` is a standing override** of the [priority rubric](.claude/skills/issue-triage/SKILL.md), which would otherwise score a routine bump Medium; the issue body records the override so it does not read as a mis-score. ⚠️ A milestone is a precondition for either — `Incoming` ⇔ no milestone — so an issue filed when no dated milestone is open is deliberately left unboarded rather than parked at Todo.
 
 ## Contributing
 

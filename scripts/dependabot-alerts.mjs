@@ -236,6 +236,22 @@ export function isDirectDependency(lock, pkg) {
 const SEVERITY_RANK = { critical: 4, high: 3, medium: 2, moderate: 2, low: 1 };
 
 /**
+ * The grouping key: one bump, i.e. one edit to one manifest.
+ *
+ * JSON rather than a delimited string, because the three fields are free-form
+ * and any separator would have to be argued for — the one that was here was a
+ * literal NUL, which classified the whole source file as binary and made
+ * repository searches skip it (Copilot). Shared with the end-of-run
+ * reconciliation, so a key built from a marker and a key built from an alert
+ * cannot drift apart.
+ *
+ * @returns {string}
+ */
+export function groupKey(pkg, manifestPath, fixedIn) {
+  return JSON.stringify([pkg, manifestPath, fixedIn]);
+}
+
+/**
  * Collapse per-advisory alerts into one entry per BUMP.
  *
  * Grouped by `(package, manifest_path, first_patched_version)`: that triple is
@@ -258,11 +274,7 @@ export function groupAlerts(alerts) {
     // for an unavailable upgrade is noise, so it waits for one to be published.
     if (!pkg || !manifestPath || !fixedIn) continue;
 
-    // JSON rather than a delimited string: the three fields are free-form,
-    // so any separator has to be argued for — and the one that was here was
-    // a literal NUL, which classified the whole source file as binary and
-    // made repository searches skip it (Copilot).
-    const key = JSON.stringify([pkg, manifestPath, fixedIn]);
+    const key = groupKey(pkg, manifestPath, fixedIn);
     const advisory = {
       ghsa: alert.security_advisory?.ghsa_id ?? "",
       cve: alert.security_advisory?.cve_id ?? null,
@@ -395,6 +407,46 @@ const PLACEMENT_DOC =
   "https://github.com/modelcontextprotocol/inspector/blob/v2/main/AGENTS.md#dependency-placement";
 
 /**
+ * The packages a nested copy sits under, outermost first.
+ *
+ * `node_modules/ajv/node_modules/fast-uri` -> `["ajv"]`. Scope-aware, since a
+ * scoped name contains a slash of its own.
+ *
+ * @param {string} path a lockfile `packages` key
+ * @returns {string[]} empty for the hoisted copy
+ */
+export function overrideAncestors(path) {
+  const segments = path.replace(/^node_modules\//, "").split("/node_modules/");
+  return segments.slice(0, -1);
+}
+
+/**
+ * A concrete parent-scoped `overrides` block for the nested vulnerable copies.
+ *
+ * npm rejects a package-wide override that contradicts a direct dependency of
+ * the same name (`EOVERRIDE`), so when the manifest declares the package the
+ * nested copies must be reached through their parents instead.
+ *
+ * @param {Array<{path: string, hoisted: boolean}>} affected
+ * @param {{package: string, fixedIn: string}} group
+ * @returns {string} pretty-printed JSON
+ */
+export function scopedOverrideExample(affected, group) {
+  const overrides = {};
+  for (const entry of affected) {
+    const ancestors = overrideAncestors(entry.path);
+    if (ancestors.length === 0) continue;
+    let node = overrides;
+    for (const ancestor of ancestors) {
+      node[ancestor] = node[ancestor] ?? {};
+      node = node[ancestor];
+    }
+    node[group.package] = group.fixedIn;
+  }
+  return JSON.stringify({ overrides }, null, 2);
+}
+
+/**
  * What the maintainer actually has to change, derived from WHICH copies are
  * vulnerable rather than from whether the package is declared.
  *
@@ -460,7 +512,13 @@ export function buildIssueBody(group, { affected, declared, ghsas }) {
   }
   if (transitive) {
     steps.push(
-      `**Add an [\`overrides\`](${PLACEMENT_DOC}) entry** pinning \`${group.package}\` to \`${group.fixedIn}\`, for the ${direct ? "nested copies below, which the declared range does not reach" : "copies below, which no declared range reaches"}. **Not** \`npm audit fix\`, which "resolves" an advisory with no upward escape by silently downgrading.`,
+      direct
+        ? // ⚠️ A package-wide override cannot be used here: npm rejects an
+          // override whose spec differs from a direct dependency of the same
+          // name with EOVERRIDE, and this manifest declares one (Copilot). The
+          // nested copies have to be reached through their parents.
+          `**Add a parent-scoped [\`overrides\`](${PLACEMENT_DOC}) entry** for the nested copies below, which the declared range does not reach:\n\n\`\`\`json\n${scopedOverrideExample(affected, group)}\n\`\`\`\n\n   A package-wide \`"${group.package}": "${group.fixedIn}"\` would be rejected with \`EOVERRIDE\`, because this manifest also declares \`${group.package}\` directly and npm refuses an override that contradicts a direct dependency. **Not** \`npm audit fix\` either, which "resolves" an advisory with no upward escape by silently downgrading.`
+        : `**Add an [\`overrides\`](${PLACEMENT_DOC}) entry** pinning \`${group.package}\` to \`${group.fixedIn}\`, for the copies below, which no declared range reaches. **Not** \`npm audit fix\`, which "resolves" an advisory with no upward escape by silently downgrading.`,
     );
   }
   const fix = [
@@ -504,7 +562,9 @@ export function buildIssueBody(group, { affected, declared, ghsas }) {
     fix,
     "",
     "> [!NOTE]",
-    `> **Priority is a standing rubric override.** A routine bump scores Medium; a security bump is filed **${BOARD_PRIORITY}** so it does not sit. The version and severity above come from \`${TARGET_BRANCH}\`'s own lockfile, not from the alert — GitHub computes alerts from the default branch, so an alert is only filed here after its vulnerable range is re-checked against the branch we ship from.`,
+    `> **Priority is a standing rubric override.** A routine bump scores Medium; a security bump is filed **${BOARD_PRIORITY}** so it does not sit.`,
+    ">",
+    `> **Where each number comes from.** The GHSA, CVE, severity, vulnerable range and summary are the advisory's own, reported by Dependabot. What was verified independently against \`${TARGET_BRANCH}\` is the **installed versions, their paths, and whether each advisory's range still matches** — GitHub computes alerts from the default branch, so an alert is filed here only after that re-check.`,
   ].join("\n");
 }
 
@@ -562,7 +622,11 @@ export function buildNewAdvisoryComment(group, added) {
     .join("\n");
   return [
     buildCommentMarker(added),
-    `${added.length} new Dependabot ${added.length === 1 ? "advisory" : "advisories"} for \`${group.package}\`, cleared by the same bump to \`${group.fixedIn}\`. The issue body's marker now covers ${added.length === 1 ? "it" : "them"} too.`,
+    // ⚠️ Posted BEFORE the body edit, so it must not assert anything about the
+    // body's current state — the edit may not have happened yet, and may fail
+    // (Copilot). It speaks for the comment's own marker, which is true the
+    // moment this is posted.
+    `${added.length} new Dependabot ${added.length === 1 ? "advisory" : "advisories"} for \`${group.package}\`, cleared by the same bump to \`${group.fixedIn}\`. This comment's own marker records ${added.length === 1 ? "it" : "them"} as announced, so a later run will not repeat this even if the issue body has yet to catch up.`,
     "",
     "| GHSA | Severity | Summary |",
     "| --- | --- | --- |",
@@ -923,11 +987,13 @@ export function main(
   checkSecurityPrsStillDisabled(repo, spawn);
 
   const groups = groupAlerts(openAlerts(repo, spawn));
-  if (groups.length === 0) {
-    console.log("dependabot-alerts: no open alerts — no-op");
-    return;
-  }
 
+  // ⚠️ Loaded BEFORE the zero-group early return, and reconciled after the loop.
+  // `openAlerts` asks for `state=open`, so an alert that is FIXED or DISMISSED
+  // simply vanishes from the feed — its group is never built, the loop never
+  // visits it, and the issue it produced would keep asserting a vulnerability
+  // with a live Todo/High card forever (Copilot). The disappearance is the
+  // signal, so it has to be read from the issues rather than from the alerts.
   const existingIssues = openDependabotIssues(repo, spawn).map((issue) => ({
     ...issue,
     marker: parseMarker(issue.body),
@@ -935,8 +1001,11 @@ export function main(
 
   const manifests = new Map();
   const boardProblems = [];
+  /** Grouping keys this run actually saw in the open feed. */
+  const seenKeys = new Set();
 
   for (const rawGroup of groups) {
+    seenKeys.add(rawGroup.key);
     // ⚠️ Resolved BEFORE the skips below, not after. An issue filed yesterday
     // is still open today, and if the manifest has since gone or every copy has
     // moved out of range, skipping straight past it leaves its body asserting a
@@ -1096,6 +1165,50 @@ export function main(
         ? `dependabot-alerts: added ${added.join(", ")} to #${existing.number}`
         : `dependabot-alerts: refreshed #${existing.number} for ${group.package}`,
     );
+  }
+
+  // Any marked issue whose bump is no longer in the open feed at all: its last
+  // alert was fixed or dismissed, so there is nothing left to bump.
+  for (const issue of existingIssues) {
+    if (!issue.marker) continue;
+    const key = groupKey(
+      issue.marker.package,
+      issue.marker.manifestPath,
+      issue.marker.fixedIn,
+    );
+    if (seenKeys.has(key)) continue;
+    const body = buildClearedBody(
+      {
+        package: issue.marker.package,
+        manifestPath: issue.marker.manifestPath,
+        fixedIn: issue.marker.fixedIn,
+      },
+      {
+        ghsas: issue.marker.ghsas,
+        reason: "every alert it tracked has been fixed or dismissed",
+        today,
+      },
+    );
+    if (issue.body === body) continue;
+    const edit = gh(spawn, [
+      "issue",
+      "edit",
+      String(issue.number),
+      "--repo",
+      repo,
+      "--body",
+      body,
+    ]);
+    if (edit.status !== 0) {
+      throw new Error(`gh issue edit failed: ${(edit.stderr ?? "").trim()}`);
+    }
+    console.log(
+      `dependabot-alerts: cleared #${issue.number} — no open alert remains for ${issue.marker.package}`,
+    );
+  }
+
+  if (groups.length === 0) {
+    console.log("dependabot-alerts: no open alerts");
   }
 
   // Every group is processed before this throws: a half-placed card is worth

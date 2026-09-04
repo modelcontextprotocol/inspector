@@ -15,7 +15,11 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import {
+  PRIORITY_FIELD_ID,
+  STATUS_FIELD_ID,
   buildClearedBody,
+  overrideAncestors,
+  scopedOverrideExample,
   buildCommentMarker,
   pickMilestone,
   narrowToApplicable,
@@ -467,7 +471,10 @@ test("buildIssueBody asks for BOTH edits when declared and nested copies are vul
   });
   assert.match(body, /Both edits are needed/);
   assert.match(body, /1\. \*\*Raise the declared range/);
-  assert.match(body, /2\. \*\*Add an \[`overrides`\]/);
+  assert.match(body, /2\. \*\*Add a parent-scoped \[`overrides`\]/);
+  // A package-wide pin would be rejected: the manifest declares it directly.
+  assert.match(body, /EOVERRIDE/);
+  assert.match(body, /"ajv": \{\n\s+"fast-uri": "3\.1\.6"/);
   // The table names the copies, so the maintainer can see why.
   assert.match(
     body,
@@ -795,11 +802,23 @@ test("main will not update an issue whose bump differs, even for the same packag
       },
     ],
   });
-  inTempRepo({ "package-lock.json": lockWith("fast-uri", "3.1.5") }, () =>
-    withoutProjectToken(() => captureLog(() => main("o/r", spawn))),
+  const log = inTempRepo(
+    { "package-lock.json": lockWith("fast-uri", "3.1.5") },
+    () =>
+      withoutProjectToken(() =>
+        captureLog(() => main("o/r", spawn, "2026-09-04")),
+      ),
   );
   assert.ok(ghCall(spawn, "create"), "a different bump gets its own issue");
-  assert.equal(ghCall(spawn, "edit"), undefined);
+  // ...and the 3.1.6 issue, whose alert is no longer in the open feed, is
+  // cleared rather than left asserting a vulnerability nobody tracks.
+  const edit = ghCall(spawn, "edit");
+  assert.ok(edit, "the superseded issue is reconciled");
+  assert.match(
+    edit.args[edit.args.indexOf("--body") + 1],
+    /fixed or dismissed/,
+  );
+  assert.ok(log.some((l) => l.includes("no open alert remains")));
 });
 
 test("main comments a new advisory BEFORE rewriting the marker", () => {
@@ -1114,6 +1133,166 @@ test("buildIssueBody counts the applicable alerts in its prose, not the marker",
   });
   assert.match(body, /Filed automatically from 1 open Dependabot alert\b/);
   assert.deepEqual(parseMarker(body).ghsas, ["GHSA-a", "GHSA-closed"]);
+});
+
+test("main clears an issue when its last alert is fixed or dismissed", () => {
+  // `openAlerts` asks for state=open, so a fixed alert simply vanishes and its
+  // group is never built. The issue has to be reconciled from the other side.
+  const [group] = groupAlerts([alert({ ghsa: "GHSA-a" })]);
+  const spawn = fakeSpawn({
+    alertPages: [[]],
+    issues: [
+      {
+        number: 41,
+        title: buildIssueTitle(group),
+        body: buildIssueBody(group, asInstalled()),
+      },
+    ],
+  });
+  const log = inTempRepo(
+    { "package-lock.json": lockWith("fast-uri", "3.1.5") },
+    () =>
+      withoutProjectToken(() =>
+        captureLog(() => main("o/r", spawn, "2026-09-04")),
+      ),
+  );
+  const edit = ghCall(spawn, "edit");
+  assert.ok(edit, "the zero-alert run still reconciles open issues");
+  const body = edit.args[edit.args.indexOf("--body") + 1];
+  assert.match(body, /every alert it tracked has been fixed or dismissed/);
+  assert.deepEqual(parseMarker(body).ghsas, ["GHSA-a"]);
+  assert.ok(log.some((l) => l.includes("no open alert remains")));
+});
+
+test("main reconciles a vanished group even while other groups remain", () => {
+  // The early return is only half of it: a disappeared group is also never
+  // visited by the loop when the feed still has other bumps in it.
+  const [gone] = groupAlerts([
+    alert({ ghsa: "GHSA-gone", pkg: "qs", fixed: "6.16.0" }),
+  ]);
+  const spawn = fakeSpawn({
+    alertPages: [[alert({ ghsa: "GHSA-a" })]],
+    issues: [
+      {
+        number: 41,
+        title: buildIssueTitle(gone),
+        body: buildIssueBody(gone, {
+          affected: [
+            { path: "node_modules/qs", version: "6.15.3", hoisted: true },
+          ],
+          declared: false,
+        }),
+      },
+    ],
+  });
+  inTempRepo({ "package-lock.json": lockWith("fast-uri", "3.1.5") }, () =>
+    withoutProjectToken(() =>
+      captureLog(() => main("o/r", spawn, "2026-09-04")),
+    ),
+  );
+  assert.ok(ghCall(spawn, "create"), "the live bump is still filed");
+  const edit = ghCall(spawn, "edit");
+  assert.ok(edit, "the vanished bump's issue is still cleared");
+  assert.equal(edit.args[2], "41");
+});
+
+test("main does not re-clear a vanished group's issue on the next run", () => {
+  const spawn = fakeSpawn({
+    alertPages: [[]],
+    issues: [
+      {
+        number: 41,
+        title:
+          "chore(deps): bump `fast-uri` to `3.1.6` in `package-lock.json` (1 advisory)",
+        body: buildClearedBody(
+          {
+            package: "fast-uri",
+            manifestPath: "package-lock.json",
+            fixedIn: "3.1.6",
+          },
+          {
+            ghsas: ["GHSA-a"],
+            reason: "every alert it tracked has been fixed or dismissed",
+            today: "2026-09-04",
+          },
+        ),
+      },
+    ],
+  });
+  inTempRepo({}, () =>
+    withoutProjectToken(() =>
+      captureLog(() => main("o/r", spawn, "2026-09-04")),
+    ),
+  );
+  assert.equal(ghCall(spawn, "edit"), undefined);
+});
+
+test("main boards a filed issue at Todo/High using resolved option ids", () => {
+  // The acceptance-critical path: the two field edits that actually place the
+  // card. Previously only its failure modes were covered.
+  const spawn = fakeSpawn({ alertPages: [[alert({ ghsa: "GHSA-a" })]] });
+  const log = inTempRepo(
+    { "package-lock.json": lockWith("fast-uri", "3.1.5") },
+    () => withProjectToken(() => captureLog(() => main("o/r", spawn))),
+  );
+
+  const add = spawn.calls.find(
+    (c) => c.args[0] === "project" && c.args[1] === "item-add",
+  );
+  assert.ok(add, "the card is added");
+  const edits = spawn.calls.filter(
+    (c) => c.args[0] === "project" && c.args[1] === "item-edit",
+  );
+  assert.equal(edits.length, 2, "Status and Priority are separate calls");
+  const optionOf = (call) =>
+    call.args[call.args.indexOf("--single-select-option-id") + 1];
+  const fieldOf = (call) => call.args[call.args.indexOf("--field-id") + 1];
+  assert.deepEqual(
+    edits.map((e) => [fieldOf(e), optionOf(e)]),
+    [
+      [STATUS_FIELD_ID, "todo-id"],
+      [PRIORITY_FIELD_ID, "high-id"],
+    ],
+  );
+  // Resolved by NAME at run time, never hardcoded.
+  assert.ok(
+    spawn.calls.some(
+      (c) => c.args[0] === "project" && c.args[1] === "field-list",
+    ),
+  );
+  assert.ok(log.some((l) => l.includes("boarded")));
+});
+
+test("overrideAncestors reads the parent chain, scoped names included", () => {
+  assert.deepEqual(
+    overrideAncestors("node_modules/ajv/node_modules/fast-uri"),
+    ["ajv"],
+  );
+  assert.deepEqual(
+    overrideAncestors(
+      "node_modules/@sc/a/node_modules/b/node_modules/fast-uri",
+    ),
+    ["@sc/a", "b"],
+  );
+  assert.deepEqual(overrideAncestors("node_modules/fast-uri"), []);
+});
+
+test("scopedOverrideExample nests each vulnerable copy under its parents", () => {
+  const json = scopedOverrideExample(
+    [
+      { path: "node_modules/fast-uri", hoisted: true },
+      { path: "node_modules/ajv/node_modules/fast-uri", hoisted: false },
+      { path: "node_modules/@sc/x/node_modules/fast-uri", hoisted: false },
+    ],
+    { package: "fast-uri", fixedIn: "3.1.6" },
+  );
+  // The hoisted copy is the declared one and gets no override entry.
+  assert.deepEqual(JSON.parse(json), {
+    overrides: {
+      ajv: { "fast-uri": "3.1.6" },
+      "@sc/x": { "fast-uri": "3.1.6" },
+    },
+  });
 });
 
 test("main reads every page of open dependabot issues", () => {
