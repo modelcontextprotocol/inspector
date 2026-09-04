@@ -297,7 +297,7 @@ function comparePadded(a, b) {
 }
 
 /**
- * The action's highest released version tag, or `null` when it has none.
+ * The action's highest released version tag.
  *
  * Reads the release *list* rather than `releases/latest`, for the reason on
  * `highestVersionTag`. Drafts and prereleases are excluded — neither is
@@ -305,7 +305,10 @@ function comparePadded(a, b) {
  * rather than paginating every release an action has ever cut: the list comes
  * back newest-first, so the greatest version is within it for any real action.
  *
- * @throws when the lookup fails for any reason other than a 404
+ * @returns {string | null} `null` ONLY for a successful response carrying no
+ *   usable release — an action that has never cut one, or whose tags are all
+ *   unparseable. A failed lookup is never `null`; see below.
+ * @throws on any non-zero status, 404 included
  */
 function latestReleaseTag(action, spawn) {
   // `owner/repo/subpath@ref` is a valid `uses:`; releases live on `owner/repo`.
