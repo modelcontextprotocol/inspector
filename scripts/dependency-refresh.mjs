@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 // Monthly npm-outdated sweep (#2229), replacing Dependabot version-update PRs.
 //
-// Dependabot's version updates were disabled in `.github/dependabot.yml`
-// because a version-update PR carries no issue and no board card — the same
+// A Dependabot version-update PR carries no issue and no board card — the same
 // carve-out from "every PR references an issue" that the security-update flow
 // had (that half is handled separately by the alert-driven pipeline, also
-// #2229). This script replaces the routine-bump half: once a month it runs
+// #2229). Turning npm version updates off in `.github/dependabot.yml` is #2235;
+// this script is the replacement it switches over to, and lands first, so the
+// two flows overlap until #2235 does. Once a month it runs
 // `npm outdated` across the root install and every client under `clients/*`
 // (each has its own package.json + lockfile — v2 is not a workspace), and
 // files or updates ONE tracking issue listing everything behind. A maintainer

@@ -1,11 +1,15 @@
 # Monthly npm-outdated sweep (#2229), replacing Dependabot version-update PRs.
 #
-# Dependabot version updates are disabled in `.github/dependabot.yml` because a
-# version-update PR carries no issue and no board card. This workflow runs
-# `scripts/dependency-refresh.mjs` against `v2/main` once a month and files or
-# updates ONE tracking issue listing every outdated package across the root
-# install and each client — no PR is opened automatically. A maintainer reviews
-# the issue, picks what to bump, and opens a normal PR against `v2/main`.
+# A Dependabot version-update PR carries no issue and no board card, so npm
+# version updates are being switched off in `.github/dependabot.yml`. That file
+# is changed in #2235, not here — until it lands, Dependabot's npm PRs and this
+# sweep overlap, which is duplicate signal rather than conflicting action.
+#
+# This workflow runs `scripts/dependency-refresh.mjs` against `v2/main` once a
+# month and files or updates ONE tracking issue listing every outdated package
+# across the root install and each client — no PR is opened automatically. A
+# maintainer reviews the issue, picks what to bump, and opens a normal PR
+# against `v2/main`.
 #
 # `GITHUB_TOKEN` is sufficient: it only needs to read milestones (public) and
 # create/edit an issue (`issues: write`). Board placement is intentionally NOT
