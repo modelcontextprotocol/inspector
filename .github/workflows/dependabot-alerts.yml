@@ -55,6 +55,16 @@ on:
     - cron: "17 6 * * *" # 06:17 UTC daily; alerts are not minute-sensitive
   workflow_dispatch:
 
+# The marker check is a read-before-write, not an atomic one, and nothing stops
+# a `workflow_dispatch` from landing on top of the scheduled run. Two overlapping
+# runs would both see no open issue and both file one, which is the exact
+# duplicate this sweep's whole idempotency design exists to prevent (Copilot).
+# `cancel-in-progress: false` because the queued run must WAIT and then re-read
+# the state the first run wrote — cancelling it would drop a sweep instead.
+concurrency:
+  group: dependabot-alert-sweep
+  cancel-in-progress: false
+
 permissions:
   contents: read
   issues: write

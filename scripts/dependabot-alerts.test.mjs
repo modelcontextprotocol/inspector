@@ -16,6 +16,7 @@ import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import {
   buildCommentMarker,
+  pickMilestone,
   narrowToApplicable,
   lockfileEntries,
   remediation,
@@ -334,6 +335,31 @@ test("buildIssueBody escapes a disjoint range so the table survives it", () => {
   assert.ok(row.includes(String.raw`\|\|`), "the range's own pipes survive");
 });
 
+test("pickMilestone takes the nearest due date, never an undated bucket", () => {
+  // jq sorts null before every string, so `sort_by(.due_on) | .[0]` over this
+  // list would return "Backlog" — an open bucket with no release date at all.
+  const milestones = [
+    { title: "Backlog", state: "open", due_on: null },
+    { title: "v2.7.0", state: "open", due_on: "2026-09-16T00:00:00Z" },
+    { title: "v2.6.0", state: "open", due_on: "2026-09-09T00:00:00Z" },
+  ];
+  assert.equal(pickMilestone(milestones), "v2.6.0");
+});
+
+test("pickMilestone ignores closed milestones and empty input", () => {
+  assert.equal(
+    pickMilestone([
+      { title: "v2.5.0", state: "closed", due_on: "2026-01-01T00:00:00Z" },
+    ]),
+    null,
+  );
+  // Nothing dated and open means no bucket to take: filed unmilestoned, and
+  // the board write is skipped so triage places it.
+  assert.equal(pickMilestone([{ title: "Backlog", due_on: null }]), null);
+  assert.equal(pickMilestone([]), null);
+  assert.equal(pickMilestone(undefined), null);
+});
+
 test("buildIssueTitle names the bump and pluralizes the advisory count", () => {
   const [many] = groupAlerts([
     alert({ ghsa: "GHSA-a" }),
@@ -530,7 +556,20 @@ function fakeSpawn({
       // `--slurp` yields one array PER PAGE; main() must flatten them.
       return ok(JSON.stringify(alertPages));
     }
-    if (joined.includes("milestones")) return ok(milestone);
+    if (joined.includes("milestones"))
+      return ok(
+        JSON.stringify(
+          milestone
+            ? [
+                {
+                  title: milestone,
+                  state: "open",
+                  due_on: "2026-09-09T00:00:00Z",
+                },
+              ]
+            : [],
+        ),
+      );
     // `--slurp`, so one array per page — `issues` may be a flat list or pages.
     if (joined.includes("/issues?"))
       return ok(JSON.stringify(Array.isArray(issues[0]) ? issues : [issues]));

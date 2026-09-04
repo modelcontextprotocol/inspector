@@ -309,6 +309,27 @@ export function groupAlerts(alerts) {
 }
 
 /**
+ * The milestone a new issue takes: the open one with the NEAREST due date.
+ *
+ * ⚠️ Selected here rather than in a `jq` expression because jq sorts `null`
+ * BEFORE every string, so a `sort_by(.due_on) | .[0]` over the raw list hands
+ * back an undated milestone in preference to every dated one (Copilot). An
+ * undated bucket has no due date and so cannot be the nearest; it is dropped
+ * rather than sorted last, and if nothing dated is open the issue is filed
+ * unmilestoned and triage places it.
+ *
+ * @param {Array<{title: string, state?: string, due_on?: string | null}>} milestones
+ * @returns {string | null}
+ */
+export function pickMilestone(milestones) {
+  const dated = (milestones ?? []).filter(
+    (m) => (m.state ?? "open") === "open" && m.due_on,
+  );
+  if (dated.length === 0) return null;
+  return dated.sort((a, b) => a.due_on.localeCompare(b.due_on))[0].title;
+}
+
+/**
  * Narrow a group to the advisories that actually apply to what is installed.
  *
  * ⚠️ Grouping is by `(package, manifest, first_patched_version)`, and two
@@ -683,16 +704,11 @@ function announcedAdvisories(repo, number, spawn) {
 }
 
 function currentMilestone(repo, spawn) {
-  const result = gh(spawn, [
-    "api",
-    `repos/${repo}/milestones`,
-    "--jq",
-    'map(select(.state=="open")) | sort_by(.due_on) | .[0].title // empty',
-  ]);
+  const result = gh(spawn, ["api", `repos/${repo}/milestones?state=open`]);
   if (result.status !== 0) {
     throw new Error(`milestone lookup failed: ${(result.stderr ?? "").trim()}`);
   }
-  return result.stdout.trim() || null;
+  return pickMilestone(JSON.parse(result.stdout || "[]"));
 }
 
 /**
