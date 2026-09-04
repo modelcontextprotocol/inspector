@@ -54,6 +54,7 @@ inspector/
 ├── core/             Shared code consumed via the `@inspector/core` alias (no package.json)
 ├── test-servers/     Composable MCP test servers + fixtures used by integration and smoke tests
 ├── scripts/          Root build/verify tooling (install cascade, smokes, the verify:* guards)
+│                     and repo automation run from CI (the dependency and Dependabot-alert sweeps)
 ├── docs/             Task-oriented guides — see below
 ├── specification/    Design/build specifications
 ├── .claude/skills/   Agent skills: the repo's procedures, invokable by name

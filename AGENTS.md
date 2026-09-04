@@ -52,7 +52,8 @@ inspector/
 │   ├── react/        React hooks over the state stores (read during render — see React instructions)
 │   └── storage/      File I/O helpers for the OAuth persist backends
 ├── test-servers/     Composable MCP test servers + JSON configs
-├── scripts/          Root build/verify tooling: install cascade, smokes, verify:* guards
+├── scripts/          Root build/verify tooling (install cascade, smokes, verify:* guards)
+│                     plus repo automation run from CI (the dependency + alert sweeps)
 ├── docs/             Task-oriented guides
 ├── specification/    Design/build specifications
 └── .claude/skills/   The procedures (see the index above)

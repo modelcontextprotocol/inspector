@@ -79,6 +79,19 @@ export const BOARD_PRIORITY = "High";
  */
 export const TARGET_BRANCH = "v2/main";
 
+/**
+ * The one ecosystem this sweep can act on.
+ *
+ * ⚠️ Dependabot alerts are NOT npm-only. This repo has a `Dockerfile` and
+ * GitHub Actions workflows, and an alert against either arrives in the same
+ * feed with a `manifest_path` that is not a lockfile — which the JSON parse
+ * would reject, aborting the whole daily sweep before any npm group was
+ * processed (Copilot). Everything downstream reads npm lockfiles, so a non-npm
+ * alert is reported and skipped rather than guessed at: filing it properly
+ * means knowing how to fix it, which is different work per ecosystem.
+ */
+export const SUPPORTED_ECOSYSTEM = "npm";
+
 const MARKER_RE =
   /^<!-- dependabot-alerts: pkg=(.+?); manifest=(.+?); fixed=(.+?); ghsas=(.+?) -->/;
 
@@ -267,6 +280,7 @@ export function groupAlerts(alerts) {
   for (const alert of alerts) {
     if (alert.state !== "open") continue;
     const pkg = alert.dependency?.package?.name;
+    const ecosystem = alert.dependency?.package?.ecosystem ?? "unknown";
     const manifestPath = alert.dependency?.manifest_path;
     const fixedIn =
       alert.security_vulnerability?.first_patched_version?.identifier;
@@ -298,6 +312,7 @@ export function groupAlerts(alerts) {
     groups.set(key, {
       key,
       package: pkg,
+      ecosystem,
       manifestPath,
       fixedIn,
       scope: alert.dependency?.scope ?? "runtime",
@@ -485,7 +500,10 @@ export function remediation(affected, declared) {
  *   rewritten to cover advisories it did not originally name.
  * @returns {string}
  */
-export function buildIssueBody(group, { affected, declared, ghsas }) {
+export function buildIssueBody(
+  group,
+  { affected, declared, ghsas, securityPrsOff = true },
+) {
   const covered = ghsas ?? group.ghsas;
   const applying = group.advisories.length;
   // ⚠️ Every free-form cell is escaped, the RANGE included: a semver range is
@@ -540,7 +558,11 @@ export function buildIssueBody(group, { affected, declared, ghsas }) {
     // Counts what APPLIES, like the title and the table — `covered` is the
     // marker's monotonic history and would keep counting an advisory that has
     // since closed (Copilot).
-    `Filed automatically from ${applying} open Dependabot ${applying === 1 ? "alert" : "alerts"} (#2233). Dependabot opens no security-update PRs on this repo; the fix is written by hand against \`${TARGET_BRANCH}\`.`,
+    // ⚠️ The security-PR claim is only made when the run actually READ the
+    // setting. The guard degrades to UNVERIFIED when the token cannot see it,
+    // and an issue asserting what the run explicitly could not confirm is worse
+    // than one that says so (Copilot).
+    `Filed automatically from ${applying} open Dependabot ${applying === 1 ? "alert" : "alerts"} (#2233). ${securityPrsOff ? "Dependabot opens no security-update PRs on this repo; the" : "The"} fix is written by hand against \`${TARGET_BRANCH}\`.`,
     "",
     "| | |",
     "| --- | --- |",
@@ -750,11 +772,22 @@ function openAlerts(repo, spawn) {
  * against a manifest this branch does not have is not actionable.
  */
 function readManifest(manifestPath) {
+  let raw;
   try {
-    return JSON.parse(readFileSync(manifestPath, "utf8"));
+    raw = readFileSync(manifestPath, "utf8");
   } catch (error) {
     if (error.code === "ENOENT") return null;
     throw error;
+  }
+  try {
+    return JSON.parse(raw);
+  } catch {
+    // Belt and braces behind the ecosystem filter: whatever this is, it is not
+    // an npm lockfile, and one unparseable manifest must not abort the sweep.
+    console.log(
+      `dependabot-alerts: ${manifestPath} is not JSON — skipping (not an npm lockfile)`,
+    );
+    return null;
   }
 }
 
@@ -984,7 +1017,7 @@ export function main(
 ) {
   if (!repo) throw new Error("repo not specified (GITHUB_REPOSITORY unset)");
 
-  checkSecurityPrsStillDisabled(repo, spawn);
+  const securityPrsOff = checkSecurityPrsStillDisabled(repo, spawn);
 
   const groups = groupAlerts(openAlerts(repo, spawn));
 
@@ -1003,9 +1036,20 @@ export function main(
   const boardProblems = [];
   /** Grouping keys this run actually saw in the open feed. */
   const seenKeys = new Set();
+  /** Every GHSA still open, in ANY group — the check a vanished key needs. */
+  const openGhsas = new Set(groups.flatMap((g) => g.ghsas));
 
   for (const rawGroup of groups) {
     seenKeys.add(rawGroup.key);
+
+    if (rawGroup.ecosystem !== SUPPORTED_ECOSYSTEM) {
+      // Loud, not silent: nothing else will file this, so a human has to.
+      console.log(
+        `dependabot-alerts: ${rawGroup.package} (${rawGroup.ecosystem}, ${rawGroup.manifestPath}) is not an npm dependency — this sweep cannot file it, raise it by hand: ${rawGroup.ghsas.join(", ")}`,
+      );
+      continue;
+    }
+
     // ⚠️ Resolved BEFORE the skips below, not after. An issue filed yesterday
     // is still open today, and if the manifest has since gone or every copy has
     // moved out of range, skipping straight past it leaves its body asserting a
@@ -1079,7 +1123,7 @@ export function main(
       const { url, milestone } = createIssue(
         repo,
         group,
-        buildIssueBody(group, { affected, declared }),
+        buildIssueBody(group, { affected, declared, securityPrsOff }),
         spawn,
       );
       // `Incoming` <=> no milestone, everything past it <=> milestoned. With no
@@ -1103,6 +1147,7 @@ export function main(
       affected,
       declared,
       ghsas: merged,
+      securityPrsOff,
     });
 
     // ⚠️ "Nothing NEW" is not the same as "nothing CHANGED" (Copilot). An issue
@@ -1177,17 +1222,25 @@ export function main(
       issue.marker.fixedIn,
     );
     if (seenKeys.has(key)) continue;
+
+    // ⚠️ A vanished KEY is not the same as a closed ADVISORY. GitHub can revise
+    // an alert's `first_patched_version`, which moves it to a different key
+    // while the GHSA stays open — reporting that as "fixed or dismissed" would
+    // stand down a live exposure (Copilot). So the reason is decided by whether
+    // the GHSAs are still in the open feed, not by the key's absence.
+    const stillOpen = issue.marker.ghsas.filter((g) => openGhsas.has(g));
+    const reason =
+      stillOpen.length > 0
+        ? `this bump was superseded — ${stillOpen.map((g) => `\`${g}\``).join(", ")} ${stillOpen.length === 1 ? "is" : "are"} still open under a different patched version, and ${stillOpen.length === 1 ? "has" : "have"} their own issue`
+        : "every alert it tracked has been fixed or dismissed";
+
     const body = buildClearedBody(
       {
         package: issue.marker.package,
         manifestPath: issue.marker.manifestPath,
         fixedIn: issue.marker.fixedIn,
       },
-      {
-        ghsas: issue.marker.ghsas,
-        reason: "every alert it tracked has been fixed or dismissed",
-        today,
-      },
+      { ghsas: issue.marker.ghsas, reason, today },
     );
     if (issue.body === body) continue;
     const edit = gh(spawn, [

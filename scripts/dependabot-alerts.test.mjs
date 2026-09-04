@@ -15,6 +15,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import {
+  SUPPORTED_ECOSYSTEM,
   PRIORITY_FIELD_ID,
   STATUS_FIELD_ID,
   buildClearedBody,
@@ -51,12 +52,13 @@ function alert({
   scope = "runtime",
   cve = null,
   state = "open",
+  ecosystem = "npm",
 }) {
   return {
     state,
     html_url: `https://github.com/o/r/security/dependabot/${ghsa}`,
     dependency: {
-      package: { name: pkg },
+      package: { name: pkg, ecosystem },
       manifest_path: manifest,
       scope,
     },
@@ -1293,6 +1295,124 @@ test("scopedOverrideExample nests each vulnerable copy under its parents", () =>
       "@sc/x": { "fast-uri": "3.1.6" },
     },
   });
+});
+
+test("groupAlerts records the ecosystem so non-npm alerts are identifiable", () => {
+  const [docker] = groupAlerts([
+    alert({
+      ghsa: "GHSA-d",
+      pkg: "node",
+      manifest: "Dockerfile",
+      ecosystem: "docker",
+    }),
+  ]);
+  assert.equal(docker.ecosystem, "docker");
+  assert.notEqual(docker.ecosystem, SUPPORTED_ECOSYSTEM);
+});
+
+test("main skips a non-npm alert loudly instead of crashing on its manifest", () => {
+  // ⚠️ This repo has a Dockerfile, so this is reachable. Parsing it as a
+  // lockfile threw and aborted the entire sweep before any npm group ran.
+  const spawn = fakeSpawn({
+    alertPages: [
+      [
+        alert({
+          ghsa: "GHSA-docker",
+          pkg: "node",
+          manifest: "Dockerfile",
+          ecosystem: "docker",
+        }),
+        alert({ ghsa: "GHSA-a" }),
+      ],
+    ],
+  });
+  const log = inTempRepo(
+    {
+      "package-lock.json": lockWith("fast-uri", "3.1.5"),
+    },
+    () => withoutProjectToken(() => captureLog(() => main("o/r", spawn))),
+  );
+
+  // The npm bump is still filed — the non-npm alert must not abort the run.
+  const created = ghCalls(spawn, "create");
+  assert.equal(created.length, 1);
+  assert.match(
+    created[0].args[created[0].args.indexOf("--title") + 1],
+    /`fast-uri`/,
+  );
+  // ...and the skipped one is named, with its GHSA, so a human can file it.
+  assert.ok(
+    log.some(
+      (l) =>
+        l.includes("docker") &&
+        l.includes("Dockerfile") &&
+        l.includes("GHSA-docker") &&
+        l.includes("raise it by hand"),
+    ),
+    `expected a loud skip line, got: ${log.join(" | ")}`,
+  );
+});
+
+test("main says superseded, not fixed, when the GHSA is still open elsewhere", () => {
+  // GitHub revised `first_patched_version`, so the advisory moved to a new key
+  // while staying open. Calling that "fixed or dismissed" would stand down a
+  // live exposure.
+  const [filed] = groupAlerts([alert({ ghsa: "GHSA-a", fixed: "3.1.6" })]);
+  const spawn = fakeSpawn({
+    alertPages: [[alert({ ghsa: "GHSA-a", fixed: "3.1.7", range: "< 3.1.7" })]],
+    issues: [
+      {
+        number: 41,
+        title: buildIssueTitle(filed),
+        body: buildIssueBody(filed, asInstalled()),
+      },
+    ],
+  });
+  inTempRepo({ "package-lock.json": lockWith("fast-uri", "3.1.5") }, () =>
+    withoutProjectToken(() =>
+      captureLog(() => main("o/r", spawn, "2026-09-04")),
+    ),
+  );
+  const edit = ghCall(spawn, "edit");
+  assert.ok(edit);
+  const body = edit.args[edit.args.indexOf("--body") + 1];
+  assert.match(body, /superseded/);
+  assert.match(body, /`GHSA-a` is still open/);
+  assert.doesNotMatch(body, /fixed or dismissed/);
+  // ...and the new bump gets its own issue.
+  assert.ok(ghCall(spawn, "create"));
+});
+
+test("buildIssueBody does not claim security PRs are off when unverified", () => {
+  const [group] = groupAlerts([alert({ ghsa: "GHSA-a" })]);
+  const verified = buildIssueBody(group, nested());
+  assert.match(verified, /Dependabot opens no security-update PRs/);
+
+  const unverified = buildIssueBody(group, {
+    ...nested(),
+    securityPrsOff: false,
+  });
+  assert.doesNotMatch(unverified, /opens no security-update PRs/);
+  assert.match(unverified, /The fix is written by hand/);
+});
+
+test("main omits the security-PR claim when the token could not read it", () => {
+  const spawn = fakeSpawn({
+    securityFixesStatus: 1,
+    securityFixesStderr: "gh: HTTP 403: Resource not accessible by integration",
+    alertPages: [[alert({ ghsa: "GHSA-a" })]],
+  });
+  const log = inTempRepo(
+    { "package-lock.json": lockWith("fast-uri", "3.1.5") },
+    () => withoutProjectToken(() => captureLog(() => main("o/r", spawn))),
+  );
+  assert.ok(log.some((l) => l.includes("UNVERIFIED")));
+  const create = ghCall(spawn, "create");
+  assert.ok(create);
+  assert.doesNotMatch(
+    create.args[create.args.indexOf("--body") + 1],
+    /opens no security-update PRs/,
+  );
 });
 
 test("main reads every page of open dependabot issues", () => {
