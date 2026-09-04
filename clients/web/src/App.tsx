@@ -115,6 +115,7 @@ import { AuthRecoveryRequiredError } from "@inspector/core/auth/challenge.js";
 import { getAuthToken } from "./lib/authToken";
 import { messagesToLogEntries } from "./lib/protocolReplay";
 import { EMPTY_SETTINGS } from "./utils/serverSettingsDefaults";
+import { oauthClearKey } from "./utils/oauthClearKey";
 import {
   bodyDroppedToastId,
   CLIENT_CONFIG_LOAD_ERROR_NOTIFICATION_ID,
@@ -1350,10 +1351,10 @@ function App() {
   const settingsModalIsStdio = settingsModalServerType === "stdio";
 
   /**
-   * Servers whose clear is in flight (#2144). Keyed by id, not a single flag:
-   * the callback explicitly supports clearing a server other than the active
-   * one, so a global lock would silently drop B's click while A's revocation
-   * was still out. See `runClear`.
+   * Servers whose clear is in flight (#2144). Keyed per server, not a single
+   * flag: the callback explicitly supports clearing a server other than the
+   * active one, so a global lock would silently drop B's click while A's
+   * revocation was still out. See `runClear`.
    */
   const clearOAuthInFlightRef = useRef<Set<string>>(new Set());
 
@@ -1375,11 +1376,18 @@ function App() {
       // — and with revocation taking up to five seconds, that means concurrent
       // RFC 7009 requests, concurrent store writes, and two contradictory
       // toasts. Keyed by server so a *different* server's clear is unaffected.
-      if (clearOAuthInFlightRef.current.has(server.id)) return;
-      clearOAuthInFlightRef.current.add(server.id);
+      //
+      // "Different server" is the OAuth storage key, not the catalog id
+      // (#2217, Copilot): two entries against one URL share one blob, one
+      // grant and one revocation, so an id-keyed guard lets exactly the race
+      // above through between them. `oauthClearKey` falls back to the id for a
+      // config with no OAuth URL, which has no shared state to collide over.
+      const inFlightKey = oauthClearKey(server.config, server.id);
+      if (clearOAuthInFlightRef.current.has(inFlightKey)) return;
+      clearOAuthInFlightRef.current.add(inFlightKey);
       clearServerOAuthAndDisconnect(server)
         .finally(() => {
-          clearOAuthInFlightRef.current.delete(server.id);
+          clearOAuthInFlightRef.current.delete(inFlightKey);
         })
         .catch((err: unknown) => {
           notifications.show({
