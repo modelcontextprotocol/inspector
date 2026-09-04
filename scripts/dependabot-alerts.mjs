@@ -233,7 +233,11 @@ export function groupAlerts(alerts) {
     // for an unavailable upgrade is noise, so it waits for one to be published.
     if (!pkg || !manifestPath || !fixedIn) continue;
 
-    const key = `${pkg} ${manifestPath} ${fixedIn}`;
+    // JSON rather than a delimited string: the three fields are free-form,
+    // so any separator has to be argued for — and the one that was here was
+    // a literal NUL, which classified the whole source file as binary and
+    // made repository searches skip it (Copilot).
+    const key = JSON.stringify([pkg, manifestPath, fixedIn]);
     const advisory = {
       ghsa: alert.security_advisory?.ghsa_id ?? "",
       cve: alert.security_advisory?.cve_id ?? null,
@@ -281,10 +285,12 @@ export function groupAlerts(alerts) {
 
 /**
  * @param {ReturnType<typeof groupAlerts>[number]} group
+ * @param {number} [count] advisories the issue covers, when that is more than
+ *   this run saw — an issue grown by a later advisory keeps one title.
  * @returns {string}
  */
-export function buildIssueTitle(group) {
-  const n = group.advisories.length;
+export function buildIssueTitle(group, count = group.advisories.length) {
+  const n = count;
   return `chore(deps): bump \`${group.package}\` to \`${group.fixedIn}\` in \`${group.manifestPath}\` (${n} ${n === 1 ? "advisory" : "advisories"})`;
 }
 
@@ -510,7 +516,15 @@ function openDependabotIssues(repo, spawn) {
   );
 }
 
-/** The GHSA sets already announced by comments on an issue. */
+/**
+ * Every GHSA already announced by a comment on an issue, unioned.
+ *
+ * Unioned per ADVISORY, not compared per comment. Comparing whole sets looks
+ * equivalent and is not: a run that posts `[B]` and then fails before rewriting
+ * the marker leaves the next run computing `[B, C]`, which matches no existing
+ * comment, and `B` is announced a second time (Copilot). Individual GHSAs are
+ * what a comment actually claims to have announced.
+ */
 function announcedAdvisories(repo, number, spawn) {
   const issue = ghJson(spawn, [
     "issue",
@@ -521,9 +535,13 @@ function announcedAdvisories(repo, number, spawn) {
     "--json",
     "comments",
   ]);
-  return (issue?.comments ?? [])
-    .map((comment) => parseCommentMarker(comment.body))
-    .filter(Boolean);
+  const announced = new Set();
+  for (const comment of issue?.comments ?? []) {
+    for (const ghsa of parseCommentMarker(comment.body) ?? []) {
+      announced.add(ghsa);
+    }
+  }
+  return announced;
 }
 
 function currentMilestone(repo, spawn) {
@@ -785,9 +803,9 @@ export function main(repo = process.env.GITHUB_REPOSITORY, spawn = spawnSync) {
     // run take the no-op branch above and skip the comment permanently
     // (Copilot). In this order the worst case is a repeat, and the comment's
     // own marker rules that out too.
-    const alreadyAnnounced = announcedAdvisories(repo, existing.number, spawn);
-    const marker = buildCommentMarker(added);
-    if (!alreadyAnnounced.some((set) => buildCommentMarker(set) === marker)) {
+    const announced = announcedAdvisories(repo, existing.number, spawn);
+    const unannounced = added.filter((ghsa) => !announced.has(ghsa));
+    if (unannounced.length > 0) {
       const comment = gh(spawn, [
         "issue",
         "comment",
@@ -795,7 +813,7 @@ export function main(repo = process.env.GITHUB_REPOSITORY, spawn = spawnSync) {
         "--repo",
         repo,
         "--body",
-        buildNewAdvisoryComment(group, added),
+        buildNewAdvisoryComment(group, unannounced),
       ]);
       if (comment.status !== 0) {
         throw new Error(
@@ -804,12 +822,16 @@ export function main(repo = process.env.GITHUB_REPOSITORY, spawn = spawnSync) {
       }
     }
 
+    // The title carries the advisory count, so it goes stale the moment the
+    // issue covers one more than it was filed with (Copilot).
     const edit = gh(spawn, [
       "issue",
       "edit",
       String(existing.number),
       "--repo",
       repo,
+      "--title",
+      buildIssueTitle(group, merged.length),
       "--body",
       buildIssueBody(group, { installed: affected, direct, ghsas: merged }),
     ]);

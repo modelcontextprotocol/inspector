@@ -1,7 +1,13 @@
-// Unit tests for the pure halves of dependabot-alerts.mjs (#2233). The impure
-// half (`main()`, which shells out to `gh`) is exercised only via
-// `workflow_dispatch` in CI, per the same split `dependency-refresh.mjs` and
-// `verify-skills.mjs` use. Run via `npm run test:scripts`.
+// Tests for dependabot-alerts.mjs (#2233) — both the pure grouping/formatting
+// helpers and `main()`'s orchestration, the latter driven through the injected
+// spawn function so no `gh` process is ever started.
+//
+// `main()` is covered rather than left to `workflow_dispatch` because a
+// production trigger is not a test (Copilot): everything that can go wrong in
+// the orchestration — a paginated alert feed, a manifest that has moved on, a
+// half-written board card, a comment posted twice — goes wrong only against the
+// real API, where nothing would be asserted.
+// Run via `npm run test:scripts`.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -603,6 +609,60 @@ test("main does not repeat a comment it already posted", () => {
   assert.equal(ghCall(spawn, "comment"), undefined);
   // The marker still gets brought up to date.
   assert.ok(ghCall(spawn, "edit"));
+});
+
+test("main announces only the advisories no comment has claimed yet", () => {
+  // The exact shape a failed marker edit leaves behind: the comment for `b`
+  // went out, the body edit did not, and a third advisory has since arrived.
+  // Comparing whole GHSA sets would find no match and announce `b` twice.
+  const [old] = groupAlerts([alert({ ghsa: "GHSA-a" })]);
+  const spawn = fakeSpawn({
+    alertPages: [
+      [
+        alert({ ghsa: "GHSA-a" }),
+        alert({ ghsa: "GHSA-b" }),
+        alert({ ghsa: "GHSA-c" }),
+      ],
+    ],
+    issues: [
+      {
+        number: 41,
+        body: buildIssueBody(old, { installed: ["3.1.5"], direct: false }),
+      },
+    ],
+    comments: [{ body: `${buildCommentMarker(["GHSA-b"])}\nannounced b` }],
+  });
+  inTempRepo({ "package-lock.json": lockWith("fast-uri", "3.1.5") }, () =>
+    withoutProjectToken(() => captureLog(() => main("o/r", spawn))),
+  );
+
+  const comment = ghCall(spawn, "comment");
+  assert.ok(comment, "the unannounced advisory still gets a comment");
+  const text = comment.args[comment.args.indexOf("--body") + 1];
+  assert.deepEqual(parseCommentMarker(text), ["GHSA-c"]);
+  assert.ok(!text.includes("GHSA-b"), "b was already announced");
+});
+
+test("main refreshes the title when an issue grows another advisory", () => {
+  const [old] = groupAlerts([alert({ ghsa: "GHSA-a" })]);
+  const spawn = fakeSpawn({
+    alertPages: [[alert({ ghsa: "GHSA-a" }), alert({ ghsa: "GHSA-b" })]],
+    issues: [
+      {
+        number: 41,
+        body: buildIssueBody(old, { installed: ["3.1.5"], direct: false }),
+      },
+    ],
+  });
+  inTempRepo({ "package-lock.json": lockWith("fast-uri", "3.1.5") }, () =>
+    withoutProjectToken(() => captureLog(() => main("o/r", spawn))),
+  );
+  const edit = ghCall(spawn, "edit");
+  // Filed as "(1 advisory)"; editing only the body would leave it saying so.
+  assert.match(
+    edit.args[edit.args.indexOf("--title") + 1],
+    /\(2 advisories\)$/,
+  );
 });
 
 test("main fails loudly when Dependabot security PRs are back on", () => {
