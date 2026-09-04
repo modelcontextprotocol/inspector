@@ -54,6 +54,7 @@ import {
 import { OAUTH_CALLBACK_PATH } from "../utils/oauthFlow";
 import { INSPECTOR_SERVERS_TAB } from "../utils/inspectorTabs";
 import type { PendingReauth } from "../utils/pendingReauth";
+import { useValueChange } from "./useValueChange";
 import {
   authRecoveryRestoredMessage,
   authRecoveryAbandonedMessage,
@@ -318,19 +319,52 @@ export function useOAuthRecovery({
     sessionRef.current.pendingReauth = pendingReauth;
   });
 
-  useEffect(() => {
-    const pending = sessionRef.current.pendingReauth;
-    if (pending && pending.serverId !== activeServerId) {
-      setPendingReauth(null);
-    }
-    const stepUp = sessionRef.current.pendingStepUp;
-    if (stepUp && stepUp.serverId !== activeServerId) {
-      setPendingStepUp(null);
-    }
-  }, [sessionRef, activeServerId]);
+  // Both slots are server-scoped, so switching servers has to clear whichever
+  // one belongs to the server we just left. Adjusted **during render** rather
+  // than in an effect: an effect only runs after the commit, so the frame that
+  // shows the new server would still paint the previous server's re-auth
+  // banner or step-up prompt — a modal-grade authorization affordance attached
+  // to the wrong server (#2223). `activeServerId` is a primitive, so it is
+  // referentially stable across renders that mean "no change", which is what
+  // `useValueChange`'s `Object.is` comparison requires. The previous value is
+  // read from the updater argument rather than from `sessionRef.current`,
+  // keeping the callback pure — a render can be replayed or abandoned, so it
+  // must not depend on external mutable state.
+  useValueChange(activeServerId, () => {
+    setPendingReauth((current) =>
+      current && current.serverId !== activeServerId ? null : current,
+    );
+    setPendingStepUp((current) =>
+      current && current.serverId !== activeServerId ? null : current,
+    );
+  });
 
+  /**
+   * Opens the step-up prompt, or refuses when one is already up.
+   *
+   * The retry is installed here rather than by the caller because it belongs
+   * to the prompt and must be written in the same synchronous step that opens
+   * it (#2237). Two things follow, and both are load-bearing:
+   *
+   * - A **refused** prompt installs nothing, so a command that was just told
+   *   it cannot start does not replace the open prompt's operation (#2165).
+   * - An **ambient** prompt passes `null` and so *overwrites* whatever the
+   *   previous prompt left in the ref. Nothing else has to clear it: the paths
+   *   that drop the slot as a consequence of something else — the
+   *   server-switch reset, `resetOAuthRecoveryState` on disconnect — can leave
+   *   a stale closure behind, because the only thing that reads it is
+   *   `handleStepUpAuthorize`, which needs a prompt, and every prompt comes
+   *   through here. Clearing it from an effect instead would race: an async
+   *   continuation can open a prompt and install its retry before a previous
+   *   commit's passive effect flushes, and that effect's stale
+   *   `pendingStepUp === null` snapshot would then delete the new prompt's
+   *   retry (Copilot on #2237).
+   */
   const trySetPendingStepUp = useCallback(
-    (next: PendingStepUp): boolean => {
+    (
+      next: PendingStepUp,
+      retryOperation: (() => Promise<unknown>) | null,
+    ): boolean => {
       if (sessionRef.current.pendingStepUp !== null) {
         notifications.show({
           title: "Step-up authorization in progress",
@@ -342,6 +376,7 @@ export function useOAuthRecovery({
         return false;
       }
       setPendingStepUp(next);
+      pendingStepUpRetryRef.current = retryOperation;
       return true;
     },
     [sessionRef],
@@ -619,13 +654,18 @@ export function useOAuthRecovery({
     }) => {
       const server = sessionRef.current.servers.find((s) => s.id === serverId);
       if (isStepUpConfirmation(challenge, server)) {
-        trySetPendingStepUp({
-          challenge,
-          authorizationUrl,
-          serverId,
-          source,
-          enterpriseManaged: isEmaStepUp(challenge, server),
-        });
+        // Ambient: nothing to retry, and passing `null` is what evicts a
+        // previous prompt's closure.
+        trySetPendingStepUp(
+          {
+            challenge,
+            authorizationUrl,
+            serverId,
+            source,
+            enterpriseManaged: isEmaStepUp(challenge, server),
+          },
+          null,
+        );
         return;
       }
       prepareOAuthRedirect({
@@ -690,23 +730,16 @@ export function useOAuthRecovery({
         ) {
           return true;
         }
-        // The retry belongs to the prompt, so it is installed only once the
-        // prompt is actually open (#2165). `trySetPendingStepUp` REFUSES a
-        // second prompt while one is already up — writing the ref first meant
-        // the refused command's operation replaced the open prompt's, and
-        // authorizing that prompt then ran the command the user was just told
-        // could not start.
-        if (
-          trySetPendingStepUp({
+        trySetPendingStepUp(
+          {
             challenge: error.authChallenge,
             authorizationUrl: error.authorizationUrl,
             serverId: options.serverId,
             source: options.source,
             enterpriseManaged: isEmaStepUp(error.authChallenge, server),
-          })
-        ) {
-          pendingStepUpRetryRef.current = options.retryOperation ?? null;
-        }
+          },
+          options.retryOperation ?? null,
+        );
         return false;
       }
 
