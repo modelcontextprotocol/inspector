@@ -1646,7 +1646,9 @@ describe("useOAuthRecovery", () => {
         }),
       );
       expect(
-        toastWith("authorizes against the same URL, so it shared that state"),
+        toastWith(
+          "authorizes against the same URL, so its stored tokens went too",
+        ),
       ).toBeDefined();
     });
 

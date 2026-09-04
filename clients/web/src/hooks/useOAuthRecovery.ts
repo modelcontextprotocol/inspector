@@ -1474,7 +1474,12 @@ export function useOAuthRecovery({
         message: isActive
           ? `Stored tokens and client registration were removed. Reconnect to run a fresh authorization flow.${revocationSuffix(revocation)}`
           : sharesActiveOAuthKey
-            ? `Stored OAuth state was removed for "${server.name}". The active session authorizes against the same URL, so it shared that state and was disconnected too — reconnect to run a fresh authorization flow.${revocationSuffix(revocation)}`
+            ? // States the credential impact, which is certain, rather than
+              // the disconnect, which is not: the stale-session guard skips it
+              // after a switch, and `disconnect()` can reject (that failure
+              // gets its own toast above). Either way the shared state is gone,
+              // so the session must reconnect (Copilot).
+              `Stored OAuth state was removed for "${server.name}". The active session authorizes against the same URL, so its stored tokens went too — reconnect to run a fresh authorization flow.${revocationSuffix(revocation)}`
             : `Stored OAuth state was removed for "${server.name}". Connect to authorize again.${revocationSuffix(revocation)}`,
         color: "blue",
       });
