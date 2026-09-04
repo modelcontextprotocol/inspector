@@ -112,6 +112,12 @@ const entry = (
   ...over,
 });
 
+/** A catalog entry pointing at a different URL, so a different OAuth blob. */
+const otherUrlEntry = (id: string): ServerEntry =>
+  entry(id, {
+    config: { type: "streamable-http", url: "https://other.example/mcp" },
+  });
+
 const challenge = (
   reason: AuthChallenge["reason"] = "unauthorized",
 ): AuthChallenge => ({ reason });
@@ -151,6 +157,13 @@ function fakeClient(over: Partial<Record<string, unknown>> = {}) {
     handleAuthChallenge: vi.fn().mockResolvedValue({ kind: "failed" }),
     disconnect: vi.fn().mockResolvedValue(undefined),
     resumeAfterOAuth: vi.fn().mockResolvedValue(undefined),
+    // #2217: the clear path resolves the session's OAuth key from the config
+    // the client was built with, since a catalog entry can be edited while
+    // connected without rebuilding it. Defaults to the shared fixture URL.
+    getTransportConfig: vi.fn(() => ({
+      type: "streamable-http" as const,
+      url: "https://mcp.example/mcp",
+    })),
     ...over,
   });
 }
@@ -1801,12 +1814,103 @@ describe("useOAuthRecovery", () => {
       const client = fakeClient();
       const h = harness({ servers: [entry("a")], activeServerId: "a", client });
       await act(async () => {
-        await h.api().clearServerOAuthAndDisconnect(entry("b"));
+        // A genuinely unrelated entry: its own URL, so its own OAuth blob.
+        await h.api().clearServerOAuthAndDisconnect(otherUrlEntry("b"));
       });
       expect(client.disconnect).not.toHaveBeenCalled();
       expect(
         toastWith('Stored OAuth state was removed for "Server b"'),
       ).toBeDefined();
+    });
+
+    // #2217 — OAuth state is keyed by URL, so two catalog entries against the
+    // same URL share one blob. Clearing the inactive one destroys the active
+    // session's tokens (and revokes its grant), which an id-only check cannot
+    // see; the session was left connected on dead credentials with no notice.
+    it("disconnects the active session when clearing an entry that shares its URL", async () => {
+      const client = fakeClient();
+      const h = harness({
+        servers: [entry("a"), entry("b")],
+        activeServerId: "a",
+        client,
+      });
+      await act(async () => {
+        await h.api().clearServerOAuthAndDisconnect(entry("b"));
+      });
+      expect(client.disconnect).toHaveBeenCalled();
+      // The live client owns the clear, so in-memory flow state goes too.
+      expect(clearServerOAuthStateMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          isActiveConnection: true,
+          inspectorClient: client,
+        }),
+      );
+      expect(
+        toastWith(
+          "authorizes against the same URL, so its stored tokens went too",
+        ),
+      ).toBeDefined();
+    });
+
+    // Copilot on this PR: a card can be edited while connected and the catalog
+    // write does not rebuild the client, so the active *entry* can read a URL
+    // the live session never authorized against. Reading the entry would miss
+    // an entry still sitting on the client's real URL.
+    it("compares against the live client's URL, not the edited catalog entry's", async () => {
+      const client = fakeClient({
+        // Still authorized against the shared URL...
+        getTransportConfig: vi.fn(() => ({
+          type: "streamable-http" as const,
+          url: "https://mcp.example/mcp",
+        })),
+      });
+      const h = harness({
+        // ...while A's catalog entry has since been edited elsewhere.
+        servers: [otherUrlEntry("a"), entry("b")],
+        activeServerId: "a",
+        client,
+      });
+      await act(async () => {
+        await h.api().clearServerOAuthAndDisconnect(entry("b"));
+      });
+      expect(client.disconnect).toHaveBeenCalled();
+    });
+
+    // The same-URL branch still snapshots the session it acted on, so a switch
+    // during the in-flight clear must not drag the cleanup onto the new one.
+    it("does not disconnect a session switched to during a shared-URL clear", async () => {
+      let settle: (r: { cleared: boolean }) => void = () => {};
+      clearServerOAuthStateMock.mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            settle = resolve as typeof settle;
+          }),
+      );
+      const client = fakeClient();
+      const h = harness({
+        servers: [entry("a"), entry("b"), otherUrlEntry("c")],
+        activeServerId: "a",
+        client,
+      });
+
+      let done: Promise<void>;
+      await act(async () => {
+        done = h.api().clearServerOAuthAndDisconnect(entry("b"));
+        await Promise.resolve();
+      });
+
+      h.rerender({
+        servers: [entry("a"), entry("b"), otherUrlEntry("c")],
+        activeServerId: "c",
+        client,
+      });
+
+      await act(async () => {
+        settle({ cleared: true });
+        await done;
+      });
+
+      expect(client.disconnect).not.toHaveBeenCalled();
     });
 
     // #2144 — this is the web client's production wiring for revocation.

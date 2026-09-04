@@ -35,6 +35,7 @@ import { oauthDetailsFromConnectionState } from "../components/groups/Connection
 import { getWebRemoteOAuthStorage } from "../lib/remoteOAuthStorage";
 import { getWebProxiedFetch } from "../lib/webProxiedFetch";
 import { clearServerOAuthState } from "../lib/clearServerOAuthState";
+import { resolveOAuthClearIdentity } from "../utils/oauthClearKey";
 import { getAuthToken } from "../lib/authToken";
 import {
   isBrowserTabVisible,
@@ -1430,8 +1431,31 @@ export function useOAuthRecovery({
 
   const clearServerOAuthAndDisconnect = useCallback(
     async (server: ClearableServer) => {
-      const isActive = server.id === activeServerId;
-      const client = isActive ? inspectorClient : null;
+      // OAuth state is keyed by the server URL, but "is this the active
+      // connection" was keyed by catalog entry id — and `serverList` enforces
+      // no URL uniqueness, so two entries with different ids and the same URL
+      // are a supported (and useful) state: separate names, headers or
+      // settings against one server. Clearing the inactive one deletes the
+      // *shared* blob and, with #2144 in, revokes the active session's grant —
+      // while an id-only check takes the inactive branch and leaves that
+      // session connected on credentials that no longer exist, silently
+      // (#2217). Comparing the storage keys is what sees it; the id check
+      // cannot, by construction.
+      //
+      // The live client's own config is what the comparison uses, because a
+      // card can be edited while connected and the catalog write does not
+      // rebuild the client (Copilot). `resolveOAuthClearIdentity` owns the
+      // rule; `App`'s in-flight guard reads the same answer from it.
+      const { isActive, sharesActiveOAuthKey, affectsActiveSession } =
+        resolveOAuthClearIdentity({
+          server,
+          activeServerId,
+          activeClientConfig: inspectorClient?.getTransportConfig(),
+          activeEntryConfig: sessionRef.current.servers.find(
+            (s) => s.id === activeServerId,
+          )?.config,
+        });
+      const client = affectsActiveSession ? inspectorClient : null;
       // The RFC 7009 leg is a bounded network request (#2144), so this callback
       // can stay suspended for seconds — long enough for the user to close the
       // modal and switch servers. `isActive` and `inspectorClient` were
@@ -1446,15 +1470,19 @@ export function useOAuthRecovery({
       // disconnect/reconnect to the SAME server builds a replacement
       // `InspectorClient`, so an id-only check passes again and the old clear
       // would run its session-wide cleanup against the new session.
+      //
+      // The id compared is the *active* one snapshotted alongside `isActive`,
+      // not the cleared entry's — for a shared-key clear those differ, and the
+      // session being protected is the active one.
       const stillTargetsActiveSession = (): boolean =>
-        isActive &&
-        sessionRef.current.activeServerId === server.id &&
+        affectsActiveSession &&
+        sessionRef.current.activeServerId === activeServerId &&
         sessionRef.current.inspectorClient === client;
 
       const { cleared, revocation } = await clearServerOAuthState({
         config: server.config,
         inspectorClient: client,
-        isActiveConnection: isActive,
+        isActiveConnection: affectsActiveSession,
         oauthStorage: webOAuthStorage,
         revoke: server.settings?.oauthRevokeOnClear !== false,
         fetchFn: getWebProxiedFetch(getAuthToken()),
@@ -1481,7 +1509,7 @@ export function useOAuthRecovery({
             finalizeExplicitDisconnect();
           }
         }
-      } else if (!isActive || stillTargetsActiveSession()) {
+      } else if (!affectsActiveSession || stillTargetsActiveSession()) {
         // No client to disconnect — either this is a stored-only clear, or the
         // active session has none yet (it is being built or torn down). Either
         // way the resume snapshot is stale and must go; skipping it would leave
@@ -1495,7 +1523,14 @@ export function useOAuthRecovery({
         title: "OAuth state cleared",
         message: isActive
           ? `Stored tokens and client registration were removed. Reconnect to run a fresh authorization flow.${revocationSuffix(revocation)}`
-          : `Stored OAuth state was removed for "${server.name}". Connect to authorize again.${revocationSuffix(revocation)}`,
+          : sharesActiveOAuthKey
+            ? // States the credential impact, which is certain, rather than
+              // the disconnect, which is not: the stale-session guard skips it
+              // after a switch, and `disconnect()` can reject (that failure
+              // gets its own toast above). Either way the shared state is gone,
+              // so the session must reconnect (Copilot).
+              `Stored OAuth state was removed for "${server.name}". The active session authorizes against the same URL, so its stored tokens went too — reconnect to run a fresh authorization flow.${revocationSuffix(revocation)}`
+            : `Stored OAuth state was removed for "${server.name}". Connect to authorize again.${revocationSuffix(revocation)}`,
         color: "blue",
       });
     },
