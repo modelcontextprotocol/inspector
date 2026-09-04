@@ -819,8 +819,8 @@ async function authenticateRevocationClient(
     // turn into a 500 — so a bad credential would be reported as a server
     // fault rather than as the `invalid_client` 401 this endpoint means.
     try {
-      clientId = decodeURIComponent(decoded.slice(0, separator));
-      clientSecret = decodeURIComponent(decoded.slice(separator + 1));
+      clientId = formUrlDecode(decoded.slice(0, separator));
+      clientSecret = formUrlDecode(decoded.slice(separator + 1));
     } catch {
       return null;
     }
@@ -839,6 +839,35 @@ async function authenticateRevocationClient(
   const ok =
     client.clientSecret === undefined || clientSecret === client.clientSecret;
   return ok ? clientId : null;
+}
+
+/**
+ * Decode one half of a Basic credential the way a compliant authorization
+ * server does — the `application/x-www-form-urlencoded` algorithm RFC 6749
+ * §2.3.1 names, not `decodeURIComponent`.
+ *
+ * The distinction is the whole point of this helper, and #2222 is what it cost
+ * to learn: this fixture used to decode with `decodeURIComponent`, the exact
+ * inverse of the encoder it was testing. The round trip then succeeded for
+ * **every** input — so no test here could have failed on an encoding mistake,
+ * and the suite's apparent coverage of client authentication was really a
+ * statement that the encoder is self-consistent. (The encoder was in fact
+ * fine; that was established by reasoning and a sweep over the code-point
+ * space, not by anything this fixture asserted, which is the gap being
+ * closed.)
+ *
+ * A form-urldecoder reads a bare `+` as a space, so that substitution happens
+ * **before** percent-decoding; doing it after would turn a legitimate escaped
+ * `%2B` into a space too. `%20` still decodes to a space, which is why the
+ * Inspector's `encodeURIComponent` output — which escapes `+` and spaces both,
+ * and never emits a bare `+` — round-trips through this decoder unchanged.
+ *
+ * `decodeURIComponent` remains the right primitive for the percent half, and it
+ * still throws on a malformed escape — which the caller catches, keeping a bad
+ * credential a 401 rather than an Express 500.
+ */
+function formUrlDecode(value: string): string {
+  return decodeURIComponent(value.replace(/\+/g, "%20"));
 }
 
 /**

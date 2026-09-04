@@ -39,6 +39,16 @@ const REDIRECT_URL = "http://localhost:3000/oauth/callback";
 /** A second registered client, used to prove tokens are not cross-revocable. */
 const OTHER_CLIENT_ID = "test-2144-other";
 const OTHER_CLIENT_SECRET = "test-2144-other-secret";
+/**
+ * A third client whose secret carries the character #2222 was filed about — a
+ * `+`, which the two encoding algorithms treat differently and which base64
+ * secrets (the kind an authorization server most often hands out) contain
+ * routinely. The Inspector's encoding turns out to handle it, but nothing here
+ * demonstrated that before, so this client is what makes the claim testable
+ * rather than argued.
+ */
+const PLUS_CLIENT_ID = "test-2222-plus";
+const PLUS_CLIENT_SECRET = "aG9sZA+bXk/beer=";
 
 function base64Url(buffer: Buffer): string {
   return buffer
@@ -71,6 +81,11 @@ describe("OAuth token revocation (RFC 7009)", () => {
             clientSecret: OTHER_CLIENT_SECRET,
             redirectUris: [REDIRECT_URL],
           },
+          {
+            clientId: PLUS_CLIENT_ID,
+            clientSecret: PLUS_CLIENT_SECRET,
+            redirectUris: [REDIRECT_URL],
+          },
         ],
       }),
     });
@@ -93,7 +108,10 @@ describe("OAuth token revocation (RFC 7009)", () => {
   }, 30_000);
 
   /** Run a real authorization-code exchange and return the issued tokens. */
-  async function authorize(): Promise<{
+  async function authorize(
+    clientId: string = CLIENT_ID,
+    clientSecret: string = CLIENT_SECRET,
+  ): Promise<{
     access_token: string;
     refresh_token: string;
   }> {
@@ -105,7 +123,7 @@ describe("OAuth token revocation (RFC 7009)", () => {
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       redirect: "manual",
       body: new URLSearchParams({
-        client_id: CLIENT_ID,
+        client_id: clientId,
         redirect_uri: REDIRECT_URL,
         response_type: "code",
         scope: "mcp",
@@ -125,8 +143,8 @@ describe("OAuth token revocation (RFC 7009)", () => {
         grant_type: "authorization_code",
         code: code!,
         redirect_uri: REDIRECT_URL,
-        client_id: CLIENT_ID,
-        client_secret: CLIENT_SECRET,
+        client_id: clientId,
+        client_secret: clientSecret,
         code_verifier: verifier,
       }),
     });
@@ -146,10 +164,14 @@ describe("OAuth token revocation (RFC 7009)", () => {
     return response.status !== 401;
   }
 
-  async function seededStorage(tokens: {
-    access_token: string;
-    refresh_token?: string;
-  }): Promise<NodeOAuthStorage> {
+  async function seededStorage(
+    tokens: {
+      access_token: string;
+      refresh_token?: string;
+    },
+    clientId: string = CLIENT_ID,
+    clientSecret: string = CLIENT_SECRET,
+  ): Promise<NodeOAuthStorage> {
     const storage = new NodeOAuthStorage(join(storageDir, "oauth.json"));
     await storage.clear(serverUrl);
     // Issuer-bound and matching the discovered metadata: an unkeyed grant
@@ -164,8 +186,8 @@ describe("OAuth token revocation (RFC 7009)", () => {
     // server with `oauth.clientId` uses. That is the slot the revocation path
     // must read first, or a confidential client sends no authentication at all.
     await storage.savePreregisteredClientInformation(serverUrl, {
-      client_id: CLIENT_ID,
-      client_secret: CLIENT_SECRET,
+      client_id: clientId,
+      client_secret: clientSecret,
     });
     return storage;
   }
@@ -268,5 +290,48 @@ describe("OAuth token revocation (RFC 7009)", () => {
     await expect(clearAndRevoke(storage)).resolves.toMatchObject({
       status: "revoked",
     });
+  });
+
+  // #2222. The fixture used to decode with `decodeURIComponent`, the exact
+  // inverse of the encoder under test, so the round trip succeeded for every
+  // input and no case in this file could tell a correct encoder from a wrong
+  // one. `/oauth/revoke` now runs the form-urldecode a compliant authorization
+  // server runs, which is what gives this case teeth: it passes only because
+  // `encodeURIComponent` escapes `+` as `%2B`, and would fail against an
+  // encoder that emitted a bare one.
+  it("revokes a grant whose client secret contains a plus", async () => {
+    const tokens = await authorize(PLUS_CLIENT_ID, PLUS_CLIENT_SECRET);
+    expect(await tokenAccepted(tokens.access_token)).toBe(true);
+
+    const outcome = await clearAndRevoke(
+      await seededStorage(tokens, PLUS_CLIENT_ID, PLUS_CLIENT_SECRET),
+    );
+
+    expect(outcome).toMatchObject({
+      status: "revoked",
+      tokenTypeHint: "refresh_token",
+    });
+    expect(await tokenAccepted(tokens.access_token)).toBe(false);
+  });
+
+  // The guard on the fixture itself, and the one case that separates the two
+  // decoders. An *unencoded* credential is what the SDK's `applyBasicAuth`
+  // sends, and a compliant server form-urldecodes it anyway — so a `+` in the
+  // secret comes back as a space and the credential is refused. Under the old
+  // `decodeURIComponent` fixture this same request was accepted (a string with
+  // no `%` in it decodes to itself), which is precisely why that fixture could
+  // not fail on an encoding mistake. Revert `/oauth/revoke` and this test goes
+  // red.
+  it("refuses an unencoded Basic credential whose secret contains a plus", async () => {
+    const raw = `${PLUS_CLIENT_ID}:${PLUS_CLIENT_SECRET}`;
+    const response = await fetch(`${serverUrl}/oauth/revoke`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Authorization: `Basic ${Buffer.from(raw).toString("base64")}`,
+      },
+      body: new URLSearchParams({ token: "anything" }),
+    });
+    expect(response.status).toBe(401);
   });
 });
