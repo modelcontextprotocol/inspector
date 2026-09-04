@@ -228,5 +228,41 @@ test("main says Incoming, not Todo, when it files without a milestone", () => {
 });
 
 test("main refuses to run without a repo", () => {
-  assert.throws(() => main(undefined, fakeSpawn()), /GITHUB_REPOSITORY unset/);
+  // `main`'s default reads process.env.GITHUB_REPOSITORY, which GitHub Actions
+  // sets on every run — so this has to clear the variable rather than assume
+  // the ambient environment lacks it. Relying on the ambient value passed
+  // locally and failed in CI, which is the one place the default is always
+  // populated.
+  const saved = process.env.GITHUB_REPOSITORY;
+  delete process.env.GITHUB_REPOSITORY;
+  try {
+    assert.throws(
+      () => main(undefined, fakeSpawn()),
+      /GITHUB_REPOSITORY unset/,
+    );
+  } finally {
+    if (saved !== undefined) process.env.GITHUB_REPOSITORY = saved;
+  }
+});
+
+test("main falls back to GITHUB_REPOSITORY when no repo is passed", () => {
+  // The other half of the default: with the variable set, `main(undefined, …)`
+  // must use it rather than throw. Together the two tests pin the default's
+  // behavior in both environments instead of inheriting whichever one happens
+  // to be running.
+  const saved = process.env.GITHUB_REPOSITORY;
+  process.env.GITHUB_REPOSITORY = "env/repo";
+  try {
+    const spawn = fakeSpawn({
+      outdated: {
+        ".": { ajv: { current: "8.0.0", wanted: "8.1.0", latest: "8.1.0" } },
+      },
+    });
+    captureLog(() => main(undefined, spawn));
+    const create = ghCall(spawn, "create");
+    assert.equal(create.args[create.args.indexOf("--repo") + 1], "env/repo");
+  } finally {
+    if (saved === undefined) delete process.env.GITHUB_REPOSITORY;
+    else process.env.GITHUB_REPOSITORY = saved;
+  }
 });
