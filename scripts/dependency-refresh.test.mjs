@@ -62,7 +62,7 @@ function fakeSpawn({
     // MUST be tested before the milestone branch below: both are `gh api`,
     // so matching on args[0] alone hands the release lookup the milestone
     // string and the assertion silently checks nothing.
-    if (args[0] === "api" && args[1].includes("/releases"))
+    if (args[0] === "api" && args.some((a) => a.includes("/releases")))
       return {
         status: releasesStatus ?? 0,
         stdout: releasesStatus ? "" : releaseTags.join("\n"),
@@ -454,13 +454,22 @@ test("main asks for release lists, not the designated latest release", () => {
   captureLog(() => main("o/r", spawn));
   const lookups = spawn.calls.filter(
     (c) =>
-      c.cmd === "gh" && c.args[0] === "api" && c.args[1].includes("/releases"),
+      c.cmd === "gh" &&
+      c.args[0] === "api" &&
+      c.args.some((a) => a.includes("/releases")),
   );
   assert.ok(lookups.length > 0, "expected at least one release lookup");
   for (const call of lookups) {
     // `releases/latest` is GitHub's designated latest, not the greatest
     // version — ranking must come from the list.
-    assert.doesNotMatch(call.args[1], /releases\/latest/);
-    assert.match(call.args[1], /\/releases\?/);
+    assert.ok(!call.args.some((a) => /releases\/latest/.test(a)));
+    assert.ok(call.args.some((a) => /\/releases\?/.test(a)));
+    // And every page of it: the list is ordered by release DATE, so a genuine
+    // maximum can sit past page 1 behind newer maintenance releases on lower
+    // majors. Ranking one page would report a lower major as highest.
+    assert.ok(
+      call.args.includes("--paginate"),
+      "release lookup must paginate, or the highest version can be missed",
+    );
   }
 });

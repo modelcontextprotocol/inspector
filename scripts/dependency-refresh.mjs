@@ -301,9 +301,15 @@ function comparePadded(a, b) {
  *
  * Reads the release *list* rather than `releases/latest`, for the reason on
  * `highestVersionTag`. Drafts and prereleases are excluded — neither is
- * something a workflow should be told to move to. One page of 100 is taken
- * rather than paginating every release an action has ever cut: the list comes
- * back newest-first, so the greatest version is within it for any real action.
+ * something a workflow should be told to move to.
+ *
+ * EVERY page is fetched, not just the newest 100. The list comes back
+ * newest-first, which is ordering by release date and not by version: an
+ * action that keeps cutting maintenance releases on lower majors pushes the
+ * genuine maximum off page 1, and ranking what remains would report a lower
+ * major as highest — recreating the exact false-current result that dropping
+ * `releases/latest` was meant to prevent (Copilot). Paginating is the only
+ * way the "highest released version" this function promises is actually that.
  *
  * @returns {string | null} `null` ONLY for a successful response carrying no
  *   usable release — an action that has never cut one, or whose tags are all
@@ -317,6 +323,7 @@ function latestReleaseTag(action, spawn) {
     "gh",
     [
       "api",
+      "--paginate",
       `repos/${repo}/releases?per_page=100`,
       "--jq",
       '[.[] | select(.draft == false and .prerelease == false) | .tag_name] | join("\\n")',
