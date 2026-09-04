@@ -406,12 +406,23 @@ export function useOAuthRecovery({
     let cancelled = false;
 
     const refresh = (): void => {
-      void inspectorClient.getOAuthState().then((state) => {
-        if (cancelled) return;
-        setConnectionInfoOAuthWhenConnected(
-          state ? oauthDetailsFromConnectionState(state) : undefined,
-        );
-      });
+      // void: a synchronous useEffect body cannot await. The chain is
+      // terminated below, so the rejection is handled rather than discarded.
+      void inspectorClient
+        .getOAuthState()
+        .then((state) => {
+          if (cancelled) return;
+          setConnectionInfoOAuthWhenConnected(
+            state ? oauthDetailsFromConnectionState(state) : undefined,
+          );
+        })
+        .catch(() => {
+          // The read failed (backend down, 401 on the API token, malformed
+          // stored state). Clear rather than keep the last successful read —
+          // a stale answer is indistinguishable from a fresh one in the panel.
+          if (cancelled) return;
+          setConnectionInfoOAuthWhenConnected(undefined);
+        });
     };
 
     const onAmbientAuthChallenge = (): void => {

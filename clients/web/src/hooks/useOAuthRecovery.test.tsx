@@ -393,6 +393,54 @@ describe("useOAuthRecovery", () => {
       expect(h.api().connectionInfoOAuth).toBeUndefined();
     });
 
+    it("clears the details when the state read rejects", async () => {
+      const client = fakeClient({
+        getOAuthState: vi.fn().mockRejectedValue(new Error("backend down")),
+      });
+      const props: HarnessProps = {
+        servers: [entry("a")],
+        activeServerId: "a",
+        client,
+      };
+      const h = harness(props);
+      await waitFor(() => expect(client.getOAuthState).toHaveBeenCalled());
+      expect(h.api().connectionInfoOAuth).toBeUndefined();
+
+      // The rejection is terminated, not floated: a later resolving read still
+      // populates the panel, which an unhandled rejection would have prevented
+      // by failing the run.
+      client.getOAuthState = vi
+        .fn()
+        .mockResolvedValue({ tokens: { access_token: "t" } });
+      await act(async () => {
+        client.emit("oauthComplete", {});
+      });
+      await waitFor(() => expect(h.api().connectionInfoOAuth).toBeDefined());
+    });
+
+    it("drops a rejected state read that lands after the session ended", async () => {
+      let fail: (reason: unknown) => void = () => {};
+      const client = fakeClient({
+        getOAuthState: vi.fn(
+          () =>
+            new Promise((_resolve, reject) => {
+              fail = reject;
+            }),
+        ),
+      });
+      const props: HarnessProps = {
+        servers: [entry("a")],
+        activeServerId: "a",
+        client,
+      };
+      const h = harness(props);
+      h.rerender({ ...props, connectionStatus: "disconnected" });
+      await act(async () => {
+        fail(new Error("backend down"));
+      });
+      expect(h.api().connectionInfoOAuth).toBeUndefined();
+    });
+
     it("drops a state read that lands after the session ended", async () => {
       let settle: (value: unknown) => void = () => {};
       const client = fakeClient({
