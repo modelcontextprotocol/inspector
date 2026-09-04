@@ -244,7 +244,13 @@ vi.mock("@inspector/core/mcp/state/stderrLogState.js", () => ({
   }),
 }));
 
-vi.mock("@inspector/core/mcp/remote/index.js", () => ({
+vi.mock("@inspector/core/mcp/remote/index.js", async (importOriginal) => ({
+  // Partial: `getWebProxiedFetch` (the OAuth clear's revocation fetch, #2144)
+  // reaches for `createRemoteFetch` from this module, and a bare stub would
+  // throw a missing-export error before the clear under test ever ran.
+  ...(await importOriginal<
+    typeof import("@inspector/core/mcp/remote/index.js")
+  >()),
   RemoteInspectorClientStorage: vi.fn(function () {
     return { saveSession: vi.fn() };
   }),
@@ -600,6 +606,11 @@ vi.mock("./components/views/InspectorView/InspectorView", () => ({
       </button>
       <button onClick={() => props.servers.onServerSettings("A")}>
         open-settings
+      </button>
+      {/* A second settings target, so a test can drive a clear against an
+          entry other than the active one (#2217). */}
+      <button onClick={() => props.servers.onServerSettings("B")}>
+        open-settings-b
       </button>
       {/* The real server grid (and its Add / Edit controls) lives inside this
           mocked view, so the config modal is only reachable through these
@@ -4213,4 +4224,120 @@ describe("App MCP App listed-resource metadata wiring (#2055)", () => {
       );
     }
   });
+});
+
+// #2217 — persisted OAuth state is keyed by server URL and `serverList`
+// enforces no URL uniqueness, so two catalog entries can share one credential
+// blob, one grant and one revocation. `runClear`'s in-flight guard used to
+// dedupe by catalog id, which cannot see that: clearing both entries while the
+// first revocation was still out ran concurrent store writes, concurrent RFC
+// 7009 requests and two contradictory teardown toasts — the exact race the
+// guard exists to prevent (Copilot, on this PR).
+describe("App dedupes concurrent OAuth clears that share a storage key (#2217)", () => {
+  const SHARED_URL = "https://shared.example/mcp";
+  const sharedEntry = (id: string, name: string): ServerEntry => ({
+    id,
+    name,
+    config: { type: "streamable-http", url: SHARED_URL },
+    connection: { status: "disconnected" },
+  });
+
+  let previousUseServers: typeof useServers | undefined;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    clientInstances.length = 0;
+    previousUseServers = vi.mocked(useServers).getMockImplementation();
+    vi.mocked(useInspectorClient).mockReturnValue(DEFAULT_USE_INSPECTOR_CLIENT);
+    vi.mocked(useServers).mockReturnValue({
+      servers: [sharedEntry("A", "PlotRocket"), sharedEntry("B", "Same URL")],
+      loading: false,
+      error: undefined,
+      refresh: vi.fn().mockResolvedValue(undefined),
+      addServer: addServerSpy,
+      updateServer: updateServerSpy,
+      updateServerSettings: updateServerSettingsSpy,
+      removeServer: vi.fn(),
+    } as unknown as ReturnType<typeof useServers>);
+  });
+
+  afterEach(() => {
+    if (previousUseServers) {
+      vi.mocked(useServers).mockImplementation(previousUseServers);
+    }
+  });
+
+  /** Open the settings modal for `which` and press its OAuth-section clear. */
+  async function clearFromSettings(
+    user: ReturnType<typeof userEvent.setup>,
+    which: "open-settings" | "open-settings-b",
+  ): Promise<void> {
+    await user.click(screen.getByText(which));
+    // The control lives in an accordion section. The modal stays mounted
+    // across a target switch, so the section may already be open from a
+    // previous call — toggling it again would close it.
+    const section = await screen.findByRole("button", {
+      name: "OAuth Settings",
+    });
+    if (section.getAttribute("aria-expanded") !== "true") {
+      await user.click(section);
+    }
+    await user.click(
+      await screen.findByRole("button", { name: "Clear stored OAuth state" }),
+    );
+  }
+
+  // Three full modal interaction sequences against the whole App tree, so this
+  // one runs long enough to trip the 5s default when the suite is under load.
+  it(
+    "suppresses a second clear for another entry with the same URL, and allows one after it settles",
+    { timeout: 20000 },
+    async () => {
+      // `delay: null` drops userEvent's inter-event waits, which dominate here.
+      const user = userEvent.setup({ delay: null });
+      renderWithMantine(<App />);
+
+      await user.click(screen.getByText("connect"));
+      await waitFor(() => expect(clientInstances).toHaveLength(1));
+      const client = clientInstances[0] as unknown as {
+        clearOAuthTokens: ReturnType<typeof vi.fn>;
+      };
+
+      // Hold the first clear open, as a pending RFC 7009 request would.
+      let settle: (v: { status: string; reason: string }) => void = () => {};
+      client.clearOAuthTokens.mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            settle = resolve as typeof settle;
+          }),
+      );
+
+      await clearFromSettings(user, "open-settings");
+      await waitFor(() =>
+        expect(client.clearOAuthTokens).toHaveBeenCalledTimes(1),
+      );
+
+      // Entry B: a different catalog id, the same OAuth storage key. Both clears
+      // route through the live client precisely because they share that key, so
+      // an id-keyed guard would let this second one straight through.
+      await clearFromSettings(user, "open-settings-b");
+      expect(client.clearOAuthTokens).toHaveBeenCalledTimes(1);
+
+      // Suppression is for the duration of the in-flight clear only — the key
+      // must be released when it settles, or the control is dead for the rest of
+      // the session.
+      await act(async () => {
+        settle({ status: "skipped", reason: "no_endpoint" });
+        await Promise.resolve();
+      });
+      client.clearOAuthTokens.mockResolvedValue({
+        status: "skipped",
+        reason: "no_endpoint",
+      });
+      await clearFromSettings(user, "open-settings-b");
+      await waitFor(() =>
+        expect(client.clearOAuthTokens).toHaveBeenCalledTimes(2),
+      );
+    },
+  );
 });
