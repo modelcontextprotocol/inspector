@@ -375,13 +375,16 @@ export function narrowToApplicable(group, entries) {
 }
 
 /**
- * @param {ReturnType<typeof groupAlerts>[number]} group
- * @param {number} [count] advisories the issue covers, when that is more than
- *   this run saw — an issue grown by a later advisory keeps one title.
+ * The title counts the advisories that APPLY, which is what the body shows —
+ * so it tracks an issue that grows a new advisory and one whose exposure
+ * shrinks alike. The marker's GHSA list is a different thing: it is monotonic,
+ * because its job is to remember what has already been announced.
+ *
+ * @param {ReturnType<typeof groupAlerts>[number]} group narrowed to what applies
  * @returns {string}
  */
-export function buildIssueTitle(group, count = group.advisories.length) {
-  const n = count;
+export function buildIssueTitle(group) {
+  const n = group.advisories.length;
   return `chore(deps): bump \`${group.package}\` to \`${group.fixedIn}\` in \`${group.manifestPath}\` (${n} ${n === 1 ? "advisory" : "advisories"})`;
 }
 
@@ -560,19 +563,27 @@ function ghJson(spawn, args) {
 }
 
 /**
- * Is this failed lookup the "the token may not read this" answer, rather than a
- * real API failure?
+ * Is this failed lookup the "this token may not read that" answer, rather than
+ * a real API failure?
  *
  * The distinction is what keeps the security-PR guard honest: a bad token, a
  * rate limit or a transient 5xx must NOT be waved through as "unverified", or
- * the sweep exits green having silently skipped its own precondition
- * (Copilot). Only an authorization-shaped status is tolerated.
+ * the sweep exits green having silently skipped its own precondition.
+ *
+ * ⚠️ Status alone is not enough, which is what the first version got wrong
+ * (Copilot). GitHub answers BOTH "you lack `administration: read`" and "you
+ * have exhausted your quota" with **403**, and the second is a real failure —
+ * so the rate-limit wording is excluded explicitly. **401** is a bad or expired
+ * token, never a scope question, and is a real failure too. **404** stays
+ * tolerated because GitHub hides resources a token cannot see behind one rather
+ * than admitting they exist.
  *
  * @param {string} stderr stderr from a non-zero `gh api` call
  * @returns {boolean}
  */
 export function isPermissionDenied(stderr) {
-  return /HTTP (401|403|404)\b/.test(stderr);
+  if (/rate limit/i.test(stderr)) return false;
+  return /HTTP (403|404)\b/.test(stderr);
 }
 
 /**
@@ -672,7 +683,11 @@ function openDependabotIssues(repo, spawn) {
   return (pages ?? [])
     .flat()
     .filter((issue) => !issue.pull_request)
-    .map((issue) => ({ number: issue.number, body: issue.body }));
+    .map((issue) => ({
+      number: issue.number,
+      title: issue.title,
+      body: issue.body,
+    }));
 }
 
 /**
@@ -945,9 +960,26 @@ export function main(repo = process.env.GITHUB_REPOSITORY, spawn = spawnSync) {
     }
 
     const { merged, added } = mergeGhsas(existing.marker.ghsas, group.ghsas);
-    if (added.length === 0) {
+    const title = buildIssueTitle(group);
+    const body = buildIssueBody(group, {
+      affected,
+      declared,
+      ghsas: merged,
+    });
+
+    // ⚠️ "Nothing NEW" is not the same as "nothing CHANGED" (Copilot). An issue
+    // filed for A+B whose branch has since moved so only B applies has no added
+    // GHSAs, yet its table, severity, affected copies and remediation are all
+    // stale. So the no-op is decided by comparing the rendered issue, not by
+    // counting additions — while a COMMENT stays reserved for advisories that
+    // are genuinely new.
+    if (
+      added.length === 0 &&
+      existing.title === title &&
+      existing.body === body
+    ) {
       console.log(
-        `dependabot-alerts: #${existing.number} already covers ${group.package} — no-op`,
+        `dependabot-alerts: #${existing.number} is up to date for ${group.package} — no-op`,
       );
       continue;
     }
@@ -976,8 +1008,6 @@ export function main(repo = process.env.GITHUB_REPOSITORY, spawn = spawnSync) {
       }
     }
 
-    // The title carries the advisory count, so it goes stale the moment the
-    // issue covers one more than it was filed with (Copilot).
     const edit = gh(spawn, [
       "issue",
       "edit",
@@ -985,15 +1015,17 @@ export function main(repo = process.env.GITHUB_REPOSITORY, spawn = spawnSync) {
       "--repo",
       repo,
       "--title",
-      buildIssueTitle(group, merged.length),
+      title,
       "--body",
-      buildIssueBody(group, { affected, declared, ghsas: merged }),
+      body,
     ]);
     if (edit.status !== 0) {
       throw new Error(`gh issue edit failed: ${(edit.stderr ?? "").trim()}`);
     }
     console.log(
-      `dependabot-alerts: added ${added.join(", ")} to #${existing.number}`,
+      added.length > 0
+        ? `dependabot-alerts: added ${added.join(", ")} to #${existing.number}`
+        : `dependabot-alerts: refreshed #${existing.number} for ${group.package}`,
     );
   }
 

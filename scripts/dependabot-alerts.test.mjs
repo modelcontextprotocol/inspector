@@ -212,18 +212,35 @@ test("buildCommentMarker and parseCommentMarker round-trip", () => {
   assert.equal(parseCommentMarker("an ordinary comment"), null);
 });
 
-test("isPermissionDenied separates an authorization failure from a real one", () => {
+test("isPermissionDenied tolerates a scope refusal", () => {
+  // The two ways GitHub says "this token may not read that": an explicit 403,
+  // and a 404 hiding a resource the token cannot see.
   assert.equal(
-    isPermissionDenied("gh: HTTP 403: Resource not accessible"),
+    isPermissionDenied("gh: HTTP 403: Resource not accessible by integration"),
     true,
   );
-  assert.equal(isPermissionDenied("gh: HTTP 401: Bad credentials"), true);
   assert.equal(isPermissionDenied("gh: HTTP 404: Not Found"), true);
+});
+
+test("isPermissionDenied treats a bad token or a rate limit as a real failure", () => {
+  // ⚠️ A rate limit is also a 403, so status alone cannot decide this — waving
+  // it through would exit green having skipped the sweep's own precondition.
+  assert.equal(
+    isPermissionDenied("gh: API rate limit exceeded (HTTP 403)"),
+    false,
+  );
+  assert.equal(
+    isPermissionDenied(
+      "gh: HTTP 403: You have exceeded a secondary rate limit",
+    ),
+    false,
+  );
+  // 401 is a bad or expired token, never a scope question.
+  assert.equal(isPermissionDenied("gh: HTTP 401: Bad credentials"), false);
   assert.equal(
     isPermissionDenied("gh: HTTP 500: Internal Server Error"),
     false,
   );
-  assert.equal(isPermissionDenied("gh: API rate limit exceeded"), false);
 });
 
 test("parseMarker returns null for an unmarked or absent body", () => {
@@ -637,6 +654,16 @@ function inTempRepo(files, body) {
   }
 }
 
+/**
+ * The probe `main()` derives from `lockWith`: one hoisted, undeclared copy.
+ * A fixture issue built from this renders byte-identically to what `main()`
+ * would produce, which is what makes the no-op path assertable.
+ */
+const asInstalled = (version = "3.1.5") => ({
+  affected: [{ path: "node_modules/fast-uri", version, hoisted: true }],
+  declared: false,
+});
+
 /** A lockfile holding one transitive copy of `pkg` at `version`. */
 const lockWith = (pkg, version) => ({
   lockfileVersion: 3,
@@ -739,7 +766,8 @@ test("main is a complete no-op on a second run", () => {
     issues: [
       {
         number: 41,
-        body: buildIssueBody(group, nested()),
+        title: buildIssueTitle(group),
+        body: buildIssueBody(group, asInstalled()),
       },
     ],
   });
@@ -750,7 +778,7 @@ test("main is a complete no-op on a second run", () => {
   assert.equal(ghCall(spawn, "create"), undefined);
   assert.equal(ghCall(spawn, "comment"), undefined);
   assert.equal(ghCall(spawn, "edit"), undefined);
-  assert.ok(log.some((l) => l.includes("#41 already covers")));
+  assert.ok(log.some((l) => l.includes("#41 is up to date")));
 });
 
 test("main will not update an issue whose bump differs, even for the same package", () => {
@@ -761,7 +789,8 @@ test("main will not update an issue whose bump differs, even for the same packag
     issues: [
       {
         number: 41,
-        body: buildIssueBody(old, nested()),
+        title: buildIssueTitle(old),
+        body: buildIssueBody(old, asInstalled()),
       },
     ],
   });
@@ -779,7 +808,8 @@ test("main comments a new advisory BEFORE rewriting the marker", () => {
     issues: [
       {
         number: 41,
-        body: buildIssueBody(old, nested()),
+        title: buildIssueTitle(old),
+        body: buildIssueBody(old, asInstalled()),
       },
     ],
   });
@@ -814,7 +844,8 @@ test("main does not repeat a comment it already posted", () => {
     issues: [
       {
         number: 41,
-        body: buildIssueBody(old, nested()),
+        title: buildIssueTitle(old),
+        body: buildIssueBody(old, asInstalled()),
       },
     ],
     comments: [{ body: `${buildCommentMarker(["GHSA-b"])}\nsaid already` }],
@@ -843,7 +874,8 @@ test("main announces only the advisories no comment has claimed yet", () => {
     issues: [
       {
         number: 41,
-        body: buildIssueBody(old, nested()),
+        title: buildIssueTitle(old),
+        body: buildIssueBody(old, asInstalled()),
       },
     ],
     comments: [{ body: `${buildCommentMarker(["GHSA-b"])}\nannounced b` }],
@@ -866,7 +898,8 @@ test("main refreshes the title when an issue grows another advisory", () => {
     issues: [
       {
         number: 41,
-        body: buildIssueBody(old, nested()),
+        title: buildIssueTitle(old),
+        body: buildIssueBody(old, asInstalled()),
       },
     ],
   });
@@ -934,6 +967,49 @@ test("main leaves an unmilestoned issue off the board for triage", () => {
   assert.ok(log.some((l) => l.includes("unmilestoned and unboarded")));
 });
 
+test("main refreshes an issue whose exposure shrank, without commenting", () => {
+  // Filed when both advisories applied; `v2/main` has since moved to 3.1.0,
+  // which is out of range of the narrow one. Nothing is NEW, so `added` is
+  // empty — but the body still claims an advisory that no longer applies.
+  const [filed] = groupAlerts([
+    alert({ ghsa: "GHSA-narrow", range: ">= 3.1.3, < 3.1.6" }),
+    alert({ ghsa: "GHSA-wide", range: ">= 3.0.0, < 3.1.6" }),
+  ]);
+  const spawn = fakeSpawn({
+    alertPages: [
+      [
+        alert({ ghsa: "GHSA-narrow", range: ">= 3.1.3, < 3.1.6" }),
+        alert({ ghsa: "GHSA-wide", range: ">= 3.0.0, < 3.1.6" }),
+      ],
+    ],
+    issues: [
+      {
+        number: 41,
+        title: buildIssueTitle(filed),
+        body: buildIssueBody(filed, asInstalled()),
+      },
+    ],
+  });
+  const log = inTempRepo(
+    { "package-lock.json": lockWith("fast-uri", "3.1.0") },
+    () => withoutProjectToken(() => captureLog(() => main("o/r", spawn))),
+  );
+
+  // A comment is for genuinely new advisories, and there are none.
+  assert.equal(ghCall(spawn, "comment"), undefined);
+
+  const edit = ghCall(spawn, "edit");
+  assert.ok(edit, "the stale body is rewritten");
+  const body = edit.args[edit.args.indexOf("--body") + 1];
+  assert.ok(!body.includes("| [GHSA-narrow]"), "no longer in the table");
+  assert.match(body, /`3\.1\.0`/, "the affected version is refreshed");
+  assert.match(edit.args[edit.args.indexOf("--title") + 1], /\(1 advisory\)$/);
+  // The marker stays monotonic: it records what has been announced, so the
+  // dropped advisory cannot be re-announced later.
+  assert.deepEqual(parseMarker(body).ghsas, ["GHSA-narrow", "GHSA-wide"]);
+  assert.ok(log.some((l) => l.includes("refreshed #41")));
+});
+
 test("main reads every page of open dependabot issues", () => {
   // The second page holds the matching marker. Truncating the lookup would
   // file a duplicate issue rather than recognising this one.
@@ -942,7 +1018,13 @@ test("main reads every page of open dependabot issues", () => {
     alertPages: [[alert({ ghsa: "GHSA-a" })]],
     issues: [
       [{ number: 1, body: "an unrelated dependabot issue" }],
-      [{ number: 41, body: buildIssueBody(group, nested()) }],
+      [
+        {
+          number: 41,
+          title: buildIssueTitle(group),
+          body: buildIssueBody(group, asInstalled()),
+        },
+      ],
     ],
   });
   const log = inTempRepo(
@@ -950,7 +1032,7 @@ test("main reads every page of open dependabot issues", () => {
     () => withoutProjectToken(() => captureLog(() => main("o/r", spawn))),
   );
   assert.equal(ghCall(spawn, "create"), undefined);
-  assert.ok(log.some((l) => l.includes("#41 already covers")));
+  assert.ok(log.some((l) => l.includes("#41 is up to date")));
 });
 
 test("main drops a pull request returned by the issues endpoint", () => {
