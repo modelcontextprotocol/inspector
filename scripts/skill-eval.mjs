@@ -57,10 +57,16 @@ const THRESHOLD = Number(process.env.THRESHOLD ?? 0.8);
 // acceptable is a separate judgement rather than one inherited from a number
 // tuned for the other measurement. 0.5 is the weakest claim worth asserting —
 // the pointer is taken more often than not. It is deliberately not 0.8: the
-// committed `testing` -> `test-servers` cases measure 33-67% (RUNS=3) against a
+// committed `testing` -> `test-servers` cases measure 33% (RUNS=3) against a
 // pointer that is live and stated in the first paragraph of `testing`'s body,
 // so an 0.8 bar would mark every hand-off red regardless of how strongly the
 // first skill points at the second, and the column would stop carrying signal.
+//
+// It is compared STRICTLY, unlike the first-move threshold. "More often than
+// not" is `> 0.5`, and an inclusive compare passes exactly half the samples
+// whenever RUNS is even — 2/4 would report a pass the stated criterion does not
+// license (Copilot). A consequence worth knowing: a strict bound of 1.0 can
+// never be met, so it is rejected below rather than silently failing every case.
 const CHAIN_THRESHOLD = Number(process.env.CHAIN_THRESHOLD ?? 0.5);
 const RUNS = Number(process.env.RUNS ?? 3);
 const CONCURRENCY = Number(process.env.CONCURRENCY ?? 4);
@@ -328,15 +334,35 @@ export function caseHit(c, invoked, ours) {
 }
 
 /**
+ * The only tools an eval run needs: read the repo, and load a skill.
+ *
+ * Enumerating what is ALLOWED rather than only what is denied is the load-
+ * bearing half. A deny list cannot bound a 14-turn run, because it only names
+ * the tools known when it was written: this checkout configures an HTTP
+ * `mcp-docs` server in `.mcp.json`, and a contributor's own MCP servers and
+ * plugins add more tools that no list here has ever seen (Copilot). Naming the
+ * four the harness actually needs closes that by construction.
+ */
+const ALLOWED_TOOLS = ["Read", "Glob", "Grep", "Skill"];
+
+/**
  * Tools no eval run may use, first-move or hand-off.
  *
- * A skill may inject `!`-prefixed shell commands on load, and those run BEFORE
- * its content reaches the model — so the deny list is what keeps a measurement
- * from having side effects. It matters more for a hand-off case than for a
- * first-move one: `--max-turns 1` was doing much of the containment by itself,
- * and a 14-turn budget removes that (#2204). Hence the agentic and network
- * tools here too — `Task` would spawn a subagent whose own tool policy this
- * flag does not reach.
+ * Kept alongside the allow list rather than replaced by it: a deny is
+ * unconditional, while an allow list governs which tools are pre-approved, so
+ * the two together are stricter than either. A skill may inject `!`-prefixed
+ * shell commands on load, and those run BEFORE its content reaches the model —
+ * so this is what keeps a measurement from having side effects. It matters
+ * more for a hand-off case than a first-move one: `--max-turns 1` was doing
+ * much of the containment by itself, and a 14-turn budget removes that
+ * (#2204). Hence the agentic and network tools too — `Task` would spawn a
+ * subagent whose own tool policy neither flag reaches.
+ *
+ * MCP servers are dropped outright with `--strict-mcp-config` (and no
+ * `--mcp-config`) rather than named here, since their tool names are not
+ * knowable from this file. What remains outside all three mechanisms is a
+ * contributor's own plugin tools; `--bare` would remove those and skills with
+ * them, which would measure nothing.
  *
  * The cost is stated rather than hidden: denying `Bash` also changes the path
  * a run can take toward the second skill, since investigating a repo by hand
@@ -355,7 +381,7 @@ const DISALLOWED_TOOLS = [
   "WebFetch",
   "WebSearch",
   "KillShell",
-].join(",");
+];
 
 /**
  * Drive one fresh session and return the payloads the `Skill` tool was called
@@ -394,9 +420,14 @@ export function runPrompt(
         "--verbose",
         "--max-turns",
         String(maxTurns),
-        // Keep the run read-only, across every turn it is given.
+        // Keep the run read-only, across every turn it is given: what the
+        // harness needs, minus what it must never do, minus every MCP server
+        // this checkout or the contributor happens to configure.
+        "--allowedTools",
+        ALLOWED_TOOLS.join(","),
         "--disallowedTools",
-        DISALLOWED_TOOLS,
+        DISALLOWED_TOOLS.join(","),
+        "--strict-mcp-config",
       ],
       { cwd, stdio: ["pipe", "pipe", "inherit"] },
       platform,
@@ -439,7 +470,106 @@ async function pool(items, n, fn) {
   return out;
 }
 
+/**
+ * Whether a measured rate clears its bar.
+ *
+ * The comparison differs by case kind, and the difference is the point. A
+ * first-move threshold is a floor to reach (`>=` 0.8 means four of five). A
+ * chain threshold states "the pointer is taken more often than not", which is
+ * strictly `> 0.5` — an inclusive compare would pass 2/4 whenever RUNS is even
+ * and report a result the stated criterion does not license (Copilot).
+ *
+ * @param {number} rate
+ * @param {number} threshold
+ * @param {boolean} strict
+ */
+export function passesThreshold(rate, threshold, strict) {
+  return strict ? rate > threshold : rate >= threshold;
+}
+
+/**
+ * Render the whole report, and say how many cases fell short.
+ *
+ * Extracted and exported so the SEPARATION itself is testable. The acceptance
+ * criterion of #2204 is that a hand-off rate is never folded into the
+ * first-move headline, and until this was a function that claim had no
+ * automated coverage at all: the tests exercised the scorers and the turn
+ * budget while the reporting — the thing that could silently merge the two
+ * measurements — lived inside `main` where nothing could reach it (Copilot).
+ *
+ * @param {object[]} cases
+ * @param {{c: object, invoked: Iterable<string>}[]} results One per sample.
+ * @param {Set<string> | null} ours
+ * @param {{threshold: number, chainThreshold: number, chainMaxTurns: number}} opts
+ * @returns {{ lines: string[], failed: number }}
+ */
+export function formatReport(cases, results, ours, opts) {
+  const lines = [];
+  let failed = 0;
+
+  const group = (members, heading, threshold, strict) => {
+    if (members.length === 0) return 0;
+    lines.push("", heading);
+    let short = 0;
+    for (const c of members) {
+      const mine = results.filter((r) => r.c === c);
+      const passes = mine.filter((r) => caseHit(c, r.invoked, ours)).length;
+      const rate = mine.length === 0 ? 0 : passes / mine.length;
+      const ok = mine.length > 0 && passesThreshold(rate, threshold, strict);
+      if (!ok) short++;
+      const label = isChainCase(c)
+        ? c.chain.join(" → ")
+        : (c.expect ?? "(no skill)");
+      lines.push(
+        `${ok ? "PASS" : "FAIL"} ${(rate * 100).toFixed(0).padStart(3)}%  ${label.padEnd(26)} ${c.prompt}`,
+      );
+    }
+    return short;
+  };
+
+  const direct = cases.filter((c) => !isChainCase(c));
+  const chained = cases.filter(isChainCase);
+  const directShort = group(
+    direct,
+    "First move (1 turn)",
+    opts.threshold,
+    false,
+  );
+  const chainedShort = group(
+    chained,
+    `Hand-off (${opts.chainMaxTurns} turns)`,
+    opts.chainThreshold,
+    true,
+  );
+  failed = directShort + chainedShort;
+
+  // Two numbers, never one. A hand-off is a second-hop load over many turns and
+  // a first-move rate is the model's opening move; summing them would produce a
+  // figure that describes neither, and a handful of hand-off cases would
+  // quietly move a headline everyone reads as trigger reliability (#2204).
+  lines.push("");
+  if (direct.length > 0) {
+    lines.push(
+      `${direct.length - directShort}/${direct.length} first-move cases at or above ${opts.threshold * 100}%.`,
+    );
+  }
+  lines.push(
+    chained.length === 0
+      ? "No hand-off cases in this selection."
+      : `${chained.length - chainedShort}/${chained.length} hand-off cases above ${opts.chainThreshold * 100}%.`,
+  );
+  return { lines, failed };
+}
+
 async function main() {
+  if (CHAIN_THRESHOLD >= 1) {
+    // The chain bar is strict, so 1.0 cannot be cleared by any run and would
+    // fail every hand-off case while looking like a trigger problem.
+    console.error(
+      `skills:eval — CHAIN_THRESHOLD must be below 1 (got ${CHAIN_THRESHOLD}); it is a strict lower bound.`,
+    );
+    process.exit(1);
+  }
   if (probeClaudeVersion(parseClaudeVersion) === null) {
     console.error(
       "skills:eval — no usable `claude` CLI on PATH. This eval needs one.",
@@ -463,50 +593,13 @@ async function main() {
     }),
   }));
 
-  /** Score and print one group, returning how many of its cases fell short. */
-  const report = (group, heading, threshold) => {
-    if (group.length === 0) return 0;
-    console.log(`\n${heading}`);
-    let failed = 0;
-    for (const c of group) {
-      const mine = results.filter((r) => r.c === c);
-      const passes = mine.filter((r) => caseHit(c, r.invoked, ours)).length;
-      const rate = passes / mine.length;
-      const ok = rate >= threshold;
-      if (!ok) failed++;
-      const label = isChainCase(c)
-        ? c.chain.join(" → ")
-        : (c.expect ?? "(no skill)");
-      console.log(
-        `${ok ? "PASS" : "FAIL"} ${(rate * 100).toFixed(0).padStart(3)}%  ${label.padEnd(26)} ${c.prompt}`,
-      );
-    }
-    return failed;
-  };
-
-  const direct = cases.filter((c) => !isChainCase(c));
-  const chained = cases.filter(isChainCase);
-  const directFailed = report(direct, "First move (1 turn)", THRESHOLD);
-  const chainedFailed = report(
-    chained,
-    `Hand-off (${CHAIN_MAX_TURNS} turns)`,
-    CHAIN_THRESHOLD,
-  );
-
-  // Reported as two numbers, never one. A hand-off rate is a second-hop load
-  // over many turns and a first-move rate is the model's opening move; summing
-  // them would produce a figure that describes neither, and a handful of
-  // hand-off cases would quietly move a headline everyone reads as trigger
-  // reliability (#2204).
-  console.log(
-    `\n${direct.length - directFailed}/${direct.length} first-move cases at or above ${THRESHOLD * 100}%.`,
-  );
-  console.log(
-    chained.length === 0
-      ? "No hand-off cases in this selection."
-      : `${chained.length - chainedFailed}/${chained.length} hand-off cases at or above ${CHAIN_THRESHOLD * 100}%.`,
-  );
-  process.exit(directFailed + chainedFailed > 0 ? 1 : 0);
+  const { lines, failed } = formatReport(cases, results, ours, {
+    threshold: THRESHOLD,
+    chainThreshold: CHAIN_THRESHOLD,
+    chainMaxTurns: CHAIN_MAX_TURNS,
+  });
+  for (const line of lines) console.log(line);
+  process.exit(failed > 0 ? 1 : 0);
 }
 
 if (

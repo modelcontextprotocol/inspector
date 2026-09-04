@@ -240,6 +240,19 @@ Five rules the shape enforces, each for a reason worth knowing:
   would produce a figure describing neither, and a handful of hand-off cases
   would quietly move a headline everyone reads as trigger reliability.
 
+⚠️ **The prompt must not carry the TARGET skill's own trigger.** This is the
+subtle way a chained case false-passes. `test-servers` claims the situation "a
+change needs a real server to exercise it", so a prompt saying "…against a real
+server" matches it directly: the model can pick `testing` first and then pick
+`test-servers` from the *original prompt*, in that order, and the case scores a
+hit that would survive deleting the pointer from `testing` entirely (Copilot).
+Both committed cases said "against a real/live server" and were rewritten to
+"end to end" for exactly this reason — and the measured rate **fell from 100%
+and 67% to 33% and 33%**, which is the size of the effect this trap hides.
+**Write the prompt so only the loaded first skill can introduce the second**,
+and sanity-check it by asking whether the case would still pass if the pointer
+were removed.
+
 ⚠️ **A chained case only measures a pointer that exists.** `pr-flow` says
 nothing about test fixtures, so a `["pr-flow", "test-servers"]` case measured 0%
 — correctly, and with no lever to fix it short of broadening a description onto
@@ -257,14 +270,23 @@ starts there. `Read`/`Glob`/`Grep` remain, which is enough to reach a hand-off.
 
 **A hand-off is far less reliable than a first move, and the threshold says so.**
 `CHAIN_THRESHOLD` defaults to **0.5**, not 0.8 — the weakest claim worth
-asserting is that the pointer is taken more often than not. The two committed
-`testing → test-servers` cases measure **67% and 33%** at `RUNS=3` against a
-pointer stated in the first paragraph of `testing`'s body. At 0.8 both would be
-red no matter how strongly the first skill pointed at the second, and the column
-would stop carrying signal; at 0.5 the difference between them is the signal.
-Read a hand-off number as a description-strength measurement, not a verdict —
-and read it at `RUNS=5`, since at `RUNS=3` one sample is worth 33 points and
-these two are one sample apart.
+asserting is that the pointer is taken more often than not — and it is compared
+**strictly**. "More often than not" is `> 0.5`, and an inclusive compare would
+pass 2/4 whenever `RUNS` is even, reporting a result the criterion does not
+license (Copilot). A strict bound of `1.0` is therefore unreachable and the
+harness rejects it up front rather than failing every case.
+
+At 0.8 a hand-off case would be red no matter how strongly the first skill
+pointed at the second, and the column would stop carrying signal. Read a
+hand-off number as a description-strength measurement, not a verdict — and read
+it at `RUNS=5`, since at `RUNS=3` one sample is worth 33 points.
+
+**Both committed cases currently sit at 33% and are therefore red, and that is
+the intended state rather than an oversight.** `skills:eval` is not a gate (see
+below), and the number is the finding: `testing` points at `test-servers` in its
+first paragraph and the model follows that pointer about a third of the time.
+Strengthening it is its own change against its own issue; lowering the bar to
+turn the column green would throw away the only signal this feature adds.
 
 ⚠️ **Expect a hand-off to cost far more than a first move.** Each sample is up
 to 14 turns rather than one, so a chained case is the most expensive line in the
@@ -285,9 +307,28 @@ prompt fires at all, and only then spend a full run on its rate:
 # snippet also runs under bash.
 printf '%s' "<prompt>" \
   | claude -p --output-format stream-json --verbose --max-turns 1 \
-      --disallowedTools Bash,Write,Edit,NotebookEdit \
+      --allowedTools Read,Glob,Grep,Skill \
+      --disallowedTools Bash,Write,Edit,NotebookEdit,Task,Agent,SlashCommand,WebFetch,WebSearch,KillShell \
+      --strict-mcp-config \
   | jq -r 'select(.message.content?) | .message.content[]?
            | select(.type == "tool_use") | .name' | head -3
+```
+
+⚠️ **These flags are a copy of the harness's, so they go stale.** Whenever
+`runPrompt` in `scripts/skill-eval.mjs` changes its tool policy, change this
+snippet in the same edit — a probe that may call a tool the eval forbids
+predicts nothing, which is the whole reason the two are meant to match
+(Copilot). To probe a **hand-off** instead, raise `--max-turns` to
+`CHAIN_MAX_TURNS` and drop the `head -3`:
+
+```sh
+printf '%s' "<prompt>" \
+  | claude -p --output-format stream-json --verbose --max-turns 14 \
+      --allowedTools Read,Glob,Grep,Skill \
+      --disallowedTools Bash,Write,Edit,NotebookEdit,Task,Agent,SlashCommand,WebFetch,WebSearch,KillShell \
+      --strict-mcp-config \
+  | jq -r 'select(.message.content?) | .message.content[]?
+           | select(.type == "tool_use" and .name == "Skill") | .input.skill'
 ```
 
 **Probe a marginal case more than once.** A prompt that fires on a single probe
@@ -309,7 +350,7 @@ The summary is two lines, never one:
 
 ```
 7/7 first-move cases at or above 80%.
-1/2 hand-off cases at or above 50%.
+0/2 hand-off cases above 50%.
 ```
 
 Narrowing the run never narrows what a **negative** case is scored against — a

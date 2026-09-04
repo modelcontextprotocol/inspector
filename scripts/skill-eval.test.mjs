@@ -17,6 +17,8 @@ import path from "node:path";
 import {
   caseHit,
   chainHit,
+  formatReport,
+  passesThreshold,
   collectCases,
   collectSkillInvocations,
   runRejection,
@@ -292,6 +294,115 @@ test("runPrompt keeps the run read-only across every turn", () => {
   for (const tool of ["Bash", "Write", "Edit", "NotebookEdit", "Task"]) {
     assert.ok(denied.includes(tool), `${tool} must be denied`);
   }
+});
+
+test("runPrompt bounds the run by what it needs, not only by what it forbids", () => {
+  // A deny list only names the tools known when it was written. This checkout
+  // configures an HTTP `mcp-docs` server in `.mcp.json`, and a contributor's
+  // own MCP servers and plugins add more that no list here has seen — over 14
+  // turns those can reach the network or mutate state.
+  let args;
+  runPrompt("p", {
+    spawnFn: (_c, a) => {
+      args = a;
+      const c = new EventEmitter();
+      c.stdout = new EventEmitter();
+      c.stdin = { end: () => {} };
+      queueMicrotask(() => c.emit("close", 0));
+      return c;
+    },
+  }).catch(() => {});
+  assert.deepEqual(args[args.indexOf("--allowedTools") + 1].split(","), [
+    "Read",
+    "Glob",
+    "Grep",
+    "Skill",
+  ]);
+  // No `--mcp-config` accompanies it, so this drops every configured server.
+  assert.ok(args.includes("--strict-mcp-config"));
+  assert.ok(!args.includes("--mcp-config"));
+});
+
+test("passesThreshold is a floor for a first move and strictly above for a chain", () => {
+  // "More often than not" is `> 0.5`. An inclusive compare passes 2/4 whenever
+  // RUNS is even, reporting a result the stated criterion does not license.
+  assert.equal(passesThreshold(0.5, 0.5, true), false);
+  assert.equal(passesThreshold(2 / 3, 0.5, true), true);
+  // A first-move threshold is a floor to REACH: 4/5 clears 0.8 exactly.
+  assert.equal(passesThreshold(0.8, 0.8, false), true);
+  assert.equal(passesThreshold(0.6, 0.8, false), false);
+});
+
+const OPTS = { threshold: 0.8, chainThreshold: 0.5, chainMaxTurns: 14 };
+/** `RUNS` samples of one case, `hits` of which fired the whole chain/skill. */
+const samples = (c, hits, runs) =>
+  Array.from({ length: runs }, (_, i) => ({
+    c,
+    invoked: i < hits ? fired(...(c.chain ?? [c.expect])) : [],
+  }));
+
+test("the report keeps the two measurements in separate columns", () => {
+  // The acceptance criterion of #2204: a hand-off rate is never folded into
+  // the first-move headline. Nothing covered this while it lived in `main`.
+  const direct = { prompt: "d", expect: "test-servers" };
+  const chain = { prompt: "c", chain: ["testing", "test-servers"] };
+  const { lines, failed } = formatReport(
+    [direct, chain],
+    [...samples(direct, 3, 3), ...samples(chain, 1, 3)],
+    new Set(["testing", "test-servers"]),
+    OPTS,
+  );
+  const text = lines.join("\n");
+  assert.match(text, /First move \(1 turn\)/);
+  assert.match(text, /Hand-off \(14 turns\)/);
+  assert.match(text, /1\/1 first-move cases at or above 80%\./);
+  assert.match(text, /0\/1 hand-off cases above 50%\./);
+  // One summary line per kind, and no line that merges them.
+  assert.equal(text.match(/cases (at or above|above)/g).length, 2);
+  assert.equal(failed, 1, "the chained case is short, the direct one is not");
+});
+
+test("each group is scored against its own threshold", () => {
+  // 2/3 clears the chain bar strictly but would fail the first-move bar, so a
+  // single shared threshold would misreport whichever kind it was not tuned for.
+  const direct = { prompt: "d", expect: "test-servers" };
+  const chain = { prompt: "c", chain: ["testing", "test-servers"] };
+  const { lines, failed } = formatReport(
+    [direct, chain],
+    [...samples(direct, 2, 3), ...samples(chain, 2, 3)],
+    new Set(["testing", "test-servers"]),
+    OPTS,
+  );
+  const text = lines.join("\n");
+  assert.match(text, /FAIL\s+67%\s+test-servers/);
+  assert.match(text, /PASS\s+67%\s+testing → test-servers/);
+  assert.equal(failed, 1);
+});
+
+test("a single-kind selection reports only that kind, and says so", () => {
+  const direct = { prompt: "d", expect: "test-servers" };
+  const only = formatReport(
+    [direct],
+    samples(direct, 3, 3),
+    new Set(["test-servers"]),
+    OPTS,
+  );
+  assert.match(only.lines.join("\n"), /No hand-off cases in this selection\./);
+  assert.doesNotMatch(only.lines.join("\n"), /Hand-off \(14 turns\)/);
+  assert.equal(only.failed, 0);
+
+  // And a chain-only selection prints no first-move headline or summary.
+  const chain = { prompt: "c", chain: ["testing", "test-servers"] };
+  const chainOnly = formatReport(
+    [chain],
+    samples(chain, 3, 3),
+    new Set(["testing", "test-servers"]),
+    OPTS,
+  );
+  const text = chainOnly.lines.join("\n");
+  assert.doesNotMatch(text, /first-move cases/);
+  assert.match(text, /1\/1 hand-off cases above 50%\./);
+  assert.equal(chainOnly.failed, 0);
 });
 
 test("runPrompt rejects a run that produced no terminal result", async () => {

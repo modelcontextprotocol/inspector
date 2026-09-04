@@ -20,14 +20,14 @@
     "expect": "test-servers"
   },
   {
-    "prompt": "Write an integration test that exercises tool listing against a real server.",
+    "prompt": "Write an integration test that exercises tool listing end to end.",
     "chain": [
       "testing",
       "test-servers"
     ]
   },
   {
-    "prompt": "Add end-to-end coverage for tool-list pagination against a live server.",
+    "prompt": "Add end-to-end coverage for the tool-list pagination path.",
     "chain": [
       "testing",
       "test-servers"
