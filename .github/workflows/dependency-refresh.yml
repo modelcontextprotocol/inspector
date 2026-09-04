@@ -2,19 +2,21 @@
 #
 # A Dependabot version-update PR carries no issue and no board card, so
 # `.github/dependabot.yml` was removed outright in #2235 — npm and
-# github-actions alike. This workflow is what replaced those PRs (security
-# updates are a separate mechanism and stay on; see below): it runs
-# `scripts/dependency-refresh.mjs` against `v2/main` once a month and files or
-# updates ONE tracking issue listing every outdated npm package across the root
-# install and each client, plus any workflow `uses:` ref behind its action's
-# highest released version. No PR is opened automatically. A maintainer
-# reviews the
-# issue, picks what to bump, and opens a normal PR against `v2/main`.
+# github-actions alike. This workflow is what replaced those PRs (the
+# security-update half is a separate mechanism, switched off separately; see
+# below): it runs `scripts/dependency-refresh.mjs` against `v2/main` once a
+# month and files or updates ONE tracking issue listing every outdated npm
+# package across the root install and each client, plus any workflow `uses:`
+# ref behind its action's highest released version. No PR is opened
+# automatically. A maintainer reviews the issue, picks what to bump, and opens
+# a normal PR against `v2/main`.
 #
-# Dependabot SECURITY updates are unaffected: they are enabled in repo
-# settings, not in a config file, and kept working while `dependabot.yml` was
-# missing entirely (see #1833, #1840). They are raised against the default
-# branch and still need retargeting by hand.
+# Dependabot SECURITY updates are the other half, and #2233 turned their PRs
+# off too — they were enabled in repo settings rather than in a config file,
+# which is why they kept working while `dependabot.yml` was missing entirely
+# (see #1833, #1840) and why deleting that file did not touch them. Its
+# ALERTS stay on and are swept into issues daily by the sibling
+# `dependabot-alerts.yml`. Between them, Dependabot opens no PRs here at all.
 #
 # `GITHUB_TOKEN` is sufficient: it only needs to read milestones and the public
 # release feeds of the actions we use, and to create/edit an issue

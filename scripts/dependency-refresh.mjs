@@ -3,12 +3,13 @@
 //
 // A Dependabot version-update PR carries no issue and no board card — the same
 // carve-out from "every PR references an issue" that the security-update flow
-// had (that half is handled separately by the alert-driven pipeline, also
-// #2229). #2235 removed `.github/dependabot.yml` outright, so Dependabot opens
+// had (that half is `dependabot-alerts.mjs`, #2233, which turned those PRs off
+// as well and files an issue per bump from the alerts they leave behind — so
+// between them Dependabot opens no PRs against this repo at all, though its
+// security ALERTS stay on, since that sweep is what consumes them).
+// #2235 removed `.github/dependabot.yml` outright, so Dependabot opens
 // no version-update PRs against this repo at all and this script is what
-// replaced them. Dependabot SECURITY updates are a separate mechanism, enabled
-// in repo settings rather than in that file, and are deliberately still on —
-// so this replaces the version-update half only, not Dependabot wholesale.
+// replaced them.
 //
 // Once a month it runs `npm outdated` across the root install and every client
 // under `clients/*` (each has its own package.json + lockfile — v2 is not a

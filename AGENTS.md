@@ -98,6 +98,24 @@ The reasoning behind each of these, and what breaks when it is ignored, is the
 - **One version per install-crossing dependency.** When bumping a dependency the shared sources pull in, bump it in every install that declares it. Consolidating to the root is what makes most of these unbumpable in two places at once, but it does not retire the rule — a client's `devDependencies`, and any package that arrives transitively into a client install, can still skew against the root. Never raise the tsc heap to work around one. `npm run verify:dep-lockstep` enforces this.
 - **Pin a transitive dependency with an `overrides` entry**, not with `npm audit fix` — which "resolves" an advisory with no upward escape by silently downgrading.
 
+### Dependency updates are issue-driven, like everything else
+
+**Dependabot opens no pull requests against this repo — neither version updates nor security updates.** A Dependabot PR carries no `Closes #N` and no board card, so it was the one standing exception to [Issue-driven Work Style](#issue-driven-work-style), enforced by nothing. Both halves are now replaced by scheduled workflows that file **issues**, and a maintainer writes the fix by hand against `v2/main`.
+
+| Half | Switched off by | Replaced by | Cadence |
+| --- | --- | --- | --- |
+| Version updates | Deleting `.github/dependabot.yml` outright (#2235) — an empty `updates:` list is not valid config | `.github/workflows/dependency-refresh.yml` → `scripts/dependency-refresh.mjs`: `npm outdated` across every install, plus a `uses:` check against each action's latest release, folded into **one** tracking issue | Monthly |
+| Security updates | `DELETE /repos/{owner}/{repo}/automated-security-fixes` — a **repo setting**, not a file | `.github/workflows/dependabot-alerts.yml` → `scripts/dependabot-alerts.mjs`: reads the alerts and files one issue **per bump** | Daily |
+
+Four things about this that are not obvious from the code:
+
+- **Dependabot *alerts* stay on.** Alerts and security-update PRs are independent settings; only the PRs are off. Turning alerts off would blind the sweep that replaced them.
+- **The security half is a schedule, not an event handler**, because there is no `dependabot_alert` workflow trigger — it is a webhook event only.
+- **Alerts are computed from the default branch (`main`), and we ship from `v2/main`.** So the sweep re-checks each alert's vulnerable range against `v2/main`'s own lockfile before filing, and skips one that is already fixed there. The converse is a real blind spot with no fix on this path: a vulnerable dependency introduced on `v2/main` and not yet merged to `main` produces **no alert at all**. The release-time `npm audit fix` (#2231) is the partial second signal.
+- **`automated-security-fixes` can be re-enabled from the UI without a commit**, so nothing in the repo would record it. The sweep asserts it is still disabled and **fails loudly** if it is not; a red run of that workflow means the setting was flipped, not that the script broke.
+
+An issue filed by either sweep is an ordinary board item — `v2` + `chore` + `dependabot`, the current milestone, and a card on #28. A security issue lands at **Todo / High**: arriving through this pipeline *is* the approval, and `High` is a standing override of the [priority rubric](.claude/skills/issue-triage/SKILL.md), which would otherwise score a routine bump Medium. Board placement needs an org-project PAT that `GITHUB_TOKEN` cannot have, so it is **best-effort** — without the secret the issue is still created labeled and milestoned, and the next triage sweep boards it.
+
 ## Contributing
 
 External contributions are accepted as **issues, not pull requests** — maintainers handle design and implementation through a prompt-driven workflow.
