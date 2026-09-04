@@ -151,12 +151,18 @@ vi.mock("@inspector/core/mcp/index.js", async (importOriginal) => {
     clearOAuthTokens = vi
       .fn()
       .mockResolvedValue({ status: "skipped", reason: "no_endpoint" });
+    // #2217: the clear path resolves the session's OAuth key from the config
+    // the client was BUILT with, not the (mutable) catalog entry — so the fake
+    // has to carry the constructor's config the way the real client does.
+    transportConfig: unknown = undefined;
+    getTransportConfig = vi.fn(() => this.transportConfig);
   }
   const instances: FakeInspectorClient[] = [];
   return {
     ...actual,
-    InspectorClient: vi.fn(function () {
+    InspectorClient: vi.fn(function (transportConfig: unknown) {
       const client = new FakeInspectorClient();
+      client.transportConfig = transportConfig;
       instances.push(client);
       return client;
     }),

@@ -115,7 +115,7 @@ import { AuthRecoveryRequiredError } from "@inspector/core/auth/challenge.js";
 import { getAuthToken } from "./lib/authToken";
 import { messagesToLogEntries } from "./lib/protocolReplay";
 import { EMPTY_SETTINGS } from "./utils/serverSettingsDefaults";
-import { oauthClearKey } from "./utils/oauthClearKey";
+import { resolveOAuthClearIdentity } from "./utils/oauthClearKey";
 import {
   bodyDroppedToastId,
   CLIENT_CONFIG_LOAD_ERROR_NOTIFICATION_ID,
@@ -1380,9 +1380,18 @@ function App() {
       // "Different server" is the OAuth storage key, not the catalog id
       // (#2217, Copilot): two entries against one URL share one blob, one
       // grant and one revocation, so an id-keyed guard lets exactly the race
-      // above through between them. `oauthClearKey` falls back to the id for a
-      // config with no OAuth URL, which has no shared state to collide over.
-      const inFlightKey = oauthClearKey(server.config, server.id);
+      // above through between them. And for anything touching the live
+      // session the key is the *client's*, not the entry's — an entry edited
+      // while connected reads a URL the session never authorized against, so
+      // an entry-keyed lock would name an operation nobody is performing.
+      // `resolveOAuthClearIdentity` is the same call the clear itself makes,
+      // so the two cannot disagree.
+      const { inFlightKey } = resolveOAuthClearIdentity({
+        server,
+        activeServerId,
+        activeClientConfig: inspectorClient?.getTransportConfig(),
+        activeEntryConfig: activeServer?.config,
+      });
       if (clearOAuthInFlightRef.current.has(inFlightKey)) return;
       clearOAuthInFlightRef.current.add(inFlightKey);
       clearServerOAuthAndDisconnect(server)
@@ -1400,7 +1409,12 @@ function App() {
           });
         });
     },
-    [clearServerOAuthAndDisconnect],
+    [
+      clearServerOAuthAndDisconnect,
+      activeServerId,
+      inspectorClient,
+      activeServer,
+    ],
   );
 
   const handleClearConnectionOAuth = useCallback(() => {

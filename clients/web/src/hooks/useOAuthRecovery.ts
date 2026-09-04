@@ -16,7 +16,6 @@ import {
   parseOAuthCallbackParams,
   parseOAuthState,
 } from "@inspector/core/auth/index.js";
-import { getOAuthServerUrl } from "@inspector/core/mcp/config.js";
 import { RemoteInspectorClientStorage } from "@inspector/core/mcp/remote/index.js";
 import { AuthRecoveryRequiredError } from "@inspector/core/auth/challenge.js";
 import type { TokenRevocationOutcome } from "@inspector/core/auth/revocation.js";
@@ -36,6 +35,7 @@ import { oauthDetailsFromConnectionState } from "../components/groups/Connection
 import { getWebRemoteOAuthStorage } from "../lib/remoteOAuthStorage";
 import { getWebProxiedFetch } from "../lib/webProxiedFetch";
 import { clearServerOAuthState } from "../lib/clearServerOAuthState";
+import { resolveOAuthClearIdentity } from "../utils/oauthClearKey";
 import { getAuthToken } from "../lib/authToken";
 import {
   isBrowserTabVisible,
@@ -1380,7 +1380,6 @@ export function useOAuthRecovery({
 
   const clearServerOAuthAndDisconnect = useCallback(
     async (server: ClearableServer) => {
-      const isActive = server.id === activeServerId;
       // OAuth state is keyed by the server URL, but "is this the active
       // connection" was keyed by catalog entry id — and `serverList` enforces
       // no URL uniqueness, so two entries with different ids and the same URL
@@ -1391,20 +1390,20 @@ export function useOAuthRecovery({
       // session connected on credentials that no longer exist, silently
       // (#2217). Comparing the storage keys is what sees it; the id check
       // cannot, by construction.
-      const activeOAuthKey = (): string | undefined => {
-        const active = sessionRef.current.servers.find(
-          (s) => s.id === activeServerId,
-        );
-        return active ? getOAuthServerUrl(active.config) : undefined;
-      };
-      const clearedOAuthKey = getOAuthServerUrl(server.config);
-      const sharesActiveOAuthKey =
-        !isActive &&
-        clearedOAuthKey !== undefined &&
-        clearedOAuthKey === activeOAuthKey();
-      // Either way the active session's credentials are being destroyed, so it
-      // takes the live-client path, disconnects, and runs the session cleanup.
-      const affectsActiveSession = isActive || sharesActiveOAuthKey;
+      //
+      // The live client's own config is what the comparison uses, because a
+      // card can be edited while connected and the catalog write does not
+      // rebuild the client (Copilot). `resolveOAuthClearIdentity` owns the
+      // rule; `App`'s in-flight guard reads the same answer from it.
+      const { isActive, sharesActiveOAuthKey, affectsActiveSession } =
+        resolveOAuthClearIdentity({
+          server,
+          activeServerId,
+          activeClientConfig: inspectorClient?.getTransportConfig(),
+          activeEntryConfig: sessionRef.current.servers.find(
+            (s) => s.id === activeServerId,
+          )?.config,
+        });
       const client = affectsActiveSession ? inspectorClient : null;
       // The RFC 7009 leg is a bounded network request (#2144), so this callback
       // can stay suspended for seconds — long enough for the user to close the

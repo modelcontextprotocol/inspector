@@ -157,6 +157,13 @@ function fakeClient(over: Partial<Record<string, unknown>> = {}) {
     handleAuthChallenge: vi.fn().mockResolvedValue({ kind: "failed" }),
     disconnect: vi.fn().mockResolvedValue(undefined),
     resumeAfterOAuth: vi.fn().mockResolvedValue(undefined),
+    // #2217: the clear path resolves the session's OAuth key from the config
+    // the client was built with, since a catalog entry can be edited while
+    // connected without rebuilding it. Defaults to the shared fixture URL.
+    getTransportConfig: vi.fn(() => ({
+      type: "streamable-http" as const,
+      url: "https://mcp.example/mcp",
+    })),
     ...over,
   });
 }
@@ -1650,6 +1657,30 @@ describe("useOAuthRecovery", () => {
           "authorizes against the same URL, so its stored tokens went too",
         ),
       ).toBeDefined();
+    });
+
+    // Copilot on this PR: a card can be edited while connected and the catalog
+    // write does not rebuild the client, so the active *entry* can read a URL
+    // the live session never authorized against. Reading the entry would miss
+    // an entry still sitting on the client's real URL.
+    it("compares against the live client's URL, not the edited catalog entry's", async () => {
+      const client = fakeClient({
+        // Still authorized against the shared URL...
+        getTransportConfig: vi.fn(() => ({
+          type: "streamable-http" as const,
+          url: "https://mcp.example/mcp",
+        })),
+      });
+      const h = harness({
+        // ...while A's catalog entry has since been edited elsewhere.
+        servers: [otherUrlEntry("a"), entry("b")],
+        activeServerId: "a",
+        client,
+      });
+      await act(async () => {
+        await h.api().clearServerOAuthAndDisconnect(entry("b"));
+      });
+      expect(client.disconnect).toHaveBeenCalled();
     });
 
     // The same-URL branch still snapshots the session it acted on, so a switch
