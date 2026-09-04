@@ -54,6 +54,7 @@ import {
 import { OAUTH_CALLBACK_PATH } from "../utils/oauthFlow";
 import { INSPECTOR_SERVERS_TAB } from "../utils/inspectorTabs";
 import type { PendingReauth } from "../utils/pendingReauth";
+import { useValueChange } from "./useValueChange";
 import {
   authRecoveryRestoredMessage,
   authRecoveryAbandonedMessage,
@@ -318,16 +319,25 @@ export function useOAuthRecovery({
     sessionRef.current.pendingReauth = pendingReauth;
   });
 
-  useEffect(() => {
-    const pending = sessionRef.current.pendingReauth;
-    if (pending && pending.serverId !== activeServerId) {
-      setPendingReauth(null);
-    }
-    const stepUp = sessionRef.current.pendingStepUp;
-    if (stepUp && stepUp.serverId !== activeServerId) {
-      setPendingStepUp(null);
-    }
-  }, [sessionRef, activeServerId]);
+  // Both slots are server-scoped, so switching servers has to clear whichever
+  // one belongs to the server we just left. Adjusted **during render** rather
+  // than in an effect: an effect only runs after the commit, so the frame that
+  // shows the new server would still paint the previous server's re-auth
+  // banner or step-up prompt — a modal-grade authorization affordance attached
+  // to the wrong server (#2223). `activeServerId` is a primitive, so it is
+  // referentially stable across renders that mean "no change", which is what
+  // `useValueChange`'s `Object.is` comparison requires. The previous value is
+  // read from the updater argument rather than from `sessionRef.current`,
+  // keeping the callback pure — a render can be replayed or abandoned, so it
+  // must not depend on external mutable state.
+  useValueChange(activeServerId, () => {
+    setPendingReauth((current) =>
+      current && current.serverId !== activeServerId ? null : current,
+    );
+    setPendingStepUp((current) =>
+      current && current.serverId !== activeServerId ? null : current,
+    );
+  });
 
   const trySetPendingStepUp = useCallback(
     (next: PendingStepUp): boolean => {
