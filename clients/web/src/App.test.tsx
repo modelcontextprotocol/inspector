@@ -4258,7 +4258,9 @@ describe("App dedupes concurrent OAuth clears that share a storage key (#2217)",
       updateServer: updateServerSpy,
       updateServerSettings: updateServerSettingsSpy,
       removeServer: vi.fn(),
-    } as unknown as ReturnType<typeof useServers>);
+      reorderServers: vi.fn(),
+      importSource: vi.fn().mockResolvedValue({ servers: {} }),
+    });
   });
 
   afterEach(() => {
@@ -4299,7 +4301,9 @@ describe("App dedupes concurrent OAuth clears that share a storage key (#2217)",
 
       await user.click(screen.getByText("connect"));
       await waitFor(() => expect(clientInstances).toHaveLength(1));
-      const client = clientInstances[0] as unknown as {
+      // The instances are typed `EventTarget`; an intersection names the
+      // test-only spy without erasing that (Copilot).
+      const client = clientInstances[0] as EventTarget & {
         clearOAuthTokens: ReturnType<typeof vi.fn>;
       };
 
