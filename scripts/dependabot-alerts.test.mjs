@@ -16,6 +16,7 @@ import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import {
   buildCommentMarker,
+  narrowToApplicable,
   lockfileEntries,
   remediation,
   buildIssueBody,
@@ -263,6 +264,76 @@ const hoisted = (version = "3.1.5") => ({
   declared: true,
 });
 
+test("narrowToApplicable drops advisories the installed version is out of range of", () => {
+  // Same package, manifest and patched version, so one group — but different
+  // vulnerable ranges, and 3.1.0 is in range of only one of them.
+  const [group] = groupAlerts([
+    alert({
+      ghsa: "GHSA-narrow",
+      range: ">= 3.1.3, < 3.1.6",
+      severity: "critical",
+    }),
+    alert({
+      ghsa: "GHSA-wide",
+      range: ">= 3.0.0, < 3.1.6",
+      severity: "medium",
+    }),
+  ]);
+  assert.equal(group.advisories.length, 2);
+
+  const result = narrowToApplicable(group, [
+    { path: "node_modules/fast-uri", version: "3.1.0", hoisted: true },
+  ]);
+  assert.deepEqual(result.group.ghsas, ["GHSA-wide"]);
+  // Severity is re-derived: the critical one does not apply here.
+  assert.equal(result.group.severity, "medium");
+  assert.equal(result.affected.length, 1);
+  // ...and the marker cannot claim an advisory this branch is not exposed to.
+  assert.deepEqual(parseMarker(buildMarker(result.group)).ghsas, ["GHSA-wide"]);
+});
+
+test("narrowToApplicable keeps every advisory that does apply", () => {
+  const [group] = groupAlerts([
+    alert({ ghsa: "GHSA-narrow", range: ">= 3.1.3, < 3.1.6" }),
+    alert({ ghsa: "GHSA-wide", range: ">= 3.0.0, < 3.1.6" }),
+  ]);
+  const result = narrowToApplicable(group, [
+    { path: "node_modules/fast-uri", version: "3.1.5", hoisted: true },
+  ]);
+  assert.deepEqual(result.group.ghsas, ["GHSA-narrow", "GHSA-wide"]);
+});
+
+test("narrowToApplicable returns null when nothing installed is in range", () => {
+  const [group] = groupAlerts([alert({ ghsa: "GHSA-a" })]);
+  assert.equal(
+    narrowToApplicable(group, [
+      { path: "node_modules/fast-uri", version: "3.1.6", hoisted: true },
+    ]),
+    null,
+  );
+  assert.equal(narrowToApplicable(group, []), null);
+});
+
+test("buildIssueBody escapes a disjoint range so the table survives it", () => {
+  // `||` is legal in a semver range and is also the Markdown column separator.
+  const [group] = groupAlerts([
+    alert({ ghsa: "GHSA-a", range: ">= 1.0.0, < 2.0.0 || >= 3.0.0, < 3.5.0" }),
+  ]);
+  const body = buildIssueBody(group, nested());
+  const row = body
+    .split("\n")
+    .find((line) => line.includes("GHSA-a") && line.startsWith("|"));
+  // Count only the pipes Markdown will treat as separators: five columns means
+  // four inner separators plus the two outer ones.
+  const separators = row.replace(/\\\|/g, "").split("|").length - 1;
+  assert.equal(
+    separators,
+    6,
+    `escaped row should keep its column count: ${row}`,
+  );
+  assert.ok(row.includes(String.raw`\|\|`), "the range's own pipes survive");
+});
+
 test("buildIssueTitle names the bump and pluralizes the advisory count", () => {
   const [many] = groupAlerts([
     alert({ ghsa: "GHSA-a" }),
@@ -460,8 +531,9 @@ function fakeSpawn({
       return ok(JSON.stringify(alertPages));
     }
     if (joined.includes("milestones")) return ok(milestone);
-    if (args[0] === "issue" && args[1] === "list")
-      return ok(JSON.stringify(issues));
+    // `--slurp`, so one array per page — `issues` may be a flat list or pages.
+    if (joined.includes("/issues?"))
+      return ok(JSON.stringify(Array.isArray(issues[0]) ? issues : [issues]));
     if (args[0] === "issue" && args[1] === "view")
       return ok(JSON.stringify({ comments }));
     if (args[0] === "issue" && args[1] === "create")
@@ -821,6 +893,60 @@ test("main leaves an unmilestoned issue off the board for triage", () => {
     undefined,
   );
   assert.ok(log.some((l) => l.includes("unmilestoned and unboarded")));
+});
+
+test("main reads every page of open dependabot issues", () => {
+  // The second page holds the matching marker. Truncating the lookup would
+  // file a duplicate issue rather than recognising this one.
+  const [group] = groupAlerts([alert({ ghsa: "GHSA-a" })]);
+  const spawn = fakeSpawn({
+    alertPages: [[alert({ ghsa: "GHSA-a" })]],
+    issues: [
+      [{ number: 1, body: "an unrelated dependabot issue" }],
+      [{ number: 41, body: buildIssueBody(group, nested()) }],
+    ],
+  });
+  const log = inTempRepo(
+    { "package-lock.json": lockWith("fast-uri", "3.1.5") },
+    () => withoutProjectToken(() => captureLog(() => main("o/r", spawn))),
+  );
+  assert.equal(ghCall(spawn, "create"), undefined);
+  assert.ok(log.some((l) => l.includes("#41 already covers")));
+});
+
+test("main drops a pull request returned by the issues endpoint", () => {
+  // `/issues` returns PRs too; one carrying no marker must not be mistaken for
+  // a match, nor crash the lookup.
+  const spawn = fakeSpawn({
+    alertPages: [[alert({ ghsa: "GHSA-a" })]],
+    issues: [[{ number: 9, body: "a PR body", pull_request: { url: "..." } }]],
+  });
+  inTempRepo({ "package-lock.json": lockWith("fast-uri", "3.1.5") }, () =>
+    withoutProjectToken(() => captureLog(() => main("o/r", spawn))),
+  );
+  assert.ok(ghCall(spawn, "create"), "the issue is still filed");
+});
+
+test("main files an issue naming only the advisories that apply here", () => {
+  const spawn = fakeSpawn({
+    alertPages: [
+      [
+        alert({ ghsa: "GHSA-narrow", range: ">= 3.1.3, < 3.1.6" }),
+        alert({ ghsa: "GHSA-wide", range: ">= 3.0.0, < 3.1.6" }),
+      ],
+    ],
+  });
+  inTempRepo({ "package-lock.json": lockWith("fast-uri", "3.1.0") }, () =>
+    withoutProjectToken(() => captureLog(() => main("o/r", spawn))),
+  );
+  const create = ghCall(spawn, "create");
+  const body = create.args[create.args.indexOf("--body") + 1];
+  assert.deepEqual(parseMarker(body).ghsas, ["GHSA-wide"]);
+  assert.ok(!body.includes("GHSA-narrow"), "3.1.0 is out of that range");
+  assert.match(
+    create.args[create.args.indexOf("--title") + 1],
+    /\(1 advisory\)$/,
+  );
 });
 
 test("main fails the run when a card is added but its fields are not set", () => {

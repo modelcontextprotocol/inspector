@@ -309,6 +309,51 @@ export function groupAlerts(alerts) {
 }
 
 /**
+ * Narrow a group to the advisories that actually apply to what is installed.
+ *
+ * ⚠️ Grouping is by `(package, manifest, first_patched_version)`, and two
+ * advisories sharing that triple can still have DIFFERENT vulnerable ranges —
+ * `>= 3.1.3, < 3.1.6` and `>= 3.0.0, < 3.1.6` both patch at 3.1.6, and an
+ * installed `3.1.0` matches only the second. Validating at the group level
+ * ("does ANY advisory match?") keeps both, and the issue's marker, title,
+ * severity, advisory table and later comments then all claim an advisory that
+ * does not apply on this branch (Copilot).
+ *
+ * @param {ReturnType<typeof groupAlerts>[number]} group
+ * @param {Array<{path: string, version: string, hoisted: boolean}>} entries every installed copy
+ * @returns {{group: ReturnType<typeof groupAlerts>[number], affected: Array<{path: string, version: string, hoisted: boolean}>} | null}
+ *   `null` when nothing installed is in range of any of the group's advisories
+ */
+export function narrowToApplicable(group, entries) {
+  const applies = (advisory, entry) =>
+    semver.satisfies(entry.version, toSemverRange(advisory.range));
+
+  const advisories = group.advisories.filter((a) =>
+    entries.some((e) => applies(a, e)),
+  );
+  if (advisories.length === 0) return null;
+
+  const affected = entries.filter((e) => advisories.some((a) => applies(a, e)));
+  const severity = advisories.reduce(
+    (worst, a) =>
+      (SEVERITY_RANK[a.severity] ?? 0) > (SEVERITY_RANK[worst] ?? 0)
+        ? a.severity
+        : worst,
+    advisories[0].severity,
+  );
+
+  return {
+    group: {
+      ...group,
+      advisories,
+      ghsas: advisories.map((a) => a.ghsa),
+      severity,
+    },
+    affected,
+  };
+}
+
+/**
  * @param {ReturnType<typeof groupAlerts>[number]} group
  * @param {number} [count] advisories the issue covers, when that is more than
  *   this run saw — an issue grown by a later advisory keeps one title.
@@ -318,6 +363,9 @@ export function buildIssueTitle(group, count = group.advisories.length) {
   const n = count;
   return `chore(deps): bump \`${group.package}\` to \`${group.fixedIn}\` in \`${group.manifestPath}\` (${n} ${n === 1 ? "advisory" : "advisories"})`;
 }
+
+/** Escape a value going into a Markdown table cell. */
+const cell = (value) => String(value).replace(/\|/g, "\\|");
 
 const PLACEMENT_DOC =
   "https://github.com/modelcontextprotocol/inspector/blob/v2/main/AGENTS.md#dependency-placement";
@@ -363,10 +411,14 @@ export function remediation(affected, declared) {
  */
 export function buildIssueBody(group, { affected, declared, ghsas }) {
   const covered = ghsas ?? group.ghsas;
+  // ⚠️ Every free-form cell is escaped, the RANGE included: a semver range is
+  // allowed to contain `||`, so a disjoint advisory range like
+  // `>= 1.0, < 2.0 || >= 3.0, < 3.5` would otherwise inject two extra column
+  // separators and shear the table apart (Copilot).
   const rows = group.advisories
     .map(
       (a) =>
-        `| [${a.ghsa}](${a.url}) | ${a.cve ?? "—"} | ${a.severity} | ${a.range} | ${a.summary.replace(/\|/g, "\\|")} |`,
+        `| [${a.ghsa}](${a.url}) | ${cell(a.cve ?? "—")} | ${cell(a.severity)} | ${cell(a.range)} | ${cell(a.summary)} |`,
     )
     .join("\n");
 
@@ -580,23 +632,26 @@ function readManifest(manifestPath) {
   }
 }
 
+/**
+ * Every open `dependabot`-labeled issue.
+ *
+ * Paginated rather than capped: the marker lookup is what makes this sweep
+ * idempotent, so a truncated list files a duplicate for every issue it could
+ * not see — at exactly the scale the `--slurp`ed alert fetch is built to handle
+ * (Copilot). `/issues` also returns pull requests, which carry no marker and
+ * are dropped.
+ */
 function openDependabotIssues(repo, spawn) {
-  return (
-    ghJson(spawn, [
-      "issue",
-      "list",
-      "--repo",
-      repo,
-      "--state",
-      "open",
-      "--label",
-      "dependabot",
-      "--json",
-      "number,body",
-      "--limit",
-      "100",
-    ]) ?? []
-  );
+  const pages = ghJson(spawn, [
+    "api",
+    "--paginate",
+    "--slurp",
+    `repos/${repo}/issues?state=open&labels=dependabot&per_page=100`,
+  ]);
+  return (pages ?? [])
+    .flat()
+    .filter((issue) => !issue.pull_request)
+    .map((issue) => ({ number: issue.number, body: issue.body }));
 }
 
 /**
@@ -816,31 +871,30 @@ export function main(repo = process.env.GITHUB_REPOSITORY, spawn = spawnSync) {
   const manifests = new Map();
   const boardProblems = [];
 
-  for (const group of groups) {
-    if (!manifests.has(group.manifestPath)) {
-      manifests.set(group.manifestPath, readManifest(group.manifestPath));
+  for (const rawGroup of groups) {
+    if (!manifests.has(rawGroup.manifestPath)) {
+      manifests.set(rawGroup.manifestPath, readManifest(rawGroup.manifestPath));
     }
-    const lock = manifests.get(group.manifestPath);
+    const lock = manifests.get(rawGroup.manifestPath);
     if (lock === null) {
       console.log(
-        `dependabot-alerts: ${group.manifestPath} absent on ${TARGET_BRANCH} — skipping ${group.package}`,
+        `dependabot-alerts: ${rawGroup.manifestPath} absent on ${TARGET_BRANCH} — skipping ${rawGroup.package}`,
       );
       continue;
     }
 
-    const entries = lockfileEntries(lock, group.package);
-    const affected = entries.filter((entry) =>
-      group.advisories.some((a) =>
-        semver.satisfies(entry.version, toSemverRange(a.range)),
-      ),
-    );
-    if (affected.length === 0) {
+    const entries = lockfileEntries(lock, rawGroup.package);
+    const applicable = narrowToApplicable(rawGroup, entries);
+    if (applicable === null) {
       const seen = [...new Set(entries.map((e) => e.version))];
       console.log(
-        `dependabot-alerts: ${group.package}@${seen.join("/") || "(absent)"} is already out of range on ${TARGET_BRANCH} — skipping`,
+        `dependabot-alerts: ${rawGroup.package}@${seen.join("/") || "(absent)"} is already out of range on ${TARGET_BRANCH} — skipping`,
       );
       continue;
     }
+    // From here on `group` carries only the advisories that apply to this
+    // branch, so the marker, title, severity and table cannot overstate it.
+    const { group, affected } = applicable;
 
     const declared = isDirectDependency(lock, group.package);
     // Matched on the full grouping key, `fixedIn` included: a second bump of
