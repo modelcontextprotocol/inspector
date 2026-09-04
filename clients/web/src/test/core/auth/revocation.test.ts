@@ -207,6 +207,62 @@ describe("buildRevocationRequest", () => {
     expect(body(init).has("client_secret")).toBe(false);
   });
 
+  // #2222 asked whether `encodeURIComponent` is safe here, since §2.3.1 names
+  // the form-urlencoded algorithm (RFC 6749 Appendix B) and this is not it. It
+  // is safe, and these cases are what say so: each credential is checked on the
+  // wire *and* round-tripped through a real form-urldecoder, which is the
+  // decoder a compliant authorization server runs. Before this, no case in
+  // either suite could distinguish the two algorithms — the fixture decoded
+  // with `decodeURIComponent`, the encoder's own inverse, so every input passed
+  // by construction.
+  describe.each([
+    // The character the report turned on, and the answer to it:
+    // `encodeURIComponent` escapes `+` as `%2B` rather than leaving it bare, so
+    // a form-urldecoder never gets the chance to read it as a space. Base64
+    // secrets contain `+` routinely, which is what makes this the case worth
+    // pinning rather than reasoning about.
+    { what: "a plus", id: "cid", secret: "ab+cd", wire: "cid:ab%2Bcd" },
+    // A space is the one place the two algorithms visibly differ — `%20` here,
+    // `+` under `URLSearchParams`. Both decode to a space at a compliant
+    // server, and only `%20` also survives a server that decodes with
+    // `decodeURIComponent` alone, which is why the encoder was left as it is.
+    { what: "a space", id: "cid", secret: "ab cd", wire: "cid:ab%20cd" },
+    // The case the original encoding change was made for: an unencoded `:` in
+    // the id would move the separator and split the credential in the wrong
+    // place. It must keep working.
+    { what: "a colon", id: "c:id", secret: "sec", wire: "c%3Aid:sec" },
+    // `%` is what makes a raw credential undecodable rather than merely
+    // mis-decoded — an unescaped one starts an escape sequence that isn't.
+    { what: "a percent", id: "cid", secret: "s%ec", wire: "cid:s%25ec" },
+  ])("a credential containing $what", ({ id, secret, wire }) => {
+    const basic = (): string => {
+      const { init } = buildRevocationRequest({
+        endpoint: REVOKE_URL,
+        token: "r",
+        tokenTypeHint: "refresh_token",
+        clientInformation: { client_id: id, client_secret: secret },
+        supportedAuthMethods: ["client_secret_basic"],
+      });
+      return String(headerOf(init, "Authorization")).slice("Basic ".length);
+    };
+
+    it("is percent-encoded on the wire", () => {
+      expect(atob(basic())).toBe(wire);
+    });
+
+    it("survives a compliant server's form-urldecode", () => {
+      const decoded = atob(basic());
+      const separator = decoded.indexOf(":");
+      // `+` to space *before* percent-decoding, exactly as `test-servers`'
+      // `/oauth/revoke` now does. Written out here rather than imported so the
+      // assertion does not lean on the fixture it exists to corroborate.
+      const formUrlDecode = (v: string): string =>
+        decodeURIComponent(v.replace(/\+/g, "%20"));
+      expect(formUrlDecode(decoded.slice(0, separator))).toBe(id);
+      expect(formUrlDecode(decoded.slice(separator + 1))).toBe(secret);
+    });
+  });
+
   it("sends the secret in the body for client_secret_post", () => {
     const { init } = buildRevocationRequest({
       endpoint: REVOKE_URL,
@@ -291,7 +347,16 @@ describe("revokeToken", () => {
   // persisted client id or secret and makes `encodeURIComponent` throw. Every
   // caller has already cleared its local state by the time this runs, so a
   // rejection here would break the documented best-effort guarantee.
+  //
+  // The stub is a real `Response` rather than a bare `vi.fn()`: an unencodable
+  // credential must fail *before* the request goes out, and against a stub that
+  // returns nothing the assertion would hold either way — reading `.ok` off
+  // `undefined` throws into the same `catch`. Asserting the fetch was never
+  // called is what makes this about the encoder (#2222).
   it("reports an unencodable credential as failed rather than throwing", async () => {
+    const fetchFn = vi.fn<typeof fetch>(
+      async () => new Response(null, { status: 200 }),
+    );
     const outcome = await revokeToken({
       endpoint: REVOKE_URL,
       token: "r",
@@ -302,9 +367,10 @@ describe("revokeToken", () => {
         client_secret: `bad${String.fromCharCode(0xd800)}`,
       },
       supportedAuthMethods: ["client_secret_basic"],
-      fetchFn: vi.fn<typeof fetch>(),
+      fetchFn,
     });
 
+    expect(fetchFn).not.toHaveBeenCalled();
     expect(outcome).toMatchObject({ status: "failed", endpoint: REVOKE_URL });
   });
 
