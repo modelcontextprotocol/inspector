@@ -262,6 +262,20 @@ that from happening:
    ("how does the `@inspector/core` alias resolve?") invites a `Read`, which is
    a *better* answer than a skill. Good cases are "how do I / where does this go"
    questions whose answer is a procedure.
+   **A pointer from one skill's body to another is measured by a `chain` case,
+   not an `expect` one.** A first-move case can only observe the model's opening
+   tool call, so a skill reached only *through* another scores a clean 100% on
+   its direct cases while the hand-off silently never fires (#2204). A chained
+   case names the ordered skills one run should load, **ending with the skill
+   whose file it lives in** — so the file that goes red is the one belonging to
+   the skill that stopped being reached. It runs on a wider turn budget, is
+   scored against its own `CHAIN_THRESHOLD`, and is **reported in its own
+   column**: a hand-off rate and a first-move rate are not comparable, and
+   folding them together would move a headline everyone reads as trigger
+   reliability. It counts toward neither the five-positive floor nor the
+   negative requirement, and it is only worth writing where the first link's
+   body actually points at the target — a chain through a skill that says
+   nothing about it is a permanent 0% with no lever.
    ⚠️ **The gate cannot catch a description that never matches.** `verify:skills`
    checks that a skill is well-formed and that its cases exist; only
    `skills:eval` observes whether it actually fires, and that cannot be gated —

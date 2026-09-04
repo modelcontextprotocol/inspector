@@ -14,6 +14,17 @@ reachability — `npm run skills:eval` — reports a hit rate rather than a verd
 session** (`claude -p`), `RUNS` times, and scores the fraction of runs in which
 the `Skill` tool fired with the expected name.
 
+There are **two kinds of case**, measured against different turn budgets and
+reported in separate columns:
+
+| | asserts | budget | column |
+| --- | --- | --- | --- |
+| `"expect": "<skill>"` / `null` | the skill is (or is not) the model's **first move** | 1 turn | first-move |
+| `"chain": ["a", …, "<skill>"]` | loading `a` **leads to** loading this skill | `CHAIN_MAX_TURNS` (14) | hand-off, `CHAIN_THRESHOLD` 0.5 |
+
+Almost every case is the first kind, and the four properties below are about
+that kind. The hand-off case has its own section further down.
+
 Four properties of that harness drive everything below:
 
 - **`--max-turns 1`.** The skill must fire in the model's **first assistant
@@ -180,6 +191,86 @@ unrelated to the repo (arithmetic, trivia, a one-line refactor). All 18 in this
 repo have held at 100% through every reshaping so far — if one starts firing, a
 description has grown too broad.
 
+### Chained cases: measuring a hand-off
+
+A skill body may point at another skill — `testing` opens by telling the model
+that picking a fixture is `/test-servers` and that it has to load it, and
+because `test-servers` is model-invocable that pointer is live rather than a
+dead end. **Nothing in a first-move case can observe whether that pointer is
+ever taken.** `test-servers` scores 5/5 on its own cases and every one of them
+asks for it by name; a skill only ever reached _through_ another would score a
+clean 100% while the hand-off silently never fired (#2204).
+
+A chained case names the ordered skills one run should load:
+
+```json
+{
+  "prompt": "Write an integration test that exercises tool listing against a real server.",
+  "chain": ["testing", "test-servers"]
+}
+```
+
+**Write a chained case when the prompt names nothing about the target skill and
+the path to it runs through another skill.** Write an ordinary first-move case
+for everything else — a prompt someone would actually type to reach this skill
+directly is a first-move case even when a hand-off could also get there, and it
+is the cheaper measurement by an order of magnitude.
+
+Five rules the shape enforces, each for a reason worth knowing:
+
+- **The chain ends with the skill whose file it lives in.** The case exists to
+  measure whether _this_ skill is reachable, so the file that must go red when
+  the hand-off stops working is the one belonging to the skill that stops being
+  reached. Anchoring on the first link would file the `testing → test-servers`
+  measurement under `testing`, where a `test-servers` description edit would
+  never be seen.
+- **A chained case satisfies neither floor.** It is not one of the five
+  positives and it is not the negative. It measures a different thing, so
+  letting it stand in would let a skill ship with no measurement of the way
+  users actually reach it.
+- **The match is an ordered _subsequence_, not a prefix and not a contiguous
+  run.** The model may load something before the chain starts and something
+  unrelated in between; neither changes the claim that A led to B. What does not
+  score is the reverse order.
+- **Repeats and unknown links are rejected.** A repeated link cannot be
+  observed, and a link naming a skill the model cannot invoke can never fire —
+  it would score a permanent 0% that reads as a description problem.
+- **The two numbers never share a column.** A hand-off rate is a second-hop load
+  over many turns; a first-move rate is the model's opening move. Summing them
+  would produce a figure describing neither, and a handful of hand-off cases
+  would quietly move a headline everyone reads as trigger reliability.
+
+⚠️ **A chained case only measures a pointer that exists.** `pr-flow` says
+nothing about test fixtures, so a `["pr-flow", "test-servers"]` case measured 0%
+— correctly, and with no lever to fix it short of broadening a description onto
+another skill's ground. Before writing one, confirm the first link's body
+actually points at the target; otherwise the case is a permanent zero that reads
+as a description problem.
+
+⚠️ **A hand-off case is a measurement under the harness's tool policy, not a
+prediction about an unrestricted session.** `--max-turns 1` was doing much of
+the read-only containment on its own; a 14-turn budget removes that, so the deny
+list covers the agentic and network tools too (`Task` in particular, whose
+subagent the flag does not reach). Denying `Bash` also changes the path a run
+can take toward the second skill, since investigating a repo by hand often
+starts there. `Read`/`Glob`/`Grep` remain, which is enough to reach a hand-off.
+
+**A hand-off is far less reliable than a first move, and the threshold says so.**
+`CHAIN_THRESHOLD` defaults to **0.5**, not 0.8 — the weakest claim worth
+asserting is that the pointer is taken more often than not. The two committed
+`testing → test-servers` cases measure **67% and 33%** at `RUNS=3` against a
+pointer stated in the first paragraph of `testing`'s body. At 0.8 both would be
+red no matter how strongly the first skill pointed at the second, and the column
+would stop carrying signal; at 0.5 the difference between them is the signal.
+Read a hand-off number as a description-strength measurement, not a verdict —
+and read it at `RUNS=5`, since at `RUNS=3` one sample is worth 33 points and
+these two are one sample apart.
+
+⚠️ **Expect a hand-off to cost far more than a first move.** Each sample is up
+to 14 turns rather than one, so a chained case is the most expensive line in the
+suite by a wide margin — the two above take longer between them than all seven
+first-move cases.
+
 ## The tuning loop
 
 **Probe first, then measure.** A full suite run is ~63 cases × `RUNS` sessions
@@ -211,6 +302,14 @@ npm run skills:eval                              # every model-invoked skill, RU
 RUNS=5 CONCURRENCY=6 npm run skills:eval
 npm run skills:eval -- testing                   # one skill's cases
 npm run skills:eval -- testing test-servers      # a set of skills
+CHAIN_THRESHOLD=0.4 CHAIN_MAX_TURNS=20 npm run skills:eval -- test-servers
+```
+
+The summary is two lines, never one:
+
+```
+7/7 first-move cases at or above 80%.
+1/2 hand-off cases at or above 50%.
 ```
 
 Narrowing the run never narrows what a **negative** case is scored against — a
@@ -257,6 +356,12 @@ break.
    prompts do not steady any rate (`RUNS` is the knob for that). Five prompts
    cover five ways someone might arrive at the skill, which is what catches a
    description that fires on one narrow phrasing and nothing else.
-5. `npm run verify:skills` passes and the listing is under budget.
-6. `RUNS=5 npm run skills:eval` — the **whole** suite — is ≥80% on every case,
-   including the skills you did not touch.
+5. **If this skill is meant to be reachable from another skill's body**, that
+   hand-off has a `chain` case — a pointer between skills is otherwise measured
+   by nothing at all, and a skill reached only that way scores a clean 100% on
+   direct cases while the hand-off never fires. It does not count toward the
+   floor in 4.
+6. `npm run verify:skills` passes and the listing is under budget.
+7. `RUNS=5 npm run skills:eval` — the **whole** suite — is ≥80% on every
+   first-move case, including the skills you did not touch, and the hand-off
+   column is read on its own rather than against that number.
