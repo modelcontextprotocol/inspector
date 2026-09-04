@@ -405,13 +405,20 @@ export function useOAuthRecovery({
     }
     let cancelled = false;
 
+    // Reads are concurrent — an `oauthComplete` can start a second one while
+    // the first is still in flight — and nothing makes them settle in order.
+    // Only the newest read may write, so a slow earlier one cannot overwrite
+    // (or, on rejection, clear) a newer result.
+    let latest = 0;
+
     const refresh = (): void => {
+      const seq = ++latest;
       // void: a synchronous useEffect body cannot await. The chain is
       // terminated below, so the rejection is handled rather than discarded.
       void inspectorClient
         .getOAuthState()
         .then((state) => {
-          if (cancelled) return;
+          if (cancelled || seq !== latest) return;
           setConnectionInfoOAuthWhenConnected(
             state ? oauthDetailsFromConnectionState(state) : undefined,
           );
@@ -420,7 +427,7 @@ export function useOAuthRecovery({
           // The read failed (backend down, 401 on the API token, malformed
           // stored state). Clear rather than keep the last successful read —
           // a stale answer is indistinguishable from a fresh one in the panel.
-          if (cancelled) return;
+          if (cancelled || seq !== latest) return;
           setConnectionInfoOAuthWhenConnected(undefined);
         });
     };

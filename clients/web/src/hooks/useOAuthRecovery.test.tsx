@@ -393,52 +393,85 @@ describe("useOAuthRecovery", () => {
       expect(h.api().connectionInfoOAuth).toBeUndefined();
     });
 
-    it("clears the details when the state read rejects", async () => {
-      const client = fakeClient({
-        getOAuthState: vi.fn().mockRejectedValue(new Error("backend down")),
-      });
-      const props: HarnessProps = {
-        servers: [entry("a")],
-        activeServerId: "a",
-        client,
-      };
-      const h = harness(props);
-      await waitFor(() => expect(client.getOAuthState).toHaveBeenCalled());
-      expect(h.api().connectionInfoOAuth).toBeUndefined();
+    it("clears already-loaded details when a refresh read rejects", async () => {
+      let read: () => Promise<unknown> = () =>
+        Promise.resolve({ tokens: { access_token: "t" } });
+      const client = fakeClient({ getOAuthState: vi.fn(() => read()) });
+      const h = harness({ servers: [entry("a")], activeServerId: "a", client });
+      await waitFor(() => expect(h.api().connectionInfoOAuth).toBeDefined());
 
-      // The rejection is terminated, not floated: a later resolving read still
-      // populates the panel, which an unhandled rejection would have prevented
-      // by failing the run.
-      client.getOAuthState = vi
-        .fn()
-        .mockResolvedValue({ tokens: { access_token: "t" } });
+      // The panel reports the *current* state, so a failed read must clear the
+      // details it already holds rather than leave a stale answer on screen.
+      read = () => Promise.reject(new Error("backend down"));
+      await act(async () => {
+        client.emit("oauthComplete", {});
+      });
+      await waitFor(() => expect(h.api().connectionInfoOAuth).toBeUndefined());
+    });
+
+    it("ignores an earlier read that rejects after a newer one succeeded", async () => {
+      let failFirst: (reason: unknown) => void = () => {};
+      let call = 0;
+      const client = fakeClient({
+        getOAuthState: vi.fn((): Promise<unknown> => {
+          call += 1;
+          if (call === 1) {
+            return new Promise((_resolve, reject) => {
+              failFirst = reject;
+            });
+          }
+          return Promise.resolve({ tokens: { access_token: "t" } });
+        }),
+      });
+      const h = harness({ servers: [entry("a")], activeServerId: "a", client });
+      await waitFor(() =>
+        expect(client.getOAuthState).toHaveBeenCalledTimes(1),
+      );
+
       await act(async () => {
         client.emit("oauthComplete", {});
       });
       await waitFor(() => expect(h.api().connectionInfoOAuth).toBeDefined());
+
+      // The stale read settles last. Without the sequence guard its catch
+      // would clear the newer read's result.
+      await act(async () => {
+        failFirst(new Error("backend down"));
+      });
+      expect(h.api().connectionInfoOAuth).toBeDefined();
     });
 
-    it("drops a rejected state read that lands after the session ended", async () => {
-      let fail: (reason: unknown) => void = () => {};
-      const client = fakeClient({
+    it("drops a rejected read that lands after the client was replaced", async () => {
+      let failStale: (reason: unknown) => void = () => {};
+      const stale = fakeClient({
         getOAuthState: vi.fn(
           () =>
             new Promise((_resolve, reject) => {
-              fail = reject;
+              failStale = reject;
             }),
         ),
       });
       const props: HarnessProps = {
         servers: [entry("a")],
         activeServerId: "a",
-        client,
+        client: stale,
       };
       const h = harness(props);
-      h.rerender({ ...props, connectionStatus: "disconnected" });
-      await act(async () => {
-        fail(new Error("backend down"));
+      await waitFor(() => expect(stale.getOAuthState).toHaveBeenCalled());
+
+      // Reconnect. The new client's details are what the panel must keep.
+      const fresh = fakeClient({
+        getOAuthState: vi
+          .fn()
+          .mockResolvedValue({ tokens: { access_token: "t" } }),
       });
-      expect(h.api().connectionInfoOAuth).toBeUndefined();
+      h.rerender({ ...props, client: fresh });
+      await waitFor(() => expect(h.api().connectionInfoOAuth).toBeDefined());
+
+      await act(async () => {
+        failStale(new Error("backend down"));
+      });
+      expect(h.api().connectionInfoOAuth).toBeDefined();
     });
 
     it("drops a state read that lands after the session ended", async () => {
