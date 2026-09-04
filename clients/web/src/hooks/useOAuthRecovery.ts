@@ -317,6 +317,19 @@ export function useOAuthRecovery({
   useEffect(() => {
     sessionRef.current.pendingStepUp = pendingStepUp;
     sessionRef.current.pendingReauth = pendingReauth;
+    // The retry belongs to the prompt, so it dies with it. Every arm that
+    // dismisses a prompt deliberately drops the retry inline — but the two
+    // that clear the slot as a *consequence* of something else (the
+    // server-switch reset below, and `resetOAuthRecoveryState` on disconnect)
+    // would otherwise leave it installed, and the next prompt to open without
+    // one of its own would inherit it: authorizing an ambient step-up on
+    // server B would run the command server A was left mid-way through
+    // (Copilot on #2237). Clearing it here covers both without any of them
+    // having to remember. It is a ref write in an effect, which is where a ref
+    // write belongs — the render-phase reset above must stay pure.
+    if (pendingStepUp === null) {
+      pendingStepUpRetryRef.current = null;
+    }
   });
 
   // Both slots are server-scoped, so switching servers has to clear whichever
