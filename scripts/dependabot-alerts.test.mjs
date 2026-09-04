@@ -15,6 +15,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import {
+  advisoryKey,
   parseClearedDate,
   SUPPORTED_ECOSYSTEM,
   PRIORITY_FIELD_ID,
@@ -1486,7 +1487,7 @@ test("a cleared issue is not re-edited on a LATER day", () => {
   assert.equal(ghCall(spawn, "edit"), undefined);
 });
 
-test("a cleared issue keeps its original date when its reason changes", () => {
+test("a cleared issue takes the new date when its reason changes", () => {
   // A real change still gets one edit — and takes the new date, since the state
   // genuinely changed on that day.
   const cleared = buildClearedBody(
@@ -1561,6 +1562,61 @@ test("main does not clear an issue when the lockfile cannot be parsed", () => {
         l.includes("could not be parsed") && l.includes("WITHOUT clearing"),
     ),
     `expected a parse-failure line, got: ${log.join(" | ")}`,
+  );
+});
+
+test("advisoryKey distinguishes the same GHSA in different manifests", () => {
+  assert.notEqual(
+    advisoryKey("fast-uri", "package-lock.json", "GHSA-a"),
+    advisoryKey("fast-uri", "clients/tui/package-lock.json", "GHSA-a"),
+  );
+});
+
+test("another manifest's alert cannot vouch for this one when clearing", () => {
+  // The same GHSA legitimately covers the root install and a client's. Here the
+  // ROOT alert lost its patched version while the TUI one is still filable —
+  // keying on the GHSA alone would let the TUI group vouch for the root issue
+  // and clear it, even though the root alert is open with no bump available.
+  const [rootFiled] = groupAlerts([alert({ ghsa: "GHSA-a" })]);
+  const rootUnpatched = alert({ ghsa: "GHSA-a" });
+  rootUnpatched.security_vulnerability.first_patched_version = null;
+
+  const spawn = fakeSpawn({
+    alertPages: [
+      [
+        rootUnpatched,
+        alert({
+          ghsa: "GHSA-a",
+          manifest: "clients/tui/package-lock.json",
+          range: "< 3.1.6",
+        }),
+      ],
+    ],
+    issues: [
+      {
+        number: 41,
+        title: buildIssueTitle(rootFiled),
+        body: buildIssueBody(rootFiled, asInstalled()),
+      },
+    ],
+  });
+  const log = inTempRepo(
+    {
+      "package-lock.json": lockWith("fast-uri", "3.1.5"),
+      "clients/tui/package-lock.json": lockWith("fast-uri", "3.1.5"),
+    },
+    () =>
+      withoutProjectToken(() =>
+        captureLog(() => main("o/r", spawn, "2026-09-04")),
+      ),
+  );
+
+  // The TUI bump is filed; the root issue is left alone, not cleared.
+  assert.ok(ghCall(spawn, "create"));
+  assert.equal(ghCall(spawn, "edit"), undefined);
+  assert.ok(
+    log.some((l) => l.includes("#41 left as is")),
+    `expected the root issue left as is, got: ${log.join(" | ")}`,
   );
 });
 

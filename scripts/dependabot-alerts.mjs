@@ -265,6 +265,22 @@ export function groupKey(pkg, manifestPath, fixedIn) {
 }
 
 /**
+ * One advisory as it applies to one manifest.
+ *
+ * ⚠️ A GHSA alone is not enough. Dependabot alerts are per MANIFEST, and this
+ * repo has five lockfiles — so the same advisory legitimately appears for the
+ * root install and for a client. Keying reconciliation on the GHSA alone lets
+ * another manifest's still-filable alert vouch for this one, and an issue whose
+ * own alert lost its patched version would be cleared on the strength of a
+ * different lockfile's alert (Copilot).
+ *
+ * @returns {string}
+ */
+export function advisoryKey(pkg, manifestPath, ghsa) {
+  return JSON.stringify([pkg, manifestPath, ghsa]);
+}
+
+/**
  * Collapse per-advisory alerts into one entry per BUMP.
  *
  * Grouped by `(package, manifest_path, first_patched_version)`: that triple is
@@ -1100,7 +1116,8 @@ export function main(
   /** Grouping keys this run actually saw in the open feed. */
   const seenKeys = new Set();
   /**
-   * Every GHSA still open, taken from the RAW feed rather than from `groups`.
+   * Every open `(package, manifest, GHSA)`, taken from the RAW feed rather
+   * than from `groups`.
    *
    * ⚠️ `groupAlerts` deliberately drops an alert with no `first_patched_version`
    * — there is nothing to bump to, so nothing to file. Building this set from
@@ -1110,12 +1127,29 @@ export function main(
    * direction as the superseded case, reached a different way: what a still-open
    * advisory must never do is stand itself down.
    */
-  /** GHSAs that made it into a group, i.e. ones this sweep can actually file. */
-  const filableGhsas = new Set(groups.flatMap((g) => g.ghsas));
-  const openGhsas = new Set(
+  /**
+   * `(package, manifest, GHSA)` tuples that made it into a group — the ones
+   * this sweep can actually file a bump for.
+   */
+  const filableAdvisories = new Set(
+    groups.flatMap((g) =>
+      g.ghsas.map((ghsa) => advisoryKey(g.package, g.manifestPath, ghsa)),
+    ),
+  );
+  const openAdvisories = new Set(
     alerts
       .filter((a) => a.state === "open")
-      .map((a) => a.security_advisory?.ghsa_id)
+      .map((a) =>
+        a.dependency?.package?.name &&
+        a.dependency?.manifest_path &&
+        a.security_advisory?.ghsa_id
+          ? advisoryKey(
+              a.dependency.package.name,
+              a.dependency.manifest_path,
+              a.security_advisory.ghsa_id,
+            )
+          : null,
+      )
       .filter(Boolean),
   );
 
@@ -1299,7 +1333,11 @@ export function main(
     // while the GHSA stays open — reporting that as "fixed or dismissed" would
     // stand down a live exposure (Copilot). So the reason is decided by whether
     // the GHSAs are still in the open feed, not by the key's absence.
-    const stillOpen = issue.marker.ghsas.filter((g) => openGhsas.has(g));
+    const key3 = (ghsa) =>
+      advisoryKey(issue.marker.package, issue.marker.manifestPath, ghsa);
+    const stillOpen = issue.marker.ghsas.filter((g) =>
+      openAdvisories.has(key3(g)),
+    );
 
     // ⚠️ Three states, not two. An advisory can be open and yet absent from
     // every group, because `groupAlerts` drops one with no
@@ -1307,7 +1345,7 @@ export function main(
     // has NO replacement issue, so calling it "superseded" would be false and
     // clearing it would stand down a live exposure with nothing tracking it
     // (Copilot). Leave the issue exactly as it is and say so.
-    const unpatched = stillOpen.filter((g) => !filableGhsas.has(g));
+    const unpatched = stillOpen.filter((g) => !filableAdvisories.has(key3(g)));
     if (unpatched.length > 0) {
       console.log(
         `dependabot-alerts: #${issue.number} left as is — ${unpatched.join(", ")} ${unpatched.length === 1 ? "is" : "are"} still open with no patched version to bump to`,
