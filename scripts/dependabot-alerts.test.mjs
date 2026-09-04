@@ -16,6 +16,8 @@ import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import {
   buildCommentMarker,
+  lockfileEntries,
+  remediation,
   buildIssueBody,
   buildIssueTitle,
   buildMarker,
@@ -248,6 +250,19 @@ test("mergeGhsas reports nothing added when the issue already covers them", () =
   });
 });
 
+/** The probe shape `buildIssueBody` takes: one vulnerable copy, nested by default. */
+const nested = (
+  version = "3.1.5",
+  path = "node_modules/ajv/node_modules/fast-uri",
+) => ({
+  affected: [{ path, version, hoisted: false }],
+  declared: false,
+});
+const hoisted = (version = "3.1.5") => ({
+  affected: [{ path: "node_modules/fast-uri", version, hoisted: true }],
+  declared: true,
+});
+
 test("buildIssueTitle names the bump and pluralizes the advisory count", () => {
   const [many] = groupAlerts([
     alert({ ghsa: "GHSA-a" }),
@@ -269,10 +284,10 @@ test("buildIssueBody leads with the marker and asks for an overrides pin when tr
     alert({ ghsa: "GHSA-a", cve: "CVE-2026-1" }),
     alert({ ghsa: "GHSA-b" }),
   ]);
-  const body = buildIssueBody(group, { installed: ["3.1.5"], direct: false });
+  const body = buildIssueBody(group, nested());
 
   assert.ok(body.startsWith(buildMarker(group)));
-  assert.match(body, /\| Installed on `v2\/main` \| `3\.1\.5` \|/);
+  assert.match(body, /\| Vulnerable on `v2\/main` \| `3\.1\.5` \|/);
   assert.match(body, /\| Fixed in \| `3\.1\.6` \|/);
   assert.match(body, /GHSA-a/);
   assert.match(body, /CVE-2026-1/);
@@ -282,18 +297,108 @@ test("buildIssueBody leads with the marker and asks for an overrides pin when tr
 
 test("buildIssueBody asks a direct dependency's range to be raised, not widened", () => {
   const [group] = groupAlerts([alert({ ghsa: "GHSA-a" })]);
-  const body = buildIssueBody(group, { installed: ["3.1.5"], direct: true });
-  assert.match(body, /\*\*direct\*\* dependency of `package\.json`/);
+  const body = buildIssueBody(group, hoisted());
+  assert.match(body, /Raise the declared range in `package\.json`/);
   assert.match(body, /can no longer resolve below `3\.1\.6`/);
   // Prescribing `>=3.1.6` would throw away the manifest's compatibility bound.
   assert.doesNotMatch(body, /range to `>=/);
+  assert.doesNotMatch(body, /overrides/);
+});
+
+test("remediation reads the vulnerable copies, not the declaration", () => {
+  const declaredSafe = [
+    {
+      path: "node_modules/ajv/node_modules/fast-uri",
+      version: "3.1.5",
+      hoisted: false,
+    },
+  ];
+  // The manifest declares `fast-uri`, but the copy in range is a nested one:
+  // raising the declared range would change nothing at all.
+  assert.deepEqual(remediation(declaredSafe, true), {
+    direct: false,
+    transitive: true,
+  });
+  assert.deepEqual(
+    remediation(
+      [{ path: "node_modules/fast-uri", version: "3.1.5", hoisted: true }],
+      true,
+    ),
+    { direct: true, transitive: false },
+  );
+  // An undeclared hoisted copy got there transitively like any other, so it
+  // needs the override — "hoisted" is not a synonym for "declared".
+  assert.deepEqual(
+    remediation(
+      [{ path: "node_modules/fast-uri", version: "3.1.5", hoisted: true }],
+      false,
+    ),
+    { direct: false, transitive: true },
+  );
+});
+
+test("buildIssueBody asks for BOTH edits when declared and nested copies are vulnerable", () => {
+  const [group] = groupAlerts([alert({ ghsa: "GHSA-a" })]);
+  const body = buildIssueBody(group, {
+    declared: true,
+    affected: [
+      { path: "node_modules/fast-uri", version: "3.1.5", hoisted: true },
+      {
+        path: "node_modules/ajv/node_modules/fast-uri",
+        version: "3.0.1",
+        hoisted: false,
+      },
+    ],
+  });
+  assert.match(body, /Both edits are needed/);
+  assert.match(body, /1\. \*\*Raise the declared range/);
+  assert.match(body, /2\. \*\*Add an \[`overrides`\]/);
+  // The table names the copies, so the maintainer can see why.
+  assert.match(
+    body,
+    /\| `node_modules\/ajv\/node_modules\/fast-uri` \| `3\.0\.1` \|/,
+  );
+});
+
+test("buildIssueBody asks only for an override when the declared copy is safe", () => {
+  const [group] = groupAlerts([alert({ ghsa: "GHSA-a" })]);
+  // A valid lock: safe declared fast-uri@4, vulnerable nested fast-uri@3.1.5.
+  const body = buildIssueBody(group, {
+    declared: true,
+    affected: [
+      {
+        path: "node_modules/ajv/node_modules/fast-uri",
+        version: "3.1.5",
+        hoisted: false,
+      },
+    ],
+  });
+  assert.doesNotMatch(body, /Raise the declared range/);
+  assert.match(body, /Add an \[`overrides`\]/);
+});
+
+test("lockfileEntries keeps each copy's path and marks the hoisted one", () => {
+  const lock = {
+    packages: {
+      "": { dependencies: { "fast-uri": "^4.0.0" } },
+      "node_modules/fast-uri": { version: "4.0.0" },
+      "node_modules/ajv/node_modules/fast-uri": { version: "3.1.5" },
+    },
+  };
+  assert.deepEqual(lockfileEntries(lock, "fast-uri"), [
+    {
+      path: "node_modules/ajv/node_modules/fast-uri",
+      version: "3.1.5",
+      hoisted: false,
+    },
+    { path: "node_modules/fast-uri", version: "4.0.0", hoisted: true },
+  ]);
 });
 
 test("buildIssueBody honors an overridden GHSA list when rewriting an issue", () => {
   const [group] = groupAlerts([alert({ ghsa: "GHSA-a" })]);
   const body = buildIssueBody(group, {
-    installed: ["3.1.5"],
-    direct: false,
+    ...nested(),
     ghsas: ["GHSA-a", "GHSA-old"],
   });
   assert.deepEqual(parseMarker(body).ghsas, ["GHSA-a", "GHSA-old"]);
@@ -523,7 +628,7 @@ test("main is a complete no-op on a second run", () => {
     issues: [
       {
         number: 41,
-        body: buildIssueBody(group, { installed: ["3.1.5"], direct: false }),
+        body: buildIssueBody(group, nested()),
       },
     ],
   });
@@ -545,7 +650,7 @@ test("main will not update an issue whose bump differs, even for the same packag
     issues: [
       {
         number: 41,
-        body: buildIssueBody(old, { installed: ["3.1.5"], direct: false }),
+        body: buildIssueBody(old, nested()),
       },
     ],
   });
@@ -563,7 +668,7 @@ test("main comments a new advisory BEFORE rewriting the marker", () => {
     issues: [
       {
         number: 41,
-        body: buildIssueBody(old, { installed: ["3.1.5"], direct: false }),
+        body: buildIssueBody(old, nested()),
       },
     ],
   });
@@ -598,7 +703,7 @@ test("main does not repeat a comment it already posted", () => {
     issues: [
       {
         number: 41,
-        body: buildIssueBody(old, { installed: ["3.1.5"], direct: false }),
+        body: buildIssueBody(old, nested()),
       },
     ],
     comments: [{ body: `${buildCommentMarker(["GHSA-b"])}\nsaid already` }],
@@ -627,7 +732,7 @@ test("main announces only the advisories no comment has claimed yet", () => {
     issues: [
       {
         number: 41,
-        body: buildIssueBody(old, { installed: ["3.1.5"], direct: false }),
+        body: buildIssueBody(old, nested()),
       },
     ],
     comments: [{ body: `${buildCommentMarker(["GHSA-b"])}\nannounced b` }],
@@ -650,7 +755,7 @@ test("main refreshes the title when an issue grows another advisory", () => {
     issues: [
       {
         number: 41,
-        body: buildIssueBody(old, { installed: ["3.1.5"], direct: false }),
+        body: buildIssueBody(old, nested()),
       },
     ],
   });

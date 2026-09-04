@@ -166,33 +166,58 @@ export function toSemverRange(range) {
 }
 
 /**
- * Every version of `pkg` installed anywhere in an npm lockfile.
+ * Every installed copy of `pkg` in an npm lockfile, with its tree path.
  *
- * A transitive package can legitimately appear more than once (a nested
- * `node_modules/x/node_modules/y`), and the alert applies if ANY copy is in
- * range, so this returns them all rather than picking one.
+ * A package can legitimately appear more than once — a hoisted
+ * `node_modules/x` plus one or more nested `node_modules/y/node_modules/x` —
+ * and the copies can be at DIFFERENT versions. The path is kept rather than
+ * just the version because it is what distinguishes the copy the manifest
+ * declares from a copy some dependency dragged in, and the fix for those two
+ * is not the same (Copilot).
+ *
+ * @param {object} lock parsed `package-lock.json` (lockfileVersion 2 or 3)
+ * @param {string} pkg
+ * @returns {Array<{path: string, version: string, hoisted: boolean}>} sorted by version
+ */
+export function lockfileEntries(lock, pkg) {
+  const hoistedPath = `node_modules/${pkg}`;
+  const entries = [];
+  for (const [path, entry] of Object.entries(lock.packages ?? {})) {
+    if (path !== hoistedPath && !path.endsWith(`/${hoistedPath}`)) continue;
+    if (!entry?.version) continue;
+    entries.push({
+      path,
+      version: entry.version,
+      hoisted: path === hoistedPath,
+    });
+  }
+  return entries.sort(
+    (a, b) =>
+      semver.compare(a.version, b.version) || a.path.localeCompare(b.path),
+  );
+}
+
+/**
+ * Every version of `pkg` installed anywhere in an npm lockfile.
  *
  * @param {object} lock parsed `package-lock.json` (lockfileVersion 2 or 3)
  * @param {string} pkg
  * @returns {string[]} sorted, deduped
  */
 export function lockfileVersions(lock, pkg) {
-  const suffix = `node_modules/${pkg}`;
-  const versions = new Set();
-  for (const [path, entry] of Object.entries(lock.packages ?? {})) {
-    if (path !== suffix && !path.endsWith(`/${suffix}`)) continue;
-    if (entry?.version) versions.add(entry.version);
-  }
-  return [...versions].sort(semver.compare);
+  return [...new Set(lockfileEntries(lock, pkg).map((e) => e.version))].sort(
+    semver.compare,
+  );
 }
 
 /**
  * Is `pkg` declared by the manifest itself, rather than pulled in transitively?
  *
- * Decides which fix the issue asks for: a direct dependency is a plain version
- * bump, a transitive one is an `overrides` entry per AGENTS.md's Dependency
- * placement — never `npm audit fix`, which "resolves" an advisory with no
- * upward escape by silently downgrading.
+ * ⚠️ Being declared is NOT by itself the question the issue needs answered —
+ * see `remediation` below. A manifest can declare a safe `pkg@^4` while some
+ * dependency drags a vulnerable `pkg@3` into a nested folder, and telling the
+ * maintainer to raise an already-safe range would leave the vulnerable copy
+ * exactly where it is (Copilot).
  *
  * @param {object} lock parsed `package-lock.json`
  * @param {string} pkg
@@ -298,13 +323,45 @@ const PLACEMENT_DOC =
   "https://github.com/modelcontextprotocol/inspector/blob/v2/main/AGENTS.md#dependency-placement";
 
 /**
+ * What the maintainer actually has to change, derived from WHICH copies are
+ * vulnerable rather than from whether the package is declared.
+ *
+ * The three cases are genuinely different edits, and the mixed one is why this
+ * is not a boolean (Copilot):
+ *
+ * | vulnerable copies | fix |
+ * | --- | --- |
+ * | the declared (hoisted) one | raise the declared range |
+ * | nested ones only | an `overrides` pin |
+ * | both | both, and neither alone is enough |
+ *
+ * A manifest declaring a safe `pkg@^4` alongside a dependency that drags in a
+ * vulnerable nested `pkg@3` lands in the middle row: the declared range is
+ * already correct, and raising it changes nothing.
+ *
+ * @param {Array<{path: string, version: string, hoisted: boolean}>} affected
+ * @param {boolean} declared whether the manifest declares the package
+ * @returns {{direct: boolean, transitive: boolean}}
+ */
+export function remediation(affected, declared) {
+  const isDeclaredCopy = (entry) => declared && entry.hoisted;
+  return {
+    direct: affected.some(isDeclaredCopy),
+    // Everything that is NOT the declared copy needs the override — nested
+    // copies, and also a hoisted copy of a package this manifest never
+    // declared, which got there transitively like any other.
+    transitive: affected.some((entry) => !isDeclaredCopy(entry)),
+  };
+}
+
+/**
  * @param {ReturnType<typeof groupAlerts>[number]} group
- * @param {{installed: string[], direct: boolean, ghsas?: string[]}} probe
+ * @param {{affected: Array<{path: string, version: string, hoisted: boolean}>, declared: boolean, ghsas?: string[]}} probe
  *   `ghsas` overrides the marker's list when an existing issue is being
  *   rewritten to cover advisories it did not originally name.
  * @returns {string}
  */
-export function buildIssueBody(group, { installed, direct, ghsas }) {
+export function buildIssueBody(group, { affected, declared, ghsas }) {
   const covered = ghsas ?? group.ghsas;
   const rows = group.advisories
     .map(
@@ -313,9 +370,35 @@ export function buildIssueBody(group, { installed, direct, ghsas }) {
     )
     .join("\n");
 
-  const fix = direct
-    ? `\`${group.package}\` is a **direct** dependency of \`${group.manifestPath.replace(/package-lock\.json$/, "package.json")}\` — raise its declared range so it can no longer resolve below \`${group.fixedIn}\`, keeping the operator the manifest already uses. Widening it to a bare \`>=\` would drop the compatibility bound with it (Copilot).`
-    : `\`${group.package}\` is **transitive**, so the fix is an [\`overrides\`](${PLACEMENT_DOC}) entry pinning it to \`${group.fixedIn}\` — **not** \`npm audit fix\`, which "resolves" an advisory with no upward escape by silently downgrading.`;
+  const manifestJson = group.manifestPath.replace(
+    /package-lock\.json$/,
+    "package.json",
+  );
+  const { direct, transitive } = remediation(affected, declared);
+  const steps = [];
+  if (direct) {
+    steps.push(
+      `**Raise the declared range in \`${manifestJson}\`** so \`${group.package}\` can no longer resolve below \`${group.fixedIn}\`, keeping the operator the manifest already uses — widening it to a bare \`>=\` would drop the compatibility bound with it.`,
+    );
+  }
+  if (transitive) {
+    steps.push(
+      `**Add an [\`overrides\`](${PLACEMENT_DOC}) entry** pinning \`${group.package}\` to \`${group.fixedIn}\`, for the ${direct ? "nested copies below, which the declared range does not reach" : "copies below, which no declared range reaches"}. **Not** \`npm audit fix\`, which "resolves" an advisory with no upward escape by silently downgrading.`,
+    );
+  }
+  const fix = [
+    ...(steps.length === 2
+      ? [
+          "Both edits are needed; neither alone clears every vulnerable copy.",
+          "",
+        ]
+      : []),
+    ...steps.map((step, i) => (steps.length > 1 ? `${i + 1}. ${step}` : step)),
+    "",
+    "| Vulnerable copy | Version |",
+    "| --- | --- |",
+    ...affected.map((e) => `| \`${e.path}\` | \`${e.version}\` |`),
+  ].join("\n");
 
   return [
     buildMarker({ ...group, ghsas: covered }),
@@ -325,7 +408,7 @@ export function buildIssueBody(group, { installed, direct, ghsas }) {
     "| --- | --- |",
     `| Package | \`${group.package}\` |`,
     `| Manifest | \`${group.manifestPath}\` |`,
-    `| Installed on \`v2/main\` | ${installed.length > 0 ? installed.map((v) => `\`${v}\``).join(", ") : "—"} |`,
+    `| Vulnerable on \`${TARGET_BRANCH}\` | ${[...new Set(affected.map((e) => e.version))].map((v) => `\`${v}\``).join(", ") || "—"} |`,
     `| Fixed in | \`${group.fixedIn}\` |`,
     `| Scope | ${group.scope} |`,
     `| Highest severity | ${group.severity} |`,
@@ -745,20 +828,21 @@ export function main(repo = process.env.GITHUB_REPOSITORY, spawn = spawnSync) {
       continue;
     }
 
-    const installed = lockfileVersions(lock, group.package);
-    const affected = installed.filter((version) =>
+    const entries = lockfileEntries(lock, group.package);
+    const affected = entries.filter((entry) =>
       group.advisories.some((a) =>
-        semver.satisfies(version, toSemverRange(a.range)),
+        semver.satisfies(entry.version, toSemverRange(a.range)),
       ),
     );
     if (affected.length === 0) {
+      const seen = [...new Set(entries.map((e) => e.version))];
       console.log(
-        `dependabot-alerts: ${group.package}@${installed.join("/") || "(absent)"} is already out of range on ${TARGET_BRANCH} — skipping`,
+        `dependabot-alerts: ${group.package}@${seen.join("/") || "(absent)"} is already out of range on ${TARGET_BRANCH} — skipping`,
       );
       continue;
     }
 
-    const direct = isDirectDependency(lock, group.package);
+    const declared = isDirectDependency(lock, group.package);
     // Matched on the full grouping key, `fixedIn` included: a second bump of
     // the same package is a different issue, not an update to this one.
     const existing = existingIssues.find(
@@ -772,7 +856,7 @@ export function main(repo = process.env.GITHUB_REPOSITORY, spawn = spawnSync) {
       const { url, milestone } = createIssue(
         repo,
         group,
-        buildIssueBody(group, { installed: affected, direct }),
+        buildIssueBody(group, { affected, declared }),
         spawn,
       );
       // `Incoming` <=> no milestone, everything past it <=> milestoned. With no
@@ -833,7 +917,7 @@ export function main(repo = process.env.GITHUB_REPOSITORY, spawn = spawnSync) {
       "--title",
       buildIssueTitle(group, merged.length),
       "--body",
-      buildIssueBody(group, { installed: affected, direct, ghsas: merged }),
+      buildIssueBody(group, { affected, declared, ghsas: merged }),
     ]);
     if (edit.status !== 0) {
       throw new Error(`gh issue edit failed: ${(edit.stderr ?? "").trim()}`);
