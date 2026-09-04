@@ -1128,14 +1128,31 @@ export function main(
    * advisory must never do is stand itself down.
    */
   /**
-   * `(package, manifest, GHSA)` tuples that made it into a group — the ones
-   * this sweep can actually file a bump for.
+   * What this run actually established about each `(package, manifest, GHSA)`.
+   *
+   * ⚠️ Recorded DURING the loop, not derived from `groups` beforehand. Being in
+   * a group only means an alert exists; whether an issue tracks it is decided
+   * by the ecosystem check, the manifest read and the range probe that follow
+   * (Copilot). Reading "is it in a group?" as "does it have an issue?" would
+   * clear an old issue as superseded while its replacement was skipped.
+   *
+   * - `tracked` — an issue for it exists after this run.
+   * - `not-exposed` — probed, and nothing installed is in range.
+   * - `indeterminate` — could not be probed at all this run.
+   *
+   * Absent means no group carried it, i.e. no bump is available for it.
+   *
+   * @type {Map<string, "tracked" | "not-exposed" | "indeterminate">}
    */
-  const filableAdvisories = new Set(
-    groups.flatMap((g) =>
-      g.ghsas.map((ghsa) => advisoryKey(g.package, g.manifestPath, ghsa)),
-    ),
-  );
+  const disposition = new Map();
+  const note = (group, ghsas, value) => {
+    for (const ghsa of ghsas) {
+      disposition.set(
+        advisoryKey(group.package, group.manifestPath, ghsa),
+        value,
+      );
+    }
+  };
   const openAdvisories = new Set(
     alerts
       .filter((a) => a.state === "open")
@@ -1161,6 +1178,7 @@ export function main(
       console.log(
         `dependabot-alerts: ${rawGroup.package} (${rawGroup.ecosystem}, ${rawGroup.manifestPath}) is not an npm dependency — this sweep cannot file it, raise it by hand: ${rawGroup.ghsas.join(", ")}`,
       );
+      note(rawGroup, rawGroup.ghsas, "indeterminate");
       continue;
     }
 
@@ -1193,12 +1211,14 @@ export function main(
       console.log(
         `dependabot-alerts: ${rawGroup.manifestPath} could not be parsed as an npm lockfile — skipping ${rawGroup.package} WITHOUT clearing its issue`,
       );
+      note(rawGroup, rawGroup.ghsas, "indeterminate");
       continue;
     }
     if (manifest.absent) {
       console.log(
         `dependabot-alerts: ${rawGroup.manifestPath} absent on ${TARGET_BRANCH} — skipping ${rawGroup.package}`,
       );
+      note(rawGroup, rawGroup.ghsas, "not-exposed");
       clear(`\`${rawGroup.manifestPath}\` is no longer part of this repo`);
       continue;
     }
@@ -1211,6 +1231,7 @@ export function main(
       console.log(
         `dependabot-alerts: ${rawGroup.package}@${seen.join("/") || "(absent)"} is already out of range on ${TARGET_BRANCH} — skipping`,
       );
+      note(rawGroup, rawGroup.ghsas, "not-exposed");
       clear(
         seen.length > 0
           ? `every installed copy is out of range (${seen.map((v) => `\`${v}\``).join(", ")})`
@@ -1221,6 +1242,14 @@ export function main(
     // From here on `group` carries only the advisories that apply to this
     // branch, so the marker, title, severity and table cannot overstate it.
     const { group, affected } = applicable;
+    // The narrowing dropped advisories whose range no longer matches: those are
+    // probed-and-clear, the survivors get an issue.
+    note(
+      rawGroup,
+      rawGroup.ghsas.filter((g) => !group.ghsas.includes(g)),
+      "not-exposed",
+    );
+    note(group, group.ghsas, "tracked");
 
     const declared = isDirectDependency(lock, group.package);
 
@@ -1339,24 +1368,32 @@ export function main(
       openAdvisories.has(key3(g)),
     );
 
-    // ⚠️ Three states, not two. An advisory can be open and yet absent from
-    // every group, because `groupAlerts` drops one with no
-    // `first_patched_version` — there is nothing to bump to. Such an advisory
-    // has NO replacement issue, so calling it "superseded" would be false and
-    // clearing it would stand down a live exposure with nothing tracking it
-    // (Copilot). Leave the issue exactly as it is and say so.
-    const unpatched = stillOpen.filter((g) => !filableAdvisories.has(key3(g)));
-    if (unpatched.length > 0) {
+    // ⚠️ Clearing needs positive evidence about every advisory still open here.
+    // Two things deny it, and both mean "leave the issue alone" (Copilot):
+    // an advisory this run could not probe (`indeterminate` — a non-npm
+    // manifest, or one that would not parse), and one no group carried at all
+    // (absent — `groupAlerts` drops an alert with no `first_patched_version`,
+    // so there is nothing to bump to and no replacement issue).
+    const unresolved = stillOpen.filter((g) => {
+      const state = disposition.get(key3(g));
+      return state === undefined || state === "indeterminate";
+    });
+    if (unresolved.length > 0) {
       console.log(
-        `dependabot-alerts: #${issue.number} left as is — ${unpatched.join(", ")} ${unpatched.length === 1 ? "is" : "are"} still open with no patched version to bump to`,
+        `dependabot-alerts: #${issue.number} left as is — ${unresolved.join(", ")} ${unresolved.length === 1 ? "is" : "are"} still open and this run could not establish a replacement`,
       );
       continue;
     }
 
+    const tracked = stillOpen.filter(
+      (g) => disposition.get(key3(g)) === "tracked",
+    );
     const reason =
-      stillOpen.length > 0
-        ? `this bump was superseded — ${stillOpen.map((g) => `\`${g}\``).join(", ")} ${stillOpen.length === 1 ? "is" : "are"} still open under a different patched version, and ${stillOpen.length === 1 ? "has" : "have"} their own issue`
-        : "every alert it tracked has been fixed or dismissed";
+      stillOpen.length === 0
+        ? "every alert it tracked has been fixed or dismissed"
+        : tracked.length > 0
+          ? `this bump was superseded — ${tracked.map((g) => `\`${g}\``).join(", ")} ${tracked.length === 1 ? "is" : "are"} still open under a different patched version, and ${tracked.length === 1 ? "has" : "have"} their own issue`
+          : "no installed copy is in range of its advisories any more";
 
     writeCleared(
       issue,

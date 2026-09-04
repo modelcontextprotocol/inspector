@@ -1451,7 +1451,7 @@ test("main will not stand down an open alert that lost its patched version", () 
       (l) =>
         l.includes("left as is") &&
         l.includes("GHSA-a") &&
-        l.includes("no patched version"),
+        l.includes("could not establish a replacement"),
     ),
     `expected a left-as-is line, got: ${log.join(" | ")}`,
   );
@@ -1618,6 +1618,73 @@ test("another manifest's alert cannot vouch for this one when clearing", () => {
     log.some((l) => l.includes("#41 left as is")),
     `expected the root issue left as is, got: ${log.join(" | ")}`,
   );
+});
+
+test("a revised bump does not clear the old issue when the probe is indeterminate", () => {
+  // GitHub revised first_patched_version, so the old key vanished — but the
+  // replacement group was skipped because the lockfile would not parse. Nothing
+  // was established, so "superseded, it has its own issue" would be a guess.
+  const [filed] = groupAlerts([alert({ ghsa: "GHSA-a", fixed: "3.1.6" })]);
+  const spawn = fakeSpawn({
+    alertPages: [[alert({ ghsa: "GHSA-a", fixed: "3.1.7", range: "< 3.1.7" })]],
+    issues: [
+      {
+        number: 41,
+        title: buildIssueTitle(filed),
+        body: buildIssueBody(filed, asInstalled()),
+      },
+    ],
+  });
+
+  const dir = mkdtempSync(join(tmpdir(), "dependabot-alerts-"));
+  const cwd = process.cwd();
+  let log;
+  try {
+    writeFileSync(join(dir, "package-lock.json"), "{ truncated…");
+    process.chdir(dir);
+    log = withoutProjectToken(() =>
+      captureLog(() => main("o/r", spawn, "2026-09-04")),
+    );
+  } finally {
+    process.chdir(cwd);
+    rmSync(dir, { recursive: true, force: true });
+  }
+
+  assert.equal(ghCall(spawn, "edit"), undefined, "the old issue is preserved");
+  assert.equal(ghCall(spawn, "create"), undefined);
+  assert.ok(
+    log.some((l) => l.includes("could not establish a replacement")),
+    `expected an indeterminate line, got: ${log.join(" | ")}`,
+  );
+});
+
+test("a revised bump that is no longer exposed clears without claiming an issue", () => {
+  // Same revision, but the probe DID run and found nothing in range. That is
+  // positive evidence, so the old issue clears — saying exposure is gone rather
+  // than claiming a replacement issue that was never filed.
+  const [filed] = groupAlerts([alert({ ghsa: "GHSA-a", fixed: "3.1.6" })]);
+  const spawn = fakeSpawn({
+    alertPages: [
+      [alert({ ghsa: "GHSA-a", fixed: "3.1.7", range: ">= 3.1.6, < 3.1.7" })],
+    ],
+    issues: [
+      {
+        number: 41,
+        title: buildIssueTitle(filed),
+        body: buildIssueBody(filed, asInstalled()),
+      },
+    ],
+  });
+  inTempRepo({ "package-lock.json": lockWith("fast-uri", "3.1.5") }, () =>
+    withoutProjectToken(() =>
+      captureLog(() => main("o/r", spawn, "2026-09-04")),
+    ),
+  );
+  const edit = ghCall(spawn, "edit");
+  assert.ok(edit);
+  const body = edit.args[edit.args.indexOf("--body") + 1];
+  assert.match(body, /no installed copy is in range/);
+  assert.doesNotMatch(body, /has their own issue|superseded/);
 });
 
 test("main reads every page of open dependabot issues", () => {
