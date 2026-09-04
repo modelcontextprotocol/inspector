@@ -1,23 +1,36 @@
 #!/usr/bin/env node
-// Monthly npm-outdated sweep (#2229), replacing Dependabot version-update PRs.
+// Monthly dependency sweep (#2229), replacing Dependabot's VERSION-UPDATE PRs.
 //
 // A Dependabot version-update PR carries no issue and no board card — the same
 // carve-out from "every PR references an issue" that the security-update flow
 // had (that half is handled separately by the alert-driven pipeline, also
-// #2229). Turning npm version updates off in `.github/dependabot.yml` is #2235;
-// this script is the replacement it switches over to, and lands first, so the
-// two flows overlap until #2235 does. Once a month it runs
-// `npm outdated` across the root install and every client under `clients/*`
-// (each has its own package.json + lockfile — v2 is not a workspace), and
-// files or updates ONE tracking issue listing everything behind. A maintainer
-// picks what to bump and opens a normal PR against `v2/main`; there is no
-// auto-generated PR here at all.
+// #2229). #2235 removed `.github/dependabot.yml` outright, so Dependabot opens
+// no version-update PRs against this repo at all and this script is what
+// replaced them. Dependabot SECURITY updates are a separate mechanism, enabled
+// in repo settings rather than in that file, and are deliberately still on —
+// so this replaces the version-update half only, not Dependabot wholesale.
+//
+// Once a month it runs `npm outdated` across the root install and every client
+// under `clients/*` (each has its own package.json + lockfile — v2 is not a
+// workspace), checks every `uses:` ref under `.github/workflows` against that
+// action's highest released version, and files or updates ONE tracking issue
+// listing everything behind. A maintainer picks what to bump and opens a
+// normal PR against `v2/main`; there is no auto-generated PR here at all.
+//
+// The actions half is here rather than left on Dependabot because the
+// `github-actions` entry had exactly the property #2229 exists to remove: it
+// opened a grouped monthly PR carrying no `Closes #N` and no board card.
+// Deleting that entry without replacing it would have left action versions
+// unwatched, and `npm outdated` says nothing about actions — hence the
+// separate release lookup below.
 //
 // Idempotent by design: the issue body starts with a fixed HTML marker
 // (ISSUE_MARKER below), which is how a second run in the same month finds and
 // updates the existing open issue instead of filing a duplicate.
 //
-// `parseOutdated`, `buildIssueBody` and `buildClearedBody` are pure. `main()`
+// `parseOutdated`, `parseActionRefs`, `parseVersionRef`, `isActionStale`,
+// `staleActions`, `isMissingRelease`, `highestVersionTag`, `buildIssueBody`
+// and `buildClearedBody` are pure. `main()`
 // shells out to `npm outdated` and `gh`, so it takes its spawn function as a
 // parameter (defaulting to the real one) and `dependency-refresh.test.mjs`
 // drives it with a fake — covering npm failure, create vs. edit, the milestone
@@ -26,6 +39,8 @@
 // non-zero `npm outdated` exit report a clean sweep.
 
 import { spawnSync } from "node:child_process";
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 
 export const ISSUE_MARKER = "<!-- dependency-refresh:monthly-sweep -->";
 
@@ -37,6 +52,9 @@ export const INSTALLS = [
   { dir: "clients/tui", label: "clients/tui" },
   { dir: "clients/launcher", label: "clients/launcher" },
 ];
+
+/** Where the `uses:` refs this sweep checks live, relative to the repo root. */
+export const WORKFLOW_DIR = ".github/workflows";
 
 /**
  * Normalize one install's `npm outdated --json` output.
@@ -59,12 +77,98 @@ export function parseOutdated(json) {
 }
 
 /**
- * @param {Array<{label: string, packages: ReturnType<typeof parseOutdated>}>} installs
- * @returns {string | null} the issue body, or `null` when nothing is outdated anywhere
+ * Pull every action reference out of one workflow file.
+ *
+ * Deliberately a line regex rather than a YAML parse: `uses:` is always a
+ * scalar on its own line in this repo's workflows, and a real parser would be
+ * this script's only dependency. Local (`./…`) and container (`docker://…`)
+ * steps are skipped — neither has a releases feed to compare against — as is
+ * an unpinned `uses:` with no `@ref` at all.
+ *
+ * @param {string} yaml raw contents of a workflow file
+ * @returns {Array<{action: string, ref: string}>} in file order, duplicates kept
  */
-export function buildIssueBody(installs) {
+export function parseActionRefs(yaml) {
+  const refs = [];
+  for (const line of yaml.split("\n")) {
+    const match = /^\s*(?:-\s+)?uses:\s*(?:"([^"]+)"|'([^']+)'|([^\s#]+))/.exec(
+      line,
+    );
+    if (!match) continue;
+    const uses = match[1] ?? match[2] ?? match[3];
+    if (uses.startsWith("./") || uses.startsWith("docker://")) continue;
+    const at = uses.lastIndexOf("@");
+    if (at === -1) continue;
+    refs.push({ action: uses.slice(0, at), ref: uses.slice(at + 1) });
+  }
+  return refs;
+}
+
+/**
+ * Split a `v`-prefixed numeric ref into its components, or `null` when it is
+ * not one — a SHA pin or a branch name, which a tag comparison cannot rank.
+ *
+ * @param {string} ref e.g. `v7`, `v7.0`, `7.0.1`
+ * @returns {number[] | null}
+ */
+export function parseVersionRef(ref) {
+  const match = /^v?(\d+)(?:\.(\d+))?(?:\.(\d+))?$/.exec(ref);
+  if (!match) return null;
+  return match
+    .slice(1)
+    .filter((part) => part !== undefined)
+    .map(Number);
+}
+
+/**
+ * Is `current` behind `latest`?
+ *
+ * Compared only to the precision `current` actually specifies, because that is
+ * what pinning to it means: `v7` is a moving major tag that GitHub repoints at
+ * every `v7.x` release, so `v7` against a latest of `v7.0.1` is up to date and
+ * only `v8` makes it stale. An exactly-pinned `v7.0.0` *is* behind `v7.0.1`.
+ *
+ * @param {string} current the `uses:` ref
+ * @param {string} latest the action's latest release tag
+ * @returns {boolean} `false` when either side is not a numeric ref
+ */
+export function isActionStale(current, latest) {
+  const from = parseVersionRef(current);
+  const to = parseVersionRef(latest);
+  if (from === null || to === null) return false;
+  for (let i = 0; i < from.length; i++) {
+    const other = to[i] ?? 0;
+    if (other !== from[i]) return other > from[i];
+  }
+  return false;
+}
+
+/**
+ * @param {Array<{action: string, ref: string}>} refs every ref found across the workflows
+ * @param {Record<string, string | null>} latestByAction latest release tag per action, `null` when unknown
+ * @returns {Array<{action: string, current: string, latest: string}>} the stale ones, deduped and sorted
+ */
+export function staleActions(refs, latestByAction) {
+  const stale = new Map();
+  for (const { action, ref } of refs) {
+    const latest = latestByAction[action];
+    if (!latest || !isActionStale(ref, latest)) continue;
+    stale.set(`${action}@${ref}`, { action, current: ref, latest });
+  }
+  return [...stale.values()].sort(
+    (a, b) =>
+      a.action.localeCompare(b.action) || a.current.localeCompare(b.current),
+  );
+}
+
+/**
+ * @param {Array<{label: string, packages: ReturnType<typeof parseOutdated>}>} installs
+ * @param {ReturnType<typeof staleActions>} actions
+ * @returns {string | null} the issue body, or `null` when nothing is behind anywhere
+ */
+export function buildIssueBody(installs, actions = []) {
   const withPackages = installs.filter((i) => i.packages.length > 0);
-  if (withPackages.length === 0) return null;
+  if (withPackages.length === 0 && actions.length === 0) return null;
 
   const sections = withPackages.map(({ label, packages }) => {
     const rows = packages
@@ -75,9 +179,18 @@ export function buildIssueBody(installs) {
     return `### \`${label}\`\n\n| Package | Current | Wanted | Latest |\n| --- | --- | --- | --- |\n${rows}`;
   });
 
+  if (actions.length > 0) {
+    const rows = actions
+      .map((a) => `| \`${a.action}\` | ${a.current} | ${a.latest} |`)
+      .join("\n");
+    sections.push(
+      `### GitHub Actions\n\n| Action | Current | Latest |\n| --- | --- | --- |\n${rows}`,
+    );
+  }
+
   return [
     ISSUE_MARKER,
-    "Routine dependency refresh — `npm outdated` run against `v2/main` on a monthly schedule, replacing Dependabot version-update PRs (#2229).",
+    "Routine dependency refresh — `npm outdated` plus a workflow `uses:` check, run against `v2/main` on a monthly schedule. This sweep replaces Dependabot's version-update PRs (#2229, #2235); Dependabot security updates are a separate mechanism and remain enabled.",
     "",
     "This is a tracking issue, not a diff: pick what's worth bumping (`wanted` is the safe default; `latest` may cross a major and needs its own judgment call, especially for anything root-declared per [Dependency placement](https://github.com/modelcontextprotocol/inspector/blob/v2/main/AGENTS.md#dependency-placement)) and open a normal PR against `v2/main`.",
     "",
@@ -88,9 +201,14 @@ export function buildIssueBody(installs) {
 }
 
 /**
- * The body a still-open tracking issue is rewritten to once every install is
- * current again. Without it the issue keeps its last package table forever and
- * reads as live work that no longer exists (Copilot).
+ * The body a still-open tracking issue is rewritten to once every install AND
+ * every workflow action is current again. Without it the issue keeps its last
+ * table forever and reads as live work that no longer exists (Copilot).
+ *
+ * It has to speak for both halves of the sweep: once actions are in scope
+ * (#2235), npm-only wording here would assert a clean bill of health the sweep
+ * never checked, which is the same silent-all-clear shape the rest of this
+ * file guards against.
  *
  * The sweep rewrites rather than closes: it deliberately takes no board
  * actions (see the workflow header), and closing an issue whose card a
@@ -103,11 +221,11 @@ export function buildIssueBody(installs) {
 export function buildClearedBody(isoDate) {
   return [
     ISSUE_MARKER,
-    `Every install is up to date as of ${isoDate} — nothing is outdated at the root or in any client.`,
+    `Everything this sweep watches is current as of ${isoDate} — no npm package is outdated at the root or in any client, and no workflow \`uses:\` ref is behind its action's highest release.`,
     "",
-    "This issue was filed by an earlier run of the monthly sweep (#2229) and its package table is gone because the packages it listed are no longer behind. Either they were bumped or their ranges caught up; nothing here is outstanding.",
+    "This issue was filed by an earlier run of the monthly sweep (#2229, #2235) and its tables are gone because nothing they listed is behind any more. Either it was bumped or the ranges caught up; nothing here is outstanding.",
     "",
-    "Safe to close. A later sweep that finds something outdated will refile this body with a fresh table rather than open a duplicate.",
+    "Safe to close. A later sweep that finds something behind will refile this body with fresh tables rather than open a duplicate.",
   ].join("\n");
 }
 
@@ -130,6 +248,107 @@ function runOutdated(dir, spawn) {
     );
   }
   return result.stdout ?? "";
+}
+
+function collectActionRefs() {
+  return readdirSync(WORKFLOW_DIR)
+    .filter((file) => /\.ya?ml$/.test(file))
+    .flatMap((file) =>
+      parseActionRefs(readFileSync(join(WORKFLOW_DIR, file), "utf8")),
+    );
+}
+
+/**
+ * Is this failed release lookup the expected "publishes no releases" answer?
+ *
+ * `repos/<owner>/<repo>/releases/latest` 404s when an action has never cut a
+ * GitHub release, which is a legitimate state and must not fail the sweep.
+ * Every OTHER failure — a rate limit, an expired token, a transient 5xx — must,
+ * because treating it as "no release" is indistinguishable from "not stale":
+ * the sweep would exit green having silently checked nothing, and since this
+ * repo's actions are all on their latest major the empty section would look
+ * exactly like a healthy run (Copilot).
+ *
+ * @param {string} stderr stderr from a non-zero `gh api` call
+ * @returns {boolean}
+ */
+export function isMissingRelease(stderr) {
+  return /HTTP 404/.test(stderr);
+}
+
+/**
+ * The highest parseable version among these tags, or `null` if none parse.
+ *
+ * Deliberately NOT `releases/latest`, which is GitHub's *designated* most
+ * recent release rather than the greatest version: an action that ships a
+ * maintenance release for an older major (a `v6.9.1` cut after `v8.0.0`) makes
+ * `releases/latest` report `v6.9.1`, and a workflow pinned to `v7` would then
+ * compare against v6 and read as current — silently missing a whole major
+ * upgrade, which is the one thing this check exists to catch (Copilot).
+ *
+ * @param {string[]} tags release tag names, in any order
+ * @returns {string | null}
+ */
+export function highestVersionTag(tags) {
+  let best = null;
+  let bestParts = null;
+  for (const tag of tags) {
+    const parts = parseVersionRef(tag);
+    if (parts === null) continue;
+    if (bestParts === null || comparePadded(parts, bestParts) > 0) {
+      best = tag;
+      bestParts = parts;
+    }
+  }
+  return best;
+}
+
+/** Compare two version component arrays, padding the shorter with zeroes. */
+function comparePadded(a, b) {
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    const diff = (a[i] ?? 0) - (b[i] ?? 0);
+    if (diff !== 0) return diff;
+  }
+  return 0;
+}
+
+/**
+ * The action's highest released version tag, or `null` when it has none.
+ *
+ * Reads the release *list* rather than `releases/latest`, for the reason on
+ * `highestVersionTag`. Drafts and prereleases are excluded — neither is
+ * something a workflow should be told to move to. One page of 100 is taken
+ * rather than paginating every release an action has ever cut: the list comes
+ * back newest-first, so the greatest version is within it for any real action.
+ *
+ * @throws when the lookup fails for any reason other than a 404
+ */
+function latestReleaseTag(action, spawn) {
+  // `owner/repo/subpath@ref` is a valid `uses:`; releases live on `owner/repo`.
+  const repo = action.split("/").slice(0, 2).join("/");
+  const result = spawn(
+    "gh",
+    [
+      "api",
+      `repos/${repo}/releases?per_page=100`,
+      "--jq",
+      '[.[] | select(.draft == false and .prerelease == false) | .tag_name] | join("\\n")',
+    ],
+    { encoding: "utf8" },
+  );
+  if (result.error) throw result.error;
+  if (result.status !== 0) {
+    const stderr = result.stderr ?? "";
+    // A repo with no releases returns `[]`, not a 404 — but a renamed or
+    // deleted action really is gone, and that is not a reason to fail.
+    if (isMissingRelease(stderr)) return null;
+    throw new Error(`release lookup for ${repo} failed: ${stderr.trim()}`);
+  }
+  const tags = result.stdout
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  return highestVersionTag(tags);
 }
 
 function findExistingIssue(repo, spawn) {
@@ -193,15 +412,24 @@ export function main(repo = process.env.GITHUB_REPOSITORY, spawn = spawnSync) {
     packages: parseOutdated(runOutdated(dir, spawn)),
   }));
 
+  const refs = collectActionRefs();
+  const latestByAction = Object.fromEntries(
+    [...new Set(refs.map((r) => r.action))].map((action) => [
+      action,
+      latestReleaseTag(action, spawn),
+    ]),
+  );
+  const actions = staleActions(refs, latestByAction);
+
   // Look the existing issue up BEFORE branching on `body`: the nothing-
-  // outdated case still has to reach an open issue to clear it.
+  // behind case still has to reach an open issue to clear it.
   const existing = findExistingIssue(repo, spawn);
-  const body = buildIssueBody(installs);
+  const body = buildIssueBody(installs, actions);
 
   if (body === null) {
     if (!existing) {
       console.log(
-        "dependency-refresh: nothing outdated in any install — no-op",
+        "dependency-refresh: nothing outdated, no stale actions — no-op",
       );
       return;
     }
@@ -212,7 +440,7 @@ export function main(repo = process.env.GITHUB_REPOSITORY, spawn = spawnSync) {
       spawn,
     );
     console.log(
-      `dependency-refresh: nothing outdated — cleared stale list on #${existing.number}`,
+      `dependency-refresh: nothing behind — cleared stale list on #${existing.number}`,
     );
     return;
   }
