@@ -9,7 +9,7 @@ import type {
 import type { AuthChallenge } from "@inspector/core/auth/challenge.js";
 import { AuthRecoveryRequiredError } from "@inspector/core/auth/challenge.js";
 import { EmaClientNotConfiguredError } from "@inspector/core/auth/ema/clientConfigError.js";
-import { useLayoutEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import { renderWithMantine, act, waitFor } from "../test/renderWithMantine";
 import {
   OAUTH_RESUME_KEY,
@@ -169,9 +169,22 @@ interface HarnessProps {
   noFetchLog?: boolean;
 }
 
+/** One committed render's view of the two server-scoped pending slots. */
+interface PendingCommit {
+  stepUpServerId: string | undefined;
+  reauthServerId: string | undefined;
+}
+
 interface Harness {
   api: () => OAuthRecovery;
   rerender: (next: HarnessProps) => void;
+  /**
+   * Every committed render's pending slots, in order. Recorded from an effect
+   * with no dependency array, so one entry lands per commit — which is what
+   * lets a test assert that a reset was visible in the *first* frame after a
+   * server switch rather than merely eventually (#2223).
+   */
+  commits: PendingCommit[];
   spies: {
     setActiveServerId: ReturnType<typeof vi.fn>;
     setFailedServerId: ReturnType<typeof vi.fn>;
@@ -183,6 +196,7 @@ interface Harness {
 
 function harness(initial: HarnessProps = {}): Harness {
   let latest: OAuthRecovery | undefined;
+  const commits: PendingCommit[] = [];
   const spies = {
     setActiveServerId: vi.fn(),
     setFailedServerId: vi.fn(),
@@ -236,6 +250,15 @@ function harness(initial: HarnessProps = {}): Harness {
       clearResultPanels: spies.clearResultPanels,
       setSourceScopedError: spies.setSourceScopedError,
     });
+    // No dependency array: one entry per commit. `pendingReauth` is not part
+    // of the hook's public surface, so it is read back through the session ref
+    // the hook mirrors it into.
+    useEffect(() => {
+      commits.push({
+        stepUpServerId: latest?.pendingStepUp?.serverId,
+        reauthServerId: sessionRef.current.pendingReauth?.serverId,
+      });
+    });
     return null;
   }
 
@@ -246,6 +269,7 @@ function harness(initial: HarnessProps = {}): Harness {
       return latest;
     },
     rerender: (next) => rerender(<Probe p={next} />),
+    commits,
     spies,
   };
 }
@@ -320,6 +344,94 @@ describe("useOAuthRecovery", () => {
       });
       // Cleared rather than resumed against the server the user left.
       expect(client.handleAuthChallenge).not.toHaveBeenCalled();
+    });
+
+    it("clears both slots in the first committed frame after a server switch", async () => {
+      visibility.visible = false;
+      const client = fakeClient();
+      const servers = [entry("a"), entry("b")];
+      const h = harness({ servers, activeServerId: "a", client });
+
+      await act(async () => {
+        await h
+          .api()
+          .handleCommandScopedAuthRecovery(
+            new AuthRecoveryRequiredError(
+              AUTH_URL,
+              challenge("insufficient_scope"),
+            ),
+            { serverId: "a", source: "tool" },
+          );
+      });
+      await act(async () => {
+        client.emit("authChallengeInteractive", {
+          challenge: challenge(),
+          authorizationUrl: AUTH_URL,
+        });
+      });
+      await waitFor(() => {
+        const last = h.commits[h.commits.length - 1];
+        expect(last?.stepUpServerId).toBe("a");
+        expect(last?.reauthServerId).toBe("a");
+      });
+
+      const before = h.commits.length;
+      await act(async () => {
+        h.rerender({ servers, activeServerId: "b", client });
+      });
+
+      // The point of the test: the *first* frame after the switch already
+      // shows both slots empty. Resetting them in an effect instead would
+      // commit one frame still carrying server "a"'s step-up prompt and
+      // deferred re-auth, and would pass a `waitFor` assertion just the same.
+      expect(h.commits.length).toBeGreaterThan(before);
+      expect(h.commits[before]).toEqual({
+        stepUpServerId: undefined,
+        reauthServerId: undefined,
+      });
+    });
+
+    it("does not carry the left server's retry into a later ambient step-up", async () => {
+      const client = fakeClient({
+        handleAuthChallenge: vi.fn().mockResolvedValue({ kind: "satisfied" }),
+      });
+      const servers = [entry("a", {}, true), entry("b", {}, true)];
+      const h = harness({ servers, activeServerId: "a", client });
+      const retryA = vi.fn().mockResolvedValue(undefined);
+
+      await act(async () => {
+        await h
+          .api()
+          .handleCommandScopedAuthRecovery(
+            new AuthRecoveryRequiredError(
+              AUTH_URL,
+              challenge("insufficient_scope"),
+            ),
+            { serverId: "a", source: "tool", retryOperation: retryA },
+          );
+      });
+      expect(h.api().pendingStepUp?.serverId).toBe("a");
+
+      await act(async () => {
+        h.rerender({ servers, activeServerId: "b", client });
+      });
+      expect(h.api().pendingStepUp).toBeNull();
+
+      // Server B raises its own step-up, which carries no retry of its own.
+      await act(async () => {
+        client.emit("authChallengeInteractive", {
+          challenge: challenge("insufficient_scope"),
+          authorizationUrl: AUTH_URL,
+        });
+      });
+      await waitFor(() => expect(h.api().pendingStepUp?.serverId).toBe("b"));
+
+      await act(async () => {
+        await h.api().handleStepUpAuthorize();
+      });
+      // Authorizing B must not run the command A was left mid-way through.
+      expect(retryA).not.toHaveBeenCalled();
+      expect(toastTitles()).toContain("Permissions updated");
     });
 
     it("refuses a second step-up while one is open", async () => {
