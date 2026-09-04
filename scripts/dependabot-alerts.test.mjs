@@ -15,6 +15,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import {
+  parseClearedDate,
   SUPPORTED_ECOSYSTEM,
   PRIORITY_FIELD_ID,
   STATUS_FIELD_ID,
@@ -820,7 +821,7 @@ test("main will not update an issue whose bump differs, even for the same packag
     edit.args[edit.args.indexOf("--body") + 1],
     /fixed or dismissed/,
   );
-  assert.ok(log.some((l) => l.includes("no open alert remains")));
+  assert.ok(log.some((l) => l.includes("fixed or dismissed")));
 });
 
 test("main comments a new advisory BEFORE rewriting the marker", () => {
@@ -1163,7 +1164,7 @@ test("main clears an issue when its last alert is fixed or dismissed", () => {
   const body = edit.args[edit.args.indexOf("--body") + 1];
   assert.match(body, /every alert it tracked has been fixed or dismissed/);
   assert.deepEqual(parseMarker(body).ghsas, ["GHSA-a"]);
-  assert.ok(log.some((l) => l.includes("no open alert remains")));
+  assert.ok(log.some((l) => l.includes("fixed or dismissed")));
 });
 
 test("main reconciles a vanished group even while other groups remain", () => {
@@ -1433,21 +1434,134 @@ test("main will not stand down an open alert that lost its patched version", () 
       },
     ],
   });
-  inTempRepo({ "package-lock.json": lockWith("fast-uri", "3.1.5") }, () =>
+  const log = inTempRepo(
+    { "package-lock.json": lockWith("fast-uri", "3.1.5") },
+    () =>
+      withoutProjectToken(() =>
+        captureLog(() => main("o/r", spawn, "2026-09-04")),
+      ),
+  );
+  // Nothing to bump to means no replacement issue exists, so "superseded" would
+  // be false and clearing would stand down a live exposure nothing is tracking.
+  // The correct move is to leave the issue exactly as it is.
+  assert.equal(ghCall(spawn, "edit"), undefined);
+  assert.ok(
+    log.some(
+      (l) =>
+        l.includes("left as is") &&
+        l.includes("GHSA-a") &&
+        l.includes("no patched version"),
+    ),
+    `expected a left-as-is line, got: ${log.join(" | ")}`,
+  );
+});
+
+test("a cleared issue is not re-edited on a LATER day", () => {
+  // ⚠️ The bug the same-date no-reclear test could never catch: a cleared issue
+  // stays open, so the sweep sees it again tomorrow. With today's date rendered
+  // into the body, every cleared issue would be edited once a day forever.
+  const [group] = groupAlerts([alert({ ghsa: "GHSA-a" })]);
+  const cleared = buildClearedBody(
+    {
+      package: "fast-uri",
+      manifestPath: "package-lock.json",
+      fixedIn: "3.1.6",
+    },
+    {
+      ghsas: ["GHSA-a"],
+      reason: "every alert it tracked has been fixed or dismissed",
+      today: "2026-09-04",
+    },
+  );
+  const spawn = fakeSpawn({
+    alertPages: [[]],
+    issues: [{ number: 41, title: buildIssueTitle(group), body: cleared }],
+  });
+  inTempRepo({}, () =>
     withoutProjectToken(() =>
-      captureLog(() => main("o/r", spawn, "2026-09-04")),
+      // A DIFFERENT day from the one the body records.
+      captureLog(() => main("o/r", spawn, "2026-09-11")),
+    ),
+  );
+  assert.equal(ghCall(spawn, "edit"), undefined);
+});
+
+test("a cleared issue keeps its original date when its reason changes", () => {
+  // A real change still gets one edit — and takes the new date, since the state
+  // genuinely changed on that day.
+  const cleared = buildClearedBody(
+    {
+      package: "fast-uri",
+      manifestPath: "package-lock.json",
+      fixedIn: "3.1.6",
+    },
+    { ghsas: ["GHSA-a"], reason: "an older reason", today: "2026-09-04" },
+  );
+  const spawn = fakeSpawn({
+    alertPages: [[]],
+    issues: [{ number: 41, title: "t", body: cleared }],
+  });
+  inTempRepo({}, () =>
+    withoutProjectToken(() =>
+      captureLog(() => main("o/r", spawn, "2026-09-11")),
     ),
   );
   const edit = ghCall(spawn, "edit");
-  assert.ok(edit, "the issue is still reconciled");
-  const body = edit.args[edit.args.indexOf("--body") + 1];
-  assert.doesNotMatch(
-    body,
-    /fixed or dismissed/,
-    "a still-open advisory must never stand itself down",
+  assert.ok(edit, "a changed reason is still written");
+  assert.equal(
+    parseClearedDate(edit.args[edit.args.indexOf("--body") + 1]),
+    "2026-09-11",
   );
-  assert.match(body, /superseded/);
-  assert.match(body, /`GHSA-a` is still open/);
+});
+
+test("parseClearedDate reads the date back, and only from a cleared body", () => {
+  const body = buildClearedBody(
+    { package: "p", manifestPath: "package-lock.json", fixedIn: "1.0.0" },
+    { ghsas: ["GHSA-a"], reason: "why", today: "2026-09-04" },
+  );
+  assert.equal(parseClearedDate(body), "2026-09-04");
+  assert.equal(parseClearedDate("an ordinary issue body"), null);
+  assert.equal(parseClearedDate(undefined), null);
+});
+
+test("main does not clear an issue when the lockfile cannot be parsed", () => {
+  // A malformed lockfile is evidence of nothing. Treating it like an absent one
+  // would stand down a live alert on the strength of a read error.
+  const [group] = groupAlerts([alert({ ghsa: "GHSA-a" })]);
+  const spawn = fakeSpawn({
+    alertPages: [[alert({ ghsa: "GHSA-a" })]],
+    issues: [
+      {
+        number: 41,
+        title: buildIssueTitle(group),
+        body: buildIssueBody(group, asInstalled()),
+      },
+    ],
+  });
+
+  const dir = mkdtempSync(join(tmpdir(), "dependabot-alerts-"));
+  const cwd = process.cwd();
+  let log;
+  try {
+    writeFileSync(join(dir, "package-lock.json"), "{ truncated…");
+    process.chdir(dir);
+    log = withoutProjectToken(() =>
+      captureLog(() => main("o/r", spawn, "2026-09-04")),
+    );
+  } finally {
+    process.chdir(cwd);
+    rmSync(dir, { recursive: true, force: true });
+  }
+
+  assert.equal(ghCall(spawn, "edit"), undefined, "the issue is left alone");
+  assert.equal(ghCall(spawn, "create"), undefined);
+  assert.ok(
+    log.some(
+      (l) =>
+        l.includes("could not be parsed") && l.includes("WITHOUT clearing"),
+    ),
+    `expected a parse-failure line, got: ${log.join(" | ")}`,
+  );
 });
 
 test("main reads every page of open dependabot issues", () => {

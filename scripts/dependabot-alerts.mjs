@@ -603,6 +603,27 @@ export function buildIssueBody(
  * @param {{ghsas: string[], reason: string, today: string}} context
  * @returns {string}
  */
+/**
+ * The date an already-cleared body records, or `null` if it is not one.
+ *
+ * ⚠️ A cleared issue is deliberately left OPEN, so the sweep sees it again
+ * tomorrow. With today's date baked into the rendered body, the regenerated
+ * body would differ by the date alone and every cleared issue would be edited
+ * once a day, forever (Copilot). Reusing the original date is what makes the
+ * comparison stable — and it is the more useful date to show anyway: when the
+ * exposure went away, not when the sweep last looked.
+ *
+ * @param {string | undefined} body
+ * @returns {string | null}
+ */
+export function parseClearedDate(body) {
+  const match =
+    /\*\*No longer applicable on `[^`]+` as of (\d{4}-\d{2}-\d{2})\*\*/.exec(
+      body ?? "",
+    );
+  return match ? match[1] : null;
+}
+
 export function buildClearedBody(group, { ghsas, reason, today }) {
   return [
     buildMarker({ ...group, ghsas }),
@@ -771,23 +792,31 @@ function openAlerts(repo, spawn) {
  * A manifest's contents in the checkout, or `null` when it is absent — an alert
  * against a manifest this branch does not have is not actionable.
  */
+/**
+ * Read a manifest, distinguishing the two ways it can fail to produce a lock.
+ *
+ * ⚠️ These must NOT collapse into one `null` (Copilot). "Absent" means the
+ * manifest is genuinely gone from the branch, which is real evidence that the
+ * exposure went away and is grounds for clearing the issue. "Unparseable" is
+ * evidence of nothing at all — a malformed or truncated lockfile, or a
+ * non-npm manifest — and clearing on it would stand down a live alert on the
+ * strength of a read error.
+ *
+ * @returns {{lock: object} | {absent: true} | {unparseable: true}}
+ */
 function readManifest(manifestPath) {
   let raw;
   try {
     raw = readFileSync(manifestPath, "utf8");
   } catch (error) {
-    if (error.code === "ENOENT") return null;
+    if (error.code === "ENOENT") return { absent: true };
     throw error;
   }
   try {
-    return JSON.parse(raw);
+    return { lock: JSON.parse(raw) };
   } catch {
-    // Belt and braces behind the ecosystem filter: whatever this is, it is not
-    // an npm lockfile, and one unparseable manifest must not abort the sweep.
-    console.log(
-      `dependabot-alerts: ${manifestPath} is not JSON — skipping (not an npm lockfile)`,
-    );
-    return null;
+    // One unreadable manifest must not abort the sweep either.
+    return { unparseable: true };
   }
 }
 
@@ -1035,6 +1064,39 @@ export function main(
 
   const manifests = new Map();
   const boardProblems = [];
+
+  /**
+   * Rewrite an issue to its cleared state, at most once.
+   *
+   * The date is taken from the body already there when there is one, so a
+   * cleared issue — which stays open, and so is seen again tomorrow — does not
+   * get re-edited every day for a date change alone.
+   */
+  const writeCleared = (issue, group, reason) => {
+    const priorDate = parseClearedDate(issue.body);
+    const ghsas = issue.marker.ghsas;
+    if (
+      priorDate &&
+      issue.body ===
+        buildClearedBody(group, { ghsas, reason, today: priorDate })
+    ) {
+      return;
+    }
+    const body = buildClearedBody(group, { ghsas, reason, today });
+    const edit = gh(spawn, [
+      "issue",
+      "edit",
+      String(issue.number),
+      "--repo",
+      repo,
+      "--body",
+      body,
+    ]);
+    if (edit.status !== 0) {
+      throw new Error(`gh issue edit failed: ${(edit.stderr ?? "").trim()}`);
+    }
+    console.log(`dependabot-alerts: cleared #${issue.number} — ${reason}`);
+  };
   /** Grouping keys this run actually saw in the open feed. */
   const seenKeys = new Set();
   /**
@@ -1048,6 +1110,8 @@ export function main(
    * direction as the superseded case, reached a different way: what a still-open
    * advisory must never do is stand itself down.
    */
+  /** GHSAs that made it into a group, i.e. ones this sweep can actually file. */
+  const filableGhsas = new Set(groups.flatMap((g) => g.ghsas));
   const openGhsas = new Set(
     alerts
       .filter((a) => a.state === "open")
@@ -1082,38 +1146,29 @@ export function main(
     /** Rewrite an open issue to its cleared state, once. */
     const clear = (reason) => {
       if (!existing) return;
-      const body = buildClearedBody(rawGroup, {
-        ghsas: existing.marker.ghsas,
-        reason,
-        today,
-      });
-      if (existing.body === body) return;
-      const edit = gh(spawn, [
-        "issue",
-        "edit",
-        String(existing.number),
-        "--repo",
-        repo,
-        "--body",
-        body,
-      ]);
-      if (edit.status !== 0) {
-        throw new Error(`gh issue edit failed: ${(edit.stderr ?? "").trim()}`);
-      }
-      console.log(`dependabot-alerts: cleared #${existing.number} — ${reason}`);
+      writeCleared(existing, rawGroup, reason);
     };
 
     if (!manifests.has(rawGroup.manifestPath)) {
       manifests.set(rawGroup.manifestPath, readManifest(rawGroup.manifestPath));
     }
-    const lock = manifests.get(rawGroup.manifestPath);
-    if (lock === null) {
+    const manifest = manifests.get(rawGroup.manifestPath);
+    if (manifest.unparseable) {
+      // Deliberately does NOT clear: a read error is not evidence that the
+      // exposure went away, and treating it as such stands down a live alert.
+      console.log(
+        `dependabot-alerts: ${rawGroup.manifestPath} could not be parsed as an npm lockfile — skipping ${rawGroup.package} WITHOUT clearing its issue`,
+      );
+      continue;
+    }
+    if (manifest.absent) {
       console.log(
         `dependabot-alerts: ${rawGroup.manifestPath} absent on ${TARGET_BRANCH} — skipping ${rawGroup.package}`,
       );
       clear(`\`${rawGroup.manifestPath}\` is no longer part of this repo`);
       continue;
     }
+    const { lock } = manifest;
 
     const entries = lockfileEntries(lock, rawGroup.package);
     const applicable = narrowToApplicable(rawGroup, entries);
@@ -1245,34 +1300,34 @@ export function main(
     // stand down a live exposure (Copilot). So the reason is decided by whether
     // the GHSAs are still in the open feed, not by the key's absence.
     const stillOpen = issue.marker.ghsas.filter((g) => openGhsas.has(g));
+
+    // ⚠️ Three states, not two. An advisory can be open and yet absent from
+    // every group, because `groupAlerts` drops one with no
+    // `first_patched_version` — there is nothing to bump to. Such an advisory
+    // has NO replacement issue, so calling it "superseded" would be false and
+    // clearing it would stand down a live exposure with nothing tracking it
+    // (Copilot). Leave the issue exactly as it is and say so.
+    const unpatched = stillOpen.filter((g) => !filableGhsas.has(g));
+    if (unpatched.length > 0) {
+      console.log(
+        `dependabot-alerts: #${issue.number} left as is — ${unpatched.join(", ")} ${unpatched.length === 1 ? "is" : "are"} still open with no patched version to bump to`,
+      );
+      continue;
+    }
+
     const reason =
       stillOpen.length > 0
         ? `this bump was superseded — ${stillOpen.map((g) => `\`${g}\``).join(", ")} ${stillOpen.length === 1 ? "is" : "are"} still open under a different patched version, and ${stillOpen.length === 1 ? "has" : "have"} their own issue`
         : "every alert it tracked has been fixed or dismissed";
 
-    const body = buildClearedBody(
+    writeCleared(
+      issue,
       {
         package: issue.marker.package,
         manifestPath: issue.marker.manifestPath,
         fixedIn: issue.marker.fixedIn,
       },
-      { ghsas: issue.marker.ghsas, reason, today },
-    );
-    if (issue.body === body) continue;
-    const edit = gh(spawn, [
-      "issue",
-      "edit",
-      String(issue.number),
-      "--repo",
-      repo,
-      "--body",
-      body,
-    ]);
-    if (edit.status !== 0) {
-      throw new Error(`gh issue edit failed: ${(edit.stderr ?? "").trim()}`);
-    }
-    console.log(
-      `dependabot-alerts: cleared #${issue.number} — no open alert remains for ${issue.marker.package}`,
+      reason,
     );
   }
 
