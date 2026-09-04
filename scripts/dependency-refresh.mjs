@@ -29,8 +29,8 @@
 // updates the existing open issue instead of filing a duplicate.
 //
 // `parseOutdated`, `parseActionRefs`, `parseVersionRef`, `isActionStale`,
-// `staleActions`, `isMissingRelease`, `highestVersionTag`, `buildIssueBody`
-// and `buildClearedBody` are pure. `main()`
+// `staleActions`, `highestVersionTag`, `buildIssueBody` and
+// `buildClearedBody` are pure. `main()`
 // shells out to `npm outdated` and `gh`, so it takes its spawn function as a
 // parameter (defaulting to the real one) and `dependency-refresh.test.mjs`
 // drives it with a fake — covering npm failure, create vs. edit, the milestone
@@ -221,7 +221,9 @@ export function buildIssueBody(installs, actions = []) {
 export function buildClearedBody(isoDate) {
   return [
     ISSUE_MARKER,
-    `Everything this sweep watches is current as of ${isoDate} — no npm package is outdated at the root or in any client, and no workflow \`uses:\` ref is behind its action's highest release.`,
+    `Everything this sweep can check is current as of ${isoDate} — no npm package is outdated at the root or in any client, and no version-pinned workflow \`uses:\` ref is behind its action's highest release.`,
+    "",
+    "Refs pinned to a commit SHA or a branch are deliberately **not** covered by that statement: neither can be ranked against a release tag, so this sweep says nothing about them either way.",
     "",
     "This issue was filed by an earlier run of the monthly sweep (#2229, #2235) and its tables are gone because nothing they listed is behind any more. Either it was bumped or the ranges caught up; nothing here is outstanding.",
     "",
@@ -256,24 +258,6 @@ function collectActionRefs() {
     .flatMap((file) =>
       parseActionRefs(readFileSync(join(WORKFLOW_DIR, file), "utf8")),
     );
-}
-
-/**
- * Is this failed release lookup the expected "publishes no releases" answer?
- *
- * `repos/<owner>/<repo>/releases/latest` 404s when an action has never cut a
- * GitHub release, which is a legitimate state and must not fail the sweep.
- * Every OTHER failure — a rate limit, an expired token, a transient 5xx — must,
- * because treating it as "no release" is indistinguishable from "not stale":
- * the sweep would exit green having silently checked nothing, and since this
- * repo's actions are all on their latest major the empty section would look
- * exactly like a healthy run (Copilot).
- *
- * @param {string} stderr stderr from a non-zero `gh api` call
- * @returns {boolean}
- */
-export function isMissingRelease(stderr) {
-  return /HTTP 404/.test(stderr);
 }
 
 /**
@@ -337,12 +321,17 @@ function latestReleaseTag(action, spawn) {
     { encoding: "utf8" },
   );
   if (result.error) throw result.error;
+  // EVERY non-zero status is fatal, 404 included. This is the release *list*
+  // endpoint, which answers "no releases" with a successful empty array — so a
+  // 404 here does not mean "this action cuts no releases", it means the
+  // repository is missing or inaccessible, i.e. a `uses:` ref this sweep
+  // cannot check at all. Converting that to `null` would silently drop a
+  // broken or renamed action from the sweep that replaced Dependabot
+  // (Copilot). The empty-array case is already handled by the parse below.
   if (result.status !== 0) {
-    const stderr = result.stderr ?? "";
-    // A repo with no releases returns `[]`, not a 404 — but a renamed or
-    // deleted action really is gone, and that is not a reason to fail.
-    if (isMissingRelease(stderr)) return null;
-    throw new Error(`release lookup for ${repo} failed: ${stderr.trim()}`);
+    throw new Error(
+      `release lookup for ${repo} failed (exit ${result.status}): ${(result.stderr ?? "").trim()}`,
+    );
   }
   const tags = result.stdout
     .split("\n")

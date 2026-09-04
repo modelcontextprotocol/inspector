@@ -14,7 +14,6 @@ import {
   buildIssueBody,
   highestVersionTag,
   isActionStale,
-  isMissingRelease,
   main,
   parseActionRefs,
   parseOutdated,
@@ -220,20 +219,6 @@ test("staleActions dedupes, drops actions with no known release and sorts", () =
   );
 });
 
-test("isMissingRelease suppresses only a 404, never a real API failure", () => {
-  // A 404 is the legitimate "this action cuts no GitHub releases" answer.
-  assert.equal(isMissingRelease("gh: Not Found (HTTP 404)"), true);
-  // Everything else must fail the sweep rather than read as "not stale" — an
-  // empty actions section is indistinguishable from a healthy run (Copilot).
-  assert.equal(
-    isMissingRelease("gh: API rate limit exceeded (HTTP 403)"),
-    false,
-  );
-  assert.equal(isMissingRelease("gh: Bad credentials (HTTP 401)"), false);
-  assert.equal(isMissingRelease("gh: Server Error (HTTP 502)"), false);
-  assert.equal(isMissingRelease(""), false);
-});
-
 test("buildIssueBody returns null when every install is up to date", () => {
   assert.equal(
     buildIssueBody([
@@ -423,6 +408,9 @@ test("buildClearedBody speaks for both halves of the sweep", () => {
   // npm-only wording here would assert an all-clear the sweep never checked.
   assert.match(body, /npm package/);
   assert.match(body, /uses:/);
+  // Must not claim every ref was verified: SHA- and branch-pinned refs are
+  // never ranked against a release (Copilot).
+  assert.match(body, /SHA or a branch/);
 });
 
 test("main fails the sweep when a release lookup errors, rather than reporting no stale actions", () => {
@@ -439,11 +427,24 @@ test("main fails the sweep when a release lookup errors, rather than reporting n
   );
 });
 
-test("main treats a 404 release lookup as 'this action cuts no releases'", () => {
+test("main fails on a 404 release lookup — a missing action repo is not 'no releases'", () => {
+  // The release LIST endpoint answers "no releases" with a successful empty
+  // array, so a 404 means the repository is missing or inaccessible. Treating
+  // it as benign would silently drop a broken or renamed action from the sweep
+  // that replaced Dependabot (Copilot).
   const spawn = fakeSpawn({
     releasesStatus: 1,
     releasesStderr: "gh: Not Found (HTTP 404)",
   });
+  assert.throws(
+    () => captureLog(() => main("o/r", spawn)),
+    /release lookup for .* failed/,
+  );
+});
+
+test("main treats an empty release list as 'this action cuts no releases'", () => {
+  // The benign case: status 0 with no tags. The action is simply not ranked.
+  const spawn = fakeSpawn({ releaseTags: [] });
   const log = captureLog(() => main("o/r", spawn));
   assert.match(log.join("\n"), /no-op/);
 });
