@@ -15,6 +15,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import {
+  buildClearedBody,
   buildCommentMarker,
   pickMilestone,
   narrowToApplicable,
@@ -1008,6 +1009,111 @@ test("main refreshes an issue whose exposure shrank, without commenting", () => 
   // dropped advisory cannot be re-announced later.
   assert.deepEqual(parseMarker(body).ghsas, ["GHSA-narrow", "GHSA-wide"]);
   assert.ok(log.some((l) => l.includes("refreshed #41")));
+});
+
+test("main clears an open issue when the manifest is gone", () => {
+  const [group] = groupAlerts([
+    alert({ ghsa: "GHSA-a", manifest: "clients/gone/package-lock.json" }),
+  ]);
+  const spawn = fakeSpawn({
+    alertPages: [
+      [alert({ ghsa: "GHSA-a", manifest: "clients/gone/package-lock.json" })],
+    ],
+    issues: [
+      {
+        number: 41,
+        title: buildIssueTitle(group),
+        body: buildIssueBody(group, asInstalled()),
+      },
+    ],
+  });
+  const log = inTempRepo({}, () =>
+    withoutProjectToken(() =>
+      captureLog(() => main("o/r", spawn, "2026-09-04")),
+    ),
+  );
+
+  const edit = ghCall(spawn, "edit");
+  assert.ok(edit, "the stale issue is rewritten, not silently skipped");
+  const body = edit.args[edit.args.indexOf("--body") + 1];
+  assert.match(body, /No longer applicable on `v2\/main` as of 2026-09-04/);
+  assert.match(body, /no longer part of this repo/);
+  // The marker survives, so the issue is reused if the advisory comes back.
+  assert.deepEqual(parseMarker(body).ghsas, ["GHSA-a"]);
+  assert.equal(ghCall(spawn, "create"), undefined);
+  assert.ok(log.some((l) => l.includes("cleared #41")));
+});
+
+test("main clears an open issue when every copy moved out of range", () => {
+  const [group] = groupAlerts([alert({ ghsa: "GHSA-a" })]);
+  const spawn = fakeSpawn({
+    alertPages: [[alert({ ghsa: "GHSA-a" })]],
+    issues: [
+      {
+        number: 41,
+        title: buildIssueTitle(group),
+        body: buildIssueBody(group, asInstalled()),
+      },
+    ],
+  });
+  const log = inTempRepo(
+    { "package-lock.json": lockWith("fast-uri", "3.1.6") },
+    () =>
+      withoutProjectToken(() =>
+        captureLog(() => main("o/r", spawn, "2026-09-04")),
+      ),
+  );
+  const edit = ghCall(spawn, "edit");
+  assert.ok(edit);
+  const body = edit.args[edit.args.indexOf("--body") + 1];
+  assert.match(body, /every installed copy is out of range \(`3\.1\.6`\)/);
+  assert.ok(log.some((l) => l.includes("cleared #41")));
+});
+
+test("main does not re-clear an issue it already cleared", () => {
+  // The second run of a cleared sweep must touch nothing at all.
+  const [group] = groupAlerts([alert({ ghsa: "GHSA-a" })]);
+  const spawn = fakeSpawn({
+    alertPages: [[alert({ ghsa: "GHSA-a" })]],
+    issues: [
+      {
+        number: 41,
+        title: buildIssueTitle(group),
+        body: buildClearedBody(group, {
+          ghsas: ["GHSA-a"],
+          reason: "every installed copy is out of range (`3.1.6`)",
+          today: "2026-09-04",
+        }),
+      },
+    ],
+  });
+  inTempRepo({ "package-lock.json": lockWith("fast-uri", "3.1.6") }, () =>
+    withoutProjectToken(() =>
+      captureLog(() => main("o/r", spawn, "2026-09-04")),
+    ),
+  );
+  assert.equal(ghCall(spawn, "edit"), undefined);
+  assert.equal(ghCall(spawn, "create"), undefined);
+});
+
+test("main skips quietly when nothing applies and no issue is open", () => {
+  const spawn = fakeSpawn({ alertPages: [[alert({ ghsa: "GHSA-a" })]] });
+  inTempRepo({ "package-lock.json": lockWith("fast-uri", "3.1.6") }, () =>
+    withoutProjectToken(() => captureLog(() => main("o/r", spawn))),
+  );
+  assert.equal(ghCall(spawn, "edit"), undefined);
+  assert.equal(ghCall(spawn, "create"), undefined);
+});
+
+test("buildIssueBody counts the applicable alerts in its prose, not the marker", () => {
+  const [group] = groupAlerts([alert({ ghsa: "GHSA-a" })]);
+  // The marker carries a second, since-closed advisory; the prose must not.
+  const body = buildIssueBody(group, {
+    ...nested(),
+    ghsas: ["GHSA-a", "GHSA-closed"],
+  });
+  assert.match(body, /Filed automatically from 1 open Dependabot alert\b/);
+  assert.deepEqual(parseMarker(body).ghsas, ["GHSA-a", "GHSA-closed"]);
 });
 
 test("main reads every page of open dependabot issues", () => {

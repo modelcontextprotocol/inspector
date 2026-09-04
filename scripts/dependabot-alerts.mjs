@@ -435,6 +435,7 @@ export function remediation(affected, declared) {
  */
 export function buildIssueBody(group, { affected, declared, ghsas }) {
   const covered = ghsas ?? group.ghsas;
+  const applying = group.advisories.length;
   // ⚠️ Every free-form cell is escaped, the RANGE included: a semver range is
   // allowed to contain `||`, so a disjoint advisory range like
   // `>= 1.0, < 2.0 || >= 3.0, < 3.5` would otherwise inject two extra column
@@ -478,7 +479,10 @@ export function buildIssueBody(group, { affected, declared, ghsas }) {
 
   return [
     buildMarker({ ...group, ghsas: covered }),
-    `Filed automatically from ${covered.length} open Dependabot ${covered.length === 1 ? "alert" : "alerts"} (#2233). Dependabot opens no security-update PRs on this repo; the fix is written by hand against \`v2/main\`.`,
+    // Counts what APPLIES, like the title and the table — `covered` is the
+    // marker's monotonic history and would keep counting an advisory that has
+    // since closed (Copilot).
+    `Filed automatically from ${applying} open Dependabot ${applying === 1 ? "alert" : "alerts"} (#2233). Dependabot opens no security-update PRs on this repo; the fix is written by hand against \`${TARGET_BRANCH}\`.`,
     "",
     "| | |",
     "| --- | --- |",
@@ -501,6 +505,32 @@ export function buildIssueBody(group, { affected, declared, ghsas }) {
     "",
     "> [!NOTE]",
     `> **Priority is a standing rubric override.** A routine bump scores Medium; a security bump is filed **${BOARD_PRIORITY}** so it does not sit. The version and severity above come from \`${TARGET_BRANCH}\`'s own lockfile, not from the alert — GitHub computes alerts from the default branch, so an alert is only filed here after its vulnerable range is re-checked against the branch we ship from.`,
+  ].join("\n");
+}
+
+/**
+ * The body an issue is rewritten to once its exposure is gone.
+ *
+ * The marker is retained, so the sweep still recognises this issue and will not
+ * file a fresh one if the same advisory comes back into range. The issue is NOT
+ * closed automatically: whether the exposure went away because a PR fixed it or
+ * because the dependency was dropped decides whether the board card is moved to
+ * Done or deleted, and that is a judgement the sweep cannot make.
+ *
+ * @param {ReturnType<typeof groupAlerts>[number]} group
+ * @param {{ghsas: string[], reason: string, today: string}} context
+ * @returns {string}
+ */
+export function buildClearedBody(group, { ghsas, reason, today }) {
+  return [
+    buildMarker({ ...group, ghsas }),
+    `**No longer applicable on \`${TARGET_BRANCH}\` as of ${today}** — ${reason}.`,
+    "",
+    `Nothing here needs bumping any more: \`${group.package}\` is no longer exposed to ${ghsas.length === 1 ? "the advisory" : "the advisories"} below on the branch we ship from. This body is rewritten in place rather than the issue being closed, because whether the card belongs in **Done** or should be **deleted** depends on why the exposure went away — a merged fix shipped something, a dropped dependency did not.`,
+    "",
+    `Previously covered: ${ghsas.map((g) => `\`${g}\``).join(", ")}.`,
+    "",
+    "If the same advisory comes back into range, this issue is reused rather than a new one filed.",
   ].join("\n");
 }
 
@@ -883,7 +913,11 @@ function createIssue(repo, group, body, spawn) {
   return { url, milestone };
 }
 
-export function main(repo = process.env.GITHUB_REPOSITORY, spawn = spawnSync) {
+export function main(
+  repo = process.env.GITHUB_REPOSITORY,
+  spawn = spawnSync,
+  today = new Date().toISOString().slice(0, 10),
+) {
   if (!repo) throw new Error("repo not specified (GITHUB_REPOSITORY unset)");
 
   checkSecurityPrsStillDisabled(repo, spawn);
@@ -903,6 +937,43 @@ export function main(repo = process.env.GITHUB_REPOSITORY, spawn = spawnSync) {
   const boardProblems = [];
 
   for (const rawGroup of groups) {
+    // ⚠️ Resolved BEFORE the skips below, not after. An issue filed yesterday
+    // is still open today, and if the manifest has since gone or every copy has
+    // moved out of range, skipping straight past it leaves its body asserting a
+    // vulnerability that no longer exists and its Todo/High card live forever
+    // (Copilot). Matched on the full grouping key, `fixedIn` included: a second
+    // bump of the same package is a different issue, not an update to this one.
+    const existing = existingIssues.find(
+      (i) =>
+        i.marker?.package === rawGroup.package &&
+        i.marker?.manifestPath === rawGroup.manifestPath &&
+        i.marker?.fixedIn === rawGroup.fixedIn,
+    );
+
+    /** Rewrite an open issue to its cleared state, once. */
+    const clear = (reason) => {
+      if (!existing) return;
+      const body = buildClearedBody(rawGroup, {
+        ghsas: existing.marker.ghsas,
+        reason,
+        today,
+      });
+      if (existing.body === body) return;
+      const edit = gh(spawn, [
+        "issue",
+        "edit",
+        String(existing.number),
+        "--repo",
+        repo,
+        "--body",
+        body,
+      ]);
+      if (edit.status !== 0) {
+        throw new Error(`gh issue edit failed: ${(edit.stderr ?? "").trim()}`);
+      }
+      console.log(`dependabot-alerts: cleared #${existing.number} — ${reason}`);
+    };
+
     if (!manifests.has(rawGroup.manifestPath)) {
       manifests.set(rawGroup.manifestPath, readManifest(rawGroup.manifestPath));
     }
@@ -911,6 +982,7 @@ export function main(repo = process.env.GITHUB_REPOSITORY, spawn = spawnSync) {
       console.log(
         `dependabot-alerts: ${rawGroup.manifestPath} absent on ${TARGET_BRANCH} — skipping ${rawGroup.package}`,
       );
+      clear(`\`${rawGroup.manifestPath}\` is no longer part of this repo`);
       continue;
     }
 
@@ -921,6 +993,11 @@ export function main(repo = process.env.GITHUB_REPOSITORY, spawn = spawnSync) {
       console.log(
         `dependabot-alerts: ${rawGroup.package}@${seen.join("/") || "(absent)"} is already out of range on ${TARGET_BRANCH} — skipping`,
       );
+      clear(
+        seen.length > 0
+          ? `every installed copy is out of range (${seen.map((v) => `\`${v}\``).join(", ")})`
+          : "the package is no longer installed at all",
+      );
       continue;
     }
     // From here on `group` carries only the advisories that apply to this
@@ -928,14 +1005,6 @@ export function main(repo = process.env.GITHUB_REPOSITORY, spawn = spawnSync) {
     const { group, affected } = applicable;
 
     const declared = isDirectDependency(lock, group.package);
-    // Matched on the full grouping key, `fixedIn` included: a second bump of
-    // the same package is a different issue, not an update to this one.
-    const existing = existingIssues.find(
-      (i) =>
-        i.marker?.package === group.package &&
-        i.marker?.manifestPath === group.manifestPath &&
-        i.marker?.fixedIn === group.fixedIn,
-    );
 
     if (!existing) {
       const { url, milestone } = createIssue(
