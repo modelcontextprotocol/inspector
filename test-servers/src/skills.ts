@@ -238,7 +238,7 @@ for (const skill of FIXTURE_SKILLS) {
 }
 
 /** The wire entry for one fixture skill. */
-function toEntry(skill: FixtureSkill): Record<string, unknown> {
+function toEntry(skill: FixtureSkill): z.infer<typeof SkillEntryShape> {
   return {
     uri: `skill://${skill.path}/SKILL.md`,
     frontmatter: skill.frontmatter,
@@ -254,7 +254,9 @@ function toEntry(skill: FixtureSkill): Record<string, unknown> {
 }
 
 /** One `skills/list` page starting at `cursor` (an index, as a string). */
-export function listSkillsPage(cursor?: string): Record<string, unknown> {
+export function listSkillsPage(
+  cursor?: string,
+): z.infer<typeof ListSkillsResultShape> {
   const start = cursor ? Number.parseInt(cursor, 10) : 0;
   // A cursor the fixture never issued is answered as an empty final page
   // rather than an error: the Inspector's walk should terminate, and a thrown
@@ -270,7 +272,9 @@ export function listSkillsPage(cursor?: string): Record<string, unknown> {
 }
 
 /** The `skills/get` result for one entry URI. */
-export function getSkillEntry(uri: string): Record<string, unknown> {
+export function getSkillEntry(
+  uri: string,
+): z.infer<typeof GetSkillResultShape> {
   const skill = FIXTURE_SKILLS.find(
     (candidate) => `skill://${candidate.path}/SKILL.md` === uri,
   );
@@ -321,6 +325,51 @@ const ListSkillsParamsSchema = z.object({ cursor: z.string().optional() });
 const GetSkillParamsSchema = z.object({ uri: z.string() });
 
 /**
+ * Result schemas for the two custom methods.
+ *
+ * ⚠️ The SDK does **not** runtime-validate a handler's result — its own doc on
+ * `RequestHandlerSchemas` says `result` is optional and "no runtime validation
+ * is performed on the result". So these do not make the fixture's output
+ * checked at the server boundary; what they buy is that the handler's return
+ * type is inferred from them, so a shape change in `toEntry` or
+ * `listSkillsPage` fails `tsc` instead of silently shipping a fixture that
+ * claims to be conforming. That is the whole benefit, and it is worth having
+ * for a fixture whose job is to be wrong only in documented ways.
+ *
+ * Deliberately declared here rather than imported from
+ * `core/mcp/skillsSchemas.ts`: a fixture that validated itself against the
+ * client's own schema could never catch the client being wrong.
+ */
+const ModernEnvelopeShape = {
+  resultType: z.literal("complete"),
+  ttlMs: z.int().min(0),
+  cacheScope: z.enum(["public", "private"]),
+};
+
+const SkillResourceShape = z.object({
+  uri: z.string(),
+  digest: z.string(),
+  size: z.number(),
+});
+
+const SkillEntryShape = z.object({
+  uri: z.string(),
+  frontmatter: z.object({ name: z.string(), description: z.string() }),
+  resources: z.union([z.literal("dynamic"), z.array(SkillResourceShape)]),
+});
+
+const ListSkillsResultShape = z.object({
+  ...ModernEnvelopeShape,
+  skills: z.array(SkillEntryShape),
+  nextCursor: z.string().optional(),
+});
+
+const GetSkillResultShape = z.object({
+  ...ModernEnvelopeShape,
+  skill: SkillEntryShape,
+});
+
+/**
  * Wire `skills/list`, `skills/get` and the `skill://` half of `resources/read`
  * onto an `McpServer`.
  */
@@ -329,13 +378,13 @@ export function wireSkillsHandlers(mcpServer: McpServer): void {
 
   lowLevel.setRequestHandler(
     "skills/list",
-    { params: ListSkillsParamsSchema },
+    { params: ListSkillsParamsSchema, result: ListSkillsResultShape },
     async (params) => listSkillsPage(params.cursor),
   );
 
   lowLevel.setRequestHandler(
     "skills/get",
-    { params: GetSkillParamsSchema },
+    { params: GetSkillParamsSchema, result: GetSkillResultShape },
     async (params) => getSkillEntry(params.uri),
   );
 

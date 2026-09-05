@@ -340,18 +340,20 @@ export function SkillsScreen({
   const [fetchedEntry, setFetchedEntry] = useState<FetchedEntryState>({
     key: null,
   });
-  // The "Verify all" batch in flight, as the manifest it belongs to plus a
-  // token unique to that invocation, or `null`.
+  // Every "Verify all" batch in flight, keyed by the manifest it belongs to.
   //
-  // The key alone would be a bare boolean's problem one level up: a global flag
-  // leaves a NEWLY selected skill's button disabled until the previous skill's
-  // reads settle (indefinitely, if one hangs), and a key-only guard lets two
-  // batches for the SAME manifest clear each other — start on A, switch to B,
-  // return to A and start again, and the first A batch's finalizer sees a
-  // matching key and frees the button while the second is still running,
-  // re-opening the concurrency cap it exists to hold.
-  const [batch, setBatch] = useState<{ key: string; token: number } | null>(
-    null,
+  // A **map**, not one slot, and the reason is a bug a single slot really had:
+  // batches on different skills genuinely overlap, so a slot remembers only the
+  // most recent one. Start A, switch to B and start B, return to A — the slot
+  // now says B, A's button reads as free, and clicking it starts a SECOND pool
+  // of workers for A on top of the first, doubling the concurrency cap. Keyed
+  // by manifest, A stays disabled for exactly as long as A's batch runs.
+  //
+  // The value is the invocation's token, so a finalizer deletes only its own
+  // entry; and a per-manifest entry is what keeps a hung batch on one skill
+  // from disabling every other skill's button.
+  const [batches, setBatches] = useState<ReadonlyMap<string, number>>(
+    () => new Map(),
   );
   // Monotonic attempt token, shared by every on-demand action here: a manifest
   // row's verification, the SKILL.md preview, and the `skills/get` fetch. One
@@ -476,14 +478,21 @@ export function SkillsScreen({
     };
     const workers = Math.min(VERIFY_CONCURRENCY, manifest.length);
     const token = (nextAttempt.current += 1);
-    setBatch({ key, token });
+    setBatches((prev) => new Map(prev).set(key, token));
     // The concurrency cap is per invocation, so without the button being
     // disabled below, a second click would start a second pool of four and a
     // third would make it twelve — the flood the cap exists to prevent.
     void Promise.all(Array.from({ length: workers }, () => worker())).finally(
-      // Clears only ITS OWN invocation: matched on the token, not the key, so
-      // an earlier batch settling cannot free a button a later one is holding.
-      () => setBatch((prev) => (prev?.token === token ? null : prev)),
+      // Clears only ITS OWN invocation: matched on the token as well as the
+      // key, so an earlier batch settling cannot free a button a later one is
+      // holding.
+      () =>
+        setBatches((prev) => {
+          if (prev.get(key) !== token) return prev;
+          const next = new Map(prev);
+          next.delete(key);
+          return next;
+        }),
     );
   }, [manifest, manifestKey, verifyRow]);
 
@@ -534,7 +543,7 @@ export function SkillsScreen({
   }, [manifestKey, onGetSkill, selected]);
 
   const fetched = fetchedEntry.key === manifestKey ? fetchedEntry : undefined;
-  const batchRunning = batch?.key === manifestKey;
+  const batchRunning = batches.has(manifestKey);
 
   const preview =
     previewState.key === manifestKey ? previewState.contents : undefined;

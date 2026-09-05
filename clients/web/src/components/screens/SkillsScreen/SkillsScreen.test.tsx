@@ -655,12 +655,12 @@ describe("SkillsScreen", () => {
     expect(screen.queryByTestId("skills-get-result")).not.toBeInTheDocument();
   });
 
-  it("keeps Verify all disabled on returning to a skill whose batch is still running", async () => {
-    // This is what actually blocks a second batch for one manifest: the button
-    // is disabled whenever the in-flight batch's key matches the selection, so
-    // A → B → A comes back to a disabled button rather than a second pool.
-    // (`batch` also carries a per-invocation token, so a finalizer can only
-    // ever clear its own batch — belt and braces for the same property.)
+  it("keeps Verify all disabled per skill while batches on other skills run", async () => {
+    // A → *start B's batch too* → back to A. That middle step is the one that
+    // matters: with a single slot instead of a map, starting B's batch
+    // overwrote A's, so A's button read as free and a second pool of workers
+    // could be started on top of A's first — doubling the concurrency cap the
+    // button exists to hold.
     const user = userEvent.setup();
     const onReadSkillFile = vi.fn(
       () => new Promise<{ text: string }>(() => {}),
@@ -668,19 +668,21 @@ describe("SkillsScreen", () => {
     renderWithMantine(
       <ControlledSkillsScreen onReadSkillFile={onReadSkillFile} />,
     );
-    await user.click(screen.getByText("data-analysis"));
-    await user.click(screen.getByRole("button", { name: /Verify all/ }));
-    expect(screen.getByRole("button", { name: /Verify all/ })).toBeDisabled();
+    const verifyAll = () => screen.getByRole("button", { name: /Verify all/ });
 
-    // B is free to run its own batch...
+    await user.click(screen.getByText("data-analysis"));
+    await user.click(verifyAll());
+    expect(verifyAll()).toBeDisabled();
+
+    // B is free to run its own batch, and does.
     await user.click(screen.getByText("tampered"));
-    expect(
-      screen.getByRole("button", { name: /Verify all/ }),
-    ).not.toBeDisabled();
+    expect(verifyAll()).not.toBeDisabled();
+    await user.click(verifyAll());
+    expect(verifyAll()).toBeDisabled();
 
-    // ...and returning to A finds its batch still in flight.
+    // Returning to A still finds A's own batch in flight.
     await user.click(screen.getByText("data-analysis"));
-    expect(screen.getByRole("button", { name: /Verify all/ })).toBeDisabled();
+    expect(verifyAll()).toBeDisabled();
   });
 
   it("shows the SKILL.md preview on demand", async () => {
