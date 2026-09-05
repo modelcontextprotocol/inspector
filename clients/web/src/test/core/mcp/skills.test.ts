@@ -22,16 +22,20 @@ import {
 const HELLO_SHA256 =
   "sha256:2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824";
 
+const DIGEST = `sha256:${"a".repeat(64)}`;
+
+/**
+ * A conforming entry: the manifest is complete (it lists the skill's own
+ * SKILL.md), unique, inside the skill root, and every row carries a digest and
+ * a size. Overrides make exactly one of those false, one test at a time.
+ */
 function entry(overrides: Partial<SkillEntry> = {}): SkillEntry {
   return {
     uri: "skill://demo/SKILL.md",
     frontmatter: { name: "demo", description: "A demo skill" },
     resources: [
-      {
-        uri: "skill://demo/ref.md",
-        digest: `sha256:${"a".repeat(64)}`,
-        size: 10,
-      },
+      { uri: "skill://demo/SKILL.md", digest: DIGEST, size: 20 },
+      { uri: "skill://demo/ref.md", digest: DIGEST, size: 10 },
     ],
     ...overrides,
   };
@@ -188,10 +192,88 @@ describe("checkSkillConformance", () => {
 
   it("reports a manifest entry with no digest as unverifiable", () => {
     const issues = checkSkillConformance(
-      entry({ resources: [{ uri: "skill://demo/ref.md", size: 1 }] }),
+      entry({
+        resources: [
+          { uri: "skill://demo/SKILL.md", digest: DIGEST, size: 20 },
+          { uri: "skill://demo/ref.md", size: 1 },
+        ],
+      }),
     );
     expect(issues.map((i) => i.code)).toEqual(["missing-digest"]);
     expect(issues[0].resourceUri).toBe("skill://demo/ref.md");
+  });
+
+  it("reports a manifest that omits the skill's own SKILL.md", () => {
+    // A manifest is the complete file set, so one without the entry file is
+    // not "a skill with no extras" — it cannot be checked against the skill.
+    const issues = checkSkillConformance(
+      entry({
+        resources: [{ uri: "skill://demo/ref.md", digest: DIGEST, size: 1 }],
+      }),
+    );
+    expect(issues.map((i) => i.code)).toEqual(["manifest-missing-self"]);
+    expect(issues[0].severity).toBe("error");
+  });
+
+  it("reports an empty manifest through the same finding", () => {
+    const issues = checkSkillConformance(entry({ resources: [] }));
+    expect(issues.map((i) => i.code)).toEqual(["manifest-missing-self"]);
+  });
+
+  it("reports a duplicated manifest URI", () => {
+    const dup = { uri: "skill://demo/ref.md", digest: DIGEST, size: 1 };
+    const issues = checkSkillConformance(
+      entry({
+        resources: [
+          { uri: "skill://demo/SKILL.md", digest: DIGEST, size: 20 },
+          dup,
+          dup,
+        ],
+      }),
+    );
+    expect(issues.map((i) => i.code)).toEqual(["duplicate-resource"]);
+    expect(issues[0].resourceUri).toBe("skill://demo/ref.md");
+  });
+
+  it("reports a manifest entry outside the skill root", () => {
+    const issues = checkSkillConformance(
+      entry({
+        resources: [
+          { uri: "skill://demo/SKILL.md", digest: DIGEST, size: 20 },
+          { uri: "skill://other/ref.md", digest: DIGEST, size: 1 },
+        ],
+      }),
+    );
+    expect(issues.map((i) => i.code)).toEqual(["resource-outside-skill-root"]);
+    expect(issues[0].resourceUri).toBe("skill://other/ref.md");
+  });
+
+  it("does not check the skill root when the entry URI is malformed", () => {
+    // There is no root to measure against, and `malformed-uri` already says so;
+    // a second finding per resource would present one defect as many.
+    const issues = checkSkillConformance(
+      entry({
+        uri: "skill://demo/other.md",
+        resources: [{ uri: "skill://elsewhere/a.md", digest: DIGEST, size: 1 }],
+      }),
+    );
+    expect(issues.map((i) => i.code)).not.toContain(
+      "resource-outside-skill-root",
+    );
+    expect(issues.map((i) => i.code)).toContain("malformed-uri");
+  });
+
+  it("reports a manifest entry with no size as a warning", () => {
+    const issues = checkSkillConformance(
+      entry({
+        resources: [
+          { uri: "skill://demo/SKILL.md", digest: DIGEST, size: 20 },
+          { uri: "skill://demo/ref.md", digest: DIGEST },
+        ],
+      }),
+    );
+    expect(issues.map((i) => i.code)).toEqual(["missing-size"]);
+    expect(issues[0].severity).toBe("warning");
   });
 
   it("reports a digest that is not sha256 + 64 lowercase hex", () => {
@@ -202,20 +284,26 @@ describe("checkSkillConformance", () => {
       `sha256:${"a".repeat(63)}`,
     ]) {
       const issues = checkSkillConformance(
-        entry({ resources: [{ uri: "skill://demo/ref.md", digest }] }),
+        entry({
+          resources: [
+            { uri: "skill://demo/SKILL.md", digest: DIGEST, size: 20 },
+            { uri: "skill://demo/ref.md", digest, size: 1 },
+          ],
+        }),
       );
       expect(issues.map((i) => i.code)).toEqual(["malformed-digest"]);
     }
   });
 
   it("reports a manifest over the 512-entry limit", () => {
-    const resources = Array.from(
-      { length: SKILL_MAX_RESOURCE_ENTRIES + 1 },
-      (_unused, i) => ({
+    const resources = [
+      { uri: "skill://demo/SKILL.md", digest: DIGEST, size: 20 },
+      ...Array.from({ length: SKILL_MAX_RESOURCE_ENTRIES }, (_unused, i) => ({
         uri: `skill://demo/f${i}.md`,
-        digest: `sha256:${"a".repeat(64)}`,
-      }),
-    );
+        digest: DIGEST,
+        size: 1,
+      })),
+    ];
     const issues = checkSkillConformance(entry({ resources }));
     expect(issues.map((i) => i.code)).toContain("resource-limit-exceeded");
   });
@@ -224,10 +312,11 @@ describe("checkSkillConformance", () => {
     const issues = checkSkillConformance(
       entry({
         resources: [
+          { uri: "skill://demo/SKILL.md", digest: DIGEST, size: 20 },
           {
             uri: "skill://demo/big.bin",
-            digest: `sha256:${"a".repeat(64)}`,
-            size: SKILL_MAX_TOTAL_BYTES + 1,
+            digest: DIGEST,
+            size: SKILL_MAX_TOTAL_BYTES,
           },
         ],
       }),
@@ -240,8 +329,8 @@ describe("checkSkillConformance", () => {
       entry({
         resources: [
           {
-            uri: "skill://demo/big.bin",
-            digest: `sha256:${"a".repeat(64)}`,
+            uri: "skill://demo/SKILL.md",
+            digest: DIGEST,
             size: SKILL_MAX_TOTAL_BYTES,
           },
         ],
@@ -308,6 +397,40 @@ describe("verifySkillResource", () => {
     expect(result.status).toBe("mismatch");
     expect(result.expectedDigest).toBe(expected);
     expect(result.actualDigest).toBe(HELLO_SHA256);
+  });
+
+  it("fails on a declared size that disagrees with the fetched bytes", async () => {
+    // A size disagreement is a real inconsistency even when the digest would
+    // match: the digest is taken over the bytes the server served, so agreeing
+    // with it says nothing about whether the manifest describes those bytes.
+    const result = await verifySkillResource(
+      { uri: "skill://demo/a.md", digest: HELLO_SHA256, size: 999 },
+      textToBytes("hello"),
+    );
+    expect(result.status).toBe("mismatch");
+    expect(result.expectedSize).toBe(999);
+    expect(result.actualSize).toBe(5);
+    expect(result.reason).toMatch(/999 bytes/);
+  });
+
+  it("checks the size before hashing, so a bad size never reports verified", async () => {
+    const result = await verifySkillResource(
+      { uri: "skill://demo/a.md", size: 1 },
+      textToBytes("hello"),
+    );
+    // No digest at all, and still a mismatch — the length alone settles it.
+    expect(result.status).toBe("mismatch");
+    expect(result.actualDigest).toBeUndefined();
+  });
+
+  it("echoes both sizes on a verified result when one was declared", async () => {
+    const result = await verifySkillResource(
+      { uri: "skill://demo/a.md", digest: HELLO_SHA256, size: 5 },
+      textToBytes("hello"),
+    );
+    expect(result.status).toBe("verified");
+    expect(result.expectedSize).toBe(5);
+    expect(result.actualSize).toBe(5);
   });
 
   it("reports unverifiable when no digest is advertised", async () => {

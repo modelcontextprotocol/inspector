@@ -3,7 +3,6 @@ import {
   DYNAMIC_RESOURCES,
   GetSkillResultSchema,
   ListSkillsResultSchema,
-  ReadResourceDirectoryResultSchema,
   SKILLS_EXTENSION_KEY,
   SKILLS_GET_METHOD,
   SKILLS_LIST_METHOD,
@@ -105,17 +104,5 @@ describe("GetSkillResultSchema", () => {
 
   it("rejects a result that is neither shape", () => {
     expect(() => GetSkillResultSchema.parse({ nothing: true })).toThrow();
-  });
-});
-
-describe("ReadResourceDirectoryResultSchema", () => {
-  it("parses directory children including the directory mime type", () => {
-    const parsed = ReadResourceDirectoryResultSchema.parse({
-      contents: [
-        { uri: "skill://demo/sub", mimeType: "inode/directory" },
-        { uri: "skill://demo/ref.md", mimeType: "text/markdown", size: 3 },
-      ],
-    });
-    expect(parsed.contents).toHaveLength(2);
   });
 });

@@ -142,23 +142,13 @@ export const GetSkillResultSchema = z
 export type GetSkillResult = SkillEntry;
 
 /**
- * `resources/directory/read` result — the direct (non-recursive) children of a
- * directory resource. Present for completeness of the wire surface; the
- * Inspector surfaces the `directoryRead` sub-flag today and calls the method in
- * phase 3.
+ * ⚠️ **No `resources/directory/read` result schema here yet, on purpose.**
+ *
+ * The method name and the directory MIME type above are stated in SEP-2640;
+ * the shape of the result it returns is not something this PR verified against
+ * the normative text, and the Inspector does not call the method (phase 3,
+ * #2248). Declaring a guessed schema would put an unverified claim in the one
+ * module that is supposed to be the authority on the wire format — and one
+ * nothing exercises, so it could be wrong indefinitely without failing
+ * anything. Phase 3 adds it against the spec, alongside the call that uses it.
  */
-export const ReadResourceDirectoryResultSchema = z.looseObject({
-  contents: z.array(
-    z.looseObject({
-      uri: z.string(),
-      name: z.string().optional(),
-      mimeType: z.string().optional(),
-      size: z.number().optional(),
-    }),
-  ),
-  nextCursor: z.string().optional(),
-});
-
-export type ReadResourceDirectoryResult = z.infer<
-  typeof ReadResourceDirectoryResultSchema
->;

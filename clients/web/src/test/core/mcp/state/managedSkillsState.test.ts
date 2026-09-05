@@ -3,6 +3,8 @@ import type { SkillEntry } from "@inspector/core/mcp/skillsSchemas";
 import {
   ManagedSkillsState,
   REPEATED_CURSOR_MESSAGE,
+  SKILLS_MAX_PAGES,
+  SKILLS_PAGE_LIMIT_MESSAGE,
 } from "@inspector/core/mcp/state/managedSkillsState";
 import { FakeInspectorClient } from "@inspector/core/mcp/__tests__/fakeInspectorClient";
 
@@ -103,6 +105,59 @@ describe("ManagedSkillsState", () => {
     });
     await expect(state.refresh()).rejects.toThrow(REPEATED_CURSOR_MESSAGE);
     expect(state.getError()?.message).toBe(REPEATED_CURSOR_MESSAGE);
+  });
+
+  it("stops and reports when a server hands back endlessly unique cursors", async () => {
+    client.setStatus("connected");
+    // The repeated-cursor guard cannot see this shape: every cursor is new, so
+    // the walk would grow without bound. The cap raises rather than truncating
+    // — returning what we have would present a partial list as a complete one.
+    let n = 0;
+    client.listSkills.mockImplementation(async () => ({
+      skills: [skill(`s${n}`)],
+      nextCursor: String(++n),
+    }));
+    await expect(state.refresh()).rejects.toThrow(SKILLS_PAGE_LIMIT_MESSAGE);
+    expect(client.listSkills).toHaveBeenCalledTimes(SKILLS_MAX_PAGES);
+    // The truncated list is NOT committed.
+    expect(state.getSkills()).toEqual([]);
+  });
+
+  it("abandons a walk whose session ended mid-flight", async () => {
+    client.setStatus("connected");
+    let release: ((value: { skills: SkillEntry[] }) => void) | undefined;
+    client.listSkills.mockImplementationOnce(
+      async () =>
+        new Promise((resolve) => {
+          release = resolve;
+        }),
+    );
+    const walk = state.refresh();
+    // A disconnect lands while the request is still out.
+    await client.disconnect();
+    release?.({ skills: [skill("stale")] });
+    await walk;
+    // The continuation must not repopulate a store the disconnect cleared.
+    expect(state.getSkills()).toEqual([]);
+    expect(state.getPagination()).toEqual({ pageCount: 0 });
+  });
+
+  it("does not surface a dead session's failure in the live one", async () => {
+    client.setStatus("connected");
+    let fail: ((err: Error) => void) | undefined;
+    client.listSkills.mockImplementationOnce(
+      async () =>
+        new Promise((_resolve, reject) => {
+          fail = reject;
+        }),
+    );
+    const walk = state.refresh();
+    await client.disconnect();
+    fail?.(new Error("from the old session"));
+    // Still rejected — the caller's auth-recovery wrapper keys off that — but
+    // the store's observable error is left alone.
+    await expect(walk).rejects.toThrow("from the old session");
+    expect(state.getError()).toBeNull();
   });
 
   it("records a failure as observable state and re-throws it", async () => {

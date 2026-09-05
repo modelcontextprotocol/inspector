@@ -22,6 +22,16 @@
  * is explicitly not a load and confers no standing, so none of the SEP's host
  * machinery (activation, per-skill consent, content-bound approval) is
  * implemented here. Surface and verify.
+ *
+ * ⚠️ **One SEP-2640 obligation is deliberately NOT checked here: that an entry's
+ * `frontmatter` matches the fetched `SKILL.md`'s frontmatter field by field.**
+ * The digest check does not cover it — a digest is taken over the bytes the
+ * server served, so it proves the file was not tampered with in transit and
+ * says nothing about whether the *listing* described that file honestly. A
+ * server can therefore advertise one description, serve a different one, and
+ * pass every check in this module. Closing it needs a YAML parser, which is a
+ * new runtime dependency and a placement decision of its own, so it is tracked
+ * on #2248 rather than half-done here.
  */
 
 import type { ServerCapabilities } from "@modelcontextprotocol/client";
@@ -115,6 +125,10 @@ export type SkillIssueCode =
   | "name-path-mismatch"
   | "missing-digest"
   | "malformed-digest"
+  | "missing-size"
+  | "duplicate-resource"
+  | "resource-outside-skill-root"
+  | "manifest-missing-self"
   | "resource-limit-exceeded"
   | "size-limit-exceeded";
 
@@ -206,7 +220,48 @@ export function checkSkillConformance(entry: SkillEntry): SkillIssue[] {
     });
   }
 
+  // A manifest is the *complete* file set, and the skill's own SKILL.md is one
+  // of those files. An empty list, or one that omits the entry's own URI, is
+  // therefore not "a skill with no extra files" — it is a manifest that cannot
+  // be checked against what the skill actually is, and reporting `Conforms`
+  // for it would be a wrong answer rather than a missing one.
+  if (!entry.resources.some((resource) => resource.uri === entry.uri)) {
+    issues.push({
+      code: "manifest-missing-self",
+      severity: "error",
+      message: `Manifest does not list the skill's own entry file (${entry.uri}); a manifest must be the complete file set.`,
+    });
+  }
+
+  const seenUris = new Set<string>();
+  // Relative references resolve against the skill root, so every manifest entry
+  // must live under it. A URI outside that prefix is either a typo or a server
+  // claiming integrity over a file that is not part of this skill. Left
+  // `undefined` for a malformed entry URI — there is no root to measure
+  // against, and `malformed-uri` already reports that.
+  const root = entry.uri.endsWith(SKILL_FILE_SUFFIX)
+    ? `${entry.uri.slice(0, -SKILL_FILE_SUFFIX.length)}/`
+    : undefined;
+
   for (const resource of entry.resources) {
+    if (seenUris.has(resource.uri)) {
+      issues.push({
+        code: "duplicate-resource",
+        severity: "error",
+        message:
+          "Manifest lists this URI more than once; entries must be unique.",
+        resourceUri: resource.uri,
+      });
+    }
+    seenUris.add(resource.uri);
+    if (root !== undefined && !resource.uri.startsWith(root)) {
+      issues.push({
+        code: "resource-outside-skill-root",
+        severity: "error",
+        message: `Manifest entry is outside the skill root "${root}".`,
+        resourceUri: resource.uri,
+      });
+    }
     if (resource.digest === undefined) {
       issues.push({
         code: "missing-digest",
@@ -219,6 +274,18 @@ export function checkSkillConformance(entry: SkillEntry): SkillIssue[] {
         code: "malformed-digest",
         severity: "error",
         message: `Digest "${resource.digest}" is not "sha256:" followed by 64 lowercase hex characters.`,
+        resourceUri: resource.uri,
+      });
+    }
+    if (resource.size === undefined) {
+      // A warning, not an error: an absent size costs the length cross-check in
+      // `verifySkillResource` and silently understates the 16 MiB total, but
+      // the digest still verifies the bytes.
+      issues.push({
+        code: "missing-size",
+        severity: "warning",
+        message:
+          "Manifest entry declares no size, so it is excluded from the 16 MiB total and its length cannot be cross-checked.",
         resourceUri: resource.uri,
       });
     }
@@ -250,6 +317,10 @@ export interface SkillVerification {
   actualDigest?: string;
   /** The manifest's digest, echoed so a mismatch renders both halves. */
   expectedDigest?: string;
+  /** The manifest's declared byte length, when it declared one. */
+  expectedSize?: number;
+  /** The fetched file's actual byte length, when it was measured. */
+  actualSize?: number;
   /** Why the file could not be verified or fetched. */
   reason?: string;
 }
@@ -271,13 +342,16 @@ function toHex(bytes: Uint8Array): string {
  * context, so `subtle` is present there too.
  */
 export async function sha256Digest(bytes: Uint8Array): Promise<string> {
-  // `BufferSource` wants a plain ArrayBuffer; a Uint8Array over a SharedArrayBuffer
-  // (or a view into a larger buffer) would otherwise hash the wrong range.
-  const buffer = bytes.buffer.slice(
-    bytes.byteOffset,
-    bytes.byteOffset + bytes.byteLength,
-  ) as ArrayBuffer;
-  const hash = await crypto.subtle.digest("SHA-256", buffer);
+  // Copy the VIEW into a fresh typed array rather than slicing its backing
+  // store. Two things depend on that: a `Uint8Array` can be a window into a
+  // larger buffer, so hashing the buffer would digest neighbouring bytes; and
+  // `SharedArrayBuffer.prototype.slice()` returns another `SharedArrayBuffer`,
+  // which `crypto.subtle.digest` rejects — so slicing-and-casting would have
+  // failed at runtime for the exact input a cast claimed to handle.
+  // `new Uint8Array(view)` always allocates a plain `ArrayBuffer`, which is
+  // also why no cast is needed here.
+  const copy = new Uint8Array(bytes);
+  const hash = await crypto.subtle.digest("SHA-256", copy.buffer);
   return `sha256:${toHex(new Uint8Array(hash))}`;
 }
 
@@ -307,11 +381,30 @@ export function base64ToBytes(blob: string): Uint8Array {
  * says. `"unverifiable"` means the manifest advertised no digest (or advertised
  * a malformed one, already reported by {@link checkSkillConformance}); nothing
  * about the file itself is wrong, we simply have nothing to compare against.
+ *
+ * The declared `size` is cross-checked **before** the digest and fails
+ * verification on its own. A length that disagrees with the manifest is a real
+ * inconsistency even when the digest matches — the digest is taken over the
+ * bytes the server served, so agreeing with it says nothing about whether the
+ * manifest describes those bytes — and it is the cheaper check, so a
+ * 16 MiB file that was never going to verify is not hashed first.
  */
 export async function verifySkillResource(
   resource: SkillResource,
   bytes: Uint8Array,
 ): Promise<SkillVerification> {
+  const expectedSize = resource.size;
+  if (expectedSize !== undefined && expectedSize !== bytes.byteLength) {
+    return {
+      status: "mismatch",
+      expectedSize,
+      actualSize: bytes.byteLength,
+      ...(resource.digest !== undefined
+        ? { expectedDigest: resource.digest }
+        : {}),
+      reason: `Manifest declares ${expectedSize} bytes but the fetched file is ${bytes.byteLength}.`,
+    };
+  }
   const expectedDigest = resource.digest;
   if (expectedDigest === undefined) {
     return {
@@ -332,5 +425,8 @@ export async function verifySkillResource(
     status: actualDigest === expectedDigest ? "verified" : "mismatch",
     actualDigest,
     expectedDigest,
+    ...(expectedSize !== undefined
+      ? { expectedSize, actualSize: bytes.byteLength }
+      : {}),
   };
 }

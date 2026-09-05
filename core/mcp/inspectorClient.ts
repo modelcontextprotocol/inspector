@@ -5555,7 +5555,11 @@ export class InspectorClient extends InspectorClientEventTarget {
     const effectiveMeta = this.mergeMeta(metadata);
     const params: Record<string, unknown> = {
       ...(effectiveMeta ? { _meta: effectiveMeta } : {}),
-      ...(cursor ? { cursor } : {}),
+      // `!== undefined`, not truthiness: a cursor is opaque and the empty
+      // string is a legal value. Dropping `""` would silently re-request page
+      // one, which the store then reports as a repeated-cursor failure — a
+      // conforming server made to look broken.
+      ...(cursor !== undefined ? { cursor } : {}),
     };
     const response = await this.invokeMcpClient(
       () =>

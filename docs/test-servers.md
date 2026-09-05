@@ -61,7 +61,12 @@ as a missing capability rather than an error.
 ## Skills (SEP-2640)
 
 `skills-http.json` advertises the `io.modelcontextprotocol/skills` extension
-with `directoryRead: true` and serves four skills over two `skills/list` pages.
+and serves four skills over two `skills/list` pages. It declares the extension
+**bare** — `directoryRead` stays off until the fixture actually serves
+`resources/directory/read` (phase 3, [#2248](https://github.com/modelcontextprotocol/inspector/issues/2248)), so
+Connection Info never reports a sub-option this server would answer `-32601`
+for. Set `"skills": { "directoryRead": true }` in a config to exercise the
+advertised-flag path.
 It works on **either era**: `skills/list`, `skills/get` and
 `resources/directory/read` are consumer-owned extension methods that neither
 era codec defines, so the SDK's era gate skips them entirely — which is why
@@ -79,6 +84,9 @@ the Skills tab runs are untestable without them:
 
 Connection Info shows the extension and its `directoryRead` sub-flag; the
 Inspector surfaces that flag but does not call `resources/directory/read` yet.
+The wire schema for that result is deliberately absent from
+`core/mcp/skillsSchemas.ts` too — phase 3 adds it against the normative text
+rather than shipping a guess nothing exercises.
 
 ## Cancelling a call
 

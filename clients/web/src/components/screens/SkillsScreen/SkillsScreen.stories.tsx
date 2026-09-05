@@ -16,10 +16,21 @@ function StatefulSkillsScreen(args: ComponentProps<typeof SkillsScreen>) {
 }
 
 const REF_TEXT = "# Column rules\n";
-// The digest of REF_TEXT, so the clean skill really does verify when the
-// "Verify all" story runs — a placeholder here would demo a false green.
+const SELF_TEXT = "# skill\n";
+// The real digests of those two strings, so the clean skill actually verifies
+// when the "Verify all" story runs — a placeholder would demo a false green.
 const REF_DIGEST =
   "sha256:e201429aa2684958ca1a0537ab4eb4b7eb3a81c71e7cc7a11397eb500738e015";
+const SELF_DIGEST =
+  "sha256:6504f2de0a1febf7492c3b98f93d9ab49558eb364607a706f02fe9a75aa7f75b";
+
+/** Every manifest lists the skill's own SKILL.md — a manifest is the complete
+ *  file set, so one that omits it is a `manifest-missing-self` error. */
+const selfEntry = (path: string) => ({
+  uri: `skill://${path}/SKILL.md`,
+  digest: SELF_DIGEST,
+  size: 8,
+});
 
 const sampleSkills: SkillEntry[] = [
   {
@@ -29,10 +40,11 @@ const sampleSkills: SkillEntry[] = [
       description: "Analyze a CSV and summarize its columns",
     },
     resources: [
+      selfEntry("data-analysis"),
       {
         uri: "skill://data-analysis/reference.md",
         digest: REF_DIGEST,
-        size: REF_TEXT.length,
+        size: 15,
       },
     ],
   },
@@ -43,10 +55,14 @@ const sampleSkills: SkillEntry[] = [
       description: "Advertises a digest its bytes do not match",
     },
     resources: [
+      selfEntry("tampered-notes"),
       {
+        // A well-formed digest of bytes the fake read does not return, with a
+        // size that agrees — so the reported failure is a *digest* mismatch
+        // rather than the cheaper size cross-check.
         uri: "skill://tampered-notes/notes.md",
         digest: `sha256:${"b".repeat(64)}`,
-        size: 12,
+        size: 8,
       },
     ],
   },
@@ -64,7 +80,7 @@ const sampleSkills: SkillEntry[] = [
       name: "right-name",
       description: "URI path segment disagrees with frontmatter.name",
     },
-    resources: [],
+    resources: [selfEntry("wrong-folder")],
   },
 ];
 
@@ -81,7 +97,7 @@ const meta: Meta<typeof SkillsScreen> = {
     onReadSkillFile: fn(async (uri: string) =>
       uri.endsWith("reference.md")
         ? { text: REF_TEXT }
-        : { text: `# ${uri}\n`, mimeType: "text/markdown" },
+        : { text: SELF_TEXT, mimeType: "text/markdown" },
     ),
   },
   render: (args) => <StatefulSkillsScreen {...args} />,

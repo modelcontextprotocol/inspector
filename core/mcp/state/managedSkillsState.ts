@@ -21,6 +21,7 @@
 
 import type { InspectorClientProtocol } from "../inspectorClientProtocol.js";
 import type { SkillEntry } from "../skillsSchemas.js";
+import { LIST_MAX_PAGES } from "../listSalvage.js";
 import { isTerminalStatus } from "../types.js";
 import type { RequestMetadata } from "../types.js";
 import { TypedEventTarget } from "../typedEventTarget.js";
@@ -46,6 +47,16 @@ export interface ManagedSkillsStateEventMap {
 export const REPEATED_CURSOR_MESSAGE =
   "Server repeated a pagination cursor in skills/list; stopped to avoid an infinite walk.";
 
+/**
+ * Page cap for the `skills/list` walk. Mirrors `LIST_MAX_PAGES`, the bound the
+ * SDK's aggregate verbs and the #1909 salvage re-walks already use, so the two
+ * pagination paths in this repo cannot drift to different limits.
+ */
+export const SKILLS_MAX_PAGES = LIST_MAX_PAGES;
+
+/** The error a walk raises when it hits {@link SKILLS_MAX_PAGES}. */
+export const SKILLS_PAGE_LIMIT_MESSAGE = `skills/list exceeded ${SKILLS_MAX_PAGES} pages without the server's pagination converging`;
+
 export class ManagedSkillsState extends TypedEventTarget<ManagedSkillsStateEventMap> {
   private skills: SkillEntry[] = [];
   private pageCount = 0;
@@ -55,6 +66,9 @@ export class ManagedSkillsState extends TypedEventTarget<ManagedSkillsStateEvent
   // Overlap guard: a walk in flight makes a second one a no-op so a slow older
   // walk can't clobber a newer list via last-write-wins.
   private running = false;
+  // Session counter, advanced by `reset` (disconnect) and by `destroy`. A walk
+  // captures it and abandons its writes when it no longer matches.
+  private generation = 0;
 
   constructor(client: InspectorClientProtocol) {
     super();
@@ -106,6 +120,9 @@ export class ManagedSkillsState extends TypedEventTarget<ManagedSkillsStateEvent
   }
 
   private reset(): void {
+    // Advance the session first, so an in-flight walk's continuation sees a
+    // stale generation and leaves the cleared state alone.
+    this.generation += 1;
     this.skills = [];
     this.pageCount = 0;
     this.dispatchTypedEvent("skillsChange", this.getSkills());
@@ -136,6 +153,13 @@ export class ManagedSkillsState extends TypedEventTarget<ManagedSkillsStateEvent
     }
     if (this.running) return this.getSkills();
     this.running = true;
+    // The session this walk belongs to. A disconnect, a `destroy()`, or a
+    // reconnect on the same client advances it, and every write below is
+    // gated on it still being current — otherwise a slow walk's continuation
+    // repopulates a store that has already been cleared, or delivers the
+    // previous session's skills into the next one.
+    const generation = this.generation;
+    const isCurrent = () => this.generation === generation;
     try {
       const collected: SkillEntry[] = [];
       const seen = new Set<string>();
@@ -143,9 +167,20 @@ export class ManagedSkillsState extends TypedEventTarget<ManagedSkillsStateEvent
       let pages = 0;
       for (;;) {
         const page = await client.listSkills(cursor, metadata);
+        if (!isCurrent()) return this.getSkills();
         collected.push(...page.skills);
         pages += 1;
         if (page.nextCursor === undefined) break;
+        // Two distinct runaway shapes, and the repeated-cursor guard only
+        // catches one: a server stuck on a single cursor. A server that hands
+        // back an endlessly *unique* cursor walks forever and grows
+        // `collected` without bound, so the page cap is what stops it. The cap
+        // raises rather than truncating, for the reason `listPaginationExceeded`
+        // states: returning what we have would present a partial list as a
+        // complete one.
+        if (pages >= SKILLS_MAX_PAGES) {
+          throw new Error(SKILLS_PAGE_LIMIT_MESSAGE);
+        }
         if (seen.has(page.nextCursor)) {
           throw new Error(REPEATED_CURSOR_MESSAGE);
         }
@@ -156,7 +191,12 @@ export class ManagedSkillsState extends TypedEventTarget<ManagedSkillsStateEvent
       this.applyPages(collected, pages);
       return this.getSkills();
     } catch (err) {
-      this.setError(err instanceof Error ? err : new Error(String(err)));
+      // Still re-thrown even when the session moved on — the caller's
+      // auth-recovery wrapper keys off the rejection — but the *state* is left
+      // alone, so a dead session's failure cannot surface in the live one.
+      if (isCurrent()) {
+        this.setError(err instanceof Error ? err : new Error(String(err)));
+      }
       throw err;
     } finally {
       this.running = false;
@@ -172,6 +212,7 @@ export class ManagedSkillsState extends TypedEventTarget<ManagedSkillsStateEvent
 
   /** Unsubscribe from the client and drop the list; idempotent. */
   destroy(): void {
+    this.generation += 1;
     this.unsubscribe?.();
     this.unsubscribe = null;
     this.skills = [];

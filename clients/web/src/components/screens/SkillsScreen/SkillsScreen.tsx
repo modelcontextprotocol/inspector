@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import {
   Alert,
   Badge,
@@ -34,6 +34,13 @@ import {
   skillFileBytes,
   type SkillFileContents,
 } from "../../../utils/skillFileBytes";
+
+/**
+ * How many skill files are read at once by "Verify all". A conforming manifest
+ * may hold 512 entries, so this is what keeps one click from becoming 512
+ * simultaneous `resources/read` calls.
+ */
+const VERIFY_CONCURRENCY = 4;
 
 /** Per-file verification progress, keyed by the manifest entry's URI. */
 type FileState =
@@ -235,16 +242,12 @@ export function SkillsScreen({
   const [fileStates, setFileStates] = useState<Record<string, FileState>>({});
   const [preview, setPreview] = useState<SkillFileContents | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
-
-  // Changing the selection invalidates every verdict and the SKILL.md preview:
-  // they belong to the skill that was selected. Adjusted DURING RENDER via
-  // `useValueChange` rather than in an effect, so the new skill never paints
-  // for a frame carrying the previous one's verification results.
-  useValueChange(selectedSkillUri, () => {
-    setFileStates({});
-    setPreview(null);
-    setPreviewError(null);
-  });
+  // Bumped every time the verdicts are invalidated. A read that was already in
+  // flight captures the value it started under and discards its result when
+  // this has moved on — otherwise a slow fetch for the previous selection (or
+  // the previous manifest) lands afterwards and writes a verdict for content
+  // nobody is looking at, or worse, one that was never checked.
+  const epoch = useRef(0);
 
   const filtered = useMemo(() => {
     const needle = search.trim().toLowerCase();
@@ -274,8 +277,37 @@ export function SkillsScreen({
     [selected],
   );
 
+  // What every verdict on screen is a verdict *about*: the selected skill AND
+  // the manifest it advertised. Keying invalidation on the URI alone would
+  // leave a green `verified` badge attached to a digest the Refresh replaced,
+  // so the UI would vouch for content it has never checked. A primitive string
+  // rather than the manifest object, because `useValueChange` compares with
+  // `Object.is` and a fresh array every render would loop.
+  const manifestKey = useMemo(
+    () =>
+      [
+        selectedSkillUri ?? "",
+        selected?.resources === DYNAMIC_RESOURCES ? "dynamic" : "",
+        ...manifest.map((r) => `${r.uri}|${r.digest ?? ""}|${r.size ?? ""}`),
+      ].join("\n"),
+    [manifest, selected, selectedSkillUri],
+  );
+
+  // Adjusted DURING RENDER via `useValueChange` rather than in an effect, so a
+  // new selection (or a refreshed manifest) never paints a frame carrying the
+  // previous one's verification results. The epoch bump is a ref write, which
+  // is why it is done in the callback alongside the state resets rather than
+  // during the render body itself.
+  useValueChange(manifestKey, () => {
+    epoch.current += 1;
+    setFileStates({});
+    setPreview(null);
+    setPreviewError(null);
+  });
+
   const verifyFile = useCallback(
     async (resource: SkillResource) => {
+      const started = epoch.current;
       setFileStates((prev) => ({
         ...prev,
         [resource.uri]: { status: "pending" },
@@ -286,11 +318,13 @@ export function SkillsScreen({
           resource,
           skillFileBytes(contents),
         );
+        if (epoch.current !== started) return;
         setFileStates((prev) => ({
           ...prev,
           [resource.uri]: { status: "done", verification },
         }));
       } catch (err) {
+        if (epoch.current !== started) return;
         setFileStates((prev) => ({
           ...prev,
           [resource.uri]: {
@@ -304,22 +338,40 @@ export function SkillsScreen({
   );
 
   const verifyAll = useCallback(() => {
+    // Bounded concurrency, not `Promise.all` over the whole manifest: a
+    // conforming skill may declare 512 files, and firing 512 simultaneous
+    // `resources/read` calls would bury the transport and the server for no
+    // gain. Workers pull from a shared cursor so each row still flips to
+    // `checking…` and then to its verdict as it lands, rather than all at once.
+    //
     // Held rather than floated: each `verifyFile` owns its own failures (it
-    // records them as per-file state), and this handler cannot be async, so the
+    // records them as per-row state), and this handler cannot be async, so the
     // settled promise is discarded explicitly at one place instead of per file.
-    void Promise.all(manifest.map((resource) => verifyFile(resource)));
+    let next = 0;
+    const worker = async (): Promise<void> => {
+      for (let i = next++; i < manifest.length; i = next++) {
+        await verifyFile(manifest[i]);
+      }
+    };
+    const workers = Math.min(VERIFY_CONCURRENCY, manifest.length);
+    void Promise.all(Array.from({ length: workers }, () => worker()));
   }, [manifest, verifyFile]);
 
   const showSkillMd = useCallback(() => {
     if (!selected) return;
+    const started = epoch.current;
     // A click handler cannot await, and this chain terminates in its own
-    // `catch` that surfaces the message in the preview slot.
+    // `catch` that surfaces the message in the preview slot. Both arms are
+    // epoch-guarded: a read that resolves after the selection moved on would
+    // otherwise show one skill's SKILL.md under another's heading.
     void onReadSkillFile(selected.uri)
       .then((contents) => {
+        if (epoch.current !== started) return;
         setPreview(contents);
         setPreviewError(null);
       })
       .catch((err: unknown) => {
+        if (epoch.current !== started) return;
         setPreview(null);
         setPreviewError(err instanceof Error ? err.message : String(err));
       });

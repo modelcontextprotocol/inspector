@@ -5,9 +5,7 @@
   },
   "tools": [{ "preset": "echo" }],
   "resources": [],
-  "skills": {
-    "directoryRead": true
-  },
+  "skills": {},
   "transport": {
     "type": "streamable-http",
     "port": 3230

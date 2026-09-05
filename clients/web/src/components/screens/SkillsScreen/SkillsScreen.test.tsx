@@ -16,11 +16,17 @@ import {
 import { EMPTY_SKILLS_UI } from "../screenUiState";
 
 const REF_TEXT = "# Column rules\n";
-// Computed once at module load so the fixture's advertised digest really is the
-// digest of the bytes the fake read returns — a hard-coded constant here would
+const SELF_TEXT = "# data-analysis\n";
+const NOTES_TEXT = "different\n";
+// Computed once at module load so each fixture's advertised digest really is
+// the digest of the bytes the fake read returns — a hard-coded constant would
 // make the "verified" test pass for the wrong reason if the encoder changed.
 const REF_DIGEST = await sha256Digest(textToBytes(REF_TEXT));
+const SELF_DIGEST = await sha256Digest(textToBytes(SELF_TEXT));
 
+// Every manifest lists the skill's own SKILL.md: a manifest is the complete
+// file set, so one that omits it is a `manifest-missing-self` error and no
+// fixture here would be "clean".
 const CLEAN_SKILL: SkillEntry = {
   uri: "skill://data-analysis/SKILL.md",
   frontmatter: {
@@ -29,9 +35,14 @@ const CLEAN_SKILL: SkillEntry = {
   },
   resources: [
     {
+      uri: "skill://data-analysis/SKILL.md",
+      digest: SELF_DIGEST,
+      size: textToBytes(SELF_TEXT).byteLength,
+    },
+    {
       uri: "skill://data-analysis/reference.md",
       digest: REF_DIGEST,
-      size: REF_TEXT.length,
+      size: textToBytes(REF_TEXT).byteLength,
     },
   ],
 };
@@ -41,9 +52,17 @@ const TAMPERED_SKILL: SkillEntry = {
   frontmatter: { name: "tampered", description: "Bad digest" },
   resources: [
     {
+      uri: "skill://tampered/SKILL.md",
+      digest: SELF_DIGEST,
+      size: textToBytes(SELF_TEXT).byteLength,
+    },
+    {
+      // A well-formed digest of bytes the fake read does not return, and a
+      // size that agrees — so the failure reported is a *digest* mismatch and
+      // not the cheaper size cross-check.
       uri: "skill://tampered/notes.md",
       digest: `sha256:${"b".repeat(64)}`,
-      size: 4,
+      size: textToBytes(NOTES_TEXT).byteLength,
     },
   ],
 };
@@ -57,7 +76,13 @@ const DYNAMIC_SKILL: SkillEntry = {
 const MISMATCHED_SKILL: SkillEntry = {
   uri: "skill://wrong-folder/SKILL.md",
   frontmatter: { name: "right-name", description: "Name disagreement" },
-  resources: [],
+  resources: [
+    {
+      uri: "skill://wrong-folder/SKILL.md",
+      digest: SELF_DIGEST,
+      size: textToBytes(SELF_TEXT).byteLength,
+    },
+  ],
 };
 
 const ALL_SKILLS = [
@@ -70,8 +95,8 @@ const ALL_SKILLS = [
 /** A `resources/read` that serves the fixture bytes for any known URI. */
 const readFixtureFile = vi.fn(async (uri: string) => {
   if (uri === "skill://data-analysis/reference.md") return { text: REF_TEXT };
-  if (uri === "skill://tampered/notes.md") return { text: "different\n" };
-  return { text: `# ${uri}\n`, mimeType: "text/markdown" };
+  if (uri === "skill://tampered/notes.md") return { text: NOTES_TEXT };
+  return { text: SELF_TEXT, mimeType: "text/markdown" };
 });
 
 const baseProps: SkillsScreenProps = {
@@ -184,7 +209,7 @@ describe("SkillsScreen", () => {
     renderWithMantine(<ControlledSkillsScreen />);
     await user.click(screen.getByText("data-analysis"));
     await user.click(screen.getByRole("button", { name: /Verify all/ }));
-    expect(await screen.findByText("verified")).toBeInTheDocument();
+    expect(await screen.findAllByText("verified")).toHaveLength(2);
   });
 
   it("reports a digest mismatch loudly, with both digests", async () => {
@@ -203,7 +228,10 @@ describe("SkillsScreen", () => {
     renderWithMantine(<ControlledSkillsScreen />);
     await user.click(screen.getByText("data-analysis"));
     const manifest = screen.getByTestId("skill-manifest");
-    await user.click(within(manifest).getByRole("button", { name: "Verify" }));
+    // One row at a time: the first row's own Verify button, not "Verify all".
+    await user.click(
+      within(manifest).getAllByRole("button", { name: "Verify" })[0],
+    );
     expect(await screen.findByText("verified")).toBeInTheDocument();
   });
 
@@ -215,8 +243,9 @@ describe("SkillsScreen", () => {
     );
     await user.click(screen.getByText("data-analysis"));
     await user.click(screen.getByRole("button", { name: /Verify all/ }));
-    expect(await screen.findByText("Could not read file")).toBeInTheDocument();
-    expect(screen.getByText("403")).toBeInTheDocument();
+    // One alert per file in the manifest — both reads failed.
+    expect(await screen.findAllByText("Could not read file")).toHaveLength(2);
+    expect(screen.getAllByText("403")).toHaveLength(2);
   });
 
   it("wraps a non-Error read rejection", async () => {
@@ -227,7 +256,7 @@ describe("SkillsScreen", () => {
     );
     await user.click(screen.getByText("data-analysis"));
     await user.click(screen.getByRole("button", { name: /Verify all/ }));
-    expect(await screen.findByText("plain string")).toBeInTheDocument();
+    expect(await screen.findAllByText("plain string")).toHaveLength(2);
   });
 
   it("shows the SKILL.md preview on demand", async () => {
@@ -267,13 +296,13 @@ describe("SkillsScreen", () => {
     renderWithMantine(<ControlledSkillsScreen />);
     await user.click(screen.getByText("data-analysis"));
     await user.click(screen.getByRole("button", { name: /Verify all/ }));
-    expect(await screen.findByText("verified")).toBeInTheDocument();
+    expect(await screen.findAllByText("verified")).toHaveLength(2);
 
     // A verdict belongs to the skill it was computed for; carrying it across a
     // selection change would attribute one skill's result to another.
     await user.click(screen.getByText("tampered"));
     expect(screen.queryByText("verified")).not.toBeInTheDocument();
-    expect(screen.getByText("—")).toBeInTheDocument();
+    expect(screen.getAllByText("—")).toHaveLength(2);
   });
 
   it("drops the SKILL.md preview when the selection changes", async () => {
@@ -286,22 +315,22 @@ describe("SkillsScreen", () => {
     expect(screen.queryByTestId("skill-md-preview")).not.toBeInTheDocument();
   });
 
-  it("renders an em dash for a manifest entry with no size", async () => {
+  it("renders an em dash for a manifest entry with no size or digest", async () => {
     const user = userEvent.setup();
     renderWithMantine(
       <ControlledSkillsScreen
         skills={[
           {
             ...CLEAN_SKILL,
-            resources: [{ uri: "skill://data-analysis/reference.md" }],
+            resources: [{ uri: "skill://data-analysis/SKILL.md" }],
           },
         ]}
       />,
     );
     await user.click(screen.getByText("data-analysis"));
     const manifest = screen.getByTestId("skill-manifest");
-    // Three em dashes in the row: the size cell, the digest cell, and the
-    // not-yet-run verification badge — which stays distinct from
+    // Three em dashes in the single row: the size cell, the digest cell, and
+    // the not-yet-run verification badge — which stays distinct from
     // "unverifiable" so an absent digest is never mistaken for an unrun check.
     expect(within(manifest).getAllByText("—")).toHaveLength(3);
   });
@@ -314,7 +343,7 @@ describe("SkillsScreen", () => {
           {
             ...CLEAN_SKILL,
             resources: [
-              { uri: "skill://data-analysis/a.md", digest: "sha256:short" },
+              { uri: "skill://data-analysis/SKILL.md", digest: "sha256:short" },
             ],
           },
         ]}
@@ -331,7 +360,7 @@ describe("SkillsScreen", () => {
         skills={[
           {
             ...CLEAN_SKILL,
-            resources: [{ uri: "skill://data-analysis/reference.md" }],
+            resources: [{ uri: "skill://data-analysis/SKILL.md" }],
           },
         ]}
       />,
@@ -339,5 +368,102 @@ describe("SkillsScreen", () => {
     await user.click(screen.getByText("data-analysis"));
     await user.click(screen.getByRole("button", { name: /Verify all/ }));
     expect(await screen.findByText("unverifiable")).toBeInTheDocument();
+  });
+
+  it("drops verdicts when a refresh replaces the manifest for the same skill", async () => {
+    // The selection never changes, so keying invalidation on the URI alone
+    // would leave a green `verified` badge attached to a digest the refresh
+    // replaced — the UI vouching for content it has never checked.
+    const user = userEvent.setup();
+    const { rerender } = renderWithMantine(
+      <SkillsScreen
+        {...baseProps}
+        skills={[CLEAN_SKILL]}
+        ui={{ ...EMPTY_SKILLS_UI, selectedSkillUri: CLEAN_SKILL.uri }}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: /Verify all/ }));
+    expect(await screen.findAllByText("verified")).toHaveLength(2);
+
+    rerender(
+      <SkillsScreen
+        {...baseProps}
+        skills={[
+          {
+            ...CLEAN_SKILL,
+            resources: [
+              {
+                uri: "skill://data-analysis/SKILL.md",
+                digest: `sha256:${"c".repeat(64)}`,
+                size: 1,
+              },
+            ],
+          },
+        ]}
+        ui={{ ...EMPTY_SKILLS_UI, selectedSkillUri: CLEAN_SKILL.uri }}
+      />,
+    );
+    expect(screen.queryByText("verified")).not.toBeInTheDocument();
+  });
+
+  it("discards a verification that resolves after the selection moved on", async () => {
+    // A read still in flight when the user switches skills must not write its
+    // verdict into the newly selected skill's rows.
+    const user = userEvent.setup();
+    let release: ((value: { text: string }) => void) | undefined;
+    const onReadSkillFile = vi.fn(
+      () =>
+        new Promise<{ text: string }>((resolve) => {
+          release = resolve;
+        }),
+    );
+    renderWithMantine(
+      <ControlledSkillsScreen onReadSkillFile={onReadSkillFile} />,
+    );
+    await user.click(screen.getByText("data-analysis"));
+    await user.click(screen.getByRole("button", { name: /Verify all/ }));
+    await user.click(screen.getByText("tampered"));
+    release?.({ text: SELF_TEXT });
+    // Nothing from the abandoned read reaches the new selection's rows.
+    expect(screen.queryByText("verified")).not.toBeInTheDocument();
+    expect(screen.queryByText("mismatch")).not.toBeInTheDocument();
+  });
+
+  it("discards a SKILL.md read that resolves after the selection moved on", async () => {
+    const user = userEvent.setup();
+    let release: ((value: { text: string }) => void) | undefined;
+    const onReadSkillFile = vi.fn(
+      () =>
+        new Promise<{ text: string }>((resolve) => {
+          release = resolve;
+        }),
+    );
+    renderWithMantine(
+      <ControlledSkillsScreen onReadSkillFile={onReadSkillFile} />,
+    );
+    await user.click(screen.getByText("data-analysis"));
+    await user.click(screen.getByRole("button", { name: /View SKILL.md/ }));
+    await user.click(screen.getByText("tampered"));
+    release?.({ text: SELF_TEXT });
+    expect(screen.queryByTestId("skill-md-preview")).not.toBeInTheDocument();
+  });
+
+  it("discards a failed SKILL.md read that resolves after the selection moved on", async () => {
+    const user = userEvent.setup();
+    let fail: ((err: Error) => void) | undefined;
+    const onReadSkillFile = vi.fn(
+      () =>
+        new Promise<{ text: string }>((_resolve, reject) => {
+          fail = reject;
+        }),
+    );
+    renderWithMantine(
+      <ControlledSkillsScreen onReadSkillFile={onReadSkillFile} />,
+    );
+    await user.click(screen.getByText("data-analysis"));
+    await user.click(screen.getByRole("button", { name: /View SKILL.md/ }));
+    await user.click(screen.getByText("tampered"));
+    fail?.(new Error("too late"));
+    expect(screen.queryByText("too late")).not.toBeInTheDocument();
   });
 });

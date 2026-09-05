@@ -311,7 +311,6 @@ export interface AppsPanelProps {
   onRefreshApps: () => void;
 }
 
-/** The Tasks monitor: the task list, its progress map, and actions. */
 /** The Skills screen (SEP-2640): the enumerated skills and their verification. */
 export interface SkillsPanelProps {
   skills: SkillEntry[];
@@ -325,6 +324,7 @@ export interface SkillsPanelProps {
   onReadSkillFile: (uri: string) => Promise<SkillFileContents>;
 }
 
+/** The Tasks monitor: the task list, its progress map, and actions. */
 export interface TasksPanelProps {
   tasks: Task[];
   progressByTaskId?: Record<string, TaskProgress>;

@@ -831,10 +831,11 @@ export function createMcpServer(config: ServerConfig): McpServer {
     };
   }
 
-  // Skills extension (SEP-2640): a server-declared extension, advertised with
-  // its one sub-option. `directoryRead` is opt-in per config so a client can be
-  // exercised against both a server that offers `resources/directory/read` and
-  // one that does not.
+  // Skills extension (SEP-2640): a server-declared extension. `directoryRead`
+  // is opt-in per config and stays OFF in `skills-http.json` until the fixture
+  // actually serves `resources/directory/read` — advertising a sub-option this
+  // server would answer `-32601` for would make Connection Info report
+  // "Supported" for a method that is not (phase 3, #2248).
   if (config.skills) {
     capabilities.extensions = {
       ...(capabilities.extensions ?? {}),
