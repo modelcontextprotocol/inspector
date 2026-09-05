@@ -14,15 +14,22 @@ test goes, how to run it, and how to clear the gate.
 ## Before you write it: does the test need a real server?
 
 **If it does, load the `test-servers` skill now — that is step one, before
-choosing a location or writing a line.** It does, whenever the task is: an
-integration test; an end-to-end test; a smoke; a coverage gap that has to be
-exercised over a transport; or reproducing a reported bug by hand.
+choosing a location or writing a line.**
 
-Every one of those drives a **real server over a real transport, never a mock**,
-and picking the fixture, building it, and connecting with the right protocol era
-is a procedure this skill does not carry. Writing one without `test-servers`
-means hand-rolling a fixture that already exists, or mocking the thing the tier
-exists to avoid mocking.
+The condition is **"does this exercise MCP behaviour over a transport?"**, not
+which tier the test lands in. It does whenever the task is: an integration test;
+an end-to-end test that connects; a smoke that drives a **connected** flow; a
+coverage gap only reachable over a real connection; or reproducing a reported
+bug against a server. It does **not** for a test that renders a component from
+fixture props, or for a boot-only smoke that never connects — `smoke:launcher`
+checks `--help` and `smoke:web` / `smoke:web:browser` only assert the SPA is
+served and paints.
+
+When it does apply, the test drives a **real server over a real transport, never
+a mock**, and picking the fixture, building it, and connecting with the right
+protocol era is a procedure this skill does not carry. Writing one without
+`test-servers` means hand-rolling a fixture that already exists, or mocking the
+thing the tier exists to avoid mocking.
 
 ## Where the test file goes
 
@@ -91,9 +98,14 @@ spawns the built binary) → smokes through the built launcher (`npm run smoke`)
 Storybook play functions (`test:storybook`) → the published-tarball check
 (`npm run pack:verify`, local/release only — needs network).
 
-Everything from **web integration** rightwards needs a fixture from
-`test-servers/` — load the `test-servers` skill as soon as a task puts you at
-that tier or deeper.
+⚠️ **Depth in that list is not the fixture boundary — connecting is.** Web
+integration, the out-of-process CLI tests, the smokes that actually connect
+(`smoke:cli`, `smoke:web:app`, `smoke:web:elicit`, `smoke:web:tabs`) and
+`pack:verify` all need a fixture from `test-servers/`; `smoke:launcher`,
+`smoke:web`, `smoke:web:browser` and every Storybook play function do not — the
+first three stop at boot, and play functions render from fixture props. **Load
+the `test-servers` skill as soon as a task puts you on the connecting side of
+that line.**
 
 `validate` runs the per-client `test` scripts — so web **unit** plus cli's
 out-of-process `e2e.test.ts`, but **not** web's integration project, which runs
@@ -172,8 +184,9 @@ shared helper that wraps one.
 
 ## Test servers, not mocks
 
-Integration and smoke tests drive a real server over a real transport, never a
-mock. **Load the `test-servers` skill to pick, build and run the fixture** —
-which showcase config covers the feature, which protocol era to connect with,
-how to add a combination that does not exist yet, and why a fixture can keep
-serving stale code after an edit.
+Integration tests, and the smokes that drive a connected flow, use a real server
+over a real transport rather than a mock. **For those, load the `test-servers`
+skill to pick, build and run the fixture** — which showcase config covers the
+feature, which protocol era to connect with, how to add a combination that does
+not exist yet, and why a fixture can keep serving stale code after an edit. A
+boot-only smoke needs none of it (see the tier list above).

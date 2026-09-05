@@ -284,10 +284,14 @@ pass 2/4 whenever `RUNS` is even, reporting a result the criterion does not
 license (Copilot). A strict bound of `1.0` is therefore unreachable and the
 harness rejects it up front rather than failing every case.
 
-At 0.8 a hand-off case would be red no matter how strongly the first skill
-pointed at the second, and the column would stop carrying signal. Read a
-hand-off number as a description-strength measurement, not a verdict — and read
-it at `RUNS=5`, since at `RUNS=3` one sample is worth 33 points.
+0.5 is a floor on **useful reliability for a second-hop load**, not a claim that
+0.8 is out of reach — a well-shaped pointer does clear it, as the worked example
+below records. What 0.5 buys is that the column keeps carrying signal across the
+*range* of pointer strengths a repo actually has: a hand-off is a noisier
+measurement than a first move, so a bar set where a strong pointer sits marks
+every merely-adequate one red and stops distinguishing them from a broken one.
+Read a hand-off number as a description-strength measurement, not a verdict —
+and read it at `RUNS=5`, since at `RUNS=3` one sample is worth 33 points.
 
 **A red hand-off case is a finding about the pointer, not a build break — and
 the fix is to reshape the pointer, never to lower the bar.** The committed
@@ -296,11 +300,12 @@ the fix is to reshape the pointer, never to lower the bar.** The committed
 which work belongs to `test-servers`; rewriting that into an imperative first
 step ("load the `test-servers` skill now — that is step one"), and repeating it
 at the two later points where the model actually decides it is writing an
-integration test, took them to **100% / 80% at `RUNS=5`** with the prompts
-unchanged (#2247) — 100% / 100% on a focused `-- test-servers` run of the same
-build, which is the size of the run-to-run noise still present at `RUNS=5`.
-Nothing else moved: the two descriptions were not touched, and the same suite
-scored **63/63** first-move cases at 100%.
+integration test, took them to **100% / 100% at `RUNS=5`** with the prompts
+unchanged (#2247). Nothing else moved: the two descriptions were not touched,
+and the same suite scored **63/63** first-move cases at 100%. (An intermediate
+build measured 100% / 80% on the full suite and 100% / 100% on a focused
+`-- test-servers` run — worth knowing as the size of the run-to-run noise still
+present at `RUNS=5`.)
 
 The transferable part is that **a pointer is followed when it reads as an action
 with a trigger, and skimmed when it reads as a fact.** #2202 found the same
