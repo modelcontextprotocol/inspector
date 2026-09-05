@@ -57,10 +57,13 @@ const THRESHOLD = Number(process.env.THRESHOLD ?? 0.8);
 // acceptable is a separate judgement rather than one inherited from a number
 // tuned for the other measurement. 0.5 is the weakest claim worth asserting —
 // the pointer is taken more often than not. It is deliberately not 0.8: the
-// committed `testing` -> `test-servers` cases measure 33% (RUNS=3) against a
-// pointer that is live and stated in the first paragraph of `testing`'s body,
-// so an 0.8 bar would mark every hand-off red regardless of how strongly the
-// first skill points at the second, and the column would stop carrying signal.
+// committed `testing` -> `test-servers` cases measured 33% (RUNS=3) against a
+// pointer that was live and stated in the first paragraph of `testing`'s body,
+// so an 0.8 bar would mark a hand-off red regardless of how strongly the first
+// skill points at the second, and the column would stop carrying signal.
+// (#2247 later reshaped that pointer into an imperative step and took the same
+// two cases to 100% at RUNS=5 — which raises the ceiling those cases reach, not
+// the floor a *new* hand-off case should be judged against.)
 //
 // It is compared STRICTLY, unlike the first-move threshold. "More often than
 // not" is `> 0.5`, and an inclusive compare passes exactly half the samples

@@ -289,13 +289,25 @@ pointed at the second, and the column would stop carrying signal. Read a
 hand-off number as a description-strength measurement, not a verdict — and read
 it at `RUNS=5`, since at `RUNS=3` one sample is worth 33 points.
 
-**The committed cases have measured 33% / 33% on one `RUNS=3` run and 100% /
-33% on another, and at least one of them being red is the intended state rather
-than an oversight.** `skills:eval` is not a gate (see below), and the number is
-the finding: `testing` points at `test-servers` in its first paragraph and the
-model follows that pointer *sometimes*. Strengthening it is its own change
-against its own issue (#2247); lowering the bar to turn the column green would
-throw away the only signal this feature adds.
+**A red hand-off case is a finding about the pointer, not a build break — and
+the fix is to reshape the pointer, never to lower the bar.** The committed
+`testing` -> `test-servers` cases are the worked example. They measured
+33% / 33% at `RUNS=3` when `testing` opened with a one-sentence ⚠️ *classifying*
+which work belongs to `test-servers`; rewriting that into an imperative first
+step ("load the `test-servers` skill now — that is step one"), and repeating it
+at the two later points where the model actually decides it is writing an
+integration test, took them to **100% / 80% at `RUNS=5`** with the prompts
+unchanged (#2247) — 100% / 100% on a focused `-- test-servers` run of the same
+build, which is the size of the run-to-run noise still present at `RUNS=5`.
+Nothing else moved: the two descriptions were not touched, and the same suite
+scored **63/63** first-move cases at 100%.
+
+The transferable part is that **a pointer is followed when it reads as an action
+with a trigger, and skimmed when it reads as a fact.** #2202 found the same
+lever on a *description*'s shape; this is it applied to a body. The corollary is
+where to put one: the top of a body is read before the model knows it needs the
+second skill, so a pointer that lives only there is a pointer it has already
+scrolled past by the time it matters.
 
 ⚠️ **Do not read a rise between two `RUNS=3` runs as an improvement.** One
 sample is 33 points there, and the two runs above straddle a 67-point swing on
@@ -372,7 +384,7 @@ The summary is two lines, never one:
 
 ```
 7/7 first-move cases at or above 80%.
-1/2 hand-off cases above 50%.
+2/2 hand-off cases above 50%.
 ```
 
 Narrowing the run never narrows what a **negative** case is scored against — a

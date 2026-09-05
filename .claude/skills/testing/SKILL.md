@@ -11,11 +11,18 @@ statements, functions, and branches.** That rule and the React/Mantine
 conventions live in [`AGENTS.md`](../../../AGENTS.md); this skill is where a
 test goes, how to run it, and how to clear the gate.
 
-⚠️ **Anything that needs a real server to run against — an integration test, a
-smoke, reproducing a bug by hand — is `/test-servers`, and you have to load it.**
-Integration and smoke tests here drive a real server over a real transport
-rather than a mock, so picking, building and connecting to a fixture is a
-procedure of its own that this skill does not carry.
+## Before you write it: does the test need a real server?
+
+**If it does, load the `test-servers` skill now — that is step one, before
+choosing a location or writing a line.** It does, whenever the task is: an
+integration test; an end-to-end test; a smoke; a coverage gap that has to be
+exercised over a transport; or reproducing a reported bug by hand.
+
+Every one of those drives a **real server over a real transport, never a mock**,
+and picking the fixture, building it, and connecting with the right protocol era
+is a procedure this skill does not carry. Writing one without `test-servers`
+means hand-rolling a fixture that already exists, or mocking the thing the tier
+exists to avoid mocking.
 
 ## Where the test file goes
 
@@ -38,7 +45,9 @@ web-owned test living under `src/test/` instead is a bug.
    `core/` source layout (`mcp/`, `mcp/node/`, `mcp/remote/`, `auth/`,
    `auth/node/`, `storage/`). **Placement is the manifest** — any file under that
    folder is picked up by the integration project (node env, 30s timeouts) via a
-   folder glob; there is no enumeration to keep in sync.
+   folder glob; there is no enumeration to keep in sync. ⚠️ These run against a
+   real server, so **load the `test-servers` skill before writing one** — the
+   fixture is half the test.
 3. **Shared test infrastructure** — `renderWithMantine.tsx`, `setup.ts`,
    `fixtures/`, `scrollAreaStoryAssertions.ts`.
 
@@ -81,6 +90,10 @@ transports/servers) → out-of-process (`clients/cli/__tests__/e2e.test.ts`,
 spawns the built binary) → smokes through the built launcher (`npm run smoke`) →
 Storybook play functions (`test:storybook`) → the published-tarball check
 (`npm run pack:verify`, local/release only — needs network).
+
+Everything from **web integration** rightwards needs a fixture from
+`test-servers/` — load the `test-servers` skill as soon as a task puts you at
+that tier or deeper.
 
 `validate` runs the per-client `test` scripts — so web **unit** plus cli's
 out-of-process `e2e.test.ts`, but **not** web's integration project, which runs
@@ -159,5 +172,8 @@ shared helper that wraps one.
 
 ## Test servers, not mocks
 
-Integration and smoke tests drive a real server over a real transport. See
-`/test-servers` for picking and building one.
+Integration and smoke tests drive a real server over a real transport, never a
+mock. **Load the `test-servers` skill to pick, build and run the fixture** —
+which showcase config covers the feature, which protocol era to connect with,
+how to add a combination that does not exist yet, and why a fixture can keep
+serving stale code after an edit.
