@@ -163,6 +163,26 @@ export function buildRevocationRequest(params: RevocationRequestParams): {
       // there is no precedent to match, and the raw form is ambiguous for a
       // client id containing `:` and makes `btoa` throw outright on a
       // non-Latin-1 secret. Encoding is what the server decodes.
+      //
+      // ⚠️ `encodeURIComponent` is **not** the form-urlencoded algorithm §2.3.1
+      // names (RFC 6749 Appendix B), and #2222 was filed on the assumption that
+      // the difference breaks a secret containing `+`. It does not, and the
+      // reasoning is worth keeping because the next reader will have the same
+      // doubt: `encodeURIComponent` **escapes** `+` as `%2B`. The characters it
+      // leaves bare are exactly `!'()*-._~` plus alphanumerics, and a
+      // form-urldecoder passes every one of them through unchanged. It can
+      // therefore never emit the one character the two algorithms disagree
+      // about, so its output decodes identically under both — verified over
+      // every code point up to U+2FFF, and pinned by the round-trip cases in
+      // `revocation.test.ts`.
+      //
+      // Switching to `URLSearchParams` would be the literal algorithm and a
+      // small *regression*: it encodes a space as `+`, which a compliant server
+      // reads back as a space but a lenient one — decoding with
+      // `decodeURIComponent` alone, having never implemented the `+` rule —
+      // reads as a literal `+`. `%20` is understood by both. So the encoding
+      // here is the one that survives either server, which matters more than
+      // matching the spec's wording for a header no server sees twice.
       const credentials = `${encodeURIComponent(client.client_id)}:${encodeURIComponent(client.client_secret)}`;
       headers.Authorization = `Basic ${base64Encode(credentials)}`;
     } else if (method === "client_secret_post" && client.client_secret) {
