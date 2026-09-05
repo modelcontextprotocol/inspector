@@ -289,12 +289,21 @@ pointed at the second, and the column would stop carrying signal. Read a
 hand-off number as a description-strength measurement, not a verdict — and read
 it at `RUNS=5`, since at `RUNS=3` one sample is worth 33 points.
 
-**Both committed cases currently sit at 33% and are therefore red, and that is
-the intended state rather than an oversight.** `skills:eval` is not a gate (see
-below), and the number is the finding: `testing` points at `test-servers` in its
-first paragraph and the model follows that pointer about a third of the time.
-Strengthening it is its own change against its own issue; lowering the bar to
-turn the column green would throw away the only signal this feature adds.
+**The committed cases have measured 33% / 33% on one `RUNS=3` run and 100% /
+33% on another, and at least one of them being red is the intended state rather
+than an oversight.** `skills:eval` is not a gate (see below), and the number is
+the finding: `testing` points at `test-servers` in its first paragraph and the
+model follows that pointer *sometimes*. Strengthening it is its own change
+against its own issue (#2247); lowering the bar to turn the column green would
+throw away the only signal this feature adds.
+
+⚠️ **Do not read a rise between two `RUNS=3` runs as an improvement.** One
+sample is 33 points there, and the two runs above straddle a 67-point swing on
+the same prompt with no change to the pointer. Note in particular that the
+turn-boundary rule added later can only ever *lower* a chained score — it
+rejects matches a flatter reading accepted — so a higher number after it is
+noise by construction, not an effect. `RUNS=5` is the smallest honest setting
+for a hand-off, and the cost is real: each sample is up to 14 turns.
 
 ⚠️ **Expect a hand-off to cost far more than a first move.** Each sample is up
 to 14 turns rather than one, so a chained case is the most expensive line in the
@@ -363,7 +372,7 @@ The summary is two lines, never one:
 
 ```
 7/7 first-move cases at or above 80%.
-0/2 hand-off cases above 50%.
+1/2 hand-off cases above 50%.
 ```
 
 Narrowing the run never narrows what a **negative** case is scored against — a
