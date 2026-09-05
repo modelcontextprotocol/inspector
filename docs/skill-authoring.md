@@ -307,12 +307,17 @@ prompt fires at all, and only then spend a full run on its rate:
 # snippet also runs under bash.
 printf '%s' "<prompt>" \
   | claude -p --output-format stream-json --verbose --max-turns 1 \
-      --allowedTools Read,Glob,Grep,Skill \
+      --tools Read,Glob,Grep,Skill --allowedTools Read,Glob,Grep,Skill \
       --disallowedTools Bash,Write,Edit,NotebookEdit,Task,Agent,SlashCommand,WebFetch,WebSearch,KillShell \
       --strict-mcp-config \
   | jq -r 'select(.message.content?) | .message.content[]?
            | select(.type == "tool_use") | .name' | head -3
 ```
+
+⚠️ **`--tools` is the restriction; `--allowedTools` only pre-approves.**
+Dropping the first leaves the bound resting on the deny list alone, so a tool a
+user's or a plugin's settings already permit stays reachable for all 14 turns
+(Copilot). Keep both.
 
 ⚠️ **These flags are a copy of the harness's, so they go stale.** Whenever
 `runPrompt` in `scripts/skill-eval.mjs` changes its tool policy, change this
@@ -324,7 +329,7 @@ predicts nothing, which is the whole reason the two are meant to match
 ```sh
 printf '%s' "<prompt>" \
   | claude -p --output-format stream-json --verbose --max-turns 14 \
-      --allowedTools Read,Glob,Grep,Skill \
+      --tools Read,Glob,Grep,Skill --allowedTools Read,Glob,Grep,Skill \
       --disallowedTools Bash,Write,Edit,NotebookEdit,Task,Agent,SlashCommand,WebFetch,WebSearch,KillShell \
       --strict-mcp-config \
   | jq -r 'select(.message.content?) | .message.content[]?

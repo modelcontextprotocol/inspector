@@ -11,6 +11,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -30,6 +32,9 @@ import { MIN_POSITIVE_CASES } from "./lib/skill-manifest.mjs";
 
 /** The payloads a run records, in the order the skills fired. */
 const fired = (...names) => names.map((n) => JSON.stringify({ skill: n }));
+
+/** The eval script itself, for the cases that must exercise `main`'s guards. */
+const SCRIPT_PATH = fileURLToPath(new URL("./skill-eval.mjs", import.meta.url));
 
 const assistant = (...blocks) =>
   JSON.stringify({ type: "assistant", message: { content: blocks } });
@@ -312,15 +317,45 @@ test("runPrompt bounds the run by what it needs, not only by what it forbids", (
       return c;
     },
   }).catch(() => {});
-  assert.deepEqual(args[args.indexOf("--allowedTools") + 1].split(","), [
-    "Read",
-    "Glob",
-    "Grep",
-    "Skill",
-  ]);
+  // `--tools` is the availability filter and is what actually bounds the run.
+  // `--allowedTools` only pre-approves: a tool a user's or a plugin's settings
+  // already permit would still be reachable across 14 turns without this.
+  for (const flag of ["--tools", "--allowedTools"]) {
+    assert.deepEqual(args[args.indexOf(flag) + 1].split(","), [
+      "Read",
+      "Glob",
+      "Grep",
+      "Skill",
+    ]);
+  }
   // No `--mcp-config` accompanies it, so this drops every configured server.
   assert.ok(args.includes("--strict-mcp-config"));
   assert.ok(!args.includes("--mcp-config"));
+});
+
+test("a malformed threshold is rejected rather than silently measured", () => {
+  // `Number("abc")` is NaN, which fails every comparison and would print an
+  // `above NaN%` summary; a negative bar passes every chain unconditionally.
+  // Either turns an advertised env knob into a measurement that means nothing.
+  const run = (env) =>
+    spawnSync(process.execPath, [SCRIPT_PATH], {
+      encoding: "utf8",
+      env: { ...process.env, ...env },
+    });
+
+  for (const bad of ["abc", "-0.5", "1", "1.5"]) {
+    const { status, stderr } = run({ CHAIN_THRESHOLD: bad });
+    assert.equal(status, 1, `CHAIN_THRESHOLD=${bad} must be rejected`);
+    assert.match(stderr, /CHAIN_THRESHOLD must be a number in \[0, 1\)/);
+    assert.ok(stderr.includes(bad), "the message names the offending value");
+  }
+  // The first-move bar is inclusive, so 1 is legitimate there and only the
+  // nonsensical values are refused.
+  for (const bad of ["abc", "-1", "1.5"]) {
+    const { status, stderr } = run({ THRESHOLD: bad });
+    assert.equal(status, 1, `THRESHOLD=${bad} must be rejected`);
+    assert.match(stderr, /THRESHOLD must be a number in \[0, 1\]/);
+  }
 });
 
 test("passesThreshold is a floor for a first move and strictly above for a chain", () => {

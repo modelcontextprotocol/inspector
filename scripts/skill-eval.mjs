@@ -336,12 +336,20 @@ export function caseHit(c, invoked, ours) {
 /**
  * The only tools an eval run needs: read the repo, and load a skill.
  *
- * Enumerating what is ALLOWED rather than only what is denied is the load-
+ * Enumerating what is AVAILABLE rather than only what is denied is the load-
  * bearing half. A deny list cannot bound a 14-turn run, because it only names
  * the tools known when it was written: this checkout configures an HTTP
  * `mcp-docs` server in `.mcp.json`, and a contributor's own MCP servers and
  * plugins add more tools that no list here has ever seen (Copilot). Naming the
  * four the harness actually needs closes that by construction.
+ *
+ * The list goes to `--tools`, which selects from the built-in set, AND to
+ * `--allowedTools`, which pre-approves. The distinction matters and cost us a
+ * round: `--allowedTools` grants permission, it does not filter availability,
+ * so a tool a user's or a plugin's settings already permit would still have
+ * been reachable across those 14 turns (Copilot). `--tools` is the restriction;
+ * `--allowedTools` keeps the four from needing a prompt no headless run can
+ * answer.
  */
 const ALLOWED_TOOLS = ["Read", "Glob", "Grep", "Skill"];
 
@@ -423,6 +431,8 @@ export function runPrompt(
         // Keep the run read-only, across every turn it is given: what the
         // harness needs, minus what it must never do, minus every MCP server
         // this checkout or the contributor happens to configure.
+        "--tools",
+        ALLOWED_TOOLS.join(","),
         "--allowedTools",
         ALLOWED_TOOLS.join(","),
         "--disallowedTools",
@@ -562,11 +572,27 @@ export function formatReport(cases, results, ours, opts) {
 }
 
 async function main() {
-  if (CHAIN_THRESHOLD >= 1) {
-    // The chain bar is strict, so 1.0 cannot be cleared by any run and would
-    // fail every hand-off case while looking like a trigger problem.
+  // The chain bar is strict, so 1.0 cannot be cleared by any run and would fail
+  // every hand-off case while looking like a trigger problem. NaN and negative
+  // values are rejected for the same reason from the other side: `Number("abc")`
+  // is NaN, which fails every comparison and prints an `above NaN%` summary,
+  // and a negative bar passes every chain unconditionally — both turn an
+  // advertised knob into a measurement that quietly means nothing (Copilot).
+  if (
+    !Number.isFinite(CHAIN_THRESHOLD) ||
+    CHAIN_THRESHOLD < 0 ||
+    CHAIN_THRESHOLD >= 1
+  ) {
     console.error(
-      `skills:eval — CHAIN_THRESHOLD must be below 1 (got ${CHAIN_THRESHOLD}); it is a strict lower bound.`,
+      `skills:eval — CHAIN_THRESHOLD must be a number in [0, 1) (got ${process.env.CHAIN_THRESHOLD ?? CHAIN_THRESHOLD}); it is a strict lower bound.`,
+    );
+    process.exit(1);
+  }
+  if (!Number.isFinite(THRESHOLD) || THRESHOLD < 0 || THRESHOLD > 1) {
+    // The first-move bar is inclusive, so 1.0 is meetable and allowed; the
+    // non-finite and negative cases fail the same way as above.
+    console.error(
+      `skills:eval — THRESHOLD must be a number in [0, 1] (got ${process.env.THRESHOLD ?? THRESHOLD}).`,
     );
     process.exit(1);
   }
