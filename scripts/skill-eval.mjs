@@ -29,6 +29,13 @@
 //   npm run skills:eval -- testing             # one skill's cases
 //   npm run skills:eval -- testing test-servers  # several skills' cases
 //   RUNS=5 THRESHOLD=0.8 npm run skills:eval
+//
+// Two kinds of case, measured and reported separately (#2204). A `expect` case
+// is a FIRST-MOVE measurement: one turn, does the model reach for the skill
+// before anything else. A `chain` case is a HAND-OFF measurement: many turns,
+// does loading skill A actually lead the model to load skill B. The two numbers
+// are not comparable — a hand-off is a second-hop load that only happens once
+// the run has established it needs one — so they never share a column.
 
 import { spawn } from "node:child_process";
 import { readFileSync, existsSync, readdirSync, statSync } from "node:fs";
@@ -36,6 +43,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { claudeSpawnArgs, probeClaudeVersion } from "./lib/claude-cli.mjs";
 import {
+  isChainCase,
   parseClaudeVersion,
   parseSkill,
   validateEvalCases,
@@ -45,8 +53,34 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const SKILLS_DIR = path.join(ROOT, ".claude", "skills");
 
 const THRESHOLD = Number(process.env.THRESHOLD ?? 0.8);
+// A hand-off is a harder thing to hit than a first move, and what counts as
+// acceptable is a separate judgement rather than one inherited from a number
+// tuned for the other measurement. 0.5 is the weakest claim worth asserting —
+// the pointer is taken more often than not. It is deliberately not 0.8: the
+// committed `testing` -> `test-servers` cases measure 33% (RUNS=3) against a
+// pointer that is live and stated in the first paragraph of `testing`'s body,
+// so an 0.8 bar would mark every hand-off red regardless of how strongly the
+// first skill points at the second, and the column would stop carrying signal.
+//
+// It is compared STRICTLY, unlike the first-move threshold. "More often than
+// not" is `> 0.5`, and an inclusive compare passes exactly half the samples
+// whenever RUNS is even — 2/4 would report a pass the stated criterion does not
+// license (Copilot). A consequence worth knowing: a strict bound of 1.0 can
+// never be met, so it is rejected below rather than silently failing every case.
+const CHAIN_THRESHOLD = Number(process.env.CHAIN_THRESHOLD ?? 0.5);
 const RUNS = Number(process.env.RUNS ?? 3);
 const CONCURRENCY = Number(process.env.CONCURRENCY ?? 4);
+
+/**
+ * Turns a hand-off case gets.
+ *
+ * `--max-turns 1` is what makes a first-move case a first-move case, so a
+ * chained case needs a budget wide enough for the run to establish that it
+ * needs the second skill. #2204 measured the `testing` -> `test-servers`
+ * hand-off going 9-12 tool calls without reaching it; a budget under that
+ * cannot distinguish "the hand-off does not fire" from "the run was cut short".
+ */
+const CHAIN_MAX_TURNS = Number(process.env.CHAIN_MAX_TURNS ?? 14);
 
 /** Collect the committed cases for every model-invoked skill (optionally one). */
 /**
@@ -63,6 +97,13 @@ const CONCURRENCY = Number(process.env.CONCURRENCY ?? 4);
  * empty run: a typo would otherwise enqueue nothing and the eval would report a
  * green 0/0, which reads exactly like a clean pass of the skill you meant.
  *
+ * Collection is two passes. A hand-off case names other skills, and its links
+ * are checked against the repo's model-invoked set — which is only complete
+ * once every directory has been parsed. Validating inside the first pass would
+ * make the check depend on directory order: `test-servers` sorts before
+ * `testing`, so a chain through `testing` would be rejected as unknown purely
+ * because of where the alphabet put it.
+ *
  * @param {string | string[] | undefined} only One or more skill names.
  * @param {string} [skillsDir]
  * @returns {{ cases: object[], ours: Set<string> }}
@@ -74,6 +115,7 @@ export function collectCases(only, skillsDir = SKILLS_DIR) {
       : new Set(Array.isArray(only) ? only : [only]);
   const cases = [];
   const ours = new Set();
+  const files = [];
   for (const dir of readdirSync(skillsDir).sort()) {
     const skillFile = path.join(skillsDir, dir, "SKILL.md");
     if (
@@ -108,7 +150,10 @@ export function collectCases(only, skillsDir = SKILLS_DIR) {
         `${dir}/evals/evals.json is not valid JSON — ${e.message}`,
       );
     }
-    const invalid = validateEvalCases(dir, parsed);
+    files.push({ dir, parsed });
+  }
+  for (const { dir, parsed } of files) {
+    const invalid = validateEvalCases(dir, parsed, ours);
     if (invalid.length > 0) {
       throw new Error(`${dir}/evals/evals.json: ${invalid.join("; ")}`);
     }
@@ -136,15 +181,33 @@ export function collectCases(only, skillsDir = SKILLS_DIR) {
  * of an eval run and would otherwise only ever be exercised by the thing they
  * are supposed to measure.
  *
+ * The invocations come back as an ORDERED array, repeats included, rather than
+ * a set. A hand-off case asserts that one skill was loaded *after* another, so
+ * occurrence order is the observation — and collapsing repeats would make a
+ * run that loaded B, then A, then B again indistinguishable from one that never
+ * reached B from A (#2204).
+ *
+ * Each entry also carries the **assistant event** it came from, and that
+ * boundary is what makes the order mean something. The model may emit several
+ * `tool_use` blocks in one message, and it cannot see the first skill's body
+ * until the message after — so two `Skill` calls in the SAME event are
+ * concurrent guesses, not a hand-off, however they happen to be ordered inside
+ * the array. Flattening the stream and reading position alone would score that
+ * as `A` leading to `B` (Copilot); `chainHit` requires a later turn instead.
+ *
  * @param {string} text One or more newline-delimited JSON events. A trailing
  *   partial line is ignored, so this can be fed incrementally.
- * @returns {{ invoked: Set<string>, rest: string, result: string | null }}
+ * @param {number} [turnOffset] Assistant events already seen, so a stream fed
+ *   in chunks keeps one monotonic turn count rather than restarting per chunk.
+ * @returns {{ invoked: {payload: string, turn: number}[], rest: string,
+ *   result: string | null, nextTurn: number }}
  */
-export function collectSkillInvocations(text) {
+export function collectSkillInvocations(text, turnOffset = 0) {
   const lines = text.split("\n");
   const rest = lines.pop() ?? "";
-  const invoked = new Set();
+  const invoked = [];
   let result = null;
+  let turn = turnOffset;
   for (const line of lines) {
     if (!line.trim()) continue;
     let evt;
@@ -156,13 +219,26 @@ export function collectSkillInvocations(text) {
     }
     if (evt?.type === "result") result = evt.subtype ?? null;
     if (evt?.type !== "assistant") continue;
+    // One assistant event is one turn: everything inside it was decided at
+    // once, before any of its results came back.
+    turn++;
     for (const block of evt.message?.content ?? []) {
       if (block?.type !== "tool_use" || block.name !== "Skill") continue;
       // Don't assume the input field's name — match on the whole payload.
-      invoked.add(JSON.stringify(block.input ?? {}));
+      invoked.push({ payload: JSON.stringify(block.input ?? {}), turn });
     }
   }
-  return { invoked, rest, result };
+  return { invoked, rest, result, nextTurn: turn };
+}
+
+/**
+ * The skill names one recorded invocation asked for.
+ *
+ * @param {{payload: string} | string} entry
+ * @returns {string[]}
+ */
+function entryNames(entry) {
+  return invokedSkillNames(typeof entry === "string" ? entry : entry.payload);
 }
 
 /**
@@ -230,17 +306,134 @@ export function invokedSkillNames(payload) {
  * false failure about someone else's environment rather than about these
  * skills (Copilot).
  *
+ * Turn boundaries are irrelevant here — a first-move case asks only whether a
+ * skill fired at all — so this reads the names and ignores the rest.
+ *
  * @param {string | null} expect Skill name, or null for a negative case.
- * @param {Set<string>} invoked
+ * @param {Iterable<{payload: string} | string>} invoked
  * @param {Set<string> | null} [ours] Repo skill names. Null counts any skill.
  */
 export function sampleHit(expect, invoked, ours = null) {
-  const names = [...invoked].flatMap(invokedSkillNames);
+  const names = [...invoked].flatMap(entryNames);
   if (expect === null) {
     return ours === null ? names.length === 0 : !names.some((n) => ours.has(n));
   }
   return names.includes(expect);
 }
+
+/**
+ * Whether one sample satisfies a hand-off case.
+ *
+ * The chain has to appear as an ordered SUBSEQUENCE of what fired, not as a
+ * prefix and not as a contiguous run. Two reasons, both of which a stricter
+ * match gets wrong: the model is free to load an unrelated skill in between,
+ * and it may well load something before the chain's first link — neither
+ * changes the fact that A led to B, which is the only claim the case makes.
+ *
+ * Every link after the first must land in a **strictly later assistant turn**
+ * than the one before. Position in the stream is not causation: the model can
+ * emit several `tool_use` blocks in one message, and it has not seen the first
+ * skill's body when it does, so two `Skill` calls in the same turn are parallel
+ * guesses that a flat index would happily score as a hand-off (Copilot). This
+ * is the whole difference between "B was loaded after A" and "A led to B".
+ *
+ * The scan stays greedy, which is still correct under that constraint: taking
+ * the EARLIEST occurrence of a link can only leave more room for the rest, so
+ * no later starting point could succeed where the greedy one fails.
+ *
+ * Nothing is asserted about foreign skills here, unlike a negative case. A
+ * hand-off case names exactly what it wants and a contributor's own
+ * `~/.claude/skills` entry firing alongside it says nothing either way.
+ *
+ * @param {string[]} chain Ordered skill names, ending with the owning skill.
+ * @param {Iterable<{payload: string, turn: number}>} invoked
+ * @returns {boolean}
+ */
+export function chainHit(chain, invoked) {
+  let want = 0;
+  let prevTurn = -Infinity;
+  for (const entry of invoked) {
+    if (!entryNames(entry).includes(chain[want])) continue;
+    // A link in the same turn as the previous one cannot have been caused by
+    // it — the model had not seen that skill's body yet.
+    if (want > 0 && !(entry.turn > prevTurn)) continue;
+    prevTurn = entry.turn;
+    want++;
+    if (want === chain.length) return true;
+  }
+  return false;
+}
+
+/**
+ * Score one sample against whichever kind of case it belongs to.
+ *
+ * @param {{ expect?: string | null, chain?: string[] }} c
+ * @param {Iterable<string>} invoked
+ * @param {Set<string> | null} ours
+ */
+export function caseHit(c, invoked, ours) {
+  return isChainCase(c)
+    ? chainHit(c.chain, invoked)
+    : sampleHit(c.expect, invoked, ours);
+}
+
+/**
+ * The only tools an eval run needs: read the repo, and load a skill.
+ *
+ * Enumerating what is AVAILABLE rather than only what is denied is the load-
+ * bearing half. A deny list cannot bound a 14-turn run, because it only names
+ * the tools known when it was written: this checkout configures an HTTP
+ * `mcp-docs` server in `.mcp.json`, and a contributor's own MCP servers and
+ * plugins add more tools that no list here has ever seen (Copilot). Naming the
+ * four the harness actually needs closes that by construction.
+ *
+ * The list goes to `--tools`, which selects from the built-in set, AND to
+ * `--allowedTools`, which pre-approves. The distinction matters and cost us a
+ * round: `--allowedTools` grants permission, it does not filter availability,
+ * so a tool a user's or a plugin's settings already permit would still have
+ * been reachable across those 14 turns (Copilot). `--tools` is the restriction;
+ * `--allowedTools` keeps the four from needing a prompt no headless run can
+ * answer.
+ */
+const ALLOWED_TOOLS = ["Read", "Glob", "Grep", "Skill"];
+
+/**
+ * Tools no eval run may use, first-move or hand-off.
+ *
+ * Kept alongside the allow list rather than replaced by it: a deny is
+ * unconditional, while an allow list governs which tools are pre-approved, so
+ * the two together are stricter than either. A skill may inject `!`-prefixed
+ * shell commands on load, and those run BEFORE its content reaches the model —
+ * so this is what keeps a measurement from having side effects. It matters
+ * more for a hand-off case than a first-move one: `--max-turns 1` was doing
+ * much of the containment by itself, and a 14-turn budget removes that
+ * (#2204). Hence the agentic and network tools too — `Task` would spawn a
+ * subagent whose own tool policy neither flag reaches.
+ *
+ * MCP servers are dropped outright with `--strict-mcp-config` (and no
+ * `--mcp-config`) rather than named here, since their tool names are not
+ * knowable from this file. What remains outside all three mechanisms is a
+ * contributor's own plugin tools; `--bare` would remove those and skills with
+ * them, which would measure nothing.
+ *
+ * The cost is stated rather than hidden: denying `Bash` also changes the path
+ * a run can take toward the second skill, since investigating a repo by hand
+ * often starts there. `Read`/`Glob`/`Grep` remain, which is enough to reach a
+ * hand-off, but a chained rate is a measurement under this policy and not a
+ * prediction of an unrestricted session.
+ */
+const DISALLOWED_TOOLS = [
+  "Bash",
+  "Write",
+  "Edit",
+  "NotebookEdit",
+  "Task",
+  "Agent",
+  "SlashCommand",
+  "WebFetch",
+  "WebSearch",
+  "KillShell",
+];
 
 /**
  * Drive one fresh session and return the payloads the `Skill` tool was called
@@ -252,12 +445,18 @@ export function sampleHit(expect, invoked, ours = null) {
  * silently reported a plausible hit rate for runs that never happened (Copilot).
  *
  * @param {string} prompt
- * @param {{ spawnFn?: typeof spawn, cwd?: string }} [opts]
- * @returns {Promise<Set<string>>}
+ * @param {{ spawnFn?: typeof spawn, cwd?: string, maxTurns?: number }} [opts]
+ * @returns {Promise<{payload: string, turn: number}[]>} Skill invocations, in
+ *   the order they fired, each tagged with the assistant turn it came from.
  */
 export function runPrompt(
   prompt,
-  { spawnFn = spawn, cwd = ROOT, platform = process.platform } = {},
+  {
+    spawnFn = spawn,
+    cwd = ROOT,
+    platform = process.platform,
+    maxTurns = 1,
+  } = {},
 ) {
   return new Promise((resolve, reject) => {
     // The prompt goes in on STDIN, not in argv. `claude -p` with piped stdin
@@ -273,11 +472,17 @@ export function runPrompt(
         "stream-json",
         "--verbose",
         "--max-turns",
-        "1",
-        // Keep the run read-only. A skill may inject `!`-prefixed shell commands
-        // on load, and those run BEFORE its content reaches the model.
+        String(maxTurns),
+        // Keep the run read-only, across every turn it is given: what the
+        // harness needs, minus what it must never do, minus every MCP server
+        // this checkout or the contributor happens to configure.
+        "--tools",
+        ALLOWED_TOOLS.join(","),
+        "--allowedTools",
+        ALLOWED_TOOLS.join(","),
         "--disallowedTools",
-        "Bash,Write,Edit,NotebookEdit",
+        DISALLOWED_TOOLS.join(","),
+        "--strict-mcp-config",
       ],
       { cwd, stdio: ["pipe", "pipe", "inherit"] },
       platform,
@@ -285,12 +490,19 @@ export function runPrompt(
     const p = spawnFn(command, args, options);
 
     let buf = "";
-    const invoked = new Set();
+    const invoked = [];
     let result = null;
+    // Carried across chunks so the turn count is monotonic over the whole
+    // stream rather than restarting at each read.
+    let turnOffset = 0;
     p.stdout.on("data", (chunk) => {
-      const parsed = collectSkillInvocations(buf + chunk.toString());
+      const parsed = collectSkillInvocations(
+        buf + chunk.toString(),
+        turnOffset,
+      );
       buf = parsed.rest;
-      for (const payload of parsed.invoked) invoked.add(payload);
+      turnOffset = parsed.nextTurn;
+      for (const entry of parsed.invoked) invoked.push(entry);
       if (parsed.result !== null) result = parsed.result;
     });
     p.on("error", reject);
@@ -320,7 +532,122 @@ async function pool(items, n, fn) {
   return out;
 }
 
+/**
+ * Whether a measured rate clears its bar.
+ *
+ * The comparison differs by case kind, and the difference is the point. A
+ * first-move threshold is a floor to reach (`>=` 0.8 means four of five). A
+ * chain threshold states "the pointer is taken more often than not", which is
+ * strictly `> 0.5` — an inclusive compare would pass 2/4 whenever RUNS is even
+ * and report a result the stated criterion does not license (Copilot).
+ *
+ * @param {number} rate
+ * @param {number} threshold
+ * @param {boolean} strict
+ */
+export function passesThreshold(rate, threshold, strict) {
+  return strict ? rate > threshold : rate >= threshold;
+}
+
+/**
+ * Render the whole report, and say how many cases fell short.
+ *
+ * Extracted and exported so the SEPARATION itself is testable. The acceptance
+ * criterion of #2204 is that a hand-off rate is never folded into the
+ * first-move headline, and until this was a function that claim had no
+ * automated coverage at all: the tests exercised the scorers and the turn
+ * budget while the reporting — the thing that could silently merge the two
+ * measurements — lived inside `main` where nothing could reach it (Copilot).
+ *
+ * @param {object[]} cases
+ * @param {{c: object, invoked: Iterable<string>}[]} results One per sample.
+ * @param {Set<string> | null} ours
+ * @param {{threshold: number, chainThreshold: number, chainMaxTurns: number}} opts
+ * @returns {{ lines: string[], failed: number }}
+ */
+export function formatReport(cases, results, ours, opts) {
+  const lines = [];
+  let failed = 0;
+
+  const group = (members, heading, threshold, strict) => {
+    if (members.length === 0) return 0;
+    lines.push("", heading);
+    let short = 0;
+    for (const c of members) {
+      const mine = results.filter((r) => r.c === c);
+      const passes = mine.filter((r) => caseHit(c, r.invoked, ours)).length;
+      const rate = mine.length === 0 ? 0 : passes / mine.length;
+      const ok = mine.length > 0 && passesThreshold(rate, threshold, strict);
+      if (!ok) short++;
+      const label = isChainCase(c)
+        ? c.chain.join(" → ")
+        : (c.expect ?? "(no skill)");
+      lines.push(
+        `${ok ? "PASS" : "FAIL"} ${(rate * 100).toFixed(0).padStart(3)}%  ${label.padEnd(26)} ${c.prompt}`,
+      );
+    }
+    return short;
+  };
+
+  const direct = cases.filter((c) => !isChainCase(c));
+  const chained = cases.filter(isChainCase);
+  const directShort = group(
+    direct,
+    "First move (1 turn)",
+    opts.threshold,
+    false,
+  );
+  const chainedShort = group(
+    chained,
+    `Hand-off (${opts.chainMaxTurns} turns)`,
+    opts.chainThreshold,
+    true,
+  );
+  failed = directShort + chainedShort;
+
+  // Two numbers, never one. A hand-off is a second-hop load over many turns and
+  // a first-move rate is the model's opening move; summing them would produce a
+  // figure that describes neither, and a handful of hand-off cases would
+  // quietly move a headline everyone reads as trigger reliability (#2204).
+  lines.push("");
+  if (direct.length > 0) {
+    lines.push(
+      `${direct.length - directShort}/${direct.length} first-move cases at or above ${opts.threshold * 100}%.`,
+    );
+  }
+  lines.push(
+    chained.length === 0
+      ? "No hand-off cases in this selection."
+      : `${chained.length - chainedShort}/${chained.length} hand-off cases above ${opts.chainThreshold * 100}%.`,
+  );
+  return { lines, failed };
+}
+
 async function main() {
+  // The chain bar is strict, so 1.0 cannot be cleared by any run and would fail
+  // every hand-off case while looking like a trigger problem. NaN and negative
+  // values are rejected for the same reason from the other side: `Number("abc")`
+  // is NaN, which fails every comparison and prints an `above NaN%` summary,
+  // and a negative bar passes every chain unconditionally — both turn an
+  // advertised knob into a measurement that quietly means nothing (Copilot).
+  if (
+    !Number.isFinite(CHAIN_THRESHOLD) ||
+    CHAIN_THRESHOLD < 0 ||
+    CHAIN_THRESHOLD >= 1
+  ) {
+    console.error(
+      `skills:eval — CHAIN_THRESHOLD must be a number in [0, 1) (got ${process.env.CHAIN_THRESHOLD ?? CHAIN_THRESHOLD}); it is a strict lower bound.`,
+    );
+    process.exit(1);
+  }
+  if (!Number.isFinite(THRESHOLD) || THRESHOLD < 0 || THRESHOLD > 1) {
+    // The first-move bar is inclusive, so 1.0 is meetable and allowed; the
+    // non-finite and negative cases fail the same way as above.
+    console.error(
+      `skills:eval — THRESHOLD must be a number in [0, 1] (got ${process.env.THRESHOLD ?? THRESHOLD}).`,
+    );
+    process.exit(1);
+  }
   if (probeClaudeVersion(parseClaudeVersion) === null) {
     console.error(
       "skills:eval — no usable `claude` CLI on PATH. This eval needs one.",
@@ -339,27 +666,17 @@ async function main() {
   const jobs = cases.flatMap((c) => Array.from({ length: RUNS }, () => c));
   const results = await pool(jobs, CONCURRENCY, async (c) => ({
     c,
-    invoked: await runPrompt(c.prompt),
+    invoked: await runPrompt(c.prompt, {
+      maxTurns: isChainCase(c) ? CHAIN_MAX_TURNS : 1,
+    }),
   }));
 
-  let failed = 0;
-  for (const c of cases) {
-    const mine = results.filter((r) => r.c === c);
-    const passes = mine.filter((r) =>
-      sampleHit(c.expect, r.invoked, ours),
-    ).length;
-    const rate = passes / mine.length;
-    const ok = rate >= THRESHOLD;
-    if (!ok) failed++;
-    const label = c.expect ?? "(no skill)";
-    console.log(
-      `${ok ? "PASS" : "FAIL"} ${(rate * 100).toFixed(0).padStart(3)}%  ${label.padEnd(20)} ${c.prompt}`,
-    );
-  }
-
-  console.log(
-    `\n${cases.length - failed}/${cases.length} cases at or above ${THRESHOLD * 100}%.`,
-  );
+  const { lines, failed } = formatReport(cases, results, ours, {
+    threshold: THRESHOLD,
+    chainThreshold: CHAIN_THRESHOLD,
+    chainMaxTurns: CHAIN_MAX_TURNS,
+  });
+  for (const line of lines) console.log(line);
   process.exit(failed > 0 ? 1 : 0);
 }
 
