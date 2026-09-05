@@ -166,6 +166,24 @@ describe("normalizeSkillUri", () => {
     expect(normalizeSkillUri("skill:demo/SKILL.md")).toBeUndefined();
   });
 
+  it("decodes escapes that stand for unreserved characters", () => {
+    // `URL.href` leaves these encoded, so without canonicalizing them a server
+    // echoing an RFC-equivalent form would be treated as a different resource
+    // and an encoded name segment would produce a false name/path mismatch.
+    expect(normalizeSkillUri("skill://demo/%72eference.md")).toBe(
+      "skill://demo/reference.md",
+    );
+    expect(skillNameFromUri("skill://%64emo/SKILL.md")).toBe("demo");
+  });
+
+  it("upper-cases the hex of escapes that must stay encoded", () => {
+    // A space is not unreserved, so it stays escaped — but in one spelling, so
+    // two RFC-equivalent URIs compare equal.
+    expect(normalizeSkillUri("skill://demo/a%2fb.md")).toBe(
+      normalizeSkillUri("skill://demo/a%2Fb.md"),
+    );
+  });
+
   it("leaves an already-normal URI alone", () => {
     expect(normalizeSkillUri("skill://demo/SKILL.md")).toBe(
       "skill://demo/SKILL.md",

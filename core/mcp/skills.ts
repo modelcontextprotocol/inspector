@@ -137,7 +137,27 @@ export function normalizeSkillUri(uri: string): string | undefined {
   } catch {
     return undefined;
   }
-  return parsed.pathname.startsWith("/") ? parsed.href : undefined;
+  if (!parsed.pathname.startsWith("/")) return undefined;
+  return canonicalizePercentEncoding(parsed.href);
+}
+
+/**
+ * The two percent-encoding normalizations RFC 3986 §6.2.2 calls for and the
+ * URL parser does **not** do: decode an escape that stands for an *unreserved*
+ * character, and upper-case the hex of every escape that remains.
+ *
+ * `URL.href` leaves `%72eference.md` encoded, so without this a server echoing
+ * an RFC-equivalent form of the URI we asked for would be rejected by
+ * `onReadSkillFile` as a different resource, and an encoded skill-name segment
+ * would produce a false `name-path-mismatch`. Both are the tool calling a
+ * conforming server wrong, which is the failure mode this module works hardest
+ * to avoid.
+ */
+function canonicalizePercentEncoding(value: string): string {
+  return value.replace(/%[0-9a-fA-F]{2}/g, (escape) => {
+    const char = String.fromCharCode(Number.parseInt(escape.slice(1), 16));
+    return /[A-Za-z0-9\-._~]/.test(char) ? char : escape.toUpperCase();
+  });
 }
 
 /**
