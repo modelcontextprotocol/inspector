@@ -203,6 +203,7 @@ import {
   LIST_MAX_PAGES,
   ModernResultEnvelopeSchema,
   isSalvageableRejection,
+  isClientDecodeRejection,
   listPaginationExceeded,
   toolItemSchemaForEra,
   nextCursorOf,
@@ -5603,15 +5604,33 @@ export class InspectorClient extends InspectorClientEventTarget {
     };
     // `GetSkillResultSchema` unwraps the envelope, so there is nothing to
     // unwrap here.
-    return this.invokeMcpClient(
-      () =>
-        this.client!.request(
-          { method: SKILLS_GET_METHOD, params },
-          GetSkillResultSchema,
-          this.getRequestOptions(this.progressTokenOf(metadata)),
-        ),
-      { method: SKILLS_GET_METHOD },
-    );
+    try {
+      return await this.invokeMcpClient(
+        () =>
+          this.client!.request(
+            { method: SKILLS_GET_METHOD, params },
+            GetSkillResultSchema,
+            this.getRequestOptions(this.progressTokenOf(metadata)),
+          ),
+        { method: SKILLS_GET_METHOD },
+      );
+    } catch (err) {
+      // Attribute a rejected envelope to the exchange it came from, so the
+      // Protocol tab stops rendering it as a clean success while the Skills
+      // screen shows an error — the same handling every managed list gets
+      // (#1953). Done here rather than in a store because `skills/get` has
+      // none: the screen calls it directly. Must happen in this catch, while
+      // the correlation window is still current, and ONLY for a decode
+      // rejection — a request that never produced a response would otherwise
+      // stamp an earlier, successful exchange.
+      if (isClientDecodeRejection(err)) {
+        this.markResponseRejected(
+          SKILLS_GET_METHOD,
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+      throw err;
+    }
   }
 
   /**

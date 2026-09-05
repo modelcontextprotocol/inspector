@@ -529,6 +529,13 @@ export function SkillsScreen({
       setPreviewState((prev) =>
         isStale(prev, key, attempt) ? prev : { key, attempt, ...next },
       );
+    // Claimed BEFORE the request goes out, the way `verifyRow` claims its row.
+    // Recording the attempt only on settle leaves a window where an older
+    // request that happens to resolve first is still considered current, and
+    // publishes its contents while a newer one is in flight. Clearing the
+    // previous result at the same time also means the pane doesn't keep
+    // showing the old file while the new read is running.
+    writePreview({});
     void onReadSkillFile(selected.uri)
       .then((contents) => writePreview({ contents }))
       .catch((err: unknown) => {
@@ -549,6 +556,9 @@ export function SkillsScreen({
       setFetchedEntry((prev) =>
         isStale(prev, key, attempt) ? prev : { key, attempt, ...next },
       );
+    // Claimed before the request goes out — see `showSkillMd` for why settling
+    // is too late.
+    writeFetched({});
     void onGetSkill(selected.uri)
       .then((entry) => {
         // The fetched entry is checked ON ITS OWN before being compared. A
@@ -628,7 +638,12 @@ export function SkillsScreen({
               </Alert>
             )}
             {filtered.length === 0 ? (
-              <EmptyState>No skills</EmptyState>
+              // Not "No skills": SEP-2640 lets a server return an empty or
+              // partial catalog, and says an empty result must not be read as
+              // proof it has none — an unlisted skill can still be fetched by
+              // URI with `skills/get`. Claiming otherwise would be the tool
+              // asserting something the protocol explicitly does not.
+              <EmptyState>No skills listed</EmptyState>
             ) : (
               filtered.map((skill) => {
                 const skillIssues = checkSkillConformance(skill);
@@ -783,8 +798,14 @@ export function SkillsScreen({
                                   {verificationLabel(state)}
                                 </CountBadge>
                                 <RowVerifyButton
+                                  // Every row's button reads "Verify", so the
+                                  // visible text alone gives a screen-reader
+                                  // user no way to tell which file each one
+                                  // checks; the URI cell is in the same row but
+                                  // is not programmatically associated with it.
+                                  aria-label={`Verify ${resource.uri}`}
                                   // A click handler cannot await, and
-                                  // `verifyFile` owns its own failures — it
+                                  // `verifyRow` owns its own failures — it
                                   // records them as this row's state.
                                   onClick={() =>
                                     void verifyRow(index, resource, manifestKey)

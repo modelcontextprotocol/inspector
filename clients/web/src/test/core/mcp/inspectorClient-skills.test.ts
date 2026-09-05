@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { InspectorClient } from "@inspector/core/mcp/inspectorClient.js";
 import type { ServerCapabilities } from "@modelcontextprotocol/client";
 import { SKILLS_EXTENSION_KEY } from "@inspector/core/mcp/skillsSchemas.js";
+import { SdkError, SdkErrorCode } from "@modelcontextprotocol/client";
 
 /**
  * Unit coverage for the Skills extension methods (#2234, SEP-2640).
@@ -179,6 +180,52 @@ describe("InspectorClient skills methods (#2234)", () => {
     await expect(client.listSkills()).resolves.toMatchObject({
       skills: [ENTRY],
     });
+  });
+
+  it("attributes a rejected skills/get envelope to its Protocol entry", async () => {
+    // Without this the Skills screen shows an error while the Protocol tab
+    // renders the same exchange as a clean success. Done in the client rather
+    // than a store because `skills/get` has none — the screen calls it.
+    const client = makeClient();
+    const marked: [string, string][] = [];
+    (
+      client as unknown as {
+        markResponseRejected: (m: string, r: string) => void;
+      }
+    ).markResponseRejected = (method, reason) => {
+      marked.push([method, reason]);
+    };
+    internals(client).client = {
+      request: async () => {
+        throw new SdkError(
+          SdkErrorCode.InvalidResult,
+          "Invalid result for skills/get",
+        );
+      },
+    };
+    await expect(client.getSkill("skill://demo/SKILL.md")).rejects.toThrow();
+    expect(marked).toEqual([["skills/get", "Invalid result for skills/get"]]);
+  });
+
+  it("does NOT attribute a transport failure on skills/get", async () => {
+    // No response frame arrived, so the last-answered id still points at an
+    // earlier, successful exchange; marking it would stamp that one.
+    const client = makeClient();
+    const marked: string[] = [];
+    (
+      client as unknown as {
+        markResponseRejected: (m: string, r: string) => void;
+      }
+    ).markResponseRejected = (method) => {
+      marked.push(method);
+    };
+    internals(client).client = {
+      request: async () => {
+        throw new SdkError(SdkErrorCode.ConnectionClosed, "Connection closed");
+      },
+    };
+    await expect(client.getSkill("skill://demo/SKILL.md")).rejects.toThrow();
+    expect(marked).toEqual([]);
   });
 
   it("rejects a skills/list result that is not a skills page", async () => {

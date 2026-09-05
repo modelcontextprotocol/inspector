@@ -153,9 +153,14 @@ describe("SkillsScreen", () => {
     expect(root).toHaveAttribute("data-skill-page-count", "2");
   });
 
-  it("renders 'No skills' when the list is empty", () => {
+  it("says the list was empty without claiming there are no skills", () => {
+    // SEP-2640 lets a server return an empty or partial catalog and says an
+    // empty result is not proof it has none — an unlisted skill is still
+    // fetchable by URI — so "No skills" would be the tool asserting something
+    // the protocol explicitly does not.
     renderWithMantine(<SkillsScreen {...baseProps} skills={[]} />);
-    expect(screen.getByText("No skills")).toBeInTheDocument();
+    expect(screen.getByText("No skills listed")).toBeInTheDocument();
+    expect(screen.queryByText("No skills")).not.toBeInTheDocument();
   });
 
   it("renders a load failure above the list", () => {
@@ -236,10 +241,13 @@ describe("SkillsScreen", () => {
     const user = userEvent.setup();
     renderWithMantine(<ControlledSkillsScreen />);
     await user.click(screen.getByText("data-analysis"));
-    const manifest = screen.getByTestId("skill-manifest");
-    // One row at a time: the first row's own Verify button, not "Verify all".
+    // Addressed by its accessible name, which carries the URI — every row's
+    // visible text is just "Verify", so that name is what tells a
+    // screen-reader user (and this test) which file the button checks.
     await user.click(
-      within(manifest).getAllByRole("button", { name: "Verify" })[0],
+      screen.getByRole("button", {
+        name: "Verify skill://data-analysis/reference.md",
+      }),
     );
     expect(await screen.findByText("verified")).toBeInTheDocument();
   });
@@ -374,10 +382,9 @@ describe("SkillsScreen", () => {
       />,
     );
     await user.click(screen.getByText("data-analysis"));
-    const manifest = screen.getByTestId("skill-manifest");
-    const rowVerify = within(manifest).getAllByRole("button", {
-      name: "Verify",
-    })[0];
+    const rowVerify = screen.getByRole("button", {
+      name: "Verify skill://data-analysis/SKILL.md",
+    });
     await user.click(rowVerify);
     await user.click(rowVerify);
     expect(resolvers).toHaveLength(2);
@@ -778,6 +785,68 @@ describe("SkillsScreen", () => {
     expect(
       screen.queryByText("Select a skill to view details"),
     ).not.toBeInTheDocument();
+  });
+
+  it("rejects an older preview read even when it resolves FIRST", async () => {
+    // The ordering hole: recording an attempt only when it settles leaves a
+    // window where the older request is still considered current. Claiming it
+    // before the request goes out is what makes the older callback stale
+    // immediately, whatever order the two resolve in.
+    const user = userEvent.setup();
+    const resolvers: ((value: { text: string }) => void)[] = [];
+    const onReadSkillFile = vi.fn(
+      () =>
+        new Promise<{ text: string }>((resolve) => {
+          resolvers.push(resolve);
+        }),
+    );
+    renderWithMantine(
+      <ControlledSkillsScreen onReadSkillFile={onReadSkillFile} />,
+    );
+    await user.click(screen.getByText("data-analysis"));
+    const view = screen.getByRole("button", { name: /View SKILL.md/ });
+    await user.click(view);
+    await user.click(view);
+    expect(resolvers).toHaveLength(2);
+
+    // The OLDER read answers first, while the newer one is still in flight.
+    resolvers[0]({ text: "# stale\n" });
+    expect(screen.queryByTestId("skill-md-preview")).not.toBeInTheDocument();
+    resolvers[1]({ text: "# newest\n" });
+    expect(await screen.findByTestId("skill-md-preview")).toHaveTextContent(
+      "newest",
+    );
+  });
+
+  it("rejects an older skills/get even when it resolves FIRST", async () => {
+    const user = userEvent.setup();
+    const resolvers: ((value: SkillEntry) => void)[] = [];
+    const onGetSkill = vi.fn(
+      () =>
+        new Promise<SkillEntry>((resolve) => {
+          resolvers.push(resolve);
+        }),
+    );
+    renderWithMantine(<ControlledSkillsScreen onGetSkill={onGetSkill} />);
+    await user.click(screen.getByText("data-analysis"));
+    const fetchButton = screen.getByRole("button", {
+      name: /Fetch with skills\/get/,
+    });
+    await user.click(fetchButton);
+    await user.click(fetchButton);
+    expect(resolvers).toHaveLength(2);
+
+    // The older fetch answers first with a differing entry; it must not
+    // publish a verdict while the newer one is pending.
+    resolvers[0]({
+      ...CLEAN_SKILL,
+      frontmatter: { ...CLEAN_SKILL.frontmatter, description: "stale" },
+    });
+    expect(screen.queryByTestId("skills-get-result")).not.toBeInTheDocument();
+    resolvers[1](CLEAN_SKILL);
+    expect(
+      await screen.findByText("skills/get matches skills/list"),
+    ).toBeInTheDocument();
   });
 
   it("shows the SKILL.md preview on demand", async () => {
