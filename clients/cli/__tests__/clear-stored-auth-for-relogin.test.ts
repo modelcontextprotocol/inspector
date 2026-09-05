@@ -390,6 +390,12 @@ describe("clearStoredAuthForRelogin", () => {
       const fetchSpy = vi
         .spyOn(globalThis, "fetch")
         .mockResolvedValue(new Response(null, { status: 200 }));
+      // Frozen, so the remainder at the check is exactly the budget. Left to
+      // the real clock this is a one-sided detector: a worker preempted for
+      // more than the budget reaches the check with a NEGATIVE remainder, where
+      // the unfixed `remainingMs <= 0` bound takes the same branch and prints
+      // the same message — passing without the floor (Copilot).
+      const nowSpy = vi.spyOn(performance, "now").mockReturnValue(1_000);
       try {
         const outcome = await clearStoredAuthForRelogin("https://example.com", {
           budgetMs: MIN_REVOCATION_REQUEST_BUDGET_MS - 1,
@@ -405,6 +411,7 @@ describe("clearStoredAuthForRelogin", () => {
           'budget was exhausted before "',
         );
       } finally {
+        nowSpy.mockRestore();
         fetchSpy.mockRestore();
       }
     });

@@ -872,34 +872,44 @@ describe("revokeStoredOAuthTokens (plan + execute)", () => {
       tokenTypeHint: "refresh_token" as const,
     });
     const timeoutMs = 40;
-    // Lands the second grant inside the floor but *above* zero — the sliver the
-    // old bound would have spent. A slow machine only pushes the remainder
-    // further below the floor, so the assertion cannot flip the other way.
-    const firstRequestMs = timeoutMs - MIN_REVOCATION_REQUEST_BUDGET_MS + 1;
+    // The clock is stubbed rather than slept against. A real sleep makes this a
+    // ONE-SIDED detector: under contention the first request overruns, the
+    // remainder goes negative, and the unfixed `remainingMs <= 0` bound skips
+    // the second grant for the wrong reason — so the test passes on an
+    // implementation that has no floor at all. Advancing a stub inside the
+    // fetch puts the second grant's remainder at exactly
+    // `MIN_REVOCATION_REQUEST_BUDGET_MS - 1` on every machine: positive, and
+    // under the floor, which is the only state that tells the two apart.
+    let now = 1_000;
+    const nowSpy = vi.spyOn(performance, "now").mockImplementation(() => now);
     const fetchFn = vi.fn<typeof fetch>(async () => {
-      await new Promise((resolve) => setTimeout(resolve, firstRequestMs));
+      now += timeoutMs - MIN_REVOCATION_REQUEST_BUDGET_MS + 1;
       return new Response(null, { status: 200 });
     });
 
-    const outcome = await executeOAuthRevocation(
-      {
-        serverUrl: SERVER_URL,
-        grants: [grant("a"), grant("b")],
-        failures: [],
-        endpoint: REVOKE_URL,
-        supportedAuthMethods: [],
-        metadataIssuer: "https://as.example.com",
-      },
-      { fetchFn, timeoutMs },
-    );
+    try {
+      const outcome = await executeOAuthRevocation(
+        {
+          serverUrl: SERVER_URL,
+          grants: [grant("a"), grant("b")],
+          failures: [],
+          endpoint: REVOKE_URL,
+          supportedAuthMethods: [],
+          metadataIssuer: "https://as.example.com",
+        },
+        { fetchFn, timeoutMs },
+      );
 
-    expect(fetchFn).toHaveBeenCalledTimes(1);
-    // The unattempted grant outranks the first one's success, so the caller
-    // hears that a grant may still be live rather than that all was well.
-    expect(outcome).toMatchObject({ status: "failed" });
-    expect(outcome.status === "failed" ? outcome.detail : "").toContain(
-      "budget was exhausted",
-    );
+      expect(fetchFn).toHaveBeenCalledTimes(1);
+      // The unattempted grant outranks the first one's success, so the caller
+      // hears that a grant may still be live rather than that all was well.
+      expect(outcome).toMatchObject({ status: "failed" });
+      expect(outcome.status === "failed" ? outcome.detail : "").toContain(
+        "budget was exhausted",
+      );
+    } finally {
+      nowSpy.mockRestore();
+    }
   });
 
   // A grant bound to an issuer the cached metadata does not describe cannot be
