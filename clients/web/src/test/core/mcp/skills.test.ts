@@ -88,10 +88,16 @@ describe("getSkillsExtension", () => {
     ).toBeUndefined();
   });
 
-  it("treats a non-object declaration as declared with no sub-options", () => {
-    expect(getSkillsExtension(caps({ [SKILLS_EXTENSION_KEY]: true }))).toEqual({
-      directoryRead: false,
-    });
+  it("rejects a non-object declaration", () => {
+    // SEP-2133 declares an extension as an object of sub-options, so a
+    // primitive is not a declaration — and treating one as support would show
+    // the Skills tab and send `skills/list` to a server that never claimed to
+    // serve it. Same parsing as the UI extension in `appElicitation.ts`.
+    for (const declared of [true, false, "skills", 1]) {
+      expect(
+        getSkillsExtension(caps({ [SKILLS_EXTENSION_KEY]: declared })),
+      ).toBeUndefined();
+    }
   });
 
   it("isSkillsExtensionSupported mirrors presence", () => {

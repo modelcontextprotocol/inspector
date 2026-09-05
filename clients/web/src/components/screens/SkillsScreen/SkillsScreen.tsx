@@ -127,10 +127,15 @@ export interface SkillsScreenProps {
   /** Fetch one skill file's contents via `resources/read`, on demand. */
   onReadSkillFile: (uri: string) => Promise<SkillFileContents>;
   /**
-   * Re-fetch the selected entry through `skills/get` (SEP-2640). Distinct from
-   * the entry `skills/list` already returned, and the point of exercising it is
-   * that the two must agree: a server whose `skills/get` disagrees with its own
-   * listing is broken in a way only a side-by-side fetch can show.
+   * Re-fetch the selected entry through `skills/get` (SEP-2640) — the
+   * extension's second required method, which nothing else in the app calls.
+   *
+   * It is a **fresh point-in-time snapshot**, so a conforming result may
+   * legitimately differ from an older listing, and the screen presents a
+   * difference as an updated snapshot rather than a fault. What it does treat
+   * as a fault is the fetched entry being non-conforming in its own right, or
+   * answering for a different URI than the one requested — neither of which a
+   * fresh read excuses.
    */
   onGetSkill: (uri: string) => Promise<SkillEntry>;
 }

@@ -109,9 +109,13 @@ export function getSkillsExtension(
   capabilities: ServerCapabilities | undefined,
 ): SkillsExtensionSupport | undefined {
   const declared = capabilities?.extensions?.[SKILLS_EXTENSION_KEY];
-  if (declared === undefined || declared === null) return undefined;
+  // Must be an OBJECT. SEP-2133 declares an extension as an object of
+  // sub-options, so a primitive (`false`, `"skills"`) is not a declaration —
+  // and treating one as support would show the Skills tab and send
+  // `skills/list` to a server that never claimed to serve it. Matches how
+  // `appElicitation.ts` parses the UI extension.
+  if (typeof declared !== "object" || declared === null) return undefined;
   const directoryRead =
-    typeof declared === "object" &&
     (declared as { directoryRead?: unknown }).directoryRead === true;
   return { directoryRead };
 }
