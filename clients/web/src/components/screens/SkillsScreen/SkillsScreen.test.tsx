@@ -101,6 +101,7 @@ const readFixtureFile = vi.fn(async (uri: string) => {
 });
 
 const baseProps: SkillsScreenProps = {
+  sessionKey: "session-1",
   skills: ALL_SKILLS,
   pageCount: 2,
   ui: EMPTY_SKILLS_UI,
@@ -716,6 +717,67 @@ describe("SkillsScreen", () => {
     // Returning to A still finds A's own batch in flight.
     await user.click(screen.getByText("data-analysis"));
     expect(verifyAll()).toBeDisabled();
+  });
+
+  it("discards a verification that lands after the session changed", async () => {
+    // This screen stays mounted across a disconnect, so content alone does not
+    // tell server A's entry from an identical-looking one on server B. Without
+    // the session in the key, A's in-flight read would land and report
+    // `verified` for a file that was never read from B.
+    const user = userEvent.setup();
+    let release: ((value: { text: string }) => void) | undefined;
+    const onReadSkillFile = vi.fn(
+      () =>
+        new Promise<{ text: string }>((resolve) => {
+          release = resolve;
+        }),
+    );
+    const { rerender } = renderWithMantine(
+      <SkillsScreen
+        {...baseProps}
+        sessionKey="server-a:1"
+        onReadSkillFile={onReadSkillFile}
+        skills={[CLEAN_SKILL]}
+        ui={{ ...EMPTY_SKILLS_UI, selectedSkillUri: CLEAN_SKILL.uri }}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: /Verify all/ }));
+
+    // Same entry, different session.
+    rerender(
+      <SkillsScreen
+        {...baseProps}
+        sessionKey="server-b:2"
+        onReadSkillFile={onReadSkillFile}
+        skills={[CLEAN_SKILL]}
+        ui={{ ...EMPTY_SKILLS_UI, selectedSkillUri: CLEAN_SKILL.uri }}
+      />,
+    );
+    release?.({ text: SELF_TEXT });
+    expect(screen.queryByText("verified")).not.toBeInTheDocument();
+    // ...and the batch guard did not carry over either.
+    expect(
+      screen.getByRole("button", { name: /Verify all/ }),
+    ).not.toBeDisabled();
+  });
+
+  it("keeps the selection when a refresh canonicalizes the skill's URI", async () => {
+    // The selection is stored as the URI the list gave us, so a server that
+    // re-spells it must not empty the detail pane for the same skill.
+    renderWithMantine(
+      <SkillsScreen
+        {...baseProps}
+        skills={[CLEAN_SKILL]}
+        ui={{
+          ...EMPTY_SKILLS_UI,
+          selectedSkillUri: "skill://data-analysis/%53KILL.md",
+        }}
+      />,
+    );
+    expect(screen.getByTestId("skill-detail")).toBeInTheDocument();
+    expect(
+      screen.queryByText("Select a skill to view details"),
+    ).not.toBeInTheDocument();
   });
 
   it("shows the SKILL.md preview on demand", async () => {

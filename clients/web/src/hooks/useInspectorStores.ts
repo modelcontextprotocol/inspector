@@ -87,6 +87,17 @@ export interface UseInspectorStoresResult {
   /** The live stores, or `null` before the first connect / after teardown. */
   stores: InspectorStores | null;
   /**
+   * Bumped on every `createStores` **and** every `destroyStores`, so it names
+   * one connected session and never repeats across a reconnect.
+   *
+   * Screens that hold async state keyed by *content* need this in the key:
+   * `SkillsScreen` stays mounted across a disconnect, so a verification still
+   * in flight for server A could otherwise land after a switch to server B and
+   * report a verdict for an identical-looking entry that was never read from B
+   * (#2234).
+   */
+  sessionNonce: number;
+  /**
    * Build a fresh set of stores for `client`, tearing down whatever set is
    * live first. Stable, so callers need no dependency on the current stores.
    */
@@ -162,6 +173,9 @@ export function useInspectorStores({
   paginatedLists,
 }: UseInspectorStoresParams): UseInspectorStoresResult {
   const [stores, setStores] = useState<InspectorStores | null>(null);
+  // See `sessionNonce` above. A counter rather than the store object's identity
+  // because it has to be usable as part of a string key.
+  const [sessionNonce, setSessionNonce] = useState(0);
   // Mirrors `stores` so `destroyStores` can read the live set without taking a
   // dependency on it — which is what keeps every caller's callback stable.
   const storesRef = useRef<InspectorStores | null>(null);
@@ -177,6 +191,7 @@ export function useInspectorStores({
     storesRef.current = null;
     fetchLogRef.current = null;
     setStores(null);
+    setSessionNonce((n) => n + 1);
   }, []);
 
   const createStores = useCallback(
@@ -214,6 +229,7 @@ export function useInspectorStores({
       storesRef.current = next;
       fetchLogRef.current = fetchRequestLogState;
       setStores(next);
+      setSessionNonce((n) => n + 1);
     },
     [destroyStores],
   );
@@ -340,6 +356,7 @@ export function useInspectorStores({
 
   return {
     stores,
+    sessionNonce,
     createStores,
     destroyStores,
     fetchLogRef,

@@ -172,6 +172,7 @@ function makeProps(...overrides: PropOverrides[]): InspectorViewProps {
       ...mergeBundle("apps", overrides),
     },
     skills: {
+      skillsSessionKey: "test-session",
       skills: [],
       skillsPageCount: 0,
       skillsUi: EMPTY_SKILLS_UI,

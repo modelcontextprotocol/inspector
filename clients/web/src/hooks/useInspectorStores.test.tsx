@@ -257,6 +257,21 @@ describe("useInspectorStores", () => {
       expect(h.api().stores).not.toBe(first);
     });
 
+    it("advances the session nonce on both create and destroy", () => {
+      // It names one connected session and must never repeat across a
+      // reconnect — `SkillsScreen` keys async verification state on it, and a
+      // repeated value would let one session's result land in another.
+      const h = harness();
+      const seen = new Set<number>([h.api().sessionNonce]);
+      h.run((api) => api.createStores(client(), fetchLogOptions));
+      seen.add(h.api().sessionNonce);
+      h.run((api) => api.destroyStores());
+      seen.add(h.api().sessionNonce);
+      h.run((api) => api.createStores(client(), fetchLogOptions));
+      seen.add(h.api().sessionNonce);
+      expect(seen.size).toBe(4);
+    });
+
     it("destroys and clears on destroyStores", () => {
       const h = harness();
       h.run((api) => api.createStores(client(), fetchLogOptions));

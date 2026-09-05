@@ -108,6 +108,14 @@ interface FetchedEntryState {
 }
 
 export interface SkillsScreenProps {
+  /**
+   * Identity of the connected session. Part of the invalidation key below, so
+   * a verification still in flight when the user switches servers cannot land
+   * afterwards and report a verdict for an identical-looking entry on the new
+   * one — this screen stays mounted across a disconnect, so content alone does
+   * not distinguish the two.
+   */
+  sessionKey: string;
   skills: SkillEntry[];
   /** Pages the last `skills/list` walk took; shown so pagination is visible. */
   pageCount: number;
@@ -320,6 +328,7 @@ function shortDigest(digest: string | undefined): string {
  * the Inspector fetches only what the user asks it to.
  */
 export function SkillsScreen({
+  sessionKey,
   skills,
   pageCount,
   loadError,
@@ -378,10 +387,15 @@ export function SkillsScreen({
     );
   }, [skills, search]);
 
-  const selected = useMemo(
-    () => skills.find((skill) => skill.uri === selectedSkillUri),
-    [skills, selectedSkillUri],
-  );
+  // Matched by IDENTITY, like every other URI comparison here: a refresh that
+  // canonicalizes `skill://demo/%53KILL.md` to `skill://demo/SKILL.md` names
+  // the same skill, and the detail pane must not empty out because the server
+  // changed its spelling.
+  const selected = useMemo(() => {
+    if (selectedSkillUri === undefined) return undefined;
+    const wanted = skillUriIdentity(selectedSkillUri);
+    return skills.find((skill) => skillUriIdentity(skill.uri) === wanted);
+  }, [skills, selectedSkillUri]);
 
   const issues = useMemo(
     () => (selected ? checkSkillConformance(selected) : []),
@@ -406,8 +420,9 @@ export function SkillsScreen({
   // not. A primitive string, because `useValueChange` compares with `Object.is`
   // and a fresh object every render would loop.
   const manifestKey = useMemo(
-    () => (selected ? JSON.stringify(selected) : (selectedSkillUri ?? "")),
-    [selected, selectedSkillUri],
+    () =>
+      `${sessionKey}\n${selected ? JSON.stringify(selected) : (selectedSkillUri ?? "")}`,
+    [selected, selectedSkillUri, sessionKey],
   );
 
   // Adjusted DURING RENDER via `useValueChange` rather than in an effect, so a
@@ -623,7 +638,11 @@ export function SkillsScreen({
                 return (
                   <NavLink
                     key={skill.uri}
-                    active={skill.uri === selectedSkillUri}
+                    active={
+                      selectedSkillUri !== undefined &&
+                      skillUriIdentity(skill.uri) ===
+                        skillUriIdentity(selectedSkillUri)
+                    }
                     label={skillDisplayName(skill)}
                     description={skill.uri}
                     onClick={() =>

@@ -459,6 +459,7 @@ function App() {
     tasks,
     refreshTasks,
     clearCompletedTasks,
+    sessionNonce,
     skills,
     skillsPageCount,
     skillsLoadError,
@@ -1826,6 +1827,10 @@ function App() {
   };
 
   const skillsPanelProps: SkillsPanelProps = {
+    // Server id AND per-connect nonce: the id alone would repeat on a
+    // reconnect to the same server, which is one of the crossings this key
+    // exists to prevent.
+    skillsSessionKey: `${activeServerId ?? ""}:${sessionNonce}`,
     skills,
     skillsPageCount,
     skillsLoadError,

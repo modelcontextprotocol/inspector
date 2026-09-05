@@ -427,6 +427,7 @@ const appsArgs: AppsPanelProps = {
 };
 
 const skillsArgs: SkillsPanelProps = {
+  skillsSessionKey: "story-session",
   skills: [],
   skillsPageCount: 0,
   skillsUi: EMPTY_SKILLS_UI,

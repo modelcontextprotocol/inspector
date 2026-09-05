@@ -313,6 +313,12 @@ export interface AppsPanelProps {
 
 /** The Skills screen (SEP-2640): the enumerated skills and their verification. */
 export interface SkillsPanelProps {
+  /**
+   * Identity of the connected session. Part of the screen's invalidation key,
+   * so async verification state can never cross a connection — see
+   * `UseInspectorStoresResult.sessionNonce`.
+   */
+  skillsSessionKey: string;
   skills: SkillEntry[];
   /** Pages the last `skills/list` walk took. */
   skillsPageCount: number;

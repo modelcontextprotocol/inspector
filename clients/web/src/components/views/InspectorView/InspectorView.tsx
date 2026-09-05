@@ -456,6 +456,7 @@ export function InspectorView({
     onRefreshApps,
   } = appsPanel;
   const {
+    skillsSessionKey,
     skills,
     skillsPageCount,
     skillsLoadError,
@@ -1055,6 +1056,7 @@ export function InspectorView({
     onSortChange: setConsoleSort,
   };
   const skillsScreenProps = {
+    sessionKey: skillsSessionKey,
     skills,
     pageCount: skillsPageCount,
     loadError: skillsLoadError,
