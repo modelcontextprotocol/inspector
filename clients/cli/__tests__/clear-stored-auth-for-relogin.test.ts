@@ -6,6 +6,7 @@ import {
   getStateFilePath,
   resetNodeOAuthStorageCache,
 } from "@inspector/core/auth/node/storage-node.js";
+import { MIN_REVOCATION_REQUEST_BUDGET_MS } from "@inspector/core/auth/revocation.js";
 import { clearStoredAuthForRelogin } from "../src/clear-stored-auth-for-relogin.js";
 
 const AS_ISSUER = "https://as.example.com";
@@ -375,6 +376,42 @@ describe("clearStoredAuthForRelogin", () => {
           "budget was exhausted",
         );
       } finally {
+        fetchSpy.mockRestore();
+      }
+    });
+
+    // The zero-budget case above passes under the old `remainingMs <= 0` bound
+    // too, so it says nothing about the floor. This one is the floor's own
+    // detector: a budget that is genuinely positive, and genuinely too small to
+    // complete a request, must be spent on no request at all (#2252). The
+    // budget only shrinks as the loop runs, so a slow machine cannot flip it.
+    it("issues no request for a positive budget below the minimum", async () => {
+      seedBothSpellings("live-r", "stale-r");
+      const fetchSpy = vi
+        .spyOn(globalThis, "fetch")
+        .mockResolvedValue(new Response(null, { status: 200 }));
+      // Frozen, so the remainder at the check is exactly the budget. Left to
+      // the real clock this is a one-sided detector: a worker preempted for
+      // more than the budget reaches the check with a NEGATIVE remainder, where
+      // the unfixed `remainingMs <= 0` bound takes the same branch and prints
+      // the same message — passing without the floor (Copilot).
+      const nowSpy = vi.spyOn(performance, "now").mockReturnValue(1_000);
+      try {
+        const outcome = await clearStoredAuthForRelogin("https://example.com", {
+          budgetMs: MIN_REVOCATION_REQUEST_BUDGET_MS - 1,
+        });
+        expect(fetchSpy).not.toHaveBeenCalled();
+        expect(outcome).toMatchObject({ status: "failed" });
+        // The *plan* was never attempted, so the report has to be this loop's
+        // own — naming the server URL — and not the per-grant one from inside
+        // `executeOAuthRevocation`. Without that distinction the assertion
+        // passes on the old `<= 0` bound too: the plan would be handed a 4ms
+        // budget, and core's identical floor would decline it one level down.
+        expect(outcome?.status === "failed" ? outcome.detail : "").toContain(
+          'budget was exhausted before "',
+        );
+      } finally {
+        nowSpy.mockRestore();
         fetchSpy.mockRestore();
       }
     });
