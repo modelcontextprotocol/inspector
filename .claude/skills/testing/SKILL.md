@@ -47,11 +47,14 @@ They sit there for the node env and the 30s timeout, not because they connect â€
 placement is the project manifest, so it cannot also be the fixture trigger.
 Ask what the test *does*, not where it lives.
 
-When it does apply, the test drives a **real server over a real transport, never
-a mock**, and picking the fixture, building it, and connecting with the right
-protocol era is a procedure this skill does not carry. Writing one without
-`test-servers` means hand-rolling a fixture that already exists, or mocking the
-thing the tier exists to avoid mocking.
+**In the connecting case**, the test drives a **real server over a real
+transport, never a mock**, and picking the fixture, building it, and connecting
+with the right protocol era is a procedure this skill does not carry. Writing
+one without `test-servers` means hand-rolling a fixture that already exists, or
+mocking the thing the tier exists to avoid mocking. **In the build-only case**,
+none of the transport or protocol-era guidance applies â€” what you need from
+`test-servers` is how to build the fixture and why a stale build keeps serving
+old code.
 
 ## Where the test file goes
 
