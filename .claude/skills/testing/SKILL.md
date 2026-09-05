@@ -16,19 +16,28 @@ test goes, how to run it, and how to clear the gate.
 **If it does, load the `test-servers` skill now — that is step one, before
 choosing a location or writing a line.**
 
-The condition is **"does this test connect to, or build and consume, an MCP
-fixture?"** — not which tier it lands in, and not which directory it lands in.
-It does whenever the task is: an integration test **that connects**; an
-end-to-end test that connects; a smoke that drives a **connected** flow; a
-coverage gap only reachable over a real connection; reproducing a reported bug
-against a server; **or** anything that puts a built fixture on disk, even
-without connecting — `smoke:tui` boots the TUI against a catalog whose stdio
-command *is* `test-servers/build`, so the build and staleness half of that
-procedure is exactly what it needs.
+The condition is **"does this test depend on a fixture from `test-servers/`?"**
+— not which tier it lands in, and not which directory it lands in. There are two
+ways to depend on one, and they need different halves of that skill:
 
-It does **not** when the test renders a component from fixture props, exercises
-a pure function or a parser, or is a smoke that neither connects nor builds a
-fixture — `smoke:launcher` checks `--help`, and `smoke:web` /
+- **It connects.** An integration test that connects; an end-to-end test that
+  connects; a smoke that drives a connected flow; a coverage gap only reachable
+  over a real connection; reproducing a reported bug against a server. These
+  need the whole procedure — which showcase config, which protocol era, and the
+  staleness hazard.
+- **It names or runs the built fixture without connecting.** `smoke:tui` boots
+  the TUI against a catalog whose stdio command *is* the built fixture, then
+  asserts it survives. No transport is driven and no protocol era applies, but
+  the **build and staleness** half lands on it in full.
+
+⚠️ **"A build ran" is not the dependency — using the artefact is.**
+`clients/web`'s `pretest` runs `test-servers:build` before *every* unit run, so
+the fixture is on disk for tests that never reference it. What counts is whether
+the test imports, spawns, or points a config at it.
+
+So the condition does **not** hold when the test renders a component from
+fixture props, exercises a pure function or a parser, or is a smoke that touches
+no fixture — `smoke:launcher` checks `--help`, and `smoke:web` /
 `smoke:web:browser` only assert the SPA is served and paints.
 
 ⚠️ **Neither the tier nor the folder decides this.** `src/test/integration/`
@@ -204,14 +213,18 @@ shared helper that wraps one.
 
 The tests that drive MCP behaviour over a transport — the connecting integration
 tests and the connected smokes — use a real server rather than a mock. **For
-those, load the `test-servers` skill to pick, build and run the fixture** —
-which showcase config covers the feature, which protocol era to connect with,
-how to add a combination that does not exist yet, and why a fixture can keep
-serving stale code after an edit.
+those, load the `test-servers` skill and use all of it**: which showcase config
+covers the feature, which protocol era to connect with, how to add a combination
+that does not exist yet, and why a fixture can keep serving stale code after an
+edit.
 
-**Consuming a fixture is a trigger on its own, even without a connection.**
-`smoke:tui` only asserts the TUI boots and survives, but it builds
-`test-servers/` and embeds the result in its catalog — so the staleness hazard
-lands on it in full. A pure test that happens to live in the integration
-project, and a smoke that touches no fixture at all, need none of this (see the
-tier list above).
+**A test that only *names* the built fixture needs that skill too, for a
+narrower reason.** `smoke:tui` boots the TUI against a catalog whose stdio
+command is the build output and asserts it survives — it opens no transport, so
+config choice and protocol era do not apply to it, but **building the fixture
+and the staleness hazard do.** Load the skill and take that half.
+
+A pure test that happens to live in the integration project, and a smoke that
+references no fixture, need neither (see the tier list above) — and note that
+`clients/web`'s `pretest` builds `test-servers/` before every unit run, so its
+presence on disk says nothing about whether your test depends on it.
