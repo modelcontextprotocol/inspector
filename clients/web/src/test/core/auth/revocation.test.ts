@@ -3,6 +3,7 @@ import type { OAuthMetadata } from "@modelcontextprotocol/client";
 import { BrowserOAuthStorage } from "@inspector/core/auth/browser/storage.js";
 import {
   DEFAULT_REVOCATION_TIMEOUT_MS,
+  MIN_REVOCATION_REQUEST_BUDGET_MS,
   aggregateOutcomes,
   buildRevocationRequest,
   revocationAuthMethods,
@@ -431,6 +432,27 @@ describe("revokeToken", () => {
     expect(seen?.signal).toBeInstanceOf(AbortSignal);
     expect(DEFAULT_REVOCATION_TIMEOUT_MS).toBeGreaterThan(0);
   });
+
+  // What is left of a shared deadline is measured with a sub-millisecond clock,
+  // so the budget handed down here is routinely fractional — and Node's
+  // `AbortSignal.timeout` throws `ERR_OUT_OF_RANGE` on a non-integer delay,
+  // before the fetch, turning a perfectly good request into a revocation failure
+  // that never left the process (#2252).
+  it("accepts a fractional budget and still sends the request", async () => {
+    const fetchFn = vi.fn<typeof fetch>(
+      async () => new Response(null, { status: 200 }),
+    );
+    const outcome = await revokeToken({
+      endpoint: REVOKE_URL,
+      token: "r",
+      tokenTypeHint: "refresh_token",
+      supportedAuthMethods: [],
+      fetchFn,
+      timeoutMs: 19.996,
+    });
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+    expect(outcome).toMatchObject({ status: "revoked" });
+  });
 });
 
 /**
@@ -836,6 +858,58 @@ describe("revokeStoredOAuthTokens (plan + execute)", () => {
     expect(elapsed).toBeLessThan(70);
     // The first burned the budget; the rest are reported as never attempted.
     expect(fetchFn).toHaveBeenCalledTimes(1);
+  });
+
+  // The boundary the shared budget used to be decided on was `remainingMs > 0`,
+  // which timer resolution can land either side of: a grant that finished a
+  // hair before the deadline left a fractional budget behind, and the next grant
+  // spent it on a request that could not possibly complete (#2252). The floor
+  // makes that decision the same on every run.
+  it("does not issue a request with less than the minimum budget left", async () => {
+    const grant = (n: string) => ({
+      issuer: "https://as.example.com",
+      token: `r-${n}`,
+      tokenTypeHint: "refresh_token" as const,
+    });
+    const timeoutMs = 40;
+    // The clock is stubbed rather than slept against. A real sleep makes this a
+    // ONE-SIDED detector: under contention the first request overruns, the
+    // remainder goes negative, and the unfixed `remainingMs <= 0` bound skips
+    // the second grant for the wrong reason — so the test passes on an
+    // implementation that has no floor at all. Advancing a stub inside the
+    // fetch puts the second grant's remainder at exactly
+    // `MIN_REVOCATION_REQUEST_BUDGET_MS - 1` on every machine: positive, and
+    // under the floor, which is the only state that tells the two apart.
+    let now = 1_000;
+    const nowSpy = vi.spyOn(performance, "now").mockImplementation(() => now);
+    const fetchFn = vi.fn<typeof fetch>(async () => {
+      now += timeoutMs - MIN_REVOCATION_REQUEST_BUDGET_MS + 1;
+      return new Response(null, { status: 200 });
+    });
+
+    try {
+      const outcome = await executeOAuthRevocation(
+        {
+          serverUrl: SERVER_URL,
+          grants: [grant("a"), grant("b")],
+          failures: [],
+          endpoint: REVOKE_URL,
+          supportedAuthMethods: [],
+          metadataIssuer: "https://as.example.com",
+        },
+        { fetchFn, timeoutMs },
+      );
+
+      expect(fetchFn).toHaveBeenCalledTimes(1);
+      // The unattempted grant outranks the first one's success, so the caller
+      // hears that a grant may still be live rather than that all was well.
+      expect(outcome).toMatchObject({ status: "failed" });
+      expect(outcome.status === "failed" ? outcome.detail : "").toContain(
+        "budget was exhausted",
+      );
+    } finally {
+      nowSpy.mockRestore();
+    }
   });
 
   // A grant bound to an issuer the cached metadata does not describe cannot be

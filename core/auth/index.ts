@@ -142,6 +142,7 @@ export { discoverScopes } from "./discovery.js";
 // RFC 7009 token revocation (#2144)
 export {
   DEFAULT_REVOCATION_TIMEOUT_MS,
+  MIN_REVOCATION_REQUEST_BUDGET_MS,
   aggregateOutcomes,
   buildRevocationRequest,
   revocationAuthMethods,
