@@ -501,6 +501,39 @@ describe("SkillsScreen", () => {
     expect(screen.getByTestId("skills-get-result")).toBeInTheDocument();
   });
 
+  it("calls a non-conforming skills/get entry invalid, not a new snapshot", async () => {
+    // A fresh snapshot excuses a CHANGE; it does not excuse a violation. An
+    // entry missing a digest is invalid whether or not the skill moved on.
+    const user = userEvent.setup();
+    const onGetSkill = vi.fn().mockResolvedValue({
+      ...CLEAN_SKILL,
+      resources: [{ uri: "skill://data-analysis/SKILL.md" }],
+    });
+    renderWithMantine(<ControlledSkillsScreen onGetSkill={onGetSkill} />);
+    await user.click(screen.getByText("data-analysis"));
+    await user.click(
+      screen.getByRole("button", { name: /Fetch with skills\/get/ }),
+    );
+    const result = await screen.findByTestId("skills-get-result");
+    expect(result).toHaveAttribute("data-verdict", "invalid");
+    expect(result).toHaveTextContent("missing-digest");
+  });
+
+  it("calls a skills/get answer for a different uri invalid", async () => {
+    // Answering with another skill is never a valid refresh of the one asked
+    // for, however much that other skill may have changed.
+    const user = userEvent.setup();
+    const onGetSkill = vi.fn().mockResolvedValue(TAMPERED_SKILL);
+    renderWithMantine(<ControlledSkillsScreen onGetSkill={onGetSkill} />);
+    await user.click(screen.getByText("data-analysis"));
+    await user.click(
+      screen.getByRole("button", { name: /Fetch with skills\/get/ }),
+    );
+    const result = await screen.findByTestId("skills-get-result");
+    expect(result).toHaveAttribute("data-verdict", "invalid");
+    expect(result).toHaveTextContent("different URI");
+  });
+
   it("reports a failed skills/get", async () => {
     const user = userEvent.setup();
     const onGetSkill = vi.fn().mockRejectedValue(new Error("-32602"));

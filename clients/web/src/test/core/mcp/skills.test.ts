@@ -266,6 +266,52 @@ describe("checkSkillConformance", () => {
     expect(issues[0].severity).toBe("error");
   });
 
+  it("reports a name that is not a valid Agent Skills name", () => {
+    // The name is not decorative: it must equal the URI path segment, so a
+    // name that cannot appear in a URI is a contradiction the entry cannot
+    // satisfy. Checking only for non-emptiness let these read as "Conforms".
+    for (const name of [
+      "Bad Name",
+      "UPPER",
+      "-leading",
+      "trailing-",
+      "double--hyphen",
+      "under_score",
+      "a".repeat(65),
+    ]) {
+      const issues = checkSkillConformance(
+        entry({ frontmatter: { name, description: "d" } }),
+      );
+      expect(issues.map((i) => i.code)).toContain("malformed-name");
+      expect(issues.find((i) => i.code === "malformed-name")?.severity).toBe(
+        "error",
+      );
+    }
+  });
+
+  it("accepts the names the Agent Skills format allows", () => {
+    for (const name of ["a", "demo", "data-analysis", "a1-b2-c3"]) {
+      const issues = checkSkillConformance(
+        entry({
+          uri: `skill://${name}/SKILL.md`,
+          frontmatter: { name, description: "d" },
+          resources: [
+            { uri: `skill://${name}/SKILL.md`, digest: DIGEST, size: 1 },
+          ],
+        }),
+      );
+      expect(issues.map((i) => i.code)).not.toContain("malformed-name");
+    }
+  });
+
+  it("does not report a malformed name when there is no name at all", () => {
+    // `missing-name` already says it; two findings would read as two defects.
+    const issues = checkSkillConformance(
+      entry({ frontmatter: { description: "d" } }),
+    );
+    expect(issues.map((i) => i.code)).toEqual(["missing-name"]);
+  });
+
   it("reports a missing description as an error", () => {
     // SEP-2640 requires `description`, so an absent one is a format violation
     // and must not read as "0 errors" in the conformance summary.
@@ -383,6 +429,37 @@ describe("checkSkillConformance", () => {
       }),
     );
     expect(issues.map((i) => i.code)).toEqual(["resource-outside-skill-root"]);
+  });
+
+  it("detects a duplicate that differs only before normalization", () => {
+    // Containment and the read that fetches the bytes both treat these as one
+    // resource, so the uniqueness check must too — otherwise a manifest naming
+    // one file twice passes as two distinct files.
+    const issues = checkSkillConformance(
+      entry({
+        resources: [
+          { uri: "skill://demo/SKILL.md", digest: DIGEST, size: 20 },
+          { uri: "skill://demo/x/../SKILL.md", digest: DIGEST, size: 20 },
+        ],
+      }),
+    );
+    expect(issues.map((i) => i.code)).toEqual(["duplicate-resource"]);
+    // Reported against the raw URI, so the diagnostic points at what the
+    // server actually sent.
+    expect(issues[0].resourceUri).toBe("skill://demo/x/../SKILL.md");
+  });
+
+  it("does not fold two different unparseable URIs into one duplicate", () => {
+    const issues = checkSkillConformance(
+      entry({
+        resources: [
+          { uri: "skill://demo/SKILL.md", digest: DIGEST, size: 20 },
+          { uri: "not a uri", digest: DIGEST, size: 1 },
+          { uri: "also not a uri", digest: DIGEST, size: 1 },
+        ],
+      }),
+    );
+    expect(issues.map((i) => i.code)).not.toContain("duplicate-resource");
   });
 
   it("reports a manifest entry outside the skill root", () => {

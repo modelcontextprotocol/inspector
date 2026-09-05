@@ -56,6 +56,19 @@ export const SKILL_FILE_SUFFIX = "/SKILL.md";
 const DIGEST_PATTERN = /^sha256:[0-9a-f]{64}$/;
 
 /**
+ * The Agent Skills name format SEP-2640 requires of `frontmatter.name`: 1–64
+ * characters of lowercase alphanumerics and hyphens, with no leading, trailing
+ * or consecutive hyphen.
+ *
+ * Checking only that the name is non-empty let `Bad Name` reach the UI as
+ * "Conforms" — and the name is not decorative here: it must equal the URI path
+ * segment, so a name that cannot appear in a URI is a contradiction the entry
+ * cannot satisfy.
+ */
+const SKILL_NAME_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const SKILL_NAME_MAX_LENGTH = 64;
+
+/**
  * What the server declared under `io.modelcontextprotocol/skills`. The only
  * sub-option SEP-2640 defines is `directoryRead`, which gates
  * `resources/directory/read`.
@@ -162,6 +175,7 @@ export function skillDisplayName(entry: SkillEntry): string {
 export type SkillIssueCode =
   | "dynamic-resources"
   | "missing-name"
+  | "malformed-name"
   | "missing-description"
   | "malformed-uri"
   | "name-path-mismatch"
@@ -212,6 +226,15 @@ export function checkSkillConformance(entry: SkillEntry): SkillIssue[] {
       code: "missing-name",
       severity: "error",
       message: "frontmatter.name is required but missing or empty.",
+    });
+  } else if (
+    declaredName.length > SKILL_NAME_MAX_LENGTH ||
+    !SKILL_NAME_PATTERN.test(declaredName)
+  ) {
+    issues.push({
+      code: "malformed-name",
+      severity: "error",
+      message: `frontmatter.name "${declaredName}" is not a valid Agent Skills name: 1–${SKILL_NAME_MAX_LENGTH} lowercase alphanumerics and hyphens, with no leading, trailing or consecutive hyphen.`,
     });
   }
   if (!entry.frontmatter.description?.trim()) {
@@ -301,7 +324,17 @@ export function checkSkillConformance(entry: SkillEntry): SkillIssue[] {
       : undefined;
 
   for (const resource of entry.resources) {
-    if (seenUris.has(resource.uri)) {
+    // Compared on the NORMALIZED identity, because everything else here treats
+    // normalized-equivalents as the same resource — containment does, and so
+    // does the read that fetches the bytes. On the raw string,
+    // `skill://demo/SKILL.md` and `skill://demo/x/../SKILL.md` would pass as
+    // two distinct files while naming one. The raw URI is still what the
+    // finding reports, so the diagnostic points at what the server actually
+    // sent. Unparseable URIs fall back to the raw string: they are already
+    // reported by the root check, and normalizing them all to `undefined`
+    // would make two different bad URIs look like one duplicate.
+    const identity = normalizeSkillUri(resource.uri) ?? resource.uri;
+    if (seenUris.has(identity)) {
       issues.push({
         code: "duplicate-resource",
         severity: "error",
@@ -310,7 +343,7 @@ export function checkSkillConformance(entry: SkillEntry): SkillIssue[] {
         resourceUri: resource.uri,
       });
     }
-    seenUris.add(resource.uri);
+    seenUris.add(identity);
     if (root !== undefined) {
       const normalized = normalizeSkillUri(resource.uri);
       // An unparseable entry URI is outside the root by construction: nothing

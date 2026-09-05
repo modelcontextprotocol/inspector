@@ -97,7 +97,12 @@ interface FetchedEntryState {
   /** The click this result belongs to — see {@link PreviewState.attempt}. */
   attempt?: number;
   entry?: SkillEntry;
+  /** Conformance findings for the FETCHED entry, in its own right. */
+  issues?: SkillIssue[];
+  /** True when the fetched entry describes the same skill as the listed one. */
   matches?: boolean;
+  /** True when the fetched entry is for a different URI than was asked for. */
+  wrongUri?: boolean;
   message?: string;
 }
 
@@ -530,10 +535,21 @@ export function SkillsScreen({
       );
     void onGetSkill(selected.uri)
       .then((entry) => {
-        // Compared semantically against what `skills/list` advertised — see
-        // `skillEntriesMatch` for why a `JSON.stringify` comparison would
-        // report key order and manifest order as differences.
-        writeFetched({ entry, matches: skillEntriesMatch(entry, selected) });
+        // The fetched entry is checked ON ITS OWN before being compared. A
+        // snapshot is allowed to have moved on, but it is not allowed to be
+        // non-conforming: an entry missing a digest is invalid whether or not
+        // the skill changed, and an entry for a DIFFERENT uri is never a valid
+        // refresh of the one that was asked for. Only a conforming entry with
+        // the same identity gets the benign "the snapshot moved" reading.
+        writeFetched({
+          entry,
+          issues: checkSkillConformance(entry),
+          wrongUri: entry.uri !== selected.uri,
+          // Compared semantically — see `skillEntriesMatch` for why a
+          // `JSON.stringify` comparison would report key order and manifest
+          // order as differences.
+          matches: skillEntriesMatch(entry, selected),
+        });
       })
       .catch((err: unknown) => {
         writeFetched({
@@ -543,6 +559,16 @@ export function SkillsScreen({
   }, [manifestKey, onGetSkill, selected]);
 
   const fetched = fetchedEntry.key === manifestKey ? fetchedEntry : undefined;
+  // `invalid` outranks the snapshot comparison: an entry that breaks a
+  // requirement, or answers for a different URI, is wrong regardless of
+  // whether the skill it describes has changed since the listing.
+  const fetchedVerdict =
+    fetched?.wrongUri ||
+    (fetched?.issues ?? []).some((issue) => issue.severity === "error")
+      ? "invalid"
+      : fetched?.matches
+        ? "matches"
+        : "differs";
   const batchRunning = batches.has(manifestKey);
 
   const preview =
@@ -810,24 +836,45 @@ export function SkillsScreen({
               {fetched?.entry !== undefined && (
                 <Alert
                   data-testid="skills-get-result"
-                  // Yellow, not red: `skills/get` is a fresh point-in-time
-                  // snapshot, so a skill that genuinely changed since the
-                  // listing legitimately differs. Worth showing, not an
-                  // accusation.
-                  color={fetched.matches ? "green" : "yellow"}
+                  data-verdict={fetchedVerdict}
+                  // Red only for a genuine violation — a non-conforming entry,
+                  // or one answering with a different URI, neither of which a
+                  // fresh snapshot excuses. A conforming entry that merely
+                  // moved on is yellow: `skills/get` IS a point-in-time read,
+                  // so a changed skill legitimately differs.
+                  color={
+                    fetchedVerdict === "invalid"
+                      ? "red"
+                      : fetchedVerdict === "matches"
+                        ? "green"
+                        : "yellow"
+                  }
                   title={
-                    fetched.matches
-                      ? "skills/get matches skills/list"
-                      : "skills/get returned a different snapshot"
+                    fetchedVerdict === "invalid"
+                      ? "skills/get returned a non-conforming entry"
+                      : fetchedVerdict === "matches"
+                        ? "skills/get matches skills/list"
+                        : "skills/get returned a different snapshot"
                   }
                 >
                   <Stack gap={2}>
                     <Text size="sm">
-                      {fetched.matches
-                        ? "The entry this server returns for this URI describes the same skill it listed (compared ignoring key and manifest order)."
-                        : "The entry this server returns for this URI differs from the one it listed. `skills/get` is a fresh snapshot, so this is expected if the skill changed since the list was fetched — and a server inconsistency if it did not."}
+                      {fetchedVerdict === "invalid"
+                        ? fetched.wrongUri
+                          ? "This entry is for a different URI than the one requested, which is never a valid refresh of it."
+                          : "This entry breaks a requirement of its own, so the difference is not simply a newer snapshot."
+                        : fetchedVerdict === "matches"
+                          ? "The entry this server returns for this URI describes the same skill it listed (compared ignoring key and manifest order)."
+                          : "The entry this server returns for this URI differs from the one it listed. `skills/get` is a fresh snapshot, so this is expected if the skill changed since the list was fetched — and a server inconsistency if it did not."}
                     </Text>
-                    {!fetched.matches && (
+                    {(fetched.issues ?? [])
+                      .filter((issue) => issue.severity === "error")
+                      .map((issue, index) => (
+                        <MonoCaption key={`${index}:${issue.code}`}>
+                          {issue.code}: {issue.message}
+                        </MonoCaption>
+                      ))}
+                    {fetchedVerdict !== "matches" && (
                       <ContentViewer
                         block={{
                           type: "text",
