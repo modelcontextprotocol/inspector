@@ -96,53 +96,81 @@ interface FixtureFile {
 interface FixtureSkill {
   /** The `<skill-path>` segment; `skill://<path>/SKILL.md` is the entry URI. */
   path: string;
-  frontmatter: Record<string, unknown>;
+  /** The SAME object the served `SKILL.md` was built from — see `skillMd`. */
+  frontmatter: Frontmatter;
   /** `"dynamic"` for a generated skill with no enumerable manifest. */
   files: FixtureFile[] | "dynamic";
 }
 
-function skillMd(name: string, description: string, body: string): string {
-  return `---\nname: ${name}\ndescription: ${description}\n---\n\n${body}\n`;
+interface Frontmatter {
+  name: string;
+  description: string;
 }
 
+/**
+ * The `SKILL.md` for one skill, built FROM its frontmatter object.
+ *
+ * SEP-2640 requires the frontmatter a server lists to match the frontmatter in
+ * the file it serves, field for field. Writing the two out separately let them
+ * drift — and did: three fixtures listed one description and served another,
+ * which is an undocumented extra violation that would have made phase 3's
+ * frontmatter check report a finding these fixtures were not built to
+ * demonstrate. Deriving one from the other makes that class of drift
+ * impossible rather than merely fixed.
+ */
+function skillMd(frontmatter: Frontmatter, body: string): string {
+  return `---\nname: ${frontmatter.name}\ndescription: ${frontmatter.description}\n---\n\n${body}\n`;
+}
+
+const DATA_ANALYSIS_FM: Frontmatter = {
+  name: "data-analysis",
+  description: "Analyze a CSV and summarize its columns",
+};
 const DATA_ANALYSIS_MD = skillMd(
-  "data-analysis",
-  "Analyze a CSV and summarize its columns",
+  DATA_ANALYSIS_FM,
   "# Data analysis\n\nLoad the CSV, then follow `reference.md` for the column rules.",
 );
 const DATA_ANALYSIS_REF =
   "# Column rules\n\nNumeric columns get min/max/mean; text columns get a value count.\n";
 
+const TAMPERED_FM: Frontmatter = {
+  name: "tampered-notes",
+  description: "A skill whose manifest digest does not match its served bytes",
+};
 const TAMPERED_MD = skillMd(
-  "tampered-notes",
-  "A skill whose manifest digest does not match its served bytes",
+  TAMPERED_FM,
   "# Tampered notes\n\nThe digest advertised for `notes.md` is wrong on purpose.",
 );
 const TAMPERED_NOTES =
   "# Notes\n\nThese bytes hash to something other than what the manifest claims.\n";
 
+const DYNAMIC_FM: Frontmatter = {
+  name: "dynamic-report",
+  description: "A skill whose files are generated per request",
+};
 const DYNAMIC_MD = skillMd(
-  "dynamic-report",
-  "A skill whose files are generated per request",
+  DYNAMIC_FM,
   "# Dynamic report\n\nThis skill's file set is generated, so it advertises no manifest.",
 );
 
 // The frontmatter says `right-name` while the URI segment says `wrong-folder`,
 // breaking the one structural invariant SEP-2640 states outright: the segment
-// before /SKILL.md must equal frontmatter.name.
+// before /SKILL.md must equal frontmatter.name. That is this fixture's ONLY
+// violation — its listed and served frontmatter agree, as the SEP requires.
+const MISMATCHED_FM: Frontmatter = {
+  name: "right-name",
+  description:
+    "A skill whose URI path segment disagrees with its frontmatter name",
+};
 const MISMATCHED_MD = skillMd(
-  "right-name",
-  "A skill whose URI path segment disagrees with its frontmatter name",
+  MISMATCHED_FM,
   "# Mismatched name\n\nServed from `wrong-folder/` while claiming the name `right-name`.",
 );
 
 const FIXTURE_SKILLS: FixtureSkill[] = [
   {
     path: "data-analysis",
-    frontmatter: {
-      name: "data-analysis",
-      description: "Analyze a CSV and summarize its columns",
-    },
+    frontmatter: DATA_ANALYSIS_FM,
     files: [
       {
         uri: "skill://data-analysis/SKILL.md",
@@ -158,10 +186,7 @@ const FIXTURE_SKILLS: FixtureSkill[] = [
   },
   {
     path: "tampered-notes",
-    frontmatter: {
-      name: "tampered-notes",
-      description: "A skill whose manifest digest does not match its bytes",
-    },
+    frontmatter: TAMPERED_FM,
     files: [
       {
         uri: "skill://tampered-notes/SKILL.md",
@@ -181,18 +206,12 @@ const FIXTURE_SKILLS: FixtureSkill[] = [
   },
   {
     path: "dynamic-report",
-    frontmatter: {
-      name: "dynamic-report",
-      description: "A skill whose files are generated per request",
-    },
+    frontmatter: DYNAMIC_FM,
     files: "dynamic",
   },
   {
     path: "wrong-folder",
-    frontmatter: {
-      name: "right-name",
-      description: "A skill whose URI segment disagrees with its name",
-    },
+    frontmatter: MISMATCHED_FM,
     files: [
       {
         uri: "skill://wrong-folder/SKILL.md",

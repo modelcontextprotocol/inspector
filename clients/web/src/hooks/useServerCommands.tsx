@@ -36,6 +36,7 @@ import type { GetPromptState } from "../components/screens/PromptsScreen/Prompts
 import type { ReadResourceState } from "../components/screens/ResourcesScreen/ResourcesScreen";
 import type { SkillFileContents } from "../utils/skillFileBytes";
 import type { SkillEntry } from "@inspector/core/mcp/skillsSchemas.js";
+import { normalizeSkillUri } from "@inspector/core/mcp/skills.js";
 import { UrlElicitationErrorToastMessage } from "../components/elements/Toasts/UrlElicitationErrorToastMessage";
 import {
   errorCodeOf,
@@ -954,14 +955,31 @@ export function useServerCommands({
   const onReadSkillFile = useCallback(
     async (uri: string): Promise<SkillFileContents> => {
       const result = await onReadResourceContents(uri);
-      // `resources/read` answers the URI it was asked for, so a single-block
-      // response is that block even when the server echoes the URI back in a
-      // slightly different form; an exact match wins when there are several.
-      const block =
-        result.contents.find((c) => c.uri === uri) ??
-        (result.contents.length === 1 ? result.contents[0] : undefined);
+      // The returned URI must be the one asked for. A tempting fallback —
+      // "a single-block response must be the block we asked for" — is right
+      // for a viewer and WRONG here: these bytes are about to be hashed
+      // against `uri`'s advertised digest, so accepting a block the server
+      // labelled `b.md` would verify one file's content against another
+      // file's digest and could report that as `verified`. Knowing which
+      // bytes were hashed is the whole point.
+      //
+      // A normalized match is still accepted, because a server may echo the
+      // URI back in a different but equivalent form (a resolved `..`, a
+      // percent-encoding difference); `normalizeSkillUri` returns `undefined`
+      // for anything unparseable, and two `undefined`s must not compare equal.
+      const wanted = normalizeSkillUri(uri);
+      const block = result.contents.find((c) => {
+        if (c.uri === uri) return true;
+        const got = normalizeSkillUri(c.uri);
+        return got !== undefined && got === wanted;
+      });
       if (!block) {
-        throw new Error(`resources/read returned no content for ${uri}`);
+        throw new Error(
+          `resources/read returned no content for ${uri}` +
+            (result.contents.length > 0
+              ? ` (got ${result.contents.map((c) => c.uri).join(", ")})`
+              : ""),
+        );
       }
       // `contents` is a union of the text and blob shapes, each with its own
       // payload field required — so `in` is what narrows it, not a `typeof` on

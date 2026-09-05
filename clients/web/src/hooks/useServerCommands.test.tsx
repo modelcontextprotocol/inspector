@@ -863,18 +863,48 @@ describe("onReadSkillFile (#2234)", () => {
     });
   });
 
-  it("accepts a sole block whose uri the server echoed back differently", async () => {
-    // `resources/read` answers the URI it was asked for, so a single-block
-    // response IS that block even when the echo differs in form.
+  it("accepts a block whose uri the server echoed back in an equivalent form", async () => {
+    // A resolved `..` is the same resource; `normalizeSkillUri` is what says so.
     const c = client({
       readResource: vi.fn().mockResolvedValue({
-        result: { contents: [{ uri: "SKILL://DEMO/reference.md", text: "x" }] },
+        result: {
+          contents: [{ uri: "skill://demo/x/../reference.md", text: "x" }],
+        },
       }),
     });
     const h = harness({ client: c });
     await expect(h.api().onReadSkillFile(skillUri)).resolves.toEqual({
       text: "x",
     });
+  });
+
+  it("refuses a sole block for a DIFFERENT uri rather than verifying it", async () => {
+    // The dangerous fallback: treating "the only block" as "the block we asked
+    // for" would hash `other.md`'s bytes against `reference.md`'s advertised
+    // digest — and could report that as `verified`.
+    const c = client({
+      readResource: vi.fn().mockResolvedValue({
+        result: { contents: [{ uri: "skill://demo/other.md", text: "wrong" }] },
+      }),
+    });
+    const h = harness({ client: c });
+    await expect(h.api().onReadSkillFile(skillUri)).rejects.toThrow(
+      /returned no content .*skill:\/\/demo\/other\.md/,
+    );
+  });
+
+  it("refuses an unparseable echoed uri rather than matching it to another", async () => {
+    // Two unparseable URIs must not compare equal just because both normalize
+    // to `undefined`.
+    const c = client({
+      readResource: vi.fn().mockResolvedValue({
+        result: { contents: [{ uri: "not a uri", text: "wrong" }] },
+      }),
+    });
+    const h = harness({ client: c });
+    await expect(h.api().onReadSkillFile("also not a uri")).rejects.toThrow(
+      /returned no content/,
+    );
   });
 
   it("passes a blob block through as a blob", async () => {
