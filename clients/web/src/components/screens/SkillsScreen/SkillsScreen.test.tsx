@@ -615,6 +615,74 @@ describe("SkillsScreen", () => {
     ).toBeInTheDocument();
   });
 
+  it("drops the skills/get verdict when a refresh changes only metadata", async () => {
+    // The manifest is untouched, so a manifest-only invalidation key would
+    // leave "matches" on screen even though it was computed against the
+    // previous entry — and that comparison covers `frontmatter` too.
+    const user = userEvent.setup();
+    const onGetSkill = vi.fn().mockResolvedValue(CLEAN_SKILL);
+    const { rerender } = renderWithMantine(
+      <SkillsScreen
+        {...baseProps}
+        skills={[CLEAN_SKILL]}
+        onGetSkill={onGetSkill}
+        ui={{ ...EMPTY_SKILLS_UI, selectedSkillUri: CLEAN_SKILL.uri }}
+      />,
+    );
+    await user.click(
+      screen.getByRole("button", { name: /Fetch with skills\/get/ }),
+    );
+    expect(
+      await screen.findByText("skills/get matches skills/list"),
+    ).toBeInTheDocument();
+
+    rerender(
+      <SkillsScreen
+        {...baseProps}
+        skills={[
+          {
+            ...CLEAN_SKILL,
+            frontmatter: {
+              ...CLEAN_SKILL.frontmatter,
+              description: "reworded since the fetch",
+            },
+          },
+        ]}
+        onGetSkill={onGetSkill}
+        ui={{ ...EMPTY_SKILLS_UI, selectedSkillUri: CLEAN_SKILL.uri }}
+      />,
+    );
+    expect(screen.queryByTestId("skills-get-result")).not.toBeInTheDocument();
+  });
+
+  it("keeps Verify all disabled on returning to a skill whose batch is still running", async () => {
+    // This is what actually blocks a second batch for one manifest: the button
+    // is disabled whenever the in-flight batch's key matches the selection, so
+    // A → B → A comes back to a disabled button rather than a second pool.
+    // (`batch` also carries a per-invocation token, so a finalizer can only
+    // ever clear its own batch — belt and braces for the same property.)
+    const user = userEvent.setup();
+    const onReadSkillFile = vi.fn(
+      () => new Promise<{ text: string }>(() => {}),
+    );
+    renderWithMantine(
+      <ControlledSkillsScreen onReadSkillFile={onReadSkillFile} />,
+    );
+    await user.click(screen.getByText("data-analysis"));
+    await user.click(screen.getByRole("button", { name: /Verify all/ }));
+    expect(screen.getByRole("button", { name: /Verify all/ })).toBeDisabled();
+
+    // B is free to run its own batch...
+    await user.click(screen.getByText("tampered"));
+    expect(
+      screen.getByRole("button", { name: /Verify all/ }),
+    ).not.toBeDisabled();
+
+    // ...and returning to A finds its batch still in flight.
+    await user.click(screen.getByText("data-analysis"));
+    expect(screen.getByRole("button", { name: /Verify all/ })).toBeDisabled();
+  });
+
   it("shows the SKILL.md preview on demand", async () => {
     const user = userEvent.setup();
     renderWithMantine(<ControlledSkillsScreen />);

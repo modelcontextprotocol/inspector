@@ -99,6 +99,13 @@ const meta: Meta<typeof SkillsScreen> = {
         ? { text: REF_TEXT }
         : { text: SELF_TEXT, mimeType: "text/markdown" },
     ),
+    // Echoes back the entry `skills/list` advertised, so "Fetch with
+    // skills/get" demonstrates the matching case rather than throwing.
+    onGetSkill: fn(async (uri: string) => {
+      const found = sampleSkills.find((skill) => skill.uri === uri);
+      if (!found) throw new Error(`Unknown skill uri: ${uri}`);
+      return found;
+    }),
   },
   render: (args) => <StatefulSkillsScreen {...args} />,
 };

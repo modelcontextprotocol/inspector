@@ -340,11 +340,19 @@ export function SkillsScreen({
   const [fetchedEntry, setFetchedEntry] = useState<FetchedEntryState>({
     key: null,
   });
-  // The manifest whose "Verify all" batch is in flight, or `null`. Keyed rather
-  // than a bare boolean: a global flag would leave a NEWLY selected skill's
-  // button disabled until the previous skill's reads settled — indefinitely, if
-  // one of them hangs.
-  const [batchKey, setBatchKey] = useState<string | null>(null);
+  // The "Verify all" batch in flight, as the manifest it belongs to plus a
+  // token unique to that invocation, or `null`.
+  //
+  // The key alone would be a bare boolean's problem one level up: a global flag
+  // leaves a NEWLY selected skill's button disabled until the previous skill's
+  // reads settle (indefinitely, if one hangs), and a key-only guard lets two
+  // batches for the SAME manifest clear each other — start on A, switch to B,
+  // return to A and start again, and the first A batch's finalizer sees a
+  // matching key and frees the button while the second is still running,
+  // re-opening the concurrency cap it exists to hold.
+  const [batch, setBatch] = useState<{ key: string; token: number } | null>(
+    null,
+  );
   // Monotonic attempt token, shared by every on-demand action here: a manifest
   // row's verification, the SKILL.md preview, and the `skills/get` fetch. One
   // counter rather than three because it only has to be *increasing*, and each
@@ -380,20 +388,18 @@ export function SkillsScreen({
     [selected],
   );
 
-  // What every verdict on screen is a verdict *about*: the selected skill AND
-  // the manifest it advertised. Keying invalidation on the URI alone would
-  // leave a green `verified` badge attached to a digest the Refresh replaced,
-  // so the UI would vouch for content it has never checked. A primitive string
-  // rather than the manifest object, because `useValueChange` compares with
-  // `Object.is` and a fresh array every render would loop.
+  // What every result on screen is a result *about*: the selected skill entry,
+  // in full. Keying on the URI alone would leave a green `verified` badge
+  // attached to a digest a Refresh replaced; keying on the manifest alone would
+  // leave a stale "skills/get matches skills/list" verdict after a
+  // metadata-only change, since that comparison covers `frontmatter` too.
+  // Re-verifying after a metadata-only refresh is the cheap direction to be
+  // wrong in; showing a match that was computed against a different entry is
+  // not. A primitive string, because `useValueChange` compares with `Object.is`
+  // and a fresh object every render would loop.
   const manifestKey = useMemo(
-    () =>
-      [
-        selectedSkillUri ?? "",
-        selected?.resources === DYNAMIC_RESOURCES ? "dynamic" : "",
-        ...manifest.map((r) => `${r.uri}|${r.digest ?? ""}|${r.size ?? ""}`),
-      ].join("\n"),
-    [manifest, selected, selectedSkillUri],
+    () => (selected ? JSON.stringify(selected) : (selectedSkillUri ?? "")),
+    [selected, selectedSkillUri],
   );
 
   // Adjusted DURING RENDER via `useValueChange` rather than in an effect, so a
@@ -469,14 +475,15 @@ export function SkillsScreen({
       }
     };
     const workers = Math.min(VERIFY_CONCURRENCY, manifest.length);
-    setBatchKey(key);
+    const token = (nextAttempt.current += 1);
+    setBatch({ key, token });
     // The concurrency cap is per invocation, so without the button being
     // disabled below, a second click would start a second pool of four and a
     // third would make it twelve — the flood the cap exists to prevent.
     void Promise.all(Array.from({ length: workers }, () => worker())).finally(
-      // Clears only ITS OWN batch: a stale finalizer must not free a button the
-      // user has since re-armed on another skill.
-      () => setBatchKey((prev) => (prev === key ? null : prev)),
+      // Clears only ITS OWN invocation: matched on the token, not the key, so
+      // an earlier batch settling cannot free a button a later one is holding.
+      () => setBatch((prev) => (prev?.token === token ? null : prev)),
     );
   }, [manifest, manifestKey, verifyRow]);
 
@@ -527,7 +534,7 @@ export function SkillsScreen({
   }, [manifestKey, onGetSkill, selected]);
 
   const fetched = fetchedEntry.key === manifestKey ? fetchedEntry : undefined;
-  const batchRunning = batchKey === manifestKey;
+  const batchRunning = batch?.key === manifestKey;
 
   const preview =
     previewState.key === manifestKey ? previewState.contents : undefined;

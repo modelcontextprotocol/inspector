@@ -10,6 +10,7 @@ import {
   getSkillsExtension,
   isSkillsExtensionSupported,
   normalizeSkillUri,
+  skillEntriesMatch,
   sha256Digest,
   skillDisplayName,
   skillNameFromUri,
@@ -169,6 +170,68 @@ describe("normalizeSkillUri", () => {
     expect(normalizeSkillUri("skill://demo/SKILL.md")).toBe(
       "skill://demo/SKILL.md",
     );
+  });
+});
+
+describe("skillEntriesMatch", () => {
+  const base = (): SkillEntry => ({
+    uri: "skill://demo/SKILL.md",
+    frontmatter: { name: "demo", description: "d" },
+    resources: [
+      { uri: "skill://demo/SKILL.md", digest: DIGEST, size: 20 },
+      { uri: "skill://demo/ref.md", digest: DIGEST, size: 10 },
+    ],
+  });
+
+  it("ignores object key order", () => {
+    const reordered = {
+      resources: base().resources,
+      uri: base().uri,
+      frontmatter: { description: "d", name: "demo" },
+    };
+    expect(skillEntriesMatch(base(), reordered)).toBe(true);
+  });
+
+  it("ignores manifest order, because the manifest is a set", () => {
+    const reversed = {
+      ...base(),
+      resources: [...(base().resources as object[])].reverse(),
+    } as SkillEntry;
+    expect(skillEntriesMatch(base(), reversed)).toBe(true);
+  });
+
+  it("does NOT reorder an array nested in frontmatter", () => {
+    // `frontmatter` is verbatim arbitrary JSON from the skill author, so a
+    // custom `resources` array inside it is an ordinary list. A recursive
+    // sort would make these two genuinely different entries compare equal.
+    const withNested = (order: string[]): SkillEntry => ({
+      ...base(),
+      frontmatter: {
+        ...base().frontmatter,
+        metadata: { resources: order.map((uri) => ({ uri })) },
+      },
+    });
+    expect(
+      skillEntriesMatch(withNested(["a", "b"]), withNested(["b", "a"])),
+    ).toBe(false);
+    expect(
+      skillEntriesMatch(withNested(["a", "b"]), withNested(["a", "b"])),
+    ).toBe(true);
+  });
+
+  it("still sees a real difference", () => {
+    expect(
+      skillEntriesMatch(base(), {
+        ...base(),
+        frontmatter: { name: "demo", description: "changed" },
+      }),
+    ).toBe(false);
+  });
+
+  it("compares the dynamic form without sorting it", () => {
+    const dynamic = { ...base(), resources: "dynamic" } as SkillEntry;
+    expect(skillEntriesMatch(dynamic, { ...dynamic })).toBe(true);
+    expect(skillEntriesMatch(dynamic, base())).toBe(false);
   });
 });
 

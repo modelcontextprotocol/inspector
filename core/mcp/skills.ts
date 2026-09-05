@@ -411,31 +411,42 @@ export function totalSkillBytes(resources: readonly SkillResource[]): number {
  * presents it as "the snapshot moved" and leaves the judgement to the reader.
  */
 export function skillEntriesMatch(a: SkillEntry, b: SkillEntry): boolean {
-  return canonicalJson(a) === canonicalJson(b);
+  return canonicalEntry(a) === canonicalEntry(b);
 }
 
-/** Deterministic JSON: object keys sorted recursively, and a skill's manifest
- *  sorted by URI so its enumeration order carries no meaning. */
-function canonicalJson(value: unknown): string {
-  return JSON.stringify(canonicalize(value));
+/**
+ * Deterministic JSON for one entry: object keys sorted recursively, and **the
+ * entry's own manifest** — nothing else — sorted by URI.
+ *
+ * The manifest sort is deliberately not recursive. `frontmatter` is verbatim
+ * arbitrary JSON from the skill author, so a custom `frontmatter.metadata.
+ * resources` array would be caught by a recursive rule and two genuinely
+ * different frontmatters would compare equal. Only `SkillEntry.resources` is
+ * a set; every other array keeps its order.
+ */
+function canonicalEntry(entry: SkillEntry): string {
+  const { resources, ...rest } = entry;
+  const manifest = Array.isArray(resources)
+    ? [...resources]
+        .sort((x, y) => String(x?.uri).localeCompare(String(y?.uri)))
+        .map(canonicalize)
+    : resources;
+  return JSON.stringify({ ...sortKeys(rest), resources: manifest });
 }
 
+/** Object keys sorted recursively; array ORDER is preserved throughout. */
 function canonicalize(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonicalize);
   if (value === null || typeof value !== "object") return value;
-  const entries = Object.entries(value as Record<string, unknown>)
-    .map(([key, member]): [string, unknown] => {
-      // The manifest is a set; only its contents are meaningful.
-      if (key === "resources" && Array.isArray(member)) {
-        const sorted = [...(member as SkillResource[])].sort((x, y) =>
-          String(x?.uri).localeCompare(String(y?.uri)),
-        );
-        return [key, sorted.map(canonicalize)];
-      }
-      return [key, canonicalize(member)];
-    })
-    .sort(([x], [y]) => x.localeCompare(y));
-  return Object.fromEntries(entries);
+  return sortKeys(value as Record<string, unknown>);
+}
+
+function sortKeys(value: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(value)
+      .map(([key, member]): [string, unknown] => [key, canonicalize(member)])
+      .sort(([x], [y]) => x.localeCompare(y)),
+  );
 }
 
 /** Outcome of comparing a fetched file against its advertised digest. */
