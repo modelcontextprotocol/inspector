@@ -278,18 +278,33 @@ export function toleratesSkew(name, holders, tolerated) {
  * Every package name any install declares, across `dependencies` and
  * `devDependencies`.
  *
- * `manifests` is `[{ dir, manifest }]`. Both fields count because the boundary
- * this tier polices is "does the repo name it", not "does it ship": a
- * devDependency skew is exactly the `@types/*` and toolchain case #2226 is
- * about. `peerDependencies` and `optionalDependencies` are NOT declarations of
- * what this repo installs — a peer range is a constraint on the consumer, and
- * the copy npm auto-installs to satisfy one is caught anyway, because it lands
- * top-level in an install whose sibling declares the same name.
+ * `manifests` is `[{ dir, manifest }]`. All three fields count because the
+ * boundary this tier polices is "does the repo name a package npm will install
+ * for us", not "does it ship":
+ *
+ *   • `devDependencies` — the `@types/*` and toolchain case #2226 is about; every
+ *     one of the four skews this tier first surfaced was a devDependency
+ *     somewhere.
+ *   • `optionalDependencies` — a direct declaration npm attempts to install like
+ *     any other. Omitting it would leave an optional-only package free to hold
+ *     conflicting top-level copies in two installs while this tier reported
+ *     success (Copilot, #2226).
+ *
+ * `peerDependencies` is the one exclusion, and it is not an oversight: a peer
+ * range is a constraint the consumer places on its *host*, not a statement that
+ * this repo installs the package. The copy npm auto-installs to satisfy an unmet
+ * peer is caught anyway whenever some manifest declares that name — which is the
+ * `eslint`/`typescript`/`vitest` shadow case, since all three are root
+ * devDependencies.
  */
 export function declaredPackages(manifests) {
   const names = new Set();
   for (const { manifest } of manifests)
-    for (const field of ["dependencies", "devDependencies"])
+    for (const field of [
+      "dependencies",
+      "devDependencies",
+      "optionalDependencies",
+    ])
       for (const name of Object.keys(manifest?.[field] ?? {})) names.add(name);
   return names;
 }

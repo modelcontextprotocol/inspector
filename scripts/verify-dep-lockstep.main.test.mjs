@@ -528,16 +528,20 @@ test("main: exits 1 when the root validate no longer runs the sibling guard", ()
 // ---------------------------------------------------------------------------
 
 test("main: a DECLARED package skewed across installs fails even when no program holds both copies (#2226)", () => {
-  // The exact shape the issue reported. `solo` is installed under the root and
-  // under `clients/web`, and both manifests name it — but only the shared
-  // `core/` imports it, so the client's program resolves the root's copy alone
-  // and the program tier is silent, correctly. The declared tier is what sees
-  // it, which is the whole reason it exists: cli's `@types/node` was hoisted in
-  // via `@types/express` and no program ever met the root's copy.
+  // The exact shape the issue reported, and the client copy is deliberately
+  // UNDECLARED (Copilot): only the ROOT manifest names `solo`, while
+  // `clients/web` merely holds a top-level copy — the way cli's `@types/node`
+  // arrives, hoisted via `@types/express` with no range of ours governing it.
+  // That is what makes the candidate set a UNION across installs rather than a
+  // per-install intersection, and declaring it in both manifests would let a
+  // per-install implementation pass this test.
+  //
+  // Only the shared `core/` imports `solo`, so the client's program resolves the
+  // root's copy alone and the program tier is silent — correctly. The declared
+  // tier is the one that sees it, which is the whole reason it exists.
   withFixture(
     {
       rootManifestDeps: { solo: "^7.0.0" },
-      webManifestDeps: { solo: "^7.0.0" },
       webSolo: "7.0.0",
     },
     (dir) => {
@@ -553,16 +557,37 @@ test("main: a DECLARED package skewed across installs fails even when no program
 });
 
 test("main: a declared package held at the same version in both installs passes and is counted", () => {
+  // Same union shape as above — root-declared, client copy undeclared — so the
+  // pass and the fail differ only in the version, not in how the name is found.
   withFixture(
     {
       rootManifestDeps: { solo: "^7.0.0" },
-      webManifestDeps: { solo: "^7.0.0" },
       webSolo: "7.8.9",
     },
     (dir) => {
       const { status, out } = runGuard(dir);
       assert.equal(status, 0, out);
       assert.match(out, /1 declared dependencies agree/);
+    },
+  );
+});
+
+test("main: the union runs the other way too — declared only by a CLIENT, held by the root", () => {
+  // The mirror of the case above, and the reason `declaredPackages` unions every
+  // install's manifest rather than reading the root's. `@types/react` is the
+  // live shape: web and tui declare it, the root does not, and the two clients
+  // disagreed. A root-manifest-only candidate set would report success here.
+  withFixture(
+    {
+      webManifestDeps: { solo: "^7.0.0" },
+      webSolo: "7.0.0",
+    },
+    (dir) => {
+      const { status, out } = runGuard(dir);
+      assert.equal(status, 1, out);
+      assert.match(out, /1 declared dependency resolves/);
+      assert.match(out, /7\.8\.9\s+\(\.\/node_modules\/solo\)/);
+      assert.match(out, /7\.0\.0\s+\(clients\/web\/node_modules\/solo\)/);
     },
   );
 });

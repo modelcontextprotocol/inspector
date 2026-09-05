@@ -413,10 +413,12 @@ test("majorOf: prerelease and build metadata are irrelevant", () => {
 // The declared tier (#2226). One case per rule, same convention as above.
 // ---------------------------------------------------------------------------
 
-test("declaredPackages: dependencies and devDependencies from every install", () => {
-  // devDependencies count because the boundary is "does the repo name it", not
-  // "does it ship" — `@types/node` and the toolchain are exactly the case #2226
-  // is about, and all of them are devDependencies.
+test("declaredPackages: dependencies, devDependencies and optionalDependencies from every install", () => {
+  // devDependencies count because the boundary is "does the repo name a package
+  // npm installs for us", not "does it ship" — `@types/node` and the toolchain
+  // are exactly the case #2226 is about, and all of them are devDependencies.
+  // optionalDependencies count for the same reason: npm attempts to install one
+  // like any other direct declaration (Copilot, #2226).
   assert.deepEqual(
     [
       ...declaredPackages([
@@ -426,28 +428,24 @@ test("declaredPackages: dependencies and devDependencies from every install", ()
           manifest: {
             dependencies: { "react-dom": "^19.2.4" },
             devDependencies: { "@types/react": "^19.2.14" },
+            optionalDependencies: { fsevents: "^2.3.3" },
           },
         },
       ]),
     ].sort(),
-    ["@types/react", "react", "react-dom"],
+    ["@types/react", "fsevents", "react", "react-dom"],
   );
 });
 
-test("declaredPackages: peer and optional ranges are not declarations", () => {
-  // A peer range constrains the consumer rather than naming what we install;
-  // the copy npm auto-installs to satisfy one is still caught, because it lands
-  // top-level in an install whose sibling declares the same name.
+test("declaredPackages: a peer range is not a declaration", () => {
+  // A peer range constrains the consumer's HOST rather than naming what this
+  // repo installs; the copy npm auto-installs to satisfy an unmet one is still
+  // caught whenever some manifest declares that name, which is the
+  // eslint/typescript/vitest shadow case (all three are root devDependencies).
   assert.deepEqual(
     [
       ...declaredPackages([
-        {
-          dir: ".",
-          manifest: {
-            peerDependencies: { react: "^19.0.0" },
-            optionalDependencies: { fsevents: "^2.3.3" },
-          },
-        },
+        { dir: ".", manifest: { peerDependencies: { react: "^19.0.0" } } },
       ]),
     ],
     [],
