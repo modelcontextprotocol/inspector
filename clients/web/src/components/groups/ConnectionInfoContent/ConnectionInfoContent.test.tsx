@@ -427,11 +427,12 @@ describe("ConnectionInfoContent", () => {
     expect(
       screen.getByText("Client Advertised Extensions"),
     ).toBeInTheDocument();
+    // One row per identifier, not a comma-joined string: two ~30-character
+    // ids wrap mid-name in a half-width column.
     expect(
-      screen.getByText(
-        "io.modelcontextprotocol/tasks, io.modelcontextprotocol/ui",
-      ),
+      screen.getByText("io.modelcontextprotocol/tasks"),
     ).toBeInTheDocument();
+    expect(screen.getByText("io.modelcontextprotocol/ui")).toBeInTheDocument();
   });
 
   it("renders em-dashes for the extensions sections when neither side advertises any (#1740)", () => {
@@ -461,7 +462,9 @@ describe("ConnectionInfoContent", () => {
         protocolEra="legacy"
       />,
     );
-    expect(screen.queryByText("Skills Extension")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("Skills Extension Options"),
+    ).not.toBeInTheDocument();
   });
 
   it("shows the Skills extension and its directoryRead sub-flag (#2234)", () => {
@@ -484,10 +487,16 @@ describe("ConnectionInfoContent", () => {
         protocolEra="legacy"
       />,
     );
-    expect(screen.getByText("Skills Extension")).toBeInTheDocument();
-    expect(screen.getByTestId("skills-directory-read")).toHaveTextContent(
-      "Supported",
+    expect(screen.getByText("Skills Extension Options")).toBeInTheDocument();
+    // Asserted on the attribute, not the copy: "Not supported" contains
+    // "Supported", so a text check would pass for either answer.
+    expect(screen.getByTestId("skills-directory-read")).toHaveAttribute(
+      "data-supported",
+      "true",
     );
+    // The section states the sub-option, not the identifier — that is already
+    // in "Server Extensions" and repeating it would add nothing.
+    expect(screen.getByText("resources/directory/read")).toBeInTheDocument();
   });
 
   it("reports directory read as unsupported for a bare skills declaration (#2234)", () => {
@@ -505,8 +514,9 @@ describe("ConnectionInfoContent", () => {
         protocolEra="legacy"
       />,
     );
-    expect(screen.getByTestId("skills-directory-read")).toHaveTextContent(
-      "Not supported",
+    expect(screen.getByTestId("skills-directory-read")).toHaveAttribute(
+      "data-supported",
+      "false",
     );
   });
 
