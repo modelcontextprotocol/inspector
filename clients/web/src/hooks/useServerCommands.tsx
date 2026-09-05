@@ -982,9 +982,25 @@ export function useServerCommands({
   const onGetSkill = useCallback(
     async (uri: string): Promise<SkillEntry> => {
       if (!inspectorClient) throw new Error("Client is not connected");
-      return inspectorClient.getSkill(uri);
+      // Routed through the shared recovery like every other server command
+      // (#2174). Without it an expired authorization renders an error in the
+      // panel and stops there — no reauthorization, no retry — which is the
+      // one thing this hook exists to make impossible.
+      const get = () => inspectorClient.getSkill(uri);
+      try {
+        return await get();
+      } catch (err) {
+        if (err instanceof AuthRecoveryRequiredError && activeServerId) {
+          const satisfied = await handleCommandScopedAuthRecovery(err, {
+            serverId: activeServerId,
+            source: "resource",
+          });
+          if (satisfied) return get();
+        }
+        throw err;
+      }
     },
-    [inspectorClient],
+    [inspectorClient, activeServerId, handleCommandScopedAuthRecovery],
   );
 
   const onRefreshSkills = useCallback(() => {

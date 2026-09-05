@@ -45,6 +45,24 @@ export const SKILLS_EXTENSION_KEY = "io.modelcontextprotocol/skills";
  */
 export const SKILLS_PAGE_SIZE = 2;
 
+/**
+ * The modern (2026-07-28) base result envelope, stamped on every skills result.
+ *
+ * The SDK stamps this for methods in its own codec, and `skills/*` are
+ * consumer-owned — so nothing adds it here and a modern connection would
+ * otherwise receive a result missing `resultType` / `ttlMs` / `cacheScope`.
+ * Stamped **unconditionally** rather than per era: one `McpServer` config
+ * serves both legs, the modern leg builds a fresh server per request so there
+ * is no era to branch on at handler-registration time, and on the legacy leg
+ * these are three unknown members that a consumer-owned method has no codec to
+ * reject. Values match `ModernResultEnvelopeSchema` in `core/mcp/listSalvage.ts`.
+ */
+const MODERN_RESULT_ENVELOPE = {
+  resultType: "complete",
+  ttlMs: 0,
+  cacheScope: "public",
+} as const;
+
 /** `sha256:<64 lowercase hex>` over a UTF-8 string, the SEP's digest form. */
 function digestOf(text: string): string {
   return `sha256:${createHash("sha256").update(text, "utf8").digest("hex")}`;
@@ -218,6 +236,7 @@ export function listSkillsPage(cursor?: string): Record<string, unknown> {
   const page = FIXTURE_SKILLS.slice(from, from + SKILLS_PAGE_SIZE);
   const next = from + SKILLS_PAGE_SIZE;
   return {
+    ...MODERN_RESULT_ENVELOPE,
     skills: page.map(toEntry),
     ...(next < FIXTURE_SKILLS.length ? { nextCursor: String(next) } : {}),
   };
@@ -238,9 +257,9 @@ export function getSkillEntry(uri: string): Record<string, unknown> {
       `Unknown skill uri: ${uri}`,
     );
   }
-  // The envelope (`{ skill }`) is the conforming shape, and the only one the
+  // The `{ skill }` wrapper is the conforming shape, and the only one the
   // Inspector accepts — see `GetSkillResultSchema`.
-  return { skill: toEntry(skill) };
+  return { ...MODERN_RESULT_ENVELOPE, skill: toEntry(skill) };
 }
 
 /** The `resources/read` result for a `skill://` file, or `undefined`. */
@@ -250,6 +269,7 @@ export function readSkillFile(
   const file = FILES_BY_URI.get(uri);
   if (!file) return undefined;
   return {
+    ...MODERN_RESULT_ENVELOPE,
     contents: [{ uri: file.uri, mimeType: file.mimeType, text: file.text }],
   };
 }

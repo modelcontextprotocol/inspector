@@ -107,14 +107,16 @@ describe("skillNameFromUri", () => {
     );
   });
 
+  it("reads the name off a domain-native scheme too", () => {
+    expect(skillNameFromUri("github://acme/repo/data-analysis/SKILL.md")).toBe(
+      "data-analysis",
+    );
+  });
+
   it("returns undefined for a URI that does not end in /SKILL.md", () => {
     expect(skillNameFromUri("skill://demo/other.md")).toBeUndefined();
     // The suffix must include the separator: a bare "SKILL.md" has no segment.
     expect(skillNameFromUri("SKILL.md")).toBeUndefined();
-  });
-
-  it("returns undefined for a non-skill scheme", () => {
-    expect(skillNameFromUri("https://demo/SKILL.md")).toBeUndefined();
   });
 
   it("returns undefined for a relative string", () => {
@@ -145,12 +147,16 @@ describe("normalizeSkillUri", () => {
     expect(normalizeSkillUri("demo/SKILL.md")).toBeUndefined();
   });
 
-  it("rejects a non-skill scheme", () => {
-    // Checking only that a URI is hierarchical would let this through and then
-    // pass the name and root checks — a manifest pointing anywhere on the web,
-    // reported as conforming.
-    expect(normalizeSkillUri("https://demo/SKILL.md")).toBeUndefined();
-    expect(normalizeSkillUri("file:///demo/SKILL.md")).toBeUndefined();
+  it("does not privilege the skill: scheme", () => {
+    // SEP-2640 only says a server SHOULD use `skill://`, and explicitly allows
+    // a domain-native scheme — so rejecting one would hand a conforming server
+    // a false `malformed-uri` and skip its name and root checks.
+    expect(normalizeSkillUri("github://acme/repo/SKILL.md")).toBe(
+      "github://acme/repo/SKILL.md",
+    );
+    expect(normalizeSkillUri("https://demo/a/../SKILL.md")).toBe(
+      "https://demo/SKILL.md",
+    );
   });
 
   it("rejects an opaque-path URI, which the parser does not normalize", () => {
@@ -406,10 +412,13 @@ describe("checkSkillConformance", () => {
         ],
       }),
     );
-    expect(issues.map((i) => i.code)).toContain("size-limit-exceeded");
+    const finding = issues.find((i) => i.code === "size-limit-exceeded");
+    expect(finding?.severity).toBe("warning");
   });
 
-  it("reports a manifest over the 512-entry limit", () => {
+  // Both limits are SHOULD NOTs for a server and MAYs for a host, so exceeding
+  // one makes a skill less portable rather than invalid.
+  it("reports a manifest over the 512-entry limit as a warning", () => {
     const resources = [
       { uri: "skill://demo/SKILL.md", digest: DIGEST, size: 20 },
       ...Array.from({ length: SKILL_MAX_RESOURCE_ENTRIES }, (_unused, i) => ({
@@ -419,10 +428,11 @@ describe("checkSkillConformance", () => {
       })),
     ];
     const issues = checkSkillConformance(entry({ resources }));
-    expect(issues.map((i) => i.code)).toContain("resource-limit-exceeded");
+    const finding = issues.find((i) => i.code === "resource-limit-exceeded");
+    expect(finding?.severity).toBe("warning");
   });
 
-  it("reports a manifest over the 16 MiB limit", () => {
+  it("reports a manifest over the 16 MiB limit as a warning", () => {
     const issues = checkSkillConformance(
       entry({
         resources: [

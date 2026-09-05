@@ -23,6 +23,7 @@ import { DYNAMIC_RESOURCES } from "@inspector/core/mcp/skillsSchemas.js";
 import {
   checkSkillConformance,
   skillDisplayName,
+  skillEntriesMatch,
   totalSkillBytes,
   verifySkillResource,
   type SkillIssue,
@@ -82,13 +83,13 @@ interface PreviewState {
 
 /**
  * The result of the on-demand `skills/get`, plus the manifest it belongs to.
- * `agrees` records whether the fetched entry matched the one `skills/list`
- * returned — the reason for making the call at all.
+ * `matches` records whether the fetched entry describes the same skill as the
+ * one `skills/list` returned — the reason for making the call at all.
  */
 interface FetchedEntryState {
   key: string | null;
   entry?: SkillEntry;
-  agrees?: boolean;
+  matches?: boolean;
   message?: string;
 }
 
@@ -483,12 +484,14 @@ export function SkillsScreen({
     // started under so a late answer cannot land under another skill.
     void onGetSkill(selected.uri)
       .then((entry) => {
-        // Compared field-by-field against what `skills/list` advertised. The
-        // two describe the same skill, so a disagreement is a server bug that
-        // only shows up when both are fetched.
-        const agrees = JSON.stringify(entry) === JSON.stringify(selected);
+        // Compared semantically against what `skills/list` advertised — see
+        // `skillEntriesMatch` for why a `JSON.stringify` comparison would
+        // report key order and manifest order as differences.
+        const matches = skillEntriesMatch(entry, selected);
         setFetchedEntry((prev) =>
-          prev.key !== null && prev.key !== key ? prev : { key, entry, agrees },
+          prev.key !== null && prev.key !== key
+            ? prev
+            : { key, entry, matches },
         );
       })
       .catch((err: unknown) => {
@@ -767,20 +770,24 @@ export function SkillsScreen({
               {fetched?.entry !== undefined && (
                 <Alert
                   data-testid="skills-get-result"
-                  color={fetched.agrees ? "green" : "red"}
+                  // Yellow, not red: `skills/get` is a fresh point-in-time
+                  // snapshot, so a skill that genuinely changed since the
+                  // listing legitimately differs. Worth showing, not an
+                  // accusation.
+                  color={fetched.matches ? "green" : "yellow"}
                   title={
-                    fetched.agrees
-                      ? "skills/get agrees with skills/list"
-                      : "skills/get disagrees with skills/list"
+                    fetched.matches
+                      ? "skills/get matches skills/list"
+                      : "skills/get returned a different snapshot"
                   }
                 >
                   <Stack gap={2}>
                     <Text size="sm">
-                      {fetched.agrees
-                        ? "The entry this server returns for this URI is identical to the one it listed."
-                        : "The entry this server returns for this URI differs from the one it listed; both describe the same skill, so one of them is wrong."}
+                      {fetched.matches
+                        ? "The entry this server returns for this URI describes the same skill it listed (compared ignoring key and manifest order)."
+                        : "The entry this server returns for this URI differs from the one it listed. `skills/get` is a fresh snapshot, so this is expected if the skill changed since the list was fetched — and a server inconsistency if it did not."}
                     </Text>
-                    {!fetched.agrees && (
+                    {!fetched.matches && (
                       <ContentViewer
                         block={{
                           type: "text",

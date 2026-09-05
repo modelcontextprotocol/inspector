@@ -437,7 +437,7 @@ describe("SkillsScreen", () => {
     expect(within(issues).getAllByText("duplicate-resource")).toHaveLength(2);
   });
 
-  it("fetches the selected entry through skills/get and reports agreement", async () => {
+  it("fetches the selected entry through skills/get and reports a match", async () => {
     // The acceptance criterion this exists for: `skills/get` is one of the two
     // methods the extension requires, and a server author's handler is only
     // exercisable if something actually calls it.
@@ -450,13 +450,36 @@ describe("SkillsScreen", () => {
     );
     expect(onGetSkill).toHaveBeenCalledWith(CLEAN_SKILL.uri);
     expect(
-      await screen.findByText("skills/get agrees with skills/list"),
+      await screen.findByText("skills/get matches skills/list"),
     ).toBeInTheDocument();
   });
 
-  it("reports a skills/get entry that disagrees with the listing", async () => {
-    // Both describe the same skill, so a disagreement is a server bug that
-    // only a side-by-side fetch can surface.
+  it("treats key and manifest order as immaterial when matching", async () => {
+    // The manifest is a set and JSON key order carries no meaning, so a server
+    // that enumerates either differently is not inconsistent — a
+    // `JSON.stringify` comparison would have called it one.
+    const user = userEvent.setup();
+    const onGetSkill = vi.fn().mockResolvedValue({
+      resources: [...CLEAN_SKILL.resources].reverse(),
+      frontmatter: {
+        description: CLEAN_SKILL.frontmatter.description,
+        name: CLEAN_SKILL.frontmatter.name,
+      },
+      uri: CLEAN_SKILL.uri,
+    });
+    renderWithMantine(<ControlledSkillsScreen onGetSkill={onGetSkill} />);
+    await user.click(screen.getByText("data-analysis"));
+    await user.click(
+      screen.getByRole("button", { name: /Fetch with skills\/get/ }),
+    );
+    expect(
+      await screen.findByText("skills/get matches skills/list"),
+    ).toBeInTheDocument();
+  });
+
+  it("reports a skills/get entry that differs from the listing", async () => {
+    // Shown, but not called an error: `skills/get` is a fresh snapshot, so a
+    // skill that genuinely changed since the listing legitimately differs.
     const user = userEvent.setup();
     const onGetSkill = vi.fn().mockResolvedValue({
       ...CLEAN_SKILL,
@@ -468,7 +491,7 @@ describe("SkillsScreen", () => {
       screen.getByRole("button", { name: /Fetch with skills\/get/ }),
     );
     expect(
-      await screen.findByText("skills/get disagrees with skills/list"),
+      await screen.findByText("skills/get returned a different snapshot"),
     ).toBeInTheDocument();
     // The fetched entry is rendered beside the verdict so the difference is
     // inspectable rather than merely asserted. (Its JSON goes through

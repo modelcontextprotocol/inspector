@@ -561,8 +561,14 @@ export interface ServerConfig {
    * Advertise the Skills extension (SEP-2640) and serve `skills/list` /
    * `skills/get` plus the `skill://` files those entries name. The fixture set
    * deliberately includes non-conforming skills — see `skills.ts`.
+   *
+   * There is deliberately **no `directoryRead` option**. The flag would
+   * advertise `resources/directory/read`, which nothing here serves, so a
+   * config could produce exactly the false capability this fixture exists to
+   * help catch — Connection Info reporting "supported" for a method that
+   * answers `-32601`. It comes back in phase 3 (#2248) with the handler.
    */
-  skills?: { directoryRead?: boolean };
+  skills?: boolean;
   /**
    * Advertise the MCP Apps `io.modelcontextprotocol/ui` extension with the
    * nested `elicitation` setting — the server-side half of the app-rendered
@@ -831,17 +837,13 @@ export function createMcpServer(config: ServerConfig): McpServer {
     };
   }
 
-  // Skills extension (SEP-2640): a server-declared extension. `directoryRead`
-  // is opt-in per config and stays OFF in `skills-http.json` until the fixture
-  // actually serves `resources/directory/read` — advertising a sub-option this
-  // server would answer `-32601` for would make Connection Info report
-  // "Supported" for a method that is not (phase 3, #2248).
+  // Skills extension (SEP-2640): a server-declared extension, advertised bare.
+  // See `ServerConfig.skills` for why there is no `directoryRead` sub-option
+  // to turn on.
   if (config.skills) {
     capabilities.extensions = {
       ...(capabilities.extensions ?? {}),
-      [SKILLS_EXTENSION_KEY]: {
-        ...(config.skills.directoryRead ? { directoryRead: true } : {}),
-      },
+      [SKILLS_EXTENSION_KEY]: {},
     };
     // Skill files are fetched through ordinary `resources/read`, so the
     // resources capability has to be advertised even when the config registers

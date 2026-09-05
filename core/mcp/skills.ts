@@ -52,9 +52,6 @@ export const SKILL_MAX_TOTAL_BYTES = 16 * 1024 * 1024;
 /** The suffix every skill URI ends with; the segment before it is the name. */
 export const SKILL_FILE_SUFFIX = "/SKILL.md";
 
-/** The URI scheme SEP-2640 defines for skills, as `URL.protocol` spells it. */
-export const SKILL_URI_SCHEME = "skill:";
-
 /** `sha256:` followed by exactly 64 lowercase hex characters. */
 const DIGEST_PATTERN = /^sha256:[0-9a-f]{64}$/;
 
@@ -112,9 +109,13 @@ export function isSkillsExtensionSupported(
  * rejected too: containment could not be decided on it, and silently accepting
  * one would reintroduce exactly the hole this function closes.
  *
- * The `skill:` scheme is required. Checking only that the URI is hierarchical
- * would let `https://demo/SKILL.md` through and then pass the name and root
- * checks — a manifest pointing anywhere on the web, reported as conforming.
+ * The scheme is deliberately **not** constrained. `skill://` is what SEP-2640
+ * recommends and what this repo's fixture serves, but the SEP only says servers
+ * SHOULD use it and explicitly allows a domain-native scheme (`github://…`), so
+ * requiring `skill:` would hand a conforming server a false `malformed-uri` and
+ * skip its name and root checks entirely. Containment is scheme-independent
+ * anyway: it compares a resource against *this entry's own* root, so an entry
+ * cannot escape its skill whatever scheme it uses.
  */
 export function normalizeSkillUri(uri: string): string | undefined {
   let parsed: URL;
@@ -123,7 +124,6 @@ export function normalizeSkillUri(uri: string): string | undefined {
   } catch {
     return undefined;
   }
-  if (parsed.protocol !== SKILL_URI_SCHEME) return undefined;
   return parsed.pathname.startsWith("/") ? parsed.href : undefined;
 }
 
@@ -176,10 +176,11 @@ export type SkillIssueCode =
   | "size-limit-exceeded";
 
 /**
- * `error` marks a stated requirement of SEP-2640 that the server broke —
- * every MUST, so a manifest reporting "0 errors" really is one the spec
- * accepts. `warning` is reserved for what is **legal** yet leaves the
- * Inspector unable to verify integrity: `"dynamic"` resources, the case most
+ * `error` marks a **MUST** of SEP-2640 that the server broke, so a manifest
+ * reporting "0 errors" really is one the spec accepts. `warning` covers
+ * everything the spec permits but a consumer still wants told about: the
+ * `SHOULD NOT`-exceed interoperability limits, and — above all — `"dynamic"`
+ * resources, which are legal and leave integrity unverifiable, the case most
  * worth surfacing and the one most easily buried.
  */
 export type SkillIssueSeverity = "error" | "warning";
@@ -226,7 +227,7 @@ export function checkSkillConformance(entry: SkillEntry): SkillIssue[] {
     issues.push({
       code: "malformed-uri",
       severity: "error",
-      message: `Skill URI must be a "${SKILL_URI_SCHEME}//" URI ending with "${SKILL_FILE_SUFFIX}" and carrying a non-empty path segment before it.`,
+      message: `Skill URI must be a hierarchical URI ending with "${SKILL_FILE_SUFFIX}" and carrying a non-empty path segment before it.`,
     });
   } else if (declaredName && uriName !== declaredName) {
     // The one structural invariant the spec states outright: the segment before
@@ -250,19 +251,24 @@ export function checkSkillConformance(entry: SkillEntry): SkillIssue[] {
     return issues;
   }
 
+  // Both limits are *interoperability* bounds, not MUSTs: SEP-2640 says a
+  // server SHOULD NOT exceed them and a host MAY support more. So they are
+  // warnings — calling a permitted oversized skill an error would contradict
+  // what `error` means here and tell a server author their skill is invalid
+  // when it is merely less portable.
   if (entry.resources.length > SKILL_MAX_RESOURCE_ENTRIES) {
     issues.push({
       code: "resource-limit-exceeded",
-      severity: "error",
-      message: `Skill declares ${entry.resources.length} resource entries, above the ${SKILL_MAX_RESOURCE_ENTRIES}-entry limit.`,
+      severity: "warning",
+      message: `Skill declares ${entry.resources.length} resource entries, above the ${SKILL_MAX_RESOURCE_ENTRIES}-entry interoperability limit; a host is only required to support up to it.`,
     });
   }
   const totalBytes = totalSkillBytes(entry.resources);
   if (totalBytes > SKILL_MAX_TOTAL_BYTES) {
     issues.push({
       code: "size-limit-exceeded",
-      severity: "error",
-      message: `Skill resources total ${totalBytes} bytes, above the ${SKILL_MAX_TOTAL_BYTES}-byte (16 MiB) limit.`,
+      severity: "warning",
+      message: `Skill resources total ${totalBytes} bytes, above the ${SKILL_MAX_TOTAL_BYTES}-byte (16 MiB) interoperability limit; a host is only required to support up to it.`,
     });
   }
 
@@ -386,6 +392,50 @@ export function totalSkillBytes(resources: readonly SkillResource[]): number {
     (sum, r) => sum + (isUsableSize(r.size) ? r.size : 0),
     0,
   );
+}
+
+/**
+ * Whether a `skills/get` entry describes the same skill as the `skills/list`
+ * entry alongside it, compared **semantically** rather than byte-for-byte.
+ *
+ * Two things a `JSON.stringify` comparison gets wrong here, and both would
+ * report a conforming server as broken: object key order is not meaningful in
+ * JSON, and the resource manifest is a *set*, so a server free to enumerate it
+ * in any order would look inconsistent for reordering it. Both sides are
+ * canonicalized — keys sorted recursively, manifest entries sorted by URI —
+ * before they are compared.
+ *
+ * A difference is still worth showing, but it is NOT by itself an error:
+ * SEP-2640 defines `skills/get` as a fresh point-in-time snapshot, so a skill
+ * that genuinely changed since the listing legitimately differs. The caller
+ * presents it as "the snapshot moved" and leaves the judgement to the reader.
+ */
+export function skillEntriesMatch(a: SkillEntry, b: SkillEntry): boolean {
+  return canonicalJson(a) === canonicalJson(b);
+}
+
+/** Deterministic JSON: object keys sorted recursively, and a skill's manifest
+ *  sorted by URI so its enumeration order carries no meaning. */
+function canonicalJson(value: unknown): string {
+  return JSON.stringify(canonicalize(value));
+}
+
+function canonicalize(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalize);
+  if (value === null || typeof value !== "object") return value;
+  const entries = Object.entries(value as Record<string, unknown>)
+    .map(([key, member]): [string, unknown] => {
+      // The manifest is a set; only its contents are meaningful.
+      if (key === "resources" && Array.isArray(member)) {
+        const sorted = [...(member as SkillResource[])].sort((x, y) =>
+          String(x?.uri).localeCompare(String(y?.uri)),
+        );
+        return [key, sorted.map(canonicalize)];
+      }
+      return [key, canonicalize(member)];
+    })
+    .sort(([x], [y]) => x.localeCompare(y));
+  return Object.fromEntries(entries);
 }
 
 /** Outcome of comparing a fetched file against its advertised digest. */

@@ -936,6 +936,57 @@ describe("onGetSkill (#2234)", () => {
       "Client is not connected",
     );
   });
+
+  it("retries once after a satisfied recovery", async () => {
+    // Every server command routes through the shared recovery; without it an
+    // expired authorization would render an error and stop there, with no
+    // reauthorization and no retry.
+    const recover = vi.fn().mockResolvedValue(true);
+    const getSkill = vi
+      .fn()
+      .mockRejectedValueOnce(authError())
+      .mockResolvedValue({
+        uri: "skill://demo/SKILL.md",
+        frontmatter: {},
+        resources: [],
+      });
+    const h = harness({
+      client: client({ getSkill }),
+      activeServerId: "a",
+      recovery: { handleCommandScopedAuthRecovery: recover },
+    });
+    await expect(
+      h.api().onGetSkill("skill://demo/SKILL.md"),
+    ).resolves.toMatchObject({ uri: "skill://demo/SKILL.md" });
+    expect(getSkill).toHaveBeenCalledTimes(2);
+  });
+
+  it("rethrows when the recovery was not satisfied", async () => {
+    const recover = vi.fn().mockResolvedValue(false);
+    const h = harness({
+      client: client({ getSkill: vi.fn().mockRejectedValue(authError()) }),
+      activeServerId: "a",
+      recovery: { handleCommandScopedAuthRecovery: recover },
+    });
+    await expect(
+      h.api().onGetSkill("skill://demo/SKILL.md"),
+    ).rejects.toBeInstanceOf(AuthRecoveryRequiredError);
+  });
+
+  it("rethrows a non-auth failure untouched", async () => {
+    const recover = vi.fn();
+    const h = harness({
+      client: client({
+        getSkill: vi.fn().mockRejectedValue(new Error("-32602")),
+      }),
+      activeServerId: "a",
+      recovery: { handleCommandScopedAuthRecovery: recover },
+    });
+    await expect(h.api().onGetSkill("skill://demo/SKILL.md")).rejects.toThrow(
+      "-32602",
+    );
+    expect(recover).not.toHaveBeenCalled();
+  });
 });
 
 describe("onRefreshSkills (#2234)", () => {
