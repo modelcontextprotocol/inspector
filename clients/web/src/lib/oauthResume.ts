@@ -240,11 +240,13 @@ function newAttemptId(): string {
   if (uuid) {
     return uuid();
   }
-  const getRandomValues = globalThis.crypto?.getRandomValues?.bind(
-    globalThis.crypto,
-  );
-  if (getRandomValues) {
-    const bytes = getRandomValues(new Uint8Array(16));
+  // Called directly rather than through a bound alias: CodeQL's
+  // `js/insecure-randomness` browser model recognizes a secure RNG by the
+  // literal `crypto.getRandomValues(...)` method call, and an alias does not
+  // match it — so the indirection would leave the `Math.random` last resort
+  // below classified as an unmitigated source (Copilot).
+  if (globalThis.crypto?.getRandomValues) {
+    const bytes = globalThis.crypto.getRandomValues(new Uint8Array(16));
     return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
   }
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;

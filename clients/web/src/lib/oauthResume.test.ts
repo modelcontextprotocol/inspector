@@ -29,15 +29,15 @@ import {
 /**
  * Run `body` with one `crypto` member hidden, then restore it.
  *
- * `randomUUID` and `getRandomValues` are inherited from `Crypto.prototype`, so
- * there is normally no OWN descriptor to put back — restoring only when one
- * existed would leave the `undefined` own property in place and force every
- * later test in this file onto the fallback path.
+ * `randomUUID` is inherited from `Crypto.prototype`, so there is normally no
+ * OWN descriptor to put back — restoring only when one existed would leave the
+ * `undefined` own property in place and force every later test in this file
+ * onto the fallback path.
+ *
+ * This hides one *member*; the arm that needs the whole `crypto` global gone
+ * stubs `globalThis.crypto` itself instead (see below).
  */
-function withoutCryptoMember(
-  name: "randomUUID" | "getRandomValues",
-  body: () => void,
-): void {
+function withoutCryptoMember(name: "randomUUID", body: () => void): void {
   const original = Object.getOwnPropertyDescriptor(globalThis.crypto, name);
   Object.defineProperty(globalThis.crypto, name, {
     configurable: true,
@@ -49,11 +49,7 @@ function withoutCryptoMember(
     if (original) {
       Object.defineProperty(globalThis.crypto, name, original);
     } else {
-      delete (
-        globalThis.crypto as Partial<
-          Pick<Crypto, "randomUUID" | "getRandomValues">
-        >
-      )[name];
+      delete (globalThis.crypto as Partial<Pick<Crypto, "randomUUID">>)[name];
     }
   }
 }
@@ -516,19 +512,35 @@ describe("oauthResume", () => {
   });
 
   it("writeOAuthResumeSnapshot falls back to Math.random with no crypto at all", () => {
+    // The whole global goes, not just its two methods — an exotic runtime with
+    // no WebCrypto at all, matching `src/test/core/auth/utils.test.ts`. Hiding
+    // only the methods would leave `globalThis.crypto` truthy and so would not
+    // catch a regression that reads it without the optional guard (Copilot).
     const mathSpy = vi.spyOn(Math, "random");
-    let token: string | undefined;
-    withoutCryptoMember("randomUUID", () => {
-      withoutCryptoMember("getRandomValues", () => {
-        token = writeOAuthResumeSnapshot({
-          version: 1,
-          serverId: "a",
-          activeTab: "tools",
-          authKind: "reauth",
-          tabUi: {},
-        });
-      });
+    // `crypto` IS an own property of the global (unlike the `Crypto.prototype`
+    // members above), so there is always a descriptor to restore. Asserted
+    // rather than `!`-ed so a change in that assumption fails loudly here.
+    const original = Object.getOwnPropertyDescriptor(globalThis, "crypto");
+    expect(original).toBeDefined();
+    Object.defineProperty(globalThis, "crypto", {
+      configurable: true,
+      writable: true,
+      value: undefined,
     });
+    let token: string | undefined;
+    try {
+      token = writeOAuthResumeSnapshot({
+        version: 1,
+        serverId: "a",
+        activeTab: "tools",
+        authKind: "reauth",
+        tabUi: {},
+      });
+    } finally {
+      if (original) {
+        Object.defineProperty(globalThis, "crypto", original);
+      }
+    }
     expect(mathSpy).toHaveBeenCalled();
     expect(token).toEqual(expect.any(String));
     expect(clearOwnOAuthResumeSnapshot(token)).toBe(true);
