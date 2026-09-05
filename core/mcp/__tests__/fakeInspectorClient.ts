@@ -40,6 +40,8 @@ import type {
 } from "../types.js";
 import { INACTIVE_SUBSCRIPTION_STREAM_STATE } from "../types.js";
 import type { MalformedListItem } from "../listSalvage.js";
+import type { SkillEntry, SkillResource } from "../skillsSchemas.js";
+import type { SkillsExtensionSupport } from "../skills.js";
 import type { JsonValue } from "../../json/jsonUtils.js";
 
 type ListResult<TKey extends string, TItem> = {
@@ -104,6 +106,7 @@ export class FakeInspectorClient
     ListResult<"resourceTemplates", ResourceTemplate>
   > = [];
   taskPages: Array<ListResult<"tasks", Task>> = [];
+  skillPages: Array<ListResult<"skills", SkillEntry>> = [];
 
   listTools = vi.fn(async () => this.toolPages.shift() ?? { tools: [] });
   listPrompts = vi.fn(async () => this.promptPages.shift() ?? { prompts: [] });
@@ -116,6 +119,13 @@ export class FakeInspectorClient
   listRequestorTasks = vi.fn(
     async () => this.taskPages.shift() ?? { tasks: [] },
   );
+  listSkills = vi.fn(async () => this.skillPages.shift() ?? { skills: [] });
+  // `skills/get` echoes a minimal entry; tests that care override the mock.
+  getSkill = vi.fn(async (uri: string) => ({
+    uri,
+    frontmatter: {},
+    resources: [] as SkillResource[],
+  }));
   // Modern task poll (#1631): defaults to echoing back a minimal task; tests
   // override the mock to drive status transitions. Dispatches nothing by
   // default — tests that exercise the merge path dispatch requestorTaskUpdated
@@ -133,6 +143,14 @@ export class FakeInspectorClient
   tasksExtensionNegotiated = false;
   isTasksExtensionNegotiated(): boolean {
     return this.tasksExtensionNegotiated;
+  }
+
+  // The Skills extension (SEP-2640) this fake presents. `undefined` means the
+  // server declared none, which is what `getSkillsExtension` returns then —
+  // tests assign a support object to exercise the skills paths.
+  skillsExtension: SkillsExtensionSupport | undefined = undefined;
+  getSkillsExtension(): SkillsExtensionSupport | undefined {
+    return this.skillsExtension;
   }
 
   // Attributes a failed load back to its Protocol entry (#1953). A `vi.fn` so

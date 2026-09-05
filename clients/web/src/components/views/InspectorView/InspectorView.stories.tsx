@@ -29,6 +29,7 @@ import type {
   ResourcesPanelProps,
   ServerListProps,
   ShellProps,
+  SkillsPanelProps,
   TasksPanelProps,
   ToolsPanelProps,
 } from "./types";
@@ -38,6 +39,7 @@ import {
   EMPTY_APPS_UI,
   EMPTY_PROMPTS_UI,
   EMPTY_RESOURCES_UI,
+  EMPTY_SKILLS_UI,
   EMPTY_TASKS_UI,
   EMPTY_LOGS_UI,
   EMPTY_PROTOCOL_UI,
@@ -424,6 +426,15 @@ const appsArgs: AppsPanelProps = {
   onRefreshApps: fn(),
 };
 
+const skillsArgs: SkillsPanelProps = {
+  skills: [],
+  skillsPageCount: 0,
+  skillsUi: EMPTY_SKILLS_UI,
+  onSkillsUiChange: fn(),
+  onRefreshSkills: fn(),
+  onReadSkillFile: fn(async () => ({ text: "" })),
+};
+
 const tasksArgs: TasksPanelProps = {
   tasks: demoTasks,
   progressByTaskId: demoProgressByTaskId,
@@ -484,6 +495,7 @@ const meta: Meta<typeof InspectorView> = {
     prompts: promptsArgs,
     resources: resourcesArgs,
     apps: appsArgs,
+    skills: skillsArgs,
     tasks: tasksArgs,
     logs: logsArgs,
     protocol: protocolArgs,

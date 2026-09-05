@@ -56,6 +56,29 @@ as a missing capability rather than an error.
 | `subscriptions-never-acknowledged-http.json` **(modern era)** | A `subscriptions/listen` answered with a bare result  | [#2097](https://github.com/modelcontextprotocol/inspector/issues/2097) |
 | `tasks-{legacy,modern}-http.json` **(era per file)** | Tasks, both eras                                    | [#1631](https://github.com/modelcontextprotocol/inspector/issues/1631) |
 | `cancellation-modern-http.json` **(modern era)**           | Cancelling a call by closing its response stream    | [#2140](https://github.com/modelcontextprotocol/inspector/issues/2140) |
+| `skills-http.json` **(either era)** | Skills tab: `skills/list`, digest verification, and the non-conforming cases | [#2234](https://github.com/modelcontextprotocol/inspector/issues/2234) |
+
+## Skills (SEP-2640)
+
+`skills-http.json` advertises the `io.modelcontextprotocol/skills` extension
+with `directoryRead: true` and serves four skills over two `skills/list` pages.
+It works on **either era**: `skills/list`, `skills/get` and
+`resources/directory/read` are consumer-owned extension methods that neither
+era codec defines, so the SDK's era gate skips them entirely — which is why
+this fixture, unlike the tasks ones, needs no per-era variant.
+
+Three of the four skills are deliberately non-conforming, because the checks
+the Skills tab runs are untestable without them:
+
+| Skill | What it exercises |
+| --- | --- |
+| `data-analysis` | The clean case — **Verify all** reports `verified` for every file. |
+| `tampered-notes` | An advertised digest that does not match the bytes served, so verification reports a **digest mismatch** with both digests shown. |
+| `dynamic-report` | `resources: "dynamic"` — a generated file set, so integrity cannot be verified at all and the tab says so rather than staying silent. |
+| `wrong-folder` | A URI path segment (`wrong-folder`) that disagrees with `frontmatter.name` (`right-name`), the one structural invariant SEP-2640 states outright. |
+
+Connection Info shows the extension and its `directoryRead` sub-flag; the
+Inspector surfaces that flag but does not call `resources/directory/read` yet.
 
 ## Cancelling a call
 

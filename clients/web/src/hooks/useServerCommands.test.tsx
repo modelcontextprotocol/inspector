@@ -162,6 +162,7 @@ function spies() {
     setModernLogLevel: vi.fn(),
     clearCompletedTasks: vi.fn(),
     refreshTasks: vi.fn().mockResolvedValue(undefined),
+    refreshSkills: vi.fn().mockResolvedValue(undefined),
     refreshTools: vi.fn().mockResolvedValue(undefined),
     refreshPrompts: vi.fn().mockResolvedValue(undefined),
     refreshResources: vi.fn().mockResolvedValue(undefined),
@@ -271,6 +272,7 @@ function harness(initial: HarnessProps = {}): Harness {
       activeToolCallTaskIdRef,
       clearCompletedTasks: s.clearCompletedTasks,
       refreshTasks: s.refreshTasks,
+      refreshSkills: s.refreshSkills,
       paginatedLists: p.paginatedLists ?? false,
       paginatedListsOverride: { record: s.record, valueFor: s.valueFor },
       toolsPagination,
@@ -837,6 +839,88 @@ describe("onReadResourceContents", () => {
     });
     await expect(h.api().onReadResourceContents("u")).rejects.toThrow("nope");
     expect(recover).not.toHaveBeenCalled();
+  });
+});
+
+describe("onReadSkillFile (#2234)", () => {
+  const skillUri = "skill://demo/reference.md";
+
+  it("returns the block whose uri matches exactly", async () => {
+    const c = client({
+      readResource: vi.fn().mockResolvedValue({
+        result: {
+          contents: [
+            { uri: "skill://demo/other.md", text: "wrong" },
+            { uri: skillUri, text: "right", mimeType: "text/markdown" },
+          ],
+        },
+      }),
+    });
+    const h = harness({ client: c });
+    await expect(h.api().onReadSkillFile(skillUri)).resolves.toEqual({
+      text: "right",
+      mimeType: "text/markdown",
+    });
+  });
+
+  it("accepts a sole block whose uri the server echoed back differently", async () => {
+    // `resources/read` answers the URI it was asked for, so a single-block
+    // response IS that block even when the echo differs in form.
+    const c = client({
+      readResource: vi.fn().mockResolvedValue({
+        result: { contents: [{ uri: "SKILL://DEMO/reference.md", text: "x" }] },
+      }),
+    });
+    const h = harness({ client: c });
+    await expect(h.api().onReadSkillFile(skillUri)).resolves.toEqual({
+      text: "x",
+    });
+  });
+
+  it("passes a blob block through as a blob", async () => {
+    const c = client({
+      readResource: vi.fn().mockResolvedValue({
+        result: { contents: [{ uri: skillUri, blob: "aGk=" }] },
+      }),
+    });
+    const h = harness({ client: c });
+    await expect(h.api().onReadSkillFile(skillUri)).resolves.toEqual({
+      blob: "aGk=",
+    });
+  });
+
+  it("throws when no block answers the uri", async () => {
+    // Returning an empty payload here would let the caller hash zero bytes and
+    // report a confident digest *mismatch* for a response that carried nothing.
+    const c = client({
+      readResource: vi.fn().mockResolvedValue({
+        result: {
+          contents: [
+            { uri: "skill://demo/a.md", text: "a" },
+            { uri: "skill://demo/b.md", text: "b" },
+          ],
+        },
+      }),
+    });
+    const h = harness({ client: c });
+    await expect(h.api().onReadSkillFile(skillUri)).rejects.toThrow(
+      /returned no content/,
+    );
+  });
+
+  it("throws when there is no client", async () => {
+    const h = harness();
+    await expect(h.api().onReadSkillFile(skillUri)).rejects.toThrow(
+      "Client is not connected",
+    );
+  });
+});
+
+describe("onRefreshSkills (#2234)", () => {
+  it("drives the store refresh in the background", () => {
+    const h = harness();
+    h.api().onRefreshSkills();
+    expect(h.spies.refreshSkills).toHaveBeenCalled();
   });
 });
 

@@ -18,6 +18,8 @@ import type {
 } from "@modelcontextprotocol/client";
 import type { ServerType } from "@inspector/core/mcp/types.js";
 import { TASKS_EXTENSION_KEY } from "@inspector/core/mcp/modernTaskSchemas.js";
+import { SKILLS_EXTENSION_KEY } from "@inspector/core/mcp/skillsSchemas.js";
+import { getSkillsExtension } from "@inspector/core/mcp/skills.js";
 import type { OAuthClientRegistrationKind } from "@inspector/core/auth/types.js";
 import {
   CapabilityItem,
@@ -259,6 +261,9 @@ export function ConnectionInfoContent({
 }: ConnectionInfoContentProps) {
   const { serverInfo, protocolVersion, capabilities, instructions } =
     initializeResult;
+  // `undefined` when the server declared no Skills extension, which is what
+  // hides the section below — an absent extension has no sub-flags to report.
+  const skillsExtension = getSkillsExtension(capabilities);
 
   // Only trust `serverInfo` when the server actually reported it; otherwise the
   // name is a catalog fallback. Both rows `?.trim()` before the `||` (not `??`)
@@ -361,6 +366,26 @@ export function ConnectionInfoContent({
           </ValueText>
         </Stack>
       </SimpleGrid>
+
+      {/* Skills (SEP-2640). The generic "Server Extensions" row above lists the
+          identifier, but not the one sub-option the extension defines —
+          `directoryRead`, which gates `resources/directory/read`. That flag is
+          exactly what a server author opens this modal to confirm, so it gets a
+          row of its own rather than being flattened into a key list (#2234). */}
+      {skillsExtension && (
+        <SimpleGrid cols={2}>
+          <Stack gap="xs">
+            <SectionHeading>Skills Extension</SectionHeading>
+            <ValueText>{SKILLS_EXTENSION_KEY}</ValueText>
+          </Stack>
+          <Stack gap="xs">
+            <SectionHeading>Directory Read</SectionHeading>
+            <ValueText data-testid="skills-directory-read">
+              {skillsExtension.directoryRead ? "Supported" : "Not supported"}
+            </ValueText>
+          </Stack>
+        </SimpleGrid>
+      )}
 
       {instructions && (
         <Stack gap="xs">

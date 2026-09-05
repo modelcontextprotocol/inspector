@@ -59,6 +59,9 @@ import type {
   ResourcesUiState,
 } from "../../screens/ResourcesScreen/ResourcesScreen";
 import type { LogsUiState } from "../../screens/LoggingScreen/LoggingScreen";
+import type { SkillsUiState } from "../../screens/SkillsScreen/SkillsScreen";
+import type { SkillEntry } from "@inspector/core/mcp/skillsSchemas.js";
+import type { SkillFileContents } from "../../../utils/skillFileBytes";
 import type { TasksUiState } from "../../screens/TasksScreen/TasksScreen";
 import type { ProtocolUiState } from "../../screens/ProtocolScreen/ProtocolScreen";
 import type { NetworkUiState } from "../../screens/NetworkScreen/NetworkScreen";
@@ -309,6 +312,19 @@ export interface AppsPanelProps {
 }
 
 /** The Tasks monitor: the task list, its progress map, and actions. */
+/** The Skills screen (SEP-2640): the enumerated skills and their verification. */
+export interface SkillsPanelProps {
+  skills: SkillEntry[];
+  /** Pages the last `skills/list` walk took. */
+  skillsPageCount: number;
+  skillsLoadError?: Error | null;
+  skillsUi: SkillsUiState;
+  onSkillsUiChange: (next: SkillsUiState) => void;
+  onRefreshSkills: () => void;
+  /** Read one skill file (`resources/read`) so its digest can be checked. */
+  onReadSkillFile: (uri: string) => Promise<SkillFileContents>;
+}
+
 export interface TasksPanelProps {
   tasks: Task[];
   progressByTaskId?: Record<string, TaskProgress>;

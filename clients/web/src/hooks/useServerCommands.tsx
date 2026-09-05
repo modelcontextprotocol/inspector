@@ -34,6 +34,7 @@ import type {
 } from "../components/screens/ToolsScreen/ToolsScreen";
 import type { GetPromptState } from "../components/screens/PromptsScreen/PromptsScreen";
 import type { ReadResourceState } from "../components/screens/ResourcesScreen/ResourcesScreen";
+import type { SkillFileContents } from "../utils/skillFileBytes";
 import { UrlElicitationErrorToastMessage } from "../components/elements/Toasts/UrlElicitationErrorToastMessage";
 import {
   errorCodeOf,
@@ -161,6 +162,8 @@ export interface UseServerCommandsOptions {
   activeToolCallTaskIdRef: { current: string | undefined };
   clearCompletedTasks: () => void;
   refreshTasks: () => Promise<unknown>;
+  /** Re-walk `skills/list` (SEP-2640). */
+  refreshSkills: () => Promise<unknown>;
 
   // --- The list stores and their two fetch modes (#1721). ---
   paginatedLists: boolean;
@@ -210,6 +213,12 @@ export interface ServerCommands {
   onReadResourceContents: (
     uri: string,
   ) => Promise<Awaited<ReturnType<InspectorClient["readResource"]>>["result"]>;
+  /**
+   * Read one skill file's contents (SEP-2640), for digest verification. Returns
+   * the single content block that answers the URI, narrowed to the two fields
+   * the digest is taken over.
+   */
+  onReadSkillFile: (uri: string) => Promise<SkillFileContents>;
   onSubscribeResource: (uri: string) => void;
   onUnsubscribeResource: (uri: string) => void;
   onCompleteArgument: (
@@ -228,6 +237,7 @@ export interface ServerCommands {
   onRefreshTools: () => void;
   onRefreshPrompts: () => void;
   onRefreshResources: () => void;
+  onRefreshSkills: () => void;
   onRefreshTasks: () => void;
   onTogglePaginatedLists: (value: boolean) => void;
   onLoadMoreTools: () => void;
@@ -269,6 +279,7 @@ export function useServerCommands({
   activeToolCallTaskIdRef,
   clearCompletedTasks,
   refreshTasks,
+  refreshSkills,
   paginatedLists,
   paginatedListsOverride,
   toolsPagination,
@@ -932,6 +943,44 @@ export function useServerCommands({
       runCommandInBackground(() => resourcesPagination.onLoadMore(), "ambient"),
     [resourcesPagination, runCommandInBackground],
   );
+  // Skill files are fetched on demand, never pre-fetched: SEP-2640 is explicit
+  // that a `resources/read` of a skill file is not a load and confers no
+  // standing, so the Inspector reads only what the user asks it to verify.
+  // Routed through `onReadResourceContents` so a skill read gets the same
+  // auth-recovery retry every other read does.
+  const onReadSkillFile = useCallback(
+    async (uri: string): Promise<SkillFileContents> => {
+      const result = await onReadResourceContents(uri);
+      // `resources/read` answers the URI it was asked for, so a single-block
+      // response is that block even when the server echoes the URI back in a
+      // slightly different form; an exact match wins when there are several.
+      const block =
+        result.contents.find((c) => c.uri === uri) ??
+        (result.contents.length === 1 ? result.contents[0] : undefined);
+      if (!block) {
+        throw new Error(`resources/read returned no content for ${uri}`);
+      }
+      // `contents` is a union of the text and blob shapes, each with its own
+      // payload field required — so `in` is what narrows it, not a `typeof` on
+      // a property one arm does not declare.
+      return {
+        ...("text" in block ? { text: block.text } : { blob: block.blob }),
+        ...(typeof block.mimeType === "string"
+          ? { mimeType: block.mimeType }
+          : {}),
+      };
+    },
+    [onReadResourceContents],
+  );
+
+  const onRefreshSkills = useCallback(() => {
+    runCommandInBackground(
+      () => refreshSkills(),
+      "ambient",
+      "Failed to refresh skills",
+    );
+  }, [refreshSkills, runCommandInBackground]);
+
   const onRefreshTasks = useCallback(() => {
     runCommandInBackground(
       () => refreshTasks(),
@@ -947,6 +996,7 @@ export function useServerCommands({
     onGetPrompt,
     onReadResource,
     onReadResourceContents,
+    onReadSkillFile,
     onSubscribeResource,
     onUnsubscribeResource,
     onCompleteArgument,
@@ -958,6 +1008,7 @@ export function useServerCommands({
     onRefreshTools,
     onRefreshPrompts,
     onRefreshResources,
+    onRefreshSkills,
     onRefreshTasks,
     onTogglePaginatedLists,
     onLoadMoreTools,

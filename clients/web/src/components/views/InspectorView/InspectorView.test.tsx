@@ -39,6 +39,7 @@ import {
   EMPTY_APPS_UI,
   EMPTY_PROMPTS_UI,
   EMPTY_RESOURCES_UI,
+  EMPTY_SKILLS_UI,
   EMPTY_TASKS_UI,
   EMPTY_LOGS_UI,
   EMPTY_PROTOCOL_UI,
@@ -169,6 +170,15 @@ function makeProps(...overrides: PropOverrides[]): InspectorViewProps {
       onAppError: vi.fn(),
       onRefreshApps: vi.fn(),
       ...mergeBundle("apps", overrides),
+    },
+    skills: {
+      skills: [],
+      skillsPageCount: 0,
+      skillsUi: EMPTY_SKILLS_UI,
+      onSkillsUiChange: vi.fn(),
+      onRefreshSkills: vi.fn(),
+      onReadSkillFile: vi.fn().mockResolvedValue({ text: "" }),
+      ...mergeBundle("skills", overrides),
     },
     tasks: {
       tasks: [],
@@ -1367,6 +1377,50 @@ describe("InspectorView", () => {
     const labels = radios.map((r) => r.getAttribute("value"));
     expect(labels).toContain("Tools");
     expect(labels).not.toContain("Tasks");
+  });
+
+  it("hides the Skills tab when the server declares no skills extension (#2234)", async () => {
+    renderWithMantine(
+      <StatefulInspectorViewHost
+        {...makeProps({
+          connection: {
+            activeServer: "alpha",
+            connectionStatus: "connected",
+            initializeResult: initWithCapabilities({ tools: {} }),
+          },
+          servers: { servers: [sampleServer] },
+        })}
+      />,
+    );
+    const radios = await screen.findAllByRole("radio");
+    const labels = radios.map((r) => r.getAttribute("value"));
+    expect(labels).toContain("Tools");
+    expect(labels).not.toContain("Skills");
+  });
+
+  it("shows the Skills tab on a LEGACY connection that declares the extension (#2234)", async () => {
+    // Unlike Tasks, Skills is not era-gated: `skills/*` are not spec method
+    // names in either codec, so a legacy-era server that declares the
+    // extension is serving it and must get the tab.
+    renderWithMantine(
+      <StatefulInspectorViewHost
+        {...makeProps({
+          connection: {
+            activeServer: "alpha",
+            connectionStatus: "connected",
+            protocolEra: "legacy",
+            initializeResult: initWithCapabilities({
+              tools: {},
+              extensions: { "io.modelcontextprotocol/skills": {} },
+            }),
+          },
+          servers: { servers: [sampleServer] },
+        })}
+      />,
+    );
+    const radios = await screen.findAllByRole("radio");
+    const labels = radios.map((r) => r.getAttribute("value"));
+    expect(labels).toContain("Skills");
   });
 
   it("shows the Tasks tab when the server advertises tasks even with no tasks yet", async () => {

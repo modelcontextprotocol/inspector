@@ -49,6 +49,7 @@ import {
   createModernTaskTools,
   wireModernTaskHandlers,
 } from "./modern-tasks.js";
+import { SKILLS_EXTENSION_KEY, wireSkillsHandlers } from "./skills.js";
 
 /**
  * MCP Apps extension id. Hardcoded for the same reason the Inspector's
@@ -557,6 +558,12 @@ export interface ServerConfig {
    */
   tasksExtension?: boolean;
   /**
+   * Advertise the Skills extension (SEP-2640) and serve `skills/list` /
+   * `skills/get` plus the `skill://` files those entries name. The fixture set
+   * deliberately includes non-conforming skills — see `skills.ts`.
+   */
+  skills?: { directoryRead?: boolean };
+  /**
    * Advertise the MCP Apps `io.modelcontextprotocol/ui` extension with the
    * nested `elicitation` setting — the server-side half of the app-rendered
    * form elicitation negotiation (#1854, ext-apps#733).
@@ -822,6 +829,23 @@ export function createMcpServer(config: ServerConfig): McpServer {
       ...(capabilities.extensions ?? {}),
       [TASKS_EXTENSION_KEY]: {},
     };
+  }
+
+  // Skills extension (SEP-2640): a server-declared extension, advertised with
+  // its one sub-option. `directoryRead` is opt-in per config so a client can be
+  // exercised against both a server that offers `resources/directory/read` and
+  // one that does not.
+  if (config.skills) {
+    capabilities.extensions = {
+      ...(capabilities.extensions ?? {}),
+      [SKILLS_EXTENSION_KEY]: {
+        ...(config.skills.directoryRead ? { directoryRead: true } : {}),
+      },
+    };
+    // Skill files are fetched through ordinary `resources/read`, so the
+    // resources capability has to be advertised even when the config registers
+    // no ordinary resources of its own.
+    capabilities.resources = capabilities.resources ?? {};
   }
 
   // MCP Apps app-rendered elicitation (#1854): the server-side half of the
@@ -1501,6 +1525,13 @@ export function createMcpServer(config: ServerConfig): McpServer {
   // (no tasks/list, no tasks/result) plus the CreateTaskResult tools/call seam.
   if (modernTaskRuntime) {
     wireModernTaskHandlers(mcpServer, modernTaskRuntime);
+  }
+
+  // Skills extension (SEP-2640): raw skills/list + skills/get, and the
+  // `skill://` half of resources/read. Wired after the SDK's own handlers so
+  // the resources/read wrapper can delegate non-skill URIs to them.
+  if (config.skills) {
+    wireSkillsHandlers(mcpServer);
   }
 
   // Extension-gated tools (#1739): start each gated tool disabled, then enable

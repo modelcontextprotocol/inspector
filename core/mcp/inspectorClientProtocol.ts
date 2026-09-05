@@ -40,6 +40,8 @@ import type {
 import type { JsonValue } from "../json/jsonUtils.js";
 import type { MalformedListItem } from "./listSalvage.js";
 import type { InspectorClientEventTarget } from "./inspectorClientEventTarget.js";
+import type { SkillEntry } from "./skillsSchemas.js";
+import type { SkillsExtensionSupport } from "./skills.js";
 import type { SamplingCreateMessage } from "./samplingCreateMessage.js";
 import type { ElicitationCreateMessage } from "./elicitationCreateMessage.js";
 
@@ -109,6 +111,17 @@ export interface InspectorClientProtocol extends InspectorClientEventTarget {
    * `io.modelcontextprotocol/tasks` extension (SEP-2663). Gates the Tasks tab
    * and the modern task store's poll-based refresh. */
   isTasksExtensionNegotiated(): boolean;
+
+  /** The Skills extension (SEP-2640) the server declared, or `undefined`.
+   * Gates the Skills tab and the managed skills store (#2234). */
+  getSkillsExtension(): SkillsExtensionSupport | undefined;
+  /** One page of `skills/list`; the managed skills store walks the cursor. */
+  listSkills(
+    cursor?: string,
+    metadata?: RequestMetadata,
+  ): Promise<{ skills: SkillEntry[]; nextCursor?: string }>;
+  /** One skill entry by URI (`skills/get`). */
+  getSkill(uri: string, metadata?: RequestMetadata): Promise<SkillEntry>;
 
   /**
    * Mark the response that most recently answered `method` as rejected by the

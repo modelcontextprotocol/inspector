@@ -93,7 +93,7 @@ Nothing _enforces_ the boundary — no path alias keys off it, and the coverage 
 
 ## Core tab automation contract
 
-The Tools, Resources, and Prompts screens each expose a `data-testid` plus a
+The Tools, Resources, Prompts and Skills screens each expose a `data-testid` plus a
 small set of `data-*` attributes, so a headless driver can `waitForSelector` on
 a deterministic signal rather than on visible copy. `scripts/smoke-web-tabs.mjs`
 drives all three against `test-servers/configs/web-tabs-http.json` ([#2148](https://github.com/modelcontextprotocol/inspector/issues/2148)).
@@ -114,6 +114,10 @@ Treat them as a public contract, for the same reason as the Apps ones below:
 | `data-prompt-count`                  | on `prompts-screen`| Entries from `prompts/list`.                                                                                                                                |
 | `data-get-status`                    | on `prompts-screen`| `idle` → `pending` → `ok` / `error` for the current `prompts/get`.                                                                                          |
 | `data-testid="prompt-messages"`      | messages panel     | The fetched prompt's **rendered** messages — the `prompts/get` counterpart of `resource-preview`, and asserted alongside `data-get-status` for the same reason. |
+| `data-testid="skills-screen"`        | Skills root        | The element carrying the two attributes below ([#2234](https://github.com/modelcontextprotocol/inspector/issues/2234)). Not driven by `smoke-web-tabs.mjs` yet — the attributes exist so it can be, and so a rename fails in the screen's unit test rather than later. |
+| `data-skill-count`                   | on `skills-screen` | Entries accumulated from `skills/list`.                                                                                                                     |
+| `data-skill-page-count`              | on `skills-screen` | Pages the last `skills/list` walk took — a **separate** fact from the count, and the one that shows pagination actually happened.                            |
+| `data-testid="skill-manifest"`       | detail pane        | The selected skill's resource manifest. Absent for a `resources: "dynamic"` skill, which has no manifest to render.                                          |
 
 Why attributes rather than text: a smoke that waited on a label fails the next
 time the label is reworded, which is noise rather than signal — and it fails as

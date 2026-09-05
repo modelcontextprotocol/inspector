@@ -75,6 +75,7 @@ import type {
   ResourcesPanelProps,
   ServerListProps,
   ShellProps,
+  SkillsPanelProps,
   TasksPanelProps,
   ToolsPanelProps,
 } from "./components/views/InspectorView/types";
@@ -458,6 +459,10 @@ function App() {
     tasks,
     refreshTasks,
     clearCompletedTasks,
+    skills,
+    skillsPageCount,
+    skillsLoadError,
+    refreshSkills,
     subscriptions,
     subscriptionStreamState,
     messages,
@@ -828,6 +833,8 @@ function App() {
     onRefreshTools,
     onRefreshPrompts,
     onRefreshResources,
+    onRefreshSkills,
+    onReadSkillFile,
     onRefreshTasks,
     onTogglePaginatedLists,
     onLoadMoreTools,
@@ -851,6 +858,7 @@ function App() {
     activeToolCallTaskIdRef,
     clearCompletedTasks,
     refreshTasks,
+    refreshSkills,
     paginatedLists,
     paginatedListsOverride,
     toolsPagination,
@@ -1816,6 +1824,16 @@ function App() {
     onRefreshApps: onRefreshTools,
   };
 
+  const skillsPanelProps: SkillsPanelProps = {
+    skills,
+    skillsPageCount,
+    skillsLoadError,
+    skillsUi: ui.skillsUi,
+    onSkillsUiChange: setUi.setSkillsUi,
+    onRefreshSkills,
+    onReadSkillFile,
+  };
+
   const tasksPanelProps: TasksPanelProps = {
     tasks,
     progressByTaskId,
@@ -1889,6 +1907,7 @@ function App() {
           prompts={promptsPanelProps}
           resources={resourcesPanelProps}
           apps={appsPanelProps}
+          skills={skillsPanelProps}
           tasks={tasksPanelProps}
           logs={logsPanelProps}
           protocol={protocolPanelProps}

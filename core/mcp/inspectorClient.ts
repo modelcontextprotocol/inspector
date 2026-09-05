@@ -145,6 +145,14 @@ import {
 } from "./modernTaskSchemas.js";
 import { buildClientExtensions } from "./extensions.js";
 import {
+  GetSkillResultSchema,
+  ListSkillsResultSchema,
+  SKILLS_GET_METHOD,
+  SKILLS_LIST_METHOD,
+  type SkillEntry,
+} from "./skillsSchemas.js";
+import { getSkillsExtension, type SkillsExtensionSupport } from "./skills.js";
+import {
   getElicitationUiResourceUri,
   isFormElicitation,
   supportsAppElicitation,
@@ -5514,6 +5522,81 @@ export class InspectorClient extends InspectorClientEventTarget {
       ],
     });
     return { prompts };
+  }
+
+  /**
+   * The Skills extension (SEP-2640) the server declared, or `undefined` when it
+   * declared none. Gates the Skills tab and the skills store the same way
+   * {@link isTasksExtensionNegotiated} gates Tasks — but deliberately without an
+   * era check: `skills/*` are not spec method names in either codec, so a
+   * legacy-era server that declares the extension is serving it (#2234).
+   */
+  getSkillsExtension(): SkillsExtensionSupport | undefined {
+    return getSkillsExtension(this.capabilities);
+  }
+
+  /**
+   * One page of `skills/list` (SEP-2640).
+   *
+   * An ordinary `client.request` with an explicit result schema — the SDK's era
+   * gate skips methods neither codec defines, and `assertCapabilityForMethod`
+   * falls through to a no-op for them, so this is all the extension needs. The
+   * raw-wire path modern `tasks/*` uses would be wrong here: it exists for spec
+   * names the 2026 codec deleted, and taking it would bypass the SDK's response
+   * correlation for nothing (#2234).
+   */
+  async listSkills(
+    cursor?: string,
+    metadata?: RequestMetadata,
+  ): Promise<{ skills: SkillEntry[]; nextCursor?: string }> {
+    if (!this.client) {
+      throw new Error("Client is not connected");
+    }
+    const effectiveMeta = this.mergeMeta(metadata);
+    const params: Record<string, unknown> = {
+      ...(effectiveMeta ? { _meta: effectiveMeta } : {}),
+      ...(cursor ? { cursor } : {}),
+    };
+    const response = await this.invokeMcpClient(
+      () =>
+        this.client!.request(
+          { method: SKILLS_LIST_METHOD, params },
+          ListSkillsResultSchema,
+          this.getRequestOptions(this.progressTokenOf(metadata)),
+        ),
+      { method: SKILLS_LIST_METHOD },
+    );
+    return {
+      skills: response.skills,
+      nextCursor: response.nextCursor,
+    };
+  }
+
+  /**
+   * One skill entry by URI (`skills/get`, SEP-2640). The SEP settles the entry
+   * shape but not the envelope around it, so the result is normalized through
+   * {@link normalizeGetSkillResult} rather than assuming one form.
+   */
+  async getSkill(uri: string, metadata?: RequestMetadata): Promise<SkillEntry> {
+    if (!this.client) {
+      throw new Error("Client is not connected");
+    }
+    const effectiveMeta = this.mergeMeta(metadata);
+    const params: Record<string, unknown> = {
+      uri,
+      ...(effectiveMeta ? { _meta: effectiveMeta } : {}),
+    };
+    // `GetSkillResultSchema` normalizes both accepted envelopes to the entry,
+    // so there is nothing to unwrap here.
+    return this.invokeMcpClient(
+      () =>
+        this.client!.request(
+          { method: SKILLS_GET_METHOD, params },
+          GetSkillResultSchema,
+          this.getRequestOptions(this.progressTokenOf(metadata)),
+        ),
+      { method: SKILLS_GET_METHOD },
+    );
   }
 
   /**

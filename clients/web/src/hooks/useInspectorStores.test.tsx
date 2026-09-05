@@ -63,6 +63,9 @@ vi.mock("@inspector/core/mcp/state/managedResourceTemplatesState.js", () => ({
 vi.mock("@inspector/core/mcp/state/managedRequestorTasksState.js", () => ({
   ManagedRequestorTasksState: fakeState("managedRequestorTasksState"),
 }));
+vi.mock("@inspector/core/mcp/state/managedSkillsState.js", () => ({
+  ManagedSkillsState: fakeState("managedSkillsState"),
+}));
 vi.mock("@inspector/core/mcp/state/resourceSubscriptionsState.js", () => ({
   ResourceSubscriptionsState: fakeState("resourceSubscriptionsState"),
 }));
@@ -109,6 +112,14 @@ vi.mock("@inspector/core/react/useManagedRequestorTasks.js", () => ({
     tasks: [{ taskId: "t1" }],
     refresh: vi.fn().mockResolvedValue(undefined),
     clearCompleted: vi.fn(),
+  }),
+}));
+vi.mock("@inspector/core/react/useManagedSkills.js", () => ({
+  useManagedSkills: () => ({
+    skills: [{ uri: "skill://s/SKILL.md" }],
+    pageCount: 1,
+    error: null,
+    refresh: vi.fn().mockResolvedValue(undefined),
   }),
 }));
 vi.mock("@inspector/core/react/useResourceSubscriptions.js", () => ({
@@ -181,6 +192,7 @@ const STORE_NAMES = [
   "pagedResourcesState",
   "managedResourceTemplatesState",
   "managedRequestorTasksState",
+  "managedSkillsState",
   "resourceSubscriptionsState",
   "messageLogState",
   "fetchRequestLogState",
@@ -201,7 +213,7 @@ describe("useInspectorStores", () => {
       expect(built).toHaveLength(0);
     });
 
-    it("builds all twelve stores against the client", () => {
+    it("builds all thirteen stores against the client", () => {
       const h = harness();
       const c = client();
       h.run((api) => api.createStores(c, fetchLogOptions));

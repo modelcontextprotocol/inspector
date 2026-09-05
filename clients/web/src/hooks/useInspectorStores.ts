@@ -13,6 +13,7 @@ import type {
   ResourceSubscriptionStreamState,
   StderrLogEntry,
 } from "@inspector/core/mcp/types.js";
+import type { SkillEntry } from "@inspector/core/mcp/skillsSchemas.js";
 import type { InspectorClient } from "@inspector/core/mcp/index.js";
 import { ManagedToolsState } from "@inspector/core/mcp/state/managedToolsState.js";
 import { ManagedPromptsState } from "@inspector/core/mcp/state/managedPromptsState.js";
@@ -22,6 +23,7 @@ import { PagedPromptsState } from "@inspector/core/mcp/state/pagedPromptsState.j
 import { PagedResourcesState } from "@inspector/core/mcp/state/pagedResourcesState.js";
 import { ManagedResourceTemplatesState } from "@inspector/core/mcp/state/managedResourceTemplatesState.js";
 import { ManagedRequestorTasksState } from "@inspector/core/mcp/state/managedRequestorTasksState.js";
+import { ManagedSkillsState } from "@inspector/core/mcp/state/managedSkillsState.js";
 import { ResourceSubscriptionsState } from "@inspector/core/mcp/state/resourceSubscriptionsState.js";
 import { MessageLogState } from "@inspector/core/mcp/state/messageLogState.js";
 import {
@@ -37,6 +39,7 @@ import { usePagedPrompts } from "@inspector/core/react/usePagedPrompts.js";
 import { usePagedResources } from "@inspector/core/react/usePagedResources.js";
 import { useManagedResourceTemplates } from "@inspector/core/react/useManagedResourceTemplates.js";
 import { useManagedRequestorTasks } from "@inspector/core/react/useManagedRequestorTasks.js";
+import { useManagedSkills } from "@inspector/core/react/useManagedSkills.js";
 import { useResourceSubscriptions } from "@inspector/core/react/useResourceSubscriptions.js";
 import { useMessageLog } from "@inspector/core/react/useMessageLog.js";
 import { useFetchRequestLog } from "@inspector/core/react/useFetchRequestLog.js";
@@ -44,9 +47,9 @@ import { useStderrLog } from "@inspector/core/react/useStderrLog.js";
 import { usePaginatedList, type PaginatedListModel } from "./usePaginatedList";
 
 /**
- * The twelve per-session state managers. They are created together (one
+ * The thirteen per-session state managers. They are created together (one
  * `InspectorClient`, one set of stores) and torn down together, so they are
- * held as one slot rather than twelve — a partially-replaced set would leave
+ * held as one slot rather than thirteen — a partially-replaced set would leave
  * some stores listening to a client the others had already left.
  */
 export interface InspectorStores {
@@ -58,6 +61,7 @@ export interface InspectorStores {
   pagedResourcesState: PagedResourcesState;
   managedResourceTemplatesState: ManagedResourceTemplatesState;
   managedRequestorTasksState: ManagedRequestorTasksState;
+  managedSkillsState: ManagedSkillsState;
   resourceSubscriptionsState: ResourceSubscriptionsState;
   messageLogState: MessageLogState;
   fetchRequestLogState: FetchRequestLogState;
@@ -131,6 +135,12 @@ export interface UseInspectorStoresResult {
   tasks: Task[];
   refreshTasks: () => Promise<unknown>;
   clearCompletedTasks: () => void;
+  /** The server's skills (SEP-2640); empty when it declared no extension. */
+  skills: SkillEntry[];
+  /** Pages the last `skills/list` walk took. */
+  skillsPageCount: number;
+  skillsLoadError: Error | null;
+  refreshSkills: () => Promise<unknown>;
   subscriptions: InspectorResourceSubscription[];
   subscriptionStreamState: ResourceSubscriptionStreamState;
   messages: MessageEntry[];
@@ -192,6 +202,7 @@ export function useInspectorStores({
           client,
         ),
         managedRequestorTasksState: new ManagedRequestorTasksState(client),
+        managedSkillsState: new ManagedSkillsState(client),
         resourceSubscriptionsState: new ResourceSubscriptionsState(
           client,
           managedResourcesState,
@@ -310,6 +321,15 @@ export function useInspectorStores({
     inspectorClient,
     stores?.managedRequestorTasksState ?? null,
   );
+  // Skills (SEP-2640). The store no-ops when the server declared no extension,
+  // so this hook is unconditional like the rest — the Skills *tab* is what is
+  // gated, in `InspectorView`.
+  const {
+    skills,
+    pageCount: skillsPageCount,
+    error: skillsLoadError,
+    refresh: refreshSkills,
+  } = useManagedSkills(inspectorClient, stores?.managedSkillsState ?? null);
   const { subscriptions, streamState: subscriptionStreamState } =
     useResourceSubscriptions(stores?.resourceSubscriptionsState ?? null);
   const { messages } = useMessageLog(stores?.messageLogState ?? null);
@@ -344,6 +364,10 @@ export function useInspectorStores({
     tasks,
     refreshTasks,
     clearCompletedTasks,
+    skills,
+    skillsPageCount,
+    skillsLoadError,
+    refreshSkills,
     subscriptions,
     subscriptionStreamState,
     messages,

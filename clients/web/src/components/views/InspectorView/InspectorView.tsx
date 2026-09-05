@@ -13,6 +13,7 @@ import type { ServerEntry } from "@inspector/core/mcp/types.js";
 import { isTerminalStatus } from "@inspector/core/mcp/types.js";
 import { isAppTool } from "@inspector/core/mcp/apps.js";
 import { TASKS_EXTENSION_KEY } from "@inspector/core/mcp/modernTaskSchemas.js";
+import { isSkillsExtensionSupported } from "@inspector/core/mcp/skills.js";
 import { ViewHeader } from "../../groups/ViewHeader/ViewHeader";
 import { VersionBadge } from "../../elements/VersionBadge/VersionBadge";
 import { CopyrightBadge } from "../../elements/CopyrightBadge/CopyrightBadge";
@@ -22,6 +23,7 @@ import { AppsScreen } from "../../screens/AppsScreen/AppsScreen";
 import { PromptsScreen } from "../../screens/PromptsScreen/PromptsScreen";
 import { ResourcesScreen } from "../../screens/ResourcesScreen/ResourcesScreen";
 import { LoggingScreen } from "../../screens/LoggingScreen/LoggingScreen";
+import { SkillsScreen } from "../../screens/SkillsScreen/SkillsScreen";
 import { TasksScreen } from "../../screens/TasksScreen/TasksScreen";
 import { ProtocolScreen } from "../../screens/ProtocolScreen/ProtocolScreen";
 import { NetworkScreen } from "../../screens/NetworkScreen/NetworkScreen";
@@ -37,6 +39,7 @@ import type {
   ResourcesPanelProps,
   ServerListProps,
   ShellProps,
+  SkillsPanelProps,
   TasksPanelProps,
   ToolsPanelProps,
 } from "./types";
@@ -118,6 +121,7 @@ function useListCompact(
 }
 
 const SERVERS_TAB = INSPECTOR_SERVERS_TAB;
+const SKILLS_TAB = "Skills";
 const TASKS_TAB = "Tasks";
 const LOGS_TAB = "Logs";
 const PROTOCOL_TAB = "Protocol";
@@ -151,6 +155,7 @@ const ALL_TABS: string[] = [
   "Tools",
   "Prompts",
   "Resources",
+  SKILLS_TAB,
   TASKS_TAB,
   LOGS_TAB,
   PROTOCOL_TAB,
@@ -328,6 +333,7 @@ export interface InspectorViewProps {
   prompts: PromptsPanelProps;
   resources: ResourcesPanelProps;
   apps: AppsPanelProps;
+  skills: SkillsPanelProps;
   tasks: TasksPanelProps;
   logs: LogsPanelProps;
   protocol: ProtocolPanelProps;
@@ -343,6 +349,7 @@ export function InspectorView({
   prompts: promptsPanel,
   resources: resourcesPanel,
   apps: appsPanel,
+  skills: skillsPanel,
   tasks: tasksPanel,
   logs: logsPanel,
   protocol: protocolPanel,
@@ -448,6 +455,15 @@ export function InspectorView({
     onAppError,
     onRefreshApps,
   } = appsPanel;
+  const {
+    skills,
+    skillsPageCount,
+    skillsLoadError,
+    skillsUi,
+    onSkillsUiChange,
+    onRefreshSkills,
+    onReadSkillFile,
+  } = skillsPanel;
   const {
     tasks,
     progressByTaskId,
@@ -654,6 +670,10 @@ export function InspectorView({
       capabilities?.tasks !== undefined ||
       capabilities?.extensions?.[TASKS_EXTENSION_KEY] !== undefined;
     const hasLogging = capabilities?.logging !== undefined;
+    // Skills (SEP-2640) is a server-declared *extension*, and unlike Tasks it
+    // is not era-gated: `skills/*` are not spec method names in either codec,
+    // so a legacy-era server that declares the extension is serving it.
+    const hasSkills = isSkillsExtensionSupported(capabilities);
     return ALL_TABS.filter((t) => {
       if (t === NETWORK_TAB && isStdio) return false;
       // Console is the stdio process's stderr stream — shown only for stdio
@@ -663,6 +683,7 @@ export function InspectorView({
       if (t === "Apps" && !hasApps) return false;
       if (t === "Prompts" && !hasPrompts) return false;
       if (t === "Resources" && !hasResources) return false;
+      if (t === SKILLS_TAB && !hasSkills) return false;
       if (t === "Tasks" && !hasTasks) return false;
       if (t === "Logs" && !hasLogging) return false;
       return true;
@@ -1032,6 +1053,15 @@ export function InspectorView({
     sortDirection: consoleSort,
     onSortChange: setConsoleSort,
   };
+  const skillsScreenProps = {
+    skills,
+    pageCount: skillsPageCount,
+    loadError: skillsLoadError,
+    ui: skillsUi,
+    onUiChange: onSkillsUiChange,
+    onRefreshList: onRefreshSkills,
+    onReadSkillFile,
+  };
   const tasksScreenProps = {
     tasks,
     progressByTaskId,
@@ -1239,6 +1269,9 @@ export function InspectorView({
                 compact={resourcesCompact}
                 onCompactChange={setResourcesCompact}
               />
+            </ScreenStage>
+            <ScreenStage active={activeTab === SKILLS_TAB}>
+              <SkillsScreen {...skillsScreenProps} />
             </ScreenStage>
             <ScreenStage active={activeTab === TASKS_TAB}>
               <TasksScreen {...tasksScreenProps} />

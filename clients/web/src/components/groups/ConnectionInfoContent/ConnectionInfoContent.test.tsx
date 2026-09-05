@@ -452,6 +452,64 @@ describe("ConnectionInfoContent", () => {
     expect(screen.getAllByText("—")).toHaveLength(2);
   });
 
+  it("hides the Skills section when the server declares no skills extension (#2234)", () => {
+    renderWithMantine(
+      <ConnectionInfoContent
+        initializeResult={fullResult}
+        clientCapabilities={fullClientCaps}
+        transport="streamable-http"
+        protocolEra="legacy"
+      />,
+    );
+    expect(screen.queryByText("Skills Extension")).not.toBeInTheDocument();
+  });
+
+  it("shows the Skills extension and its directoryRead sub-flag (#2234)", () => {
+    // The generic "Server Extensions" row lists the identifier; the sub-flag
+    // that gates `resources/directory/read` is what this section adds, and it
+    // is the fact a server author opens the modal to confirm.
+    renderWithMantine(
+      <ConnectionInfoContent
+        initializeResult={{
+          ...fullResult,
+          capabilities: {
+            ...fullResult.capabilities,
+            extensions: {
+              "io.modelcontextprotocol/skills": { directoryRead: true },
+            },
+          },
+        }}
+        clientCapabilities={fullClientCaps}
+        transport="streamable-http"
+        protocolEra="legacy"
+      />,
+    );
+    expect(screen.getByText("Skills Extension")).toBeInTheDocument();
+    expect(screen.getByTestId("skills-directory-read")).toHaveTextContent(
+      "Supported",
+    );
+  });
+
+  it("reports directory read as unsupported for a bare skills declaration (#2234)", () => {
+    renderWithMantine(
+      <ConnectionInfoContent
+        initializeResult={{
+          ...fullResult,
+          capabilities: {
+            ...fullResult.capabilities,
+            extensions: { "io.modelcontextprotocol/skills": {} },
+          },
+        }}
+        clientCapabilities={fullClientCaps}
+        transport="streamable-http"
+        protocolEra="legacy"
+      />,
+    );
+    expect(screen.getByTestId("skills-directory-read")).toHaveTextContent(
+      "Not supported",
+    );
+  });
+
   it("renders client registration kind when provided", () => {
     renderWithMantine(
       <ConnectionInfoContent
