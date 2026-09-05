@@ -113,6 +113,10 @@ describe("skillNameFromUri", () => {
     expect(skillNameFromUri("SKILL.md")).toBeUndefined();
   });
 
+  it("returns undefined for a non-skill scheme", () => {
+    expect(skillNameFromUri("https://demo/SKILL.md")).toBeUndefined();
+  });
+
   it("returns undefined for a relative string", () => {
     // SEP-2640 requires a full resource URI; treating `demo/SKILL.md` as one
     // would let a non-conforming entry report a name and pass the path check.
@@ -139,6 +143,14 @@ describe("normalizeSkillUri", () => {
 
   it("rejects a relative string, which is not a resource URI", () => {
     expect(normalizeSkillUri("demo/SKILL.md")).toBeUndefined();
+  });
+
+  it("rejects a non-skill scheme", () => {
+    // Checking only that a URI is hierarchical would let this through and then
+    // pass the name and root checks — a manifest pointing anywhere on the web,
+    // reported as conforming.
+    expect(normalizeSkillUri("https://demo/SKILL.md")).toBeUndefined();
+    expect(normalizeSkillUri("file:///demo/SKILL.md")).toBeUndefined();
   });
 
   it("rejects an opaque-path URI, which the parser does not normalize", () => {
@@ -229,7 +241,7 @@ describe("checkSkillConformance", () => {
     expect(issues[0].severity).toBe("warning");
   });
 
-  it("reports a manifest entry with no digest as unverifiable", () => {
+  it("reports a manifest entry with no digest as an error", () => {
     const issues = checkSkillConformance(
       entry({
         resources: [
@@ -239,6 +251,7 @@ describe("checkSkillConformance", () => {
       }),
     );
     expect(issues.map((i) => i.code)).toEqual(["missing-digest"]);
+    expect(issues[0].severity).toBe("error");
     expect(issues[0].resourceUri).toBe("skill://demo/ref.md");
   });
 
@@ -331,7 +344,7 @@ describe("checkSkillConformance", () => {
     expect(issues.map((i) => i.code)).toContain("malformed-uri");
   });
 
-  it("reports a manifest entry with no size as a warning", () => {
+  it("reports a manifest entry with no size as an error", () => {
     const issues = checkSkillConformance(
       entry({
         resources: [
@@ -341,7 +354,7 @@ describe("checkSkillConformance", () => {
       }),
     );
     expect(issues.map((i) => i.code)).toEqual(["missing-size"]);
-    expect(issues[0].severity).toBe("warning");
+    expect(issues[0].severity).toBe("error");
   });
 
   it("reports a digest that is not sha256 + 64 lowercase hex", () => {

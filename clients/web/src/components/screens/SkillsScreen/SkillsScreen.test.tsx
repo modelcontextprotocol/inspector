@@ -107,6 +107,13 @@ const baseProps: SkillsScreenProps = {
   onUiChange: vi.fn(),
   onRefreshList: vi.fn(),
   onReadSkillFile: readFixtureFile,
+  // Echoes back the very entry `skills/list` advertised, so the default is the
+  // agreeing case; tests that care about a disagreement override it.
+  onGetSkill: vi.fn(async (uri: string) => {
+    const found = ALL_SKILLS.find((skill) => skill.uri === uri);
+    if (!found) throw new Error(`Unknown skill uri: ${uri}`);
+    return found;
+  }),
 };
 
 // SkillsScreen is controlled: the selection and the sidebar search live in the
@@ -428,6 +435,97 @@ describe("SkillsScreen", () => {
     await user.click(screen.getByText("data-analysis"));
     const issues = screen.getByTestId("skill-issues");
     expect(within(issues).getAllByText("duplicate-resource")).toHaveLength(2);
+  });
+
+  it("fetches the selected entry through skills/get and reports agreement", async () => {
+    // The acceptance criterion this exists for: `skills/get` is one of the two
+    // methods the extension requires, and a server author's handler is only
+    // exercisable if something actually calls it.
+    const user = userEvent.setup();
+    const onGetSkill = vi.fn().mockResolvedValue(CLEAN_SKILL);
+    renderWithMantine(<ControlledSkillsScreen onGetSkill={onGetSkill} />);
+    await user.click(screen.getByText("data-analysis"));
+    await user.click(
+      screen.getByRole("button", { name: /Fetch with skills\/get/ }),
+    );
+    expect(onGetSkill).toHaveBeenCalledWith(CLEAN_SKILL.uri);
+    expect(
+      await screen.findByText("skills/get agrees with skills/list"),
+    ).toBeInTheDocument();
+  });
+
+  it("reports a skills/get entry that disagrees with the listing", async () => {
+    // Both describe the same skill, so a disagreement is a server bug that
+    // only a side-by-side fetch can surface.
+    const user = userEvent.setup();
+    const onGetSkill = vi.fn().mockResolvedValue({
+      ...CLEAN_SKILL,
+      frontmatter: { ...CLEAN_SKILL.frontmatter, description: "different" },
+    });
+    renderWithMantine(<ControlledSkillsScreen onGetSkill={onGetSkill} />);
+    await user.click(screen.getByText("data-analysis"));
+    await user.click(
+      screen.getByRole("button", { name: /Fetch with skills\/get/ }),
+    );
+    expect(
+      await screen.findByText("skills/get disagrees with skills/list"),
+    ).toBeInTheDocument();
+    // The fetched entry is rendered beside the verdict so the difference is
+    // inspectable rather than merely asserted. (Its JSON goes through
+    // `ContentViewer`'s highlighter, which splits tokens across elements, so
+    // the presence of the block is what is pinned here — the copy above is
+    // what states the finding.)
+    expect(screen.getByTestId("skills-get-result")).toBeInTheDocument();
+  });
+
+  it("reports a failed skills/get", async () => {
+    const user = userEvent.setup();
+    const onGetSkill = vi.fn().mockRejectedValue(new Error("-32602"));
+    renderWithMantine(<ControlledSkillsScreen onGetSkill={onGetSkill} />);
+    await user.click(screen.getByText("data-analysis"));
+    await user.click(
+      screen.getByRole("button", { name: /Fetch with skills\/get/ }),
+    );
+    expect(await screen.findByText("skills/get failed")).toBeInTheDocument();
+    expect(screen.getByText("-32602")).toBeInTheDocument();
+  });
+
+  it("discards a skills/get that resolves after the selection moved on", async () => {
+    const user = userEvent.setup();
+    let release: ((value: SkillEntry) => void) | undefined;
+    const onGetSkill = vi.fn(
+      () =>
+        new Promise<SkillEntry>((resolve) => {
+          release = resolve;
+        }),
+    );
+    renderWithMantine(<ControlledSkillsScreen onGetSkill={onGetSkill} />);
+    await user.click(screen.getByText("data-analysis"));
+    await user.click(
+      screen.getByRole("button", { name: /Fetch with skills\/get/ }),
+    );
+    await user.click(screen.getByText("tampered"));
+    release?.(CLEAN_SKILL);
+    expect(screen.queryByTestId("skills-get-result")).not.toBeInTheDocument();
+  });
+
+  it("frees Verify all for a newly selected skill while the old batch is hung", async () => {
+    // A global flag would leave the new skill's button disabled until the
+    // previous skill's reads settled — forever, if one of them hangs.
+    const user = userEvent.setup();
+    const onReadSkillFile = vi.fn(
+      () => new Promise<{ text: string }>(() => {}),
+    );
+    renderWithMantine(
+      <ControlledSkillsScreen onReadSkillFile={onReadSkillFile} />,
+    );
+    await user.click(screen.getByText("data-analysis"));
+    await user.click(screen.getByRole("button", { name: /Verify all/ }));
+    expect(screen.getByRole("button", { name: /Verify all/ })).toBeDisabled();
+    await user.click(screen.getByText("tampered"));
+    expect(
+      screen.getByRole("button", { name: /Verify all/ }),
+    ).not.toBeDisabled();
   });
 
   it("shows the SKILL.md preview on demand", async () => {

@@ -96,7 +96,21 @@ export const SkillEntrySchema = z.looseObject({
 
 export type SkillEntry = z.infer<typeof SkillEntrySchema>;
 
-/** `skills/list` result: a page of entries plus the opaque cursor. */
+/**
+ * `skills/list` result: a page of entries plus the opaque cursor.
+ *
+ * ⚠️ **Whether a modern-era (2026-07-28) result must also carry the SEP-2549
+ * caching attributes `ttlMs` / `cacheScope` is unsettled here and deliberately
+ * not guessed.** #2234's analysis records it as an open point; a review of that
+ * PR asserted the opposite. Neither reading was checked against the normative
+ * text, and the two mistakes are not symmetric: leaving the schema permissive
+ * means a server that omits them is accepted (they pass through untouched when
+ * sent), while tightening on a wrong reading would *reject* conforming
+ * responses. `resources/directory/read` was removed from this module for the
+ * same reason. #2248 settles it against the spec. Note the SDK is no help
+ * either way — `skills/list` is consumer-owned, so it is absent from the
+ * cacheable-method registry and nothing stamps or validates these fields.
+ */
 export const ListSkillsResultSchema = z.looseObject({
   skills: z.array(SkillEntrySchema),
   nextCursor: z.string().optional(),

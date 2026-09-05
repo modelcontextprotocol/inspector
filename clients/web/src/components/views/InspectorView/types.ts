@@ -322,6 +322,8 @@ export interface SkillsPanelProps {
   onRefreshSkills: () => void;
   /** Read one skill file (`resources/read`) so its digest can be checked. */
   onReadSkillFile: (uri: string) => Promise<SkillFileContents>;
+  /** Re-fetch the selected entry through `skills/get`. */
+  onGetSkill: (uri: string) => Promise<SkillEntry>;
 }
 
 /** The Tasks monitor: the task list, its progress map, and actions. */

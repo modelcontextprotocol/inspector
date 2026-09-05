@@ -80,6 +80,18 @@ interface PreviewState {
   message?: string;
 }
 
+/**
+ * The result of the on-demand `skills/get`, plus the manifest it belongs to.
+ * `agrees` records whether the fetched entry matched the one `skills/list`
+ * returned — the reason for making the call at all.
+ */
+interface FetchedEntryState {
+  key: string | null;
+  entry?: SkillEntry;
+  agrees?: boolean;
+  message?: string;
+}
+
 export interface SkillsScreenProps {
   skills: SkillEntry[];
   /** Pages the last `skills/list` walk took; shown so pagination is visible. */
@@ -91,6 +103,13 @@ export interface SkillsScreenProps {
   onRefreshList: () => void;
   /** Fetch one skill file's contents via `resources/read`, on demand. */
   onReadSkillFile: (uri: string) => Promise<SkillFileContents>;
+  /**
+   * Re-fetch the selected entry through `skills/get` (SEP-2640). Distinct from
+   * the entry `skills/list` already returned, and the point of exercising it is
+   * that the two must agree: a server whose `skills/get` disagrees with its own
+   * listing is broken in a way only a side-by-side fetch can show.
+   */
+  onGetSkill: (uri: string) => Promise<SkillEntry>;
 }
 
 /**
@@ -146,6 +165,15 @@ const EmptyState = Text.withProps({
 const ControlsRow = Group.withProps({
   justify: "space-between",
   wrap: "nowrap",
+  gap: "sm",
+});
+
+// The Resources header carries three action buttons beside its count badge, so
+// it wraps rather than truncating the badge on a narrow detail pane — unlike
+// the sidebar row above, where the search field is meant to absorb the space.
+const SectionControlsRow = Group.withProps({
+  justify: "space-between",
+  wrap: "wrap",
   gap: "sm",
 });
 
@@ -269,6 +297,7 @@ export function SkillsScreen({
   onUiChange,
   onRefreshList,
   onReadSkillFile,
+  onGetSkill,
 }: SkillsScreenProps) {
   const { selectedSkillUri, search } = ui;
   // Both slices carry the manifest key they belong to, and every async
@@ -284,9 +313,14 @@ export function SkillsScreen({
     files: {},
   });
   const [previewState, setPreviewState] = useState<PreviewState>({ key: null });
-  // True while a "Verify all" batch is in flight; disables the button so a
-  // second click cannot stack another pool of workers on top.
-  const [batchRunning, setBatchRunning] = useState(false);
+  const [fetchedEntry, setFetchedEntry] = useState<FetchedEntryState>({
+    key: null,
+  });
+  // The manifest whose "Verify all" batch is in flight, or `null`. Keyed rather
+  // than a bare boolean: a global flag would leave a NEWLY selected skill's
+  // button disabled until the previous skill's reads settled — indefinitely, if
+  // one of them hangs.
+  const [batchKey, setBatchKey] = useState<string | null>(null);
   // Monotonic per-row attempt token. A ref because it is claimed inside an
   // event handler, never during render.
   const nextAttempt = useRef(0);
@@ -342,6 +376,7 @@ export function SkillsScreen({
   useValueChange(manifestKey, (next) => {
     setVerification({ key: next, files: {} });
     setPreviewState({ key: next });
+    setFetchedEntry({ key: next });
   });
 
   const fileStates = verification.key === manifestKey ? verification.files : {};
@@ -407,12 +442,14 @@ export function SkillsScreen({
       }
     };
     const workers = Math.min(VERIFY_CONCURRENCY, manifest.length);
-    setBatchRunning(true);
+    setBatchKey(key);
     // The concurrency cap is per invocation, so without the button being
     // disabled below, a second click would start a second pool of four and a
     // third would make it twelve — the flood the cap exists to prevent.
     void Promise.all(Array.from({ length: workers }, () => worker())).finally(
-      () => setBatchRunning(false),
+      // Clears only ITS OWN batch: a stale finalizer must not free a button the
+      // user has since re-armed on another skill.
+      () => setBatchKey((prev) => (prev === key ? null : prev)),
     );
   }, [manifest, manifestKey, verifyRow]);
 
@@ -437,6 +474,33 @@ export function SkillsScreen({
         );
       });
   }, [manifestKey, onReadSkillFile, selected]);
+
+  const fetchEntry = useCallback(() => {
+    if (!selected) return;
+    const key = manifestKey;
+    // Same shape as the SKILL.md read: a click handler cannot await, the chain
+    // ends in its own `catch`, and both arms compare the manifest key they
+    // started under so a late answer cannot land under another skill.
+    void onGetSkill(selected.uri)
+      .then((entry) => {
+        // Compared field-by-field against what `skills/list` advertised. The
+        // two describe the same skill, so a disagreement is a server bug that
+        // only shows up when both are fetched.
+        const agrees = JSON.stringify(entry) === JSON.stringify(selected);
+        setFetchedEntry((prev) =>
+          prev.key !== null && prev.key !== key ? prev : { key, entry, agrees },
+        );
+      })
+      .catch((err: unknown) => {
+        const message = err instanceof Error ? err.message : String(err);
+        setFetchedEntry((prev) =>
+          prev.key !== null && prev.key !== key ? prev : { key, message },
+        );
+      });
+  }, [manifestKey, onGetSkill, selected]);
+
+  const fetched = fetchedEntry.key === manifestKey ? fetchedEntry : undefined;
+  const batchRunning = batchKey === manifestKey;
 
   const preview =
     previewState.key === manifestKey ? previewState.contents : undefined;
@@ -561,7 +625,7 @@ export function SkillsScreen({
               </Stack>
 
               <Stack gap="xs">
-                <ControlsRow>
+                <SectionControlsRow>
                   <InlineRow>
                     <SectionHeading>Resources</SectionHeading>
                     <CountBadge>
@@ -570,6 +634,9 @@ export function SkillsScreen({
                     </CountBadge>
                   </InlineRow>
                   <InlineRow>
+                    <VerifyButton onClick={fetchEntry}>
+                      Fetch with skills/get
+                    </VerifyButton>
                     <VerifyButton onClick={showSkillMd}>
                       View SKILL.md
                     </VerifyButton>
@@ -581,7 +648,7 @@ export function SkillsScreen({
                       Verify all
                     </VerifyButton>
                   </InlineRow>
-                </ControlsRow>
+                </SectionControlsRow>
                 {selected.resources === DYNAMIC_RESOURCES ? (
                   <Alert color="yellow" title="Dynamic resources">
                     This skill declares{" "}
@@ -691,6 +758,41 @@ export function SkillsScreen({
                   return null;
                 })}
               </Stack>
+
+              {fetched?.message !== undefined && (
+                <Alert color="red" title="skills/get failed">
+                  {fetched.message}
+                </Alert>
+              )}
+              {fetched?.entry !== undefined && (
+                <Alert
+                  data-testid="skills-get-result"
+                  color={fetched.agrees ? "green" : "red"}
+                  title={
+                    fetched.agrees
+                      ? "skills/get agrees with skills/list"
+                      : "skills/get disagrees with skills/list"
+                  }
+                >
+                  <Stack gap={2}>
+                    <Text size="sm">
+                      {fetched.agrees
+                        ? "The entry this server returns for this URI is identical to the one it listed."
+                        : "The entry this server returns for this URI differs from the one it listed; both describe the same skill, so one of them is wrong."}
+                    </Text>
+                    {!fetched.agrees && (
+                      <ContentViewer
+                        block={{
+                          type: "text",
+                          text: JSON.stringify(fetched.entry, null, 2),
+                        }}
+                        mimeType="application/json"
+                        copyable
+                      />
+                    )}
+                  </Stack>
+                </Alert>
+              )}
 
               {previewError && (
                 <Alert color="red" title="Could not read SKILL.md">

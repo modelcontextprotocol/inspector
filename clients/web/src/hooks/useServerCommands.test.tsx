@@ -916,6 +916,28 @@ describe("onReadSkillFile (#2234)", () => {
   });
 });
 
+describe("onGetSkill (#2234)", () => {
+  it("routes the uri through the client's skills/get", async () => {
+    const getSkill = vi.fn().mockResolvedValue({
+      uri: "skill://demo/SKILL.md",
+      frontmatter: {},
+      resources: [],
+    });
+    const h = harness({ client: client({ getSkill }) });
+    await expect(
+      h.api().onGetSkill("skill://demo/SKILL.md"),
+    ).resolves.toMatchObject({ uri: "skill://demo/SKILL.md" });
+    expect(getSkill).toHaveBeenCalledWith("skill://demo/SKILL.md");
+  });
+
+  it("throws when there is no client", async () => {
+    const h = harness();
+    await expect(h.api().onGetSkill("skill://demo/SKILL.md")).rejects.toThrow(
+      "Client is not connected",
+    );
+  });
+});
+
 describe("onRefreshSkills (#2234)", () => {
   it("drives the store refresh in the background", () => {
     const h = harness();

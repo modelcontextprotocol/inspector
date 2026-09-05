@@ -35,6 +35,7 @@ import type {
 import type { GetPromptState } from "../components/screens/PromptsScreen/PromptsScreen";
 import type { ReadResourceState } from "../components/screens/ResourcesScreen/ResourcesScreen";
 import type { SkillFileContents } from "../utils/skillFileBytes";
+import type { SkillEntry } from "@inspector/core/mcp/skillsSchemas.js";
 import { UrlElicitationErrorToastMessage } from "../components/elements/Toasts/UrlElicitationErrorToastMessage";
 import {
   errorCodeOf,
@@ -219,6 +220,8 @@ export interface ServerCommands {
    * the digest is taken over.
    */
   onReadSkillFile: (uri: string) => Promise<SkillFileContents>;
+  /** Re-fetch one skill entry through `skills/get` (SEP-2640). */
+  onGetSkill: (uri: string) => Promise<SkillEntry>;
   onSubscribeResource: (uri: string) => void;
   onUnsubscribeResource: (uri: string) => void;
   onCompleteArgument: (
@@ -973,6 +976,17 @@ export function useServerCommands({
     [onReadResourceContents],
   );
 
+  // `skills/get` is the extension's second required method, and the Skills tab
+  // calls it on demand so a server author can see their own handler answer —
+  // and see whether it agrees with what their `skills/list` advertised.
+  const onGetSkill = useCallback(
+    async (uri: string): Promise<SkillEntry> => {
+      if (!inspectorClient) throw new Error("Client is not connected");
+      return inspectorClient.getSkill(uri);
+    },
+    [inspectorClient],
+  );
+
   const onRefreshSkills = useCallback(() => {
     runCommandInBackground(
       () => refreshSkills(),
@@ -997,6 +1011,7 @@ export function useServerCommands({
     onReadResource,
     onReadResourceContents,
     onReadSkillFile,
+    onGetSkill,
     onSubscribeResource,
     onUnsubscribeResource,
     onCompleteArgument,

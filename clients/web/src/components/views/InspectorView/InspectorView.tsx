@@ -463,6 +463,7 @@ export function InspectorView({
     onSkillsUiChange,
     onRefreshSkills,
     onReadSkillFile,
+    onGetSkill,
   } = skillsPanel;
   const {
     tasks,
@@ -1061,6 +1062,7 @@ export function InspectorView({
     onUiChange: onSkillsUiChange,
     onRefreshList: onRefreshSkills,
     onReadSkillFile,
+    onGetSkill,
   };
   const tasksScreenProps = {
     tasks,

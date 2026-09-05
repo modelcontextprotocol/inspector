@@ -41,6 +41,7 @@ import {
   type SkillEntry,
   type SkillResource,
 } from "./skillsSchemas.js";
+import { sha256Bytes } from "./sha256.js";
 
 /** Maximum resource entries a single skill may declare (SEP-2640). */
 export const SKILL_MAX_RESOURCE_ENTRIES = 512;
@@ -50,6 +51,9 @@ export const SKILL_MAX_TOTAL_BYTES = 16 * 1024 * 1024;
 
 /** The suffix every skill URI ends with; the segment before it is the name. */
 export const SKILL_FILE_SUFFIX = "/SKILL.md";
+
+/** The URI scheme SEP-2640 defines for skills, as `URL.protocol` spells it. */
+export const SKILL_URI_SCHEME = "skill:";
 
 /** `sha256:` followed by exactly 64 lowercase hex characters. */
 const DIGEST_PATTERN = /^sha256:[0-9a-f]{64}$/;
@@ -107,6 +111,10 @@ export function isSkillsExtensionSupported(
  * NOT normalized by the parser — its `..` segments survive verbatim — so it is
  * rejected too: containment could not be decided on it, and silently accepting
  * one would reintroduce exactly the hole this function closes.
+ *
+ * The `skill:` scheme is required. Checking only that the URI is hierarchical
+ * would let `https://demo/SKILL.md` through and then pass the name and root
+ * checks — a manifest pointing anywhere on the web, reported as conforming.
  */
 export function normalizeSkillUri(uri: string): string | undefined {
   let parsed: URL;
@@ -115,6 +123,7 @@ export function normalizeSkillUri(uri: string): string | undefined {
   } catch {
     return undefined;
   }
+  if (parsed.protocol !== SKILL_URI_SCHEME) return undefined;
   return parsed.pathname.startsWith("/") ? parsed.href : undefined;
 }
 
@@ -167,9 +176,10 @@ export type SkillIssueCode =
   | "size-limit-exceeded";
 
 /**
- * `error` marks a stated requirement of SEP-2640 that the server broke.
- * `warning` marks something that is legal but leaves the Inspector unable to
- * verify integrity — `"dynamic"` resources above all, which is the case most
+ * `error` marks a stated requirement of SEP-2640 that the server broke —
+ * every MUST, so a manifest reporting "0 errors" really is one the spec
+ * accepts. `warning` is reserved for what is **legal** yet leaves the
+ * Inspector unable to verify integrity: `"dynamic"` resources, the case most
  * worth surfacing and the one most easily buried.
  */
 export type SkillIssueSeverity = "error" | "warning";
@@ -216,7 +226,7 @@ export function checkSkillConformance(entry: SkillEntry): SkillIssue[] {
     issues.push({
       code: "malformed-uri",
       severity: "error",
-      message: `Skill URI must end with "${SKILL_FILE_SUFFIX}" and carry a non-empty path segment before it.`,
+      message: `Skill URI must be a "${SKILL_URI_SCHEME}//" URI ending with "${SKILL_FILE_SUFFIX}" and carrying a non-empty path segment before it.`,
     });
   } else if (declaredName && uriName !== declaredName) {
     // The one structural invariant the spec states outright: the segment before
@@ -309,10 +319,15 @@ export function checkSkillConformance(entry: SkillEntry): SkillIssue[] {
       }
     }
     if (resource.digest === undefined) {
+      // An error, not a warning: SEP-2640 requires `digest` on every manifest
+      // entry, so an entry without one is invalid — and reporting it as a
+      // warning would let such a manifest show "0 errors", which is the
+      // affirmative pass this checker must never give.
       issues.push({
         code: "missing-digest",
-        severity: "warning",
-        message: "Manifest entry declares no digest, so it cannot be verified.",
+        severity: "error",
+        message:
+          "Manifest entry declares no digest, which is required — and without it the file cannot be verified.",
         resourceUri: resource.uri,
       });
     } else if (!DIGEST_PATTERN.test(resource.digest)) {
@@ -324,14 +339,15 @@ export function checkSkillConformance(entry: SkillEntry): SkillIssue[] {
       });
     }
     if (resource.size === undefined) {
-      // A warning, not an error: an absent size costs the length cross-check in
-      // `verifySkillResource` and silently understates the 16 MiB total, but
-      // the digest still verifies the bytes.
+      // Also an error: `size` is a required field, not an integrity hint, and
+      // an omitted one is what lets a server slip past the 16 MiB pre-fetch
+      // limit — the entry is excluded from the total — while the UI reports no
+      // conformance errors at all.
       issues.push({
         code: "missing-size",
-        severity: "warning",
+        severity: "error",
         message:
-          "Manifest entry declares no size, so it is excluded from the 16 MiB total and its length cannot be cross-checked.",
+          "Manifest entry declares no size, which is required — and without it the entry is excluded from the 16 MiB total and its length cannot be cross-checked.",
         resourceUri: resource.uri,
       });
     } else if (!isUsableSize(resource.size)) {
@@ -410,6 +426,15 @@ function toHex(bytes: Uint8Array): string {
  * context, so `subtle` is present there too.
  */
 export async function sha256Digest(bytes: Uint8Array): Promise<string> {
+  // `crypto.subtle` is exposed only in a SECURE CONTEXT, and this app is
+  // documented as servable over plain HTTP on a LAN IP
+  // (`clients/web/README.md#hosting-on-a-network`). There, `crypto` exists but
+  // `crypto.subtle` does not — so without this fallback every verification
+  // would throw and the UI would report a read failure for a file it fetched
+  // perfectly well. `sha256Bytes` is checked against the published FIPS 180-4
+  // vectors and differentially against WebCrypto, so the two paths agree.
+  const subtle = globalThis.crypto?.subtle;
+  if (!subtle) return `sha256:${toHex(sha256Bytes(bytes))}`;
   // Copy the VIEW into a fresh typed array rather than slicing its backing
   // store. Two things depend on that: a `Uint8Array` can be a window into a
   // larger buffer, so hashing the buffer would digest neighbouring bytes; and
@@ -419,7 +444,7 @@ export async function sha256Digest(bytes: Uint8Array): Promise<string> {
   // `new Uint8Array(view)` always allocates a plain `ArrayBuffer`, which is
   // also why no cast is needed here.
   const copy = new Uint8Array(bytes);
-  const hash = await crypto.subtle.digest("SHA-256", copy.buffer);
+  const hash = await subtle.digest("SHA-256", copy.buffer);
   return `sha256:${toHex(new Uint8Array(hash))}`;
 }
 

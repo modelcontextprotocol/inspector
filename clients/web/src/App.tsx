@@ -835,6 +835,7 @@ function App() {
     onRefreshResources,
     onRefreshSkills,
     onReadSkillFile,
+    onGetSkill,
     onRefreshTasks,
     onTogglePaginatedLists,
     onLoadMoreTools,
@@ -1832,6 +1833,7 @@ function App() {
     onSkillsUiChange: setUi.setSkillsUi,
     onRefreshSkills,
     onReadSkillFile,
+    onGetSkill,
   };
 
   const tasksPanelProps: TasksPanelProps = {

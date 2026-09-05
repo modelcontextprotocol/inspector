@@ -433,6 +433,11 @@ const skillsArgs: SkillsPanelProps = {
   onSkillsUiChange: fn(),
   onRefreshSkills: fn(),
   onReadSkillFile: fn(async () => ({ text: "" })),
+  onGetSkill: fn(async (uri: string) => ({
+    uri,
+    frontmatter: {},
+    resources: [],
+  })),
 };
 
 const tasksArgs: TasksPanelProps = {

@@ -178,6 +178,7 @@ function makeProps(...overrides: PropOverrides[]): InspectorViewProps {
       onSkillsUiChange: vi.fn(),
       onRefreshSkills: vi.fn(),
       onReadSkillFile: vi.fn().mockResolvedValue({ text: "" }),
+      onGetSkill: vi.fn(),
       ...mergeBundle("skills", overrides),
     },
     tasks: {
