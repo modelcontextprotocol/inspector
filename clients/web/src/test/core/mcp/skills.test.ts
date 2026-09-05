@@ -378,6 +378,24 @@ describe("checkSkillConformance", () => {
     expect(issues[0].severity).toBe("error");
   });
 
+  it("counts description length in code points, not UTF-16 code units", () => {
+    // 600 non-BMP characters are 1200 code units. Measuring those would report
+    // a perfectly valid description as over the 1024-character limit — a
+    // conforming server failed by an off-by-encoding.
+    const issues = checkSkillConformance(
+      entry({ frontmatter: { name: "demo", description: "𝄞".repeat(600) } }),
+    );
+    expect(issues).toEqual([]);
+  });
+
+  it("still reports a description over the limit in code points", () => {
+    const issues = checkSkillConformance(
+      entry({ frontmatter: { name: "demo", description: "𝄞".repeat(1025) } }),
+    );
+    expect(issues.map((i) => i.code)).toEqual(["malformed-description"]);
+    expect(issues[0].message).toContain("1025");
+  });
+
   it("accepts a description exactly at the limit", () => {
     const issues = checkSkillConformance(
       entry({ frontmatter: { name: "demo", description: "d".repeat(1024) } }),

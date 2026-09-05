@@ -72,6 +72,21 @@ const SKILL_NAME_MAX_LENGTH = 64;
 const SKILL_DESCRIPTION_MAX_LENGTH = 1024;
 
 /**
+ * Length in Unicode **code points**, not UTF-16 code units.
+ *
+ * `String.prototype.length` counts code units, so every non-BMP character
+ * (emoji, many CJK extension characters) counts twice — a perfectly valid
+ * 600-character description would be measured as 1200 and reported as
+ * `malformed-description`. The Agent Skills limit is in characters, and its
+ * reference validator uses Python's `len()`, which counts code points. Getting
+ * this wrong fails a conforming server, which is the direction this module
+ * works hardest to avoid.
+ */
+function codePointLength(value: string): number {
+  return [...value].length;
+}
+
+/**
  * What the server declared under `io.modelcontextprotocol/skills`. The only
  * sub-option SEP-2640 defines is `directoryRead`, which gates
  * `resources/directory/read`.
@@ -269,7 +284,7 @@ export function checkSkillConformance(entry: SkillEntry): SkillIssue[] {
       message: "frontmatter.name is required but missing or empty.",
     });
   } else if (
-    declaredName.length > SKILL_NAME_MAX_LENGTH ||
+    codePointLength(declaredName) > SKILL_NAME_MAX_LENGTH ||
     !SKILL_NAME_PATTERN.test(declaredName)
   ) {
     // Reaches here for `" demo "` too: the grammar sees the untrimmed value.
@@ -288,11 +303,11 @@ export function checkSkillConformance(entry: SkillEntry): SkillIssue[] {
       severity: "error",
       message: "frontmatter.description is required but missing or empty.",
     });
-  } else if (rawDescription.length > SKILL_DESCRIPTION_MAX_LENGTH) {
+  } else if (codePointLength(rawDescription) > SKILL_DESCRIPTION_MAX_LENGTH) {
     issues.push({
       code: "malformed-description",
       severity: "error",
-      message: `frontmatter.description is ${rawDescription.length} characters, above the ${SKILL_DESCRIPTION_MAX_LENGTH}-character limit.`,
+      message: `frontmatter.description is ${codePointLength(rawDescription)} characters, above the ${SKILL_DESCRIPTION_MAX_LENGTH}-character limit.`,
     });
   }
   if (uriName === undefined) {

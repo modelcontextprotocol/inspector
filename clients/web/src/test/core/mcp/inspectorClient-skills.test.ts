@@ -27,6 +27,7 @@ describe("InspectorClient skills methods (#2234)", () => {
   };
 
   interface SkillsInternals {
+    protocolEra: string | undefined;
     client: {
       request: (
         req: { method: string; params: Record<string, unknown> },
@@ -144,6 +145,40 @@ describe("InspectorClient skills methods (#2234)", () => {
     await expect(
       client.getSkill("skill://demo/SKILL.md"),
     ).rejects.toBeDefined();
+  });
+
+  it("requires the modern list envelope on a modern connection", async () => {
+    // SEP-2640: "In protocol versions 2026-07-28 and later, the result also
+    // carries … `ttlMs` and `cacheScope`." Nothing else validates it —
+    // `skills/*` is consumer-owned, so the SDK codec never sees it.
+    const client = makeClient();
+    internals(client).protocolEra = "modern";
+    stubRequest(client, { skills: [] });
+    await expect(client.listSkills()).rejects.toBeDefined();
+  });
+
+  it("accepts a modern result that carries the envelope", async () => {
+    const client = makeClient();
+    internals(client).protocolEra = "modern";
+    stubRequest(client, {
+      resultType: "complete",
+      ttlMs: 0,
+      cacheScope: "public",
+      skills: [ENTRY],
+    });
+    await expect(client.listSkills()).resolves.toMatchObject({
+      skills: [ENTRY],
+    });
+  });
+
+  it("does NOT require the envelope on a legacy connection", async () => {
+    // Those are 2026-era attributes; failing a legacy server for their absence
+    // would reject a conforming server.
+    const client = makeClient();
+    stubRequest(client, { skills: [ENTRY] });
+    await expect(client.listSkills()).resolves.toMatchObject({
+      skills: [ENTRY],
+    });
   });
 
   it("rejects a skills/list result that is not a skills page", async () => {

@@ -147,6 +147,7 @@ import { buildClientExtensions } from "./extensions.js";
 import {
   GetSkillResultSchema,
   ListSkillsResultSchema,
+  ModernListSkillsResultSchema,
   SKILLS_GET_METHOD,
   SKILLS_LIST_METHOD,
   type SkillEntry,
@@ -5561,11 +5562,20 @@ export class InspectorClient extends InspectorClientEventTarget {
       // conforming server made to look broken.
       ...(cursor !== undefined ? { cursor } : {}),
     };
+    // Era-aware: a modern (2026-07-28+) `skills/list` result also carries the
+    // base list envelope (`resultType` / `ttlMs` / `cacheScope`). `skills/*` is
+    // consumer-owned, so the SDK codec validates none of it — without picking
+    // the schema here a modern server could answer `{ skills: [] }` and the
+    // conformance UI would show a clean list. Legacy stays permissive: those
+    // are 2026-era attributes.
+    const resultSchema = this.isModernEra()
+      ? ModernListSkillsResultSchema
+      : ListSkillsResultSchema;
     const response = await this.invokeMcpClient(
       () =>
         this.client!.request(
           { method: SKILLS_LIST_METHOD, params },
-          ListSkillsResultSchema,
+          resultSchema,
           this.getRequestOptions(this.progressTokenOf(metadata)),
         ),
       { method: SKILLS_LIST_METHOD },

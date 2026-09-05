@@ -11,17 +11,21 @@
  * hatch that modern `tasks/*` needs is deliberately NOT used here — `tasks/*`
  * are spec names the 2026 codec deleted, which is a different problem.
  *
- * **This module is the whole wire surface.** SEP-2640 is Accepted, so the method
- * names and the entry shape are settled, but the skill *format* is delegated to
- * the independently-versioned Agent Skills specification and the SEP leaves the
- * `skills/get` caching attributes (SEP-2549 `ttlMs` / `cacheScope`) open. Keeping
- * every wire type here makes a spec revision a single-file edit (#2234).
+ * **This module is the wire surface for the two methods the Inspector calls.**
+ * SEP-2640 is Accepted, so the method names and the entry shape are settled;
+ * the skill *format* is delegated to the independently-versioned Agent Skills
+ * specification. Keeping every wire type here makes a spec revision a
+ * single-file edit (#2234).
  *
- * Schemas are deliberately permissive (`looseObject`, and a `digest` typed as a
- * plain string rather than a hex-constrained one) so a non-conforming server is
- * *surfaced* rather than rejected — the Inspector is a conformance tool, and a
- * malformed digest is a finding to report, not a parse error to swallow. The
- * structural checks live in `skills.ts`.
+ * **Permissive where a defect should be reported; strict where a shape is
+ * settled.** `looseObject`, and a `digest` typed as a plain string rather than
+ * a hex-constrained one, so a non-conforming server is *surfaced* by
+ * `checkSkillConformance` rather than rejected at the parse — a malformed
+ * digest is a finding, not a parse error to swallow. But a settled shape is
+ * enforced, because silently normalizing one past the checks would defeat the
+ * point: `skills/get` requires its `{ skill }` envelope, and a modern
+ * `skills/list` result requires the base list envelope (see
+ * `ModernListSkillsResultSchema`).
  */
 
 import { z } from "zod/v4";
@@ -97,19 +101,8 @@ export const SkillEntrySchema = z.looseObject({
 export type SkillEntry = z.infer<typeof SkillEntrySchema>;
 
 /**
- * `skills/list` result: a page of entries plus the opaque cursor.
- *
- * ⚠️ **Whether a modern-era (2026-07-28) result must also carry the SEP-2549
- * caching attributes `ttlMs` / `cacheScope` is unsettled here and deliberately
- * not guessed.** #2234's analysis records it as an open point; a review of that
- * PR asserted the opposite. Neither reading was checked against the normative
- * text, and the two mistakes are not symmetric: leaving the schema permissive
- * means a server that omits them is accepted (they pass through untouched when
- * sent), while tightening on a wrong reading would *reject* conforming
- * responses. `resources/directory/read` was removed from this module for the
- * same reason. #2248 settles it against the spec. Note the SDK is no help
- * either way — `skills/list` is consumer-owned, so it is absent from the
- * cacheable-method registry and nothing stamps or validates these fields.
+ * `skills/list` result on a **legacy** connection: a page of entries plus the
+ * opaque cursor, and nothing required beyond that.
  */
 export const ListSkillsResultSchema = z.looseObject({
   skills: z.array(SkillEntrySchema),
@@ -117,6 +110,35 @@ export const ListSkillsResultSchema = z.looseObject({
 });
 
 export type ListSkillsResult = z.infer<typeof ListSkillsResultSchema>;
+
+/**
+ * `skills/list` result on a **modern** (2026-07-28+) connection: the page plus
+ * the base list envelope.
+ *
+ * SEP-2640's `skills/list` section states: *"In protocol versions 2026-07-28
+ * and later, the result also carries … `ttlMs` and `cacheScope`."* The field
+ * shapes mirror `ModernResultEnvelopeSchema` in `listSalvage.ts`, which is this
+ * repo's existing statement of a modern result envelope and is already applied
+ * to modern list results on the salvage path — so the two cannot drift.
+ *
+ * The era split is load-bearing rather than defensive. `skills/*` is a
+ * consumer-owned method, so it is absent from the SDK's cacheable-method
+ * registry and **nothing else validates this**: without an era-aware schema a
+ * modern server could answer `{ skills: [] }` and the conformance UI would
+ * present it as a clean list. The legacy shape stays permissive because these
+ * are 2026-era attributes a legacy server has no business sending.
+ *
+ * ⚠️ Picked by `InspectorClient.listSkills` from the negotiated era — a schema
+ * cannot know it on its own.
+ */
+export const ModernListSkillsResultSchema = ListSkillsResultSchema.extend({
+  resultType: z.literal("complete"),
+  // A non-negative INTEGER, matching the codec: `ttlMs: -1` or `0.5` is an
+  // envelope violation, and accepting it here would hide exactly the kind of
+  // defect this schema exists to surface.
+  ttlMs: z.int().min(0),
+  cacheScope: z.enum(["public", "private"]),
+});
 
 /**
  * The `skills/get` result envelope: the entry wrapped under `skill`.

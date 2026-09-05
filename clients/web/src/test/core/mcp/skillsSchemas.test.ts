@@ -3,6 +3,7 @@ import {
   DYNAMIC_RESOURCES,
   GetSkillResultSchema,
   ListSkillsResultSchema,
+  ModernListSkillsResultSchema,
   SKILLS_EXTENSION_KEY,
   SKILLS_GET_METHOD,
   SKILLS_LIST_METHOD,
@@ -84,6 +85,56 @@ describe("ListSkillsResultSchema", () => {
     expect(
       ListSkillsResultSchema.parse({ skills: [] }).nextCursor,
     ).toBeUndefined();
+  });
+});
+
+describe("ModernListSkillsResultSchema", () => {
+  const envelope = { resultType: "complete", ttlMs: 0, cacheScope: "public" };
+
+  it("accepts a modern page carrying the base list envelope", () => {
+    const parsed = ModernListSkillsResultSchema.parse({
+      ...envelope,
+      skills: [ENTRY],
+    });
+    expect(parsed.skills).toHaveLength(1);
+  });
+
+  it("rejects a modern page that omits the caching attributes", () => {
+    // The whole reason for the era split: `skills/*` is consumer-owned, so the
+    // SDK codec validates none of it, and `{ skills: [] }` would otherwise
+    // reach the conformance UI as a clean list.
+    expect(() => ModernListSkillsResultSchema.parse({ skills: [] })).toThrow();
+    expect(() =>
+      ModernListSkillsResultSchema.parse({
+        ...envelope,
+        ttlMs: undefined,
+        skills: [],
+      }),
+    ).toThrow();
+  });
+
+  it("rejects a malformed ttlMs rather than accepting the envelope loosely", () => {
+    for (const ttlMs of [-1, 0.5]) {
+      expect(() =>
+        ModernListSkillsResultSchema.parse({ ...envelope, ttlMs, skills: [] }),
+      ).toThrow();
+    }
+  });
+
+  it("rejects an unknown cacheScope", () => {
+    expect(() =>
+      ModernListSkillsResultSchema.parse({
+        ...envelope,
+        cacheScope: "shared",
+        skills: [],
+      }),
+    ).toThrow();
+  });
+
+  it("the LEGACY schema still accepts a page without the envelope", () => {
+    // Those are 2026-era attributes; a legacy server has no business sending
+    // them and must not be failed for their absence.
+    expect(ListSkillsResultSchema.parse({ skills: [] }).skills).toEqual([]);
   });
 });
 
