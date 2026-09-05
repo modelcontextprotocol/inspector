@@ -7,8 +7,7 @@
  * not have: a top-level `ServerCapabilities` key to gate on (skills is a
  * *server-declared extension*, read from `capabilities.extensions`), and a
  * per-list `list_changed` notification to debounce and turn into a sidebar
- * indicator
- * (SEP-2640 defines none). Subclassing would mean widening the base's
+ * indicator (SEP-2640 defines none). Subclassing would mean widening the base's
  * capability gate and inventing a list-changed event nothing dispatches — two
  * changes to shared machinery to serve one caller. The cursor walk below is the
  * only behavior actually shared, and it is nine lines.
@@ -20,8 +19,8 @@
  */
 
 import type { InspectorClientProtocol } from "../inspectorClientProtocol.js";
-import type { SkillEntry } from "../skillsSchemas.js";
-import { LIST_MAX_PAGES } from "../listSalvage.js";
+import { SKILLS_LIST_METHOD, type SkillEntry } from "../skillsSchemas.js";
+import { LIST_MAX_PAGES, isClientDecodeRejection } from "../listSalvage.js";
 import { isTerminalStatus } from "../types.js";
 import type { RequestMetadata } from "../types.js";
 import { TypedEventTarget } from "../typedEventTarget.js";
@@ -201,7 +200,17 @@ export class ManagedSkillsState extends TypedEventTarget<ManagedSkillsStateEvent
       // auth-recovery wrapper keys off the rejection — but the *state* is left
       // alone, so a dead session's failure cannot surface in the live one.
       if (isCurrent()) {
-        this.setError(err instanceof Error ? err : new Error(String(err)));
+        const error = err instanceof Error ? err : new Error(String(err));
+        this.setError(error);
+        // Attribute the failure to the response it came from, so the Protocol
+        // entry stops rendering a rejected result as a clean success (#1953).
+        // Must happen in this catch, while the correlation window the client
+        // documents is still valid — and ONLY for a decode rejection, which is
+        // what `isClientDecodeRejection` separates from a request that never
+        // produced a response at all. Same handling every managed list gets.
+        if (isClientDecodeRejection(err)) {
+          client.markResponseRejected?.(SKILLS_LIST_METHOD, error.message);
+        }
       }
       throw err;
     } finally {

@@ -92,15 +92,48 @@ export function isSkillsExtensionSupported(
 }
 
 /**
+ * A skill URI in normalized form, or `undefined` when it is not one.
+ *
+ * Two things a raw string comparison gets wrong, and both matter:
+ *
+ * 1. **`..` segments.** `skill://acme/billing/refunds/../other.md` starts with
+ *    the advertised root but resolves outside it. Containment has to be decided
+ *    on the resolved path, so every check below goes through the parser.
+ * 2. **Relative strings.** SEP-2640 requires a full resource URI, and
+ *    `demo/SKILL.md` is not one — it fails to parse and is reported as
+ *    `malformed-uri` rather than quietly treated as a skill path.
+ *
+ * An **opaque-path** URI (`skill:demo/SKILL.md`, no authority) parses but is
+ * NOT normalized by the parser — its `..` segments survive verbatim — so it is
+ * rejected too: containment could not be decided on it, and silently accepting
+ * one would reintroduce exactly the hole this function closes.
+ */
+export function normalizeSkillUri(uri: string): string | undefined {
+  let parsed: URL;
+  try {
+    parsed = new URL(uri);
+  } catch {
+    return undefined;
+  }
+  return parsed.pathname.startsWith("/") ? parsed.href : undefined;
+}
+
+/**
  * The final `<skill-path>` segment of a skill URI — the segment *before*
  * `/SKILL.md`, not the filename. SEP-2640 requires it to equal
  * `frontmatter.name`, which is what makes a skill's name recoverable from its
  * URI alone. Returns `undefined` when the URI does not have that shape, which
  * is itself a conformance finding.
+ *
+ * Read off the **normalized** URI, so a traversal segment cannot produce a
+ * name the resolved path does not actually carry.
  */
 export function skillNameFromUri(uri: string): string | undefined {
-  if (!uri.endsWith(SKILL_FILE_SUFFIX)) return undefined;
-  const path = uri.slice(0, -SKILL_FILE_SUFFIX.length);
+  const normalized = normalizeSkillUri(uri);
+  if (normalized === undefined || !normalized.endsWith(SKILL_FILE_SUFFIX)) {
+    return undefined;
+  }
+  const path = normalized.slice(0, -SKILL_FILE_SUFFIX.length);
   const segment = path.slice(path.lastIndexOf("/") + 1);
   return segment.length > 0 ? segment : undefined;
 }
@@ -171,10 +204,12 @@ export function checkSkillConformance(entry: SkillEntry): SkillIssue[] {
     });
   }
   if (!entry.frontmatter.description?.trim()) {
+    // An error, not a warning: SEP-2640 requires `description` on every skill,
+    // so an absent one is a format violation and must not read as "0 errors".
     issues.push({
       code: "missing-description",
-      severity: "warning",
-      message: "frontmatter.description is missing or empty.",
+      severity: "error",
+      message: "frontmatter.description is required but missing or empty.",
     });
   }
   if (uriName === undefined) {
@@ -237,12 +272,17 @@ export function checkSkillConformance(entry: SkillEntry): SkillIssue[] {
   const seenUris = new Set<string>();
   // Relative references resolve against the skill root, so every manifest entry
   // must live under it. A URI outside that prefix is either a typo or a server
-  // claiming integrity over a file that is not part of this skill. Left
-  // `undefined` for a malformed entry URI — there is no root to measure
-  // against, and `malformed-uri` already reports that.
-  const root = entry.uri.endsWith(SKILL_FILE_SUFFIX)
-    ? `${entry.uri.slice(0, -SKILL_FILE_SUFFIX.length)}/`
-    : undefined;
+  // claiming integrity over a file that is not part of this skill. Computed
+  // from the NORMALIZED entry URI, and compared against normalized resource
+  // URIs, so a `..` segment cannot walk out of the root while still matching it
+  // as a string. Left `undefined` for a malformed entry URI — there is no root
+  // to measure against, and `malformed-uri` already reports that.
+  const normalizedEntryUri = normalizeSkillUri(entry.uri);
+  const root =
+    normalizedEntryUri !== undefined &&
+    normalizedEntryUri.endsWith(SKILL_FILE_SUFFIX)
+      ? `${normalizedEntryUri.slice(0, -SKILL_FILE_SUFFIX.length)}/`
+      : undefined;
 
   for (const resource of entry.resources) {
     if (seenUris.has(resource.uri)) {
@@ -255,13 +295,18 @@ export function checkSkillConformance(entry: SkillEntry): SkillIssue[] {
       });
     }
     seenUris.add(resource.uri);
-    if (root !== undefined && !resource.uri.startsWith(root)) {
-      issues.push({
-        code: "resource-outside-skill-root",
-        severity: "error",
-        message: `Manifest entry is outside the skill root "${root}".`,
-        resourceUri: resource.uri,
-      });
+    if (root !== undefined) {
+      const normalized = normalizeSkillUri(resource.uri);
+      // An unparseable entry URI is outside the root by construction: nothing
+      // can establish that it is inside one.
+      if (normalized === undefined || !normalized.startsWith(root)) {
+        issues.push({
+          code: "resource-outside-skill-root",
+          severity: "error",
+          message: `Manifest entry does not resolve inside the skill root "${root}".`,
+          resourceUri: resource.uri,
+        });
+      }
     }
     if (resource.digest === undefined) {
       issues.push({

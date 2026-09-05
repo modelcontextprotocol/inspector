@@ -96,7 +96,9 @@ Nothing _enforces_ the boundary — no path alias keys off it, and the coverage 
 The Tools, Resources, Prompts and Skills screens each expose a `data-testid` plus a
 small set of `data-*` attributes, so a headless driver can `waitForSelector` on
 a deterministic signal rather than on visible copy. `scripts/smoke-web-tabs.mjs`
-drives all three against `test-servers/configs/web-tabs-http.json` ([#2148](https://github.com/modelcontextprotocol/inspector/issues/2148)).
+drives the first three of those four against `test-servers/configs/web-tabs-http.json`
+([#2148](https://github.com/modelcontextprotocol/inspector/issues/2148)); Skills
+publishes the same contract but is not smoked yet ([#2234](https://github.com/modelcontextprotocol/inspector/issues/2234)).
 Treat them as a public contract, for the same reason as the Apps ones below:
 
 | Attribute                            | Where              | Meaning                                                                                                                                                     |

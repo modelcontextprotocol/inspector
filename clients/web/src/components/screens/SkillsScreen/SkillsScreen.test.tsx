@@ -6,6 +6,7 @@ import { sha256Digest, textToBytes } from "@inspector/core/mcp/skills";
 import {
   renderWithMantine,
   screen,
+  waitFor,
   within,
 } from "../../../test/renderWithMantine";
 import {
@@ -333,6 +334,100 @@ describe("SkillsScreen", () => {
     await user.click(screen.getByRole("button", { name: /View SKILL.md/ }));
     const preview = await screen.findByTestId("skill-md-preview");
     expect(preview).toHaveTextContent("from a blob");
+  });
+
+  it("keeps the newest verdict when two verifications of one row overlap", async () => {
+    // Same row, same manifest — so the manifest key cannot tell these apart.
+    // Without a per-row attempt token the older read finishing last would
+    // overwrite the newer verdict and leave the UI reporting stale bytes.
+    const user = userEvent.setup();
+    const resolvers: ((value: { text: string }) => void)[] = [];
+    const onReadSkillFile = vi.fn(
+      () =>
+        new Promise<{ text: string }>((resolve) => {
+          resolvers.push(resolve);
+        }),
+    );
+    renderWithMantine(
+      <ControlledSkillsScreen
+        onReadSkillFile={onReadSkillFile}
+        skills={[
+          {
+            ...CLEAN_SKILL,
+            resources: [
+              {
+                uri: "skill://data-analysis/SKILL.md",
+                digest: SELF_DIGEST,
+                size: textToBytes(SELF_TEXT).byteLength,
+              },
+            ],
+          },
+        ]}
+      />,
+    );
+    await user.click(screen.getByText("data-analysis"));
+    const manifest = screen.getByTestId("skill-manifest");
+    const rowVerify = within(manifest).getAllByRole("button", {
+      name: "Verify",
+    })[0];
+    await user.click(rowVerify);
+    await user.click(rowVerify);
+    expect(resolvers).toHaveLength(2);
+
+    // The SECOND read answers first with the matching bytes, then the first
+    // read answers with bytes that would verify as a mismatch.
+    resolvers[1]({ text: SELF_TEXT });
+    expect(await screen.findByText("verified")).toBeInTheDocument();
+    resolvers[0]({ text: "stale bytes\n" });
+    // Still the newer verdict.
+    expect(await screen.findByText("verified")).toBeInTheDocument();
+    expect(screen.queryByText("mismatch")).not.toBeInTheDocument();
+  });
+
+  it("disables Verify all while a batch is running", async () => {
+    // The concurrency cap is per invocation, so a second click would start a
+    // second pool of four rather than reusing the first.
+    const user = userEvent.setup();
+    const pending: ((value: { text: string }) => void)[] = [];
+    const onReadSkillFile = vi.fn(
+      () =>
+        new Promise<{ text: string }>((resolve) => {
+          pending.push(resolve);
+        }),
+    );
+    renderWithMantine(
+      <ControlledSkillsScreen onReadSkillFile={onReadSkillFile} />,
+    );
+    await user.click(screen.getByText("data-analysis"));
+    const verifyAll = screen.getByRole("button", { name: /Verify all/ });
+    await user.click(verifyAll);
+    expect(verifyAll).toBeDisabled();
+    // Release every read the batch started; the button frees only once the
+    // whole batch settles, not once the first file does.
+    await waitFor(() => expect(pending.length).toBeGreaterThan(0));
+    for (const resolve of pending) resolve({ text: SELF_TEXT });
+    await waitFor(() => expect(verifyAll).not.toBeDisabled());
+  });
+
+  it("renders every duplicate finding rather than collapsing them", async () => {
+    // Three identical URIs produce two `duplicate-resource` findings with the
+    // same code and URI. A key built from those alone would make React drop
+    // the extras — hiding findings in exactly the malformed input this view is
+    // for.
+    const user = userEvent.setup();
+    const dup = {
+      uri: "skill://data-analysis/SKILL.md",
+      digest: SELF_DIGEST,
+      size: textToBytes(SELF_TEXT).byteLength,
+    };
+    renderWithMantine(
+      <ControlledSkillsScreen
+        skills={[{ ...CLEAN_SKILL, resources: [dup, dup, dup] }]}
+      />,
+    );
+    await user.click(screen.getByText("data-analysis"));
+    const issues = screen.getByTestId("skill-issues");
+    expect(within(issues).getAllByText("duplicate-resource")).toHaveLength(2);
   });
 
   it("shows the SKILL.md preview on demand", async () => {

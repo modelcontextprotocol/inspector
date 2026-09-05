@@ -12,15 +12,28 @@
  * whose URI path segment disagrees with `frontmatter.name`. Each is the exact
  * shape one of the checks in `core/mcp/skills.ts` exists to catch.
  *
- * Handlers are installed straight into the low-level `_requestHandlers` map
- * rather than through `setRequestHandler`, the same seam `modern-tasks.ts`
- * uses. `skills/*` are consumer-owned extension methods that neither era codec
- * defines, so they need no schemas and are era-blind in both directions —
- * which is what lets one fixture serve both the legacy and modern legs.
+ * `skills/list` and `skills/get` are registered through the **public**
+ * `setRequestHandler`, which accepts a consumer-owned method name as long as
+ * explicit schemas are supplied — no private-field escape hatch, and the params
+ * are validated on the way in. That is the difference from `modern-tasks.ts`:
+ * `tasks/*` are spec names the 2026 codec deleted, so they need the raw seam;
+ * `skills/*` are in neither codec, which makes them era-blind in both
+ * directions and lets one fixture serve both the legacy and modern legs.
+ *
+ * `resources/read` is the one exception, and it is a *wrap* rather than a
+ * registration: the fixture must answer `skill://` URIs while leaving every
+ * other URI to the SDK's own handler, and `setRequestHandler` replaces a
+ * handler instead of chaining onto it. There is no public "extend this method"
+ * API, so the existing handler is captured and delegated to.
  */
 
 import { createHash } from "node:crypto";
-import type { McpServer } from "@modelcontextprotocol/server";
+import * as z from "zod/v4";
+import {
+  ProtocolError,
+  ProtocolErrorCode,
+  type McpServer,
+} from "@modelcontextprotocol/server";
 
 /** SEP-2133 extension identifier for the Skills extension (SEP-2640). */
 export const SKILLS_EXTENSION_KEY = "io.modelcontextprotocol/skills";
@@ -215,7 +228,16 @@ export function getSkillEntry(uri: string): Record<string, unknown> {
   const skill = FIXTURE_SKILLS.find(
     (candidate) => `skill://${candidate.path}/SKILL.md` === uri,
   );
-  if (!skill) throw new Error(`Unknown skill uri: ${uri}`);
+  // `-32602`, not a plain `Error`: the method contract says an unknown skill
+  // URI is invalid params, and a generic throw would be mapped to a server
+  // failure — making the fixture non-conforming outside its three documented
+  // bad cases, which is the opposite of what it is for.
+  if (!skill) {
+    throw new ProtocolError(
+      ProtocolErrorCode.InvalidParams,
+      `Unknown skill uri: ${uri}`,
+    );
+  }
   // The envelope (`{ skill }`) is the conforming shape, and the only one the
   // Inspector accepts — see `GetSkillResultSchema`.
   return { skill: toEntry(skill) };
@@ -232,7 +254,11 @@ export function readSkillFile(
   };
 }
 
-/** The private handler registry the SDK dispatches through. */
+/**
+ * The private handler registry the SDK dispatches through. Reached ONLY to wrap
+ * `resources/read` — see the module header for why that one has no public
+ * equivalent.
+ */
 interface RawHandlerHost {
   _requestHandlers: Map<
     string,
@@ -241,38 +267,45 @@ interface RawHandlerHost {
 }
 
 interface UriRequest {
-  params?: { uri?: string; cursor?: string };
+  params?: { uri?: string };
 }
+
+const ListSkillsParamsSchema = z.object({ cursor: z.string().optional() });
+const GetSkillParamsSchema = z.object({ uri: z.string() });
 
 /**
  * Wire `skills/list`, `skills/get` and the `skill://` half of `resources/read`
  * onto an `McpServer`.
- *
- * `resources/read` is wrapped rather than replaced: a `skill://` URI is
- * answered here and everything else falls through to whatever the SDK
- * registered, so a config can serve ordinary resources alongside its skills.
  */
 export function wireSkillsHandlers(mcpServer: McpServer): void {
-  const registry = (mcpServer.server as unknown as RawHandlerHost)
-    ._requestHandlers;
+  const lowLevel = mcpServer.server;
 
-  registry.set("skills/list", async (request) => {
-    const req = request as UriRequest;
-    return listSkillsPage(req.params?.cursor);
-  });
+  lowLevel.setRequestHandler(
+    "skills/list",
+    { params: ListSkillsParamsSchema },
+    async (params) => listSkillsPage(params.cursor),
+  );
 
-  registry.set("skills/get", async (request) => {
-    const req = request as UriRequest;
-    return getSkillEntry(req.params?.uri ?? "");
-  });
+  lowLevel.setRequestHandler(
+    "skills/get",
+    { params: GetSkillParamsSchema },
+    async (params) => getSkillEntry(params.uri),
+  );
 
+  // Wrapped, not registered: a `skill://` URI is answered here and everything
+  // else falls through to whatever the SDK registered, so a config can serve
+  // ordinary resources alongside its skills.
+  const registry = (lowLevel as unknown as RawHandlerHost)._requestHandlers;
   const sdkResourcesRead = registry.get("resources/read");
   registry.set("resources/read", async (request, ctx) => {
     const req = request as UriRequest;
     const skillFile = readSkillFile(req.params?.uri ?? "");
     if (skillFile) return skillFile;
     if (!sdkResourcesRead) {
-      throw new Error(`Unknown resource: ${req.params?.uri}`);
+      throw new ProtocolError(
+        ProtocolErrorCode.InvalidParams,
+        `Unknown resource: ${req.params?.uri}`,
+      );
     }
     return sdkResourcesRead(request, ctx);
   });

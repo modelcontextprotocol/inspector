@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import {
   Alert,
   Badge,
@@ -42,11 +42,18 @@ import {
  */
 const VERIFY_CONCURRENCY = 4;
 
-/** Per-row verification progress. */
-type FileState =
+/**
+ * Per-row verification progress. `attempt` is the click that produced it: two
+ * verifications of the SAME row in the SAME manifest (a double click, or a row
+ * button pressed while "Verify all" is running) are not distinguished by the
+ * manifest key, so without it an older read finishing last would overwrite the
+ * newer verdict and leave the UI reporting bytes it no longer fetched.
+ */
+type FileState = { attempt: number } & (
   | { status: "pending" }
   | { status: "done"; verification: SkillVerification }
-  | { status: "error"; message: string };
+  | { status: "error"; message: string }
+);
 
 /**
  * Verification verdicts plus the manifest they belong to. Rows are keyed by
@@ -277,6 +284,12 @@ export function SkillsScreen({
     files: {},
   });
   const [previewState, setPreviewState] = useState<PreviewState>({ key: null });
+  // True while a "Verify all" batch is in flight; disables the button so a
+  // second click cannot stack another pool of workers on top.
+  const [batchRunning, setBatchRunning] = useState(false);
+  // Monotonic per-row attempt token. A ref because it is claimed inside an
+  // event handler, never during render.
+  const nextAttempt = useRef(0);
 
   const filtered = useMemo(() => {
     const needle = search.trim().toLowerCase();
@@ -342,24 +355,32 @@ export function SkillsScreen({
    */
   const verifyRow = useCallback(
     async (index: number, resource: SkillResource, key: string) => {
+      // Claimed synchronously, so two verifications of this row are ordered
+      // before either read starts.
+      const attempt = (nextAttempt.current += 1);
       const write = (state: FileState) =>
         setVerification((prev) => {
           // `null` is the un-adopted initial manifest; any other mismatch is a
           // continuation from a manifest that has since been invalidated.
           if (prev.key !== null && prev.key !== key) return prev;
           const files = prev.key === key ? prev.files : {};
+          // A newer attempt for this row already wrote — an older read
+          // finishing last must not overwrite it.
+          const held = files[index];
+          if (held !== undefined && held.attempt > attempt) return prev;
           return { key, files: { ...files, [index]: state } };
         });
-      write({ status: "pending" });
+      write({ attempt, status: "pending" });
       try {
         const contents = await onReadSkillFile(resource.uri);
         const result = await verifySkillResource(
           resource,
           skillFileBytes(contents),
         );
-        write({ status: "done", verification: result });
+        write({ attempt, status: "done", verification: result });
       } catch (err) {
         write({
+          attempt,
           status: "error",
           message: err instanceof Error ? err.message : String(err),
         });
@@ -386,7 +407,13 @@ export function SkillsScreen({
       }
     };
     const workers = Math.min(VERIFY_CONCURRENCY, manifest.length);
-    void Promise.all(Array.from({ length: workers }, () => worker()));
+    setBatchRunning(true);
+    // The concurrency cap is per invocation, so without the button being
+    // disabled below, a second click would start a second pool of four and a
+    // third would make it twelve — the flood the cap exists to prevent.
+    void Promise.all(Array.from({ length: workers }, () => worker())).finally(
+      () => setBatchRunning(false),
+    );
   }, [manifest, manifestKey, verifyRow]);
 
   const showSkillMd = useCallback(() => {
@@ -509,9 +536,15 @@ export function SkillsScreen({
                   </Alert>
                 ) : (
                   <IssueStack data-testid="skill-issues">
-                    {issues.map((issue) => (
+                    {issues.map((issue, index) => (
                       <Alert
-                        key={`${issue.code}:${issue.resourceUri ?? ""}`}
+                        // The index is load-bearing, not decoration: a manifest
+                        // repeating one URI three times yields three
+                        // `duplicate-resource` findings with identical code and
+                        // URI, and a key built from those alone would make
+                        // React drop the extras — hiding findings in exactly
+                        // the malformed input this view exists to inspect.
+                        key={`${index}:${issue.code}:${issue.resourceUri ?? ""}`}
                         color={issueColor(issue)}
                         title={issue.code}
                       >
@@ -542,7 +575,8 @@ export function SkillsScreen({
                     </VerifyButton>
                     <VerifyButton
                       onClick={verifyAll}
-                      disabled={manifest.length === 0}
+                      disabled={manifest.length === 0 || batchRunning}
+                      loading={batchRunning}
                     >
                       Verify all
                     </VerifyButton>

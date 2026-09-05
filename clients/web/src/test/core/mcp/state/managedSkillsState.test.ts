@@ -6,6 +6,7 @@ import {
   SKILLS_MAX_PAGES,
   SKILLS_PAGE_LIMIT_MESSAGE,
 } from "@inspector/core/mcp/state/managedSkillsState";
+import { SdkError, SdkErrorCode } from "@modelcontextprotocol/client";
 import { FakeInspectorClient } from "@inspector/core/mcp/__tests__/fakeInspectorClient";
 
 function skill(name: string): SkillEntry {
@@ -214,6 +215,36 @@ describe("ManagedSkillsState", () => {
     await expect(state.refresh()).rejects.toThrow("boom");
     expect(await errorEvent).toBe(failure);
     expect(state.getError()).toBe(failure);
+  });
+
+  describe("Protocol-entry attribution", () => {
+    it("attributes a decode rejection to its skills/list Protocol entry", async () => {
+      // Without this the Protocol tab renders an invalid `skills/list` result
+      // as a clean success — the same gap every managed list closed in #1953.
+      client.setStatus("connected");
+      const rejection = new SdkError(
+        SdkErrorCode.InvalidResult,
+        "Invalid result for skills/list: skills required",
+      );
+      client.listSkills.mockRejectedValueOnce(rejection);
+      await expect(state.refresh()).rejects.toThrow(rejection);
+      expect(client.markResponseRejected).toHaveBeenCalledWith(
+        "skills/list",
+        rejection.message,
+      );
+    });
+
+    it("does NOT attribute a transport failure", async () => {
+      // No response frame arrived, so the last-answered id still points at an
+      // EARLIER successful call; marking it would stamp "Rejected by the
+      // Inspector" onto an exchange that worked.
+      client.setStatus("connected");
+      client.listSkills.mockRejectedValueOnce(
+        new SdkError(SdkErrorCode.ConnectionClosed, "Connection closed"),
+      );
+      await expect(state.refresh()).rejects.toThrow();
+      expect(client.markResponseRejected).not.toHaveBeenCalled();
+    });
   });
 
   it("wraps a non-Error rejection", async () => {

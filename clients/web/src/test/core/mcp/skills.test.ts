@@ -9,6 +9,7 @@ import {
   checkSkillConformance,
   getSkillsExtension,
   isSkillsExtensionSupported,
+  normalizeSkillUri,
   sha256Digest,
   skillDisplayName,
   skillNameFromUri,
@@ -112,8 +113,44 @@ describe("skillNameFromUri", () => {
     expect(skillNameFromUri("SKILL.md")).toBeUndefined();
   });
 
+  it("returns undefined for a relative string", () => {
+    // SEP-2640 requires a full resource URI; treating `demo/SKILL.md` as one
+    // would let a non-conforming entry report a name and pass the path check.
+    expect(skillNameFromUri("demo/SKILL.md")).toBeUndefined();
+  });
+
+  it("reads the name off the RESOLVED path, not the raw string", () => {
+    expect(skillNameFromUri("skill://acme/wrong/../demo/SKILL.md")).toBe(
+      "demo",
+    );
+  });
+
   it("returns undefined when the segment before the suffix is empty", () => {
     expect(skillNameFromUri("skill:///SKILL.md")).toBeUndefined();
+  });
+});
+
+describe("normalizeSkillUri", () => {
+  it("resolves traversal segments", () => {
+    expect(normalizeSkillUri("skill://acme/billing/refunds/../other.md")).toBe(
+      "skill://acme/billing/other.md",
+    );
+  });
+
+  it("rejects a relative string, which is not a resource URI", () => {
+    expect(normalizeSkillUri("demo/SKILL.md")).toBeUndefined();
+  });
+
+  it("rejects an opaque-path URI, which the parser does not normalize", () => {
+    // `skill:demo/../x.md` parses but keeps its `..` verbatim, so containment
+    // could not be decided on it — accepting it would reopen the hole.
+    expect(normalizeSkillUri("skill:demo/SKILL.md")).toBeUndefined();
+  });
+
+  it("leaves an already-normal URI alone", () => {
+    expect(normalizeSkillUri("skill://demo/SKILL.md")).toBe(
+      "skill://demo/SKILL.md",
+    );
   });
 });
 
@@ -148,12 +185,14 @@ describe("checkSkillConformance", () => {
     expect(issues[0].severity).toBe("error");
   });
 
-  it("reports a missing description as a warning", () => {
+  it("reports a missing description as an error", () => {
+    // SEP-2640 requires `description`, so an absent one is a format violation
+    // and must not read as "0 errors" in the conformance summary.
     const issues = checkSkillConformance(
       entry({ frontmatter: { name: "demo" } }),
     );
     expect(issues.map((i) => i.code)).toEqual(["missing-description"]);
-    expect(issues[0].severity).toBe("warning");
+    expect(issues[0].severity).toBe("error");
   });
 
   it("reports a URI that does not carry a skill path", () => {
@@ -233,6 +272,35 @@ describe("checkSkillConformance", () => {
     );
     expect(issues.map((i) => i.code)).toEqual(["duplicate-resource"]);
     expect(issues[0].resourceUri).toBe("skill://demo/ref.md");
+  });
+
+  it("reports an entry that traverses out of the skill root", () => {
+    // The raw string starts with the root; the resolved path does not. A
+    // prefix check alone would miss this and report `Conforms`.
+    const issues = checkSkillConformance(
+      entry({
+        uri: "skill://demo/refunds/SKILL.md",
+        frontmatter: { name: "refunds", description: "d" },
+        resources: [
+          { uri: "skill://demo/refunds/SKILL.md", digest: DIGEST, size: 1 },
+          { uri: "skill://demo/refunds/../other.md", digest: DIGEST, size: 1 },
+        ],
+      }),
+    );
+    expect(issues.map((i) => i.code)).toEqual(["resource-outside-skill-root"]);
+  });
+
+  it("reports an unparseable manifest entry as outside the root", () => {
+    // Nothing can establish that a non-URI is inside a root.
+    const issues = checkSkillConformance(
+      entry({
+        resources: [
+          { uri: "skill://demo/SKILL.md", digest: DIGEST, size: 20 },
+          { uri: "not a uri", digest: DIGEST, size: 1 },
+        ],
+      }),
+    );
+    expect(issues.map((i) => i.code)).toEqual(["resource-outside-skill-root"]);
   });
 
   it("reports a manifest entry outside the skill root", () => {
