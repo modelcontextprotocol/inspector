@@ -58,9 +58,10 @@
 // `AGENTS.md`'s "one version per install-crossing dependency" rule actually
 // states: does a package that this repo DECLARES somewhere resolve to two
 // different versions across our installs at all? The candidate set is every name
-// in any install's `dependencies`/`devDependencies` (root or client) that more
-// than one install holds a top-level copy of — 17 packages today, against the
-// program tier's much smaller set.
+// in any install's `dependencies`, `devDependencies` or `optionalDependencies`
+// (root or client) that more than one install holds a top-level copy of — 17
+// packages today, against the program tier's much smaller set. `peerDependencies`
+// is the one field excluded, for the reason `declaredPackages` states.
 //
 // The two tiers are complementary and neither subsumes the other:
 //
@@ -275,8 +276,8 @@ export function toleratesSkew(name, holders, tolerated) {
 }
 
 /**
- * Every package name any install declares, across `dependencies` and
- * `devDependencies`.
+ * Every package name any install declares, across `dependencies`,
+ * `devDependencies` and `optionalDependencies`.
  *
  * `manifests` is `[{ dir, manifest }]`. All three fields count because the
  * boundary this tier polices is "does the repo name a package npm will install
