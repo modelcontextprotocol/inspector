@@ -47,6 +47,25 @@ import type { OAuthStorage, RevocationSnapshot } from "./storage.js";
  */
 export const DEFAULT_REVOCATION_TIMEOUT_MS = 5000;
 
+/**
+ * The least budget worth spending a revocation request on.
+ *
+ * The shared deadline below is consumed sequentially, so the grant that follows
+ * a slow one can arrive with a sliver of budget left — a couple of milliseconds,
+ * which is less than a TCP handshake, let alone a round trip. Issuing that
+ * request buys nothing: it is guaranteed to time out, and its outcome is the
+ * same `failed` the exhausted-budget branch already reports, only after a
+ * needless call to the authorization server.
+ *
+ * It also removes a boundary that nothing can land on cleanly. `remainingMs > 0`
+ * is decided by timer resolution: the deadline is enforced by a `setTimeout`,
+ * and a clock that has not yet ticked past the deadline when the loop comes
+ * round leaves a fractional budget behind, so the same run issues one request or
+ * two depending on scheduling noise (#2252). A floor an order of magnitude above
+ * that noise makes the decision the same every time.
+ */
+export const MIN_REVOCATION_REQUEST_BUDGET_MS = 5;
+
 /** Why a revocation request was not sent. */
 export type TokenRevocationSkipReason =
   /** The caller turned revocation off for this server. */
@@ -231,7 +250,17 @@ export interface RevokeTokenParams extends RevocationRequestParams {
 export async function revokeToken(
   params: RevokeTokenParams,
 ): Promise<TokenRevocationOutcome> {
-  const timeoutMs = params.timeoutMs ?? DEFAULT_REVOCATION_TIMEOUT_MS;
+  // Whole milliseconds, because `AbortSignal.timeout` takes an integer: Node
+  // throws `ERR_OUT_OF_RANGE` on a fractional delay — before the fetch, so the
+  // request is never sent and the caller gets that as the revocation's failure
+  // detail. What is left of a shared deadline is measured with a
+  // sub-millisecond clock, so a fractional budget does arrive here. Rounded
+  // rather than floored so a caller's own whole-millisecond timeout survives the
+  // trip through that clock and is still the number the timeout message names.
+  const timeoutMs = Math.max(
+    0,
+    Math.round(params.timeoutMs ?? DEFAULT_REVOCATION_TIMEOUT_MS),
+  );
   try {
     // Inside the try: `encodeURIComponent` throws on a lone UTF-16 surrogate,
     // which is valid JSON and so can reach here from a persisted client id or
@@ -692,7 +721,11 @@ async function runPlan(
   // on purpose (a burst of parallel requests to one authorization server is
   // not a kindness), so the budget is shared instead.
   const timeoutMs = params.timeoutMs ?? DEFAULT_REVOCATION_TIMEOUT_MS;
-  const deadlineAt = Date.now() + timeoutMs;
+  // `performance.now()` rather than `Date.now()`: this is an elapsed-time
+  // measurement, and a wall clock can be stepped by NTP or a suspend/resume
+  // mid-teardown, which would either expire the budget early or extend it. It is
+  // also sub-millisecond, so a budget is not spent or preserved by rounding.
+  const deadlineAt = performance.now() + timeoutMs;
 
   for (const grant of plan.grants) {
     // Metadata is cached once per server, not per issuer, so it describes
@@ -735,8 +768,10 @@ async function runPlan(
       continue;
     }
 
-    const remainingMs = deadlineAt - Date.now();
-    if (remainingMs <= 0) {
+    const remainingMs = deadlineAt - performance.now();
+    // Not `<= 0`: see MIN_REVOCATION_REQUEST_BUDGET_MS. A budget too small to
+    // complete a request is treated as no budget at all.
+    if (remainingMs <= MIN_REVOCATION_REQUEST_BUDGET_MS) {
       outcomes.push({
         status: "failed",
         endpoint,
