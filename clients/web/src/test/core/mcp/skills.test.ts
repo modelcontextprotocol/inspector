@@ -11,6 +11,7 @@ import {
   isSkillsExtensionSupported,
   normalizeSkillUri,
   skillEntriesMatch,
+  skillUriIdentity,
   sha256Digest,
   skillDisplayName,
   skillNameFromUri,
@@ -191,6 +192,21 @@ describe("normalizeSkillUri", () => {
   });
 });
 
+describe("skillUriIdentity", () => {
+  it("is the normalized form when the URI parses", () => {
+    expect(skillUriIdentity("skill://demo/a/../SKILL.md")).toBe(
+      "skill://demo/SKILL.md",
+    );
+  });
+
+  it("falls back to the raw string, keeping two bad URIs distinct", () => {
+    expect(skillUriIdentity("not a uri")).toBe("not a uri");
+    expect(skillUriIdentity("not a uri")).not.toBe(
+      skillUriIdentity("also not a uri"),
+    );
+  });
+});
+
 describe("skillEntriesMatch", () => {
   const base = (): SkillEntry => ({
     uri: "skill://demo/SKILL.md",
@@ -235,6 +251,20 @@ describe("skillEntriesMatch", () => {
     expect(
       skillEntriesMatch(withNested(["a", "b"]), withNested(["a", "b"])),
     ).toBe(true);
+  });
+
+  it("treats RFC-equivalent URI spellings as the same entry", () => {
+    // A server that canonicalizes an escape between the listing and the fetch
+    // has not changed the skill, so it must not read as a new snapshot.
+    const encoded: SkillEntry = {
+      ...base(),
+      uri: "skill://demo/%53KILL.md",
+      resources: [
+        { uri: "skill://demo/%53KILL.md", digest: DIGEST, size: 20 },
+        { uri: "skill://demo/x/../ref.md", digest: DIGEST, size: 10 },
+      ],
+    };
+    expect(skillEntriesMatch(base(), encoded)).toBe(true);
   });
 
   it("still sees a real difference", () => {
@@ -307,6 +337,16 @@ describe("checkSkillConformance", () => {
     }
   });
 
+  it("applies the name grammar to the RAW value, not a trimmed copy", () => {
+    // Trimming first would let `" demo "` through — and whitespace is not in
+    // the grammar, so the entry would report "Conforms" with a name that can
+    // never equal its URI path segment.
+    const issues = checkSkillConformance(
+      entry({ frontmatter: { name: " demo ", description: "d" } }),
+    );
+    expect(issues.map((i) => i.code)).toContain("malformed-name");
+  });
+
   it("accepts the names the Agent Skills format allows", () => {
     for (const name of ["a", "demo", "data-analysis", "a1-b2-c3"]) {
       const issues = checkSkillConformance(
@@ -328,6 +368,21 @@ describe("checkSkillConformance", () => {
       entry({ frontmatter: { description: "d" } }),
     );
     expect(issues.map((i) => i.code)).toEqual(["missing-name"]);
+  });
+
+  it("reports a description above the 1024-character limit", () => {
+    const issues = checkSkillConformance(
+      entry({ frontmatter: { name: "demo", description: "d".repeat(1025) } }),
+    );
+    expect(issues.map((i) => i.code)).toEqual(["malformed-description"]);
+    expect(issues[0].severity).toBe("error");
+  });
+
+  it("accepts a description exactly at the limit", () => {
+    const issues = checkSkillConformance(
+      entry({ frontmatter: { name: "demo", description: "d".repeat(1024) } }),
+    );
+    expect(issues).toEqual([]);
   });
 
   it("reports a missing description as an error", () => {
@@ -386,6 +441,20 @@ describe("checkSkillConformance", () => {
     expect(issues.map((i) => i.code)).toEqual(["missing-digest"]);
     expect(issues[0].severity).toBe("error");
     expect(issues[0].resourceUri).toBe("skill://demo/ref.md");
+  });
+
+  it("accepts a self-entry listed in an RFC-equivalent spelling", () => {
+    // The manifest names the same file the entry does, and it is fetchable as
+    // that file — reporting it missing would be the tool disagreeing with
+    // itself about which URIs are the same resource.
+    const issues = checkSkillConformance(
+      entry({
+        resources: [
+          { uri: "skill://demo/%53KILL.md", digest: DIGEST, size: 20 },
+        ],
+      }),
+    );
+    expect(issues.map((i) => i.code)).not.toContain("manifest-missing-self");
   });
 
   it("reports a manifest that omits the skill's own SKILL.md", () => {

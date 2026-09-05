@@ -24,6 +24,7 @@ import {
   checkSkillConformance,
   skillDisplayName,
   skillEntriesMatch,
+  skillUriIdentity,
   totalSkillBytes,
   verifySkillResource,
   type SkillIssue,
@@ -544,7 +545,12 @@ export function SkillsScreen({
         writeFetched({
           entry,
           issues: checkSkillConformance(entry),
-          wrongUri: entry.uri !== selected.uri,
+          // Compared by identity, not raw string: a server that canonicalizes
+          // an escape has answered for the same resource, and calling that
+          // "a different URI" would be the tool disagreeing with the read
+          // path, which accepts exactly that equivalence.
+          wrongUri:
+            skillUriIdentity(entry.uri) !== skillUriIdentity(selected.uri),
           // Compared semantically — see `skillEntriesMatch` for why a
           // `JSON.stringify` comparison would report key order and manifest
           // order as differences.

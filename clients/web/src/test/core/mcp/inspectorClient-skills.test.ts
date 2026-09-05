@@ -45,6 +45,21 @@ describe("InspectorClient skills methods (#2234)", () => {
     );
   }
 
+  /**
+   * A structural view onto two private fields, so the tests can stub the SDK
+   * client and set `capabilities` without connecting.
+   *
+   * The double cast is justified rather than incidental: `InspectorClient`
+   * declares both members `private`, so no single `as` relates it to a type
+   * that exposes them, and there is no public setter for either — the public
+   * path is `connect()`, which needs a transport, a live server and a
+   * handshake to reach the same state. It is safe because the shape asserted
+   * here is exactly the shape the class declares (`client` is the SDK client;
+   * `capabilities` is `ServerCapabilities | undefined`), so a rename or a type
+   * change on either field breaks these tests at the first use rather than
+   * silently passing. The same seam is used by
+   * `inspectorClient-raw-wire.test.ts`.
+   */
   function internals(client: InspectorClient): SkillsInternals {
     return client as unknown as SkillsInternals;
   }

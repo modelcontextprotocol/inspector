@@ -68,6 +68,9 @@ const DIGEST_PATTERN = /^sha256:[0-9a-f]{64}$/;
 const SKILL_NAME_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const SKILL_NAME_MAX_LENGTH = 64;
 
+/** The Agent Skills limit on `frontmatter.description`. */
+const SKILL_DESCRIPTION_MAX_LENGTH = 1024;
+
 /**
  * What the server declared under `io.modelcontextprotocol/skills`. The only
  * sub-option SEP-2640 defines is `directoryRead`, which gates
@@ -181,6 +184,19 @@ export function skillNameFromUri(uri: string): string | undefined {
 }
 
 /**
+ * The comparison identity of a resource URI: its normalized form, falling back
+ * to the raw string when it does not parse.
+ *
+ * Every URI comparison in this module and in the screen goes through this, so
+ * they cannot disagree about whether two spellings name the same file. The raw
+ * fallback is deliberate: two *different* unparseable URIs must stay distinct
+ * rather than both collapsing to one `undefined` identity.
+ */
+export function skillUriIdentity(uri: string): string {
+  return normalizeSkillUri(uri) ?? uri;
+}
+
+/**
  * The label a UI shows for a skill: the declared name, falling back to the URI
  * path segment, falling back to the raw URI. Never empty, so a list row is
  * always addressable even for a badly non-conforming entry.
@@ -197,6 +213,7 @@ export type SkillIssueCode =
   | "missing-name"
   | "malformed-name"
   | "missing-description"
+  | "malformed-description"
   | "malformed-uri"
   | "name-path-mismatch"
   | "missing-digest"
@@ -238,7 +255,11 @@ export interface SkillIssue {
  */
 export function checkSkillConformance(entry: SkillEntry): SkillIssue[] {
   const issues: SkillIssue[] = [];
-  const declaredName = entry.frontmatter.name?.trim();
+  // The RAW value is what the grammar is applied to — trimming first would let
+  // `" demo "` pass, and whitespace is not in the Agent Skills name grammar.
+  // The trimmed copy exists only to tell "absent" from "present but invalid".
+  const rawName = entry.frontmatter.name;
+  const declaredName = rawName?.trim() ? rawName : undefined;
   const uriName = skillNameFromUri(entry.uri);
 
   if (!declaredName) {
@@ -251,19 +272,27 @@ export function checkSkillConformance(entry: SkillEntry): SkillIssue[] {
     declaredName.length > SKILL_NAME_MAX_LENGTH ||
     !SKILL_NAME_PATTERN.test(declaredName)
   ) {
+    // Reaches here for `" demo "` too: the grammar sees the untrimmed value.
     issues.push({
       code: "malformed-name",
       severity: "error",
       message: `frontmatter.name "${declaredName}" is not a valid Agent Skills name: 1–${SKILL_NAME_MAX_LENGTH} lowercase alphanumerics and hyphens, with no leading, trailing or consecutive hyphen.`,
     });
   }
-  if (!entry.frontmatter.description?.trim()) {
+  const rawDescription = entry.frontmatter.description;
+  if (!rawDescription?.trim()) {
     // An error, not a warning: SEP-2640 requires `description` on every skill,
     // so an absent one is a format violation and must not read as "0 errors".
     issues.push({
       code: "missing-description",
       severity: "error",
       message: "frontmatter.description is required but missing or empty.",
+    });
+  } else if (rawDescription.length > SKILL_DESCRIPTION_MAX_LENGTH) {
+    issues.push({
+      code: "malformed-description",
+      severity: "error",
+      message: `frontmatter.description is ${rawDescription.length} characters, above the ${SKILL_DESCRIPTION_MAX_LENGTH}-character limit.`,
     });
   }
   if (uriName === undefined) {
@@ -320,7 +349,16 @@ export function checkSkillConformance(entry: SkillEntry): SkillIssue[] {
   // therefore not "a skill with no extra files" — it is a manifest that cannot
   // be checked against what the skill actually is, and reporting `Conforms`
   // for it would be a wrong answer rather than a missing one.
-  if (!entry.resources.some((resource) => resource.uri === entry.uri)) {
+  // Compared on the normalized identity, like every other URI comparison here:
+  // a manifest listing the RFC-equivalent `skill://demo/%53KILL.md` names the
+  // same file the entry does, and is fetchable as that file, so calling it a
+  // missing self-entry would be the tool disagreeing with itself.
+  const entryIdentity = skillUriIdentity(entry.uri);
+  if (
+    !entry.resources.some(
+      (resource) => skillUriIdentity(resource.uri) === entryIdentity,
+    )
+  ) {
     issues.push({
       code: "manifest-missing-self",
       severity: "error",
@@ -353,7 +391,7 @@ export function checkSkillConformance(entry: SkillEntry): SkillIssue[] {
     // sent. Unparseable URIs fall back to the raw string: they are already
     // reported by the root check, and normalizing them all to `undefined`
     // would make two different bad URIs look like one duplicate.
-    const identity = normalizeSkillUri(resource.uri) ?? resource.uri;
+    const identity = skillUriIdentity(resource.uri);
     if (seenUris.has(identity)) {
       issues.push({
         code: "duplicate-resource",
@@ -478,13 +516,23 @@ export function skillEntriesMatch(a: SkillEntry, b: SkillEntry): boolean {
  * a set; every other array keeps its order.
  */
 function canonicalEntry(entry: SkillEntry): string {
-  const { resources, ...rest } = entry;
+  const { resources, uri, ...rest } = entry;
+  // URIs are compared by IDENTITY, so a server that canonicalizes an escape
+  // between the listing and the fetch is not reported as a changed snapshot.
   const manifest = Array.isArray(resources)
     ? [...resources]
-        .sort((x, y) => String(x?.uri).localeCompare(String(y?.uri)))
+        .map((resource) => ({
+          ...resource,
+          uri: skillUriIdentity(String(resource?.uri)),
+        }))
+        .sort((x, y) => x.uri.localeCompare(y.uri))
         .map(canonicalize)
     : resources;
-  return JSON.stringify({ ...sortKeys(rest), resources: manifest });
+  return JSON.stringify({
+    ...sortKeys(rest),
+    uri: skillUriIdentity(uri),
+    resources: manifest,
+  });
 }
 
 /** Object keys sorted recursively; array ORDER is preserved throughout. */
