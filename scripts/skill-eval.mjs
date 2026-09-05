@@ -56,11 +56,20 @@ const THRESHOLD = Number(process.env.THRESHOLD ?? 0.8);
 // A hand-off is a harder thing to hit than a first move, and what counts as
 // acceptable is a separate judgement rather than one inherited from a number
 // tuned for the other measurement. 0.5 is the weakest claim worth asserting —
-// the pointer is taken more often than not. It is deliberately not 0.8: the
-// committed `testing` -> `test-servers` cases measure 33% (RUNS=3) against a
-// pointer that is live and stated in the first paragraph of `testing`'s body,
-// so an 0.8 bar would mark every hand-off red regardless of how strongly the
-// first skill points at the second, and the column would stop carrying signal.
+// the pointer is taken more often than not — and it is a floor on useful
+// reliability for a SECOND-HOP load, not a claim that 0.8 is unreachable. A
+// well-shaped pointer clears 0.8 outright: the committed `testing` ->
+// `test-servers` cases measured 33% (RUNS=3) when `testing` merely classified
+// which work belonged to `test-servers`, and 100%/100% (RUNS=5) once #2247
+// reshaped that into an imperative step. (An intermediate build of that change
+// measured 100%/80%. That is NOT an example of clearing an 0.8 bar — this
+// threshold is compared strictly, so 80% would fail one — but it is worth
+// knowing as the residual noise still present at RUNS=5.) What 0.5 buys
+// is a column that still separates an adequate pointer from a broken one — a
+// hand-off is a noisier measurement than a first move, so a bar set where a
+// STRONG pointer sits would mark both red.
+// A reshaped pointer therefore raises the ceiling those cases reach, not the
+// floor a *new* hand-off case should be judged against.
 //
 // It is compared STRICTLY, unlike the first-move threshold. "More often than
 // not" is `> 0.5`, and an inclusive compare passes exactly half the samples

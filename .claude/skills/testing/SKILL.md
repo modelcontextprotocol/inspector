@@ -11,11 +11,50 @@ statements, functions, and branches.** That rule and the React/Mantine
 conventions live in [`AGENTS.md`](../../../AGENTS.md); this skill is where a
 test goes, how to run it, and how to clear the gate.
 
-⚠️ **Anything that needs a real server to run against — an integration test, a
-smoke, reproducing a bug by hand — is `/test-servers`, and you have to load it.**
-Integration and smoke tests here drive a real server over a real transport
-rather than a mock, so picking, building and connecting to a fixture is a
-procedure of its own that this skill does not carry.
+## Before you write it: does the test need a real server?
+
+**If it does, load the `test-servers` skill now — that is step one, before
+choosing a location or writing a line.**
+
+The condition is **"does this test depend on a fixture from `test-servers/`?"**
+— not which tier it lands in, and not which directory it lands in. There are two
+ways to depend on one, and they need different halves of that skill:
+
+- **It connects.** An integration test that connects; an end-to-end test that
+  connects; a smoke that drives a connected flow; a coverage gap only reachable
+  over a real connection; reproducing a reported bug against a server. These
+  need the whole procedure — which showcase config, which protocol era, and the
+  staleness hazard.
+- **It names or runs the built fixture without connecting.** `smoke:tui` boots
+  the TUI against a catalog whose stdio command *is* the built fixture, then
+  asserts it survives. No transport is driven and no protocol era applies, but
+  the **build and staleness** half lands on it in full.
+
+⚠️ **"A build ran" is not the dependency — using the artefact is.**
+`clients/web`'s `pretest` runs `test-servers:build` before *every* unit run, so
+the fixture is on disk for tests that never reference it. What counts is whether
+the test imports, spawns, or points a config at it.
+
+So the condition does **not** hold when the test renders a component from
+fixture props, exercises a pure function or a parser, or is a smoke that touches
+no fixture — `smoke:launcher` checks `--help`, and `smoke:web` /
+`smoke:web:browser` only assert the SPA is served and paints.
+
+⚠️ **Neither the tier nor the folder decides this.** `src/test/integration/`
+holds `storage/store-id.test.ts`, which validates a string, and `mcp/import/*`,
+which parses config files, right beside the tests that drive a live connection.
+They sit there for the node env and the 30s timeout, not because they connect —
+placement is the project manifest, so it cannot also be the fixture trigger.
+Ask what the test *does*, not where it lives.
+
+**In the connecting case**, the test drives a **real server over a real
+transport, never a mock**, and picking the fixture, building it, and connecting
+with the right protocol era is a procedure this skill does not carry. Writing
+one without `test-servers` means hand-rolling a fixture that already exists, or
+mocking the thing the tier exists to avoid mocking. **In the build-only case**,
+none of the transport or protocol-era guidance applies — what you need from
+`test-servers` is how to build the fixture and why a stale build keeps serving
+old code.
 
 ## Where the test file goes
 
@@ -38,7 +77,10 @@ web-owned test living under `src/test/` instead is a bug.
    `core/` source layout (`mcp/`, `mcp/node/`, `mcp/remote/`, `auth/`,
    `auth/node/`, `storage/`). **Placement is the manifest** — any file under that
    folder is picked up by the integration project (node env, 30s timeouts) via a
-   folder glob; there is no enumeration to keep in sync.
+   folder glob; there is no enumeration to keep in sync. ⚠️ Placement is *not*
+   the fixture trigger, though — this folder holds pure parser and storage tests
+   alongside the connecting ones. If the test you are adding here **connects**,
+   **load the `test-servers` skill first**; the fixture is half of that test.
 3. **Shared test infrastructure** — `renderWithMantine.tsx`, `setup.ts`,
    `fixtures/`, `scrollAreaStoryAssertions.ts`.
 
@@ -81,6 +123,19 @@ transports/servers) → out-of-process (`clients/cli/__tests__/e2e.test.ts`,
 spawns the built binary) → smokes through the built launcher (`npm run smoke`) →
 Storybook play functions (`test:storybook`) → the published-tarball check
 (`npm run pack:verify`, local/release only — needs network).
+
+⚠️ **Depth in that list is not the fixture boundary, and the boundary cuts
+across the tiers rather than along them.** Needing `test-servers/`: the
+**connecting** web integration tests, the out-of-process CLI tests, the smokes
+that connect (`smoke:cli`, `smoke:web:app`, `smoke:web:elicit`,
+`smoke:web:tabs`), `pack:verify`, and **`smoke:tui`** — which never asserts a
+round trip but calls `ensureTestServers({ requires: ["stdio"] })` and hands the
+built fixture to the TUI as its catalog's stdio command. Not needing it: the
+pure tests inside the same integration project, `smoke:launcher`, `smoke:web`
+and `smoke:web:browser` (all three stop at boot without a fixture), and every
+Storybook play function (fixture props). **Load the `test-servers` skill as soon
+as a task puts you on the fixture side of that line** — whichever tier it sits
+in.
 
 `validate` runs the per-client `test` scripts — so web **unit** plus cli's
 out-of-process `e2e.test.ts`, but **not** web's integration project, which runs
@@ -159,5 +214,20 @@ shared helper that wraps one.
 
 ## Test servers, not mocks
 
-Integration and smoke tests drive a real server over a real transport. See
-`/test-servers` for picking and building one.
+The tests that drive MCP behaviour over a transport — the connecting integration
+tests and the connected smokes — use a real server rather than a mock. **For
+those, load the `test-servers` skill and use all of it**: which showcase config
+covers the feature, which protocol era to connect with, how to add a combination
+that does not exist yet, and why a fixture can keep serving stale code after an
+edit.
+
+**A test that only *names* the built fixture needs that skill too, for a
+narrower reason.** `smoke:tui` boots the TUI against a catalog whose stdio
+command is the build output and asserts it survives — it opens no transport, so
+config choice and protocol era do not apply to it, but **building the fixture
+and the staleness hazard do.** Load the skill and take that half.
+
+A pure test that happens to live in the integration project, and a smoke that
+references no fixture, need neither (see the tier list above) — and note that
+`clients/web`'s `pretest` builds `test-servers/` before every unit run, so its
+presence on disk says nothing about whether your test depends on it.

@@ -284,22 +284,48 @@ pass 2/4 whenever `RUNS` is even, reporting a result the criterion does not
 license (Copilot). A strict bound of `1.0` is therefore unreachable and the
 harness rejects it up front rather than failing every case.
 
-At 0.8 a hand-off case would be red no matter how strongly the first skill
-pointed at the second, and the column would stop carrying signal. Read a
-hand-off number as a description-strength measurement, not a verdict — and read
-it at `RUNS=5`, since at `RUNS=3` one sample is worth 33 points.
+0.5 is a floor on **useful reliability for a second-hop load**, not a claim that
+0.8 is out of reach — a well-shaped pointer clears it outright, at 100% in the
+worked example below. Note that a *chain* bar of 0.8 would be a **strict** one
+(`> 0.8`, the comparison this threshold uses; the first-move 0.8 is the
+inclusive `>=`), so at `RUNS=5` only a clean 5/5 would pass it — 4/5 would not. What 0.5 buys is that the column keeps carrying signal across the
+*range* of pointer strengths a repo actually has: a hand-off is a noisier
+measurement than a first move, so a bar set where a strong pointer sits marks
+every merely-adequate one red and stops distinguishing them from a broken one.
+Read a hand-off number as a description-strength measurement, not a verdict —
+and read it at `RUNS=5`, since at `RUNS=3` one sample is worth 33 points.
 
-**The committed cases have measured 33% / 33% on one `RUNS=3` run and 100% /
-33% on another, and at least one of them being red is the intended state rather
-than an oversight.** `skills:eval` is not a gate (see below), and the number is
-the finding: `testing` points at `test-servers` in its first paragraph and the
-model follows that pointer *sometimes*. Strengthening it is its own change
-against its own issue (#2247); lowering the bar to turn the column green would
-throw away the only signal this feature adds.
+**A red hand-off case is a finding about the pointer, not a build break — and
+the fix is to reshape the pointer, never to lower the bar.** The committed
+`testing` -> `test-servers` cases are the worked example.
+
+Against the **weak** pointer — a one-sentence ⚠️ near the top of `testing`
+*classifying* which work belongs to `test-servers` — they measured **33% / 33%**
+on one `RUNS=3` run and **100% / 33%** on another. Those two runs are the
+unchanged-pointer pair the warning below is about: same prompts, same body, 67
+points apart on the first case.
+
+Rewriting that classification into an imperative first step ("load the
+`test-servers` skill now — that is step one"), and repeating it at the two later
+points where the model actually decides it is writing a fixture-backed test, took
+them to **100% / 100% at `RUNS=5`** with the prompts unchanged (#2247). Nothing
+else moved: the two descriptions were not touched, and the same suite scored
+**63/63** first-move cases at 100%. (An intermediate build of that change
+measured 100% / 80% on the full suite and 100% / 100% on a focused
+`-- test-servers` run — a reminder that even `RUNS=5` still carries 20 points of
+noise, well short of the 67 above.)
+
+The transferable part is that **a pointer is followed when it reads as an action
+with a trigger, and skimmed when it reads as a fact.** #2202 found the same
+lever on a *description*'s shape; this is it applied to a body. The corollary is
+where to put one: the top of a body is read before the model knows it needs the
+second skill, so a pointer that lives only there is a pointer it has already
+scrolled past by the time it matters.
 
 ⚠️ **Do not read a rise between two `RUNS=3` runs as an improvement.** One
-sample is 33 points there, and the two runs above straddle a 67-point swing on
-the same prompt with no change to the pointer. Note in particular that the
+sample is 33 points there, and the two weak-pointer runs above (33% / 33% and
+100% / 33%) straddle a 67-point swing on the same prompt with no change to the
+pointer. Note in particular that the
 turn-boundary rule added later can only ever *lower* a chained score — it
 rejects matches a flatter reading accepted — so a higher number after it is
 noise by construction, not an effect. `RUNS=5` is the smallest honest setting
@@ -372,7 +398,7 @@ The summary is two lines, never one:
 
 ```
 7/7 first-move cases at or above 80%.
-1/2 hand-off cases above 50%.
+2/2 hand-off cases above 50%.
 ```
 
 Narrowing the run never narrows what a **negative** case is scored against — a
