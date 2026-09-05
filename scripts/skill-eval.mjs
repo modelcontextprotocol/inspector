@@ -187,15 +187,27 @@ export function collectCases(only, skillsDir = SKILLS_DIR) {
  * run that loaded B, then A, then B again indistinguishable from one that never
  * reached B from A (#2204).
  *
+ * Each entry also carries the **assistant event** it came from, and that
+ * boundary is what makes the order mean something. The model may emit several
+ * `tool_use` blocks in one message, and it cannot see the first skill's body
+ * until the message after — so two `Skill` calls in the SAME event are
+ * concurrent guesses, not a hand-off, however they happen to be ordered inside
+ * the array. Flattening the stream and reading position alone would score that
+ * as `A` leading to `B` (Copilot); `chainHit` requires a later turn instead.
+ *
  * @param {string} text One or more newline-delimited JSON events. A trailing
  *   partial line is ignored, so this can be fed incrementally.
- * @returns {{ invoked: string[], rest: string, result: string | null }}
+ * @param {number} [turnOffset] Assistant events already seen, so a stream fed
+ *   in chunks keeps one monotonic turn count rather than restarting per chunk.
+ * @returns {{ invoked: {payload: string, turn: number}[], rest: string,
+ *   result: string | null, nextTurn: number }}
  */
-export function collectSkillInvocations(text) {
+export function collectSkillInvocations(text, turnOffset = 0) {
   const lines = text.split("\n");
   const rest = lines.pop() ?? "";
   const invoked = [];
   let result = null;
+  let turn = turnOffset;
   for (const line of lines) {
     if (!line.trim()) continue;
     let evt;
@@ -207,13 +219,26 @@ export function collectSkillInvocations(text) {
     }
     if (evt?.type === "result") result = evt.subtype ?? null;
     if (evt?.type !== "assistant") continue;
+    // One assistant event is one turn: everything inside it was decided at
+    // once, before any of its results came back.
+    turn++;
     for (const block of evt.message?.content ?? []) {
       if (block?.type !== "tool_use" || block.name !== "Skill") continue;
       // Don't assume the input field's name — match on the whole payload.
-      invoked.push(JSON.stringify(block.input ?? {}));
+      invoked.push({ payload: JSON.stringify(block.input ?? {}), turn });
     }
   }
-  return { invoked, rest, result };
+  return { invoked, rest, result, nextTurn: turn };
+}
+
+/**
+ * The skill names one recorded invocation asked for.
+ *
+ * @param {{payload: string} | string} entry
+ * @returns {string[]}
+ */
+function entryNames(entry) {
+  return invokedSkillNames(typeof entry === "string" ? entry : entry.payload);
 }
 
 /**
@@ -281,12 +306,15 @@ export function invokedSkillNames(payload) {
  * false failure about someone else's environment rather than about these
  * skills (Copilot).
  *
+ * Turn boundaries are irrelevant here — a first-move case asks only whether a
+ * skill fired at all — so this reads the names and ignores the rest.
+ *
  * @param {string | null} expect Skill name, or null for a negative case.
- * @param {Iterable<string>} invoked
+ * @param {Iterable<{payload: string} | string>} invoked
  * @param {Set<string> | null} [ours] Repo skill names. Null counts any skill.
  */
 export function sampleHit(expect, invoked, ours = null) {
-  const names = [...invoked].flatMap(invokedSkillNames);
+  const names = [...invoked].flatMap(entryNames);
   if (expect === null) {
     return ours === null ? names.length === 0 : !names.some((n) => ours.has(n));
   }
@@ -302,19 +330,35 @@ export function sampleHit(expect, invoked, ours = null) {
  * and it may well load something before the chain's first link — neither
  * changes the fact that A led to B, which is the only claim the case makes.
  *
+ * Every link after the first must land in a **strictly later assistant turn**
+ * than the one before. Position in the stream is not causation: the model can
+ * emit several `tool_use` blocks in one message, and it has not seen the first
+ * skill's body when it does, so two `Skill` calls in the same turn are parallel
+ * guesses that a flat index would happily score as a hand-off (Copilot). This
+ * is the whole difference between "B was loaded after A" and "A led to B".
+ *
+ * The scan stays greedy, which is still correct under that constraint: taking
+ * the EARLIEST occurrence of a link can only leave more room for the rest, so
+ * no later starting point could succeed where the greedy one fails.
+ *
  * Nothing is asserted about foreign skills here, unlike a negative case. A
  * hand-off case names exactly what it wants and a contributor's own
  * `~/.claude/skills` entry firing alongside it says nothing either way.
  *
  * @param {string[]} chain Ordered skill names, ending with the owning skill.
- * @param {Iterable<string>} invoked
+ * @param {Iterable<{payload: string, turn: number}>} invoked
  * @returns {boolean}
  */
 export function chainHit(chain, invoked) {
-  const names = [...invoked].flatMap(invokedSkillNames);
   let want = 0;
-  for (const name of names) {
-    if (name === chain[want]) want++;
+  let prevTurn = -Infinity;
+  for (const entry of invoked) {
+    if (!entryNames(entry).includes(chain[want])) continue;
+    // A link in the same turn as the previous one cannot have been caused by
+    // it — the model had not seen that skill's body yet.
+    if (want > 0 && !(entry.turn > prevTurn)) continue;
+    prevTurn = entry.turn;
+    want++;
     if (want === chain.length) return true;
   }
   return false;
@@ -402,7 +446,8 @@ const DISALLOWED_TOOLS = [
  *
  * @param {string} prompt
  * @param {{ spawnFn?: typeof spawn, cwd?: string, maxTurns?: number }} [opts]
- * @returns {Promise<string[]>} Skill payloads, in the order they fired.
+ * @returns {Promise<{payload: string, turn: number}[]>} Skill invocations, in
+ *   the order they fired, each tagged with the assistant turn it came from.
  */
 export function runPrompt(
   prompt,
@@ -447,10 +492,17 @@ export function runPrompt(
     let buf = "";
     const invoked = [];
     let result = null;
+    // Carried across chunks so the turn count is monotonic over the whole
+    // stream rather than restarting at each read.
+    let turnOffset = 0;
     p.stdout.on("data", (chunk) => {
-      const parsed = collectSkillInvocations(buf + chunk.toString());
+      const parsed = collectSkillInvocations(
+        buf + chunk.toString(),
+        turnOffset,
+      );
       buf = parsed.rest;
-      for (const payload of parsed.invoked) invoked.push(payload);
+      turnOffset = parsed.nextTurn;
+      for (const entry of parsed.invoked) invoked.push(entry);
       if (parsed.result !== null) result = parsed.result;
     });
     p.on("error", reject);

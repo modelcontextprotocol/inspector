@@ -216,7 +216,7 @@ for everything else — a prompt someone would actually type to reach this skill
 directly is a first-move case even when a hand-off could also get there, and it
 is the cheaper measurement by an order of magnitude.
 
-Five rules the shape enforces, each for a reason worth knowing:
+Six rules the shape enforces, each for a reason worth knowing:
 
 - **The chain ends with the skill whose file it lives in.** The case exists to
   measure whether _this_ skill is reachable, so the file that must go red when
@@ -232,6 +232,14 @@ Five rules the shape enforces, each for a reason worth knowing:
   run.** The model may load something before the chain starts and something
   unrelated in between; neither changes the claim that A led to B. What does not
   score is the reverse order.
+- **Every link after the first must land in a later assistant turn.** Position
+  in the stream is not causation: the model can emit several `tool_use` blocks
+  in one message, and it has not seen the first skill's body when it does — so
+  two `Skill` calls in the same turn are parallel guesses, not a hand-off, and
+  a flat index would score them as one (Copilot). This is the difference
+  between "B was loaded after A" and "A led to B", and it is the second way a
+  chained case can false-pass — the first being a prompt that carries the
+  target's own trigger, below. Only the chain's *first* link is unconstrained.
 - **Repeats and unknown links are rejected.** A repeated link cannot be
   observed, and a link naming a skill the model cannot invoke can never fire —
   it would score a permanent 0% that reads as a description problem.

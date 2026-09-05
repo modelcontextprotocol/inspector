@@ -30,8 +30,16 @@ import {
 } from "./skill-eval.mjs";
 import { MIN_POSITIVE_CASES } from "./lib/skill-manifest.mjs";
 
-/** The payloads a run records, in the order the skills fired. */
-const fired = (...names) => names.map((n) => JSON.stringify({ skill: n }));
+/**
+ * What a run records, one skill per assistant turn — the shape a genuine
+ * hand-off has.
+ */
+const fired = (...names) =>
+  names.map((n, i) => ({ payload: JSON.stringify({ skill: n }), turn: i + 1 }));
+
+/** Several skills emitted together in ONE assistant turn. */
+const firedTogether = (turn, ...names) =>
+  names.map((n) => ({ payload: JSON.stringify({ skill: n }), turn }));
 
 /** The eval script itself, for the cases that must exercise `main`'s guards. */
 const SCRIPT_PATH = fileURLToPath(new URL("./skill-eval.mjs", import.meta.url));
@@ -49,7 +57,8 @@ test("collectSkillInvocations finds Skill tool_use payloads", () => {
     assistant(skillUse("testing")) + "\n",
   );
   assert.equal(invoked.length, 1);
-  assert.ok(invoked[0].includes("testing"));
+  assert.ok(invoked[0].payload.includes("testing"));
+  assert.equal(invoked[0].turn, 1);
 });
 
 test("collectSkillInvocations ignores other tools and other event types", () => {
@@ -79,7 +88,9 @@ test("collectSkillInvocations holds back a trailing partial line", () => {
 
 test("collectSkillInvocations tolerates a tool_use with no input", () => {
   const text = assistant({ type: "tool_use", name: "Skill" }) + "\n";
-  assert.deepEqual([...collectSkillInvocations(text).invoked], ["{}"]);
+  assert.deepEqual(collectSkillInvocations(text).invoked, [
+    { payload: "{}", turn: 1 },
+  ]);
 });
 
 test("sampleHit scores positive and negative cases", () => {
@@ -104,8 +115,85 @@ test("collectSkillInvocations preserves order and repeats", () => {
     ].join("\n") + "\n";
   const { invoked } = collectSkillInvocations(text);
   assert.deepEqual(
-    invoked.map((p) => JSON.parse(p).skill),
-    ["test-servers", "testing", "test-servers"],
+    invoked.map((e) => [JSON.parse(e.payload).skill, e.turn]),
+    [
+      ["test-servers", 1],
+      ["testing", 2],
+      ["test-servers", 3],
+    ],
+  );
+});
+
+test("collectSkillInvocations tags each invocation with its assistant turn", () => {
+  // Two `Skill` blocks in ONE message share a turn: the model chose both before
+  // seeing either result, so nothing in that message can have caused anything
+  // else in it. The turn is what lets `chainHit` tell that apart from a
+  // hand-off; a flat index cannot.
+  const text =
+    [
+      assistant(skillUse("testing"), skillUse("test-servers")),
+      assistant(skillUse("board-ops")),
+    ].join("\n") + "\n";
+  const { invoked, nextTurn } = collectSkillInvocations(text);
+  assert.deepEqual(
+    invoked.map((e) => [JSON.parse(e.payload).skill, e.turn]),
+    [
+      ["testing", 1],
+      ["test-servers", 1],
+      ["board-ops", 2],
+    ],
+  );
+  // The count carries across chunks, so a stream read in pieces stays monotonic.
+  assert.equal(nextTurn, 2);
+  const more = collectSkillInvocations(
+    assistant(skillUse("local-dev")) + "\n",
+    nextTurn,
+  );
+  assert.equal(more.invoked[0].turn, 3);
+});
+
+test("chainHit refuses two skills loaded in the same assistant turn", () => {
+  // The finding this pins: the model can emit several `tool_use` blocks in one
+  // message, and it has NOT seen the first skill's body when it does. So an
+  // [A, B] pair from one message is two parallel guesses, and scoring it as a
+  // hand-off would report a causal link that cannot exist — a case that would
+  // keep passing after the pointer in `testing` was deleted.
+  assert.equal(
+    chainHit(
+      ["testing", "test-servers"],
+      firedTogether(1, "testing", "test-servers"),
+    ),
+    false,
+  );
+  // The same two skills one turn apart is the real thing.
+  assert.equal(
+    chainHit(
+      ["testing", "test-servers"],
+      [...firedTogether(1, "testing"), ...firedTogether(2, "test-servers")],
+    ),
+    true,
+  );
+  // A same-turn pair does not poison a later genuine hand-off.
+  assert.equal(
+    chainHit(
+      ["testing", "test-servers"],
+      [
+        ...firedTogether(1, "testing", "test-servers"),
+        ...firedTogether(2, "test-servers"),
+      ],
+    ),
+    true,
+  );
+  // Only the FIRST link is unconstrained; every later one needs a new turn.
+  assert.equal(
+    chainHit(
+      ["local-dev", "testing", "test-servers"],
+      [
+        ...firedTogether(1, "local-dev"),
+        ...firedTogether(2, "testing", "test-servers"),
+      ],
+    ),
+    false,
   );
 });
 
