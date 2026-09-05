@@ -49,7 +49,11 @@ function withoutCryptoMember(
     if (original) {
       Object.defineProperty(globalThis.crypto, name, original);
     } else {
-      delete (globalThis.crypto as Record<string, unknown>)[name];
+      delete (
+        globalThis.crypto as Partial<
+          Pick<Crypto, "randomUUID" | "getRandomValues">
+        >
+      )[name];
     }
   }
 }
