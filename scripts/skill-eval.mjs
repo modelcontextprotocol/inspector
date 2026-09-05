@@ -62,7 +62,7 @@ const THRESHOLD = Number(process.env.THRESHOLD ?? 0.8);
 // `test-servers` cases measured 33% (RUNS=3) when `testing` merely classified
 // which work belonged to `test-servers`, and 100%/100% (RUNS=5) once #2247
 // reshaped that into an imperative step. (An intermediate build of that change
-// measured 100%/80%. That is NOT an example of clearing an 0.8 bar — this
+// measured 100%/80%. That is NOT an example of clearing a 0.8 bar — this
 // threshold is compared strictly, so 80% would fail one — but it is worth
 // knowing as the residual noise still present at RUNS=5.) What 0.5 buys
 // is a column that still separates an adequate pointer from a broken one — a

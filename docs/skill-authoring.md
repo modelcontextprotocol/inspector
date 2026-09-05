@@ -292,8 +292,11 @@ inclusive `>=`), so at `RUNS=5` only a clean 5/5 would pass it — 4/5 would not
 *range* of pointer strengths a repo actually has: a hand-off is a noisier
 measurement than a first move, so a bar set where a strong pointer sits marks
 every merely-adequate one red and stops distinguishing them from a broken one.
-Read a hand-off number as a description-strength measurement, not a verdict —
-and read it at `RUNS=5`, since at `RUNS=3` one sample is worth 33 points.
+Read a hand-off number as a **pointer**-strength measurement — the strength of
+what the *first* skill's body says about the second, not of either description,
+since a well-written chained prompt is one the target's description cannot
+trigger on its own. Not a verdict, either; and read it at `RUNS=5`, since at
+`RUNS=3` one sample is worth 33 points.
 
 **A red hand-off case is a finding about the pointer, not a build break — and
 the fix is to reshape the pointer, never to lower the bar.** The committed

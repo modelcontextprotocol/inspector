@@ -20,11 +20,17 @@ The condition is **"does this test depend on a fixture from `test-servers/`?"**
 — not which tier it lands in, and not which directory it lands in. There are two
 ways to depend on one, and they need different halves of that skill:
 
-- **It connects.** An integration test that connects; an end-to-end test that
-  connects; a smoke that drives a connected flow; a coverage gap only reachable
-  over a real connection; reproducing a reported bug against a server. These
-  need the whole procedure — which showcase config, which protocol era, and the
-  staleness hazard.
+- **It connects to a fixture.** An integration test that connects; an
+  end-to-end test that connects; a smoke that drives a connected flow; a
+  coverage gap only reachable over a real connection; reproducing a reported bug
+  against a server. These need the whole procedure — which showcase config,
+  which protocol era, and the staleness hazard.
+  ⚠️ **Connecting is a strong hint, not the rule.** A few integration tests
+  deliberately hand-roll a JSON-RPC server because the composable fixture
+  *cannot* produce what they assert on — `inspectorClient-malformed-list.test.ts`
+  and `listSalvage-era.test.ts` need wire shapes the SDK's own server refuses to
+  emit. Real transport, real client, no `test-servers/` dependency. Check
+  whether a fixture can express the case before reaching for one.
 - **It names or runs the built fixture without connecting.** `smoke:tui` boots
   the TUI against a catalog whose stdio command *is* the built fixture, then
   asserts it survives. No transport is driven and no protocol era applies, but
@@ -79,8 +85,10 @@ web-owned test living under `src/test/` instead is a bug.
    folder is picked up by the integration project (node env, 30s timeouts) via a
    folder glob; there is no enumeration to keep in sync. ⚠️ Placement is *not*
    the fixture trigger, though — this folder holds pure parser and storage tests
-   alongside the connecting ones. If the test you are adding here **connects**,
-   **load the `test-servers` skill first**; the fixture is half of that test.
+   alongside the connecting ones. If the test you are adding here **needs a
+   fixture from `test-servers/`, load that skill first**; the fixture is half of
+   that test. Connecting is a strong hint but not the rule — see the
+   hand-rolled-server exception above.
 3. **Shared test infrastructure** — `renderWithMantine.tsx`, `setup.ts`,
    `fixtures/`, `scrollAreaStoryAssertions.ts`.
 
@@ -125,14 +133,15 @@ Storybook play functions (`test:storybook`) → the published-tarball check
 (`npm run pack:verify`, local/release only — needs network).
 
 ⚠️ **Depth in that list is not the fixture boundary, and the boundary cuts
-across the tiers rather than along them.** Needing `test-servers/`: the
-**connecting** web integration tests, the out-of-process CLI tests, the smokes
+across the tiers rather than along them.** Needing `test-servers/`: the web
+integration tests **that drive one**, the out-of-process CLI tests, the smokes
 that connect (`smoke:cli`, `smoke:web:app`, `smoke:web:elicit`,
 `smoke:web:tabs`), `pack:verify`, and **`smoke:tui`** — which never asserts a
 round trip but calls `ensureTestServers({ requires: ["stdio"] })` and hands the
 built fixture to the TUI as its catalog's stdio command. Not needing it: the
-pure tests inside the same integration project, `smoke:launcher`, `smoke:web`
-and `smoke:web:browser` (all three stop at boot without a fixture), and every
+pure tests inside the same integration project, the connecting tests that
+deliberately hand-roll a server, `smoke:launcher`, `smoke:web` and
+`smoke:web:browser` (all three stop at boot without a fixture), and every
 Storybook play function (fixture props). **Load the `test-servers` skill as soon
 as a task puts you on the fixture side of that line** — whichever tier it sits
 in.
@@ -214,12 +223,11 @@ shared helper that wraps one.
 
 ## Test servers, not mocks
 
-The tests that drive MCP behaviour over a transport — the connecting integration
-tests and the connected smokes — use a real server rather than a mock. **For
-those, load the `test-servers` skill and use all of it**: which showcase config
-covers the feature, which protocol era to connect with, how to add a combination
-that does not exist yet, and why a fixture can keep serving stale code after an
-edit.
+The tests that drive MCP behaviour over a transport use a real server rather
+than a mock, and **for the ones that get that server from `test-servers/`, load
+the skill and use all of it**: which showcase config covers the feature, which
+protocol era to connect with, how to add a combination that does not exist yet,
+and why a fixture can keep serving stale code after an edit.
 
 **A test that only *names* the built fixture needs that skill too, for a
 narrower reason.** `smoke:tui` boots the TUI against a catalog whose stdio
