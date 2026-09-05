@@ -126,7 +126,8 @@ The point of deleting the client-side copies rather than merely keeping them in
 step is that **a package installs only into an install root that declares it**.
 Aligned duplicate declarations still drift the next time someone bumps one of
 them; no declaration at all cannot. `npm run verify:dep-lockstep` is the detector
-for the skew, and consolidation is what removes the opportunity.
+for the skew — in both its tiers since #2226 — and consolidation is what removes
+the opportunity.
 
 Two consequences that read as bugs and are not:
 
@@ -146,7 +147,7 @@ supposed to rule out.
 **`react` and `react-dom` are the exception, and stay pinned per client.** They
 are a matched pair — `react-dom` reaches into React internals — and `react-dom`
 is still web-declared, so npm resolves it and its React peer together inside
-`clients/web/node_modules` (19.2.8 today, against the root's 19.2.7). Pointing
+`clients/web/node_modules`. Pointing
 `react` at the root while `react-dom` resolves from the client would pair a
 renderer with a React it was not installed against, which is the same split the
 pin exists to prevent, arrived at from the other side. `dedupe` still collapses
@@ -209,18 +210,27 @@ on disk. The two mechanisms are **not** equally safe, and neither is a guarantee
   wide range (`eslint-plugin-react-refresh` accepts `^9 || ^10`) the copies agree
   only because npm happens to resolve the same latest in both installs, which is
   a coincidence that holds until it doesn't.
-- A **transitive** copy is constrained by nothing of ours whatsoever, and one has
-  already diverged: cli's `@types/node` is `24.13.1` against the root's
-  `24.13.3`, and was `24.13.1` on `v2/main` too — a declared `^24.12.4` loses to
-  a nearer transitive.
+- A **transitive** copy is constrained by nothing of ours whatsoever, and one had
+  already diverged: cli's `@types/node` was `24.13.1` against the root's
+  `24.13.3`, on `v2/main` too — a declared `^24.12.4` loses to a nearer
+  transitive. It is pinned with an `overrides` entry in `clients/cli` since
+  #2226.
 
-⚠️ **Nothing gates either of those, and `verify:dep-lockstep` is not it.**
-That guard derives its candidate set from what each `tsc` **program** resolves
-(see below), so it sees only packages a program loads from two installs. A tool
-*binary* — `eslint`, `prettier`, `vitest` — never enters a program, so it is
-outside the candidate set no matter how far it drifts, and the cli `@types/node`
-skew above passes for a second reason on top of that: no one program sees both
-copies. When you change what a client declares, check by hand from that client:
+✅ **`verify:dep-lockstep` gates both of those since #2226.** Its second tier
+compares every package **any** install *declares* — `dependencies`,
+`devDependencies` and `optionalDependencies`, unioned across the root and all
+four clients — against every **top-level** copy in every install, independent of
+what a `tsc` program resolves. So a tool *binary* that no program loads
+(`eslint`, `typescript`, `vitest`) and a transitive copy that no single program
+meets (the cli `@types/node` above) are both in scope now, as is a skew between
+two **clients** with no root copy involved (`@types/react`, web against tui).
+
+⚠️ **Two gaps remain, and they are why the by-hand check below is still worth
+running.** The tier reads **lockfiles**, so a copy you installed by hand and
+never committed is invisible to it; and it compares only names some manifest
+declares, so a purely transitive package no manifest anywhere names stays the
+program tier's business. When you change what a client declares, check by hand
+from that client:
 
 ```sh
 cd clients/web && npm exec -- which eslint prettier tsc vitest
@@ -307,9 +317,17 @@ recursive-generic surface is exponential. A zod `4.3.6` / `4.4.3` skew exhausted
 the 4 GB tsc heap outright with `TS2589` (#1896).
 
 ⚠️ **Raising the heap hides the class rather than fixing it.** Align the
-versions; `npm run verify:dep-lockstep` is the guard, and it derives its
-candidate set from what actually enters each `tsc` program, so a package whose
-declarations arrive only through another package's `.d.ts` is still seen.
+versions; `npm run verify:dep-lockstep` is the guard, and it runs **two tiers**.
+The first derives its candidate set from what actually enters each `tsc`
+program, so a package whose declarations arrive only through another package's
+`.d.ts` is still seen. The second (#2226) compares every **declared** package's
+top-level copies across installs whatever any program loads, so a transitive or
+peer-shadow drift no program can meet is caught too.
+
+Aligning a stale install is `npm update <pkg>` there — it moves the lockfile
+within the declared range without widening the range, which
+`npm install <pkg>@<version>` would. A transitive copy that will not move takes
+an `overrides` entry in that install (see the next section).
 
 ### Why `overrides` beats `npm audit fix`
 

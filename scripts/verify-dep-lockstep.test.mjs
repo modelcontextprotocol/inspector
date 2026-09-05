@@ -13,11 +13,17 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   clientProjects,
+  countDeclaredHeld,
+  declaredPackages,
+  findDeclaredSkew,
   findSkew,
   hasReadableLockShape,
   lockVersionsByPath,
   majorOf,
+  partitionDeclaredSkew,
   partitionSkew,
+  toleratesSkew,
+  topLevelVersions,
 } from "./verify-dep-lockstep.mjs";
 
 test("clientProjects: a `typecheck` script's projects win over references", () => {
@@ -401,4 +407,246 @@ test("majorOf: prerelease and build metadata are irrelevant", () => {
     assert.equal(majorOf(input), expected, input);
   for (const bad of ["next", "", undefined, null, "v4.4.3"])
     assert.equal(majorOf(bad), null, JSON.stringify(bad));
+});
+
+// ---------------------------------------------------------------------------
+// The declared tier (#2226). One case per rule, same convention as above.
+// ---------------------------------------------------------------------------
+
+test("declaredPackages: dependencies, devDependencies and optionalDependencies from every install", () => {
+  // devDependencies count because the boundary is "does the repo name a package
+  // npm installs for us", not "does it ship" — `@types/node` and the toolchain
+  // are exactly the case #2226 is about, and all of them are devDependencies.
+  // optionalDependencies count for the same reason: npm attempts to install one
+  // like any other direct declaration (Copilot, #2226).
+  assert.deepEqual(
+    [
+      ...declaredPackages([
+        { dir: ".", manifest: { dependencies: { react: "^19.0.0" } } },
+        {
+          dir: "clients/web",
+          manifest: {
+            dependencies: { "react-dom": "^19.2.4" },
+            devDependencies: { "@types/react": "^19.2.14" },
+            optionalDependencies: { fsevents: "^2.3.3" },
+          },
+        },
+      ]),
+    ].sort(),
+    ["@types/react", "fsevents", "react", "react-dom"],
+  );
+});
+
+test("declaredPackages: a peer range is not a declaration", () => {
+  // A peer range constrains the consumer's HOST rather than naming what this
+  // repo installs; the copy npm auto-installs to satisfy an unmet one is still
+  // caught whenever some manifest declares that name, which is the
+  // eslint/typescript/vitest shadow case (all three are root devDependencies).
+  assert.deepEqual(
+    [
+      ...declaredPackages([
+        { dir: ".", manifest: { peerDependencies: { react: "^19.0.0" } } },
+      ]),
+    ],
+    [],
+  );
+});
+
+test("declaredPackages: a manifest with no dependency fields contributes nothing", () => {
+  assert.equal(
+    declaredPackages([{ dir: "clients/launcher", manifest: { name: "l" } }])
+      .size,
+    0,
+  );
+});
+
+test("topLevelVersions: nested copies are excluded", () => {
+  // Top-level is what the install's own code resolves and what a range in that
+  // manifest governs. A nested copy exists because some dependency asked for a
+  // different version, so it is constrained by that dependency, not by us.
+  const versions = topLevelVersions({
+    lockfileVersion: 3,
+    packages: {
+      "": { name: "fixture" },
+      "node_modules/zod": { version: "4.4.3" },
+      "node_modules/outer/node_modules/zod": { version: "3.0.0" },
+      "clients/web/node_modules/zod": { version: "9.9.9" },
+    },
+  });
+  assert.deepEqual([...versions], [["zod", "4.4.3"]]);
+});
+
+test("findDeclaredSkew: two installs disagreeing is skew, and every holder is named", () => {
+  const skewed = findDeclaredSkew(
+    new Set(["@types/node"]),
+    new Map([
+      [".", new Map([["@types/node", "24.13.3"]])],
+      ["clients/cli", new Map([["@types/node", "24.13.1"]])],
+      ["clients/web", new Map([["@types/node", "24.13.3"]])],
+    ]),
+  );
+  assert.deepEqual(skewed, [
+    {
+      name: "@types/node",
+      holders: [
+        { dir: ".", version: "24.13.3" },
+        { dir: "clients/cli", version: "24.13.1" },
+        { dir: "clients/web", version: "24.13.3" },
+      ],
+    },
+  ]);
+});
+
+test("findDeclaredSkew: two CLIENTS disagreeing is skew, with no root copy involved", () => {
+  // No single `tsc` program can see this pair, which is why the program tier
+  // structurally cannot report it (`@types/react`, web against tui).
+  assert.deepEqual(
+    findDeclaredSkew(
+      new Set(["@types/react"]),
+      new Map([
+        [".", new Map()],
+        ["clients/web", new Map([["@types/react", "19.2.18"]])],
+        ["clients/tui", new Map([["@types/react", "19.2.17"]])],
+      ]),
+    ).map((s) => s.name),
+    ["@types/react"],
+  );
+});
+
+test("findDeclaredSkew: one holder cannot skew, and agreement is not skew", () => {
+  assert.deepEqual(
+    findDeclaredSkew(
+      new Set(["only-root", "agreed"]),
+      new Map([
+        [
+          ".",
+          new Map([
+            ["only-root", "1.0.0"],
+            ["agreed", "2.0.0"],
+          ]),
+        ],
+        ["clients/web", new Map([["agreed", "2.0.0"]])],
+      ]),
+    ),
+    [],
+  );
+});
+
+test("findDeclaredSkew: an installed package no manifest declares is not a candidate", () => {
+  assert.deepEqual(
+    findDeclaredSkew(
+      new Set(),
+      new Map([
+        [".", new Map([["undeclared", "1.0.0"]])],
+        ["clients/web", new Map([["undeclared", "2.0.0"]])],
+      ]),
+    ),
+    [],
+  );
+});
+
+test("findDeclaredSkew: results are sorted by package name", () => {
+  const two = new Map([
+    [
+      ".",
+      new Map([
+        ["zod", "1.0.0"],
+        ["ajv", "1.0.0"],
+      ]),
+    ],
+    [
+      "clients/web",
+      new Map([
+        ["zod", "2.0.0"],
+        ["ajv", "2.0.0"],
+      ]),
+    ],
+  ]);
+  assert.deepEqual(
+    findDeclaredSkew(new Set(["zod", "ajv"]), two).map((s) => s.name),
+    ["ajv", "zod"],
+  );
+});
+
+test("partitionDeclaredSkew: deny by default", () => {
+  const skewed = [
+    {
+      name: "zod",
+      holders: [
+        { dir: ".", version: "4.4.3" },
+        { dir: "w", version: "4.3.6" },
+      ],
+    },
+  ];
+  const { failures, ignored } = partitionDeclaredSkew(skewed, new Map());
+  assert.deepEqual(
+    failures.map((f) => f.name),
+    ["zod"],
+  );
+  assert.deepEqual(ignored, []);
+});
+
+test("partitionDeclaredSkew: an allowlisted package tolerates only a within-major skew", () => {
+  const within = {
+    name: "hono",
+    holders: [
+      { dir: ".", version: "4.1.0" },
+      { dir: "w", version: "4.2.0" },
+    ],
+  };
+  const across = {
+    name: "hono",
+    holders: [
+      { dir: ".", version: "4.1.0" },
+      { dir: "w", version: "5.0.0" },
+    ],
+  };
+  const allow = new Map([["hono", "reason"]]);
+  assert.deepEqual(partitionDeclaredSkew([within], allow).ignored.length, 1);
+  assert.deepEqual(partitionDeclaredSkew([across], allow).failures.length, 1);
+});
+
+test("toleratesSkew: the within-a-major rule is stated once for both tiers", () => {
+  const allow = new Map([["p", "reason"]]);
+  assert.equal(
+    toleratesSkew("p", [{ version: "1.1.0" }, { version: "1.2.0" }], allow),
+    true,
+  );
+  assert.equal(
+    toleratesSkew("p", [{ version: "1.1.0" }, { version: "2.0.0" }], allow),
+    false,
+  );
+  // Unparseable can't be proven same-major, so it fails rather than passes.
+  assert.equal(
+    toleratesSkew("p", [{ version: "1.1.0" }, { version: "next" }], allow),
+    false,
+  );
+  assert.equal(
+    toleratesSkew("other", [{ version: "1.1.0" }, { version: "1.2.0" }], allow),
+    false,
+  );
+});
+
+test("countDeclaredHeld: counts declared names more than one install holds", () => {
+  const versions = new Map([
+    [
+      ".",
+      new Map([
+        ["shared", "1.0.0"],
+        ["root-only", "1.0.0"],
+      ]),
+    ],
+    [
+      "clients/web",
+      new Map([
+        ["shared", "1.0.0"],
+        ["undeclared", "1.0.0"],
+      ]),
+    ],
+  ]);
+  assert.equal(
+    countDeclaredHeld(new Set(["shared", "root-only", "undeclared"]), versions),
+    // `shared` alone: the other two are held by one install each.
+    1,
+  );
 });
