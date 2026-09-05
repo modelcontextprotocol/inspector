@@ -115,18 +115,20 @@ describe("InspectorClient skills methods (#2234)", () => {
     expect(request.mock.calls[0][0].params.uri).toBe("skill://demo/SKILL.md");
   });
 
-  it("normalizes the enveloped skills/get result to the entry", async () => {
+  it("unwraps the skills/get envelope to the entry", async () => {
     const client = makeClient();
     stubRequest(client, { skill: ENTRY });
     expect(await client.getSkill("skill://demo/SKILL.md")).toEqual(ENTRY);
   });
 
-  it("normalizes the inline skills/get result to the entry", async () => {
-    // The SEP settles the entry shape but not the envelope; a server that
-    // returns the entry at the top level must not fail here.
+  it("rejects a skills/get result returned without its envelope", async () => {
+    // Normalizing it would let a non-conforming server through the one place
+    // that could have reported it.
     const client = makeClient();
     stubRequest(client, ENTRY);
-    expect(await client.getSkill("skill://demo/SKILL.md")).toEqual(ENTRY);
+    await expect(
+      client.getSkill("skill://demo/SKILL.md"),
+    ).rejects.toBeDefined();
   });
 
   it("rejects a skills/list result that is not a skills page", async () => {

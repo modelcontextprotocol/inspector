@@ -7,7 +7,6 @@ import {
   SKILLS_GET_METHOD,
   SKILLS_LIST_METHOD,
   SkillEntrySchema,
-  normalizeGetSkillResult,
 } from "@inspector/core/mcp/skillsSchemas";
 
 const ENTRY = {
@@ -89,20 +88,24 @@ describe("ListSkillsResultSchema", () => {
 });
 
 describe("GetSkillResultSchema", () => {
-  it("normalizes the enveloped form to the entry", () => {
+  it("unwraps the envelope to the entry", () => {
     expect(GetSkillResultSchema.parse({ skill: ENTRY })).toEqual(ENTRY);
   });
 
-  it("normalizes the inline form to the entry", () => {
-    expect(GetSkillResultSchema.parse(ENTRY)).toEqual(ENTRY);
-  });
-
-  it("normalizeGetSkillResult accepts either shape directly", () => {
-    expect(normalizeGetSkillResult({ skill: ENTRY })).toEqual(ENTRY);
-    expect(normalizeGetSkillResult(ENTRY)).toEqual(ENTRY);
+  it("rejects an entry returned inline rather than normalizing it", () => {
+    // The envelope is required. Accepting the inline form would silently
+    // normalize a non-conforming response, which is the failure this
+    // extension's support exists to report.
+    expect(() => GetSkillResultSchema.parse(ENTRY)).toThrow();
   });
 
   it("rejects a result that is neither shape", () => {
     expect(() => GetSkillResultSchema.parse({ nothing: true })).toThrow();
+  });
+
+  it("rejects an envelope whose skill is not an entry", () => {
+    expect(() =>
+      GetSkillResultSchema.parse({ skill: { frontmatter: {} } }),
+    ).toThrow();
   });
 });

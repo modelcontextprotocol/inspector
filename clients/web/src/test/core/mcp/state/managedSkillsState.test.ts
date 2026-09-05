@@ -142,6 +142,52 @@ describe("ManagedSkillsState", () => {
     expect(state.getPagination()).toEqual({ pageCount: 0 });
   });
 
+  it("lets a reconnect load its skills while a stale walk is still hanging", async () => {
+    client.setStatus("connected");
+    // The first walk never settles. A boolean overlap guard would stay set,
+    // so the reconnect's own load would no-op and never be retried — the
+    // reconnect would show an empty Skills tab forever.
+    client.listSkills.mockImplementationOnce(() => new Promise(() => {}));
+    void state.refresh().catch(() => {});
+    await client.disconnect();
+
+    client.skillPages = [{ skills: [skill("fresh")] }];
+    await client.connect();
+    expect(state.getSkills().map((s) => s.frontmatter.name)).toEqual(["fresh"]);
+  });
+
+  it("a stale walk settling later cannot release the live session's guard", async () => {
+    client.setStatus("connected");
+    let release: ((value: { skills: SkillEntry[] }) => void) | undefined;
+    client.listSkills.mockImplementationOnce(
+      async () =>
+        new Promise((resolve) => {
+          release = resolve;
+        }),
+    );
+    const stale = state.refresh();
+    await client.disconnect();
+    client.setStatus("connected");
+
+    // A live walk is now in flight under the new generation.
+    let releaseLive: ((value: { skills: SkillEntry[] }) => void) | undefined;
+    client.listSkills.mockImplementationOnce(
+      async () =>
+        new Promise((resolve) => {
+          releaseLive = resolve;
+        }),
+    );
+    const live = state.refresh();
+    // The stale one settles first; its `finally` must not free the guard.
+    release?.({ skills: [] });
+    await stale;
+    const blocked = await state.refresh();
+    expect(blocked).toEqual([]);
+    releaseLive?.({ skills: [skill("live")] });
+    await live;
+    expect(state.getSkills().map((s) => s.frontmatter.name)).toEqual(["live"]);
+  });
+
   it("does not surface a dead session's failure in the live one", async () => {
     client.setStatus("connected");
     let fail: ((err: Error) => void) | undefined;

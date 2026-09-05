@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   Alert,
   Badge,
@@ -42,11 +42,36 @@ import {
  */
 const VERIFY_CONCURRENCY = 4;
 
-/** Per-file verification progress, keyed by the manifest entry's URI. */
+/** Per-row verification progress. */
 type FileState =
   | { status: "pending" }
   | { status: "done"; verification: SkillVerification }
   | { status: "error"; message: string };
+
+/**
+ * Verification verdicts plus the manifest they belong to. Rows are keyed by
+ * their **index**, not their URI: the conformance checker deliberately tolerates
+ * a duplicated URI so it can report `duplicate-resource`, and a URI key would
+ * collide those two rows into one verdict.
+ */
+interface VerificationState {
+  /**
+   * The manifest these verdicts belong to, or `null` before anything has been
+   * verified. `useValueChange` deliberately does not fire on the first render,
+   * so `null` stands in for "the initial manifest, not yet adopted" — the first
+   * write claims it. Once set it is only ever replaced by an invalidation, so a
+   * stale continuation can never be mistaken for an initial one.
+   */
+  key: string | null;
+  files: Record<number, FileState>;
+}
+
+/** The SKILL.md preview, plus the manifest it belongs to (`null` as above). */
+interface PreviewState {
+  key: string | null;
+  contents?: SkillFileContents;
+  message?: string;
+}
 
 export interface SkillsScreenProps {
   skills: SkillEntry[];
@@ -239,15 +264,19 @@ export function SkillsScreen({
   onReadSkillFile,
 }: SkillsScreenProps) {
   const { selectedSkillUri, search } = ui;
-  const [fileStates, setFileStates] = useState<Record<string, FileState>>({});
-  const [preview, setPreview] = useState<SkillFileContents | null>(null);
-  const [previewError, setPreviewError] = useState<string | null>(null);
-  // Bumped every time the verdicts are invalidated. A read that was already in
-  // flight captures the value it started under and discards its result when
-  // this has moved on — otherwise a slow fetch for the previous selection (or
-  // the previous manifest) lands afterwards and writes a verdict for content
-  // nobody is looking at, or worse, one that was never checked.
-  const epoch = useRef(0);
+  // Both slices carry the manifest key they belong to, and every async
+  // continuation writes through a functional update that compares it. That is
+  // what discards a read still in flight when the selection changes or a
+  // Refresh replaces the manifest — without it, a slow fetch lands afterwards
+  // and writes a verdict for content nobody is looking at, or one that was
+  // never checked. Storing the key IN the state (rather than bumping a ref
+  // during render) keeps the `useValueChange` callback to `setState` calls
+  // only, which is the purity that hook documents and requires.
+  const [verification, setVerification] = useState<VerificationState>({
+    key: null,
+    files: {},
+  });
+  const [previewState, setPreviewState] = useState<PreviewState>({ key: null });
 
   const filtered = useMemo(() => {
     const needle = search.trim().toLowerCase();
@@ -295,43 +324,45 @@ export function SkillsScreen({
 
   // Adjusted DURING RENDER via `useValueChange` rather than in an effect, so a
   // new selection (or a refreshed manifest) never paints a frame carrying the
-  // previous one's verification results. The epoch bump is a ref write, which
-  // is why it is done in the callback alongside the state resets rather than
-  // during the render body itself.
-  useValueChange(manifestKey, () => {
-    epoch.current += 1;
-    setFileStates({});
-    setPreview(null);
-    setPreviewError(null);
+  // previous one's verification results. `setState` calls only — the hook
+  // replays this callback whenever React replays the render.
+  useValueChange(manifestKey, (next) => {
+    setVerification({ key: next, files: {} });
+    setPreviewState({ key: next });
   });
 
-  const verifyFile = useCallback(
-    async (resource: SkillResource) => {
-      const started = epoch.current;
-      setFileStates((prev) => ({
-        ...prev,
-        [resource.uri]: { status: "pending" },
-      }));
+  const fileStates = verification.key === manifestKey ? verification.files : {};
+
+  /**
+   * Verify one manifest ROW. Keyed by row index, not by URI: the checker
+   * deliberately tolerates a duplicated URI so it can report
+   * `duplicate-resource`, and two rows sharing a key would share one verdict —
+   * verifying either would update both, and "Verify all" would race two
+   * different digest/size declarations into the same slot.
+   */
+  const verifyRow = useCallback(
+    async (index: number, resource: SkillResource, key: string) => {
+      const write = (state: FileState) =>
+        setVerification((prev) => {
+          // `null` is the un-adopted initial manifest; any other mismatch is a
+          // continuation from a manifest that has since been invalidated.
+          if (prev.key !== null && prev.key !== key) return prev;
+          const files = prev.key === key ? prev.files : {};
+          return { key, files: { ...files, [index]: state } };
+        });
+      write({ status: "pending" });
       try {
         const contents = await onReadSkillFile(resource.uri);
-        const verification = await verifySkillResource(
+        const result = await verifySkillResource(
           resource,
           skillFileBytes(contents),
         );
-        if (epoch.current !== started) return;
-        setFileStates((prev) => ({
-          ...prev,
-          [resource.uri]: { status: "done", verification },
-        }));
+        write({ status: "done", verification: result });
       } catch (err) {
-        if (epoch.current !== started) return;
-        setFileStates((prev) => ({
-          ...prev,
-          [resource.uri]: {
-            status: "error",
-            message: err instanceof Error ? err.message : String(err),
-          },
-        }));
+        write({
+          status: "error",
+          message: err instanceof Error ? err.message : String(err),
+        });
       }
     },
     [onReadSkillFile],
@@ -348,34 +379,42 @@ export function SkillsScreen({
     // records them as per-row state), and this handler cannot be async, so the
     // settled promise is discarded explicitly at one place instead of per file.
     let next = 0;
+    const key = manifestKey;
     const worker = async (): Promise<void> => {
       for (let i = next++; i < manifest.length; i = next++) {
-        await verifyFile(manifest[i]);
+        await verifyRow(i, manifest[i], key);
       }
     };
     const workers = Math.min(VERIFY_CONCURRENCY, manifest.length);
     void Promise.all(Array.from({ length: workers }, () => worker()));
-  }, [manifest, verifyFile]);
+  }, [manifest, manifestKey, verifyRow]);
 
   const showSkillMd = useCallback(() => {
     if (!selected) return;
-    const started = epoch.current;
+    const key = manifestKey;
     // A click handler cannot await, and this chain terminates in its own
-    // `catch` that surfaces the message in the preview slot. Both arms are
-    // epoch-guarded: a read that resolves after the selection moved on would
-    // otherwise show one skill's SKILL.md under another's heading.
+    // `catch` that surfaces the message in the preview slot. Both arms compare
+    // the manifest key they started under: a read that resolves after the
+    // selection moved on would otherwise show one skill's SKILL.md under
+    // another's heading.
     void onReadSkillFile(selected.uri)
       .then((contents) => {
-        if (epoch.current !== started) return;
-        setPreview(contents);
-        setPreviewError(null);
+        setPreviewState((prev) =>
+          prev.key !== null && prev.key !== key ? prev : { key, contents },
+        );
       })
       .catch((err: unknown) => {
-        if (epoch.current !== started) return;
-        setPreview(null);
-        setPreviewError(err instanceof Error ? err.message : String(err));
+        const message = err instanceof Error ? err.message : String(err);
+        setPreviewState((prev) =>
+          prev.key !== null && prev.key !== key ? prev : { key, message },
+        );
       });
-  }, [onReadSkillFile, selected]);
+  }, [manifestKey, onReadSkillFile, selected]);
+
+  const preview =
+    previewState.key === manifestKey ? previewState.contents : undefined;
+  const previewError =
+    previewState.key === manifestKey ? previewState.message : undefined;
 
   const errorCount = issues.filter((i) => i.severity === "error").length;
   const warningCount = issues.length - errorCount;
@@ -527,8 +566,8 @@ export function SkillsScreen({
                       </Table.Tr>
                     </Table.Thead>
                     <Table.Tbody>
-                      {manifest.map((resource) => {
-                        const state = fileStates[resource.uri];
+                      {manifest.map((resource, index) => {
+                        const state = fileStates[index];
                         const color =
                           state?.status === "done"
                             ? verificationColor(state.verification.status)
@@ -536,7 +575,10 @@ export function SkillsScreen({
                               ? "red"
                               : "gray";
                         return (
-                          <Table.Tr key={resource.uri}>
+                          // Index-keyed for the same reason the verdicts are:
+                          // a duplicated URI is a case this screen reports, so
+                          // it must not also collide two rows into one.
+                          <Table.Tr key={index}>
                             <Table.Td>{resource.uri}</Table.Td>
                             <Table.Td>{resource.size ?? "—"}</Table.Td>
                             <Table.Td>{shortDigest(resource.digest)}</Table.Td>
@@ -549,7 +591,9 @@ export function SkillsScreen({
                                   // A click handler cannot await, and
                                   // `verifyFile` owns its own failures — it
                                   // records them as this row's state.
-                                  onClick={() => void verifyFile(resource)}
+                                  onClick={() =>
+                                    void verifyRow(index, resource, manifestKey)
+                                  }
                                 >
                                   Verify
                                 </RowVerifyButton>
@@ -561,35 +605,45 @@ export function SkillsScreen({
                     </Table.Tbody>
                   </ManifestTable>
                 )}
-                {manifest.map((resource) => {
-                  const state = fileStates[resource.uri];
+                {manifest.map((resource, index) => {
+                  const state = fileStates[index];
                   if (state?.status === "done") {
-                    const { verification } = state;
-                    if (verification.status === "mismatch") {
-                      return (
-                        <Alert
-                          key={`mismatch:${resource.uri}`}
-                          color="red"
-                          title="Digest mismatch"
-                        >
-                          <Stack gap={2}>
-                            <MonoCaption>{resource.uri}</MonoCaption>
-                            <MonoCaption>
-                              expected {verification.expectedDigest}
-                            </MonoCaption>
-                            <MonoCaption>
-                              actual {verification.actualDigest}
-                            </MonoCaption>
-                          </Stack>
-                        </Alert>
-                      );
-                    }
-                    return null;
+                    const result = state.verification;
+                    if (result.status !== "mismatch") return null;
+                    // A size disagreement is caught BEFORE hashing, so it has
+                    // no `actualDigest` — titling it "Digest mismatch" and
+                    // rendering "actual undefined" would hide the real failure.
+                    const sizeFailure = result.actualDigest === undefined;
+                    return (
+                      <Alert
+                        key={`mismatch:${index}`}
+                        color="red"
+                        title={
+                          sizeFailure ? "Size mismatch" : "Digest mismatch"
+                        }
+                      >
+                        <Stack gap={2}>
+                          <MonoCaption>{resource.uri}</MonoCaption>
+                          {sizeFailure ? (
+                            <Text size="sm">{result.reason}</Text>
+                          ) : (
+                            <>
+                              <MonoCaption>
+                                expected {result.expectedDigest}
+                              </MonoCaption>
+                              <MonoCaption>
+                                actual {result.actualDigest}
+                              </MonoCaption>
+                            </>
+                          )}
+                        </Stack>
+                      </Alert>
+                    );
                   }
                   if (state?.status === "error") {
                     return (
                       <Alert
-                        key={`read:${resource.uri}`}
+                        key={`read:${index}`}
                         color="red"
                         title="Could not read file"
                       >
@@ -612,9 +666,24 @@ export function SkillsScreen({
               {preview && (
                 <Stack gap="xs" data-testid="skill-md-preview">
                   <SectionHeading>SKILL.md</SectionHeading>
+                  {/* `contents`, not a text `block`: a server may serve
+                      SKILL.md as a base64 `blob`, and the block form would
+                      substitute an empty string and paint a blank preview for
+                      a file verification just read correctly. */}
                   <ContentViewer
-                    block={{ type: "text", text: preview.text ?? "" }}
-                    mimeType={preview.mimeType ?? "text/markdown"}
+                    contents={
+                      typeof preview.text === "string"
+                        ? {
+                            uri: selected.uri,
+                            text: preview.text,
+                            mimeType: preview.mimeType ?? "text/markdown",
+                          }
+                        : {
+                            uri: selected.uri,
+                            blob: preview.blob ?? "",
+                            mimeType: preview.mimeType ?? "text/markdown",
+                          }
+                    }
                     copyable
                   />
                 </Stack>

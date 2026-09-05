@@ -216,9 +216,8 @@ export function getSkillEntry(uri: string): Record<string, unknown> {
     (candidate) => `skill://${candidate.path}/SKILL.md` === uri,
   );
   if (!skill) throw new Error(`Unknown skill uri: ${uri}`);
-  // The envelope form (`{ skill }`) is served deliberately: the SEP settles the
-  // entry shape but not this wrapper, and the Inspector accepts both — serving
-  // the wrapped one keeps that tolerance exercised.
+  // The envelope (`{ skill }`) is the conforming shape, and the only one the
+  // Inspector accepts — see `GetSkillResultSchema`.
   return { skill: toEntry(skill) };
 }
 

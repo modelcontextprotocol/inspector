@@ -295,6 +295,39 @@ describe("checkSkillConformance", () => {
     }
   });
 
+  it("reports a size that is not a non-negative integer byte length", () => {
+    for (const size of [-1, 1.5, Number.NaN, Number.MAX_SAFE_INTEGER + 2]) {
+      const issues = checkSkillConformance(
+        entry({
+          resources: [
+            { uri: "skill://demo/SKILL.md", digest: DIGEST, size: 20 },
+            { uri: "skill://demo/ref.md", digest: DIGEST, size },
+          ],
+        }),
+      );
+      expect(issues.map((i) => i.code)).toEqual(["malformed-size"]);
+      expect(issues[0].severity).toBe("error");
+    }
+  });
+
+  it("a negative size cannot pull the total back under the 16 MiB limit", () => {
+    // The reason `malformed-size` is an error and not just noise: summing a
+    // negative would hide a genuine `size-limit-exceeded`.
+    const issues = checkSkillConformance(
+      entry({
+        resources: [
+          {
+            uri: "skill://demo/SKILL.md",
+            digest: DIGEST,
+            size: SKILL_MAX_TOTAL_BYTES + 1,
+          },
+          { uri: "skill://demo/ref.md", digest: DIGEST, size: -1000 },
+        ],
+      }),
+    );
+    expect(issues.map((i) => i.code)).toContain("size-limit-exceeded");
+  });
+
   it("reports a manifest over the 512-entry limit", () => {
     const resources = [
       { uri: "skill://demo/SKILL.md", digest: DIGEST, size: 20 },
@@ -349,6 +382,20 @@ describe("totalSkillBytes", () => {
         { uri: "c", size: 5 },
       ]),
     ).toBe(15);
+  });
+
+  it("excludes an unusable size rather than summing it", () => {
+    // An incomplete manifest may only ever *understate* the total, which is
+    // what keeps the limit check free of false positives. A negative or
+    // fractional value would break that.
+    expect(
+      totalSkillBytes([
+        { uri: "a", size: 10 },
+        { uri: "b", size: -100 },
+        { uri: "c", size: 2.5 },
+        { uri: "d", size: Number.NaN },
+      ]),
+    ).toBe(10);
   });
 });
 

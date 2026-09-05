@@ -259,6 +259,82 @@ describe("SkillsScreen", () => {
     expect(await screen.findAllByText("plain string")).toHaveLength(2);
   });
 
+  it("titles a size disagreement a size mismatch, not a digest one", async () => {
+    // `verifySkillResource` catches a size disagreement BEFORE hashing, so
+    // there is no `actualDigest` — labelling it "Digest mismatch" would render
+    // "actual undefined" and hide the real failure.
+    const user = userEvent.setup();
+    renderWithMantine(
+      <ControlledSkillsScreen
+        skills={[
+          {
+            ...CLEAN_SKILL,
+            resources: [{ uri: "skill://data-analysis/SKILL.md", size: 9999 }],
+          },
+        ]}
+      />,
+    );
+    await user.click(screen.getByText("data-analysis"));
+    await user.click(screen.getByRole("button", { name: /Verify all/ }));
+    expect(await screen.findByText("Size mismatch")).toBeInTheDocument();
+    expect(screen.queryByText("Digest mismatch")).not.toBeInTheDocument();
+    // The alert states both lengths; the manifest row also shows the declared
+    // one, hence `getAllByText`.
+    expect(screen.getAllByText(/9999 bytes/).length).toBeGreaterThan(0);
+  });
+
+  it("gives duplicated manifest URIs their own row and their own verdict", async () => {
+    // The conformance checker reports `duplicate-resource` rather than
+    // collapsing the rows, so the verdicts must not collapse either: the two
+    // entries declare different digests and only one of them is right.
+    const user = userEvent.setup();
+    renderWithMantine(
+      <ControlledSkillsScreen
+        skills={[
+          {
+            ...CLEAN_SKILL,
+            resources: [
+              {
+                uri: "skill://data-analysis/SKILL.md",
+                digest: SELF_DIGEST,
+                size: textToBytes(SELF_TEXT).byteLength,
+              },
+              {
+                uri: "skill://data-analysis/SKILL.md",
+                digest: `sha256:${"d".repeat(64)}`,
+                size: textToBytes(SELF_TEXT).byteLength,
+              },
+            ],
+          },
+        ]}
+      />,
+    );
+    await user.click(screen.getByText("data-analysis"));
+    await user.click(screen.getByRole("button", { name: /Verify all/ }));
+    // One row verifies and the other does not — a shared key would have made
+    // both show whichever landed last.
+    expect(await screen.findByText("verified")).toBeInTheDocument();
+    expect(screen.getByText("mismatch")).toBeInTheDocument();
+  });
+
+  it("renders a base64 SKILL.md preview instead of a blank one", async () => {
+    // `onReadSkillFile` supports blob content, and verification reads it
+    // correctly; dropping it in the preview would paint an empty box for a
+    // file the screen had just checked.
+    const user = userEvent.setup();
+    const onReadSkillFile = vi.fn().mockResolvedValue({
+      blob: btoa("# from a blob\n"),
+      mimeType: "text/markdown",
+    });
+    renderWithMantine(
+      <ControlledSkillsScreen onReadSkillFile={onReadSkillFile} />,
+    );
+    await user.click(screen.getByText("data-analysis"));
+    await user.click(screen.getByRole("button", { name: /View SKILL.md/ }));
+    const preview = await screen.findByTestId("skill-md-preview");
+    expect(preview).toHaveTextContent("from a blob");
+  });
+
   it("shows the SKILL.md preview on demand", async () => {
     const user = userEvent.setup();
     renderWithMantine(<ControlledSkillsScreen />);

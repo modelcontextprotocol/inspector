@@ -105,39 +105,26 @@ export const ListSkillsResultSchema = z.looseObject({
 export type ListSkillsResult = z.infer<typeof ListSkillsResultSchema>;
 
 /**
- * The envelope form of a `skills/get` result: the entry wrapped under `skill`.
+ * The `skills/get` result envelope: the entry wrapped under `skill`.
+ *
+ * Required, not one of two accepted shapes. An earlier revision of this module
+ * also accepted a bare entry at the top level, on the reading that the SEP
+ * settled the entry but not its wrapper. It does settle the wrapper, and
+ * accepting the inline form would silently normalize a non-conforming response
+ * — which is exactly the failure this extension's support exists to *report*.
+ * A server that returns the entry inline now fails the parse, loudly.
  */
 const GetSkillEnvelopeSchema = z.looseObject({ skill: SkillEntrySchema });
 
 /**
- * Collapse either accepted `skills/get` shape to the entry it carries.
+ * `skills/get` result, unwrapped to the entry it carries.
  *
- * Written as a parse rather than an `in` check because both accepted shapes are
- * loose objects — they carry an index signature, so `"skill" in result` narrows
- * nothing and would leave the extracted value `unknown`. Parsing the envelope
- * is what proves its `skill` really is an entry, with no cast anywhere.
+ * The transform means every caller receives a `SkillEntry` and none of them
+ * reaches into the envelope; the strictness lives in the schema.
  */
-export function normalizeGetSkillResult(result: unknown): SkillEntry {
-  const enveloped = GetSkillEnvelopeSchema.safeParse(result);
-  return enveloped.success
-    ? enveloped.data.skill
-    : SkillEntrySchema.parse(result);
-}
-
-/**
- * `skills/get` result, normalized to the entry.
- *
- * ⚠️ The SEP settles the *entry* shape but not the envelope this result wraps it
- * in, so both plausible forms are accepted: `{ skill: <entry> }` and the entry
- * returned inline at the top level. Being permissive here costs nothing (the
- * two are structurally distinguishable — an inline entry carries `uri` and
- * `frontmatter`, the envelope carries neither) and spares a server author a
- * failure whose cause is a spec ambiguity rather than their code. The transform
- * means every caller receives the entry and none of them branches.
- */
-export const GetSkillResultSchema = z
-  .union([GetSkillEnvelopeSchema, SkillEntrySchema])
-  .transform(normalizeGetSkillResult);
+export const GetSkillResultSchema = GetSkillEnvelopeSchema.transform(
+  (result) => result.skill,
+);
 
 export type GetSkillResult = SkillEntry;
 

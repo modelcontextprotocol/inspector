@@ -63,9 +63,9 @@ export class ManagedSkillsState extends TypedEventTarget<ManagedSkillsStateEvent
   private error: Error | null = null;
   private client: InspectorClientProtocol | null = null;
   private unsubscribe: (() => void) | null = null;
-  // Overlap guard: a walk in flight makes a second one a no-op so a slow older
-  // walk can't clobber a newer list via last-write-wins.
-  private running = false;
+  // Overlap guard, held as the generation whose walk is in flight (or `null`).
+  // See `refresh` for why this is not a boolean.
+  private runningGeneration: number | null = null;
   // Session counter, advanced by `reset` (disconnect) and by `destroy`. A walk
   // captures it and abandons its writes when it no longer matches.
   private generation = 0;
@@ -151,8 +151,6 @@ export class ManagedSkillsState extends TypedEventTarget<ManagedSkillsStateEvent
       this.applyPages([], 0);
       return this.getSkills();
     }
-    if (this.running) return this.getSkills();
-    this.running = true;
     // The session this walk belongs to. A disconnect, a `destroy()`, or a
     // reconnect on the same client advances it, and every write below is
     // gated on it still being current — otherwise a slow walk's continuation
@@ -160,6 +158,14 @@ export class ManagedSkillsState extends TypedEventTarget<ManagedSkillsStateEvent
     // previous session's skills into the next one.
     const generation = this.generation;
     const isCurrent = () => this.generation === generation;
+    // The overlap guard is per SESSION, not a bare boolean. A boolean would
+    // stay set while a walk from a dead session was still awaiting the server,
+    // so the reconnect's own load would return here as a no-op and never be
+    // retried — permanently, if that stale request never settles. Keying it on
+    // the generation lets a new session start immediately, and the `finally`
+    // below only clears the guard it actually set.
+    if (this.runningGeneration === generation) return this.getSkills();
+    this.runningGeneration = generation;
     try {
       const collected: SkillEntry[] = [];
       const seen = new Set<string>();
@@ -199,7 +205,11 @@ export class ManagedSkillsState extends TypedEventTarget<ManagedSkillsStateEvent
       }
       throw err;
     } finally {
-      this.running = false;
+      // Only the walk that set the guard may clear it: a stale session's
+      // `finally` must not release the guard a live session is holding.
+      if (this.runningGeneration === generation) {
+        this.runningGeneration = null;
+      }
     }
   }
 

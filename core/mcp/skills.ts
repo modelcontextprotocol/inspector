@@ -126,6 +126,7 @@ export type SkillIssueCode =
   | "missing-digest"
   | "malformed-digest"
   | "missing-size"
+  | "malformed-size"
   | "duplicate-resource"
   | "resource-outside-skill-root"
   | "manifest-missing-self"
@@ -288,6 +289,13 @@ export function checkSkillConformance(entry: SkillEntry): SkillIssue[] {
           "Manifest entry declares no size, so it is excluded from the 16 MiB total and its length cannot be cross-checked.",
         resourceUri: resource.uri,
       });
+    } else if (!isUsableSize(resource.size)) {
+      issues.push({
+        code: "malformed-size",
+        severity: "error",
+        message: `Size ${resource.size} is not a non-negative integer byte length.`,
+        resourceUri: resource.uri,
+      });
     }
   }
 
@@ -295,13 +303,28 @@ export function checkSkillConformance(entry: SkillEntry): SkillIssue[] {
 }
 
 /**
- * Sum of the manifest's declared `size` fields. An entry that omits `size`
- * contributes nothing rather than failing the sum — the limit check is about
- * catching a server that is demonstrably over, and an incomplete manifest can
- * only ever understate the total, so this never produces a false positive.
+ * Whether a declared `size` is a usable byte length. SEP-2640 defines it as the
+ * raw byte count, so anything that is not a non-negative safe integer is
+ * nonsense — and a *negative* one is worse than nonsense, because summing it
+ * would pull the manifest total back under the 16 MiB limit and hide a
+ * violation. Reported as `malformed-size` and excluded from the sum.
+ */
+function isUsableSize(size: number | undefined): size is number {
+  return size !== undefined && Number.isSafeInteger(size) && size >= 0;
+}
+
+/**
+ * Sum of the manifest's declared `size` fields. An entry that omits `size` — or
+ * declares an unusable one — contributes nothing rather than failing the sum:
+ * the limit check is about catching a server that is demonstrably over, and an
+ * incomplete manifest can only ever understate the total, so this never
+ * produces a false positive.
  */
 export function totalSkillBytes(resources: readonly SkillResource[]): number {
-  return resources.reduce((sum, r) => sum + (r.size ?? 0), 0);
+  return resources.reduce(
+    (sum, r) => sum + (isUsableSize(r.size) ? r.size : 0),
+    0,
+  );
 }
 
 /** Outcome of comparing a fetched file against its advertised digest. */

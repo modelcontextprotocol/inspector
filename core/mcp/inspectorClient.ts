@@ -5577,9 +5577,10 @@ export class InspectorClient extends InspectorClientEventTarget {
   }
 
   /**
-   * One skill entry by URI (`skills/get`, SEP-2640). The SEP settles the entry
-   * shape but not the envelope around it, so the result is normalized through
-   * {@link normalizeGetSkillResult} rather than assuming one form.
+   * One skill entry by URI (`skills/get`, SEP-2640). The result envelope is
+   * required — `GetSkillResultSchema` unwraps `{ skill }` and rejects an entry
+   * returned inline, so a non-conforming shape fails here rather than being
+   * silently normalized past the conformance checks.
    */
   async getSkill(uri: string, metadata?: RequestMetadata): Promise<SkillEntry> {
     if (!this.client) {
@@ -5590,8 +5591,8 @@ export class InspectorClient extends InspectorClientEventTarget {
       uri,
       ...(effectiveMeta ? { _meta: effectiveMeta } : {}),
     };
-    // `GetSkillResultSchema` normalizes both accepted envelopes to the entry,
-    // so there is nothing to unwrap here.
+    // `GetSkillResultSchema` unwraps the envelope, so there is nothing to
+    // unwrap here.
     return this.invokeMcpClient(
       () =>
         this.client!.request(
