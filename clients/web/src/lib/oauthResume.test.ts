@@ -26,6 +26,34 @@ import {
   EMPTY_NETWORK_UI,
 } from "../components/screens/screenUiState.js";
 
+/**
+ * Run `body` with one `crypto` member hidden, then restore it.
+ *
+ * `randomUUID` and `getRandomValues` are inherited from `Crypto.prototype`, so
+ * there is normally no OWN descriptor to put back — restoring only when one
+ * existed would leave the `undefined` own property in place and force every
+ * later test in this file onto the fallback path.
+ */
+function withoutCryptoMember(
+  name: "randomUUID" | "getRandomValues",
+  body: () => void,
+): void {
+  const original = Object.getOwnPropertyDescriptor(globalThis.crypto, name);
+  Object.defineProperty(globalThis.crypto, name, {
+    configurable: true,
+    value: undefined,
+  });
+  try {
+    body();
+  } finally {
+    if (original) {
+      Object.defineProperty(globalThis.crypto, name, original);
+    } else {
+      delete (globalThis.crypto as Record<string, unknown>)[name];
+    }
+  }
+}
+
 describe("oauthResume", () => {
   const storage = new Map<string, string>();
 
@@ -44,6 +72,9 @@ describe("oauthResume", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    // This project does not set `restoreMocks` globally (see `src/test/setup.ts`),
+    // so the `crypto`/`Math.random` spies below must be reverted by hand.
+    vi.restoreAllMocks();
   });
 
   it("consumeOAuthResumeSnapshot reads once then clears storage", () => {
@@ -456,39 +487,48 @@ describe("oauthResume", () => {
     expect(readOAuthResumeSnapshot()?.attemptId).toBe(token);
   });
 
-  it("writeOAuthResumeSnapshot falls back when randomUUID is unavailable", () => {
+  it("writeOAuthResumeSnapshot falls back to getRandomValues without randomUUID", () => {
     // `crypto.randomUUID` needs a secure context, which a plain-HTTP
-    // non-loopback host is not.
-    const original = Object.getOwnPropertyDescriptor(
-      globalThis.crypto,
-      "randomUUID",
-    );
-    Object.defineProperty(globalThis.crypto, "randomUUID", {
-      configurable: true,
-      value: undefined,
-    });
-    try {
-      const token = writeOAuthResumeSnapshot({
+    // non-loopback host is not. `crypto.getRandomValues` does not, so the
+    // fallback is still a CSPRNG rather than `Math.random`.
+    const randomSpy = vi.spyOn(globalThis.crypto, "getRandomValues");
+    const mathSpy = vi.spyOn(Math, "random");
+    let token: string | undefined;
+    withoutCryptoMember("randomUUID", () => {
+      token = writeOAuthResumeSnapshot({
         version: 1,
         serverId: "a",
         activeTab: "tools",
         authKind: "reauth",
         tabUi: {},
       });
-      expect(token).toEqual(expect.any(String));
-      expect(clearOwnOAuthResumeSnapshot(token)).toBe(true);
-    } finally {
-      // `randomUUID` is inherited from `Crypto.prototype`, so there is
-      // normally no OWN descriptor to put back — restoring only when one
-      // existed would leave the `undefined` own property in place and force
-      // every later test in this file onto the fallback path.
-      if (original) {
-        Object.defineProperty(globalThis.crypto, "randomUUID", original);
-      } else {
-        delete (globalThis.crypto as { randomUUID?: unknown }).randomUUID;
-      }
-    }
+    });
+    expect(randomSpy).toHaveBeenCalledOnce();
+    expect(mathSpy).not.toHaveBeenCalled();
+    // 16 random bytes, hex-encoded.
+    expect(token).toMatch(/^[0-9a-f]{32}$/);
+    expect(clearOwnOAuthResumeSnapshot(token)).toBe(true);
     expect(globalThis.crypto.randomUUID).toEqual(expect.any(Function));
+  });
+
+  it("writeOAuthResumeSnapshot falls back to Math.random with no crypto at all", () => {
+    const mathSpy = vi.spyOn(Math, "random");
+    let token: string | undefined;
+    withoutCryptoMember("randomUUID", () => {
+      withoutCryptoMember("getRandomValues", () => {
+        token = writeOAuthResumeSnapshot({
+          version: 1,
+          serverId: "a",
+          activeTab: "tools",
+          authKind: "reauth",
+          tabUi: {},
+        });
+      });
+    });
+    expect(mathSpy).toHaveBeenCalled();
+    expect(token).toEqual(expect.any(String));
+    expect(clearOwnOAuthResumeSnapshot(token)).toBe(true);
+    expect(globalThis.crypto.getRandomValues).toEqual(expect.any(Function));
   });
 
   it("clearOAuthResumeSnapshot swallows removeItem failures", () => {
