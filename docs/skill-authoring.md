@@ -295,17 +295,23 @@ and read it at `RUNS=5`, since at `RUNS=3` one sample is worth 33 points.
 
 **A red hand-off case is a finding about the pointer, not a build break — and
 the fix is to reshape the pointer, never to lower the bar.** The committed
-`testing` -> `test-servers` cases are the worked example. They measured
-33% / 33% at `RUNS=3` when `testing` opened with a one-sentence ⚠️ *classifying*
-which work belongs to `test-servers`; rewriting that into an imperative first
-step ("load the `test-servers` skill now — that is step one"), and repeating it
-at the two later points where the model actually decides it is writing an
-integration test, took them to **100% / 100% at `RUNS=5`** with the prompts
-unchanged (#2247). Nothing else moved: the two descriptions were not touched,
-and the same suite scored **63/63** first-move cases at 100%. (An intermediate
-build measured 100% / 80% on the full suite and 100% / 100% on a focused
-`-- test-servers` run — worth knowing as the size of the run-to-run noise still
-present at `RUNS=5`.)
+`testing` -> `test-servers` cases are the worked example.
+
+Against the **weak** pointer — a one-sentence ⚠️ near the top of `testing`
+*classifying* which work belongs to `test-servers` — they measured **33% / 33%**
+on one `RUNS=3` run and **100% / 33%** on another. Those two runs are the
+unchanged-pointer pair the warning below is about: same prompts, same body, 67
+points apart on the first case.
+
+Rewriting that classification into an imperative first step ("load the
+`test-servers` skill now — that is step one"), and repeating it at the two later
+points where the model actually decides it is writing a connecting test, took
+them to **100% / 100% at `RUNS=5`** with the prompts unchanged (#2247). Nothing
+else moved: the two descriptions were not touched, and the same suite scored
+**63/63** first-move cases at 100%. (An intermediate build of that change
+measured 100% / 80% on the full suite and 100% / 100% on a focused
+`-- test-servers` run — a reminder that even `RUNS=5` still carries 20 points of
+noise, well short of the 67 above.)
 
 The transferable part is that **a pointer is followed when it reads as an action
 with a trigger, and skimmed when it reads as a fact.** #2202 found the same
@@ -315,8 +321,9 @@ second skill, so a pointer that lives only there is a pointer it has already
 scrolled past by the time it matters.
 
 ⚠️ **Do not read a rise between two `RUNS=3` runs as an improvement.** One
-sample is 33 points there, and the two runs above straddle a 67-point swing on
-the same prompt with no change to the pointer. Note in particular that the
+sample is 33 points there, and the two weak-pointer runs above (33% / 33% and
+100% / 33%) straddle a 67-point swing on the same prompt with no change to the
+pointer. Note in particular that the
 turn-boundary rule added later can only ever *lower* a chained score — it
 rejects matches a flatter reading accepted — so a higher number after it is
 noise by construction, not an effect. `RUNS=5` is the smallest honest setting
