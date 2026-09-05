@@ -82,6 +82,9 @@ function makeFixture({
   webTsconfig,
   rootNestedInner,
   cliDeps,
+  rootManifestDeps,
+  webManifestDeps,
+  webSolo,
 } = {}) {
   // realpath matters: on macOS `tmpdir()` is `/var/...`, a symlink to
   // `/private/var/...`. The guard only runs `main()` when `import.meta.url`
@@ -101,6 +104,7 @@ function makeFixture({
 
   write("package.json", {
     name: "fixture",
+    ...(rootManifestDeps ? { dependencies: rootManifestDeps } : {}),
     scripts: scripts ?? {
       validate: "npm run verify:format-coverage && npm run verify:dep-lockstep",
       "verify:format-coverage": "node scripts/verify-format-coverage.mjs",
@@ -121,6 +125,7 @@ function makeFixture({
   );
   write("clients/web/package.json", {
     name: "web",
+    ...(webManifestDeps ? { devDependencies: webManifestDeps } : {}),
     scripts: webScripts ?? { typecheck: "tsc --noEmit -p tsconfig.json" },
   });
   write(
@@ -166,6 +171,20 @@ function makeFixture({
     stub(installRoot, versions, "inner", "export type Inner = number;\n");
   }
   stub("", root, "solo", "export type Solo = string;\n");
+  // `solo` under the CLIENT install as well. Nothing in `clients/web/src`
+  // imports it, so the program still resolves exactly one copy (the root's, via
+  // the shared `core/`) — the declared tier's whole point is that it sees this
+  // second copy anyway (#2226).
+  const webLockDeps = { ...web };
+  if (webSolo) {
+    stub(
+      "clients/web/",
+      { solo: webSolo },
+      "solo",
+      "export type Solo = string;\n",
+    );
+    webLockDeps.solo = webSolo;
+  }
 
   // The root reaches `inner` only through a copy NESTED under `outer`, at a
   // version its top-level entry does not carry. npm's own conflict resolution,
@@ -182,7 +201,7 @@ function makeFixture({
   }
 
   write("package-lock.json", lock(rootLockDeps));
-  write("clients/web/package-lock.json", rawWebLock ?? lock(web));
+  write("clients/web/package-lock.json", rawWebLock ?? lock(webLockDeps));
 
   // A second client, to prove a third install's copy is not dragged into a
   // comparison it never took part in. Its program spans only its own install.
@@ -500,6 +519,78 @@ test("main: exits 1 when the root validate no longer runs the sibling guard", ()
       const { status, out } = runGuard(dir);
       assert.equal(status, 1, out);
       assert.match(out, /no longer runs `verify:format-coverage`/);
+    },
+  );
+});
+
+// ---------------------------------------------------------------------------
+// The declared tier (#2226) — skew across installs that no ONE program sees.
+// ---------------------------------------------------------------------------
+
+test("main: a DECLARED package skewed across installs fails even when no program holds both copies (#2226)", () => {
+  // The exact shape the issue reported. `solo` is installed under the root and
+  // under `clients/web`, and both manifests name it — but only the shared
+  // `core/` imports it, so the client's program resolves the root's copy alone
+  // and the program tier is silent, correctly. The declared tier is what sees
+  // it, which is the whole reason it exists: cli's `@types/node` was hoisted in
+  // via `@types/express` and no program ever met the root's copy.
+  withFixture(
+    {
+      rootManifestDeps: { solo: "^7.0.0" },
+      webManifestDeps: { solo: "^7.0.0" },
+      webSolo: "7.0.0",
+    },
+    (dir) => {
+      const { status, out } = runGuard(dir);
+      assert.equal(status, 1, out);
+      assert.match(out, /1 declared dependency resolves/);
+      assert.match(out, /7\.8\.9\s+\(\.\/node_modules\/solo\)/);
+      assert.match(out, /7\.0\.0\s+\(clients\/web\/node_modules\/solo\)/);
+      // The program tier must NOT have claimed it — its message names a program.
+      assert.doesNotMatch(out, /in clients\/web\/tsconfig\.json/);
+    },
+  );
+});
+
+test("main: a declared package held at the same version in both installs passes and is counted", () => {
+  withFixture(
+    {
+      rootManifestDeps: { solo: "^7.0.0" },
+      webManifestDeps: { solo: "^7.0.0" },
+      webSolo: "7.8.9",
+    },
+    (dir) => {
+      const { status, out } = runGuard(dir);
+      assert.equal(status, 0, out);
+      assert.match(out, /1 declared dependencies agree/);
+    },
+  );
+});
+
+test("main: an installed package NO manifest declares is not a declared-tier candidate", () => {
+  // `outer` and `inner` sit in both installs in every fixture, but no manifest
+  // names them. The declared tier's boundary is what the repo declares, so its
+  // candidate count is zero here — the program tier is what covers those.
+  withFixture({}, (dir) => {
+    const { status, out } = runGuard(dir);
+    assert.equal(status, 0, out);
+    assert.match(out, /0 declared dependencies agree/);
+  });
+});
+
+test("main: a declared package only ONE install holds cannot skew", () => {
+  // `solo` is declared at the root and listed in the root lockfile only. One
+  // holder is not an install-crossing dependency, so its version is nobody
+  // else's business.
+  withFixture(
+    {
+      rootManifestDeps: { solo: "^7.0.0" },
+      webDeps: { outer: "1.2.3", inner: "4.5.6" },
+    },
+    (dir) => {
+      const { status, out } = runGuard(dir);
+      assert.equal(status, 0, out);
+      assert.match(out, /0 declared dependencies agree/);
     },
   );
 });

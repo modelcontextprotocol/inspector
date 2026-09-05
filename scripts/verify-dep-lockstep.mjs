@@ -44,6 +44,40 @@
 // packages verified to tolerate it (below). A dependency that starts skewing
 // fails `validate` and forces a decision, rather than surfacing months later as
 // an unexplained OOM.
+//
+// ## The second tier: declared packages, whatever any program loads (#2226)
+//
+// The program-derived tier above is deliberately narrow — it asks only "can two
+// structurally-distinct copies of a type meet inside ONE `tsc` program", because
+// that is the question the #1896 heap exhaustion turned on. That narrowness is a
+// real blind spot, and `AGENTS.md` documented it before anything measured it:
+// `clients/cli` resolved `@types/node` 24.13.1 against the root's 24.13.3, and
+// this guard reported OK — correctly, since no one program sees both copies.
+//
+// So a SECOND tier runs alongside it, asking the weaker but broader question
+// `AGENTS.md`'s "one version per install-crossing dependency" rule actually
+// states: does a package that this repo DECLARES somewhere resolve to two
+// different versions across our installs at all? The candidate set is every name
+// in any install's `dependencies`/`devDependencies` (root or client) that more
+// than one install holds a top-level copy of — 17 packages today, against the
+// program tier's much smaller set.
+//
+// The two tiers are complementary and neither subsumes the other:
+//
+//   • The program tier sees a copy NO manifest names — the `@modelcontextprotocol/sdk`
+//     case, whose `.d.ts` files arrive only through another package's types.
+//   • The declared tier sees a copy that arrives TRANSITIVELY into one install
+//     and is therefore constrained by no range of ours: cli's `@types/node` is
+//     hoisted via `@types/express`, so nothing pulled it forward when the root
+//     moved. It also sees two CLIENTS disagreeing (`@types/react` in web against
+//     tui), which no single program can, and the tool copies `AGENTS.md` calls
+//     out as ungated — `eslint`, `typescript`, `vitest` — which are peer shadows
+//     that no `tsc` program loads at all.
+//
+// The declared tier is the weaker signal, so it is the one to reach for an
+// allowlist entry on. It is still deny-by-default: the cost of a false alarm is
+// one `npm update <pkg>` in the stale install, and the cost of a miss is the
+// class of bug that reproduces on one machine and not another.
 
 import { readFileSync, existsSync, readdirSync } from "node:fs";
 import path from "node:path";
@@ -96,6 +130,17 @@ const repoRoot = path.resolve(
 // and forces the decision then — with the actual version pair in hand, which is
 // a better basis for a rationale than a pre-emptive entry.
 const TOLERATED_SKEW = new Map();
+
+// The declared tier's allowlist, same shape and same within-a-major rule as
+// TOLERATED_SKEW above, and empty for the same reason: an entry is worth writing
+// only with a real version pair in hand.
+//
+// Note what is deliberately NOT listed. `react` and `react-dom` are pinned per
+// client on purpose (`AGENTS.md`, so a client's renderer and the React it calls
+// into come from one install) — but "two copies by design" is not "two versions
+// by design", and the rule that survives is still one version everywhere. The
+// same holds for `vite` and `tsup`, declared by several clients each.
+const TOLERATED_DECLARED_SKEW = new Map();
 
 /**
  * Installed versions in a parsed lockfile, keyed by the **install path** npm
@@ -210,11 +255,99 @@ export function majorOf(version) {
  * listed package whose holders disagree on major is still a failure.
  */
 export function partitionSkew(skewed, tolerated = TOLERATED_SKEW) {
-  const isTolerated = (s) => {
-    if (!tolerated.has(s.name)) return false;
-    const majors = new Set(skewHolders(s).map((h) => majorOf(h.version)));
-    return majors.size === 1 && !majors.has(null);
+  const isTolerated = (s) => toleratesSkew(s.name, skewHolders(s), tolerated);
+  return {
+    failures: skewed.filter((s) => !isTolerated(s)),
+    ignored: skewed.filter(isTolerated),
   };
+}
+
+/**
+ * Whether `tolerated` excuses this package's skew: it must be listed, AND its
+ * holders must agree on major. Shared by both tiers so the within-a-major rule
+ * cannot be stated twice and drift — a listed package that splits across a major
+ * fails in either tier.
+ */
+export function toleratesSkew(name, holders, tolerated) {
+  if (!tolerated.has(name)) return false;
+  const majors = new Set(holders.map((h) => majorOf(h.version)));
+  return majors.size === 1 && !majors.has(null);
+}
+
+/**
+ * Every package name any install declares, across `dependencies` and
+ * `devDependencies`.
+ *
+ * `manifests` is `[{ dir, manifest }]`. Both fields count because the boundary
+ * this tier polices is "does the repo name it", not "does it ship": a
+ * devDependency skew is exactly the `@types/*` and toolchain case #2226 is
+ * about. `peerDependencies` and `optionalDependencies` are NOT declarations of
+ * what this repo installs — a peer range is a constraint on the consumer, and
+ * the copy npm auto-installs to satisfy one is caught anyway, because it lands
+ * top-level in an install whose sibling declares the same name.
+ */
+export function declaredPackages(manifests) {
+  const names = new Set();
+  for (const { manifest } of manifests)
+    for (const field of ["dependencies", "devDependencies"])
+      for (const name of Object.keys(manifest?.[field] ?? {})) names.add(name);
+  return names;
+}
+
+/**
+ * An install's TOP-LEVEL installed versions — `node_modules/<name>`, with
+ * nested copies (`node_modules/a/node_modules/<name>`) excluded.
+ *
+ * Top-level is the right depth here: it is what the install's own code resolves,
+ * and it is the single copy a `<name>` range in that manifest governs. A nested
+ * copy exists precisely because some dependency asked for a different version,
+ * so it is constrained by that dependency's range rather than by anything we
+ * own — reporting it would fail the gate on a decision that is not ours to make.
+ * (The program tier prices nested copies, because a program that actually loads
+ * one is a different question.)
+ */
+export function topLevelVersions(lock) {
+  const versions = new Map();
+  for (const [entryPath, version] of lockVersionsByPath(lock)) {
+    const rest = entryPath.slice("node_modules/".length);
+    if (rest.includes("node_modules/")) continue;
+    versions.set(rest, version);
+  }
+  return versions;
+}
+
+/**
+ * Declared packages whose top-level copies disagree across installs.
+ *
+ * `declared` is {@link declaredPackages}' output and `versions` maps an install
+ * dir to that install's {@link topLevelVersions}. An install that holds no
+ * top-level copy of a name simply is not a holder — absence is not skew, and a
+ * package only one install holds cannot cross an install boundary at all.
+ *
+ * Returns `[{ name, holders: [{ dir, version }] }]` sorted by name, holders in
+ * install order.
+ */
+export function findDeclaredSkew(declared, versions) {
+  const skewed = [];
+  for (const name of [...declared].sort()) {
+    const holders = [];
+    for (const [dir, byName] of versions) {
+      const version = byName.get(name);
+      if (version !== undefined) holders.push({ dir, version });
+    }
+    if (holders.length < 2) continue;
+    if (new Set(holders.map((h) => h.version)).size > 1)
+      skewed.push({ name, holders });
+  }
+  return skewed;
+}
+
+/** {@link partitionSkew} for the declared tier's `{ name, holders }` entries. */
+export function partitionDeclaredSkew(
+  skewed,
+  tolerated = TOLERATED_DECLARED_SKEW,
+) {
+  const isTolerated = (s) => toleratesSkew(s.name, s.holders, tolerated);
   return {
     failures: skewed.filter((s) => !isTolerated(s)),
     ignored: skewed.filter(isTolerated),
@@ -495,11 +628,84 @@ export function main() {
     process.exit(1);
   }
 
+  // ---- Second tier: every DECLARED package held by more than one install.
+  // Independent of what any `tsc` program loads, so it sees the transitive and
+  // peer-shadow copies the program tier structurally cannot (#2226).
+  const manifests = dirs.map((dir) => {
+    const file = path.join(repoRoot, dir, "package.json");
+    try {
+      return { dir, manifest: JSON.parse(readFileSync(file, "utf8")) };
+    } catch (cause) {
+      throw new Error(
+        `verify:dep-lockstep — could not parse ${dir}/package.json.`,
+        { cause },
+      );
+    }
+  });
+  const declaredVersions = new Map(
+    locks.map(({ dir, lock }) => [dir, topLevelVersions(lock)]),
+  );
+  const declared = declaredPackages(manifests);
+  const declaredSkew = findDeclaredSkew(declared, declaredVersions);
+  const { failures: declaredFailures, ignored: declaredIgnored } =
+    partitionDeclaredSkew(declaredSkew);
+
+  if (declaredFailures.length > 0) {
+    console.error(
+      `verify:dep-lockstep — ${declaredFailures.length} declared ${declaredFailures.length === 1 ? "dependency resolves" : "dependencies resolve"} to different versions across installs:\n`,
+    );
+    let anyListed = false;
+    for (const failure of declaredFailures) {
+      const listed = TOLERATED_DECLARED_SKEW.has(failure.name);
+      anyListed ||= listed;
+      console.error(
+        `  ${failure.name}${listed ? "  (allowlisted — but this is a MAJOR skew)" : ""}`,
+      );
+      for (const { dir, version } of failure.holders)
+        console.error(
+          `      ${version}  (${dir}/node_modules/${failure.name})`,
+        );
+    }
+    console.error(
+      "\nThese are packages this repo declares somewhere, held at two versions across our installs —" +
+        "\nthe `one version per install-crossing dependency` rule in AGENTS.md. Unlike the check above," +
+        "\nthis tier does not require the copies to meet in one `tsc` program, so it catches a copy that" +
+        "\narrives TRANSITIVELY into one install (cli's `@types/node`, hoisted via `@types/express`, #2226)" +
+        "\nor as a peer shadow no program loads at all.",
+    );
+    console.error(
+      "\nAlign them with `npm update <pkg>` in whichever install is behind — that moves the lockfile" +
+        "\nwithin the declared range, without widening a range as `npm install <pkg>@<version>` would. If a" +
+        "\ntransitive copy will not move, pin it with an `overrides` entry in that install (see" +
+        "\nclients/cli). If the skew is genuinely benign, add it to TOLERATED_DECLARED_SKEW in" +
+        "\nscripts/verify-dep-lockstep.mjs with the reason.",
+    );
+    if (anyListed)
+      console.error(
+        "\nNote: an allowlisted package is tolerated only WITHIN a major version. Align the major.",
+      );
+    process.exit(1);
+  }
+
   const note = ignored.length > 0 ? `, ${ignored.length} tolerated` : "";
+  const declaredNote =
+    declaredIgnored.length > 0 ? `, ${declaredIgnored.length} tolerated` : "";
   console.log(
     `verify:dep-lockstep — OK: ${found.size} install-crossing dependencies agree across ${dirs.length} installs${note} ` +
-      `(derived from ${programs.length} tsc programs).`,
+      `(derived from ${programs.length} tsc programs); ` +
+      `${countDeclaredHeld(declared, declaredVersions)} declared dependencies agree across those installs${declaredNote}.`,
   );
+}
+
+/** How many declared packages more than one install holds — the declared tier's candidate count. */
+export function countDeclaredHeld(declared, versions) {
+  let n = 0;
+  for (const name of declared) {
+    let holders = 0;
+    for (const byName of versions.values()) if (byName.has(name)) holders += 1;
+    if (holders > 1) n += 1;
+  }
+  return n;
 }
 
 // Run only when executed directly (`node scripts/verify-dep-lockstep.mjs`);
