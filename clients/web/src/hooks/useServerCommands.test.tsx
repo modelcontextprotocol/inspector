@@ -162,6 +162,7 @@ function spies() {
     setModernLogLevel: vi.fn(),
     clearCompletedTasks: vi.fn(),
     refreshTasks: vi.fn().mockResolvedValue(undefined),
+    refreshSkills: vi.fn().mockResolvedValue(undefined),
     refreshTools: vi.fn().mockResolvedValue(undefined),
     refreshPrompts: vi.fn().mockResolvedValue(undefined),
     refreshResources: vi.fn().mockResolvedValue(undefined),
@@ -271,6 +272,7 @@ function harness(initial: HarnessProps = {}): Harness {
       activeToolCallTaskIdRef,
       clearCompletedTasks: s.clearCompletedTasks,
       refreshTasks: s.refreshTasks,
+      refreshSkills: s.refreshSkills,
       paginatedLists: p.paginatedLists ?? false,
       paginatedListsOverride: { record: s.record, valueFor: s.valueFor },
       toolsPagination,
@@ -837,6 +839,191 @@ describe("onReadResourceContents", () => {
     });
     await expect(h.api().onReadResourceContents("u")).rejects.toThrow("nope");
     expect(recover).not.toHaveBeenCalled();
+  });
+});
+
+describe("onReadSkillFile (#2234)", () => {
+  const skillUri = "skill://demo/reference.md";
+
+  it("returns the block whose uri matches exactly", async () => {
+    const c = client({
+      readResource: vi.fn().mockResolvedValue({
+        result: {
+          contents: [
+            { uri: "skill://demo/other.md", text: "wrong" },
+            { uri: skillUri, text: "right", mimeType: "text/markdown" },
+          ],
+        },
+      }),
+    });
+    const h = harness({ client: c });
+    await expect(h.api().onReadSkillFile(skillUri)).resolves.toEqual({
+      text: "right",
+      mimeType: "text/markdown",
+    });
+  });
+
+  it("accepts a block whose uri the server echoed back in an equivalent form", async () => {
+    // A resolved `..` is the same resource; `normalizeSkillUri` is what says so.
+    const c = client({
+      readResource: vi.fn().mockResolvedValue({
+        result: {
+          contents: [{ uri: "skill://demo/x/../reference.md", text: "x" }],
+        },
+      }),
+    });
+    const h = harness({ client: c });
+    await expect(h.api().onReadSkillFile(skillUri)).resolves.toEqual({
+      text: "x",
+    });
+  });
+
+  it("refuses a sole block for a DIFFERENT uri rather than verifying it", async () => {
+    // The dangerous fallback: treating "the only block" as "the block we asked
+    // for" would hash `other.md`'s bytes against `reference.md`'s advertised
+    // digest — and could report that as `verified`.
+    const c = client({
+      readResource: vi.fn().mockResolvedValue({
+        result: { contents: [{ uri: "skill://demo/other.md", text: "wrong" }] },
+      }),
+    });
+    const h = harness({ client: c });
+    await expect(h.api().onReadSkillFile(skillUri)).rejects.toThrow(
+      /returned no content .*skill:\/\/demo\/other\.md/,
+    );
+  });
+
+  it("refuses an unparseable echoed uri rather than matching it to another", async () => {
+    // Two unparseable URIs must not compare equal just because both normalize
+    // to `undefined`.
+    const c = client({
+      readResource: vi.fn().mockResolvedValue({
+        result: { contents: [{ uri: "not a uri", text: "wrong" }] },
+      }),
+    });
+    const h = harness({ client: c });
+    await expect(h.api().onReadSkillFile("also not a uri")).rejects.toThrow(
+      /returned no content/,
+    );
+  });
+
+  it("passes a blob block through as a blob", async () => {
+    const c = client({
+      readResource: vi.fn().mockResolvedValue({
+        result: { contents: [{ uri: skillUri, blob: "aGk=" }] },
+      }),
+    });
+    const h = harness({ client: c });
+    await expect(h.api().onReadSkillFile(skillUri)).resolves.toEqual({
+      blob: "aGk=",
+    });
+  });
+
+  it("throws when no block answers the uri", async () => {
+    // Returning an empty payload here would let the caller hash zero bytes and
+    // report a confident digest *mismatch* for a response that carried nothing.
+    const c = client({
+      readResource: vi.fn().mockResolvedValue({
+        result: {
+          contents: [
+            { uri: "skill://demo/a.md", text: "a" },
+            { uri: "skill://demo/b.md", text: "b" },
+          ],
+        },
+      }),
+    });
+    const h = harness({ client: c });
+    await expect(h.api().onReadSkillFile(skillUri)).rejects.toThrow(
+      /returned no content/,
+    );
+  });
+
+  it("throws when there is no client", async () => {
+    const h = harness();
+    await expect(h.api().onReadSkillFile(skillUri)).rejects.toThrow(
+      "Client is not connected",
+    );
+  });
+});
+
+describe("onGetSkill (#2234)", () => {
+  it("routes the uri through the client's skills/get", async () => {
+    const getSkill = vi.fn().mockResolvedValue({
+      uri: "skill://demo/SKILL.md",
+      frontmatter: {},
+      resources: [],
+    });
+    const h = harness({ client: client({ getSkill }) });
+    await expect(
+      h.api().onGetSkill("skill://demo/SKILL.md"),
+    ).resolves.toMatchObject({ uri: "skill://demo/SKILL.md" });
+    expect(getSkill).toHaveBeenCalledWith("skill://demo/SKILL.md");
+  });
+
+  it("throws when there is no client", async () => {
+    const h = harness();
+    await expect(h.api().onGetSkill("skill://demo/SKILL.md")).rejects.toThrow(
+      "Client is not connected",
+    );
+  });
+
+  it("retries once after a satisfied recovery", async () => {
+    // Every server command routes through the shared recovery; without it an
+    // expired authorization would render an error and stop there, with no
+    // reauthorization and no retry.
+    const recover = vi.fn().mockResolvedValue(true);
+    const getSkill = vi
+      .fn()
+      .mockRejectedValueOnce(authError())
+      .mockResolvedValue({
+        uri: "skill://demo/SKILL.md",
+        frontmatter: {},
+        resources: [],
+      });
+    const h = harness({
+      client: client({ getSkill }),
+      activeServerId: "a",
+      recovery: { handleCommandScopedAuthRecovery: recover },
+    });
+    await expect(
+      h.api().onGetSkill("skill://demo/SKILL.md"),
+    ).resolves.toMatchObject({ uri: "skill://demo/SKILL.md" });
+    expect(getSkill).toHaveBeenCalledTimes(2);
+  });
+
+  it("rethrows when the recovery was not satisfied", async () => {
+    const recover = vi.fn().mockResolvedValue(false);
+    const h = harness({
+      client: client({ getSkill: vi.fn().mockRejectedValue(authError()) }),
+      activeServerId: "a",
+      recovery: { handleCommandScopedAuthRecovery: recover },
+    });
+    await expect(
+      h.api().onGetSkill("skill://demo/SKILL.md"),
+    ).rejects.toBeInstanceOf(AuthRecoveryRequiredError);
+  });
+
+  it("rethrows a non-auth failure untouched", async () => {
+    const recover = vi.fn();
+    const h = harness({
+      client: client({
+        getSkill: vi.fn().mockRejectedValue(new Error("-32602")),
+      }),
+      activeServerId: "a",
+      recovery: { handleCommandScopedAuthRecovery: recover },
+    });
+    await expect(h.api().onGetSkill("skill://demo/SKILL.md")).rejects.toThrow(
+      "-32602",
+    );
+    expect(recover).not.toHaveBeenCalled();
+  });
+});
+
+describe("onRefreshSkills (#2234)", () => {
+  it("drives the store refresh in the background", () => {
+    const h = harness();
+    h.api().onRefreshSkills();
+    expect(h.spies.refreshSkills).toHaveBeenCalled();
   });
 });
 

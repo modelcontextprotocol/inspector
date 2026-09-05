@@ -75,6 +75,7 @@ import type {
   ResourcesPanelProps,
   ServerListProps,
   ShellProps,
+  SkillsPanelProps,
   TasksPanelProps,
   ToolsPanelProps,
 } from "./components/views/InspectorView/types";
@@ -458,6 +459,11 @@ function App() {
     tasks,
     refreshTasks,
     clearCompletedTasks,
+    sessionNonce,
+    skills,
+    skillsPageCount,
+    skillsLoadError,
+    refreshSkills,
     subscriptions,
     subscriptionStreamState,
     messages,
@@ -828,6 +834,9 @@ function App() {
     onRefreshTools,
     onRefreshPrompts,
     onRefreshResources,
+    onRefreshSkills,
+    onReadSkillFile,
+    onGetSkill,
     onRefreshTasks,
     onTogglePaginatedLists,
     onLoadMoreTools,
@@ -851,6 +860,7 @@ function App() {
     activeToolCallTaskIdRef,
     clearCompletedTasks,
     refreshTasks,
+    refreshSkills,
     paginatedLists,
     paginatedListsOverride,
     toolsPagination,
@@ -1816,6 +1826,21 @@ function App() {
     onRefreshApps: onRefreshTools,
   };
 
+  const skillsPanelProps: SkillsPanelProps = {
+    // Server id AND per-connect nonce: the id alone would repeat on a
+    // reconnect to the same server, which is one of the crossings this key
+    // exists to prevent.
+    skillsSessionKey: `${activeServerId ?? ""}:${sessionNonce}`,
+    skills,
+    skillsPageCount,
+    skillsLoadError,
+    skillsUi: ui.skillsUi,
+    onSkillsUiChange: setUi.setSkillsUi,
+    onRefreshSkills,
+    onReadSkillFile,
+    onGetSkill,
+  };
+
   const tasksPanelProps: TasksPanelProps = {
     tasks,
     progressByTaskId,
@@ -1889,6 +1914,7 @@ function App() {
           prompts={promptsPanelProps}
           resources={resourcesPanelProps}
           apps={appsPanelProps}
+          skills={skillsPanelProps}
           tasks={tasksPanelProps}
           logs={logsPanelProps}
           protocol={protocolPanelProps}

@@ -56,6 +56,47 @@ as a missing capability rather than an error.
 | `subscriptions-never-acknowledged-http.json` **(modern era)** | A `subscriptions/listen` answered with a bare result  | [#2097](https://github.com/modelcontextprotocol/inspector/issues/2097) |
 | `tasks-{legacy,modern}-http.json` **(era per file)** | Tasks, both eras                                    | [#1631](https://github.com/modelcontextprotocol/inspector/issues/1631) |
 | `cancellation-modern-http.json` **(modern era)**           | Cancelling a call by closing its response stream    | [#2140](https://github.com/modelcontextprotocol/inspector/issues/2140) |
+| `skills-http.json` **(either era)** | Skills tab: `skills/list`, digest verification, and the non-conforming cases | [#2234](https://github.com/modelcontextprotocol/inspector/issues/2234) |
+
+## Skills (SEP-2640)
+
+`skills-http.json` sets `"skills": true` and serves four skills over two
+`skills/list` pages. The extension is advertised **bare**: there is deliberately
+no `directoryRead` option to turn on, because nothing here serves
+`resources/directory/read` and a config that advertised it would produce exactly
+the false capability this fixture helps catch — Connection Info reporting a
+sub-option supported while the method answers `-32601`. Both come back in
+phase 3 ([#2248](https://github.com/modelcontextprotocol/inspector/issues/2248)).
+
+Every result carries the modern base envelope (`resultType` / `ttlMs` /
+`cacheScope`). `skills/*` are consumer-owned, so the SDK stamps nothing for
+them; without it a 2026-era connection would receive a result missing the
+envelope. It is stamped unconditionally rather than per era — the modern leg
+builds a fresh server per request, so there is no era to branch on when the
+handlers are registered, and on the legacy leg they are three extra members no
+codec inspects.
+It works on **either era**: `skills/list`, `skills/get` and
+`resources/directory/read` are consumer-owned extension methods that neither
+era codec defines, so the SDK's era gate skips them entirely — which is why
+this fixture, unlike the tasks ones, needs no per-era variant.
+
+Three of the four skills are deliberately awkward, because the checks the Skills
+tab runs are untestable without them. Only two are actual violations — the
+`"dynamic"` form is **conforming**, and is here because "legal but unverifiable"
+is the case most easily buried:
+
+| Skill | What it exercises |
+| --- | --- |
+| `data-analysis` | The clean case — **Verify all** reports `verified` for every file. |
+| `tampered-notes` | An advertised digest that does not match the bytes served, so verification reports a **digest mismatch** with both digests shown. |
+| `dynamic-report` | `resources: "dynamic"` — a **legal** form for generated content. No manifest is advertised, so integrity cannot be verified at all; reported as a warning, not an error. |
+| `wrong-folder` | A URI path segment (`wrong-folder`) that disagrees with `frontmatter.name` (`right-name`), the one structural invariant SEP-2640 states outright. |
+
+Connection Info's **Skills Extension Options** section shows the `directoryRead`
+sub-flag — against this fixture, a red ✗. The Inspector surfaces the flag but
+does not call `resources/directory/read` yet, and the wire schema for that
+result is deliberately absent from `core/mcp/skillsSchemas.ts` too: phase 3 adds
+it against the normative text rather than shipping a guess nothing exercises.
 
 ## Cancelling a call
 

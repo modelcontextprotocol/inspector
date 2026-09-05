@@ -19,6 +19,7 @@ import {
   EMPTY_PROMPTS_UI,
   EMPTY_RESOURCES_UI,
   EMPTY_APPS_UI,
+  EMPTY_SKILLS_UI,
   EMPTY_TASKS_UI,
   EMPTY_LOGS_UI,
   EMPTY_PROTOCOL_UI,
@@ -107,6 +108,7 @@ describe("oauthResume", () => {
       promptsUi: EMPTY_PROMPTS_UI,
       resourcesUi: EMPTY_RESOURCES_UI,
       appsUi: EMPTY_APPS_UI,
+      skillsUi: EMPTY_SKILLS_UI,
       tasksUi: EMPTY_TASKS_UI,
       logsUi: EMPTY_LOGS_UI,
       protocolUi: EMPTY_PROTOCOL_UI,
@@ -118,6 +120,7 @@ describe("oauthResume", () => {
       setPromptsUi: vi.fn(),
       setResourcesUi: vi.fn(),
       setAppsUi: vi.fn(),
+      setSkillsUi: vi.fn(),
       setTasksUi: vi.fn(),
       setLogsUi: vi.fn(),
       setProtocolUi: vi.fn(),
@@ -147,6 +150,7 @@ describe("oauthResume", () => {
         setPromptsUi: vi.fn(),
         setResourcesUi: vi.fn(),
         setAppsUi: vi.fn(),
+        setSkillsUi: vi.fn(),
         setTasksUi: vi.fn(),
         setLogsUi: vi.fn(),
         setProtocolUi: vi.fn(),
@@ -244,6 +248,7 @@ describe("oauthResume", () => {
       setPromptsUi: vi.fn(),
       setResourcesUi: vi.fn(),
       setAppsUi: vi.fn(),
+      setSkillsUi: vi.fn(),
       setTasksUi: vi.fn(),
       setLogsUi: vi.fn(),
       setProtocolUi: vi.fn(),
@@ -553,6 +558,7 @@ describe("oauthResume", () => {
       setPromptsUi: vi.fn(),
       setResourcesUi: vi.fn(),
       setAppsUi: vi.fn(),
+      setSkillsUi: vi.fn(),
       setTasksUi: vi.fn(),
       setLogsUi: vi.fn(),
       setProtocolUi: vi.fn(),
@@ -567,6 +573,7 @@ describe("oauthResume", () => {
       setPromptsUi: vi.fn(),
       setResourcesUi: vi.fn(),
       setAppsUi: vi.fn(),
+      setSkillsUi: vi.fn(),
       setTasksUi: vi.fn(),
       setLogsUi: vi.fn(),
       setProtocolUi: vi.fn(),
@@ -587,6 +594,7 @@ describe("oauthResume", () => {
       setPromptsUi: vi.fn(),
       setResourcesUi: vi.fn(),
       setAppsUi: vi.fn(),
+      setSkillsUi: vi.fn(),
       setTasksUi: vi.fn(),
       setLogsUi: vi.fn(),
       setProtocolUi: vi.fn(),
@@ -598,6 +606,7 @@ describe("oauthResume", () => {
         Prompts: EMPTY_PROMPTS_UI,
         Resources: EMPTY_RESOURCES_UI,
         Apps: EMPTY_APPS_UI,
+        Skills: EMPTY_SKILLS_UI,
         Tasks: EMPTY_TASKS_UI,
         Logs: EMPTY_LOGS_UI,
         Protocol: EMPTY_PROTOCOL_UI,
@@ -609,10 +618,37 @@ describe("oauthResume", () => {
     expect(setters.setPromptsUi).toHaveBeenCalledWith(EMPTY_PROMPTS_UI);
     expect(setters.setResourcesUi).toHaveBeenCalledWith(EMPTY_RESOURCES_UI);
     expect(setters.setAppsUi).toHaveBeenCalledWith(EMPTY_APPS_UI);
+    expect(setters.setSkillsUi).toHaveBeenCalledWith(EMPTY_SKILLS_UI);
     expect(setters.setTasksUi).toHaveBeenCalledWith(EMPTY_TASKS_UI);
     expect(setters.setLogsUi).toHaveBeenCalledWith(EMPTY_LOGS_UI);
     expect(setters.setProtocolUi).toHaveBeenCalledWith(EMPTY_PROTOCOL_UI);
     expect(setters.setNetworkUi).toHaveBeenCalledWith(EMPTY_NETWORK_UI);
+  });
+
+  it("restoreTabUiFromSnapshot restores a SAVED Skills selection, not the default", () => {
+    // The other cases restore each tab's EMPTY value, so a bug that always
+    // wrote the default would pass them. This one saves a real selection.
+    const saved = {
+      ...EMPTY_SKILLS_UI,
+      selectedSkillUri: "skill://data-analysis/SKILL.md",
+      search: "analysis",
+    };
+    const setSkillsUi = vi.fn();
+    restoreTabUiFromSnapshot(
+      { Skills: saved },
+      {
+        setToolsUi: vi.fn(),
+        setPromptsUi: vi.fn(),
+        setResourcesUi: vi.fn(),
+        setAppsUi: vi.fn(),
+        setSkillsUi,
+        setTasksUi: vi.fn(),
+        setLogsUi: vi.fn(),
+        setProtocolUi: vi.fn(),
+        setNetworkUi: vi.fn(),
+      },
+    );
+    expect(setSkillsUi).toHaveBeenCalledWith(saved);
   });
 
   it("restoreTabUiFromSnapshot falls back to EMPTY state for undefined tab values", () => {
@@ -621,6 +657,7 @@ describe("oauthResume", () => {
       setPromptsUi: vi.fn(),
       setResourcesUi: vi.fn(),
       setAppsUi: vi.fn(),
+      setSkillsUi: vi.fn(),
       setTasksUi: vi.fn(),
       setLogsUi: vi.fn(),
       setProtocolUi: vi.fn(),
@@ -632,6 +669,7 @@ describe("oauthResume", () => {
         Prompts: undefined,
         Resources: undefined,
         Apps: undefined,
+        Skills: undefined,
         Tasks: undefined,
         Logs: undefined,
         Protocol: undefined,
@@ -643,6 +681,7 @@ describe("oauthResume", () => {
     expect(setters.setPromptsUi).toHaveBeenCalledWith(EMPTY_PROMPTS_UI);
     expect(setters.setResourcesUi).toHaveBeenCalledWith(EMPTY_RESOURCES_UI);
     expect(setters.setAppsUi).toHaveBeenCalledWith(EMPTY_APPS_UI);
+    expect(setters.setSkillsUi).toHaveBeenCalledWith(EMPTY_SKILLS_UI);
     expect(setters.setTasksUi).toHaveBeenCalledWith(EMPTY_TASKS_UI);
     expect(setters.setLogsUi).toHaveBeenCalledWith(EMPTY_LOGS_UI);
     expect(setters.setProtocolUi).toHaveBeenCalledWith(EMPTY_PROTOCOL_UI);
