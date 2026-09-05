@@ -283,6 +283,11 @@ jobs:
       contents: read
       packages: write
       attestations: write
+      # Lets `attest-build-provenance` write the artifact metadata storage
+      # record alongside the provenance itself (#2228). See the long comment on
+      # the "Generate artifact attestation" step for why this is separate from
+      # `attestations: write` and what to check after the next release.
+      artifact-metadata: write
       id-token: write
     steps:
       - name: Checkout code
@@ -326,6 +331,38 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
 
       - name: Generate artifact attestation
+        # Two scopes, two different things, and only the first is the
+        # attestation (#2228). `attestations: write` persists the signed SLSA
+        # provenance — that half has always worked, and
+        # `gh attestation verify oci://ghcr.io/modelcontextprotocol/inspector:<version>
+        # --repo modelcontextprotocol/inspector` passed on 2.5.0 without the
+        # second scope. `artifact-metadata: write` persists the separate
+        # *storage record*: GitHub's org-level index of where a published
+        # artifact lives (registry, active/eol status), surfaced at
+        # https://github.com/orgs/modelcontextprotocol/artifacts. The action
+        # emits one automatically when `push-to-registry` is true AND the
+        # workflow carries this scope; with only the first condition met, every
+        # release logged two warning annotations on an otherwise-green job:
+        #
+        #   Failed to create storage record: Error: Failed to persist storage
+        #   record: no artifacts found
+        #   Please check that the "artifact-metadata:write" permission has been
+        #   included
+        #
+        # `no artifacts found` reads like it is about this job uploading no
+        # *workflow* artifact, and is not: it is the generic 404 body of the org
+        # artifact-metadata API that @actions/attest POSTs to. The same message
+        # comes back from the sibling read endpoint for 2.5.0's real digest, and
+        # from an all-zeros digest that cannot exist — so it carries no
+        # information beyond "nothing resolved", and the documented precondition
+        # we were failing is this permission.
+        #
+        # ⚠️ Confirm at the next release rather than assuming: the job should be
+        # annotation-free, and
+        # `gh api /orgs/modelcontextprotocol/artifacts/<digest>/metadata/storage-records`
+        # should return a record instead of 404. If the warning persists, the
+        # honest fix is `create-storage-record: false` plus a note here saying
+        # the record is unavailable to us — not carrying an unexplained warning.
         uses: actions/attest-build-provenance@v4
         with:
           subject-name: ghcr.io/${{ github.repository }}
