@@ -80,14 +80,16 @@ It works on **either era**: `skills/list`, `skills/get` and
 era codec defines, so the SDK's era gate skips them entirely — which is why
 this fixture, unlike the tasks ones, needs no per-era variant.
 
-Three of the four skills are deliberately non-conforming, because the checks
-the Skills tab runs are untestable without them:
+Three of the four skills are deliberately awkward, because the checks the Skills
+tab runs are untestable without them. Only two are actual violations — the
+`"dynamic"` form is **conforming**, and is here because "legal but unverifiable"
+is the case most easily buried:
 
 | Skill | What it exercises |
 | --- | --- |
 | `data-analysis` | The clean case — **Verify all** reports `verified` for every file. |
 | `tampered-notes` | An advertised digest that does not match the bytes served, so verification reports a **digest mismatch** with both digests shown. |
-| `dynamic-report` | `resources: "dynamic"` — a generated file set, so integrity cannot be verified at all and the tab says so rather than staying silent. |
+| `dynamic-report` | `resources: "dynamic"` — a **legal** form for generated content. No manifest is advertised, so integrity cannot be verified at all; reported as a warning, not an error. |
 | `wrong-folder` | A URI path segment (`wrong-folder`) that disagrees with `frontmatter.name` (`right-name`), the one structural invariant SEP-2640 states outright. |
 
 Connection Info's **Skills Extension Options** section shows the `directoryRead`

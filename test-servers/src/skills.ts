@@ -5,12 +5,20 @@
  * the `skill://` URIs those entries name, so an Inspector connected here can
  * exercise the whole flow: enumerate, fetch a file, and verify its digest.
  *
- * **The non-conforming skills are the point.** A fixture that only served a
- * clean skill would leave every verification and conformance path in the
- * Inspector untestable, so the set below deliberately includes one `"dynamic"`
- * skill, one whose advertised digest does not match the bytes served, and one
- * whose URI path segment disagrees with `frontmatter.name`. Each is the exact
- * shape one of the checks in `core/mcp/skills.ts` exists to catch.
+ * **The awkward skills are the point.** A fixture that only served a clean
+ * skill would leave every verification and conformance path in the Inspector
+ * untestable, so the set below deliberately includes three edge cases — each
+ * the exact shape one of the checks in `core/mcp/skills.ts` exists to catch:
+ *
+ *  - `dynamic-report` declares `resources: "dynamic"`. That is a **conforming**
+ *    wire form for generated content, not a violation; what it costs is that
+ *    integrity cannot be verified at all, which the Inspector reports as a
+ *    warning. It is here because "legal but unverifiable" is the case most
+ *    easily buried.
+ *  - `tampered-notes` advertises a digest that does not match the bytes it
+ *    serves — a genuine violation.
+ *  - `wrong-folder` has a URI path segment that disagrees with
+ *    `frontmatter.name` — the other genuine violation.
  *
  * `skills/list` and `skills/get` are registered through the **public**
  * `setRequestHandler`, which accepts a consumer-owned method name as long as

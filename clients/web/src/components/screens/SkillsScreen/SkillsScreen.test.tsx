@@ -551,6 +551,70 @@ describe("SkillsScreen", () => {
     ).not.toBeDisabled();
   });
 
+  it("keeps the newest SKILL.md preview when two reads overlap", async () => {
+    // Same skill, same manifest — the key cannot order these, so without an
+    // attempt token the older read finishing last would replace the newer
+    // preview with stale content.
+    const user = userEvent.setup();
+    const resolvers: ((value: { text: string }) => void)[] = [];
+    const onReadSkillFile = vi.fn(
+      () =>
+        new Promise<{ text: string }>((resolve) => {
+          resolvers.push(resolve);
+        }),
+    );
+    renderWithMantine(
+      <ControlledSkillsScreen onReadSkillFile={onReadSkillFile} />,
+    );
+    await user.click(screen.getByText("data-analysis"));
+    const view = screen.getByRole("button", { name: /View SKILL.md/ });
+    await user.click(view);
+    await user.click(view);
+    expect(resolvers).toHaveLength(2);
+
+    resolvers[1]({ text: "# newest\n" });
+    expect(await screen.findByTestId("skill-md-preview")).toHaveTextContent(
+      "newest",
+    );
+    resolvers[0]({ text: "# stale\n" });
+    expect(screen.getByTestId("skill-md-preview")).not.toHaveTextContent(
+      "stale",
+    );
+  });
+
+  it("keeps the newest skills/get result when two fetches overlap", async () => {
+    const user = userEvent.setup();
+    const resolvers: ((value: SkillEntry) => void)[] = [];
+    const onGetSkill = vi.fn(
+      () =>
+        new Promise<SkillEntry>((resolve) => {
+          resolvers.push(resolve);
+        }),
+    );
+    renderWithMantine(<ControlledSkillsScreen onGetSkill={onGetSkill} />);
+    await user.click(screen.getByText("data-analysis"));
+    const fetchButton = screen.getByRole("button", {
+      name: /Fetch with skills\/get/,
+    });
+    await user.click(fetchButton);
+    await user.click(fetchButton);
+    expect(resolvers).toHaveLength(2);
+
+    // The newer fetch matches; the older one, landing last, would otherwise
+    // overwrite it with a "different snapshot" verdict.
+    resolvers[1](CLEAN_SKILL);
+    expect(
+      await screen.findByText("skills/get matches skills/list"),
+    ).toBeInTheDocument();
+    resolvers[0]({
+      ...CLEAN_SKILL,
+      frontmatter: { ...CLEAN_SKILL.frontmatter, description: "stale" },
+    });
+    expect(
+      screen.getByText("skills/get matches skills/list"),
+    ).toBeInTheDocument();
+  });
+
   it("shows the SKILL.md preview on demand", async () => {
     const user = userEvent.setup();
     renderWithMantine(<ControlledSkillsScreen />);

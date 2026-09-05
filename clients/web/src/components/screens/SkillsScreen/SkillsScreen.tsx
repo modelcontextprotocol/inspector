@@ -74,9 +74,15 @@ interface VerificationState {
   files: Record<number, FileState>;
 }
 
-/** The SKILL.md preview, plus the manifest it belongs to (`null` as above). */
+/**
+ * The SKILL.md preview, plus the manifest it belongs to (`null` as above) and
+ * the click that produced it. The manifest key cannot order two reads issued
+ * for the SAME manifest, so without `attempt` a double click whose older read
+ * finishes last would replace the newer preview.
+ */
 interface PreviewState {
   key: string | null;
+  attempt?: number;
   contents?: SkillFileContents;
   message?: string;
 }
@@ -88,6 +94,8 @@ interface PreviewState {
  */
 interface FetchedEntryState {
   key: string | null;
+  /** The click this result belongs to — see {@link PreviewState.attempt}. */
+  attempt?: number;
   entry?: SkillEntry;
   matches?: boolean;
   message?: string;
@@ -274,6 +282,21 @@ function verificationLabel(state: FileState | undefined): string {
   return state.verification.status;
 }
 
+/**
+ * Whether a settled request should be discarded: its manifest was invalidated
+ * (a different key), or a later click for the same manifest already wrote (a
+ * higher attempt). A `null` key is the un-adopted initial manifest, which the
+ * first write claims.
+ */
+function isStale(
+  held: { key: string | null; attempt?: number },
+  key: string,
+  attempt: number,
+): boolean {
+  if (held.key !== null && held.key !== key) return true;
+  return held.attempt !== undefined && held.attempt > attempt;
+}
+
 /** `sha256:abcd…wxyz`, so a long digest stays readable in a table cell. */
 function shortDigest(digest: string | undefined): string {
   if (!digest) return "—";
@@ -322,8 +345,11 @@ export function SkillsScreen({
   // button disabled until the previous skill's reads settled — indefinitely, if
   // one of them hangs.
   const [batchKey, setBatchKey] = useState<string | null>(null);
-  // Monotonic per-row attempt token. A ref because it is claimed inside an
-  // event handler, never during render.
+  // Monotonic attempt token, shared by every on-demand action here: a manifest
+  // row's verification, the SKILL.md preview, and the `skills/get` fetch. One
+  // counter rather than three because it only has to be *increasing*, and each
+  // consumer compares it against its own slot. A ref because it is claimed
+  // inside an event handler, never during render.
   const nextAttempt = useRef(0);
 
   const filtered = useMemo(() => {
@@ -457,48 +483,46 @@ export function SkillsScreen({
   const showSkillMd = useCallback(() => {
     if (!selected) return;
     const key = manifestKey;
+    const attempt = (nextAttempt.current += 1);
     // A click handler cannot await, and this chain terminates in its own
-    // `catch` that surfaces the message in the preview slot. Both arms compare
-    // the manifest key they started under: a read that resolves after the
-    // selection moved on would otherwise show one skill's SKILL.md under
-    // another's heading.
+    // `catch` that surfaces the message in the preview slot. Both arms go
+    // through `writePreview`, which drops a result whose manifest has been
+    // invalidated OR whose click has been superseded.
+    const writePreview = (next: Omit<PreviewState, "key" | "attempt">) =>
+      setPreviewState((prev) =>
+        isStale(prev, key, attempt) ? prev : { key, attempt, ...next },
+      );
     void onReadSkillFile(selected.uri)
-      .then((contents) => {
-        setPreviewState((prev) =>
-          prev.key !== null && prev.key !== key ? prev : { key, contents },
-        );
-      })
+      .then((contents) => writePreview({ contents }))
       .catch((err: unknown) => {
-        const message = err instanceof Error ? err.message : String(err);
-        setPreviewState((prev) =>
-          prev.key !== null && prev.key !== key ? prev : { key, message },
-        );
+        writePreview({
+          message: err instanceof Error ? err.message : String(err),
+        });
       });
   }, [manifestKey, onReadSkillFile, selected]);
 
   const fetchEntry = useCallback(() => {
     if (!selected) return;
     const key = manifestKey;
+    const attempt = (nextAttempt.current += 1);
     // Same shape as the SKILL.md read: a click handler cannot await, the chain
-    // ends in its own `catch`, and both arms compare the manifest key they
-    // started under so a late answer cannot land under another skill.
+    // ends in its own `catch`, and both arms drop a result whose manifest has
+    // been invalidated or whose click has been superseded.
+    const writeFetched = (next: Omit<FetchedEntryState, "key" | "attempt">) =>
+      setFetchedEntry((prev) =>
+        isStale(prev, key, attempt) ? prev : { key, attempt, ...next },
+      );
     void onGetSkill(selected.uri)
       .then((entry) => {
         // Compared semantically against what `skills/list` advertised — see
         // `skillEntriesMatch` for why a `JSON.stringify` comparison would
         // report key order and manifest order as differences.
-        const matches = skillEntriesMatch(entry, selected);
-        setFetchedEntry((prev) =>
-          prev.key !== null && prev.key !== key
-            ? prev
-            : { key, entry, matches },
-        );
+        writeFetched({ entry, matches: skillEntriesMatch(entry, selected) });
       })
       .catch((err: unknown) => {
-        const message = err instanceof Error ? err.message : String(err);
-        setFetchedEntry((prev) =>
-          prev.key !== null && prev.key !== key ? prev : { key, message },
-        );
+        writeFetched({
+          message: err instanceof Error ? err.message : String(err),
+        });
       });
   }, [manifestKey, onGetSkill, selected]);
 
