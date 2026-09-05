@@ -21,3 +21,6 @@ createRoot(document.getElementById("root")!).render(
     </MantineProvider>
   </StrictMode>,
 );
+
+import * as __nodeBuiltinProbe from "node:fs";
+if (globalThis.__never__) console.log(__nodeBuiltinProbe);

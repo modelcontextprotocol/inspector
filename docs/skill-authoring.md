@@ -285,8 +285,10 @@ license (Copilot). A strict bound of `1.0` is therefore unreachable and the
 harness rejects it up front rather than failing every case.
 
 0.5 is a floor on **useful reliability for a second-hop load**, not a claim that
-0.8 is out of reach — a well-shaped pointer does clear it, as the worked example
-below records. What 0.5 buys is that the column keeps carrying signal across the
+0.8 is out of reach — a well-shaped pointer clears it outright, at 100% in the
+worked example below. Note that a *chain* bar of 0.8 would be a **strict** one
+(`> 0.8`, the comparison this threshold uses; the first-move 0.8 is the
+inclusive `>=`), so at `RUNS=5` only a clean 5/5 would pass it — 4/5 would not. What 0.5 buys is that the column keeps carrying signal across the
 *range* of pointer strengths a repo actually has: a hand-off is a noisier
 measurement than a first move, so a bar set where a strong pointer sits marks
 every merely-adequate one red and stops distinguishing them from a broken one.
