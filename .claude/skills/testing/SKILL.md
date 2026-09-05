@@ -16,21 +16,27 @@ test goes, how to run it, and how to clear the gate.
 **If it does, load the `test-servers` skill now — that is step one, before
 choosing a location or writing a line.**
 
-The condition is **"does this test exercise MCP behaviour over a transport?"** —
-not which tier it lands in, and not which directory it lands in. It does
-whenever the task is: an integration test **that connects**; an end-to-end test
-that connects; a smoke that drives a **connected** flow; a coverage gap only
-reachable over a real connection; or reproducing a reported bug against a
-server.
+The condition is **"does this test connect to, or build and consume, an MCP
+fixture?"** — not which tier it lands in, and not which directory it lands in.
+It does whenever the task is: an integration test **that connects**; an
+end-to-end test that connects; a smoke that drives a **connected** flow; a
+coverage gap only reachable over a real connection; reproducing a reported bug
+against a server; **or** anything that puts a built fixture on disk, even
+without connecting — `smoke:tui` boots the TUI against a catalog whose stdio
+command *is* `test-servers/build`, so the build and staleness half of that
+procedure is exactly what it needs.
 
 It does **not** when the test renders a component from fixture props, exercises
-a pure function or a parser, or is a boot-only smoke that never connects.
-⚠️ **Neither the tier nor the folder decides this.** Only 29 of the 74 files in
-`src/test/integration/` touch a server at all — `storage/store-id.test.ts`
-validates a string, and `mcp/import/*` parses config files; they sit there for
-the node env and the 30s timeout, not because they connect. Likewise
-`smoke:launcher` checks `--help`, and `smoke:web` / `smoke:web:browser` only
-assert the SPA is served and paints.
+a pure function or a parser, or is a smoke that neither connects nor builds a
+fixture — `smoke:launcher` checks `--help`, and `smoke:web` /
+`smoke:web:browser` only assert the SPA is served and paints.
+
+⚠️ **Neither the tier nor the folder decides this.** `src/test/integration/`
+holds `storage/store-id.test.ts`, which validates a string, and `mcp/import/*`,
+which parses config files, right beside the tests that drive a live connection.
+They sit there for the node env and the 30s timeout, not because they connect —
+placement is the project manifest, so it cannot also be the fixture trigger.
+Ask what the test *does*, not where it lives.
 
 When it does apply, the test drives a **real server over a real transport, never
 a mock**, and picking the fixture, building it, and connecting with the right
@@ -106,15 +112,18 @@ spawns the built binary) → smokes through the built launcher (`npm run smoke`)
 Storybook play functions (`test:storybook`) → the published-tarball check
 (`npm run pack:verify`, local/release only — needs network).
 
-⚠️ **Depth in that list is not the fixture boundary — connecting is, and it
-cuts across the tiers rather than along them.** The **connecting** web
-integration tests, the out-of-process CLI tests, the smokes that actually
-connect (`smoke:cli`, `smoke:web:app`, `smoke:web:elicit`, `smoke:web:tabs`) and
-`pack:verify` need a fixture from `test-servers/`. The rest do not: the pure
-tests inside the same integration project, `smoke:launcher`, `smoke:web`,
-`smoke:web:browser` (all three stop at boot) and every Storybook play function
-(fixture props). **Load the `test-servers` skill as soon as a task puts you on
-the connecting side of that line** — whichever tier it sits in.
+⚠️ **Depth in that list is not the fixture boundary, and the boundary cuts
+across the tiers rather than along them.** Needing `test-servers/`: the
+**connecting** web integration tests, the out-of-process CLI tests, the smokes
+that connect (`smoke:cli`, `smoke:web:app`, `smoke:web:elicit`,
+`smoke:web:tabs`), `pack:verify`, and **`smoke:tui`** — which never asserts a
+round trip but calls `ensureTestServers({ requires: ["stdio"] })` and hands the
+built fixture to the TUI as its catalog's stdio command. Not needing it: the
+pure tests inside the same integration project, `smoke:launcher`, `smoke:web`
+and `smoke:web:browser` (all three stop at boot without a fixture), and every
+Storybook play function (fixture props). **Load the `test-servers` skill as soon
+as a task puts you on the fixture side of that line** — whichever tier it sits
+in.
 
 `validate` runs the per-client `test` scripts — so web **unit** plus cli's
 out-of-process `e2e.test.ts`, but **not** web's integration project, which runs
@@ -198,6 +207,11 @@ tests and the connected smokes — use a real server rather than a mock. **For
 those, load the `test-servers` skill to pick, build and run the fixture** —
 which showcase config covers the feature, which protocol era to connect with,
 how to add a combination that does not exist yet, and why a fixture can keep
-serving stale code after an edit. A pure test that happens to live in the
-integration project, and a boot-only smoke, need none of it (see the tier list
-above).
+serving stale code after an edit.
+
+**Consuming a fixture is a trigger on its own, even without a connection.**
+`smoke:tui` only asserts the TUI boots and survives, but it builds
+`test-servers/` and embeds the result in its catalog — so the staleness hazard
+lands on it in full. A pure test that happens to live in the integration
+project, and a smoke that touches no fixture at all, need none of this (see the
+tier list above).

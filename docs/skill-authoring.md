@@ -305,7 +305,7 @@ points apart on the first case.
 
 Rewriting that classification into an imperative first step ("load the
 `test-servers` skill now — that is step one"), and repeating it at the two later
-points where the model actually decides it is writing a connecting test, took
+points where the model actually decides it is writing a fixture-backed test, took
 them to **100% / 100% at `RUNS=5`** with the prompts unchanged (#2247). Nothing
 else moved: the two descriptions were not touched, and the same suite scored
 **63/63** first-move cases at 100%. (An intermediate build of that change
