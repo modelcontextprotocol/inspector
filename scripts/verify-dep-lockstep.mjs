@@ -283,9 +283,11 @@ export function toleratesSkew(name, holders, tolerated) {
  * boundary this tier polices is "does the repo name a package npm will install
  * for us", not "does it ship":
  *
- *   • `devDependencies` — the `@types/*` and toolchain case #2226 is about; every
- *     one of the four skews this tier first surfaced was a devDependency
- *     somewhere.
+ *   • `devDependencies` — the `@types/*` and toolchain case #2226 is about, and
+ *     three of the four skews this tier first surfaced (`@types/node`,
+ *     `@types/react`, `@vitejs/plugin-react`) were a devDependency somewhere.
+ *     The fourth, `react`, is a root runtime dependency whose client copies are
+ *     peer-installed — which is why the union spans fields as well as installs.
  *   • `optionalDependencies` — a direct declaration npm attempts to install like
  *     any other. Omitting it would leave an optional-only package free to hold
  *     conflicting top-level copies in two installs while this tier reported

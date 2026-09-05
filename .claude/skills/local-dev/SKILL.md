@@ -147,7 +147,7 @@ supposed to rule out.
 **`react` and `react-dom` are the exception, and stay pinned per client.** They
 are a matched pair — `react-dom` reaches into React internals — and `react-dom`
 is still web-declared, so npm resolves it and its React peer together inside
-`clients/web/node_modules` (19.2.8 today, against the root's 19.2.7). Pointing
+`clients/web/node_modules`. Pointing
 `react` at the root while `react-dom` resolves from the client would pair a
 renderer with a React it was not installed against, which is the same split the
 pin exists to prevent, arrived at from the other side. `dedupe` still collapses
