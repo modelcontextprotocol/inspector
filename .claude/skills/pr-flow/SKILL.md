@@ -291,7 +291,9 @@ arrive late (see step 8).
   ```sh
   # Fetch the round's comments by REVIEW id — the unpaginated /reviews listing
   # hides later rounds behind your own replies.
-  gh api repos/modelcontextprotocol/inspector/pulls/<N>/reviews/<REVIEW_ID>/comments \
+  # --paginate: this endpoint returns 30 per page, and a round you only half
+  # fetch is a round you only half answer.
+  gh api --paginate repos/modelcontextprotocol/inspector/pulls/<N>/reviews/<REVIEW_ID>/comments \
     --jq '.[]|"\(.id) \(.path):\(.line)\n\(.body)"'
 
   # Reply into one thread, keyed by the comment id from above.
