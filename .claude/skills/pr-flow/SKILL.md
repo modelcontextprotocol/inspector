@@ -107,14 +107,21 @@ committed — so attach them to the PR body from there rather than referencing a
 in-repo path. Name them for what they show (`tools-tab-before.png`), not
 `Screenshot 2026-07-31 at 14.02.11.png`.
 
-### 5a. Capture settings
+### 5a. Capture settings — web
 
-**Shoot at 1280×900, full page.** That is the viewport the web smokes already
-use (`scripts/smoke-web-*.mjs`) and what every existing shot in the repo was
-taken at, so a reviewer comparing two PRs is comparing the same thing. Prefer a
-full-page shot over a Playwright `clip` region: a clip sized to one panel cuts
-off anything placed beside it, and two clips of different sizes make a
-before/after pair hard to read as a pair.
+Everything in 5a is about a **browser** capture and assumes Playwright driving
+the web client. A **TUI** change has no viewport and no `fullPage` mode: size
+the terminal so no line wraps or truncates, and go straight to 5b, which applies
+to every image regardless of how it was taken.
+
+**Shoot the web client at 1280×900, full page.** That is the viewport the web
+smokes already use (`scripts/smoke-web-*.mjs`), and adopting it as the standard
+here is what makes a reviewer comparing two PRs compare the same thing — the
+older shots checked into `specification/screenshots/` were taken at assorted
+sizes, which is the problem, not the precedent. Prefer a full-page shot over a
+Playwright `clip` region: a clip sized to one panel cuts off anything placed
+beside it, and two clips of different sizes make a before/after pair hard to
+read as a pair.
 
 ⚠️ **Widening the window does not widen the Monitor sidebar.** The
 main/sidebar split is a draggable divider whose width is stored independently of
@@ -159,7 +166,7 @@ Two more mechanics worth setting before the shutter:
   line is the actual assertion and the image is the evidence. **Say in the PR
   body that the outline is script-added**, not app UI.
 
-### 5b. Read the shot back before uploading
+### 5b. Read the shot back before uploading — web and TUI
 
 **Open every image and confirm nothing is cut off at either edge** — no
 truncated row, clipped badge, or value running under a panel border, and no
