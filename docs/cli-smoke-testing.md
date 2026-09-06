@@ -94,17 +94,30 @@ npx @modelcontextprotocol/inspector --cli node build/index.js \
 # → {"result":{"tools":[{"name":"echo","description":"…","inputSchema":{…}}, …]}}
 ```
 
-The envelope always carries `"result"`, and up to two optional siblings:
+For every method **except** an `--app-info` probe, the envelope carries
+`"result"` plus up to two optional siblings:
 
 | Key | Present when |
 | --- | --- |
-| `result` | Always. |
+| `result` | Always — except under `--app-info`, see below. |
 | `appInfo` | The result belongs to an [MCP App](./mcp-app-review.md) tool. |
 | `schemaFindings` | `--strict` is passed to `tools/list` **and** there is at least one portability finding. |
 
+⚠️ **`--app-info` is a different shape, not a variation on this one.** It probes
+without invoking the tool, so there is no result to report and the envelope is
+`{"appInfo": …}` **alone** — including in the `hasApp:false` case, which is
+reported through exit code `2` rather than through a key. A consumer that
+requires `.result` will break on every `--app-info` run:
+
+```bash
+mcp-inspector --cli <server> --method tools/call --tool-name <t> --app-info --format json
+# → {"appInfo":{"hasApp":true,…}}      — no "result" key, in either case
+```
+
 Parse the envelope by key rather than assuming a fixed shape — a consumer that
-rejects unknown keys, or that reads `.result` and stops, will silently drop the
-`schemaFindings` diagnostics described in [§7](#7-negative-assertions).
+reads `.result` and stops will drop the `schemaFindings` diagnostics described in
+[§7](#7-negative-assertions), and one that *requires* it will reject the
+`--app-info` shape outright.
 
 Three more things worth knowing before you build a pipeline on it:
 
@@ -460,7 +473,10 @@ smoke:
     - uses: actions/setup-node@v7
       with:
         node-version: "22.x"
-    - run: ./smoke.sh
+    # `bash smoke.sh`, not `./smoke.sh` — a file copied out of this guide (or
+    # checked out on a runner that did not preserve the mode bit) is not
+    # executable, and `./smoke.sh` fails with "Permission denied".
+    - run: bash smoke.sh
       env:
         SERVER_URL: ${{ vars.MCP_SERVER_URL }}
 ```
