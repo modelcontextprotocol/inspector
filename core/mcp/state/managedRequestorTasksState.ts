@@ -181,7 +181,13 @@ export class ManagedRequestorTasksState extends TypedEventTarget<ManagedRequesto
             ? { ...t, status: "cancelled" as const }
             : t,
         );
-      this.tasks = cursor ? [...this.tasks, ...page] : page;
+      // `=== undefined`, not truthiness, on both the append test and the loop
+      // condition: a cursor is opaque and `""` is a legal value (#2220). Under
+      // a truthiness check an empty `nextCursor` ended the walk after page one
+      // AND made the next page replace the list rather than extend it — the
+      // user-visible task list silently stopping at four rows against a
+      // conforming server.
+      this.tasks = cursor === undefined ? page : [...this.tasks, ...page];
       cursor = result.nextCursor;
       pageCount++;
       if (pageCount >= MAX_PAGES) {
@@ -189,7 +195,7 @@ export class ManagedRequestorTasksState extends TypedEventTarget<ManagedRequesto
           `Maximum pagination limit (${MAX_PAGES} pages) reached while listing requestor tasks`,
         );
       }
-    } while (cursor);
+    } while (cursor !== undefined);
     this.dispatchTypedEvent("tasksChange", this.tasks);
     return this.getTasks();
   }

@@ -116,9 +116,12 @@ export class FakeInspectorClient
   listResourceTemplates = vi.fn(
     async () => this.resourceTemplatePages.shift() ?? { resourceTemplates: [] },
   );
-  listRequestorTasks = vi.fn(
-    async () => this.taskPages.shift() ?? { tasks: [] },
-  );
+  // Typed by its signature rather than inferred, so `mock.calls` carries the
+  // cursor a test asserts on — the empty-string pagination case (#2220) turns
+  // on *which* cursor each call received, not just how many there were.
+  listRequestorTasks = vi.fn<
+    (cursor?: string) => Promise<ListResult<"tasks", Task>>
+  >(async () => this.taskPages.shift() ?? { tasks: [] });
   listSkills = vi.fn(async () => this.skillPages.shift() ?? { skills: [] });
   // `skills/get` echoes a minimal entry; tests that care override the mock.
   getSkill = vi.fn(async (uri: string) => ({

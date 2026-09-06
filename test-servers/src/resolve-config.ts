@@ -93,6 +93,7 @@ export function resolveConfig(config: ConfigFile): ServerConfig {
     skills: config.skills,
     appElicitation: config.appElicitation,
     maxPageSize: config.maxPageSize,
+    emptyStringCursor: config.emptyStringCursor,
     duplicateToolNames: config.duplicateToolNames,
     rawToolSchemas: config.rawToolSchemas,
     extensionGatedTools: config.extensionGatedTools,
