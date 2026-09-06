@@ -282,8 +282,11 @@ arrive late (see step 8).
 - After making the changes, **reply to each review comment in its own thread**
   with what was done, or why it was declined. That inline reply is the primary
   response and it is not optional — each review comment is a discussion thread
-  with its own resolve state, and only a reply _in_ the thread can resolve it or
-  show a reviewer reading it that the finding was answered.
+  with its own resolve state, and a reply _in_ the thread is the only thing a
+  reviewer reading that thread sees. It does **not** resolve the thread:
+  resolving is a separate act — the "Resolve conversation" button, or the
+  `resolveReviewThread` GraphQL mutation — and it is the reviewer's to make. The
+  reply is what makes resolving it defensible.
 
   ```sh
   # Fetch the round's comments by REVIEW id — the unpaginated /reviews listing
