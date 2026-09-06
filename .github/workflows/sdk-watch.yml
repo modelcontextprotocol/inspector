@@ -272,24 +272,28 @@ jobs:
           # needing a prompt no headless run can answer, and `--disallowedTools`
           # denies the rest by name as a third layer.
           #
-          # ⚠️ **A RESIDUAL EXFILTRATION CHANNEL REMAINS, AND IT IS NOT CLOSED
-          # HERE.** `claude-code-action` copies the action's environment into the
-          # model's, so `ANTHROPIC_API_KEY` and the job's `GITHUB_TOKEN` are
-          # readable by a `Read` this job genuinely needs — and `analysis` is
-          # model-controlled text this workflow publishes. An injection can
-          # therefore still read a credential and encode it in the write-up
-          # (Copilot, round 3). Two things narrow it and neither is a boundary:
-          # the posting step refuses any analysis containing a credential
-          # VERBATIM, and the job's own token is `contents: read` and dies with
-          # the job. `ANTHROPIC_API_KEY` is the asset that outlives the run.
+          # ⚠️ **A RESIDUAL CHANNEL REMAINS, AND IT IS ACCEPTED ON PURPOSE.**
+          # `claude-code-action` copies the action's environment into the model's,
+          # so `ANTHROPIC_API_KEY` is readable by a `Read` this job genuinely
+          # needs, and `analysis` is model-controlled text this workflow
+          # publishes. The verbatim-credential scan catches the naive shape only;
+          # an encoded value passes it.
           #
-          # The real fix is to stop putting a long-lived key in the environment
-          # at all: this action supports workload identity federation
-          # (`anthropic_federation_rule_id` + `anthropic_organization_id` with
-          # `id-token: write`), which exchanges the workflow's OIDC token for a
-          # short-lived credential. That needs an Anthropic-side federation rule
-          # and org UUID that do not exist yet, so it cannot land in this change.
-          # Tracked separately — do not treat the scan below as having settled it.
+          # What makes that acceptable is WHAT THIS JOB READS, not the controls
+          # around it. Both upstreams — `modelcontextprotocol/typescript-sdk` and
+          # `modelcontextprotocol/ext-apps` — are in this repository's own org, so
+          # their release notes are first-party content, and anyone able to plant
+          # an injection in them already holds release rights here. Closing the
+          # channel properly means workload identity federation instead of a
+          # long-lived key (`anthropic_federation_rule_id` + `id-token: write`);
+          # that is org-admin work on the Anthropic organization and is
+          # disproportionate against our own changelogs. See #2269, closed as not
+          # planned, for the full reasoning.
+          #
+          # ⚠️ **Re-open that judgement if the inputs change.** Point this at an
+          # upstream outside the org, or at third-party content, and federation —
+          # or at least a dedicated CI-scoped key with a spend cap — becomes the
+          # next step rather than another grant to narrow.
           claude_args: |
             --model claude-opus-5
             --max-turns 40
@@ -302,14 +306,52 @@ jobs:
       # Still inside the READ-ONLY job. This writes the model's text to a file so
       # the separately-permissioned `post` job can pick it up; no token capable of
       # writing anything exists in this job at all.
+      # ⚠️ **The credential scan runs HERE, BEFORE anything is written or
+      # uploaded.** It used to run only in the posting job, which was too late to
+      # be the backstop it claimed to be: this repository is public, so an
+      # analysis containing a credential verbatim would have been uploaded as a
+      # downloadable artifact and sat there for a day, even though the later step
+      # correctly refused to post it (Copilot, round 6). Refusing at the comment
+      # is not refusing at all if the text has already left the job.
+      #
+      # The same scan is repeated in `post` as defense in depth — the artifact is
+      # the boundary between the two jobs, so each side checks what it handles.
+      # A workflow test pins both the presence and the ordering.
       - name: Stage the analysis for the posting job
         if: ${{ steps.analysis.outputs.structured_output != '' }}
         env:
           ANALYSIS: ${{ fromJSON(steps.analysis.outputs.structured_output).analysis }}
-        run: printf '%s' "$ANALYSIS" > analysis.md
+          # Read back ONLY to refuse writing them out; never logged or posted.
+          SCAN_ANTHROPIC: ${{ secrets.ANTHROPIC_API_KEY }}
+          SCAN_GITHUB: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${ANALYSIS//[[:space:]]/}" ]; then
+            echo "sdk-watch: the analysis came back empty — staging nothing" >&2
+            exit 1
+          fi
+          # Shell pattern matching rather than `grep`, so no secret ever reaches
+          # an argv that `ps` could show. A BACKSTOP, NOT A BOUNDARY: it catches a
+          # verbatim credential and nothing cleverer — see the note above the
+          # analysis step.
+          for scanned in "$SCAN_ANTHROPIC" "$SCAN_GITHUB"; do
+            if [ -n "$scanned" ]; then
+              case "$ANALYSIS" in
+                *"$scanned"*)
+                  echo "sdk-watch: the analysis contains a credential verbatim — refusing to stage or upload it" >&2
+                  exit 1
+                  ;;
+              esac
+            fi
+          done
+          printf '%s' "$ANALYSIS" > analysis.md
 
+      # Gated on the FILE, not on the model's output being non-empty: the staging
+      # step above deliberately refuses to write it when the scan trips, and this
+      # condition is what makes that refusal mean "nothing leaves the job" rather
+      # than relying on step-failure ordering alone.
       - name: Upload the analysis
-        if: ${{ steps.analysis.outputs.structured_output != '' }}
+        if: ${{ hashFiles('analysis.md') != '' }}
         uses: actions/upload-artifact@v7
         with:
           name: sdk-watch-analysis-${{ matrix.target.issue }}

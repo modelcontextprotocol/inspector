@@ -215,13 +215,20 @@ test("no model runs in a job that can write", () => {
     // A job with no `permissions:` block inherits the top-level one, which here
     // includes `issues: write` — so an omitted block is a failure, not a default.
     const permissions = job.permissions ?? inherited;
-    const writes = Object.entries(permissions).filter(
-      ([, level]) => level === "write",
+    // ⚠️ GitHub also accepts the SHORTHAND forms `permissions: write-all` and
+    // `read-all`. Scanning entries for a `write` value silently passes on those,
+    // because `Object.entries("write-all")` iterates the string's CHARACTERS and
+    // finds nothing equal to `write` — so the test would go green while the model
+    // held every scope there is (Copilot). Reject a non-mapping outright, then
+    // assert the exact value.
+    assert.ok(
+      permissions !== null && typeof permissions === "object",
+      `job "${name}" runs a model and uses the shorthand permissions "${permissions}" — write it as an explicit mapping`,
     );
     assert.deepEqual(
-      writes,
-      [],
-      `job "${name}" runs a model and holds write scope: ${JSON.stringify(permissions)}`,
+      permissions,
+      { contents: "read" },
+      `job "${name}" runs a model, so its permissions must be exactly {contents: read}, not ${JSON.stringify(permissions)}`,
     );
     assert.equal(
       (job.steps ?? []).some((s) => /gh issue comment/.test(s.run ?? "")),
@@ -273,6 +280,46 @@ test("the model's tool availability is restricted to reading, with no shell", ()
       `--tools must not make ${forbidden} available`,
     );
   }
+});
+
+test("the credential scan runs before the analysis can leave the job", () => {
+  // ⚠️ Ordering IS the control here. This repo is public, so an artifact holding
+  // a verbatim credential is downloadable for as long as it is retained —
+  // refusing to post it afterwards is not refusing at all, because the text has
+  // already left the job (Copilot). The scan therefore gates the WRITE, and the
+  // upload is gated on the file the scan refused to produce.
+  const steps = analyzeJob().steps;
+  const scanAt = steps.findIndex((s) =>
+    /contains a credential/.test(s.run ?? ""),
+  );
+  const uploadAt = steps.findIndex((s) =>
+    String(s.uses ?? "").startsWith("actions/upload-artifact"),
+  );
+  assert.ok(scanAt !== -1, "expected a credential scan in the analyze job");
+  assert.ok(uploadAt !== -1, "expected an upload step in the analyze job");
+  assert.ok(
+    scanAt < uploadAt,
+    "the credential scan must run before the artifact is uploaded",
+  );
+  // The scan and the write must be the SAME step, or a failure between them
+  // would leave the file on disk for the upload to pick up anyway.
+  assert.match(
+    steps[scanAt].run,
+    /> analysis\.md/,
+    "the scan must gate the write of analysis.md, in the same step",
+  );
+  assert.match(
+    String(steps[uploadAt].if ?? ""),
+    /hashFiles\('analysis\.md'\)/,
+    "the upload must be gated on the file the scan refuses to write",
+  );
+
+  // Kept on the far side of the artifact boundary too, as defense in depth.
+  const post = workflowDoc().jobs.post;
+  assert.ok(
+    (post.steps ?? []).some((s) => /contains a credential/.test(s.run ?? "")),
+    "the posting job must scan what it received as well",
+  );
 });
 
 test("the release notes are fetched by a step the model does not run in", () => {
