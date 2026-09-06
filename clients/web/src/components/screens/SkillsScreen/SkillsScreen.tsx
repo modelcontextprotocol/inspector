@@ -293,8 +293,39 @@ const SkillUriCaption = Text.withProps({
 // documents. Three lines is enough to read a real description; the full text
 // stays available through the native `title` tooltip the call site passes.
 const SkillDescription = Text.withProps({
-  size: "sm",
+  variant: "skillDescription",
   lineClamp: 3,
+});
+
+// The Skill Resource control's row. `nowrap` is load-bearing: flexbox wraps
+// BEFORE it shrinks, so in a wrapping row a long file name pushes itself onto a
+// second line and grows the pinned control no matter how the caption is
+// clamped. With nowrap the caption's `miw: 0` can take effect and it ellipsizes
+// instead.
+const ResourceHeaderRow = Group.withProps({
+  justify: "space-between",
+  wrap: "nowrap",
+  gap: "sm",
+  w: "100%",
+});
+
+// The displayed file's name, in the Skill Resource section's CONTROL — which is
+// pinned and therefore does not scroll, so a resource URI ending in a very long
+// breakable segment would grow the header itself. One line, with the full name
+// on the `title` the call site passes.
+const ResourceNameCaption = Text.withProps({
+  variant: "monoCaption",
+  // `truncate` alone is not enough: the caption sits in a wrapping header row,
+  // so a long name whose MIN-CONTENT width exceeds the space simply pushes
+  // itself onto a second line and grows the control anyway. `miw: 0` lets flex
+  // shrink it below that width, which is what actually engages the ellipsis.
+  truncate: "end",
+  // `miw: 0` alone was not enough — Mantine's Accordion label wrapper does not
+  // let the row shrink, so the caption kept its content width and grew the
+  // control anyway. A hard cap gives the ellipsis a definite width to work
+  // against, which is what actually bounds the pinned header.
+  miw: 0,
+  maw: "50%",
 });
 
 const IssueStack = Stack.withProps({
@@ -1570,12 +1601,14 @@ export function SkillsScreen({
                 }
               >
                 <Accordion.Control>
-                  <SectionControlsRow>
+                  <ResourceHeaderRow>
                     <SectionHeading>Skill Resource</SectionHeading>
                     {previewUri !== undefined && (
-                      <MonoCaption>{resourceFileName(previewUri)}</MonoCaption>
+                      <ResourceNameCaption title={previewUri}>
+                        {resourceFileName(previewUri)}
+                      </ResourceNameCaption>
                     )}
-                  </SectionControlsRow>
+                  </ResourceHeaderRow>
                 </Accordion.Control>
                 <Accordion.Panel
                   tabIndex={0}

@@ -263,6 +263,10 @@ export const LongManifest: Story = {
 // name, a URI with many breakable segments, and a description at the upper end
 // of what SEP-2640 permits.
 const HOSTILE_NAME = "an-extremely-long-skill-name-".repeat(8);
+// A manifest entry whose FILENAME is hostile, not just its path — selecting it
+// puts that name in the Skill Resource control, which is pinned and does not
+// scroll.
+const HOSTILE_FILE_URI = `skill://${"very-long-path-segment/".repeat(30)}${"a-very-long-file-name-".repeat(10)}.md`;
 const hostileHeaderSkill: SkillEntry = {
   uri: `skill://${"very-long-path-segment/".repeat(30)}SKILL.md`,
   frontmatter: {
@@ -275,6 +279,7 @@ const hostileHeaderSkill: SkillEntry = {
       digest: SELF_DIGEST,
       size: 8,
     },
+    { uri: HOSTILE_FILE_URI, digest: SELF_DIGEST, size: 8 },
   ],
 };
 
@@ -320,6 +325,32 @@ export const HostileHeader: Story = {
     )) {
       await expect(item.getBoundingClientRect().height).toBeGreaterThan(0);
     }
+    await expect(detailCard.scrollHeight).toBeLessThanOrEqual(
+      detailCard.clientHeight + 1,
+    );
+
+    // Selecting the resource with the hostile FILENAME puts it in the Skill
+    // Resource control, which is pinned and does not scroll — so it has to be
+    // clamped too, or the header grows instead.
+    // Measure the control while a SHORT name is displayed, then select the
+    // hostile one: a clamped caption leaves the control the same height, an
+    // unclamped one grows it. Comparing against its own baseline is what makes
+    // this detect the defect — an absolute threshold does not, because even an
+    // unclamped name only wraps to a few lines.
+    const control = await canvas.findByRole("button", {
+      name: /Skill Resource/,
+    });
+    const controlBefore = control.getBoundingClientRect().height;
+    const accordionBefore = accordion.getBoundingClientRect().height;
+    await userEvent.click(
+      canvas.getByRole("button", { name: HOSTILE_FILE_URI }),
+    );
+    await expect(
+      Math.abs(control.getBoundingClientRect().height - controlBefore),
+    ).toBeLessThanOrEqual(1);
+    await expect(
+      Math.abs(accordion.getBoundingClientRect().height - accordionBefore),
+    ).toBeLessThanOrEqual(1);
     await expect(detailCard.scrollHeight).toBeLessThanOrEqual(
       detailCard.clientHeight + 1,
     );

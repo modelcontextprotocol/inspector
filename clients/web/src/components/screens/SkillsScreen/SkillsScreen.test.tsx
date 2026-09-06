@@ -392,7 +392,10 @@ describe("SkillsScreen", () => {
     // accordion. What is worth pinning here is the contract that makes
     // clamping safe: the full value stays reachable on a `title`, so nothing
     // is actually hidden from the user.
-    expect(screen.getByTitle(hostile.uri)).toBeInTheDocument();
+    // Two captions legitimately carry it: the header's URI and the Skill
+    // Resource control's file name, which for the skill's own SKILL.md is the
+    // same URI.
+    expect(screen.getAllByTitle(hostile.uri).length).toBeGreaterThanOrEqual(1);
     expect(
       screen.getByTitle(hostile.frontmatter.description as string),
     ).toBeInTheDocument();

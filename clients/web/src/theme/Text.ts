@@ -61,6 +61,9 @@ export const ThemeText = Text.extend({
         root: { fontWeight: 600, fontSize: "var(--mantine-font-size-lg)" },
       };
     }
+    if (props.variant === "skillDescription") {
+      return { root: { fontSize: "var(--mantine-font-size-sm)" } };
+    }
     if (props.variant === "monoCaption") {
       return {
         root: {
