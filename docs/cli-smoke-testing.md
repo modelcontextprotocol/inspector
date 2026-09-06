@@ -425,7 +425,16 @@ editing a schema.
 ## 8. Putting it together
 
 A complete smoke script. It bounds the connect, isolates the token store, and
-fails the job on the first assertion that does not hold:
+fails the job on the first assertion that does not hold.
+
+⚠️ **An isolated store starts empty, so `--stored-auth-only` alone cannot
+authenticate.** Those two are deliberately in tension: §6 wants isolation so a
+run cannot touch real tokens, and `--stored-auth-only` wants a token to reuse.
+Against an OAuth-protected server the combination is exit `3` every time, by
+construction. Resolve it explicitly rather than by accident — the script below
+takes a bearer token from your CI secret store when one is set, which is the
+approach §6 recommends for unattended runs, and works unchanged against a server
+that needs no credential at all.
 
 ```bash
 #!/usr/bin/env bash
@@ -433,16 +442,26 @@ fails the job on the first assertion that does not hold:
 set -euo pipefail
 
 SERVER_URL="${SERVER_URL:?set SERVER_URL}"
+
 # Both, in precedence order — MCP_INSPECTOR_OAUTH_STATE_PATH is checked first,
 # so an inherited one would defeat the scratch directory. See §6.
 export MCP_STORAGE_DIR="$(mktemp -d)"
 export MCP_INSPECTOR_OAUTH_STATE_PATH="$MCP_STORAGE_DIR/oauth.json"
 trap 'rm -rf "$MCP_STORAGE_DIR"' EXIT
 
+# The isolated store above is empty, so --stored-auth-only can never satisfy an
+# OAuth challenge on its own. Supply a credential here instead when the server
+# needs one; leave MCP_TOKEN unset for a server that does not.
+auth=()
+if [ -n "${MCP_TOKEN:-}" ]; then
+  auth=(--header "Authorization: Bearer $MCP_TOKEN")
+fi
+
 mcp() {
   npx --yes @modelcontextprotocol/inspector@2.5.0 --cli \
     --transport http --server-url "$SERVER_URL" \
-    --connect-timeout 10000 --stored-auth-only --format json "$@"
+    --connect-timeout 10000 --stored-auth-only --format json \
+    "${auth[@]+"${auth[@]}"}" "$@"
 }
 
 # 1. Handshake.
@@ -479,7 +498,23 @@ smoke:
     - run: bash smoke.sh
       env:
         SERVER_URL: ${{ vars.MCP_SERVER_URL }}
+        # Omit for a server that needs no credential; the script adapts.
+        MCP_TOKEN: ${{ secrets.MCP_TOKEN }}
 ```
+
+`"${auth[@]+"${auth[@]}"}"` rather than `"${auth[@]}"`: under `set -u` an empty
+array is an unbound variable in bash before 4.4, and the runner is not the only
+place this script runs — macOS still ships bash 3.2. The guarded form expands to
+nothing when `auth` is empty and to two correctly-quoted words when it is not.
+Do not "simplify" it to `${MCP_TOKEN:+--header "Authorization: Bearer …"}`,
+whose quoting behavior inside the expansion is a bash-specific subtlety rather
+than something a reader can check.
+
+If your server genuinely requires an interactive OAuth grant that no static
+credential can stand in for, a CI smoke test is the wrong place to complete it —
+authorize once in the web inspector and hand the CLI the resulting token via
+`--use-stored-auth` against a **deliberately shared** store, accepting that the
+run then reads and rotates real credentials.
 
 The script exits non-zero on the first failed assertion, and the CLI's own exit
 code propagates through `set -e`, so the job's status already carries the
