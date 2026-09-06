@@ -185,38 +185,59 @@ export function installedVersion(lock, pkg) {
 /**
  * Decide whether one group is behind, and by how much.
  *
- * `target` is the HIGHEST latest among the packages that are actually behind,
- * rather than any single package's. The four `typescript-sdk` packages are
- * published from one release and normally agree, but a partially-published
- * release (one package live, three still uploading) would otherwise put a lower
- * version in the title than the issue's own table shows.
+ * ⚠️ **`target` is the LOWEST latest across the group — the highest version the
+ * WHOLE group has reached — not the highest.** For a single-package group the
+ * two are the same; for a lockstep group they differ exactly during a partial
+ * publication, and taking the highest is wrong twice over (Copilot).
+ *
+ * npm publishes a release one package at a time, so a sweep landing mid-publish
+ * sees, say, `client@2.2.0` beside three packages still at 2.1.0. Targeting 2.2.0
+ * then tells maintainers to move all four to a version three of them do not
+ * have — and, worse, writes a `target=2.2.0` marker that **suppresses the real
+ * filing** once the publication completes, so the release is never tracked at
+ * all. Targeting the minimum is right on both counts: 2.1.0 is a version every
+ * package genuinely has, and when the publish finishes the minimum becomes
+ * 2.2.0, which is a new marker and a new issue.
+ *
+ * It also avoids the blind spot that simply *skipping* a disagreeing group
+ * would create: if we are on 2.0.0 the sweep still files an actionable 2.1.0
+ * issue tonight rather than staying silent, and if we are already on 2.1.0
+ * nothing is behind and it correctly waits.
+ *
+ * `behind` is therefore measured against `target`, not against each package's
+ * own `latest` — a package whose latest is ahead of the target is not something
+ * this issue asks anyone to do.
  *
  * @param {typeof SDK_GROUPS[number]} group
  * @param {Record<string, {declared?: string | null, installed?: string | null, latest?: string | null}>} versions
  * @returns {{group: typeof SDK_GROUPS[number], rows: Array<{name: string, declared: string, installed: string, latest: string, behind: boolean}>, target: string} | null}
- *   `null` when every package in the group is current
+ *   `null` when the group is current, or when any package's latest is unknown
  */
 export function groupState(group, versions) {
+  const latests = group.packages.map((name) => versions[name]?.latest ?? null);
+  // One unreadable `latest` makes the group's shared version unknowable, and a
+  // guess here would be a version claim nobody checked. `main` already throws on
+  // a registry failure; this is the belt to that braces.
+  if (latests.some((v) => !v)) return null;
+
+  const target = [...latests].sort(semver.compare)[0];
+
   const rows = group.packages.map((name) => {
     const {
       declared = null,
       installed = null,
       latest = null,
     } = versions[name] ?? {};
-    const behind = Boolean(installed && latest && semver.gt(latest, installed));
     return {
       name,
       declared: declared ?? "(undeclared)",
       installed: installed ?? "(not installed)",
       latest: latest ?? "(unknown)",
-      behind,
+      behind: Boolean(installed && semver.gt(target, installed)),
     };
   });
 
-  const behindRows = rows.filter((r) => r.behind);
-  if (behindRows.length === 0) return null;
-
-  const target = behindRows.map((r) => r.latest).sort(semver.rcompare)[0];
+  if (!rows.some((r) => r.behind)) return null;
   return { group, rows, target };
 }
 
@@ -251,6 +272,14 @@ export function buildIssueBody(state) {
     "| --- | --- | --- | --- | --- |",
     table,
     "",
+    // Only when a partial publication is in flight, so the reader is not left
+    // wondering why the target is below a `Latest` the table plainly shows.
+    ...(rows.some((r) => r.latest !== target)
+      ? [
+          `> **Note.** One or more packages above show a \`Latest\` newer than the **${target}** this issue targets. These packages release in lockstep and npm publishes them one at a time, so that is a publication still in flight. **${target}** is the newest version the whole group has actually reached, which is what makes it the actionable target. When the newer release finishes publishing, the next sweep files its own issue for it.`,
+          "",
+        ]
+      : []),
     `Release notes: https://github.com/${group.repo}/releases`,
     "",
     "### Why this is an issue and not a PR",
@@ -497,61 +526,89 @@ export function main(
   // One lookup covers every group; filed issues are matched client-side.
   const existing = sweepIssues(repo, spawn);
   const filed = [];
+  const failures = [];
 
-  for (const state of states) {
-    const forGroup = existing.filter((i) => i.marker.key === state.group.key);
-    if (forGroup.some((i) => i.marker.target === state.target)) {
-      console.log(
-        `sdk-watch: ${state.group.label} ${state.target} already has an issue — no-op`,
-      );
-      continue;
+  // ⚠️ Creating an issue is IRREVERSIBLE and everything after it is fallible.
+  // Letting a later failure propagate out of this loop would skip the `emit`
+  // below, so the created issue would never reach the analysis job — and the
+  // next night's retry would find its own marker, treat it as already handled,
+  // and emit `[]`. The issue would then exist, permanently, with no analysis
+  // and nothing left to notice (Copilot). So each group is isolated, `filed` is
+  // appended to the moment an issue exists, and the emit happens in a `finally`
+  // — the run still fails afterwards, loudly, but never at the cost of losing a
+  // record of what it created.
+  try {
+    for (const state of states) {
+      const forGroup = existing.filter((i) => i.marker.key === state.group.key);
+      if (forGroup.some((i) => i.marker.target === state.target)) {
+        console.log(
+          `sdk-watch: ${state.group.label} ${state.target} already has an issue — no-op`,
+        );
+        continue;
+      }
+
+      try {
+        const milestone = currentMilestone(repo, spawn);
+        const created = createIssue(repo, state, milestone, spawn);
+
+        // Recorded before any further fallible work, for the reason above.
+        filed.push({
+          issue: created.number,
+          label: state.group.label,
+          repo: state.group.repo,
+          from: state.rows.find((r) => r.behind).installed,
+          to: state.target,
+        });
+        console.log(`sdk-watch: filed ${created.url}`);
+
+        if (!milestone) {
+          // Unmilestoned means unapproved, so triage sweeps it into `Incoming`
+          // — NOT `Todo`, which asserts a maintainer signed off.
+          console.log(
+            "sdk-watch: no dated open milestone — filed unmilestoned, triage will place it in Incoming",
+          );
+        }
+
+        // Any OPEN issue of this group on an older target is now stale. Note it
+        // there rather than closing it; see `buildSupersededComment`.
+        for (const stale of forGroup) {
+          if (stale.state !== "OPEN") continue;
+          if (!semver.lt(stale.marker.target, state.target)) continue;
+          const announced = issueComments(repo, stale.number, spawn).some(
+            (body) => parseSupersededMarker(body) === String(created.number),
+          );
+          if (announced) continue;
+          comment(
+            repo,
+            stale.number,
+            buildSupersededComment(
+              created.number,
+              state.target,
+              stale.marker.target,
+            ),
+            spawn,
+          );
+          console.log(
+            `sdk-watch: noted #${created.number} supersedes #${stale.number}`,
+          );
+        }
+      } catch (error) {
+        // One group's failure must not cost another group its issue.
+        failures.push(`${state.group.label}: ${error.message}`);
+        console.error(
+          `sdk-watch: ${state.group.label} failed — ${error.message}`,
+        );
+      }
     }
-
-    const milestone = currentMilestone(repo, spawn);
-    const created = createIssue(repo, state, milestone, spawn);
-    console.log(`sdk-watch: filed ${created.url}`);
-    if (!milestone) {
-      // Unmilestoned means unapproved, so triage sweeps it into `Incoming` —
-      // NOT `Todo`, which asserts a maintainer signed off.
-      console.log(
-        "sdk-watch: no dated open milestone — filed unmilestoned, triage will place it in Incoming",
-      );
-    }
-
-    // Any OPEN issue of this group on an older target is now stale. Note it
-    // there rather than closing it; see `buildSupersededComment`.
-    for (const stale of forGroup) {
-      if (stale.state !== "OPEN") continue;
-      if (!semver.lt(stale.marker.target, state.target)) continue;
-      const announced = issueComments(repo, stale.number, spawn).some(
-        (body) => parseSupersededMarker(body) === String(created.number),
-      );
-      if (announced) continue;
-      comment(
-        repo,
-        stale.number,
-        buildSupersededComment(
-          created.number,
-          state.target,
-          stale.marker.target,
-        ),
-        spawn,
-      );
-      console.log(
-        `sdk-watch: noted #${created.number} supersedes #${stale.number}`,
-      );
-    }
-
-    filed.push({
-      issue: created.number,
-      label: state.group.label,
-      repo: state.group.repo,
-      from: state.rows.find((r) => r.behind).installed,
-      to: state.target,
-    });
+  } finally {
+    emit(filed);
   }
 
-  emit(filed);
+  if (failures.length > 0) {
+    throw new Error(
+      `sdk-watch: ${failures.length} group(s) failed — ${failures.join("; ")}`,
+    );
+  }
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

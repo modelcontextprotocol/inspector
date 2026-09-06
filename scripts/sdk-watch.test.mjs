@@ -45,6 +45,25 @@ function currentVersions(overrides = {}) {
   return { ...versions, ...overrides };
 }
 
+/**
+ * A whole group at one published version — a COMPLETED lockstep release.
+ *
+ * Bumping a single package's `latest` instead models a publication still in
+ * flight, which is a different case with a different expected answer, so the
+ * two have separate helpers rather than one that silently means whichever the
+ * reader assumed.
+ */
+function groupAt(group, installed, latest) {
+  return Object.fromEntries(
+    group.packages.map((p) => [p, { declared: installed, installed, latest }]),
+  );
+}
+
+/** The same, as the `latest` map `fakeSpawn` answers `npm view` from. */
+function latestAt(group, latest) {
+  return Object.fromEntries(group.packages.map((p) => [p, latest]));
+}
+
 // ---------------------------------------------------------------------------
 // Markers
 // ---------------------------------------------------------------------------
@@ -128,42 +147,83 @@ test("groupState returns null when every package in the group is current", () =>
   assert.equal(groupState(SDK, currentVersions()), null);
 });
 
-test("groupState reports the group behind when one package has a newer latest", () => {
-  const state = groupState(
-    SDK,
-    currentVersions({
-      "@modelcontextprotocol/client": {
-        declared: "2.0.0",
-        installed: "2.0.0",
-        latest: "2.1.0",
-      },
-    }),
-  );
+test("groupState reports the group behind after a completed lockstep release", () => {
+  const state = groupState(SDK, groupAt(SDK, "2.0.0", "2.1.0"));
   assert.equal(state.target, "2.1.0");
-  assert.equal(state.rows.filter((r) => r.behind).length, 1);
+  assert.equal(state.rows.filter((r) => r.behind).length, SDK.packages.length);
   assert.equal(state.rows.length, SDK.packages.length);
 });
 
-test("groupState targets the highest version among the packages that are behind", () => {
-  // A partially-published release: one package live at 2.2.0, another still at
-  // 2.1.0. Taking any single package's latest would title the issue below what
-  // its own table shows.
-  const state = groupState(
-    SDK,
-    currentVersions({
-      "@modelcontextprotocol/client": {
-        declared: "2.0.0",
-        installed: "2.0.0",
-        latest: "2.1.0",
-      },
-      "@modelcontextprotocol/core": {
-        declared: "2.0.0",
-        installed: "2.0.0",
-        latest: "2.2.0",
-      },
-    }),
+/** A lockstep group mid-publish: `client` is live at `ahead`, the rest at `behind`. */
+function partialPublish(installed, behind, ahead) {
+  const versions = {};
+  for (const pkg of SDK.packages) {
+    versions[pkg] = { declared: installed, installed, latest: behind };
+  }
+  versions["@modelcontextprotocol/client"] = {
+    declared: installed,
+    installed,
+    latest: ahead,
+  };
+  return groupState(SDK, versions);
+}
+
+test("groupState targets the version the WHOLE group has reached, not the highest", () => {
+  // npm publishes a lockstep release one package at a time. Targeting the
+  // highest would tell maintainers to move all four to a version three of them
+  // do not have.
+  assert.equal(partialPublish("2.0.0", "2.1.0", "2.2.0").target, "2.1.0");
+});
+
+test("groupState still files an actionable target during a partial publication", () => {
+  // Skipping a disagreeing group instead would leave us silent on a release we
+  // are genuinely behind: on 2.0.0, 2.1.0 is real, published and worth filing.
+  const state = partialPublish("2.0.0", "2.1.0", "2.2.0");
+  assert.equal(
+    state.rows.every((r) => r.behind),
+    true,
   );
-  assert.equal(state.target, "2.2.0");
+});
+
+test("groupState waits when only the in-flight half of a publication is ahead", () => {
+  // Already on 2.1.0 with `client` alone at 2.2.0: nothing the whole group has
+  // is newer than what we run, so there is nothing to file yet.
+  assert.equal(partialPublish("2.1.0", "2.1.0", "2.2.0"), null);
+});
+
+test("groupState does not let a partial-publish marker suppress the real filing", () => {
+  // The failure this prevents: targeting 2.2.0 mid-publish writes a
+  // `target=2.2.0` marker, and the completed publication then matches it and is
+  // never tracked. Taking the minimum means the two runs produce DIFFERENT
+  // targets, so the completed release gets its own issue.
+  const midFlight = partialPublish("2.0.0", "2.1.0", "2.2.0");
+  const completed = groupState(
+    SDK,
+    currentVersions(
+      Object.fromEntries(
+        SDK.packages.map((p) => [
+          p,
+          { declared: "2.0.0", installed: "2.0.0", latest: "2.2.0" },
+        ]),
+      ),
+    ),
+  );
+  assert.equal(midFlight.target, "2.1.0");
+  assert.equal(completed.target, "2.2.0");
+  assert.notEqual(
+    buildMarker(SDK, midFlight.target),
+    buildMarker(SDK, completed.target),
+  );
+});
+
+test("buildIssueBody explains a target below a Latest the table shows", () => {
+  const body = buildIssueBody(partialPublish("2.0.0", "2.1.0", "2.2.0"));
+  assert.ok(body.includes("publication still in flight"));
+  // ...and says nothing of the sort when every package agrees.
+  assert.equal(
+    buildIssueBody(behindState()).includes("publication still in flight"),
+    false,
+  );
 });
 
 test("groupState compares against the INSTALLED version, not the declared range", () => {
@@ -208,16 +268,7 @@ test("groupState does not call an uninstalled or unknown-latest package behind",
 // ---------------------------------------------------------------------------
 
 function behindState(group = SDK, target = "2.1.0") {
-  return groupState(
-    group,
-    currentVersions({
-      [group.packages[0]]: {
-        declared: "2.0.0",
-        installed: "2.0.0",
-        latest: target,
-      },
-    }),
-  );
+  return groupState(group, groupAt(group, "2.0.0", target));
 }
 
 test("buildIssueTitle names the group label and the target version", () => {
@@ -239,7 +290,11 @@ test("buildIssueBody leads with the marker so parseMarker can read it back", () 
 test("buildIssueBody tables every package in the group and marks which are behind", () => {
   const body = buildIssueBody(behindState());
   for (const pkg of SDK.packages) assert.ok(body.includes(pkg), pkg);
-  assert.equal((body.match(/\*\*yes\*\*/g) ?? []).length, 1);
+  assert.equal(
+    (body.match(/\*\*yes\*\*/g) ?? []).length,
+    SDK.packages.length,
+    "a completed lockstep release leaves every package in the group behind",
+  );
   assert.ok(body.includes(TARGET_BRANCH));
   assert.ok(body.includes(`https://github.com/${SDK.repo}/releases`));
 });
@@ -324,6 +379,8 @@ function fakeSpawn({
   ],
   comments = [],
   createStatus = 0,
+  createFailFor = null,
+  commentStatus = 0,
   nextIssue = 500,
 } = {}) {
   const calls = [];
@@ -340,16 +397,24 @@ function fakeSpawn({
     }
     if (args[0] === "issue" && args[1] === "list")
       return { status: 0, stdout: JSON.stringify(issues), stderr: "" };
-    if (args[0] === "issue" && args[1] === "create")
+    if (args[0] === "issue" && args[1] === "create") {
+      const title = args[args.indexOf("--title") + 1] ?? "";
+      const fails =
+        createStatus || (createFailFor && title.includes(createFailFor));
       return {
-        status: createStatus,
-        stdout: createStatus
+        status: fails ? 1 : 0,
+        stdout: fails
           ? ""
           : `https://github.com/o/r/issues/${issueCounter++}\n`,
-        stderr: createStatus ? "could not create issue" : "",
+        stderr: fails ? "could not create issue" : "",
       };
+    }
     if (args[0] === "issue" && args[1] === "comment")
-      return { status: 0, stdout: "", stderr: "" };
+      return {
+        status: commentStatus,
+        stdout: "",
+        stderr: commentStatus ? "comment rejected" : "",
+      };
     // MUST be tested before the milestone branch: both are `gh api`, so
     // matching on args[0] alone would hand the comment lookup the milestone
     // payload and the assertion would silently check nothing.
@@ -393,17 +458,22 @@ function readFiled(path) {
 }
 
 /**
- * Options for a case that asserts a throw and so never emits.
+ * Options for a case that asserts a throw, with the emit target pinned off.
  *
- * `output` is pinned to `undefined` rather than left to default. Its default is
- * `process.env.GITHUB_OUTPUT`, which is a REAL FILE on an Actions runner — the
- * one the job's own outputs are read from. These cases throw before reaching the
- * emit, so nothing is written today, but leaving the default in place means a
- * future case that stops throwing would append `filed=…` to the live job output
- * instead of failing an assertion.
+ * `main`'s `output` defaults to `process.env.GITHUB_OUTPUT`, which is a REAL
+ * FILE on an Actions runner — the one the job's own outputs are read from. A
+ * case that writes there is not just untidy: it would append `filed=…` to the
+ * live job output and hand the analysis job a fabricated issue list.
+ *
+ * ⚠️ **`output: undefined` does NOT prevent that**, which is the same trap as
+ * the `GITHUB_REPOSITORY` one below wearing a different hat: a destructuring
+ * default fires on `undefined`, so passing it explicitly selects the default
+ * rather than overriding it. This leaked a real `filed=[]` into a probe file
+ * once the emit moved into a `finally` and the throwing cases started reaching
+ * it. `null` is the value that suppresses a default *and* fails `if (output)`.
  */
 function noAmbientOutput(readFile = fakeReadFile()) {
-  return { readFile, output: undefined };
+  return { readFile, output: null };
 }
 
 test("main files nothing and emits an empty list when the whole SDK is current", () => {
@@ -423,7 +493,7 @@ test("main files nothing and emits an empty list when the whole SDK is current",
 
 test("main files a labeled, milestoned issue when a group is behind", () => {
   const spawn = fakeSpawn({
-    latest: { "@modelcontextprotocol/client": "2.1.0" },
+    latest: latestAt(SDK, "2.1.0"),
   });
   const output = outputFile();
   writeFileSync(output, "");
@@ -457,10 +527,7 @@ test("main files a labeled, milestoned issue when a group is behind", () => {
 
 test("main files one issue per upstream when both groups are behind", () => {
   const spawn = fakeSpawn({
-    latest: {
-      "@modelcontextprotocol/client": "2.1.0",
-      "@modelcontextprotocol/ext-apps": "1.8.0",
-    },
+    latest: { ...latestAt(SDK, "2.1.0"), ...latestAt(EXT, "1.8.0") },
   });
   const output = outputFile();
   writeFileSync(output, "");
@@ -487,7 +554,7 @@ test("main files one issue per upstream when both groups are behind", () => {
 
 test("main does not refile when an issue already covers this target", () => {
   const spawn = fakeSpawn({
-    latest: { "@modelcontextprotocol/client": "2.1.0" },
+    latest: latestAt(SDK, "2.1.0"),
     issues: [
       {
         number: 400,
@@ -514,7 +581,7 @@ test("main does not refile when an issue already covers this target", () => {
 
 test("main respects a CLOSED issue for the same target and does not refile nightly", () => {
   const spawn = fakeSpawn({
-    latest: { "@modelcontextprotocol/client": "2.1.0" },
+    latest: latestAt(SDK, "2.1.0"),
     issues: [
       {
         number: 400,
@@ -536,7 +603,7 @@ test("main respects a CLOSED issue for the same target and does not refile night
 
 test("main comments on an open older-target issue that a new filing supersedes", () => {
   const spawn = fakeSpawn({
-    latest: { "@modelcontextprotocol/client": "2.2.0" },
+    latest: latestAt(SDK, "2.2.0"),
     issues: [
       {
         number: 400,
@@ -560,7 +627,7 @@ test("main comments on an open older-target issue that a new filing supersedes",
 
 test("main does not repeat a supersession comment it already left", () => {
   const spawn = fakeSpawn({
-    latest: { "@modelcontextprotocol/client": "2.2.0" },
+    latest: latestAt(SDK, "2.2.0"),
     issues: [
       {
         number: 400,
@@ -583,7 +650,7 @@ test("main does not repeat a supersession comment it already left", () => {
 
 test("main leaves a CLOSED older-target issue alone", () => {
   const spawn = fakeSpawn({
-    latest: { "@modelcontextprotocol/client": "2.2.0" },
+    latest: latestAt(SDK, "2.2.0"),
     issues: [
       {
         number: 400,
@@ -605,7 +672,7 @@ test("main leaves a CLOSED older-target issue alone", () => {
 
 test("main files without a milestone when nothing dated is open", () => {
   const spawn = fakeSpawn({
-    latest: { "@modelcontextprotocol/client": "2.1.0" },
+    latest: latestAt(SDK, "2.1.0"),
     milestones: [{ title: "Backlog", state: "open", due_on: null }],
   });
   const output = outputFile();
@@ -638,9 +705,74 @@ test("main throws when npm view returns something that is not a version", () => 
   );
 });
 
+test("main still emits an issue it created when a later step fails", () => {
+  // ⚠️ The permanent-loss case: creating an issue is irreversible, so a
+  // supersession comment failing afterwards must not swallow the record. If it
+  // did, the next night's retry would match this issue's own marker, emit `[]`,
+  // and the issue would sit there forever with no analysis (Copilot).
+  const spawn = fakeSpawn({
+    latest: latestAt(SDK, "2.2.0"),
+    issues: [
+      {
+        number: 400,
+        state: "OPEN",
+        body: `${buildMarker(SDK, "2.1.0")}\nolder`,
+      },
+    ],
+    commentStatus: 1,
+  });
+  const output = outputFile();
+  writeFileSync(output, "");
+
+  assert.throws(
+    () => main("o/r", spawn, { readFile: fakeReadFile(), output }),
+    /group\(s\) failed/,
+    "the run must still go red so the failure is visible",
+  );
+
+  assert.deepEqual(
+    readFiled(output).map((f) => f.issue),
+    [500],
+    "the created issue must still reach the analysis job",
+  );
+});
+
+test("main isolates one group's failure from another group's issue", () => {
+  const spawn = fakeSpawn({
+    latest: {
+      "@modelcontextprotocol/client": "2.1.0",
+      "@modelcontextprotocol/core": "2.1.0",
+      "@modelcontextprotocol/server": "2.1.0",
+      "@modelcontextprotocol/server-legacy": "2.1.0",
+      "@modelcontextprotocol/ext-apps": "1.8.0",
+    },
+    createFailFor: "TypeScript SDK",
+  });
+  const output = outputFile();
+  writeFileSync(output, "");
+
+  assert.throws(
+    () =>
+      main("o/r", spawn, {
+        readFile: fakeReadFile({
+          declared: { "@modelcontextprotocol/ext-apps": "^1.7.4" },
+          installed: { "@modelcontextprotocol/ext-apps": "1.7.5" },
+        }),
+        output,
+      }),
+    /MCP TypeScript SDK/,
+  );
+
+  assert.deepEqual(
+    readFiled(output).map((f) => f.label),
+    ["MCP Apps extension SDK"],
+    "the second group must still be filed and analyzed",
+  );
+});
+
 test("main propagates a failed issue creation", () => {
   const spawn = fakeSpawn({
-    latest: { "@modelcontextprotocol/client": "2.1.0" },
+    latest: latestAt(SDK, "2.1.0"),
     createStatus: 1,
   });
   assert.throws(
