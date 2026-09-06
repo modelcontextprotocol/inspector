@@ -1449,26 +1449,23 @@ describe("SkillsScreen", () => {
     expect(screen.getAllByText("—")).toHaveLength(2);
   });
 
-  it("issues exactly one automatic read per selection", async () => {
-    // The app renders under StrictMode, which deliberately replays effects, and
-    // `ScreenStage` remounts this screen while the selection persists. Without
-    // a guard both paths fire a second identical `resources/read` — and in a
-    // protocol inspector a phantom request in the Protocol panel is worse than
-    // a wasted round trip: the tool misreports the conversation (#2263).
+  it("issues exactly one automatic read per selection within a mount", async () => {
+    // The app renders under StrictMode, which deliberately replays effects, so
+    // without a guard one selection fires two identical `resources/read` calls
+    // — and in a protocol inspector a phantom request in the Protocol panel is
+    // worse than a wasted round trip: the tool misreports the conversation
+    // (#2263). The scope is deliberately one MOUNT: a `ScreenStage` remount
+    // mints a fresh ref and reads again, which is correct, because the preview
+    // bytes are local state and died with the same unmount.
     const user = userEvent.setup();
     const onReadSkillFile = vi.fn(async () => ({ text: SELF_TEXT }));
-    // Rendered inside a real `StrictMode`, which is what makes this detect the
-    // defect: the test environment does not otherwise replay effects, so a
-    // plain render passes with or without the guard.
-    // Mounted with the skill ALREADY selected — a restored `SkillsUiState`, or
-    // the `ScreenStage` remount described in review.
+    // Mounted with the skill ALREADY selected — a restored `SkillsUiState`.
     //
-    // ⚠️ This pins the CONTRACT (one automatic read per selection) but does not
-    // reproduce the StrictMode effect replay: this environment does not
-    // double-invoke mount effects, so the test passes with or without
-    // `autoReadKey`. It is a specification, not a regression guard — the guard
-    // itself is only observable in a real dev-mode browser. Do not read a pass
-    // here as evidence the duplicate-read defect is fixed.
+    // ⚠️ This pins the CONTRACT (one automatic read per selection) rather than
+    // guarding it: this environment does not double-invoke mount effects, so
+    // the test passes with or without `autoReadKey`. Do not read a pass here as
+    // evidence the duplicate-read defect is fixed; that is only observable in a
+    // real dev-mode browser. The reappearance test below IS a guard.
     renderWithMantine(
       <StrictMode>
         <ControlledSkillsScreen
@@ -1482,6 +1479,54 @@ describe("SkillsScreen", () => {
     // A genuine selection change is a different manifest, so it reads once more.
     await user.click(screen.getAllByText("tampered")[0]);
     await waitFor(() => expect(onReadSkillFile).toHaveBeenCalledTimes(2));
+  });
+
+  it("re-reads when the selected entry leaves the list and comes back", async () => {
+    // A refresh in flight (or a disconnect) can empty `skills` while the
+    // selection persists. The render invalidates the preview, so the viewer is
+    // blank — and when the IDENTICAL entry returns its `manifestKey` matches
+    // what the guard still holds. Without clearing the guard on the way out,
+    // the read is skipped and the viewer stays permanently empty (#2263).
+    const onReadSkillFile = vi.fn(async () => ({
+      text: "---\nname: data-analysis\n---\n\nreloaded-body\n",
+    }));
+    const selectedUi = {
+      ...EMPTY_SKILLS_UI,
+      selectedSkillUri: CLEAN_SKILL.uri,
+    };
+    const { rerender } = renderWithMantine(
+      <ControlledSkillsScreen
+        onReadSkillFile={onReadSkillFile}
+        ui={selectedUi}
+      />,
+    );
+    await waitFor(() => expect(onReadSkillFile).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(screen.getByTestId("skill-resource-viewer")).toHaveTextContent(
+        "reloaded-body",
+      ),
+    );
+
+    rerender(
+      <ControlledSkillsScreen
+        onReadSkillFile={onReadSkillFile}
+        skills={[]}
+        ui={selectedUi}
+      />,
+    );
+    rerender(
+      <ControlledSkillsScreen
+        onReadSkillFile={onReadSkillFile}
+        ui={selectedUi}
+      />,
+    );
+
+    await waitFor(() => expect(onReadSkillFile).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(screen.getByTestId("skill-resource-viewer")).toHaveTextContent(
+        "reloaded-body",
+      ),
+    );
   });
 
   it("re-points the viewer at the newly selected skill's own file", async () => {

@@ -908,19 +908,33 @@ export function SkillsScreen({
 
   // Which manifest the automatic read has already been issued for.
   //
-  // A ref rather than state, because this must not itself cause a render — and
-  // it is what stops the read being issued twice for one selection. React
-  // StrictMode deliberately replays effects (`main.tsx` renders under it), and
-  // `ScreenStage` remounts this screen while the selected-skill UI state
-  // persists, so without a guard both paths fire a second identical
-  // `resources/read`. In an app whose whole purpose is showing people the
-  // protocol traffic, an extra request in the Protocol panel that the user's
-  // own client would never send is worse than a wasted round trip: it is the
-  // Inspector misreporting the conversation.
+  // A ref rather than state, because this must not itself cause a render. Its
+  // scope is ONE MOUNT, and that is the whole of what it can promise: React
+  // StrictMode deliberately replays effects (`main.tsx` renders under it), so
+  // without a guard a single selection fires two identical `resources/read`
+  // calls. In an app whose whole purpose is showing people the protocol
+  // traffic, an extra request in the Protocol panel that the user's own client
+  // would never send is worse than a wasted round trip — it is the Inspector
+  // misreporting the conversation.
+  //
+  // It deliberately does NOT suppress the read after a `ScreenStage` remount,
+  // and could not: a remount mints a fresh ref. That is the correct behavior
+  // rather than a gap, because `previewState` is local state too and dies with
+  // the same unmount — so on return the viewer is empty and the read is what
+  // refills it. Suppressing it would need the preview bytes hoisted above
+  // `ScreenStage`, which would trade a legitimate request for a cache.
   const autoReadKey = useRef<string | null>(null);
 
   useEffect(() => {
-    if (selectedUri === undefined) return;
+    if (selectedUri === undefined) {
+      // The entry left `skills` — a refresh in flight, or a disconnect.
+      // `useValueChange` has already emptied the viewer, so if the IDENTICAL
+      // entry reappears its `manifestKey` matches what this ref still holds
+      // and the read would be skipped, stranding the viewer permanently
+      // blank. Clearing the guard is what lets that reappearance re-read.
+      autoReadKey.current = null;
+      return;
+    }
     if (autoReadKey.current === manifestKey) return;
     autoReadKey.current = manifestKey;
     showResource(selectedUri, manifestKey);
