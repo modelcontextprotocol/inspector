@@ -10,13 +10,13 @@ import {
   Group,
   NavLink,
   Paper,
-  ScrollArea,
   Stack,
   Table,
   Text,
   TextInput,
+  VisuallyHidden,
 } from "@mantine/core";
-import { MdRefresh, MdSearch, MdVerifiedUser } from "react-icons/md";
+import { MdSearch, MdVerifiedUser } from "react-icons/md";
 import { RiArrowRightSLine } from "react-icons/ri";
 import type {
   SkillEntry,
@@ -34,12 +34,18 @@ import {
   type SkillVerification,
 } from "@inspector/core/mcp/skills.js";
 import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";
+import { ListToggle } from "../../elements/ListToggle/ListToggle";
 import { useValueChange } from "../../../hooks/useValueChange";
 import {
   skillFileBytes,
   type SkillFileContents,
 } from "../../../utils/skillFileBytes";
 import { splitSkillFile } from "../../../utils/splitSkillFile";
+import {
+  inferMimeFromUri,
+  isMarkdownMime,
+} from "../../../utils/inferMimeFromUri";
+import { tryDecodeBase64ToUtf8 } from "../../elements/ContentViewer/contentViewerUtils";
 
 /**
  * How many skill files are read at once by "Verify all". A conforming manifest
@@ -198,16 +204,6 @@ const DetailColumn = Stack.withProps({
   mih: 0,
 });
 
-// The transient `skills/get` verdict sits between the sections and the viewer,
-// so it is the one part of the column that may need to scroll on its own.
-const FetchResultScroll = ScrollArea.withProps({
-  type: "auto",
-  scrollbars: "y",
-  offsetScrollbars: true,
-  flex: "0 1 auto",
-  mih: 0,
-});
-
 // Every constant below carries LAYOUT only; the typographic treatment each one
 // wants (weight, size, colour, monospace face) is a `ThemeText` variant, since
 // flat CSS properties belong in the theme rather than at the call site.
@@ -237,26 +233,31 @@ const SearchInput = TextInput.withProps({
   leftSection: <MdSearch aria-hidden size={14} />,
 });
 
+// Bare, like the Refresh in `ListChangedIndicator` that Tools, Resources and
+// Prompts use — this screen was the only one with a glyph on it.
 const RefreshButton = Button.withProps({
   variant: "subtle",
   size: "compact-xs",
-  leftSection: <MdRefresh aria-hidden size={14} />,
 });
 
-// The shield is a claim about integrity, so it belongs only on the controls
-// that actually check it — "Verify all" and the per-row "Verify". `skills/get`
-// re-fetches an entry and compares it against the listing; that is a
-// consistency check, not a digest verification, and the icon would overstate
-// what the button does.
+// Both header actions take the Refresh button's style from
+// `ListChangedIndicator` — `sm` + `subtle` — so the pane's controls read as the
+// same kind of control the rest of the app uses, and sit level with the
+// `ListToggle` beside them.
+//
+// The shield stays on the controls that actually check integrity — "Verify all"
+// and the per-row "Verify". `skills/get` re-fetches an entry and compares it
+// against the listing; that is a consistency check, not a digest verification,
+// so the icon would overstate what that button does.
 const VerifyButton = Button.withProps({
-  variant: "light",
-  size: "compact-sm",
+  size: "sm",
+  variant: "subtle",
   leftSection: <MdVerifiedUser aria-hidden size={14} />,
 });
 
 const FetchButton = Button.withProps({
-  variant: "light",
-  size: "compact-sm",
+  size: "sm",
+  variant: "subtle",
 });
 
 // A `Text` renders a `<p>`, so a section heading must never *wrap* the count
@@ -273,6 +274,14 @@ const MonoCaption = Text.withProps({
 
 const IssueStack = Stack.withProps({
   gap: "xs",
+});
+
+// The Conformance panel stacks banners from three different sources — the
+// static findings, the per-file verification verdicts, and the `skills/get`
+// comparison — and they are only legible as separate statements if they are
+// spaced apart. `sm` is the gap the monitoring sidebar's list uses.
+const ConformanceStack = Stack.withProps({
+  gap: "sm",
 });
 
 // The frontmatter JSON has no surface of its own — the editor renders straight
@@ -312,6 +321,13 @@ const RowVerifyButton = Button.withProps({
   size: "compact-xs",
 });
 
+// The action column: sized to its button and right-aligned, so the buttons form
+// one straight edge instead of tracking the verdict badge's width.
+const ActionCell = Table.Td.withProps({
+  w: 1,
+  ta: "right",
+});
+
 // The URI cell is a control, not a label: clicking it puts that file in the
 // viewer. Full width of its column with the URI left-aligned, so the column
 // still reads as a column of URIs rather than a column of centred buttons —
@@ -334,15 +350,20 @@ const SkillTitle = Text.withProps({
 });
 
 /**
- * Per-section flex for the disclosure accordion, the same shape
- * `ResourceControls` uses (#1462): an open section shrinks in proportion to how
- * much it holds, so a long one gives up space before a short one has to scroll,
- * and `flex-grow: 0` means nothing expands until the content actually
- * overflows. A closed section stays at its header height.
+ * Per-section flex for the metadata sections: **content height, never shrink**.
+ *
+ * `ResourceControls` weights its shrink by item count (#1462) because its
+ * panels hold uniform lists that degrade gracefully when squeezed. These do
+ * not — a findings list, a manifest table with alerts under it, a frontmatter
+ * block — and squeezing them sliced content mid-line: a `Digest mismatch`
+ * alert cut in half by the section header below it. The panel was scrollable,
+ * but a macOS overlay scrollbar is invisible until hover, so it read as broken.
+ *
+ * Sized to content instead, with the overflow handled once at the accordion
+ * root (`skillSections`), the stack scrolls at a *section boundary* rather than
+ * through the middle of a finding.
  */
-function sectionFlex(open: boolean, count: number): string {
-  return open && count > 0 ? `0 ${count} auto` : "0 0 auto";
-}
+const SECTION_FLEX = "0 0 auto";
 
 /**
  * The file viewer's flex, which is deliberately NOT `sectionFlex`.
@@ -508,14 +529,19 @@ export function SkillsScreen({
   const [batches, setBatches] = useState<ReadonlyMap<string, number>>(
     () => new Map(),
   );
-  // Which of the four collapsible sections are open. A view preference, so it
-  // is deliberately NOT reset by the manifest-change invalidation below — a
-  // user who collapsed the frontmatter wants it collapsed on the next skill
-  // too. Conformance, Resources and the file viewer start open because they are
-  // what the screen exists to show; the frontmatter is reference material.
+  // Which sections are open. A view preference, so it is deliberately NOT reset
+  // by the manifest-change invalidation below — a user who collapsed a section
+  // wants it collapsed on the next skill too.
+  //
+  // Everything starts open. The one thing that closes on its own is Conformance
+  // for an entry with no findings, and that is because its header badge already
+  // carries the whole answer; nothing else here can be summarised by its header,
+  // so opening collapsed would just hide content behind a click the user has no
+  // reason to expect.
   const [openSections, setOpenSections] = useState<string[]>([
     "conformance",
     "resources",
+    "frontmatter",
     "resource",
   ]);
   // Monotonic attempt token, shared by every on-demand action here: a manifest
@@ -550,6 +576,11 @@ export function SkillsScreen({
     [selected],
   );
 
+  // A `resources: "dynamic"` skill advertises no manifest at all, so it has no
+  // Resources section to show — the fact is a conformance statement, and it is
+  // made once, there.
+  const isDynamic = selected?.resources === DYNAMIC_RESOURCES;
+
   const manifest: SkillResource[] = useMemo(
     () =>
       selected && selected.resources !== DYNAMIC_RESOURCES
@@ -581,6 +612,24 @@ export function SkillsScreen({
     setVerification({ key: next, files: {} });
     setPreviewState({ key: next });
     setFetchedEntry({ key: next });
+    // Conformance tracks whether it has anything to say: an entry with no
+    // errors and no warnings opens collapsed, because "0 error(s), 0
+    // warning(s)" on the header already carries the whole message and an
+    // expanded "Conforms" panel is just space the file viewer could use. An
+    // entry WITH findings opens expanded, so switching from a clean skill to a
+    // broken one does not hide the findings behind a click.
+    //
+    // Adjusted here, during render, rather than in an effect — the same reason
+    // the three invalidations above are: an effect would paint one frame with
+    // the previous skill's answer.
+    setOpenSections((prev) => {
+      const hasFindings = issues.length > 0;
+      const isOpen = prev.includes("conformance");
+      if (hasFindings === isOpen) return prev;
+      return hasFindings
+        ? [...prev, "conformance"]
+        : prev.filter((section) => section !== "conformance");
+    });
   });
 
   const fileStates = verification.key === manifestKey ? verification.files : {};
@@ -594,6 +643,13 @@ export function SkillsScreen({
    */
   const verifyRow = useCallback(
     async (index: number, resource: SkillResource, key: string) => {
+      // A mismatch is reported in the Conformance section, which auto-collapses
+      // for an entry with no *static* findings — and `tampered-notes` is
+      // exactly that: structurally clean, bytes wrong. Opening it here is what
+      // stops the verdict landing somewhere the user cannot see it.
+      setOpenSections((prev) =>
+        prev.includes("conformance") ? prev : [...prev, "conformance"],
+      );
       // Claimed synchronously, so two verifications of this row are ordered
       // before either read starts.
       const attempt = (nextAttempt.current += 1);
@@ -629,6 +685,11 @@ export function SkillsScreen({
   );
 
   const verifyAll = useCallback(() => {
+    // Same reason as `verifyRow`: the verdicts render in Conformance, which may
+    // be collapsed for a structurally clean entry.
+    setOpenSections((prev) =>
+      prev.includes("conformance") ? prev : [...prev, "conformance"],
+    );
     // Bounded concurrency, not `Promise.all` over the whole manifest: a
     // conforming skill may declare 512 files, and firing 512 simultaneous
     // `resources/read` calls would bury the transport and the server for no
@@ -732,6 +793,13 @@ export function SkillsScreen({
     if (!selected) return;
     const key = manifestKey;
     const attempt = (nextAttempt.current += 1);
+    // The verdict renders inside the Conformance section, which auto-collapses
+    // for a clean entry — and a clean entry is exactly the common case for this
+    // button. Without this the answer would land in a collapsed section and the
+    // click would look like it did nothing.
+    setOpenSections((prev) =>
+      prev.includes("conformance") ? prev : [...prev, "conformance"],
+    );
     // Same shape as the SKILL.md read: a click handler cannot await, the chain
     // ends in its own `catch`, and both arms drop a result whose manifest has
     // been invalidated or whose click has been superseded.
@@ -793,21 +861,74 @@ export function SkillsScreen({
   // selection effect has claimed a slot.
   const previewUri =
     (previewCurrent ? previewState.uri : undefined) ?? selectedUri;
+  // One effective MIME for the displayed file, inferred the same way the
+  // Resources screen infers one: servers routinely omit `mimeType` or answer a
+  // generic `text/plain`, and the URI suffix is the better signal.
+  const previewMime = useMemo(
+    () =>
+      preview?.mimeType ??
+      (previewUri !== undefined ? inferMimeFromUri(previewUri) : undefined) ??
+      // Skill files are markdown by construction under SEP-2640, so that is the
+      // right last resort here rather than octet-stream.
+      "text/markdown",
+    [preview, previewUri],
+  );
+
   // The displayed file, split once into frontmatter and body. BOTH halves of
   // the pane read from this single split, which is what keeps them honest: the
   // Frontmatter section shows the frontmatter of the file the viewer is
   // showing, and a file that has none renders no section at all rather than
   // leaving the previous file's on screen.
   //
-  // Only the text form can be split; a base64 `blob` is served through
-  // untouched.
-  const previewParts = useMemo(
-    () =>
+  // Gated on the MIME being **markdown**, not on which payload arm the server
+  // used. Keying on the arm got both halves of that wrong: a markdown file
+  // served as a base64 `blob` — which this screen supports — kept its
+  // frontmatter in the viewer and produced no Frontmatter section, while a
+  // textual multi-document YAML resource had its first document silently
+  // removed as "frontmatter". A blob is decoded here so a base64 SKILL.md
+  // splits exactly like a text one.
+  const previewParts = useMemo(() => {
+    if (!isMarkdownMime(previewMime)) return undefined;
+    const text =
       typeof preview?.text === "string"
-        ? splitSkillFile(preview.text)
-        : undefined,
-    [preview],
+        ? preview.text
+        : preview?.blob !== undefined
+          ? tryDecodeBase64ToUtf8(preview.blob)
+          : null;
+    return text === null || text === undefined
+      ? undefined
+      : splitSkillFile(text);
+  }, [preview, previewMime]);
+
+  // Which sections this skill actually renders — Frontmatter only exists when
+  // the displayed file has any, so an "expand all" that named it unconditionally
+  // would leave the toggle stuck reading "Expand" on a file without one.
+  const sectionIds = useMemo(
+    () => [
+      "conformance",
+      // A dynamic skill renders no Resources section, so naming it here would
+      // leave "expand all" permanently unsatisfied.
+      ...(isDynamic ? [] : ["resources"]),
+      ...(previewParts?.frontmatter !== undefined ? ["frontmatter"] : []),
+      "resource",
+    ],
+    [isDynamic, previewParts],
   );
+  const allSectionsOpen = sectionIds.every((id) => openSections.includes(id));
+
+  // Files whose bytes disagree with what the manifest advertised. A *runtime*
+  // count, unlike the static findings beside it: it only exists once a
+  // verification has actually run, which is why it renders as its own badge
+  // rather than being folded into the error total — "2 error(s)" that changes
+  // meaning after you press Verify would be the worse of the two options.
+  //
+  // Covers a size disagreement as well as a digest one: `verifySkillResource`
+  // reports both as `mismatch`, the size check simply being the cheaper one
+  // that runs first.
+  const mismatchCount = Object.values(fileStates).filter(
+    (state) =>
+      state.status === "done" && state.verification.status === "mismatch",
+  ).length;
 
   const errorCount = issues.filter((i) => i.severity === "error").length;
   const warningCount = issues.length - errorCount;
@@ -908,6 +1029,17 @@ export function SkillsScreen({
                 >
                   Verify all
                 </VerifyButton>
+                {/* The app's shared expand/collapse-all control, the same one
+                    `ResourceControls` puts on its disclosure accordion.
+                    `compact` means "currently collapsed", so it is the negation
+                    of everything being open. */}
+                <ListToggle
+                  variant="subtle"
+                  compact={!allSectionsOpen}
+                  onToggle={() =>
+                    setOpenSections(allSectionsOpen ? [] : [...sectionIds])
+                  }
+                />
               </InlineRow>
             </SectionControlsRow>
 
@@ -926,7 +1058,7 @@ export function SkillsScreen({
                 scrolling as one column. */}
             <Accordion
               multiple
-              variant="disclosure"
+              variant="skillSections"
               chevron={<RiArrowRightSLine />}
               flex={1}
               mih={0}
@@ -938,10 +1070,7 @@ export function SkillsScreen({
             >
               <Accordion.Item
                 value="conformance"
-                flex={sectionFlex(
-                  openSections.includes("conformance"),
-                  Math.max(issues.length, 1),
-                )}
+                flex={SECTION_FLEX}
                 mih={
                   openSections.includes("conformance")
                     ? OPEN_SECTION_MIN_HEIGHT
@@ -954,153 +1083,62 @@ export function SkillsScreen({
                     <CountBadge color={summaryColor(errorCount, warningCount)}>
                       {errorCount} error(s), {warningCount} warning(s)
                     </CountBadge>
+                    {/* Only once something has actually failed verification —
+                        a permanent "0 digest mismatches" would read as a
+                        verified result before anything had been checked. */}
+                    {mismatchCount > 0 && (
+                      <CountBadge color="red">
+                        {mismatchCount} digest mismatch(es)
+                      </CountBadge>
+                    )}
                   </InlineRow>
                 </Accordion.Control>
                 <Accordion.Panel>
-                  {issues.length === 0 ? (
-                    <Alert color="green" title="Conforms">
-                      No structural issues found in this entry.
-                    </Alert>
-                  ) : (
-                    <IssueStack data-testid="skill-issues">
-                      {issues.map((issue, index) => (
-                        <Alert
-                          // The index is load-bearing, not decoration: a
-                          // manifest repeating one URI three times yields
-                          // three `duplicate-resource` findings with
-                          // identical code and URI, and a key built from
-                          // those alone would make React drop the extras —
-                          // hiding findings in exactly the malformed input
-                          // this view exists to inspect.
-                          key={`${index}:${issue.code}:${issue.resourceUri ?? ""}`}
-                          color={issueColor(issue)}
-                          title={issue.code}
-                        >
-                          <Stack gap={2}>
-                            <Text size="sm">{issue.message}</Text>
-                            {issue.resourceUri && (
-                              <MonoCaption>{issue.resourceUri}</MonoCaption>
-                            )}
-                          </Stack>
-                        </Alert>
-                      ))}
-                    </IssueStack>
-                  )}
-                </Accordion.Panel>
-              </Accordion.Item>
-
-              <Accordion.Item
-                value="resources"
-                flex={sectionFlex(
-                  openSections.includes("resources"),
-                  Math.max(manifest.length, 1),
-                )}
-                mih={
-                  openSections.includes("resources")
-                    ? OPEN_SECTION_MIN_HEIGHT
-                    : undefined
-                }
-              >
-                <Accordion.Control>
-                  <InlineRow>
-                    <SectionHeading>Resources</SectionHeading>
-                    <CountBadge>
-                      {manifest.length} file(s), {totalSkillBytes(manifest)}{" "}
-                      bytes
-                    </CountBadge>
-                  </InlineRow>
-                </Accordion.Control>
-                <Accordion.Panel>
-                  <Stack gap="xs">
-                    {selected.resources === DYNAMIC_RESOURCES ? (
+                  <ConformanceStack>
+                    {/* A dynamic skill's `dynamic-resources` finding is
+                        rendered here in full rather than as a bare code and
+                        message, and the Resources section is dropped entirely —
+                        otherwise the same fact is stated twice, once as a
+                        finding and once as an empty section's explanation. */}
+                    {isDynamic && (
                       <Alert color="yellow" title="Dynamic resources">
                         This skill declares{" "}
                         <Code>resources: &quot;dynamic&quot;</Code> — its files
                         are generated, so no manifest is advertised and
                         integrity cannot be verified.
                       </Alert>
+                    )}
+                    {issues.length === 0 ? (
+                      <Alert color="green" title="Conforms">
+                        No structural issues found in this entry.
+                      </Alert>
                     ) : (
-                      <ManifestTable data-testid="skill-manifest">
-                        <Table.Thead>
-                          <Table.Tr>
-                            <Table.Th>URI</Table.Th>
-                            <Table.Th>Size</Table.Th>
-                            <Table.Th>Digest</Table.Th>
-                            <Table.Th>Verification</Table.Th>
-                          </Table.Tr>
-                        </Table.Thead>
-                        <Table.Tbody>
-                          {manifest.map((resource, index) => {
-                            const state = fileStates[index];
-                            const color =
-                              state?.status === "done"
-                                ? verificationColor(state.verification.status)
-                                : state?.status === "error"
-                                  ? "red"
-                                  : "gray";
-                            // Compared by identity for the same reason every
-                            // other URI comparison here is: a server that
-                            // canonicalizes an escape is naming the same
-                            // file, and the row the user just clicked must
-                            // not read as unselected because of a spelling.
-                            const showing =
-                              previewUri !== undefined &&
-                              skillUriIdentity(resource.uri) ===
-                                skillUriIdentity(previewUri);
-                            return (
-                              // Index-keyed for the same reason the verdicts
-                              // are: a duplicated URI is a case this screen
-                              // reports, so it must not also collide two rows
-                              // into one.
-                              <Table.Tr key={index}>
-                                <Table.Td>
-                                  <ResourceUriButton
-                                    variant={showing ? "light" : "subtle"}
-                                    aria-current={showing ? "true" : undefined}
-                                    onClick={() =>
-                                      showResource(resource.uri, manifestKey)
-                                    }
-                                  >
-                                    {resource.uri}
-                                  </ResourceUriButton>
-                                </Table.Td>
-                                <Table.Td>{resource.size ?? "—"}</Table.Td>
-                                <Table.Td>
-                                  {shortDigest(resource.digest)}
-                                </Table.Td>
-                                <Table.Td>
-                                  <InlineRow>
-                                    <CountBadge color={color}>
-                                      {verificationLabel(state)}
-                                    </CountBadge>
-                                    <RowVerifyButton
-                                      // Every row's button reads "Verify", so
-                                      // the visible text alone gives a screen-
-                                      // reader user no way to tell which file
-                                      // each one checks; the URI cell is in
-                                      // the same row but is not
-                                      // programmatically associated with it.
-                                      aria-label={`Verify ${resource.uri}`}
-                                      // A click handler cannot await, and
-                                      // `verifyRow` owns its own failures — it
-                                      // records them as this row's state.
-                                      onClick={() =>
-                                        void verifyRow(
-                                          index,
-                                          resource,
-                                          manifestKey,
-                                        )
-                                      }
-                                    >
-                                      Verify
-                                    </RowVerifyButton>
-                                  </InlineRow>
-                                </Table.Td>
-                              </Table.Tr>
-                            );
-                          })}
-                        </Table.Tbody>
-                      </ManifestTable>
+                      <IssueStack data-testid="skill-issues">
+                        {issues
+                          // The banner above already states this one, in prose.
+                          .filter((issue) => issue.code !== "dynamic-resources")
+                          .map((issue, index) => (
+                            <Alert
+                              // The index is load-bearing, not decoration: a
+                              // manifest repeating one URI three times yields
+                              // three `duplicate-resource` findings with
+                              // identical code and URI, and a key built from
+                              // those alone would make React drop the extras —
+                              // hiding findings in exactly the malformed input
+                              // this view exists to inspect.
+                              key={`${index}:${issue.code}:${issue.resourceUri ?? ""}`}
+                              color={issueColor(issue)}
+                              title={issue.code}
+                            >
+                              <Stack gap={2}>
+                                <Text size="sm">{issue.message}</Text>
+                                {issue.resourceUri && (
+                                  <MonoCaption>{issue.resourceUri}</MonoCaption>
+                                )}
+                              </Stack>
+                            </Alert>
+                          ))}
+                      </IssueStack>
                     )}
                     {manifest.map((resource, index) => {
                       const state = fileStates[index];
@@ -1154,9 +1192,209 @@ export function SkillsScreen({
                       }
                       return null;
                     })}
-                  </Stack>
+                    {fetched?.message !== undefined && (
+                      <Alert color="red" title="skills/get failed">
+                        {fetched.message}
+                      </Alert>
+                    )}
+                    {fetched?.entry !== undefined && (
+                      <Alert
+                        data-testid="skills-get-result"
+                        data-verdict={fetchedVerdict}
+                        // Red only for a genuine violation — a non-conforming entry,
+                        // or one answering with a different URI, neither of which a
+                        // fresh snapshot excuses. A conforming entry that merely
+                        // moved on is yellow: `skills/get` IS a point-in-time read,
+                        // so a changed skill legitimately differs.
+                        color={
+                          fetchedVerdict === "invalid"
+                            ? "red"
+                            : fetchedVerdict === "matches"
+                              ? "green"
+                              : "yellow"
+                        }
+                        title={
+                          fetchedVerdict === "invalid"
+                            ? "skills/get returned a non-conforming entry"
+                            : fetchedVerdict === "matches"
+                              ? "skills/get matches skills/list"
+                              : "skills/get returned a different snapshot"
+                        }
+                      >
+                        <Stack gap={2}>
+                          <Text size="sm">
+                            {fetchedVerdict === "invalid"
+                              ? fetched.wrongUri
+                                ? "This entry is for a different URI than the one requested, which is never a valid refresh of it."
+                                : "The returned entry does not conform to SEP-2640, so this is not simply a skill that changed since it was listed."
+                              : fetchedVerdict === "matches"
+                                ? "The entry this server returns for this URI describes the same skill it listed (compared ignoring key and manifest order)."
+                                : "The entry this server returns for this URI differs from the one it listed. `skills/get` is a fresh snapshot, so this is expected if the skill changed since the list was fetched — and a server inconsistency if it did not."}
+                          </Text>
+                          {fetchedVerdict !== "matches" && (
+                            <ContentViewer
+                              block={{
+                                type: "text",
+                                text: JSON.stringify(fetched.entry, null, 2),
+                              }}
+                              mimeType="application/json"
+                              jsonLabel="Fetched skill entry"
+                              copyable
+                            />
+                          )}
+                          {/* Under the entry, not above it: each finding names
+                              a field, so it reads as an annotation on the JSON
+                              the reader has just been shown rather than a
+                              preamble to something not yet on screen. */}
+                          {(fetched.issues ?? [])
+                            .filter((issue) => issue.severity === "error")
+                            .map((issue, index) => (
+                              <MonoCaption key={`${index}:${issue.code}`}>
+                                {issue.code}: {issue.message}
+                              </MonoCaption>
+                            ))}
+                        </Stack>
+                      </Alert>
+                    )}
+                  </ConformanceStack>
                 </Accordion.Panel>
               </Accordion.Item>
+
+              {/* A dynamic skill advertises no manifest, so there is no manifest
+                  to show — the Conformance banner above says so once. */}
+              {!isDynamic && (
+                <Accordion.Item
+                  value="resources"
+                  flex={SECTION_FLEX}
+                  mih={
+                    openSections.includes("resources")
+                      ? OPEN_SECTION_MIN_HEIGHT
+                      : undefined
+                  }
+                >
+                  <Accordion.Control>
+                    <InlineRow>
+                      <SectionHeading>Resources</SectionHeading>
+                      <CountBadge>
+                        {manifest.length} file(s), {totalSkillBytes(manifest)}{" "}
+                        bytes
+                      </CountBadge>
+                    </InlineRow>
+                  </Accordion.Control>
+                  <Accordion.Panel>
+                    <Stack gap="xs">
+                      {selected.resources === DYNAMIC_RESOURCES ? (
+                        <Alert color="yellow" title="Dynamic resources">
+                          This skill declares{" "}
+                          <Code>resources: &quot;dynamic&quot;</Code> — its
+                          files are generated, so no manifest is advertised and
+                          integrity cannot be verified.
+                        </Alert>
+                      ) : (
+                        <ManifestTable data-testid="skill-manifest">
+                          <Table.Thead>
+                            <Table.Tr>
+                              <Table.Th>URI</Table.Th>
+                              <Table.Th>Size</Table.Th>
+                              <Table.Th>Digest</Table.Th>
+                              <Table.Th>Verification</Table.Th>
+                              {/* The action gets its own column so the buttons
+                                  line up down the table. Sharing a cell with
+                                  the verdict badge staggered them, because the
+                                  badge's width tracks its label — "—",
+                                  "checking…", "verified" and "mismatch" are all
+                                  different sizes.
+
+                                  The header is named for screen readers but not
+                                  shown: a visible label over a column of
+                                  buttons is noise, while an *empty* `th` is an
+                                  axe `empty-table-header` violation and leaves
+                                  the column unnamed in a table's header
+                                  navigation. */}
+                              <Table.Th>
+                                <VisuallyHidden>Actions</VisuallyHidden>
+                              </Table.Th>
+                            </Table.Tr>
+                          </Table.Thead>
+                          <Table.Tbody>
+                            {manifest.map((resource, index) => {
+                              const state = fileStates[index];
+                              const color =
+                                state?.status === "done"
+                                  ? verificationColor(state.verification.status)
+                                  : state?.status === "error"
+                                    ? "red"
+                                    : "gray";
+                              // Compared by identity for the same reason every
+                              // other URI comparison here is: a server that
+                              // canonicalizes an escape is naming the same
+                              // file, and the row the user just clicked must
+                              // not read as unselected because of a spelling.
+                              const showing =
+                                previewUri !== undefined &&
+                                skillUriIdentity(resource.uri) ===
+                                  skillUriIdentity(previewUri);
+                              return (
+                                // Index-keyed for the same reason the verdicts
+                                // are: a duplicated URI is a case this screen
+                                // reports, so it must not also collide two rows
+                                // into one.
+                                <Table.Tr key={index}>
+                                  <Table.Td>
+                                    <ResourceUriButton
+                                      variant={showing ? "light" : "subtle"}
+                                      aria-current={
+                                        showing ? "true" : undefined
+                                      }
+                                      onClick={() =>
+                                        showResource(resource.uri, manifestKey)
+                                      }
+                                    >
+                                      {resource.uri}
+                                    </ResourceUriButton>
+                                  </Table.Td>
+                                  <Table.Td>{resource.size ?? "—"}</Table.Td>
+                                  <Table.Td>
+                                    {shortDigest(resource.digest)}
+                                  </Table.Td>
+                                  <Table.Td>
+                                    <CountBadge color={color}>
+                                      {verificationLabel(state)}
+                                    </CountBadge>
+                                  </Table.Td>
+                                  <ActionCell>
+                                    <RowVerifyButton
+                                      // Every row's button reads "Verify", so
+                                      // the visible text alone gives a screen-
+                                      // reader user no way to tell which file
+                                      // each one checks; the URI cell is in the
+                                      // same row but is not programmatically
+                                      // associated with it.
+                                      aria-label={`Verify ${resource.uri}`}
+                                      // A click handler cannot await, and
+                                      // `verifyRow` owns its own failures — it
+                                      // records them as this row's state.
+                                      onClick={() =>
+                                        void verifyRow(
+                                          index,
+                                          resource,
+                                          manifestKey,
+                                        )
+                                      }
+                                    >
+                                      Verify
+                                    </RowVerifyButton>
+                                  </ActionCell>
+                                </Table.Tr>
+                              );
+                            })}
+                          </Table.Tbody>
+                        </ManifestTable>
+                      )}
+                    </Stack>
+                  </Accordion.Panel>
+                </Accordion.Item>
+              )}
 
               {/* Rendered ONLY when the file on display actually carries
                   frontmatter. A skill's manifest files generally do not, and a
@@ -1167,7 +1405,7 @@ export function SkillsScreen({
                   value="frontmatter"
                   // Weight 1: frontmatter is a handful of lines whatever the
                   // file, so it never needs a share proportional to anything.
-                  flex={sectionFlex(openSections.includes("frontmatter"), 1)}
+                  flex={SECTION_FLEX}
                   mih={
                     openSections.includes("frontmatter")
                       ? OPEN_SECTION_MIN_HEIGHT
@@ -1226,22 +1464,32 @@ export function SkillsScreen({
                       /* `contents`, not a text `block`: a server may serve a
                          skill file as a base64 `blob`, and the block form would
                          substitute an empty string and paint a blank viewer for
-                         a file it had just read correctly. */
+                         a file it had just read correctly.
+
+                         When the file split, the decoded BODY is handed over as
+                         text regardless of which arm the server used — that is
+                         what lets a base64 markdown file lose its frontmatter
+                         to the section above like a text one. Anything that did
+                         not split is passed through in its original arm. */
                       <ContentViewer
                         contents={
-                          typeof preview.text === "string"
+                          previewParts !== undefined
                             ? {
                                 uri: previewUri ?? selected.uri,
-                                // The body half of the same split the
-                                // Frontmatter section reads from.
-                                text: previewParts?.body ?? preview.text,
-                                mimeType: preview.mimeType ?? "text/markdown",
+                                text: previewParts.body,
+                                mimeType: previewMime,
                               }
-                            : {
-                                uri: previewUri ?? selected.uri,
-                                blob: preview.blob ?? "",
-                                mimeType: preview.mimeType ?? "text/markdown",
-                              }
+                            : typeof preview.text === "string"
+                              ? {
+                                  uri: previewUri ?? selected.uri,
+                                  text: preview.text,
+                                  mimeType: previewMime,
+                                }
+                              : {
+                                  uri: previewUri ?? selected.uri,
+                                  blob: preview.blob ?? "",
+                                  mimeType: previewMime,
+                                }
                         }
                         copyable
                       />
@@ -1250,70 +1498,6 @@ export function SkillsScreen({
                 </Accordion.Panel>
               </Accordion.Item>
             </Accordion>
-
-            <FetchResultScroll>
-              {fetched?.message !== undefined && (
-                <Alert color="red" title="skills/get failed">
-                  {fetched.message}
-                </Alert>
-              )}
-              {fetched?.entry !== undefined && (
-                <Alert
-                  data-testid="skills-get-result"
-                  data-verdict={fetchedVerdict}
-                  mt="sm"
-                  // Red only for a genuine violation — a non-conforming entry,
-                  // or one answering with a different URI, neither of which a
-                  // fresh snapshot excuses. A conforming entry that merely
-                  // moved on is yellow: `skills/get` IS a point-in-time read,
-                  // so a changed skill legitimately differs.
-                  color={
-                    fetchedVerdict === "invalid"
-                      ? "red"
-                      : fetchedVerdict === "matches"
-                        ? "green"
-                        : "yellow"
-                  }
-                  title={
-                    fetchedVerdict === "invalid"
-                      ? "skills/get returned a non-conforming entry"
-                      : fetchedVerdict === "matches"
-                        ? "skills/get matches skills/list"
-                        : "skills/get returned a different snapshot"
-                  }
-                >
-                  <Stack gap={2}>
-                    <Text size="sm">
-                      {fetchedVerdict === "invalid"
-                        ? fetched.wrongUri
-                          ? "This entry is for a different URI than the one requested, which is never a valid refresh of it."
-                          : "This entry breaks a requirement of its own, so the difference is not simply a newer snapshot."
-                        : fetchedVerdict === "matches"
-                          ? "The entry this server returns for this URI describes the same skill it listed (compared ignoring key and manifest order)."
-                          : "The entry this server returns for this URI differs from the one it listed. `skills/get` is a fresh snapshot, so this is expected if the skill changed since the list was fetched — and a server inconsistency if it did not."}
-                    </Text>
-                    {(fetched.issues ?? [])
-                      .filter((issue) => issue.severity === "error")
-                      .map((issue, index) => (
-                        <MonoCaption key={`${index}:${issue.code}`}>
-                          {issue.code}: {issue.message}
-                        </MonoCaption>
-                      ))}
-                    {fetchedVerdict !== "matches" && (
-                      <ContentViewer
-                        block={{
-                          type: "text",
-                          text: JSON.stringify(fetched.entry, null, 2),
-                        }}
-                        mimeType="application/json"
-                        jsonLabel="Fetched skill entry"
-                        copyable
-                      />
-                    )}
-                  </Stack>
-                </Alert>
-              )}
-            </FetchResultScroll>
           </DetailColumn>
         )}
       </DetailCard>

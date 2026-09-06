@@ -202,12 +202,77 @@ describe("SkillsScreen", () => {
     expect(onRefreshList).toHaveBeenCalled();
   });
 
-  it("reports a conforming skill as conforming", async () => {
+  it("collapses Conformance for a clean entry, and still reports it on expand", async () => {
+    // A clean entry opens collapsed (#2263): the header badge already says
+    // "0 error(s), 0 warning(s)", so an expanded "Conforms" panel is only
+    // taking space the file viewer could use. The verdict is still there.
     const user = userEvent.setup();
     renderWithMantine(<ControlledSkillsScreen />);
     await user.click(screen.getByText("data-analysis"));
+    const control = screen.getByRole("button", { name: /Conformance/ });
+    expect(control).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText("Conforms")).not.toBeInTheDocument();
+
+    await user.click(control);
     expect(screen.getByText("Conforms")).toBeInTheDocument();
     expect(screen.queryByTestId("skill-issues")).not.toBeInTheDocument();
+  });
+
+  it("opens Conformance for an entry that has findings", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(<ControlledSkillsScreen />);
+    await user.click(screen.getByText("right-name"));
+    expect(screen.getByRole("button", { name: /Conformance/ })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    expect(screen.getByTestId("skill-issues")).toBeInTheDocument();
+  });
+
+  it("re-opens Conformance when switching from a clean entry to a broken one", async () => {
+    // The section tracks the signal rather than latching: a user who lands on a
+    // clean skill and then picks a broken one must not have the findings hidden
+    // behind a click.
+    const user = userEvent.setup();
+    renderWithMantine(<ControlledSkillsScreen />);
+    await user.click(screen.getByText("data-analysis"));
+    expect(screen.getByRole("button", { name: /Conformance/ })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+    await user.click(screen.getByText("right-name"));
+    expect(screen.getByRole("button", { name: /Conformance/ })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+  });
+
+  it("reports a digest mismatch in Conformance, with its own red badge", async () => {
+    // `tampered-notes` is structurally clean but serves bytes that do not match
+    // its manifest, so its Conformance section starts collapsed — pressing
+    // Verify has to open it, or the verdict lands where nobody can see it
+    // (#2263). The mismatch count is a separate badge because it is a RUNTIME
+    // result: folding it into "N error(s)" would make that number change
+    // meaning after a click.
+    const user = userEvent.setup();
+    renderWithMantine(<ControlledSkillsScreen />);
+    await user.click(screen.getByText("tampered"));
+    expect(screen.getByRole("button", { name: /Conformance/ })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+    expect(screen.queryByText(/digest mismatch\(es\)/)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /Verify all/ }));
+    expect(await screen.findByText("Digest mismatch")).toBeInTheDocument();
+
+    const conformance = screen.getByRole("button", { name: /Conformance/ });
+    expect(conformance).toHaveAttribute("aria-expanded", "true");
+    // The alert renders inside Conformance, not beside the manifest table.
+    expect(conformance.closest(".mantine-Accordion-item")).toContainElement(
+      screen.getByText("Digest mismatch"),
+    );
+    expect(badgeStyle(/1 digest mismatch\(es\)/)).toContain("red");
   });
 
   it("badges a warning-only entry yellow, not green", async () => {
@@ -240,15 +305,46 @@ describe("SkillsScreen", () => {
     expect(within(issues).getByText("name-path-mismatch")).toBeInTheDocument();
   });
 
-  it("shows the dynamic warning and no manifest table", async () => {
+  it("states the dynamic case once, in Conformance, with no Resources section", async () => {
+    // A dynamic skill has no manifest, so an empty Resources section whose only
+    // content explains its own emptiness is redundant with the conformance
+    // finding — the fact is stated once, in prose, in Conformance (#2263).
     const user = userEvent.setup();
     renderWithMantine(<ControlledSkillsScreen />);
     await user.click(screen.getByText("dynamic-report"));
-    expect(screen.getByText("Dynamic resources")).toBeInTheDocument();
+
+    const conformance = screen.getByRole("button", { name: /Conformance/ });
+    expect(conformance.closest(".mantine-Accordion-item")).toContainElement(
+      screen.getByText("Dynamic resources"),
+    );
+    // The section, its header and its table are all gone — not merely empty.
+    expect(
+      screen.queryByRole("button", { name: /Resources/ }),
+    ).not.toBeInTheDocument();
     expect(screen.queryByTestId("skill-manifest")).not.toBeInTheDocument();
+    // And the terse finding is not repeated beside the prose banner.
+    expect(screen.queryByText("dynamic-resources")).not.toBeInTheDocument();
+    // It still counts toward the warning total, because it is still a finding.
+    expect(
+      screen.getByText(/0 error\(s\), 1 warning\(s\)/),
+    ).toBeInTheDocument();
+
     // "Verify all" has nothing to verify, so it is disabled rather than a
     // button that silently does nothing.
     expect(screen.getByRole("button", { name: /Verify all/ })).toBeDisabled();
+  });
+
+  it("expand-all stays satisfiable for a dynamic skill", async () => {
+    // The toggle compares against the sections that actually render; leaving
+    // `resources` in that list would make "expand all" unreachable here.
+    const user = userEvent.setup();
+    renderWithMantine(<ControlledSkillsScreen />);
+    await user.click(screen.getByText("dynamic-report"));
+    await user.click(screen.getByRole("button", { name: "Collapse all" }));
+    await user.click(screen.getByRole("button", { name: "Expand all" }));
+    expect(
+      screen.getByRole("button", { name: "Collapse all" }),
+    ).toBeInTheDocument();
   });
 
   it("verifies a file whose bytes match its digest", async () => {
@@ -500,6 +596,14 @@ describe("SkillsScreen", () => {
     expect(
       await screen.findByText("skills/get matches skills/list"),
     ).toBeInTheDocument();
+    // The verdict is a conformance statement, so it renders inside the
+    // Conformance section (#2263) — and that section auto-collapses for a clean
+    // entry, so the fetch has to open it or the answer would be invisible.
+    const conformance = screen.getByRole("button", { name: /Conformance/ });
+    expect(conformance).toHaveAttribute("aria-expanded", "true");
+    expect(conformance.closest(".mantine-Accordion-item")).toContainElement(
+      screen.getByTestId("skills-get-result"),
+    );
   });
 
   it("treats key and manifest order as immaterial when matching", async () => {
@@ -1023,19 +1127,18 @@ describe("SkillsScreen", () => {
     expect(await screen.findByText("bare")).toBeInTheDocument();
   });
 
-  it("keeps the three sections independently collapsible", async () => {
+  it("keeps the sections independently collapsible", async () => {
     const user = userEvent.setup();
     renderWithMantine(<ControlledSkillsScreen />);
-    await user.click(screen.getByText("data-analysis"));
-    // Conformance and Resources open by default; Frontmatter is closed.
-    expect(screen.getByRole("button", { name: /Conformance/ })).toHaveAttribute(
-      "aria-expanded",
-      "true",
-    );
-    expect(screen.getByRole("button", { name: /Frontmatter/ })).toHaveAttribute(
-      "aria-expanded",
-      "false",
-    );
+    // Everything starts open; `right-name` has a finding, so Conformance is
+    // open here too rather than auto-collapsed.
+    await user.click(screen.getByText("right-name"));
+    for (const name of [/Conformance/, /Resources/, /Frontmatter/]) {
+      expect(screen.getByRole("button", { name })).toHaveAttribute(
+        "aria-expanded",
+        "true",
+      );
+    }
 
     // Collapsing one leaves the others alone — `multiple`, not a single-open
     // accordion.
@@ -1048,6 +1151,31 @@ describe("SkillsScreen", () => {
       "aria-expanded",
       "true",
     );
+  });
+
+  it("toggles every section at once from the header control", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(<ControlledSkillsScreen />);
+    const ALL = [/Conformance/, /Resources/, /Frontmatter/, /Skill Resource/];
+    await user.click(screen.getByText("right-name"));
+    // The shared `ListToggle` element, whose labels are "Expand all" /
+    // "Collapse all". Everything starts open, so it offers to collapse first.
+    await user.click(screen.getByRole("button", { name: "Collapse all" }));
+    for (const name of ALL) {
+      expect(screen.getByRole("button", { name })).toHaveAttribute(
+        "aria-expanded",
+        "false",
+      );
+    }
+
+    // And back the other way from the same control.
+    await user.click(screen.getByRole("button", { name: "Expand all" }));
+    for (const name of ALL) {
+      expect(screen.getByRole("button", { name })).toHaveAttribute(
+        "aria-expanded",
+        "true",
+      );
+    }
   });
 
   it("drops verification results when the selection changes", async () => {

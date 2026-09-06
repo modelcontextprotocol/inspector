@@ -127,6 +127,11 @@ export const ConformingSkill: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await userEvent.click(canvas.getByText("data-analysis"));
+    // A clean entry opens with Conformance COLLAPSED (#2263) — its badge
+    // already carries the whole answer — so the verdict is behind one click.
+    const control = canvas.getByRole("button", { name: /Conformance/ });
+    await expect(control).toHaveAttribute("aria-expanded", "false");
+    await userEvent.click(control);
     await expect(canvas.getByText("Conforms")).toBeInTheDocument();
   },
 };
