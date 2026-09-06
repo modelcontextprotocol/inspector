@@ -122,13 +122,83 @@ const SUPERSEDED_MARKER_RE = /^<!-- sdk-watch:superseded-by (.+?) -->/;
 export const ANALYSIS_MARKER = "<!-- sdk-watch:analysis -->";
 
 /**
- * Has this issue already been given its automated analysis?
+ * The account this sweep's own issues and comments are written by.
  *
- * @param {string[]} commentBodies
+ * ⚠️ **This repository is PUBLIC, so a marker is not evidence of anything on its
+ * own.** Anyone can open an issue or write a comment whose body starts with any
+ * string they like, and every marker here is load-bearing for automation
+ * (Copilot). Left untrusted, an outsider could:
+ *
+ *  * file an issue carrying the current target's marker — and close it — to
+ *    suppress the real upgrade issue indefinitely;
+ *  * post `<!-- sdk-watch:analysis -->` as a comment to suppress analysis
+ *    retries forever;
+ *  * forge a supersession marker so the genuine note is never posted.
+ *
+ * So a marker counts only when the thing carrying it was written by this
+ * automation. `gh issue list --json author` reports a bot with the `[bot]`
+ * suffix stripped and `is_bot: true`, while the REST comments endpoint reports
+ * `github-actions[bot]` with `type: "Bot"` — hence the normalization in both
+ * predicates rather than one spelling assumed.
+ */
+export const AUTOMATION_LOGIN = "github-actions";
+
+/** Labels every issue this sweep files carries; an outsider cannot set them. */
+export const SWEEP_LABELS = ["chore", "dependencies"];
+
+const normalizeLogin = (login) =>
+  String(login ?? "")
+    .toLowerCase()
+    .replace(/\[bot\]$/, "");
+
+/**
+ * Was this issue actually filed by the sweep, rather than merely shaped like it?
+ *
+ * Requires BOTH the automation author and the labels the sweep applies. The
+ * labels are the stronger half in practice: the issue forms in
+ * `.github/ISSUE_TEMPLATE/` apply `bug`/`enhancement` and `v2`, and setting
+ * `chore` or `dependencies` needs write access, so a drive-by cannot fake one
+ * even from an account named to look official.
+ *
+ * @param {{author?: {login?: string, is_bot?: boolean}, labels?: Array<{name?: string}>}} issue
  * @returns {boolean}
  */
-export function hasAnalysis(commentBodies) {
-  return commentBodies.some((body) => (body ?? "").startsWith(ANALYSIS_MARKER));
+export function isSweepAuthored(issue) {
+  if (normalizeLogin(issue?.author?.login) !== AUTOMATION_LOGIN) return false;
+  // `is_bot` is absent on some `gh` versions; only an explicit `false` — a human
+  // account that happens to carry the name — is disqualifying.
+  if (issue?.author?.is_bot === false) return false;
+  const names = new Set((issue?.labels ?? []).map((l) => l?.name));
+  return SWEEP_LABELS.every((label) => names.has(label));
+}
+
+/**
+ * Was this comment written by the automation?
+ *
+ * @param {{author?: string, isBot?: boolean}} comment
+ * @returns {boolean}
+ */
+export function isAutomationComment(comment) {
+  return (
+    normalizeLogin(comment?.author) === AUTOMATION_LOGIN &&
+    comment?.isBot !== false
+  );
+}
+
+/**
+ * Has this issue already been given its automated analysis?
+ *
+ * Only a comment the automation wrote counts — see `AUTOMATION_LOGIN`. A comment
+ * from anyone else that happens to start with the marker is ordinary text.
+ *
+ * @param {Array<{author?: string, isBot?: boolean, body?: string}>} comments
+ * @returns {boolean}
+ */
+export function hasAnalysis(comments) {
+  return comments.some(
+    (c) =>
+      isAutomationComment(c) && (c?.body ?? "").startsWith(ANALYSIS_MARKER),
+  );
 }
 
 /**
@@ -435,7 +505,7 @@ function sweepIssues(repo, spawn) {
     "--search",
     "sdk-watch in:body",
     "--json",
-    "number,body,state",
+    "number,body,state,author,labels",
     "--limit",
     "100",
   ]);
@@ -443,8 +513,9 @@ function sweepIssues(repo, spawn) {
     throw new Error(`gh issue list failed: ${(result.stderr ?? "").trim()}`);
   }
   return JSON.parse(result.stdout || "[]")
+    .filter(isSweepAuthored)
     .map((issue) => ({ ...issue, marker: parseMarker(issue.body) }))
-    .filter((issue) => issue.marker);
+    .filter((issue) => issue.marker && semver.valid(issue.marker.target));
 }
 
 function currentMilestone(repo, spawn) {
@@ -470,7 +541,12 @@ function currentMilestone(repo, spawn) {
  * combined with `--jq` — `gh` rejects the pair outright — which is exactly why
  * the parsing moved here.
  *
- * @returns {string[]} one entry per comment
+ * ⚠️ It keeps the AUTHOR, not just the body. Reducing a comment to its text
+ * discards the only thing that makes its marker trustworthy — this repo is
+ * public, so any commenter could otherwise forge one (Copilot). See
+ * `AUTOMATION_LOGIN`.
+ *
+ * @returns {Array<{author: string, isBot: boolean, body: string}>} one per comment
  */
 function issueComments(repo, number, spawn) {
   const result = gh(spawn, [
@@ -485,7 +561,11 @@ function issueComments(repo, number, spawn) {
     );
   }
   const pages = JSON.parse(result.stdout || "[]");
-  return pages.flat().map((c) => c?.body ?? "");
+  return pages.flat().map((c) => ({
+    author: c?.user?.login ?? "",
+    isBot: c?.user?.type === "Bot",
+    body: c?.body ?? "",
+  }));
 }
 
 function comment(repo, number, body, spawn) {
@@ -662,8 +742,12 @@ export function main(
           if (stale.number === number) continue;
           if (stale.state !== "OPEN") continue;
           if (!semver.lt(stale.marker.target, state.target)) continue;
+          // Only the automation's own note counts as "already announced" — a
+          // forged one from any commenter would otherwise suppress the real one.
           const announced = issueComments(repo, stale.number, spawn).some(
-            (body) => parseSupersededMarker(body) === String(number),
+            (c) =>
+              isAutomationComment(c) &&
+              parseSupersededMarker(c.body) === String(number),
           );
           if (announced) continue;
           comment(

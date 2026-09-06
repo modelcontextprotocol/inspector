@@ -16,6 +16,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import YAML from "yaml";
 import {
   ANALYSIS_MARKER,
   assertEveryPackageWatched,
@@ -27,11 +28,13 @@ import {
   groupState,
   hasAnalysis,
   installedVersion,
+  isSweepAuthored,
   main,
   parseMarker,
   parseSupersededMarker,
   pickMilestone,
   SDK_GROUPS,
+  SWEEP_LABELS,
   TARGET_BRANCH,
 } from "./sdk-watch.mjs";
 
@@ -95,16 +98,133 @@ test("parseSupersededMarker reads back the issue number it announced", () => {
   assert.equal(parseSupersededMarker("unrelated comment"), null);
 });
 
+/** A comment as `issueComments` returns it. */
+const botComment = (body) => ({
+  author: "github-actions[bot]",
+  isBot: true,
+  body,
+});
+const humanComment = (body) => ({ author: "someone", isBot: false, body });
+
 test("hasAnalysis finds the marker only at the start of a comment", () => {
-  assert.equal(hasAnalysis([`${ANALYSIS_MARKER}\nthe write-up`]), true);
-  assert.equal(hasAnalysis(["a maintainer comment", "another"]), false);
+  assert.equal(
+    hasAnalysis([botComment(`${ANALYSIS_MARKER}\nthe write-up`)]),
+    true,
+  );
+  assert.equal(
+    hasAnalysis([botComment("a comment"), botComment("another")]),
+    false,
+  );
   assert.equal(hasAnalysis([]), false);
   // A comment merely QUOTING the marker must not count as an analysis, or one
   // person pasting it would suppress the retry forever.
   assert.equal(
-    hasAnalysis([`see \`${ANALYSIS_MARKER}\` in the script`]),
+    hasAnalysis([botComment(`see \`${ANALYSIS_MARKER}\` in the script`)]),
     false,
   );
+});
+
+test("hasAnalysis ignores the marker when anyone but the automation wrote it", () => {
+  // ⚠️ This repo is PUBLIC. Trusting the marker alone would let any commenter
+  // suppress analysis retries on any issue, forever, with one comment (Copilot).
+  assert.equal(
+    hasAnalysis([humanComment(`${ANALYSIS_MARKER}\nnothing to see here`)]),
+    false,
+  );
+  // A bot is not enough either — it has to be OUR bot.
+  assert.equal(
+    hasAnalysis([
+      { author: "dependabot[bot]", isBot: true, body: ANALYSIS_MARKER },
+    ]),
+    false,
+  );
+});
+
+test("isSweepAuthored requires both the automation author and the sweep's labels", () => {
+  const owned = {
+    author: { login: "github-actions", is_bot: true },
+    labels: SWEEP_LABELS.map((name) => ({ name })),
+  };
+  assert.equal(isSweepAuthored(owned), true);
+  // gh reports a bot with the suffix stripped; the REST API keeps it. Both spellings.
+  assert.equal(
+    isSweepAuthored({ ...owned, author: { login: "github-actions[bot]" } }),
+    true,
+  );
+  // An outsider's issue carrying a forged marker: right shape, wrong provenance.
+  assert.equal(
+    isSweepAuthored({ ...owned, author: { login: "someone", is_bot: false } }),
+    false,
+  );
+  // A human account named to look official is still a human account.
+  assert.equal(
+    isSweepAuthored({
+      ...owned,
+      author: { login: "github-actions", is_bot: false },
+    }),
+    false,
+  );
+  // Right author, but missing a label only someone with write access can set.
+  assert.equal(
+    isSweepAuthored({ ...owned, labels: [{ name: "chore" }] }),
+    false,
+  );
+  assert.equal(isSweepAuthored({ ...owned, labels: [] }), false);
+  assert.equal(isSweepAuthored({}), false);
+});
+
+test("the job the model runs in holds no write permission", () => {
+  // ⚠️ GitHub scopes permissions per JOB, not per step. While the model action
+  // and the `gh issue comment` shared a job, the `issues: write` the posting
+  // needed was on the token handed to the model — however carefully the step was
+  // written (Copilot). The separation is the control; this test is what keeps a
+  // later edit from quietly undoing it by merging the jobs or widening a scope.
+  const workflow = YAML.parse(
+    readFileSync(
+      new URL("../.github/workflows/sdk-watch.yml", import.meta.url),
+      "utf8",
+    ),
+  );
+  const analyze = workflow.jobs.analyze;
+  const runsModel = (analyze.steps ?? []).some((s) =>
+    String(s.uses ?? "").startsWith("anthropics/claude-code-action"),
+  );
+  assert.ok(runsModel, "the analyze job is the one that runs the model");
+  assert.deepEqual(
+    analyze.permissions,
+    { contents: "read" },
+    "the model's job must hold contents: read and nothing else",
+  );
+  assert.equal(
+    (analyze.steps ?? []).some((s) => /gh issue comment/.test(s.run ?? "")),
+    false,
+    "posting belongs in the separately-permissioned job",
+  );
+});
+
+test("the model is granted no command that can reach an arbitrary host", () => {
+  // `npm view` accepts `--registry=<URL>` and a Bash grant matches only a
+  // PREFIX, so granting it was an outbound channel no output scan can see
+  // (Copilot). The general rule — check a command's flag surface before granting
+  // it — is in AGENTS.md; this pins the specific instance.
+  const workflow = YAML.parse(
+    readFileSync(
+      new URL("../.github/workflows/sdk-watch.yml", import.meta.url),
+      "utf8",
+    ),
+  );
+  const args = workflow.jobs.analyze.steps.find((s) =>
+    String(s.uses ?? "").startsWith("anthropics/claude-code-action"),
+  ).with.claude_args;
+  const allowed = /--allowedTools\s+"([^"]*)"/.exec(args)?.[1] ?? "";
+  assert.ok(allowed.length > 0, "expected an --allowedTools whitelist");
+  for (const forbidden of ["npm", "curl", "wget", "WebFetch", "WebSearch"]) {
+    assert.equal(
+      allowed.includes(forbidden),
+      false,
+      `--allowedTools must not grant ${forbidden}`,
+    );
+  }
 });
 
 test("the workflow posts the exact marker the sweep looks for", () => {
@@ -425,8 +545,17 @@ function fakeSpawn({
         stderr: npmStatus ? "ENOTFOUND registry.npmjs.org" : "",
       };
     }
-    if (args[0] === "issue" && args[1] === "list")
-      return { status: 0, stdout: JSON.stringify(issues), stderr: "" };
+    if (args[0] === "issue" && args[1] === "list") {
+      // Default every fixture to the sweep's OWN authorship and labels, so a
+      // test that says nothing about provenance is testing the ordinary case.
+      // A test probing the trust boundary overrides `author` or `labels`.
+      const owned = issues.map((i) => ({
+        author: { login: "github-actions", is_bot: true },
+        labels: SWEEP_LABELS.map((name) => ({ name })),
+        ...i,
+      }));
+      return { status: 0, stdout: JSON.stringify(owned), stderr: "" };
+    }
     if (args[0] === "issue" && args[1] === "create") {
       const title = args[args.indexOf("--title") + 1] ?? "";
       const fails =
@@ -461,11 +590,15 @@ function fakeSpawn({
       // Shaped as `--paginate --slurp` really answers: an array of PAGES, each
       // an array of comment objects. Faking it as newline-joined text was what
       // let the boundary-destroying `--jq '.[].body'` split look correct.
-      return {
-        status: 0,
-        stdout: JSON.stringify([bodies.map((body) => ({ body }))]),
-        stderr: "",
-      };
+      //
+      // A plain string means "written by this automation"; an object lets a test
+      // put a marker in someone else's mouth, which is the forgery case.
+      const page = bodies.map((c) =>
+        typeof c === "string"
+          ? { user: { login: "github-actions[bot]", type: "Bot" }, body: c }
+          : { user: { login: c.author, type: c.type ?? "User" }, body: c.body },
+      );
+      return { status: 0, stdout: JSON.stringify([page]), stderr: "" };
     }
     if (args[0] === "api")
       return { status: 0, stdout: JSON.stringify(milestones), stderr: "" };
@@ -727,6 +860,112 @@ test("main does not re-queue a CLOSED issue that has no analysis", () => {
     spawn.calls.some((c) => c.args[0] === "issue" && c.args[1] === "create"),
     false,
     "and it must still suppress creation",
+  );
+});
+
+test("main ignores an outsider's issue carrying the current target's marker", () => {
+  // ⚠️ The suppression attack: this repo is public, so anyone can open an issue
+  // whose body starts with the current marker — and close it — to stop the real
+  // upgrade issue from ever being filed (Copilot).
+  const spawn = fakeSpawn({
+    latest: latestAt(SDK, "2.1.0"),
+    issues: [
+      {
+        ...existingIssue(400, "2.1.0"),
+        author: { login: "a-passer-by", is_bot: false },
+      },
+    ],
+  });
+  const output = outputFile();
+  writeFileSync(output, "");
+
+  main("o/r", spawn, { readFile: fakeReadFile(), output });
+
+  assert.ok(
+    spawn.calls.some((c) => c.args[0] === "issue" && c.args[1] === "create"),
+    "the forged issue must not suppress the genuine filing",
+  );
+  assert.deepEqual(
+    readFiled(output).map((f) => f.to),
+    ["2.1.0"],
+  );
+});
+
+test("main ignores an issue that lacks the labels only write access can set", () => {
+  const spawn = fakeSpawn({
+    latest: latestAt(SDK, "2.1.0"),
+    issues: [{ ...existingIssue(400, "2.1.0"), labels: [{ name: "v2" }] }],
+  });
+  main("o/r", spawn, noAmbientOutput());
+
+  assert.ok(
+    spawn.calls.some((c) => c.args[0] === "issue" && c.args[1] === "create"),
+  );
+});
+
+test("main ignores a marker whose target is not a valid version", () => {
+  // `semver.lt` throws on an unparseable version, so an issue titled with a
+  // malformed target would have failed the sweep every single run.
+  const spawn = fakeSpawn({
+    latest: latestAt(SDK, "2.1.0"),
+    issues: [
+      {
+        number: 400,
+        state: "OPEN",
+        body: `<!-- sdk-watch: group=typescript-sdk; target=not-a-version -->\n`,
+      },
+    ],
+  });
+  const output = outputFile();
+  writeFileSync(output, "");
+
+  assert.doesNotThrow(() =>
+    main("o/r", spawn, { readFile: fakeReadFile(), output }),
+  );
+  assert.deepEqual(
+    readFiled(output).map((f) => f.to),
+    ["2.1.0"],
+  );
+});
+
+test("main re-queues despite a forged analysis comment from a non-automation author", () => {
+  const spawn = fakeSpawn({
+    latest: latestAt(SDK, "2.1.0"),
+    issues: [existingIssue(400, "2.1.0")],
+    commentsByIssue: {
+      400: [{ author: "a-passer-by", body: `${ANALYSIS_MARKER}\nnope` }],
+    },
+  });
+  const output = outputFile();
+  writeFileSync(output, "");
+
+  main("o/r", spawn, { readFile: fakeReadFile(), output });
+
+  assert.deepEqual(
+    readFiled(output).map((f) => f.issue),
+    [400],
+    "a forged marker must not suppress the analysis retry",
+  );
+});
+
+test("main posts the supersession note despite a forged one from an outsider", () => {
+  const spawn = fakeSpawn({
+    latest: latestAt(SDK, "2.2.0"),
+    issues: [existingIssue(400, "2.1.0")],
+    commentsByIssue: {
+      400: [
+        {
+          author: "a-passer-by",
+          body: `<!-- sdk-watch:superseded-by 500 -->\nforged`,
+        },
+      ],
+    },
+  });
+  main("o/r", spawn, noAmbientOutput());
+
+  assert.ok(
+    spawn.calls.some((c) => c.args[0] === "issue" && c.args[1] === "comment"),
+    "a forged note must not suppress the genuine one",
   );
 });
 
