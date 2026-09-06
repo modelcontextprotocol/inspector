@@ -11,8 +11,21 @@ export const PROGRESS_TOAST_AUTOCLOSE_MS = 5000;
 // rather than flooding the corner. The injected `progressToken` correlates a
 // stream with the request that triggered it; when absent (the common case —
 // the inspector doesn't expose a caller token), all ticks share one toast.
+//
+// The token's *type* is part of the key. `ProgressToken` is `string | number`,
+// so a bare `String(token)` maps the number 7 and the string "7" — two
+// distinct streams per the spec — onto one id, and the two streams then
+// overwrite each other's toast (id collision means replacement, which is the
+// whole point of the id). The `n:`/`s:` discriminator keeps them apart, and
+// the no-token case gets a prefix of its own rather than the sentinel
+// `"default"`, which a server is free to send as a genuine string token.
 export function progressToastId(token: ProgressToken | undefined): string {
-  return `progress-${String(token ?? "default")}`;
+  if (token === undefined) {
+    return "progress-none";
+  }
+  return typeof token === "number"
+    ? `progress-n:${token}`
+    : `progress-s:${token}`;
 }
 
 // One-line toast body: "<message> — <progress> / <total> (NN%)". The fraction
