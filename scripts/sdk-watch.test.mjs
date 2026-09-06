@@ -392,6 +392,20 @@ function readFiled(path) {
   return JSON.parse(line.slice("filed=".length));
 }
 
+/**
+ * Options for a case that asserts a throw and so never emits.
+ *
+ * `output` is pinned to `undefined` rather than left to default. Its default is
+ * `process.env.GITHUB_OUTPUT`, which is a REAL FILE on an Actions runner — the
+ * one the job's own outputs are read from. These cases throw before reaching the
+ * emit, so nothing is written today, but leaving the default in place means a
+ * future case that stops throwing would append `filed=…` to the live job output
+ * instead of failing an assertion.
+ */
+function noAmbientOutput(readFile = fakeReadFile()) {
+  return { readFile, output: undefined };
+}
+
 test("main files nothing and emits an empty list when the whole SDK is current", () => {
   const spawn = fakeSpawn();
   const output = outputFile();
@@ -611,7 +625,7 @@ test("main throws when npm view fails rather than reporting a clean sweep", () =
   // registry outage becomes a green all-current night.
   const spawn = fakeSpawn({ npmStatus: 1 });
   assert.throws(
-    () => main("o/r", spawn, { readFile: fakeReadFile() }),
+    () => main("o/r", spawn, noAmbientOutput()),
     /npm view .* failed/,
   );
 });
@@ -619,7 +633,7 @@ test("main throws when npm view fails rather than reporting a clean sweep", () =
 test("main throws when npm view returns something that is not a version", () => {
   const spawn = fakeSpawn({ npmStdout: "\n" });
   assert.throws(
-    () => main("o/r", spawn, { readFile: fakeReadFile() }),
+    () => main("o/r", spawn, noAmbientOutput()),
     /unusable version/,
   );
 });
@@ -630,16 +644,28 @@ test("main propagates a failed issue creation", () => {
     createStatus: 1,
   });
   assert.throws(
-    () => main("o/r", spawn, { readFile: fakeReadFile() }),
+    () => main("o/r", spawn, noAmbientOutput()),
     /gh issue create failed/,
   );
 });
 
 test("main refuses to run without a repository", () => {
-  assert.throws(
-    () => main(undefined, fakeSpawn(), { readFile: fakeReadFile() }),
-    /GITHUB_REPOSITORY unset/,
-  );
+  // ⚠️ `repo` defaults to `process.env.GITHUB_REPOSITORY`, which is UNSET on a
+  // developer machine and SET on every Actions runner. So passing `undefined`
+  // exercises that default, and this assertion held locally while going red the
+  // first time CI ran it. Clear the variable so both environments test the same
+  // thing — `npm run local:gate` is a superset of CI's STAGES, but not of its
+  // ambient environment.
+  const saved = process.env.GITHUB_REPOSITORY;
+  delete process.env.GITHUB_REPOSITORY;
+  try {
+    assert.throws(
+      () => main(undefined, fakeSpawn(), noAmbientOutput()),
+      /GITHUB_REPOSITORY unset/,
+    );
+  } finally {
+    if (saved !== undefined) process.env.GITHUB_REPOSITORY = saved;
+  }
 });
 
 test("main fails on an SDK package the group table does not watch", () => {
@@ -649,5 +675,8 @@ test("main fails on an SDK package the group table does not watch", () => {
           dependencies: { "@modelcontextprotocol/something-new": "1.0.0" },
         })
       : JSON.stringify({ packages: {} });
-  assert.throws(() => main("o/r", fakeSpawn(), { readFile }), /something-new/);
+  assert.throws(
+    () => main("o/r", fakeSpawn(), noAmbientOutput(readFile)),
+    /something-new/,
+  );
 });
