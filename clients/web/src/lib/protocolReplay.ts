@@ -118,18 +118,11 @@ export function replayableParams(
       // Only a *string* cursor survives: the dispatcher ignores any other type,
       // so keeping it would put a value in the editor that changes nothing.
       //
-      // And an **empty** one survives on `tools/list` alone. `listTools` builds
-      // its params with `cursor !== undefined`, carrying `""` deliberately —
-      // its own comment explains that dropping it asks for page one again. The
-      // other four adapters use a truthiness check and drop it. That asymmetry
-      // looks like a latent bug in those four rather than an intention, but
-      // this function's job is to describe what the dispatch *does*, so it
-      // reports the empty cursor as dropped where it would be dropped.
-      kept =
-        typeof params.cursor === "string" &&
-        (method === "tools/list" || params.cursor !== "")
-          ? ["cursor"]
-          : [];
+      // An **empty** string is a cursor like any other, and every one of these
+      // five adapters now builds its params with `cursor !== undefined` (#2220
+      // brought the other four into line with `listTools`), so `""` reaches the
+      // wire on all of them and is reported as kept rather than dropped.
+      kept = typeof params.cursor === "string" ? ["cursor"] : [];
       break;
     default:
       // `ping` takes nothing, and an unreplayable method never reaches here.

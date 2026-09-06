@@ -3045,7 +3045,13 @@ export class InspectorClient extends InspectorClientEventTarget {
       throw new Error("Client is not connected");
     }
     const result = await this.client.request(
-      { method: "tasks/list", params: cursor ? { cursor } : {} },
+      {
+        method: "tasks/list",
+        // `!== undefined`, not truthiness: a cursor is opaque and `""` is a
+        // legal value a server may hand back. Dropping it asks for page one
+        // again, so a caller walking pages would loop on the first page.
+        params: cursor !== undefined ? { cursor } : {},
+      },
       ListTasksResultSchema,
       this.getRequestOptions(),
     );
@@ -5242,7 +5248,10 @@ export class InspectorClient extends InspectorClientEventTarget {
     const effectiveMeta = this.mergeMeta(metadata);
     const params: ListResourcesRequest["params"] = {
       ...(effectiveMeta ? { _meta: effectiveMeta } : {}),
-      ...(cursor ? { cursor } : {}),
+      // `!== undefined`, not truthiness: a cursor is opaque and `""` is a
+      // legal value a server may hand back. Dropping it asks for page one
+      // again, so a caller walking pages would loop on the first page.
+      ...(cursor !== undefined ? { cursor } : {}),
     };
     const response = await this.invokeMcpClient(() =>
       this.client!.request(
@@ -5416,7 +5425,10 @@ export class InspectorClient extends InspectorClientEventTarget {
     const effectiveMeta = this.mergeMeta(metadata);
     const params: ListResourceTemplatesRequest["params"] = {
       ...(effectiveMeta ? { _meta: effectiveMeta } : {}),
-      ...(cursor ? { cursor } : {}),
+      // `!== undefined`, not truthiness: a cursor is opaque and `""` is a
+      // legal value a server may hand back. Dropping it asks for page one
+      // again, so a caller walking pages would loop on the first page.
+      ...(cursor !== undefined ? { cursor } : {}),
     };
     const response = await this.invokeMcpClient(
       () =>
@@ -5480,7 +5492,10 @@ export class InspectorClient extends InspectorClientEventTarget {
     const effectiveMeta = this.mergeMeta(metadata);
     const params: ListPromptsRequest["params"] = {
       ...(effectiveMeta ? { _meta: effectiveMeta } : {}),
-      ...(cursor ? { cursor } : {}),
+      // `!== undefined`, not truthiness: a cursor is opaque and `""` is a
+      // legal value a server may hand back. Dropping it asks for page one
+      // again, so a caller walking pages would loop on the first page.
+      ...(cursor !== undefined ? { cursor } : {}),
     };
     const response = await this.invokeMcpClient(() =>
       this.client!.request(

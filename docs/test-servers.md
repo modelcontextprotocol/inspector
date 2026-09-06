@@ -41,6 +41,7 @@ as a missing capability rather than an error.
 | `modern-network-http.json` **(modern era)**                | Network tab: `Mcp-*` headers + error taxonomy      | [#1628](https://github.com/modelcontextprotocol/inspector/issues/1628) |
 | `xmcpheader-modern-http.json` **(modern era)**             | Tools tab: `x-mcp-header` mirroring and exclusions | [#1632](https://github.com/modelcontextprotocol/inspector/issues/1632) |
 | `pagination-http.json` **(legacy era)**                    | Page-by-page list fetching                         | [#1721](https://github.com/modelcontextprotocol/inspector/issues/1721) |
+| `empty-cursor-http.json` **(legacy era)**                   | Pagination whose page-two cursor is `""`            | [#2220](https://github.com/modelcontextprotocol/inspector/issues/2220) |
 | `structured-output-http.json` **(legacy era)**             | Tools tab: a result's `structuredContent` section  | [#1908](https://github.com/modelcontextprotocol/inspector/issues/1908) |
 | `duplicate-tool-names-http.json` **(legacy era)**          | A `tools/list` that repeats a tool name            | [#1957](https://github.com/modelcontextprotocol/inspector/issues/1957) |
 | `nullable-fields-http.json` **(legacy era)**               | Tools tab: nullable (`anyOf` + `null`) arguments   | [#1928](https://github.com/modelcontextprotocol/inspector/issues/1928) |
@@ -246,6 +247,14 @@ Under SDK v2 a `tools/call` rejecting with `-32602` renders as a distinct error 
 `pagination-http.json` serves 12 tools, 12 resources, and 12 prompts (presets `numbered_tools` / `numbered_resources` / `numbered_prompts`, `count: 12`) with a `maxPageSize` of 4 each, so every list paginates into three pages.
 
 Turn on **"Fetch Lists One Page at a Time"** (Server Settings — the `paginatedLists` setting, or the **Paginated** switch in a list sidebar) and the lists load page 1 only (4 items) with a **Load next page** control and an _N pages loaded_ status. Each click fetches the next 4 and appends them; Refresh resets to page 1. With the switch off (the default), the same lists auto-aggregate all three pages on connect.
+
+### The empty-string cursor
+
+`empty-cursor-http.json` is the same 12-item, 4-per-page server with one difference: it hands out the **empty string** as the cursor for page two (`emptyStringCursor`), and the usual numeric index for page three. An MCP cursor is opaque — the spec constrains neither its content nor its length — so `""` is a legal `nextCursor` and a client must send it back verbatim.
+
+Every other fixture's cursor is a non-empty string, which is why this one exists: a client that builds its request params with a truthiness check (`cursor ? { cursor } : {}`) cannot tell `""` from "no cursor", so it drops it and re-requests page one. Nothing errors — the request is well-formed, it just asks the wrong question — and the symptom is a list that stops after four items, or a page walk that never advances ([#2220](https://github.com/modelcontextprotocol/inspector/issues/2220)).
+
+Connect with the **default (legacy)** era, turn **Paginated** on, and click **Load next page** twice on any of the three lists: the count must go 4 → 8 → 12 and the control must disappear at the end. On a build carrying the old guard the second click returns items 1–4 again.
 
 ## Structured output
 
