@@ -43,6 +43,18 @@ function harness(client: InspectorClientEventTarget) {
           total,
         });
       }),
+    /** Same as `progress`, but from a client swapped in after mount. */
+    progressOn: (
+      next: InspectorClientEventTarget,
+      progressToken: string,
+      progress: number,
+    ) =>
+      act(() => {
+        next.dispatchTypedEvent("progressNotification", {
+          progressToken,
+          progress,
+        });
+      }),
     swapClient: (next: InspectorClientEventTarget | null) =>
       act(() => rerender(<Probe c={next} />)),
     unmount: () => act(() => unmount()),
@@ -139,6 +151,33 @@ describe("useProgressToasts", () => {
     h.unmount();
     expect(notificationsMock.hide).toHaveBeenCalledWith(
       progressToastId("tok-1"),
+    );
+  });
+
+  // #2219: `hide()` defers `onClose` past the exit transition, so an outgoing
+  // toast's callback can fire *after* the new session has re-shown the same id
+  // (ids come from the progress token, so a reconnect replays them exactly).
+  // The teardown swaps in a fresh Set rather than clearing the shared one, so
+  // that late callback must not touch the new session's bookkeeping. No timers
+  // needed: calling the captured `onClose` by hand is exactly that late fire.
+  it("keeps the new session's bookkeeping when a hidden toast's onClose fires late", () => {
+    const h = harness(fakeClient());
+    h.progress("tok-1", 1);
+    const { onClose: staleOnClose } = notificationsMock.show.mock
+      .calls[0][0] as { onClose: () => void };
+
+    const next = fakeClient();
+    h.swapClient(next);
+    h.progressOn(next, "tok-1", 1);
+    expect(notificationsMock.show).toHaveBeenCalledTimes(2);
+
+    // The outgoing session's toast finishes its exit transition here.
+    staleOnClose();
+
+    h.progressOn(next, "tok-1", 2);
+    expect(notificationsMock.show).toHaveBeenCalledTimes(2);
+    expect(notificationsMock.update).toHaveBeenCalledWith(
+      expect.objectContaining({ id: progressToastId("tok-1") }),
     );
   });
 });
