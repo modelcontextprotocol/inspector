@@ -185,18 +185,6 @@ const LONG_SKILL_MD = [
   ),
 ].join("\n");
 
-/**
- * The layout contract, asserted in a real browser.
- *
- * This is the regression the refactor exists to prevent, and it is only visible
- * with content that overflows: the file viewer must scroll **inside its own
- * panel** while its sibling sections keep usable height, rather than the whole
- * pane scrolling as one column.
- *
- * It also pins the collapse-then-reopen case, which is how the original bug
- * actually presented — the viewer's content-sized `flex-basis` crushed its
- * siblings, so collapsing it laid out correctly and reopening it broke again.
- */
 // A conforming manifest may declare up to 512 files. This is the sibling case
 // to a long document: the metadata section, not the viewer, is what holds the
 // overflowing content.
@@ -271,6 +259,85 @@ export const LongManifest: Story = {
   },
 };
 
+// A skill whose every server-controlled header string is hostile: a very long
+// name, a URI with many breakable segments, and a description at the upper end
+// of what SEP-2640 permits.
+const HOSTILE_NAME = "an-extremely-long-skill-name-".repeat(8);
+const hostileHeaderSkill: SkillEntry = {
+  uri: `skill://${"very-long-path-segment/".repeat(30)}SKILL.md`,
+  frontmatter: {
+    name: HOSTILE_NAME,
+    description: "word ".repeat(400).trim(),
+  },
+  resources: [
+    {
+      uri: `skill://${"very-long-path-segment/".repeat(30)}SKILL.md`,
+      digest: SELF_DIGEST,
+      size: 8,
+    },
+  ],
+};
+
+/**
+ * The pane's fixed header cannot starve the accordion.
+ *
+ * The header is a sibling of an accordion whose flex-basis is `0`, so every
+ * unbounded string in it is subtracted from the sections rather than resisted
+ * by them. That has been the same defect three times in this PR — the viewer's
+ * content-sized basis, the `skills/get` region, and the description — so this
+ * asserts the whole class is closed rather than any one instance.
+ */
+export const HostileHeader: Story = {
+  args: {
+    skills: [hostileHeaderSkill],
+    onReadSkillFile: fn(async () => ({
+      text: "---\nname: x\n---\n\n# Body\n",
+      mimeType: "text/markdown",
+    })),
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(canvas.getAllByText(HOSTILE_NAME)[0]);
+    await canvas.findByRole("button", { name: /Skill Resource/ });
+
+    const detailCard = canvasElement.querySelectorAll(".mantine-Card-root")[1];
+    const accordion = canvasElement.querySelector(".disclosure-sections");
+    if (
+      !(detailCard instanceof HTMLElement) ||
+      !(accordion instanceof HTMLElement)
+    ) {
+      throw new Error("detail card or accordion not found");
+    }
+
+    // The header takes a minority of the pane, leaving the sections the rest.
+    const cardHeight = detailCard.getBoundingClientRect().height;
+    const accordionHeight = accordion.getBoundingClientRect().height;
+    await expect(accordionHeight).toBeGreaterThan(cardHeight * 0.5);
+
+    // Every section is still usable, and the pane still does not scroll.
+    for (const item of accordion.querySelectorAll(
+      ":scope > .mantine-Accordion-item",
+    )) {
+      await expect(item.getBoundingClientRect().height).toBeGreaterThan(0);
+    }
+    await expect(detailCard.scrollHeight).toBeLessThanOrEqual(
+      detailCard.clientHeight + 1,
+    );
+  },
+};
+
+/**
+ * The layout contract, asserted in a real browser.
+ *
+ * This is the regression the refactor exists to prevent, and it is only visible
+ * with content that overflows: the file viewer must scroll **inside its own
+ * panel** while its sibling sections keep usable height, rather than the whole
+ * pane scrolling as one column.
+ *
+ * It also pins the collapse-then-reopen case, which is how the original bug
+ * actually presented — the viewer's content-sized `flex-basis` crushed its
+ * siblings, so collapsing it laid out correctly and reopening it broke again.
+ */
 export const LongSkillDocument: Story = {
   args: {
     onReadSkillFile: fn(async () => ({

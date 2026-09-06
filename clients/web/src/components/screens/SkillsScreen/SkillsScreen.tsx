@@ -273,6 +273,16 @@ const MonoCaption = Text.withProps({
   variant: "monoCaption",
 });
 
+// The selected skill's URI, clamped for the same reason as its description
+// below — it is the OTHER server-controlled string in the pane's fixed header,
+// and a URI with many breakable path segments wraps just as freely as prose.
+// A skill URI is usually one line, so two is generous; the full value stays on
+// the `title` the call site passes.
+const SkillUriCaption = Text.withProps({
+  variant: "monoCaption",
+  lineClamp: 2,
+});
+
 // The skill's description, clamped.
 //
 // It sits in the pane's FIXED header, beside an accordion whose basis is zero,
@@ -1120,7 +1130,9 @@ export function SkillsScreen({
             <SectionControlsRow>
               <Stack gap={4}>
                 <SkillTitle>{skillDisplayName(selected)}</SkillTitle>
-                <MonoCaption>{selected.uri}</MonoCaption>
+                <SkillUriCaption title={selected.uri}>
+                  {selected.uri}
+                </SkillUriCaption>
               </Stack>
               {/* Both actions act on the whole skill, so they live on the
                   pane's header rather than inside a section — and a button
@@ -1168,6 +1180,12 @@ export function SkillsScreen({
                 headers stay pinned and each open panel scrolls within its own
                 share of the space, which is exactly what keeps this pane from
                 scrolling as one column. */}
+            {/* Each `Accordion.Panel` is a scroll container under the
+                `skillSections` variant, so every one carries `tabIndex={0}`:
+                axe's `scrollable-region-focusable` requires a scrollable region
+                to be keyboard-reachable, and a panel whose content holds no
+                focusable element (the Conformance alerts, for instance) is
+                otherwise unscrollable without a pointer. */}
             <Accordion
               multiple
               variant="skillSections"
@@ -1205,7 +1223,7 @@ export function SkillsScreen({
                     )}
                   </InlineRow>
                 </Accordion.Control>
-                <Accordion.Panel>
+                <Accordion.Panel tabIndex={0}>
                   <ConformanceStack>
                     {/* A dynamic skill's `dynamic-resources` finding is
                         rendered here in full rather than as a bare code and
@@ -1393,7 +1411,7 @@ export function SkillsScreen({
                       </CountBadge>
                     </InlineRow>
                   </Accordion.Control>
-                  <Accordion.Panel>
+                  <Accordion.Panel tabIndex={0}>
                     <Stack gap="xs">
                       <ManifestTable data-testid="skill-manifest">
                         <Table.Thead>
@@ -1520,7 +1538,7 @@ export function SkillsScreen({
                   <Accordion.Control>
                     <SectionHeading>Frontmatter</SectionHeading>
                   </Accordion.Control>
-                  <Accordion.Panel>
+                  <Accordion.Panel tabIndex={0}>
                     <FramedContent>
                       {/* The raw YAML the server served, not a re-serialised
                           object: this app carries no YAML parser, and for a
@@ -1559,7 +1577,10 @@ export function SkillsScreen({
                     )}
                   </SectionControlsRow>
                 </Accordion.Control>
-                <Accordion.Panel data-testid="skill-resource-viewer">
+                <Accordion.Panel
+                  tabIndex={0}
+                  data-testid="skill-resource-viewer"
+                >
                   {previewError !== undefined ? (
                     <Alert color="red" title="Could not read this resource">
                       {previewError}

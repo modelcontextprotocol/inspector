@@ -362,6 +362,47 @@ describe("SkillsScreen", () => {
     );
   });
 
+  it("bounds every server-controlled string in the fixed header", async () => {
+    // The header sits beside an accordion whose flex-basis is 0, so anything
+    // unbounded here is subtracted from the sections rather than resisted by
+    // them. This has been the same bug three times over (#2263) — the viewer's
+    // content-sized basis, the `skills/get` region, the description — so this
+    // asserts the *class* is closed rather than chasing one more instance.
+    const user = userEvent.setup();
+    const hostile: SkillEntry = {
+      uri: `skill://${"very-long-segment/".repeat(40)}SKILL.md`,
+      frontmatter: {
+        name: "x".repeat(300),
+        // SEP-2640 permits 1,024 characters here.
+        description: "word ".repeat(400).trim(),
+      },
+      resources: [
+        {
+          uri: `skill://${"very-long-segment/".repeat(40)}SKILL.md`,
+          digest: SELF_DIGEST,
+          size: textToBytes(SELF_TEXT).byteLength,
+        },
+      ],
+    };
+    renderWithMantine(<ControlledSkillsScreen skills={[hostile]} />);
+    await user.click(screen.getAllByText("x".repeat(300))[0]);
+
+    // The *geometric* bound is a CSS concern and belongs in a real browser —
+    // `HostileHeader` in the stories asserts the header cannot starve the
+    // accordion. What is worth pinning here is the contract that makes
+    // clamping safe: the full value stays reachable on a `title`, so nothing
+    // is actually hidden from the user.
+    expect(screen.getByTitle(hostile.uri)).toBeInTheDocument();
+    expect(
+      screen.getByTitle(hostile.frontmatter.description as string),
+    ).toBeInTheDocument();
+    // And the header still shows all three, rather than dropping any.
+    const detail = screen.getByTestId("skill-detail");
+    expect(detail.textContent).toContain("xxxx");
+    expect(detail.textContent).toContain("skill://very-long-segment");
+    expect(detail.textContent).toContain("word word");
+  });
+
   it("badges a warning-only entry yellow, not green", async () => {
     // Green reads as "nothing to see", which would hide the only signal the
     // section carries for an entry whose findings are all warnings (#2263).
