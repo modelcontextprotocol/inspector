@@ -162,3 +162,103 @@ export const DigestMismatch: Story = {
     ).toBeInTheDocument();
   },
 };
+
+// A SKILL.md long enough to overflow the viewer. Every other fixture here is a
+// line or two, which is precisely why the layout regression this screen was
+// refactored for could not be caught in a story: with short content the viewer
+// never scrolls, so a pane that scrolls as one column looks identical to one
+// that does not (#2263).
+const LONG_SKILL_MD = [
+  "---",
+  "name: data-analysis",
+  "description: Analyze a CSV and summarize its columns",
+  "---",
+  "",
+  "# Data analysis",
+  "",
+  ...Array.from(
+    { length: 40 },
+    (_, i) =>
+      `Paragraph ${i + 1}. Read the file as UTF-8 and sniff the delimiter from ` +
+      "the header line rather than assuming a comma, because a mis-sniffed " +
+      "delimiter yields a single column whose name is the entire header.\n",
+  ),
+].join("\n");
+
+/**
+ * The layout contract, asserted in a real browser.
+ *
+ * This is the regression the refactor exists to prevent, and it is only visible
+ * with content that overflows: the file viewer must scroll **inside its own
+ * panel** while its sibling sections keep usable height, rather than the whole
+ * pane scrolling as one column.
+ *
+ * It also pins the collapse-then-reopen case, which is how the original bug
+ * actually presented — the viewer's content-sized `flex-basis` crushed its
+ * siblings, so collapsing it laid out correctly and reopening it broke again.
+ */
+export const LongSkillDocument: Story = {
+  args: {
+    onReadSkillFile: fn(async () => ({
+      text: LONG_SKILL_MD,
+      mimeType: "text/markdown",
+    })),
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(canvas.getByText("data-analysis"));
+    const viewerControl = await canvas.findByRole("button", {
+      name: /Skill Resource/,
+    });
+
+    const sections = () => [
+      ...canvasElement.querySelectorAll(
+        ".disclosure-sections > .mantine-Accordion-item",
+      ),
+    ];
+    const geometry = () =>
+      sections().map((s) => Math.round(s.getBoundingClientRect().height));
+
+    // Every section keeps a usable height: none is crushed to nothing by the
+    // viewer's content, which is exactly what a content-sized basis did.
+    const before = geometry();
+    await expect(before.length).toBeGreaterThanOrEqual(3);
+    for (const height of before) {
+      await expect(height).toBeGreaterThan(0);
+    }
+
+    // Sections tile in document order — none overlaps the header below it,
+    // which is how the crushed layout showed up on screen.
+    const rects = sections().map((s) => s.getBoundingClientRect());
+    for (let i = 1; i < rects.length; i++) {
+      await expect(Math.round(rects[i].top)).toBeGreaterThanOrEqual(
+        Math.round(rects[i - 1].bottom) - 1,
+      );
+    }
+
+    // The viewer scrolls WITHIN its own panel rather than growing the pane.
+    const viewerPanel = viewerControl
+      .closest(".mantine-Accordion-item")
+      ?.querySelector(".mantine-Accordion-panel");
+    if (!(viewerPanel instanceof HTMLElement)) {
+      throw new Error("Skill Resource panel not found");
+    }
+    await expect(viewerPanel.scrollHeight).toBeGreaterThan(
+      viewerPanel.clientHeight,
+    );
+
+    // And the detail pane itself does not scroll as one column.
+    const detailCard = canvasElement.querySelectorAll(".mantine-Card-root")[1];
+    if (!(detailCard instanceof HTMLElement)) {
+      throw new Error("Detail card not found");
+    }
+    await expect(detailCard.scrollHeight).toBeLessThanOrEqual(
+      detailCard.clientHeight + 1,
+    );
+
+    // Collapse then reopen restores the same geometry.
+    await userEvent.click(viewerControl);
+    await userEvent.click(viewerControl);
+    await expect(geometry()).toEqual(before);
+  },
+};

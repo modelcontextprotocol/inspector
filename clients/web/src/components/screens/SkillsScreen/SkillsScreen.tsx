@@ -864,15 +864,27 @@ export function SkillsScreen({
   // One effective MIME for the displayed file, inferred the same way the
   // Resources screen infers one: servers routinely omit `mimeType` or answer a
   // generic `text/plain`, and the URI suffix is the better signal.
-  const previewMime = useMemo(
-    () =>
+  // Whether the viewer is showing the skill's OWN SKILL.md. Compared by
+  // identity, like every other URI comparison here.
+  const showingSkillMd =
+    previewUri !== undefined &&
+    selectedUri !== undefined &&
+    skillUriIdentity(previewUri) === skillUriIdentity(selectedUri);
+
+  const previewMime = useMemo(() => {
+    const stated =
       preview?.mimeType ??
-      (previewUri !== undefined ? inferMimeFromUri(previewUri) : undefined) ??
-      // Skill files are markdown by construction under SEP-2640, so that is the
-      // right last resort here rather than octet-stream.
-      "text/markdown",
-    [preview, previewUri],
-  );
+      (previewUri !== undefined ? inferMimeFromUri(previewUri) : undefined);
+    if (stated !== undefined) return stated;
+    // Markdown is the right last resort for a skill's OWN `SKILL.md` — SEP-2640
+    // makes that file markdown by construction. It is the WRONG one for the
+    // rest of a manifest, which the SEP expects to carry supporting scripts,
+    // examples and assets with types of their own: an extensionless, untyped
+    // blob would be decoded and rendered as markdown rather than falling back
+    // to binary. `undefined` here hands the decision to `ContentViewer`, whose
+    // own default is octet-stream for a blob and a text heuristic for text.
+    return showingSkillMd ? "text/markdown" : undefined;
+  }, [preview, previewUri, showingSkillMd]);
 
   // The displayed file, split once into frontmatter and body. BOTH halves of
   // the pane read from this single split, which is what keeps them honest: the
@@ -924,7 +936,10 @@ export function SkillsScreen({
   //
   // Covers a size disagreement as well as a digest one: `verifySkillResource`
   // reports both as `mismatch`, the size check simply being the cheaper one
-  // that runs first.
+  // that runs first. The badge is therefore labelled "mismatch(es)" rather than
+  // "digest mismatch(es)" — counting a size failure under a digest label would
+  // misreport it, and dropping it from the count would hide a real failure.
+  // The alerts below still distinguish the two by title.
   const mismatchCount = Object.values(fileStates).filter(
     (state) =>
       state.status === "done" && state.verification.status === "mismatch",
@@ -1088,7 +1103,7 @@ export function SkillsScreen({
                         verified result before anything had been checked. */}
                     {mismatchCount > 0 && (
                       <CountBadge color="red">
-                        {mismatchCount} digest mismatch(es)
+                        {mismatchCount} mismatch(es)
                       </CountBadge>
                     )}
                   </InlineRow>

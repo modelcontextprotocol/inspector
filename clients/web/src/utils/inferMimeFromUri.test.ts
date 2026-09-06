@@ -43,6 +43,20 @@ describe("isMarkdownMime", () => {
     expect(isMarkdownMime("text/x-markdown")).toBe(true);
   });
 
+  it("accepts a MIME carrying parameters", () => {
+    // `text/markdown; charset=utf-8` is a perfectly ordinary response, and
+    // ContentViewer accepts it. Rejecting it here skipped the frontmatter
+    // split, so the fence stayed in the document AND the Frontmatter section
+    // vanished.
+    expect(isMarkdownMime("text/markdown; charset=utf-8")).toBe(true);
+    expect(isMarkdownMime("text/markdown;charset=UTF-8")).toBe(true);
+  });
+
+  it("is case-insensitive", () => {
+    expect(isMarkdownMime("TEXT/MARKDOWN")).toBe(true);
+    expect(isMarkdownMime("Text/X-Markdown; charset=utf-8")).toBe(true);
+  });
+
   it("rejects everything else, including undefined", () => {
     // The gate on frontmatter splitting: a YAML resource must not be split, or
     // a multi-document file loses its first document.

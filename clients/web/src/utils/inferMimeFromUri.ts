@@ -37,8 +37,18 @@ export function inferMimeFromUri(uri: string): string | undefined {
   return undefined;
 }
 
-/** Whether an effective MIME type is Markdown, which is the only form that
- *  carries YAML frontmatter worth splitting off (#2263). */
+/**
+ * Whether an effective MIME type is Markdown — the only form that carries YAML
+ * frontmatter worth splitting off (#2263).
+ *
+ * Normalised before comparing, because a server may answer
+ * `text/markdown; charset=utf-8` or `TEXT/MARKDOWN`, and `ContentViewer`
+ * accepts both. Comparing the raw string rejected them, which skipped the
+ * split: the frontmatter stayed in the rendered document AND the Frontmatter
+ * section vanished, for a response that was perfectly valid.
+ */
 export function isMarkdownMime(mime: string | undefined): boolean {
-  return mime === "text/markdown" || mime === "text/x-markdown";
+  if (mime === undefined) return false;
+  const base = mime.split(";")[0].trim().toLowerCase();
+  return base === "text/markdown" || base === "text/x-markdown";
 }

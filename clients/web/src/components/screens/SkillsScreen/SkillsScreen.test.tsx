@@ -261,7 +261,7 @@ describe("SkillsScreen", () => {
       "aria-expanded",
       "false",
     );
-    expect(screen.queryByText(/digest mismatch\(es\)/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/mismatch\(es\)/)).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /Verify all/ }));
     expect(await screen.findByText("Digest mismatch")).toBeInTheDocument();
@@ -272,7 +272,7 @@ describe("SkillsScreen", () => {
     expect(conformance.closest(".mantine-Accordion-item")).toContainElement(
       screen.getByText("Digest mismatch"),
     );
-    expect(badgeStyle(/1 digest mismatch\(es\)/)).toContain("red");
+    expect(badgeStyle(/1 mismatch\(es\)/)).toContain("red");
   });
 
   it("badges a warning-only entry yellow, not green", async () => {
@@ -1083,6 +1083,44 @@ describe("SkillsScreen", () => {
     expect(
       screen.queryByRole("button", { name: /Frontmatter/ }),
     ).not.toBeInTheDocument();
+  });
+
+  it("does not treat an untyped supporting resource as markdown", async () => {
+    // SEP-2640 expects a manifest to carry supporting scripts, examples and
+    // assets with types of their own. A markdown fallback is right for the
+    // skill's OWN SKILL.md and wrong for the rest: an extensionless, untyped
+    // blob would be decoded and rendered as markdown rather than as binary.
+    const user = userEvent.setup();
+    const asset: SkillEntry = {
+      uri: "skill://assets/SKILL.md",
+      frontmatter: { name: "assets", description: "Has a typeless blob" },
+      resources: [
+        { uri: "skill://assets/SKILL.md", digest: SELF_DIGEST, size: 1 },
+        // No suffix and no mimeType — nothing says what this is.
+        { uri: "skill://assets/payload", digest: SELF_DIGEST, size: 1 },
+      ],
+    };
+    const onReadSkillFile = vi.fn(async (uri: string) =>
+      uri.endsWith("payload")
+        ? { blob: btoa("---\nnot: frontmatter\n---\n\nbinary-ish") }
+        : { text: SELF_TEXT, mimeType: "text/markdown" },
+    );
+    renderWithMantine(
+      <ControlledSkillsScreen
+        skills={[asset]}
+        onReadSkillFile={onReadSkillFile}
+      />,
+    );
+    await user.click(screen.getByText("assets"));
+    await user.click(
+      screen.getByRole("button", { name: "skill://assets/payload" }),
+    );
+    // Not split, so no Frontmatter section is invented for it...
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("button", { name: /Frontmatter/ }),
+      ).not.toBeInTheDocument(),
+    );
   });
 
   it("marks the row whose file the viewer is showing", async () => {
