@@ -255,7 +255,9 @@ while :; do
   raw=$(gh api --paginate --slurp \
     repos/modelcontextprotocol/inspector/pulls/<N>/reviews) || {
       echo "gh api failed ($?) — not retrying blind" >&2; exit 1; }
-  n=$(jq '[.[][] | select(.user.login | startswith("copilot-pull-request-reviewer"))] | length' <<<"$raw")
+  n=$(jq '[.[][] | select(.user.login | startswith("copilot-pull-request-reviewer"))] | length' <<<"$raw") || {
+      echo "jq failed ($?) on an unexpected response shape" >&2; exit 1; }
+  case $n in '' | *[!0-9]*) echo "not a count: '$n'" >&2; exit 1 ;; esac
   [ "$n" -ge "$EXPECTED" ] && break
   sleep 30
 done
@@ -264,9 +266,13 @@ done
 `EXPECTED` is the review **count** you are waiting to reach, so it is `1` only
 on the first round — on round two the first round's review is still there and an
 existence check returns immediately. `sleep 30` is the remote-API floor the rule
-above sets. The loop **exits on a `gh` failure rather than retrying**: piping the
-count straight into `awk` would make an auth or API error read as a count of
-`0`, and the job would then wait forever on a poll that can never succeed. Give the inline comments a further ~60s after the body lands; they
+above sets. **Every step that can fail exits the loop rather than
+retrying.** Piping the count straight into `awk` would make an auth or API error
+read as a count of `0`; and a `jq` failure on an unexpected shape leaves `n`
+empty, whereupon `[ "" -ge 1 ]` exits non-zero, `break` never fires, and the job
+sleeps and retries forever — the same unbounded wait, reached from the other
+end. A background task that can never succeed is worse than one that never
+started, because it looks like progress. Give the inline comments a further ~60s after the body lands; they
 arrive late (see step 8).
 
 ## 8. Respond to the review
