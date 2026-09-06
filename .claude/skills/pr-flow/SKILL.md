@@ -68,7 +68,7 @@ not:
   only defaults the `-s` flag for `git format-patch`; `git commit` never reads it,
   and there is no `commit.signoff` equivalent.
 - ⚠️ **A `prepare-commit-msg` hook works, but think before installing one.** The
-  trailer is a certification, and a hook makes it on your behalf for *every*
+  trailer is a certification, and a hook makes it on your behalf for _every_
   commit, including work you merely cherry-picked. Inside that hook,
   `git var GIT_AUTHOR_IDENT` returns your config identity rather than the
   preserved author, so it cannot even tell it is signing for someone else.
@@ -90,7 +90,7 @@ access sees only silences the check without anyone certifying anything.
 The signoff is a [Developer Certificate of
 Origin](https://developercertificate.org/) assertion made in **your own name**. It
 does not claim you wrote the code, so signing off a cherry-pick is legitimate.
-What is never acceptable is fabricating *someone else's* certification.
+What is never acceptable is fabricating _someone else's_ certification.
 
 ## 4. Run the gate
 
@@ -107,13 +107,76 @@ committed — so attach them to the PR body from there rather than referencing a
 in-repo path. Name them for what they show (`tools-tab-before.png`), not
 `Screenshot 2026-07-31 at 14.02.11.png`.
 
+### 5a. Capture settings
+
+**Shoot at 1280×900, full page.** That is the viewport the web smokes already
+use (`scripts/smoke-web-*.mjs`) and what every existing shot in the repo was
+taken at, so a reviewer comparing two PRs is comparing the same thing. Prefer a
+full-page shot over a Playwright `clip` region: a clip sized to one panel cuts
+off anything placed beside it, and two clips of different sizes make a
+before/after pair hard to read as a pair.
+
+⚠️ **Widening the window does not widen the Monitor sidebar.** The
+main/sidebar split is a draggable divider whose width is stored independently of
+the viewport (`localStorage["inspector.monitor.width"]`, default **420px**,
+clamped to **320–720**), so a bigger screen grows the _content_ column and
+leaves the sidebar exactly as clipped as it was. Both levers have to be set, and
+only one of them is obvious. On #2234 this cost three full re-captures: the
+first set clipped the sidebar, the second still clipped it after only the window
+was widened, and the third worked once the divider itself was moved.
+
+**So when a shot includes the Monitor sidebar, set its width explicitly** —
+give it enough room that no row truncates, favoring the sidebar over the
+left-hand list, which usually has room to give up. Two ways, in order of
+preference:
+
+```js
+// Deterministic: seed the stored width before the app loads.
+await context.addInitScript(() =>
+  localStorage.setItem("inspector.monitor.width", "640"),
+);
+```
+
+```js
+// Or drive the divider itself — it is a keyboard-operable ARIA separator,
+// and ArrowLeft widens the sidebar one 16px step per press.
+const handle = page.getByRole("separator", {
+  name: "Resize monitoring sidebar",
+});
+await handle.focus();
+for (let i = 0; i < 14; i++) await handle.press("ArrowLeft");
+```
+
+Two more mechanics worth setting before the shutter:
+
+- **Wait ~900ms after switching the main view.** The Servers→Tools switch is a
+  crossfade, so an immediate shot renders _both_ views stacked translucently and
+  reads as a broken app. Waiting on a locator in the incoming view is not enough —
+  the outgoing one is still fading.
+- **Mark focus when the change is about focus.** Tab order and keybinding fixes
+  look identical at rest, so after driving the keystroke, `page.evaluate` over
+  `document.activeElement`, outline it, and log its tag + `aria-label` — that
+  line is the actual assertion and the image is the evidence. **Say in the PR
+  body that the outline is script-added**, not app UI.
+
+### 5b. Read the shot back before uploading
+
+**Open every image and confirm nothing is cut off at either edge** — no
+truncated row, clipped badge, or value running under a panel border, and no
+half-faded view. This is a real check with your own eyes, not a formality: a
+clipped screenshot is worse than no screenshot, because a reviewer reads the
+truncation as a rendering bug in the feature under review and files it back at
+you. Re-shoot rather than shipping one that "mostly" shows the change.
+
+### 5c. Upload
+
 To host them, upload to GitHub's attachment endpoint with your `gh` token. Two
 mechanics, both of which bite:
 
 - The parameters go in the **query string**, with the raw bytes as the body. A
   JSON body fails with a misleading "Invalid name for request".
 - ⚠️ **Do not put the token in argv.** `-H "Authorization: token $(gh auth
-  token)"` puts your credential in curl's command line, where any local user or
+token)"` puts your credential in curl's command line, where any local user or
   process can read it off the process table while the upload runs (Copilot).
   Feed it through `--config -` instead: curl reads its options from stdin, so
   the token never becomes an argument.
@@ -124,7 +187,7 @@ printf 'header = "Authorization: token %s"\n' "$(gh auth token)" | curl -sS --co
   "https://uploads.github.com/user-attachments/assets?repository_id=<REPO_ID>&name=tools-tab-after.png&content_type=image/png"
 ```
 
-(The token is still in the shell's environment and in `printf`'s *stdin*, which
+(The token is still in the shell's environment and in `printf`'s _stdin_, which
 is not world-readable the way `/proc/<pid>/cmdline` is.)
 
 ## 6. Open the PR
