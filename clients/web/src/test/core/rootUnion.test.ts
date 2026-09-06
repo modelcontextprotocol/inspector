@@ -809,6 +809,84 @@ describe("resolveRootUnion", () => {
       expect(branches).toHaveLength(2);
     });
 
+    it("declines a member requiring a name nothing declares", () => {
+      // `required` is a list of names, not of declarations. Both form builders
+      // enumerate `properties` alone, so `payload` gets no control while the
+      // submit gate reports it missing forever — the picker offers an option
+      // that can never be completed (#2224).
+      const { branches } = resolveRootUnion({
+        type: "object",
+        anyOf: [
+          {
+            type: "object",
+            properties: { kind: { const: "a" } },
+            required: ["kind", "payload"],
+          },
+          SMS,
+        ],
+      });
+      expect(branches).toEqual([]);
+    });
+
+    it("declines a member requiring a name only ANOTHER member declares", () => {
+      // Branches are alternatives, not a conjunction: a name the sibling
+      // declares is not one this branch can render, so the dead end is the
+      // same one.
+      const { branches } = resolveRootUnion({
+        type: "object",
+        anyOf: [
+          {
+            type: "object",
+            properties: { kind: { const: "a" } },
+            required: ["kind", "phone"],
+          },
+          SMS,
+        ],
+      });
+      expect(branches).toEqual([]);
+    });
+
+    it("offers a member requiring a name it inherits from the root", () => {
+      // The merge is what is judged, so a member requiring a name the ROOT
+      // declares stays offerable — the `anyOf: [{ required: ["email"] }, …]`
+      // shape above must not regress.
+      const { branches } = resolveRootUnion({
+        type: "object",
+        properties: { token: { type: "string" } },
+        anyOf: [
+          {
+            type: "object",
+            properties: { a: { type: "string" } },
+            required: ["token"],
+          },
+          {
+            type: "object",
+            properties: { b: { type: "string" } },
+            required: ["token"],
+          },
+        ],
+      });
+      expect(branches).toHaveLength(2);
+    });
+
+    it("does not read an inherited name as a declared property", () => {
+      // An argument legally named `constructor` resolves through the prototype
+      // on a plain object, so a membership test that is not `hasOwn` would call
+      // this branch offerable and render nothing for it.
+      const { branches } = resolveRootUnion({
+        type: "object",
+        anyOf: [
+          {
+            type: "object",
+            properties: { kind: { const: "a" } },
+            required: ["constructor"],
+          },
+          SMS,
+        ],
+      });
+      expect(branches).toEqual([]);
+    });
+
     it("declines a member carrying a `false` property schema", () => {
       // `false` admits no value at all, so the field can never be filled — and
       // a required one makes the branch unsatisfiable.
