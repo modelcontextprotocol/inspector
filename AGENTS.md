@@ -53,7 +53,7 @@ inspector/
 │   └── storage/      File I/O helpers for the OAuth persist backends
 ├── test-servers/     Composable MCP test servers + JSON configs
 ├── scripts/          Root build/verify tooling (install cascade, smokes, verify:* guards)
-│                     plus repo automation run from CI (the dependency + alert sweeps)
+│                     plus repo automation run from CI (the dependency, alert + SDK sweeps)
 ├── docs/             Task-oriented guides
 ├── specification/    Design/build specifications
 └── .claude/skills/   The procedures (see the index above)
@@ -123,6 +123,19 @@ An issue filed by either sweep is an ordinary board item — `v2` + `chore` + `d
 | Daily security sweep | **Only when it can.** With an org-project PAT it places the card directly at **Todo / High**; without one it degrades to the same triage hand-off. |
 
 The board write needs `organization projects: write`, which `GITHUB_TOKEN` cannot have — hence "only when it can", and hence a filed-but-unboarded issue is a normal outcome rather than a failure. **Todo, not Incoming**, when the security sweep does place it: arriving through this pipeline *is* the approval. **`High` is a standing override** of the [priority rubric](.claude/skills/issue-triage/SKILL.md), which would otherwise score a routine bump Medium; the issue body records the override so it does not read as a mis-score. ⚠️ A milestone is a precondition for placing a card — `Incoming` ⇔ no milestone — so the security sweep leaves an issue **unboarded** rather than parked at Todo when no dated milestone is open. It picks the open milestone with the nearest **due date**, ignoring undated buckets; the monthly sweep's own selection does not yet filter those out (raised on #2239), so don't read this as a guarantee both scripts already implement.
+
+### The SDK watch is the third sweep
+
+**`.github/workflows/sdk-watch.yml` → `scripts/sdk-watch.mjs` runs nightly (#1063) and files one issue per MCP SDK release we are behind**, labeled `v2` + `chore` + `dependencies`. It is not a Dependabot replacement — it exists because SDK churn, OAuth especially, was being tracked by habit rather than by mechanism — but it obeys the same rule as the two above: **it files an issue, never a PR.**
+
+- **Two upstreams, two issues.** `client`/`core`/`server`/`server-legacy` ship from `modelcontextprotocol/typescript-sdk` in lockstep and share one issue; `ext-apps` ships from its own repo and gets its own. A fifth `@modelcontextprotocol/*` package added to the root manifest and not added to `SDK_GROUPS` **fails the sweep loudly** rather than going unwatched — that guard is the point, since a hardcoded group table is otherwise a silent blind spot.
+- **It compares the INSTALLED version, not the declared range.** The four SDK packages are pinned exactly, so the two agree for them; `ext-apps` is a caret range whose lockfile already resolves higher, and comparing the declared string would file an issue for a bump `npm install` has already taken.
+- **It never boards, like the monthly sweep** — no `PROJECT_TOKEN` exists in this org — so the issue arrives labeled and milestoned and `/issue-triage` places it.
+- **It never closes an issue either.** A further release files its own issue and leaves a **supersession comment** on the older one; closing is a maintainer act, since the card may already have moved. An issue closed for the same target keeps suppressing it, so a maintainer's "not planned" is not re-argued nightly.
+
+**The analysis half runs Claude, not Copilot, and that is deliberate.** #1063 sketched "a copilot agent running Opus"; neither half of that is reachable from a workflow. Assigning `copilot-swe-agent` produces a **pull request** — the artifact this whole section exists to remove — and its model cannot be selected programmatically at all (`replaceActorsForAssignable` takes no model parameter; absent an admin-configured picker it runs Sonnet). So the `analyze` job uses `anthropics/claude-code-action` with `--model claude-opus-5`, which is told to post **one comment** and is denied every file-writing tool. It runs on `ANTHROPIC_API_KEY`, an **organization** secret already available to this repo, and only over issues the sweep **just created** — never over one that already existed, which is what keeps it to one analysis per release instead of a near-identical comment every night.
+
+⚠️ **Upstream release notes are untrusted input to that job.** It reads text this repo does not control, so its system prompt says so explicitly and its `--allowedTools` list is a whitelist with no `Edit`/`Write` and no `git`. The job's token carries `contents: read` only, so a successful injection still cannot write code. Keep both of those properties when editing the prompt.
 
 ## Contributing
 
