@@ -517,8 +517,18 @@ As a GitHub Actions job:
 ```yaml
 smoke:
   runs-on: ubuntu-latest
+  # Least privilege: the job reads the repo and talks to your MCP server. It
+  # writes nothing back to GitHub, so do not let it inherit the repository's
+  # default token scopes, which may be far broader.
+  permissions:
+    contents: read
   steps:
     - uses: actions/checkout@v7
+      with:
+        # Nothing here uses git after checkout, and the next step runs a package
+        # downloaded from npm. Leaving GITHUB_TOKEN in the runner's git config
+        # would be handing that package a credential it has no use for.
+        persist-credentials: false
     - uses: actions/setup-node@v7
       with:
         node-version: "22.x"
@@ -531,6 +541,11 @@ smoke:
         # Omit for a server that needs no credential; the script adapts.
         MCP_TOKEN: ${{ secrets.MCP_TOKEN }}
 ```
+
+Both hardening lines matter more here than in a workflow you wrote yourself,
+because this one is meant to be **copied into a repository whose defaults you
+cannot see**. A `permissions:` block that names what the job needs is the same
+discipline this repo applies to its own workflows.
 
 `"${auth[@]+"${auth[@]}"}"` rather than `"${auth[@]}"`: under `set -u` an empty
 array is an unbound variable in bash before 4.4, and the runner is not the only
