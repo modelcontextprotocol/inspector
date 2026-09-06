@@ -366,6 +366,31 @@ const SkillTitle = Text.withProps({
  */
 const SECTION_FLEX = "0 0 auto";
 
+/** Every section this screen can render, in display order. */
+const ALL_SECTIONS = ["conformance", "resources", "frontmatter", "resource"];
+
+/**
+ * The open set for the FIRST render.
+ *
+ * `useValueChange` deliberately does not fire on the first render, so the
+ * clean-entry auto-collapse it drives cannot cover a screen that mounts with a
+ * skill already selected — a restored `SkillsUiState` does exactly that. This
+ * applies the same rule up front, so the behaviour does not depend on a later
+ * selection change to start working.
+ */
+function initialOpenSections(
+  skills: SkillEntry[],
+  selectedSkillUri: string | undefined,
+): string[] {
+  if (selectedSkillUri === undefined) return ALL_SECTIONS;
+  const wanted = skillUriIdentity(selectedSkillUri);
+  const entry = skills.find((skill) => skillUriIdentity(skill.uri) === wanted);
+  if (entry === undefined) return ALL_SECTIONS;
+  return checkSkillConformance(entry).length > 0
+    ? ALL_SECTIONS
+    : ALL_SECTIONS.filter((section) => section !== "conformance");
+}
+
 /**
  * The file viewer's flex, which is deliberately NOT `sectionFlex`.
  *
@@ -539,12 +564,15 @@ export function SkillsScreen({
   // carries the whole answer; nothing else here can be summarised by its header,
   // so opening collapsed would just hide content behind a click the user has no
   // reason to expect.
-  const [openSections, setOpenSections] = useState<string[]>([
-    "conformance",
-    "resources",
-    "frontmatter",
-    "resource",
-  ]);
+  //
+  // The initialiser has to make that judgement too, not just the
+  // `useValueChange` below: that hook deliberately does not fire on the first
+  // render, so a screen MOUNTING on an already-selected clean skill — a
+  // restored `SkillsUiState`, say — would otherwise show Conformance expanded
+  // and only start honouring the rule after some later selection change.
+  const [openSections, setOpenSections] = useState<string[]>(() =>
+    initialOpenSections(skills, ui.selectedSkillUri),
+  );
   // Monotonic attempt token, shared by every on-demand action here: a manifest
   // row's verification, the SKILL.md preview, and the `skills/get` fetch. One
   // counter rather than three because it only has to be *increasing*, and each
@@ -1308,114 +1336,103 @@ export function SkillsScreen({
                   </Accordion.Control>
                   <Accordion.Panel>
                     <Stack gap="xs">
-                      {selected.resources === DYNAMIC_RESOURCES ? (
-                        <Alert color="yellow" title="Dynamic resources">
-                          This skill declares{" "}
-                          <Code>resources: &quot;dynamic&quot;</Code> — its
-                          files are generated, so no manifest is advertised and
-                          integrity cannot be verified.
-                        </Alert>
-                      ) : (
-                        <ManifestTable data-testid="skill-manifest">
-                          <Table.Thead>
-                            <Table.Tr>
-                              <Table.Th>URI</Table.Th>
-                              <Table.Th>Size</Table.Th>
-                              <Table.Th>Digest</Table.Th>
-                              <Table.Th>Verification</Table.Th>
-                              {/* The action gets its own column so the buttons
-                                  line up down the table. Sharing a cell with
-                                  the verdict badge staggered them, because the
-                                  badge's width tracks its label — "—",
-                                  "checking…", "verified" and "mismatch" are all
-                                  different sizes.
+                      <ManifestTable data-testid="skill-manifest">
+                        <Table.Thead>
+                          <Table.Tr>
+                            <Table.Th>URI</Table.Th>
+                            <Table.Th>Size</Table.Th>
+                            <Table.Th>Digest</Table.Th>
+                            <Table.Th>Verification</Table.Th>
+                            {/* The action gets its own column so the buttons
+                                line up down the table. Sharing a cell with
+                                the verdict badge staggered them, because the
+                                badge's width tracks its label — "—",
+                                "checking…", "verified" and "mismatch" are all
+                                different sizes.
 
-                                  The header is named for screen readers but not
-                                  shown: a visible label over a column of
-                                  buttons is noise, while an *empty* `th` is an
-                                  axe `empty-table-header` violation and leaves
-                                  the column unnamed in a table's header
-                                  navigation. */}
-                              <Table.Th>
-                                <VisuallyHidden>Actions</VisuallyHidden>
-                              </Table.Th>
-                            </Table.Tr>
-                          </Table.Thead>
-                          <Table.Tbody>
-                            {manifest.map((resource, index) => {
-                              const state = fileStates[index];
-                              const color =
-                                state?.status === "done"
-                                  ? verificationColor(state.verification.status)
-                                  : state?.status === "error"
-                                    ? "red"
-                                    : "gray";
-                              // Compared by identity for the same reason every
-                              // other URI comparison here is: a server that
-                              // canonicalizes an escape is naming the same
-                              // file, and the row the user just clicked must
-                              // not read as unselected because of a spelling.
-                              const showing =
-                                previewUri !== undefined &&
-                                skillUriIdentity(resource.uri) ===
-                                  skillUriIdentity(previewUri);
-                              return (
-                                // Index-keyed for the same reason the verdicts
-                                // are: a duplicated URI is a case this screen
-                                // reports, so it must not also collide two rows
-                                // into one.
-                                <Table.Tr key={index}>
-                                  <Table.Td>
-                                    <ResourceUriButton
-                                      variant={showing ? "light" : "subtle"}
-                                      aria-current={
-                                        showing ? "true" : undefined
-                                      }
-                                      onClick={() =>
-                                        showResource(resource.uri, manifestKey)
-                                      }
-                                    >
-                                      {resource.uri}
-                                    </ResourceUriButton>
-                                  </Table.Td>
-                                  <Table.Td>{resource.size ?? "—"}</Table.Td>
-                                  <Table.Td>
-                                    {shortDigest(resource.digest)}
-                                  </Table.Td>
-                                  <Table.Td>
-                                    <CountBadge color={color}>
-                                      {verificationLabel(state)}
-                                    </CountBadge>
-                                  </Table.Td>
-                                  <ActionCell>
-                                    <RowVerifyButton
-                                      // Every row's button reads "Verify", so
-                                      // the visible text alone gives a screen-
-                                      // reader user no way to tell which file
-                                      // each one checks; the URI cell is in the
-                                      // same row but is not programmatically
-                                      // associated with it.
-                                      aria-label={`Verify ${resource.uri}`}
-                                      // A click handler cannot await, and
-                                      // `verifyRow` owns its own failures — it
-                                      // records them as this row's state.
-                                      onClick={() =>
-                                        void verifyRow(
-                                          index,
-                                          resource,
-                                          manifestKey,
-                                        )
-                                      }
-                                    >
-                                      Verify
-                                    </RowVerifyButton>
-                                  </ActionCell>
-                                </Table.Tr>
-                              );
-                            })}
-                          </Table.Tbody>
-                        </ManifestTable>
-                      )}
+                                The header is named for screen readers but not
+                                shown: a visible label over a column of
+                                buttons is noise, while an *empty* `th` is an
+                                axe `empty-table-header` violation and leaves
+                                the column unnamed in a table's header
+                                navigation. */}
+                            <Table.Th>
+                              <VisuallyHidden>Actions</VisuallyHidden>
+                            </Table.Th>
+                          </Table.Tr>
+                        </Table.Thead>
+                        <Table.Tbody>
+                          {manifest.map((resource, index) => {
+                            const state = fileStates[index];
+                            const color =
+                              state?.status === "done"
+                                ? verificationColor(state.verification.status)
+                                : state?.status === "error"
+                                  ? "red"
+                                  : "gray";
+                            // Compared by identity for the same reason every
+                            // other URI comparison here is: a server that
+                            // canonicalizes an escape is naming the same
+                            // file, and the row the user just clicked must
+                            // not read as unselected because of a spelling.
+                            const showing =
+                              previewUri !== undefined &&
+                              skillUriIdentity(resource.uri) ===
+                                skillUriIdentity(previewUri);
+                            return (
+                              // Index-keyed for the same reason the verdicts
+                              // are: a duplicated URI is a case this screen
+                              // reports, so it must not also collide two rows
+                              // into one.
+                              <Table.Tr key={index}>
+                                <Table.Td>
+                                  <ResourceUriButton
+                                    variant={showing ? "light" : "subtle"}
+                                    aria-current={showing ? "true" : undefined}
+                                    onClick={() =>
+                                      showResource(resource.uri, manifestKey)
+                                    }
+                                  >
+                                    {resource.uri}
+                                  </ResourceUriButton>
+                                </Table.Td>
+                                <Table.Td>{resource.size ?? "—"}</Table.Td>
+                                <Table.Td>
+                                  {shortDigest(resource.digest)}
+                                </Table.Td>
+                                <Table.Td>
+                                  <CountBadge color={color}>
+                                    {verificationLabel(state)}
+                                  </CountBadge>
+                                </Table.Td>
+                                <ActionCell>
+                                  <RowVerifyButton
+                                    // Every row's button reads "Verify", so
+                                    // the visible text alone gives a screen-
+                                    // reader user no way to tell which file
+                                    // each one checks; the URI cell is in the
+                                    // same row but is not programmatically
+                                    // associated with it.
+                                    aria-label={`Verify ${resource.uri}`}
+                                    // A click handler cannot await, and
+                                    // `verifyRow` owns its own failures — it
+                                    // records them as this row's state.
+                                    onClick={() =>
+                                      void verifyRow(
+                                        index,
+                                        resource,
+                                        manifestKey,
+                                      )
+                                    }
+                                  >
+                                    Verify
+                                  </RowVerifyButton>
+                                </ActionCell>
+                              </Table.Tr>
+                            );
+                          })}
+                        </Table.Tbody>
+                      </ManifestTable>
                     </Stack>
                   </Accordion.Panel>
                 </Accordion.Item>

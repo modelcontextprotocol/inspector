@@ -218,6 +218,37 @@ describe("SkillsScreen", () => {
     expect(screen.queryByTestId("skill-issues")).not.toBeInTheDocument();
   });
 
+  it("collapses Conformance for a clean skill selected BEFORE mount", () => {
+    // `useValueChange` deliberately does not fire on the first render, so the
+    // auto-collapse it drives cannot cover a screen that mounts with a skill
+    // already chosen — a restored `SkillsUiState` does exactly that. The
+    // initialiser has to apply the same rule, or the behaviour only starts
+    // working after some later selection change (#2263).
+    renderWithMantine(
+      <SkillsScreen
+        {...baseProps}
+        ui={{ ...EMPTY_SKILLS_UI, selectedSkillUri: CLEAN_SKILL.uri }}
+      />,
+    );
+    expect(screen.getByRole("button", { name: /Conformance/ })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+  });
+
+  it("opens Conformance for a skill WITH findings selected before mount", () => {
+    renderWithMantine(
+      <SkillsScreen
+        {...baseProps}
+        ui={{ ...EMPTY_SKILLS_UI, selectedSkillUri: MISMATCHED_SKILL.uri }}
+      />,
+    );
+    expect(screen.getByRole("button", { name: /Conformance/ })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+  });
+
   it("opens Conformance for an entry that has findings", async () => {
     const user = userEvent.setup();
     renderWithMantine(<ControlledSkillsScreen />);
