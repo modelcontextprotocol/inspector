@@ -197,6 +197,80 @@ const LONG_SKILL_MD = [
  * actually presented — the viewer's content-sized `flex-basis` crushed its
  * siblings, so collapsing it laid out correctly and reopening it broke again.
  */
+// A conforming manifest may declare up to 512 files. This is the sibling case
+// to a long document: the metadata section, not the viewer, is what holds the
+// overflowing content.
+const manyFilesSkill: SkillEntry = {
+  uri: "skill://big-manifest/SKILL.md",
+  frontmatter: {
+    name: "big-manifest",
+    description: "A conforming skill that declares a great many files",
+  },
+  resources: [
+    selfEntry("big-manifest"),
+    ...Array.from({ length: 120 }, (_, i) => ({
+      uri: `skill://big-manifest/file-${String(i).padStart(3, "0")}.md`,
+      digest: REF_DIGEST,
+      size: 15,
+    })),
+  ],
+};
+
+/**
+ * The other half of the layout contract: a huge **manifest**, rather than a
+ * huge document.
+ *
+ * A section that keeps its full intrinsic height pushes the file viewer off the
+ * bottom of the pane, so reaching the file means scrolling past the manifest —
+ * which is the "the file is behind the manifest" problem this screen exists to
+ * end. The metadata sections must therefore shrink to their floor and scroll
+ * internally, leaving the viewer on screen.
+ */
+export const LongManifest: Story = {
+  args: {
+    skills: [manyFilesSkill],
+    onReadSkillFile: fn(async () => ({
+      text: "---\nname: big-manifest\n---\n\n# Big manifest\n",
+      mimeType: "text/markdown",
+    })),
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(canvas.getByText("big-manifest"));
+    const viewerControl = await canvas.findByRole("button", {
+      name: /Skill Resource/,
+    });
+
+    const detailCard = canvasElement.querySelectorAll(".mantine-Card-root")[1];
+    if (!(detailCard instanceof HTMLElement)) {
+      throw new Error("Detail card not found");
+    }
+
+    // The viewer's header is ON SCREEN, not pushed below the manifest.
+    const cardRect = detailCard.getBoundingClientRect();
+    const viewerRect = viewerControl.getBoundingClientRect();
+    await expect(viewerRect.bottom).toBeLessThanOrEqual(cardRect.bottom + 1);
+
+    // The manifest section gave up space rather than keeping its full height,
+    // so its own panel is what scrolls.
+    const resourcesControl = canvas.getByRole("button", { name: /Resources/ });
+    const resourcesPanel = resourcesControl
+      .closest(".mantine-Accordion-item")
+      ?.querySelector(".mantine-Accordion-panel");
+    if (!(resourcesPanel instanceof HTMLElement)) {
+      throw new Error("Resources panel not found");
+    }
+    await expect(resourcesPanel.scrollHeight).toBeGreaterThan(
+      resourcesPanel.clientHeight,
+    );
+
+    // And the pane still does not scroll as one column.
+    await expect(detailCard.scrollHeight).toBeLessThanOrEqual(
+      detailCard.clientHeight + 1,
+    );
+  },
+};
+
 export const LongSkillDocument: Story = {
   args: {
     onReadSkillFile: fn(async () => ({

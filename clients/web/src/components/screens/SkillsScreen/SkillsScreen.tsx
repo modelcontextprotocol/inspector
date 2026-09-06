@@ -351,20 +351,30 @@ const SkillTitle = Text.withProps({
 });
 
 /**
- * Per-section flex for the metadata sections: **content height, never shrink**.
+ * Per-section flex for the metadata sections: content height, but **able to
+ * shrink to the `mih` floor**.
  *
- * `ResourceControls` weights its shrink by item count (#1462) because its
- * panels hold uniform lists that degrade gracefully when squeezed. These do
- * not — a findings list, a manifest table with alerts under it, a frontmatter
- * block — and squeezing them sliced content mid-line: a `Digest mismatch`
- * alert cut in half by the section header below it. The panel was scrollable,
- * but a macOS overlay scrollbar is invisible until hover, so it read as broken.
+ * This setting has been wrong in both directions, so both are recorded.
  *
- * Sized to content instead, with the overflow handled once at the accordion
- * root (`skillSections`), the stack scrolls at a *section boundary* rather than
- * through the middle of a finding.
+ * Weighting the shrink by item count, as `ResourceControls` does (#1462), let a
+ * section be squeezed far below its content and slice it mid-line — a `Digest
+ * mismatch` alert cut in half by the header beneath it. The panel really was
+ * scrollable, but a macOS overlay scrollbar is invisible until hover, so it
+ * read as broken.
+ *
+ * Refusing to shrink at all fixed that and reintroduced the original bug at
+ * scale: a *conforming* manifest may declare 512 rows, and a section holding
+ * its full intrinsic height pushes the file viewer off the bottom, so reaching
+ * the file means scrolling past the manifest — precisely the "the file is
+ * behind the manifest" problem this screen was refactored to end.
+ *
+ * `0 1 auto` with the `OPEN_SECTION_MIN_HEIGHT` floor is the setting that
+ * satisfies both: a section gives up space until it hits the floor, its panel
+ * scrolls internally from there, and the viewer keeps the remainder. The floor
+ * is what stops the shrink becoming a crush; nothing above it is sliced,
+ * because a panel at the floor scrolls rather than clips.
  */
-const SECTION_FLEX = "0 0 auto";
+const SECTION_FLEX = "0 1 auto";
 
 /** Every section this screen can render, in display order. */
 const ALL_SECTIONS = ["conformance", "resources", "frontmatter", "resource"];
