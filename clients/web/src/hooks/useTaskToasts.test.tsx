@@ -83,6 +83,18 @@ function harness(client: InspectorClientEventTarget) {
         if (!latest) throw new Error("hook did not render");
         fn(latest);
       }),
+    /** Same as `statusChange`, but from a client swapped in after mount. */
+    statusChangeOn: (
+      next: InspectorClientEventTarget,
+      taskId: string,
+      status: Task["status"],
+    ) =>
+      dispatch(() =>
+        next.dispatchTypedEvent("taskStatusChange", {
+          taskId,
+          task: task(taskId, status),
+        }),
+      ),
     swapClient: (next: InspectorClientEventTarget | null) =>
       act(() => rerender(<Probe c={next} />)),
     unmount: () => act(() => unmount()),
@@ -268,6 +280,31 @@ describe("useTaskToasts", () => {
         });
       });
       expect(notificationsMock.show).not.toHaveBeenCalled();
+    });
+
+    // #2219: mirrors the `useProgressToasts` case — `hide()` defers `onClose`
+    // past the exit transition, and task ids are equally replayable across a
+    // reconnect, so the teardown swaps in a fresh Set instead of clearing the
+    // one the outgoing toasts' callbacks close over.
+    it("keeps the new session's bookkeeping when a hidden toast's onClose fires late", () => {
+      const h = harness(fakeClient());
+      h.statusChange("t1", "working");
+      const { onClose: staleOnClose } = notificationsMock.show.mock
+        .calls[0][0] as { onClose: () => void };
+
+      const next = fakeClient();
+      h.swapClient(next);
+      h.statusChangeOn(next, "t1", "working");
+      expect(notificationsMock.show).toHaveBeenCalledTimes(2);
+
+      // The outgoing session's toast finishes its exit transition here.
+      staleOnClose();
+
+      h.statusChangeOn(next, "t1", "working");
+      expect(notificationsMock.show).toHaveBeenCalledTimes(2);
+      expect(notificationsMock.update).toHaveBeenCalledWith(
+        expect.objectContaining({ id: taskToastId("t1") }),
+      );
     });
 
     it("hides the live toasts on unmount", () => {

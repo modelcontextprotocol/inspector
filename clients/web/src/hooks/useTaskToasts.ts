@@ -220,9 +220,14 @@ export function useTaskToasts(
       inspectorClient.removeEventListener("taskCancelled", onTaskCancelled);
       // Hide any still-visible task toasts on client swap so they don't linger
       // into the next session, then drop the bookkeeping (mirrors the progress-
-      // toast teardown).
+      // toast teardown). As there, the drop is a **swap to a fresh Set** rather
+      // than `liveToastIds.clear()`: `hide()` defers `onClose` until the exit
+      // transition ends, and those callbacks close over this Set object, so
+      // clearing in place would let a late `onClose` delete the *next*
+      // session's entry for the same task id and freeze that task's toast
+      // (#2219). See `useProgressToasts` for the full reasoning.
       liveToastIds.forEach((id) => notifications.hide(id));
-      liveToastIds.clear();
+      taskToastIdsRef.current = new Set();
     };
   }, [inspectorClient]);
 
