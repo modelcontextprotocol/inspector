@@ -240,7 +240,23 @@ gh api graphql -f query='
 ```
 
 Poll for the review with a `startswith` match — the review login carries a
-`[bot]` suffix.
+`[bot]` suffix. **Put that poll in one backgrounded loop that exits when the
+round lands, and wait for its notification** rather than re-fetching once per
+turn; a review is remote state the harness cannot observe, which is exactly the
+exception described in [Waiting on long-running
+work](../../../AGENTS.md#waiting-on-long-running-work) — and exactly where the
+poll belongs when one is needed.
+
+```sh
+until [ "$(gh api --paginate repos/modelcontextprotocol/inspector/pulls/<N>/reviews \
+  --jq '[.[]|select(.user.login|startswith("copilot-pull-request-reviewer"))]|length' \
+  | awk '{s+=$1} END{print s+0}')" -ge "$EXPECTED" ]; do sleep 20; done
+```
+
+`EXPECTED` is the review **count** you are waiting to reach, not `1` — on round
+two the first round's review is still there, so an existence check returns
+immediately. Give the inline comments a further ~60s after the body lands; they
+arrive late (see step 8).
 
 ## 8. Respond to the review
 
