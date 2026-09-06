@@ -42,6 +42,42 @@ export const ThemeText = Text.extend({
     // footer's `space-between` Group. Both are grey, single-line, and out of the
     // text-selection flow. (Superseded the fixed bottom-corner badges of #1639
     // now that the footer is a real, full-width AppShell row.)
+    // The four typographic treatments the Skills screen repeats (#2263). They
+    // live here rather than as `fw`/`size`/`c`/`ff` props on the screen's
+    // `.withProps()` constants because they are flat CSS properties, which
+    // AGENTS.md places in the theme; the constants keep only layout.
+    //
+    // `sectionHeading` labels a collapsible section; `skillTitle` names the
+    // selected skill; `monoCaption` is the dimmed monospace line used for URIs
+    // and digests; `emptyState` is the centred placeholder shown before a
+    // selection exists.
+    if (props.variant === "sectionHeading") {
+      return {
+        root: { fontWeight: 600, fontSize: "var(--mantine-font-size-sm)" },
+      };
+    }
+    if (props.variant === "skillTitle") {
+      return {
+        root: { fontWeight: 600, fontSize: "var(--mantine-font-size-lg)" },
+      };
+    }
+    if (props.variant === "monoCaption") {
+      return {
+        root: {
+          fontSize: "var(--mantine-font-size-xs)",
+          fontFamily: "var(--mantine-font-family-monospace)",
+          color: "var(--inspector-text-secondary)",
+        },
+      };
+    }
+    if (props.variant === "emptyState") {
+      return {
+        root: {
+          color: "var(--inspector-text-secondary)",
+          textAlign: "center",
+        },
+      };
+    }
     if (
       props.variant === "versionBadge" ||
       props.variant === "copyrightBadge"

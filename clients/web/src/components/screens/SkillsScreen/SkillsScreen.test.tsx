@@ -17,7 +17,10 @@ import {
 import { EMPTY_SKILLS_UI } from "../screenUiState";
 
 const REF_TEXT = "# Column rules\n";
-const SELF_TEXT = "# data-analysis\n";
+// A real SKILL.md carries frontmatter, and the screen now splits it out of the
+// served bytes (#2263) — so the fixture has to have some, or the Frontmatter
+// section it drives would never render here.
+const SELF_TEXT = "---\nname: data-analysis\n---\n\n# data-analysis\n";
 const NOTES_TEXT = "different\n";
 // Computed once at module load so each fixture's advertised digest really is
 // the digest of the bytes the fake read returns — a hard-coded constant would
@@ -138,6 +141,14 @@ function ControlledSkillsScreen(props: Partial<SkillsScreenProps> = {}) {
   );
 }
 
+// Mantine puts a Badge's colour on the ROOT as CSS custom properties, while
+// `getByText` matches the inner label span — so the colour has to be read from
+// the enclosing root rather than from the matched node.
+function badgeStyle(text: RegExp): string {
+  const root = screen.getByText(text).closest(".mantine-Badge-root");
+  return root?.getAttribute("style") ?? "";
+}
+
 describe("SkillsScreen", () => {
   it("renders the empty state until a skill is selected", () => {
     renderWithMantine(<SkillsScreen {...baseProps} />);
@@ -197,6 +208,28 @@ describe("SkillsScreen", () => {
     await user.click(screen.getByText("data-analysis"));
     expect(screen.getByText("Conforms")).toBeInTheDocument();
     expect(screen.queryByTestId("skill-issues")).not.toBeInTheDocument();
+  });
+
+  it("badges a warning-only entry yellow, not green", async () => {
+    // Green reads as "nothing to see", which would hide the only signal the
+    // section carries for an entry whose findings are all warnings (#2263).
+    const user = userEvent.setup();
+    renderWithMantine(<ControlledSkillsScreen />);
+    await user.click(screen.getByText("dynamic-report"));
+    // `dynamic-resources` is a warning, and the only finding on this fixture.
+    const style = badgeStyle(/0 error\(s\), 1 warning\(s\)/);
+    expect(style).toContain("yellow");
+    expect(style).not.toContain("green");
+  });
+
+  it("badges a clean entry green and a broken one red", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(<ControlledSkillsScreen />);
+    await user.click(screen.getByText("data-analysis"));
+    expect(badgeStyle(/0 error\(s\), 0 warning\(s\)/)).toContain("green");
+
+    await user.click(screen.getByText("right-name"));
+    expect(badgeStyle(/1 error\(s\), 0 warning\(s\)/)).toContain("red");
   });
 
   it("shows the name/path mismatch as a distinct, named finding", async () => {
@@ -262,7 +295,10 @@ describe("SkillsScreen", () => {
     await user.click(screen.getByRole("button", { name: /Verify all/ }));
     // One alert per file in the manifest — both reads failed.
     expect(await screen.findAllByText("Could not read file")).toHaveLength(2);
-    expect(screen.getAllByText("403")).toHaveLength(2);
+    // Three, not two: the same rejecting read also serves the SKILL.md the
+    // viewer loads on selection (#2263), so the message appears once per
+    // manifest row plus once in the viewer.
+    expect(screen.getAllByText("403")).toHaveLength(3);
   });
 
   it("wraps a non-Error read rejection", async () => {
@@ -273,7 +309,9 @@ describe("SkillsScreen", () => {
     );
     await user.click(screen.getByText("data-analysis"));
     await user.click(screen.getByRole("button", { name: /Verify all/ }));
-    expect(await screen.findAllByText("plain string")).toHaveLength(2);
+    // Three: one per manifest row, plus the viewer's own auto-loaded SKILL.md
+    // read, which the same mock rejects (#2263).
+    expect(await screen.findAllByText("plain string")).toHaveLength(3);
   });
 
   it("titles a size disagreement a size mismatch, not a digest one", async () => {
@@ -336,7 +374,7 @@ describe("SkillsScreen", () => {
 
   it("renders a base64 SKILL.md preview instead of a blank one", async () => {
     // `onReadSkillFile` supports blob content, and verification reads it
-    // correctly; dropping it in the preview would paint an empty box for a
+    // correctly; dropping it in the viewer would paint an empty box for a
     // file the screen had just checked.
     const user = userEvent.setup();
     const onReadSkillFile = vi.fn().mockResolvedValue({
@@ -347,9 +385,8 @@ describe("SkillsScreen", () => {
       <ControlledSkillsScreen onReadSkillFile={onReadSkillFile} />,
     );
     await user.click(screen.getByText("data-analysis"));
-    await user.click(screen.getByRole("button", { name: /View SKILL.md/ }));
-    const preview = await screen.findByTestId("skill-md-preview");
-    expect(preview).toHaveTextContent("from a blob");
+    const viewer = screen.getByTestId("skill-resource-viewer");
+    await waitFor(() => expect(viewer).toHaveTextContent("from a blob"));
   });
 
   it("keeps the newest verdict when two verifications of one row overlap", async () => {
@@ -382,18 +419,21 @@ describe("SkillsScreen", () => {
       />,
     );
     await user.click(screen.getByText("data-analysis"));
+    // Selecting the skill already issued the viewer's own SKILL.md read
+    // (#2263), so the two clicks below are the reads AFTER that one.
+    const base = resolvers.length;
     const rowVerify = screen.getByRole("button", {
       name: "Verify skill://data-analysis/SKILL.md",
     });
     await user.click(rowVerify);
     await user.click(rowVerify);
-    expect(resolvers).toHaveLength(2);
+    expect(resolvers).toHaveLength(base + 2);
 
     // The SECOND read answers first with the matching bytes, then the first
     // read answers with bytes that would verify as a mismatch.
-    resolvers[1]({ text: SELF_TEXT });
+    resolvers[base + 1]({ text: SELF_TEXT });
     expect(await screen.findByText("verified")).toBeInTheDocument();
-    resolvers[0]({ text: "stale bytes\n" });
+    resolvers[base]({ text: "stale bytes\n" });
     // Still the newer verdict.
     expect(await screen.findByText("verified")).toBeInTheDocument();
     expect(screen.queryByText("mismatch")).not.toBeInTheDocument();
@@ -608,19 +648,20 @@ describe("SkillsScreen", () => {
       <ControlledSkillsScreen onReadSkillFile={onReadSkillFile} />,
     );
     await user.click(screen.getByText("data-analysis"));
-    const view = screen.getByRole("button", { name: /View SKILL.md/ });
+    // Past the viewer's own read for the selection (#2263).
+    const base = resolvers.length;
+    const view = screen.getByRole("button", {
+      name: "skill://data-analysis/reference.md",
+    });
     await user.click(view);
     await user.click(view);
-    expect(resolvers).toHaveLength(2);
+    expect(resolvers).toHaveLength(base + 2);
 
-    resolvers[1]({ text: "# newest\n" });
-    expect(await screen.findByTestId("skill-md-preview")).toHaveTextContent(
-      "newest",
-    );
-    resolvers[0]({ text: "# stale\n" });
-    expect(screen.getByTestId("skill-md-preview")).not.toHaveTextContent(
-      "stale",
-    );
+    const viewer = screen.getByTestId("skill-resource-viewer");
+    resolvers[base + 1]({ text: "# newest\n" });
+    await waitFor(() => expect(viewer).toHaveTextContent("newest"));
+    resolvers[base]({ text: "# stale\n" });
+    expect(viewer).not.toHaveTextContent("stale");
   });
 
   it("keeps the newest skills/get result when two fetches overlap", async () => {
@@ -804,18 +845,21 @@ describe("SkillsScreen", () => {
       <ControlledSkillsScreen onReadSkillFile={onReadSkillFile} />,
     );
     await user.click(screen.getByText("data-analysis"));
-    const view = screen.getByRole("button", { name: /View SKILL.md/ });
+    // Past the viewer's own read for the selection (#2263).
+    const base = resolvers.length;
+    const view = screen.getByRole("button", {
+      name: "skill://data-analysis/reference.md",
+    });
     await user.click(view);
     await user.click(view);
-    expect(resolvers).toHaveLength(2);
+    expect(resolvers).toHaveLength(base + 2);
 
+    const viewer = screen.getByTestId("skill-resource-viewer");
     // The OLDER read answers first, while the newer one is still in flight.
-    resolvers[0]({ text: "# stale\n" });
-    expect(screen.queryByTestId("skill-md-preview")).not.toBeInTheDocument();
-    resolvers[1]({ text: "# newest\n" });
-    expect(await screen.findByTestId("skill-md-preview")).toHaveTextContent(
-      "newest",
-    );
+    resolvers[base]({ text: "# stale\n" });
+    expect(viewer).not.toHaveTextContent("stale");
+    resolvers[base + 1]({ text: "# newest\n" });
+    await waitFor(() => expect(viewer).toHaveTextContent("newest"));
   });
 
   it("rejects an older skills/get even when it resolves FIRST", async () => {
@@ -849,12 +893,111 @@ describe("SkillsScreen", () => {
     ).toBeInTheDocument();
   });
 
-  it("shows the SKILL.md preview on demand", async () => {
+  it("shows the skill's own SKILL.md as soon as it is selected", async () => {
+    // No button to press (#2263): the viewer opens on the skill's own file, so
+    // selecting it is the whole interaction.
     const user = userEvent.setup();
     renderWithMantine(<ControlledSkillsScreen />);
     await user.click(screen.getByText("data-analysis"));
-    await user.click(screen.getByRole("button", { name: /View SKILL.md/ }));
-    expect(await screen.findByTestId("skill-md-preview")).toBeInTheDocument();
+    const viewer = screen.getByTestId("skill-resource-viewer");
+    await waitFor(() => expect(viewer).toHaveTextContent("data-analysis"));
+    expect(
+      screen.queryByRole("button", { name: /View SKILL.md/ }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("heads the viewer with the displayed file, not the section's purpose", async () => {
+    // The heading is static so it does not change shape as the file changes;
+    // the file name sits beside it (#2263).
+    const user = userEvent.setup();
+    renderWithMantine(<ControlledSkillsScreen />);
+    await user.click(screen.getByText("data-analysis"));
+    // The heading lives on the section's control (it is the collapsible
+    // section's own header), so it is queried at screen level rather than
+    // inside the panel.
+    const control = within(
+      screen.getByRole("button", { name: /Skill Resource/ }),
+    );
+    expect(control.getByText("Skill Resource")).toBeInTheDocument();
+    expect(control.getByText("SKILL.md")).toBeInTheDocument();
+  });
+
+  it("swaps the displayed file when a manifest URI is clicked", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(<ControlledSkillsScreen />);
+    await user.click(screen.getByText("data-analysis"));
+    const viewer = screen.getByTestId("skill-resource-viewer");
+    await waitFor(() => expect(viewer).toHaveTextContent("data-analysis"));
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "skill://data-analysis/reference.md",
+      }),
+    );
+    await waitFor(() => expect(viewer).toHaveTextContent("Column rules"));
+    // The section header follows the file, and the previous contents are gone.
+    expect(
+      within(screen.getByRole("button", { name: /Skill Resource/ })).getByText(
+        "reference.md",
+      ),
+    ).toBeInTheDocument();
+    expect(viewer).not.toHaveTextContent("data-analysis");
+  });
+
+  it("shows the frontmatter of the file on display, and hides the section when it has none", async () => {
+    // Both halves come from one split (#2263), so the section can never show
+    // one file's frontmatter beside another file's body — and the viewer never
+    // repeats what the section is already showing.
+    const user = userEvent.setup();
+    const onReadSkillFile = vi.fn(async (uri: string) =>
+      uri.endsWith("reference.md")
+        ? { text: "# Ref\n\nNo frontmatter here.\n" }
+        : { text: "---\nname: data-analysis\n---\n\n# The body\n" },
+    );
+    renderWithMantine(
+      <ControlledSkillsScreen onReadSkillFile={onReadSkillFile} />,
+    );
+    await user.click(screen.getByText("data-analysis"));
+    const viewer = screen.getByTestId("skill-resource-viewer");
+    await waitFor(() => expect(viewer).toHaveTextContent("The body"));
+    // Shown once, in its own section — not again in the viewer.
+    expect(
+      screen.getByRole("button", { name: /Frontmatter/ }),
+    ).toBeInTheDocument();
+    expect(viewer).not.toHaveTextContent("name: data-analysis");
+
+    // reference.md has no frontmatter, so the section goes away entirely
+    // rather than lingering with SKILL.md's fields.
+    await user.click(
+      screen.getByRole("button", {
+        name: "skill://data-analysis/reference.md",
+      }),
+    );
+    await waitFor(() =>
+      expect(viewer).toHaveTextContent("No frontmatter here"),
+    );
+    expect(
+      screen.queryByRole("button", { name: /Frontmatter/ }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("marks the row whose file the viewer is showing", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(<ControlledSkillsScreen />);
+    await user.click(screen.getByText("data-analysis"));
+    const self = screen.getByRole("button", {
+      name: "skill://data-analysis/SKILL.md",
+    });
+    const other = screen.getByRole("button", {
+      name: "skill://data-analysis/reference.md",
+    });
+    // The skill's own file is what the viewer opens on, so its row is current.
+    expect(self).toHaveAttribute("aria-current", "true");
+    expect(other).not.toHaveAttribute("aria-current");
+
+    await user.click(other);
+    await waitFor(() => expect(other).toHaveAttribute("aria-current", "true"));
+    expect(self).not.toHaveAttribute("aria-current");
   });
 
   it("reports a failed SKILL.md read", async () => {
@@ -864,10 +1007,10 @@ describe("SkillsScreen", () => {
       <ControlledSkillsScreen onReadSkillFile={onReadSkillFile} />,
     );
     await user.click(screen.getByText("data-analysis"));
-    await user.click(screen.getByRole("button", { name: /View SKILL.md/ }));
     expect(
-      await screen.findByText("Could not read SKILL.md"),
+      await screen.findByText("Could not read this resource"),
     ).toBeInTheDocument();
+    expect(screen.getByText("gone")).toBeInTheDocument();
   });
 
   it("wraps a non-Error SKILL.md rejection", async () => {
@@ -877,8 +1020,34 @@ describe("SkillsScreen", () => {
       <ControlledSkillsScreen onReadSkillFile={onReadSkillFile} />,
     );
     await user.click(screen.getByText("data-analysis"));
-    await user.click(screen.getByRole("button", { name: /View SKILL.md/ }));
     expect(await screen.findByText("bare")).toBeInTheDocument();
+  });
+
+  it("keeps the three sections independently collapsible", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(<ControlledSkillsScreen />);
+    await user.click(screen.getByText("data-analysis"));
+    // Conformance and Resources open by default; Frontmatter is closed.
+    expect(screen.getByRole("button", { name: /Conformance/ })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    expect(screen.getByRole("button", { name: /Frontmatter/ })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+
+    // Collapsing one leaves the others alone — `multiple`, not a single-open
+    // accordion.
+    await user.click(screen.getByRole("button", { name: /Conformance/ }));
+    expect(screen.getByRole("button", { name: /Conformance/ })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+    expect(screen.getByRole("button", { name: /Resources/ })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
   });
 
   it("drops verification results when the selection changes", async () => {
@@ -895,14 +1064,27 @@ describe("SkillsScreen", () => {
     expect(screen.getAllByText("—")).toHaveLength(2);
   });
 
-  it("drops the SKILL.md preview when the selection changes", async () => {
+  it("re-points the viewer at the newly selected skill's own file", async () => {
     const user = userEvent.setup();
-    renderWithMantine(<ControlledSkillsScreen />);
+    const onReadSkillFile = vi.fn(async (uri: string) => ({
+      text: `contents of ${uri}\n`,
+    }));
+    renderWithMantine(
+      <ControlledSkillsScreen onReadSkillFile={onReadSkillFile} />,
+    );
     await user.click(screen.getByText("data-analysis"));
-    await user.click(screen.getByRole("button", { name: /View SKILL.md/ }));
-    expect(await screen.findByTestId("skill-md-preview")).toBeInTheDocument();
+    const viewer = screen.getByTestId("skill-resource-viewer");
+    await waitFor(() =>
+      expect(viewer).toHaveTextContent("contents of skill://data-analysis"),
+    );
+
+    // The previous skill's contents must not survive the switch: the viewer
+    // follows the selection rather than holding whatever was last read.
     await user.click(screen.getByText("tampered"));
-    expect(screen.queryByTestId("skill-md-preview")).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(viewer).toHaveTextContent("contents of skill://tampered/SKILL.md"),
+    );
+    expect(viewer).not.toHaveTextContent("contents of skill://data-analysis");
   });
 
   it("renders an em dash for a manifest entry with no size or digest", async () => {
@@ -1032,10 +1214,15 @@ describe("SkillsScreen", () => {
       <ControlledSkillsScreen onReadSkillFile={onReadSkillFile} />,
     );
     await user.click(screen.getByText("data-analysis"));
-    await user.click(screen.getByRole("button", { name: /View SKILL.md/ }));
+    // `release` now holds the resolver for the SECOND skill's auto-read; the
+    // first skill's is stranded, which is the point — resolving the older one
+    // must not publish into the newer selection.
+    const stale = release;
     await user.click(screen.getByText("tampered"));
-    release?.({ text: SELF_TEXT });
-    expect(screen.queryByTestId("skill-md-preview")).not.toBeInTheDocument();
+    stale?.({ text: "# from the abandoned skill\n" });
+    expect(screen.getByTestId("skill-resource-viewer")).not.toHaveTextContent(
+      "abandoned",
+    );
   });
 
   it("discards a failed SKILL.md read that resolves after the selection moved on", async () => {
@@ -1051,9 +1238,10 @@ describe("SkillsScreen", () => {
       <ControlledSkillsScreen onReadSkillFile={onReadSkillFile} />,
     );
     await user.click(screen.getByText("data-analysis"));
-    await user.click(screen.getByRole("button", { name: /View SKILL.md/ }));
+    // The abandoned skill's own read, stranded by the selection change below.
+    const stale = fail;
     await user.click(screen.getByText("tampered"));
-    fail?.(new Error("too late"));
+    stale?.(new Error("too late"));
     expect(screen.queryByText("too late")).not.toBeInTheDocument();
   });
 });
