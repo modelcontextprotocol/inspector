@@ -17,9 +17,15 @@ that composes those flags.
 
 **Prerequisites:** Node `>= 22.19.0` and [`jq`](https://jqlang.github.io/jq/)
 for the assertions. Every example invokes the CLI as
-`npx @modelcontextprotocol/inspector --cli`; pin the version in CI
-(`npx @modelcontextprotocol/inspector@2 --cli …`) so a release never changes the
-meaning of your job.
+`npx @modelcontextprotocol/inspector --cli`, which resolves the **latest**
+release each time it runs — fine while you are working at a terminal, wrong for
+CI.
+
+**In CI, pin an exact version** — `npx --yes @modelcontextprotocol/inspector@2.5.0
+--cli …`. A range like `@2` is *not* a pin: `npx` will happily resolve a newer
+2.x, so the same commit can run against a different Inspector on a later day.
+`--yes` suppresses the first-run install prompt, which would otherwise hang an
+unattended job.
 
 ## 1. Connect
 
@@ -230,15 +236,24 @@ callback for **up to 15 minutes**. That is right for a human at a terminal and
 completely wrong for a runner.
 
 **Use `--stored-auth-only`.** It never starts interactive OAuth or step-up and
-never opens a browser: it consumes the shared token store if a token is there,
-and otherwise fails immediately with exit **3** (`auth_required`).
+never opens a browser. When the server issues an authentication challenge it
+satisfies it from the shared token store, and fails immediately with exit **3**
+(`auth_required`) when the store has nothing that fits — instead of opening a
+browser and waiting.
 
 ```bash
 npx @modelcontextprotocol/inspector --cli \
   --transport http --server-url https://example.com/mcp \
   --method tools/list --stored-auth-only --format json
-# no token → {"error":{"code":"auth_required",…}} on stderr, exit 3
+# challenged, and no usable token → {"error":{"code":"auth_required",…}} on stderr, exit 3
 ```
+
+⚠️ **The flag is a no-op against a server that never challenges**, so a green run
+is *not* evidence that your token store was seeded correctly. A smoke job whose
+server authenticates today and stops authenticating tomorrow — a misconfigured
+gateway, a route that silently became public — will keep passing. If you need to
+assert that authentication actually happened, assert it directly: run once
+*without* a usable token in an isolated `MCP_STORAGE_DIR` and require exit `3`.
 
 The CLI already fails fast with `auth_required` when neither stdin nor stderr is
 a TTY and `MCP_AUTO_OPEN_ENABLED` is unset — the typical CI shape. But that
@@ -298,12 +313,24 @@ message, and it will neither catch every leak nor absolve you of reviewing what
 your server returns:
 
 ```bash
+status=0
 out=$(npx @modelcontextprotocol/inspector --cli node build/index.js \
-        --method tools/call --tool-name my_tool --format json 2>&1)
+        --method tools/call --tool-name my_tool --format json 2>&1) || status=$?
+
+# Scan first — an error message is exactly where a leaked credential shows up.
 if grep -Eiq '(sk-[A-Za-z0-9]{16,}|ghp_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY-----)' <<<"$out"; then
   echo "::error::tool output matched a secret pattern"; exit 1
 fi
+# …then propagate the call's own failure, which the capture would otherwise hide.
+[ "$status" -eq 0 ] || { printf '%s\n' "$out"; exit "$status"; }
 ```
+
+⚠️ **`out=$(…)` swallows the exit code.** Without the `|| status=$?`, a
+non-matching `grep` returns 1, the `if` is simply not taken, and the step exits
+**0** even though the tool call failed — the scan silently becomes the only
+assertion. Under `set -e` the opposite happens: the script dies at the
+assignment and never scans the error output, which is where a leaked credential
+is most likely to appear. Capturing the status explicitly is what gets both.
 
 Keep the pattern list to shapes you can justify; a regex tuned for a low false
 positive rate is one people keep, and one that cries wolf is one they disable.
@@ -336,7 +363,7 @@ export MCP_STORAGE_DIR="$(mktemp -d)"
 trap 'rm -rf "$MCP_STORAGE_DIR"' EXIT
 
 mcp() {
-  npx --yes @modelcontextprotocol/inspector@2 --cli \
+  npx --yes @modelcontextprotocol/inspector@2.5.0 --cli \
     --transport http --server-url "$SERVER_URL" \
     --connect-timeout 10000 --stored-auth-only --format json "$@"
 }
