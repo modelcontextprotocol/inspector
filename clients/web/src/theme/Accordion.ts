@@ -24,14 +24,21 @@ export const ThemeAccordion = Accordion.extend({
   },
   // `skillSections` is `disclosure` plus a scrolling root (#2263).
   //
-  // The Skills pane holds sections whose content is a rendered document or a
-  // findings list, not a uniform row list, so they are sized to their content
-  // and never shrink. That removes the mid-content clipping a shrinking panel
-  // produced — the panel really was scrollable, but macOS overlay scrollbars
-  // are invisible until hover, so a Resources table cut off mid-alert read as
-  // broken rather than scrollable. Overflow moves up to the root, so in the
-  // rare case the sections genuinely exceed the pane it is the *stack* that
-  // scrolls, at a section boundary, instead of a panel slicing its own content.
+  // The Skills pane's metadata sections use `flex: 0 1 auto` with a `mih`
+  // floor: they give up space until they reach that floor and then scroll their
+  // own panels, which is what leaves the file viewer its share no matter how
+  // large a manifest or findings list gets.
+  //
+  // The scrolling root is the FALLBACK for when even the combined floors do not
+  // fit — with several sections open in a short window there is no arrangement
+  // that shows everything, and scrolling the stack at a section boundary beats
+  // crushing a panel below its floor.
+  //
+  // ⚠️ The floor is load-bearing, not decoration. Without it a section can be
+  // squeezed far below its content and slice it mid-line; with `flex-shrink: 0`
+  // instead, a 512-row manifest keeps its full height and pushes the viewer off
+  // the bottom of the pane. `SECTION_FLEX` in `SkillsScreen.tsx` records both
+  // failures — this variant only works in combination with it.
   styles: (_theme, props) => {
     if (props.variant === "skillSections") {
       return {

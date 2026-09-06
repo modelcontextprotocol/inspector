@@ -288,7 +288,9 @@ const FIXTURE_SKILLS: FixtureSkill[] = [
 ];
 
 /** Every servable `skill://` file, by URI. `dynamic` skills contribute their
- * `SKILL.md` too, so the screen's "View SKILL.md" works there as well. */
+ * `SKILL.md` too, so the Skills screen's resource viewer has something to show
+ * for them as well — it opens on the selected skill's own file, and a dynamic
+ * skill advertises no manifest but still serves that one. */
 const FILES_BY_URI = new Map<string, FixtureFile>();
 for (const skill of FIXTURE_SKILLS) {
   if (skill.files === "dynamic") {

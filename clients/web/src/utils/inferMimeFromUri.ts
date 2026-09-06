@@ -30,11 +30,32 @@ const URI_SUFFIX_MIME: ReadonlyArray<readonly [string, string]> = [
  */
 export function inferMimeFromUri(uri: string): string | undefined {
   const path = uri.split("?")[0].split("#")[0];
-  const lower = path.toLowerCase();
+  const lower = decodePathSafely(path).toLowerCase();
   for (const [suffix, mime] of URI_SUFFIX_MIME) {
     if (lower.endsWith(suffix)) return mime;
   }
   return undefined;
+}
+
+/**
+ * Percent-decode a URI path for matching, falling back to the raw path.
+ *
+ * A URI may percent-encode unreserved characters, so `reference%2Emd` names the
+ * same file as `reference.md` — and `skillUriIdentity` in `core/mcp/skills.ts`
+ * already treats those spellings as equivalent. Matching the raw string here
+ * disagreed with that: an encoded `.md` fell through to no MIME at all, so the
+ * markdown renderer never engaged and the frontmatter was never split.
+ *
+ * `decodeURIComponent` throws on a malformed escape (`%zz`, a lone `%`), which
+ * a server can certainly send; a MIME *guess* is the wrong place to raise, so a
+ * bad sequence simply falls back to matching the raw path.
+ */
+function decodePathSafely(path: string): string {
+  try {
+    return decodeURIComponent(path);
+  } catch {
+    return path;
+  }
 }
 
 /**

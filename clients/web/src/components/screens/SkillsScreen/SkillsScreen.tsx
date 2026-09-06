@@ -518,9 +518,14 @@ function shortDigest(digest: string | undefined): string {
  * The sidebar lists the skills the server enumerated; the detail pane shows the
  * entry's frontmatter, every conformance finding
  * (`checkSkillConformance`), and the resource manifest with a per-file
- * verification verdict. Verification is on demand: SEP-2640 says a
- * `resources/read` of a skill file is not a load and confers no standing, so
- * the Inspector fetches only what the user asks it to.
+ * verification verdict.
+ *
+ * **Reading is not verification, and the two have different triggers** (#2263).
+ * The skill's own `SKILL.md` is read as soon as it is selected, so the file is
+ * simply on screen; SEP-2640 is explicit that a `resources/read` of a skill
+ * file is *not* a load and confers no standing, so that claims nothing on the
+ * user's behalf. Digest **verification** remains strictly on demand — it is
+ * what the buttons are for, and nothing is hashed until asked.
  */
 export function SkillsScreen({
   sessionKey,
@@ -963,11 +968,20 @@ export function SkillsScreen({
   // Which sections this skill actually renders — Frontmatter only exists when
   // the displayed file has any, so an "expand all" that named it unconditionally
   // would leave the toggle stuck reading "Expand" on a file without one.
+  // The sections rendered RIGHT NOW. A dynamic skill renders no Resources
+  // section, and Frontmatter is absent until the file has been read and turns
+  // out to have any — so naming those unconditionally would leave "expand all"
+  // permanently unsatisfied.
+  //
+  // This drives the toggle's *label* only. It must NOT be what "expand all"
+  // writes: `openSections` outlives any one skill, so replacing it with the
+  // currently-visible set silently drops the others. Pressing Expand all while
+  // the SKILL.md read was still in flight removed `frontmatter`, and the
+  // section then arrived collapsed with the control offering to expand all over
+  // again; switching away from a dynamic skill did the same to `resources`.
   const sectionIds = useMemo(
     () => [
       "conformance",
-      // A dynamic skill renders no Resources section, so naming it here would
-      // leave "expand all" permanently unsatisfied.
       ...(isDynamic ? [] : ["resources"]),
       ...(previewParts?.frontmatter !== undefined ? ["frontmatter"] : []),
       "resource",
@@ -1099,8 +1113,10 @@ export function SkillsScreen({
                 <ListToggle
                   variant="subtle"
                   compact={!allSectionsOpen}
+                  // Expands to the COMPLETE section set, not the visible one —
+                  // see `sectionIds` for what writing the visible set dropped.
                   onToggle={() =>
-                    setOpenSections(allSectionsOpen ? [] : [...sectionIds])
+                    setOpenSections(allSectionsOpen ? [] : [...ALL_SECTIONS])
                   }
                 />
               </InlineRow>

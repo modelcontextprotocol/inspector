@@ -52,6 +52,25 @@ describe("inferMimeFromUri", () => {
     expect(inferMimeFromUri("https://x/a.md?v=2#top")).toBe("text/markdown");
   });
 
+  it("matches a percent-encoded suffix", () => {
+    // `reference%2Emd` names the same file as `reference.md`, and
+    // `skillUriIdentity` already treats those spellings as equivalent — so
+    // matching the raw string here disagreed with the rest of the app and left
+    // an encoded `.md` with no MIME, no markdown renderer and no split.
+    expect(inferMimeFromUri("skill://a/reference%2Emd")).toBe("text/markdown");
+    expect(inferMimeFromUri("skill://a/report%2Epdf")).toBe("application/pdf");
+    // A percent-encoded path segment separator is decoded too.
+    expect(inferMimeFromUri("skill://a/docs%2Fnotes.md")).toBe("text/markdown");
+  });
+
+  it("falls back to the raw path on a malformed escape", () => {
+    // `decodeURIComponent` throws on `%zz` or a lone `%`, and a server can send
+    // either. A MIME guess is the wrong place to raise.
+    expect(inferMimeFromUri("skill://a/bad%zz.md")).toBe("text/markdown");
+    expect(inferMimeFromUri("skill://a/100%.md")).toBe("text/markdown");
+    expect(inferMimeFromUri("skill://a/bad%zz.bin")).toBeUndefined();
+  });
+
   it("returns undefined for an unrecognised suffix, so callers can default", () => {
     expect(inferMimeFromUri("skill://a/notes.bin")).toBeUndefined();
     expect(inferMimeFromUri("skill://a/no-extension")).toBeUndefined();

@@ -1263,6 +1263,53 @@ describe("SkillsScreen", () => {
     );
   });
 
+  it("expand-all covers sections that are not visible yet", async () => {
+    // `sectionIds` holds only what renders at this instant, and "expand all"
+    // used to write exactly that — so a section absent at the moment of the
+    // click (Frontmatter, while the read is still in flight; Resources, on a
+    // dynamic skill) was DROPPED from the open set, and arrived collapsed with
+    // the control offering to expand all over again (#2263).
+    const user = userEvent.setup();
+    renderWithMantine(<ControlledSkillsScreen />);
+    // Start on the dynamic skill, which renders no Resources section at all.
+    await user.click(screen.getByText("dynamic-report"));
+    // Settle the auto-read before touching the toggle, so the click lands on a
+    // known state rather than racing the section set.
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: /Collapse all|Expand all/ }),
+      ).toBeInTheDocument(),
+    );
+    const toggle = () =>
+      screen.getByRole("button", { name: /Collapse all|Expand all/ });
+    if (toggle().getAttribute("aria-label") === "Collapse all") {
+      await user.click(toggle());
+    }
+    await user.click(screen.getByRole("button", { name: "Expand all" }));
+
+    // Switch to a static skill WITH findings, so the clean-entry collapse rule
+    // does not overlap with what this test is about. Scoped to the sidebar:
+    // with every section expanded, the skill's own name also appears in the
+    // detail pane's frontmatter block.
+    await user.click(
+      within(screen.getByTestId("skills-screen")).getAllByText("right-name")[0],
+    );
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /Resources/ })).toHaveAttribute(
+        "aria-expanded",
+        "true",
+      ),
+    );
+    expect(screen.getByRole("button", { name: /Frontmatter/ })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    // And the control agrees that everything is open.
+    expect(
+      screen.getByRole("button", { name: "Collapse all" }),
+    ).toBeInTheDocument();
+  });
+
   it("toggles every section at once from the header control", async () => {
     const user = userEvent.setup();
     renderWithMantine(<ControlledSkillsScreen />);
