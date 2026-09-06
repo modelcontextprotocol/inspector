@@ -1085,6 +1085,47 @@ describe("SkillsScreen", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("lets a .md suffix outrank a generic declared MIME", async () => {
+    // Servers routinely serve SKILL.md as `text/plain`. Letting that outrank
+    // the suffix meant the file was not recognised as markdown, so its YAML
+    // stayed in the viewer and the Frontmatter section disappeared — for a
+    // perfectly valid skill.
+    const user = userEvent.setup();
+    const onReadSkillFile = vi.fn(async () => ({
+      text: "---\nname: data-analysis\n---\n\n# The body\n",
+      mimeType: "text/plain",
+    }));
+    renderWithMantine(
+      <ControlledSkillsScreen onReadSkillFile={onReadSkillFile} />,
+    );
+    await user.click(screen.getByText("data-analysis"));
+    const viewer = screen.getByTestId("skill-resource-viewer");
+    await waitFor(() => expect(viewer).toHaveTextContent("The body"));
+    expect(
+      screen.getByRole("button", { name: /Frontmatter/ }),
+    ).toBeInTheDocument();
+    expect(viewer).not.toHaveTextContent("name: data-analysis");
+  });
+
+  it("keeps a SPECIFIC declared MIME over the suffix", async () => {
+    // The converse: a server that says `text/csv` for a `.md` URI knows its own
+    // resource, so the declaration wins and nothing is split.
+    const user = userEvent.setup();
+    const onReadSkillFile = vi.fn(async () => ({
+      text: "---\na,b\n---\n1,2\n",
+      mimeType: "text/csv",
+    }));
+    renderWithMantine(
+      <ControlledSkillsScreen onReadSkillFile={onReadSkillFile} />,
+    );
+    await user.click(screen.getByText("data-analysis"));
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("button", { name: /Frontmatter/ }),
+      ).not.toBeInTheDocument(),
+    );
+  });
+
   it("does not treat an untyped supporting resource as markdown", async () => {
     // SEP-2640 expects a manifest to carry supporting scripts, examples and
     // assets with types of their own. A markdown fallback is right for the

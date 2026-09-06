@@ -1,5 +1,28 @@
 import { describe, it, expect } from "vitest";
-import { inferMimeFromUri, isMarkdownMime } from "./inferMimeFromUri";
+import {
+  inferMimeFromUri,
+  isGenericMime,
+  isMarkdownMime,
+} from "./inferMimeFromUri";
+
+describe("isGenericMime", () => {
+  it("names the types a server sends when it does not really know", () => {
+    expect(isGenericMime("text/plain")).toBe(true);
+    expect(isGenericMime("application/octet-stream")).toBe(true);
+    // Normalised like `isMarkdownMime`, so parameters and casing still count.
+    expect(isGenericMime("text/plain; charset=utf-8")).toBe(true);
+    expect(isGenericMime("TEXT/PLAIN")).toBe(true);
+  });
+
+  it("does not treat a specific type as generic", () => {
+    // A server that says `text/markdown` or `text/csv` knows its own resource,
+    // and that declaration must outrank a URI suffix.
+    expect(isGenericMime("text/markdown")).toBe(false);
+    expect(isGenericMime("text/csv")).toBe(false);
+    expect(isGenericMime("application/json")).toBe(false);
+    expect(isGenericMime(undefined)).toBe(false);
+  });
+});
 
 describe("inferMimeFromUri", () => {
   it("maps every suffix in the table", () => {

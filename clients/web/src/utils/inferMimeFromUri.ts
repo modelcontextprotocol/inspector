@@ -38,6 +38,28 @@ export function inferMimeFromUri(uri: string): string | undefined {
 }
 
 /**
+ * Types a server sends when it does not really know, or did not bother.
+ *
+ * `ResourcePreviewPanel` already records the underlying observation — servers
+ * "commonly omit `mimeType` (or return a generic `text/plain` /
+ * `application/octet-stream`), so the URI suffix is the most reliable signal".
+ * Naming them lets a caller act on that: a declared type this generic is weaker
+ * evidence than a `.md` suffix, while a specific declared type still wins.
+ */
+const GENERIC_MIMES = new Set(["text/plain", "application/octet-stream"]);
+
+/**
+ * Whether a declared MIME is too generic to outrank a URI suffix.
+ *
+ * Normalised the same way `isMarkdownMime` is, so `text/plain; charset=utf-8`
+ * counts as generic too.
+ */
+export function isGenericMime(mime: string | undefined): boolean {
+  if (mime === undefined) return false;
+  return GENERIC_MIMES.has(mime.split(";")[0].trim().toLowerCase());
+}
+
+/**
  * Whether an effective MIME type is Markdown — the only form that carries YAML
  * frontmatter worth splitting off (#2263).
  *

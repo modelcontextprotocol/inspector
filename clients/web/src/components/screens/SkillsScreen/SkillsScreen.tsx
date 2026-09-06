@@ -43,6 +43,7 @@ import {
 import { splitSkillFile } from "../../../utils/splitSkillFile";
 import {
   inferMimeFromUri,
+  isGenericMime,
   isMarkdownMime,
 } from "../../../utils/inferMimeFromUri";
 import { tryDecodeBase64ToUtf8 } from "../../elements/ContentViewer/contentViewerUtils";
@@ -872,9 +873,18 @@ export function SkillsScreen({
     skillUriIdentity(previewUri) === skillUriIdentity(selectedUri);
 
   const previewMime = useMemo(() => {
+    const declared = preview?.mimeType;
+    const inferred =
+      previewUri !== undefined ? inferMimeFromUri(previewUri) : undefined;
+    // A SPECIFIC declared type wins — the server knows its own resource. A
+    // *generic* one does not: servers routinely serve `SKILL.md` as
+    // `text/plain` or `application/octet-stream`, and letting that outrank a
+    // `.md` suffix meant a valid skill file was not recognised as markdown, so
+    // its YAML stayed in the viewer and the Frontmatter section disappeared.
     const stated =
-      preview?.mimeType ??
-      (previewUri !== undefined ? inferMimeFromUri(previewUri) : undefined);
+      declared !== undefined && !isGenericMime(declared)
+        ? declared
+        : (inferred ?? declared);
     if (stated !== undefined) return stated;
     // Markdown is the right last resort for a skill's OWN `SKILL.md` — SEP-2640
     // makes that file markdown by construction. It is the WRONG one for the
