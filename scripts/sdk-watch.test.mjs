@@ -17,6 +17,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  ANALYSIS_MARKER,
   assertEveryPackageWatched,
   buildIssueBody,
   buildIssueTitle,
@@ -24,6 +25,7 @@ import {
   buildSupersededComment,
   formatFiledOutput,
   groupState,
+  hasAnalysis,
   installedVersion,
   main,
   parseMarker,
@@ -91,6 +93,33 @@ test("parseSupersededMarker reads back the issue number it announced", () => {
   const body = buildSupersededComment(42, "2.2.0", "2.1.0");
   assert.equal(parseSupersededMarker(body), "42");
   assert.equal(parseSupersededMarker("unrelated comment"), null);
+});
+
+test("hasAnalysis finds the marker only at the start of a comment", () => {
+  assert.equal(hasAnalysis([`${ANALYSIS_MARKER}\nthe write-up`]), true);
+  assert.equal(hasAnalysis(["a maintainer comment", "another"]), false);
+  assert.equal(hasAnalysis([]), false);
+  // A comment merely QUOTING the marker must not count as an analysis, or one
+  // person pasting it would suppress the retry forever.
+  assert.equal(
+    hasAnalysis([`see \`${ANALYSIS_MARKER}\` in the script`]),
+    false,
+  );
+});
+
+test("the workflow posts the exact marker the sweep looks for", () => {
+  // ⚠️ The marker is duplicated across the script and the workflow because the
+  // posting step is shell, not JS. If the two ever drift, every issue reads as
+  // permanently unanalyzed and the sweep re-queues it every single night — a
+  // failure that is invisible in both files read separately. This is the guard.
+  const workflow = readFileSync(
+    new URL("../.github/workflows/sdk-watch.yml", import.meta.url),
+    "utf8",
+  );
+  assert.ok(
+    workflow.includes(ANALYSIS_MARKER),
+    `.github/workflows/sdk-watch.yml must post ${ANALYSIS_MARKER}`,
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -378,6 +407,7 @@ function fakeSpawn({
     { title: "v2.6.0", state: "open", due_on: "2026-09-09T00:00:00Z" },
   ],
   comments = [],
+  commentsByIssue = {},
   createStatus = 0,
   createFailFor = null,
   commentStatus = 0,
@@ -418,8 +448,18 @@ function fakeSpawn({
     // MUST be tested before the milestone branch: both are `gh api`, so
     // matching on args[0] alone would hand the comment lookup the milestone
     // payload and the assertion would silently check nothing.
-    if (args[0] === "api" && args.some((a) => String(a).includes("/comments")))
-      return { status: 0, stdout: comments.join("\n"), stderr: "" };
+    if (
+      args[0] === "api" &&
+      args.some((a) => String(a).includes("/comments"))
+    ) {
+      // Answer PER ISSUE. A single shared list would make "the target issue has
+      // an analysis" and "the stale issue has a supersession note" the same
+      // fact, so a test could pass on the wrong one entirely.
+      const path = args.find((a) => String(a).includes("/comments")) ?? "";
+      const number = Number(/issues\/(\d+)\/comments/.exec(path)?.[1]);
+      const bodies = commentsByIssue[number] ?? comments;
+      return { status: 0, stdout: bodies.join("\n"), stderr: "" };
+    }
     if (args[0] === "api")
       return { status: 0, stdout: JSON.stringify(milestones), stderr: "" };
     throw new Error(`unexpected call: ${cmd} ${args.join(" ")}`);
@@ -552,16 +592,20 @@ test("main files one issue per upstream when both groups are behind", () => {
   assert.equal(filed[1].from, "1.7.5", "from is the installed version");
 });
 
-test("main does not refile when an issue already covers this target", () => {
+/** An open issue this sweep already filed for `target`. */
+function existingIssue(number, target, group = SDK) {
+  return {
+    number,
+    state: "OPEN",
+    body: `${buildMarker(group, target)}\nexisting`,
+  };
+}
+
+test("main does not refile an issue that already exists and was analyzed", () => {
   const spawn = fakeSpawn({
     latest: latestAt(SDK, "2.1.0"),
-    issues: [
-      {
-        number: 400,
-        state: "OPEN",
-        body: `${buildMarker(SDK, "2.1.0")}\nexisting`,
-      },
-    ],
+    issues: [existingIssue(400, "2.1.0")],
+    commentsByIssue: { 400: [`${ANALYSIS_MARKER}\nthe analysis`] },
   });
   const output = outputFile();
   writeFileSync(output, "");
@@ -575,7 +619,70 @@ test("main does not refile when an issue already covers this target", () => {
   assert.deepEqual(
     readFiled(output),
     [],
-    "an already-filed target must not reach the analysis job again",
+    "an already-analyzed target must not reach the analysis job again",
+  );
+});
+
+test("main re-queues an existing issue that has no analysis comment", () => {
+  // ⚠️ "an issue exists" and "the issue was analyzed" are different claims, and
+  // equating them meant a failed or timed-out `analyze` job was never retried:
+  // the next sweep saw the marker, emitted `[]`, and reported a green no-op over
+  // an issue nothing would ever revisit (Copilot).
+  const spawn = fakeSpawn({
+    latest: latestAt(SDK, "2.1.0"),
+    issues: [existingIssue(400, "2.1.0")],
+    commentsByIssue: { 400: ["just a maintainer chiming in"] },
+  });
+  const output = outputFile();
+  writeFileSync(output, "");
+
+  main("o/r", spawn, { readFile: fakeReadFile(), output });
+
+  assert.equal(
+    spawn.calls.some((c) => c.args[0] === "issue" && c.args[1] === "create"),
+    false,
+    "re-queuing must adopt the existing issue, never file a second one",
+  );
+  assert.deepEqual(
+    readFiled(output).map((f) => f.issue),
+    [400],
+    "the un-analyzed issue must reach the analysis job again",
+  );
+});
+
+test("main retries a supersession note that failed to post on an earlier run", () => {
+  // The unrecoverable case: creation succeeded, the note did not, and the retry
+  // matched the target's own marker and skipped reconciliation entirely — so the
+  // documented note was never posted at all (Copilot).
+  const spawn = fakeSpawn({
+    latest: latestAt(SDK, "2.2.0"),
+    issues: [existingIssue(500, "2.2.0"), existingIssue(400, "2.1.0")],
+    commentsByIssue: { 500: [`${ANALYSIS_MARKER}\ndone`], 400: [] },
+  });
+  const output = outputFile();
+  writeFileSync(output, "");
+
+  main("o/r", spawn, { readFile: fakeReadFile(), output });
+
+  const posted = spawn.calls.find(
+    (c) => c.args[0] === "issue" && c.args[1] === "comment",
+  );
+  assert.ok(posted, "the missing supersession note must be posted on retry");
+  assert.equal(posted.args[2], "400");
+  assert.ok(posted.args[posted.args.indexOf("--body") + 1].includes("#500"));
+});
+
+test("main does not treat the target issue as superseding itself", () => {
+  const spawn = fakeSpawn({
+    latest: latestAt(SDK, "2.1.0"),
+    issues: [existingIssue(400, "2.1.0")],
+    commentsByIssue: { 400: [`${ANALYSIS_MARKER}\ndone`] },
+  });
+  main("o/r", spawn, noAmbientOutput());
+
+  assert.equal(
+    spawn.calls.some((c) => c.args[0] === "issue" && c.args[1] === "comment"),
+    false,
   );
 });
 

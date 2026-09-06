@@ -107,6 +107,31 @@ const MARKER_RE = /^<!-- sdk-watch: group=(.+?); target=(.+?) -->/;
 const SUPERSEDED_MARKER_RE = /^<!-- sdk-watch:superseded-by (.+?) -->/;
 
 /**
+ * The marker the workflow's posting step puts on the analysis comment.
+ *
+ * ⚠️ **This string also appears in `.github/workflows/sdk-watch.yml`** and the
+ * two must agree, or every issue looks permanently unanalyzed and the sweep
+ * re-queues it every night. `sdk-watch.test.mjs` asserts the workflow file
+ * contains this exact constant, so the pair cannot drift silently.
+ *
+ * It exists because "an issue for this target exists" and "that issue has been
+ * analyzed" are different claims, and the sweep used to equate them: a transient
+ * failure in the `analyze` job left an issue nothing would ever revisit, and the
+ * next night reported a green no-op over it (Copilot).
+ */
+export const ANALYSIS_MARKER = "<!-- sdk-watch:analysis -->";
+
+/**
+ * Has this issue already been given its automated analysis?
+ *
+ * @param {string[]} commentBodies
+ * @returns {boolean}
+ */
+export function hasAnalysis(commentBodies) {
+  return commentBodies.some((body) => (body ?? "").startsWith(ANALYSIS_MARKER));
+}
+
+/**
  * The issue body's first line: the idempotency key.
  *
  * Keyed on `(group, target)` rather than group alone, so a second release
@@ -540,56 +565,81 @@ export function main(
   try {
     for (const state of states) {
       const forGroup = existing.filter((i) => i.marker.key === state.group.key);
-      if (forGroup.some((i) => i.marker.target === state.target)) {
-        console.log(
-          `sdk-watch: ${state.group.label} ${state.target} already has an issue — no-op`,
-        );
-        continue;
-      }
+      const match = forGroup.find((i) => i.marker.target === state.target);
 
       try {
-        const milestone = currentMilestone(repo, spawn);
-        const created = createIssue(repo, state, milestone, spawn);
+        /** Queue an issue number for the analysis job. */
+        const record = (issue) =>
+          filed.push({
+            issue,
+            label: state.group.label,
+            repo: state.group.repo,
+            from: state.rows.find((r) => r.behind).installed,
+            to: state.target,
+          });
 
-        // Recorded before any further fallible work, for the reason above.
-        filed.push({
-          issue: created.number,
-          label: state.group.label,
-          repo: state.group.repo,
-          from: state.rows.find((r) => r.behind).installed,
-          to: state.target,
-        });
-        console.log(`sdk-watch: filed ${created.url}`);
+        // ⚠️ An existing issue for this target used to `continue` outright,
+        // which quietly made two unrelated claims one claim (Copilot). It meant
+        // the sweep could never retry a failed analysis, and it meant a
+        // supersession note that failed to post was never posted, because the
+        // retry matched here and skipped the reconciliation below. So the
+        // existing issue is adopted rather than skipped, and both pieces of
+        // follow-up work run against its number exactly as they would a new one.
+        let number;
+        if (match) {
+          number = match.number;
+        } else {
+          const milestone = currentMilestone(repo, spawn);
+          const created = createIssue(repo, state, milestone, spawn);
+          number = created.number;
+          record(number); // Before further fallible work, for the reason above.
+          console.log(`sdk-watch: filed ${created.url}`);
+          if (!milestone) {
+            // Unmilestoned means unapproved, so triage sweeps it into
+            // `Incoming` — NOT `Todo`, which asserts a maintainer signed off.
+            console.log(
+              "sdk-watch: no dated open milestone — filed unmilestoned, triage will place it in Incoming",
+            );
+          }
+        }
 
-        if (!milestone) {
-          // Unmilestoned means unapproved, so triage sweeps it into `Incoming`
-          // — NOT `Todo`, which asserts a maintainer signed off.
-          console.log(
-            "sdk-watch: no dated open milestone — filed unmilestoned, triage will place it in Incoming",
-          );
+        // "An issue exists" is not "the issue was analyzed". The `analyze` job
+        // can fail or time out, and equating the two left the promised analysis
+        // silently never retried. A newly created issue has no comments, so
+        // this only costs a lookup on the adopted path.
+        if (match) {
+          if (hasAnalysis(issueComments(repo, number, spawn))) {
+            console.log(
+              `sdk-watch: ${state.group.label} ${state.target} already has an issue and an analysis — no-op`,
+            );
+          } else {
+            record(number);
+            console.log(
+              `sdk-watch: #${number} has no analysis comment — re-queuing it for the analyze job`,
+            );
+          }
         }
 
         // Any OPEN issue of this group on an older target is now stale. Note it
-        // there rather than closing it; see `buildSupersededComment`.
+        // there rather than closing it; see `buildSupersededComment`. Runs on
+        // the adopted path too, so a comment that failed to post gets another
+        // chance — the marker check below is what keeps that from duplicating.
         for (const stale of forGroup) {
+          if (stale.number === number) continue;
           if (stale.state !== "OPEN") continue;
           if (!semver.lt(stale.marker.target, state.target)) continue;
           const announced = issueComments(repo, stale.number, spawn).some(
-            (body) => parseSupersededMarker(body) === String(created.number),
+            (body) => parseSupersededMarker(body) === String(number),
           );
           if (announced) continue;
           comment(
             repo,
             stale.number,
-            buildSupersededComment(
-              created.number,
-              state.target,
-              stale.marker.target,
-            ),
+            buildSupersededComment(number, state.target, stale.marker.target),
             spawn,
           );
           console.log(
-            `sdk-watch: noted #${created.number} supersedes #${stale.number}`,
+            `sdk-watch: noted #${number} supersedes #${stale.number}`,
           );
         }
       } catch (error) {
