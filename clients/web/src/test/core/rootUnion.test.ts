@@ -997,6 +997,24 @@ describe("resolveRootUnion", () => {
       ).toBe(true);
     });
 
+    it("still counts a union whose every branch is now declined", () => {
+      // The #2224 check makes such a union render nothing, which must not be
+      // read as "this tool takes no arguments" — an App tool carrying one would
+      // then be auto-invoked with `{}` rather than asked about.
+      expect(
+        declaresAnyFields({
+          type: "object",
+          oneOf: [
+            {
+              type: "object",
+              properties: { kind: { const: "a" } },
+              required: ["kind", "payload"],
+            },
+          ],
+        }),
+      ).toBe(true);
+    });
+
     it("counts a required name a schema never declares", () => {
       // Legal, and the tool plainly takes an argument — an App tool shaped this
       // way must ask rather than being auto-invoked with `{}`.
