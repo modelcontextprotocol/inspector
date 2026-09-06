@@ -248,14 +248,25 @@ work](../../../AGENTS.md#waiting-on-long-running-work) — and exactly where the
 poll belongs when one is needed.
 
 ```sh
-until [ "$(gh api --paginate repos/modelcontextprotocol/inspector/pulls/<N>/reviews \
-  --jq '[.[]|select(.user.login|startswith("copilot-pull-request-reviewer"))]|length' \
-  | awk '{s+=$1} END{print s+0}')" -ge "$EXPECTED" ]; do sleep 20; done
+EXPECTED=1   # the review COUNT you are waiting to reach — see below
+while :; do
+  # Capture first, so a gh failure stops the loop instead of being swallowed by
+  # a pipeline. --slurp cannot be combined with --jq, hence the separate jq.
+  raw=$(gh api --paginate --slurp \
+    repos/modelcontextprotocol/inspector/pulls/<N>/reviews) || {
+      echo "gh api failed ($?) — not retrying blind" >&2; exit 1; }
+  n=$(jq '[.[][] | select(.user.login | startswith("copilot-pull-request-reviewer"))] | length' <<<"$raw")
+  [ "$n" -ge "$EXPECTED" ] && break
+  sleep 30
+done
 ```
 
-`EXPECTED` is the review **count** you are waiting to reach, not `1` — on round
-two the first round's review is still there, so an existence check returns
-immediately. Give the inline comments a further ~60s after the body lands; they
+`EXPECTED` is the review **count** you are waiting to reach, so it is `1` only
+on the first round — on round two the first round's review is still there and an
+existence check returns immediately. `sleep 30` is the remote-API floor the rule
+above sets. The loop **exits on a `gh` failure rather than retrying**: piping the
+count straight into `awk` would make an auth or API error read as a count of
+`0`, and the job would then wait forever on a poll that can never succeed. Give the inline comments a further ~60s after the body lands; they
 arrive late (see step 8).
 
 ## 8. Respond to the review
