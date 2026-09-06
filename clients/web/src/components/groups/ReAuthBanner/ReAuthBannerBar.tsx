@@ -1,7 +1,10 @@
 import { Paper } from "@mantine/core";
 
 // The re-auth popup. A `Paper` so every static style is a prop; the stacking
-// order goes through `styles.root` since Mantine has no `z` prop.
+// order and the centering offset go through the `reauth` variant in
+// `theme/Paper.ts`, since Mantine exposes neither `transform` nor `zIndex` as a
+// style prop and flat CSS belongs in the theme layer rather than in inline
+// `styles` (#2218).
 //
 // Floats rather than spanning the top as a sticky full-bleed bar. The bar cost
 // the whole view a band of vertical space for what is a notification about one
@@ -24,15 +27,21 @@ import { Paper } from "@mantine/core";
 // "Authorize again" also clears the stale OAuth state, which a plain reconnect
 // does not do. So it floats above the page and leaves it usable.
 //
-// `transform` goes through `styles.root` for the same reason `zIndex` does:
-// Mantine exposes neither as a style prop.
+// The width is CAPPED at 420, not fixed at it. Because the banner is centered
+// by `left: 50%` plus a -50% translate, a fixed width wider than the viewport
+// overflows BOTH edges equally — clipping the close button on one side and
+// "Authorize again" on the other, which are the only two controls it has. That
+// is reachable on a narrow desktop window, not just a phone, since the element
+// is positioned against the viewport rather than a panel. `maw` caps it while
+// `w` keeps a 1rem gutter on each side so the shadow and radius still read.
 export const ReAuthBannerBar = Paper.withProps({
+  variant: "reauth",
   pos: "fixed",
   top: "50%",
   left: "50%",
-  w: 420,
+  w: "calc(100vw - 2rem)",
+  maw: 420,
   bg: "var(--mantine-color-body)",
   shadow: "xl",
   radius: "md",
-  styles: { root: { transform: "translate(-50%, -50%)", zIndex: 200 } },
 });
