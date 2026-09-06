@@ -15,10 +15,12 @@
 #    issue per upstream that is behind. It runs every night and is a complete
 #    no-op when nothing moved.
 #  * `analyze` is the "have Opus read the SDK changes" half of #1063. It runs
-#    ONLY over issues the sweep just created — never over one that already
-#    existed — which is what keeps it to exactly one analysis per SDK release
-#    rather than a near-identical comment every night for as long as the issue
-#    stays open.
+#    over the issues the sweep just created, plus any OPEN issue it already
+#    filed that still carries no analysis comment — the retry path for an
+#    `analyze` job that failed or timed out. What it never does is re-analyze an
+#    issue that already has one, which is what keeps it to a single analysis per
+#    SDK release rather than a near-identical comment every night for as long as
+#    the issue stays open.
 #
 # ⚠️ Why this files an issue and not a PR, and why it is NOT the Copilot coding
 # agent that #1063's comment sketched. Assigning `copilot-swe-agent` is possible
@@ -201,6 +203,25 @@ jobs:
           # What remains is read-only and takes no attacker-chosen file path.
           # `--disallowedTools` names the write tools anyway, so a later edit
           # that widens the whitelist cannot silently restore them.
+          #
+          # ⚠️ **A RESIDUAL EXFILTRATION CHANNEL REMAINS, AND IT IS NOT CLOSED
+          # HERE.** `claude-code-action` copies the action's environment into the
+          # model's, so `ANTHROPIC_API_KEY` and the job's `GITHUB_TOKEN` are
+          # readable by a `Read` this job genuinely needs — and `analysis` is
+          # model-controlled text this workflow publishes. An injection can
+          # therefore still read a credential and encode it in the write-up
+          # (Copilot, round 3). Two things narrow it and neither is a boundary:
+          # the posting step refuses any analysis containing a credential
+          # VERBATIM, and the job's own token is `contents: read` and dies with
+          # the job. `ANTHROPIC_API_KEY` is the asset that outlives the run.
+          #
+          # The real fix is to stop putting a long-lived key in the environment
+          # at all: this action supports workload identity federation
+          # (`anthropic_federation_rule_id` + `anthropic_organization_id` with
+          # `id-token: write`), which exchanges the workflow's OIDC token for a
+          # short-lived credential. That needs an Anthropic-side federation rule
+          # and org UUID that do not exist yet, so it cannot land in this change.
+          # Tracked separately — do not treat the scan below as having settled it.
           claude_args: |
             --model claude-opus-5
             --max-turns 40
@@ -226,12 +247,31 @@ jobs:
           ISSUE: ${{ matrix.target.issue }}
           LABEL: ${{ matrix.target.label }}
           TO: ${{ matrix.target.to }}
+          # Read back ONLY to refuse publishing them; see the scan below.
+          SCAN_ANTHROPIC: ${{ secrets.ANTHROPIC_API_KEY }}
+          SCAN_GITHUB: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           if [ -z "${ANALYSIS//[[:space:]]/}" ]; then
             echo "sdk-watch: the analysis came back empty — posting nothing" >&2
             exit 1
           fi
+          # ⚠️ A BACKSTOP, NOT A BOUNDARY — read the security note above the
+          # analysis step before relying on it. `analysis` is model-controlled
+          # text and the model can still read files, so a verbatim credential in
+          # it is the one exfiltration shape that is cheap to refuse outright.
+          # Matched with shell pattern matching rather than `grep` so no secret
+          # ever reaches an argv that `ps` could show.
+          for scanned in "$SCAN_ANTHROPIC" "$SCAN_GITHUB"; do
+            if [ -n "$scanned" ]; then
+              case "$ANALYSIS" in
+                *"$scanned"*)
+                  echo "sdk-watch: the analysis contains a credential verbatim — refusing to post" >&2
+                  exit 1
+                  ;;
+              esac
+            fi
+          done
           printf '%s\n\n## Automated review of %s %s\n\n%s\n\n---\n\n%s\n' \
             '<!-- sdk-watch:analysis -->' \
             "$LABEL" "$TO" "$ANALYSIS" \

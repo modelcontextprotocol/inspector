@@ -366,10 +366,15 @@ export function pickMilestone(milestones) {
 /**
  * The `$GITHUB_OUTPUT` line naming what was filed this run.
  *
- * Only NEWLY CREATED issues appear here. That is what keeps the analysis job
- * downstream to exactly one run per SDK version: an issue that already existed
- * has already been analyzed, and re-running Opus against it nightly would add a
- * near-identical comment every single night.
+ * What appears here is every issue this run created, plus any OPEN issue it had
+ * already filed that still carries no analysis comment. The second half is the
+ * retry path for an `analyze` job that failed or timed out.
+ *
+ * What is deliberately absent is an issue that already HAS its analysis — that
+ * is what keeps the job downstream to a single run per SDK version rather than a
+ * near-identical comment every night for as long as the issue stays open. A
+ * CLOSED issue is absent too, for the stronger reason that closing it was a
+ * decision and re-analyzing it nightly would re-argue that decision.
  *
  * @param {Array<{issue: number, label: string, repo: string, from: string, to: string}>} filed
  * @returns {string}
@@ -450,20 +455,37 @@ function currentMilestone(repo, spawn) {
   return pickMilestone(JSON.parse(result.stdout || "[]"));
 }
 
+/**
+ * Every comment body on an issue, as WHOLE strings.
+ *
+ * ⚠️ This used to be `--jq '.[].body'` split on newlines, which destroyed the
+ * comment boundaries: a body is multi-line, so every LINE became its own array
+ * element. Both callers then read a line as if it were a comment, and both
+ * checks are `startsWith` — so a maintainer who quoted `<!-- sdk-watch:analysis
+ * -->` at the start of any line of any comment would have permanently convinced
+ * the sweep that issue was analyzed, and the retry would never fire again
+ * (Copilot). The same held for the supersession marker.
+ *
+ * `--slurp` returns one array per page, hence the `flat()`. It cannot be
+ * combined with `--jq` — `gh` rejects the pair outright — which is exactly why
+ * the parsing moved here.
+ *
+ * @returns {string[]} one entry per comment
+ */
 function issueComments(repo, number, spawn) {
   const result = gh(spawn, [
     "api",
     "--paginate",
+    "--slurp",
     `repos/${repo}/issues/${number}/comments`,
-    "--jq",
-    ".[].body",
   ]);
   if (result.status !== 0) {
     throw new Error(
       `comment lookup for #${number} failed: ${(result.stderr ?? "").trim()}`,
     );
   }
-  return (result.stdout ?? "").split("\n").filter(Boolean);
+  const pages = JSON.parse(result.stdout || "[]");
+  return pages.flat().map((c) => c?.body ?? "");
 }
 
 function comment(repo, number, body, spawn) {
@@ -607,7 +629,15 @@ export function main(
         // can fail or time out, and equating the two left the promised analysis
         // silently never retried. A newly created issue has no comments, so
         // this only costs a lookup on the adopted path.
-        if (match) {
+        //
+        // ⚠️ OPEN only. `sweepIssues` deliberately reads `--state all`, because a
+        // CLOSED issue must keep suppressing its target — that is how a
+        // maintainer's "not planned" survives instead of being re-argued nightly.
+        // Re-queuing on state alone would have undone exactly that: the closed
+        // issue has no analysis marker, so it would be handed to the analyze job
+        // and receive a fresh automated comment every night (Copilot). Suppress
+        // and re-queue are different questions about the same match.
+        if (match && match.state === "OPEN") {
           if (hasAnalysis(issueComments(repo, number, spawn))) {
             console.log(
               `sdk-watch: ${state.group.label} ${state.target} already has an issue and an analysis — no-op`,
@@ -618,6 +648,10 @@ export function main(
               `sdk-watch: #${number} has no analysis comment — re-queuing it for the analyze job`,
             );
           }
+        } else if (match) {
+          console.log(
+            `sdk-watch: ${state.group.label} ${state.target} was filed as #${number} and closed — leaving it alone`,
+          );
         }
 
         // Any OPEN issue of this group on an older target is now stale. Note it

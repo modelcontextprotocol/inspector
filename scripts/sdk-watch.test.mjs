@@ -458,7 +458,14 @@ function fakeSpawn({
       const path = args.find((a) => String(a).includes("/comments")) ?? "";
       const number = Number(/issues\/(\d+)\/comments/.exec(path)?.[1]);
       const bodies = commentsByIssue[number] ?? comments;
-      return { status: 0, stdout: bodies.join("\n"), stderr: "" };
+      // Shaped as `--paginate --slurp` really answers: an array of PAGES, each
+      // an array of comment objects. Faking it as newline-joined text was what
+      // let the boundary-destroying `--jq '.[].body'` split look correct.
+      return {
+        status: 0,
+        stdout: JSON.stringify([bodies.map((body) => ({ body }))]),
+        stderr: "",
+      };
     }
     if (args[0] === "api")
       return { status: 0, stdout: JSON.stringify(milestones), stderr: "" };
@@ -670,6 +677,57 @@ test("main retries a supersession note that failed to post on an earlier run", (
   assert.ok(posted, "the missing supersession note must be posted on retry");
   assert.equal(posted.args[2], "400");
   assert.ok(posted.args[posted.args.indexOf("--body") + 1].includes("#500"));
+});
+
+test("main keeps a multi-line comment whole rather than splitting it into lines", () => {
+  // ⚠️ The comment lookup used to be `--jq '.[].body'` split on newlines, so
+  // every LINE of every comment became its own entry. Both marker checks are
+  // `startsWith`, so a maintainer quoting the analysis marker at the start of
+  // any line would have convinced the sweep this issue was analyzed — forever,
+  // since nothing would ever re-queue it (Copilot).
+  const spawn = fakeSpawn({
+    latest: latestAt(SDK, "2.1.0"),
+    issues: [existingIssue(400, "2.1.0")],
+    commentsByIssue: {
+      400: [
+        `A maintainer writes:\n${ANALYSIS_MARKER}\nis the marker the sweep looks for.`,
+      ],
+    },
+  });
+  const output = outputFile();
+  writeFileSync(output, "");
+
+  main("o/r", spawn, { readFile: fakeReadFile(), output });
+
+  assert.deepEqual(
+    readFiled(output).map((f) => f.issue),
+    [400],
+    "a quoted marker on a later line must not pass as the sweep's own comment",
+  );
+});
+
+test("main does not re-queue a CLOSED issue that has no analysis", () => {
+  // Closing the issue was a decision. `sweepIssues` reads `--state all` so that
+  // decision keeps suppressing the target — but the closed issue naturally has
+  // no analysis marker, so re-queuing on the marker alone would have handed it
+  // to the analyze job and posted a fresh comment every night, re-arguing the
+  // decision the `--state all` read exists to respect (Copilot).
+  const spawn = fakeSpawn({
+    latest: latestAt(SDK, "2.1.0"),
+    issues: [{ ...existingIssue(400, "2.1.0"), state: "CLOSED" }],
+    commentsByIssue: { 400: [] },
+  });
+  const output = outputFile();
+  writeFileSync(output, "");
+
+  main("o/r", spawn, { readFile: fakeReadFile(), output });
+
+  assert.deepEqual(readFiled(output), []);
+  assert.equal(
+    spawn.calls.some((c) => c.args[0] === "issue" && c.args[1] === "create"),
+    false,
+    "and it must still suppress creation",
+  );
 });
 
 test("main does not treat the target issue as superseding itself", () => {
