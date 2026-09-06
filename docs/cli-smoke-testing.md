@@ -94,17 +94,28 @@ npx @modelcontextprotocol/inspector --cli node build/index.js \
 # → {"result":{"tools":[{"name":"echo","description":"…","inputSchema":{…}}, …]}}
 ```
 
-The envelope is `{ "result": … }`, plus a sibling `"appInfo"` key when the
-result belongs to an [MCP App](./mcp-app-review.md) tool. That is the whole
-contract — everything else the CLI prints in `text` mode is presentation.
+The envelope always carries `"result"`, and up to two optional siblings:
 
-Two things worth knowing before you build a pipeline on it:
+| Key | Present when |
+| --- | --- |
+| `result` | Always. |
+| `appInfo` | The result belongs to an [MCP App](./mcp-app-review.md) tool. |
+| `schemaFindings` | `--strict` is passed to `tools/list` **and** there is at least one portability finding. |
+
+Parse the envelope by key rather than assuming a fixed shape — a consumer that
+rejects unknown keys, or that reads `.result` and stops, will silently drop the
+`schemaFindings` diagnostics described in [§7](#7-negative-assertions).
+
+Three more things worth knowing before you build a pipeline on it:
 
 - **The default is `text`**, which pretty-prints for a human. Pass `--format
   json` on every command a script parses.
 - **`tools/list --app-info` always emits NDJSON** (one app-info object per
   line) regardless of `--format`. Only the single-result paths get the
-  `{result[, appInfo]}` envelope.
+  envelope above.
+- **stdout is the result; stderr is diagnostics.** Never merge them (`2>&1`)
+  into something you then pipe to `jq` — the one place this guide does merge
+  them is the secret scan in §7, which greps rather than parses.
 
 ## 3. Assert a tool exists
 
@@ -189,17 +200,27 @@ reason without scraping prose:
 
 ```bash
 err=$(mktemp)
+status=0
 npx @modelcontextprotocol/inspector --cli \
   --transport http --server-url https://example.com/mcp \
-  --method tools/list --format json 2>"$err" || {
-    tail -1 "$err" | jq -r '.error.code'   # → unreachable | auth_required | …
-  }
+  --method tools/list --format json 2>"$err" || status=$?
+
+if [ "$status" -ne 0 ]; then
+  code=$(tail -1 "$err" | jq -r '.error.code')   # → unreachable | auth_required | …
+  echo "::error::MCP smoke failed: $code"
+fi
 rm -f "$err"
+exit "$status"
 ```
 
-Take the **last** stderr line, not the whole stream: warnings and OAuth notices
-are printed there too, and only the envelope is guaranteed to be one line at the
-end.
+⚠️ **Do not put the recovery in a `|| { … }` group and stop there.** The group's
+own status becomes the list's status, so a successful `jq` turns a failed run
+into a **green** one — the exact failure this guide warns about twice elsewhere.
+Capture into `status`, report, then exit with it.
+
+Take the **last** stderr line, not the whole stream: the human-readable error,
+`--strict` findings and OAuth notices are printed there too, and only the
+envelope is guaranteed to be one line at the end.
 
 In a script under `set -e`, capture the status rather than letting the shell
 abort on the first non-zero exit — you usually want to report *which* class
@@ -272,12 +293,25 @@ Related flags for the same problem:
 
 **Isolate the store per job.** The CLI resolves its OAuth state from
 `MCP_INSPECTOR_OAUTH_STATE_PATH` → `<MCP_STORAGE_DIR>/oauth.json` →
-`~/.mcp-inspector/storage/oauth.json`. Pointing `MCP_STORAGE_DIR` at a scratch
-directory keeps a smoke run from reading — or rotating — a developer's real
-tokens:
+`~/.mcp-inspector/storage/oauth.json`. Pointing it at a scratch directory keeps a
+smoke run from reading — or rotating — a developer's real tokens.
+
+⚠️ **`MCP_STORAGE_DIR` alone is not isolation.** `MCP_INSPECTOR_OAUTH_STATE_PATH`
+is checked **first**, so an inherited value silently wins and the run reaches the
+real token file anyway. Set both, in that order of precedence:
 
 ```bash
 export MCP_STORAGE_DIR="$(mktemp -d)"
+export MCP_INSPECTOR_OAUTH_STATE_PATH="$MCP_STORAGE_DIR/oauth.json"
+```
+
+This matters most where the variable is least visible — a developer's shell, a
+runner with org-wide env defaults, a container image that sets it. Confirm with
+`--list-stored-auth`, which prints the `oauthStatePath` it actually resolved:
+
+```bash
+npx @modelcontextprotocol/inspector --cli --server-url "$SERVER_URL" --list-stored-auth
+# → {"oauthStatePath":"/tmp/tmp.XXXX/oauth.json","storedServerUrls":[]}
 ```
 
 For a server that genuinely needs a credential in CI, prefer a static header
@@ -336,17 +370,44 @@ Keep the pattern list to shapes you can justify; a regex tuned for a low false
 positive rate is one people keep, and one that cries wolf is one they disable.
 
 **Check schema portability.** A tool schema can be legal JSON Schema and still
-be refused by the client your server is meant to serve. `--strict` reports those
-constructs — path, issue, and a concrete fix — on **stderr**, and exits `6` when
-any is error-severity:
+be refused by the client your server is meant to serve. `--strict` names those
+constructs — path, issue, and a concrete fix — and exits `6` when any is
+error-severity:
 
 ```bash
 npx @modelcontextprotocol/inspector --cli node build/index.js \
   --method tools/list --strict
 ```
 
-Worth running in CI on any server whose tool schemas are generated, where a
-dependency bump can change the emitted shape without anyone editing a schema.
+**Where the findings land depends on `--format`, and a JSON pipeline should read
+stdout:**
+
+| | Human report on stderr | `schemaFindings` on stdout |
+| --- | --- | --- |
+| `--strict` (default `text`) | ✅ | — |
+| `--strict --format json` | ✅ (still printed) | ✅ |
+
+So with `--format json` you get the findings **both** ways — the structured copy
+folded into the same envelope as the result, and the human report on stderr — and
+on a non-zero exit stderr additionally ends with the one-line `ErrorEnvelope`.
+Read the structured copy, not the prose:
+
+```bash
+npx @modelcontextprotocol/inspector --cli node build/index.js \
+  --method tools/list --strict --format json \
+  | jq -e '[.schemaFindings[]?.findings[]? | select(.severity=="error")] | length == 0' > /dev/null
+```
+
+`schemaFindings` is grouped per tool — `[{toolName, findings:[{rule, severity,
+schema, path, issue, suggestion}]}]` — so that filter reaches across every tool
+in one pass. Note the `?` operators: the key is **absent** when there are no
+findings, and a plain `.schemaFindings[]` would error on that clean run rather
+than pass it.
+
+Only error-severity findings fail the run; warnings are reported and do not
+change the exit code. Worth running in CI on any server whose tool schemas are
+generated, where a dependency bump can change the emitted shape without anyone
+editing a schema.
 
 ## 8. Putting it together
 
@@ -359,7 +420,10 @@ fails the job on the first assertion that does not hold:
 set -euo pipefail
 
 SERVER_URL="${SERVER_URL:?set SERVER_URL}"
+# Both, in precedence order — MCP_INSPECTOR_OAUTH_STATE_PATH is checked first,
+# so an inherited one would defeat the scratch directory. See §6.
 export MCP_STORAGE_DIR="$(mktemp -d)"
+export MCP_INSPECTOR_OAUTH_STATE_PATH="$MCP_STORAGE_DIR/oauth.json"
 trap 'rm -rf "$MCP_STORAGE_DIR"' EXIT
 
 mcp() {
