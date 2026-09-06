@@ -279,11 +279,34 @@ arrive late (see step 8).
 
 - It is **not** necessary to implement every suggestion. Implementing one a
   different way, or declining it with a reason, is fine.
-- After making the changes, **respond to each comment** with what was done, or
-  why it was ignored.
-- ⚠️ **Inline replies go hidden once the fix is pushed** (the threads become
-  outdated), so **mirror each round at PR level** as a summary comment, and always
-  read the "Suppressed comments" block.
+- After making the changes, **reply to each review comment in its own thread**
+  with what was done, or why it was declined. That inline reply is the primary
+  response and it is not optional — each review comment is a discussion thread
+  with its own resolve state, and only a reply _in_ the thread can resolve it or
+  show a reviewer reading it that the finding was answered.
+
+  ```sh
+  # Fetch the round's comments by REVIEW id — the unpaginated /reviews listing
+  # hides later rounds behind your own replies.
+  gh api repos/modelcontextprotocol/inspector/pulls/<N>/reviews/<REVIEW_ID>/comments \
+    --jq '.[]|"\(.id) \(.path):\(.line)\n\(.body)"'
+
+  # Reply into one thread, keyed by the comment id from above.
+  gh api repos/modelcontextprotocol/inspector/pulls/<N>/comments/<COMMENT_ID>/replies \
+    -f body='Fixed in <sha> — …'
+  ```
+
+- ⚠️ **Then mirror the round at PR level, in addition — never instead.** Inline
+  replies go hidden once the fix is pushed, because the threads become outdated,
+  so a summary comment is what keeps the round readable afterwards. It does
+  **not** discharge the per-comment replies: a rollup bullet cannot be connected
+  back to the thread it answers, so the thread stays open with a finding and
+  silence in it, and by round three matching bullets to comments is
+  reconstruction rather than reading.
+- ⚠️ Always read the **"Suppressed comments"** block in the review body. Those
+  findings have no comment id, so they have no thread to reply into — the
+  PR-level mirror is the only place they can be answered, and it is the one case
+  where answering there is the whole response.
 - ⚠️ **Copilot's inline comments lag its review body.** The body's "generated N
   comments" count lands first; fetch by recency and reconcile. Repeated
   re-review silence means the session ended.

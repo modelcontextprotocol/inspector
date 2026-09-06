@@ -372,6 +372,7 @@ When asked to respond to a code review of a PR:
 - it is not necessary to implement all suggestions
 - you are free to implement suggestions in a different way, or to ignore one if there is a good reason
 - after making the changes, respond to each review comment with what was done (or why it was ignored)
+- **that response goes in the review comment's own thread — a rollup comment does not discharge it.** Each review comment is a discussion thread with its own resolve state, so a bullet posted elsewhere on the page cannot be connected back to the thread it answers: the thread stays open showing a finding and no reply, and the PR reads as though the review were ignored. Reply inline first, per comment; then post the PR-level summary **in addition**, because inline replies go hidden once the fix is pushed. A finding in the review's "Suppressed comments" block has no thread to reply into, so the summary is the only place it can be answered — that is the one exception. The `gh` calls are in the `pr-flow` skill, step 8.
 
 ## Always test new or modified code
 
