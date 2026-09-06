@@ -29,8 +29,7 @@ const URI_SUFFIX_MIME: ReadonlyArray<readonly [string, string]> = [
  * unrecognised suffix so callers can fall through to their own default.
  */
 export function inferMimeFromUri(uri: string): string | undefined {
-  const path = uri.split("?")[0].split("#")[0];
-  const lower = decodePathSafely(path).toLowerCase();
+  const lower = decodePercentTriplets(pathOf(uri)).toLowerCase();
   for (const [suffix, mime] of URI_SUFFIX_MIME) {
     if (lower.endsWith(suffix)) return mime;
   }
@@ -38,24 +37,56 @@ export function inferMimeFromUri(uri: string): string | undefined {
 }
 
 /**
- * Percent-decode a URI path for matching, falling back to the raw path.
+ * The **path** component of a URI, not the whole string.
+ *
+ * Stripping only the query and fragment left the authority in, so a host that
+ * happened to end in a mapped suffix was read as a filename:
+ * `https://documentation.md` has a pathname of `/` and no extension at all, yet
+ * matched `.md` and routed a root resource into the markdown renderer.
+ *
+ * `new URL` handles this for every hierarchical URI including the non-special
+ * schemes SEP-2640 allows (`skill://a/SKILL.md` → `/SKILL.md`). It throws on
+ * anything it cannot parse — a bare relative name like `notes.md`, say — so
+ * that case keeps the old string handling.
+ */
+function pathOf(uri: string): string {
+  try {
+    return new URL(uri).pathname;
+  } catch {
+    return uri.split("?")[0].split("#")[0];
+  }
+}
+
+/**
+ * Percent-decode a path for matching, one escape run at a time.
  *
  * A URI may percent-encode unreserved characters, so `reference%2Emd` names the
  * same file as `reference.md` — and `skillUriIdentity` in `core/mcp/skills.ts`
- * already treats those spellings as equivalent. Matching the raw string here
- * disagreed with that: an encoded `.md` fell through to no MIME at all, so the
- * markdown renderer never engaged and the frontmatter was never split.
+ * already treats those spellings as equivalent.
  *
- * `decodeURIComponent` throws on a malformed escape (`%zz`, a lone `%`), which
- * a server can certainly send; a MIME *guess* is the wrong place to raise, so a
- * bad sequence simply falls back to matching the raw path.
+ * Decoding the path in one `decodeURIComponent` call was not enough. That
+ * throws on a malformed escape (`%zz`) *and* on a syntactically valid octet
+ * that is not valid UTF-8 (`%FF`), and a single such octet anywhere in the path
+ * then defeated decoding for the whole string — `skill://a/%FF/reference%2Emd`
+ * is a perfectly acceptable URI whose `%2E` would never be seen.
+ *
+ * So each run of escapes is decoded independently, and a run that cannot be
+ * decoded as UTF-8 falls back to decoding its **ASCII** octets individually.
+ * That is enough for suffix matching, where every character that matters is
+ * ASCII, and it leaves a byte it cannot interpret untouched rather than
+ * guessing.
  */
-function decodePathSafely(path: string): string {
-  try {
-    return decodeURIComponent(path);
-  } catch {
-    return path;
-  }
+function decodePercentTriplets(path: string): string {
+  return path.replace(/(?:%[0-9A-Fa-f]{2})+/g, (run) => {
+    try {
+      return decodeURIComponent(run);
+    } catch {
+      return run.replace(/%([0-9A-Fa-f]{2})/g, (raw, hex: string) => {
+        const code = Number.parseInt(hex, 16);
+        return code < 0x80 ? String.fromCharCode(code) : raw;
+      });
+    }
+  });
 }
 
 /**

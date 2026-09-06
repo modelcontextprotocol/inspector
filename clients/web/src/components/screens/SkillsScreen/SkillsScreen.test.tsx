@@ -306,6 +306,62 @@ describe("SkillsScreen", () => {
     expect(badgeStyle(/1 mismatch\(es\)/)).toContain("red");
   });
 
+  it("a stale Verify all batch does not reopen Conformance on another skill", async () => {
+    // `verifyRow` is called once per row by every "Verify all" worker as it
+    // advances, so a batch begun on one skill keeps calling it after the user
+    // has moved on. The keyed writes discard those results, but an open-state
+    // update is not keyed to a manifest — so opening the section from inside
+    // `verifyRow` let obsolete work mutate the current pane (#2263).
+    const user = userEvent.setup();
+    // Held open so the batch is still in flight when the selection changes.
+    const releases: (() => void)[] = [];
+    const onReadSkillFile = vi.fn(
+      () =>
+        new Promise<{ text: string }>((resolve) => {
+          releases.push(() => resolve({ text: SELF_TEXT }));
+        }),
+    );
+    // More rows than the concurrency cap, so workers keep pulling.
+    const manyRows: SkillEntry = {
+      ...CLEAN_SKILL,
+      uri: "skill://many/SKILL.md",
+      frontmatter: { name: "many", description: "Many rows" },
+      resources: Array.from({ length: 10 }, (_, i) => ({
+        uri: i === 0 ? "skill://many/SKILL.md" : `skill://many/f${i}.md`,
+        digest: SELF_DIGEST,
+        size: textToBytes(SELF_TEXT).byteLength,
+      })),
+    };
+    renderWithMantine(
+      <ControlledSkillsScreen
+        skills={[manyRows, CLEAN_SKILL]}
+        onReadSkillFile={onReadSkillFile}
+      />,
+    );
+    await user.click(screen.getByText("many"));
+    await user.click(screen.getByRole("button", { name: /Verify all/ }));
+
+    // Switch to a clean skill and collapse Conformance deliberately.
+    await user.click(
+      within(screen.getByTestId("skills-screen")).getAllByText(
+        "data-analysis",
+      )[0],
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: /Conformance/ }),
+      ).toHaveAttribute("aria-expanded", "false"),
+    );
+
+    // Let the abandoned batch's workers advance. They must not reopen it.
+    for (const release of releases) release();
+    await waitFor(() => expect(onReadSkillFile).toHaveBeenCalled());
+    expect(screen.getByRole("button", { name: /Conformance/ })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+  });
+
   it("badges a warning-only entry yellow, not green", async () => {
     // Green reads as "nothing to see", which would hide the only signal the
     // section carries for an entry whose findings are all warnings (#2263).

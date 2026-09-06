@@ -63,6 +63,35 @@ describe("inferMimeFromUri", () => {
     expect(inferMimeFromUri("skill://a/docs%2Fnotes.md")).toBe("text/markdown");
   });
 
+  it("inspects the PATH, not the whole URI", () => {
+    // An authority ending in a mapped suffix is not a filename:
+    // `https://documentation.md` has a pathname of `/` and no extension, and
+    // routing a root resource into the markdown renderer on that basis is
+    // wrong.
+    expect(inferMimeFromUri("https://documentation.md")).toBeUndefined();
+    expect(inferMimeFromUri("https://documentation.md/")).toBeUndefined();
+    // The same host WITH a real markdown path still resolves.
+    expect(inferMimeFromUri("https://documentation.md/a/readme.md")).toBe(
+      "text/markdown",
+    );
+    // Non-special schemes SEP-2640 allows parse the same way.
+    expect(inferMimeFromUri("skill://data-analysis/SKILL.md")).toBe(
+      "text/markdown",
+    );
+  });
+
+  it("decodes escape runs independently, so one bad octet cannot poison the path", () => {
+    // `%FF` is a syntactically valid triplet that is not valid UTF-8, so a
+    // single `decodeURIComponent` over the whole path throws and abandons the
+    // rest — leaving the `%2E` in a perfectly acceptable URI undecoded.
+    expect(inferMimeFromUri("skill://a/%FF/reference%2Emd")).toBe(
+      "text/markdown",
+    );
+    expect(inferMimeFromUri("skill://a/%FF/report%2Epdf")).toBe(
+      "application/pdf",
+    );
+  });
+
   it("falls back to the raw path on a malformed escape", () => {
     // `decodeURIComponent` throws on `%zz` or a lone `%`, and a server can send
     // either. A MIME guess is the wrong place to raise.

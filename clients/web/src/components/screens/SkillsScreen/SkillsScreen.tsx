@@ -273,6 +273,20 @@ const MonoCaption = Text.withProps({
   variant: "monoCaption",
 });
 
+// The skill's description, clamped.
+//
+// It sits in the pane's FIXED header, beside an accordion whose basis is zero,
+// so its height is subtracted from everything below it. SEP-2640 permits 1,024
+// characters and a non-conforming server can send more — in a narrow or short
+// pane that wraps to enough lines to crowd the sections out entirely, which is
+// the same "server-controlled content sizes the layout" trap `viewerFlex`
+// documents. Three lines is enough to read a real description; the full text
+// stays available through the native `title` tooltip the call site passes.
+const SkillDescription = Text.withProps({
+  size: "sm",
+  lineClamp: 3,
+});
+
 const IssueStack = Stack.withProps({
   gap: "xs",
 });
@@ -685,15 +699,33 @@ export function SkillsScreen({
    * verifying either would update both, and "Verify all" would race two
    * different digest/size declarations into the same slot.
    */
+  /**
+   * Reveal the Conformance section, which auto-collapses for an entry with no
+   * static findings — `tampered-notes` is exactly that: structurally clean,
+   * bytes wrong — so a verdict would otherwise land where nobody can see it.
+   *
+   * Called from the USER gestures that produce a verdict, never from the async
+   * work they start: an open-state update is not keyed to a manifest, so
+   * calling it from a continuation would let stale work mutate the current
+   * pane.
+   */
+  const openConformance = useCallback(() => {
+    setOpenSections((prev) =>
+      prev.includes("conformance") ? prev : [...prev, "conformance"],
+    );
+  }, []);
+
   const verifyRow = useCallback(
     async (index: number, resource: SkillResource, key: string) => {
-      // A mismatch is reported in the Conformance section, which auto-collapses
-      // for an entry with no *static* findings — and `tampered-notes` is
-      // exactly that: structurally clean, bytes wrong. Opening it here is what
-      // stops the verdict landing somewhere the user cannot see it.
-      setOpenSections((prev) =>
-        prev.includes("conformance") ? prev : [...prev, "conformance"],
-      );
+      // NOTE: opening the Conformance section deliberately does NOT happen
+      // here. `verifyRow` is called once per row by every "Verify all" worker
+      // as it advances, so a batch begun on one skill keeps calling it after
+      // the user has switched to another. The keyed writes above discard those
+      // continuations, but an open-state update is not keyed to a manifest and
+      // would have reopened Conformance on whatever skill is now selected.
+      // The section is opened at the two USER entry points instead — the row
+      // button and "Verify all" — where the gesture and the pane agree.
+      //
       // Claimed synchronously, so two verifications of this row are ordered
       // before either read starts.
       const attempt = (nextAttempt.current += 1);
@@ -729,11 +761,11 @@ export function SkillsScreen({
   );
 
   const verifyAll = useCallback(() => {
-    // Same reason as `verifyRow`: the verdicts render in Conformance, which may
-    // be collapsed for a structurally clean entry.
-    setOpenSections((prev) =>
-      prev.includes("conformance") ? prev : [...prev, "conformance"],
-    );
+    // One of the two user entry points that opens Conformance — the verdicts
+    // render there, and it may be collapsed for a structurally clean entry.
+    // Done here rather than in `verifyRow` so a batch that outlives its own
+    // selection cannot reopen the section on a different skill.
+    openConformance();
     // Bounded concurrency, not `Promise.all` over the whole manifest: a
     // conforming skill may declare 512 files, and firing 512 simultaneous
     // `resources/read` calls would bury the transport and the server for no
@@ -768,7 +800,7 @@ export function SkillsScreen({
           return next;
         }),
     );
-  }, [manifest, manifestKey, verifyRow]);
+  }, [manifest, manifestKey, openConformance, verifyRow]);
 
   /**
    * Put one of the skill's files in the viewer. Driven both by the effect that
@@ -840,10 +872,9 @@ export function SkillsScreen({
     // The verdict renders inside the Conformance section, which auto-collapses
     // for a clean entry — and a clean entry is exactly the common case for this
     // button. Without this the answer would land in a collapsed section and the
-    // click would look like it did nothing.
-    setOpenSections((prev) =>
-      prev.includes("conformance") ? prev : [...prev, "conformance"],
-    );
+    // click would look like it did nothing. Called on the gesture, before the
+    // request goes out — see `openConformance`.
+    openConformance();
     // Same shape as the SKILL.md read: a click handler cannot await, the chain
     // ends in its own `catch`, and both arms drop a result whose manifest has
     // been invalidated or whose click has been superseded.
@@ -882,7 +913,7 @@ export function SkillsScreen({
           message: err instanceof Error ? err.message : String(err),
         });
       });
-  }, [manifestKey, onGetSkill, selected]);
+  }, [manifestKey, onGetSkill, openConformance, selected]);
 
   const fetched = fetchedEntry.key === manifestKey ? fetchedEntry : undefined;
   // `invalid` outranks the snapshot comparison: an entry that breaks a
@@ -1123,7 +1154,9 @@ export function SkillsScreen({
             </SectionControlsRow>
 
             {selected.frontmatter.description && (
-              <Text size="sm">{selected.frontmatter.description}</Text>
+              <SkillDescription title={selected.frontmatter.description}>
+                {selected.frontmatter.description}
+              </SkillDescription>
             )}
 
             {/* Inline, not a `.withProps()` subcomponent: `Accordion` is a
@@ -1442,14 +1475,18 @@ export function SkillsScreen({
                                     aria-label={`Verify ${resource.uri}`}
                                     // A click handler cannot await, and
                                     // `verifyRow` owns its own failures — it
-                                    // records them as this row's state.
-                                    onClick={() =>
+                                    // records them as this row's state. The
+                                    // section is opened HERE, on the gesture,
+                                    // not inside `verifyRow` — see
+                                    // `openConformance`.
+                                    onClick={() => {
+                                      openConformance();
                                       void verifyRow(
                                         index,
                                         resource,
                                         manifestKey,
-                                      )
-                                    }
+                                      );
+                                    }}
                                   >
                                     Verify
                                   </RowVerifyButton>
