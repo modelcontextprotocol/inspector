@@ -114,11 +114,13 @@ the web client. A **TUI** change has no viewport and no `fullPage` mode: size
 the terminal so no line wraps or truncates, and go straight to 5b, which applies
 to every image regardless of how it was taken.
 
-**Shoot the web client at 1280×900, full page.** That is the viewport the web
-smokes already use (`scripts/smoke-web-*.mjs`), and adopting it as the standard
-here is what makes a reviewer comparing two PRs compare the same thing — the
-older shots checked into `specification/screenshots/` were taken at assorted
-sizes, which is the problem, not the precedent. Prefer a full-page shot over a
+**Shoot the web client at 1280×900, full page.** It is the one size already
+written down anywhere in the repo — `scripts/smoke-web-tabs.mjs` and
+`scripts/smoke-web-elicitation.mjs` set exactly that viewport (the other two web
+smokes set none) — and adopting it as the standard here is what makes a reviewer
+comparing two PRs compare the same thing. The older shots checked into
+`specification/screenshots/` were taken at assorted sizes, which is the problem,
+not the precedent. Prefer a full-page shot over a
 Playwright `clip` region: a clip sized to one panel cuts off anything placed
 beside it, and two clips of different sizes make a before/after pair hard to
 read as a pair.
