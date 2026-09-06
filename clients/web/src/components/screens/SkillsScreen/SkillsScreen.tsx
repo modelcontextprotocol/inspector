@@ -906,8 +906,23 @@ export function SkillsScreen({
   // with identical content.
   const selectedUri = selected?.uri;
 
+  // Which manifest the automatic read has already been issued for.
+  //
+  // A ref rather than state, because this must not itself cause a render — and
+  // it is what stops the read being issued twice for one selection. React
+  // StrictMode deliberately replays effects (`main.tsx` renders under it), and
+  // `ScreenStage` remounts this screen while the selected-skill UI state
+  // persists, so without a guard both paths fire a second identical
+  // `resources/read`. In an app whose whole purpose is showing people the
+  // protocol traffic, an extra request in the Protocol panel that the user's
+  // own client would never send is worse than a wasted round trip: it is the
+  // Inspector misreporting the conversation.
+  const autoReadKey = useRef<string | null>(null);
+
   useEffect(() => {
     if (selectedUri === undefined) return;
+    if (autoReadKey.current === manifestKey) return;
+    autoReadKey.current = manifestKey;
     showResource(selectedUri, manifestKey);
   }, [manifestKey, selectedUri, showResource]);
 
@@ -1223,6 +1238,14 @@ export function SkillsScreen({
                 focusable element (the Conformance alerts, for instance) is
                 otherwise unscrollable without a pointer. */}
             <Accordion
+              // Keyed by the manifest so a skill change gives every panel a
+              // FRESH scroll container. `scrollTop` lives on the DOM node, not
+              // in React state, so reusing these panels carried one skill's
+              // scroll position into the next — switching between two long
+              // manifests showed the new one part-way down with its first rows
+              // hidden, which reads as missing data rather than as scroll.
+              // `openSections` is controlled, so it survives the remount.
+              key={manifestKey}
               multiple
               variant="skillSections"
               chevron={<RiArrowRightSLine />}

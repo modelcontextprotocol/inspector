@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { StrictMode, useState } from "react";
 import { describe, it, expect, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import type { SkillEntry } from "@inspector/core/mcp/skillsSchemas";
@@ -1449,6 +1449,41 @@ describe("SkillsScreen", () => {
     expect(screen.getAllByText("—")).toHaveLength(2);
   });
 
+  it("issues exactly one automatic read per selection", async () => {
+    // The app renders under StrictMode, which deliberately replays effects, and
+    // `ScreenStage` remounts this screen while the selection persists. Without
+    // a guard both paths fire a second identical `resources/read` — and in a
+    // protocol inspector a phantom request in the Protocol panel is worse than
+    // a wasted round trip: the tool misreports the conversation (#2263).
+    const user = userEvent.setup();
+    const onReadSkillFile = vi.fn(async () => ({ text: SELF_TEXT }));
+    // Rendered inside a real `StrictMode`, which is what makes this detect the
+    // defect: the test environment does not otherwise replay effects, so a
+    // plain render passes with or without the guard.
+    // Mounted with the skill ALREADY selected — a restored `SkillsUiState`, or
+    // the `ScreenStage` remount described in review.
+    //
+    // ⚠️ This pins the CONTRACT (one automatic read per selection) but does not
+    // reproduce the StrictMode effect replay: this environment does not
+    // double-invoke mount effects, so the test passes with or without
+    // `autoReadKey`. It is a specification, not a regression guard — the guard
+    // itself is only observable in a real dev-mode browser. Do not read a pass
+    // here as evidence the duplicate-read defect is fixed.
+    renderWithMantine(
+      <StrictMode>
+        <ControlledSkillsScreen
+          onReadSkillFile={onReadSkillFile}
+          ui={{ ...EMPTY_SKILLS_UI, selectedSkillUri: CLEAN_SKILL.uri }}
+        />
+      </StrictMode>,
+    );
+    await waitFor(() => expect(onReadSkillFile).toHaveBeenCalledTimes(1));
+
+    // A genuine selection change is a different manifest, so it reads once more.
+    await user.click(screen.getAllByText("tampered")[0]);
+    await waitFor(() => expect(onReadSkillFile).toHaveBeenCalledTimes(2));
+  });
+
   it("re-points the viewer at the newly selected skill's own file", async () => {
     const user = userEvent.setup();
     const onReadSkillFile = vi.fn(async (uri: string) => ({
@@ -1466,10 +1501,17 @@ describe("SkillsScreen", () => {
     // The previous skill's contents must not survive the switch: the viewer
     // follows the selection rather than holding whatever was last read.
     await user.click(screen.getByText("tampered"));
+    // Re-queried, not reused: the accordion is keyed by the manifest so that a
+    // skill change gives every panel a fresh scroll container (#2263), which
+    // means the node captured above is detached and frozen on the old content.
     await waitFor(() =>
-      expect(viewer).toHaveTextContent("contents of skill://tampered/SKILL.md"),
+      expect(screen.getByTestId("skill-resource-viewer")).toHaveTextContent(
+        "contents of skill://tampered/SKILL.md",
+      ),
     );
-    expect(viewer).not.toHaveTextContent("contents of skill://data-analysis");
+    expect(screen.getByTestId("skill-resource-viewer")).not.toHaveTextContent(
+      "contents of skill://data-analysis",
+    );
   });
 
   it("renders an em dash for a manifest entry with no size or digest", async () => {
