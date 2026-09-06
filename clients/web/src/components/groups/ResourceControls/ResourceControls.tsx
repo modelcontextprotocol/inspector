@@ -30,6 +30,7 @@ import {
   type ListPaginationControlsProps,
 } from "../../elements/ListPaginationControls/ListPaginationControls";
 import { ListToggle } from "../../elements/ListToggle/ListToggle";
+import { listRowKey } from "../../../utils/listRowKey";
 import { ResourceListItem } from "../ResourceListItem/ResourceListItem";
 import { ResourceSubscribedItem } from "../ResourceSubscribedItem/ResourceSubscribedItem";
 
@@ -79,7 +80,15 @@ export interface ResourceControlsProps {
   subscriptionStreamState?: ResourceSubscriptionStreamState;
   /** Negotiated protocol era; gates the modern subscription stream chrome. */
   protocolEra?: ProtocolEra;
+  /**
+   * The selected resource's `uri` — the wire identity, not a row key. A
+   * duplicated URI therefore highlights every row carrying it, which is
+   * correct here in a way it was not for tools (#2001): a `resources/read`
+   * takes the URI, so the duplicate rows all denote the same resource. Only
+   * the React key needs to distinguish them (#2206).
+   */
   selectedUri?: string;
+  /** As `selectedUri`, keyed on `uriTemplate`. */
   selectedTemplateUri?: string;
   // Search text + accordion open-sections are controlled by the parent (App,
   // via ResourcesScreen) so they persist across tab navigation within a live
@@ -155,24 +164,43 @@ export function ResourceControls({
   onCompactChange,
 }: ResourceControlsProps) {
   const query = searchText.toLowerCase();
-  const filteredResources = resources.filter(
-    (r) =>
-      r.name.toLowerCase().includes(query) ||
-      (r.title?.toLowerCase().includes(query) ?? false) ||
-      r.uri.toLowerCase().includes(query),
-  );
-  const filteredTemplates = templates.filter(
-    (t) =>
-      t.name.toLowerCase().includes(query) ||
-      (t.title?.toLowerCase().includes(query) ?? false) ||
-      t.uriTemplate.toLowerCase().includes(query),
-  );
-  const filteredSubscriptions = subscriptions.filter(
-    (s) =>
-      s.resource.name.toLowerCase().includes(query) ||
-      (s.resource.title?.toLowerCase().includes(query) ?? false) ||
-      s.resource.uri.toLowerCase().includes(query),
-  );
+  // Each row carries a `listRowKey` computed from its position in the
+  // *unfiltered* list, because nothing stops a server returning the same `uri`
+  // or `uriTemplate` twice (#2206). Computed before filtering so the key stays
+  // stable as a search narrows the view.
+  const filteredResources = resources
+    .map((resource, sourceIndex) => ({
+      resource,
+      key: listRowKey(resource.uri, sourceIndex),
+    }))
+    .filter(
+      ({ resource: r }) =>
+        r.name.toLowerCase().includes(query) ||
+        (r.title?.toLowerCase().includes(query) ?? false) ||
+        r.uri.toLowerCase().includes(query),
+    );
+  const filteredTemplates = templates
+    .map((template, sourceIndex) => ({
+      template,
+      key: listRowKey(template.uriTemplate, sourceIndex),
+    }))
+    .filter(
+      ({ template: t }) =>
+        t.name.toLowerCase().includes(query) ||
+        (t.title?.toLowerCase().includes(query) ?? false) ||
+        t.uriTemplate.toLowerCase().includes(query),
+    );
+  const filteredSubscriptions = subscriptions
+    .map((subscription, sourceIndex) => ({
+      subscription,
+      key: listRowKey(subscription.resource.uri, sourceIndex),
+    }))
+    .filter(
+      ({ subscription: s }) =>
+        s.resource.name.toLowerCase().includes(query) ||
+        (s.resource.title?.toLowerCase().includes(query) ?? false) ||
+        s.resource.uri.toLowerCase().includes(query),
+    );
 
   // Modern-era chrome for the single `subscriptions/listen` stream (#1630):
   // a status badge in the section header (so it stays visible while the section
@@ -312,9 +340,9 @@ export function ResourceControls({
           </Accordion.Control>
           <Accordion.Panel>
             <Stack gap="xs">
-              {filteredResources.map((resource) => (
+              {filteredResources.map(({ resource, key }) => (
                 <ResourceListItem
-                  key={resource.uri}
+                  key={key}
                   resource={resource}
                   selected={resource.uri === selectedUri}
                   onClick={() => {
@@ -338,9 +366,9 @@ export function ResourceControls({
           </Accordion.Control>
           <Accordion.Panel>
             <Stack gap="xs">
-              {filteredTemplates.map((template) => (
+              {filteredTemplates.map(({ template, key }) => (
                 <ResourceListItem
-                  key={template.uriTemplate}
+                  key={key}
                   resource={template}
                   selected={template.uriTemplate === selectedTemplateUri}
                   onClick={() => {
@@ -381,9 +409,9 @@ export function ResourceControls({
                     {NEVER_ACKNOWLEDGED_SUBSCRIPTION_MESSAGE}
                   </StreamNotice>
                 )}
-                {filteredSubscriptions.map((sub) => (
+                {filteredSubscriptions.map(({ subscription: sub, key }) => (
                   <ResourceSubscribedItem
-                    key={sub.resource.uri}
+                    key={key}
                     subscription={sub}
                     onUnsubscribe={() =>
                       onUnsubscribeResource(sub.resource.uri)

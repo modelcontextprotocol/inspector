@@ -1,0 +1,12 @@
+{
+  "serverInfo": {
+    "name": "duplicate-resource-uris",
+    "version": "1.0.0"
+  },
+  "resources": [{ "preset": "numbered_resources", "params": { "count": 4 } }],
+  "duplicateResourceUris": ["test://resource_1", "test://resource_3"],
+  "transport": {
+    "type": "streamable-http",
+    "port": 3143
+  }
+}

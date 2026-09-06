@@ -515,6 +515,22 @@ export interface ServerConfig {
    */
   duplicateToolNames?: string[];
   /**
+   * URIs of registered resources to emit **twice** in `resources/list` (same
+   * `uri`, the second's title marked "(duplicate)").
+   *
+   * The `resources/list` analogue of {@link duplicateToolNames}, and
+   * unreachable the same way: `registerResource` keys on the URI, so no preset
+   * can produce a repeat. A real server can — two resource sources
+   * concatenated — and the Inspector has to render that faithfully rather than
+   * collide on the React key (#2206).
+   *
+   * The copies go **after** the whole list rather than beside their twin, for
+   * the reason spelled out on `duplicateToolNames`: a head-adjacent pair
+   * happens to survive reconciliation, so only a separated pair exposes the
+   * defect. A URI that isn't registered is ignored.
+   */
+  duplicateResourceUris?: string[];
+  /**
    * Replace a registered tool's `inputSchema` / `outputSchema` in `tools/list`
    * with a **raw** JSON Schema document (#1005).
    *
@@ -1410,13 +1426,37 @@ export function createMcpServer(config: ServerConfig): McpServer {
     });
   }
 
-  // Resources pagination
-  if (capabilities.resources && maxPageSize.resources !== undefined) {
+  // Emit each named resource a second time, same `uri`, title marked so the two
+  // rows are told apart on screen. See ServerConfig.duplicateResourceUris
+  // (#2206) — and the note there on why the copies are appended.
+  const duplicateResourceUris = new Set(config.duplicateResourceUris ?? []);
+  const withDuplicateResources = (resources: Resource[]): Resource[] =>
+    duplicateResourceUris.size === 0
+      ? resources
+      : [
+          ...resources,
+          ...resources
+            .filter((resource) => duplicateResourceUris.has(resource.uri))
+            .map((resource) => ({
+              ...resource,
+              title: `${resource.title ?? resource.name} (duplicate)`,
+            })),
+        ];
+
+  // Resources pagination, and the duplicate-URI override, both need the same
+  // hand-built list, so the handler is installed when either is configured.
+  if (
+    capabilities.resources &&
+    (maxPageSize.resources !== undefined || duplicateResourceUris.size > 0)
+  ) {
     mcpServer.server.setRequestHandler(
       "resources/list",
       async (request, ctx) => {
         const cursor = request.params?.cursor;
-        const pageSize = maxPageSize.resources!;
+        // No pagination configured: one page holding everything, so the
+        // duplicate override can share this handler without inventing a page
+        // size — mirroring the `tools/list` handler above.
+        const pageSize = maxPageSize.resources ?? Number.MAX_SAFE_INTEGER;
         const codec = cursorCodec(pageSize);
 
         // Collect all resources (static + from templates)
@@ -1458,11 +1498,12 @@ export function createMcpServer(config: ServerConfig): McpServer {
           }
         }
 
+        const listed = withDuplicateResources(allResources);
         const startIndex = codec.decode(cursor);
         const endIndex = startIndex + pageSize;
-        const page = allResources.slice(startIndex, endIndex);
+        const page = listed.slice(startIndex, endIndex);
         const nextCursor =
-          endIndex < allResources.length ? codec.encode(endIndex) : undefined;
+          endIndex < listed.length ? codec.encode(endIndex) : undefined;
 
         return {
           resources: page,

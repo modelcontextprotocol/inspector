@@ -95,6 +95,7 @@ export function resolveConfig(config: ConfigFile): ServerConfig {
     maxPageSize: config.maxPageSize,
     emptyStringCursor: config.emptyStringCursor,
     duplicateToolNames: config.duplicateToolNames,
+    duplicateResourceUris: config.duplicateResourceUris,
     rawToolSchemas: config.rawToolSchemas,
     extensionGatedTools: config.extensionGatedTools,
     serverType: isHttp
