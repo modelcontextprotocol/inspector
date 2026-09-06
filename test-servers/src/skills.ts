@@ -126,9 +126,74 @@ const DATA_ANALYSIS_FM: Frontmatter = {
   name: "data-analysis",
   description: "Analyze a CSV and summarize its columns",
 };
+// Deliberately the long one. Every other fixture file here is two or three
+// lines, which is not enough to exercise the detail pane's resource viewer:
+// with a short file the viewer never scrolls, so a regression that let the
+// whole pane scroll instead — the thing #2263 fixed — would look identical to
+// the fix. One fixture has to be taller than the viewport for that difference
+// to be visible at all.
 const DATA_ANALYSIS_MD = skillMd(
   DATA_ANALYSIS_FM,
-  "# Data analysis\n\nLoad the CSV, then follow `reference.md` for the column rules.",
+  [
+    "# Data analysis",
+    "",
+    "Load the CSV, then follow `reference.md` for the column rules.",
+    "",
+    "## Reading the file",
+    "",
+    "Read the file as UTF-8 and sniff the delimiter from the header line rather",
+    "than assuming a comma: exports from spreadsheet tools frequently use a",
+    "semicolon, and a mis-sniffed delimiter yields a single column whose name is",
+    "the entire header, which then reads as a valid — if useless — result.",
+    "",
+    "If the first line is not a header, every column name becomes a data value",
+    "and the row count is off by one. Prefer an explicit `has_header` flag over a",
+    "heuristic when the caller can supply it.",
+    "",
+    "## Typing the columns",
+    "",
+    "Infer a column's type from a sample rather than from its first value. A",
+    "column of integers with one empty cell is still numeric; a column of numbers",
+    "with a single stray `N/A` is not, and coercing it silently turns a data",
+    "quality problem into a wrong answer.",
+    "",
+    "Treat these as missing: the empty string, `NA`, `N/A`, `null`, and `-`.",
+    "Anything else that fails to parse is a value, not a gap, and belongs in the",
+    "report as such.",
+    "",
+    "## Summarising",
+    "",
+    "Numeric columns get min, max, mean and a null count. Report the null count",
+    "even when it is zero — its absence is indistinguishable from a column that",
+    "was skipped, and a reader cannot tell which they are looking at.",
+    "",
+    "Text columns get a distinct-value count and the five most common values with",
+    "their frequencies. Cap the distinct count: a free-text column can have as",
+    "many distinct values as rows, and enumerating them is not a summary.",
+    "",
+    "Date columns get an earliest and a latest. Do not attempt a mean of dates.",
+    "",
+    "## Reporting",
+    "",
+    "Lead with the shape — rows, columns — then the per-column detail. A reader",
+    "scanning the top of the report should learn whether the file is what they",
+    "expected before they read anything else.",
+    "",
+    "State the delimiter and the encoding you used. When either was guessed, say",
+    "that it was guessed: a summary computed from a mis-parsed file is worse than",
+    "no summary, because it looks the same as a correct one.",
+    "",
+    "## Failure modes worth naming",
+    "",
+    "A ragged file — rows with differing column counts — is a parse failure, not",
+    "a row to drop quietly. Report the first offending line number.",
+    "",
+    "A file whose every column types as text usually means the delimiter was",
+    "wrong. Say so rather than reporting fifty text columns as a finding.",
+    "",
+    "An empty file is not an error, but a summary of it must say the file was",
+    "empty rather than returning zeroed statistics that read like real ones.",
+  ].join("\n"),
 );
 const DATA_ANALYSIS_REF =
   "# Column rules\n\nNumeric columns get min/max/mean; text columns get a value count.\n";
@@ -223,7 +288,9 @@ const FIXTURE_SKILLS: FixtureSkill[] = [
 ];
 
 /** Every servable `skill://` file, by URI. `dynamic` skills contribute their
- * `SKILL.md` too, so the screen's "View SKILL.md" works there as well. */
+ * `SKILL.md` too, so the Skills screen's resource viewer has something to show
+ * for them as well — it opens on the selected skill's own file, and a dynamic
+ * skill advertises no manifest but still serves that one. */
 const FILES_BY_URI = new Map<string, FixtureFile>();
 for (const skill of FIXTURE_SKILLS) {
   if (skill.files === "dynamic") {
