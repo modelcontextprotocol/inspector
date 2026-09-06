@@ -33,6 +33,7 @@ import {
   type SkillIssue,
   type SkillVerification,
 } from "@inspector/core/mcp/skills.js";
+import { CodeHighlight } from "../../elements/CodeHighlight/CodeHighlight";
 import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";
 import { ListToggle } from "../../elements/ListToggle/ListToggle";
 import { useValueChange } from "../../../hooks/useValueChange";
@@ -372,9 +373,13 @@ const InlineRow = Group.withProps({
   wrap: "nowrap",
 });
 
+// The per-row integrity check. Carries the same shield as "Verify all" — both
+// verify digests, and giving only one of them the icon made the icon look
+// decorative rather than meaningful.
 const RowVerifyButton = Button.withProps({
   variant: "subtle",
   size: "compact-xs",
+  leftSection: <MdVerifiedUser aria-hidden size={12} />,
 });
 
 // The action column: sized to its button and right-aligned, so the buttons form
@@ -1270,7 +1275,12 @@ export function SkillsScreen({
                       </Alert>
                     )}
                     {issues.length === 0 ? (
-                      <Alert color="green" title="Conforms">
+                      // Titled for the check it actually summarises. Now that
+                      // every verdict renders in this one section, an
+                      // unqualified "Conforms" sits directly above a red digest
+                      // mismatch and flatly contradicts it — the static checks
+                      // passing says nothing about the bytes.
+                      <Alert color="green" title="No structural issues">
                         No structural issues found in this entry.
                       </Alert>
                     ) : (
@@ -1571,17 +1581,18 @@ export function SkillsScreen({
                   </Accordion.Control>
                   <Accordion.Panel tabIndex={0}>
                     <FramedContent>
-                      {/* The raw YAML the server served, not a re-serialised
-                          object: this app carries no YAML parser, and for a
-                          conformance tool the bytes on the wire are the more
-                          useful answer anyway. */}
-                      <ContentViewer
-                        block={{
-                          type: "text",
-                          text: previewParts.frontmatter,
-                        }}
-                        mimeType="text/yaml"
-                        copyable
+                      {/* `CodeHighlight` directly, NOT `ContentViewer`.
+                          The promise this section makes is the bytes the server
+                          served, and `ContentViewer`'s plain-text branch
+                          pretty-prints anything that parses as JSON — which
+                          every JSON mapping is also valid YAML, so a
+                          frontmatter of `{"name":"a"}` came back re-serialised
+                          while the section claimed to be showing it verbatim.
+                          For a conformance tool that is the one thing this must
+                          not do. */}
+                      <CodeHighlight
+                        language="yaml"
+                        code={previewParts.frontmatter}
                       />
                     </FramedContent>
                   </Accordion.Panel>

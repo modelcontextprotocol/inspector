@@ -132,7 +132,7 @@ export const ConformingSkill: Story = {
     const control = canvas.getByRole("button", { name: /Conformance/ });
     await expect(control).toHaveAttribute("aria-expanded", "false");
     await userEvent.click(control);
-    await expect(canvas.getByText("Conforms")).toBeInTheDocument();
+    await expect(canvas.getByText("No structural issues")).toBeInTheDocument();
   },
 };
 

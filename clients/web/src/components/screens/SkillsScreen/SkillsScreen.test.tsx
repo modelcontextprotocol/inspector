@@ -211,10 +211,10 @@ describe("SkillsScreen", () => {
     await user.click(screen.getByText("data-analysis"));
     const control = screen.getByRole("button", { name: /Conformance/ });
     expect(control).toHaveAttribute("aria-expanded", "false");
-    expect(screen.queryByText("Conforms")).not.toBeInTheDocument();
+    expect(screen.queryByText("No structural issues")).not.toBeInTheDocument();
 
     await user.click(control);
-    expect(screen.getByText("Conforms")).toBeInTheDocument();
+    expect(screen.getByText("No structural issues")).toBeInTheDocument();
     expect(screen.queryByTestId("skill-issues")).not.toBeInTheDocument();
   });
 
