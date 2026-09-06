@@ -30,6 +30,7 @@ import {
   installedVersion,
   isSweepAuthored,
   main,
+  needsManifestEdit,
   parseMarker,
   parseSupersededMarker,
   pickMilestone,
@@ -173,58 +174,120 @@ test("isSweepAuthored requires both the automation author and the sweep's labels
   assert.equal(isSweepAuthored({}), false);
 });
 
-test("the job the model runs in holds no write permission", () => {
+/** The parsed workflow, read from disk so the tests assert the shipped file. */
+function workflowDoc() {
+  return YAML.parse(
+    readFileSync(
+      new URL("../.github/workflows/sdk-watch.yml", import.meta.url),
+      "utf8",
+    ),
+  );
+}
+
+const analyzeJob = () => workflowDoc().jobs.analyze;
+
+const analyzeClaudeArgs = () =>
+  analyzeJob().steps.find((s) =>
+    String(s.uses ?? "").startsWith("anthropics/claude-code-action"),
+  ).with.claude_args;
+
+test("no model runs in a job that can write", () => {
   // ⚠️ GitHub scopes permissions per JOB, not per step. While the model action
   // and the `gh issue comment` shared a job, the `issues: write` the posting
   // needed was on the token handed to the model — however carefully the step was
-  // written (Copilot). The separation is the control; this test is what keeps a
-  // later edit from quietly undoing it by merging the jobs or widening a scope.
-  const workflow = YAML.parse(
-    readFileSync(
-      new URL("../.github/workflows/sdk-watch.yml", import.meta.url),
-      "utf8",
-    ),
-  );
-  const analyze = workflow.jobs.analyze;
-  const runsModel = (analyze.steps ?? []).some((s) =>
-    String(s.uses ?? "").startsWith("anthropics/claude-code-action"),
-  );
-  assert.ok(runsModel, "the analyze job is the one that runs the model");
-  assert.deepEqual(
-    analyze.permissions,
-    { contents: "read" },
-    "the model's job must hold contents: read and nothing else",
-  );
-  assert.equal(
-    (analyze.steps ?? []).some((s) => /gh issue comment/.test(s.run ?? "")),
-    false,
-    "posting belongs in the separately-permissioned job",
-  );
+  // written (Copilot, round 4). The separation is the control; this is what keeps
+  // a later edit from undoing it by merging the jobs or widening a scope.
+  //
+  // ⚠️ Stated over EVERY job, not just `analyze`. `sweep` is write-capable too —
+  // filing issues is its purpose — so "only one job can write" was never the
+  // invariant, and asserting it would have been asserting something false
+  // (Copilot, round 5). What must hold is that no write-capable job runs a model.
+  const workflow = workflowDoc();
+  const inherited = workflow.permissions ?? {};
+
+  let modelJobs = 0;
+  for (const [name, job] of Object.entries(workflow.jobs)) {
+    const runsModel = (job.steps ?? []).some((s) =>
+      String(s.uses ?? "").startsWith("anthropics/claude-code-action"),
+    );
+    if (!runsModel) continue;
+    modelJobs += 1;
+    // A job with no `permissions:` block inherits the top-level one, which here
+    // includes `issues: write` — so an omitted block is a failure, not a default.
+    const permissions = job.permissions ?? inherited;
+    const writes = Object.entries(permissions).filter(
+      ([, level]) => level === "write",
+    );
+    assert.deepEqual(
+      writes,
+      [],
+      `job "${name}" runs a model and holds write scope: ${JSON.stringify(permissions)}`,
+    );
+    assert.equal(
+      (job.steps ?? []).some((s) => /gh issue comment/.test(s.run ?? "")),
+      false,
+      `job "${name}" runs a model and also posts`,
+    );
+  }
+  assert.equal(modelJobs, 1, "expected exactly one job to run the model");
 });
 
-test("the model is granted no command that can reach an arbitrary host", () => {
-  // `npm view` accepts `--registry=<URL>` and a Bash grant matches only a
-  // PREFIX, so granting it was an outbound channel no output scan can see
-  // (Copilot). The general rule — check a command's flag surface before granting
-  // it — is in AGENTS.md; this pins the specific instance.
-  const workflow = YAML.parse(
-    readFileSync(
-      new URL("../.github/workflows/sdk-watch.yml", import.meta.url),
-      "utf8",
-    ),
+test("the model's tool availability is restricted to reading, with no shell", () => {
+  // ⚠️ Three grants in a row turned out to have a wider flag surface than they
+  // looked (`gh api`, `gh issue comment --body-file`, `npm view --registry`), and
+  // a `Bash(...)` rule can match a COMPOUND command besides. The resolution was
+  // to remove the capability rather than narrow it a fourth time (Copilot).
+  //
+  // ⚠️ `--tools` is what RESTRICTS availability; `--allowedTools` only
+  // pre-approves, so a tool another settings file permits stays reachable if
+  // only the latter names it. This repo learned that in `skill-eval.mjs` first.
+  const args = analyzeClaudeArgs();
+  const tools = /--tools\s+"([^"]*)"/.exec(args)?.[1] ?? "";
+  assert.deepEqual(
+    tools
+      .split(",")
+      .map((t) => t.trim())
+      .sort(),
+    ["Glob", "Grep", "Read"],
+    "--tools must enumerate exactly the three read-only tools",
   );
-  const args = workflow.jobs.analyze.steps.find((s) =>
-    String(s.uses ?? "").startsWith("anthropics/claude-code-action"),
-  ).with.claude_args;
+
   const allowed = /--allowedTools\s+"([^"]*)"/.exec(args)?.[1] ?? "";
-  assert.ok(allowed.length > 0, "expected an --allowedTools whitelist");
-  for (const forbidden of ["npm", "curl", "wget", "WebFetch", "WebSearch"]) {
+  assert.ok(allowed.length > 0, "expected --allowedTools to pre-approve them");
+  for (const forbidden of [
+    "Bash",
+    "npm",
+    "curl",
+    "wget",
+    "WebFetch",
+    "WebSearch",
+  ]) {
     assert.equal(
       allowed.includes(forbidden),
       false,
       `--allowedTools must not grant ${forbidden}`,
     );
+    assert.equal(
+      tools.includes(forbidden),
+      false,
+      `--tools must not make ${forbidden} available`,
+    );
   }
+});
+
+test("the release notes are fetched by a step the model does not run in", () => {
+  // The model has no shell, so the notes must arrive some other way — if this
+  // step is ever dropped, the analysis silently degrades to guesswork.
+  const analyze = analyzeJob();
+  const fetch = (analyze.steps ?? []).find((s) =>
+    /upstream-release-notes\.md/.test(s.run ?? ""),
+  );
+  assert.ok(fetch, "expected a deterministic release-notes fetch step");
+  assert.equal(
+    fetch.uses,
+    undefined,
+    "it must be a plain run step, not a model",
+  );
 });
 
 test("the workflow posts the exact marker the sweep looks for", () => {
@@ -446,6 +509,64 @@ test("buildIssueBody tables every package in the group and marks which are behin
   );
   assert.ok(body.includes(TARGET_BRANCH));
   assert.ok(body.includes(`https://github.com/${SDK.repo}/releases`));
+});
+
+test("needsManifestEdit is true for an exact pin and false for a satisfied range", () => {
+  // The two cases this sweep actually watches. The SDK packages are pinned
+  // exactly, so any new version needs the manifest changed; `ext-apps` is a
+  // caret range that already admits the target, so only the lockfile moves.
+  assert.equal(
+    needsManifestEdit([{ declared: "2.0.0", behind: true }], "2.1.0"),
+    true,
+  );
+  assert.equal(
+    needsManifestEdit([{ declared: "^1.7.4", behind: true }], "1.8.0"),
+    false,
+  );
+  // A range that does NOT admit the target still needs the edit.
+  assert.equal(
+    needsManifestEdit([{ declared: "^1.7.4", behind: true }], "2.0.0"),
+    true,
+  );
+  // Unparseable declarations count as needing a look, not as needing none.
+  assert.equal(
+    needsManifestEdit([{ declared: "(undeclared)", behind: true }], "1.0.0"),
+    true,
+  );
+  // A package that is not behind does not drag the whole group into an edit.
+  assert.equal(
+    needsManifestEdit(
+      [
+        { declared: "^1.0.0", behind: true },
+        { declared: "2.0.0", behind: false },
+      ],
+      "1.5.0",
+    ),
+    false,
+  );
+});
+
+test("buildIssueBody tells ext-apps it needs no manifest edit", () => {
+  // ⚠️ The generated checklist used to say "bump the version in package.json"
+  // unconditionally, which is wrong for the one case this script goes out of its
+  // way to model separately: `^1.7.4` already admits 1.8.0, so it sends the
+  // maintainer to change a line that is already correct (Copilot).
+  const extBody = buildIssueBody(
+    groupState(EXT, {
+      "@modelcontextprotocol/ext-apps": {
+        declared: "^1.7.4",
+        installed: "1.7.5",
+        latest: "1.8.0",
+      },
+    }),
+  );
+  assert.ok(extBody.includes("No manifest edit needed"));
+  assert.equal(extBody.includes("Bump the version(s)"), false);
+
+  // ...and the exactly-pinned SDK still gets told to edit it.
+  const sdkBody = buildIssueBody(behindState());
+  assert.ok(sdkBody.includes("Bump the version(s)"));
+  assert.equal(sdkBody.includes("No manifest edit needed"), false);
 });
 
 test("buildIssueBody escapes a pipe so one value cannot break the table apart", () => {

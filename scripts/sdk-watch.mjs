@@ -347,6 +347,56 @@ export function buildIssueTitle(state) {
 const cell = (value) => String(value).replace(/\|/g, "\\|");
 
 /**
+ * Does adopting `target` require editing the root manifest, or only the lockfile?
+ *
+ * ⚠️ Not every bump is a manifest edit, and saying so unconditionally was wrong
+ * for the very case this script exists to handle separately (Copilot). The four
+ * `typescript-sdk` packages are pinned **exactly**, so any new version needs the
+ * manifest changed. `ext-apps` is a **range** (`^1.7.4`), so a 1.8.0 target is
+ * already satisfied by what `package.json` says and only `npm install` is needed
+ * — telling a maintainer to edit the manifest there sends them to change a line
+ * that is already correct.
+ *
+ * A row whose declared value is not a parseable range (an unparsed dependency,
+ * or the `(undeclared)` placeholder) counts as needing the edit: that is the
+ * conservative direction, since it asks for a look rather than asserting none is
+ * required.
+ *
+ * @param {Array<{declared: string, behind: boolean}>} rows
+ * @param {string} target
+ * @returns {boolean}
+ */
+export function needsManifestEdit(rows, target) {
+  return rows
+    .filter((r) => r.behind)
+    .some(
+      (r) =>
+        !semver.validRange(r.declared) || !semver.satisfies(target, r.declared),
+    );
+}
+
+/**
+ * The first checklist items, which differ by the answer above.
+ *
+ * @param {Array<{declared: string, behind: boolean}>} rows
+ * @param {string} target
+ * @returns {string[]}
+ */
+export function manifestChecklist(rows, target) {
+  const placement =
+    "every runtime dependency `core/` imports is declared in the **repo-root** `package.json` and nowhere else ([Dependency placement](https://github.com/modelcontextprotocol/inspector/blob/v2/main/AGENTS.md#dependency-placement))";
+  return needsManifestEdit(rows, target)
+    ? [
+        `- [ ] Bump the version(s) in the repo-root \`package.json\` — ${placement}. The four \`typescript-sdk\` packages are pinned **exactly**, so they move together.`,
+        "- [ ] `npm install` at the root, and commit the refreshed lockfile.",
+      ]
+    : [
+        `- [ ] **No manifest edit needed** — the declared range already admits ${target}, so this is a lockfile refresh. (${placement}, so if that ever stops being true the bump belongs there.)`,
+        "- [ ] `npm install` at the root, and commit the refreshed lockfile.",
+      ];
+}
+
+/**
  * @param {NonNullable<ReturnType<typeof groupState>>} state
  * @returns {string}
  */
@@ -383,8 +433,7 @@ export function buildIssueBody(state) {
     "",
     "### Upgrade checklist",
     "",
-    "- [ ] Bump the version(s) in the **repo-root** `package.json` — every runtime dependency `core/` imports is declared there and nowhere else ([Dependency placement](https://github.com/modelcontextprotocol/inspector/blob/v2/main/AGENTS.md#dependency-placement)). The four `typescript-sdk` packages are pinned **exactly**, so they move together.",
-    "- [ ] `npm install` at the root, and commit the refreshed lockfile.",
+    ...manifestChecklist(rows, target),
     "- [ ] Re-check the bundler `external` lists (`clients/{cli,tui}/tsup.config.ts`, `clients/web/tsup.runner.config.ts`) if the release adds or renames an entry point; `npm run verify:bundle-externals` enforces this against the built output.",
     "- [ ] `npm run format`, then `npm run local:gate`.",
     "",
