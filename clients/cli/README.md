@@ -369,6 +369,9 @@ Because it is one line, a caller can parse it with `2>&1 | tail -1 | jq .error`.
 
 ## Why use the CLI?
 
+For a copyable connect → list → call → assert workflow built on the flags above,
+see [Smoke-testing an MCP server](../../docs/cli-smoke-testing.md).
+
 While the Web Client provides a rich visual interface, the CLI is designed for:
 
 - **Automation**: Ideal for CI/CD pipelines and batch processing.
