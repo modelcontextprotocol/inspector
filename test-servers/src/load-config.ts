@@ -81,6 +81,12 @@ export interface ConfigFile {
     prompts?: number;
   };
   /**
+   * Hand out `""` as the cursor for page two of every paginated list, instead
+   * of the usual numeric index. See {@link ServerConfig.emptyStringCursor}
+   * (#2220).
+   */
+  emptyStringCursor?: boolean;
+  /**
    * Names of registered tools to emit **twice** in `tools/list` (same `name`,
    * the second's title marked "(duplicate)") — the nonconforming-but-real shape
    * no preset can produce. See {@link ServerConfig.duplicateToolNames} (#1957).

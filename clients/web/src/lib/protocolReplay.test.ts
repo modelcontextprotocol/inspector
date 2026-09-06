@@ -103,27 +103,18 @@ describe("replayableParams", () => {
     ).toEqual({ params: { cursor: "abc" }, dropped: ["_meta"] });
   });
 
-  // `listTools` builds its params with `cursor !== undefined`, carrying `""`
-  // deliberately — its own comment says dropping it asks for page one again.
-  it("keeps an empty cursor on tools/list, which preserves it", () => {
-    expect(replayableParams("tools/list", { cursor: "" })).toEqual({
-      params: { cursor: "" },
-      dropped: [],
-    });
-  });
-
-  // The other four adapters build theirs with a truthiness check, so `""` never
-  // reaches the wire. Reporting it as kept would show `{"cursor":""}` in the
-  // editor while `{}` was sent.
+  // Every list adapter builds its params with `cursor !== undefined` (#2220),
+  // so `""` reaches the wire on all five and the editor must show it.
   it.each([
+    "tools/list",
     "prompts/list",
     "resources/list",
     "resources/templates/list",
     "tasks/list",
-  ])("drops an empty cursor on %s, which does not preserve it", (method) => {
+  ])("keeps an empty cursor on %s, which preserves it", (method) => {
     expect(replayableParams(method, { cursor: "" })).toEqual({
-      params: undefined,
-      dropped: ["cursor"],
+      params: { cursor: "" },
+      dropped: [],
     });
   });
 

@@ -481,6 +481,24 @@ export interface ServerConfig {
     prompts?: number;
   };
   /**
+   * Hand out the **empty string** as the cursor for page two of every
+   * paginated list, instead of the usual numeric index (#2220).
+   *
+   * An MCP cursor is opaque: the spec constrains neither its content nor its
+   * length, so `""` is a legal `nextCursor` and a conforming client has to send
+   * it back verbatim. A client that builds its request params with a
+   * truthiness check cannot tell `""` from "no cursor", so it drops it and
+   * silently re-requests page one — a list that stops after one page, or a
+   * walk that loops on it forever, with no error anywhere because the request
+   * is perfectly well-formed.
+   *
+   * Nothing else in this repo produces that shape: every other fixture's
+   * cursor is a non-empty index string, which the buggy guard happens to carry
+   * correctly. Off by default so the existing pagination fixtures keep their
+   * numeric cursors.
+   */
+  emptyStringCursor?: boolean; // default: false
+  /**
    * Emit the named registered tools **twice** in `tools/list`, with the same
    * `name` on both entries and " (duplicate)" appended to the second's title.
    *
@@ -1265,6 +1283,33 @@ export function createMcpServer(config: ServerConfig): McpServer {
   // Set up pagination handlers if maxPageSize is configured
   const maxPageSize = config.maxPageSize || {};
 
+  /**
+   * The cursor codec every paginated list below shares.
+   *
+   * Ordinarily a cursor is the next page's start index rendered as a string.
+   * Under {@link ServerConfig.emptyStringCursor} the *first* boundary — and
+   * only that one — is handed out as `""` instead, which is what exercises a
+   * client's ability to tell an empty cursor from an absent one (#2220). Later
+   * boundaries stay numeric, so a fixture with more than two pages still walks
+   * to the end.
+   *
+   * `decode` maps `""` back to that boundary only when the mode is on; with it
+   * off an empty cursor means page one, exactly as the previous
+   * `cursor ? parseInt(cursor, 10) : 0` did.
+   */
+  const emptyStringCursor = config.emptyStringCursor === true;
+  const cursorCodec = (pageSize: number) => ({
+    encode: (index: number): string =>
+      emptyStringCursor && index === pageSize ? "" : index.toString(),
+    decode: (cursor: string | undefined): number => {
+      if (cursor === undefined || cursor === "") {
+        return emptyStringCursor && cursor === "" ? pageSize : 0;
+      }
+      const parsed = parseInt(cursor, 10);
+      return Number.isNaN(parsed) ? 0 : parsed;
+    },
+  });
+
   // Emit each named tool a second time, same `name`, title marked so the two
   // rows are told apart on screen. See ServerConfig.duplicateToolNames (#1957).
   //
@@ -1322,6 +1367,7 @@ export function createMcpServer(config: ServerConfig): McpServer {
       // No pagination configured: one page holding everything, so the duplicate
       // override can share this handler without inventing a page size.
       const pageSize = maxPageSize.tools ?? Number.MAX_SAFE_INTEGER;
+      const codec = cursorCodec(pageSize);
 
       // Convert registered tools to Tool format, mirroring the SDK's tools/list.
       // The input-schema JSON comes from the SDK's memoised converter; the
@@ -1351,11 +1397,11 @@ export function createMcpServer(config: ServerConfig): McpServer {
       // boundary exactly as a real server's would.
       const allTools = withDuplicates(withRawSchemas(registeredTools));
 
-      const startIndex = cursor ? parseInt(cursor, 10) : 0;
+      const startIndex = codec.decode(cursor);
       const endIndex = startIndex + pageSize;
       const page = allTools.slice(startIndex, endIndex);
       const nextCursor =
-        endIndex < allTools.length ? endIndex.toString() : undefined;
+        endIndex < allTools.length ? codec.encode(endIndex) : undefined;
 
       return {
         tools: page,
@@ -1371,6 +1417,7 @@ export function createMcpServer(config: ServerConfig): McpServer {
       async (request, ctx) => {
         const cursor = request.params?.cursor;
         const pageSize = maxPageSize.resources!;
+        const codec = cursorCodec(pageSize);
 
         // Collect all resources (static + from templates)
         const allResources: Resource[] = [];
@@ -1411,11 +1458,11 @@ export function createMcpServer(config: ServerConfig): McpServer {
           }
         }
 
-        const startIndex = cursor ? parseInt(cursor, 10) : 0;
+        const startIndex = codec.decode(cursor);
         const endIndex = startIndex + pageSize;
         const page = allResources.slice(startIndex, endIndex);
         const nextCursor =
-          endIndex < allResources.length ? endIndex.toString() : undefined;
+          endIndex < allResources.length ? codec.encode(endIndex) : undefined;
 
         return {
           resources: page,
@@ -1432,6 +1479,7 @@ export function createMcpServer(config: ServerConfig): McpServer {
       async (request) => {
         const cursor = request.params?.cursor;
         const pageSize = maxPageSize.resourceTemplates!;
+        const codec = cursorCodec(pageSize);
 
         // Convert registered resource templates to ResourceTemplate format
         const allTemplates: Array<{
@@ -1468,11 +1516,11 @@ export function createMcpServer(config: ServerConfig): McpServer {
           }
         }
 
-        const startIndex = cursor ? parseInt(cursor, 10) : 0;
+        const startIndex = codec.decode(cursor);
         const endIndex = startIndex + pageSize;
         const page = allTemplates.slice(startIndex, endIndex);
         const nextCursor =
-          endIndex < allTemplates.length ? endIndex.toString() : undefined;
+          endIndex < allTemplates.length ? codec.encode(endIndex) : undefined;
 
         return {
           resourceTemplates: page as ResourceTemplate[],
@@ -1487,6 +1535,7 @@ export function createMcpServer(config: ServerConfig): McpServer {
     mcpServer.server.setRequestHandler("prompts/list", async (request) => {
       const cursor = request.params?.cursor;
       const pageSize = maxPageSize.prompts!;
+      const codec = cursorCodec(pageSize);
 
       // Convert registered prompts to Prompt format. The argument descriptors
       // are derived from the config's raw arg shape (the SDK no longer exposes
@@ -1506,11 +1555,11 @@ export function createMcpServer(config: ServerConfig): McpServer {
         }
       }
 
-      const startIndex = cursor ? parseInt(cursor, 10) : 0;
+      const startIndex = codec.decode(cursor);
       const endIndex = startIndex + pageSize;
       const page = allPrompts.slice(startIndex, endIndex);
       const nextCursor =
-        endIndex < allPrompts.length ? endIndex.toString() : undefined;
+        endIndex < allPrompts.length ? codec.encode(endIndex) : undefined;
 
       return {
         prompts: page,

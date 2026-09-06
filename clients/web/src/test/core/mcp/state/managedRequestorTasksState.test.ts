@@ -101,6 +101,27 @@ describe("ManagedRequestorTasksState", () => {
     expect(client.listRequestorTasks).toHaveBeenCalledTimes(3);
   });
 
+  it("refresh walks past an empty-string cursor instead of stopping at page one", async () => {
+    // A cursor is opaque and `""` is a legal `nextCursor` (#2220). Under the
+    // truthiness guard this walk used to carry, page one's empty cursor ended
+    // the loop — so the task list stopped at `t1` against a conforming server,
+    // with nothing to show for it. The cursor each call receives is asserted
+    // too, because a walk that stopped correctly but re-requested page one
+    // would still produce three tasks with the wrong three requests.
+    client.setStatus("connected");
+    client.queueTaskPages(
+      { tasks: [task("t1")], nextCursor: "" },
+      { tasks: [task("t2")], nextCursor: "c2" },
+      { tasks: [task("t3")] },
+    );
+
+    const result = await state.refresh();
+    expect(result.map((t) => t.taskId)).toEqual(["t1", "t2", "t3"]);
+    expect(client.listRequestorTasks.mock.calls.map((call) => call[0])).toEqual(
+      [undefined, "", "c2"],
+    );
+  });
+
   it("connect event triggers a refresh", async () => {
     client.setStatus("connected");
     client.queueTaskPages({ tasks: [task("t1")] });
