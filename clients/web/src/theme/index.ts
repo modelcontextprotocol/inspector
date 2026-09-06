@@ -16,6 +16,7 @@ export { ThemePaper } from "./Paper";
 export { ThemeScrollArea, ThemeScrollAreaAutosize } from "./ScrollArea";
 export { ThemeSelect } from "./Select";
 export { ThemeSwitch } from "./Switch";
+export { ThemeTable } from "./Table";
 export { ThemeText } from "./Text";
 export { ThemeTextInput } from "./TextInput";
 export { ThemeTitle } from "./Title";

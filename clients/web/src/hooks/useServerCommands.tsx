@@ -216,9 +216,10 @@ export interface ServerCommands {
     uri: string,
   ) => Promise<Awaited<ReturnType<InspectorClient["readResource"]>>["result"]>;
   /**
-   * Read one skill file's contents (SEP-2640), for digest verification. Returns
-   * the single content block that answers the URI, narrowed to the two fields
-   * the digest is taken over.
+   * Read one skill file's contents (SEP-2640) — for display in the Skills
+   * screen's viewer, and for digest verification. Returns the single content
+   * block that answers the URI, narrowed to the two fields the digest is taken
+   * over.
    */
   onReadSkillFile: (uri: string) => Promise<SkillFileContents>;
   /** Re-fetch one skill entry through `skills/get` (SEP-2640). */
@@ -947,9 +948,13 @@ export function useServerCommands({
       runCommandInBackground(() => resourcesPagination.onLoadMore(), "ambient"),
     [resourcesPagination, runCommandInBackground],
   );
-  // Skill files are fetched on demand, never pre-fetched: SEP-2640 is explicit
-  // that a `resources/read` of a skill file is not a load and confers no
-  // standing, so the Inspector reads only what the user asks it to verify.
+  // Skill files are still never pre-fetched in bulk — nothing walks the
+  // manifest reading everything. What IS read without being asked is the single
+  // `SKILL.md` of whichever skill is selected, so the file is on screen (#2263);
+  // SEP-2640 is explicit that a `resources/read` of a skill file is not a load
+  // and confers no standing, so that claims nothing on the user's behalf.
+  // Digest verification remains strictly on demand.
+  //
   // Routed through `onReadResourceContents` so a skill read gets the same
   // auth-recovery retry every other read does.
   const onReadSkillFile = useCallback(
