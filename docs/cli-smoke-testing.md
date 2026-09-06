@@ -105,14 +105,22 @@ For every method **except** an `--app-info` probe, the envelope carries
 
 ⚠️ **`--app-info` is a different shape, not a variation on this one.** It probes
 without invoking the tool, so there is no result to report and the envelope is
-`{"appInfo": …}` **alone** — including in the `hasApp:false` case, which is
-reported through exit code `2` rather than through a key. A consumer that
-requires `.result` will break on every `--app-info` run:
+`{"appInfo": …}` **alone**. A consumer that requires `.result` will break on
+every `--app-info` run:
 
 ```bash
-mcp-inspector --cli <server> --method tools/call --tool-name <t> --app-info --format json
-# → {"appInfo":{"hasApp":true,…}}      — no "result" key, in either case
+# Tool that has an App:
+# → {"appInfo":{"hasApp":true,"toolName":"…","resourceUri":"ui://…",…}}   exit 0
+# Tool that does not:
+# → {"appInfo":{"hasApp":false,"toolName":"…"}}                           exit 2
 ```
+
+The no-App answer is reported **both ways** — as `appInfo.hasApp: false` in the
+body *and* as exit code `2` — so branch on whichever suits the caller. The exit
+code short-circuits an `&&` chain without parsing; the field is what a pipeline
+reading many probes wants, and it is the only one of the two that survives
+`tools/list --app-info`, whose NDJSON reports every tool over a single
+connection and exits `0` regardless.
 
 Parse the envelope by key rather than assuming a fixed shape — a consumer that
 reads `.result` and stops will drop the `schemaFindings` diagnostics described in
@@ -262,6 +270,28 @@ every failure class looks identical.
 ⚠️ `set -e` does **not** fire for a command on the left of `|`; only the
 pipeline's last status is checked unless `set -o pipefail` is also on. Every
 example here pipes into `jq`, so keep `pipefail`.
+
+⚠️ **`pipefail` gives you *a* failure, not *the CLI's* failure.** It reports the
+**rightmost** non-zero status, so when both sides fail the CLI's class is lost:
+
+| CLI | `jq -e` | Pipeline status |
+| --- | --- | --- |
+| `5` (`tool_is_error`) | `1` (assertion false) | **`1`** — the class is gone |
+| `5` | `0` | `5` — survives |
+| `0` | `1` | `1` |
+
+The first row is the common one: a `tools/call` returning `isError:true` exits
+`5` *and* makes `.result.isError != true` false, so the pipeline reports `1` and
+the `case` block above would print the catch-all rather than name the tool
+error. **When you need the failure class, capture the CLI's status before `jq`
+touches it:**
+
+```bash
+status=0
+out=$(mcp --method tools/call --tool-name my_tool) || status=$?
+[ "$status" -eq 0 ] || { echo "::error::CLI exit $status"; exit "$status"; }
+jq -e '.result.isError != true' <<<"$out" > /dev/null
+```
 
 ## 6. Never let CI wait on interactive OAuth
 
@@ -516,10 +546,14 @@ authorize once in the web inspector and hand the CLI the resulting token via
 `--use-stored-auth` against a **deliberately shared** store, accepting that the
 run then reads and rotates real credentials.
 
-The script exits non-zero on the first failed assertion, and the CLI's own exit
-code propagates through `set -e`, so the job's status already carries the
-result. Add the `case "$status"` block from [§5](#5-branch-on-exit-codes) when
-you want the annotation to name the failure class.
+The script exits non-zero on the first failed assertion, so the job's status
+already carries pass/fail. **It does not carry the failure *class*:** each step
+pipes into `jq`, and `pipefail` reports the rightmost non-zero status, so a
+`tools/call` that exits `5` while the assertion also fails surfaces as `1`. That
+is fine for a gate whose only question is "did it pass", and it is why the
+`case "$status"` block from [§5](#5-branch-on-exit-codes) cannot simply be
+appended here. To name the class, split the CLI call from the assertion as shown
+there — capture the status first, then run `jq` over the captured output.
 
 ## What this does not cover
 
