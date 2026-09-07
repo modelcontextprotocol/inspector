@@ -294,15 +294,15 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
     // `OAuthClientInformationContext` ({ issuer }); our own DCR/CIMD callers
     // pass `SaveClientInformationOptions` ({ registrationKind }). Accept either
     // and read whichever keys are present: the SDK supplies `issuer` (SEP-2352
-    // per-AS keying) and defaults registration kind to DCR; our callers supply
-    // the registration kind and no issuer yet.
+    // per-AS keying) and no kind — `resolveSdkRegistrationKind` recovers it —
+    // while our callers supply the registration kind and no issuer yet.
     options?: SaveClientInformationOptions | OAuthClientInformationContext,
   ): Promise<void> {
+    const issuer = options && "issuer" in options ? options.issuer : undefined;
     const registrationKind =
       options && "registrationKind" in options
         ? options.registrationKind
-        : "dcr";
-    const issuer = options && "issuer" in options ? options.issuer : undefined;
+        : await this.resolveSdkRegistrationKind(clientInformation, issuer);
     await this.storage.saveClientInformation(
       this.serverUrl,
       clientInformation,
@@ -311,6 +311,53 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
         issuer,
       },
     );
+  }
+
+  /**
+   * Resolve the registration kind for a save that carries no explicit one — that
+   * is, one the SDK made. Three SDK call sites reach here: back-stamping an
+   * existing registration with its `issuer`, the SDK's own CIMD write (whose
+   * `client_id` *is* the metadata-document URL), and a real dynamic
+   * registration. Only the last is `"dcr"`, so defaulting every unstamped save
+   * to it relabels a CIMD registration `Dynamic (DCR)` in Connection Info the
+   * moment the SDK binds it to an issuer — reported as #2242, where no
+   * `POST /register` was ever made.
+   *
+   * `client_id` is what tells the cases apart, so match on it rather than on the
+   * stored kind alone: a DCR `client_id` is minted by the authorization server,
+   * so a later DCR registration for the same server cannot inherit the earlier
+   * CIMD provenance.
+   */
+  private async resolveSdkRegistrationKind(
+    clientInformation: OAuthClientInformation,
+    issuer: string | undefined,
+  ): Promise<SaveClientInformationOptions["registrationKind"]> {
+    const clientMetadataUrl = this.clientMetadataUrl?.trim();
+    if (
+      clientMetadataUrl &&
+      clientInformation.client_id === clientMetadataUrl
+    ) {
+      return "cimd";
+    }
+    // Falls back to the unkeyed slot our own pre-registration wrote, since the
+    // issuer slot does not exist yet on the save that creates it. Reading it
+    // covers a CIMD registration whose `clientMetadataUrl` config has since
+    // been cleared, so the provenance is not silently demoted.
+    const stored = await this.storage.getClientInformation(
+      this.serverUrl,
+      false,
+      issuer,
+    );
+    if (!stored || stored.client_id !== clientInformation.client_id) {
+      return "dcr";
+    }
+    const storedKind = await this.storage.getClientRegistrationKind(
+      this.serverUrl,
+      issuer,
+    );
+    // `"static"` lives in the preregistered slot, never this one, so `"cimd"`
+    // is the only kind worth carrying forward.
+    return storedKind === "cimd" ? "cimd" : "dcr";
   }
 
   async saveScope(scope: string | undefined): Promise<void> {

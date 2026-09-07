@@ -370,6 +370,15 @@ describe("InspectorClient OAuth E2E", () => {
 
         // Connection should now be successful
         expect(client.getStatus()).toBe("connected");
+
+        // #2242: the metadata-document URL is the client_id, and the stored
+        // provenance still says CIMD after the SDK bound the registration to
+        // the issuer — no `POST /register` ever happened.
+        const oauthState = await client.getOAuthState();
+        expect(oauthState?.client).toMatchObject({
+          clientId: metadataUrl,
+          registrationKind: "cimd",
+        });
       });
 
       it("should retry original request after OAuth completion with CIMD", async () => {
