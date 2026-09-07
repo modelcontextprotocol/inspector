@@ -81,7 +81,10 @@ describe("strictPort (#2280)", () => {
     await expect(server.start()).rejects.toMatchObject({
       code: "EADDRINUSE",
     });
-    server = null;
+    // Deliberately NOT nulled: `start()` installs the process-global test-server
+    // control before it binds, and only `stop()` clears it. Dropping the
+    // reference here would skip teardown and leave that global pointing at a
+    // dead server for the rest of the worker.
   });
 
   it("is carried from the fixture's config file to the resolved server config", async () => {

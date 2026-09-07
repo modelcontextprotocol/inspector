@@ -447,6 +447,17 @@ describe("insecureTokenEndpoint copy", () => {
     expect(insecureTokenEndpointTitle()).toBe("Token endpoint is not secure");
   });
 
+  it("describes the scheme as not-HTTPS rather than as plain HTTP", () => {
+    // The SDK's check is `protocol !== "https:"`, so a mistyped `ftp:` or `ws:`
+    // endpoint lands here too; naming the wrong scheme would send the reader
+    // hunting for a problem they do not have.
+    const message = insecureTokenEndpointMessage({
+      tokenEndpoint: "ftp://as.example.com/token",
+    });
+    expect(message).toContain("not HTTPS");
+    expect(message).not.toContain("plain HTTP");
+  });
+
   it("names the endpoint, the server, and both ways out", () => {
     const message = insecureTokenEndpointMessage({
       tokenEndpoint: ENDPOINT,

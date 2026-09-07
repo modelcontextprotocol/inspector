@@ -383,7 +383,12 @@ export function insecureTokenEndpointTitle(): string {
  * Does not echo the SDK's own message, which reads as a flat refusal and tells
  * the user nothing about which lever to reach for.
  *
- * The wording is "outside the SDK's loopback exemption", never "not loopback".
+ * The scheme half says "not HTTPS" rather than "plain HTTP": the SDK's check is
+ * `protocol !== "https:"`, so anything else an authorization server advertises
+ * — including a mistyped `ftp:` or `ws:` endpoint — lands here too, and naming
+ * the wrong scheme would send the reader looking for a problem they do not have.
+ *
+ * The host half is "outside the SDK's loopback exemption", never "not loopback".
  * The motivating hosts — `tenant.app.localhost` (#1944), the `localhost.`
  * fixture — *are* loopback by RFC 6761 and by every resolver on the machine;
  * what they are outside is a three-literal allow-list. Calling them non-loopback
@@ -400,10 +405,10 @@ export function insecureTokenEndpointMessage(options: {
   return (
     `Authorization for ${target} was stopped before any credentials were sent: ` +
     `its token endpoint ${truncateUrlForDisplay(options.tokenEndpoint)} is ` +
-    "plain HTTP on a host outside the MCP SDK's loopback exemption, which " +
-    "covers only localhost, 127.0.0.1 and ::1. Re-authenticating cannot change " +
-    "this. Serve the token endpoint over HTTPS, or move it to one of those " +
-    "three spellings — Server Settings → Authorization has a Token URL override " +
-    "if the authorization server advertises a different one."
+    "not HTTPS, and its host is outside the MCP SDK's loopback exemption, " +
+    "which covers only localhost, 127.0.0.1 and ::1. Re-authenticating cannot " +
+    "change this. Serve the token endpoint over HTTPS, or move it to one of " +
+    "those three spellings — Server Settings → Authorization has a Token URL " +
+    "override if the authorization server advertises a different one."
   );
 }

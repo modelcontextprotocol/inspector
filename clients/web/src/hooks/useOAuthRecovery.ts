@@ -397,6 +397,11 @@ export function useOAuthRecovery({
       // through, rather than at each of its call sites — a new caller then gets
       // the right behavior by default instead of by remembering.
       if (showInsecureTokenEndpointNotice(detail, server?.name)) {
+        // Clear one already on screen. Returning without this leaves a stale
+        // Re-authenticate button beside the terminal notice — the exact
+        // affordance this arm exists to remove, just sourced from an earlier
+        // failure rather than this one.
+        setReAuthBanner(null);
         return;
       }
       const message = reAuthBannerMessage({
@@ -955,6 +960,19 @@ export function useOAuthRecovery({
           });
         }
       } catch (err) {
+        // SEP-2207 (#2280) first, and specifically BEFORE the restore below.
+        // `handleAuthChallenge` runs the same SDK auth flow, so it can raise
+        // this terminal error — and the restore's whole premise is that the
+        // recovery is still owed and a later trigger should retry it. For a
+        // refusal that can only fail the same way, re-arming the slot means
+        // every future tab focus and reconnect replays it, under a toast
+        // promising a retry that cannot succeed. Report it and let it go.
+        const failedServer = sessionRef.current.servers.find(
+          (s) => s.id === pending.serverId,
+        );
+        if (showInsecureTokenEndpointNotice(err, failedServer?.name)) {
+          return;
+        }
         // The slot was cleared above only to keep a tab-visible event and a
         // reconnect from starting the same authorization twice — not because
         // the recovery was delivered. It still is owed, so restore it and let

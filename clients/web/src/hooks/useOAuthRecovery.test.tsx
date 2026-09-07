@@ -1248,6 +1248,28 @@ describe("useOAuthRecovery", () => {
       await waitFor(() => expect(h.api().reAuthBanner?.serverId).toBe("a"));
     });
 
+    it("clears a banner already on screen when a later oauthError is terminal", async () => {
+      // Otherwise the stale Re-authenticate button sits beside the terminal
+      // notice — the affordance this change removes, sourced from an earlier
+      // failure rather than this one.
+      const client = fakeClient();
+      const h = harness({ servers: [entry("a")], activeServerId: "a", client });
+      await act(async () => {
+        client.emit("oauthError", { error: new Error("token endpoint 500") });
+      });
+      await waitFor(() => expect(h.api().reAuthBanner?.serverId).toBe("a"));
+
+      await act(async () => {
+        client.emit("oauthError", {
+          error: new InsecureTokenEndpointError("http://localhost.:8091/token"),
+        });
+      });
+      await waitFor(() =>
+        expect(toastTitles()).toContain("Token endpoint is not secure"),
+      );
+      expect(h.api().reAuthBanner).toBeNull();
+    });
+
     it("ignores an oauthError with no active server", async () => {
       const client = fakeClient();
       const h = harness({ servers: [], activeServerId: undefined, client });
@@ -1409,6 +1431,41 @@ describe("useOAuthRecovery", () => {
       await waitFor(() =>
         expect(client.handleAuthChallenge).toHaveBeenCalledTimes(2),
       );
+    });
+
+    it("does not re-arm a deferred recovery whose failure is terminal", async () => {
+      // The restore's premise is that the recovery is still owed and a later
+      // trigger should retry it. For a refusal that can only fail the same way,
+      // re-arming means every future tab focus replays it under a toast
+      // promising a retry that cannot succeed — an unbounded loop on a terminal
+      // error (#2280).
+      const client = fakeClient({
+        handleAuthChallenge: vi
+          .fn()
+          .mockRejectedValue(
+            new InsecureTokenEndpointError("http://localhost.:8091/token"),
+          ),
+      });
+      const h = harness({ servers: [entry("a")], activeServerId: "a", client });
+      await defer(client, h);
+      await act(async () => {
+        becomeVisible();
+      });
+
+      await waitFor(() =>
+        expect(toastTitles()).toContain("Token endpoint is not secure"),
+      );
+      // Neither the retry promise nor the slot that would make good on it.
+      // `pendingReauth` is not on the hook's public surface, so it is read back
+      // through the commit probe, as the step-up tests above do.
+      expect(toastTitles()).not.toContain("Could not continue authorization");
+      expect(h.commits[h.commits.length - 1]?.reauthServerId).toBeUndefined();
+
+      // The load-bearing assertion: coming back to the tab does not replay it.
+      await act(async () => {
+        becomeVisible();
+      });
+      expect(client.handleAuthChallenge).toHaveBeenCalledTimes(1);
     });
 
     it("does not put a stale challenge back over a newer deferral", async () => {
