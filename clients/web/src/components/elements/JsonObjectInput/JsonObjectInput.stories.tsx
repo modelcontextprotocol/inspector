@@ -209,9 +209,12 @@ export const AnnotatesTheOffendingLine: Story = {
         await expect(annotations.length).toBeGreaterThan(0);
         await expect(annotations.some((a) => a.type === "error")).toBe(true);
       },
-      // The worker is asynchronous and debounced, so this needs a real wait
-      // rather than a tick.
-      { timeout: 5000 },
+      // The worker is asynchronous, starts out of process and debounces its
+      // result, so this needs a real wait rather than a tick — and a budget
+      // that survives a loaded machine, where 5000ms did not (#2292). It also
+      // has to stay under the storybook project's `testTimeout`, or the test is
+      // killed before the wait can report what it saw.
+      { timeout: 10000 },
     );
   },
 };

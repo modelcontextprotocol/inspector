@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { ComponentProps } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { expect, fn, userEvent, within } from "storybook/test";
+import { expect, fn, userEvent, waitFor, within } from "storybook/test";
 import type { SkillEntry } from "@inspector/core/mcp/skillsSchemas";
 import { SkillsScreen } from "./SkillsScreen";
 import type { SkillsUiState } from "./SkillsScreen";
@@ -428,9 +428,22 @@ export const LongSkillDocument: Story = {
       detailCard.clientHeight + 1,
     );
 
-    // Collapse then reopen restores the same geometry.
+    // Collapse then reopen restores the same geometry. There is no panel
+    // animation to wait out — the accordion sets `transitionDuration={0}`
+    // because a height animation fights its flex sizing — but the reopen is
+    // still not settled when the click resolves: `userEvent.click` returns once
+    // the event is dispatched, ahead of React committing the `openSections`
+    // update, remounting the panel's content, and the browser running the
+    // layout pass that redistributes height across the flex sections. Sampling
+    // once lands mid-redistribution under load and fails intermittently
+    // (#2278), so read the geometry under `waitFor` and let it retry until the
+    // panes stop moving. The reopened layout only ever converges ON `before`
+    // rather than passing through it, so retrying cannot mask a real
+    // regression.
     await userEvent.click(viewerControl);
     await userEvent.click(viewerControl);
-    await expect(geometry()).toEqual(before);
+    await waitFor(async () => {
+      await expect(geometry()).toEqual(before);
+    });
   },
 };
