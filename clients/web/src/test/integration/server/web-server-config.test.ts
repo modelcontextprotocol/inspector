@@ -216,6 +216,19 @@ describe("buildWebServerConfigFromEnv", () => {
     ]);
   });
 
+  it("preserves a nested-origin entry rather than rebuilding it", () => {
+    // `URL.origin` is not always protocol + hostname: `blob:` resolves through
+    // its inner origin and has an EMPTY hostname, so rebuilding unconditionally
+    // emitted `blob://` — non-empty, which suppressed the derived default and
+    // 403'd every real browser origin.
+    process.env.ALLOWED_ORIGINS =
+      "blob:https://example.com/id, https://a.example.com";
+    expect(buildWebServerConfigFromEnv().allowedOrigins).toEqual([
+      "https://example.com",
+      "https://a.example.com",
+    ]);
+  });
+
   it("keeps the root dot on an absolute non-loopback explicit entry", () => {
     // Same rule as `canonicalOriginHost`, second location: a root dot outside
     // the loopback family is the ABSOLUTE form of a name, so dropping it here
@@ -531,6 +544,17 @@ describe("allowLocalhostSubdomainOriginsFor (#1944)", () => {
     "",
     "0",
   ])("enables it for the loopback-serving bind host %j", (host) => {
+    expect(allowLocalhostSubdomainOriginsFor(host)).toBe(true);
+  });
+
+  it.each([
+    // A `*.localhost` bind that starts is loopback-serving on the same RFC 6761
+    // premise as the origins being admitted, so a sibling alias reaching the
+    // same process must not 403.
+    "inspector.localhost",
+    "tenant.inspector.localhost",
+    "app.localhost.",
+  ])("enables it for the *.localhost bind host %j", (host) => {
     expect(allowLocalhostSubdomainOriginsFor(host)).toBe(true);
   });
 

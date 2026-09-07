@@ -23,6 +23,7 @@ import { resolveAppOriginPort } from "./app-origin-controller.js";
 import { resolveBindHostname } from "./resolve-bind-host.js";
 import {
   canonicalOriginHost,
+  isLocalhostSubdomainHost,
   stripLoopbackRootDot,
   isAllInterfacesHost,
 } from "../../../core/node/hostUrl.ts";
@@ -341,7 +342,16 @@ function loopbackOrigins(port: number): string[] {
  */
 export function allowLocalhostSubdomainOriginsFor(hostname: string): boolean {
   const h = canonicalOriginHost(hostname);
-  return LOOPBACK_HOSTNAMES.has(h) || isAllInterfacesHost(h);
+  return (
+    LOOPBACK_HOSTNAMES.has(h) ||
+    // A `*.localhost` bind that starts is loopback-serving on the same RFC 6761
+    // premise as the origins being admitted, so excluding it was arbitrary:
+    // `HOST=inspector.localhost` would allow-list only its own exact origin and
+    // still 403 a sibling alias like `tenant.inspector.localhost`, which
+    // resolves to the same loopback interface and reaches this very process.
+    isLocalhostSubdomainHost(h) ||
+    isAllInterfacesHost(h)
+  );
 }
 
 /**
@@ -558,10 +568,21 @@ export function buildWebServerConfig(
         // punycoded, IPv6 bracketed), so the root dot is the only thing this
         // path ever changes.
         //
-        // Rebuilt from `parsed` rather than string-edited: `parsed.port` is
-        // empty for a scheme-default port, which is what keeps the `:80` drop
-        // that `URL.origin` already performed.
+        // ⚠️ Deviate from `parsedOrigin` ONLY when a dot actually has to go.
+        // `URL.origin` is not always `protocol + hostname`: a nested-origin URL
+        // resolves through its inner one (`blob:https://example.com/id` has
+        // origin `https://example.com` but an EMPTY hostname), so rebuilding
+        // unconditionally emitted `blob://` — a non-empty entry, which then
+        // suppressed the derived default and 403'd every real browser origin.
+        // Returning `parsedOrigin` untouched in the common case keeps the
+        // previous `new URL(o).origin` contract exactly.
+        //
+        // In the rebuild branch `parsed.port` is empty for a scheme-default
+        // port, which preserves the `:80` drop `URL.origin` already performed.
         const host = stripLoopbackRootDot(parsed.hostname);
+        if (host === parsed.hostname) {
+          return parsedOrigin;
+        }
         return parsed.port
           ? `${parsed.protocol}//${host}:${parsed.port}`
           : `${parsed.protocol}//${host}`;
