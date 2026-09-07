@@ -504,7 +504,13 @@ export function buildWebServerConfig(
     .filter(Boolean)
     .map((o) => {
       try {
-        const { origin } = new URL(o);
+        const parsed = new URL(o);
+        // Both guards below read `URL.origin`, NOT a reconstructed string —
+        // that serialization is what collapses every opaque case to the literal
+        // "null", and rebuilding the origin by hand first would hand them a
+        // plausible-looking `localhost://` instead and wave them through.
+        // Normalization happens after they have both passed.
+        const { origin: parsedOrigin } = parsed;
         // A scheme-less entry (`localhost:6274`) doesn't throw — `new URL` reads
         // the host as the scheme and `.origin` is the literal string "null"
         // (also non-special schemes: `file:`, `about:`, `javascript:`, `data:`,
@@ -515,14 +521,29 @@ export function buildWebServerConfig(
         // scheme — the app is served over http(s), and a browser's `Origin` on
         // any request (including a WebSocket handshake) is its page's http(s)
         // origin, never a `ws:` one, so a `ws://` entry could never match anyway.
-        if (origin === "null") throw new Error("opaque origin");
+        if (parsedOrigin === "null") throw new Error("opaque origin");
         // A wildcard (`http://*.example.com`) survives `new URL` but can never
         // match the exact-compare origin guard — yet `*.example.com` IS a legal
         // CSP host-source, so it would silently work for the sandbox iframe and
         // silently 403 every connect (the most confusing split). Reject it so it
         // fails loudly and consistently; list exact origins instead.
-        if (origin.includes("*")) throw new Error("wildcard origin");
-        return origin;
+        if (parsedOrigin.includes("*")) throw new Error("wildcard origin");
+        // Root-dotted hosts are normalized here too, not just in the derived
+        // default. Two reasons, and the first is a hard bug: the banner reads
+        // `canonicalOriginHost`, so an explicit `http://localhost.:6274` would
+        // leave the advertised URL (`http://localhost:6274`) outside its own
+        // allow-list — WHATWG treats those as distinct origins, so opening the
+        // URL we printed would 403. The second is the standing one: a
+        // root-dotted host is not a valid CSP host-source, so such an entry
+        // could never admit an MCP Apps embedder anyway.
+        //
+        // Rebuilt from `parsed` rather than string-edited: `parsed.port` is
+        // empty for a scheme-default port, which is what keeps the `:80` drop
+        // that `URL.origin` already performed.
+        const host = canonicalOriginHost(parsed.hostname);
+        return parsed.port
+          ? `${parsed.protocol}//${host}:${parsed.port}`
+          : `${parsed.protocol}//${host}`;
       } catch {
         console.warn(`Ignoring invalid ALLOWED_ORIGINS entry: ${o}`);
         return null;

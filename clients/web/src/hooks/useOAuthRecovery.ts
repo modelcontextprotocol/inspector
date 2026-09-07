@@ -384,6 +384,29 @@ export function useOAuthRecovery({
     [sessionRef],
   );
 
+  /**
+   * Report a terminal SEP-2207 refusal (#2280) and clear any re-auth banner.
+   *
+   * Every arm goes through this rather than calling the notice helper directly.
+   * The banner clear is not incidental: a banner left from an *earlier* failure
+   * carries a Re-authenticate button that is just as dead as the one this
+   * change removes, and the user cannot tell which failure it belongs to. Round
+   * 4 fixed that for one arm by hand; wrapping it is what stops the next arm
+   * from omitting it.
+   *
+   * Returns whether the error was claimed, so callers keep their fall-through.
+   */
+  const reportTerminalInsecureTokenEndpoint = useCallback(
+    (err: unknown, serverName?: string): boolean => {
+      if (!showInsecureTokenEndpointNotice(err, serverName)) {
+        return false;
+      }
+      setReAuthBanner(null);
+      return true;
+    },
+    [setReAuthBanner],
+  );
+
   const showReAuthBanner = useCallback(
     (
       serverId: string,
@@ -396,12 +419,7 @@ export function useOAuthRecovery({
       // way. Claimed here, at the single funnel every re-auth banner goes
       // through, rather than at each of its call sites — a new caller then gets
       // the right behavior by default instead of by remembering.
-      if (showInsecureTokenEndpointNotice(detail, server?.name)) {
-        // Clear one already on screen. Returning without this leaves a stale
-        // Re-authenticate button beside the terminal notice — the exact
-        // affordance this arm exists to remove, just sourced from an earlier
-        // failure rather than this one.
-        setReAuthBanner(null);
+      if (reportTerminalInsecureTokenEndpoint(detail, server?.name)) {
         return;
       }
       const message = reAuthBannerMessage({
@@ -424,7 +442,7 @@ export function useOAuthRecovery({
         message,
       });
     },
-    [sessionRef],
+    [sessionRef, reportTerminalInsecureTokenEndpoint],
   );
 
   /** Clears pending OAuth resume state — explicit user disconnect only. */
@@ -839,7 +857,7 @@ export function useOAuthRecovery({
         const server = sessionRef.current.servers.find(
           (s) => s.id === activeServerId,
         );
-        if (showInsecureTokenEndpointNotice(err, server?.name)) {
+        if (reportTerminalInsecureTokenEndpoint(err, server?.name)) {
           return undefined;
         }
         throw err;
@@ -850,6 +868,7 @@ export function useOAuthRecovery({
       activeServerId,
       handleCommandScopedAuthRecovery,
       sessionRef,
+      reportTerminalInsecureTokenEndpoint,
     ],
   );
 
@@ -970,7 +989,7 @@ export function useOAuthRecovery({
         const failedServer = sessionRef.current.servers.find(
           (s) => s.id === pending.serverId,
         );
-        if (showInsecureTokenEndpointNotice(err, failedServer?.name)) {
+        if (reportTerminalInsecureTokenEndpoint(err, failedServer?.name)) {
           return;
         }
         // The slot was cleared above only to keep a tab-visible event and a
@@ -1018,6 +1037,7 @@ export function useOAuthRecovery({
       }
     },
     [
+      reportTerminalInsecureTokenEndpoint,
       sessionRef,
       inspectorClient,
       connectionStatus,
@@ -1372,7 +1392,7 @@ export function useOAuthRecovery({
         // Above `setFailedServerId` for the same reason the EMA arm is: this is
         // a configuration error, not a failed attempt, so it should not flag
         // the card red or pull the monitoring sidebar open.
-        if (showInsecureTokenEndpointNotice(err, server.name)) {
+        if (reportTerminalInsecureTokenEndpoint(err, server.name)) {
           return;
         }
         // The token exchange (or the re-handshake behind it) failed. Flag the
@@ -1479,6 +1499,7 @@ export function useOAuthRecovery({
     initialConfigSettledRef,
     clearResultPanels,
     showReAuthBanner,
+    reportTerminalInsecureTokenEndpoint,
     webOAuthStorage,
     setUi,
     setActiveTab,

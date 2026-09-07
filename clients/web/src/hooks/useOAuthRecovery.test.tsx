@@ -1004,6 +1004,33 @@ describe("useOAuthRecovery", () => {
       expect(toastTitles()).toContain("Token endpoint is not secure");
     });
 
+    it("clears a stale banner when a command-path failure is terminal", async () => {
+      // Every terminal arm goes through one wrapper for this reason: a banner
+      // left by an earlier failure carries a Re-authenticate button just as
+      // dead as the one this arm declines to offer, and the user cannot tell
+      // which failure it belongs to.
+      const client = fakeClient();
+      const h = harness({ servers: [entry("a")], activeServerId: "a", client });
+      await act(async () => {
+        client.emit("oauthError", { error: new Error("session expired") });
+      });
+      await waitFor(() => expect(h.api().reAuthBanner?.serverId).toBe("a"));
+
+      await act(async () => {
+        await h
+          .api()
+          .runWithCommandAuthRecovery(
+            () =>
+              Promise.reject(
+                new InsecureTokenEndpointError("http://localhost.:8091/token"),
+              ),
+            "tool",
+          );
+      });
+      expect(toastTitles()).toContain("Token endpoint is not secure");
+      expect(h.api().reAuthBanner).toBeNull();
+    });
+
     it("shows the terminal notice instead of the generic title in the background form", async () => {
       // The `errorTitle` call sites would otherwise render the raw SDK text
       // under a generic heading.

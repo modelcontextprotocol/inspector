@@ -183,6 +183,39 @@ describe("buildWebServerConfigFromEnv", () => {
     expect(cfg.allowedOrigins).toEqual(["http://a:1", "http://b:2"]);
   });
 
+  it("normalizes a root-dotted explicit entry so the banner stays inside its own list", () => {
+    // The banner reads `canonicalOriginHost`, so leaving the dot on an explicit
+    // entry would advertise `http://localhost:6274` while allow-listing
+    // `http://localhost.:6274` — WHATWG treats those as distinct origins, so
+    // opening the URL we printed would 403.
+    process.env.HOST = "localhost.";
+    process.env.ALLOWED_ORIGINS = "http://localhost.:6274";
+    const cfg = buildWebServerConfigFromEnv();
+    expect(cfg.allowedOrigins).toEqual(["http://localhost:6274"]);
+
+    const log = vitestSpyOnConsoleLog();
+    try {
+      printServerBanner(cfg, 6274, "tok", undefined);
+    } finally {
+      log.restore();
+    }
+    const advertised = log.lines.find((l) => l.includes("http://localhost"));
+    expect(advertised).toBeDefined();
+    // The invariant, asserted rather than assumed: whatever we printed is in
+    // the list the guard compares against.
+    expect(cfg.allowedOrigins.some((o) => advertised!.includes(o))).toBe(true);
+  });
+
+  it("keeps a non-default port and an IPv6 literal intact while normalizing", () => {
+    process.env.ALLOWED_ORIGINS =
+      "http://localhost.:8080, http://[::1]:6274, https://a.example.com";
+    expect(buildWebServerConfigFromEnv().allowedOrigins).toEqual([
+      "http://localhost:8080",
+      "http://[::1]:6274",
+      "https://a.example.com",
+    ]);
+  });
+
   it("turns the *.localhost widening off when ALLOWED_ORIGINS is set but wholly invalid", () => {
     // A widening fails closed. The operator stated an allow-list and got it
     // wrong; the list itself still falls back to the default (documented,

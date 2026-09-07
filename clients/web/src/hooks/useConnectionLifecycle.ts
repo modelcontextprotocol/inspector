@@ -654,6 +654,10 @@ export function useConnectionLifecycle({
         if (findInsecureTokenEndpoint(err)) {
           await client.disconnect().catch(() => {});
           showInsecureTokenEndpointNotice(err, target.name);
+          // Clear a banner left by an earlier failure: its Re-authenticate
+          // button is just as dead as the one this arm declines to offer, and
+          // the user cannot tell which failure it belongs to.
+          setReAuthBanner(null);
           return;
         }
 
@@ -741,8 +745,10 @@ export function useConnectionLifecycle({
               });
               return;
             }
-            // See the SEP-2207 note on the handshake arm above (#2280).
+            // See the SEP-2207 note on the handshake arm above (#2280). The
+            // disconnect already happened at the top of this catch.
             if (showInsecureTokenEndpointNotice(authErr, target.name)) {
+              setReAuthBanner(null);
               return;
             }
             // The connect attempt failed, same as any other handshake error —
@@ -789,6 +795,7 @@ export function useConnectionLifecycle({
       setFailedServerId,
       prepareOAuthRedirect,
       finalizeExplicitDisconnect,
+      setReAuthBanner,
     ],
   );
 
