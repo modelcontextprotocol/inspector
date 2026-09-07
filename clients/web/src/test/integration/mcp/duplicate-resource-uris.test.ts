@@ -8,6 +8,7 @@ import {
   type TestServerHttp,
   createTestServerInfo,
   createNumberedResources,
+  createFileResourceTemplate,
   loadConfig,
   resolveConfig,
 } from "@modelcontextprotocol/inspector-test-server";
@@ -105,6 +106,28 @@ describe("duplicate resource URIs in resources/list (#2206)", () => {
       "test://resource_1",
       "test://resource_2",
     ]);
+  });
+
+  // The option matches the assembled list, not `state.registeredResources`, so
+  // a URI a resource template contributed is duplicated too (Copilot). Both
+  // kinds land in the same Resources sidebar list and collide on the same React
+  // key, so the fixture has to be able to reproduce either.
+  it("duplicates a URI a resource template listed", async () => {
+    const started = await start({
+      resources: [],
+      resourceTemplates: [
+        createFileResourceTemplate(undefined, () => ["file:///notes.md"]),
+      ],
+      duplicateResourceUris: ["file:///notes.md"],
+    });
+    const connected = await connect(started.url);
+
+    const { resources } = await connected.listAllResources();
+    expect(resources.map((r) => r.uri)).toEqual([
+      "file:///notes.md",
+      "file:///notes.md",
+    ]);
+    expect(resources.at(-1)?.title).toBe("file:///notes.md (duplicate)");
   });
 
   it("ignores a URI that is not registered", async () => {

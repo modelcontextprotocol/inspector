@@ -515,8 +515,8 @@ export interface ServerConfig {
    */
   duplicateToolNames?: string[];
   /**
-   * URIs of registered resources to emit **twice** in `resources/list` (same
-   * `uri`, the second's title marked "(duplicate)").
+   * URIs to emit **twice** in `resources/list` (same `uri`, the second's title
+   * marked "(duplicate)").
    *
    * The `resources/list` analogue of {@link duplicateToolNames}, and
    * unreachable the same way: `registerResource` keys on the URI, so no preset
@@ -524,10 +524,17 @@ export interface ServerConfig {
    * concatenated — and the Inspector has to render that faithfully rather than
    * collide on the React key (#2206).
    *
+   * Matched against **everything the list actually carries**, which is the
+   * static registrations *and* whatever a resource template's `list` callback
+   * contributes — not `state.registeredResources` alone (Copilot). Both land in
+   * the same Resources sidebar list and collide on the same React key, so
+   * scoping this to static registrations only would leave half the surface
+   * unreproducible. A URI that appears in neither is ignored.
+   *
    * The copies go **after** the whole list rather than beside their twin, for
    * the reason spelled out on `duplicateToolNames`: a head-adjacent pair
    * happens to survive reconciliation, so only a separated pair exposes the
-   * defect. A URI that isn't registered is ignored.
+   * defect.
    */
   duplicateResourceUris?: string[];
   /**
@@ -1427,8 +1434,10 @@ export function createMcpServer(config: ServerConfig): McpServer {
   }
 
   // Emit each named resource a second time, same `uri`, title marked so the two
-  // rows are told apart on screen. See ServerConfig.duplicateResourceUris
-  // (#2206) — and the note there on why the copies are appended.
+  // rows are told apart on screen. Applied to the assembled list, so a URI a
+  // resource template listed is duplicated exactly as a statically-registered
+  // one is. See ServerConfig.duplicateResourceUris (#2206) — and the note there
+  // on why the copies are appended.
   const duplicateResourceUris = new Set(config.duplicateResourceUris ?? []);
   const withDuplicateResources = (resources: Resource[]): Resource[] =>
     duplicateResourceUris.size === 0

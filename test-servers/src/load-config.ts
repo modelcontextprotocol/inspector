@@ -93,8 +93,9 @@ export interface ConfigFile {
    */
   duplicateToolNames?: string[];
   /**
-   * URIs of registered resources to emit **twice** in `resources/list` (same
-   * `uri`, the second's title marked "(duplicate)"). See
+   * URIs to emit **twice** in `resources/list` (same `uri`, the second's title
+   * marked "(duplicate)") — matched against the assembled list, so a
+   * template-listed URI counts as well as a statically-registered one. See
    * {@link ServerConfig.duplicateResourceUris} (#2206).
    */
   duplicateResourceUris?: string[];
