@@ -3,6 +3,7 @@ import {
   cleanAuthorizationParams,
   cleanRoots,
   DEFAULT_SEED_CONFIG,
+  EXAMPLE_SERVER_URL,
   envPairsToRecord,
   envRecordToPairs,
   expectedSecretFields,
@@ -865,17 +866,22 @@ describe("serializeMcpConfig", () => {
 });
 
 describe("DEFAULT_SEED_CONFIG", () => {
-  it("contains the two canonical seed servers", () => {
+  it("contains the three canonical seed servers", () => {
     expect(Object.keys(DEFAULT_SEED_CONFIG.mcpServers)).toEqual([
       "filesystem-server-default",
       "everything-server-default",
+      "example-server-default",
     ]);
   });
 
-  it("uses stdio + npx for both seeds", () => {
-    for (const cfg of Object.values(DEFAULT_SEED_CONFIG.mcpServers)) {
-      expect(cfg.type).toBe("stdio");
-      if (cfg.type === "stdio") {
+  it("uses stdio + npx for both local seeds", () => {
+    for (const key of [
+      "filesystem-server-default",
+      "everything-server-default",
+    ]) {
+      const cfg = DEFAULT_SEED_CONFIG.mcpServers[key];
+      expect(cfg?.type).toBe("stdio");
+      if (cfg?.type === "stdio") {
         expect(cfg.command).toBe("npx");
       }
     }
@@ -886,6 +892,25 @@ describe("DEFAULT_SEED_CONFIG", () => {
     if (fs?.type === "stdio") {
       expect(fs.args).toContain("/tmp");
     }
+  });
+
+  it("seeds the MCP org example server over streamable-http", () => {
+    const example = DEFAULT_SEED_CONFIG.mcpServers["example-server-default"];
+    expect(example?.type).toBe("streamable-http");
+    if (example?.type === "streamable-http") {
+      expect(example.url).toBe(EXAMPLE_SERVER_URL);
+      expect(example.url).toBe(
+        "https://example-server.modelcontextprotocol.io/mcp",
+      );
+    }
+  });
+
+  it("leaves the remote seed on the default protocol era", () => {
+    // Omitted rather than written as "legacy": `serverEntriesToMcpConfig`
+    // strips the field when it equals DEFAULT_PROTOCOL_ERA, so a seed that
+    // spelled it out would round-trip into a different file than it seeded.
+    const example = DEFAULT_SEED_CONFIG.mcpServers["example-server-default"];
+    expect(example).not.toHaveProperty("protocolEra");
   });
 });
 
