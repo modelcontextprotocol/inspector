@@ -1,5 +1,6 @@
 import type { Tool } from "@modelcontextprotocol/client";
 import { declaresAnyFields } from "@inspector/core/json/rootUnion.js";
+import { listRowKey } from "./listRowKey";
 
 /**
  * Returns the display label for an MCP entity that follows the BaseMetadata
@@ -42,9 +43,12 @@ export function hasInputFields(tool: Tool): boolean {
  *
  * This is a UI identity only — the wire identity is still `tool.name`, which is
  * what a `tools/call` must send.
+ *
+ * Shares {@link listRowKey} with the resource lists, which have the same defect
+ * with duplicate URIs (#2206), so the two formats cannot drift apart.
  */
 export function toolRowKey(name: string, sourceIndex: number): string {
-  return `${sourceIndex}:${name}`;
+  return listRowKey(name, sourceIndex);
 }
 
 /**

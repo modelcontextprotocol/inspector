@@ -44,6 +44,7 @@ as a missing capability rather than an error.
 | `empty-cursor-http.json` **(legacy era)**                   | Pagination whose page-two cursor is `""`            | [#2220](https://github.com/modelcontextprotocol/inspector/issues/2220) |
 | `structured-output-http.json` **(legacy era)**             | Tools tab: a result's `structuredContent` section  | [#1908](https://github.com/modelcontextprotocol/inspector/issues/1908) |
 | `duplicate-tool-names-http.json` **(legacy era)**          | A `tools/list` that repeats a tool name            | [#1957](https://github.com/modelcontextprotocol/inspector/issues/1957) |
+| `duplicate-resource-uris-http.json` **(legacy era)**       | A `resources/list` that repeats a resource URI     | [#2206](https://github.com/modelcontextprotocol/inspector/issues/2206) |
 | `nullable-fields-http.json` **(legacy era)**               | Tools tab: nullable (`anyOf` + `null`) arguments   | [#1928](https://github.com/modelcontextprotocol/inspector/issues/1928) |
 | `root-union-schemas-http.json` **(legacy era)** | Tool schemas whose arguments are a root `anyOf` / `oneOf`, including one no branch of which can be offered | [#2123](https://github.com/modelcontextprotocol/inspector/issues/2123), [#2224](https://github.com/modelcontextprotocol/inspector/issues/2224) |
 | `unportable-schemas-http.json` **(legacy era)** | Tool schemas a real client rejects, flagged in all three clients | [#1005](https://github.com/modelcontextprotocol/inspector/issues/1005) |
@@ -270,6 +271,12 @@ Run `list_items` from the Tools tab: the result panel shows the `content[]` text
 Connect (default legacy era), open the Tools tab, and type `get` into **Search tools**: the list must narrow to exactly the three `get_*` rows. On the broken build it kept a stale `echo` row, because the sidebar keyed rows by `tool.name` alone and the colliding keys orphaned a child during reconciliation ([#1957](https://github.com/modelcontextprotocol/inspector/issues/1957)).
 
 The duplicated copies are appended rather than placed beside their twin on purpose. React matches a leading run of same-key children first, so a head-adjacent duplicate happens to line up and the defect hides; separating the pair is what makes it observable — and it is also the realistic shape, two tool sources concatenated.
+
+## Duplicate resource URIs
+
+`duplicate-resource-uris-http.json` is the `resources/list` counterpart: it serves `resource_1` … `resource_4`, then repeats `test://resource_1` and `test://resource_3` at the end of the list with the same `uri` and a `(duplicate)` title (`duplicateResourceUris`). Unreachable through a preset for the same reason — `registerResource` keys on the URI — and appended rather than adjacent for the same reason as above.
+
+Connect (default legacy era) and open the Resources tab. With the browser console open, the **URIs** section must list all six rows and log **no** `Encountered two children with the same key` warning; typing `resource_2` into **Search** must narrow it to exactly one row. On the broken build the sidebar keyed rows by `resource.uri` alone, so the warning repeated on every render and a filtered-out row survived reconciliation ([#2206](https://github.com/modelcontextprotocol/inspector/issues/2206)).
 
 ## Nullable arguments
 

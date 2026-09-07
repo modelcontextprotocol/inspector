@@ -452,4 +452,135 @@ describe("ResourceControls", () => {
     renderWithMantine(<ResourceControls {...baseProps} />);
     expect(screen.queryByText(/Couldn't load/)).not.toBeInTheDocument();
   });
+
+  // Nothing in the protocol makes `resources/list` URIs unique, and the store
+  // does not dedupe them either — `ManagedListState.applyItems` replaces the
+  // list wholesale, so a repeat is what the server actually sent. Keying a row
+  // on the URI alone therefore collides, which React warns about on every
+  // render and which lets a filtered-out row survive reconciliation (#2206).
+  describe("duplicate identifiers (#2206)", () => {
+    const duplicateUriResources: Resource[] = [
+      { name: "app", title: "App First", uri: "ui://hello-world/app.html" },
+      { name: "notes", title: "Notes", uri: "file:///notes.md" },
+      { name: "app", title: "App Second", uri: "ui://hello-world/app.html" },
+    ];
+
+    const duplicateTemplates: ResourceTemplate[] = [
+      { name: "profile", title: "Profile First", uriTemplate: "file:///{id}" },
+      { name: "logs", title: "Logs", uriTemplate: "log:///{day}" },
+      { name: "profile", title: "Profile Second", uriTemplate: "file:///{id}" },
+    ];
+
+    // Same URI, different names — the shape a search can tell apart. The rows
+    // display the last URI segment, so assertions count rows rather than text.
+    const duplicateSubscriptions: InspectorResourceSubscription[] = [
+      {
+        resource: { name: "alpha", uri: "ui://hello-world/app.html" },
+        lastUpdated: new Date("2026-03-17T10:30:00Z"),
+      },
+      {
+        resource: { name: "beta", uri: "file:///notes.md" },
+        lastUpdated: new Date("2026-03-17T10:31:00Z"),
+      },
+      {
+        resource: { name: "gamma", uri: "ui://hello-world/app.html" },
+        lastUpdated: new Date("2026-03-17T10:32:00Z"),
+      },
+    ];
+
+    // The console warning was the reported symptom, so assert on it directly:
+    // React only emits it when two siblings share a key.
+    it("renders repeated URIs without a React key collision", () => {
+      const consoleError = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
+      try {
+        renderWithMantine(
+          <ResourceControls
+            {...baseProps}
+            resources={duplicateUriResources}
+            templates={duplicateTemplates}
+            subscriptions={duplicateSubscriptions}
+          />,
+        );
+        const messages = consoleError.mock.calls.map((call) =>
+          call.map(String).join(" "),
+        );
+        expect(
+          messages.filter((message) => message.includes("same key")),
+        ).toEqual([]);
+        // Every entry the server sent is still on screen, which is the other
+        // half of what the collision put at risk.
+        expect(screen.getByText("App First")).toBeInTheDocument();
+        expect(screen.getByText("App Second")).toBeInTheDocument();
+      } finally {
+        consoleError.mockRestore();
+      }
+    });
+
+    it("removes every non-matching row when resource URIs repeat", async () => {
+      const user = userEvent.setup();
+      renderWithMantine(
+        <ControlledResourceControls resources={duplicateUriResources} />,
+      );
+
+      await user.type(screen.getByPlaceholderText("Search..."), "notes");
+
+      expect(screen.getByText("Notes")).toBeInTheDocument();
+      // Both copies are orphaned by the collision on the broken build; the
+      // second is the one React reuses rather than unmounting.
+      expect(screen.queryByText("App First")).not.toBeInTheDocument();
+      expect(screen.queryByText("App Second")).not.toBeInTheDocument();
+    });
+
+    it("removes every non-matching row when uriTemplates repeat", async () => {
+      const user = userEvent.setup();
+      renderWithMantine(
+        <ControlledResourceControls
+          resources={[]}
+          subscriptions={[]}
+          templates={duplicateTemplates}
+        />,
+      );
+
+      await user.type(screen.getByPlaceholderText("Search..."), "logs");
+
+      expect(screen.getByText("Logs")).toBeInTheDocument();
+      expect(screen.queryByText("Profile First")).not.toBeInTheDocument();
+      expect(screen.queryByText("Profile Second")).not.toBeInTheDocument();
+    });
+
+    it("renders one row per subscription when their URIs repeat", () => {
+      renderWithMantine(
+        <ResourceControls
+          {...baseProps}
+          resources={[]}
+          templates={[]}
+          subscriptions={duplicateSubscriptions}
+        />,
+      );
+      expect(screen.getByText("Subscriptions (3)")).toBeInTheDocument();
+      expect(
+        screen.getAllByRole("button", { name: "Unsubscribe" }),
+      ).toHaveLength(3);
+    });
+
+    it("removes every non-matching row when subscription URIs repeat", async () => {
+      const user = userEvent.setup();
+      renderWithMantine(
+        <ControlledResourceControls
+          resources={[]}
+          templates={[]}
+          subscriptions={duplicateSubscriptions}
+        />,
+      );
+
+      await user.type(screen.getByPlaceholderText("Search..."), "beta");
+
+      expect(screen.getByText("Subscriptions (1)")).toBeInTheDocument();
+      expect(
+        screen.getAllByRole("button", { name: "Unsubscribe" }),
+      ).toHaveLength(1);
+    });
+  });
 });
