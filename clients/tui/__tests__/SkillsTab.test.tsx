@@ -141,6 +141,28 @@ describe("SkillsTab (#2248)", () => {
     expect(frame).toContain("! gen");
   });
 
+  it("does not claim the listing conforms while verification is failing", async () => {
+    // The two verdicts sat in one pane and contradicted each other: the static
+    // checks pass on `clean` (its advertised digest is well-formed), while the
+    // bytes do not hash to it. The heading now names what it actually covers.
+    const { lastFrame, stdin } = render(
+      <SkillsTab
+        skills={[clean]}
+        pageCount={1}
+        inspectorClient={mockClient()}
+        width={140}
+        height={30}
+        focusedPane="list"
+      />,
+    );
+    stdin.write(ENTER);
+    await tick();
+    const frame = lastFrame() ?? "";
+    expect(frame).toContain("Verification FAILED");
+    expect(frame).toContain("Listing checks: no structural issues");
+    expect(frame).not.toContain("conforms");
+  });
+
   it("shows the selected skill's URI, description, findings and manifest", () => {
     const { lastFrame } = render(
       <SkillsTab
@@ -154,7 +176,8 @@ describe("SkillsTab (#2248)", () => {
     const frame = lastFrame() ?? "";
     expect(frame).toContain("skill://clean/SKILL.md");
     expect(frame).toContain("A clean skill");
-    expect(frame).toContain("Conformance: conforms");
+    // Named for what it covers: the static checks against the listing.
+    expect(frame).toContain("Listing checks: no structural issues");
     expect(frame).toContain("Manifest (1)");
     expect(frame).toContain("SKILL.md");
     expect(frame).toContain("(51 B)");

@@ -357,9 +357,17 @@ export function SkillsTab({
                 </Box>
               )}
 
+              {/* Named for the checks it actually covers. An unqualified
+                  "conforms" sat directly above "Verification FAILED" in the
+                  same pane and flatly contradicted it — these are the static
+                  checks against the LISTING, and passing them says nothing
+                  about the bytes the server serves (Copilot). Same wording
+                  problem, and the same fix, as the web screen's "No structural
+                  issues". */}
               <Box marginTop={1} flexShrink={0}>
                 <Text bold>
-                  Conformance{issues.length === 0 ? ": conforms" : ":"}
+                  Listing checks
+                  {issues.length === 0 ? ": no structural issues" : ":"}
                 </Text>
               </Box>
               {issues.map((issue, idx) => (

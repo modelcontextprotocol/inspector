@@ -76,13 +76,23 @@ handler cannot reach it. To exercise the *undeclared* case, connect to any
 config **without** `"skills"`, where the Inspector must refuse to send the call
 locally rather than letting the server answer it.
 
-Every result carries the modern base envelope (`resultType` / `ttlMs` /
-`cacheScope`). `skills/*` are consumer-owned, so the SDK stamps nothing for
-them; without it a 2026-era connection would receive a result missing the
-envelope. It is stamped unconditionally rather than per era — the modern leg
-builds a fresh server per request, so there is no era to branch on when the
-handlers are registered, and on the legacy leg they are three extra members no
-codec inspects.
+**Both `skills/*` results carry the full modern base envelope** (`resultType` /
+`ttlMs` / `cacheScope`). They are consumer-owned methods, so the SDK stamps
+nothing for them; without it a 2026-era connection would receive a result
+missing the envelope. It is stamped unconditionally rather than per era — the
+modern leg builds a fresh server per request, so there is no era to branch on
+when the handlers are registered, and on the legacy leg they are three extra
+members no codec inspects.
+
+⚠️ **`resources/directory/read` deliberately carries `resultType` alone.**
+SEP-2640 states the caching attributes for a modern `skills/list` in as many
+words and says nothing of the kind for this method, whose one worked example
+carries `resultType` and nothing else. A fixture sending more than the SEP shows
+would make a client that wrongly *required* them look correct, which is the
+opposite of what a conformance fixture is for — so `readDirectoryPage` stops
+where the spec does, and `ModernDirectoryReadResultSchema` requires exactly as
+much.
+
 It works on **either era**: `skills/list`, `skills/get` and
 `resources/directory/read` are consumer-owned extension methods that neither
 era codec defines, so the SDK's era gate skips them entirely — which is why
