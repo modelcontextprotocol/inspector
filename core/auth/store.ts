@@ -30,21 +30,6 @@ export interface IssuerBoundOAuthState {
   /** Set when {@link clientInformation} is saved — DCR vs CIMD. */
   clientRegistrationKind?: OAuthClientRegistrationKind;
   tokens?: OAuthTokens;
-  /**
-   * The CIMD client-metadata URL this AS was confirmed to accept as a `client_id`
-   * — written by `ensureCimdClientRegistration` after reading
-   * `client_id_metadata_document_supported` from *this* issuer's metadata, and
-   * refreshed (or cleared) on every connect because that check now runs each time.
-   *
-   * Deliberately **not** a credential, and so deliberately **not** cleared by
-   * {@link OAuthStorage.clearClientInformation}. It records a property of the
-   * authorization server and our own configuration, which an `invalid_client`
-   * response says nothing about: SDK v2 `auth()` answers that error by calling
-   * `invalidateCredentials("client")` and retrying, and the retry's URL-based
-   * client-ID save would otherwise land with no provenance and be recorded as
-   * DCR (#2242, Copilot).
-   */
-  cimdClientMetadataUrl?: string;
 }
 
 /**

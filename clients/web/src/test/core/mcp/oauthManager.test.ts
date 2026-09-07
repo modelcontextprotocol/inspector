@@ -70,8 +70,6 @@ function createMockParams(
     takeRevocationSnapshot: vi.fn().mockResolvedValue({ byIssuer: {} }),
     getDiscoveryState: vi.fn().mockResolvedValue(undefined),
     saveDiscoveryState: vi.fn().mockResolvedValue(undefined),
-    getCimdClientMetadataUrl: vi.fn(async () => undefined),
-    saveCimdClientMetadataUrl: vi.fn(async () => undefined),
     clearDiscoveryState: vi.fn().mockResolvedValue(undefined),
   };
 

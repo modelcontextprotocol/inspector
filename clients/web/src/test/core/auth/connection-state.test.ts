@@ -61,8 +61,6 @@ function createStorage(
     getCodeVerifier: vi.fn(),
     getDiscoveryState: vi.fn().mockResolvedValue(undefined),
     saveDiscoveryState: vi.fn(),
-    getCimdClientMetadataUrl: vi.fn(async () => undefined),
-    saveCimdClientMetadataUrl: vi.fn(async () => undefined),
     clearDiscoveryState: vi.fn(),
   };
 }

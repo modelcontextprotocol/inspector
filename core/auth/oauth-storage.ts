@@ -186,34 +186,6 @@ export class OAuthStorageBase implements OAuthStorage {
     );
   }
 
-  async getCimdClientMetadataUrl(
-    serverUrl: string,
-    issuer?: string,
-  ): Promise<string | undefined> {
-    await this.ensureLoaded();
-    const state = this.memory.getState().getServerState(serverUrl);
-    return this.issuerSlot(state, issuer)?.cimdClientMetadataUrl;
-  }
-
-  async saveCimdClientMetadataUrl(
-    serverUrl: string,
-    issuer: string,
-    clientMetadataUrl: string | undefined,
-  ): Promise<void> {
-    await this.ensureLoaded();
-    // Not a save of credentials, so it must not promote this issuer to
-    // `activeIssuer` — the marker is written during discovery, before anything
-    // has been authorized against this AS.
-    this.updateIssuerSlot(
-      serverUrl,
-      issuer,
-      { cimdClientMetadataUrl: clientMetadataUrl },
-      {},
-      false,
-    );
-    await this.persist();
-  }
-
   async saveClientInformation(
     serverUrl: string,
     clientInformation: OAuthClientInformation,
