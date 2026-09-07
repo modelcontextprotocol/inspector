@@ -6,6 +6,8 @@ import {
   emaStepUpFailureMessage,
   emaStepUpInProgressMessage,
   emaStepUpSuccessMessage,
+  insecureTokenEndpointMessage,
+  insecureTokenEndpointTitle,
   isActionTriggeredOAuthRecovery,
   isEmaStepUp,
   isReAuthBannerReason,
@@ -435,5 +437,59 @@ describe("oauthUx issuer-binding copy", () => {
         currentIssuer: "https://evil.example.com",
       }),
     });
+  });
+});
+
+describe("insecureTokenEndpoint copy", () => {
+  const ENDPOINT = "http://tenant.example.localhost:3300/api/oauth/token";
+
+  it("names the failure as a configuration problem, not an auth failure", () => {
+    expect(insecureTokenEndpointTitle()).toBe("Token endpoint is not secure");
+  });
+
+  it("describes the scheme as not-HTTPS rather than as plain HTTP", () => {
+    // The SDK's check is `protocol !== "https:"`, so a mistyped `ftp:` or `ws:`
+    // endpoint lands here too; naming the wrong scheme would send the reader
+    // hunting for a problem they do not have.
+    const message = insecureTokenEndpointMessage({
+      tokenEndpoint: "ftp://as.example.com/token",
+    });
+    expect(message).toContain("not HTTPS");
+    expect(message).not.toContain("plain HTTP");
+  });
+
+  it("names the endpoint, the server, and both ways out", () => {
+    const message = insecureTokenEndpointMessage({
+      tokenEndpoint: ENDPOINT,
+      serverName: "Acme",
+    });
+    expect(message).toContain('"Acme"');
+    expect(message).toContain(ENDPOINT);
+    expect(message).toContain("HTTPS");
+    expect(message).toContain("127.0.0.1");
+    expect(message).toContain("Token URL");
+  });
+
+  it("says a retry cannot help, which is the whole point of the message", () => {
+    // The bug this copy fixes (#2280) was a Re-authenticate button that could
+    // never succeed. If this sentence goes, the copy stops doing its job.
+    expect(insecureTokenEndpointMessage({ tokenEndpoint: ENDPOINT })).toContain(
+      "Re-authenticating cannot change this",
+    );
+  });
+
+  it("falls back to a generic subject with no server name", () => {
+    const message = insecureTokenEndpointMessage({ tokenEndpoint: ENDPOINT });
+    expect(message).toContain("this server");
+    expect(message).not.toContain('""');
+  });
+
+  it("bounds a hostile-length endpoint for display", () => {
+    // The endpoint is remote-supplied (it comes from the server's AS metadata),
+    // so an overlong value must not be echoed back whole into the layout.
+    const long = `https://example.com/${"a".repeat(500)}`;
+    const message = insecureTokenEndpointMessage({ tokenEndpoint: long });
+    expect(message).not.toContain(long);
+    expect(message).toContain("…");
   });
 });

@@ -102,6 +102,7 @@ export function resolveConfig(config: ConfigFile): ServerConfig {
       ? (transport.type as "sse" | "streamable-http")
       : undefined,
     port: isHttp ? transport.port : undefined,
+    strictPort: isHttp ? transport.strictPort : undefined,
   };
 
   // Normalize the modern flag: `true` is shorthand for the default (dual-era

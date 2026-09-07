@@ -1,3 +1,4 @@
+import type { Dispatch, SetStateAction } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { RefObject } from "react";
 import { notifications } from "@mantine/notifications";
@@ -30,6 +31,7 @@ import {
   emaStepUpSuccessMessage,
 } from "@inspector/core/auth/oauthUx.js";
 import { isEmaClientNotConfiguredError } from "@inspector/core/auth/ema/clientConfigError.js";
+import { showInsecureTokenEndpointNotice } from "../lib/insecureTokenEndpointNotice";
 import type { OAuthDetails } from "../components/groups/ConnectionInfoContent/ConnectionInfoContent";
 import { oauthDetailsFromConnectionState } from "../components/groups/ConnectionInfoContent/oauthDetailsFromConnectionState";
 import { getWebRemoteOAuthStorage } from "../lib/remoteOAuthStorage";
@@ -210,7 +212,13 @@ export interface OAuthRecovery {
   onBeforeOAuthRedirect: (authorizationUrl: URL) => void;
   prepareOAuthRedirect: (args: PrepareOAuthRedirectArgs) => void;
   reAuthBanner: ReAuthBannerState | null;
-  setReAuthBanner: (next: ReAuthBannerState | null) => void;
+  /**
+   * The raw state setter, functional form included. Consumers need the updater
+   * to clear a banner **only when it belongs to the server they are reporting
+   * on** — these paths are asynchronous, so a late continuation for server A
+   * must not erase a banner server B raised in the meantime.
+   */
+  setReAuthBanner: Dispatch<SetStateAction<ReAuthBannerState | null>>;
   /**
    * Drops the banner and both pending-OAuth slots. Called from the session
    * reset, which runs on every disconnect: an unanswered step-up prompt or a
@@ -383,6 +391,41 @@ export function useOAuthRecovery({
     [sessionRef],
   );
 
+  /**
+   * Report a terminal SEP-2207 refusal (#2280) and clear any re-auth banner.
+   *
+   * Every arm goes through this rather than calling the notice helper directly.
+   * The banner clear is not incidental: a banner left from an *earlier* failure
+   * carries a Re-authenticate button that is just as dead as the one this
+   * change removes, and the user cannot tell which failure it belongs to. Round
+   * 4 fixed that for one arm by hand; wrapping it is what stops the next arm
+   * from omitting it.
+   *
+   * Returns whether the error was claimed, so callers keep their fall-through.
+   */
+  const reportTerminalInsecureTokenEndpoint = useCallback(
+    (
+      err: unknown,
+      serverId: string | undefined,
+      serverName?: string,
+    ): boolean => {
+      if (!showInsecureTokenEndpointNotice(err, serverName)) {
+        return false;
+      }
+      // Clear only *this* server's banner. The command and deferred-resume
+      // paths are asynchronous, so server A can reject long after the user
+      // switched away and server B raised a banner of its own; an unconditional
+      // clear would then erase B's, which is still valid and still actionable.
+      // Functional so it sees the queued state rather than the render-time
+      // value, matching how `setPendingReauth` guards its own late restore.
+      setReAuthBanner((prev) =>
+        prev && prev.serverId === serverId ? null : prev,
+      );
+      return true;
+    },
+    [setReAuthBanner],
+  );
+
   const showReAuthBanner = useCallback(
     (
       serverId: string,
@@ -390,6 +433,14 @@ export function useOAuthRecovery({
       options?: { reason?: AuthChallengeReason },
     ) => {
       const server = sessionRef.current.servers.find((s) => s.id === serverId);
+      // SEP-2207 (#2280). The SDK rethrows `InsecureTokenEndpointError` instead
+      // of retrying, so the banner's "Re-authenticate" could only fail the same
+      // way. Claimed here, at the single funnel every re-auth banner goes
+      // through, rather than at each of its call sites — a new caller then gets
+      // the right behavior by default instead of by remembering.
+      if (reportTerminalInsecureTokenEndpoint(detail, serverId, server?.name)) {
+        return;
+      }
       const message = reAuthBannerMessage({
         serverName: server?.name,
         detail:
@@ -410,7 +461,7 @@ export function useOAuthRecovery({
         message,
       });
     },
-    [sessionRef],
+    [sessionRef, reportTerminalInsecureTokenEndpoint],
   );
 
   /** Clears pending OAuth resume state — explicit user disconnect only. */
@@ -811,10 +862,35 @@ export function useOAuthRecovery({
           }
           return undefined;
         }
+        // SEP-2207 (#2280), on the command path. A mid-session silent refresh
+        // against an unusable token endpoint rejects here rather than as an
+        // `AuthRecoveryRequiredError`, so without this it is rethrown and lands
+        // in `runCommandInBackground` — which either shows the raw SDK text
+        // under a generic title or, at a call site whose panel owns reporting,
+        // swallows it and leaves the command looking like it did nothing.
+        //
+        // Claimed rather than rethrown, taking the same `undefined` exit the
+        // unsatisfied-recovery branch above already uses: the failure is
+        // terminal and now fully reported, so an awaited caller should stop
+        // rather than render it a second time.
+        const server = sessionRef.current.servers.find(
+          (s) => s.id === activeServerId,
+        );
+        if (
+          reportTerminalInsecureTokenEndpoint(err, activeServerId, server?.name)
+        ) {
+          return undefined;
+        }
         throw err;
       }
     },
-    [inspectorClient, activeServerId, handleCommandScopedAuthRecovery],
+    [
+      inspectorClient,
+      activeServerId,
+      handleCommandScopedAuthRecovery,
+      sessionRef,
+      reportTerminalInsecureTokenEndpoint,
+    ],
   );
 
   /**
@@ -924,6 +1000,25 @@ export function useOAuthRecovery({
           });
         }
       } catch (err) {
+        // SEP-2207 (#2280) first, and specifically BEFORE the restore below.
+        // `handleAuthChallenge` runs the same SDK auth flow, so it can raise
+        // this terminal error — and the restore's whole premise is that the
+        // recovery is still owed and a later trigger should retry it. For a
+        // refusal that can only fail the same way, re-arming the slot means
+        // every future tab focus and reconnect replays it, under a toast
+        // promising a retry that cannot succeed. Report it and let it go.
+        const failedServer = sessionRef.current.servers.find(
+          (s) => s.id === pending.serverId,
+        );
+        if (
+          reportTerminalInsecureTokenEndpoint(
+            err,
+            pending.serverId,
+            failedServer?.name,
+          )
+        ) {
+          return;
+        }
         // The slot was cleared above only to keep a tab-visible event and a
         // reconnect from starting the same authorization twice — not because
         // the recovery was delivered. It still is owed, so restore it and let
@@ -969,6 +1064,7 @@ export function useOAuthRecovery({
       }
     },
     [
+      reportTerminalInsecureTokenEndpoint,
       sessionRef,
       inspectorClient,
       connectionStatus,
@@ -1320,6 +1416,12 @@ export function useOAuthRecovery({
           });
           return;
         }
+        // Above `setFailedServerId` for the same reason the EMA arm is: this is
+        // a configuration error, not a failed attempt, so it should not flag
+        // the card red or pull the monitoring sidebar open.
+        if (reportTerminalInsecureTokenEndpoint(err, server.id, server.name)) {
+          return;
+        }
         // The token exchange (or the re-handshake behind it) failed. Flag the
         // server (#1621) so the monitoring sidebar opens onto the OAuth
         // requests that explain it (#2108) — the rebuilt client restored the
@@ -1424,6 +1526,7 @@ export function useOAuthRecovery({
     initialConfigSettledRef,
     clearResultPanels,
     showReAuthBanner,
+    reportTerminalInsecureTokenEndpoint,
     webOAuthStorage,
     setUi,
     setActiveTab,

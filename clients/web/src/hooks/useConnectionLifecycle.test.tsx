@@ -11,6 +11,7 @@ import type { ClientConfig } from "@inspector/core/client/types.js";
 import type { RemoteInspectorClientStorage } from "@inspector/core/mcp/remote/index.js";
 import { AuthRecoveryRequiredError } from "@inspector/core/auth/challenge.js";
 import { EmaClientNotConfiguredError } from "@inspector/core/auth/ema/clientConfigError.js";
+import { InsecureTokenEndpointError } from "@modelcontextprotocol/client";
 import { renderWithMantine, act, waitFor } from "../test/renderWithMantine";
 import { EMPTY_SETTINGS } from "../utils/serverSettingsDefaults";
 import { DEEP_LINK_SERVER_ID } from "../utils/deepLink";
@@ -256,6 +257,27 @@ const lastClient = (h: Harness): InspectorClient => {
   const client = calls.at(-1)?.[0] as InspectorClient | null | undefined;
   if (!client) throw new Error("no client was constructed");
   return client;
+};
+
+/**
+ * The last updater handed to `setReAuthBanner`, applied to a banner.
+ *
+ * Every terminal SEP-2207 arm clears the banner with a **functional** update
+ * guarded on `serverId`, because these paths are asynchronous and a late
+ * continuation for one server must not erase a banner another raised in the
+ * meantime. The harness's setter is a spy, so the updater is never invoked for
+ * us — asserting it directly is what actually exercises the guard rather than
+ * merely reaching the line.
+ */
+const applyBannerUpdate = (
+  spy: ReturnType<typeof vi.fn>,
+  banner: { serverId: string; message: string } | null,
+) => {
+  const updater = spy.mock.calls.at(-1)?.[0] as unknown;
+  if (typeof updater !== "function") {
+    throw new Error("expected a functional setReAuthBanner update");
+  }
+  return (updater as (prev: unknown) => unknown)(banner);
 };
 
 const toastTitles = (): string[] =>
@@ -599,6 +621,128 @@ describe("useConnectionLifecycle", () => {
 
       expect(toastTitles()).toContain('Cannot connect to "Server a"');
       expect(h.spies.setFailedServerId).not.toHaveBeenCalledWith("a");
+    });
+
+    it("reports an insecure token endpoint as terminal, without flagging the card", async () => {
+      // SEP-2207 (#2280). Asserted on the hook, not just the notice helper,
+      // because what makes this arm correct is its *position*: above
+      // `setFailedServerId` and above the generic toast. A helper-only test
+      // cannot see either of those go wrong.
+      connectSpy.mockRejectedValueOnce(
+        new InsecureTokenEndpointError(
+          "http://tenant.app.localhost:3300/token",
+        ),
+      );
+      const h = harness({ servers: [entry("a")] });
+
+      await act(async () => {
+        await h.api().onToggleConnection("a");
+      });
+
+      expect(toastTitles()).toContain("Token endpoint is not secure");
+      // The generic arm must not also fire — two notifications for one failure
+      // is how the raw SDK text would creep back in beside the good copy.
+      expect(toastTitles()).not.toContain('Failed to connect to "Server a"');
+      expect(h.spies.setFailedServerId).not.toHaveBeenCalledWith("a");
+      // The clear is scoped: it drops this server's banner and spares another's.
+      expect(
+        applyBannerUpdate(h.spies.setReAuthBanner, {
+          serverId: "a",
+          message: "x",
+        }),
+      ).toBeNull();
+      expect(
+        applyBannerUpdate(h.spies.setReAuthBanner, {
+          serverId: "other",
+          message: "x",
+        }),
+      ).toMatchObject({ serverId: "other" });
+      // The real `connect()` sets status `"error"` and dispatches
+      // `statusChange` before rethrowing, which paints the card red and pins
+      // the monitoring sidebar open — presenting this as the failed connect
+      // attempt the notice says it is not. `connect` is mocked here, so the
+      // teardown is what this asserts; without it the client is left in that
+      // state.
+      expect(disconnectSpy).toHaveBeenCalled();
+    });
+
+    it("finds an insecure token endpoint wrapped under `cause` on the connect path", async () => {
+      // Era negotiation and the transport wrappers bury the rejection, so the
+      // shallow check this replaced would have missed exactly this shape.
+      connectSpy.mockRejectedValueOnce(
+        new Error("connect failed", {
+          cause: new InsecureTokenEndpointError("http://localhost.:8091/token"),
+        }),
+      );
+      const h = harness({ servers: [entry("a")] });
+
+      await act(async () => {
+        await h.api().onToggleConnection("a");
+      });
+
+      expect(toastTitles()).toContain("Token endpoint is not secure");
+      expect(h.spies.setFailedServerId).not.toHaveBeenCalledWith("a");
+      expect(disconnectSpy).toHaveBeenCalled();
+    });
+
+    it("reports an insecure token endpoint raised by the 401 authorization attempt", async () => {
+      // The second of the two arms: `authenticate()` rejects rather than the
+      // opening handshake, which is the path a refresh takes.
+      connectSpy.mockRejectedValueOnce(unauthorized());
+      authenticateSpy.mockRejectedValueOnce(
+        new InsecureTokenEndpointError("http://localhost.:8091/token"),
+      );
+      const h = harness({ servers: [entry("a")] });
+
+      await act(async () => {
+        await h.api().onToggleConnection("a");
+      });
+
+      expect(toastTitles()).toContain("Token endpoint is not secure");
+      expect(toastTitles()).not.toContain(
+        'OAuth authorization failed for "Server a"',
+      );
+      expect(h.spies.setFailedServerId).not.toHaveBeenCalledWith("a");
+      // The generic arm also records this as the connect error banner text;
+      // the terminal arm returns before that, so it must stay unset.
+      expect(h.api().connectErrorMessage).toBeUndefined();
+    });
+
+    it("reports a terminal refusal raised by the retried connect, without flagging the card", async () => {
+      // The satisfied-challenge retry still ends in a token exchange, so it can
+      // raise this on its own. Reporting it as a failed connect is doubly wrong
+      // here: the Inspector has just told the user the authorization worked
+      // (#2280).
+      connectSpy
+        .mockRejectedValueOnce(
+          new AuthRecoveryRequiredError(
+            new URL("https://as.example/authorize"),
+            { reason: "unauthorized" },
+          ),
+        )
+        .mockRejectedValueOnce(
+          new InsecureTokenEndpointError("http://localhost.:8091/token"),
+        );
+      checkSpy.mockResolvedValueOnce(true);
+      const h = harness({ servers: [entry("a")] });
+
+      await act(async () => {
+        await h.api().onToggleConnection("a");
+      });
+
+      expect(connectSpy).toHaveBeenCalledTimes(2);
+      expect(toastTitles()).toContain("Token endpoint is not secure");
+      expect(toastTitles()).not.toContain('Failed to connect to "Server a"');
+      expect(h.spies.setFailedServerId).not.toHaveBeenCalledWith("a");
+      expect(
+        applyBannerUpdate(h.spies.setReAuthBanner, {
+          serverId: "other",
+          message: "x",
+        }),
+      ).toMatchObject({ serverId: "other" });
+      expect(h.api().connectErrorMessage).toBeUndefined();
+      // The teardown the generic arm does is still required on this one.
+      expect(disconnectSpy).toHaveBeenCalled();
     });
 
     it("retries the connect when the auth challenge is already satisfied", async () => {
@@ -1208,6 +1352,39 @@ describe("useConnectionLifecycle", () => {
         expect(toastTitles()).toContain(
           'OAuth authorization failed for "Server a"',
         ),
+      );
+    });
+
+    it("reports a terminal token-endpoint refusal from the banner action", async () => {
+      // The path a user reaches by *acting*: an ordinary re-auth banner, they
+      // click Re-authenticate, and the exchange is refused. The worst place to
+      // fall back to the raw SDK text, since they have just been told that
+      // retrying is the fix (#2280).
+      const h = harness({ servers: [entry("a")] });
+      await act(async () => {
+        await h.api().onToggleConnection("a");
+      });
+      const client = lastClient(h);
+      authenticateSpy.mockRejectedValue(
+        new InsecureTokenEndpointError("http://localhost.:8091/token"),
+      );
+      h.rerender({
+        servers: [entry("a")],
+        activeServerId: "a",
+        connectionStatus: "connected",
+        client,
+        reAuthBanner: { serverId: "a", message: "lapsed" },
+      });
+
+      await act(async () => {
+        h.api().onReauthenticateFromBanner();
+      });
+
+      await waitFor(() =>
+        expect(toastTitles()).toContain("Token endpoint is not secure"),
+      );
+      expect(toastTitles()).not.toContain(
+        'OAuth authorization failed for "Server a"',
       );
     });
 

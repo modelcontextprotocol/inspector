@@ -119,6 +119,8 @@ export interface ConfigFile {
   transport: {
     type: "stdio" | "streamable-http" | "sse";
     port?: number;
+    /** Bind `port` exactly, or fail — see `ServerConfig.strictPort`. */
+    strictPort?: boolean;
     /**
      * Serve the modern (2026-07-28) protocol era via the SDK's
      * `createMcpHandler` (only valid with `type: "streamable-http"`). `true`
@@ -196,6 +198,48 @@ function validateConfig(
       `Invalid config in ${filePath}: transport.type must be stdio, streamable-http, or sse`,
     );
   }
+  // `strictPort` is consumed as a plain truthiness check at bind time, so a
+  // string `"false"` would read as *enabled* and silently disable the port walk
+  // — the opposite of what the author wrote. Validate the type here, where the
+  // file is being trusted, rather than letting it through as a `ConfigFile`.
+  if (
+    transport.strictPort !== undefined &&
+    typeof transport.strictPort !== "boolean"
+  ) {
+    throw new Error(
+      `Invalid config in ${filePath}: transport.strictPort must be a boolean`,
+    );
+  }
+
+  // Beyond the type: reject every combination that cannot honor the flag's
+  // contract, because each of them fails *silently* — the fixture looks strict
+  // and relocates anyway, which is the failure the flag exists to prevent.
+  //
+  //  - a string port (`"0"`, `"8091"`) is truthy, so it slips past the runtime
+  //    "no port to be strict about" guard, and Node then coerces `"0"` to the
+  //    dynamic port 0;
+  //  - a non-integer or out-of-range port cannot be bound as written;
+  //  - on `stdio` there is no listener at all, and `resolveConfig` drops the
+  //    flag, so it silently does nothing.
+  if (transport.strictPort === true) {
+    if (transportType === "stdio") {
+      throw new Error(
+        `Invalid config in ${filePath}: transport.strictPort requires an HTTP transport (streamable-http or sse)`,
+      );
+    }
+    const port = transport.port;
+    if (
+      typeof port !== "number" ||
+      !Number.isInteger(port) ||
+      port < 1 ||
+      port > 65535
+    ) {
+      throw new Error(
+        `Invalid config in ${filePath}: transport.strictPort requires transport.port to be an integer in 1-65535 (got ${JSON.stringify(port)})`,
+      );
+    }
+  }
+
   // Only reject *enabling* modern on a non-HTTP transport; a falsy `modern`
   // (e.g. `false`) is a no-op that `resolveConfig` normalizes away.
   if (transport.modern && transportType !== "streamable-http") {

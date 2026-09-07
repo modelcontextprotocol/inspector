@@ -457,6 +457,17 @@ export interface ServerConfig {
   serverType?: "sse" | "streamable-http"; // Transport type (default: "streamable-http")
   port?: number; // Port to use (optional, will find available port if not specified)
   /**
+   * Refuse to relocate: bind {@link port} exactly, or fail with EADDRINUSE.
+   *
+   * Off by default, because walking to the next free port is what lets several
+   * fixtures run side by side. It exists for a fixture whose *advertised*
+   * configuration hard-codes the port — `oauth-insecure-token-endpoint-http.json`
+   * puts it in an OAuth issuer — where relocating leaves the server announcing
+   * one port while its metadata still points at another process entirely, and
+   * the fixture silently stops reproducing what it exists to reproduce.
+   */
+  strictPort?: boolean;
+  /**
    * Whether to advertise listChanged capability for each list type
    * If enabled, modification tools will send list_changed notifications
    */

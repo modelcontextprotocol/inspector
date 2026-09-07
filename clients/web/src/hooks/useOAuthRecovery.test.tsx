@@ -9,6 +9,7 @@ import type {
 import type { AuthChallenge } from "@inspector/core/auth/challenge.js";
 import { AuthRecoveryRequiredError } from "@inspector/core/auth/challenge.js";
 import { EmaClientNotConfiguredError } from "@inspector/core/auth/ema/clientConfigError.js";
+import { InsecureTokenEndpointError } from "@modelcontextprotocol/client";
 import { useEffect, useLayoutEffect, useRef } from "react";
 import { renderWithMantine, act, waitFor } from "../test/renderWithMantine";
 import {
@@ -979,6 +980,137 @@ describe("useOAuthRecovery", () => {
       });
     });
 
+    it("claims an insecure token endpoint on the command path instead of rethrowing", async () => {
+      // SEP-2207 (#2280). A mid-session silent refresh rejects here rather than
+      // as an AuthRecoveryRequiredError, so before this it was rethrown into
+      // the generic reporting below.
+      const client = fakeClient();
+      const h = harness({ servers: [entry("a")], activeServerId: "a", client });
+      await act(async () => {
+        await expect(
+          h
+            .api()
+            .runWithCommandAuthRecovery(
+              () =>
+                Promise.reject(
+                  new InsecureTokenEndpointError(
+                    "http://localhost.:8091/token",
+                  ),
+                ),
+              "tool",
+            ),
+        ).resolves.toBeUndefined();
+      });
+      expect(toastTitles()).toContain("Token endpoint is not secure");
+    });
+
+    it("does not clear a banner belonging to a different server", async () => {
+      // The paths are asynchronous: server A can reject long after the user
+      // switched away and server B raised its own banner. An unconditional
+      // clear would erase B's, which is still valid and still actionable.
+      const client = fakeClient();
+      const h = harness({
+        servers: [entry("a"), entry("b")],
+        activeServerId: "b",
+        client,
+      });
+      await act(async () => {
+        client.emit("oauthError", { error: new Error("session expired") });
+      });
+      await waitFor(() => expect(h.api().reAuthBanner?.serverId).toBe("b"));
+
+      // The user switches to "a"; a stale continuation for it now rejects.
+      h.rerender({
+        servers: [entry("a"), entry("b")],
+        activeServerId: "a",
+        client,
+      });
+      await act(async () => {
+        await h
+          .api()
+          .runWithCommandAuthRecovery(
+            () =>
+              Promise.reject(
+                new InsecureTokenEndpointError("http://localhost.:8091/token"),
+              ),
+            "tool",
+          );
+      });
+
+      expect(toastTitles()).toContain("Token endpoint is not secure");
+      // B's banner survives — it is still valid and still actionable.
+      expect(h.api().reAuthBanner?.serverId).toBe("b");
+    });
+
+    it("clears a stale banner when a command-path failure is terminal", async () => {
+      // Every terminal arm goes through one wrapper for this reason: a banner
+      // left by an earlier failure carries a Re-authenticate button just as
+      // dead as the one this arm declines to offer, and the user cannot tell
+      // which failure it belongs to.
+      const client = fakeClient();
+      const h = harness({ servers: [entry("a")], activeServerId: "a", client });
+      await act(async () => {
+        client.emit("oauthError", { error: new Error("session expired") });
+      });
+      await waitFor(() => expect(h.api().reAuthBanner?.serverId).toBe("a"));
+
+      await act(async () => {
+        await h
+          .api()
+          .runWithCommandAuthRecovery(
+            () =>
+              Promise.reject(
+                new InsecureTokenEndpointError("http://localhost.:8091/token"),
+              ),
+            "tool",
+          );
+      });
+      expect(toastTitles()).toContain("Token endpoint is not secure");
+      expect(h.api().reAuthBanner).toBeNull();
+    });
+
+    it("shows the terminal notice instead of the generic title in the background form", async () => {
+      // The `errorTitle` call sites would otherwise render the raw SDK text
+      // under a generic heading.
+      const client = fakeClient();
+      const h = harness({ servers: [entry("a")], activeServerId: "a", client });
+      await act(async () => {
+        h.api().runCommandInBackground(
+          () =>
+            Promise.reject(
+              new InsecureTokenEndpointError("http://localhost.:8091/token"),
+            ),
+          "ambient",
+          "Refresh failed",
+        );
+        await Promise.resolve();
+      });
+      await waitFor(() =>
+        expect(toastTitles()).toContain("Token endpoint is not secure"),
+      );
+      expect(toastTitles()).not.toContain("Refresh failed");
+    });
+
+    it("still reports it at a call site whose panel owns reporting", async () => {
+      // The worse half of the old behavior: with no `errorTitle` the rejection
+      // was swallowed outright and the command just appeared to do nothing.
+      const client = fakeClient();
+      const h = harness({ servers: [entry("a")], activeServerId: "a", client });
+      await act(async () => {
+        h.api().runCommandInBackground(
+          () =>
+            Promise.reject(
+              new InsecureTokenEndpointError("http://localhost.:8091/token"),
+            ),
+          "ambient",
+        );
+        await Promise.resolve();
+      });
+      await waitFor(() =>
+        expect(toastTitles()).toContain("Token endpoint is not secure"),
+      );
+    });
+
     it("toasts a background failure only when given a title", async () => {
       const client = fakeClient();
       const h = harness({ servers: [entry("a")], activeServerId: "a", client });
@@ -1181,6 +1313,28 @@ describe("useOAuthRecovery", () => {
       await waitFor(() => expect(h.api().reAuthBanner?.serverId).toBe("a"));
     });
 
+    it("clears a banner already on screen when a later oauthError is terminal", async () => {
+      // Otherwise the stale Re-authenticate button sits beside the terminal
+      // notice — the affordance this change removes, sourced from an earlier
+      // failure rather than this one.
+      const client = fakeClient();
+      const h = harness({ servers: [entry("a")], activeServerId: "a", client });
+      await act(async () => {
+        client.emit("oauthError", { error: new Error("token endpoint 500") });
+      });
+      await waitFor(() => expect(h.api().reAuthBanner?.serverId).toBe("a"));
+
+      await act(async () => {
+        client.emit("oauthError", {
+          error: new InsecureTokenEndpointError("http://localhost.:8091/token"),
+        });
+      });
+      await waitFor(() =>
+        expect(toastTitles()).toContain("Token endpoint is not secure"),
+      );
+      expect(h.api().reAuthBanner).toBeNull();
+    });
+
     it("ignores an oauthError with no active server", async () => {
       const client = fakeClient();
       const h = harness({ servers: [], activeServerId: undefined, client });
@@ -1342,6 +1496,41 @@ describe("useOAuthRecovery", () => {
       await waitFor(() =>
         expect(client.handleAuthChallenge).toHaveBeenCalledTimes(2),
       );
+    });
+
+    it("does not re-arm a deferred recovery whose failure is terminal", async () => {
+      // The restore's premise is that the recovery is still owed and a later
+      // trigger should retry it. For a refusal that can only fail the same way,
+      // re-arming means every future tab focus replays it under a toast
+      // promising a retry that cannot succeed — an unbounded loop on a terminal
+      // error (#2280).
+      const client = fakeClient({
+        handleAuthChallenge: vi
+          .fn()
+          .mockRejectedValue(
+            new InsecureTokenEndpointError("http://localhost.:8091/token"),
+          ),
+      });
+      const h = harness({ servers: [entry("a")], activeServerId: "a", client });
+      await defer(client, h);
+      await act(async () => {
+        becomeVisible();
+      });
+
+      await waitFor(() =>
+        expect(toastTitles()).toContain("Token endpoint is not secure"),
+      );
+      // Neither the retry promise nor the slot that would make good on it.
+      // `pendingReauth` is not on the hook's public surface, so it is read back
+      // through the commit probe, as the step-up tests above do.
+      expect(toastTitles()).not.toContain("Could not continue authorization");
+      expect(h.commits[h.commits.length - 1]?.reauthServerId).toBeUndefined();
+
+      // The load-bearing assertion: coming back to the tab does not replay it.
+      await act(async () => {
+        becomeVisible();
+      });
+      expect(client.handleAuthChallenge).toHaveBeenCalledTimes(1);
     });
 
     it("does not put a stale challenge back over a newer deferral", async () => {
@@ -1684,6 +1873,45 @@ describe("useOAuthRecovery", () => {
       );
       expect(client.disconnect).toHaveBeenCalled();
       expect(h.spies.setFailedServerId).not.toHaveBeenCalled();
+    });
+
+    it("reports an insecure token endpoint terminally, with no banner and no red card", async () => {
+      // SEP-2207 (#2280). The three assertions are the whole point of the arm's
+      // position: the banner would carry a Re-authenticate button that cannot
+      // work, and flagging the card would present a configuration error as a
+      // failed connect attempt.
+      snapshot();
+      const client = fakeClient({
+        resumeAfterOAuth: vi
+          .fn()
+          .mockRejectedValue(
+            new InsecureTokenEndpointError("http://localhost.:8091/token"),
+          ),
+      });
+      const h = callbackHarness(`?code=abc&state=${AUTH_ID}`, {}, client);
+      await waitFor(() =>
+        expect(toastTitles()).toContain("Token endpoint is not secure"),
+      );
+      expect(h.api().reAuthBanner).toBeNull();
+      expect(h.spies.setFailedServerId).not.toHaveBeenCalled();
+    });
+
+    it("finds an insecure token endpoint wrapped under `cause` on the callback leg", async () => {
+      snapshot();
+      const client = fakeClient({
+        resumeAfterOAuth: vi.fn().mockRejectedValue(
+          new Error("resume failed", {
+            cause: new InsecureTokenEndpointError(
+              "http://localhost.:8091/token",
+            ),
+          }),
+        ),
+      });
+      const h = callbackHarness(`?code=abc&state=${AUTH_ID}`, {}, client);
+      await waitFor(() =>
+        expect(toastTitles()).toContain("Token endpoint is not secure"),
+      );
+      expect(h.api().reAuthBanner).toBeNull();
     });
 
     it("offers one-click recovery when the authorization state was lost", async () => {
