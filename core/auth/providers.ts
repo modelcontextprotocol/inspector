@@ -9,7 +9,11 @@ import type {
   OAuthMetadata,
   OAuthDiscoveryState,
 } from "@modelcontextprotocol/client";
-import type { OAuthStorage, SaveClientInformationOptions } from "./storage.js";
+import type {
+  OAuthStorage,
+  SaveClientInformationOptions,
+  OAuthClientRegistrationKind,
+} from "./storage.js";
 import { generateOAuthState } from "./utils.js";
 import { applyAuthorizationParams } from "./authorizationParams.js";
 import { scopeForDeclinedRefreshGrant } from "./scopes.js";
@@ -375,6 +379,13 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
   /** @see OAuthStorage.getCimdClientMetadataUrl */
   async cimdClientMetadataUrl(issuer?: string): Promise<string | undefined> {
     return await this.storage.getCimdClientMetadataUrl(this.serverUrl, issuer);
+  }
+
+  /** @see OAuthStorage.getClientRegistrationKind */
+  async clientRegistrationKind(
+    issuer?: string,
+  ): Promise<OAuthClientRegistrationKind | undefined> {
+    return await this.storage.getClientRegistrationKind(this.serverUrl, issuer);
   }
 
   /** @see OAuthStorage.saveCimdClientMetadataUrl */

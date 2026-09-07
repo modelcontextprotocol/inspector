@@ -898,6 +898,43 @@ describe("OAuthNavigation", () => {
             ).toBe("cimd");
           });
 
+          // Copilot: an AS advertising CIMD does not make an *existing* dynamic
+          // registration a CIMD one. RFC 7591 §3.2 leaves the id opaque, so a
+          // real DCR may carry the metadata URL; end to end, it must stay `dcr`.
+          it("does not relabel an existing DCR whose client_id is the metadata URL", async () => {
+            const storage = makeRealStorage();
+            const provider = makeProvider(storage, vi.fn(), {
+              clientMetadataUrl: METADATA_URL,
+            });
+
+            // A real dynamic registration that happens to use the same URL.
+            await provider.saveClientInformation(
+              { client_id: METADATA_URL },
+              { registrationKind: "dcr", issuer: ISSUER },
+            );
+
+            // The AS does advertise CIMD, so the pre-registration runs and finds
+            // that registration already in place.
+            await ensureCimdClientRegistration({
+              serverUrl: SERVER,
+              provider,
+              fetchFn: discoveryFetch(ISSUER, true),
+            });
+            expect(
+              await storage.getCimdClientMetadataUrl(SERVER, ISSUER),
+            ).toBeUndefined();
+
+            // The SDK's issuer back-stamp of that same registration.
+            await provider.saveClientInformation(
+              { client_id: METADATA_URL },
+              { issuer: ISSUER },
+            );
+
+            expect(
+              await storage.getClientRegistrationKind(SERVER, ISSUER),
+            ).toBe("dcr");
+          });
+
           // The provenance marker's whole reason for existing: SDK v2 `auth()`
           // answers `invalid_client` with `invalidateCredentials("client")` and
           // an immediate retry, and that clear removes the credential *and* its

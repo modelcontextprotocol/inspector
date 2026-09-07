@@ -17,6 +17,28 @@ function createProvider(storage: OAuthStorage): BaseOAuthClientProvider {
   });
 }
 
+/** Discovery that advertises CIMD support for the default AS location. */
+function cimdDiscoveryFetch(): typeof fetch {
+  return async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.includes("/.well-known/oauth-protected-resource")) {
+      return new Response(JSON.stringify({ resource: SERVER_URL }));
+    }
+    if (url.includes("/.well-known/oauth-authorization-server")) {
+      return new Response(
+        JSON.stringify({
+          issuer: "http://127.0.0.1:9999",
+          authorization_endpoint: "http://127.0.0.1:9999/oauth/authorize",
+          token_endpoint: "http://127.0.0.1:9999/oauth/token",
+          response_types_supported: ["code"],
+          client_id_metadata_document_supported: true,
+        }),
+      );
+    }
+    throw new Error(`unexpected fetch: ${url}`);
+  };
+}
+
 describe("ensureCimdClientRegistration", () => {
   let storage: OAuthStorage;
 
@@ -228,12 +250,67 @@ describe("ensureCimdClientRegistration", () => {
     expect(storage.saveCimdClientMetadataUrl).not.toHaveBeenCalled();
   });
 
+  // #2242 (Copilot): an AS advertising CIMD is not on its own evidence that the
+  // registration standing for it is a CIMD one. RFC 7591 §3.2 leaves a
+  // dynamically issued `client_id` opaque, so a real DCR may carry this very
+  // URL — marking it would relabel it.
+  it("withdraws the marker when an existing DCR happens to use the metadata URL as its client_id", async () => {
+    storage.getClientInformation = vi.fn(
+      async (_url: string, preregistered?: boolean) =>
+        preregistered ? undefined : { client_id: METADATA_URL },
+    );
+    storage.getClientRegistrationKind = vi.fn(
+      async (): Promise<"dcr"> => "dcr",
+    );
+    const fetchFn = cimdDiscoveryFetch();
+
+    await ensureCimdClientRegistration({
+      serverUrl: SERVER_URL,
+      provider: createProvider(storage),
+      fetchFn,
+    });
+
+    expect(storage.saveClientInformation).not.toHaveBeenCalled();
+    expect(storage.saveCimdClientMetadataUrl).toHaveBeenCalledWith(
+      SERVER_URL,
+      "http://127.0.0.1:9999",
+      undefined,
+    );
+  });
+
+  it("reaffirms the marker for an existing registration already recorded as cimd", async () => {
+    storage.getClientInformation = vi.fn(
+      async (_url: string, preregistered?: boolean) =>
+        preregistered ? undefined : { client_id: METADATA_URL },
+    );
+    storage.getClientRegistrationKind = vi.fn(
+      async (): Promise<"cimd"> => "cimd",
+    );
+    const fetchFn = cimdDiscoveryFetch();
+
+    await ensureCimdClientRegistration({
+      serverUrl: SERVER_URL,
+      provider: createProvider(storage),
+      fetchFn,
+    });
+
+    expect(storage.saveClientInformation).not.toHaveBeenCalled();
+    expect(storage.saveCimdClientMetadataUrl).toHaveBeenCalledWith(
+      SERVER_URL,
+      "http://127.0.0.1:9999",
+      METADATA_URL,
+    );
+  });
+
   it("no-ops when client information is already stored for the discovered issuer", async () => {
     // Dynamic slot only — a preregistered hit would short-circuit
     // `clientInformation()` before it ever reaches the issuer-keyed read.
     storage.getClientInformation = vi.fn(
       async (_url: string, preregistered?: boolean) =>
         preregistered ? undefined : { client_id: "existing-client" },
+    );
+    storage.getClientRegistrationKind = vi.fn(
+      async (): Promise<"dcr"> => "dcr",
     );
 
     const fetchFn = vi.fn(async (input: RequestInfo | URL) => {
