@@ -392,7 +392,7 @@ export function useOAuthRecovery({
   );
 
   /**
-   * Report a terminal terminal token-endpoint refusal (#2280) and clear any re-auth banner.
+   * Report a terminal token-endpoint refusal (#2280) and clear any re-auth banner.
    *
    * Every arm goes through this rather than calling the notice helper directly.
    * The banner clear is not incidental: a banner left from an *earlier* failure

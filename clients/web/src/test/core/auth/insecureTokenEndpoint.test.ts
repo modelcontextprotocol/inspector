@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { InsecureTokenEndpointError } from "@modelcontextprotocol/client";
+import {
+  InsecureTokenEndpointError,
+  OAuthError,
+} from "@modelcontextprotocol/client";
 import { findInsecureTokenEndpoint } from "@inspector/core/auth/insecureTokenEndpoint.js";
 
 const ENDPOINT = "http://tenant.example.localhost:3300/api/oauth/token";
@@ -21,6 +24,13 @@ describe("SDK brand placement", () => {
     // do not treat it as a transient authorization failure. If a future SDK
     // changes that, the #2280 handling should be revisited rather than silently
     // keeping a now-wrong justification.
+    //
+    // Asserted against the hierarchy itself, both ways. Checking only `name`
+    // and `tokenEndpoint` would leave this passing unchanged if the class were
+    // reparented — the test would keep its title while having stopped testing
+    // it, which is worse than not having it.
+    expect(OAuthError.isInstance(err)).toBe(false);
+    expect(err instanceof OAuthError).toBe(false);
     expect(err.name).toBe("InsecureTokenEndpointError");
     expect(typeof err.tokenEndpoint).toBe("string");
   });
