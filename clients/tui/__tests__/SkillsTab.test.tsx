@@ -602,6 +602,51 @@ describe("SkillsTab (#2248)", () => {
     expect(lastFrame() ?? "").toContain("nameless");
   });
 
+  it("reports a name collision on both entries, as a warning", async () => {
+    // A catalog-level fact `checkSkillConformance` structurally cannot see —
+    // and a warning, because the server did nothing wrong: the obligation is
+    // on the consumer to tell two same-named skills apart.
+    const acme: SkillEntry = {
+      uri: "skill://acme/reports/SKILL.md",
+      frontmatter: { name: "reports", description: "Acme ledger" },
+      resources: [
+        { uri: "skill://acme/reports/SKILL.md", digest: CLEAN_DIGEST, size: 1 },
+      ],
+    };
+    const globex: SkillEntry = {
+      uri: "skill://globex/reports/SKILL.md",
+      frontmatter: { name: "reports", description: "Globex ledger" },
+      resources: [
+        {
+          uri: "skill://globex/reports/SKILL.md",
+          digest: CLEAN_DIGEST,
+          size: 1,
+        },
+      ],
+    };
+    const { lastFrame, stdin } = render(
+      <SkillsTab
+        skills={[acme, globex]}
+        pageCount={1}
+        inspectorClient={null}
+        width={160}
+        height={30}
+        focusedPane="list"
+      />,
+    );
+    const frame = lastFrame() ?? "";
+    // Both rows carry the warning mark, not the error one.
+    expect(frame.match(/! reports/g)).toHaveLength(2);
+    expect(frame).not.toContain("✗ reports");
+    expect(frame).toContain("also declares the name");
+    // The detail pane names the OTHER skill, which is the disambiguation.
+    expect(frame).toContain("skill://globex/reports/SKILL.md");
+
+    stdin.write(DOWN);
+    await tick();
+    expect(lastFrame() ?? "").toContain("skill://acme/reports/SKILL.md");
+  });
+
   it("shows the details footer only when the details pane is focused", () => {
     const unfocused = render(
       <SkillsTab

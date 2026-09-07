@@ -247,7 +247,8 @@ export type SkillIssueCode =
   | "size-limit-exceeded"
   | "frontmatter-absent"
   | "frontmatter-unparsable"
-  | "frontmatter-mismatch";
+  | "frontmatter-mismatch"
+  | "duplicate-name";
 
 /**
  * `error` marks a **MUST** of SEP-2640 that the server broke, so a manifest
@@ -831,6 +832,71 @@ export function checkSkillFrontmatterMatch(
         severity: "error",
         message: `Field "${field}" differs: the listing says ${listedJson} but the served SKILL.md says ${servedJson}.`,
         resourceUri: entry.uri,
+      });
+    }
+  }
+  return issues;
+}
+
+/**
+ * Findings that can only be computed over the **whole listing**, keyed by the
+ * entry they belong to (its normalized URI identity).
+ *
+ * Today that is exactly one: two entries in a single `skills/list` colliding on
+ * `frontmatter.name`. {@link checkSkillConformance} structurally cannot report
+ * it — it sees one entry at a time, and a collision is a property of the pair.
+ *
+ * SEP-2640: *"Hosts MUST NOT assume name uniqueness"*, and *"When two entries
+ * in one listing collide on `name`, hosts MUST disambiguate them — for example
+ * by their distinguishing path segments — rather than silently discarding or
+ * preferring one."*
+ *
+ * ⚠️ **A collision is a `warning`, not an `error`, and the distinction is the
+ * whole point of the severity split.** The obligation here is on the *host*,
+ * not the server: a server may legitimately publish two skills with the same
+ * name under different paths, and the SEP's own example
+ * (`acme/billing/refunds`) is exactly that. Reporting it as an error would tell
+ * a conforming server author their catalog is invalid. What the warning says is
+ * that a consumer must not collapse the two — which is why the Inspector shows
+ * each skill's URI beside its name, and now says so rather than leaving the
+ * reader to notice.
+ *
+ * Names are compared **raw**, not trimmed or case-folded. The Agent Skills
+ * grammar is lowercase already, and a checker that normalized more than the
+ * grammar does would report a collision between two names the spec considers
+ * distinct.
+ */
+export function checkSkillNameCollisions(
+  entries: readonly SkillEntry[],
+): Map<string, SkillIssue> {
+  const byName = new Map<string, SkillEntry[]>();
+  for (const entry of entries) {
+    const name = entry.frontmatter.name;
+    // An absent name is `missing-name`, reported per entry. Two entries that
+    // both omit one are not "colliding on a name" — there is no name — and
+    // saying so would bury the real finding under a derived one.
+    if (typeof name !== "string" || name.trim() === "") continue;
+    const group = byName.get(name);
+    if (group) group.push(entry);
+    else byName.set(name, [entry]);
+  }
+
+  const issues = new Map<string, SkillIssue>();
+  for (const [name, group] of byName) {
+    // Deduplicated by URI identity first: the SAME skill appearing twice in a
+    // listing is a repeated entry, not two skills sharing a name, and
+    // `skills/list` returning it twice is a different defect from the one this
+    // function reports.
+    const identities = new Set(group.map((e) => skillUriIdentity(e.uri)));
+    if (identities.size < 2) continue;
+    const uris = [...identities].sort();
+    for (const entry of group) {
+      const self = skillUriIdentity(entry.uri);
+      const others = uris.filter((uri) => uri !== self);
+      issues.set(self, {
+        code: "duplicate-name",
+        severity: "warning",
+        message: `Another skill in this listing also declares the name "${name}" (${others.join(", ")}). This is legal — a consumer must tell them apart by their URIs rather than collapsing or preferring one.`,
       });
     }
   }

@@ -30,6 +30,7 @@ import type { RequestMetadata } from "./types.js";
 import {
   checkSkillConformance,
   checkSkillFrontmatterMatch,
+  checkSkillNameCollisions,
   skillDisplayName,
   skillFileBytes,
   skillUriIdentity,
@@ -141,6 +142,12 @@ export async function verifySkills(
   entries: readonly SkillEntry[],
   metadata?: RequestMetadata,
 ): Promise<SkillVerifyReport[]> {
+  // Computed once over the whole set, because a name collision is a property
+  // of the listing rather than of an entry — `checkSkillConformance` sees one
+  // at a time and structurally cannot report it. Note this is scoped to the
+  // entries passed in, so `--method skills/get --verify` on a single skill
+  // reports no collision: there is no listing to collide within.
+  const collisions = checkSkillNameCollisions(entries);
   const reports: SkillVerifyReport[] = [];
   for (const entry of entries) {
     // The entry's own SKILL.md, read once and used twice — for its digest and
@@ -211,7 +218,11 @@ export async function verifySkills(
       }
     }
 
-    const conformance = checkSkillConformance(entry);
+    const collision = collisions.get(skillUriIdentity(entry.uri));
+    const conformance = [
+      ...checkSkillConformance(entry),
+      ...(collision ? [collision] : []),
+    ];
     const frontmatter =
       entryText === undefined
         ? []

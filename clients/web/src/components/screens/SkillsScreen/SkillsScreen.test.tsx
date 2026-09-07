@@ -115,6 +115,36 @@ const MISMATCHED_SKILL: SkillEntry = {
   resources: [await selfEntry("skill://wrong-folder/SKILL.md", MISMATCHED_FM)],
 };
 
+// Two skills sharing a name, and otherwise **fully conforming** — SEP-2640
+// requires only that the segment before /SKILL.md equal `frontmatter.name`,
+// which multi-segment paths satisfy while still sharing a final segment. Their
+// manifests list their own SKILL.md and their served files are derived from
+// their frontmatter, so the collision is genuinely their ONLY finding; a
+// fixture with an incidental `manifest-missing-self` would make the tests below
+// pass for the wrong reason.
+const ACME_REPORTS_FM: Frontmatter = {
+  name: "reports",
+  description: "Build the weekly report from the acme ledger",
+};
+const GLOBEX_REPORTS_FM: Frontmatter = {
+  name: "reports",
+  description: "Build the weekly report from the globex ledger",
+};
+const ACME: SkillEntry = {
+  uri: "skill://acme/reports/SKILL.md",
+  frontmatter: ACME_REPORTS_FM,
+  resources: [
+    await selfEntry("skill://acme/reports/SKILL.md", ACME_REPORTS_FM),
+  ],
+};
+const GLOBEX: SkillEntry = {
+  uri: "skill://globex/reports/SKILL.md",
+  frontmatter: GLOBEX_REPORTS_FM,
+  resources: [
+    await selfEntry("skill://globex/reports/SKILL.md", GLOBEX_REPORTS_FM),
+  ],
+};
+
 const ALL_SKILLS = [
   CLEAN_SKILL,
   TAMPERED_SKILL,
@@ -2181,6 +2211,87 @@ describe("SkillsScreen directory browsing (#2248)", () => {
     expect(
       screen.queryByRole("button", { name: /Directory/ }),
     ).not.toBeInTheDocument();
+  });
+});
+
+describe("SkillsScreen name collisions (#2248)", () => {
+  it("reports the collision on both entries, each naming the other", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(<ControlledSkillsScreen skills={[ACME, GLOBEX]} />);
+    await user.click(screen.getByText(ACME.uri));
+    // Stated as a banner at the top of Conformance, not as a bare code in the
+    // findings list — it changes how everything under it should be read.
+    const banner = screen.getByTestId("skill-name-collision");
+    expect(banner).toHaveTextContent("skill://globex/reports/SKILL.md");
+    expect(banner).not.toHaveTextContent("skill://acme/reports/SKILL.md");
+    // …and it is NOT also repeated in the list, which would read as two
+    // findings for one fact.
+    expect(screen.queryByTestId("skill-issues")).not.toBeInTheDocument();
+  });
+
+  it("states it on the other entry too, naming the first", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(<ControlledSkillsScreen skills={[ACME, GLOBEX]} />);
+    await user.click(screen.getByText(GLOBEX.uri));
+    expect(screen.getByTestId("skill-name-collision")).toHaveTextContent(
+      "skill://acme/reports/SKILL.md",
+    );
+  });
+
+  it("counts it as a warning, not an error", async () => {
+    // The server did nothing wrong — the obligation is on the consumer — so an
+    // error badge would tell a conforming author their catalog is invalid.
+    const user = userEvent.setup();
+    renderWithMantine(<ControlledSkillsScreen skills={[ACME, GLOBEX]} />);
+    await user.click(screen.getByText(ACME.uri));
+    // The count carries through the header badge like every other finding, and
+    // the badge is yellow — green would read as "nothing to see" for something
+    // meant to be noticed, red would call a conforming server broken.
+    const control = screen.getByRole("button", { name: /Conformance/ });
+    expect(control).toHaveTextContent("0 error(s), 1 warning(s)");
+    const style = badgeStyle(/warning\(s\)/);
+    expect(style).toContain("yellow");
+    expect(style).not.toContain("red");
+  });
+
+  it("opens Conformance for a skill whose only finding is the collision", async () => {
+    // Selected before mount, so this exercises `initialOpenSections` rather
+    // than the `useValueChange` path — the entry is otherwise clean, so
+    // `checkSkillConformance` alone would have collapsed the section while the
+    // badge said there was something to see.
+    renderWithMantine(
+      <SkillsScreen
+        {...baseProps}
+        skills={[ACME, GLOBEX]}
+        ui={{ ...EMPTY_SKILLS_UI, selectedSkillUri: ACME.uri }}
+      />,
+    );
+    expect(screen.getByRole("button", { name: /Conformance/ })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+  });
+
+  it("computes collisions over the whole catalog, not the filtered view", async () => {
+    // A finding that disappeared because the sidebar search excluded the other
+    // half would depend on what the reader typed.
+    const user = userEvent.setup();
+    renderWithMantine(
+      <ControlledSkillsScreen
+        skills={[ACME, GLOBEX]}
+        ui={{ ...EMPTY_SKILLS_UI, search: "acme" }}
+      />,
+    );
+    await user.click(screen.getByText(ACME.uri));
+    expect(screen.getByTestId("skill-name-collision")).toBeInTheDocument();
+  });
+
+  it("says nothing when the names are distinct", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(<ControlledSkillsScreen />);
+    await user.click(screen.getByText("data-analysis"));
+    await user.click(screen.getByRole("button", { name: /Conformance/ }));
+    expect(screen.getByText("No structural issues")).toBeInTheDocument();
   });
 });
 

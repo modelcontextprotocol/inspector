@@ -5,7 +5,9 @@ import type { InspectorClient } from "@inspector/core/mcp/index.js";
 import { AuthRecoveryRequiredError } from "@inspector/core/auth/challenge.js";
 import {
   checkSkillConformance,
+  checkSkillNameCollisions,
   skillDisplayName,
+  skillUriIdentity,
   type SkillIssue,
 } from "@inspector/core/mcp/skills.js";
 import {
@@ -215,7 +217,15 @@ export function SkillsTab({
 
   const listWidth = Math.floor(width * 0.4);
   const detailWidth = width - listWidth;
-  const issues = selectedSkill ? checkSkillConformance(selectedSkill) : [];
+  // A name collision is a property of the LISTING, not of an entry, so it is
+  // computed once here and merged into each entry's own findings — which is
+  // what carries it into the row marks below as well as the detail pane.
+  const collisions = checkSkillNameCollisions(skills);
+  const findingsFor = (skill: SkillEntry): SkillIssue[] => {
+    const collision = collisions.get(skillUriIdentity(skill.uri));
+    return [...checkSkillConformance(skill), ...(collision ? [collision] : [])];
+  };
+  const issues = selectedSkill ? findingsFor(selectedSkill) : [];
   const activeReport =
     selectedSkill && report?.key === entryKey(selectedSkill)
       ? report.result
@@ -270,7 +280,7 @@ export function SkillsTab({
                 // The per-row mark is the static conformance verdict, which
                 // costs nothing — it is what makes a bad skill visible in the
                 // list rather than only after selecting it.
-                const rowIssues = checkSkillConformance(skill);
+                const rowIssues = findingsFor(skill);
                 const worst = rowIssues.some((it) => it.severity === "error")
                   ? "error"
                   : rowIssues.length > 0

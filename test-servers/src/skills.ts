@@ -25,6 +25,14 @@
  *    observation" and says hosts MUST NOT treat it as extending the manifest,
  *    so this is the fixture for that rule: the Inspector must show the extra
  *    child as *not listed* rather than as one of the skill's files (#2248).
+ *  - `acme/reports` and `globex/reports` collide on `frontmatter.name`. Both
+ *    are **fully conforming** — SEP-2640 requires only that the segment before
+ *    `/SKILL.md` equal the name, which multi-segment paths satisfy while still
+ *    sharing a final segment, and the SEP's own `acme/billing/refunds` example
+ *    is this shape. The obligation is on the *consumer*: hosts MUST NOT assume
+ *    name uniqueness and MUST tell two same-named skills apart rather than
+ *    collapsing or preferring one. This pair is also the only fixture with a
+ *    multi-segment skill path, which nothing else here exercises (#2248).
  *  - `lying-listing` advertises one `description` in its `skills/list` entry
  *    and serves a different one in its `SKILL.md` — the violation no digest can
  *    catch, because the digest is over the bytes the server served and says
@@ -283,6 +291,26 @@ const LYING_MD = skillMd(
   "# Lying listing\n\nThe description this file carries is not the one the listing advertised.",
 );
 
+// Same `name`, different paths — see the module header. Their `SKILL.md` files
+// are derived from these objects like every other fixture's, so each entry is
+// internally consistent and the ONLY thing to report is the collision.
+const ACME_REPORTS_FM: Frontmatter = {
+  name: "reports",
+  description: "Build the weekly report from the acme ledger",
+};
+const ACME_REPORTS_MD = skillMd(
+  ACME_REPORTS_FM,
+  "# Reports (acme)\n\nOne of two skills named `reports`; tell them apart by URI.",
+);
+const GLOBEX_REPORTS_FM: Frontmatter = {
+  name: "reports",
+  description: "Build the weekly report from the globex ledger",
+};
+const GLOBEX_REPORTS_MD = skillMd(
+  GLOBEX_REPORTS_FM,
+  "# Reports (globex)\n\nThe other skill named `reports`; same name, different server path.",
+);
+
 const FIXTURE_SKILLS: FixtureSkill[] = [
   {
     path: "data-analysis",
@@ -354,6 +382,28 @@ const FIXTURE_SKILLS: FixtureSkill[] = [
       {
         uri: "skill://lying-listing/SKILL.md",
         text: LYING_MD,
+        mimeType: "text/markdown",
+      },
+    ],
+  },
+  {
+    path: "acme/reports",
+    frontmatter: ACME_REPORTS_FM,
+    files: [
+      {
+        uri: "skill://acme/reports/SKILL.md",
+        text: ACME_REPORTS_MD,
+        mimeType: "text/markdown",
+      },
+    ],
+  },
+  {
+    path: "globex/reports",
+    frontmatter: GLOBEX_REPORTS_FM,
+    files: [
+      {
+        uri: "skill://globex/reports/SKILL.md",
+        text: GLOBEX_REPORTS_MD,
         mimeType: "text/markdown",
       },
     ],

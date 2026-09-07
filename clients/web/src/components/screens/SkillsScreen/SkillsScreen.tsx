@@ -30,6 +30,7 @@ import {
 import {
   checkSkillConformance,
   checkSkillFrontmatterMatch,
+  checkSkillNameCollisions,
   skillDisplayName,
   skillFileBytes,
   skillEntriesMatch,
@@ -533,7 +534,13 @@ function initialOpenSections(
   const wanted = skillUriIdentity(selectedSkillUri);
   const entry = skills.find((skill) => skillUriIdentity(skill.uri) === wanted);
   if (entry === undefined) return DEFAULT_OPEN_SECTIONS;
-  return checkSkillConformance(entry).length > 0
+  // Counts the collision finding too, or an entry whose ONLY finding is a name
+  // collision would mount with Conformance collapsed while its header badge
+  // said there was something to see.
+  const hasFindings =
+    checkSkillConformance(entry).length > 0 ||
+    checkSkillNameCollisions(skills).has(wanted);
+  return hasFindings
     ? DEFAULT_OPEN_SECTIONS
     : DEFAULT_OPEN_SECTIONS.filter((section) => section !== "conformance");
 }
@@ -754,10 +761,30 @@ export function SkillsScreen({
     return skills.find((skill) => skillUriIdentity(skill.uri) === wanted);
   }, [skills, selectedSkillUri]);
 
-  const issues = useMemo(
-    () => (selected ? checkSkillConformance(selected) : []),
-    [selected],
-  );
+  /**
+   * Name collisions across the whole listing, keyed by URI identity.
+   *
+   * Computed over `skills` rather than the filtered view: a collision is a fact
+   * about the catalog the server served, and hiding it because the sidebar
+   * search happens to exclude the other half would make the finding depend on
+   * what the reader typed.
+   */
+  const collisions = useMemo(() => checkSkillNameCollisions(skills), [skills]);
+
+  const collision = selected
+    ? collisions.get(skillUriIdentity(selected.uri))
+    : undefined;
+
+  const issues = useMemo(() => {
+    if (!selected) return [];
+    // Merged into the entry's own findings so it carries through the header
+    // badge and the sidebar exactly as every other finding does — a reader
+    // asking "does this skill conform" must not have to know that one class of
+    // finding is counted somewhere else. It is *rendered* as a banner above
+    // rather than as a list item, and filtered out of the list accordingly.
+    const found = collisions.get(skillUriIdentity(selected.uri));
+    return [...checkSkillConformance(selected), ...(found ? [found] : [])];
+  }, [collisions, selected]);
 
   // A `resources: "dynamic"` skill advertises no manifest at all, so it has no
   // Resources section to show — the fact is a conformance statement, and it is
@@ -1361,6 +1388,24 @@ export function SkillsScreen({
     );
   }, [selected, showingSkillMd, previewParts]);
 
+  /**
+   * The findings rendered as list items — everything except the two that are
+   * stated in prose above the list.
+   *
+   * Derived once and used for BOTH the "is there a list" decision and the list
+   * itself. Deciding on `issues` while rendering the filtered set is how an
+   * entry whose only finding is a banner one ended up showing an empty findings
+   * container instead of "no structural issues".
+   */
+  const listedIssues = useMemo(
+    () =>
+      issues.filter(
+        (issue) =>
+          issue.code !== "dynamic-resources" && issue.code !== "duplicate-name",
+      ),
+    [issues],
+  );
+
   const errorCount = issues.filter((i) => i.severity === "error").length;
   const warningCount = issues.length - errorCount;
 
@@ -1559,7 +1604,25 @@ export function SkillsScreen({
                         integrity cannot be verified.
                       </Alert>
                     )}
-                    {issues.length === 0 ? (
+                    {/* A name collision is a fact about the LISTING rather
+                        than about this entry, so it is stated in prose at the
+                        top of the section and filtered out of the findings
+                        list below — the same treatment, and the same reason, as
+                        `dynamic-resources`: the same fact twice, once as a
+                        banner and once as a bare code, reads as two findings.
+                        It leads the section because it changes how everything
+                        under it should be read — these are the findings for
+                        ONE of two skills the server named the same thing. */}
+                    {collision && (
+                      <Alert
+                        color="yellow"
+                        title="Another skill shares this name"
+                        data-testid="skill-name-collision"
+                      >
+                        {collision.message}
+                      </Alert>
+                    )}
+                    {listedIssues.length === 0 ? (
                       // Titled for the check it actually summarises. Now that
                       // every verdict renders in this one section, an
                       // unqualified "Conforms" sits directly above a red digest
@@ -1570,30 +1633,27 @@ export function SkillsScreen({
                       </Alert>
                     ) : (
                       <IssueStack data-testid="skill-issues">
-                        {issues
-                          // The banner above already states this one, in prose.
-                          .filter((issue) => issue.code !== "dynamic-resources")
-                          .map((issue, index) => (
-                            <Alert
-                              // The index is load-bearing, not decoration: a
-                              // manifest repeating one URI three times yields
-                              // three `duplicate-resource` findings with
-                              // identical code and URI, and a key built from
-                              // those alone would make React drop the extras —
-                              // hiding findings in exactly the malformed input
-                              // this view exists to inspect.
-                              key={`${index}:${issue.code}:${issue.resourceUri ?? ""}`}
-                              color={issueColor(issue)}
-                              title={issue.code}
-                            >
-                              <Stack gap={2}>
-                                <Text size="sm">{issue.message}</Text>
-                                {issue.resourceUri && (
-                                  <MonoCaption>{issue.resourceUri}</MonoCaption>
-                                )}
-                              </Stack>
-                            </Alert>
-                          ))}
+                        {listedIssues.map((issue, index) => (
+                          <Alert
+                            // The index is load-bearing, not decoration: a
+                            // manifest repeating one URI three times yields
+                            // three `duplicate-resource` findings with
+                            // identical code and URI, and a key built from
+                            // those alone would make React drop the extras —
+                            // hiding findings in exactly the malformed input
+                            // this view exists to inspect.
+                            key={`${index}:${issue.code}:${issue.resourceUri ?? ""}`}
+                            color={issueColor(issue)}
+                            title={issue.code}
+                          >
+                            <Stack gap={2}>
+                              <Text size="sm">{issue.message}</Text>
+                              {issue.resourceUri && (
+                                <MonoCaption>{issue.resourceUri}</MonoCaption>
+                              )}
+                            </Stack>
+                          </Alert>
+                        ))}
                       </IssueStack>
                     )}
                     {/* The frontmatter cross-check renders in Conformance

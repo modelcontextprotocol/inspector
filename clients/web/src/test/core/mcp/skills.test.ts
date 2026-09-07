@@ -8,6 +8,7 @@ import {
   base64ToBytes,
   checkSkillConformance,
   checkSkillFrontmatterMatch,
+  checkSkillNameCollisions,
   getSkillsExtension,
   isSkillsExtensionSupported,
   normalizeSkillUri,
@@ -976,5 +977,110 @@ describe("checkSkillFrontmatterMatch (#2248)", () => {
 
   it("reports nothing for two empty frontmatters", () => {
     expect(checkSkillFrontmatterMatch(entry({}), file(""))).toEqual([]);
+  });
+});
+
+describe("checkSkillNameCollisions (#2248)", () => {
+  const at = (uri: string, name?: string): SkillEntry => ({
+    uri,
+    frontmatter: name === undefined ? {} : { name, description: "d" },
+    resources: [],
+  });
+
+  it("reports nothing when every name is distinct", () => {
+    expect(
+      checkSkillNameCollisions([
+        at("skill://a/SKILL.md", "a"),
+        at("skill://b/SKILL.md", "b"),
+      ]).size,
+    ).toBe(0);
+  });
+
+  it("flags both entries of a collision, each naming the other", () => {
+    // SEP-2640's own shape: two conforming skills whose paths differ but whose
+    // final segment — and so their name — is the same.
+    const collisions = checkSkillNameCollisions([
+      at("skill://acme/reports/SKILL.md", "reports"),
+      at("skill://globex/reports/SKILL.md", "reports"),
+    ]);
+    expect(collisions.size).toBe(2);
+    const acme = collisions.get("skill://acme/reports/SKILL.md");
+    const globex = collisions.get("skill://globex/reports/SKILL.md");
+    expect(acme?.message).toContain("skill://globex/reports/SKILL.md");
+    expect(acme?.message).not.toContain("skill://acme/reports/SKILL.md");
+    expect(globex?.message).toContain("skill://acme/reports/SKILL.md");
+  });
+
+  it("is a WARNING, because the server did nothing wrong", () => {
+    // The obligation is on the consumer, not the server. Reporting an error
+    // would tell a conforming server author their catalog is invalid.
+    const [issue] = [
+      ...checkSkillNameCollisions([
+        at("skill://a/reports/SKILL.md", "reports"),
+        at("skill://b/reports/SKILL.md", "reports"),
+      ]).values(),
+    ];
+    expect(issue.code).toBe("duplicate-name");
+    expect(issue.severity).toBe("warning");
+  });
+
+  it("names every other colliding entry when three share a name", () => {
+    const collisions = checkSkillNameCollisions([
+      at("skill://a/r/SKILL.md", "r"),
+      at("skill://b/r/SKILL.md", "r"),
+      at("skill://c/r/SKILL.md", "r"),
+    ]);
+    expect(collisions.size).toBe(3);
+    const first = collisions.get("skill://a/r/SKILL.md");
+    expect(first?.message).toContain("skill://b/r/SKILL.md");
+    expect(first?.message).toContain("skill://c/r/SKILL.md");
+  });
+
+  it("does not report the SAME skill listed twice as a collision", () => {
+    // A repeated entry is a different defect from two skills sharing a name,
+    // and calling it this one would be a wrong diagnosis rather than a missing
+    // one. Compared on normalized identity, like every other URI comparison.
+    expect(
+      checkSkillNameCollisions([
+        at("skill://a/r/SKILL.md", "r"),
+        at("skill://a/x/../r/SKILL.md", "r"),
+      ]).size,
+    ).toBe(0);
+  });
+
+  it("ignores entries with no name, which is already its own finding", () => {
+    // Two entries that both omit a name are not "colliding on a name" — there
+    // is no name — and saying so would bury `missing-name` under a derived
+    // finding.
+    expect(
+      checkSkillNameCollisions([
+        at("skill://a/SKILL.md"),
+        at("skill://b/SKILL.md"),
+      ]).size,
+    ).toBe(0);
+    expect(
+      checkSkillNameCollisions([
+        at("skill://a/SKILL.md", "   "),
+        at("skill://b/SKILL.md", "   "),
+      ]).size,
+    ).toBe(0);
+  });
+
+  it("does not treat names differing only in case as colliding", () => {
+    // The Agent Skills grammar is lowercase already; normalizing more than the
+    // grammar does would report a collision the spec considers two names.
+    expect(
+      checkSkillNameCollisions([
+        at("skill://a/r/SKILL.md", "reports"),
+        at("skill://b/R/SKILL.md", "Reports"),
+      ]).size,
+    ).toBe(0);
+  });
+
+  it("reports nothing for an empty or single-entry listing", () => {
+    expect(checkSkillNameCollisions([]).size).toBe(0);
+    expect(checkSkillNameCollisions([at("skill://a/SKILL.md", "a")]).size).toBe(
+      0,
+    );
   });
 });

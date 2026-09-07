@@ -121,18 +121,25 @@ describe("Skills extension over a real transport (#2234)", () => {
         // below — so a modern page missing the envelope surfaces here as a
         // rejection rather than as a missing property.
         //
-        // The fixture pages at two over six skills, so a client that stops
-        // here sees a third of the catalog.
+        // The fixture pages at two over eight skills, so a client that stops
+        // here sees a quarter of the catalog.
         expect(first.skills).toHaveLength(2);
         expect(first.nextCursor).toBeDefined();
 
-        const second = await connected.listSkills(first.nextCursor);
-        expect(second.skills).toHaveLength(2);
-        expect(second.nextCursor).toBeDefined();
-
-        const third = await connected.listSkills(second.nextCursor);
-        expect(third.skills).toHaveLength(2);
-        expect(third.nextCursor).toBeUndefined();
+        // Walked to the end rather than asserting a fixed page count, so
+        // adding a fixture does not require editing this test — what it pins
+        // is that the cursor terminates and every page is full but the last.
+        let cursor = first.nextCursor;
+        let pages = 1;
+        let total = first.skills.length;
+        while (cursor !== undefined) {
+          const page = await connected.listSkills(cursor);
+          total += page.skills.length;
+          pages += 1;
+          cursor = page.nextCursor;
+        }
+        expect(pages).toBe(4);
+        expect(total).toBe(8);
       });
 
       it("walks every page through the managed store", async () => {
@@ -147,9 +154,13 @@ describe("Skills extension over a real transport (#2234)", () => {
             "dynamic-report",
             "stale-manifest",
             "lying-listing",
+            // Two skills, one name — the collision case. The walk must keep
+            // both; collapsing them is the thing SEP-2640 forbids.
+            "reports",
+            "reports",
             "right-name",
           ]);
-          expect(store.getPagination()).toEqual({ pageCount: 3 });
+          expect(store.getPagination()).toEqual({ pageCount: 4 });
         } finally {
           store.destroy();
         }
@@ -259,6 +270,40 @@ describe("Skills extension over a real transport (#2234)", () => {
         // defect, and no digest check can see it.
         const [report] = await verifySkills(connected, [entry]);
         expect(report.ok).toBe(true);
+      });
+
+      it("reports a name collision without failing either skill", async () => {
+        // Both entries are fully conforming: SEP-2640 requires only that the
+        // segment before /SKILL.md equal the name, which multi-segment paths
+        // satisfy while sharing a final segment. The obligation is on the
+        // consumer, so this is a warning and `ok` stays true.
+        const started = await startSkillsServer(modern);
+        const connected = await connect(started.url, modern);
+        const store = new ManagedSkillsState(connected);
+        try {
+          const skills = await store.refresh();
+          const colliding = skills.filter(
+            (s) => s.frontmatter.name === "reports",
+          );
+          expect(colliding.map((s) => s.uri).sort()).toEqual([
+            "skill://acme/reports/SKILL.md",
+            "skill://globex/reports/SKILL.md",
+          ]);
+
+          const reports = await verifySkills(connected, skills);
+          for (const uri of colliding.map((s) => s.uri)) {
+            const report = reports.find((r) => r.uri === uri)!;
+            expect(report.conformance).toEqual([
+              expect.objectContaining({
+                code: "duplicate-name",
+                severity: "warning",
+              }),
+            ]);
+            expect(report.ok).toBe(true);
+          }
+        } finally {
+          store.destroy();
+        }
       });
 
       it("answers -32602 for a URI that is not a directory resource", async () => {

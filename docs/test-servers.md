@@ -64,7 +64,7 @@ as a missing capability rather than an error.
 
 ## Skills (SEP-2640)
 
-`skills-http.json` sets `"skills": true` and serves six skills over three
+`skills-http.json` sets `"skills": true` and serves eight skills over four
 `skills/list` pages. Since
 [#2248](https://github.com/modelcontextprotocol/inspector/issues/2248) that one
 flag also declares **`directoryRead: true`** and registers the
@@ -88,14 +88,15 @@ It works on **either era**: `skills/list`, `skills/get` and
 era codec defines, so the SDK's era gate skips them entirely — which is why
 this fixture, unlike the tasks ones, needs no per-era variant.
 
-Five of the six skills are deliberately awkward, because the checks the Skills
-tab runs are untestable without them. Only **three** are outright violations
-(`tampered-notes`, `lying-listing`, `wrong-folder` — the three `--verify` fails
-on). The other two are subtler and neither is an error on its own: the
+Seven of the eight skills are deliberately awkward, because the checks the
+Skills tab runs are untestable without them. Only **three** are outright
+violations (`tampered-notes`, `lying-listing`, `wrong-folder` — the three
+`--verify` fails on). The rest are subtler and none is an error on its own: the
 `"dynamic"` form is **conforming**, and is here because "legal but unverifiable"
-is the case most easily buried; and `stale-manifest`'s entry is fully conforming
+is the case most easily buried; `stale-manifest`'s entry is fully conforming
 too, with the defect living in the disagreement between its manifest and its
-directory listing:
+directory listing; and the two `reports` skills are both entirely valid, with
+the obligation falling on whoever consumes them:
 
 | Skill | What it exercises |
 | --- | --- |
@@ -104,6 +105,7 @@ directory listing:
 | `dynamic-report` | `resources: "dynamic"` — a **legal** form for generated content. No manifest is advertised, so integrity cannot be verified at all; reported as a warning, not an error. |
 | `wrong-folder` | A URI path segment (`wrong-folder`) that disagrees with `frontmatter.name` (`right-name`), the one structural invariant SEP-2640 states outright. |
 | `stale-manifest` | A skill that **serves and directory-lists a file its `resources` manifest does not declare**. Its entry is otherwise fully conforming and verifies clean, so the disagreement between the two views is the only defect — and only a directory read can see it. SEP-2640 calls a directory result "a live observation" and says hosts MUST NOT treat it as extending the manifest, so the Directory section marks the extra child **not listed** rather than showing it as one of the skill's files. |
+| `acme/reports` + `globex/reports` | **Two conforming skills sharing the name `reports`.** SEP-2640 requires only that the segment before `/SKILL.md` equal `frontmatter.name`, which multi-segment paths satisfy while still sharing a final segment — its own `acme/billing/refunds` example is this shape. Hosts MUST NOT assume name uniqueness and MUST tell the two apart rather than collapsing or preferring one, so the Inspector reports a `duplicate-name` **warning** on both and shows each skill's URI beside its name. Also the only fixture with a multi-segment skill path. |
 | `lying-listing` | A `skills/list` entry advertising one `description` while the served `SKILL.md` carries another. **Its digest verifies** — a digest is taken over the bytes the server served and says nothing about whether the listing described them honestly — so this is the one violation only the frontmatter cross-check can catch. |
 
 Connection Info's **Skills Extension Options** section shows the `directoryRead`
