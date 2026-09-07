@@ -62,12 +62,15 @@ describe("ensureCimdClientRegistration", () => {
       fetchFn,
     });
 
+    // #2242: the record is bound to the issuer just discovered, so a second AS
+    // behind the same resource gets its own CIMD determination rather than
+    // inheriting this one.
     expect(storage.saveClientInformation).toHaveBeenCalledWith(
       SERVER_URL,
       {
         client_id: METADATA_URL,
       },
-      { registrationKind: "cimd" },
+      { registrationKind: "cimd", issuer: "http://127.0.0.1:9999" },
     );
   });
 
@@ -154,22 +157,52 @@ describe("ensureCimdClientRegistration", () => {
     expect(storage.saveClientInformation).toHaveBeenCalledWith(
       SERVER_URL,
       { client_id: METADATA_URL },
-      { registrationKind: "cimd" },
+      { registrationKind: "cimd", issuer: "http://127.0.0.1:9999" },
     );
   });
 
-  it("no-ops when client information is already stored", async () => {
-    storage.getClientInformation = vi.fn(async () => ({
-      client_id: "existing-client",
-    }));
+  it("no-ops when client information is already stored for the discovered issuer", async () => {
+    // Dynamic slot only — a preregistered hit would short-circuit
+    // `clientInformation()` before it ever reaches the issuer-keyed read.
+    storage.getClientInformation = vi.fn(
+      async (_url: string, preregistered?: boolean) =>
+        preregistered ? undefined : { client_id: "existing-client" },
+    );
+
+    const fetchFn = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/.well-known/oauth-protected-resource")) {
+        return new Response(JSON.stringify({ resource: SERVER_URL }));
+      }
+      if (url.includes("/.well-known/oauth-authorization-server")) {
+        return new Response(
+          JSON.stringify({
+            issuer: "http://127.0.0.1:9999",
+            authorization_endpoint: "http://127.0.0.1:9999/oauth/authorize",
+            token_endpoint: "http://127.0.0.1:9999/oauth/token",
+            response_types_supported: ["code"],
+            client_id_metadata_document_supported: true,
+          }),
+        );
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    });
 
     const provider = createProvider(storage);
     await ensureCimdClientRegistration({
       serverUrl: SERVER_URL,
       provider,
-      fetchFn: vi.fn(),
+      fetchFn,
     });
 
     expect(storage.saveClientInformation).not.toHaveBeenCalled();
+    // #2242: the existing-client check is keyed by the issuer discovery just
+    // resolved, not read ctx-less — a ctx-less read resolves through the
+    // *active* issuer and would early-return for every later issuer.
+    expect(storage.getClientInformation).toHaveBeenCalledWith(
+      SERVER_URL,
+      false,
+      "http://127.0.0.1:9999",
+    );
   });
 });

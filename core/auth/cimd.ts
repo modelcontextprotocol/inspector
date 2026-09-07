@@ -27,9 +27,6 @@ export async function ensureCimdClientRegistration(params: {
   const clientMetadataUrl = params.provider.clientMetadataUrl?.trim();
   if (!clientMetadataUrl) return;
 
-  const existing = await params.provider.clientInformation();
-  if (existing?.client_id) return;
-
   let resourceMetadata;
   try {
     resourceMetadata = await discoverOAuthProtectedResourceMetadata(
@@ -56,10 +53,37 @@ export async function ensureCimdClientRegistration(params: {
   );
   if (!metadata?.client_id_metadata_document_supported) return;
 
+  // SEP-2352 keys a registration to the authorization server that issued it, so
+  // the record this writes is bound to the issuer we just discovered rather than
+  // to the server as a whole. That binding is what makes the provenance
+  // trustworthy later: `BaseOAuthClientProvider.saveClientInformation` preserves
+  // `cimd` only for an issuer this function recorded it for, having first
+  // confirmed *that* AS advertises `client_id_metadata_document_supported`
+  // (#2242, Copilot). A second AS behind the same resource therefore gets its own
+  // determination — pre-registered here when it too supports CIMD, and left to
+  // dynamic registration when it does not.
+  //
+  // ⚠️ This is why the "do we already have a client?" check below sits *after*
+  // discovery rather than short-circuiting it, at the cost of a discovery round
+  // trip on each connect attempt rather than only the first. Read ctx-less — as
+  // it was — it resolves through the *active* issuer and so early-returns for
+  // every subsequent issuer, leaving them with no CIMD record at all. It still
+  // answers the static case first, since `clientInformation` checks the
+  // preregistered slot before any issuer slot.
+  const issuer = metadata.issuer;
+  const existing = await params.provider.clientInformation(
+    issuer ? { issuer } : undefined,
+  );
+  if (existing?.client_id) return;
+
   const clientInformation: OAuthClientInformation = {
     client_id: clientMetadataUrl,
   };
   await params.provider.saveClientInformation(clientInformation, {
     registrationKind: "cimd",
+    // An AS metadata document without an `issuer` is malformed (RFC 8414 §2),
+    // but the type allows it; fall back to the unkeyed slot rather than
+    // inventing a key.
+    ...(issuer && { issuer }),
   });
 }

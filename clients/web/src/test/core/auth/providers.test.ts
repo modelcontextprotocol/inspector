@@ -10,6 +10,7 @@ import type { OAuthStorage } from "@inspector/core/auth/storage.js";
 import { OAuthStorageBase } from "@inspector/core/auth/oauth-storage.js";
 import { OAuthMemoryStore } from "@inspector/core/auth/store.js";
 import type { OAuthPersistBackend } from "@inspector/core/auth/oauth-persist.js";
+import { ensureCimdClientRegistration } from "@inspector/core/auth/cimd.js";
 import {
   BrowserNavigation,
   BrowserOAuthClientProvider,
@@ -778,9 +779,12 @@ describe("OAuthNavigation", () => {
           );
         });
 
-        // SEP-2352 keys registrations per authorization server. Driven against a
-        // real `OAuthStorageBase` rather than mocks, because the bug is in how
-        // the *storage* promotes and clears slots across issuers (Copilot).
+        // SEP-2352 keys registrations per authorization server, so a second AS
+        // behind one resource is a separate determination. Driven against a real
+        // `OAuthStorageBase` and the real `ensureCimdClientRegistration`, because
+        // the behaviour under test is how the pre-registration binds provenance to
+        // a discovered issuer and how storage promotes and clears slots — neither
+        // of which a mock would express (Copilot).
         describe("across two authorization servers", () => {
           const ISSUER_B = "https://as-b.example.com";
 
@@ -792,38 +796,71 @@ describe("OAuthNavigation", () => {
             return new OAuthStorageBase(new OAuthMemoryStore(), backend);
           }
 
-          async function bindFirstIssuer(storage: OAuthStorage) {
+          /**
+           * Discovery that points the resource at `issuer` as its authorization
+           * server and declares CIMD support per `cimd`. The RFC 9728 document
+           * has to name the AS, so that the RFC 8414 §3.3 issuer echo the SDK
+           * enforces resolves against the AS URL rather than the resource's.
+           */
+          function discoveryFetch(issuer: string, cimd: boolean) {
+            return (async (input: RequestInfo | URL) => {
+              const url = String(input);
+              if (url.includes("/.well-known/oauth-protected-resource")) {
+                return new Response(
+                  JSON.stringify({
+                    resource: SERVER,
+                    authorization_servers: [issuer],
+                  }),
+                );
+              }
+              if (url.startsWith(issuer)) {
+                return new Response(
+                  JSON.stringify({
+                    issuer,
+                    authorization_endpoint: `${issuer}/authorize`,
+                    token_endpoint: `${issuer}/token`,
+                    response_types_supported: ["code"],
+                    ...(cimd && {
+                      client_id_metadata_document_supported: true,
+                    }),
+                  }),
+                );
+              }
+              throw new Error(`unexpected fetch: ${url}`);
+            }) as unknown as typeof fetch;
+          }
+
+          /** Issuer A pre-registers via CIMD, then the SDK binds it. */
+          async function bindIssuerA(storage: OAuthStorage) {
             const provider = makeProvider(storage, vi.fn(), {
               clientMetadataUrl: METADATA_URL,
             });
-            // Our own pre-registration writes the unkeyed slot...
-            await provider.saveClientInformation(
-              { client_id: METADATA_URL },
-              { registrationKind: "cimd" },
-            );
-            // ...which the SDK's first issuer-stamped save promotes into
-            // issuer A's slot, clearing the unkeyed fallback.
+            await ensureCimdClientRegistration({
+              serverUrl: SERVER,
+              provider,
+              fetchFn: discoveryFetch(ISSUER, true),
+            });
             await provider.saveClientInformation(
               { client_id: METADATA_URL },
               { issuer: ISSUER },
             );
-            return provider;
-          }
-
-          it("keeps cimd when the resource resolves to a second issuer", async () => {
-            const storage = makeRealStorage();
-            const provider = await bindFirstIssuer(storage);
-
             expect(
               await storage.getClientRegistrationKind(SERVER, ISSUER),
             ).toBe("cimd");
-            // The precondition that made this go wrong: nothing is stored for
-            // issuer B, and the unkeyed fallback is gone.
-            expect(
-              await storage.getClientInformation(SERVER, false, ISSUER_B),
-            ).toBeUndefined();
+            return provider;
+          }
 
-            // The SDK's own CIMD branch, saving under the second issuer.
+          it("keeps cimd when a second CIMD-supporting issuer takes over", async () => {
+            const storage = makeRealStorage();
+            const provider = await bindIssuerA(storage);
+
+            // Issuer B also advertises CIMD, so the pre-registration records it
+            // for B too — it must not early-return on issuer A's client.
+            await ensureCimdClientRegistration({
+              serverUrl: SERVER,
+              provider,
+              fetchFn: discoveryFetch(ISSUER_B, true),
+            });
             await provider.saveClientInformation(
               { client_id: METADATA_URL },
               { issuer: ISSUER_B },
@@ -837,9 +874,35 @@ describe("OAuthNavigation", () => {
             ).toBe("cimd");
           });
 
-          it("still records dcr for a second issuer that mints its own client_id", async () => {
+          it("records dcr when a second issuer without CIMD mints the same URL as its client_id", async () => {
             const storage = makeRealStorage();
-            const provider = await bindFirstIssuer(storage);
+            const provider = await bindIssuerA(storage);
+
+            // Issuer B does *not* advertise CIMD, so nothing is recorded for B...
+            await ensureCimdClientRegistration({
+              serverUrl: SERVER,
+              provider,
+              fetchFn: discoveryFetch(ISSUER_B, false),
+            });
+            // ...and RFC 7591 §3.2 lets it mint an opaque id that happens to be
+            // the very URL issuer A uses as its CIMD client_id.
+            await provider.saveClientInformation(
+              { client_id: METADATA_URL },
+              { issuer: ISSUER_B },
+            );
+
+            expect(
+              await storage.getClientRegistrationKind(SERVER, ISSUER_B),
+            ).toBe("dcr");
+            // Issuer A's own provenance is untouched.
+            expect(
+              await storage.getClientRegistrationKind(SERVER, ISSUER),
+            ).toBe("cimd");
+          });
+
+          it("records dcr for a second issuer that mints its own client_id", async () => {
+            const storage = makeRealStorage();
+            const provider = await bindIssuerA(storage);
 
             await provider.saveClientInformation(
               { client_id: "b-registered-id" },
