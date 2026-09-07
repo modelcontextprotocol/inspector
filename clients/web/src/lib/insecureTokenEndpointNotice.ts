@@ -32,12 +32,6 @@ import {
 } from "../utils/oauthUx";
 
 /**
- * Show the terminal notice when `err` is the SDK's `InsecureTokenEndpointError`.
- *
- * @returns `true` when it was handled (the caller should stop), `false` when
- * `err` is some other failure and the caller's normal handling applies.
- */
-/**
  * Report the refusal **and** clear the re-auth banner for that server.
  *
  * This is the form every caller should use. The notice and the scoped banner
@@ -79,6 +73,16 @@ export function reportTerminalInsecureTokenEndpoint<
   return true;
 }
 
+/**
+ * Show the notice alone, without touching the banner.
+ *
+ * Prefer {@link reportTerminalInsecureTokenEndpoint} — the two are one
+ * invariant. This stays exported for the one arm that has already cleared the
+ * banner itself before starting.
+ *
+ * @returns `true` when it was handled (the caller should stop), `false` when
+ * `err` is some other failure and the caller's normal handling applies.
+ */
 export function showInsecureTokenEndpointNotice(
   err: unknown,
   serverName?: string,

@@ -36,10 +36,18 @@ export interface InsecureTokenEndpointShape {
  * on an instance — don't check that property.)
  *
  * The `name` comparison is the same deliberate serialization fallback
- * `isAuthorizationServerMismatchShape` carries in `issuerBinding.ts`: today the
- * web client runs `auth()` in the browser, so no boundary is crossed, but the
- * prototype and brand set are the first things a structured clone or a JSON hop
- * would drop, and `name` survives both.
+ * `isAuthorizationServerMismatchShape` carries in `issuerBinding.ts`. Today the
+ * web client runs `auth()` in the browser so no boundary is crossed, but a JSON
+ * hop drops the prototype and the brand set while preserving `name` and
+ * `tokenEndpoint`, and that is the case this arm exists for.
+ *
+ * ⚠️ **It does not cover `structuredClone`, and cannot.** That algorithm
+ * normalizes a custom `Error` subclass back to `Error` — `name` becomes
+ * `"Error"` and own properties like `tokenEndpoint` are dropped entirely — so
+ * nothing survives for either arm to match on. A caller who routes this error
+ * through `structuredClone` (or `postMessage`, which uses it) will silently get
+ * the generic retryable handling back. Serialize the fields explicitly across
+ * such a boundary rather than relying on this classifier.
  */
 function isInsecureTokenEndpointShape(
   err: unknown,

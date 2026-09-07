@@ -43,16 +43,37 @@ describe("findInsecureTokenEndpoint", () => {
     ).toMatchObject({ tokenEndpoint: ENDPOINT });
   });
 
-  it("recognizes a serialized copy by `name`, where the prototype is gone", () => {
-    // The fallback arm: a structured clone or JSON hop drops the prototype and
-    // the brand set but keeps `name`.
-    expect(
-      findInsecureTokenEndpoint({
-        name: "InsecureTokenEndpointError",
-        message: "Refusing to send credentials…",
-        tokenEndpoint: ENDPOINT,
+  it("recognizes a JSON round trip, where the prototype is gone", () => {
+    // An ACTUAL round trip, not a hand-built look-alike: constructing the
+    // object by hand asserts what I believed the boundary does rather than what
+    // it does. A JSON hop drops the prototype and the brand set while keeping
+    // `name` and `tokenEndpoint`, which is the case this fallback exists for.
+    const err = new InsecureTokenEndpointError(ENDPOINT);
+    const hopped: unknown = JSON.parse(
+      JSON.stringify({
+        name: err.name,
+        message: err.message,
+        tokenEndpoint: err.tokenEndpoint,
       }),
-    ).toMatchObject({ tokenEndpoint: ENDPOINT });
+    );
+    expect(Object.getPrototypeOf(hopped)).toBe(Object.prototype);
+    expect(findInsecureTokenEndpoint(hopped)).toMatchObject({
+      tokenEndpoint: ENDPOINT,
+    });
+  });
+
+  it("does NOT survive structuredClone, and this pins that limit", () => {
+    // Verified, not assumed: structuredClone normalizes a custom Error subclass
+    // back to `Error`, so `name` becomes "Error" and `tokenEndpoint` is dropped
+    // — nothing is left for either arm to match. An earlier revision of the doc
+    // comment claimed this boundary worked; it does not, and a caller relying on
+    // it would silently get the generic retryable handling back.
+    const cloned = structuredClone(new InsecureTokenEndpointError(ENDPOINT));
+    expect(cloned.name).toBe("Error");
+    expect(
+      (cloned as { tokenEndpoint?: unknown }).tokenEndpoint,
+    ).toBeUndefined();
+    expect(findInsecureTokenEndpoint(cloned)).toBeUndefined();
   });
 
   it("rejects a look-alike carrying the endpoint but not the identity", () => {
