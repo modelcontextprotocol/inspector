@@ -76,7 +76,7 @@ Replaces the hardcoded `SEED_SERVERS` in `clients/web/src/App.tsx:47` with a fil
 
 ## First-run behavior
 
-If the file does not exist when the backend boots, write a file containing the two current `SEED_SERVERS`. User immediately sees a non-empty Servers screen and discovers the file by editing one of the seeds. Subsequent boots read whatever the user has saved.
+If the file does not exist when the backend boots, write a file containing `DEFAULT_SEED_CONFIG`. User immediately sees a non-empty Servers screen and discovers the file by editing one of the seeds. Subsequent boots read whatever the user has saved. The seed set started as the two `SEED_SERVERS` this design replaced and is three as of #2201 — the two local stdio servers plus `example-server-default`, the MCP org's remote feature-reference server over Streamable HTTP, so a first launch can reach a remote server without standing one up. `core/mcp/serverList.ts` is the source of truth for the contents; only the _behavior_ is specified here.
 
 ## Architecture
 
@@ -113,7 +113,7 @@ Pure converters between on-disk `MCPConfig` and in-memory `ServerEntry[]`. No I/
 ```ts
 export function mcpConfigToServerEntries(config: MCPConfig): ServerEntry[];
 export function serverEntriesToMcpConfig(entries: ServerEntry[]): MCPConfig;
-export function DEFAULT_SEED_CONFIG: MCPConfig; // the two existing seeds
+export const DEFAULT_SEED_CONFIG: MCPConfig; // the default seeds (see First-run behavior)
 ```
 
 `mcpConfigToServerEntries` sets `connection: { status: "disconnected" }` and uses the map key as both `id` and `name`. `serverEntriesToMcpConfig` strips `connection` / `info` (runtime-only) before serializing.
