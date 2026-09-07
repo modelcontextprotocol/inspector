@@ -1,6 +1,6 @@
 import React from "react";
 import { describe, it, expect } from "vitest";
-import { render } from "ink-testing-library";
+import { render } from "./helpers/renderTui";
 import { SelectableItem } from "../src/components/SelectableItem.js";
 
 describe("SelectableItem", () => {
