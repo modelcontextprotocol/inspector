@@ -48,6 +48,7 @@ as a missing capability rather than an error.
 | `nullable-fields-http.json` **(legacy era)**               | Tools tab: nullable (`anyOf` + `null`) arguments   | [#1928](https://github.com/modelcontextprotocol/inspector/issues/1928) |
 | `root-union-schemas-http.json` **(legacy era)** | Tool schemas whose arguments are a root `anyOf` / `oneOf`, including one no branch of which can be offered | [#2123](https://github.com/modelcontextprotocol/inspector/issues/2123), [#2224](https://github.com/modelcontextprotocol/inspector/issues/2224) |
 | `unportable-schemas-http.json` **(legacy era)** | Tool schemas a real client rejects, flagged in all three clients | [#1005](https://github.com/modelcontextprotocol/inspector/issues/1005) |
+| `unportable-schemas-many-http.json` **(legacy era)** | The same constructs at **volume** — 26 findings over four tools, enough to bury the argument form | [#2205](https://github.com/modelcontextprotocol/inspector/issues/2205) |
 | `rfc6570-templates-http.json` **(legacy era)**             | Resources tab: RFC 6570 resource-template expansion | [#1919](https://github.com/modelcontextprotocol/inspector/issues/1919) |
 | `advertised-extensions-http.json` **(legacy era)**         | Tool registration gated on advertised extensions    | [#1739](https://github.com/modelcontextprotocol/inspector/issues/1739) |
 | `oauth-custom-resource-metadata-http.json` **(legacy era)** | OAuth discovery driven by the challenge's `resource_metadata` | [#2071](https://github.com/modelcontextprotocol/inspector/issues/2071) |
@@ -349,6 +350,24 @@ has:
 ```bash
 mcp-inspector --cli http://127.0.0.1:6603/mcp --method tools/list --strict   # exits 6
 ```
+
+### The same rules at volume
+
+`unportable-schemas-many-http.json` (port 6613, legacy era) is the same four
+presets carrying **26 findings** — `echo` 11, `add` 6, `get_temp` 5 on its
+output schema, `get_weather` 4 — which is what a server generated from a
+codebase that spells every nullable field `"type": ["string", "null"]` actually
+looks like.
+
+It exists for [#2205](https://github.com/modelcontextprotocol/inspector/issues/2205)
+rather than for the rules themselves. Broken, selecting any tool here filled the
+whole detail panel with findings and pushed the argument form off the bottom —
+not one input field was reachable without scrolling, on every tool switch, and
+the findings address the server author rather than the caller who is trying to
+fill the form. Fixed, the section opens collapsed behind its
+`N error(s), M warning(s)` badge and the form is on screen immediately; the
+expand choice is global, so opening it once keeps it open across tools.
+
 
 - **CLI** — `--strict` prints the full report (path, issue, suggested fix) on
   stderr and exits `6` on an error-severity finding; without it, one summary

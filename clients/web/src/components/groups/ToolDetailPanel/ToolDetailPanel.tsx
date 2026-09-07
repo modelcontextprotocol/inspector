@@ -27,6 +27,7 @@ import { getMirroredHeaderParams } from "@inspector/core/json/xMcpHeader.js";
 import { lintToolSchemas } from "@inspector/core/json/schemaLint.js";
 import { AnnotationBadge } from "../../elements/AnnotationBadge/AnnotationBadge";
 import { SchemaFindingsList } from "../../elements/SchemaFindingsList/SchemaFindingsList";
+import { useSchemaFindingsExpanded } from "../../../hooks/useSchemaFindingsExpanded";
 import { ProgressDisplay } from "../../elements/ProgressDisplay/ProgressDisplay";
 import { SchemaForm } from "../SchemaForm/SchemaForm";
 
@@ -88,7 +89,13 @@ const BodyScroll = ScrollArea.withProps({
   flex: "0 1 auto",
   miw: 0,
   mih: 0,
-  type: "auto",
+  // No `type` override: the app-wide default is `type="scroll"` (see
+  // `src/theme/ScrollArea.ts`), which shows the bar only while the user is
+  // actually scrolling. `type="auto"` parked a permanent bar down the side of
+  // every tool whose form is taller than the panel — which, now that the
+  // schema-portability section opens collapsed, is the ordinary case rather
+  // than the exception. `offsetScrollbars` stays: it reserves the gutter, so
+  // the form does not shift sideways when the bar fades in.
   scrollbars: "y",
   offsetScrollbars: true,
 });
@@ -224,6 +231,11 @@ export function ToolDetailPanel({
   // Memoized on the tool: this panel re-renders on every keystroke in the
   // argument form, and the walk depends on nothing that changes in between.
   const schemaFindings = useMemo(() => lintToolSchemas(tool), [tool]);
+  // Global rather than per tool, so the choice survives a tool switch — see
+  // the hook. This panel is reused across selections, so per-tool state here
+  // would re-open the wall on every click anyway.
+  const [schemaFindingsExpanded, setSchemaFindingsExpanded] =
+    useSchemaFindingsExpanded();
 
   // Descriptions are shown by default (most are short); the chevron lets the
   // user hide a long one to keep the form and Execute footer in view. Reset to
@@ -343,7 +355,11 @@ export function ToolDetailPanel({
             </HeaderParamsSection>
           )}
 
-          <SchemaFindingsList findings={schemaFindings} />
+          <SchemaFindingsList
+            findings={schemaFindings}
+            expanded={schemaFindingsExpanded}
+            onExpandedChange={setSchemaFindingsExpanded}
+          />
 
           <SchemaForm
             schema={formSchema}
