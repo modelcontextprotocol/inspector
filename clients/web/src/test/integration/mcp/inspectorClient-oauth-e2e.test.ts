@@ -374,6 +374,103 @@ describe("InspectorClient OAuth E2E", () => {
         // #2242: the metadata-document URL is the client_id, and the stored
         // provenance still says CIMD after the SDK bound the registration to
         // the issuer — no `POST /register` ever happened.
+        //
+        // ⚠️ This assertion alone does not exercise `resolveSdkRegistrationKind`:
+        // the CIMD pre-registration now writes the issuer-keyed slot itself, so
+        // the SDK finds an already-stamped credential and never calls
+        // `saveClientInformation`. The test below covers the resolver across the
+        // integration boundary (Copilot).
+        const oauthState = await client.getOAuthState();
+        expect(oauthState?.client).toMatchObject({
+          clientId: metadataUrl,
+          registrationKind: "cimd",
+        });
+      });
+
+      // The reported #2242 shape: an unkeyed CIMD registration — what every
+      // pre-SEP-2352 install has on disk, and what the pre-registration wrote
+      // before it knew the issuer. The SDK back-stamps it, which is the save
+      // that used to relabel it `Dynamic (DCR)`. This is the case that puts
+      // `resolveSdkRegistrationKind` on the path end to end.
+      it("keeps CIMD provenance when the SDK issuer-stamps an unkeyed registration", async () => {
+        const testRedirectUrl = "http://localhost:3001/oauth/callback";
+
+        const clientMetadata: ClientMetadataDocument = {
+          redirect_uris: [testRedirectUrl],
+          token_endpoint_auth_method: "none",
+          grant_types: ["authorization_code", "refresh_token"],
+          response_types: ["code"],
+          client_name: "MCP Inspector Test Client",
+          client_uri: "https://github.com/modelcontextprotocol/inspector",
+          scope: "mcp",
+        };
+
+        metadataServer = await createClientMetadataServer(clientMetadata);
+        const metadataUrl = metadataServer.url;
+
+        const serverConfig = {
+          ...getDefaultServerConfig(),
+          serverType: transport.serverType,
+          ...createOAuthTestServerConfig({
+            requireAuth: true,
+            supportCIMD: true,
+          }),
+        };
+
+        server = new TestServerHttp(serverConfig);
+        const port = await server.start();
+        const serverUrl = `http://localhost:${port}`;
+        await waitForOAuthWellKnown(serverUrl);
+
+        const oauthConfig = createTestOAuthConfig({
+          mode: "cimd",
+          clientMetadataUrl: metadataUrl,
+          redirectUrl: testRedirectUrl,
+        });
+
+        const mcpUrl = `${serverUrl}${transport.endpoint}`;
+        // Seed the legacy unkeyed slot: a CIMD registration with no issuer.
+        await oauthConfig.storage.saveClientInformation(
+          mcpUrl,
+          { client_id: metadataUrl },
+          { registrationKind: "cimd" },
+        );
+
+        const clientConfig: InspectorClientOptions = {
+          environment: {
+            transport: createTransportNode,
+            oauth: {
+              storage: oauthConfig.storage,
+              navigation: oauthConfig.navigation,
+              redirectUrlProvider: oauthConfig.redirectUrlProvider,
+            },
+          },
+          oauth: {
+            clientId: oauthConfig.clientId,
+            clientSecret: oauthConfig.clientSecret,
+            clientMetadataUrl: oauthConfig.clientMetadataUrl,
+            scope: oauthConfig.scope,
+          },
+        };
+
+        client = new InspectorClient(
+          {
+            type: transport.clientType,
+            url: mcpUrl,
+          } as MCPServerConfig,
+          clientConfig,
+        );
+
+        const authUrl = await client.authenticate();
+        if (!authUrl) throw new Error("Expected authorization URL");
+
+        const { code: authCode, iss: authCodeIss } =
+          await completeOAuthAuthorization(authUrl);
+        await client.completeOAuthFlow(authCode, authCodeIss);
+        await client.connect();
+
+        expect(client.getStatus()).toBe("connected");
+
         const oauthState = await client.getOAuthState();
         expect(oauthState?.client).toMatchObject({
           clientId: metadataUrl,
