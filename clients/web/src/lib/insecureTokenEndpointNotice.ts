@@ -17,6 +17,9 @@
  * `autoClose: false` matches the other non-recoverable OAuth notices (issuer
  * mismatch, unconfigured enterprise IdP): nothing the user does next will make
  * this reappear, so a toast that vanishes takes the only explanation with it.
+ * It stops the notice **expiring**, not the user dismissing it — Mantine's close
+ * control still works, which is correct for a message someone has finished
+ * reading. Don't describe this as non-dismissible.
  */
 
 import { notifications } from "@mantine/notifications";

@@ -465,7 +465,7 @@ The trailing dot is the whole trick, and it is doing real work rather than being
 
 Add the server, click **Connect**, and complete the authorization. The redirect comes back with a code, the Inspector goes to exchange it, and the SDK refuses.
 
-What you should see is a red, non-dismissing **"Token endpoint is not secure"** notification naming the endpoint and the two things that resolve it — serve it over HTTPS, or move it to one of the three host spellings the SDK exempts (`localhost`, `127.0.0.1`, `::1`). There is deliberately **no** action button.
+What you should see is a red, non-expiring **"Token endpoint is not secure"** notification naming the endpoint and the two things that resolve it — serve it over HTTPS, or move it to one of the three host spellings the SDK exempts (`localhost`, `127.0.0.1`, `::1`). It stays until you close it (`autoClose: false` stops it expiring on a timer; Mantine's own close control still dismisses it, which is what you want for a message you have finished reading). There is deliberately **no** action button.
 
 Note the second option is phrased as a *spelling* change, not a networking one. `localhost.` already **is** loopback, and so is `tenant.app.localhost`; what they are outside is a three-literal allow-list. Telling a reader to "use a loopback host" when they demonstrably already are is what sends them off to debug their resolver instead of their configuration.
 
