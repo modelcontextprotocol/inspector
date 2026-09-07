@@ -76,8 +76,57 @@
         return allowList.join("; ");
       }
 
-      const ALLOWED_REFERRER_PATTERN =
-        /^http:\/\/(localhost|127\.0\.0\.1)(:|\/|$)/;
+      /**
+       * Whether `referrer` names a page allowed to embed this proxy.
+       *
+       * This is the THIRD gate an embedder passes, after the backend's origin
+       * allow-list and the proxy response's `frame-ancestors`. It is enforced
+       * here, in static HTML, so it cannot read the server's configuration —
+       * which is why it is a fixed rule rather than a mirror of
+       * `allowedOrigins`.
+       *
+       * `*.localhost` is admitted alongside the two loopback literals (#1944).
+       * Hardcoding that suffix is safe in exactly the way hardcoding
+       * `localhost` is: RFC 6761 §6.3 reserves it to the loopback interface and
+       * it is not publicly registrable, so no attacker can obtain such a
+       * referrer. Both schemes, matching the backend's own predicate; the two
+       * bare literals stay `http:`-only, as they were.
+       *
+       * Parsed rather than pattern-matched. Not because the old regex was
+       * wrong — it correctly rejected `http://localhost@evil.com/`, where the
+       * real host is `evil.com` — but because a suffix rule makes a regex earn
+       * that correctness a second time, over a longer expression, for every
+       * label. `URL` already knows where the host ends, so the check reads as
+       * the question it is asking. A root FQDN dot is deliberately NOT
+       * stripped, so
+       * `app.localhost.` is rejected here exactly as the backend rejects it —
+       * its `frame-ancestors` source cannot be expressed in CSP either, so
+       * admitting it here would only move the failure.
+       */
+      function isAllowedEmbedder(referrer) {
+        let url;
+        try {
+          url = new URL(referrer);
+        } catch {
+          return false;
+        }
+        const host = url.hostname;
+        if (
+          url.protocol === "http:" &&
+          (host === "localhost" || host === "127.0.0.1")
+        ) {
+          return true;
+        }
+        if (url.protocol !== "http:" && url.protocol !== "https:") {
+          return false;
+        }
+        const suffix = ".localhost";
+        if (!host.endsWith(suffix)) return false;
+        return host
+          .slice(0, -suffix.length)
+          .split(".")
+          .every((label) => label !== "");
+      }
 
       if (window.self === window.top) {
         throw new Error("This file is only to be used in an iframe sandbox.");
@@ -87,7 +136,7 @@
         throw new Error("No referrer, cannot validate embedding site.");
       }
 
-      if (!document.referrer.match(ALLOWED_REFERRER_PATTERN)) {
+      if (!isAllowedEmbedder(document.referrer)) {
         throw new Error(
           `Embedding domain not allowed in referrer ${document.referrer}. (Consider updating the validation logic to allow your domain.)`,
         );
