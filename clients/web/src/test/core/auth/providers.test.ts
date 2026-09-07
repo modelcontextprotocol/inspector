@@ -637,43 +637,8 @@ describe("OAuthNavigation", () => {
         const ISSUER = "https://as.example.com";
         const METADATA_URL = "https://app.example.com/client-metadata.json";
 
-        it("keeps cimd when the client_id is the configured metadata document URL", async () => {
-          const storage = makeStorage();
-          const provider = makeProvider(storage, vi.fn(), {
-            clientMetadataUrl: METADATA_URL,
-          });
-
-          await provider.saveClientInformation(
-            { client_id: METADATA_URL },
-            { issuer: ISSUER },
-          );
-
-          expect(storage.saveClientInformation).toHaveBeenCalledWith(
-            SERVER,
-            { client_id: METADATA_URL },
-            { registrationKind: "cimd", issuer: ISSUER },
-          );
-        });
-
-        it("still records dcr for a server-minted client_id while CIMD is configured", async () => {
-          const storage = makeStorage();
-          const provider = makeProvider(storage, vi.fn(), {
-            clientMetadataUrl: METADATA_URL,
-          });
-
-          await provider.saveClientInformation(
-            { client_id: "dcr-minted-id" },
-            { issuer: ISSUER },
-          );
-
-          expect(storage.saveClientInformation).toHaveBeenCalledWith(
-            SERVER,
-            { client_id: "dcr-minted-id" },
-            { registrationKind: "dcr", issuer: ISSUER },
-          );
-        });
-
-        it("preserves the stored kind when the stored client_id matches", async () => {
+        /** Storage already holding the CIMD pre-registration for METADATA_URL. */
+        function makeCimdStorage(): OAuthStorage {
           const storage = makeStorage();
           vi.mocked(storage.getClientInformation).mockImplementation(
             async (_url: string, preregistered?: boolean) =>
@@ -682,16 +647,22 @@ describe("OAuthNavigation", () => {
           vi.mocked(storage.getClientRegistrationKind).mockResolvedValue(
             "cimd",
           );
-          // No `clientMetadataUrl` on the provider — the provenance comes from
-          // storage alone, so a config cleared since the registration was made
-          // does not silently demote it.
-          const provider = makeProvider(storage);
+          return storage;
+        }
+
+        it("keeps cimd when CIMD is configured and the stored registration matches", async () => {
+          const storage = makeCimdStorage();
+          const provider = makeProvider(storage, vi.fn(), {
+            clientMetadataUrl: METADATA_URL,
+          });
 
           await provider.saveClientInformation(
             { client_id: METADATA_URL },
             { issuer: ISSUER },
           );
 
+          // Reads the dynamic slot for this issuer, which falls back to the
+          // unkeyed slot the pre-registration wrote.
           expect(storage.getClientInformation).toHaveBeenCalledWith(
             SERVER,
             false,
@@ -704,52 +675,108 @@ describe("OAuthNavigation", () => {
           );
         });
 
-        it("does not leak a stored cimd kind onto a different client_id", async () => {
+        it("records dcr for a server-minted client_id while CIMD is configured", async () => {
+          const storage = makeCimdStorage();
+          const provider = makeProvider(storage, vi.fn(), {
+            clientMetadataUrl: METADATA_URL,
+          });
+
+          await provider.saveClientInformation(
+            { client_id: "dcr-minted-id" },
+            { issuer: ISSUER },
+          );
+
+          // The id is not the metadata URL, so nothing is read and nothing is
+          // carried forward.
+          expect(storage.getClientInformation).not.toHaveBeenCalled();
+          expect(storage.getClientRegistrationKind).not.toHaveBeenCalled();
+          expect(storage.saveClientInformation).toHaveBeenCalledWith(
+            SERVER,
+            { client_id: "dcr-minted-id" },
+            { registrationKind: "dcr", issuer: ISSUER },
+          );
+        });
+
+        it("records dcr when CIMD is not configured, even if storage says cimd", async () => {
+          const storage = makeCimdStorage();
+          const provider = makeProvider(storage);
+
+          await provider.saveClientInformation(
+            { client_id: METADATA_URL },
+            { issuer: ISSUER },
+          );
+
+          expect(storage.saveClientInformation).toHaveBeenCalledWith(
+            SERVER,
+            { client_id: METADATA_URL },
+            { registrationKind: "dcr", issuer: ISSUER },
+          );
+        });
+
+        it("records dcr when the metadata URL differs from the configured one", async () => {
+          const storage = makeCimdStorage();
+          const provider = makeProvider(storage, vi.fn(), {
+            clientMetadataUrl: "https://other.example.com/client-metadata.json",
+          });
+
+          await provider.saveClientInformation(
+            { client_id: METADATA_URL },
+            { issuer: ISSUER },
+          );
+
+          expect(storage.saveClientInformation).toHaveBeenCalledWith(
+            SERVER,
+            { client_id: METADATA_URL },
+            { registrationKind: "dcr", issuer: ISSUER },
+          );
+        });
+
+        it("records dcr when no CIMD registration was ever stored", async () => {
+          // The AS returns the configured metadata URL from a real registration
+          // (RFC 7591 §3.2 leaves the id opaque). With nothing recorded as CIMD
+          // under that id, the save is still DCR.
+          const storage = makeStorage();
+          const provider = makeProvider(storage, vi.fn(), {
+            clientMetadataUrl: METADATA_URL,
+          });
+
+          await provider.saveClientInformation(
+            { client_id: METADATA_URL },
+            { issuer: ISSUER },
+          );
+
+          expect(storage.saveClientInformation).toHaveBeenCalledWith(
+            SERVER,
+            { client_id: METADATA_URL },
+            { registrationKind: "dcr", issuer: ISSUER },
+          );
+        });
+
+        it("records dcr when the stored kind under that id is not cimd", async () => {
           const storage = makeStorage();
           vi.mocked(storage.getClientInformation).mockImplementation(
             async (_url: string, preregistered?: boolean) =>
               preregistered ? undefined : { client_id: METADATA_URL },
           );
-          vi.mocked(storage.getClientRegistrationKind).mockResolvedValue(
-            "cimd",
-          );
-          const provider = makeProvider(storage);
+          vi.mocked(storage.getClientRegistrationKind).mockResolvedValue("dcr");
+          const provider = makeProvider(storage, vi.fn(), {
+            clientMetadataUrl: METADATA_URL,
+          });
 
           await provider.saveClientInformation(
-            { client_id: "freshly-registered" },
-            { issuer: ISSUER },
-          );
-
-          expect(storage.getClientRegistrationKind).not.toHaveBeenCalled();
-          expect(storage.saveClientInformation).toHaveBeenCalledWith(
-            SERVER,
-            { client_id: "freshly-registered" },
-            { registrationKind: "dcr", issuer: ISSUER },
-          );
-        });
-
-        it("falls back to dcr when storage has a matching id but no recorded kind", async () => {
-          const storage = makeStorage();
-          vi.mocked(storage.getClientInformation).mockImplementation(
-            async (_url: string, preregistered?: boolean) =>
-              preregistered ? undefined : { client_id: "legacy-id" },
-          );
-          const provider = makeProvider(storage);
-
-          await provider.saveClientInformation(
-            { client_id: "legacy-id" },
+            { client_id: METADATA_URL },
             { issuer: ISSUER },
           );
 
           expect(storage.saveClientInformation).toHaveBeenCalledWith(
             SERVER,
-            { client_id: "legacy-id" },
+            { client_id: METADATA_URL },
             { registrationKind: "dcr", issuer: ISSUER },
           );
         });
 
         it("an explicit registrationKind wins and consults no storage reads", async () => {
-          const storage = makeStorage();
+          const storage = makeCimdStorage();
           const provider = makeProvider(storage, vi.fn(), {
             clientMetadataUrl: METADATA_URL,
           });

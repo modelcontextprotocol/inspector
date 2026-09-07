@@ -315,18 +315,29 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
 
   /**
    * Resolve the registration kind for a save that carries no explicit one — that
-   * is, one the SDK made. Three SDK call sites reach here: back-stamping an
-   * existing registration with its `issuer`, the SDK's own CIMD write (whose
-   * `client_id` *is* the metadata-document URL), and a real dynamic
-   * registration. Only the last is `"dcr"`, so defaulting every unstamped save
-   * to it relabels a CIMD registration `Dynamic (DCR)` in Connection Info the
-   * moment the SDK binds it to an issuer — reported as #2242, where no
-   * `POST /register` was ever made.
+   * is, one the SDK made. SDK v2's `saveClientInformation` contract passes only
+   * `{ issuer }`, so the mechanism cannot be handed to us; treating every such
+   * save as DCR is what relabeled a CIMD registration `Dynamic (DCR)` in
+   * Connection Info the moment the SDK bound it to an issuer (#2242).
    *
-   * `client_id` is what tells the cases apart, so match on it rather than on the
-   * stored kind alone: a DCR `client_id` is minted by the authorization server,
-   * so a later DCR registration for the same server cannot inherit the earlier
-   * CIMD provenance.
+   * The claim is deliberately narrow — three conditions must all hold, and the
+   * decisive one is a registration *we ourselves recorded* as CIMD, not an
+   * inference about what the authorization server returned:
+   *
+   * 1. CIMD is configured for this connection right now, and
+   * 2. the incoming `client_id` is exactly that metadata-document URL, and
+   * 3. the registration already stored under that same `client_id` is recorded
+   *    as `cimd` — written by `ensureCimdClientRegistration`, which reaches that
+   *    line only after confirming the AS advertises
+   *    `client_id_metadata_document_supported`.
+   *
+   * RFC 7591 §3.2 makes a dynamically issued `client_id` opaque, so a client may
+   * not assume its format — which is why (2) is not load-bearing on its own. For
+   * a `registerClient` result to be mislabeled here, the AS would have to mint an
+   * identifier byte-identical to the HTTPS URL we configured *and* we would have
+   * to already hold a CIMD registration recorded under it. Anything else — a
+   * fresh DCR, a different id, CIMD switched off, no prior CIMD registration —
+   * falls through to `"dcr"`.
    */
   private async resolveSdkRegistrationKind(
     clientInformation: OAuthClientInformation,
@@ -334,23 +345,19 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
   ): Promise<SaveClientInformationOptions["registrationKind"]> {
     const clientMetadataUrl = this.clientMetadataUrl?.trim();
     if (
-      clientMetadataUrl &&
-      clientInformation.client_id === clientMetadataUrl
+      !clientMetadataUrl ||
+      clientInformation.client_id !== clientMetadataUrl
     ) {
-      return "cimd";
+      return "dcr";
     }
-    // Falls back to the unkeyed slot our own pre-registration wrote, since the
-    // issuer slot does not exist yet on the save that creates it. Reading it
-    // covers a CIMD registration whose `clientMetadataUrl` config has since
-    // been cleared, so the provenance is not silently demoted.
+    // Reads through to the unkeyed slot our own pre-registration wrote, since
+    // the issuer slot does not exist yet on the save that creates it.
     const stored = await this.storage.getClientInformation(
       this.serverUrl,
       false,
       issuer,
     );
-    if (!stored || stored.client_id !== clientInformation.client_id) {
-      return "dcr";
-    }
+    if (stored?.client_id !== clientMetadataUrl) return "dcr";
     const storedKind = await this.storage.getClientRegistrationKind(
       this.serverUrl,
       issuer,
