@@ -299,11 +299,16 @@ export function issuerMismatchTitle(): string {
  */
 const MAX_DISPLAYED_ISSUER_LENGTH = 120;
 
+/** Bound a remote-supplied URL for display, marking any truncation. */
+export function truncateUrlForDisplay(url: string): string {
+  return url.length > MAX_DISPLAYED_ISSUER_LENGTH
+    ? `${url.slice(0, MAX_DISPLAYED_ISSUER_LENGTH)}…`
+    : url;
+}
+
 /** Bound an issuer for display, marking any truncation. */
 export function truncateIssuerForDisplay(issuer: string): string {
-  return issuer.length > MAX_DISPLAYED_ISSUER_LENGTH
-    ? `${issuer.slice(0, MAX_DISPLAYED_ISSUER_LENGTH)}…`
-    : issuer;
+  return truncateUrlForDisplay(issuer);
 }
 
 /**
@@ -356,4 +361,72 @@ export function reAuthBannerMessage(options: {
     ? `Authentication for "${options.serverName}" needs attention.`
     : "Authentication needs attention.";
   return options.detail ? `${prefix} ${options.detail}` : prefix;
+}
+
+/**
+ * Heading for the SDK's terminal token-endpoint refusal to post credentials to a non-TLS token
+ * endpoint (#2280).
+ *
+ * Deliberately not phrased as an authentication failure. Like
+ * {@link issuerMismatchTitle}, this is offered **no** one-click recovery: the
+ * SDK rethrows `InsecureTokenEndpointError` rather than retrying, so a
+ * "Re-authenticate" affordance here could only fail the same way, and a button
+ * that cannot work is worse than no button.
+ */
+export function insecureTokenEndpointTitle(): string {
+  return "Token endpoint is not secure";
+}
+
+/**
+ * Plain-language explanation and the two things that actually resolve it.
+ *
+ * Does not echo the SDK's own message, which reads as a flat refusal and tells
+ * the user nothing about which lever to reach for.
+ *
+ * The opening says "without sending **this** request" rather than "before any
+ * credentials were sent". The absolute form was wrong: this same notice serves
+ * the mid-session refresh and re-authentication paths, where credentials were
+ * legitimately sent earlier in the session, and a user who had been connected
+ * for an hour would rightly read it as describing a different failure.
+ *
+ * The exemption is listed as `::1` (that is the host the SDK compares) but the
+ * remedy says `[::1]`, because that is what a user must actually type: a bare
+ * IPv6 literal is not a legal URL host and `new URL("http://::1/token")`
+ * throws. The two spellings are deliberately different — do not "fix" either
+ * into the other.
+ *
+ * The section name is the one the UI actually renders — **OAuth Settings**,
+ * with a **Token URL override** field — not "Authorization". Sending someone to
+ * a settings section that does not exist is the worst possible error in the one
+ * message whose entire job is telling them where to go.
+ *
+ * The scheme half says "not HTTPS" rather than "plain HTTP": the SDK's check is
+ * `protocol !== "https:"`, so anything else an authorization server advertises
+ * — including a mistyped `ftp:` or `ws:` endpoint — lands here too, and naming
+ * the wrong scheme would send the reader looking for a problem they do not have.
+ *
+ * The host half is "outside the SDK's loopback exemption", never "not loopback".
+ * The motivating hosts — `tenant.app.localhost` (#1944), the `localhost.`
+ * fixture — *are* loopback by RFC 6761 and by every resolver on the machine;
+ * what they are outside is a three-literal allow-list. Calling them non-loopback
+ * would send a reader to debug their networking instead of their configuration. The endpoint is
+ * remote-supplied (it comes from the server's authorization-server metadata),
+ * so it is bounded for display by {@link truncateUrlForDisplay}; rendering is
+ * escaped, so that is a layout bound rather than an injection defence.
+ */
+export function insecureTokenEndpointMessage(options: {
+  tokenEndpoint: string;
+  serverName?: string;
+}): string {
+  const target = options.serverName ? `"${options.serverName}"` : "this server";
+  return (
+    `Authorization for ${target} was stopped without sending this request: ` +
+    `its token endpoint ${truncateUrlForDisplay(options.tokenEndpoint)} is ` +
+    "not HTTPS, and its host is outside the MCP SDK's loopback exemption, " +
+    "which covers only localhost, 127.0.0.1 and ::1. Re-authenticating cannot " +
+    "change this. Serve the token endpoint over HTTPS, or move it to " +
+    "localhost, 127.0.0.1 or [::1] — Server Settings → OAuth Settings has a " +
+    '"Token URL override" if the authorization server advertises a different ' +
+    "one."
+  );
 }

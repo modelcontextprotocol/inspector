@@ -30,8 +30,11 @@ import {
   getActiveEnterpriseManagedAuthIdp,
 } from "@inspector/core/client/types.js";
 import { isEmaClientNotConfiguredError } from "@inspector/core/auth/ema/clientConfigError.js";
+import { reportTerminalInsecureTokenEndpoint } from "../lib/insecureTokenEndpointNotice";
+import { findInsecureTokenEndpoint } from "@inspector/core/auth/insecureTokenEndpoint.js";
 import { AuthRecoveryRequiredError } from "@inspector/core/auth/challenge.js";
 import type { RemoteInspectorClientStorage } from "@inspector/core/mcp/remote/index.js";
+import type { Dispatch, SetStateAction } from "react";
 import type { SessionRef } from "./useSessionRef";
 import type { FetchLogOptions } from "./useInspectorStores";
 import type { LastPersistedSettings } from "./useLastPersistedSettings";
@@ -172,7 +175,7 @@ export interface UseConnectionLifecycleOptions {
   prepareOAuthRedirect: (args: PrepareOAuthRedirectArgs) => void;
   finalizeExplicitDisconnect: () => void;
   reAuthBanner: ReAuthBannerState | null;
-  setReAuthBanner: (next: ReAuthBannerState | null) => void;
+  setReAuthBanner: Dispatch<SetStateAction<ReAuthBannerState | null>>;
 
   /** See `SessionResetSurface`. */
   sessionReset: SessionResetSurface;
@@ -637,6 +640,28 @@ export function useConnectionLifecycle({
           });
           return;
         }
+        // A token endpoint the SDK will not post credentials
+        // to. Terminal, so it gets a notice of its own rather than the generic
+        // "Failed to connect" toast, whose detail line would be the raw SDK
+        // text.
+        //
+        // The teardown is load-bearing, not tidiness. `connect()` sets its
+        // status to `"error"` and dispatches `statusChange` *before* rethrowing
+        // (it is not a connect-auth-recovery error), and `InspectorView` pins
+        // the monitoring sidebar open on that transition and paints the card
+        // red. Returning without it would present this as the failed connect
+        // attempt the notice explicitly says it is not. The `authenticate()`
+        // arm below already disconnects for the same reason.
+        if (findInsecureTokenEndpoint(err)) {
+          await client.disconnect().catch(() => {});
+          reportTerminalInsecureTokenEndpoint({
+            err,
+            serverId: id,
+            serverName: target.name,
+            setReAuthBanner,
+          });
+          return;
+        }
 
         // A 401 from an OAuth-protected server means we have no (valid) token
         // yet. Kick off the authorization-code flow: `authenticate()` runs
@@ -671,6 +696,24 @@ export function useConnectionLifecycle({
             // held. The fetch log survives a disconnect, so the Network
             // diagnostics this issue is about are unaffected.
             await client.disconnect().catch(() => {});
+            // The terminal token-endpoint refusal (#2280). The retried `connect()` above can raise the
+            // terminal refusal on its own — a satisfied challenge still ends in
+            // a token exchange — and reporting that as a failed connect attempt
+            // is doubly wrong here: the card goes red and the message is the
+            // raw SDK text, on the one path where the Inspector had just told
+            // the user the authorization *worked*. Placed after the teardown
+            // above, which this arm needs for the same reason the generic one
+            // does, and before the flag it must not set.
+            if (
+              reportTerminalInsecureTokenEndpoint({
+                err: recoveryErr,
+                serverId: id,
+                serverName: target.name,
+                setReAuthBanner,
+              })
+            ) {
+              return;
+            }
             setFailedServerId(id);
             const message =
               recoveryErr instanceof Error
@@ -722,6 +765,18 @@ export function useConnectionLifecycle({
               });
               return;
             }
+            // See the note on the handshake arm above (#2280). The
+            // disconnect already happened at the top of this catch.
+            if (
+              reportTerminalInsecureTokenEndpoint({
+                err: authErr,
+                serverId: id,
+                serverName: target.name,
+                setReAuthBanner,
+              })
+            ) {
+              return;
+            }
             // The connect attempt failed, same as any other handshake error —
             // flag the card (#1621) and, with it, open the monitoring sidebar
             // onto the OAuth requests that explain the failure (#2108). This
@@ -766,6 +821,7 @@ export function useConnectionLifecycle({
       setFailedServerId,
       prepareOAuthRedirect,
       finalizeExplicitDisconnect,
+      setReAuthBanner,
     ],
   );
 
@@ -962,6 +1018,23 @@ export function useConnectionLifecycle({
             authorizationUrl: authUrl,
           });
         } catch (err) {
+          // The terminal token-endpoint refusal (#2280), on the path a user reaches by *acting*:
+          // a connected session raises an ordinary re-auth banner, they click
+          // Re-authenticate, and the token exchange is refused. Without this
+          // the generic toast below reports it with the raw SDK text — the
+          // worst place to lose the guidance, since they have just been told
+          // retrying is the fix. No banner clear is needed: this callback
+          // already cleared it before starting.
+          if (
+            reportTerminalInsecureTokenEndpoint({
+              err,
+              serverId,
+              serverName: server?.name,
+              setReAuthBanner,
+            })
+          ) {
+            return;
+          }
           const message = err instanceof Error ? err.message : String(err);
           notifications.show({
             title: server
