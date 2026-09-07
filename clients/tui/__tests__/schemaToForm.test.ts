@@ -656,6 +656,58 @@ describe("schemaToForm", () => {
       expect(names).toContain("__b_0____b0__x");
     });
 
+    // #2224: `required` lists names, not declarations, so a member may require
+    // one it never declares. `buildFields` enumerates `properties` alone, so no
+    // control was rendered for it while `missingRequiredFields` reported it
+    // missing at every submit — a section the user could never complete.
+    it("declines a member requiring a name it never declares", () => {
+      const schema = {
+        type: "object",
+        anyOf: [
+          {
+            type: "object",
+            properties: { kind: { type: "string", const: "a" } },
+            required: ["kind", "payload"],
+          },
+          {
+            type: "object",
+            properties: { kind: { type: "string", const: "b" } },
+            required: ["kind"],
+          },
+        ],
+      };
+      const form = schemaToForm(schema, "undeclared_required");
+      // No variant select and no per-branch section: the union is declined, so
+      // the root's own (here empty) properties are what render.
+      expect(form.sections).toEqual([{ title: "Parameters", fields: [] }]);
+      // And nothing is reported missing, so the call is no longer blocked on a
+      // field that has nowhere to be typed.
+      expect(
+        missingRequiredFields(schema, decodeFormValues(schema, {})),
+      ).toEqual([]);
+    });
+
+    it("keeps offering a member requiring a name the root declares", () => {
+      // The regression guard for the check above: the merge is what is judged,
+      // and `anyOf: [{ required: ["email"] }, …]` is an ordinary union.
+      const form = schemaToForm(
+        {
+          type: "object",
+          properties: {
+            email: { type: "string" },
+            phone: { type: "string" },
+          },
+          anyOf: [
+            { type: "object", required: ["email"] },
+            { type: "object", required: ["phone"] },
+          ],
+        },
+        "inherited_required",
+      );
+      expect(form.sections).toHaveLength(3);
+      expect(form.sections[0]!.fields[0]).toMatchObject({ name: "__variant" });
+    });
+
     describe("decodeFormValues", () => {
       it("submits the chosen branch's fields under their real names", () => {
         expect(

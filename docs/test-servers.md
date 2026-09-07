@@ -45,7 +45,7 @@ as a missing capability rather than an error.
 | `structured-output-http.json` **(legacy era)**             | Tools tab: a result's `structuredContent` section  | [#1908](https://github.com/modelcontextprotocol/inspector/issues/1908) |
 | `duplicate-tool-names-http.json` **(legacy era)**          | A `tools/list` that repeats a tool name            | [#1957](https://github.com/modelcontextprotocol/inspector/issues/1957) |
 | `nullable-fields-http.json` **(legacy era)**               | Tools tab: nullable (`anyOf` + `null`) arguments   | [#1928](https://github.com/modelcontextprotocol/inspector/issues/1928) |
-| `root-union-schemas-http.json` **(legacy era)** | Tool schemas whose arguments are a root `anyOf` / `oneOf` | [#2123](https://github.com/modelcontextprotocol/inspector/issues/2123) |
+| `root-union-schemas-http.json` **(legacy era)** | Tool schemas whose arguments are a root `anyOf` / `oneOf`, including one no branch of which can be offered | [#2123](https://github.com/modelcontextprotocol/inspector/issues/2123), [#2224](https://github.com/modelcontextprotocol/inspector/issues/2224) |
 | `unportable-schemas-http.json` **(legacy era)** | Tool schemas a real client rejects, flagged in all three clients | [#1005](https://github.com/modelcontextprotocol/inspector/issues/1005) |
 | `rfc6570-templates-http.json` **(legacy era)**             | Resources tab: RFC 6570 resource-template expansion | [#1919](https://github.com/modelcontextprotocol/inspector/issues/1919) |
 | `advertised-extensions-http.json` **(legacy era)**         | Tool registration gated on advertised extensions    | [#1739](https://github.com/modelcontextprotocol/inspector/issues/1739) |
@@ -280,7 +280,7 @@ The **TUI** had the same gap and is worth checking against the same server (`--t
 
 ## Root-level unions
 
-`root-union-schemas-http.json` serves two tools whose arguments are declared as a **composition at the root** of `inputSchema` rather than as a flat `properties` map — `echo` with an `anyOf` beside its own `message` property, and `get_weather` with an OpenAPI-style `discriminator` over a `oneOf`. Plain streamable-HTTP — connect with the **default (legacy)** protocol era.
+`root-union-schemas-http.json` serves three tools whose arguments are declared as a **composition at the root** of `inputSchema` rather than as a flat `properties` map — `echo` with an `anyOf` beside its own `message` property, `get_weather` with an OpenAPI-style `discriminator` over a `oneOf`, and `record_shipment_by` with a `oneOf` neither of whose branches can be offered. Plain streamable-HTTP — connect with the **default (legacy)** protocol era.
 
 The 2026-07-28 revision makes this shape explicitly legal: `type: "object"` is required at the root, and beyond that "any JSON Schema 2020-12 keyword may appear alongside `type`, including composition keywords (`oneOf`, `anyOf`, `allOf`, `not`)".
 
@@ -301,6 +301,7 @@ All three read one helper, [`core/json/rootUnion.ts`](../core/json/rootUnion.ts)
 What it declines to flatten is as deliberate as what it flattens, and every case falls back to whatever the schema's own `properties` describe rather than claiming something untrue:
 
 - **A union whose members are not all field-carrying object schemas** — including one whose member `type` rules objects out, since tool arguments are a JSON object and such a member can never match. A picker whose options render nothing is no better than no picker.
+- **A branch requiring a name nothing declares.** `required` lists names, not declarations, so `{ "properties": { "by": … }, "required": ["by", "address"] }` is legal and says nothing about what `address` accepts. Every form builder enumerates `properties` alone, so no control is rendered for it while the submit-time check reports it missing *permanently* — an option the picker offers and the user can never complete ([#2224](https://github.com/modelcontextprotocol/inspector/issues/2224)). The name only has to be declared *somewhere the merge reaches*: a branch requiring one the **root** declares — `anyOf: [{ "required": ["email"] }, …]`, an ordinary way to say "one of these two" — is offered as before.
 - **A branch that restates a constraint the root already states.** The two are conjunctive, so root `minimum: 10` under branch `minimum: 0` is still 10, disjoint `enum`s leave nothing satisfiable, and `type: "string"` under `type: "number"` describes a value that cannot exist — rendering either side would accept what the schema rejects. A property both declare *compatibly* is merged rather than replaced, so a root's `minimum` survives a branch's `maximum`, and a disagreement about `title`/`description` is not a conflict at all.
 - **A composition member stating anything the merge cannot apply.** Only `type`, `properties` and `required` are folded in, so a member carrying a nested `allOf`/`anyOf`, a `not`, an `additionalProperties`, or a `$ref` would have that constraint erased along with the keyword — turning an unsatisfiable schema (`allOf: [false, …]` admits nothing) into a fillable form. `allOf` members are checked against the accumulated merge rather than the root alone, so two of them contradicting each other is caught even when neither contradicts the root.
 - **A `oneOf` whose alternatives are not mutually exclusive.** `oneOf` demands that *exactly one* alternative match, which flattening cannot preserve — the branches are offered as if any would do. It is only safe with a discriminator: a property every branch pins to a `const` of its own **and requires**, since an optional one leaves `{}` matching every branch. An undiscriminated `oneOf` is declined; `anyOf` makes no such claim and is offered either way.
@@ -309,6 +310,8 @@ What it declines to flatten is as deliberate as what it flattens, and every case
 - **`not`**, which is not interpreted at all: there is no faithful form for "anything except this".
 
 Declining changes what *renders*, never whether the tool is treated as taking arguments: a declined union still has fields, so an App tool carrying one still asks for them rather than auto-invoking with `{}`.
+
+`record_shipment_by` is the case where declining leaves nothing on screen: its fields live entirely on branches that are all declined, so the web form has neither a picker nor a field to show. It opens the **Edit as JSON** editor instead of rendering a blank form the user would have to work out for themselves ([#2224](https://github.com/modelcontextprotocol/inspector/issues/2224)) — the arguments are still expressible, just not as fields. The switch is only *seeded*, so turning it back off works normally, and a tool that genuinely takes no arguments is left alone. The TUI has no such editor, so there the tool renders an empty Parameters section — no longer a form with a branch section that could never be submitted.
 
 ## Unportable tool schemas
 
