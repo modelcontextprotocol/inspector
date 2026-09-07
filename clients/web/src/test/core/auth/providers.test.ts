@@ -221,6 +221,8 @@ describe("OAuthNavigation", () => {
         getScope: vi.fn().mockResolvedValue(undefined),
         getClientInformation: vi.fn(async () => undefined),
         getClientRegistrationKind: vi.fn(async () => undefined),
+        getCimdClientMetadataUrl: vi.fn(async () => undefined),
+        saveCimdClientMetadataUrl: vi.fn(async () => undefined),
         saveClientInformation: vi.fn(async () => undefined),
         savePreregisteredClientInformation: vi.fn(async () => undefined),
         saveScope: vi.fn(async () => undefined),
@@ -641,20 +643,16 @@ describe("OAuthNavigation", () => {
         const ISSUER = "https://as.example.com";
         const METADATA_URL = "https://app.example.com/client-metadata.json";
 
-        /** Storage already holding the CIMD pre-registration for METADATA_URL. */
+        /** Storage holding this AS's CIMD marker for METADATA_URL. */
         function makeCimdStorage(): OAuthStorage {
           const storage = makeStorage();
-          vi.mocked(storage.getClientInformation).mockImplementation(
-            async (_url: string, preregistered?: boolean) =>
-              preregistered ? undefined : { client_id: METADATA_URL },
-          );
-          vi.mocked(storage.getClientRegistrationKind).mockResolvedValue(
-            "cimd",
+          vi.mocked(storage.getCimdClientMetadataUrl).mockResolvedValue(
+            METADATA_URL,
           );
           return storage;
         }
 
-        it("keeps cimd when CIMD is configured and the stored registration matches", async () => {
+        it("keeps cimd when CIMD is configured and this issuer carries the marker", async () => {
           const storage = makeCimdStorage();
           const provider = makeProvider(storage, vi.fn(), {
             clientMetadataUrl: METADATA_URL,
@@ -665,13 +663,35 @@ describe("OAuthNavigation", () => {
             { issuer: ISSUER },
           );
 
-          // Reads the dynamic slot for this issuer, which falls back to the
-          // unkeyed slot the pre-registration wrote.
-          expect(storage.getClientInformation).toHaveBeenCalledWith(
+          expect(storage.getCimdClientMetadataUrl).toHaveBeenCalledWith(
             SERVER,
-            false,
             ISSUER,
           );
+          expect(storage.saveClientInformation).toHaveBeenCalledWith(
+            SERVER,
+            { client_id: METADATA_URL },
+            { registrationKind: "cimd", issuer: ISSUER },
+          );
+        });
+
+        // SDK v2 `auth()` answers `invalid_client` / `unauthorized_client` with
+        // `invalidateCredentials("client")` and an immediate retry. That clears
+        // the stored registration *and* its kind, so provenance read off the
+        // credential would be gone by the time the retry's CIMD save lands
+        // (Copilot). The marker is not a credential and survives.
+        it("keeps cimd through invalid-client recovery, which clears the credential", async () => {
+          const storage = makeCimdStorage();
+          const provider = makeProvider(storage, vi.fn(), {
+            clientMetadataUrl: METADATA_URL,
+          });
+
+          await provider.invalidateCredentials("client");
+          await provider.saveClientInformation(
+            { client_id: METADATA_URL },
+            { issuer: ISSUER },
+          );
+
+          expect(storage.clearClientInformation).toHaveBeenCalledWith(SERVER);
           expect(storage.saveClientInformation).toHaveBeenCalledWith(
             SERVER,
             { client_id: METADATA_URL },
@@ -690,10 +710,8 @@ describe("OAuthNavigation", () => {
             { issuer: ISSUER },
           );
 
-          // The id is not the metadata URL, so nothing is read and nothing is
-          // carried forward.
-          expect(storage.getClientInformation).not.toHaveBeenCalled();
-          expect(storage.getClientRegistrationKind).not.toHaveBeenCalled();
+          // The id is not the metadata URL, so the marker is never consulted.
+          expect(storage.getCimdClientMetadataUrl).not.toHaveBeenCalled();
           expect(storage.saveClientInformation).toHaveBeenCalledWith(
             SERVER,
             { client_id: "dcr-minted-id" },
@@ -701,7 +719,7 @@ describe("OAuthNavigation", () => {
           );
         });
 
-        it("records dcr when CIMD is not configured, even if storage says cimd", async () => {
+        it("records dcr when CIMD is not configured, even if the marker is set", async () => {
           const storage = makeCimdStorage();
           const provider = makeProvider(storage);
 
@@ -717,29 +735,11 @@ describe("OAuthNavigation", () => {
           );
         });
 
-        it("records dcr when the metadata URL differs from the configured one", async () => {
-          const storage = makeCimdStorage();
-          const provider = makeProvider(storage, vi.fn(), {
-            clientMetadataUrl: "https://other.example.com/client-metadata.json",
-          });
-
-          await provider.saveClientInformation(
-            { client_id: METADATA_URL },
-            { issuer: ISSUER },
-          );
-
-          expect(storage.saveClientInformation).toHaveBeenCalledWith(
-            SERVER,
-            { client_id: METADATA_URL },
-            { registrationKind: "dcr", issuer: ISSUER },
-          );
-        });
-
-        it("records dcr when no CIMD registration was ever stored", async () => {
-          // The AS returns the configured metadata URL from a real registration
-          // (RFC 7591 §3.2 leaves the id opaque). With nothing recorded as CIMD
-          // under that id, the save is still DCR.
+        it("records dcr when the marker names a different metadata URL", async () => {
           const storage = makeStorage();
+          vi.mocked(storage.getCimdClientMetadataUrl).mockResolvedValue(
+            "https://other.example.com/client-metadata.json",
+          );
           const provider = makeProvider(storage, vi.fn(), {
             clientMetadataUrl: METADATA_URL,
           });
@@ -756,13 +756,11 @@ describe("OAuthNavigation", () => {
           );
         });
 
-        it("records dcr when the stored kind under that id is not cimd", async () => {
+        it("records dcr when this issuer carries no marker", async () => {
+          // The AS returns the configured metadata URL from a real registration
+          // (RFC 7591 §3.2 leaves the id opaque). With no marker for this AS,
+          // the save is still DCR.
           const storage = makeStorage();
-          vi.mocked(storage.getClientInformation).mockImplementation(
-            async (_url: string, preregistered?: boolean) =>
-              preregistered ? undefined : { client_id: METADATA_URL },
-          );
-          vi.mocked(storage.getClientRegistrationKind).mockResolvedValue("dcr");
           const provider = makeProvider(storage, vi.fn(), {
             clientMetadataUrl: METADATA_URL,
           });
@@ -802,8 +800,8 @@ describe("OAuthNavigation", () => {
            * has to name the AS, so that the RFC 8414 §3.3 issuer echo the SDK
            * enforces resolves against the AS URL rather than the resource's.
            */
-          function discoveryFetch(issuer: string, cimd: boolean) {
-            return (async (input: RequestInfo | URL) => {
+          function discoveryFetch(issuer: string, cimd: boolean): typeof fetch {
+            return async (input: RequestInfo | URL) => {
               const url = String(input);
               if (url.includes("/.well-known/oauth-protected-resource")) {
                 return new Response(
@@ -827,7 +825,7 @@ describe("OAuthNavigation", () => {
                 );
               }
               throw new Error(`unexpected fetch: ${url}`);
-            }) as unknown as typeof fetch;
+            };
           }
 
           /** Issuer A pre-registers via CIMD, then the SDK binds it. */
@@ -895,6 +893,43 @@ describe("OAuthNavigation", () => {
               await storage.getClientRegistrationKind(SERVER, ISSUER_B),
             ).toBe("dcr");
             // Issuer A's own provenance is untouched.
+            expect(
+              await storage.getClientRegistrationKind(SERVER, ISSUER),
+            ).toBe("cimd");
+          });
+
+          // The provenance marker's whole reason for existing: SDK v2 `auth()`
+          // answers `invalid_client` with `invalidateCredentials("client")` and
+          // an immediate retry, and that clear removes the credential *and* its
+          // registration kind. Asserted against real storage, since the point is
+          // what `clearClientInformation` does and does not touch (Copilot).
+          it("keeps the CIMD marker through invalid-client credential invalidation", async () => {
+            const storage = makeRealStorage();
+            const provider = await bindIssuerA(storage);
+            expect(await storage.getCimdClientMetadataUrl(SERVER, ISSUER)).toBe(
+              METADATA_URL,
+            );
+
+            await provider.invalidateCredentials("client");
+
+            // The credential and its kind are gone...
+            expect(
+              await storage.getClientInformation(SERVER, false, ISSUER),
+            ).toBeUndefined();
+            expect(
+              await storage.getClientRegistrationKind(SERVER, ISSUER),
+            ).toBeUndefined();
+            // ...but the marker is not a credential, so it survives.
+            expect(await storage.getCimdClientMetadataUrl(SERVER, ISSUER)).toBe(
+              METADATA_URL,
+            );
+
+            // The SDK's retry re-runs its URL-based client-ID branch.
+            await provider.saveClientInformation(
+              { client_id: METADATA_URL },
+              { issuer: ISSUER },
+            );
+
             expect(
               await storage.getClientRegistrationKind(SERVER, ISSUER),
             ).toBe("cimd");

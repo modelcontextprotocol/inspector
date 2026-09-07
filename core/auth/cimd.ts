@@ -27,50 +27,69 @@ export async function ensureCimdClientRegistration(params: {
   const clientMetadataUrl = params.provider.clientMetadataUrl?.trim();
   if (!clientMetadataUrl) return;
 
-  let resourceMetadata;
-  try {
-    resourceMetadata = await discoverOAuthProtectedResourceMetadata(
-      params.serverUrl,
-      { resourceMetadataUrl: params.resourceMetadataUrl },
-      // The same fetch the AS-metadata leg below uses. On web that is
-      // `createRemoteFetch`, which proxies through the backend to sidestep
-      // CORS — on the global `fetch` this leg would fail in the browser, be
-      // swallowed by the catch, and leave CIMD probing the wrong
-      // authorization server (Copilot).
-      params.fetchFn,
-    );
-  } catch {
-    resourceMetadata = undefined;
+  // Prefer the discovery state SDK `auth()` itself persists and reuses. Without
+  // this, moving the existing-client check after discovery would turn a
+  // temporary well-known outage into a failed reconnect, even where the SDK
+  // could have proceeded from cache (Copilot).
+  let metadata = (await params.provider.discoveryState())
+    ?.authorizationServerMetadata;
+
+  if (!metadata) {
+    let resourceMetadata;
+    try {
+      resourceMetadata = await discoverOAuthProtectedResourceMetadata(
+        params.serverUrl,
+        { resourceMetadataUrl: params.resourceMetadataUrl },
+        // The same fetch the AS-metadata leg below uses. On web that is
+        // `createRemoteFetch`, which proxies through the backend to sidestep
+        // CORS — on the global `fetch` this leg would fail in the browser, be
+        // swallowed by the catch, and leave CIMD probing the wrong
+        // authorization server (Copilot).
+        params.fetchFn,
+      );
+    } catch {
+      resourceMetadata = undefined;
+    }
+
+    try {
+      // Walks the path-scoped authorization-server URL before the bare origin, so
+      // a server hosted under a path is probed where it actually publishes its
+      // metadata rather than only at the domain root (#2110).
+      metadata = await discoverAuthorizationServerMetadataForServer(
+        params.serverUrl,
+        resourceMetadata,
+        params.fetchFn,
+      );
+    } catch {
+      // Pre-registration is an optimization over what SDK `auth()` does for
+      // itself, so a discovery failure here must never fail the connection: bail
+      // out and let `auth()` run its own discovery and error handling.
+      return;
+    }
   }
 
-  // Walks the path-scoped authorization-server URL before the bare origin, so a
-  // server hosted under a path is probed where it actually publishes its
-  // metadata rather than only at the domain root (#2110).
-  const metadata = await discoverAuthorizationServerMetadataForServer(
-    params.serverUrl,
-    resourceMetadata,
-    params.fetchFn,
-  );
+  const issuer = metadata?.issuer;
+
+  // Record — or withdraw — this AS's CIMD marker before anything else, so it
+  // stays current rather than only ever being written once. It is keyed by
+  // issuer and is not a credential, so `invalidateCredentials("client")` leaves
+  // it alone; see `IssuerBoundOAuthState.cimdClientMetadataUrl`.
+  if (issuer) {
+    await params.provider.saveCimdClientMetadataUrl(
+      issuer,
+      metadata?.client_id_metadata_document_supported
+        ? clientMetadataUrl
+        : undefined,
+    );
+  }
+
   if (!metadata?.client_id_metadata_document_supported) return;
 
-  // SEP-2352 keys a registration to the authorization server that issued it, so
-  // the record this writes is bound to the issuer we just discovered rather than
-  // to the server as a whole. That binding is what makes the provenance
-  // trustworthy later: `BaseOAuthClientProvider.saveClientInformation` preserves
-  // `cimd` only for an issuer this function recorded it for, having first
-  // confirmed *that* AS advertises `client_id_metadata_document_supported`
-  // (#2242, Copilot). A second AS behind the same resource therefore gets its own
-  // determination — pre-registered here when it too supports CIMD, and left to
-  // dynamic registration when it does not.
-  //
-  // ⚠️ This is why the "do we already have a client?" check below sits *after*
-  // discovery rather than short-circuiting it, at the cost of a discovery round
-  // trip on each connect attempt rather than only the first. Read ctx-less — as
-  // it was — it resolves through the *active* issuer and so early-returns for
-  // every subsequent issuer, leaving them with no CIMD record at all. It still
+  // ⚠️ Keyed by the issuer just resolved, not read ctx-less. A ctx-less read
+  // resolves through the *active* issuer, so it early-returns for every
+  // subsequent issuer and leaves them with no CIMD record at all. It still
   // answers the static case first, since `clientInformation` checks the
   // preregistered slot before any issuer slot.
-  const issuer = metadata.issuer;
   const existing = await params.provider.clientInformation(
     issuer ? { issuer } : undefined,
   );

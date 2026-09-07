@@ -321,38 +321,35 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
    * Connection Info the moment the SDK bound it to an issuer (#2242).
    *
    * The claim is deliberately narrow — three conditions must all hold, and the
-   * decisive one is a registration *we ourselves recorded* as CIMD, not an
-   * inference about what the authorization server returned:
+   * decisive one is a fact *we recorded about this authorization server*, not an
+   * inference about what it returned:
    *
    * 1. CIMD is configured for this connection right now, and
    * 2. the incoming `client_id` is exactly that metadata-document URL, and
-   * 3. the registration stored **for this issuer** under that same `client_id`
-   *    is recorded as `cimd` — written by `ensureCimdClientRegistration`, which
-   *    reaches that line only after confirming *that* AS advertises
-   *    `client_id_metadata_document_supported`.
+   * 3. `ensureCimdClientRegistration` recorded that same URL as the CIMD marker
+   *    **for this issuer**, having read `client_id_metadata_document_supported`
+   *    from *that* AS's own metadata.
    *
    * RFC 7591 §3.2 makes a dynamically issued `client_id` opaque, so a client may
    * not assume its format — which is why (2) is not load-bearing on its own. For
    * a `registerClient` result to be mislabeled here, the AS would have to mint an
-   * identifier byte-identical to the HTTPS URL we configured *and* be an AS we
-   * had already recorded a CIMD registration for — that is, one that advertises
-   * CIMD and then dynamically registers anyway. Anything else — a fresh DCR, a
-   * different id, CIMD switched off, no prior CIMD registration for this issuer —
-   * falls through to `"dcr"`.
+   * identifier byte-identical to the HTTPS URL we configured *and* be an AS that
+   * currently advertises CIMD and dynamically registered anyway. Anything else —
+   * a fresh DCR, a different id, CIMD switched off, an AS that does not advertise
+   * CIMD — falls through to `"dcr"`.
    *
-   * ⚠️ (3) is scoped to the issuer on purpose, and the lookup deliberately does
-   * **not** fall back to the server's active issuer. SEP-2352 keys registrations
-   * per AS, so a second AS behind the same resource is a separate determination:
-   * it may well not support CIMD and register dynamically, and RFC 7591 permits
-   * it to mint the very URL the first AS uses as a CIMD `client_id` (Copilot).
-   * `ensureCimdClientRegistration` binds the record to the issuer it discovered,
-   * which is what lets this stay issuer-scoped without losing a genuine
-   * second-issuer CIMD registration.
+   * ⚠️ (3) reads the **marker**, not the stored registration kind, and the two
+   * differ in exactly one place that matters: `invalidateCredentials("client")`
+   * clears the credential and its kind, and SDK v2 `auth()` calls it on an
+   * `invalid_client` / `unauthorized_client` response before retrying. The
+   * retry's URL-based client-ID save would then find no kind and be recorded as
+   * DCR. The marker describes the AS rather than the credential, so it survives
+   * that clear (#2242, Copilot).
    *
-   * The read is still issuer-*keyed* rather than issuer-*only*: `getClientInformation`
-   * falls back to the unkeyed slot when no `byIssuer` entry exists, which is how a
-   * pre-registration written before an issuer was known is still found on the save
-   * that first binds one.
+   * ⚠️ (3) is issuer-scoped with no fallback to the server's active issuer. A
+   * second AS behind one resource is a separate determination: it may not support
+   * CIMD and may register dynamically, and RFC 7591 permits it to mint the very
+   * URL the first AS uses as its CIMD `client_id`.
    */
   private async resolveSdkRegistrationKind(
     clientInformation: OAuthClientInformation,
@@ -365,19 +362,28 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
     ) {
       return "dcr";
     }
-    const stored = await this.storage.getClientInformation(
-      this.serverUrl,
-      false,
-      issuer,
-    );
-    if (stored?.client_id !== clientMetadataUrl) return "dcr";
-    const storedKind = await this.storage.getClientRegistrationKind(
+    const marker = await this.storage.getCimdClientMetadataUrl(
       this.serverUrl,
       issuer,
     );
-    // `"static"` lives in the preregistered slot, never this one, so `"cimd"`
-    // is the only kind worth carrying forward.
-    return storedKind === "cimd" ? "cimd" : "dcr";
+    return marker === clientMetadataUrl ? "cimd" : "dcr";
+  }
+
+  /** @see OAuthStorage.getCimdClientMetadataUrl */
+  async cimdClientMetadataUrl(issuer?: string): Promise<string | undefined> {
+    return await this.storage.getCimdClientMetadataUrl(this.serverUrl, issuer);
+  }
+
+  /** @see OAuthStorage.saveCimdClientMetadataUrl */
+  async saveCimdClientMetadataUrl(
+    issuer: string,
+    clientMetadataUrl: string | undefined,
+  ): Promise<void> {
+    await this.storage.saveCimdClientMetadataUrl(
+      this.serverUrl,
+      issuer,
+      clientMetadataUrl,
+    );
   }
 
   async saveScope(scope: string | undefined): Promise<void> {

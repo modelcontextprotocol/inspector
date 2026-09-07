@@ -24,6 +24,9 @@ describe("ensureCimdClientRegistration", () => {
     storage = {
       getClientInformation: vi.fn(async () => undefined),
       saveClientInformation: vi.fn(async () => {}),
+      getDiscoveryState: vi.fn(async () => undefined),
+      getCimdClientMetadataUrl: vi.fn(async () => undefined),
+      saveCimdClientMetadataUrl: vi.fn(async () => {}),
       getScope: vi.fn().mockResolvedValue(undefined),
       getTokens: vi.fn(async () => undefined),
       saveTokens: vi.fn(async () => {}),
@@ -72,6 +75,12 @@ describe("ensureCimdClientRegistration", () => {
       },
       { registrationKind: "cimd", issuer: "http://127.0.0.1:9999" },
     );
+    // The provenance marker for this AS, which outlives the credential.
+    expect(storage.saveCimdClientMetadataUrl).toHaveBeenCalledWith(
+      SERVER_URL,
+      "http://127.0.0.1:9999",
+      METADATA_URL,
+    );
   });
 
   it("does not register when the AS metadata omits CIMD support", async () => {
@@ -102,6 +111,13 @@ describe("ensureCimdClientRegistration", () => {
     });
 
     expect(storage.saveClientInformation).not.toHaveBeenCalled();
+    // The marker is actively withdrawn, not merely left unwritten, so an AS that
+    // stops advertising CIMD stops being treated as one.
+    expect(storage.saveCimdClientMetadataUrl).toHaveBeenCalledWith(
+      SERVER_URL,
+      "http://127.0.0.1:9999",
+      undefined,
+    );
   });
 
   it("discovers protected-resource metadata at the challenge-advertised URL (#2071)", async () => {
@@ -159,6 +175,57 @@ describe("ensureCimdClientRegistration", () => {
       { client_id: METADATA_URL },
       { registrationKind: "cimd", issuer: "http://127.0.0.1:9999" },
     );
+  });
+
+  // #2242 (Copilot): the existing-client check moved after discovery, so this
+  // helper must not turn a well-known outage into a failed reconnect. It reuses
+  // the discovery state SDK `auth()` persists, and treats a discovery failure as
+  // "skip pre-registration" rather than an error.
+  it("reuses persisted discovery state instead of re-fetching", async () => {
+    storage.getDiscoveryState = vi.fn(async () => ({
+      authorizationServerUrl: "http://127.0.0.1:9999",
+      authorizationServerMetadata: {
+        issuer: "http://127.0.0.1:9999",
+        authorization_endpoint: "http://127.0.0.1:9999/oauth/authorize",
+        token_endpoint: "http://127.0.0.1:9999/oauth/token",
+        response_types_supported: ["code"],
+        client_id_metadata_document_supported: true,
+      },
+    }));
+    const fetchFn = vi.fn(async () => {
+      throw new Error("discovery must not run when state is cached");
+    });
+
+    await ensureCimdClientRegistration({
+      serverUrl: SERVER_URL,
+      provider: createProvider(storage),
+      fetchFn,
+    });
+
+    expect(fetchFn).not.toHaveBeenCalled();
+    expect(storage.saveClientInformation).toHaveBeenCalledWith(
+      SERVER_URL,
+      { client_id: METADATA_URL },
+      { registrationKind: "cimd", issuer: "http://127.0.0.1:9999" },
+    );
+  });
+
+  it("skips pre-registration when discovery fails, rather than throwing", async () => {
+    const fetchFn = vi.fn(async () => {
+      throw new Error("well-known endpoint is down");
+    });
+
+    await expect(
+      ensureCimdClientRegistration({
+        serverUrl: SERVER_URL,
+        provider: createProvider(storage),
+        fetchFn,
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(storage.saveClientInformation).not.toHaveBeenCalled();
+    // No marker is invented either — nothing was learned about the AS.
+    expect(storage.saveCimdClientMetadataUrl).not.toHaveBeenCalled();
   });
 
   it("no-ops when client information is already stored for the discovered issuer", async () => {

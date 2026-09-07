@@ -82,6 +82,23 @@ export interface OAuthStorage {
   ): Promise<OAuthClientRegistrationKind | undefined>;
 
   /**
+   * The CIMD client-metadata URL this authorization server was confirmed to
+   * accept as a `client_id`. Survives {@link clearClientInformation}, because it
+   * records a property of the AS rather than a credential (#2242).
+   */
+  getCimdClientMetadataUrl(
+    serverUrl: string,
+    issuer?: string,
+  ): Promise<string | undefined>;
+
+  /** Write (or, with `undefined`, clear) the marker above for one issuer. */
+  saveCimdClientMetadataUrl(
+    serverUrl: string,
+    issuer: string,
+    clientMetadataUrl: string | undefined,
+  ): Promise<void>;
+
+  /**
    * Save client information (dynamically registered)
    */
   saveClientInformation(
