@@ -180,3 +180,62 @@ export function isLoopbackHost(host: string): boolean {
     /^127(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}$/.test(h)
   );
 }
+
+/**
+ * True when `host` is a name reserved to the loopback interface by
+ * [RFC 6761 §6.3](https://www.rfc-editor.org/info/rfc6761/) *below* the
+ * `localhost` TLD — `app.localhost`, `tenant.example.localhost`. The bare
+ * `localhost` is deliberately **not** matched here: callers that want both ask
+ * for both, so a caller that only wants the subdomain case (the DNS-rebinding
+ * guard, which already carries `localhost` as a literal origin) doesn't silently
+ * widen to it.
+ *
+ * Canonicalized through {@link canonicalUrlHost} first, so the comparison sees
+ * the same lowercased, IDNA-mapped form the browser puts in `Origin` — a
+ * `Münchén.LOCALHOST` embedder arrives as `xn--mnchn-3ya1b.localhost` and still
+ * matches. A root FQDN dot is dropped for the same reason it is in
+ * {@link isLoopbackHost}. Every label left of `.localhost` must be non-empty, so
+ * the degenerate `.localhost` and `a..localhost` are rejected.
+ *
+ * Deliberately separate from {@link isLoopbackHost} rather than folded into it.
+ * That predicate gates the **OAuth callback listener's bind host**, and this is
+ * about a host a *browser* resolves: Chrome and Firefox map `*.localhost` to
+ * loopback internally, but the OS resolver on macOS does not (`dns.lookup`
+ * returns `ENOTFOUND`), so binding one would fail where browsing one works.
+ * Widening the bind guard would trade a clear rejection for an obscure listen
+ * error, which is not an improvement.
+ */
+export function isLocalhostSubdomainHost(host: string): boolean {
+  const h = canonicalUrlHost(host).replace(/\.$/, "");
+  const suffix = ".localhost";
+  if (!h.endsWith(suffix)) return false;
+  const labels = h.slice(0, -suffix.length).split(".");
+  return labels.every((label) => label !== "");
+}
+
+/**
+ * True when `origin` is an http(s) origin on a `*.localhost` host, at any port.
+ *
+ * Both schemes are accepted because the trustworthiness argument is about the
+ * *host*, not the transport: the suffix is reserved by RFC 6761 and is not
+ * publicly registrable, so no attacker can obtain such an origin by acquiring a
+ * domain, and a local proxy fronted with a self-signed certificate (mkcert and
+ * friends) sends `https://…` for the same machine. Any port, because the whole
+ * point is a reverse proxy on a port the Inspector does not know.
+ *
+ * Callers pass the raw `Origin` header. This parses rather than string-matches
+ * so that the values a browser really can put there without meaning an http(s)
+ * origin — `"null"` from an opaque origin (a sandboxed iframe, a `data:`
+ * document), a non-http scheme — can never match. It reads the parsed host, so
+ * casing and IDNA spelling are normalized rather than rejected.
+ */
+export function isLocalhostSubdomainOrigin(origin: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(origin);
+  } catch {
+    return false;
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") return false;
+  return isLocalhostSubdomainHost(url.hostname);
+}

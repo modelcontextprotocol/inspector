@@ -299,11 +299,16 @@ export function issuerMismatchTitle(): string {
  */
 const MAX_DISPLAYED_ISSUER_LENGTH = 120;
 
+/** Bound a remote-supplied URL for display, marking any truncation. */
+export function truncateUrlForDisplay(url: string): string {
+  return url.length > MAX_DISPLAYED_ISSUER_LENGTH
+    ? `${url.slice(0, MAX_DISPLAYED_ISSUER_LENGTH)}…`
+    : url;
+}
+
 /** Bound an issuer for display, marking any truncation. */
 export function truncateIssuerForDisplay(issuer: string): string {
-  return issuer.length > MAX_DISPLAYED_ISSUER_LENGTH
-    ? `${issuer.slice(0, MAX_DISPLAYED_ISSUER_LENGTH)}…`
-    : issuer;
+  return truncateUrlForDisplay(issuer);
 }
 
 /**
@@ -356,4 +361,44 @@ export function reAuthBannerMessage(options: {
     ? `Authentication for "${options.serverName}" needs attention.`
     : "Authentication needs attention.";
   return options.detail ? `${prefix} ${options.detail}` : prefix;
+}
+
+/**
+ * Heading for the SDK's SEP-2207 refusal to post credentials to a non-TLS token
+ * endpoint (#2280).
+ *
+ * Deliberately not phrased as an authentication failure. Like
+ * {@link issuerMismatchTitle}, this is offered **no** one-click recovery: the
+ * SDK rethrows `InsecureTokenEndpointError` rather than retrying, so a
+ * "Re-authenticate" affordance here could only fail the same way, and a button
+ * that cannot work is worse than no button.
+ */
+export function insecureTokenEndpointTitle(): string {
+  return "Token endpoint is not secure";
+}
+
+/**
+ * Plain-language explanation and the two things that actually resolve it.
+ *
+ * Does not echo the SDK's own message, which names only `localhost`,
+ * `127.0.0.1` and `::1` as exempt and reads as a flat refusal — accurate, but it
+ * tells the user nothing about which lever to reach for. The endpoint is
+ * remote-supplied (it comes from the server's authorization-server metadata),
+ * so it is bounded for display by {@link truncateUrlForDisplay}; rendering is
+ * escaped, so that is a layout bound rather than an injection defence.
+ */
+export function insecureTokenEndpointMessage(options: {
+  tokenEndpoint: string;
+  serverName?: string;
+}): string {
+  const target = options.serverName ? `"${options.serverName}"` : "this server";
+  return (
+    `Authorization for ${target} was stopped before any credentials were sent: ` +
+    `its token endpoint ${truncateUrlForDisplay(options.tokenEndpoint)} is ` +
+    "plain HTTP on a host that is not loopback, and OAuth token requests must " +
+    "use TLS. Re-authenticating cannot change this. " +
+    "Serve the token endpoint over HTTPS, or point it at a genuinely loopback " +
+    "host (localhost, 127.0.0.1 or ::1) — Server Settings → Authorization has a " +
+    "Token URL override if the authorization server advertises a different one."
+  );
 }

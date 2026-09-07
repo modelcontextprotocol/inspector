@@ -52,6 +52,7 @@ as a missing capability rather than an error.
 | `oauth-custom-resource-metadata-http.json` **(legacy era)** | OAuth discovery driven by the challenge's `resource_metadata` | [#2071](https://github.com/modelcontextprotocol/inspector/issues/2071) |
 | `oauth-revocation-http.json` / `oauth-no-revocation-http.json` **(legacy era)** | RFC 7009 token revocation on clear, with and without a `revocation_endpoint` | [#2144](https://github.com/modelcontextprotocol/inspector/issues/2144) |
 | `oauth-rfc8414-at-oidc-path-http.json` **(legacy era)** | Plain OAuth 2.0 AS metadata served at the OIDC well-known path | [#2172](https://github.com/modelcontextprotocol/inspector/issues/2172) |
+| `oauth-insecure-token-endpoint-http.json` **(legacy era)** | A token endpoint the SDK refuses to post credentials to (SEP-2207) | [#2280](https://github.com/modelcontextprotocol/inspector/issues/2280) |
 | `logging-{legacy,modern}-http.json` **(era per file)** | Logging, both eras                                  | [#1629](https://github.com/modelcontextprotocol/inspector/issues/1629) |
 | `subscriptions-{legacy,modern}-http.json` **(era per file)** | Resource subscriptions, both eras                   | [#1630](https://github.com/modelcontextprotocol/inspector/issues/1630) |
 | `subscriptions-never-acknowledged-http.json` **(modern era)** | A `subscriptions/listen` answered with a bare result  | [#2097](https://github.com/modelcontextprotocol/inspector/issues/2097) |
@@ -427,6 +428,20 @@ Add the server, click **Connect**, and watch the Inspector's first protected-res
 The same server is worth running against `--cli` / `--tui`, which reach it by a different route: with no stored token in the legacy era the Inspector connects with no auth provider (so the SDK cannot open a browser before the callback server is listening), the 401 surfaces as the SDK's headerless `UnauthorizedError`, and the client calls `authenticate()` with no challenge in hand. The transport therefore *observes* every 401/403 passively, so the advertised URL is still available on that path.
 
 The value now rides the normalized `AuthChallenge` as a string — it has to be serializable, because the web client's challenge crosses the remote-backend boundary as JSON — and is converted to a `URL` at the OAuth boundary, where it is handed to `auth()` as `resourceMetadataUrl` and to the CIMD pre-registration probe, which runs *before* `auth()` and would otherwise do its own default-location discovery. A malformed value is ignored rather than surfaced, matching the SDK's own `WWW-Authenticate` parser: discovery falls back to the default locations instead of failing the whole authorization on a bad header. The callback leg needs nothing extra — SDK `auth()` persists the URL in its discovery state, so it survives both the web full-page redirect and the CLI/TUI loopback callback.
+
+## A token endpoint the SDK will not use (SEP-2207)
+
+`oauth-insecure-token-endpoint-http.json` is an ordinary combined AS + resource server with one thing changed: `oauth.issuerUrl` is `http://localhost.:8091`, so its advertised `token_endpoint` is `http://localhost./oauth/token`. Plain streamable-HTTP — connect with the **default (legacy)** protocol era.
+
+The trailing dot is the whole trick, and it is doing real work rather than being a curiosity. `localhost.` is the *root-anchored* spelling of `localhost`: every resolver on the machine sends it to the loopback interface, so the fixture is reachable and the flow runs for real — but the SDK's `assertSecureTokenEndpoint` exempts only the three literals `localhost`, `127.0.0.1` and `::1`, and `localhost.` is none of them. So the credential-carrying request is refused with `InsecureTokenEndpointError` while everything else about the server works. It is the same over-narrow exemption that makes `http://tenant.app.localhost:3300` fail ([#1944](https://github.com/modelcontextprotocol/inspector/issues/1944), [typescript-sdk#2591](https://github.com/modelcontextprotocol/typescript-sdk/issues/2591)), reproducible without a `/etc/hosts` entry or dnsmasq.
+
+Add the server, click **Connect**, and complete the authorization. The redirect comes back with a code, the Inspector goes to exchange it, and the SDK refuses.
+
+What you should see is a red, non-dismissing **"Token endpoint is not secure"** notification naming the endpoint and the two things that resolve it — serve it over HTTPS, or point it at a genuinely loopback host. There is deliberately **no** action button.
+
+On the broken build you got a **"Re-authentication required"** banner with a **Re-authenticate** button ([#2280](https://github.com/modelcontextprotocol/inspector/issues/2280)). That button could never work: `InsecureTokenEndpointError` does not extend `OAuthError`, and `auth()` special-cases it to rethrow rather than start a fresh `/authorize` redirect, so clicking it re-ran the same flow to the same refusal. The only text on screen was the raw SDK message, which names the three exempt literals and says nothing about which lever to reach for.
+
+Note that the fix here is presentational only. Making a `*.localhost` token endpoint actually **work** has to land in the SDK — the assertion runs inside `executeTokenRequest`, takes no options, and there is no hook the Inspector could reach.
 
 ## Revoking tokens on clear (RFC 7009)
 

@@ -122,6 +122,7 @@ describe("startHonoServer autoOpen", () => {
         initialServers: null,
         storageDir: undefined,
         allowedOrigins: [baseUrl],
+        allowLocalhostSubdomainOrigins: false,
         sandboxPort: 0,
         appOriginPort: 0,
         sandboxHost: "127.0.0.1",

@@ -3,6 +3,8 @@ import {
   canonicalUrlHost,
   formatHostForUrl,
   isAllInterfacesHost,
+  isLocalhostSubdomainHost,
+  isLocalhostSubdomainOrigin,
   isLoopbackHost,
   stripBrackets,
 } from "@inspector/core/node/hostUrl.js";
@@ -160,5 +162,76 @@ describe("canonicalUrlHost", () => {
 
   it("falls back to the formatted value when the host isn't a parseable URL", () => {
     expect(canonicalUrlHost("")).toBe("");
+  });
+});
+
+describe("isLocalhostSubdomainHost", () => {
+  it.each([
+    "app.localhost",
+    "tenant.example.localhost",
+    // Canonicalized first, so casing and a root FQDN dot are normalized rather
+    // than rejected — the browser sends the canonical form in `Origin`.
+    "APP.LOCALHOST",
+    "app.localhost.",
+    // IDNA-mapped to punycode by `new URL`, exactly as a browser would.
+    "münchen.localhost",
+  ])("accepts %j", (host) => {
+    expect(isLocalhostSubdomainHost(host)).toBe(true);
+  });
+
+  it.each([
+    // The bare TLD is deliberately NOT matched: callers that want it carry it
+    // as a literal origin already.
+    "localhost",
+    // Degenerate labels.
+    ".localhost",
+    "a..localhost",
+    // The suffix trap: `.localhost` must be the END of the name, not a label
+    // in the middle of an attacker-registrable one.
+    "app.localhost.evil.com",
+    "localhost.evil.com",
+    // Near-misses that must not be read as the reserved suffix.
+    "notlocalhost",
+    "mylocalhost",
+    "localhosts",
+    "evil.com",
+    "127.0.0.1",
+    "[::1]",
+    "",
+  ])("rejects %j", (host) => {
+    expect(isLocalhostSubdomainHost(host)).toBe(false);
+  });
+});
+
+describe("isLocalhostSubdomainOrigin", () => {
+  it.each([
+    "http://app.localhost",
+    "http://app.localhost:3300",
+    // Any port, because the point is a reverse proxy on a port we don't know.
+    "http://tenant.example.localhost:8080",
+    // Both schemes: a locally-trusted certificate (mkcert) makes the same host
+    // arrive over https.
+    "https://app.localhost",
+    "https://app.localhost:8443",
+  ])("accepts %j", (origin) => {
+    expect(isLocalhostSubdomainOrigin(origin)).toBe(true);
+  });
+
+  it.each([
+    // The opaque-origin header value a sandboxed iframe or `data:` document
+    // sends. Must never match — allow-listing it would erode the guard.
+    "null",
+    "http://localhost:6274",
+    "http://evil.com",
+    "http://app.localhost.evil.com",
+    // Non-http(s) schemes, including ones that parse.
+    "ws://app.localhost",
+    "file://app.localhost",
+    "chrome-extension://app.localhost",
+    // Not a parseable URL at all.
+    "app.localhost:3300",
+    "",
+  ])("rejects %j", (origin) => {
+    expect(isLocalhostSubdomainOrigin(origin)).toBe(false);
   });
 });

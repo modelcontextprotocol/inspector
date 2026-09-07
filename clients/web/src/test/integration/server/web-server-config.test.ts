@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   buildWebServerConfig,
   buildWebServerConfigFromEnv,
+  allowLocalhostSubdomainOriginsFor,
   defaultAllowedOrigins,
   printServerBanner,
   webServerConfigToInitialPayload,
@@ -43,6 +44,7 @@ const baseConfig = (): WebServerConfig => ({
   initialServers: null,
   storageDir: undefined,
   allowedOrigins: ["http://localhost:6274"],
+  allowLocalhostSubdomainOrigins: true,
   sandboxPort: 0,
   appOriginPort: 0,
   sandboxHost: "127.0.0.1",
@@ -85,6 +87,7 @@ describe("buildWebServerConfigFromEnv", () => {
       "http://127.0.0.1:6274",
       "http://[::1]:6274",
     ]);
+    expect(cfg.allowLocalhostSubdomainOrigins).toBe(true);
     expect(cfg.sandboxPort).toBe(DEFAULT_SANDBOX_PORT);
     expect(cfg.sandboxHost).toBe("127.0.0.1");
     expect(cfg.logger).toBeUndefined();
@@ -175,6 +178,34 @@ describe("buildWebServerConfigFromEnv", () => {
     process.env.ALLOWED_ORIGINS = "http://a:1, ,  http://b:2  ";
     const cfg = buildWebServerConfigFromEnv();
     expect(cfg.allowedOrigins).toEqual(["http://a:1", "http://b:2"]);
+  });
+
+  it("turns the *.localhost widening off when ALLOWED_ORIGINS is set (#1944)", () => {
+    // ALLOWED_ORIGINS *replaces* the default list, as documented. A list that
+    // states which origins are allowed must not silently gain entries.
+    process.env.ALLOWED_ORIGINS = "http://mcp.localhost";
+    const cfg = buildWebServerConfigFromEnv();
+    expect(cfg.allowedOrigins).toEqual(["http://mcp.localhost"]);
+    expect(cfg.allowLocalhostSubdomainOrigins).toBe(false);
+  });
+
+  it.each(["", " ", ","])(
+    "keeps the *.localhost widening on when ALLOWED_ORIGINS is the empty value %j",
+    (value) => {
+      // Nothing survives parsing, so the default list is in use and the flag
+      // must follow it rather than the raw presence of the env var.
+      process.env.ALLOWED_ORIGINS = value;
+      expect(buildWebServerConfigFromEnv().allowLocalhostSubdomainOrigins).toBe(
+        true,
+      );
+    },
+  );
+
+  it("turns the *.localhost widening off for a specific non-loopback HOST", () => {
+    process.env.HOST = "192.168.1.50";
+    expect(buildWebServerConfigFromEnv().allowLocalhostSubdomainOrigins).toBe(
+      false,
+    );
   });
 
   it.each(["", " ", ","])(
@@ -390,6 +421,38 @@ describe("buildWebServerConfigFromEnv", () => {
     const cfg = buildWebServerConfigFromEnv();
     expect(cfg.logger).toBeDefined();
   });
+});
+
+describe("allowLocalhostSubdomainOriginsFor (#1944)", () => {
+  it.each([
+    // Loopback binds: the browser resolves `*.localhost` to 127.0.0.1, so the
+    // proxy in front of this process really does reach it.
+    "127.0.0.1",
+    "localhost",
+    "::1",
+    "[::1]",
+    // Non-canonical spellings of the same addresses.
+    "127.1",
+    "2130706433",
+    "0:0:0:0:0:0:0:1",
+    // All-interfaces binds serve loopback too (the Docker opt-in path).
+    "0.0.0.0",
+    "::",
+    "",
+    "0",
+  ])("enables it for the loopback-serving bind host %j", (host) => {
+    expect(allowLocalhostSubdomainOriginsFor(host)).toBe(true);
+  });
+
+  it.each(["192.168.1.50", "127.0.0.2", "inspector.example.com", "10.0.0.1"])(
+    "leaves it off for the specific non-loopback bind host %j",
+    (host) => {
+      // A browser at `foo.localhost` resolves to 127.0.0.1 and never reaches a
+      // process bound only to one of these, so admitting the origin would be a
+      // no-op that only made the allow-list harder to reason about.
+      expect(allowLocalhostSubdomainOriginsFor(host)).toBe(false);
+    },
+  );
 });
 
 describe("defaultAllowedOrigins", () => {

@@ -190,6 +190,24 @@ describe("createAppOriginController", () => {
     );
   });
 
+  it("admits *.localhost embedders when the backend does (#1944)", async () => {
+    // The app document is framed by the sandbox proxy, which is itself reached
+    // from the inspector page — so all three `frame-ancestors` have to agree or
+    // the innermost frame blanks.
+    controller = createAppOriginController({
+      port: 0,
+      host: "127.0.0.1",
+      embedderOrigins: ["http://127.0.0.1:6275"],
+      allowLocalhostSubdomains: true,
+    });
+    await controller.start();
+    const published = controller.publish({ html: "<p>x</p>" })!;
+    const res = await fetch(published.url);
+    expect(res.headers.get("content-security-policy")).toBe(
+      "frame-ancestors http://127.0.0.1:6275 http://*.localhost:* https://*.localhost:*",
+    );
+  });
+
   it("mints a distinct, unguessable id per document", async () => {
     controller = createAppOriginController({ port: 0, host: "127.0.0.1" });
     const { url } = await controller.start();

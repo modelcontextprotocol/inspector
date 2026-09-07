@@ -69,6 +69,7 @@ export function honoMiddlewarePlugin(config: WebServerConfig): Plugin {
         port: config.sandboxPort,
         host: config.sandboxHost,
         allowedOrigins: config.allowedOrigins,
+        allowLocalhostSubdomains: config.allowLocalhostSubdomainOrigins,
       });
       await sandboxController.start();
       // The dedicated origin apps declaring `_meta.ui.domain` are served from
@@ -81,6 +82,7 @@ export function honoMiddlewarePlugin(config: WebServerConfig): Plugin {
           sandboxController.getUrl(),
           config.allowedOrigins,
         ),
+        allowLocalhostSubdomains: config.allowLocalhostSubdomainOrigins,
       });
       await appOriginController.start();
       // Resolved before the API is built so `/api/config` and the banner
@@ -99,6 +101,7 @@ export function honoMiddlewarePlugin(config: WebServerConfig): Plugin {
         writable: config.writable,
         initialServers: config.initialServers ?? undefined,
         allowedOrigins: config.allowedOrigins,
+        allowLocalhostSubdomainOrigins: config.allowLocalhostSubdomainOrigins,
         sandboxUrl: sandboxController.getUrl() ?? undefined,
         publishAppDocument: (doc) => appOriginController.publish(doc),
         logger: config.logger,

@@ -64,6 +64,19 @@ export interface WebServerConfig {
   initialServers: MCPConfig | null;
   storageDir: string | undefined;
   allowedOrigins: string[];
+  /**
+   * Accept any http(s) origin on a `*.localhost` host in addition to
+   * {@link allowedOrigins} (#1944), and admit the same set as MCP Apps frame
+   * ancestors.
+   *
+   * True only when the server is falling back to {@link defaultAllowedOrigins}
+   * *and* the bind host actually serves loopback — see
+   * {@link allowLocalhostSubdomainOriginsFor}. An operator-supplied
+   * `ALLOWED_ORIGINS` replaces the default list and is honoured exactly, so it
+   * turns this off: a list that says which origins are allowed should not
+   * silently gain entries.
+   */
+  allowLocalhostSubdomainOrigins: boolean;
   /** Sandbox port (0 = dynamic). */
   sandboxPort: number;
   sandboxHost: string;
@@ -289,6 +302,38 @@ function loopbackOrigins(port: number): string[] {
 }
 
 /**
+ * Whether the default origin allow-list for `hostname` should additionally
+ * admit `*.localhost` origins (#1944).
+ *
+ * `*.localhost` is reserved to the loopback interface by
+ * [RFC 6761 §6.3](https://www.rfc-editor.org/info/rfc6761/), and Chrome and
+ * Firefox resolve it there internally without any hosts-file entry — so a
+ * developer fronting the Inspector with a local reverse proxy (`mcp.localhost`,
+ * `tenant.app.localhost`) reaches a server that is bound to loopback. Vite,
+ * Django and Rails all default-allow the same suffix in their own host
+ * allow-lists, which is the company this keeps.
+ *
+ * It does not weaken the DNS-rebinding guard the allow-list exists to be. An
+ * attacker's document cannot *obtain* a `.localhost` origin: rebinding works by
+ * pointing a name the attacker controls at `127.0.0.1`, and the `.localhost`
+ * suffix is reserved and not publicly registrable, so there is no such name to
+ * control. The residual case — a hostile local resolver, or another local dev
+ * server the user has browsed on some `*.localhost` name — is the position bare
+ * `localhost` is already in, and `/api/*` still requires the bearer token
+ * regardless.
+ *
+ * Gated on the bind host serving loopback at all, which keeps the widening to
+ * the case that motivates it. Bound to a specific non-loopback address, a
+ * browser at `foo.localhost` resolves to `127.0.0.1` and never reaches this
+ * process, so admitting the origin there would be a no-op that only made the
+ * allow-list harder to reason about.
+ */
+export function allowLocalhostSubdomainOriginsFor(hostname: string): boolean {
+  const h = canonicalUrlHost(hostname);
+  return LOOPBACK_HOSTNAMES.has(h) || isAllInterfacesHost(h);
+}
+
+/**
  * The default allowed-origins list for a given bind host/port.
  *
  * When the bind host is loopback, `localhost`, `127.0.0.1`, and `[::1]` are
@@ -474,6 +519,8 @@ export function buildWebServerConfig(
     allowedOrigins: configuredOrigins?.length
       ? configuredOrigins
       : defaultAllowedOrigins(hostname, port),
+    allowLocalhostSubdomainOrigins:
+      !configuredOrigins?.length && allowLocalhostSubdomainOriginsFor(hostname),
     sandboxPort,
     sandboxHost: hostname,
     appOriginPort,

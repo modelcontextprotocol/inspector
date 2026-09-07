@@ -29,6 +29,11 @@ export interface SandboxControllerOptions {
    * list (only a hand-constructed caller or a test) falls back to loopback-only.
    */
   allowedOrigins?: string[];
+  /**
+   * Also admit `*.localhost` embedders in the proxy's `frame-ancestors`
+   * (#1944), matching the backend's origin guard.
+   */
+  allowLocalhostSubdomains?: boolean;
 }
 
 // Loopback fallback. NB: no `http://[::1]:*` — a **bracketed IPv6 literal is not
@@ -39,6 +44,24 @@ export interface SandboxControllerOptions {
 // (`localhost` / `127.0.0.1`), which these two cover; a bare `[::1]` embedder
 // can't be admitted by any frame-ancestors source and is unsupported for Apps.
 const LOOPBACK_FRAME_ANCESTORS = ["http://127.0.0.1:*", "http://localhost:*"];
+
+/**
+ * `frame-ancestors` sources for the RFC 6761 `*.localhost` space, appended when
+ * the backend is accepting those origins (#1944). Both schemes and any port, so
+ * this matches the origin guard's predicate exactly — a CSP that admitted fewer
+ * embedders than the guard would let a connect succeed and then blank the MCP
+ * Apps frame, which is the confusing split this pair exists to prevent.
+ *
+ * `*.localhost` is a legal CSP `host-source`: the CSP3 grammar allows a leading
+ * `"*."` before the host, unlike the bracketed IPv6 literal noted above. These
+ * are trusted constants emitted as-is and deliberately do NOT pass
+ * {@link CSP_HOST_SOURCE}, for the same reason {@link LOOPBACK_FRAME_ANCESTORS}
+ * does not.
+ */
+const LOCALHOST_SUBDOMAIN_FRAME_ANCESTORS = [
+  "http://*.localhost:*",
+  "https://*.localhost:*",
+];
 
 /**
  * A well-formed CSP host-source: `scheme://host[:port]` with no whitespace, CSP
@@ -69,8 +92,19 @@ const CSP_HOST_SOURCE = /^[a-z][a-z0-9+.-]*:\/\/[^\s;,'"[\]*]+$/i;
  * falls back to the loopback family so the sandbox still loads locally and the
  * header can't be corrupted.
  */
-export function sandboxFrameAncestors(allowedOrigins?: string[]): string {
-  return frameAncestorsDirective(allowedOrigins);
+export function sandboxFrameAncestors(
+  allowedOrigins?: string[],
+  options?: FrameAncestorsOptions,
+): string {
+  return frameAncestorsDirective(allowedOrigins, options);
+}
+
+export interface FrameAncestorsOptions {
+  /**
+   * Also admit `*.localhost` embedders (#1944). Mirrors the backend's
+   * `allowLocalhostSubdomainOrigins`; both are set from the same value.
+   */
+  allowLocalhostSubdomains?: boolean;
 }
 
 /**
@@ -85,10 +119,20 @@ export function sandboxFrameAncestors(allowedOrigins?: string[]): string {
  * sources means `'none'` and would block the frame outright — so the two
  * derive it here rather than each rolling one.
  */
-export function frameAncestorsDirective(origins?: string[]): string {
+export function frameAncestorsDirective(
+  origins?: string[],
+  options?: FrameAncestorsOptions,
+): string {
   const valid = (origins ?? []).filter((o) => CSP_HOST_SOURCE.test(o));
   const sources = valid.length > 0 ? valid : LOOPBACK_FRAME_ANCESTORS;
-  return `frame-ancestors ${sources.join(" ")}`;
+  // Appended rather than folded into the fallback: the wildcard is additive to
+  // whatever exact embedders were derived, and it has to survive the
+  // `valid.length > 0` branch — which is the branch the real backend always
+  // takes.
+  const withLocalhostSubdomains = options?.allowLocalhostSubdomains
+    ? [...sources, ...LOCALHOST_SUBDOMAIN_FRAME_ANCESTORS]
+    : sources;
+  return `frame-ancestors ${withLocalhostSubdomains.join(" ")}`;
 }
 
 export interface SandboxController {
@@ -156,7 +200,12 @@ export function createSandboxController(
   // `localhost` — a name resolves to one address family and would reintroduce
   // the #1951 split (web on IPv4, sandbox on IPv6) for any future call site
   // that omits `host`. Both call sites pass `config.sandboxHost` today.
-  const { port, host = DEFAULT_BIND_HOST, allowedOrigins } = options;
+  const {
+    port,
+    host = DEFAULT_BIND_HOST,
+    allowedOrigins,
+    allowLocalhostSubdomains,
+  } = options;
   let server: Server | null = null;
   let sandboxUrl: string | null = null;
 
@@ -170,7 +219,9 @@ export function createSandboxController(
   // the inner frame is the structural boundary; `frame-ancestors` restricts the
   // proxy to being embedded by the inspector app itself — see
   // `sandboxFrameAncestors` for how the embedder origins are derived.
-  const SANDBOX_PROXY_CSP = sandboxFrameAncestors(allowedOrigins);
+  const SANDBOX_PROXY_CSP = sandboxFrameAncestors(allowedOrigins, {
+    allowLocalhostSubdomains,
+  });
 
   let sandboxHtml: string;
   try {

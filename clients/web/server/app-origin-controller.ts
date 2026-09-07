@@ -162,6 +162,14 @@ export interface AppOriginControllerOptions {
    * loopback, exactly as the sandbox proxy's own `frame-ancestors` does.
    */
   embedderOrigins?: string[];
+  /**
+   * Also admit `*.localhost` embedders (#1944), matching the backend's origin
+   * guard and the sandbox proxy's own `frame-ancestors`. The app document is
+   * framed by the sandbox proxy, not by the inspector page directly — but the
+   * proxy is reached through the same browsing context, so the three have to
+   * agree or the innermost frame blanks.
+   */
+  allowLocalhostSubdomains?: boolean;
 }
 
 /** A document handed to {@link AppOriginController.publish}. */
@@ -237,7 +245,12 @@ export function createAppOriginController(
   // Same defaulting rationale as the sandbox controller: never the *name*
   // `localhost`, which resolves to a single address family and would put this
   // listener on a different family than the web server (#1951).
-  const { port, host = DEFAULT_BIND_HOST, embedderOrigins } = options;
+  const {
+    port,
+    host = DEFAULT_BIND_HOST,
+    embedderOrigins,
+    allowLocalhostSubdomains,
+  } = options;
   let server: Server | null = null;
   let origin: string | null = null;
 
@@ -256,7 +269,9 @@ export function createAppOriginController(
     documents.delete(id);
   }
 
-  const FRAME_ANCESTORS = frameAncestorsDirective(embedderOrigins);
+  const FRAME_ANCESTORS = frameAncestorsDirective(embedderOrigins, {
+    allowLocalhostSubdomains,
+  });
 
   /** Drop everything past its TTL. Cheap: the map is bounded by MAX_DOCUMENTS. */
   function evictExpired(now: number): void {

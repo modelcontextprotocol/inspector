@@ -52,6 +52,68 @@ describe("sandboxFrameAncestors", () => {
       sandboxFrameAncestors(["http://a:1; sandbox", "http://[::1]:6274"]),
     ).toBe("frame-ancestors http://127.0.0.1:* http://localhost:*");
   });
+
+  describe("allowLocalhostSubdomains (#1944)", () => {
+    it("appends both schemes at any port when enabled", () => {
+      // Must match the origin guard's predicate exactly — a CSP admitting fewer
+      // embedders than the guard would let a connect succeed and then blank the
+      // MCP Apps frame.
+      expect(
+        sandboxFrameAncestors(["http://localhost:6274"], {
+          allowLocalhostSubdomains: true,
+        }),
+      ).toBe(
+        "frame-ancestors http://localhost:6274 http://*.localhost:* https://*.localhost:*",
+      );
+    });
+
+    it("appends to the derived sources rather than replacing them", () => {
+      // The real backend always takes the `valid.length > 0` branch, so an
+      // implementation that only widened the fallback would be dead in
+      // production while still passing a naive test.
+      const directive = sandboxFrameAncestors(
+        ["http://192.168.1.50:6274", "https://inspector.example.com"],
+        { allowLocalhostSubdomains: true },
+      );
+      expect(directive).toContain("http://192.168.1.50:6274");
+      expect(directive).toContain("https://inspector.example.com");
+      expect(directive).toContain("http://*.localhost:*");
+    });
+
+    it("widens the loopback fallback too", () => {
+      expect(
+        sandboxFrameAncestors(undefined, { allowLocalhostSubdomains: true }),
+      ).toBe(
+        "frame-ancestors http://127.0.0.1:* http://localhost:* http://*.localhost:* https://*.localhost:*",
+      );
+    });
+
+    it.each([[undefined], [{}], [{ allowLocalhostSubdomains: false }]])(
+      "adds nothing for options %j",
+      (options) => {
+        expect(
+          sandboxFrameAncestors(
+            ["http://localhost:6274"],
+            options as { allowLocalhostSubdomains?: boolean } | undefined,
+          ),
+        ).toBe("frame-ancestors http://localhost:6274");
+      },
+    );
+
+    it("still drops a caller-supplied wildcard from the allow-list", () => {
+      // The flag admits `*.localhost` and nothing else. An arbitrary wildcard
+      // reaching the directive through `allowedOrigins` is the widening
+      // CSP_HOST_SOURCE exists to prevent, and enabling this must not undo it.
+      const directive = sandboxFrameAncestors(
+        ["http://good.example:6274", "http://*.evil.com"],
+        { allowLocalhostSubdomains: true },
+      );
+      expect(directive).not.toContain("evil.com");
+      expect(directive).toBe(
+        "frame-ancestors http://good.example:6274 http://*.localhost:* https://*.localhost:*",
+      );
+    });
+  });
 });
 
 describe("resolveSandboxPort", () => {

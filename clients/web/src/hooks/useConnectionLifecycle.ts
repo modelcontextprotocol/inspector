@@ -30,6 +30,7 @@ import {
   getActiveEnterpriseManagedAuthIdp,
 } from "@inspector/core/client/types.js";
 import { isEmaClientNotConfiguredError } from "@inspector/core/auth/ema/clientConfigError.js";
+import { showInsecureTokenEndpointNotice } from "../lib/insecureTokenEndpointNotice";
 import { AuthRecoveryRequiredError } from "@inspector/core/auth/challenge.js";
 import type { RemoteInspectorClientStorage } from "@inspector/core/mcp/remote/index.js";
 import type { SessionRef } from "./useSessionRef";
@@ -637,6 +638,13 @@ export function useConnectionLifecycle({
           });
           return;
         }
+        // SEP-2207 (#2280): a token endpoint the SDK will not post credentials
+        // to. Terminal, so it gets the same treatment as the EMA arm above
+        // rather than the generic "OAuth authorization failed" toast, whose
+        // detail line would be the raw SDK text.
+        if (showInsecureTokenEndpointNotice(err, target.name)) {
+          return;
+        }
 
         // A 401 from an OAuth-protected server means we have no (valid) token
         // yet. Kick off the authorization-code flow: `authenticate()` runs
@@ -720,6 +728,10 @@ export function useConnectionLifecycle({
                 color: "red",
                 autoClose: false,
               });
+              return;
+            }
+            // See the SEP-2207 note on the handshake arm above (#2280).
+            if (showInsecureTokenEndpointNotice(authErr, target.name)) {
               return;
             }
             // The connect attempt failed, same as any other handshake error —

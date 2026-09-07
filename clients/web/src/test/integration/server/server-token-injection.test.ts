@@ -72,6 +72,7 @@ describe("startHonoServer index.html token injection (/ -> /api/*)", () => {
       storageDir: undefined,
       // Allow the same-origin requests the test issues below.
       allowedOrigins: [baseUrl],
+      allowLocalhostSubdomainOrigins: false,
       sandboxPort: 0,
       appOriginPort: 0,
       sandboxHost: "127.0.0.1",

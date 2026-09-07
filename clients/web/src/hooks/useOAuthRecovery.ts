@@ -30,6 +30,7 @@ import {
   emaStepUpSuccessMessage,
 } from "@inspector/core/auth/oauthUx.js";
 import { isEmaClientNotConfiguredError } from "@inspector/core/auth/ema/clientConfigError.js";
+import { showInsecureTokenEndpointNotice } from "../lib/insecureTokenEndpointNotice";
 import type { OAuthDetails } from "../components/groups/ConnectionInfoContent/ConnectionInfoContent";
 import { oauthDetailsFromConnectionState } from "../components/groups/ConnectionInfoContent/oauthDetailsFromConnectionState";
 import { getWebRemoteOAuthStorage } from "../lib/remoteOAuthStorage";
@@ -390,6 +391,14 @@ export function useOAuthRecovery({
       options?: { reason?: AuthChallengeReason },
     ) => {
       const server = sessionRef.current.servers.find((s) => s.id === serverId);
+      // SEP-2207 (#2280). The SDK rethrows `InsecureTokenEndpointError` instead
+      // of retrying, so the banner's "Re-authenticate" could only fail the same
+      // way. Claimed here, at the single funnel every re-auth banner goes
+      // through, rather than at each of its call sites — a new caller then gets
+      // the right behavior by default instead of by remembering.
+      if (showInsecureTokenEndpointNotice(detail, server?.name)) {
+        return;
+      }
       const message = reAuthBannerMessage({
         serverName: server?.name,
         detail:
@@ -1318,6 +1327,12 @@ export function useOAuthRecovery({
             color: "red",
             autoClose: false,
           });
+          return;
+        }
+        // Above `setFailedServerId` for the same reason the EMA arm is: this is
+        // a configuration error, not a failed attempt, so it should not flag
+        // the card red or pull the monitoring sidebar open.
+        if (showInsecureTokenEndpointNotice(err, server.name)) {
           return;
         }
         // The token exchange (or the re-handshake behind it) failed. Flag the

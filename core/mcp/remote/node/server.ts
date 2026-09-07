@@ -28,6 +28,7 @@ import { bodyLimit } from "hono/body-limit";
 import { watch as chokidarWatch, type FSWatcher } from "chokidar";
 import { createTransportNode } from "../../node/transport.js";
 import { createProxyFetch } from "../../node/proxyFetch.js";
+import { isLocalhostSubdomainOrigin } from "../../../node/hostUrl.js";
 import type {
   RemoteConnectRequest,
   RemoteSendRequest,
@@ -225,6 +226,19 @@ export interface RemoteServerOptions {
   /** Optional: validate Origin header against allowed origins (for CORS) */
   allowedOrigins?: string[];
 
+  /**
+   * Additionally accept any http(s) origin on a `*.localhost` host, at any port
+   * (#1944). Off by default. `allowedOrigins` stays a list of **literal**
+   * origins compared exactly — this is a separate, explicitly-named capability
+   * rather than a wildcard entry in that list, because the list is also read by
+   * the sandbox CSP builder and a value the two layers interpret differently is
+   * the split-behaviour hazard `ALLOWED_ORIGINS` already rejects wildcards to
+   * avoid. The web backend turns it on only when it is using its own default
+   * list; an operator-supplied `ALLOWED_ORIGINS` replaces the default and is
+   * honoured exactly, as documented.
+   */
+  allowLocalhostSubdomainOrigins?: boolean;
+
   /** Optional pino file logger. When set, /api/log forwards received events to it. */
   logger?: pino.Logger;
 
@@ -366,9 +380,23 @@ export interface CreateRemoteAppResult {
 
 /**
  * Hono middleware for origin validation (CORS and DNS rebinding protection).
- * Validates Origin header against allowedOrigins if provided.
+ * Validates Origin header against allowedOrigins if provided, plus — when
+ * `allowLocalhostSubdomainOrigins` is set — any http(s) origin on a
+ * `*.localhost` host (#1944).
  */
-function createOriginMiddleware(allowedOrigins?: string[]) {
+function createOriginMiddleware(
+  allowedOrigins?: string[],
+  options?: { allowLocalhostSubdomainOrigins?: boolean },
+) {
+  // One predicate for the preflight and the real request, so the two can never
+  // disagree about what is allowed. Exact-match first: that is the guard, and
+  // the `*.localhost` arm is an opt-in widening on top of it, not a
+  // replacement.
+  const isAllowed = (origin: string): boolean =>
+    (allowedOrigins ?? []).includes(origin) ||
+    (options?.allowLocalhostSubdomainOrigins === true &&
+      isLocalhostSubdomainOrigin(origin));
+
   return async (c: Context, next: Next) => {
     // If no allowedOrigins configured, skip validation (allow all)
     if (!allowedOrigins || allowedOrigins.length === 0) {
@@ -380,7 +408,7 @@ function createOriginMiddleware(allowedOrigins?: string[]) {
 
     // Handle CORS preflight requests
     if (c.req.method === "OPTIONS") {
-      if (origin && allowedOrigins.includes(origin)) {
+      if (origin && isAllowed(origin)) {
         c.header("Access-Control-Allow-Origin", origin);
         c.header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
         c.header(
@@ -403,7 +431,7 @@ function createOriginMiddleware(allowedOrigins?: string[]) {
 
     // For actual requests, validate origin if present
     if (origin) {
-      if (!allowedOrigins.includes(origin)) {
+      if (!isAllowed(origin)) {
         return c.json(
           {
             error: "Forbidden",
@@ -579,7 +607,11 @@ export function createRemoteApp(
 
   const app = new Hono<Env>();
   const sessions = new Map<string, RemoteSession>();
-  const { logger: fileLogger, allowedOrigins } = options;
+  const {
+    logger: fileLogger,
+    allowedOrigins,
+    allowLocalhostSubdomainOrigins,
+  } = options;
   const storageDir = options.storageDir ?? getDefaultStorageDir();
   const mcpConfigPath = options.mcpConfigPath ?? getDefaultMcpConfigPath();
   const secretStore: SecretStore = options.secretStore ?? defaultSecretStore();
@@ -735,7 +767,12 @@ export function createRemoteApp(
 
   // Apply origin validation middleware first (before auth)
   // This prevents DNS rebinding attacks by validating Origin header
-  app.use("*", createOriginMiddleware(allowedOrigins));
+  app.use(
+    "*",
+    createOriginMiddleware(allowedOrigins, {
+      allowLocalhostSubdomainOrigins,
+    }),
+  );
 
   // Apply auth middleware unless dangerously omitted
   if (!dangerouslyOmitAuth) {

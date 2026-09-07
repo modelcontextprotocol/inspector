@@ -1,0 +1,20 @@
+{
+  "serverInfo": {
+    "name": "oauth-insecure-token-endpoint",
+    "version": "1.0.0"
+  },
+  "tools": [{ "preset": "echo" }],
+  "oauth": {
+    "enabled": true,
+    "mode": "combined",
+    "requireAuth": true,
+    "scopesSupported": ["mcp"],
+    "supportDCR": true,
+    "supportRefreshTokens": true,
+    "issuerUrl": "http://localhost.:8091"
+  },
+  "transport": {
+    "type": "streamable-http",
+    "port": 8091
+  }
+}

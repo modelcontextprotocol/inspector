@@ -42,6 +42,8 @@ interface StartRemoteServerOptions {
   logger?: pino.Logger;
   storageDir?: string;
   allowedOrigins?: string[];
+  /** #1944: additionally accept any http(s) origin on a `*.localhost` host. */
+  allowLocalhostSubdomainOrigins?: boolean;
   /** When true, API routes do not require x-mcp-remote-auth (token is still returned as empty string) */
   dangerouslyOmitAuth?: boolean;
 }
@@ -58,6 +60,7 @@ async function startRemoteServer(
     logger: options.logger,
     storageDir: options.storageDir,
     allowedOrigins: options.allowedOrigins,
+    allowLocalhostSubdomainOrigins: options.allowLocalhostSubdomainOrigins,
     dangerouslyOmitAuth: options.dangerouslyOmitAuth,
     initialConfig: { defaultEnvironment: {} },
   });
@@ -1294,6 +1297,100 @@ describe("Remote transport e2e", () => {
     // Split by server config: 5 tests use { allowedOrigins } and share one
     // server; the "not configured" case needs its own server and is split into
     // its own describe so each block has symmetric beforeAll/afterAll cleanup.
+    describe("with allowLocalhostSubdomainOrigins (#1944)", () => {
+      let sharedServer: ServerType;
+      let baseUrl: string;
+      let authToken: string;
+
+      beforeAll(async () => {
+        const started = await startRemoteServer(0, {
+          allowedOrigins: ["http://localhost:3000"],
+          allowLocalhostSubdomainOrigins: true,
+        });
+        sharedServer = started.server;
+        baseUrl = started.baseUrl;
+        authToken = started.authToken;
+      });
+
+      afterAll(async () => {
+        await new Promise<void>((resolve, reject) => {
+          sharedServer.close((err) => (err ? reject(err) : resolve()));
+        });
+      });
+
+      const connect = (origin: string) =>
+        fetch(`${baseUrl}/api/mcp/connect`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-mcp-remote-auth": `Bearer ${authToken}`,
+            Origin: origin,
+          },
+          body: JSON.stringify({
+            config: { type: "sse" as const, url: "http://localhost:3000" },
+          }),
+        });
+
+      it.each([
+        "http://mcp.localhost",
+        // Any port: the whole point is a reverse proxy on a port the Inspector
+        // does not know.
+        "http://tenant.example.localhost:3300",
+        // Both schemes: a locally-trusted cert makes the same host arrive over
+        // https.
+        "https://mcp.localhost:8443",
+      ])("allows the *.localhost origin %j", async (origin) => {
+        const res = await connect(origin);
+        expect(res.status).not.toBe(403);
+      });
+
+      it("still honours the exact allow-list it was given", async () => {
+        const res = await connect("http://localhost:3000");
+        expect(res.status).not.toBe(403);
+      });
+
+      it.each([
+        "http://evil.com",
+        // The suffix trap: an attacker-registrable name that merely *contains*
+        // the reserved label must not pass.
+        "http://mcp.localhost.evil.com",
+        "http://notlocalhost",
+      ])("still blocks %j", async (origin) => {
+        const res = await connect(origin);
+        expect(res.status).toBe(403);
+        const json = (await res.json()) as { error?: string };
+        expect(json.error).toBe("Forbidden");
+      });
+
+      it("answers a preflight from a *.localhost origin and echoes it back", async () => {
+        // The preflight and the real request read one predicate, so they cannot
+        // disagree — a CORS pass with a 403 on the POST would be the worst of
+        // both.
+        const res = await fetch(`${baseUrl}/api/mcp/connect`, {
+          method: "OPTIONS",
+          headers: {
+            Origin: "http://mcp.localhost",
+            "Access-Control-Request-Method": "POST",
+          },
+        });
+        expect(res.status).toBe(204);
+        expect(res.headers.get("Access-Control-Allow-Origin")).toBe(
+          "http://mcp.localhost",
+        );
+      });
+
+      it("blocks a preflight from a non-localhost origin", async () => {
+        const res = await fetch(`${baseUrl}/api/mcp/connect`, {
+          method: "OPTIONS",
+          headers: {
+            Origin: "http://evil.com",
+            "Access-Control-Request-Method": "POST",
+          },
+        });
+        expect(res.status).toBe(403);
+      });
+    });
+
     describe("with allowedOrigins configured", () => {
       let sharedServer: ServerType;
       let baseUrl: string;
@@ -1387,6 +1484,24 @@ describe("Remote transport e2e", () => {
         expect(res.headers.get("Access-Control-Allow-Methods")).toContain(
           "POST",
         );
+      });
+
+      it("blocks a *.localhost origin while the widening is off (#1944)", async () => {
+        // The default is closed. This is the control for the block below: it is
+        // what makes the passes there attributable to the flag rather than to
+        // `.localhost` having been allowed all along.
+        const res = await fetch(`${baseUrl}/api/mcp/connect`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-mcp-remote-auth": `Bearer ${authToken}`,
+            Origin: "http://mcp.localhost",
+          },
+          body: JSON.stringify({
+            config: { type: "sse" as const, url: "http://localhost:3000" },
+          }),
+        });
+        expect(res.status).toBe(403);
       });
 
       it("blocks CORS preflight requests with invalid origin", async () => {
