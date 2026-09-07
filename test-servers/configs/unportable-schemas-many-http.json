@@ -1,0 +1,86 @@
+{
+  "serverInfo": {
+    "name": "unportable-schemas-volume-showcase",
+    "version": "1.0.0"
+  },
+  "tools": [
+    { "preset": "echo" },
+    { "preset": "add" },
+    { "preset": "get_weather" },
+    { "preset": "get_temp" }
+  ],
+  "rawToolSchemas": {
+    "echo": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "message": { "type": "string" },
+          "prefix": { "type": ["string", "null"] },
+          "suffix": { "type": ["string", "null"] },
+          "repeat": { "type": ["integer", "null"] },
+          "uppercase": { "type": ["boolean", "null"] },
+          "separator": { "type": ["string", "null"] },
+          "locale": { "type": ["string", "null"] },
+          "metadata": {},
+          "context": { "description": "Anything the caller wants to attach." },
+          "passthrough": true,
+          "envelope": { "$ref": "https://example.com/schemas/envelope.json" },
+          "tags": {
+            "type": "array",
+            "items": { "type": ["string", "null"] }
+          }
+        },
+        "required": ["message"]
+      }
+    },
+    "add": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "a": {
+            "type": "number",
+            "$ref": "https://example.com/schemas/number.json"
+          },
+          "b": {
+            "type": "number",
+            "$ref": "https://example.com/schemas/number.json"
+          },
+          "precision": { "type": ["integer", "null"] },
+          "rounding": { "type": ["string", "null"] },
+          "trace": {},
+          "audit": true
+        },
+        "required": ["a", "b"]
+      }
+    },
+    "get_weather": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "city": { "type": "string" },
+          "units": { "type": ["string", "null"] },
+          "at": { "type": ["string", "null"] },
+          "hints": {},
+          "provider": { "$ref": "https://example.com/schemas/provider.json" }
+        },
+        "required": ["city"]
+      }
+    },
+    "get_temp": {
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "temperature": { "type": ["number", "null"] },
+          "unit": { "type": ["string", "null"] },
+          "city": { "type": ["string", "null"] },
+          "data": true,
+          "diagnostics": {}
+        }
+      }
+    }
+  },
+  "transport": {
+    "type": "streamable-http",
+    "port": 6613
+  }
+}
