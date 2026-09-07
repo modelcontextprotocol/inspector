@@ -30,7 +30,7 @@ import {
   getActiveEnterpriseManagedAuthIdp,
 } from "@inspector/core/client/types.js";
 import { isEmaClientNotConfiguredError } from "@inspector/core/auth/ema/clientConfigError.js";
-import { showInsecureTokenEndpointNotice } from "../lib/insecureTokenEndpointNotice";
+import { reportTerminalInsecureTokenEndpoint } from "../lib/insecureTokenEndpointNotice";
 import { findInsecureTokenEndpoint } from "@inspector/core/auth/insecureTokenEndpoint.js";
 import { AuthRecoveryRequiredError } from "@inspector/core/auth/challenge.js";
 import type { RemoteInspectorClientStorage } from "@inspector/core/mcp/remote/index.js";
@@ -654,14 +654,12 @@ export function useConnectionLifecycle({
         // arm below already disconnects for the same reason.
         if (findInsecureTokenEndpoint(err)) {
           await client.disconnect().catch(() => {});
-          showInsecureTokenEndpointNotice(err, target.name);
-          // Clear a banner left by an earlier failure: its Re-authenticate
-          // button is just as dead as the one this arm declines to offer, and
-          // the user cannot tell which failure it belongs to. Scoped to this
-          // server, so an async continuation cannot erase another's.
-          setReAuthBanner((prev) =>
-            prev && prev.serverId === id ? null : prev,
-          );
+          reportTerminalInsecureTokenEndpoint({
+            err,
+            serverId: id,
+            serverName: target.name,
+            setReAuthBanner,
+          });
           return;
         }
 
@@ -706,12 +704,14 @@ export function useConnectionLifecycle({
             // the user the authorization *worked*. Placed after the teardown
             // above, which this arm needs for the same reason the generic one
             // does, and before the flag it must not set.
-            if (showInsecureTokenEndpointNotice(recoveryErr, target.name)) {
-              // Only this server's banner — an async continuation must not
-              // erase one raised for a server the user has since switched to.
-              setReAuthBanner((prev) =>
-                prev && prev.serverId === id ? null : prev,
-              );
+            if (
+              reportTerminalInsecureTokenEndpoint({
+                err: recoveryErr,
+                serverId: id,
+                serverName: target.name,
+                setReAuthBanner,
+              })
+            ) {
               return;
             }
             setFailedServerId(id);
@@ -767,10 +767,14 @@ export function useConnectionLifecycle({
             }
             // See the note on the handshake arm above (#2280). The
             // disconnect already happened at the top of this catch.
-            if (showInsecureTokenEndpointNotice(authErr, target.name)) {
-              setReAuthBanner((prev) =>
-                prev && prev.serverId === id ? null : prev,
-              );
+            if (
+              reportTerminalInsecureTokenEndpoint({
+                err: authErr,
+                serverId: id,
+                serverName: target.name,
+                setReAuthBanner,
+              })
+            ) {
               return;
             }
             // The connect attempt failed, same as any other handshake error —
@@ -1021,7 +1025,14 @@ export function useConnectionLifecycle({
           // worst place to lose the guidance, since they have just been told
           // retrying is the fix. No banner clear is needed: this callback
           // already cleared it before starting.
-          if (showInsecureTokenEndpointNotice(err, server?.name)) {
+          if (
+            reportTerminalInsecureTokenEndpoint({
+              err,
+              serverId,
+              serverName: server?.name,
+              setReAuthBanner,
+            })
+          ) {
             return;
           }
           const message = err instanceof Error ? err.message : String(err);

@@ -31,7 +31,7 @@ import {
   emaStepUpSuccessMessage,
 } from "@inspector/core/auth/oauthUx.js";
 import { isEmaClientNotConfiguredError } from "@inspector/core/auth/ema/clientConfigError.js";
-import { showInsecureTokenEndpointNotice } from "../lib/insecureTokenEndpointNotice";
+import { reportTerminalInsecureTokenEndpoint as reportTerminalInsecureTokenEndpointNotice } from "../lib/insecureTokenEndpointNotice";
 import type { OAuthDetails } from "../components/groups/ConnectionInfoContent/ConnectionInfoContent";
 import { oauthDetailsFromConnectionState } from "../components/groups/ConnectionInfoContent/oauthDetailsFromConnectionState";
 import { getWebRemoteOAuthStorage } from "../lib/remoteOAuthStorage";
@@ -408,21 +408,13 @@ export function useOAuthRecovery({
       err: unknown,
       serverId: string | undefined,
       serverName?: string,
-    ): boolean => {
-      if (!showInsecureTokenEndpointNotice(err, serverName)) {
-        return false;
-      }
-      // Clear only *this* server's banner. The command and deferred-resume
-      // paths are asynchronous, so server A can reject long after the user
-      // switched away and server B raised a banner of its own; an unconditional
-      // clear would then erase B's, which is still valid and still actionable.
-      // Functional so it sees the queued state rather than the render-time
-      // value, matching how `setPendingReauth` guards its own late restore.
-      setReAuthBanner((prev) =>
-        prev && prev.serverId === serverId ? null : prev,
-      );
-      return true;
-    },
+    ): boolean =>
+      reportTerminalInsecureTokenEndpointNotice({
+        err,
+        serverId,
+        serverName,
+        setReAuthBanner,
+      }),
     [setReAuthBanner],
   );
 
