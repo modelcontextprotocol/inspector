@@ -65,6 +65,8 @@ interface FakeInner {
   clearCapturedAuthUrl: ReturnType<typeof vi.fn>;
   saveCodeVerifier: ReturnType<typeof vi.fn>;
   codeVerifier: ReturnType<typeof vi.fn>;
+  saveDiscoveryState: ReturnType<typeof vi.fn>;
+  discoveryState: ReturnType<typeof vi.fn>;
 }
 
 function createInner(): FakeInner {
@@ -82,6 +84,8 @@ function createInner(): FakeInner {
     clearCapturedAuthUrl: vi.fn(),
     saveCodeVerifier: vi.fn(),
     codeVerifier: vi.fn(() => "verifier-xyz"),
+    saveDiscoveryState: vi.fn(),
+    discoveryState: vi.fn(),
   };
 }
 
@@ -118,12 +122,52 @@ describe("EmaTransportOAuthProvider", () => {
     expect(await provider.codeVerifier()).toBe("verifier-xyz");
 
     await provider.saveClientInformation({ client_id: "new" } as never);
-    expect(inner.saveClientInformation).toHaveBeenCalledWith({
-      client_id: "new",
-    });
+    expect(inner.saveClientInformation).toHaveBeenCalledWith(
+      { client_id: "new" },
+      undefined,
+    );
 
     await provider.saveCodeVerifier("cv");
     expect(inner.saveCodeVerifier).toHaveBeenCalledWith("cv");
+  });
+
+  // SEP-2352: the wrapper used to drop the SDK's `ctx`, so every EMA read and
+  // write landed on the unkeyed slot — and, since #2242, the registration-kind
+  // resolver had no issuer to check and recorded a CIMD registration made over
+  // an EMA connection as DCR (Copilot).
+  it("forwards the SDK issuer context on client-information reads and writes", async () => {
+    const ctx = { issuer: "https://as.example.com" };
+
+    await provider.clientInformation(ctx);
+    expect(inner.clientInformation).toHaveBeenCalledWith(ctx);
+
+    await provider.saveClientInformation({ client_id: "new" } as never, ctx);
+    expect(inner.saveClientInformation).toHaveBeenCalledWith(
+      { client_id: "new" },
+      ctx,
+    );
+  });
+
+  // Without these the SDK persists no discovery state for an EMA connection, so
+  // it re-discovers every call, cannot run its callback-leg AS binding check,
+  // and leaves the registration-kind resolver nothing to read back.
+  it("delegates discovery state to the inner provider", async () => {
+    const state = {
+      authorizationServerUrl: "https://as.example.com",
+      authorizationServerMetadata: {
+        issuer: "https://as.example.com",
+        authorization_endpoint: "https://as.example.com/authorize",
+        token_endpoint: "https://as.example.com/token",
+        response_types_supported: ["code"],
+      },
+    };
+
+    await provider.saveDiscoveryState(state);
+    expect(inner.saveDiscoveryState).toHaveBeenCalledWith(state);
+
+    inner.discoveryState.mockReturnValue(state);
+    expect(await provider.discoveryState()).toEqual(state);
+    expect(inner.discoveryState).toHaveBeenCalled();
   });
 
   it("tokens() returns stored tokens when the access token is still usable", async () => {
