@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import userEvent from "@testing-library/user-event";
 import type { Tool } from "@modelcontextprotocol/client";
 import { renderWithMantine, screen } from "../../../test/renderWithMantine";
@@ -536,21 +536,66 @@ describe("ToolDetailPanel", () => {
   });
 
   describe("schema portability findings (#1005)", () => {
-    it("lists a finding with its path when a schema is unportable", () => {
+    const unportableTool: Tool = {
+      name: "info",
+      inputSchema: { type: "object", properties: {} },
+      outputSchema: { type: "object", properties: { data: true } },
+    };
+
+    // The findings address the server author but render above the argument
+    // form the caller fills in, so they open collapsed behind their counts
+    // (#2205). The preference is global, hence the cleared localStorage.
+    beforeEach(() => {
+      window.localStorage.clear();
+    });
+
+    it("summarizes the findings without unfurling them", () => {
       renderWithMantine(
-        <ToolDetailPanel
-          {...baseProps}
-          tool={{
-            name: "info",
-            inputSchema: { type: "object", properties: {} },
-            outputSchema: { type: "object", properties: { data: true } },
-          }}
-        />,
+        <ToolDetailPanel {...baseProps} tool={unportableTool} />,
       );
-      expect(screen.getByText("Schema portability (1)")).toBeInTheDocument();
+      expect(screen.getByText("Schema portability")).toBeVisible();
+      expect(screen.getByText("1 error(s), 0 warning(s)")).toBeVisible();
       expect(
         screen.getByText("outputSchema.properties.data"),
-      ).toBeInTheDocument();
+      ).not.toBeVisible();
+    });
+
+    it("lists a finding with its path once expanded", async () => {
+      const user = userEvent.setup();
+      renderWithMantine(
+        <ToolDetailPanel {...baseProps} tool={unportableTool} />,
+      );
+
+      await user.click(
+        screen.getByRole("button", { name: /Schema portability/ }),
+      );
+
+      expect(screen.getByText("outputSchema.properties.data")).toBeVisible();
+    });
+
+    // Global rather than per tool: the panel is reused across selections, so a
+    // per-tool disclosure would re-collapse on every click — the scrolling
+    // #2205 is about, by another route.
+    it("keeps the expanded choice across a tool switch", async () => {
+      const user = userEvent.setup();
+      const { rerender } = renderWithMantine(
+        <ToolDetailPanel {...baseProps} tool={unportableTool} />,
+      );
+
+      await user.click(
+        screen.getByRole("button", { name: /Schema portability/ }),
+      );
+
+      rerender(
+        <ToolDetailPanel
+          {...baseProps}
+          tool={{ ...unportableTool, name: "other" }}
+        />,
+      );
+
+      expect(
+        screen.getByRole("button", { name: /Schema portability/ }),
+      ).toHaveAttribute("aria-expanded", "true");
     });
 
     it("omits the section for a portable tool", () => {
