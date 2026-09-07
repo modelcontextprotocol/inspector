@@ -76,7 +76,7 @@ Replaces the hardcoded `SEED_SERVERS` in `clients/web/src/App.tsx:47` with a fil
 
 ## First-run behavior
 
-If the file does not exist when the backend boots, write a file containing `DEFAULT_SEED_CONFIG`. User immediately sees a non-empty Servers screen and discovers the file by editing one of the seeds. Subsequent boots read whatever the user has saved. The seed set started as the two `SEED_SERVERS` this design replaced and is three as of #2201 — the two local stdio servers plus `example-server-default`, the MCP org's remote feature-reference server over Streamable HTTP, so a first launch can reach a remote server without standing one up. `core/mcp/serverList.ts` is the source of truth for the contents; only the _behavior_ is specified here.
+If the file does not exist when the backend first **serves the catalog** — the `GET /api/servers` handler, not boot — write a file containing `DEFAULT_SEED_CONFIG`. Booting the backend alone leaves the path untouched; the write happens on the first read of the list, inside the write lock so a concurrent `POST`/`PUT`/`DELETE` cannot be clobbered by it. A read-only `--config` source is never seeded. User immediately sees a non-empty Servers screen and discovers the file by editing one of the seeds. Subsequent boots read whatever the user has saved. The seed set started as the two `SEED_SERVERS` this design replaced and is three as of #2201 — the two local stdio servers plus `example-server-default`, the MCP org's remote feature-reference server over Streamable HTTP, so a first launch can reach a remote server without standing one up. `core/mcp/serverList.ts` is the source of truth for the contents; only the _behavior_ is specified here.
 
 ## Architecture
 
