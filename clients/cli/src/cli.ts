@@ -28,7 +28,7 @@ import type { JsonValue } from "@inspector/core/mcp/index.js";
 import type { StrictJsonValue } from "@inspector/core/json/jsonUtils.js";
 import { isSerializableJson } from "@inspector/core/json/jsonUtils.js";
 import {
-  canonicalUrlHost,
+  canonicalOriginHost,
   isAllInterfacesHost,
 } from "@inspector/core/node/hostUrl.js";
 import { getStateFilePath } from "@inspector/core/auth/node/storage-node.js";
@@ -512,9 +512,14 @@ function buildHandoff(
   // wildcard bind (like the web banner/sandbox URL) rather than the awkward
   // http://0.0.0.0 / http://[::] — both are allow-listed, but neither is a nice
   // URL to click; otherwise use the canonical host so it matches the allow-list.
+  // `canonicalOriginHost`, not `canonicalUrlHost`: the web server's default
+  // allow-list is derived through the former, so a root-dotted `HOST=localhost.`
+  // would otherwise produce a link whose page loads while its auto-connect API
+  // request carries the dotted `Origin` and is 403'd — the invariant this
+  // comment claims, quietly broken.
   const linkHost = isAllInterfacesHost(host)
     ? "localhost"
-    : canonicalUrlHost(host);
+    : canonicalOriginHost(host);
   const clientPort = process.env.CLIENT_PORT || "6274";
   const sandboxPort = process.env.MCP_SANDBOX_PORT || "6275";
   // The dedicated app origin (#2056). Forwarded alongside the other two: an App

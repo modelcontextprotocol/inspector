@@ -694,6 +694,28 @@ describe("--print-handoff", () => {
     expect(out.deepLink.startsWith("http://127.0.0.1:16274/?")).toBe(true);
   });
 
+  it("drops a root FQDN dot from the deep-link host", async () => {
+    // `HOST=localhost.` binds loopback, but the web server's default allow-list
+    // is derived through `canonicalOriginHost` and so contains
+    // `http://localhost:PORT`. A dotted link would load the page and then have
+    // its autoConnect POST 403'd on the mismatched `Origin` — the page works,
+    // the connection silently does not (#2280 review round 15).
+    const result = await runCli(
+      ["--print-handoff", "--server-url", "https://x.example/mcp"],
+      {
+        env: {
+          MCP_INSPECTOR_API_TOKEN: "tok123",
+          HOST: "localhost.",
+          CLIENT_PORT: "16274",
+        },
+      },
+    );
+    expectCliSuccess(result);
+    const out = JSON.parse(result.stdout) as { deepLink: string };
+    expect(out.deepLink.startsWith("http://localhost:16274/?")).toBe(true);
+    expect(out.deepLink).not.toContain("localhost.:");
+  });
+
   it("advertises localhost in the deep link for a wildcard HOST", async () => {
     // 0.0.0.0 is allow-listed so it connects, but the deep link is handed to a
     // human — advertise localhost like the web banner does.
