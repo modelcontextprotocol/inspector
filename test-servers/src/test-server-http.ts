@@ -405,10 +405,21 @@ export class TestServerHttp {
     // OS-assigned one would let a misconfigured fixture look strict while
     // relocating on every run — the exact failure the flag exists to prevent,
     // now silent. Reject the combination instead.
-    if (this.config.strictPort && !requestedPort) {
+    if (
+      this.config.strictPort &&
+      (typeof requestedPort !== "number" ||
+        !Number.isInteger(requestedPort) ||
+        requestedPort < 1 ||
+        requestedPort > 65535)
+    ) {
+      // `loadConfig` rejects these for a config file; this covers a
+      // programmatic caller, and specifically a value that is *truthy* but not
+      // bindable as written — a string `"0"` slips past a bare falsiness check
+      // and Node then coerces it to the dynamic port 0, so the fixture looks
+      // strict and relocates anyway.
       throw new Error(
-        "strictPort requires an explicit non-zero port: there is nothing to " +
-          "bind strictly when the port is omitted or 0 (OS-assigned).",
+        `strictPort requires an explicit port as an integer in 1-65535 (got ${JSON.stringify(requestedPort)}): ` +
+          "there is nothing to bind strictly otherwise.",
       );
     }
 

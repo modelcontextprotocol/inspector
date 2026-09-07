@@ -101,9 +101,7 @@ describe("strictPort (#2280)", () => {
         port,
         strictPort: true,
       });
-      await expect(server.start()).rejects.toThrow(
-        /strictPort requires an explicit non-zero port/,
-      );
+      await expect(server.start()).rejects.toThrow(/integer in 1-65535/);
     },
   );
 
@@ -133,6 +131,84 @@ describe("strictPort (#2280)", () => {
       }
     },
   );
+
+  it.each([
+    // Each of these is truthy or type-valid enough to pass a naive check, and
+    // each fails SILENTLY: the fixture looks strict and relocates anyway.
+    [
+      { type: "streamable-http", port: "0", strictPort: true },
+      /integer in 1-65535/,
+    ],
+    [
+      { type: "streamable-http", port: "8091", strictPort: true },
+      /integer in 1-65535/,
+    ],
+    [
+      { type: "streamable-http", port: 0, strictPort: true },
+      /integer in 1-65535/,
+    ],
+    [
+      { type: "streamable-http", port: 8091.5, strictPort: true },
+      /integer in 1-65535/,
+    ],
+    [
+      { type: "streamable-http", port: 70000, strictPort: true },
+      /integer in 1-65535/,
+    ],
+    [{ type: "streamable-http", strictPort: true }, /integer in 1-65535/],
+    // No listener at all, and `resolveConfig` drops the flag.
+    [{ type: "stdio", strictPort: true }, /requires an HTTP transport/],
+  ])("rejects the unhonorable strictPort config %j", (transport, message) => {
+    const file = path.join(
+      tmpdir(),
+      `strict-port-combo-${Date.now()}-${Math.random()}.json`,
+    );
+    writeFileSync(
+      file,
+      JSON.stringify({
+        serverInfo: { name: "x", version: "1.0.0" },
+        transport,
+      }),
+    );
+    try {
+      expect(() => loadConfig(file)).toThrow(message);
+    } finally {
+      rmSync(file, { force: true });
+    }
+  });
+
+  it("still accepts the honorable combination", () => {
+    const file = path.join(
+      tmpdir(),
+      `strict-port-ok-${Date.now()}-${Math.random()}.json`,
+    );
+    writeFileSync(
+      file,
+      JSON.stringify({
+        serverInfo: { name: "x", version: "1.0.0" },
+        transport: { type: "streamable-http", port: 8091, strictPort: true },
+      }),
+    );
+    try {
+      expect(resolveConfig(loadConfig(file)).strictPort).toBe(true);
+    } finally {
+      rmSync(file, { force: true });
+    }
+  });
+
+  it("rejects a truthy-but-unbindable port at bind time too", async () => {
+    // Defense in depth for a programmatic caller that bypasses `loadConfig`.
+    // A string "0" is truthy, so a bare falsiness guard would pass it through
+    // and Node would coerce it to the dynamic port 0.
+    server = createTestServerHttp({
+      serverInfo: createTestServerInfo("stringy", "1.0.0"),
+      serverType: "streamable-http",
+      port: "0" as unknown as number,
+      strictPort: true,
+    });
+    await expect(server.start()).rejects.toThrow(/integer in 1-65535/);
+    server = null;
+  });
 
   it("is carried from the fixture's config file to the resolved server config", async () => {
     // The plumbing half: a flag the loader drops would leave the fixture
