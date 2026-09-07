@@ -623,6 +623,13 @@ describe("useConnectionLifecycle", () => {
       // is how the raw SDK text would creep back in beside the good copy.
       expect(toastTitles()).not.toContain('Failed to connect to "Server a"');
       expect(h.spies.setFailedServerId).not.toHaveBeenCalledWith("a");
+      // The real `connect()` sets status `"error"` and dispatches
+      // `statusChange` before rethrowing, which paints the card red and pins
+      // the monitoring sidebar open — presenting this as the failed connect
+      // attempt the notice says it is not. `connect` is mocked here, so the
+      // teardown is what this asserts; without it the client is left in that
+      // state.
+      expect(disconnectSpy).toHaveBeenCalled();
     });
 
     it("finds an insecure token endpoint wrapped under `cause` on the connect path", async () => {
@@ -641,6 +648,7 @@ describe("useConnectionLifecycle", () => {
 
       expect(toastTitles()).toContain("Token endpoint is not secure");
       expect(h.spies.setFailedServerId).not.toHaveBeenCalledWith("a");
+      expect(disconnectSpy).toHaveBeenCalled();
     });
 
     it("reports an insecure token endpoint raised by the 401 authorization attempt", async () => {

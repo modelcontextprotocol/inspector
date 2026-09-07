@@ -31,6 +31,7 @@ import {
 } from "@inspector/core/client/types.js";
 import { isEmaClientNotConfiguredError } from "@inspector/core/auth/ema/clientConfigError.js";
 import { showInsecureTokenEndpointNotice } from "../lib/insecureTokenEndpointNotice";
+import { findInsecureTokenEndpoint } from "@inspector/core/auth/insecureTokenEndpoint.js";
 import { AuthRecoveryRequiredError } from "@inspector/core/auth/challenge.js";
 import type { RemoteInspectorClientStorage } from "@inspector/core/mcp/remote/index.js";
 import type { SessionRef } from "./useSessionRef";
@@ -639,10 +640,20 @@ export function useConnectionLifecycle({
           return;
         }
         // SEP-2207 (#2280): a token endpoint the SDK will not post credentials
-        // to. Terminal, so it gets the same treatment as the EMA arm above
-        // rather than the generic "OAuth authorization failed" toast, whose
-        // detail line would be the raw SDK text.
-        if (showInsecureTokenEndpointNotice(err, target.name)) {
+        // to. Terminal, so it gets a notice of its own rather than the generic
+        // "Failed to connect" toast, whose detail line would be the raw SDK
+        // text.
+        //
+        // The teardown is load-bearing, not tidiness. `connect()` sets its
+        // status to `"error"` and dispatches `statusChange` *before* rethrowing
+        // (it is not a connect-auth-recovery error), and `InspectorView` pins
+        // the monitoring sidebar open on that transition and paints the card
+        // red. Returning without it would present this as the failed connect
+        // attempt the notice explicitly says it is not. The `authenticate()`
+        // arm below already disconnects for the same reason.
+        if (findInsecureTokenEndpoint(err)) {
+          await client.disconnect().catch(() => {});
+          showInsecureTokenEndpointNotice(err, target.name);
           return;
         }
 
