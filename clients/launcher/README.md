@@ -19,7 +19,7 @@ editable (see [specification/v2_catalog_launch_config.md](../../specification/v2
 
 | Invocation                                                                                                 | Server list                                                                                                     | Editable in UI? |
 | ---------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- | --------------- |
-| `mcp-inspector --web`                                                                                      | Default catalog `~/.mcp-inspector/mcp.json` (seeded with the two sample servers if missing)                     | Yes             |
+| `mcp-inspector --web`                                                                                      | Default catalog `~/.mcp-inspector/mcp.json` (seeded with the three sample servers if missing)                     | Yes             |
 | `mcp-inspector --web --catalog <path>` (or `MCP_CATALOG_PATH=<path>`)                                      | That file as the active catalog (same seed-if-missing behavior)                                                 | Yes             |
 | `mcp-inspector --web --config <path>`                                                                      | That file as a **read-only session** — shown but never written, seeded, or migrated (safe for a foreign config) | No              |
 | `mcp-inspector --web --server-url <url> --transport http --header "Name: Value"` (or a positional command) | One ad-hoc server held in memory, connectable with the given `--header`s                                        | No              |
@@ -30,8 +30,10 @@ and is applied to that connection (it is no longer a warn-only no-op).
 
 **Seed contents are web-specific.** When the web backend creates a missing
 writable catalog it seeds `DEFAULT_SEED_CONFIG` (`core/mcp/serverList.ts`) — a
-`filesystem-server-default` scoped to `/tmp` plus the canonical
-`everything-server-default` — so a first launch has something to connect to.
+`filesystem-server-default` scoped to `/tmp`, the canonical
+`everything-server-default`, and `example-server-default`, the MCP org's
+remote feature-reference server (Streamable HTTP, no local process and no API
+key needed) — so a first launch has something to connect to.
 The CLI and TUI seed an **empty** catalog instead; see the next section. A
 read-only `--config` is never seeded on any surface.
 
@@ -49,7 +51,7 @@ resolved by the shared `core/mcp/node/config.ts` helpers:
 
 Note the seed contrast with `--web` above: the CLI and TUI write an **empty**
 `{ "mcpServers": {} }` (`seedEmptyCatalog` in `core/mcp/node/config.ts`), not
-the web client's two sample servers — they are non-interactive or list-driven,
+the web client's three sample servers — they are non-interactive or list-driven,
 so sample entries would be noise rather than a starting point.
 
 Rules (shared `serverSourceConflict`): `--catalog` and `--config` are mutually
