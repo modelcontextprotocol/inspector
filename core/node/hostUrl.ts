@@ -182,28 +182,6 @@ export function isLoopbackHost(host: string): boolean {
 }
 
 /**
- * The canonical host to put in a **browser-facing** origin or advertised URL.
- *
- * {@link canonicalUrlHost} plus one thing it deliberately does not do: drop a
- * root FQDN dot **within the loopback family**. `HOST=localhost.` binds
- * loopback and every resolver treats it as `localhost`, but the WHATWG
- * serializer keeps the dot — and a root-dotted host is **not a valid CSP
- * `host-source`** (the grammar admits no empty final label). Anything we
- * advertise is eventually named in a `frame-ancestors` directive, so emitting
- * one produces a URL that works for `/api/*` and then blanks an MCP Apps frame,
- * with nothing in between to explain it.
- *
- * Every advertised URL goes through here — the banner, the origin allow-list,
- * the sandbox proxy URL and the app-origin URL — which is what keeps them
- * agreeing. The **bind host is never touched**: callers still `listen()` on
- * exactly what was configured, and this only changes the spelling handed to a
- * browser.
- *
- * Deliberately NOT folded into {@link canonicalUrlHost}, which
- * {@link isLocalhostSubdomainHost} needs to preserve the dot so it can reject
- * `app.localhost.` for this same CSP reason. The two sit at different layers.
- */
-/**
  * Drop a root FQDN dot, but **only** inside the loopback family.
  *
  * A root dot is the *absolute* form of a name, not noise: `service.example.`
@@ -226,6 +204,28 @@ export function stripLoopbackRootDot(host: string): string {
   return bare === "localhost" || bare.endsWith(".localhost") ? bare : host;
 }
 
+/**
+ * The canonical host to put in a **browser-facing** origin or advertised URL.
+ *
+ * {@link canonicalUrlHost} plus one thing it deliberately does not do: drop a
+ * root FQDN dot **within the loopback family**. `HOST=localhost.` binds
+ * loopback and every resolver treats it as `localhost`, but the WHATWG
+ * serializer keeps the dot — and a root-dotted host is **not a valid CSP
+ * `host-source`** (the grammar admits no empty final label). Anything we
+ * advertise is eventually named in a `frame-ancestors` directive, so emitting
+ * one produces a URL that works for `/api/*` and then blanks an MCP Apps frame,
+ * with nothing in between to explain it.
+ *
+ * Every advertised URL goes through here — the banner, the origin allow-list,
+ * the sandbox proxy URL, the app-origin URL and the CLI `--print-handoff` deep
+ * link — which is what keeps them agreeing. The **bind host is never touched**: callers still `listen()` on
+ * exactly what was configured, and this only changes the spelling handed to a
+ * browser.
+ *
+ * Deliberately NOT folded into {@link canonicalUrlHost}, which
+ * {@link isLocalhostSubdomainHost} needs to preserve the dot so it can reject
+ * `app.localhost.` for this same CSP reason. The two sit at different layers.
+ */
 export function canonicalOriginHost(host: string): string {
   return stripLoopbackRootDot(canonicalUrlHost(host));
 }

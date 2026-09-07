@@ -538,21 +538,25 @@ export function buildWebServerConfig(
         // root-dotted host is not a valid CSP host-source, so such an entry
         // could never admit an MCP Apps embedder anyway.
         //
-        // ⚠️ Only the *loopback* root dot is dropped, and it is dropped via
-        // `stripLoopbackRootDot` rather than `canonicalOriginHost`. Both halves
-        // of that matter. A root dot elsewhere is the absolute form of a name —
-        // `https://service.example.` and `https://service.example` are
-        // different origins — so removing it would authorize a host the
-        // operator did not name. And That
-        // helper also unmaps an IPv4-mapped IPv6 host (`[::ffff:7f00:1]` →
-        // `127.0.0.1`), which is right for a *bind host* — that is the address
-        // the socket answers on — and wrong for an operator's explicit origin,
-        // which is already exactly the string the browser will send. Running it
-        // here would allow-list `http://127.0.0.1:6274` while the browser asks
-        // as `http://[::ffff:7f00:1]:6274`: the requested origin blocked, and a
-        // different one authorized in its place. `parsed.hostname` is already
-        // WHATWG-normalized (lowercased, punycoded, IPv6 bracketed), so the
-        // trailing dot is the only thing left to remove.
+        // ⚠️ Two constraints, and both are load-bearing.
+        //
+        // Only the *loopback* root dot may go. Elsewhere a root dot is the
+        // absolute form of a name — `https://service.example.` and
+        // `https://service.example` are different origins — so removing it
+        // would authorize a host the operator never named.
+        //
+        // And it must be `stripLoopbackRootDot`, not `canonicalOriginHost`.
+        // That helper also unmaps an IPv4-mapped IPv6 host
+        // (`[::ffff:7f00:1]` → `127.0.0.1`), which is right for a *bind host* —
+        // that is the address the socket answers on — and wrong for an explicit
+        // origin, which is already the exact string the browser will send.
+        // Running it here would allow-list `http://127.0.0.1:6274` while the
+        // browser asks as `http://[::ffff:7f00:1]:6274`: the requested origin
+        // blocked, a different one authorized in its place.
+        //
+        // `parsed.hostname` is already WHATWG-normalized (lowercased,
+        // punycoded, IPv6 bracketed), so the root dot is the only thing this
+        // path ever changes.
         //
         // Rebuilt from `parsed` rather than string-edited: `parsed.port` is
         // empty for a scheme-default port, which is what keeps the `:80` drop
