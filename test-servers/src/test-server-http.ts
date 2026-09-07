@@ -400,6 +400,18 @@ export class TestServerHttp {
     const serverType = this.config.serverType ?? "streamable-http";
     const requestedPort = this.config.port;
 
+    // `strictPort` means "bind exactly this port, or fail". With no fixed port
+    // to bind there is nothing to be strict about, and falling through to an
+    // OS-assigned one would let a misconfigured fixture look strict while
+    // relocating on every run — the exact failure the flag exists to prevent,
+    // now silent. Reject the combination instead.
+    if (this.config.strictPort && !requestedPort) {
+      throw new Error(
+        "strictPort requires an explicit non-zero port: there is nothing to " +
+          "bind strictly when the port is omitted or 0 (OS-assigned).",
+      );
+    }
+
     // If a port is explicitly requested, find an available port starting from that value
     // Otherwise, use 0 to let the OS assign an available port.
     // `strictPort` opts out of the walk: bind the requested port or fail loudly

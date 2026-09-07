@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  canonicalOriginHost,
   canonicalUrlHost,
   formatHostForUrl,
   isAllInterfacesHost,
@@ -237,5 +238,48 @@ describe("isLocalhostSubdomainOrigin", () => {
     "",
   ])("rejects %j", (origin) => {
     expect(isLocalhostSubdomainOrigin(origin)).toBe(false);
+  });
+});
+
+describe("canonicalOriginHost", () => {
+  it.each([
+    ["localhost.", "localhost"],
+    ["LOCALHOST.", "localhost"],
+    ["app.localhost.", "app.localhost"],
+    ["tenant.example.localhost.", "tenant.example.localhost"],
+  ])(
+    "drops the root dot inside the loopback family: %j -> %j",
+    (host, want) => {
+      expect(canonicalOriginHost(host)).toBe(want);
+    },
+  );
+
+  it.each([
+    // A root dot is the ABSOLUTE form of a name, not noise. Dropping it changes
+    // which host is meant: `service.example` is a distinct origin a resolver
+    // may complete through a search suffix, or fail on. Advertising it for
+    // `service.example.` would silently hand the user a different server.
+    "service.example.",
+    "example.com.",
+    "inspector.internal.",
+  ])("keeps the root dot on an absolute non-loopback name: %j", (host) => {
+    expect(canonicalOriginHost(host)).toBe(host);
+  });
+
+  it.each([
+    // Everything else behaves exactly as `canonicalUrlHost` does.
+    "127.0.0.1",
+    "localhost",
+    "0.0.0.0",
+    "example.com",
+    "[::1]",
+  ])("is canonicalUrlHost for %j", (host) => {
+    expect(canonicalOriginHost(host)).toBe(canonicalUrlHost(host));
+  });
+
+  it("still unmaps an IPv4-mapped IPv6 bind host", () => {
+    // That divergence belongs to bind hosts and is inherited deliberately; the
+    // explicit-allow-list path deliberately does NOT use this helper for it.
+    expect(canonicalOriginHost("[::ffff:127.0.0.1]")).toBe("127.0.0.1");
   });
 });

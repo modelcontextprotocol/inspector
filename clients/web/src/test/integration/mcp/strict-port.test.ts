@@ -87,6 +87,24 @@ describe("strictPort (#2280)", () => {
     // dead server for the rest of the worker.
   });
 
+  it.each([undefined, 0])(
+    "refuses to start with strictPort and port %j",
+    async (port) => {
+      // Nothing to be strict about. Falling through to an OS-assigned port
+      // would let a misconfigured fixture look strict while relocating every
+      // run — the failure the flag exists to prevent, now silent.
+      server = createTestServerHttp({
+        serverInfo: createTestServerInfo("misconfigured", "1.0.0"),
+        serverType: "streamable-http",
+        port,
+        strictPort: true,
+      });
+      await expect(server.start()).rejects.toThrow(
+        /strictPort requires an explicit non-zero port/,
+      );
+    },
+  );
+
   it("is carried from the fixture's config file to the resolved server config", async () => {
     // The plumbing half: a flag the loader drops would leave the fixture
     // relocating again with nothing to show for it.
