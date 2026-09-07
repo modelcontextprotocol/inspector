@@ -674,6 +674,37 @@ describe("useConnectionLifecycle", () => {
       expect(h.api().connectErrorMessage).toBeUndefined();
     });
 
+    it("reports a terminal refusal raised by the retried connect, without flagging the card", async () => {
+      // The satisfied-challenge retry still ends in a token exchange, so it can
+      // raise this on its own. Reporting it as a failed connect is doubly wrong
+      // here: the Inspector has just told the user the authorization worked
+      // (#2280).
+      connectSpy
+        .mockRejectedValueOnce(
+          new AuthRecoveryRequiredError(
+            new URL("https://as.example/authorize"),
+            { reason: "unauthorized" },
+          ),
+        )
+        .mockRejectedValueOnce(
+          new InsecureTokenEndpointError("http://localhost.:8091/token"),
+        );
+      checkSpy.mockResolvedValueOnce(true);
+      const h = harness({ servers: [entry("a")] });
+
+      await act(async () => {
+        await h.api().onToggleConnection("a");
+      });
+
+      expect(connectSpy).toHaveBeenCalledTimes(2);
+      expect(toastTitles()).toContain("Token endpoint is not secure");
+      expect(toastTitles()).not.toContain('Failed to connect to "Server a"');
+      expect(h.spies.setFailedServerId).not.toHaveBeenCalledWith("a");
+      expect(h.api().connectErrorMessage).toBeUndefined();
+      // The teardown the generic arm does is still required on this one.
+      expect(disconnectSpy).toHaveBeenCalled();
+    });
+
     it("retries the connect when the auth challenge is already satisfied", async () => {
       connectSpy.mockRejectedValueOnce(
         new AuthRecoveryRequiredError(new URL("https://as.example/authorize"), {

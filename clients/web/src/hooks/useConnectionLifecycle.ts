@@ -694,6 +694,18 @@ export function useConnectionLifecycle({
             // held. The fetch log survives a disconnect, so the Network
             // diagnostics this issue is about are unaffected.
             await client.disconnect().catch(() => {});
+            // SEP-2207 (#2280). The retried `connect()` above can raise the
+            // terminal refusal on its own — a satisfied challenge still ends in
+            // a token exchange — and reporting that as a failed connect attempt
+            // is doubly wrong here: the card goes red and the message is the
+            // raw SDK text, on the one path where the Inspector had just told
+            // the user the authorization *worked*. Placed after the teardown
+            // above, which this arm needs for the same reason the generic one
+            // does, and before the flag it must not set.
+            if (showInsecureTokenEndpointNotice(recoveryErr, target.name)) {
+              setReAuthBanner(null);
+              return;
+            }
             setFailedServerId(id);
             const message =
               recoveryErr instanceof Error
