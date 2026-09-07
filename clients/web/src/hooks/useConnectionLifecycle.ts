@@ -992,6 +992,16 @@ export function useConnectionLifecycle({
             authorizationUrl: authUrl,
           });
         } catch (err) {
+          // SEP-2207 (#2280), and this is the path a user reaches by *acting*:
+          // a connected session raises an ordinary re-auth banner, they click
+          // Re-authenticate, and the token exchange is refused. Without this
+          // the generic toast below reports it with the raw SDK text — the
+          // worst place to lose the guidance, since they have just been told
+          // retrying is the fix. No banner clear is needed: this callback
+          // already cleared it before starting.
+          if (showInsecureTokenEndpointNotice(err, server?.name)) {
+            return;
+          }
           const message = err instanceof Error ? err.message : String(err);
           notifications.show({
             title: server

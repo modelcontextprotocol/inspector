@@ -1284,6 +1284,39 @@ describe("useConnectionLifecycle", () => {
       );
     });
 
+    it("reports a terminal token-endpoint refusal from the banner action", async () => {
+      // The path a user reaches by *acting*: an ordinary re-auth banner, they
+      // click Re-authenticate, and the exchange is refused. The worst place to
+      // fall back to the raw SDK text, since they have just been told that
+      // retrying is the fix (#2280).
+      const h = harness({ servers: [entry("a")] });
+      await act(async () => {
+        await h.api().onToggleConnection("a");
+      });
+      const client = lastClient(h);
+      authenticateSpy.mockRejectedValue(
+        new InsecureTokenEndpointError("http://localhost.:8091/token"),
+      );
+      h.rerender({
+        servers: [entry("a")],
+        activeServerId: "a",
+        connectionStatus: "connected",
+        client,
+        reAuthBanner: { serverId: "a", message: "lapsed" },
+      });
+
+      await act(async () => {
+        h.api().onReauthenticateFromBanner();
+      });
+
+      await waitFor(() =>
+        expect(toastTitles()).toContain("Token endpoint is not secure"),
+      );
+      expect(toastTitles()).not.toContain(
+        'OAuth authorization failed for "Server a"',
+      );
+    });
+
     it("falls back to an unnamed failure toast for an unknown server", async () => {
       const h = harness({ servers: [entry("a")] });
       await act(async () => {
