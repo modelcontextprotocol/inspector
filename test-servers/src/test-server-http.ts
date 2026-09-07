@@ -400,39 +400,9 @@ export class TestServerHttp {
     const serverType = this.config.serverType ?? "streamable-http";
     const requestedPort = this.config.port;
 
-    // `strictPort` means "bind exactly this port, or fail". With no fixed port
-    // to bind there is nothing to be strict about, and falling through to an
-    // OS-assigned one would let a misconfigured fixture look strict while
-    // relocating on every run — the exact failure the flag exists to prevent,
-    // now silent. Reject the combination instead.
-    if (
-      this.config.strictPort &&
-      (typeof requestedPort !== "number" ||
-        !Number.isInteger(requestedPort) ||
-        requestedPort < 1 ||
-        requestedPort > 65535)
-    ) {
-      // `loadConfig` rejects these for a config file; this covers a
-      // programmatic caller, and specifically a value that is *truthy* but not
-      // bindable as written — a string `"0"` slips past a bare falsiness check
-      // and Node then coerces it to the dynamic port 0, so the fixture looks
-      // strict and relocates anyway.
-      throw new Error(
-        `strictPort requires an explicit port as an integer in 1-65535 (got ${JSON.stringify(requestedPort)}): ` +
-          "there is nothing to bind strictly otherwise.",
-      );
-    }
-
     // If a port is explicitly requested, find an available port starting from that value
-    // Otherwise, use 0 to let the OS assign an available port.
-    // `strictPort` opts out of the walk: bind the requested port or fail loudly
-    // (see the field's doc comment — a relocated server whose advertised config
-    // hard-codes the port is worse than one that does not start).
-    const port = requestedPort
-      ? this.config.strictPort
-        ? requestedPort
-        : await findAvailablePort(requestedPort)
-      : 0;
+    // Otherwise, use 0 to let the OS assign an available port
+    const port = requestedPort ? await findAvailablePort(requestedPort) : 0;
 
     if (serverType === "streamable-http") {
       return this.startHttp(port);

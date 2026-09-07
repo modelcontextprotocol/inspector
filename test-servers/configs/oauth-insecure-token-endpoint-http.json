@@ -21,7 +21,6 @@
   },
   "transport": {
     "type": "streamable-http",
-    "port": 8091,
-    "strictPort": true
+    "port": 8091
   }
 }
