@@ -1,3 +1,4 @@
+import type { Dispatch, SetStateAction } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { RefObject } from "react";
 import { notifications } from "@mantine/notifications";
@@ -211,7 +212,13 @@ export interface OAuthRecovery {
   onBeforeOAuthRedirect: (authorizationUrl: URL) => void;
   prepareOAuthRedirect: (args: PrepareOAuthRedirectArgs) => void;
   reAuthBanner: ReAuthBannerState | null;
-  setReAuthBanner: (next: ReAuthBannerState | null) => void;
+  /**
+   * The raw state setter, functional form included. Consumers need the updater
+   * to clear a banner **only when it belongs to the server they are reporting
+   * on** — these paths are asynchronous, so a late continuation for server A
+   * must not erase a banner server B raised in the meantime.
+   */
+  setReAuthBanner: Dispatch<SetStateAction<ReAuthBannerState | null>>;
   /**
    * Drops the banner and both pending-OAuth slots. Called from the session
    * reset, which runs on every disconnect: an unanswered step-up prompt or a
@@ -397,11 +404,23 @@ export function useOAuthRecovery({
    * Returns whether the error was claimed, so callers keep their fall-through.
    */
   const reportTerminalInsecureTokenEndpoint = useCallback(
-    (err: unknown, serverName?: string): boolean => {
+    (
+      err: unknown,
+      serverId: string | undefined,
+      serverName?: string,
+    ): boolean => {
       if (!showInsecureTokenEndpointNotice(err, serverName)) {
         return false;
       }
-      setReAuthBanner(null);
+      // Clear only *this* server's banner. The command and deferred-resume
+      // paths are asynchronous, so server A can reject long after the user
+      // switched away and server B raised a banner of its own; an unconditional
+      // clear would then erase B's, which is still valid and still actionable.
+      // Functional so it sees the queued state rather than the render-time
+      // value, matching how `setPendingReauth` guards its own late restore.
+      setReAuthBanner((prev) =>
+        prev && prev.serverId === serverId ? null : prev,
+      );
       return true;
     },
     [setReAuthBanner],
@@ -419,7 +438,7 @@ export function useOAuthRecovery({
       // way. Claimed here, at the single funnel every re-auth banner goes
       // through, rather than at each of its call sites — a new caller then gets
       // the right behavior by default instead of by remembering.
-      if (reportTerminalInsecureTokenEndpoint(detail, server?.name)) {
+      if (reportTerminalInsecureTokenEndpoint(detail, serverId, server?.name)) {
         return;
       }
       const message = reAuthBannerMessage({
@@ -857,7 +876,9 @@ export function useOAuthRecovery({
         const server = sessionRef.current.servers.find(
           (s) => s.id === activeServerId,
         );
-        if (reportTerminalInsecureTokenEndpoint(err, server?.name)) {
+        if (
+          reportTerminalInsecureTokenEndpoint(err, activeServerId, server?.name)
+        ) {
           return undefined;
         }
         throw err;
@@ -989,7 +1010,13 @@ export function useOAuthRecovery({
         const failedServer = sessionRef.current.servers.find(
           (s) => s.id === pending.serverId,
         );
-        if (reportTerminalInsecureTokenEndpoint(err, failedServer?.name)) {
+        if (
+          reportTerminalInsecureTokenEndpoint(
+            err,
+            pending.serverId,
+            failedServer?.name,
+          )
+        ) {
           return;
         }
         // The slot was cleared above only to keep a tab-visible event and a
@@ -1392,7 +1419,7 @@ export function useOAuthRecovery({
         // Above `setFailedServerId` for the same reason the EMA arm is: this is
         // a configuration error, not a failed attempt, so it should not flag
         // the card red or pull the monitoring sidebar open.
-        if (reportTerminalInsecureTokenEndpoint(err, server.name)) {
+        if (reportTerminalInsecureTokenEndpoint(err, server.id, server.name)) {
           return;
         }
         // The token exchange (or the re-handshake behind it) failed. Flag the

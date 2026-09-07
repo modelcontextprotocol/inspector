@@ -1004,6 +1004,44 @@ describe("useOAuthRecovery", () => {
       expect(toastTitles()).toContain("Token endpoint is not secure");
     });
 
+    it("does not clear a banner belonging to a different server", async () => {
+      // The paths are asynchronous: server A can reject long after the user
+      // switched away and server B raised its own banner. An unconditional
+      // clear would erase B's, which is still valid and still actionable.
+      const client = fakeClient();
+      const h = harness({
+        servers: [entry("a"), entry("b")],
+        activeServerId: "b",
+        client,
+      });
+      await act(async () => {
+        client.emit("oauthError", { error: new Error("session expired") });
+      });
+      await waitFor(() => expect(h.api().reAuthBanner?.serverId).toBe("b"));
+
+      // The user switches to "a"; a stale continuation for it now rejects.
+      h.rerender({
+        servers: [entry("a"), entry("b")],
+        activeServerId: "a",
+        client,
+      });
+      await act(async () => {
+        await h
+          .api()
+          .runWithCommandAuthRecovery(
+            () =>
+              Promise.reject(
+                new InsecureTokenEndpointError("http://localhost.:8091/token"),
+              ),
+            "tool",
+          );
+      });
+
+      expect(toastTitles()).toContain("Token endpoint is not secure");
+      // B's banner survives — it is still valid and still actionable.
+      expect(h.api().reAuthBanner?.serverId).toBe("b");
+    });
+
     it("clears a stale banner when a command-path failure is terminal", async () => {
       // Every terminal arm goes through one wrapper for this reason: a banner
       // left by an earlier failure carries a Re-authenticate button just as

@@ -34,6 +34,7 @@ import { showInsecureTokenEndpointNotice } from "../lib/insecureTokenEndpointNot
 import { findInsecureTokenEndpoint } from "@inspector/core/auth/insecureTokenEndpoint.js";
 import { AuthRecoveryRequiredError } from "@inspector/core/auth/challenge.js";
 import type { RemoteInspectorClientStorage } from "@inspector/core/mcp/remote/index.js";
+import type { Dispatch, SetStateAction } from "react";
 import type { SessionRef } from "./useSessionRef";
 import type { FetchLogOptions } from "./useInspectorStores";
 import type { LastPersistedSettings } from "./useLastPersistedSettings";
@@ -174,7 +175,7 @@ export interface UseConnectionLifecycleOptions {
   prepareOAuthRedirect: (args: PrepareOAuthRedirectArgs) => void;
   finalizeExplicitDisconnect: () => void;
   reAuthBanner: ReAuthBannerState | null;
-  setReAuthBanner: (next: ReAuthBannerState | null) => void;
+  setReAuthBanner: Dispatch<SetStateAction<ReAuthBannerState | null>>;
 
   /** See `SessionResetSurface`. */
   sessionReset: SessionResetSurface;
@@ -656,8 +657,11 @@ export function useConnectionLifecycle({
           showInsecureTokenEndpointNotice(err, target.name);
           // Clear a banner left by an earlier failure: its Re-authenticate
           // button is just as dead as the one this arm declines to offer, and
-          // the user cannot tell which failure it belongs to.
-          setReAuthBanner(null);
+          // the user cannot tell which failure it belongs to. Scoped to this
+          // server, so an async continuation cannot erase another's.
+          setReAuthBanner((prev) =>
+            prev && prev.serverId === id ? null : prev,
+          );
           return;
         }
 
@@ -703,7 +707,11 @@ export function useConnectionLifecycle({
             // above, which this arm needs for the same reason the generic one
             // does, and before the flag it must not set.
             if (showInsecureTokenEndpointNotice(recoveryErr, target.name)) {
-              setReAuthBanner(null);
+              // Only this server's banner — an async continuation must not
+              // erase one raised for a server the user has since switched to.
+              setReAuthBanner((prev) =>
+                prev && prev.serverId === id ? null : prev,
+              );
               return;
             }
             setFailedServerId(id);
@@ -760,7 +768,9 @@ export function useConnectionLifecycle({
             // See the SEP-2207 note on the handshake arm above (#2280). The
             // disconnect already happened at the top of this catch.
             if (showInsecureTokenEndpointNotice(authErr, target.name)) {
-              setReAuthBanner(null);
+              setReAuthBanner((prev) =>
+                prev && prev.serverId === id ? null : prev,
+              );
               return;
             }
             // The connect attempt failed, same as any other handshake error —

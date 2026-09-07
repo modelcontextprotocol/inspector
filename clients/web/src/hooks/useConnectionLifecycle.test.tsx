@@ -259,6 +259,27 @@ const lastClient = (h: Harness): InspectorClient => {
   return client;
 };
 
+/**
+ * The last updater handed to `setReAuthBanner`, applied to a banner.
+ *
+ * Every terminal SEP-2207 arm clears the banner with a **functional** update
+ * guarded on `serverId`, because these paths are asynchronous and a late
+ * continuation for one server must not erase a banner another raised in the
+ * meantime. The harness's setter is a spy, so the updater is never invoked for
+ * us — asserting it directly is what actually exercises the guard rather than
+ * merely reaching the line.
+ */
+const applyBannerUpdate = (
+  spy: ReturnType<typeof vi.fn>,
+  banner: { serverId: string; message: string } | null,
+) => {
+  const updater = spy.mock.calls.at(-1)?.[0] as unknown;
+  if (typeof updater !== "function") {
+    throw new Error("expected a functional setReAuthBanner update");
+  }
+  return (updater as (prev: unknown) => unknown)(banner);
+};
+
 const toastTitles = (): string[] =>
   notificationsMock.show.mock.calls.map((c) => String(c[0]?.title));
 
@@ -623,6 +644,19 @@ describe("useConnectionLifecycle", () => {
       // is how the raw SDK text would creep back in beside the good copy.
       expect(toastTitles()).not.toContain('Failed to connect to "Server a"');
       expect(h.spies.setFailedServerId).not.toHaveBeenCalledWith("a");
+      // The clear is scoped: it drops this server's banner and spares another's.
+      expect(
+        applyBannerUpdate(h.spies.setReAuthBanner, {
+          serverId: "a",
+          message: "x",
+        }),
+      ).toBeNull();
+      expect(
+        applyBannerUpdate(h.spies.setReAuthBanner, {
+          serverId: "other",
+          message: "x",
+        }),
+      ).toMatchObject({ serverId: "other" });
       // The real `connect()` sets status `"error"` and dispatches
       // `statusChange` before rethrowing, which paints the card red and pins
       // the monitoring sidebar open — presenting this as the failed connect
@@ -700,6 +734,12 @@ describe("useConnectionLifecycle", () => {
       expect(toastTitles()).toContain("Token endpoint is not secure");
       expect(toastTitles()).not.toContain('Failed to connect to "Server a"');
       expect(h.spies.setFailedServerId).not.toHaveBeenCalledWith("a");
+      expect(
+        applyBannerUpdate(h.spies.setReAuthBanner, {
+          serverId: "other",
+          message: "x",
+        }),
+      ).toMatchObject({ serverId: "other" });
       expect(h.api().connectErrorMessage).toBeUndefined();
       // The teardown the generic arm does is still required on this one.
       expect(disconnectSpy).toHaveBeenCalled();

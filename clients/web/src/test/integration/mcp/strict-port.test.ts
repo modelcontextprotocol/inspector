@@ -207,7 +207,10 @@ describe("strictPort (#2280)", () => {
       strictPort: true,
     });
     await expect(server.start()).rejects.toThrow(/integer in 1-65535/);
-    server = null;
+    // Deliberately NOT nulled, for the same reason as the EADDRINUSE case
+    // above: `start()` installs the process-global test-server control before
+    // it validates, so dropping the reference would skip teardown and leave
+    // that global pointing at a dead server.
   });
 
   it("is carried from the fixture's config file to the resolved server config", async () => {
