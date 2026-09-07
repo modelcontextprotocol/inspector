@@ -392,7 +392,7 @@ export function useOAuthRecovery({
   );
 
   /**
-   * Report a terminal SEP-2207 refusal (#2280) and clear any re-auth banner.
+   * Report a terminal terminal token-endpoint refusal (#2280) and clear any re-auth banner.
    *
    * Every arm goes through this rather than calling the notice helper directly.
    * The banner clear is not incidental: a banner left from an *earlier* failure
@@ -433,7 +433,7 @@ export function useOAuthRecovery({
       options?: { reason?: AuthChallengeReason },
     ) => {
       const server = sessionRef.current.servers.find((s) => s.id === serverId);
-      // SEP-2207 (#2280). The SDK rethrows `InsecureTokenEndpointError` instead
+      // The terminal token-endpoint refusal (#2280). The SDK rethrows `InsecureTokenEndpointError` instead
       // of retrying, so the banner's "Re-authenticate" could only fail the same
       // way. Claimed here, at the single funnel every re-auth banner goes
       // through, rather than at each of its call sites — a new caller then gets
@@ -862,7 +862,7 @@ export function useOAuthRecovery({
           }
           return undefined;
         }
-        // SEP-2207 (#2280), on the command path. A mid-session silent refresh
+        // The terminal token-endpoint refusal (#2280), on the command path. A mid-session silent refresh
         // against an unusable token endpoint rejects here rather than as an
         // `AuthRecoveryRequiredError`, so without this it is rethrown and lands
         // in `runCommandInBackground` — which either shows the raw SDK text
@@ -1000,7 +1000,7 @@ export function useOAuthRecovery({
           });
         }
       } catch (err) {
-        // SEP-2207 (#2280) first, and specifically BEFORE the restore below.
+        // The terminal token-endpoint refusal (#2280) first, and specifically BEFORE the restore below.
         // `handleAuthChallenge` runs the same SDK auth flow, so it can raise
         // this terminal error — and the restore's whole premise is that the
         // recovery is still owed and a later trigger should retry it. For a

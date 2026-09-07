@@ -54,7 +54,7 @@ as a missing capability rather than an error.
 | `oauth-custom-resource-metadata-http.json` **(legacy era)** | OAuth discovery driven by the challenge's `resource_metadata` | [#2071](https://github.com/modelcontextprotocol/inspector/issues/2071) |
 | `oauth-revocation-http.json` / `oauth-no-revocation-http.json` **(legacy era)** | RFC 7009 token revocation on clear, with and without a `revocation_endpoint` | [#2144](https://github.com/modelcontextprotocol/inspector/issues/2144) |
 | `oauth-rfc8414-at-oidc-path-http.json` **(legacy era)** | Plain OAuth 2.0 AS metadata served at the OIDC well-known path | [#2172](https://github.com/modelcontextprotocol/inspector/issues/2172) |
-| `oauth-insecure-token-endpoint-http.json` **(legacy era)** | A token endpoint the SDK refuses to post credentials to (SEP-2207) | [#2280](https://github.com/modelcontextprotocol/inspector/issues/2280) |
+| `oauth-insecure-token-endpoint-http.json` **(legacy era)** | A token endpoint the SDK refuses to post credentials to | [#2280](https://github.com/modelcontextprotocol/inspector/issues/2280) |
 | `logging-{legacy,modern}-http.json` **(era per file)** | Logging, both eras                                  | [#1629](https://github.com/modelcontextprotocol/inspector/issues/1629) |
 | `subscriptions-{legacy,modern}-http.json` **(era per file)** | Resource subscriptions, both eras                   | [#1630](https://github.com/modelcontextprotocol/inspector/issues/1630) |
 | `subscriptions-never-acknowledged-http.json` **(modern era)** | A `subscriptions/listen` answered with a bare result  | [#2097](https://github.com/modelcontextprotocol/inspector/issues/2097) |
@@ -455,7 +455,7 @@ The same server is worth running against `--cli` / `--tui`, which reach it by a 
 
 The value now rides the normalized `AuthChallenge` as a string — it has to be serializable, because the web client's challenge crosses the remote-backend boundary as JSON — and is converted to a `URL` at the OAuth boundary, where it is handed to `auth()` as `resourceMetadataUrl` and to the CIMD pre-registration probe, which runs *before* `auth()` and would otherwise do its own default-location discovery. A malformed value is ignored rather than surfaced, matching the SDK's own `WWW-Authenticate` parser: discovery falls back to the default locations instead of failing the whole authorization on a bad header. The callback leg needs nothing extra — SDK `auth()` persists the URL in its discovery state, so it survives both the web full-page redirect and the CLI/TUI loopback callback.
 
-## A token endpoint the SDK will not use (SEP-2207)
+## A token endpoint the SDK will not use 
 
 `oauth-insecure-token-endpoint-http.json` is an ordinary combined AS + resource server with one thing changed: `oauth.issuerUrl` is `http://localhost.:8091`, so its advertised `token_endpoint` is `http://localhost.:8091/oauth/token`. Plain streamable-HTTP — connect with the **default (legacy)** protocol era.
 
@@ -465,7 +465,7 @@ The trailing dot is the whole trick, and it is doing real work rather than being
 
 Add the server, click **Connect**, and complete the authorization. The redirect comes back with a code, the Inspector goes to exchange it, and the SDK refuses.
 
-What you should see is a red, non-expiring **"Token endpoint is not secure"** notification naming the endpoint and the two things that resolve it — serve it over HTTPS, or move it to one of the three host spellings the SDK exempts (`localhost`, `127.0.0.1`, `::1`). It stays until you close it (`autoClose: false` stops it expiring on a timer; Mantine's own close control still dismisses it, which is what you want for a message you have finished reading). There is deliberately **no** action button.
+What you should see is a red, non-expiring **"Token endpoint is not secure"** notification naming the endpoint and the two things that resolve it — serve it over HTTPS, or move it to one of the three hosts the SDK exempts — `localhost`, `127.0.0.1`, or `[::1]` (bracketed, since a bare IPv6 literal is not a legal URL host). It stays until you close it (`autoClose: false` stops it expiring on a timer; Mantine's own close control still dismisses it, which is what you want for a message you have finished reading). There is deliberately **no** action button.
 
 Note the second option is phrased as a *spelling* change, not a networking one. `localhost.` already **is** loopback, and so is `tenant.app.localhost`; what they are outside is a three-literal allow-list. Telling a reader to "use a loopback host" when they demonstrably already are is what sends them off to debug their resolver instead of their configuration.
 

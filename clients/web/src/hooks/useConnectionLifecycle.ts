@@ -640,7 +640,7 @@ export function useConnectionLifecycle({
           });
           return;
         }
-        // SEP-2207 (#2280): a token endpoint the SDK will not post credentials
+        // A token endpoint the SDK will not post credentials
         // to. Terminal, so it gets a notice of its own rather than the generic
         // "Failed to connect" toast, whose detail line would be the raw SDK
         // text.
@@ -698,7 +698,7 @@ export function useConnectionLifecycle({
             // held. The fetch log survives a disconnect, so the Network
             // diagnostics this issue is about are unaffected.
             await client.disconnect().catch(() => {});
-            // SEP-2207 (#2280). The retried `connect()` above can raise the
+            // The terminal token-endpoint refusal (#2280). The retried `connect()` above can raise the
             // terminal refusal on its own — a satisfied challenge still ends in
             // a token exchange — and reporting that as a failed connect attempt
             // is doubly wrong here: the card goes red and the message is the
@@ -765,7 +765,7 @@ export function useConnectionLifecycle({
               });
               return;
             }
-            // See the SEP-2207 note on the handshake arm above (#2280). The
+            // See the note on the handshake arm above (#2280). The
             // disconnect already happened at the top of this catch.
             if (showInsecureTokenEndpointNotice(authErr, target.name)) {
               setReAuthBanner((prev) =>
@@ -1014,7 +1014,7 @@ export function useConnectionLifecycle({
             authorizationUrl: authUrl,
           });
         } catch (err) {
-          // SEP-2207 (#2280), and this is the path a user reaches by *acting*:
+          // The terminal token-endpoint refusal (#2280), on the path a user reaches by *acting*:
           // a connected session raises an ordinary re-auth banner, they click
           // Re-authenticate, and the token exchange is refused. Without this
           // the generic toast below reports it with the raw SDK text — the

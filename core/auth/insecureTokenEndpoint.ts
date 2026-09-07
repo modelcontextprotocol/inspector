@@ -1,5 +1,5 @@
 /**
- * SEP-2207: the SDK refuses to send credentials to a non-TLS token endpoint
+ * The SDK refuses to send credentials to a non-TLS token endpoint
  * whose host is outside its loopback exemption (`localhost` / `127.0.0.1` /
  * `::1`), throwing `InsecureTokenEndpointError` from inside
  * `executeTokenRequest`.

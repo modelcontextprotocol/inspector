@@ -262,7 +262,7 @@ const lastClient = (h: Harness): InspectorClient => {
 /**
  * The last updater handed to `setReAuthBanner`, applied to a banner.
  *
- * Every terminal SEP-2207 arm clears the banner with a **functional** update
+ * Every terminal arm clears the banner with a **functional** update
  * guarded on `serverId`, because these paths are asynchronous and a late
  * continuation for one server must not erase a banner another raised in the
  * meantime. The harness's setter is a spy, so the updater is never invoked for
@@ -624,7 +624,7 @@ describe("useConnectionLifecycle", () => {
     });
 
     it("reports an insecure token endpoint as terminal, without flagging the card", async () => {
-      // SEP-2207 (#2280). Asserted on the hook, not just the notice helper,
+      // The terminal token-endpoint refusal (#2280). Asserted on the hook, not just the notice helper,
       // because what makes this arm correct is its *position*: above
       // `setFailedServerId` and above the generic toast. A helper-only test
       // cannot see either of those go wrong.

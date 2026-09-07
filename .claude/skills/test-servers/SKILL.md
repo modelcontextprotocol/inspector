@@ -83,7 +83,7 @@ usually looks like a missing capability rather than an error.
 | A tool result's `structuredContent` section | `structured-output-http.json` (legacy) |
 | RFC 6570 resource-template expansion | `rfc6570-templates-http.json` |
 | OAuth token revocation on clear | `oauth-revocation-http.json` (legacy) |
-| A token endpoint the SDK refuses (SEP-2207) | `oauth-insecure-token-endpoint-http.json` (legacy) |
+| A token endpoint the SDK refuses  | `oauth-insecure-token-endpoint-http.json` (legacy) |
 | Cancelling a call mid-flight | `cancellation-modern-http.json` (modern) |
 
 ## Adding a config or preset

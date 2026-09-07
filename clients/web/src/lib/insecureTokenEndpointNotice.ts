@@ -1,5 +1,5 @@
 /**
- * Surfaces the SDK's SEP-2207 refusal to post credentials to a non-TLS token
+ * Surfaces the SDK's terminal token-endpoint refusal to post credentials to a non-TLS token
  * endpoint as the terminal configuration error it is (#2280).
  *
  * Lives in `lib/` rather than `utils/` because showing a notification is a side

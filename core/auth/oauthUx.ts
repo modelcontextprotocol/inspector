@@ -364,7 +364,7 @@ export function reAuthBannerMessage(options: {
 }
 
 /**
- * Heading for the SDK's SEP-2207 refusal to post credentials to a non-TLS token
+ * Heading for the SDK's terminal token-endpoint refusal to post credentials to a non-TLS token
  * endpoint (#2280).
  *
  * Deliberately not phrased as an authentication failure. Like
@@ -388,6 +388,12 @@ export function insecureTokenEndpointTitle(): string {
  * the mid-session refresh and re-authentication paths, where credentials were
  * legitimately sent earlier in the session, and a user who had been connected
  * for an hour would rightly read it as describing a different failure.
+ *
+ * The exemption is listed as `::1` (that is the host the SDK compares) but the
+ * remedy says `[::1]`, because that is what a user must actually type: a bare
+ * IPv6 literal is not a legal URL host and `new URL("http://::1/token")`
+ * throws. The two spellings are deliberately different — do not "fix" either
+ * into the other.
  *
  * The section name is the one the UI actually renders — **OAuth Settings**,
  * with a **Token URL override** field — not "Authorization". Sending someone to
@@ -418,8 +424,8 @@ export function insecureTokenEndpointMessage(options: {
     `its token endpoint ${truncateUrlForDisplay(options.tokenEndpoint)} is ` +
     "not HTTPS, and its host is outside the MCP SDK's loopback exemption, " +
     "which covers only localhost, 127.0.0.1 and ::1. Re-authenticating cannot " +
-    "change this. Serve the token endpoint over HTTPS, or move it to one of " +
-    "those three spellings — Server Settings → OAuth Settings has a " +
+    "change this. Serve the token endpoint over HTTPS, or move it to " +
+    "localhost, 127.0.0.1 or [::1] — Server Settings → OAuth Settings has a " +
     '"Token URL override" if the authorization server advertises a different ' +
     "one."
   );

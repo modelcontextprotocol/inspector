@@ -981,7 +981,7 @@ describe("useOAuthRecovery", () => {
     });
 
     it("claims an insecure token endpoint on the command path instead of rethrowing", async () => {
-      // SEP-2207 (#2280). A mid-session silent refresh rejects here rather than
+      // The terminal token-endpoint refusal (#2280). A mid-session silent refresh rejects here rather than
       // as an AuthRecoveryRequiredError, so before this it was rethrown into
       // the generic reporting below.
       const client = fakeClient();
@@ -1876,7 +1876,7 @@ describe("useOAuthRecovery", () => {
     });
 
     it("reports an insecure token endpoint terminally, with no banner and no red card", async () => {
-      // SEP-2207 (#2280). The three assertions are the whole point of the arm's
+      // The terminal token-endpoint refusal (#2280). The three assertions are the whole point of the arm's
       // position: the banner would carry a Re-authenticate button that cannot
       // work, and flagging the card would present a configuration error as a
       // failed connect attempt.

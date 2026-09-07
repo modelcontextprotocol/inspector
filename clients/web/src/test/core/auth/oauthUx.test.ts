@@ -467,6 +467,9 @@ describe("insecureTokenEndpoint copy", () => {
     expect(message).toContain(ENDPOINT);
     expect(message).toContain("HTTPS");
     expect(message).toContain("127.0.0.1");
+    // Bracketed: a bare IPv6 literal is not a legal URL host, so `::1` copied
+    // into the Token URL override would not parse.
+    expect(message).toContain("[::1]");
     expect(message).toContain("Token URL override");
     // The section name the UI actually renders. Sending someone to a settings
     // section that does not exist is the worst error this message could make.
