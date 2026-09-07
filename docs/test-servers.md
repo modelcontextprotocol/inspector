@@ -438,13 +438,17 @@ The value now rides the normalized `AuthChallenge` as a string — it has to be 
 
 ## A token endpoint the SDK will not use (SEP-2207)
 
-`oauth-insecure-token-endpoint-http.json` is an ordinary combined AS + resource server with one thing changed: `oauth.issuerUrl` is `http://localhost.:8091`, so its advertised `token_endpoint` is `http://localhost./oauth/token`. Plain streamable-HTTP — connect with the **default (legacy)** protocol era.
+`oauth-insecure-token-endpoint-http.json` is an ordinary combined AS + resource server with one thing changed: `oauth.issuerUrl` is `http://localhost.:8091`, so its advertised `token_endpoint` is `http://localhost.:8091/oauth/token`. Plain streamable-HTTP — connect with the **default (legacy)** protocol era.
+
+⚠️ It sets `transport.strictPort`, so it **fails to start** if 8091 is taken rather than relocating. Every other fixture walks to the next free port on `EADDRINUSE`, which is right for them and wrong for this one: the issuer is a *fixed string* in the config, so a relocated server would announce 8092 while all its OAuth metadata still pointed at whatever unrelated process holds 8091 — and the fixture would quietly stop reproducing the refusal it exists for. A loud failure is the only honest option here.
 
 The trailing dot is the whole trick, and it is doing real work rather than being a curiosity. `localhost.` is the *root-anchored* spelling of `localhost`: every resolver on the machine sends it to the loopback interface, so the fixture is reachable and the flow runs for real — but the SDK's `assertSecureTokenEndpoint` exempts only the three literals `localhost`, `127.0.0.1` and `::1`, and `localhost.` is none of them. So the credential-carrying request is refused with `InsecureTokenEndpointError` while everything else about the server works. It is the same over-narrow exemption that makes `http://tenant.app.localhost:3300` fail ([#1944](https://github.com/modelcontextprotocol/inspector/issues/1944), [typescript-sdk#2591](https://github.com/modelcontextprotocol/typescript-sdk/issues/2591)), reproducible without a `/etc/hosts` entry or dnsmasq.
 
 Add the server, click **Connect**, and complete the authorization. The redirect comes back with a code, the Inspector goes to exchange it, and the SDK refuses.
 
-What you should see is a red, non-dismissing **"Token endpoint is not secure"** notification naming the endpoint and the two things that resolve it — serve it over HTTPS, or point it at a genuinely loopback host. There is deliberately **no** action button.
+What you should see is a red, non-dismissing **"Token endpoint is not secure"** notification naming the endpoint and the two things that resolve it — serve it over HTTPS, or move it to one of the three host spellings the SDK exempts (`localhost`, `127.0.0.1`, `::1`). There is deliberately **no** action button.
+
+Note the second option is phrased as a *spelling* change, not a networking one. `localhost.` already **is** loopback, and so is `tenant.app.localhost`; what they are outside is a three-literal allow-list. Telling a reader to "use a loopback host" when they demonstrably already are is what sends them off to debug their resolver instead of their configuration.
 
 On the broken build you got a **"Re-authentication required"** banner with a **Re-authenticate** button ([#2280](https://github.com/modelcontextprotocol/inspector/issues/2280)). That button could never work: `InsecureTokenEndpointError` does not extend `OAuthError`, and `auth()` special-cases it to rethrow rather than start a fresh `/authorize` redirect, so clicking it re-ran the same flow to the same refusal. The only text on screen was the raw SDK message, which names the three exempt literals and says nothing about which lever to reach for.
 

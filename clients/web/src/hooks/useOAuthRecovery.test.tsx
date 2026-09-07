@@ -9,6 +9,7 @@ import type {
 import type { AuthChallenge } from "@inspector/core/auth/challenge.js";
 import { AuthRecoveryRequiredError } from "@inspector/core/auth/challenge.js";
 import { EmaClientNotConfiguredError } from "@inspector/core/auth/ema/clientConfigError.js";
+import { InsecureTokenEndpointError } from "@modelcontextprotocol/client";
 import { useEffect, useLayoutEffect, useRef } from "react";
 import { renderWithMantine, act, waitFor } from "../test/renderWithMantine";
 import {
@@ -1684,6 +1685,45 @@ describe("useOAuthRecovery", () => {
       );
       expect(client.disconnect).toHaveBeenCalled();
       expect(h.spies.setFailedServerId).not.toHaveBeenCalled();
+    });
+
+    it("reports an insecure token endpoint terminally, with no banner and no red card", async () => {
+      // SEP-2207 (#2280). The three assertions are the whole point of the arm's
+      // position: the banner would carry a Re-authenticate button that cannot
+      // work, and flagging the card would present a configuration error as a
+      // failed connect attempt.
+      snapshot();
+      const client = fakeClient({
+        resumeAfterOAuth: vi
+          .fn()
+          .mockRejectedValue(
+            new InsecureTokenEndpointError("http://localhost.:8091/token"),
+          ),
+      });
+      const h = callbackHarness(`?code=abc&state=${AUTH_ID}`, {}, client);
+      await waitFor(() =>
+        expect(toastTitles()).toContain("Token endpoint is not secure"),
+      );
+      expect(h.api().reAuthBanner).toBeNull();
+      expect(h.spies.setFailedServerId).not.toHaveBeenCalled();
+    });
+
+    it("finds an insecure token endpoint wrapped under `cause` on the callback leg", async () => {
+      snapshot();
+      const client = fakeClient({
+        resumeAfterOAuth: vi.fn().mockRejectedValue(
+          new Error("resume failed", {
+            cause: new InsecureTokenEndpointError(
+              "http://localhost.:8091/token",
+            ),
+          }),
+        ),
+      });
+      const h = callbackHarness(`?code=abc&state=${AUTH_ID}`, {}, client);
+      await waitFor(() =>
+        expect(toastTitles()).toContain("Token endpoint is not secure"),
+      );
+      expect(h.api().reAuthBanner).toBeNull();
     });
 
     it("offers one-click recovery when the authorization state was lost", async () => {

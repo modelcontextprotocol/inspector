@@ -401,8 +401,15 @@ export class TestServerHttp {
     const requestedPort = this.config.port;
 
     // If a port is explicitly requested, find an available port starting from that value
-    // Otherwise, use 0 to let the OS assign an available port
-    const port = requestedPort ? await findAvailablePort(requestedPort) : 0;
+    // Otherwise, use 0 to let the OS assign an available port.
+    // `strictPort` opts out of the walk: bind the requested port or fail loudly
+    // (see the field's doc comment — a relocated server whose advertised config
+    // hard-codes the port is worse than one that does not start).
+    const port = requestedPort
+      ? this.config.strictPort
+        ? requestedPort
+        : await findAvailablePort(requestedPort)
+      : 0;
 
     if (serverType === "streamable-http") {
       return this.startHttp(port);

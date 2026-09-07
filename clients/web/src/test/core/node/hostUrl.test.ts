@@ -169,10 +169,8 @@ describe("isLocalhostSubdomainHost", () => {
   it.each([
     "app.localhost",
     "tenant.example.localhost",
-    // Canonicalized first, so casing and a root FQDN dot are normalized rather
-    // than rejected — the browser sends the canonical form in `Origin`.
+    // Canonicalized first, so casing is normalized rather than rejected.
     "APP.LOCALHOST",
-    "app.localhost.",
     // IDNA-mapped to punycode by `new URL`, exactly as a browser would.
     "münchen.localhost",
   ])("accepts %j", (host) => {
@@ -183,6 +181,12 @@ describe("isLocalhostSubdomainHost", () => {
     // The bare TLD is deliberately NOT matched: callers that want it carry it
     // as a literal origin already.
     "localhost",
+    // The root-dotted form is rejected ON PURPOSE, and this is the case that
+    // keeps it that way: CSP's `*.localhost` host-source cannot match it, so
+    // accepting it here would let /api/* answer an embedder whose MCP Apps
+    // frame the sandbox CSP then blanks.
+    "app.localhost.",
+    "localhost.",
     // Degenerate labels.
     ".localhost",
     "a..localhost",

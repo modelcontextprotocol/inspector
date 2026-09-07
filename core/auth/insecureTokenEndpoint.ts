@@ -13,8 +13,8 @@
  * The check is not a fix for `*.localhost` (#1944): the exemption list lives in
  * the SDK and takes no options, so widening it has to happen upstream
  * (typescript-sdk#2591). This is about how the refusal is *reported* — which
- * matters for every insecure endpoint, `host.docker.internal` and LAN hostnames
- * included, not only the `.localhost` case.
+ * matters for every endpoint outside that exemption, `host.docker.internal` and
+ * LAN hostnames included, not only the `.localhost` case.
  */
 
 import { InsecureTokenEndpointError } from "@modelcontextprotocol/client";
@@ -26,7 +26,7 @@ export interface InsecureTokenEndpointShape {
 }
 
 /**
- * Recognize the SDK's `InsecureTokenEndpointError`.
+ * Recognize the SDK's `InsecureTokenEndpointError` itself (not a wrapper).
  *
  * Uses the SDK's own `isInstance` predicate, which is cross-copy safe by
  * construction: the SDK stamps each instance with a brand set keyed by
@@ -41,7 +41,7 @@ export interface InsecureTokenEndpointShape {
  * prototype and brand set are the first things a structured clone or a JSON hop
  * would drop, and `name` survives both.
  */
-export function isInsecureTokenEndpointError(
+function isInsecureTokenEndpointShape(
   err: unknown,
 ): err is InsecureTokenEndpointShape {
   if (err === null || typeof err !== "object") {
@@ -55,4 +55,53 @@ export function isInsecureTokenEndpointError(
     InsecureTokenEndpointError.isInstance(err) ||
     candidate.name === "InsecureTokenEndpointError"
   );
+}
+
+/**
+ * Find an insecure-token-endpoint refusal anywhere in an error's `cause` /
+ * `data.cause` chain, and return the shape that carries the endpoint.
+ *
+ * Walking the chain is not defensive padding: era negotiation and the transport
+ * wrappers bury the original rejection, so a top-level-only check would miss the
+ * connect and refresh paths and let exactly the retryable UI this exists to
+ * remove render anyway. `findIssuerBindingFailure` in `issuerBinding.ts` walks
+ * the same two links for the same reason, and this deliberately mirrors it —
+ * including the `seen` set, which keeps a self-referential `cause` from looping.
+ */
+export function findInsecureTokenEndpoint(
+  err: unknown,
+): InsecureTokenEndpointShape | undefined {
+  return findInsecureTokenEndpointDeep(err, new Set());
+}
+
+function findInsecureTokenEndpointDeep(
+  err: unknown,
+  seen: Set<unknown>,
+): InsecureTokenEndpointShape | undefined {
+  if (err === null || typeof err !== "object" || seen.has(err)) {
+    return undefined;
+  }
+  seen.add(err);
+
+  if (isInsecureTokenEndpointShape(err)) {
+    return err;
+  }
+
+  const nested = findInsecureTokenEndpointDeep(
+    (err as { cause?: unknown }).cause,
+    seen,
+  );
+  if (nested) {
+    return nested;
+  }
+
+  const data = (err as { data?: unknown }).data;
+  if (data !== null && typeof data === "object") {
+    return findInsecureTokenEndpointDeep(
+      (data as { cause?: unknown }).cause,
+      seen,
+    );
+  }
+
+  return undefined;
 }

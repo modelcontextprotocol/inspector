@@ -193,9 +193,18 @@ export function isLoopbackHost(host: string): boolean {
  * Canonicalized through {@link canonicalUrlHost} first, so the comparison sees
  * the same lowercased, IDNA-mapped form the browser puts in `Origin` — a
  * `Münchén.LOCALHOST` embedder arrives as `xn--mnchn-3ya1b.localhost` and still
- * matches. A root FQDN dot is dropped for the same reason it is in
- * {@link isLoopbackHost}. Every label left of `.localhost` must be non-empty, so
- * the degenerate `.localhost` and `a..localhost` are rejected.
+ * matches. Every label left of `.localhost` must be non-empty, so the degenerate
+ * `.localhost` and `a..localhost` are rejected.
+ *
+ * ⚠️ A **root FQDN dot is NOT stripped here**, so `app.localhost.` is rejected —
+ * deliberately, and unlike {@link isLoopbackHost}, which does strip it. This
+ * predicate has a second consumer that cannot follow it: the MCP Apps
+ * `frame-ancestors` CSP, whose `*.localhost` host-source matches by suffix and
+ * has no way to express the root-dotted form (CSP's `host-char` grammar admits
+ * no empty final label). Accepting `app.localhost.` here would let `/api/*`
+ * answer an embedder whose Apps frame the CSP then blanks — the split behaviour
+ * this pair exists to prevent, and a far worse outcome than declining a
+ * spelling almost nobody browses. The two layers agree by construction instead.
  *
  * Deliberately separate from {@link isLoopbackHost} rather than folded into it.
  * That predicate gates the **OAuth callback listener's bind host**, and this is
@@ -206,7 +215,8 @@ export function isLoopbackHost(host: string): boolean {
  * error, which is not an improvement.
  */
 export function isLocalhostSubdomainHost(host: string): boolean {
-  const h = canonicalUrlHost(host).replace(/\.$/, "");
+  // No trailing-dot strip — see the note above; the CSP layer cannot match it.
+  const h = canonicalUrlHost(host);
   const suffix = ".localhost";
   if (!h.endsWith(suffix)) return false;
   const labels = h.slice(0, -suffix.length).split(".");

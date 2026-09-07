@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { InsecureTokenEndpointError } from "@modelcontextprotocol/client";
-import { isInsecureTokenEndpointError } from "@inspector/core/auth/insecureTokenEndpoint.js";
+import { findInsecureTokenEndpoint } from "@inspector/core/auth/insecureTokenEndpoint.js";
 
 const ENDPOINT = "http://tenant.example.localhost:3300/api/oauth/token";
 
@@ -26,53 +26,99 @@ describe("SDK brand placement", () => {
   });
 });
 
-describe("isInsecureTokenEndpointError", () => {
-  it("recognizes a real SDK error and narrows to its endpoint", () => {
-    const err: unknown = new InsecureTokenEndpointError(ENDPOINT);
-    expect(isInsecureTokenEndpointError(err)).toBe(true);
-    if (isInsecureTokenEndpointError(err)) {
-      expect(err.tokenEndpoint).toBe(ENDPOINT);
-    }
+describe("findInsecureTokenEndpoint", () => {
+  it("recognizes a real SDK error and returns its endpoint", () => {
+    expect(
+      findInsecureTokenEndpoint(new InsecureTokenEndpointError(ENDPOINT)),
+    ).toMatchObject({ tokenEndpoint: ENDPOINT });
   });
 
   it("recognizes a serialized copy by `name`, where the prototype is gone", () => {
     // The fallback arm: a structured clone or JSON hop drops the prototype and
     // the brand set but keeps `name`.
     expect(
-      isInsecureTokenEndpointError({
+      findInsecureTokenEndpoint({
         name: "InsecureTokenEndpointError",
         message: "Refusing to send credentials…",
         tokenEndpoint: ENDPOINT,
       }),
-    ).toBe(true);
+    ).toMatchObject({ tokenEndpoint: ENDPOINT });
   });
 
   it("rejects a look-alike carrying the endpoint but not the identity", () => {
     // Neither the brand nor the name: some other error that happens to have a
     // `tokenEndpoint` field must not be swallowed by the terminal arm.
     expect(
-      isInsecureTokenEndpointError({ tokenEndpoint: ENDPOINT, name: "Error" }),
-    ).toBe(false);
+      findInsecureTokenEndpoint({ tokenEndpoint: ENDPOINT, name: "Error" }),
+    ).toBeUndefined();
   });
 
   it("rejects the right identity with no endpoint to report", () => {
     // The copy names the endpoint, so a value that cannot supply one is not
     // usable by this path and falls through to the generic handling.
     expect(
-      isInsecureTokenEndpointError({ name: "InsecureTokenEndpointError" }),
-    ).toBe(false);
+      findInsecureTokenEndpoint({ name: "InsecureTokenEndpointError" }),
+    ).toBeUndefined();
     expect(
-      isInsecureTokenEndpointError({
+      findInsecureTokenEndpoint({
         name: "InsecureTokenEndpointError",
         tokenEndpoint: 42,
       }),
-    ).toBe(false);
+    ).toBeUndefined();
   });
 
   it.each([null, undefined, "InsecureTokenEndpointError", 0, new Error("x")])(
     "rejects %j",
     (value) => {
-      expect(isInsecureTokenEndpointError(value)).toBe(false);
+      expect(findInsecureTokenEndpoint(value)).toBeUndefined();
     },
   );
+
+  describe("cause chains", () => {
+    // Era negotiation and the transport wrappers bury the rejection, so a
+    // top-level-only check would miss the connect and refresh paths outright
+    // and let the retryable UI render anyway.
+    it("finds it under `cause`", () => {
+      const wrapped = new Error("connect failed", {
+        cause: new InsecureTokenEndpointError(ENDPOINT),
+      });
+      expect(findInsecureTokenEndpoint(wrapped)).toMatchObject({
+        tokenEndpoint: ENDPOINT,
+      });
+    });
+
+    it("finds it under `data.cause`", () => {
+      const wrapped = Object.assign(new Error("negotiation failed"), {
+        data: { cause: new InsecureTokenEndpointError(ENDPOINT) },
+      });
+      expect(findInsecureTokenEndpoint(wrapped)).toMatchObject({
+        tokenEndpoint: ENDPOINT,
+      });
+    });
+
+    it("finds it several links down", () => {
+      const wrapped = new Error("outer", {
+        cause: new Error("middle", {
+          cause: new InsecureTokenEndpointError(ENDPOINT),
+        }),
+      });
+      expect(findInsecureTokenEndpoint(wrapped)).toMatchObject({
+        tokenEndpoint: ENDPOINT,
+      });
+    });
+
+    it("terminates on a self-referential cause instead of looping", () => {
+      const loop: { cause?: unknown; name: string } = { name: "Loop" };
+      loop.cause = loop;
+      expect(findInsecureTokenEndpoint(loop)).toBeUndefined();
+    });
+
+    it("returns undefined for a chain that never contains one", () => {
+      expect(
+        findInsecureTokenEndpoint(
+          new Error("outer", { cause: new Error("inner") }),
+        ),
+      ).toBeUndefined();
+    });
+  });
 });

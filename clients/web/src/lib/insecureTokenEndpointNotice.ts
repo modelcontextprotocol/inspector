@@ -20,7 +20,7 @@
  */
 
 import { notifications } from "@mantine/notifications";
-import { isInsecureTokenEndpointError } from "@inspector/core/auth/insecureTokenEndpoint.js";
+import { findInsecureTokenEndpoint } from "@inspector/core/auth/insecureTokenEndpoint.js";
 import {
   insecureTokenEndpointMessage,
   insecureTokenEndpointTitle,
@@ -36,13 +36,17 @@ export function showInsecureTokenEndpointNotice(
   err: unknown,
   serverName?: string,
 ): boolean {
-  if (!isInsecureTokenEndpointError(err)) {
+  // Searched rather than type-tested: era negotiation and the transport
+  // wrappers bury the rejection under `cause` / `data.cause`, so the connect and
+  // refresh paths hand us a wrapper rather than the error itself.
+  const found = findInsecureTokenEndpoint(err);
+  if (!found) {
     return false;
   }
   notifications.show({
     title: insecureTokenEndpointTitle(),
     message: insecureTokenEndpointMessage({
-      tokenEndpoint: err.tokenEndpoint,
+      tokenEndpoint: found.tokenEndpoint,
       serverName,
     }),
     color: "red",

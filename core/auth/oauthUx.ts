@@ -380,9 +380,14 @@ export function insecureTokenEndpointTitle(): string {
 /**
  * Plain-language explanation and the two things that actually resolve it.
  *
- * Does not echo the SDK's own message, which names only `localhost`,
- * `127.0.0.1` and `::1` as exempt and reads as a flat refusal — accurate, but it
- * tells the user nothing about which lever to reach for. The endpoint is
+ * Does not echo the SDK's own message, which reads as a flat refusal and tells
+ * the user nothing about which lever to reach for.
+ *
+ * The wording is "outside the SDK's loopback exemption", never "not loopback".
+ * The motivating hosts — `tenant.app.localhost` (#1944), the `localhost.`
+ * fixture — *are* loopback by RFC 6761 and by every resolver on the machine;
+ * what they are outside is a three-literal allow-list. Calling them non-loopback
+ * would send a reader to debug their networking instead of their configuration. The endpoint is
  * remote-supplied (it comes from the server's authorization-server metadata),
  * so it is bounded for display by {@link truncateUrlForDisplay}; rendering is
  * escaped, so that is a layout bound rather than an injection defence.
@@ -395,10 +400,10 @@ export function insecureTokenEndpointMessage(options: {
   return (
     `Authorization for ${target} was stopped before any credentials were sent: ` +
     `its token endpoint ${truncateUrlForDisplay(options.tokenEndpoint)} is ` +
-    "plain HTTP on a host that is not loopback, and OAuth token requests must " +
-    "use TLS. Re-authenticating cannot change this. " +
-    "Serve the token endpoint over HTTPS, or point it at a genuinely loopback " +
-    "host (localhost, 127.0.0.1 or ::1) — Server Settings → Authorization has a " +
-    "Token URL override if the authorization server advertises a different one."
+    "plain HTTP on a host outside the MCP SDK's loopback exemption, which " +
+    "covers only localhost, 127.0.0.1 and ::1. Re-authenticating cannot change " +
+    "this. Serve the token endpoint over HTTPS, or move it to one of those " +
+    "three spellings — Server Settings → Authorization has a Token URL override " +
+    "if the authorization server advertises a different one."
   );
 }

@@ -11,6 +11,7 @@ import type { ClientConfig } from "@inspector/core/client/types.js";
 import type { RemoteInspectorClientStorage } from "@inspector/core/mcp/remote/index.js";
 import { AuthRecoveryRequiredError } from "@inspector/core/auth/challenge.js";
 import { EmaClientNotConfiguredError } from "@inspector/core/auth/ema/clientConfigError.js";
+import { InsecureTokenEndpointError } from "@modelcontextprotocol/client";
 import { renderWithMantine, act, waitFor } from "../test/renderWithMantine";
 import { EMPTY_SETTINGS } from "../utils/serverSettingsDefaults";
 import { DEEP_LINK_SERVER_ID } from "../utils/deepLink";
@@ -599,6 +600,70 @@ describe("useConnectionLifecycle", () => {
 
       expect(toastTitles()).toContain('Cannot connect to "Server a"');
       expect(h.spies.setFailedServerId).not.toHaveBeenCalledWith("a");
+    });
+
+    it("reports an insecure token endpoint as terminal, without flagging the card", async () => {
+      // SEP-2207 (#2280). Asserted on the hook, not just the notice helper,
+      // because what makes this arm correct is its *position*: above
+      // `setFailedServerId` and above the generic toast. A helper-only test
+      // cannot see either of those go wrong.
+      connectSpy.mockRejectedValueOnce(
+        new InsecureTokenEndpointError(
+          "http://tenant.app.localhost:3300/token",
+        ),
+      );
+      const h = harness({ servers: [entry("a")] });
+
+      await act(async () => {
+        await h.api().onToggleConnection("a");
+      });
+
+      expect(toastTitles()).toContain("Token endpoint is not secure");
+      // The generic arm must not also fire — two notifications for one failure
+      // is how the raw SDK text would creep back in beside the good copy.
+      expect(toastTitles()).not.toContain('Failed to connect to "Server a"');
+      expect(h.spies.setFailedServerId).not.toHaveBeenCalledWith("a");
+    });
+
+    it("finds an insecure token endpoint wrapped under `cause` on the connect path", async () => {
+      // Era negotiation and the transport wrappers bury the rejection, so the
+      // shallow check this replaced would have missed exactly this shape.
+      connectSpy.mockRejectedValueOnce(
+        new Error("connect failed", {
+          cause: new InsecureTokenEndpointError("http://localhost.:8091/token"),
+        }),
+      );
+      const h = harness({ servers: [entry("a")] });
+
+      await act(async () => {
+        await h.api().onToggleConnection("a");
+      });
+
+      expect(toastTitles()).toContain("Token endpoint is not secure");
+      expect(h.spies.setFailedServerId).not.toHaveBeenCalledWith("a");
+    });
+
+    it("reports an insecure token endpoint raised by the 401 authorization attempt", async () => {
+      // The second of the two arms: `authenticate()` rejects rather than the
+      // opening handshake, which is the path a refresh takes.
+      connectSpy.mockRejectedValueOnce(unauthorized());
+      authenticateSpy.mockRejectedValueOnce(
+        new InsecureTokenEndpointError("http://localhost.:8091/token"),
+      );
+      const h = harness({ servers: [entry("a")] });
+
+      await act(async () => {
+        await h.api().onToggleConnection("a");
+      });
+
+      expect(toastTitles()).toContain("Token endpoint is not secure");
+      expect(toastTitles()).not.toContain(
+        'OAuth authorization failed for "Server a"',
+      );
+      expect(h.spies.setFailedServerId).not.toHaveBeenCalledWith("a");
+      // The generic arm also records this as the connect error banner text;
+      // the terminal arm returns before that, so it must stay unset.
+      expect(h.api().connectErrorMessage).toBeUndefined();
     });
 
     it("retries the connect when the auth challenge is already satisfied", async () => {

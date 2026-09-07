@@ -433,6 +433,11 @@ describe("allowLocalhostSubdomainOriginsFor (#1944)", () => {
     "[::1]",
     // Non-canonical spellings of the same addresses.
     "127.1",
+    // The root-anchored spelling binds loopback, and the OS resolver treats it
+    // as `localhost` — so the widening must not switch off for it. (This runs
+    // the opposite way from `isLocalhostSubdomainHost`, which keeps the dot
+    // because CSP cannot express it; see that function's note.)
+    "localhost.",
     "2130706433",
     "0:0:0:0:0:0:0:1",
     // All-interfaces binds serve loopback too (the Docker opt-in path).

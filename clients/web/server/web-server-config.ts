@@ -327,9 +327,19 @@ function loopbackOrigins(port: number): string[] {
  * browser at `foo.localhost` resolves to `127.0.0.1` and never reaches this
  * process, so admitting the origin there would be a no-op that only made the
  * allow-list harder to reason about.
+ *
+ * A root FQDN dot is stripped before the lookup, so `HOST=localhost.` is read as
+ * the loopback bind it actually is. Note this runs the *opposite* way from
+ * {@link isLocalhostSubdomainHost}, which deliberately keeps the dot — and the
+ * two are not in tension, because they answer different questions. This one
+ * canonicalizes an operator-typed **bind host** and only has to agree with the
+ * OS resolver, which treats `localhost.` and `localhost` alike (as
+ * {@link isLoopbackHost} already does). That one matches a browser-sent
+ * **`Origin`** that must also be expressible as a CSP host-source, which the
+ * root-dotted form is not.
  */
 export function allowLocalhostSubdomainOriginsFor(hostname: string): boolean {
-  const h = canonicalUrlHost(hostname);
+  const h = canonicalUrlHost(hostname).replace(/\.$/, "");
   return LOOPBACK_HOSTNAMES.has(h) || isAllInterfacesHost(h);
 }
 

@@ -119,6 +119,8 @@ export interface ConfigFile {
   transport: {
     type: "stdio" | "streamable-http" | "sse";
     port?: number;
+    /** Bind `port` exactly, or fail — see `ServerConfig.strictPort`. */
+    strictPort?: boolean;
     /**
      * Serve the modern (2026-07-28) protocol era via the SDK's
      * `createMcpHandler` (only valid with `type: "streamable-http"`). `true`
