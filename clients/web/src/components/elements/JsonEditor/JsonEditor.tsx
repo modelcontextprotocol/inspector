@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef } from "react";
 import type { ReactNode } from "react";
-import { Input, useComputedColorScheme } from "@mantine/core";
+import { Input, Paper, useComputedColorScheme } from "@mantine/core";
 import type { Ace } from "ace-builds";
 import AceEditor from "react-ace";
 import ace from "ace-builds/src-noconflict/ace";
@@ -15,6 +15,25 @@ import jsonWorkerUrl from "ace-builds/src-noconflict/worker-json.js?url";
 // Module scope: registering the worker URL is global to Ace and idempotent, so
 // it must not be repeated per mount.
 ace.config.setModuleUrl("ace/mode/json_worker", jsonWorkerUrl);
+
+/**
+ * The editor's frame.
+ *
+ * Ace paints its own background edge to edge with nothing around it, so an
+ * editor dropped into a panel reads as a discoloured patch rather than as a
+ * field — most visibly on the Tools tab, where "Edit as JSON" replaces a column
+ * of bordered inputs with one borderless slab. The border gives it the same
+ * edge every Mantine input beside it has.
+ *
+ * `variant="contained"` supplies the `overflow: hidden` that makes the rounded
+ * corners actually clip Ace's square background; without it the corners are
+ * painted over and the radius is invisible.
+ */
+const EditorFrame = Paper.withProps({
+  variant: "contained",
+  withBorder: true,
+  radius: "sm",
+});
 
 export interface JsonEditorProps {
   /**
@@ -228,73 +247,75 @@ export function JsonEditor({
       opacity={disabled ? 0.6 : undefined}
       w="100%"
     >
-      <AceEditor
-        mode="json"
-        theme={colorScheme === "dark" ? "github_dark" : "github"}
-        // react-ace uses `name` as the editor container's DOM id, so a fixed
-        // value would collide the moment two of these render — and it must also
-        // differ from the id given to the textarea below, which is the one the
-        // wrapper's `<label for>` points at.
-        name={`${wrapperId}-editor`}
-        // A class, not a style: Ace renders its own DOM and paints a caret even
-        // when read-only, which reads as an editable field whose keystrokes are
-        // being swallowed. Hiding it needs a selector into that DOM, which is
-        // the same reason the gutter override in App.css exists.
-        //
-        // `""` rather than `undefined` for the off case: react-ace's
-        // `componentDidUpdate` reads `prevProps.className.trim()` whenever the
-        // class changes, with no guard — so going *to* a class from `undefined`
-        // throws, and going *from* one to `undefined` writes the literal class
-        // name "undefined" onto the element. Both are reachable here, because
-        // read-only is derived state: a tool form disables itself while a call
-        // is in flight, which flips this on an editor already mounted.
-        className={isReadOnly ? "json-editor-readonly" : ""}
-        value={value}
-        onChange={handleChange}
-        readOnly={isReadOnly}
-        width="100%"
-        minLines={minLines}
-        maxLines={maxLines}
-        tabSize={2}
-        showPrintMargin={false}
-        // A read-only editor is a rendering of someone else's payload, so it
-        // carries none of the caret furniture an editable one does.
-        highlightActiveLine={!isReadOnly}
-        editorProps={{ $blockScrolling: Infinity }}
-        onLoad={(editor) => {
-          editorRef.current = editor;
-          // `textInputAriaLabel` alone is not enough: Ace composes the hidden
-          // textarea's label as "<label>, Cursor at row N" inside
-          // `TextInput.setAriaLabel`, and only recomputes it when the cursor
-          // moves — so an option applied at mount does not reach the DOM until
-          // the user clicks into the editor. Until then the control's only
-          // accessible name is the position readout, which names nothing.
-          // Setting it here and recomputing once is what makes the editor
-          // identifiable from first paint.
-          editor.setOption("textInputAriaLabel", ariaLabel);
-          editor.textInput.setAriaLabel();
-        }}
-        setOptions={{
-          // The JSON worker is what puts a marker on the offending line rather
-          // than one message for the whole document. Pointless on a read-only
-          // document — the reader cannot act on what it flags — and actively
-          // misleading where the text is a *fragment* rendered for display.
-          useWorker: !isReadOnly,
-          // Closes a brace/bracket/quote when you open one, and skips over the
-          // closing one you then type. On by default; named because it is half
-          // of why this component exists.
-          behavioursEnabled: true,
-          // Roving-tabindex arrow-key navigation plus an Esc-to-exit-trap, so
-          // the editor does not swallow Tab for keyboard users.
-          enableKeyboardAccessibility: true,
-          textInputAriaLabel: ariaLabel,
-          showFoldWidgets: true,
-          displayIndentGuides: true,
-          useSoftTabs: true,
-          scrollPastEnd: false,
-          highlightGutterLine: !isReadOnly,
-        }}
-      />
+      <EditorFrame>
+        <AceEditor
+          mode="json"
+          theme={colorScheme === "dark" ? "github_dark" : "github"}
+          // react-ace uses `name` as the editor container's DOM id, so a fixed
+          // value would collide the moment two of these render — and it must also
+          // differ from the id given to the textarea below, which is the one the
+          // wrapper's `<label for>` points at.
+          name={`${wrapperId}-editor`}
+          // A class, not a style: Ace renders its own DOM and paints a caret even
+          // when read-only, which reads as an editable field whose keystrokes are
+          // being swallowed. Hiding it needs a selector into that DOM, which is
+          // the same reason the gutter override in App.css exists.
+          //
+          // `""` rather than `undefined` for the off case: react-ace's
+          // `componentDidUpdate` reads `prevProps.className.trim()` whenever the
+          // class changes, with no guard — so going *to* a class from `undefined`
+          // throws, and going *from* one to `undefined` writes the literal class
+          // name "undefined" onto the element. Both are reachable here, because
+          // read-only is derived state: a tool form disables itself while a call
+          // is in flight, which flips this on an editor already mounted.
+          className={isReadOnly ? "json-editor-readonly" : ""}
+          value={value}
+          onChange={handleChange}
+          readOnly={isReadOnly}
+          width="100%"
+          minLines={minLines}
+          maxLines={maxLines}
+          tabSize={2}
+          showPrintMargin={false}
+          // A read-only editor is a rendering of someone else's payload, so it
+          // carries none of the caret furniture an editable one does.
+          highlightActiveLine={!isReadOnly}
+          editorProps={{ $blockScrolling: Infinity }}
+          onLoad={(editor) => {
+            editorRef.current = editor;
+            // `textInputAriaLabel` alone is not enough: Ace composes the hidden
+            // textarea's label as "<label>, Cursor at row N" inside
+            // `TextInput.setAriaLabel`, and only recomputes it when the cursor
+            // moves — so an option applied at mount does not reach the DOM until
+            // the user clicks into the editor. Until then the control's only
+            // accessible name is the position readout, which names nothing.
+            // Setting it here and recomputing once is what makes the editor
+            // identifiable from first paint.
+            editor.setOption("textInputAriaLabel", ariaLabel);
+            editor.textInput.setAriaLabel();
+          }}
+          setOptions={{
+            // The JSON worker is what puts a marker on the offending line rather
+            // than one message for the whole document. Pointless on a read-only
+            // document — the reader cannot act on what it flags — and actively
+            // misleading where the text is a *fragment* rendered for display.
+            useWorker: !isReadOnly,
+            // Closes a brace/bracket/quote when you open one, and skips over the
+            // closing one you then type. On by default; named because it is half
+            // of why this component exists.
+            behavioursEnabled: true,
+            // Roving-tabindex arrow-key navigation plus an Esc-to-exit-trap, so
+            // the editor does not swallow Tab for keyboard users.
+            enableKeyboardAccessibility: true,
+            textInputAriaLabel: ariaLabel,
+            showFoldWidgets: true,
+            displayIndentGuides: true,
+            useSoftTabs: true,
+            scrollPastEnd: false,
+            highlightGutterLine: !isReadOnly,
+          }}
+        />
+      </EditorFrame>
     </Input.Wrapper>
   );
 }

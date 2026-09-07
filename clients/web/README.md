@@ -70,12 +70,27 @@ merely handled unevenly — and selecting the tool renders a **Schema
 portability** section (`SchemaFindingsList`) above the argument form, one block
 per finding with its path, the problem, and a concrete fix.
 
+That section **opens collapsed**, behind a count badge reading
+`N error(s), M warning(s)` (`#2205`). The findings address the *server author*
+but render in the panel the *caller* fills in, so on a server whose schemas are
+broadly unportable they used to put the same wall of text ahead of every tool's
+first input —
+`test-servers/configs/unportable-schemas-many-http.json` is 26 findings over
+four tools, none of which a caller needs in order to fill the form. Expanding it
+is one click, and the choice is **global rather than per tool**
+(`useSchemaFindingsExpanded`, stored as `inspector.schemaFindings.expanded`):
+this panel is reused across selections, so a per-tool disclosure would
+re-collapse on every click and reproduce the same scrolling. The badge stays
+visible either way, so nothing about a tool's standing is hidden by the closed
+state.
+
 Both read [`core/json/schemaLint.ts`](../../core/json/schemaLint.ts), which is
 also what backs the TUI's detail pane and the CLI's `--strict` report — so the
 three clients cannot disagree about whether a schema is portable. That module's
 header explains why it is a portability lint rather than a JSON Schema
 validator. `test-servers/configs/unportable-schemas-http.json` is a server that
-exercises every rule.
+exercises every rule, and `unportable-schemas-many-http.json` the same rules at
+volume.
 
 ## Non-component code: `src/lib` vs `src/utils`
 
