@@ -326,9 +326,9 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
    *
    * 1. CIMD is configured for this connection right now, and
    * 2. the incoming `client_id` is exactly that metadata-document URL, and
-   * 3. the registration already stored under that same `client_id` is recorded
-   *    as `cimd` — written by `ensureCimdClientRegistration`, which reaches that
-   *    line only after confirming the AS advertises
+   * 3. a registration stored for this server under that same `client_id` is
+   *    recorded as `cimd` — written by `ensureCimdClientRegistration`, which
+   *    reaches that line only after confirming the AS advertises
    *    `client_id_metadata_document_supported`.
    *
    * RFC 7591 §3.2 makes a dynamically issued `client_id` opaque, so a client may
@@ -338,6 +338,15 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
    * to already hold a CIMD registration recorded under it. Anything else — a
    * fresh DCR, a different id, CIMD switched off, no prior CIMD registration —
    * falls through to `"dcr"`.
+   *
+   * ⚠️ (3) is deliberately **not** scoped to the incoming issuer alone. SEP-2352
+   * keys registrations per authorization server, so a resource that resolves to a
+   * second issuer legitimately has no record under it yet: the first binding
+   * promotes the unkeyed CIMD entry into issuer A's slot and clears the fallback,
+   * `ensureCimdClientRegistration` then early-returns on the ctx-less read, and
+   * the SDK's own CIMD branch saves under issuer B with nothing stored for B.
+   * Checking the issuer slot and then the server's active registration keeps that
+   * second issuer labeled CIMD (Copilot).
    */
   private async resolveSdkRegistrationKind(
     clientInformation: OAuthClientInformation,
@@ -350,21 +359,26 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
     ) {
       return "dcr";
     }
-    // Reads through to the unkeyed slot our own pre-registration wrote, since
-    // the issuer slot does not exist yet on the save that creates it.
-    const stored = await this.storage.getClientInformation(
-      this.serverUrl,
-      false,
-      issuer,
-    );
-    if (stored?.client_id !== clientMetadataUrl) return "dcr";
-    const storedKind = await this.storage.getClientRegistrationKind(
-      this.serverUrl,
-      issuer,
-    );
-    // `"static"` lives in the preregistered slot, never this one, so `"cimd"`
-    // is the only kind worth carrying forward.
-    return storedKind === "cimd" ? "cimd" : "dcr";
+    // `undefined` resolves to the server's active issuer, falling back to the
+    // unkeyed slot our own pre-registration wrote — which is where the record
+    // still lives on the save that first binds an issuer.
+    const lookupKeys = issuer === undefined ? [undefined] : [issuer, undefined];
+    for (const key of lookupKeys) {
+      const stored = await this.storage.getClientInformation(
+        this.serverUrl,
+        false,
+        key,
+      );
+      if (stored?.client_id !== clientMetadataUrl) continue;
+      const storedKind = await this.storage.getClientRegistrationKind(
+        this.serverUrl,
+        key,
+      );
+      // `"static"` lives in the preregistered slot, never this one, so `"cimd"`
+      // is the only kind worth carrying forward.
+      if (storedKind === "cimd") return "cimd";
+    }
+    return "dcr";
   }
 
   async saveScope(scope: string | undefined): Promise<void> {

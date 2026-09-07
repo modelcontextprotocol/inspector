@@ -7,6 +7,9 @@ import {
   type OAuthProviderConfig,
 } from "@inspector/core/auth/providers.js";
 import type { OAuthStorage } from "@inspector/core/auth/storage.js";
+import { OAuthStorageBase } from "@inspector/core/auth/oauth-storage.js";
+import { OAuthMemoryStore } from "@inspector/core/auth/store.js";
+import type { OAuthPersistBackend } from "@inspector/core/auth/oauth-persist.js";
 import {
   BrowserNavigation,
   BrowserOAuthClientProvider,
@@ -773,6 +776,80 @@ describe("OAuthNavigation", () => {
             { client_id: METADATA_URL },
             { registrationKind: "dcr", issuer: ISSUER },
           );
+        });
+
+        // SEP-2352 keys registrations per authorization server. Driven against a
+        // real `OAuthStorageBase` rather than mocks, because the bug is in how
+        // the *storage* promotes and clears slots across issuers (Copilot).
+        describe("across two authorization servers", () => {
+          const ISSUER_B = "https://as-b.example.com";
+
+          function makeRealStorage(): OAuthStorage {
+            const backend: OAuthPersistBackend = {
+              read: async () => null,
+              write: async () => {},
+            };
+            return new OAuthStorageBase(new OAuthMemoryStore(), backend);
+          }
+
+          async function bindFirstIssuer(storage: OAuthStorage) {
+            const provider = makeProvider(storage, vi.fn(), {
+              clientMetadataUrl: METADATA_URL,
+            });
+            // Our own pre-registration writes the unkeyed slot...
+            await provider.saveClientInformation(
+              { client_id: METADATA_URL },
+              { registrationKind: "cimd" },
+            );
+            // ...which the SDK's first issuer-stamped save promotes into
+            // issuer A's slot, clearing the unkeyed fallback.
+            await provider.saveClientInformation(
+              { client_id: METADATA_URL },
+              { issuer: ISSUER },
+            );
+            return provider;
+          }
+
+          it("keeps cimd when the resource resolves to a second issuer", async () => {
+            const storage = makeRealStorage();
+            const provider = await bindFirstIssuer(storage);
+
+            expect(
+              await storage.getClientRegistrationKind(SERVER, ISSUER),
+            ).toBe("cimd");
+            // The precondition that made this go wrong: nothing is stored for
+            // issuer B, and the unkeyed fallback is gone.
+            expect(
+              await storage.getClientInformation(SERVER, false, ISSUER_B),
+            ).toBeUndefined();
+
+            // The SDK's own CIMD branch, saving under the second issuer.
+            await provider.saveClientInformation(
+              { client_id: METADATA_URL },
+              { issuer: ISSUER_B },
+            );
+
+            expect(
+              await storage.getClientRegistrationKind(SERVER, ISSUER_B),
+            ).toBe("cimd");
+            expect(
+              await storage.getClientRegistrationKind(SERVER, ISSUER),
+            ).toBe("cimd");
+          });
+
+          it("still records dcr for a second issuer that mints its own client_id", async () => {
+            const storage = makeRealStorage();
+            const provider = await bindFirstIssuer(storage);
+
+            await provider.saveClientInformation(
+              { client_id: "b-registered-id" },
+              { issuer: ISSUER_B },
+            );
+
+            expect(
+              await storage.getClientRegistrationKind(SERVER, ISSUER_B),
+            ).toBe("dcr");
+          });
         });
 
         it("an explicit registrationKind wins and consults no storage reads", async () => {
