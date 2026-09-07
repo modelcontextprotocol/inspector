@@ -293,9 +293,12 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
     // SDK v2's `OAuthClientProvider.saveClientInformation` passes an
     // `OAuthClientInformationContext` ({ issuer }); our own DCR/CIMD callers
     // pass `SaveClientInformationOptions` ({ registrationKind }). Accept either
-    // and read whichever keys are present: the SDK supplies `issuer` (SEP-2352
-    // per-AS keying) and no kind — `resolveSdkRegistrationKind` recovers it —
-    // while our callers supply the registration kind and no issuer yet.
+    // and read whichever keys are present. The SDK supplies `issuer` (SEP-2352
+    // per-AS keying) and never a kind, so `resolveSdkRegistrationKind` recovers
+    // one. Our own callers always supply the kind, and supply the `issuer` too
+    // when they know it — `ensureCimdClientRegistration` does, having just
+    // discovered it; the unkeyed slot is only for the case where AS metadata
+    // carried no `issuer` at all.
     options?: SaveClientInformationOptions | OAuthClientInformationContext,
   ): Promise<void> {
     const issuer = options && "issuer" in options ? options.issuer : undefined;
