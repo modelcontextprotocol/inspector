@@ -603,11 +603,15 @@ export interface ServerConfig {
    * `skills/get` plus the `skill://` files those entries name. The fixture set
    * deliberately includes non-conforming skills — see `skills.ts`.
    *
-   * There is deliberately **no `directoryRead` option**. The flag would
-   * advertise `resources/directory/read`, which nothing here serves, so a
-   * config could produce exactly the false capability this fixture exists to
-   * help catch — Connection Info reporting "supported" for a method that
-   * answers `-32601`. It comes back in phase 3 (#2248) with the handler.
+   * Turning this on also declares **`directoryRead: true`** and serves
+   * `resources/directory/read` over the same `skill://` tree (#2248). The two
+   * are one switch rather than two on purpose: the sub-flag's whole hazard is
+   * advertising a method nothing answers — Connection Info reporting
+   * "Supported" for a call that returns `-32601` — and a config that cannot
+   * express the declaration without the handler cannot reach it. A fixture for
+   * the *undeclared* case is still available and is the more useful one:
+   * any config without `skills` at all, against which the Inspector must
+   * refuse to send the call locally.
    */
   skills?: boolean;
   /**
@@ -878,13 +882,14 @@ export function createMcpServer(config: ServerConfig): McpServer {
     };
   }
 
-  // Skills extension (SEP-2640): a server-declared extension, advertised bare.
-  // See `ServerConfig.skills` for why there is no `directoryRead` sub-option
-  // to turn on.
+  // Skills extension (SEP-2640): a server-declared extension. `directoryRead`
+  // is declared because `wireSkillsHandlers` registers the handler for it in
+  // the same `config.skills` branch below — see `ServerConfig.skills` for why
+  // the declaration and the handler are one switch.
   if (config.skills) {
     capabilities.extensions = {
       ...(capabilities.extensions ?? {}),
-      [SKILLS_EXTENSION_KEY]: {},
+      [SKILLS_EXTENSION_KEY]: { directoryRead: true },
     };
     // Skill files are fetched through ordinary `resources/read`, so the
     // resources capability has to be advertised even when the config registers

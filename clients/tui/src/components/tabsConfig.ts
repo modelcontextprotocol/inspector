@@ -3,6 +3,7 @@ export type TabType =
   | "auth"
   | "resources"
   | "prompts"
+  | "skills"
   | "tools"
   | "messages"
   | "requests"
@@ -23,6 +24,11 @@ export const tabs: { id: TabType; label: string; accelerator: string }[] = [
   { id: "auth", label: "Auth", accelerator: "a" },
   { id: "resources", label: "Resources", accelerator: "r" },
   { id: "prompts", label: "Prompts", accelerator: "m" },
+  // `k`, not `s`: `s` is not in conflict today, but the accelerator has to
+  // appear in the label and be unique, and `S`kills against a future `S`ampling
+  // or `S`ettings is the collision this rule anticipates. `k` is the earliest
+  // remaining letter in the word after `s` and `i` (Info).
+  { id: "skills", label: "Skills", accelerator: "k" },
   { id: "tools", label: "Tools", accelerator: "t" },
   { id: "messages", label: "Protocol", accelerator: "p" },
   { id: "requests", label: "Network", accelerator: "n" },

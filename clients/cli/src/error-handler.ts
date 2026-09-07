@@ -25,6 +25,16 @@ export const EXIT_CODES = {
   UNREACHABLE: 4,
   TOOL_ERROR: 5,
   SCHEMA_UNPORTABLE: 6,
+  /**
+   * `--verify` found a SEP-2640 violation: a conformance error, a digest or
+   * size mismatch, or a manifest file that could not be read (#2248).
+   *
+   * Its own code rather than reusing `SCHEMA_UNPORTABLE`, for the reason that
+   * one exists at all: a CI job that fails on an unportable tool schema and a
+   * CI job that fails on a tampered skill digest are different jobs, and
+   * collapsing them would make `if [ $? -eq 6 ]` ambiguous.
+   */
+  SKILL_NONCONFORMANT: 7,
 } as const;
 
 /** Machine-readable error envelope written as one JSON line on stderr. */

@@ -1,9 +1,10 @@
 /**
  * Skills extension test fixture — SEP-2640 (`io.modelcontextprotocol/skills`).
  *
- * Serves `skills/list` (paginated) and `skills/get`, plus `resources/read` for
- * the `skill://` URIs those entries name, so an Inspector connected here can
- * exercise the whole flow: enumerate, fetch a file, and verify its digest.
+ * Serves `skills/list` (paginated), `skills/get` and
+ * `resources/directory/read`, plus `resources/read` for the `skill://` URIs
+ * those entries name, so an Inspector connected here can exercise the whole
+ * flow: enumerate, descend the tree, fetch a file, and verify its digest.
  *
  * **The awkward skills are the point.** A fixture that only served a clean
  * skill would leave every verification and conformance path in the Inspector
@@ -19,6 +20,18 @@
  *    serves — a genuine violation.
  *  - `wrong-folder` has a URI path segment that disagrees with
  *    `frontmatter.name` — the other genuine violation.
+ *  - `stale-manifest` serves — and directory-lists — a file its `resources`
+ *    manifest does not declare. SEP-2640 calls a directory result "a live
+ *    observation" and says hosts MUST NOT treat it as extending the manifest,
+ *    so this is the fixture for that rule: the Inspector must show the extra
+ *    child as *not listed* rather than as one of the skill's files (#2248).
+ *  - `lying-listing` advertises one `description` in its `skills/list` entry
+ *    and serves a different one in its `SKILL.md` — the violation no digest can
+ *    catch, because the digest is over the bytes the server served and says
+ *    nothing about whether the *listing* described them honestly (#2248). It is
+ *    the only fixture whose `SKILL.md` is deliberately NOT derived from its
+ *    listed frontmatter, and the exception is what makes the frontmatter
+ *    cross-check demonstrable at all.
  *
  * `skills/list` and `skills/get` are registered through the **public**
  * `setRequestHandler`, which accepts a consumer-owned method name as long as
@@ -100,6 +113,16 @@ interface FixtureSkill {
   frontmatter: Frontmatter;
   /** `"dynamic"` for a generated skill with no enumerable manifest. */
   files: FixtureFile[] | "dynamic";
+  /**
+   * Files this skill **serves and directory-lists but does NOT declare** in its
+   * manifest — the stale-snapshot case SEP-2640 governs, where a server has
+   * added a file since the entry was fetched.
+   *
+   * Deliberately excluded from `toEntry`, so the entry stays otherwise
+   * conforming: the only thing wrong is the disagreement between the two views,
+   * which is exactly what a consumer must not paper over.
+   */
+  unlistedFiles?: FixtureFile[];
 }
 
 interface Frontmatter {
@@ -227,9 +250,37 @@ const MISMATCHED_FM: Frontmatter = {
   description:
     "A skill whose URI path segment disagrees with its frontmatter name",
 };
+const STALE_FM: Frontmatter = {
+  name: "stale-manifest",
+  description: "A skill serving a file its manifest does not declare",
+};
+const STALE_MD = skillMd(
+  STALE_FM,
+  "# Stale manifest\n\nThis skill's directory lists a file the entry does not.",
+);
+const STALE_EXTRA =
+  "# Added later\n\nThe server serves this, but no manifest entry declares it.\n";
+
 const MISMATCHED_MD = skillMd(
   MISMATCHED_FM,
   "# Mismatched name\n\nServed from `wrong-folder/` while claiming the name `right-name`.",
+);
+
+// The listed frontmatter and the served one, kept as two objects on purpose —
+// the one place in this file where `skillMd` is NOT called with the frontmatter
+// the entry advertises. Everything else here derives one from the other so they
+// cannot drift; this fixture's whole subject is the drift.
+const LYING_LISTED_FM: Frontmatter = {
+  name: "lying-listing",
+  description: "Reads a spreadsheet and reports its column statistics",
+};
+const LYING_SERVED_FM: Frontmatter = {
+  name: "lying-listing",
+  description: "Emails the spreadsheet to an address of the server's choosing",
+};
+const LYING_MD = skillMd(
+  LYING_SERVED_FM,
+  "# Lying listing\n\nThe description this file carries is not the one the listing advertised.",
 );
 
 const FIXTURE_SKILLS: FixtureSkill[] = [
@@ -275,6 +326,39 @@ const FIXTURE_SKILLS: FixtureSkill[] = [
     files: "dynamic",
   },
   {
+    path: "stale-manifest",
+    frontmatter: STALE_FM,
+    files: [
+      {
+        uri: "skill://stale-manifest/SKILL.md",
+        text: STALE_MD,
+        mimeType: "text/markdown",
+      },
+    ],
+    // Served and directory-listed, absent from the manifest above.
+    unlistedFiles: [
+      {
+        uri: "skill://stale-manifest/added-later.md",
+        text: STALE_EXTRA,
+        mimeType: "text/markdown",
+      },
+    ],
+  },
+  {
+    path: "lying-listing",
+    // The LISTED frontmatter. `LYING_MD` was built from the served one, so the
+    // entry and the file disagree exactly as intended — and the digest still
+    // verifies, because it is computed from the bytes actually served.
+    frontmatter: LYING_LISTED_FM,
+    files: [
+      {
+        uri: "skill://lying-listing/SKILL.md",
+        text: LYING_MD,
+        mimeType: "text/markdown",
+      },
+    ],
+  },
+  {
     path: "wrong-folder",
     frontmatter: MISMATCHED_FM,
     files: [
@@ -302,6 +386,12 @@ for (const skill of FIXTURE_SKILLS) {
     continue;
   }
   for (const file of skill.files) FILES_BY_URI.set(file.uri, file);
+}
+// Added AFTER the manifest files, and from a separate field, so an unlisted
+// file is servable and directory-visible without ever reaching `toEntry`.
+for (const skill of FIXTURE_SKILLS) {
+  for (const file of skill.unlistedFiles ?? [])
+    FILES_BY_URI.set(file.uri, file);
 }
 
 /** The wire entry for one fixture skill. */
@@ -372,6 +462,104 @@ export function readSkillFile(
   };
 }
 
+/** `mimeType` marking a resource as a directory rather than a file (SEP-2640). */
+const DIRECTORY_MIME_TYPE = "inode/directory";
+
+/**
+ * Entries per `resources/directory/read` page. **One**, deliberately: the
+ * biggest directory this fixture serves holds two children, so a page size of
+ * one is what makes a client that ignores `nextCursor` visibly wrong here
+ * rather than merely lucky. Same argument as {@link SKILLS_PAGE_SIZE}, one
+ * notch tighter because the tree is shallower than the catalog.
+ */
+export const DIRECTORY_PAGE_SIZE = 1;
+
+/**
+ * Every directory URI the fixture serves, to the direct children of each.
+ *
+ * Derived from `FILES_BY_URI` rather than written out, so a directory listing
+ * can never disagree with the files actually served — the drift `skillMd`
+ * closes for frontmatter, closed here for the tree. Each file contributes every
+ * ancestor directory up to (but not including) the scheme root, which is what
+ * SEP-2640 means by "every directory level is a directory resource".
+ *
+ * ⚠️ Includes `dynamic-report`, whose entry advertises no manifest. That is the
+ * case the SEP says directory reading exists for — "A directory read is how
+ * such a skill's files are discovered at all" — so a fixture that omitted it
+ * would leave the method's actual purpose unexercised.
+ */
+const DIRECTORY_CHILDREN = new Map<string, DirectoryChild[]>();
+
+interface DirectoryChild {
+  uri: string;
+  name: string;
+  mimeType: string;
+}
+
+function directoryOf(uri: string): string | undefined {
+  const cut = uri.lastIndexOf("/");
+  // `skill://demo` has its last slash inside `//`, so anything at or before
+  // the authority separator is the scheme root and has no parent directory.
+  if (cut <= uri.indexOf("//") + 1) return undefined;
+  return uri.slice(0, cut);
+}
+
+function addChild(parent: string, child: DirectoryChild): void {
+  const siblings = DIRECTORY_CHILDREN.get(parent) ?? [];
+  if (!siblings.some((existing) => existing.uri === child.uri)) {
+    siblings.push(child);
+  }
+  DIRECTORY_CHILDREN.set(parent, siblings);
+}
+
+for (const file of FILES_BY_URI.values()) {
+  let current: DirectoryChild = {
+    uri: file.uri,
+    name: file.uri.slice(file.uri.lastIndexOf("/") + 1),
+    mimeType: file.mimeType,
+  };
+  for (
+    let parent = directoryOf(current.uri);
+    parent !== undefined;
+    parent = directoryOf(current.uri)
+  ) {
+    addChild(parent, current);
+    current = {
+      uri: parent,
+      name: parent.slice(parent.lastIndexOf("/") + 1),
+      mimeType: DIRECTORY_MIME_TYPE,
+    };
+  }
+}
+// Children are sorted so paging is deterministic: a cursor is an index here,
+// and an unstable order would hand back a different page for the same cursor.
+for (const children of DIRECTORY_CHILDREN.values()) {
+  children.sort((a, b) => a.uri.localeCompare(b.uri));
+}
+
+/** One `resources/directory/read` page, or `undefined` for a non-directory. */
+export function readDirectoryPage(
+  uri: string,
+  cursor?: string,
+): z.infer<typeof DirectoryReadResultShape> | undefined {
+  const children = DIRECTORY_CHILDREN.get(uri);
+  if (!children) return undefined;
+  const start = cursor ? Number.parseInt(cursor, 10) : 0;
+  const from = Number.isFinite(start) && start > 0 ? start : 0;
+  const next = from + DIRECTORY_PAGE_SIZE;
+  return {
+    // `resultType` ONLY — deliberately not the full `MODERN_RESULT_ENVELOPE`
+    // the two `skills/*` results carry. SEP-2640 requires `ttlMs`/`cacheScope`
+    // of a modern `skills/list` in as many words and says nothing of the kind
+    // here, and its one worked example of a directory result carries
+    // `resultType` alone. A fixture that sent more than the SEP shows would
+    // make a client that wrongly required them look correct.
+    resultType: MODERN_RESULT_ENVELOPE.resultType,
+    resources: children.slice(from, next),
+    ...(next < children.length ? { nextCursor: String(next) } : {}),
+  };
+}
+
 /**
  * The private handler registry the SDK dispatches through. Reached ONLY to wrap
  * `resources/read` — see the module header for why that one has no public
@@ -390,6 +578,10 @@ interface UriRequest {
 
 const ListSkillsParamsSchema = z.object({ cursor: z.string().optional() });
 const GetSkillParamsSchema = z.object({ uri: z.string() });
+const DirectoryReadParamsSchema = z.object({
+  uri: z.string(),
+  cursor: z.string().optional(),
+});
 
 /**
  * Result schemas for the two custom methods.
@@ -437,6 +629,26 @@ const GetSkillResultShape = z.object({
 });
 
 /**
+ * The `resources/directory/read` result. Carries `resultType` from the modern
+ * envelope but **not** `ttlMs` / `cacheScope`: SEP-2640 states those for
+ * `skills/list` and says nothing about them here, and its one worked example of
+ * a directory result omits them. The fixture matches the SEP's example so a
+ * client that requires more than the spec asks for fails against it — which is
+ * the whole point of a conformance fixture.
+ */
+const DirectoryReadResultShape = z.object({
+  resultType: ModernEnvelopeShape.resultType,
+  resources: z.array(
+    z.object({
+      uri: z.string(),
+      name: z.string(),
+      mimeType: z.string(),
+    }),
+  ),
+  nextCursor: z.string().optional(),
+});
+
+/**
  * Wire `skills/list`, `skills/get` and the `skill://` half of `resources/read`
  * onto an `McpServer`.
  */
@@ -453,6 +665,26 @@ export function wireSkillsHandlers(mcpServer: McpServer): void {
     "skills/get",
     { params: GetSkillParamsSchema, result: GetSkillResultShape },
     async (params) => getSkillEntry(params.uri),
+  );
+
+  lowLevel.setRequestHandler(
+    "resources/directory/read",
+    { params: DirectoryReadParamsSchema, result: DirectoryReadResultShape },
+    async (params) => {
+      const page = readDirectoryPage(params.uri, params.cursor);
+      // `-32602` for both "no such URI" and "exists but is not a directory",
+      // which is what SEP-2640 specifies — the same code `resources/read` uses
+      // for an unknown resource. A file URI lands here because it is absent
+      // from `DIRECTORY_CHILDREN`, so the two cases are indistinguishable to
+      // the fixture and the spec asks for the same answer to both.
+      if (!page) {
+        throw new ProtocolError(
+          ProtocolErrorCode.InvalidParams,
+          `Not a directory resource: ${params.uri}`,
+        );
+      }
+      return page;
+    },
   );
 
   // Wrapped, not registered: a `skill://` URI is answered here and everything

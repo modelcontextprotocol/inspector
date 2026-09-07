@@ -19,17 +19,25 @@ import {
 import { MdSearch, MdVerifiedUser } from "react-icons/md";
 import { RiArrowRightSLine } from "react-icons/ri";
 import type {
+  DirectoryReadResult,
   SkillEntry,
   SkillResource,
 } from "@inspector/core/mcp/skillsSchemas.js";
-import { DYNAMIC_RESOURCES } from "@inspector/core/mcp/skillsSchemas.js";
+import {
+  DIRECTORY_MIME_TYPE,
+  DYNAMIC_RESOURCES,
+} from "@inspector/core/mcp/skillsSchemas.js";
 import {
   checkSkillConformance,
+  checkSkillFrontmatterMatch,
   skillDisplayName,
+  skillFileBytes,
   skillEntriesMatch,
   skillUriIdentity,
+  SKILL_FILE_SUFFIX,
   totalSkillBytes,
   verifySkillResource,
+  type SkillFileContents,
   type SkillIssue,
   type SkillVerification,
 } from "@inspector/core/mcp/skills.js";
@@ -37,11 +45,7 @@ import { CodeHighlight } from "../../elements/CodeHighlight/CodeHighlight";
 import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";
 import { ListToggle } from "../../elements/ListToggle/ListToggle";
 import { useValueChange } from "../../../hooks/useValueChange";
-import {
-  skillFileBytes,
-  type SkillFileContents,
-} from "../../../utils/skillFileBytes";
-import { splitSkillFile } from "../../../utils/splitSkillFile";
+import { splitSkillFile } from "@inspector/core/mcp/skillFile.js";
 import {
   inferMimeFromUri,
   isGenericMime,
@@ -126,6 +130,38 @@ interface FetchedEntryState {
   message?: string;
 }
 
+/**
+ * One child of a directory resource, as `resources/directory/read` returned it.
+ * Structurally the base protocol's `Resource`; only the three members this
+ * section renders are named.
+ */
+interface DirectoryChild {
+  uri: string;
+  name: string;
+  mimeType?: string;
+}
+
+/**
+ * The directory browser's state: which directory is on screen, the children
+ * gathered so far, and the cursor for the next page.
+ *
+ * Pages **accumulate** rather than replacing, unlike a paged list elsewhere in
+ * the app, because a directory listing is one thing split across responses — a
+ * reader descending a tree wants the directory's contents, not page 2 of them.
+ * `key` invalidates it exactly as it does every other async slot here.
+ */
+interface DirectoryState {
+  key: string | null;
+  attempt?: number;
+  /** The directory being shown (or read). */
+  uri?: string;
+  children?: DirectoryChild[];
+  /** Cursor for the page after `children`, when the server sent one. */
+  nextCursor?: string;
+  loading?: boolean;
+  message?: string;
+}
+
 export interface SkillsScreenProps {
   /**
    * Identity of the connected session. Part of the invalidation key below, so
@@ -157,6 +193,20 @@ export interface SkillsScreenProps {
    * fresh read excuses.
    */
   onGetSkill: (uri: string) => Promise<SkillEntry>;
+  /**
+   * One page of `resources/directory/read` (SEP-2640), or **`undefined` when
+   * the server did not declare `directoryRead`** — which is how the Directory
+   * section is gated.
+   *
+   * Gated by the prop's presence rather than by a boolean beside it, so the
+   * section cannot be rendered without a way to populate it: the SEP makes
+   * calling this method against a server that has not declared the sub-flag a
+   * MUST NOT, and an absent callback is that rule expressed in the type.
+   */
+  onReadResourceDirectory?: (
+    uri: string,
+    cursor?: string,
+  ) => Promise<DirectoryReadResult>;
 }
 
 /**
@@ -437,7 +487,13 @@ const SkillTitle = Text.withProps({
 const SECTION_FLEX = "0 1 auto";
 
 /** Every section this screen can render, in display order. */
-const ALL_SECTIONS = ["conformance", "resources", "frontmatter", "resource"];
+const ALL_SECTIONS = [
+  "conformance",
+  "resources",
+  "directory",
+  "frontmatter",
+  "resource",
+];
 
 /**
  * The open set for the FIRST render.
@@ -597,6 +653,7 @@ export function SkillsScreen({
   onRefreshList,
   onReadSkillFile,
   onGetSkill,
+  onReadResourceDirectory,
 }: SkillsScreenProps) {
   const { selectedSkillUri, search } = ui;
   // Both slices carry the manifest key they belong to, and every async
@@ -615,6 +672,7 @@ export function SkillsScreen({
   const [fetchedEntry, setFetchedEntry] = useState<FetchedEntryState>({
     key: null,
   });
+  const [directory, setDirectory] = useState<DirectoryState>({ key: null });
   // Every "Verify all" batch in flight, keyed by the manifest it belongs to.
   //
   // A **map**, not one slot, and the reason is a bug a single slot really had:
@@ -716,6 +774,11 @@ export function SkillsScreen({
     setVerification({ key: next, files: {} });
     setPreviewState({ key: next });
     setFetchedEntry({ key: next });
+    // A directory listing is a live observation of a path under the *selected*
+    // skill, so it is invalidated with everything else — carrying one across a
+    // selection change would show the previous skill's tree under the new
+    // skill's name.
+    setDirectory({ key: next });
     // Conformance tracks whether it has anything to say: an entry with no
     // errors and no warnings opens collapsed, because "0 error(s), 0
     // warning(s)" on the header already carries the whole message and an
@@ -940,6 +1003,86 @@ export function SkillsScreen({
     showResource(selectedUri, manifestKey);
   }, [manifestKey, selectedUri, showResource]);
 
+  /**
+   * The skill's root directory: its entry URI with `/SKILL.md` removed.
+   *
+   * Computed from the NORMALIZED URI, like every containment decision in
+   * `core/mcp/skills.ts`, so a `..` segment cannot produce a root the resolved
+   * path does not carry. `undefined` for a malformed entry URI — there is no
+   * root to browse, and `malformed-uri` already reports that in Conformance.
+   */
+  const skillRoot = useMemo(() => {
+    if (!selected) return undefined;
+    const normalized = skillUriIdentity(selected.uri);
+    return normalized.endsWith(SKILL_FILE_SUFFIX)
+      ? normalized.slice(0, -SKILL_FILE_SUFFIX.length)
+      : undefined;
+  }, [selected]);
+
+  /**
+   * Read one page of a directory, replacing the listing (`cursor` omitted) or
+   * appending to it (`cursor` given).
+   *
+   * Keyed and attempt-stamped exactly as the other async slots here, so a read
+   * still in flight when the user descends into a different directory — or
+   * switches skills — cannot land afterwards and paint one directory's children
+   * under another's path.
+   */
+  const readDirectory = useCallback(
+    (uri: string, key: string, cursor?: string) => {
+      if (!onReadResourceDirectory) return;
+      const attempt = (nextAttempt.current += 1);
+      const write = (next: Omit<DirectoryState, "key" | "attempt">) =>
+        setDirectory((prev) => {
+          if (prev.key !== null && prev.key !== key) return prev;
+          if (prev.attempt !== undefined && prev.attempt > attempt) return prev;
+          return { key, attempt, ...next };
+        });
+      // The path is claimed before the request goes out, so the header names
+      // the directory being read rather than continuing to announce the
+      // previous one for as long as the read takes.
+      setDirectory((prev) =>
+        prev.key !== null && prev.key !== key
+          ? prev
+          : {
+              key,
+              attempt,
+              uri,
+              // Pages accumulate, so a "load more" keeps what is on screen;
+              // a fresh read of a different directory starts empty.
+              children: cursor === undefined ? undefined : prev.children,
+              loading: true,
+            },
+      );
+      // A click handler cannot await, and this chain terminates in its own
+      // `catch`, which surfaces the message in the section.
+      void onReadResourceDirectory(uri, cursor)
+        .then((page) => {
+          setDirectory((prev) => {
+            if (prev.key !== null && prev.key !== key) return prev;
+            if (prev.attempt !== undefined && prev.attempt > attempt) {
+              return prev;
+            }
+            const held = cursor === undefined ? [] : (prev.children ?? []);
+            return {
+              key,
+              attempt,
+              uri,
+              children: [...held, ...page.resources],
+              nextCursor: page.nextCursor,
+            };
+          });
+        })
+        .catch((err: unknown) => {
+          write({
+            uri,
+            message: err instanceof Error ? err.message : String(err),
+          });
+        });
+    },
+    [onReadResourceDirectory],
+  );
+
   const fetchEntry = useCallback(() => {
     if (!selected) return;
     const key = manifestKey;
@@ -1004,6 +1147,50 @@ export function SkillsScreen({
   const batchRunning = batches.has(manifestKey);
 
   const previewCurrent = previewState.key === manifestKey;
+  /**
+   * The identities of every file the held entry's manifest lists.
+   *
+   * SEP-2640 is explicit that a directory read is *"a live observation that may
+   * run ahead of or behind"* the entry, and that **"Hosts MUST NOT treat the
+   * directory result as extending the manifest"** — a child the server lists
+   * but the entry does not is, to a host acting on the skill, a verification
+   * failure exactly as a digest mismatch is. The Inspector is not a host and
+   * does not refuse the read; what it must not do is present such a child as
+   * one of the skill's files without saying which view it came from. So the two
+   * views are labelled rather than merged.
+   *
+   * Compared on the normalized identity, like every other URI comparison here.
+   */
+  const manifestIdentities = useMemo(
+    () => new Set(manifest.map((resource) => skillUriIdentity(resource.uri))),
+    [manifest],
+  );
+
+  // The directory slot, but only when it belongs to the current manifest —
+  // same guard every other async slot on this screen uses.
+  const directoryCurrent = directory.key === manifestKey;
+  const directoryUri = directoryCurrent ? directory.uri : undefined;
+  const directoryChildren = directoryCurrent ? directory.children : undefined;
+  const directoryError = directoryCurrent ? directory.message : undefined;
+  const directoryLoading = directoryCurrent && directory.loading === true;
+  const directoryNextCursor = directoryCurrent
+    ? directory.nextCursor
+    : undefined;
+  /**
+   * Children the directory listed that the held entry's manifest does not.
+   * Directories are excluded: a manifest lists files, so a directory is not a
+   * missing entry. So is a `"dynamic"` skill, which advertises no manifest for
+   * anything to be missing from.
+   */
+  const unlistedChildren = useMemo(() => {
+    if (directoryChildren === undefined || isDynamic) return [];
+    return directoryChildren.filter(
+      (child) =>
+        child.mimeType !== DIRECTORY_MIME_TYPE &&
+        !manifestIdentities.has(skillUriIdentity(child.uri)),
+    );
+  }, [directoryChildren, isDynamic, manifestIdentities]);
+
   const preview = previewCurrent ? previewState.contents : undefined;
   const previewError = previewCurrent ? previewState.message : undefined;
   // The file the viewer is showing (or fetching). Falls back to the skill's own
@@ -1089,10 +1276,13 @@ export function SkillsScreen({
     () => [
       "conformance",
       ...(isDynamic ? [] : ["resources"]),
+      ...(onReadResourceDirectory && skillRoot !== undefined
+        ? ["directory"]
+        : []),
       ...(previewParts?.frontmatter !== undefined ? ["frontmatter"] : []),
       "resource",
     ],
-    [isDynamic, previewParts],
+    [isDynamic, onReadResourceDirectory, previewParts, skillRoot],
   );
   const allSectionsOpen = sectionIds.every((id) => openSections.includes(id));
 
@@ -1112,6 +1302,35 @@ export function SkillsScreen({
     (state) =>
       state.status === "done" && state.verification.status === "mismatch",
   ).length;
+
+  /**
+   * The SEP-2640 frontmatter cross-check, run against the file on screen — but
+   * **only when that file is the skill's own `SKILL.md`**.
+   *
+   * The obligation is that the entry's `frontmatter` match the frontmatter of
+   * the file the entry names; running it against a supporting file would report
+   * `frontmatter-absent` for every one of them, which is the tool inventing a
+   * defect. `showingSkillMd` is the same identity comparison the rest of this
+   * screen uses.
+   *
+   * It is deliberately **not** part of the static `issues` above: those are
+   * derived from the listing alone and are available the moment the list
+   * arrives, while this one needs a `resources/read` the user asked for. Folding
+   * them together would make the header badge's count change on its own the
+   * first time a file happened to be fetched.
+   */
+  const frontmatterIssues = useMemo(() => {
+    if (!selected || !showingSkillMd || previewParts === undefined) return [];
+    // Reconstructed from the split rather than re-derived from the payload, so
+    // the check reads exactly the bytes the Frontmatter section displays.
+    if (previewParts.frontmatter === undefined) {
+      return checkSkillFrontmatterMatch(selected, previewParts.body);
+    }
+    return checkSkillFrontmatterMatch(
+      selected,
+      `---\n${previewParts.frontmatter}\n---\n\n${previewParts.body}`,
+    );
+  }, [selected, showingSkillMd, previewParts]);
 
   const errorCount = issues.filter((i) => i.severity === "error").length;
   const warningCount = issues.length - errorCount;
@@ -1346,6 +1565,25 @@ export function SkillsScreen({
                               </Stack>
                             </Alert>
                           ))}
+                      </IssueStack>
+                    )}
+                    {/* The frontmatter cross-check renders in Conformance
+                        rather than beside the Frontmatter section, because it
+                        is a *finding about the entry* and every other finding
+                        about the entry is here — a reader checking "does this
+                        skill conform" must not have to know that one class of
+                        violation is filed somewhere else. */}
+                    {frontmatterIssues.length > 0 && (
+                      <IssueStack data-testid="skill-frontmatter-issues">
+                        {frontmatterIssues.map((issue, index) => (
+                          <Alert
+                            key={`frontmatter:${index}`}
+                            color={issueColor(issue)}
+                            title={issue.code}
+                          >
+                            <Text size="sm">{issue.message}</Text>
+                          </Alert>
+                        ))}
                       </IssueStack>
                     )}
                     {manifest.map((resource, index) => {
@@ -1592,6 +1830,197 @@ export function SkillsScreen({
                           })}
                         </Table.Tbody>
                       </ManifestTable>
+                    </Stack>
+                  </Accordion.Panel>
+                </Accordion.Item>
+              )}
+
+              {/* Gated on the CALLBACK, which the parent supplies only when
+                  the server declared `directoryRead`. SEP-2640 makes calling
+                  `resources/directory/read` against a server that has not
+                  declared it a MUST NOT, so an absent section is that rule
+                  rather than a UI preference. */}
+              {onReadResourceDirectory && skillRoot !== undefined && (
+                <Accordion.Item
+                  value="directory"
+                  flex={SECTION_FLEX}
+                  mih={
+                    openSections.includes("directory")
+                      ? OPEN_SECTION_MIN_HEIGHT
+                      : undefined
+                  }
+                >
+                  <Accordion.Control>
+                    <SectionHeading>Directory</SectionHeading>
+                  </Accordion.Control>
+                  <Accordion.Panel tabIndex={0}>
+                    <Stack gap="xs">
+                      {/* Read on a click, never on selection. A directory read
+                          is a live round trip, and this screen's posture is
+                          that every one of them is asked for — the same reason
+                          "Fetch entry" is a button and not an effect. */}
+                      <SectionControlsRow>
+                        <MonoCaption>{directoryUri ?? skillRoot}</MonoCaption>
+                        <Group gap="xs">
+                          {/* Ascending is bounded by the skill root: this
+                              section browses the selected skill's tree, and
+                              walking above it would leave the subject of every
+                              other section on screen. */}
+                          {directoryUri !== undefined &&
+                            directoryUri !== skillRoot && (
+                              <FetchButton
+                                onClick={() =>
+                                  readDirectory(
+                                    directoryUri.slice(
+                                      0,
+                                      directoryUri.lastIndexOf("/"),
+                                    ),
+                                    manifestKey,
+                                  )
+                                }
+                              >
+                                Up
+                              </FetchButton>
+                            )}
+                          <FetchButton
+                            loading={directoryLoading}
+                            onClick={() =>
+                              readDirectory(skillRoot, manifestKey)
+                            }
+                          >
+                            {directoryChildren === undefined
+                              ? "Read directory"
+                              : "Reload root"}
+                          </FetchButton>
+                        </Group>
+                      </SectionControlsRow>
+                      {directoryError !== undefined && (
+                        <Alert color="red" variant="light" title="Read failed">
+                          {directoryError}
+                        </Alert>
+                      )}
+                      {/* Stated in prose the first time the two views
+                          disagree, because the per-row chip alone does not say
+                          why it matters — and "the skill changed and needs
+                          re-approval" is what SEP-2640 asks a host to present
+                          here, rather than a read error. */}
+                      {unlistedChildren.length > 0 && (
+                        <Alert
+                          color="yellow"
+                          variant="light"
+                          title="This directory lists files the entry does not"
+                          data-testid="skill-directory-unlisted"
+                        >
+                          The server is serving {unlistedChildren.length} file
+                          {unlistedChildren.length === 1 ? "" : "s"} here that
+                          the held <Code>skills/list</Code> entry does not
+                          declare. A directory read is a live observation and
+                          does <strong>not</strong> extend the manifest: to a
+                          host acting on this skill, reading one of these is a
+                          verification failure equivalent to a digest mismatch.
+                          Re-fetch the entry with <Code>skills/get</Code> to see
+                          whether the skill has changed.
+                        </Alert>
+                      )}
+                      {directoryChildren !== undefined &&
+                        (directoryChildren.length === 0 ? (
+                          <EmptyState>This directory is empty.</EmptyState>
+                        ) : (
+                          <ManifestTable data-testid="skill-directory">
+                            <Table.Thead>
+                              <Table.Tr>
+                                <Table.Th>Name</Table.Th>
+                                <Table.Th>URI</Table.Th>
+                                <Table.Th>MIME type</Table.Th>
+                                <Table.Th>In manifest</Table.Th>
+                              </Table.Tr>
+                            </Table.Thead>
+                            <Table.Tbody>
+                              {directoryChildren.map((child, index) => {
+                                const isDir =
+                                  child.mimeType === DIRECTORY_MIME_TYPE;
+                                // A directory is not a manifest entry in the
+                                // first place — a manifest lists files — so it
+                                // is neither listed nor unlisted and gets no
+                                // verdict rather than a misleading "no".
+                                const listed = manifestIdentities.has(
+                                  skillUriIdentity(child.uri),
+                                );
+                                return (
+                                  // Index-keyed for the same reason the
+                                  // manifest rows are: a server repeating a URI
+                                  // is a defect to display, not two rows to
+                                  // collapse into one.
+                                  <Table.Tr key={index}>
+                                    <Table.Td>
+                                      <ResourceUriButton
+                                        // A directory descends; a file opens in
+                                        // the viewer below. One column, two
+                                        // destinations, so the label says which
+                                        // for a reader who cannot see the MIME
+                                        // column at a glance.
+                                        aria-label={
+                                          isDir
+                                            ? `Open directory ${child.uri}`
+                                            : `View ${child.uri}`
+                                        }
+                                        onClick={() =>
+                                          isDir
+                                            ? readDirectory(
+                                                child.uri,
+                                                manifestKey,
+                                              )
+                                            : showResource(
+                                                child.uri,
+                                                manifestKey,
+                                              )
+                                        }
+                                      >
+                                        {isDir ? `${child.name}/` : child.name}
+                                      </ResourceUriButton>
+                                    </Table.Td>
+                                    <Table.Td>
+                                      <MonoCaption>{child.uri}</MonoCaption>
+                                    </Table.Td>
+                                    <Table.Td>{child.mimeType ?? "—"}</Table.Td>
+                                    <Table.Td>
+                                      {isDir || isDynamic ? (
+                                        <Text size="xs" c="dimmed">
+                                          —
+                                        </Text>
+                                      ) : (
+                                        <CountBadge
+                                          color={listed ? "green" : "yellow"}
+                                        >
+                                          {listed ? "listed" : "not listed"}
+                                        </CountBadge>
+                                      )}
+                                    </Table.Td>
+                                  </Table.Tr>
+                                );
+                              })}
+                            </Table.Tbody>
+                          </ManifestTable>
+                        ))}
+                      {/* Paging is manual because the SEP gives the cursor to
+                          the client and this screen is what a server author
+                          uses to see their own pagination work. Auto-walking it
+                          would hide exactly the behaviour under test. */}
+                      {directoryNextCursor !== undefined &&
+                        directoryUri !== undefined && (
+                          <FetchButton
+                            loading={directoryLoading}
+                            onClick={() =>
+                              readDirectory(
+                                directoryUri,
+                                manifestKey,
+                                directoryNextCursor,
+                              )
+                            }
+                          >
+                            Load more
+                          </FetchButton>
+                        )}
                     </Stack>
                   </Accordion.Panel>
                 </Accordion.Item>

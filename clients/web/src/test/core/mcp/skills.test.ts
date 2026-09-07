@@ -7,6 +7,7 @@ import {
   SKILL_MAX_TOTAL_BYTES,
   base64ToBytes,
   checkSkillConformance,
+  checkSkillFrontmatterMatch,
   getSkillsExtension,
   isSkillsExtensionSupported,
   normalizeSkillUri,
@@ -841,5 +842,139 @@ describe("verifySkillResource", () => {
     );
     expect(result.status).toBe("unverifiable");
     expect(result.expectedDigest).toBe("sha256:nope");
+  });
+});
+
+describe("checkSkillFrontmatterMatch (#2248)", () => {
+  const entry = (frontmatter: Record<string, unknown>): SkillEntry => ({
+    uri: "skill://demo/SKILL.md",
+    frontmatter,
+    resources: [],
+  });
+  const file = (yaml: string, body = "# Demo\n") =>
+    `---\n${yaml}\n---\n\n${body}`;
+
+  it("reports nothing when every field agrees", () => {
+    expect(
+      checkSkillFrontmatterMatch(
+        entry({ name: "demo", description: "A demo" }),
+        file("name: demo\ndescription: A demo"),
+      ),
+    ).toEqual([]);
+  });
+
+  it("catches a listing that advertises a different description", () => {
+    // The violation no digest can catch: the digest is over the bytes the
+    // server served and says nothing about whether the listing described them
+    // honestly.
+    const issues = checkSkillFrontmatterMatch(
+      entry({ name: "demo", description: "Reads a spreadsheet" }),
+      file("name: demo\ndescription: Emails the spreadsheet"),
+    );
+    expect(issues).toHaveLength(1);
+    expect(issues[0].code).toBe("frontmatter-mismatch");
+    // Equivalent to a digest mismatch per the SEP, so it must be an error.
+    expect(issues[0].severity).toBe("error");
+    // The diagnosis, not just the verdict — a server author has to be able to
+    // fix it from the message alone.
+    expect(issues[0].message).toContain("Reads a spreadsheet");
+    expect(issues[0].message).toContain("Emails the spreadsheet");
+    expect(issues[0].resourceUri).toBe("skill://demo/SKILL.md");
+  });
+
+  it("reports one finding per differing field", () => {
+    const issues = checkSkillFrontmatterMatch(
+      entry({ name: "a", description: "x" }),
+      file("name: b\ndescription: y"),
+    );
+    expect(issues).toHaveLength(2);
+    expect(issues.map((i) => i.message.match(/"(\w+)"/)?.[1])).toEqual([
+      "description",
+      "name",
+    ]);
+  });
+
+  it("reports a field the file declares and the listing omits", () => {
+    const issues = checkSkillFrontmatterMatch(
+      entry({ name: "demo", description: "A demo" }),
+      file("name: demo\ndescription: A demo\nlicense: MIT"),
+    );
+    expect(issues).toHaveLength(1);
+    expect(issues[0].message).toMatch(/declares "license".*omits it/);
+  });
+
+  it("reports a field the listing declares and the file omits", () => {
+    const issues = checkSkillFrontmatterMatch(
+      entry({ name: "demo", description: "A demo", license: "MIT" }),
+      file("name: demo\ndescription: A demo"),
+    );
+    expect(issues).toHaveLength(1);
+    expect(issues[0].message).toMatch(
+      /listing declares "license".*served SKILL.md omits it/,
+    );
+  });
+
+  it("treats a file with no frontmatter block as a violation", () => {
+    const issues = checkSkillFrontmatterMatch(
+      entry({ name: "demo" }),
+      "# Demo\n\nNo fence here.\n",
+    );
+    expect(issues).toEqual([
+      expect.objectContaining({
+        code: "frontmatter-absent",
+        severity: "error",
+      }),
+    ]);
+  });
+
+  it("reports unparsable YAML as its own code, not as a mismatch", () => {
+    const issues = checkSkillFrontmatterMatch(
+      entry({ name: "demo" }),
+      file("a: [1,"),
+    );
+    expect(issues).toEqual([
+      expect.objectContaining({
+        code: "frontmatter-unparsable",
+        severity: "error",
+      }),
+    ]);
+  });
+
+  it("compares nested mappings by content, not by key order", () => {
+    // Key order is not meaningful in JSON or YAML, so calling it a discrepancy
+    // would report a conforming server as broken.
+    expect(
+      checkSkillFrontmatterMatch(
+        entry({ meta: { b: 2, a: 1 } }),
+        file("meta:\n  a: 1\n  b: 2"),
+      ),
+    ).toEqual([]);
+  });
+
+  it("treats array ORDER as significant", () => {
+    // A YAML sequence is ordered, so two orderings are two different values.
+    const issues = checkSkillFrontmatterMatch(
+      entry({ tags: ["a", "b"] }),
+      file("tags: [b, a]"),
+    );
+    expect(issues).toHaveLength(1);
+    expect(issues[0].code).toBe("frontmatter-mismatch");
+  });
+
+  it("distinguishes an explicit null from an absent field", () => {
+    // `license:` with no value parses to null — a field that is present and
+    // holds null, which is not the same fact as a field that is not there.
+    const issues = checkSkillFrontmatterMatch(
+      entry({ license: null }),
+      file("license:"),
+    );
+    expect(issues).toEqual([]);
+    expect(
+      checkSkillFrontmatterMatch(entry({}), file("license:")),
+    ).toHaveLength(1);
+  });
+
+  it("reports nothing for two empty frontmatters", () => {
+    expect(checkSkillFrontmatterMatch(entry({}), file(""))).toEqual([]);
   });
 });

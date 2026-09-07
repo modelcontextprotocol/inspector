@@ -27,6 +27,7 @@ import {
   ManagedResourcesState,
   ManagedResourceTemplatesState,
   ManagedPromptsState,
+  ManagedSkillsState,
   MessageLogState,
   FetchRequestLogState,
   StderrLogState,
@@ -40,6 +41,7 @@ import { useManagedTools } from "@inspector/core/react/useManagedTools.js";
 import { useManagedResources } from "@inspector/core/react/useManagedResources.js";
 import { useManagedResourceTemplates } from "@inspector/core/react/useManagedResourceTemplates.js";
 import { useManagedPrompts } from "@inspector/core/react/useManagedPrompts.js";
+import { useManagedSkills } from "@inspector/core/react/useManagedSkills.js";
 import { useMessageLog } from "@inspector/core/react/useMessageLog.js";
 import { useFetchRequestLog } from "@inspector/core/react/useFetchRequestLog.js";
 import { useStderrLog } from "@inspector/core/react/useStderrLog.js";
@@ -79,6 +81,7 @@ import { InfoTab } from "./components/InfoTab.js";
 import { AuthTab } from "./components/AuthTab.js";
 import { ResourcesTab } from "./components/ResourcesTab.js";
 import { PromptsTab } from "./components/PromptsTab.js";
+import { SkillsTab } from "./components/SkillsTab.js";
 import { ToolsTab } from "./components/ToolsTab.js";
 import { NotificationsTab } from "./components/NotificationsTab.js";
 import { HistoryTab } from "./components/HistoryTab.js";
@@ -153,6 +156,7 @@ function App({
     info?: number;
     resources?: number;
     prompts?: number;
+    skills?: number;
     tools?: number;
     messages?: number;
     requests?: number;
@@ -244,6 +248,9 @@ function App({
   const [managedPromptsStates, setManagedPromptsStates] = useState<
     Record<string, ManagedPromptsState>
   >({});
+  const [managedSkillsStates, setManagedSkillsStates] = useState<
+    Record<string, ManagedSkillsState>
+  >({});
   const [messageLogStates, setMessageLogStates] = useState<
     Record<string, MessageLogState>
   >({});
@@ -293,6 +300,7 @@ function App({
       ManagedResourceTemplatesState
     > = {};
     const newManagedPromptsStates: Record<string, ManagedPromptsState> = {};
+    const newManagedSkillsStates: Record<string, ManagedSkillsState> = {};
     const newMessageLogStates: Record<string, MessageLogState> = {};
     const newFetchRequestLogStates: Record<string, FetchRequestLogState> = {};
     const newStderrLogStates: Record<string, StderrLogState> = {};
@@ -367,6 +375,7 @@ function App({
         newManagedResourceTemplatesStates[serverName] =
           new ManagedResourceTemplatesState(client);
         newManagedPromptsStates[serverName] = new ManagedPromptsState(client);
+        newManagedSkillsStates[serverName] = new ManagedSkillsState(client);
         newMessageLogStates[serverName] = new MessageLogState(client);
         newFetchRequestLogStates[serverName] = new FetchRequestLogState(client);
         newStderrLogStates[serverName] = new StderrLogState(client);
@@ -386,6 +395,10 @@ function App({
       setManagedPromptsStates((prev) => ({
         ...prev,
         ...newManagedPromptsStates,
+      }));
+      setManagedSkillsStates((prev) => ({
+        ...prev,
+        ...newManagedSkillsStates,
       }));
       setMessageLogStates((prev) => ({ ...prev, ...newMessageLogStates }));
       setFetchRequestLogStates((prev) => ({
@@ -420,6 +433,9 @@ function App({
       Object.values(managedPromptsStates).forEach((manager) => {
         manager.destroy();
       });
+      Object.values(managedSkillsStates).forEach((manager) => {
+        manager.destroy();
+      });
       Object.values(messageLogStates).forEach((manager) => {
         manager.destroy();
       });
@@ -441,6 +457,7 @@ function App({
     managedResourcesStates,
     managedResourceTemplatesStates,
     managedPromptsStates,
+    managedSkillsStates,
     messageLogStates,
     fetchRequestLogStates,
     stderrLogStates,
@@ -586,10 +603,28 @@ function App({
       selectedInspectorClient,
       selectedManagedResourceTemplatesState,
     );
+  const selectedManagedSkillsState = useMemo(
+    () =>
+      selectedServer && managedSkillsStates[selectedServer]
+        ? managedSkillsStates[selectedServer]
+        : null,
+    [selectedServer, managedSkillsStates],
+  );
   const { prompts: managedPrompts } = useManagedPrompts(
     selectedInspectorClient,
     selectedManagedPromptsState,
   );
+  const {
+    skills: managedSkills,
+    pageCount: managedSkillsPageCount,
+    error: managedSkillsError,
+  } = useManagedSkills(selectedInspectorClient, selectedManagedSkillsState);
+  // A *server-declared* extension, so it is only knowable after connecting —
+  // unlike the transport-derived `showLoggingTab` / `showRequestsTab` above.
+  const showSkillsTab =
+    !!selectedServer &&
+    !!selectedInspectorClient?.getSkillsExtension() &&
+    inspectorStatus === "connected";
 
   // Connect — on 401 or mid-session auth recovery, run OAuth then retry.
   type TuiOAuthRunResult =
@@ -1347,6 +1382,7 @@ function App({
     setTabCounts({
       resources: managedResources.length || 0,
       prompts: managedPrompts.length || 0,
+      skills: managedSkills.length || 0,
       tools: managedTools.length || 0,
       messages: inspectorMessages.length || 0,
       requests: inspectorFetchRequests.length || 0,
@@ -1356,6 +1392,7 @@ function App({
     selectedServer,
     managedResources,
     managedPrompts,
+    managedSkills,
     managedTools,
     inspectorMessages,
     inspectorFetchRequests,
@@ -1430,6 +1467,7 @@ function App({
           if (tab.id === "auth" && !showAuthTab) return false;
           if (tab.id === "logging" && !showLoggingTab) return false;
           if (tab.id === "requests" && !showRequestsTab) return false;
+          if (tab.id === "skills" && !showSkillsTab) return false;
           return true;
         })
         .map((tab: { id: TabType; label: string; accelerator: string }) => [
@@ -1517,6 +1555,7 @@ function App({
         "auth",
         "resources",
         "prompts",
+        "skills",
         "tools",
         "messages",
         "requests",
@@ -1526,6 +1565,7 @@ function App({
         if (t === "auth" && !showAuthTab) return false;
         if (t === "logging" && !showLoggingTab) return false;
         if (t === "requests" && !showRequestsTab) return false;
+        if (t === "skills" && !showSkillsTab) return false;
         return true;
       });
       const currentIndex = tabs.indexOf(activeTab);
@@ -1763,6 +1803,7 @@ function App({
                 ? inspectorClients[selectedServer].getServerType() === "stdio"
                 : false
             }
+            showSkills={showSkillsTab}
             showRequests={
               selectedServer && inspectorClients[selectedServer]
                 ? (() => {
@@ -1957,6 +1998,34 @@ function App({
                     inspectorClient: selectedInspectorClient,
                   });
                 }}
+                onAuthRecoveryRequired={onAuthRecoveryRequired}
+                modalOpen={
+                  !!(
+                    toolTestModal ||
+                    resourceTestModal ||
+                    promptTestModal ||
+                    detailsModal
+                  )
+                }
+              />
+            ) : activeTab === "skills" &&
+              currentServerState?.status === "connected" &&
+              selectedInspectorClient ? (
+              <SkillsTab
+                key={`skills-${selectedServer}`}
+                skills={managedSkills}
+                pageCount={managedSkillsPageCount}
+                loadError={managedSkillsError}
+                inspectorClient={selectedInspectorClient}
+                width={contentWidth}
+                height={contentHeight}
+                focusedPane={
+                  focus === "tabContentDetails"
+                    ? "details"
+                    : focus === "tabContentList"
+                      ? "list"
+                      : null
+                }
                 onAuthRecoveryRequired={onAuthRecoveryRequired}
                 modalOpen={
                   !!(

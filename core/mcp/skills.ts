@@ -23,15 +23,15 @@
  * machinery (activation, per-skill consent, content-bound approval) is
  * implemented here. Surface and verify.
  *
- * ⚠️ **One SEP-2640 obligation is deliberately NOT checked here: that an entry's
- * `frontmatter` matches the fetched `SKILL.md`'s frontmatter field by field.**
- * The digest check does not cover it — a digest is taken over the bytes the
- * server served, so it proves the file was not tampered with in transit and
- * says nothing about whether the *listing* described that file honestly. A
- * server can therefore advertise one description, serve a different one, and
- * pass every check in this module. Closing it needs a YAML parser, which is a
- * new runtime dependency and a placement decision of its own, so it is tracked
- * on #2248 rather than half-done here.
+ * **The frontmatter cross-check closes the gap the digest cannot** (#2248).
+ * SEP-2640 requires that an entry's `frontmatter` match the fetched `SKILL.md`'s
+ * frontmatter field by field, and no digest can establish that: a digest is
+ * taken over the bytes the server served, so it proves the file was not altered
+ * in transit and says nothing about whether the *listing* described that file
+ * honestly. A server could advertise one description, serve another, and pass
+ * every other check in this module. {@link checkSkillFrontmatterMatch} is the
+ * check; it needs a real YAML parser, and `core/mcp/skillFile.ts` explains why
+ * that dependency is imported rather than approximated.
  */
 
 import type { ServerCapabilities } from "@modelcontextprotocol/client";
@@ -42,6 +42,7 @@ import {
   type SkillResource,
 } from "./skillsSchemas.js";
 import { sha256Bytes } from "./sha256.js";
+import { parseSkillFrontmatter, splitSkillFile } from "./skillFile.js";
 
 /** Maximum resource entries a single skill may declare (SEP-2640). */
 export const SKILL_MAX_RESOURCE_ENTRIES = 512;
@@ -243,7 +244,10 @@ export type SkillIssueCode =
   | "resource-outside-skill-root"
   | "manifest-missing-self"
   | "resource-limit-exceeded"
-  | "size-limit-exceeded";
+  | "size-limit-exceeded"
+  | "frontmatter-absent"
+  | "frontmatter-unparsable"
+  | "frontmatter-mismatch";
 
 /**
  * `error` marks a **MUST** of SEP-2640 that the server broke, so a manifest
@@ -647,6 +651,32 @@ export function base64ToBytes(blob: string): Uint8Array {
 }
 
 /**
+ * The content a `resources/read` returned for one skill file. Either `text` (a
+ * `TextResourceContents`) or `blob` (base64, a `BlobResourceContents`).
+ */
+export interface SkillFileContents {
+  text?: string;
+  blob?: string;
+  mimeType?: string;
+}
+
+/**
+ * The raw bytes of a skill file, as fetched — the bytes its digest was taken
+ * over.
+ *
+ * Throws for a result carrying neither `text` nor `blob`. That is a server bug,
+ * and it must not be quietly treated as empty content: an empty `Uint8Array`
+ * has a perfectly good SHA-256, so a silent fallback would report a *digest
+ * mismatch* — a confident, wrong diagnosis — instead of "this response carried
+ * no content at all". Callers surface the throw as a per-file read failure.
+ */
+export function skillFileBytes(contents: SkillFileContents): Uint8Array {
+  if (typeof contents.text === "string") return textToBytes(contents.text);
+  if (typeof contents.blob === "string") return base64ToBytes(contents.blob);
+  throw new Error("resources/read returned neither text nor blob content.");
+}
+
+/**
  * Verify one fetched skill file against its manifest entry.
  *
  * A mismatch is reported as `"mismatch"` with both digests attached rather than
@@ -703,4 +733,106 @@ export async function verifySkillResource(
       ? { expectedSize, actualSize: bytes.byteLength }
       : {}),
   };
+}
+
+/**
+ * Compare the fetched `SKILL.md`'s own frontmatter against the frontmatter the
+ * entry advertised, field by field — the SEP-2640 obligation a digest cannot
+ * discharge (#2248).
+ *
+ * SEP-2640: *"hosts MUST parse its YAML frontmatter and compare it
+ * field-by-field against the entry's `frontmatter`. Any discrepancy MUST be
+ * treated as a verification failure equivalent to a digest mismatch"*. So every
+ * finding here is an `error`, matching what a digest mismatch reports — the
+ * spec makes them equivalent and the report must not rank one below the other.
+ *
+ * **One finding per differing field, not one per file.** "Frontmatter does not
+ * match" is unactionable for the server author who has to fix it; "listing says
+ * `description: A`, file says `description: B`" is the whole diagnosis. The
+ * union of both sides' keys is walked, so a field present on only one side is
+ * reported as such rather than silently skipped.
+ *
+ * ⚠️ **Only call this with the bytes of the entry's own `SKILL.md`.** The check
+ * is meaningless against a supporting file, which has no frontmatter to match,
+ * and would report every one of them as `frontmatter-absent`. Callers select
+ * the file; this function cannot tell which one it was handed.
+ *
+ * Values are compared as **canonical JSON**, so a frontmatter field holding a
+ * nested mapping compares equal when the two sides agree on content and differ
+ * only in key order — which is not a discrepancy in either JSON or YAML. Array
+ * order *is* significant and is preserved, because a YAML sequence is ordered.
+ */
+export function checkSkillFrontmatterMatch(
+  entry: SkillEntry,
+  skillFileText: string,
+): SkillIssue[] {
+  const { frontmatter } = splitSkillFile(skillFileText);
+  if (frontmatter === undefined) {
+    return [
+      {
+        code: "frontmatter-absent",
+        severity: "error",
+        message:
+          "The served SKILL.md carries no YAML frontmatter block, so the listing's frontmatter cannot be the file's.",
+        resourceUri: entry.uri,
+      },
+    ];
+  }
+  const parsed = parseSkillFrontmatter(frontmatter);
+  if ("error" in parsed) {
+    return [
+      {
+        code: "frontmatter-unparsable",
+        severity: "error",
+        message: `The served SKILL.md's frontmatter is not valid YAML: ${parsed.error}`,
+        resourceUri: entry.uri,
+      },
+    ];
+  }
+  const issues: SkillIssue[] = [];
+  // Sorted so the report is stable across runs — `Object.keys` order follows
+  // insertion, which is the wire order on one side and the file order on the
+  // other, and those need not agree even when the content does.
+  const fields = [
+    ...new Set([
+      ...Object.keys(entry.frontmatter),
+      ...Object.keys(parsed.fields),
+    ]),
+  ].sort();
+  for (const field of fields) {
+    const listed = entry.frontmatter[field];
+    const served = parsed.fields[field];
+    // `undefined` is the only way "absent" reaches here: JSON has no undefined
+    // value, and a YAML key written with an empty value parses to `null`, which
+    // is a present field holding null and compares as one.
+    if (listed === undefined) {
+      issues.push({
+        code: "frontmatter-mismatch",
+        severity: "error",
+        message: `The served SKILL.md declares "${field}" but the listing's frontmatter omits it.`,
+        resourceUri: entry.uri,
+      });
+      continue;
+    }
+    if (served === undefined) {
+      issues.push({
+        code: "frontmatter-mismatch",
+        severity: "error",
+        message: `The listing declares "${field}" but the served SKILL.md omits it.`,
+        resourceUri: entry.uri,
+      });
+      continue;
+    }
+    const listedJson = JSON.stringify(canonicalize(listed));
+    const servedJson = JSON.stringify(canonicalize(served));
+    if (listedJson !== servedJson) {
+      issues.push({
+        code: "frontmatter-mismatch",
+        severity: "error",
+        message: `Field "${field}" differs: the listing says ${listedJson} but the served SKILL.md says ${servedJson}.`,
+        resourceUri: entry.uri,
+      });
+    }
+  }
+  return issues;
 }

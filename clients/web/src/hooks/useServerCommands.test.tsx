@@ -946,6 +946,76 @@ describe("onReadSkillFile (#2234)", () => {
   });
 });
 
+describe("onReadResourceDirectory (#2248)", () => {
+  const PAGE = { resources: [{ uri: "skill://demo/x.md", name: "x.md" }] };
+
+  it("passes the uri and cursor straight through to the client", async () => {
+    // Not aggregated across pages: SEP-2640 says the listing is not recursive
+    // and the client descends, so the cursor belongs to the caller.
+    const readResourceDirectory = vi.fn().mockResolvedValue(PAGE);
+    const h = harness({ client: client({ readResourceDirectory }) });
+    await expect(
+      h.api().onReadResourceDirectory("skill://demo", "3"),
+    ).resolves.toBe(PAGE);
+    expect(readResourceDirectory).toHaveBeenCalledWith("skill://demo", "3");
+  });
+
+  it("throws when there is no client", async () => {
+    await expect(
+      harness().api().onReadResourceDirectory("skill://demo"),
+    ).rejects.toThrow("Client is not connected");
+  });
+
+  it("retries once after a satisfied recovery", async () => {
+    const recover = vi.fn().mockResolvedValue(true);
+    const readResourceDirectory = vi
+      .fn()
+      .mockRejectedValueOnce(authError())
+      .mockResolvedValue(PAGE);
+    const h = harness({
+      client: client({ readResourceDirectory }),
+      activeServerId: "a",
+      recovery: { handleCommandScopedAuthRecovery: recover },
+    });
+    await expect(h.api().onReadResourceDirectory("skill://demo")).resolves.toBe(
+      PAGE,
+    );
+    expect(readResourceDirectory).toHaveBeenCalledTimes(2);
+  });
+
+  it("rethrows when the recovery was not satisfied", async () => {
+    const h = harness({
+      client: client({
+        readResourceDirectory: vi.fn().mockRejectedValue(authError()),
+      }),
+      activeServerId: "a",
+      recovery: {
+        handleCommandScopedAuthRecovery: vi.fn().mockResolvedValue(false),
+      },
+    });
+    await expect(
+      h.api().onReadResourceDirectory("skill://demo"),
+    ).rejects.toBeInstanceOf(AuthRecoveryRequiredError);
+  });
+
+  it("rethrows a non-auth failure untouched", async () => {
+    // The MUST NOT refusal for an undeclared `directoryRead` is raised by the
+    // client and must reach the caller unchanged, not be mistaken for auth.
+    const h = harness({
+      client: client({
+        readResourceDirectory: vi
+          .fn()
+          .mockRejectedValue(new Error("did not declare directoryRead")),
+      }),
+      activeServerId: "a",
+      recovery: { handleCommandScopedAuthRecovery: vi.fn() },
+    });
+    await expect(
+      h.api().onReadResourceDirectory("skill://demo"),
+    ).rejects.toThrow(/directoryRead/);
+  });
+});
+
 describe("onGetSkill (#2234)", () => {
   it("routes the uri through the client's skills/get", async () => {
     const getSkill = vi.fn().mockResolvedValue({

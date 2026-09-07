@@ -1,0 +1,416 @@
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { Box, Text, useInput, type Key } from "ink";
+import { ScrollView, type ScrollViewRef } from "ink-scroll-view";
+import type { InspectorClient } from "@inspector/core/mcp/index.js";
+import { AuthRecoveryRequiredError } from "@inspector/core/auth/challenge.js";
+import {
+  checkSkillConformance,
+  skillDisplayName,
+  type SkillIssue,
+} from "@inspector/core/mcp/skills.js";
+import {
+  DYNAMIC_RESOURCES,
+  type SkillEntry,
+} from "@inspector/core/mcp/skillsSchemas.js";
+import {
+  verifySkills,
+  type SkillVerifyReport,
+} from "@inspector/core/mcp/skillsVerification.js";
+import { useSelectableList } from "../hooks/useSelectableList.js";
+
+interface SkillsTabProps {
+  skills: SkillEntry[];
+  /** Pages the last `skills/list` walk took; shown so pagination is visible. */
+  pageCount: number;
+  /** A failed list walk, rendered in place of the list. */
+  loadError?: Error | null;
+  inspectorClient: InspectorClient | null;
+  width: number;
+  height: number;
+  focusedPane?: "list" | "details" | null;
+  onAuthRecoveryRequired?: (error: AuthRecoveryRequiredError) => void;
+  modalOpen?: boolean;
+}
+
+/**
+ * The character that leads a finding line, by severity. A terminal pane cannot
+ * lean on colour alone — the Inspector is run over ssh, in tmux, and piped
+ * through `script(1)` — so severity is carried by a glyph as well as a colour.
+ */
+const ISSUE_MARK: Record<SkillIssue["severity"], string> = {
+  error: "✗",
+  warning: "!",
+};
+
+const ISSUE_COLOR: Record<SkillIssue["severity"], string> = {
+  error: "red",
+  warning: "yellow",
+};
+
+/** Per-file verification glyph, same reasoning as {@link ISSUE_MARK}. */
+const FILE_MARK: Record<string, string> = {
+  verified: "✓",
+  mismatch: "✗",
+  unverifiable: "?",
+  error: "✗",
+  "read-error": "✗",
+};
+
+const FILE_COLOR: Record<string, string> = {
+  verified: "green",
+  mismatch: "red",
+  unverifiable: "yellow",
+  error: "red",
+  "read-error": "red",
+};
+
+/** The file name a manifest URI ends in, for a list that must fit 40 columns. */
+function fileNameOf(uri: string): string {
+  const cut = uri.lastIndexOf("/");
+  return cut === -1 ? uri : uri.slice(cut + 1);
+}
+
+/**
+ * The Skills pane (SEP-2640, #2248): the catalog on the left, and on the right
+ * the selected skill's frontmatter, its conformance findings, and its manifest.
+ *
+ * **Enter verifies.** The static checks run on every render — they are a pure
+ * walk over a list already in memory — but digest verification needs the bytes,
+ * so it is one `resources/read` per manifest entry and must be asked for. That
+ * split is the same one the web screen makes and the same one SEP-2640 makes:
+ * hosts MUST NOT retrieve a skill's files ahead of need.
+ */
+export function SkillsTab({
+  skills,
+  pageCount,
+  loadError = null,
+  inspectorClient,
+  width,
+  height,
+  focusedPane = null,
+  onAuthRecoveryRequired,
+  modalOpen = false,
+}: SkillsTabProps) {
+  const visibleCount = Math.max(1, height - 7);
+  const { selectedIndex, firstVisible, setSelection } = useSelectableList(
+    skills.length,
+    visibleCount,
+    { resetWhen: skills },
+  );
+  const [error, setError] = useState<string | null>(null);
+  const [verifying, setVerifying] = useState(false);
+  /**
+   * The last verification, keyed by the skill URI it was run for. Keyed rather
+   * than cleared on selection change so moving off a skill and back does not
+   * silently discard a verdict the user just paid a round trip for — and keyed
+   * by URI rather than index so a refresh that reorders the list cannot show
+   * one skill's verdict under another's name.
+   */
+  const [report, setReport] = useState<{
+    uri: string;
+    result: SkillVerifyReport;
+  } | null>(null);
+  const scrollViewRef = useRef<ScrollViewRef>(null);
+
+  const selectedSkill = skills[selectedIndex] ?? null;
+
+  const runVerify = useCallback(
+    (skill: SkillEntry) => {
+      if (!inspectorClient || verifying) return;
+      setVerifying(true);
+      setError(null);
+      // The IIFE catches everything it can throw, so there is no rejection for
+      // this key handler — which cannot await — to own.
+      void (async () => {
+        try {
+          const [result] = await verifySkills(inspectorClient, [skill]);
+          setReport({ uri: skill.uri, result });
+        } catch (err) {
+          if (err instanceof AuthRecoveryRequiredError) {
+            onAuthRecoveryRequired?.(err);
+            return;
+          }
+          /* v8 ignore start -- `verifySkills` records an ordinary read failure
+             against the file it happened on and keeps walking, and it re-throws
+             exactly one error, handled directly above. So nothing the call
+             graph can produce reaches here; this is the guard that keeps a
+             future change from becoming an unhandled rejection instead of a
+             visible message. Exercising it would mean faking a throw the walk
+             cannot make, which tests the fake rather than the code. */
+          setError(
+            err instanceof Error ? err.message : "Failed to verify skill",
+          );
+          /* v8 ignore stop */
+        } finally {
+          setVerifying(false);
+        }
+      })();
+    },
+    [inspectorClient, onAuthRecoveryRequired, verifying],
+  );
+
+  useInput(
+    (input: string, key: Key) => {
+      if (key.return && selectedSkill && inspectorClient) {
+        runVerify(selectedSkill);
+        return;
+      }
+      if (focusedPane === "list") {
+        if (key.upArrow && selectedIndex > 0) {
+          setSelection(selectedIndex - 1);
+        } else if (key.downArrow && selectedIndex < skills.length - 1) {
+          setSelection(selectedIndex + 1);
+        }
+        return;
+      }
+      if (focusedPane === "details") {
+        if (key.upArrow) {
+          scrollViewRef.current?.scrollBy(-1);
+        } else if (key.downArrow) {
+          scrollViewRef.current?.scrollBy(1);
+        } else if (key.pageUp) {
+          const viewportHeight =
+            scrollViewRef.current?.getViewportHeight() || 1;
+          scrollViewRef.current?.scrollBy(-viewportHeight);
+        } else if (key.pageDown) {
+          const viewportHeight =
+            scrollViewRef.current?.getViewportHeight() || 1;
+          scrollViewRef.current?.scrollBy(viewportHeight);
+        }
+      }
+    },
+    {
+      isActive:
+        !modalOpen && (focusedPane === "list" || focusedPane === "details"),
+    },
+  );
+
+  // Reset scroll when selection changes. A genuine synchronization with an
+  // external system (the ScrollView's imperative handle), not state derived
+  // from a prop — so an effect is the right tool here.
+  useEffect(() => {
+    scrollViewRef.current?.scrollTo(0);
+  }, [selectedIndex]);
+
+  const listWidth = Math.floor(width * 0.4);
+  const detailWidth = width - listWidth;
+  const issues = selectedSkill ? checkSkillConformance(selectedSkill) : [];
+  const activeReport =
+    selectedSkill && report?.uri === selectedSkill.uri ? report.result : null;
+  const manifest =
+    selectedSkill && selectedSkill.resources !== DYNAMIC_RESOURCES
+      ? selectedSkill.resources
+      : [];
+
+  return (
+    <Box flexDirection="row" width={width} height={height}>
+      <Box
+        width={listWidth}
+        height={height}
+        borderStyle="single"
+        borderTop={false}
+        borderBottom={false}
+        borderLeft={false}
+        borderRight={true}
+        flexDirection="column"
+        paddingX={1}
+      >
+        <Box paddingY={1}>
+          <Text
+            bold
+            backgroundColor={focusedPane === "list" ? "yellow" : undefined}
+          >
+            Skills ({skills.length}
+            {pageCount > 1 ? `, ${pageCount} pages` : ""})
+          </Text>
+        </Box>
+        {loadError ? (
+          <Box paddingY={1}>
+            <Text color="red">{loadError.message}</Text>
+          </Box>
+        ) : skills.length === 0 ? (
+          <Box paddingY={1}>
+            <Text dimColor>No skills available</Text>
+          </Box>
+        ) : (
+          <Box
+            flexDirection="column"
+            height={visibleCount}
+            overflow="hidden"
+            flexShrink={0}
+          >
+            {skills
+              .slice(firstVisible, firstVisible + visibleCount)
+              .map((skill, i) => {
+                const index = firstVisible + i;
+                const isSelected = index === selectedIndex;
+                // The per-row mark is the static conformance verdict, which
+                // costs nothing — it is what makes a bad skill visible in the
+                // list rather than only after selecting it.
+                const rowIssues = checkSkillConformance(skill);
+                const worst = rowIssues.some((it) => it.severity === "error")
+                  ? "error"
+                  : rowIssues.length > 0
+                    ? "warning"
+                    : null;
+                return (
+                  <Box key={skill.uri || index} paddingY={0} flexShrink={0}>
+                    <Text>
+                      {isSelected ? "▶ " : "  "}
+                      {worst ? (
+                        <Text color={ISSUE_COLOR[worst]}>
+                          {ISSUE_MARK[worst]}{" "}
+                        </Text>
+                      ) : (
+                        <Text color="green">✓ </Text>
+                      )}
+                      {skillDisplayName(skill)}
+                    </Text>
+                  </Box>
+                );
+              })}
+          </Box>
+        )}
+      </Box>
+
+      <Box
+        width={detailWidth}
+        height={height}
+        paddingX={1}
+        flexDirection="column"
+        overflow="hidden"
+      >
+        {selectedSkill ? (
+          <>
+            <Box flexShrink={0} paddingTop={1}>
+              <Text
+                bold
+                backgroundColor={
+                  focusedPane === "details" ? "yellow" : undefined
+                }
+                {...(focusedPane === "details" ? {} : { color: "cyan" })}
+              >
+                {skillDisplayName(selectedSkill)}
+              </Text>
+            </Box>
+
+            <ScrollView ref={scrollViewRef} height={height - 5}>
+              <Box marginTop={1} flexShrink={0}>
+                <Text dimColor>{selectedSkill.uri}</Text>
+              </Box>
+              {selectedSkill.frontmatter.description && (
+                <Box marginTop={1} flexShrink={0}>
+                  <Text dimColor>{selectedSkill.frontmatter.description}</Text>
+                </Box>
+              )}
+
+              <Box marginTop={1} flexShrink={0}>
+                <Text bold>
+                  Conformance{issues.length === 0 ? ": conforms" : ":"}
+                </Text>
+              </Box>
+              {issues.map((issue, idx) => (
+                <Box key={`issue-${idx}`} paddingLeft={2} flexShrink={0}>
+                  <Text color={ISSUE_COLOR[issue.severity]}>
+                    {ISSUE_MARK[issue.severity]} {issue.message}
+                  </Text>
+                </Box>
+              ))}
+
+              <Box marginTop={1} flexShrink={0}>
+                <Text bold>
+                  Manifest
+                  {selectedSkill.resources === DYNAMIC_RESOURCES
+                    ? ': "dynamic" — no files advertised'
+                    : ` (${manifest.length})`}
+                </Text>
+              </Box>
+              {manifest.map((resource, idx) => {
+                const fileReport = activeReport?.files.find(
+                  (file) => file.uri === resource.uri,
+                );
+                return (
+                  <Box
+                    key={`file-${idx}`}
+                    paddingLeft={2}
+                    flexShrink={0}
+                    flexDirection="column"
+                  >
+                    <Text>
+                      {fileReport ? (
+                        <Text color={FILE_COLOR[fileReport.status] ?? "white"}>
+                          {FILE_MARK[fileReport.status] ?? "?"}{" "}
+                        </Text>
+                      ) : (
+                        <Text dimColor>· </Text>
+                      )}
+                      {fileNameOf(resource.uri)}
+                      {resource.size !== undefined ? (
+                        <Text dimColor> ({resource.size} B)</Text>
+                      ) : null}
+                    </Text>
+                    {fileReport?.reason && (
+                      <Box paddingLeft={4} flexShrink={0}>
+                        <Text color="red">{fileReport.reason}</Text>
+                      </Box>
+                    )}
+                  </Box>
+                );
+              })}
+
+              {activeReport && activeReport.frontmatter.length > 0 && (
+                <>
+                  <Box marginTop={1} flexShrink={0}>
+                    <Text bold>Frontmatter cross-check:</Text>
+                  </Box>
+                  {activeReport.frontmatter.map((issue, idx) => (
+                    <Box key={`fm-${idx}`} paddingLeft={2} flexShrink={0}>
+                      <Text color={ISSUE_COLOR[issue.severity]}>
+                        {ISSUE_MARK[issue.severity]} {issue.message}
+                      </Text>
+                    </Box>
+                  ))}
+                </>
+              )}
+
+              {error && (
+                <Box marginTop={1} flexShrink={0}>
+                  <Text color="red">{error}</Text>
+                </Box>
+              )}
+
+              <Box marginTop={1} flexShrink={0}>
+                <Text dimColor>
+                  {verifying
+                    ? "[Verifying…]"
+                    : activeReport
+                      ? activeReport.ok
+                        ? "[Verified — Enter to re-verify]"
+                        : "[Verification FAILED — Enter to re-verify]"
+                      : "[Enter to verify digests and frontmatter]"}
+                </Text>
+              </Box>
+            </ScrollView>
+
+            {focusedPane === "details" && (
+              <Box
+                flexShrink={0}
+                height={1}
+                justifyContent="center"
+                backgroundColor="gray"
+              >
+                <Text bold color="white">
+                  ↑/↓ to scroll, Enter to verify
+                </Text>
+              </Box>
+            )}
+          </>
+        ) : (
+          <Box paddingY={1} flexShrink={0}>
+            <Text dimColor>Select a skill to view details</Text>
+          </Box>
+        )}
+      </Box>
+    </Box>
+  );
+}

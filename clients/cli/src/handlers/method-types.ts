@@ -34,6 +34,18 @@ export type MethodArgs = {
   taskId?: string;
   /** When true, tools/call uses callToolStream (task-augmented). */
   task?: boolean;
+  /**
+   * `--verify`: run the SEP-2640 conformance and digest checks over the skills
+   * a `skills/list` / `skills/get` returned, emit one NDJSON report per skill,
+   * and exit non-zero when any fails (#2248).
+   */
+  verify?: boolean;
+  /**
+   * Opaque pagination cursor. Used by `resources/directory/read`, whose result
+   * pages exactly as `resources/list` does — and where the caller descends the
+   * tree itself, so there is no store to walk it.
+   */
+  cursor?: string;
   /** roots/set payload (JSON array of {uri, name?}). */
   rootsJson?: string;
   /** prompts/complete: argument name / value / ref. */
@@ -53,7 +65,18 @@ export type McpResponse = Record<string, unknown>;
 export type MethodOutcome =
   | { kind: "result"; result: McpResponse; appInfo?: CliAppInfo }
   /** One JSON object per line (e.g. tools/list --app-info). Caller writes stdout. */
-  | { kind: "ndjson"; lines: unknown[] }
+  | {
+      kind: "ndjson";
+      lines: unknown[];
+      /**
+       * A line for **stderr**, written after the NDJSON. `--verify` uses it for
+       * its one-line summary, so a reader who piped stdout into `jq` still sees
+       * the verdict; `--app-info` sets nothing and behaves as before.
+       */
+      summary?: string;
+      /** Non-zero when the emitted report is itself a failure (`--verify`). */
+      exitCode?: number;
+    }
   | {
       kind: "stream";
       /** Human label for errors. */
@@ -76,6 +99,7 @@ export const SESSION_RPC_METHODS = [
   "resources/list",
   "resources/read",
   "resources/templates/list",
+  "resources/directory/read",
   "resources/subscribe",
   "resources/unsubscribe",
   "prompts/list",
@@ -89,6 +113,8 @@ export const SESSION_RPC_METHODS = [
   "tasks/result",
   "roots/list",
   "roots/set",
+  "skills/list",
+  "skills/get",
 ] as const;
 
 export type SessionRpcMethod = (typeof SESSION_RPC_METHODS)[number];
@@ -109,6 +135,12 @@ export const ONE_SHOT_METHODS = [
   "prompts/list",
   "prompts/get",
   "logging/setLevel",
+  // SEP-2640. All three are ordinary one-shot request/response calls — no
+  // stream, no long-lived subscription — so they belong here alongside the
+  // other list verbs rather than being reachable only from the session CLI.
+  "skills/list",
+  "skills/get",
+  "resources/directory/read",
 ] as const;
 
 export type OneShotMethod = (typeof ONE_SHOT_METHODS)[number];

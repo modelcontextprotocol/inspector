@@ -34,7 +34,8 @@ import type {
 } from "../components/screens/ToolsScreen/ToolsScreen";
 import type { GetPromptState } from "../components/screens/PromptsScreen/PromptsScreen";
 import type { ReadResourceState } from "../components/screens/ResourcesScreen/ResourcesScreen";
-import type { SkillFileContents } from "../utils/skillFileBytes";
+import type { SkillFileContents } from "@inspector/core/mcp/skills.js";
+import type { DirectoryReadResult } from "@inspector/core/mcp/skillsSchemas.js";
 import type { SkillEntry } from "@inspector/core/mcp/skillsSchemas.js";
 import { normalizeSkillUri } from "@inspector/core/mcp/skills.js";
 import { UrlElicitationErrorToastMessage } from "../components/elements/Toasts/UrlElicitationErrorToastMessage";
@@ -222,6 +223,11 @@ export interface ServerCommands {
    * over.
    */
   onReadSkillFile: (uri: string) => Promise<SkillFileContents>;
+  /** One page of `resources/directory/read` (SEP-2640). */
+  onReadResourceDirectory: (
+    uri: string,
+    cursor?: string,
+  ) => Promise<DirectoryReadResult>;
   /** Re-fetch one skill entry through `skills/get` (SEP-2640). */
   onGetSkill: (uri: string) => Promise<SkillEntry>;
   onSubscribeResource: (uri: string) => void;
@@ -1026,6 +1032,37 @@ export function useServerCommands({
     [inspectorClient, activeServerId, handleCommandScopedAuthRecovery],
   );
 
+  /**
+   * One page of `resources/directory/read` (SEP-2640) — the direct children of
+   * a directory resource.
+   *
+   * Not aggregated across pages, unlike the skills walk: the SEP says the
+   * listing is not recursive and clients descend by calling again, so the
+   * cursor belongs to the caller doing the descending. `InspectorClient` refuses
+   * the call outright when the server did not declare `directoryRead`, which is
+   * the spec's MUST NOT — nothing here has to re-check it.
+   */
+  const onReadResourceDirectory = useCallback(
+    async (uri: string, cursor?: string): Promise<DirectoryReadResult> => {
+      if (!inspectorClient) throw new Error("Client is not connected");
+      // Same shared auth recovery as every other server command (#2174).
+      const read = () => inspectorClient.readResourceDirectory(uri, cursor);
+      try {
+        return await read();
+      } catch (err) {
+        if (err instanceof AuthRecoveryRequiredError && activeServerId) {
+          const satisfied = await handleCommandScopedAuthRecovery(err, {
+            serverId: activeServerId,
+            source: "resource",
+          });
+          if (satisfied) return read();
+        }
+        throw err;
+      }
+    },
+    [inspectorClient, activeServerId, handleCommandScopedAuthRecovery],
+  );
+
   const onRefreshSkills = useCallback(() => {
     runCommandInBackground(
       () => refreshSkills(),
@@ -1050,6 +1087,7 @@ export function useServerCommands({
     onReadResource,
     onReadResourceContents,
     onReadSkillFile,
+    onReadResourceDirectory,
     onGetSkill,
     onSubscribeResource,
     onUnsubscribeResource,

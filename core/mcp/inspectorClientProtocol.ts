@@ -42,6 +42,7 @@ import type { MalformedListItem } from "./listSalvage.js";
 import type { InspectorClientEventTarget } from "./inspectorClientEventTarget.js";
 import type { SkillEntry } from "./skillsSchemas.js";
 import type { SkillsExtensionSupport } from "./skills.js";
+import type { DirectoryReadResult } from "./skillsSchemas.js";
 import type { SamplingCreateMessage } from "./samplingCreateMessage.js";
 import type { ElicitationCreateMessage } from "./elicitationCreateMessage.js";
 
@@ -122,6 +123,19 @@ export interface InspectorClientProtocol extends InspectorClientEventTarget {
   ): Promise<{ skills: SkillEntry[]; nextCursor?: string }>;
   /** One skill entry by URI (`skills/get`). */
   getSkill(uri: string, metadata?: RequestMetadata): Promise<SkillEntry>;
+  /**
+   * One page of `resources/directory/read` — the direct children of a directory
+   * resource (#2248). Optional on this interface, unlike the two methods above:
+   * declaring the extension commits a server to `skills/list` and `skills/get`,
+   * while this one is separately gated on `directoryRead`, so a caller has to
+   * check for it anyway and the many test doubles that satisfy this interface
+   * should not all have to grow a method most of them never reach.
+   */
+  readResourceDirectory?(
+    uri: string,
+    cursor?: string,
+    metadata?: RequestMetadata,
+  ): Promise<DirectoryReadResult>;
 
   /**
    * Mark the response that most recently answered `method` as rejected by the

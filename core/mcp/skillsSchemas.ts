@@ -29,6 +29,7 @@
  */
 
 import { z } from "zod/v4";
+import { ResourceSchema } from "@modelcontextprotocol/core";
 
 /** SEP-2133 extension identifier for the Skills extension (SEP-2640). */
 export const SKILLS_EXTENSION_KEY = "io.modelcontextprotocol/skills";
@@ -143,6 +144,22 @@ export const ModernListSkillsResultSchema = ListSkillsResultSchema.extend({
 /**
  * The `skills/get` result envelope: the entry wrapped under `skill`.
  *
+ * ⚠️ **Not era-aware, and that is settled rather than pending (#2248).** The
+ * obvious symmetry would be a modern variant requiring the caching attributes
+ * the way {@link ModernListSkillsResultSchema} does. SEP-2640 forecloses it in
+ * as many words, under `skills/get`: *"whether the result should also carry the
+ * base protocol's caching attributes (`ttlMs` and `cacheScope`, per SEP-2549),
+ * as `resources/read` results do, is **left open**"*.
+ *
+ * So there is no requirement to enforce, and inventing one would do real harm
+ * rather than none: a server that reasonably reads "left open" as "not
+ * required" would be reported as non-conforming by the tool whose job is to
+ * tell it whether it conforms. `looseObject` means a server that *does* send
+ * them still parses, which is the right handling for an attribute the spec
+ * permits and does not mandate. Revisit only if a later revision closes the
+ * question — and note that the same sentence is why `skills/get` carries no
+ * `nextCursor` handling either: "a single entry is not a list".
+ *
  * Required, not one of two accepted shapes. An earlier revision of this module
  * also accepted a bare entry at the top level, on the reading that the SEP
  * settled the entry but not its wrapper. It does settle the wrapper, and
@@ -165,13 +182,70 @@ export const GetSkillResultSchema = GetSkillEnvelopeSchema.transform(
 export type GetSkillResult = SkillEntry;
 
 /**
- * ⚠️ **No `resources/directory/read` result schema here yet, on purpose.**
+ * One `resources/directory/read` child: **the SDK's own `Resource`**, not a
+ * shape restated here.
  *
- * The method name and the directory MIME type above are stated in SEP-2640;
- * the shape of the result it returns is not something this PR verified against
- * the normative text, and the Inspector does not call the method (phase 3,
- * #2248). Declaring a guessed schema would put an unverified claim in the one
- * module that is supposed to be the authority on the wire format — and one
- * nothing exercises, so it could be wrong indefinitely without failing
- * anything. Phase 3 adds it against the spec, alongside the call that uses it.
+ * SEP-2640 defines the result as carrying "the same `Resource` objects that
+ * `resources/list` returns, with the same `nextCursor` pagination contract", so
+ * the schema that already decodes `resources/list` in this app is the literal
+ * statement of that sentence — and one the SDK, not this module, keeps current.
+ * Restating it would let the two drift, at which point a directory child and a
+ * listed resource could disagree about what a `Resource` is while both claimed
+ * to be one.
+ *
+ * ⚠️ It is **stricter than everything else in this module**, and that is the
+ * deliberate exception rather than an oversight. `ResourceSchema` requires
+ * `name` and strips unknown members, so one child missing `name` rejects the
+ * whole page instead of being reported as a per-child finding — the opposite of
+ * the posture the entry schemas above take. The reason the trade goes the other
+ * way here is ownership: the skills entry types are consumer-owned and nothing
+ * else validates them, so this module has to be the reporter; `Resource` is
+ * base-protocol and already validated exactly this strictly on the
+ * `resources/list` path, where {@link listSalvage} is the answer to a single bad
+ * entry. Being *more* permissive here would mean a URI that fails as a listed
+ * resource succeeds as a directory child, which is a worse inconsistency than
+ * an all-or-nothing page.
  */
+export const DirectoryChildSchema = ResourceSchema;
+
+/**
+ * `resources/directory/read` result on a **legacy** connection: the directory's
+ * direct children plus the opaque cursor.
+ *
+ * `looseObject`, matching every other result schema here: a server that also
+ * sends the caching attributes is not wrong for doing so, and a schema is not
+ * the place to reject an extra member.
+ */
+export const DirectoryReadResultSchema = z.looseObject({
+  resources: z.array(DirectoryChildSchema),
+  nextCursor: z.string().optional(),
+});
+
+export type DirectoryReadResult = z.infer<typeof DirectoryReadResultSchema>;
+
+/**
+ * `resources/directory/read` result on a **modern** (2026-07-28+) connection:
+ * the page plus `resultType`, and deliberately **not** `ttlMs` / `cacheScope`.
+ *
+ * That asymmetry with {@link ModernListSkillsResultSchema} is the one judgement
+ * call in this module, so it is written down rather than left to be re-derived:
+ *
+ *  - For `skills/list` the SEP states the requirement outright — *"In protocol
+ *    versions 2026-07-28 and later, the result also carries … `ttlMs` and
+ *    `cacheScope`"* — so requiring them is quoting the spec.
+ *  - For `resources/directory/read` it states **nothing of the kind**, and its
+ *    one worked example of the result carries `resultType: "complete"` and no
+ *    caching attributes at all. Requiring them here would fail a server that
+ *    matched the SEP's own example, which is the failure direction this module
+ *    works hardest to avoid.
+ *
+ * `resultType` is required because it is the base protocol's, not this
+ * extension's: SEP-2322 makes it a member of every modern result, the SEP's
+ * example carries it, and `skills/*` being consumer-owned means the SDK codec
+ * validates none of it — so if this schema does not, nothing does.
+ *
+ * ⚠️ Picked by `InspectorClient.readResourceDirectory` from the negotiated era.
+ */
+export const ModernDirectoryReadResultSchema = DirectoryReadResultSchema.extend(
+  { resultType: z.literal("complete") },
+);

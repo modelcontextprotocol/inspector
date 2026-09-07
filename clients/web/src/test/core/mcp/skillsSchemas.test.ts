@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
 import {
+  DIRECTORY_MIME_TYPE,
+  DirectoryReadResultSchema,
+  ModernDirectoryReadResultSchema,
+  RESOURCES_DIRECTORY_READ_METHOD,
   DYNAMIC_RESOURCES,
   GetSkillResultSchema,
   ListSkillsResultSchema,
@@ -158,5 +162,125 @@ describe("GetSkillResultSchema", () => {
     expect(() =>
       GetSkillResultSchema.parse({ skill: { frontmatter: {} } }),
     ).toThrow();
+  });
+});
+
+describe("directory read schemas (#2248)", () => {
+  const CHILD = {
+    uri: "skill://demo/templates/invoice.md",
+    name: "invoice.md",
+    mimeType: "text/markdown",
+  };
+
+  it("names the method and the directory MIME type", () => {
+    expect(RESOURCES_DIRECTORY_READ_METHOD).toBe("resources/directory/read");
+    expect(DIRECTORY_MIME_TYPE).toBe("inode/directory");
+  });
+
+  it("parses the SEP's own worked example", () => {
+    // Verbatim from SEP-2640's `resources/directory/read` example, including a
+    // subdirectory child. If the schema cannot read the spec's own example it
+    // is wrong whatever else it accepts.
+    const example = {
+      resultType: "complete",
+      resources: [
+        CHILD,
+        {
+          uri: "skill://demo/templates/regional",
+          name: "regional",
+          mimeType: "inode/directory",
+        },
+      ],
+    };
+    expect(DirectoryReadResultSchema.safeParse(example).success).toBe(true);
+    expect(ModernDirectoryReadResultSchema.safeParse(example).success).toBe(
+      true,
+    );
+  });
+
+  it("accepts an empty directory", () => {
+    const parsed = DirectoryReadResultSchema.parse({ resources: [] });
+    expect(parsed.resources).toEqual([]);
+  });
+
+  it("carries nextCursor through", () => {
+    const parsed = DirectoryReadResultSchema.parse({
+      resources: [CHILD],
+      nextCursor: "7",
+    });
+    expect(parsed.nextCursor).toBe("7");
+  });
+
+  it("rejects a child that is not a base-protocol Resource", () => {
+    // `name` is required on `Resource`, and the SEP says a directory child IS
+    // one. Accepting a child here that `resources/list` would reject is the
+    // inconsistency the shared SDK schema exists to prevent.
+    expect(
+      DirectoryReadResultSchema.safeParse({
+        resources: [{ uri: "skill://demo/x.md" }],
+      }).success,
+    ).toBe(false);
+  });
+
+  it("rejects a result whose resources member is not an array", () => {
+    expect(
+      DirectoryReadResultSchema.safeParse({ resources: "nope" }).success,
+    ).toBe(false);
+  });
+
+  it("requires resultType on the modern variant only", () => {
+    const legacyShape = { resources: [CHILD] };
+    expect(DirectoryReadResultSchema.safeParse(legacyShape).success).toBe(true);
+    expect(ModernDirectoryReadResultSchema.safeParse(legacyShape).success).toBe(
+      false,
+    );
+  });
+
+  it("does NOT require the caching attributes on the modern variant", () => {
+    // The deliberate asymmetry with `ModernListSkillsResultSchema`: SEP-2640
+    // states `ttlMs`/`cacheScope` for a modern `skills/list` and says nothing
+    // of the kind for this method, whose only worked example omits them.
+    // Requiring them would fail a server that matched the spec's own example.
+    expect(
+      ModernDirectoryReadResultSchema.safeParse({
+        resultType: "complete",
+        resources: [],
+      }).success,
+    ).toBe(true);
+    expect(
+      ModernListSkillsResultSchema.safeParse({
+        resultType: "complete",
+        skills: [],
+      }).success,
+    ).toBe(false);
+  });
+
+  it("still accepts the caching attributes when a server sends them", () => {
+    // Permitted, not mandated — a schema is not the place to reject an extra
+    // member the spec leaves open.
+    expect(
+      ModernDirectoryReadResultSchema.safeParse({
+        resultType: "complete",
+        resources: [],
+        ttlMs: 60,
+        cacheScope: "public",
+      }).success,
+    ).toBe(true);
+  });
+});
+
+describe("GetSkillResultSchema caching attributes (#2248)", () => {
+  it("accepts a result with the caching attributes and one without", () => {
+    // SEP-2640 leaves the question open in as many words, so both are
+    // conforming and neither may be reported as a defect.
+    expect(GetSkillResultSchema.safeParse({ skill: ENTRY }).success).toBe(true);
+    expect(
+      GetSkillResultSchema.safeParse({
+        skill: ENTRY,
+        resultType: "complete",
+        ttlMs: 0,
+        cacheScope: "public",
+      }).success,
+    ).toBe(true);
   });
 });

@@ -30,6 +30,7 @@ interface TabsProps {
     auth?: number;
     resources?: number;
     prompts?: number;
+    skills?: number;
     tools?: number;
     messages?: number;
     requests?: number;
@@ -39,6 +40,13 @@ interface TabsProps {
   showAuth?: boolean;
   showLogging?: boolean;
   showRequests?: boolean;
+  /**
+   * The Skills tab is shown only when the connected server declared the
+   * SEP-2640 Skills extension — unlike Auth/Logging/Requests, which key off the
+   * transport, this one keys off a *server* declaration, so it can only be
+   * known after connecting.
+   */
+  showSkills?: boolean;
 }
 
 export function Tabs({
@@ -49,6 +57,7 @@ export function Tabs({
   showAuth = true,
   showLogging = true,
   showRequests = false,
+  showSkills = false,
 }: TabsProps) {
   let visibleTabs = tabs;
   if (!showAuth) {
@@ -59,6 +68,9 @@ export function Tabs({
   }
   if (!showRequests) {
     visibleTabs = visibleTabs.filter((tab) => tab.id !== "requests");
+  }
+  if (!showSkills) {
+    visibleTabs = visibleTabs.filter((tab) => tab.id !== "skills");
   }
 
   return (

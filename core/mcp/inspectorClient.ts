@@ -145,9 +145,14 @@ import {
 } from "./modernTaskSchemas.js";
 import { buildClientExtensions } from "./extensions.js";
 import {
+  DirectoryReadResultSchema,
   GetSkillResultSchema,
   ListSkillsResultSchema,
+  ModernDirectoryReadResultSchema,
   ModernListSkillsResultSchema,
+  RESOURCES_DIRECTORY_READ_METHOD,
+  SKILLS_EXTENSION_KEY,
+  type DirectoryReadResult,
   SKILLS_GET_METHOD,
   SKILLS_LIST_METHOD,
   type SkillEntry,
@@ -5641,6 +5646,77 @@ export class InspectorClient extends InspectorClientEventTarget {
       if (isClientDecodeRejection(err)) {
         this.markResponseRejected(
           SKILLS_GET_METHOD,
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * One page of `resources/directory/read` (SEP-2640): the direct children of
+   * a directory resource.
+   *
+   * **Gated on the server's own declaration, and the gate throws rather than
+   * asks.** SEP-2640 is explicit that *"clients MUST NOT call
+   * `resources/directory/read` against a server that has not declared
+   * `directoryRead: true`"*, so this refuses locally instead of sending a call
+   * the spec forbids and letting the server answer `-32601`. Refusing here also
+   * keeps the Protocol tab honest: a request we were never allowed to make
+   * should not appear in the exchange log as a server-side failure.
+   *
+   * Not recursive — the SEP says clients descend by calling the method again on
+   * a child directory, so the walking is the caller's, not this method's.
+   */
+  async readResourceDirectory(
+    uri: string,
+    cursor?: string,
+    metadata?: RequestMetadata,
+  ): Promise<DirectoryReadResult> {
+    if (!this.client) {
+      throw new Error("Client is not connected");
+    }
+    const extension = this.getSkillsExtension();
+    if (!extension?.directoryRead) {
+      throw new Error(
+        `Server did not declare directoryRead in ${SKILLS_EXTENSION_KEY}; ${RESOURCES_DIRECTORY_READ_METHOD} must not be called.`,
+      );
+    }
+    const effectiveMeta = this.mergeMeta(metadata);
+    const params: Record<string, unknown> = {
+      uri,
+      ...(effectiveMeta ? { _meta: effectiveMeta } : {}),
+      // `!== undefined` for the same reason `listSkills` uses it: a cursor is
+      // opaque and `""` is a legal value, so truthiness would silently re-ask
+      // for page one.
+      ...(cursor !== undefined ? { cursor } : {}),
+    };
+    // Era-aware for the same reason `skills/list` is — the method is
+    // consumer-owned, so no SDK codec stamps or checks its envelope. The modern
+    // variant requires only `resultType`; see the schema for why it stops
+    // short of the caching attributes that `skills/list` requires.
+    const resultSchema = this.isModernEra()
+      ? ModernDirectoryReadResultSchema
+      : DirectoryReadResultSchema;
+    try {
+      return await this.invokeMcpClient(
+        () =>
+          this.client!.request(
+            { method: RESOURCES_DIRECTORY_READ_METHOD, params },
+            resultSchema,
+            this.getRequestOptions(this.progressTokenOf(metadata)),
+          ),
+        { method: RESOURCES_DIRECTORY_READ_METHOD },
+      );
+    } catch (err) {
+      // Same attribution `getSkill` does, and for the same reason: there is no
+      // managed store behind this method, so without this a rejected decode
+      // would render in the Protocol tab as a clean success while the caller
+      // showed an error. Only for a decode rejection — a request that never
+      // produced a response would otherwise stamp an earlier exchange.
+      if (isClientDecodeRejection(err)) {
+        this.markResponseRejected(
+          RESOURCES_DIRECTORY_READ_METHOD,
           err instanceof Error ? err.message : String(err),
         );
       }

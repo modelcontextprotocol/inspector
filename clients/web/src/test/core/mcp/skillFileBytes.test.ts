@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { skillFileBytes } from "./skillFileBytes";
+import { skillFileBytes } from "@inspector/core/mcp/skills.js";
 
 describe("skillFileBytes", () => {
   it("encodes a text content block as UTF-8", () => {
