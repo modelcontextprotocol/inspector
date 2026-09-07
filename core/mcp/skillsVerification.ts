@@ -67,7 +67,16 @@ export interface SkillVerifyReport {
    * frontmatter discrepancy.
    */
   frontmatter: SkillIssue[];
-  /** One entry per manifest file, in manifest order. Empty for `"dynamic"`. */
+  /**
+   * One entry per manifest file, in manifest order.
+   *
+   * ⚠️ **Not necessarily empty for a `"dynamic"` skill.** Such a skill has no
+   * manifest rows, but a failed read of its own `SKILL.md` — the file the
+   * mandatory frontmatter comparison needs — is recorded here as a synthetic
+   * `read-error` row against the entry's URI, so the failure is visible and
+   * fails the report rather than passing silently. A consumer must not assume
+   * `files` mirrors the manifest one-for-one (Copilot).
+   */
   files: SkillFileReport[];
   /**
    * False when anything the SEP makes a MUST was broken: an error-severity

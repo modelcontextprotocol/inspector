@@ -561,16 +561,6 @@ function canonicalEntry(entry: SkillEntry): string {
 
 /** Object keys sorted recursively; array ORDER is preserved throughout. */
 function canonicalize(value: unknown): unknown {
-  // YAML can express `.nan` and `.inf`; JSON cannot. `JSON.stringify` turns
-  // every one of them into `null`, so without this a served `x: .nan` would
-  // compare EQUAL to a listing declaring `x: null` — a mismatch silently
-  // reported as agreement (Copilot). The listing side arrived over JSON-RPC and
-  // can never hold a non-finite number, so one appearing here is always a real
-  // difference. Rendered as an object, which cannot equal any JSON scalar, and
-  // which names the value in the finding rather than hiding it.
-  if (typeof value === "number" && !Number.isFinite(value)) {
-    return { "#non-finite": String(value) };
-  }
   if (Array.isArray(value)) return value.map(canonicalize);
   if (value === null || typeof value !== "object") return value;
   return sortKeys(value as Record<string, unknown>);
@@ -761,6 +751,65 @@ export async function verifySkillResource(
 }
 
 /**
+ * Structural equality for JSON-like values, with YAML's extra scalars handled.
+ *
+ * ⚠️ **Comparison is structural rather than serialized, and that is the point.**
+ * `JSON.stringify` is not injective over what a YAML parser produces: `.nan`,
+ * `.inf` and `-.inf` all serialize to `null`, so a served `x: .nan` compared
+ * EQUAL to a listing declaring `x: null` — and to each other. An earlier fix
+ * encoded non-finite numbers as a sentinel object, which merely moved the
+ * problem: a listing whose value genuinely *was* that object aliased the
+ * sentinel and matched a served `.nan` (Copilot). Any encoding into the value
+ * space can be aliased by a document containing the encoding, so there is no
+ * sentinel here at all.
+ *
+ * `Object.is` on the number path is what makes it work: it holds `NaN` equal to
+ * `NaN`, keeps `Infinity` and `-Infinity` distinct, and never equates either
+ * with `null`.
+ */
+function jsonLikeEqual(a: unknown, b: unknown): boolean {
+  if (typeof a === "number" || typeof b === "number") return Object.is(a, b);
+  if (a === null || b === null) return a === b;
+  if (typeof a !== "object" || typeof b !== "object") return Object.is(a, b);
+  const aArray = Array.isArray(a);
+  if (aArray !== Array.isArray(b)) return false;
+  if (aArray) {
+    const x = a as unknown[];
+    const y = b as unknown[];
+    // Array ORDER is significant — a YAML sequence is ordered.
+    return x.length === y.length && x.every((v, i) => jsonLikeEqual(v, y[i]));
+  }
+  const x = a as Record<string, unknown>;
+  const y = b as Record<string, unknown>;
+  const keys = Object.keys(x);
+  // Key order is not meaningful in either JSON or YAML, so only the key SET and
+  // the values matter.
+  return (
+    keys.length === Object.keys(y).length &&
+    keys.every((k) => Object.hasOwn(y, k) && jsonLikeEqual(x[k], y[k]))
+  );
+}
+
+/**
+ * A frontmatter value as it should READ in a finding.
+ *
+ * `JSON.stringify` renders every non-finite number as `null`, which would print
+ * "the listing says null but the served file says null" for a real difference.
+ * Only the display is special-cased; the comparison above never goes through a
+ * string, so this cannot reintroduce an aliasing bug.
+ */
+function displayValue(value: unknown): string {
+  if (typeof value === "number" && !Number.isFinite(value)) {
+    return String(value);
+  }
+  return JSON.stringify(canonicalize(value), (_key, member: unknown) =>
+    typeof member === "number" && !Number.isFinite(member)
+      ? `<${String(member)}>`
+      : member,
+  );
+}
+
+/**
  * Compare the fetched `SKILL.md`'s own frontmatter against the frontmatter the
  * entry advertised, field by field — the SEP-2640 obligation a digest cannot
  * discharge (#2248).
@@ -848,13 +897,11 @@ export function checkSkillFrontmatterMatch(
       });
       continue;
     }
-    const listedJson = JSON.stringify(canonicalize(listed));
-    const servedJson = JSON.stringify(canonicalize(served));
-    if (listedJson !== servedJson) {
+    if (!jsonLikeEqual(listed, served)) {
       issues.push({
         code: "frontmatter-mismatch",
         severity: "error",
-        message: `Field "${field}" differs: the listing says ${listedJson} but the served SKILL.md says ${servedJson}.`,
+        message: `Field "${field}" differs: the listing says ${displayValue(listed)} but the served SKILL.md says ${displayValue(served)}.`,
         resourceUri: entry.uri,
       });
     }

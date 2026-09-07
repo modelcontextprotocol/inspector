@@ -380,6 +380,26 @@ const ResourceNameCaption = Text.withProps({
   maw: "50%",
 });
 
+/** A read that failed, in the Directory section. */
+const ReadFailureAlert = Alert.withProps({
+  color: "red",
+  variant: "light",
+  title: "Read failed",
+});
+
+/**
+ * The directory-vs-manifest divergence banner. Yellow: the server is not
+ * necessarily wrong — its listing may simply be newer than the held entry.
+ */
+const UnlistedChildrenAlert = Alert.withProps({
+  color: "yellow",
+  variant: "light",
+  title: "This directory lists files the entry does not",
+});
+
+/** The em dash standing in for a verdict that does not apply to a row. */
+const NoVerdictText = Text.withProps({ size: "xs", c: "dimmed" });
+
 const IssueStack = Stack.withProps({
   gap: "xs",
 });
@@ -1984,9 +2004,7 @@ export function SkillsScreen({
                         </Group>
                       </SectionControlsRow>
                       {directoryError !== undefined && (
-                        <Alert color="red" variant="light" title="Read failed">
-                          {directoryError}
-                        </Alert>
+                        <ReadFailureAlert>{directoryError}</ReadFailureAlert>
                       )}
                       {/* Stated in prose the first time the two views
                           disagree, because the per-row chip alone does not say
@@ -1994,12 +2012,7 @@ export function SkillsScreen({
                           re-approval" is what SEP-2640 asks a host to present
                           here, rather than a read error. */}
                       {unlistedChildren.length > 0 && (
-                        <Alert
-                          color="yellow"
-                          variant="light"
-                          title="This directory lists files the entry does not"
-                          data-testid="skill-directory-unlisted"
-                        >
+                        <UnlistedChildrenAlert data-testid="skill-directory-unlisted">
                           The server is serving {unlistedChildren.length} file
                           {unlistedChildren.length === 1 ? "" : "s"} here that
                           the held <Code>skills/list</Code> entry does not
@@ -2009,7 +2022,7 @@ export function SkillsScreen({
                           verification failure equivalent to a digest mismatch.
                           Re-fetch the entry with <Code>skills/get</Code> to see
                           whether the skill has changed.
-                        </Alert>
+                        </UnlistedChildrenAlert>
                       )}
                       {directoryChildren !== undefined &&
                         (directoryChildren.length === 0 ? (
@@ -2074,9 +2087,7 @@ export function SkillsScreen({
                                     <Table.Td>{child.mimeType ?? "—"}</Table.Td>
                                     <Table.Td>
                                       {isDir || isDynamic ? (
-                                        <Text size="xs" c="dimmed">
-                                          —
-                                        </Text>
+                                        <NoVerdictText>—</NoVerdictText>
                                       ) : (
                                         <CountBadge
                                           color={listed ? "green" : "yellow"}

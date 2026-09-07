@@ -36,6 +36,7 @@ import {
 } from "@inspector/core/mcp/skillsSchemas.js";
 import {
   verifySkills,
+  type SkillFileReport,
   type SkillVerifyReport,
 } from "@inspector/core/mcp/skillsVerification.js";
 import { useSelectableList } from "../hooks/useSelectableList.js";
@@ -96,6 +97,23 @@ const FILE_COLOR: Record<string, string> = {
  */
 function entryKey(entry: SkillEntry): string {
   return JSON.stringify(entry);
+}
+
+/**
+ * The explanation printed under a failed file row.
+ *
+ * `verifySkillResource` sets `reason` for a SIZE mismatch but not for a digest
+ * one — that carries `expectedDigest` / `actualDigest` instead — so a pane that
+ * rendered only `reason` showed a bare `✗ notes.md` and never said why, leaving
+ * the failure unactionable (Copilot). Digests are truncated because the pane is
+ * 40-odd columns wide and the first bytes are enough to see that two differ;
+ * the CLI report carries them in full.
+ */
+function failureDetail(file: SkillFileReport): string | undefined {
+  if (file.reason) return file.reason;
+  if (file.status !== "mismatch") return undefined;
+  const short = (d: string | undefined) => (d ? `${d.slice(0, 23)}…` : "—");
+  return `expected ${short(file.expectedDigest)}, got ${short(file.actualDigest)}`;
 }
 
 /** The file name a manifest URI ends in, for a list that must fit 40 columns. */
@@ -254,6 +272,14 @@ export function SkillsTab({
     selectedSkill && selectedSkill.resources !== DYNAMIC_RESOURCES
       ? selectedSkill.resources
       : [];
+  // Compared on normalized identity, like every other URI comparison here, so a
+  // manifest entry written in an equivalent form is not reported twice.
+  const manifestIdentities = new Set(
+    manifest.map((resource) => skillUriIdentity(resource.uri)),
+  );
+  const extraReportFiles = (activeReport?.files ?? []).filter(
+    (file) => !manifestIdentities.has(skillUriIdentity(file.uri)),
+  );
 
   return (
     <Box flexDirection="row" width={width} height={height}>
@@ -410,14 +436,47 @@ export function SkillsTab({
                         <Text dimColor> ({resource.size} B)</Text>
                       ) : null}
                     </Text>
-                    {fileReport?.reason && (
+                    {fileReport && failureDetail(fileReport) && (
                       <Box paddingLeft={4} flexShrink={0}>
-                        <Text color="red">{fileReport.reason}</Text>
+                        <Text color="red">{failureDetail(fileReport)}</Text>
                       </Box>
                     )}
                   </Box>
                 );
               })}
+
+              {/* A report can carry a file the MANIFEST does not — a dynamic
+                  skill has no rows at all, yet a failed read of its own
+                  SKILL.md is recorded so the failure is visible. Rendering only
+                  manifest rows left "Verification FAILED" with no diagnosis
+                  anywhere on screen (Copilot). */}
+              {extraReportFiles.length > 0 && (
+                <>
+                  <Box marginTop={1} flexShrink={0}>
+                    <Text bold>Read failures:</Text>
+                  </Box>
+                  {extraReportFiles.map((file, idx) => (
+                    <Box
+                      key={`extra-${idx}`}
+                      paddingLeft={2}
+                      flexShrink={0}
+                      flexDirection="column"
+                    >
+                      <Text>
+                        <Text color={FILE_COLOR[file.status] ?? "white"}>
+                          {FILE_MARK[file.status] ?? "?"}{" "}
+                        </Text>
+                        {fileNameOf(file.uri)}
+                      </Text>
+                      {failureDetail(file) && (
+                        <Box paddingLeft={4} flexShrink={0}>
+                          <Text color="red">{failureDetail(file)}</Text>
+                        </Box>
+                      )}
+                    </Box>
+                  ))}
+                </>
+              )}
 
               {activeReport && activeReport.frontmatter.length > 0 && (
                 <>

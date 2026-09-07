@@ -93,6 +93,21 @@ export type ParsedFrontmatter =
  *    everything. An *empty* block (`fields: {}`) is a different fact and is
  *    reported as a successful parse of nothing.
  */
+/**
+ * Whether a frontmatter block holds anything but whitespace and comments.
+ *
+ * Comments are stripped only from the start of a line: a `#` inside a value is
+ * part of that value, and treating it as a comment would call a block with real
+ * content empty. That is the safe direction — mistaking content for emptiness
+ * here would turn a malformed document back into "no fields", which is the bug
+ * this exists to prevent.
+ */
+function hasContent(yamlText: string): boolean {
+  return yamlText
+    .split("\n")
+    .some((line) => line.trim() !== "" && !line.trimStart().startsWith("#"));
+}
+
 export function parseSkillFrontmatter(yamlText: string): ParsedFrontmatter {
   let parsed: unknown;
   try {
@@ -100,9 +115,16 @@ export function parseSkillFrontmatter(yamlText: string): ParsedFrontmatter {
   } catch (err) {
     return { error: err instanceof Error ? err.message : String(err) };
   }
-  // `null` is what an empty (or comment-only) block parses to — a real, if
-  // degenerate, mapping of no fields rather than a malformed one.
-  if (parsed === null || parsed === undefined) return { fields: {} };
+  // An empty (or comment-only) block parses to `null`, and so does an explicit
+  // `null` / `~` scalar — but only the first is a degenerate mapping of no
+  // fields. The second is a non-mapping document, and returning `{ fields: {} }`
+  // for it contradicts this function's own contract (Copilot). They are told
+  // apart by the SOURCE, since the parsed value cannot distinguish them.
+  if (parsed === null || parsed === undefined) {
+    return hasContent(yamlText)
+      ? { error: "Frontmatter is not a YAML mapping of fields." }
+      : { fields: {} };
+  }
   if (typeof parsed !== "object" || Array.isArray(parsed)) {
     return {
       error: "Frontmatter is not a YAML mapping of fields.",

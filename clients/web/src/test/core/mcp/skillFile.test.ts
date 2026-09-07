@@ -96,6 +96,33 @@ describe("parseSkillFrontmatter (#2248)", () => {
     expect(parseSkillFrontmatter("# just a comment")).toEqual({ fields: {} });
   });
 
+  it("reports an explicit null scalar as an error, not as no fields", () => {
+    // `null` and `~` parse to the same value an EMPTY block does, but only the
+    // empty one is a degenerate mapping — returning `{ fields: {} }` for an
+    // explicit null scalar contradicts this function's own contract (Copilot).
+    for (const src of ["null", "~", "  null  ", "# lead\nnull"]) {
+      expect(parseSkillFrontmatter(src)).toEqual({
+        error: expect.stringContaining("mapping"),
+      });
+    }
+  });
+
+  it("still reads a comment-only block as a mapping of no fields", () => {
+    // The distinction is made on the SOURCE, so this must not regress.
+    expect(parseSkillFrontmatter("# just a comment\n\n  # another")).toEqual({
+      fields: {},
+    });
+  });
+
+  it("does not mistake a leading # inside a value for a comment", () => {
+    // Comments are stripped only at the start of a line; a `#` inside a value
+    // is part of it, and treating it as a comment would call a block with real
+    // content empty.
+    expect(parseSkillFrontmatter('name: "#hashtag"')).toEqual({
+      fields: { name: "#hashtag" },
+    });
+  });
+
   it("reports a scalar block as an error rather than as no fields", () => {
     // `just a string` parses successfully as a scalar. Reporting it as an
     // empty mapping would present a malformed file as one that merely omitted

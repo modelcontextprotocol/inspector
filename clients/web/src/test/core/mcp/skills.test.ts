@@ -1005,6 +1005,29 @@ describe("checkSkillFrontmatterMatch (#2248)", () => {
     expect(both[1].message).toContain("-Infinity");
   });
 
+  it("cannot be fooled by a listing that looks like an encoding", () => {
+    // The regression this guards: encoding non-finite numbers as a sentinel
+    // object let a listing whose value genuinely WAS that object alias it and
+    // match a served `.nan` (Copilot). The comparison is structural now, so
+    // there is no encoding to alias.
+    const issues = checkSkillFrontmatterMatch(
+      entry({ x: { "#non-finite": "NaN" } }),
+      file("x: .nan"),
+    );
+    expect(issues).toHaveLength(1);
+    expect(issues[0].code).toBe("frontmatter-mismatch");
+  });
+
+  it("still matches a listing object that equals the served mapping", () => {
+    // …and the guard must not make a genuine agreement look like a difference.
+    expect(
+      checkSkillFrontmatterMatch(
+        entry({ x: { "#non-finite": "NaN" } }),
+        file('x:\n  "#non-finite": NaN'),
+      ),
+    ).toEqual([]);
+  });
+
   it("still matches a null the served file also writes as null", () => {
     // The fix must not turn a genuine agreement into a finding.
     expect(

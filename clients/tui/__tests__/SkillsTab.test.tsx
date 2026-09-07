@@ -670,6 +670,88 @@ describe("SkillsTab (#2248)", () => {
     expect(lastFrame() ?? "").toContain("skill://acme/reports/SKILL.md");
   });
 
+  it("shows the digests for a mismatch, not just the failed mark", async () => {
+    // `verifySkillResource` sets `reason` for a SIZE mismatch but not a digest
+    // one, so a pane rendering only `reason` left a bare `✗` with no diagnosis
+    // — a failed verification the reader cannot act on (Copilot).
+    // The declared size must be RIGHT, or the cheaper size cross-check
+    // short-circuits before hashing and reports its own `reason` instead —
+    // which is the path that already rendered.
+    const digestOnly: SkillEntry = {
+      ...clean,
+      resources: [
+        {
+          uri: "skill://clean/SKILL.md",
+          digest: CLEAN_DIGEST,
+          size: textToBytes(SKILL_MD).byteLength,
+        },
+      ],
+    };
+    const { lastFrame, stdin } = render(
+      <SkillsTab
+        skills={[digestOnly]}
+        pageCount={1}
+        inspectorClient={mockClient()}
+        width={160}
+        height={30}
+        focusedPane="list"
+      />,
+    );
+    stdin.write(ENTER);
+    await tick();
+    const frame = lastFrame() ?? "";
+    expect(frame).toContain("Verification FAILED");
+    // Truncated to keep the line inside a narrow pane; the CLI report carries
+    // the digests in full.
+    expect(frame).toMatch(/expected sha256:0+…/);
+    expect(frame).toMatch(/got sha256:[0-9a-f]+…/);
+  });
+
+  it("shows the reason for a size mismatch, which carries no digest", async () => {
+    // The other arm: a length disagreement fails before the hash, so there is
+    // no actual digest to print and the reason is the whole diagnosis.
+    const { lastFrame, stdin } = render(
+      <SkillsTab
+        skills={[clean]}
+        pageCount={1}
+        inspectorClient={mockClient()}
+        width={160}
+        height={30}
+        focusedPane="list"
+      />,
+    );
+    stdin.write(ENTER);
+    await tick();
+    expect(lastFrame() ?? "").toContain(
+      "Manifest declares 51 bytes but the fetched file is 52.",
+    );
+  });
+
+  it("shows a read failure the manifest does not cover", async () => {
+    // A dynamic skill has no manifest rows, so the synthetic read-error row
+    // `verifySkills` records for its own SKILL.md was rendered nowhere and the
+    // pane said only "Verification FAILED".
+    const { lastFrame, stdin } = render(
+      <SkillsTab
+        skills={[dynamic]}
+        pageCount={1}
+        inspectorClient={mockClient(
+          vi.fn().mockRejectedValue(new Error("upstream gone")),
+        )}
+        width={160}
+        height={30}
+        focusedPane="list"
+      />,
+    );
+    stdin.write(ENTER);
+    await tick();
+    const frame = lastFrame() ?? "";
+    expect(frame).toContain("Read failures:");
+    expect(frame).toContain("SKILL.md");
+    expect(frame).toContain("upstream gone");
+    expect(frame).toContain("Verification FAILED");
+  });
+
   it("shows the details footer only when the details pane is focused", () => {
     const unfocused = render(
       <SkillsTab
