@@ -806,6 +806,33 @@ describe("App (foundation)", () => {
     await expectFrame(r, "Select a skill to view details");
   });
 
+  it("leaves the Skills tab when the selected server does not serve it", async () => {
+    // The tab disappears from the bar when the gate goes false, but `activeTab`
+    // is independent of the bar — so without this the render branch keeps
+    // showing the pane for a server that never declared the extension, and the
+    // user is stranded on content they cannot navigate back to (Copilot).
+    h.ctrl.status = "connected";
+    h.ctrl.skillsExtension = { directoryRead: false };
+    const r = await mount(oneStdio());
+    await expectFrame(r, "Skills");
+    r.stdin.write("k");
+    await expectFrame(r, "Select a skill to view details");
+
+    // The server stops declaring it — the shape of switching to one without
+    // the extension, since the declaration is read off the live client.
+    h.ctrl.skillsExtension = undefined;
+    r.rerender(
+      <App
+        mcpServers={oneStdio()}
+        clientConfig={emptyClientConfig}
+        callbackUrlConfig={callbackUrlConfig}
+      />,
+    );
+    await tick();
+    await expectFrame(r, "Server Configuration");
+    expect(r.lastFrame() ?? "").not.toContain("Select a skill to view details");
+  });
+
   it("disconnects with 'd' when connected", async () => {
     h.ctrl.status = "connected";
     const { stdin } = await mount(oneStdio());

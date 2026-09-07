@@ -88,10 +88,14 @@ It works on **either era**: `skills/list`, `skills/get` and
 era codec defines, so the SDK's era gate skips them entirely — which is why
 this fixture, unlike the tasks ones, needs no per-era variant.
 
-Four of the six skills are deliberately awkward, because the checks the Skills
-tab runs are untestable without them. Only two are actual violations — the
+Five of the six skills are deliberately awkward, because the checks the Skills
+tab runs are untestable without them. Only **three** are outright violations
+(`tampered-notes`, `lying-listing`, `wrong-folder` — the three `--verify` fails
+on). The other two are subtler and neither is an error on its own: the
 `"dynamic"` form is **conforming**, and is here because "legal but unverifiable"
-is the case most easily buried:
+is the case most easily buried; and `stale-manifest`'s entry is fully conforming
+too, with the defect living in the disagreement between its manifest and its
+directory listing:
 
 | Skill | What it exercises |
 | --- | --- |

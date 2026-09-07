@@ -470,6 +470,100 @@ describe("SkillsTab (#2248)", () => {
     await tick();
   });
 
+  it("drops a verdict when the entry changes under the same URI", async () => {
+    // A refresh can replace the manifest or the frontmatter without the URI
+    // moving. A URI-keyed verdict would then present hashes and findings
+    // computed for the PREVIOUS snapshot as if they described the new one.
+    const digest = await sha256Digest(textToBytes(SKILL_MD));
+    const verifiable: SkillEntry = {
+      ...clean,
+      resources: [
+        {
+          uri: "skill://clean/SKILL.md",
+          digest,
+          size: textToBytes(SKILL_MD).byteLength,
+        },
+      ],
+    };
+    const { lastFrame, stdin, rerender } = render(
+      <SkillsTab
+        skills={[verifiable]}
+        pageCount={1}
+        inspectorClient={mockClient()}
+        width={140}
+        height={30}
+        focusedPane="list"
+      />,
+    );
+    stdin.write(ENTER);
+    await tick();
+    expect(lastFrame() ?? "").toContain("Verified — Enter to re-verify");
+
+    // Same URI, different manifest — the old verdict must not carry over.
+    rerender(
+      <SkillsTab
+        skills={[
+          {
+            ...verifiable,
+            resources: [
+              { uri: "skill://clean/SKILL.md", digest: CLEAN_DIGEST, size: 9 },
+            ],
+          },
+        ]}
+        pageCount={1}
+        inspectorClient={mockClient()}
+        width={140}
+        height={30}
+        focusedPane="list"
+      />,
+    );
+    await tick();
+    expect(lastFrame() ?? "").toContain(
+      "[Enter to verify digests and frontmatter]",
+    );
+  });
+
+  it("keeps a verdict across a reorder that leaves the entry unchanged", async () => {
+    // The reason the key is the entry rather than the list index: moving a
+    // skill down the list must not discard a verdict the user paid for.
+    const digest = await sha256Digest(textToBytes(SKILL_MD));
+    const verifiable: SkillEntry = {
+      ...clean,
+      resources: [
+        {
+          uri: "skill://clean/SKILL.md",
+          digest,
+          size: textToBytes(SKILL_MD).byteLength,
+        },
+      ],
+    };
+    const { lastFrame, stdin, rerender } = render(
+      <SkillsTab
+        skills={[verifiable]}
+        pageCount={1}
+        inspectorClient={mockClient()}
+        width={140}
+        height={30}
+        focusedPane="list"
+      />,
+    );
+    stdin.write(ENTER);
+    await tick();
+    expect(lastFrame() ?? "").toContain("Verified — Enter to re-verify");
+    rerender(
+      <SkillsTab
+        skills={[verifiable, dynamic]}
+        pageCount={1}
+        inspectorClient={mockClient()}
+        width={140}
+        height={30}
+        focusedPane="list"
+      />,
+    );
+    await tick();
+    expect(lastFrame() ?? "").toContain("Verified — Enter to re-verify");
+  });
+
   it("falls back to the whole URI when a manifest entry has no path separator", async () => {
     const odd: SkillEntry = {
       uri: "skill://odd/SKILL.md",

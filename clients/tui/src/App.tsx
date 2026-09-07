@@ -626,6 +626,28 @@ function App({
     !!selectedInspectorClient?.getSkillsExtension() &&
     inspectorStatus === "connected";
 
+  // Switch away from the Skills tab when the selected server does not serve it.
+  //
+  // The same handling the Auth tab gets above, and needed for the same reason:
+  // the tab disappears from the bar when the gate goes false, but `activeTab`
+  // is independent of the bar, so the render branch would keep showing the pane
+  // for a server that never declared the extension — content the user can see
+  // but can no longer navigate back to (Copilot).
+  //
+  // Gated on `connected` rather than on the extension alone: the declaration is
+  // only knowable after the handshake, so resetting while a reconnect is in
+  // flight would bounce the user off the tab they were reading and not return
+  // them to it.
+  useEffect(() => {
+    if (
+      activeTab === "skills" &&
+      inspectorStatus === "connected" &&
+      !showSkillsTab
+    ) {
+      setActiveTab("info");
+    }
+  }, [activeTab, inspectorStatus, showSkillsTab]);
+
   // Connect — on 401 or mid-session auth recovery, run OAuth then retry.
   type TuiOAuthRunResult =
     | "success"

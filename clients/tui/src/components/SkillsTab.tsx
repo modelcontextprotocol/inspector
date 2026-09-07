@@ -64,6 +64,18 @@ const FILE_COLOR: Record<string, string> = {
   "read-error": "red",
 };
 
+/**
+ * What a verification result is a result *about*: the whole entry, serialized.
+ *
+ * `JSON.stringify` is enough here — this compares an entry against a later copy
+ * of *itself* from the same server, so key order is stable and there is no need
+ * for the canonical form `skillEntriesMatch` uses to compare two independently
+ * produced entries.
+ */
+function entryKey(entry: SkillEntry): string {
+  return JSON.stringify(entry);
+}
+
 /** The file name a manifest URI ends in, for a list that must fit 40 columns. */
 function fileNameOf(uri: string): string {
   const cut = uri.lastIndexOf("/");
@@ -100,14 +112,23 @@ export function SkillsTab({
   const [error, setError] = useState<string | null>(null);
   const [verifying, setVerifying] = useState(false);
   /**
-   * The last verification, keyed by the skill URI it was run for. Keyed rather
-   * than cleared on selection change so moving off a skill and back does not
-   * silently discard a verdict the user just paid a round trip for — and keyed
-   * by URI rather than index so a refresh that reorders the list cannot show
-   * one skill's verdict under another's name.
+   * The last verification, keyed by the **entry it was computed against**.
+   *
+   * Keyed rather than cleared on selection change, so moving off a skill and
+   * back does not silently discard a verdict the user just paid a round trip
+   * for. Keyed by a serialization of the entry rather than by its index, so a
+   * refresh that reorders the list cannot show one skill's verdict under
+   * another's name — and rather than by its URI alone, because a refresh can
+   * replace the manifest or the frontmatter *under the same URI*, and a
+   * URI-keyed verdict would then present hashes and findings computed for the
+   * previous snapshot as if they described the new one (Copilot).
+   *
+   * The same key the web screen uses, for the same reason: re-verifying after a
+   * metadata-only refresh is the cheap direction to be wrong in; showing a
+   * verdict computed against a different entry is not.
    */
   const [report, setReport] = useState<{
-    uri: string;
+    key: string;
     result: SkillVerifyReport;
   } | null>(null);
   const scrollViewRef = useRef<ScrollViewRef>(null);
@@ -124,7 +145,7 @@ export function SkillsTab({
       void (async () => {
         try {
           const [result] = await verifySkills(inspectorClient, [skill]);
-          setReport({ uri: skill.uri, result });
+          setReport({ key: entryKey(skill), result });
         } catch (err) {
           if (err instanceof AuthRecoveryRequiredError) {
             onAuthRecoveryRequired?.(err);
@@ -196,7 +217,9 @@ export function SkillsTab({
   const detailWidth = width - listWidth;
   const issues = selectedSkill ? checkSkillConformance(selectedSkill) : [];
   const activeReport =
-    selectedSkill && report?.uri === selectedSkill.uri ? report.result : null;
+    selectedSkill && report?.key === entryKey(selectedSkill)
+      ? report.result
+      : null;
   const manifest =
     selectedSkill && selectedSkill.resources !== DYNAMIC_RESOURCES
       ? selectedSkill.resources

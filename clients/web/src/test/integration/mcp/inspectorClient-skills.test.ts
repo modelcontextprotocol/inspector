@@ -121,8 +121,8 @@ describe("Skills extension over a real transport (#2234)", () => {
         // below — so a modern page missing the envelope surfaces here as a
         // rejection rather than as a missing property.
         //
-        // The fixture pages at two over five skills, so a client that stops
-        // here sees less than half.
+        // The fixture pages at two over six skills, so a client that stops
+        // here sees a third of the catalog.
         expect(first.skills).toHaveLength(2);
         expect(first.nextCursor).toBeDefined();
 

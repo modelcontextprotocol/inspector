@@ -78,6 +78,21 @@ describe("runMethod skills dispatch (#2248)", () => {
     ).rejects.toMatchObject({ exitCode: EXIT_CODES.USAGE });
   });
 
+  it("rejects skills/get too when the server declares no extension", async () => {
+    // Declaring the extension commits a server to BOTH methods, so gating one
+    // and not the other is inconsistent with the thing being checked — and an
+    // undeclared server's -32601 is indistinguishable to a script from the
+    // -32602 a declared server returns for a URI it does not serve.
+    const client = mockClient({
+      getSkillsExtension: vi.fn().mockReturnValue(undefined),
+      getSkill: vi.fn(),
+    });
+    await expect(
+      runMethod(client, { method: "skills/get", uri: "skill://x/SKILL.md" }),
+    ).rejects.toMatchObject({ exitCode: EXIT_CODES.USAGE });
+    expect(client.getSkill).not.toHaveBeenCalled();
+  });
+
   it("keeps the { skill } envelope on skills/get", async () => {
     // The client unwraps it for callers that want the entry; a CLI whose
     // contract is "print the result" must not quietly reshape the wire form.

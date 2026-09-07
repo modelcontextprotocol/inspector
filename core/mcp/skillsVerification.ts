@@ -32,6 +32,7 @@ import {
   checkSkillFrontmatterMatch,
   skillDisplayName,
   skillFileBytes,
+  skillUriIdentity,
   verifySkillResource,
   type SkillIssue,
   type SkillVerification,
@@ -85,19 +86,38 @@ interface ReadContents {
 }
 
 /**
- * The first content block of a `resources/read` result.
+ * The block of a `resources/read` result that answers for `uri` — **selected by
+ * URI, never by position**.
  *
- * `contents[0]` rather than a search by URI: a server may legitimately answer
- * with a canonicalized spelling of the URI we asked for, and matching on the
- * string would reject it. A result with no blocks is a read failure and is
- * reported as one.
+ * `contents` is an array, and taking `contents[0]` is wrong in the one way that
+ * matters here: these bytes are about to be hashed against `uri`'s advertised
+ * digest, so accepting a block the server labelled something else would verify
+ * one file's content against another file's digest — and could report that as
+ * `verified`. A false pass from a positional read is worse than a missing
+ * check, because it is an affirmative statement about a file nobody looked at.
+ *
+ * A **normalized** match is accepted, because a server may echo the URI back in
+ * a different but equivalent form — a resolved `..`, a percent-encoding
+ * difference. That is what `skillUriIdentity` is for, and it is the same rule
+ * the whole module applies to every other URI comparison, so a server cannot be
+ * treated as conforming by one check and non-conforming by another.
+ *
+ * `undefined` when nothing answers for the URI, which the caller reports as a
+ * read failure. This mirrors `onReadSkillFile` in the web client, deliberately:
+ * two code paths that hash bytes against a digest must not disagree about which
+ * bytes they are.
  */
-function firstContents(result: unknown): ReadContents | undefined {
+function contentsFor(result: unknown, uri: string): ReadContents | undefined {
   const contents = (result as { contents?: unknown })?.contents;
-  if (!Array.isArray(contents) || contents.length === 0) return undefined;
-  const first: unknown = contents[0];
-  if (typeof first !== "object" || first === null) return undefined;
-  return first as ReadContents;
+  if (!Array.isArray(contents)) return undefined;
+  const wanted = skillUriIdentity(uri);
+  for (const block of contents) {
+    if (typeof block !== "object" || block === null) continue;
+    const got = (block as { uri?: unknown }).uri;
+    if (typeof got !== "string") continue;
+    if (skillUriIdentity(got) === wanted) return block as ReadContents;
+  }
+  return undefined;
 }
 
 /**
@@ -136,7 +156,7 @@ export async function verifySkills(
       let contents: ReadContents | undefined;
       try {
         const invocation = await client.readResource(resource.uri, metadata);
-        contents = firstContents(invocation.result);
+        contents = contentsFor(invocation.result, resource.uri);
       } catch (err) {
         if (err instanceof AuthRecoveryRequiredError) throw err;
         files.push({
@@ -150,7 +170,8 @@ export async function verifySkills(
         files.push({
           uri: resource.uri,
           status: "read-error",
-          reason: "resources/read returned no content blocks.",
+          reason:
+            "resources/read returned no content block for this URI, so there are no bytes that can be checked against its digest.",
         });
         continue;
       }
@@ -179,7 +200,7 @@ export async function verifySkills(
     if (entryText === undefined) {
       try {
         const invocation = await client.readResource(entry.uri, metadata);
-        const contents = firstContents(invocation.result);
+        const contents = contentsFor(invocation.result, entry.uri);
         if (typeof contents?.text === "string") entryText = contents.text;
       } catch (err) {
         // Left undefined: the frontmatter check is skipped below. When the

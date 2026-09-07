@@ -137,13 +137,87 @@ describe("verifySkills (#2248)", () => {
     expect(report.ok).toBe(false);
   });
 
+  it("refuses a block for a DIFFERENT uri rather than verifying it", async () => {
+    // The dangerous shape, and the reason positional selection is wrong: these
+    // bytes are about to be hashed against THIS file's advertised digest, so
+    // accepting a block the server labelled something else verifies one file's
+    // content against another file's digest — and can report that as
+    // `verified`. A false pass is worse than a missing check.
+    const skill = await entry();
+    const readResource = vi.fn(async () => ({
+      result: {
+        contents: [{ uri: "skill://demo/unrelated.md", text: "other bytes" }],
+      },
+    }));
+    const client = { readResource } as unknown as InspectorClientProtocol;
+    const [report] = await verifySkills(client, [skill]);
+    expect(report.files.every((f) => f.status === "read-error")).toBe(true);
+    expect(report.files[0].reason).toMatch(/no content block for this URI/);
+    expect(report.ok).toBe(false);
+  });
+
+  it("finds the matching block when it is not the first one", async () => {
+    // A server may answer with more than one block, in any order; taking
+    // `contents[0]` would hash the wrong file's bytes.
+    const bytes = new TextEncoder().encode(REF);
+    const skill: SkillEntry = {
+      uri: "skill://demo/SKILL.md",
+      frontmatter: { name: "demo", description: "A demo" },
+      resources: [
+        {
+          uri: "skill://demo/ref.md",
+          digest: await sha256Digest(bytes),
+          size: bytes.byteLength,
+        },
+      ],
+    };
+    const readResource = vi.fn(async () => ({
+      result: {
+        contents: [
+          { uri: "skill://demo/decoy.md", text: "decoy" },
+          { uri: "skill://demo/ref.md", text: REF },
+        ],
+      },
+    }));
+    const client = { readResource } as unknown as InspectorClientProtocol;
+    const [report] = await verifySkills(client, [skill]);
+    expect(report.files[0].status).toBe("verified");
+  });
+
+  it("ignores a malformed block while still finding the real one", async () => {
+    const bytes = new TextEncoder().encode(REF);
+    const skill: SkillEntry = {
+      uri: "skill://demo/SKILL.md",
+      frontmatter: { name: "demo", description: "A demo" },
+      resources: [
+        {
+          uri: "skill://demo/ref.md",
+          digest: await sha256Digest(bytes),
+          size: bytes.byteLength,
+        },
+      ],
+    };
+    const readResource = vi.fn(async () => ({
+      result: {
+        contents: [
+          null,
+          { uri: 42 },
+          { uri: "skill://demo/ref.md", text: REF },
+        ],
+      },
+    }));
+    const client = { readResource } as unknown as InspectorClientProtocol;
+    const [report] = await verifySkills(client, [skill]);
+    expect(report.files[0].status).toBe("verified");
+  });
+
   it("reports a response with no content blocks as a read failure", async () => {
     const skill = await entry();
     const readResource = vi.fn(async () => ({ result: { contents: [] } }));
     const client = { readResource } as unknown as InspectorClientProtocol;
     const [report] = await verifySkills(client, [skill]);
     expect(report.files[0]).toMatchObject({ status: "read-error" });
-    expect(report.files[0].reason).toMatch(/no content blocks/);
+    expect(report.files[0].reason).toMatch(/no content block for this URI/);
   });
 
   it("reports a block carrying neither text nor blob as a read failure", async () => {

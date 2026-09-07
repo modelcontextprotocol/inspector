@@ -1784,6 +1784,27 @@ describe("SkillsScreen directory browsing (#2248)", () => {
     });
   }
 
+  it("starts collapsed, since its content needs a round trip nobody has made", async () => {
+    // Open, it would hold a button and an empty frame — advertising content
+    // that is not there while taking height from the sections that have some.
+    const user = userEvent.setup();
+    renderWithMantine(
+      <ControlledSkillsScreen
+        onReadResourceDirectory={directoryReader({ [ROOT]: { resources: [] } })}
+      />,
+    );
+    await user.click(screen.getByText("data-analysis"));
+    expect(screen.getByRole("button", { name: /Directory/ })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+    // Still reachable, and the other sections are unaffected.
+    expect(screen.getByRole("button", { name: /Resources/ })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+  });
+
   it("renders no Directory section when the server did not declare directoryRead", async () => {
     const user = userEvent.setup();
     renderWithMantine(<ControlledSkillsScreen />);
@@ -1808,6 +1829,7 @@ describe("SkillsScreen directory browsing (#2248)", () => {
     await user.click(screen.getByText("data-analysis"));
     expect(onReadResourceDirectory).not.toHaveBeenCalled();
 
+    await user.click(screen.getByRole("button", { name: /Directory/ }));
     await user.click(screen.getByRole("button", { name: "Read directory" }));
     await waitFor(() =>
       expect(screen.getByTestId("skill-directory")).toBeInTheDocument(),
@@ -1836,6 +1858,8 @@ describe("SkillsScreen directory browsing (#2248)", () => {
       <ControlledSkillsScreen onReadResourceDirectory={reader} />,
     );
     await user.click(screen.getByText("data-analysis"));
+    // Directory starts collapsed — see `DEFAULT_OPEN_SECTIONS`.
+    await user.click(screen.getByRole("button", { name: /Directory/ }));
     await user.click(screen.getByRole("button", { name: "Read directory" }));
     await waitFor(() =>
       expect(screen.getByTestId("skill-directory")).toBeInTheDocument(),
@@ -1906,6 +1930,7 @@ describe("SkillsScreen directory browsing (#2248)", () => {
       />,
     );
     await user.click(screen.getByText("data-analysis"));
+    await user.click(screen.getByRole("button", { name: /Directory/ }));
     await user.click(screen.getByRole("button", { name: "Read directory" }));
     await waitFor(() =>
       expect(screen.getByTestId("skill-directory")).toBeInTheDocument(),
@@ -1934,6 +1959,7 @@ describe("SkillsScreen directory browsing (#2248)", () => {
       />,
     );
     await user.click(screen.getByText("data-analysis"));
+    await user.click(screen.getByRole("button", { name: /Directory/ }));
     await user.click(screen.getByRole("button", { name: "Read directory" }));
     await waitFor(() =>
       expect(
@@ -2024,6 +2050,7 @@ describe("SkillsScreen directory browsing (#2248)", () => {
       <ControlledSkillsScreen onReadResourceDirectory={reader} />,
     );
     await user.click(screen.getByText("dynamic-report"));
+    await user.click(screen.getByRole("button", { name: /Directory/ }));
     await user.click(screen.getByRole("button", { name: "Read directory" }));
     await waitFor(() =>
       expect(screen.getByTestId("skill-directory")).toBeInTheDocument(),
@@ -2044,6 +2071,7 @@ describe("SkillsScreen directory browsing (#2248)", () => {
       />,
     );
     await user.click(screen.getByText("data-analysis"));
+    await user.click(screen.getByRole("button", { name: /Directory/ }));
     await user.click(screen.getByRole("button", { name: "Read directory" }));
     await waitFor(() =>
       expect(screen.getByText("This directory is empty.")).toBeInTheDocument(),
@@ -2063,6 +2091,7 @@ describe("SkillsScreen directory browsing (#2248)", () => {
       />,
     );
     await user.click(screen.getByText("data-analysis"));
+    await user.click(screen.getByRole("button", { name: /Directory/ }));
     await user.click(screen.getByRole("button", { name: "Read directory" }));
     await waitFor(() =>
       expect(screen.getByText(/Not a directory resource/)).toBeInTheDocument(),
@@ -2070,6 +2099,41 @@ describe("SkillsScreen directory browsing (#2248)", () => {
     expect(
       screen.getByRole("button", { name: /Directory/ }),
     ).toBeInTheDocument();
+  });
+
+  it("keeps the pages already shown when Load more fails, and can retry", async () => {
+    // Replacing the state outright made the table vanish and stranded the
+    // reader with no way back to that page short of restarting at the root.
+    const user = userEvent.setup();
+    let fail = true;
+    const onReadResourceDirectory = vi.fn(
+      async (_uri: string, cursor?: string) => {
+        if (cursor === undefined) {
+          return { resources: [CHILD_FILE], nextCursor: "1" } as never;
+        }
+        if (fail) {
+          fail = false;
+          throw new Error("page two exploded");
+        }
+        return { resources: [CHILD_DIR] } as never;
+      },
+    );
+    await openRoot(user, onReadResourceDirectory as never);
+    await user.click(screen.getByRole("button", { name: "Load more" }));
+    await waitFor(() =>
+      expect(screen.getByText(/page two exploded/)).toBeInTheDocument(),
+    );
+    // The first page is still on screen…
+    expect(
+      within(screen.getByTestId("skill-directory")).getByText(CHILD_FILE.uri),
+    ).toBeInTheDocument();
+    // …and the cursor survived, so the same page can be retried.
+    await user.click(screen.getByRole("button", { name: "Load more" }));
+    await waitFor(() => {
+      const table = within(screen.getByTestId("skill-directory"));
+      expect(table.getByText(CHILD_FILE.uri)).toBeInTheDocument();
+      expect(table.getByText(CHILD_DIR.uri)).toBeInTheDocument();
+    });
   });
 
   it("drops a listing when the selection changes mid-read", async () => {
@@ -2089,6 +2153,7 @@ describe("SkillsScreen directory browsing (#2248)", () => {
       />,
     );
     await user.click(screen.getByText("data-analysis"));
+    await user.click(screen.getByRole("button", { name: /Directory/ }));
     await user.click(screen.getByRole("button", { name: "Read directory" }));
     await user.click(screen.getByText("right-name"));
     release?.({ resources: [CHILD_FILE] });

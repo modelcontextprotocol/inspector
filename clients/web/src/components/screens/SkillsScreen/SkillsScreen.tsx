@@ -496,6 +496,27 @@ const ALL_SECTIONS = [
 ];
 
 /**
+ * The sections that open by default — everything except Directory.
+ *
+ * Directory is the one section whose content requires a round trip the user has
+ * not made yet, so open it holds a button and an empty frame: it advertises
+ * content that is not there, while taking height from the sections that do have
+ * some. With five open sections in a short pane each is squeezed to its floor
+ * and scrolls internally, which is the documented fallback but a poor first
+ * impression — and the one it costs most is the file viewer, the section
+ * `viewerFlex` exists to give the remainder to.
+ *
+ * The same argument as Conformance's auto-collapse, one step earlier: that one
+ * closes a section whose header already carries the whole answer, this one
+ * closes a section that has no answer yet. Both are defaults; neither prevents
+ * opening it, and `openSections` outlives a selection, so a user who opens
+ * Directory keeps it open across skills.
+ */
+const DEFAULT_OPEN_SECTIONS = ALL_SECTIONS.filter(
+  (section) => section !== "directory",
+);
+
+/**
  * The open set for the FIRST render.
  *
  * `useValueChange` deliberately does not fire on the first render, so the
@@ -508,13 +529,13 @@ function initialOpenSections(
   skills: SkillEntry[],
   selectedSkillUri: string | undefined,
 ): string[] {
-  if (selectedSkillUri === undefined) return ALL_SECTIONS;
+  if (selectedSkillUri === undefined) return DEFAULT_OPEN_SECTIONS;
   const wanted = skillUriIdentity(selectedSkillUri);
   const entry = skills.find((skill) => skillUriIdentity(skill.uri) === wanted);
-  if (entry === undefined) return ALL_SECTIONS;
+  if (entry === undefined) return DEFAULT_OPEN_SECTIONS;
   return checkSkillConformance(entry).length > 0
-    ? ALL_SECTIONS
-    : ALL_SECTIONS.filter((section) => section !== "conformance");
+    ? DEFAULT_OPEN_SECTIONS
+    : DEFAULT_OPEN_SECTIONS.filter((section) => section !== "conformance");
 }
 
 /**
@@ -1032,11 +1053,17 @@ export function SkillsScreen({
     (uri: string, key: string, cursor?: string) => {
       if (!onReadResourceDirectory) return;
       const attempt = (nextAttempt.current += 1);
-      const write = (next: Omit<DirectoryState, "key" | "attempt">) =>
+      /**
+       * Commit a settled result, dropping it when it no longer belongs to the
+       * pane on screen — a different skill, or a newer read of this one.
+       */
+      const commit = (
+        next: (prev: DirectoryState) => Omit<DirectoryState, "key" | "attempt">,
+      ) =>
         setDirectory((prev) => {
           if (prev.key !== null && prev.key !== key) return prev;
           if (prev.attempt !== undefined && prev.attempt > attempt) return prev;
-          return { key, attempt, ...next };
+          return { key, attempt, ...next(prev) };
         });
       // The path is claimed before the request goes out, so the header names
       // the directory being read rather than continuing to announce the
@@ -1058,26 +1085,28 @@ export function SkillsScreen({
       // `catch`, which surfaces the message in the section.
       void onReadResourceDirectory(uri, cursor)
         .then((page) => {
-          setDirectory((prev) => {
-            if (prev.key !== null && prev.key !== key) return prev;
-            if (prev.attempt !== undefined && prev.attempt > attempt) {
-              return prev;
-            }
-            const held = cursor === undefined ? [] : (prev.children ?? []);
-            return {
-              key,
-              attempt,
-              uri,
-              children: [...held, ...page.resources],
-              nextCursor: page.nextCursor,
-            };
-          });
+          commit((prev) => ({
+            uri,
+            children: [
+              ...(cursor === undefined ? [] : (prev.children ?? [])),
+              ...page.resources,
+            ],
+            nextCursor: page.nextCursor,
+          }));
         })
         .catch((err: unknown) => {
-          write({
+          // A FAILED page leaves what is already on screen where it is, and
+          // keeps the cursor that would retry it. Replacing the state outright
+          // made the table vanish and stranded the reader with no way back to
+          // that page short of restarting at the root (Copilot). Only a first
+          // read of a directory has nothing to preserve.
+          commit((prev) => ({
             uri,
+            ...(cursor === undefined
+              ? {}
+              : { children: prev.children, nextCursor: cursor }),
             message: err instanceof Error ? err.message : String(err),
-          });
+          }));
         });
     },
     [onReadResourceDirectory],

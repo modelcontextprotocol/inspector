@@ -25,6 +25,28 @@ import type {
 } from "./method-types.js";
 
 /**
+ * Refuse a `skills/*` call against a server that never declared the extension.
+ *
+ * Shared by `skills/list` and `skills/get` so the two cannot drift: declaring
+ * the extension commits a server to both, so a client that gates one and not
+ * the other is inconsistent with the thing it is checking. Not needed for
+ * `resources/directory/read`, whose stricter `directoryRead` gate lives in
+ * `InspectorClient` itself.
+ */
+function assertSkillsSupported(
+  inspectorClient: InspectorClient,
+  method: string,
+): void {
+  if (!inspectorClient.getSkillsExtension()) {
+    throw new CliExitCodeError(
+      EXIT_CODES.USAGE,
+      `Server does not declare the ${SKILLS_EXTENSION_KEY} extension, so ${method} is not available.`,
+      { code: "skills_unsupported" },
+    );
+  }
+}
+
+/**
  * Run one MCP method against a connected {@link InspectorClient}.
  * Core method dispatch used by the CLI (and other Inspector Node runners).
  *
@@ -299,13 +321,7 @@ export async function runMethod(
       // list, which is right for a UI that must render *something*, and wrong
       // for a CLI where "this server has no skills" and "this server does not
       // serve skills at all" are different answers a script has to tell apart.
-      if (!inspectorClient.getSkillsExtension()) {
-        throw new CliExitCodeError(
-          EXIT_CODES.USAGE,
-          `Server does not declare the ${SKILLS_EXTENSION_KEY} extension, so ${args.method} is not available.`,
-          { code: "skills_unsupported" },
-        );
-      }
+      assertSkillsSupported(inspectorClient, args.method);
       managedSkillsState = new ManagedSkillsState(inspectorClient);
       const skills = await managedSkillsState.refresh(args.metadata);
       if (args.verify) {
@@ -330,6 +346,12 @@ export async function runMethod(
           "URI is required for skills/get method. Use --uri to specify the skill URI.",
         );
       }
+      // Same gate as `skills/list`, and for the same reason. Without it an
+      // undeclared server answers `-32601`, which a script cannot tell apart
+      // from the `-32602` a *declared* server returns for a skill URI it does
+      // not serve — "this server has no Skills support" and "no such skill"
+      // are different answers (Copilot).
+      assertSkillsSupported(inspectorClient, args.method);
       const skill = await inspectorClient.getSkill(args.uri, args.metadata);
       if (args.verify) {
         const reports = await verifySkills(
