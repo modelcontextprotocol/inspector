@@ -537,10 +537,22 @@ export function buildWebServerConfig(
         // root-dotted host is not a valid CSP host-source, so such an entry
         // could never admit an MCP Apps embedder anyway.
         //
+        // ⚠️ The root dot is dropped by hand rather than by calling
+        // `canonicalOriginHost`, and the difference is load-bearing. That
+        // helper also unmaps an IPv4-mapped IPv6 host (`[::ffff:7f00:1]` →
+        // `127.0.0.1`), which is right for a *bind host* — that is the address
+        // the socket answers on — and wrong for an operator's explicit origin,
+        // which is already exactly the string the browser will send. Running it
+        // here would allow-list `http://127.0.0.1:6274` while the browser asks
+        // as `http://[::ffff:7f00:1]:6274`: the requested origin blocked, and a
+        // different one authorized in its place. `parsed.hostname` is already
+        // WHATWG-normalized (lowercased, punycoded, IPv6 bracketed), so the
+        // trailing dot is the only thing left to remove.
+        //
         // Rebuilt from `parsed` rather than string-edited: `parsed.port` is
         // empty for a scheme-default port, which is what keeps the `:80` drop
         // that `URL.origin` already performed.
-        const host = canonicalOriginHost(parsed.hostname);
+        const host = parsed.hostname.replace(/\.$/, "");
         return parsed.port
           ? `${parsed.protocol}//${host}:${parsed.port}`
           : `${parsed.protocol}//${host}`;

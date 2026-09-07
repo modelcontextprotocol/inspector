@@ -216,6 +216,22 @@ describe("buildWebServerConfigFromEnv", () => {
     ]);
   });
 
+  it("does NOT unmap an IPv4-mapped IPv6 entry, which would authorize a different origin", () => {
+    // `canonicalOriginHost` unmaps `[::ffff:7f00:1]` to `127.0.0.1`, which is
+    // right for a bind host — that is the address the socket answers on — and
+    // wrong here. An explicit entry is already exactly the string the browser
+    // sends, so unmapping it would block the requested origin and authorize a
+    // different one in its place. Only the root dot may be removed.
+    process.env.ALLOWED_ORIGINS =
+      "http://[::ffff:127.0.0.1]:6274, http://Example.COM:80";
+    expect(buildWebServerConfigFromEnv().allowedOrigins).toEqual([
+      // The WHATWG serialization, which is what a browser puts in `Origin`.
+      "http://[::ffff:7f00:1]:6274",
+      // Still canonicalized in every other respect: lowercased, `:80` dropped.
+      "http://example.com",
+    ]);
+  });
+
   it("turns the *.localhost widening off when ALLOWED_ORIGINS is set but wholly invalid", () => {
     // A widening fails closed. The operator stated an allow-list and got it
     // wrong; the list itself still falls back to the default (documented,
