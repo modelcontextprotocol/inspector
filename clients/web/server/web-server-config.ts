@@ -212,7 +212,7 @@ export function printServerBanner(
   // :80). Computing `h` once keeps the predicate and the value reading the same
   // form; `isAllInterfacesHost` also canonicalizes internally, so this is
   // belt-and-braces, not what makes them agree.
-  const h = canonicalUrlHost(config.hostname);
+  const h = canonicalOriginHost(config.hostname);
   const bannerHost = isAllInterfacesHost(h) ? "localhost" : h;
   const baseUrl = httpOrigin(bannerHost, actualPort);
   const url =
@@ -302,6 +302,32 @@ function loopbackOrigins(port: number): string[] {
 }
 
 /**
+ * The canonical host to put in a **browser-facing** origin or advertised URL.
+ *
+ * {@link canonicalUrlHost} plus one thing it deliberately does not do: drop a
+ * root FQDN dot. `HOST=localhost.` binds loopback and every resolver treats it
+ * as `localhost`, but the WHATWG serializer keeps the dot — and a root-dotted
+ * host is **not a valid CSP `host-source`** (the grammar admits no empty final
+ * label). Advertising `http://localhost.:PORT` therefore produced a URL that
+ * passed the exact-match API guard and then blanked the MCP Apps frame, because
+ * the browser dropped that source from `frame-ancestors` and nothing else
+ * covered the embedder.
+ *
+ * Used by **both** the banner and {@link defaultAllowedOrigins}, which is what
+ * keeps `banner ⊆ allowedOrigins` true through this normalization rather than
+ * in spite of it. The **bind host is untouched** — `config.hostname` still
+ * binds exactly what was typed; this only changes the spelling we hand a
+ * browser.
+ *
+ * Deliberately NOT folded into `canonicalUrlHost`: `isLocalhostSubdomainHost`
+ * depends on that function preserving the dot, precisely so it can reject
+ * `app.localhost.` for the same CSP reason. The two live at different layers.
+ */
+function canonicalOriginHost(hostname: string): string {
+  return canonicalUrlHost(hostname).replace(/\.$/, "");
+}
+
+/**
  * Whether the default origin allow-list for `hostname` should additionally
  * admit `*.localhost` origins (#1944).
  *
@@ -339,7 +365,7 @@ function loopbackOrigins(port: number): string[] {
  * root-dotted form is not.
  */
 export function allowLocalhostSubdomainOriginsFor(hostname: string): boolean {
-  const h = canonicalUrlHost(hostname).replace(/\.$/, "");
+  const h = canonicalOriginHost(hostname);
   return LOOPBACK_HOSTNAMES.has(h) || isAllInterfacesHost(h);
 }
 
@@ -380,8 +406,11 @@ export function defaultAllowedOrigins(
 ): string[] {
   // The loopback lookup and the emitted origin both read the canonicalized `h`
   // (the wildcard check via `isAllInterfacesHost` canonicalizes internally), so
-  // every branch reasons about the same address.
-  const h = canonicalUrlHost(hostname);
+  // every branch reasons about the same address. `canonicalOriginHost` rather
+  // than `canonicalUrlHost`: this list is compared against a browser `Origin`
+  // and is also the source of the MCP Apps `frame-ancestors`, so it must not
+  // emit a root-dotted host that CSP cannot express.
+  const h = canonicalOriginHost(hostname);
   if (LOOPBACK_HOSTNAMES.has(h)) {
     return loopbackOrigins(port);
   }

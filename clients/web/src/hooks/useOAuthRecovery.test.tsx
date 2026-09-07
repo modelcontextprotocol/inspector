@@ -980,6 +980,72 @@ describe("useOAuthRecovery", () => {
       });
     });
 
+    it("claims an insecure token endpoint on the command path instead of rethrowing", async () => {
+      // SEP-2207 (#2280). A mid-session silent refresh rejects here rather than
+      // as an AuthRecoveryRequiredError, so before this it was rethrown into
+      // the generic reporting below.
+      const client = fakeClient();
+      const h = harness({ servers: [entry("a")], activeServerId: "a", client });
+      await act(async () => {
+        await expect(
+          h
+            .api()
+            .runWithCommandAuthRecovery(
+              () =>
+                Promise.reject(
+                  new InsecureTokenEndpointError(
+                    "http://localhost.:8091/token",
+                  ),
+                ),
+              "tool",
+            ),
+        ).resolves.toBeUndefined();
+      });
+      expect(toastTitles()).toContain("Token endpoint is not secure");
+    });
+
+    it("shows the terminal notice instead of the generic title in the background form", async () => {
+      // The `errorTitle` call sites would otherwise render the raw SDK text
+      // under a generic heading.
+      const client = fakeClient();
+      const h = harness({ servers: [entry("a")], activeServerId: "a", client });
+      await act(async () => {
+        h.api().runCommandInBackground(
+          () =>
+            Promise.reject(
+              new InsecureTokenEndpointError("http://localhost.:8091/token"),
+            ),
+          "ambient",
+          "Refresh failed",
+        );
+        await Promise.resolve();
+      });
+      await waitFor(() =>
+        expect(toastTitles()).toContain("Token endpoint is not secure"),
+      );
+      expect(toastTitles()).not.toContain("Refresh failed");
+    });
+
+    it("still reports it at a call site whose panel owns reporting", async () => {
+      // The worse half of the old behavior: with no `errorTitle` the rejection
+      // was swallowed outright and the command just appeared to do nothing.
+      const client = fakeClient();
+      const h = harness({ servers: [entry("a")], activeServerId: "a", client });
+      await act(async () => {
+        h.api().runCommandInBackground(
+          () =>
+            Promise.reject(
+              new InsecureTokenEndpointError("http://localhost.:8091/token"),
+            ),
+          "ambient",
+        );
+        await Promise.resolve();
+      });
+      await waitFor(() =>
+        expect(toastTitles()).toContain("Token endpoint is not secure"),
+      );
+    });
+
     it("toasts a background failure only when given a title", async () => {
       const client = fakeClient();
       const h = harness({ servers: [entry("a")], activeServerId: "a", client });

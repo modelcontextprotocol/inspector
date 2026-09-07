@@ -8,7 +8,10 @@ import {
   webServerConfigToInitialPayload,
   type WebServerConfig,
 } from "../../../../server/web-server-config.js";
-import { DEFAULT_SANDBOX_PORT } from "../../../../server/sandbox-controller.js";
+import {
+  DEFAULT_SANDBOX_PORT,
+  sandboxFrameAncestors,
+} from "../../../../server/sandbox-controller.js";
 import {
   API_SERVER_ENV_VARS,
   LEGACY_AUTH_TOKEN_ENV,
@@ -458,6 +461,44 @@ describe("allowLocalhostSubdomainOriginsFor (#1944)", () => {
       expect(allowLocalhostSubdomainOriginsFor(host)).toBe(false);
     },
   );
+});
+
+describe("root-dotted loopback host (#2280 review round 2)", () => {
+  it("advertises the CSP-expressible spelling for HOST=localhost.", () => {
+    // `localhost.` binds loopback and the resolver treats it as `localhost`,
+    // but a root-dotted host is not a valid CSP host-source — so advertising
+    // `http://localhost.:PORT` produced a URL that passed the exact-match API
+    // guard and then blanked the MCP Apps frame.
+    expect(defaultAllowedOrigins("localhost.", 6274)).toEqual([
+      "http://localhost:6274",
+      "http://127.0.0.1:6274",
+      "http://[::1]:6274",
+    ]);
+  });
+
+  it("keeps banner ⊆ allowedOrigins through the normalization", () => {
+    // The invariant the shared `canonicalOriginHost` exists to hold: whatever
+    // the banner prints has to be a member of the list, or the advertised URL
+    // 403s. Both read the same helper, so this asserts they agree rather than
+    // re-deriving the banner here.
+    process.env.HOST = "localhost.";
+    const cfg = buildWebServerConfigFromEnv();
+    expect(cfg.allowedOrigins).toContain("http://localhost:6274");
+    expect(cfg.allowedOrigins).not.toContain("http://localhost.:6274");
+    // The bind host itself is untouched — only the browser-facing spelling
+    // normalizes.
+    expect(cfg.hostname).toBe("localhost.");
+    expect(cfg.allowLocalhostSubdomainOrigins).toBe(true);
+  });
+
+  it("emits no root-dotted source into the sandbox frame-ancestors", () => {
+    const directive = sandboxFrameAncestors(
+      defaultAllowedOrigins("localhost.", 6274),
+      { allowLocalhostSubdomains: true },
+    );
+    expect(directive).not.toContain("localhost.:");
+    expect(directive).toContain("http://localhost:6274");
+  });
 });
 
 describe("defaultAllowedOrigins", () => {

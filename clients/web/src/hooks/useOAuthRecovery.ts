@@ -820,10 +820,32 @@ export function useOAuthRecovery({
           }
           return undefined;
         }
+        // SEP-2207 (#2280), on the command path. A mid-session silent refresh
+        // against an unusable token endpoint rejects here rather than as an
+        // `AuthRecoveryRequiredError`, so without this it is rethrown and lands
+        // in `runCommandInBackground` — which either shows the raw SDK text
+        // under a generic title or, at a call site whose panel owns reporting,
+        // swallows it and leaves the command looking like it did nothing.
+        //
+        // Claimed rather than rethrown, taking the same `undefined` exit the
+        // unsatisfied-recovery branch above already uses: the failure is
+        // terminal and now fully reported, so an awaited caller should stop
+        // rather than render it a second time.
+        const server = sessionRef.current.servers.find(
+          (s) => s.id === activeServerId,
+        );
+        if (showInsecureTokenEndpointNotice(err, server?.name)) {
+          return undefined;
+        }
         throw err;
       }
     },
-    [inspectorClient, activeServerId, handleCommandScopedAuthRecovery],
+    [
+      inspectorClient,
+      activeServerId,
+      handleCommandScopedAuthRecovery,
+      sessionRef,
+    ],
   );
 
   /**
