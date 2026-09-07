@@ -183,6 +183,26 @@ describe("buildWebServerConfigFromEnv", () => {
     expect(cfg.allowedOrigins).toEqual(["http://a:1", "http://b:2"]);
   });
 
+  it("turns the *.localhost widening off when ALLOWED_ORIGINS is set but wholly invalid", () => {
+    // A widening fails closed. The operator stated an allow-list and got it
+    // wrong; the list itself still falls back to the default (documented,
+    // unchanged), but adding every *.localhost on top of a value we could not
+    // parse is the opposite of what they asked for.
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      process.env.ALLOWED_ORIGINS = "not-a-url, also-not-a-url";
+      const cfg = buildWebServerConfigFromEnv();
+      expect(cfg.allowedOrigins).toEqual([
+        "http://localhost:6274",
+        "http://127.0.0.1:6274",
+        "http://[::1]:6274",
+      ]);
+      expect(cfg.allowLocalhostSubdomainOrigins).toBe(false);
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
   it("turns the *.localhost widening off when ALLOWED_ORIGINS is set (#1944)", () => {
     // ALLOWED_ORIGINS *replaces* the default list, as documented. A list that
     // states which origins are allowed must not silently gain entries.

@@ -116,6 +116,24 @@ describe("sandboxFrameAncestors", () => {
   });
 });
 
+describe("advertised URL host (#2280 review round 6)", () => {
+  it("drops a root FQDN dot from the sandbox URL", async () => {
+    // The sandbox URL's origin is named in the app-origin `frame-ancestors`,
+    // and a root-dotted host is not a valid CSP host-source — so
+    // `HOST=localhost.` advertised a reachable URL whose origin the browser
+    // silently drops, blanking the INNER app frame. Fixing the outer origin
+    // allow-list alone left this one live.
+    const controller = createSandboxController({ port: 0, host: "localhost." });
+    try {
+      const { url } = await controller.start();
+      expect(url).not.toContain("localhost.:");
+      expect(url).toMatch(/^http:\/\/localhost:\d+\/sandbox$/);
+    } finally {
+      await controller.close();
+    }
+  });
+});
+
 describe("resolveSandboxPort", () => {
   let envSnapshot: { mcp?: string; server?: string };
   let warnSpy: ReturnType<typeof vi.spyOn>;

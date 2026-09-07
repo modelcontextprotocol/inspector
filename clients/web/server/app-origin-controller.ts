@@ -68,7 +68,7 @@
 import { createServer, type Server } from "node:http";
 import { randomBytes } from "node:crypto";
 import {
-  canonicalUrlHost,
+  canonicalOriginHost,
   isAllInterfacesHost,
 } from "../../../core/node/hostUrl.ts";
 import { DEFAULT_BIND_HOST } from "./resolve-bind-host.js";
@@ -375,7 +375,12 @@ export function createAppOriginController(
           // A wildcard bind isn't reachable as `http://0.0.0.0:PORT`, but it
           // does serve loopback — advertise `localhost` there, and otherwise
           // the same canonical host the origin allow-list emits.
-          const canonicalHost = canonicalUrlHost(host);
+          // `canonicalOriginHost`, not `canonicalUrlHost`: this URL's origin is
+          // named in a `frame-ancestors` directive, and a root-dotted host is
+          // not a valid CSP host-source — so `HOST=localhost.` would advertise
+          // a reachable URL whose origin the browser silently drops, blanking
+          // the frame. The bind host above is untouched.
+          const canonicalHost = canonicalOriginHost(host);
           const urlHost = isAllInterfacesHost(canonicalHost)
             ? "localhost"
             : canonicalHost;

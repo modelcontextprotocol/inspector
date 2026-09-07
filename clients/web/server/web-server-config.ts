@@ -22,7 +22,7 @@ import { resolveSandboxPort } from "./sandbox-controller.js";
 import { resolveAppOriginPort } from "./app-origin-controller.js";
 import { resolveBindHostname } from "./resolve-bind-host.js";
 import {
-  canonicalUrlHost,
+  canonicalOriginHost,
   isAllInterfacesHost,
 } from "../../../core/node/hostUrl.ts";
 
@@ -279,7 +279,7 @@ export interface BuildWebServerConfigOptions {
  * and Node/Vite may bind the IPv6 form — so the browser can legitimately end up
  * at `http://[::1]:PORT` even though the banner printed `http://localhost:PORT`.
  * IPv6 is the **bracketed** form only (`[::1]`): the sole caller looks up
- * `canonicalUrlHost(hostname)`, which always brackets an IPv6 literal.
+ * `canonicalOriginHost(hostname)`, which always brackets an IPv6 literal.
  */
 const LOOPBACK_HOSTNAMES = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
@@ -299,32 +299,6 @@ function loopbackOrigins(port: number): string[] {
     httpOrigin("127.0.0.1", port),
     httpOrigin("[::1]", port),
   ];
-}
-
-/**
- * The canonical host to put in a **browser-facing** origin or advertised URL.
- *
- * {@link canonicalUrlHost} plus one thing it deliberately does not do: drop a
- * root FQDN dot. `HOST=localhost.` binds loopback and every resolver treats it
- * as `localhost`, but the WHATWG serializer keeps the dot — and a root-dotted
- * host is **not a valid CSP `host-source`** (the grammar admits no empty final
- * label). Advertising `http://localhost.:PORT` therefore produced a URL that
- * passed the exact-match API guard and then blanked the MCP Apps frame, because
- * the browser dropped that source from `frame-ancestors` and nothing else
- * covered the embedder.
- *
- * Used by **both** the banner and {@link defaultAllowedOrigins}, which is what
- * keeps `banner ⊆ allowedOrigins` true through this normalization rather than
- * in spite of it. The **bind host is untouched** — `config.hostname` still
- * binds exactly what was typed; this only changes the spelling we hand a
- * browser.
- *
- * Deliberately NOT folded into `canonicalUrlHost`: `isLocalhostSubdomainHost`
- * depends on that function preserving the dot, precisely so it can reject
- * `app.localhost.` for the same CSP reason. The two live at different layers.
- */
-function canonicalOriginHost(hostname: string): string {
-  return canonicalUrlHost(hostname).replace(/\.$/, "");
 }
 
 /**
@@ -379,7 +353,7 @@ export function allowLocalhostSubdomainOriginsFor(hostname: string): boolean {
  * the DNS-rebinding guard effective — still scoped to loopback at this exact
  * port — while not 403-ing a browser that landed on `[::1]` instead of the
  * `localhost` the banner advertised. The host is canonicalized first
- * ({@link canonicalUrlHost}), so a non-canonical spelling of a loopback address
+ * ({@link canonicalOriginHost}), so a non-canonical spelling of a loopback address
  * still lands in the loopback branch.
  *
  * An **all-interfaces** bind (`0.0.0.0` / `::`, the opt-in path the Docker image
@@ -514,6 +488,17 @@ export function buildWebServerConfig(
   // When nothing survives (unset, `""`, `" "`, `","`, or all-invalid) we fall
   // back to `defaultAllowedOrigins` below — critically NOT to `[]`, which the
   // origin middleware treats as *allow-all*, silently disabling the guard.
+  // Whether the operator *stated* an allow-list, as distinct from whether any
+  // of it survived validation. `""` / `" "` / `","` carry no entry and are
+  // treated as unset; `ALLOWED_ORIGINS=garbage` states one and happens to be
+  // unusable. The distinction only drives the `*.localhost` widening below —
+  // the list itself still falls back to the default in both cases, which is the
+  // documented fail-closed behavior and is unchanged.
+  const explicitOriginEntries =
+    process.env.ALLOWED_ORIGINS?.split(",").filter((o) => o.trim() !== "") ??
+    [];
+  const hasExplicitOriginList = explicitOriginEntries.length > 0;
+
   const configuredOrigins = process.env.ALLOWED_ORIGINS?.split(",")
     .map((o) => o.trim())
     .filter(Boolean)
@@ -558,8 +543,14 @@ export function buildWebServerConfig(
     allowedOrigins: configuredOrigins?.length
       ? configuredOrigins
       : defaultAllowedOrigins(hostname, port),
+    // Keyed on whether an allow-list was *stated*, not on whether one survived.
+    // A widening should fail closed: an operator who wrote `ALLOWED_ORIGINS`
+    // and got it wrong has still said "these are the origins I want", and
+    // silently adding every `*.localhost` on top of a value we could not parse
+    // is the opposite of what they asked for. The warnings already name each
+    // dropped entry.
     allowLocalhostSubdomainOrigins:
-      !configuredOrigins?.length && allowLocalhostSubdomainOriginsFor(hostname),
+      !hasExplicitOriginList && allowLocalhostSubdomainOriginsFor(hostname),
     sandboxPort,
     sandboxHost: hostname,
     appOriginPort,

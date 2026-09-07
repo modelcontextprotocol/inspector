@@ -208,6 +208,13 @@ describe("createAppOriginController", () => {
     );
   });
 
+  it("drops a root FQDN dot from the app origin (#2280 review round 6)", async () => {
+    controller = createAppOriginController({ port: 0, host: "localhost." });
+    const { url } = await controller.start();
+    expect(url).not.toContain("localhost.:");
+    expect(controller.getOrigin()).toMatch(/^http:\/\/localhost:\d+$/);
+  });
+
   it("mints a distinct, unguessable id per document", async () => {
     controller = createAppOriginController({ port: 0, host: "127.0.0.1" });
     const { url } = await controller.start();

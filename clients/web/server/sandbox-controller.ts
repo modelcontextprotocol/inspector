@@ -8,7 +8,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  canonicalUrlHost,
+  canonicalOriginHost,
   isAllInterfacesHost,
 } from "../../../core/node/hostUrl.ts";
 import { DEFAULT_BIND_HOST } from "./resolve-bind-host.js";
@@ -324,7 +324,12 @@ export function createSandboxController(
           // is reachable and its origin is allow-listed (matches the app banner).
           // (`isAllInterfacesHost` canonicalizes internally too, so passing the
           // pre-canonicalized host is belt-and-braces.)
-          const canonicalHost = canonicalUrlHost(host);
+          // `canonicalOriginHost`, not `canonicalUrlHost`: this URL's origin is
+          // named in a `frame-ancestors` directive, and a root-dotted host is
+          // not a valid CSP host-source — so `HOST=localhost.` would advertise
+          // a reachable URL whose origin the browser silently drops, blanking
+          // the frame. The bind host above is untouched.
+          const canonicalHost = canonicalOriginHost(host);
           const urlHost = isAllInterfacesHost(canonicalHost)
             ? "localhost"
             : canonicalHost;
