@@ -32,7 +32,7 @@ Use `--config` when pointing the Inspector at a config file belonging to somethi
 
 A missing **writable** catalog is created on first use, but **what gets written differs by client**:
 
-- **Web** seeds two sample servers (`DEFAULT_SEED_CONFIG` in `core/mcp/serverList.ts`) so a first launch has something to connect to immediately:
+- **Web** seeds three sample servers (`DEFAULT_SEED_CONFIG` in `core/mcp/serverList.ts`) so a first launch has something to connect to immediately — two local stdio servers and one remote:
 
   ```json
   {
@@ -46,10 +46,16 @@ A missing **writable** catalog is created on first use, but **what gets written 
         "type": "stdio",
         "command": "npx",
         "args": ["-y", "@modelcontextprotocol/server-everything"]
+      },
+      "example-server-default": {
+        "type": "streamable-http",
+        "url": "https://example-server.modelcontextprotocol.io/mcp"
       }
     }
   }
   ```
+
+  `example-server-default` is the feature-reference server the MCP org hosts, and it is the one seed that needs no local process. It is protected by OAuth, but its authorization server supports Dynamic Client Registration and sits in front of a *mock* upstream identity provider — so connecting takes no account, no API key and no client registration of your own: press **Connect**, approve the consent screen, and the flow completes. Everything it serves is synthetic reference data. It is a legacy-era server — it answers the plain `initialize` handshake and does not implement `server/discover` — so the seed carries no `protocolEra` and connects under the [`"legacy"` default](#inspector-specific-per-server-fields).
 
 - **CLI and TUI** seed an empty `{ "mcpServers": {} }` (`seedEmptyCatalog` in `core/mcp/node/config.ts`). They are non-interactive or list-driven, so sample entries would be noise rather than a starting point.
 
@@ -148,9 +154,13 @@ The file is the familiar MCP client-config shape — an `mcpServers` object keye
 ```json
 {
   "mcpServers": {
+    "example-server": {
+      "type": "http",
+      "url": "https://example-server.modelcontextprotocol.io/mcp"
+    },
     "my-http-server": {
       "type": "http",
-      "url": "https://api.example.com/mcp",
+      "url": "https://mcp.internal.example/mcp",
       "headers": { "X-Tenant": "acme" }
     }
   }
@@ -158,6 +168,8 @@ The file is the familiar MCP client-config shape — an `mcpServers` object keye
 ```
 
 `type` may be `stdio`, `http` (Streamable HTTP), or `sse`.
+
+`example-server` is a live endpoint you can paste as-is — the MCP org's feature-reference server, [seeded into a fresh web catalog](#what-a-seeded-catalog-contains) for the same reason. `my-http-server` is a placeholder, shown with `headers` to illustrate the field.
 
 ### Inspector-specific per-server fields
 
@@ -259,7 +271,7 @@ A catalog carrying these fields:
 
 |                              | Web                                                           | CLI                                     | TUI                                              |
 | ---------------------------- | ------------------------------------------------------------- | --------------------------------------- | ------------------------------------------------ |
-| Seeds a missing catalog with | two sample servers                                            | `{}`                                    | `{}`                                             |
+| Seeds a missing catalog with | three sample servers                                          | `{}`                                    | `{}`                                             |
 | `--server`                   | a no-op — warns with a file source, silent with an ad-hoc one | yes — the only surface where it selects | not defined — `error: unknown option '--server'` |
 | `--` separator               | yes — after `--` → target                                     | **reversed** — before `--` → target     | yes — after `--` → target (Commander default)    |
 | OAuth client flags           | no (uses the Client Settings dialog)                          | yes                                     | yes                                              |
