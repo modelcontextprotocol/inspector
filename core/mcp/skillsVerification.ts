@@ -28,6 +28,7 @@ import { AuthRecoveryRequiredError } from "../auth/challenge.js";
 import type { InspectorClientProtocol } from "./inspectorClientProtocol.js";
 import type { RequestMetadata } from "./types.js";
 import {
+  bytesToText,
   checkSkillConformance,
   checkSkillFrontmatterMatch,
   checkSkillNameCollisions,
@@ -77,6 +78,18 @@ export interface SkillVerifyReport {
    * conforming skill is broken.
    */
   ok: boolean;
+}
+
+/**
+ * The reason string for a failed read.
+ *
+ * One helper rather than the same ternary at each of the four call sites: a
+ * rejection is not required to be an `Error` — a `throw "string"` anywhere in a
+ * transport or its dependencies reaches here — and reading `.message` off one
+ * would put `undefined` where the diagnosis belongs.
+ */
+function reasonOf(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
 }
 
 /** Result shape of one `resources/read`, narrowed to what a digest needs. */
@@ -154,11 +167,27 @@ export async function verifySkills(
     // for the frontmatter cross-check. Reading it twice would double the load
     // on the server and, worse, could compare a digest against one snapshot
     // and frontmatter against another.
-    let entryText: string | undefined;
+    //
+    // Held as BYTES, not text. Taking `contents.text` skipped the whole
+    // frontmatter comparison whenever a server returned the markdown as a
+    // base64 `blob` — which is a legal `resources/read` shape, and which this
+    // module already decodes for the digest — so a mandatory check silently did
+    // not run while the report still said `ok` (Copilot). Deriving the text from
+    // the same verified bytes also guarantees the digest and the frontmatter
+    // describe one snapshot.
+    let entryBytes: Uint8Array | undefined;
     const files: SkillFileReport[] = [];
 
     const manifest =
       entry.resources === DYNAMIC_RESOURCES ? [] : entry.resources;
+    const entryIdentity = skillUriIdentity(entry.uri);
+    // Compared by NORMALIZED identity, like every other URI comparison here —
+    // `checkSkillConformance` already accepts a manifest self-entry written in
+    // an equivalent form, so a raw string test would disagree with it and read
+    // the same file a second time.
+    const manifestListsSelf = manifest.some(
+      (resource) => skillUriIdentity(resource.uri) === entryIdentity,
+    );
     for (const resource of manifest) {
       let contents: ReadContents | undefined;
       try {
@@ -169,7 +198,7 @@ export async function verifySkills(
         files.push({
           uri: resource.uri,
           status: "read-error",
-          reason: err instanceof Error ? err.message : String(err),
+          reason: reasonOf(err),
         });
         continue;
       }
@@ -182,9 +211,6 @@ export async function verifySkills(
         });
         continue;
       }
-      if (resource.uri === entry.uri && typeof contents.text === "string") {
-        entryText = contents.text;
-      }
       let bytes: Uint8Array;
       try {
         bytes = skillFileBytes(contents);
@@ -192,10 +218,11 @@ export async function verifySkills(
         files.push({
           uri: resource.uri,
           status: "read-error",
-          reason: err instanceof Error ? err.message : String(err),
+          reason: reasonOf(err),
         });
         continue;
       }
+      if (skillUriIdentity(resource.uri) === entryIdentity) entryBytes = bytes;
       const verification = await verifySkillResource(resource, bytes);
       files.push({ uri: resource.uri, ...verification });
     }
@@ -203,20 +230,43 @@ export async function verifySkills(
     // A `"dynamic"` skill has no manifest, so the loop above read nothing —
     // but its SKILL.md is still served and still has to match the frontmatter
     // the listing advertised. That obligation is not waived by the file set
-    // being unenumerable; only integrity is.
-    if (entryText === undefined) {
+    // being unenumerable; only integrity is. The same applies to a skill whose
+    // manifest omits its own file.
+    //
+    // Gated on `manifestListsSelf` rather than on `entryBytes`, so a self-entry
+    // the loop already tried and FAILED to read is not read a second time — its
+    // failure is recorded there.
+    if (!manifestListsSelf) {
+      // Recorded as a file result, not swallowed. Because a dynamic skill has
+      // no manifest rows, `files` would otherwise stay empty and its only static
+      // finding is a warning — so an unreadable SKILL.md returned `ok: true`
+      // for a skill whose mandatory frontmatter check never ran (Copilot).
+      const fail = (reason: string) =>
+        files.push({ uri: entry.uri, status: "read-error", reason });
       try {
         const invocation = await client.readResource(entry.uri, metadata);
         const contents = contentsFor(invocation.result, entry.uri);
-        if (typeof contents?.text === "string") entryText = contents.text;
+        if (!contents) {
+          fail(
+            "resources/read returned no content block for this skill's own SKILL.md, so its frontmatter cannot be checked against the listing.",
+          );
+        } else {
+          try {
+            entryBytes = skillFileBytes(contents);
+          } catch (err) {
+            fail(reasonOf(err));
+          }
+        }
       } catch (err) {
-        // Left undefined: the frontmatter check is skipped below. When the
-        // manifest listed this file the failure is already reported there, and
-        // when it did not, `manifest-missing-self` is the finding that matters.
-        // An expired authorization is not that case — see the note above.
+        // An expired authorization is the one error that is not this file's
+        // problem — see the note on the function.
         if (err instanceof AuthRecoveryRequiredError) throw err;
+        fail(reasonOf(err));
       }
     }
+
+    const entryText =
+      entryBytes === undefined ? undefined : bytesToText(entryBytes);
 
     const collision = collisions.get(skillUriIdentity(entry.uri));
     const conformance = [

@@ -282,6 +282,150 @@ describe("verifySkills (#2248)", () => {
       reason: "expired",
     } as never);
 
+  it("runs the frontmatter check when the SKILL.md arrives as a blob", async () => {
+    // A base64 `blob` is a legal `resources/read` shape, and this module
+    // already decodes it for the digest. Reading `contents.text` skipped the
+    // MANDATORY frontmatter comparison for such a server while still reporting
+    // `ok` (Copilot).
+    const skillMd = "---\nname: demo\ndescription: Served\n---\n\n# D\n";
+    const bytes = new TextEncoder().encode(skillMd);
+    const skill: SkillEntry = {
+      uri: "skill://demo/SKILL.md",
+      frontmatter: { name: "demo", description: "Listed" },
+      resources: [
+        {
+          uri: "skill://demo/SKILL.md",
+          digest: await sha256Digest(bytes),
+          size: bytes.byteLength,
+        },
+      ],
+    };
+    const readResource = vi.fn(async () => ({
+      result: {
+        contents: [
+          {
+            uri: "skill://demo/SKILL.md",
+            blob: Buffer.from(skillMd, "utf8").toString("base64"),
+          },
+        ],
+      },
+    }));
+    const client = { readResource } as unknown as InspectorClientProtocol;
+    const [report] = await verifySkills(client, [skill]);
+    expect(report.files[0].status).toBe("verified");
+    expect(report.frontmatter).toHaveLength(1);
+    expect(report.ok).toBe(false);
+  });
+
+  it("does not re-read a self-entry written in an equivalent URI form", async () => {
+    // `checkSkillConformance` accepts a normalized-equivalent self-entry, so a
+    // raw string comparison here would disagree with it and read the file twice.
+    const skillMd = "---\nname: demo\ndescription: A demo\n---\n\n# D\n";
+    const bytes = new TextEncoder().encode(skillMd);
+    const skill: SkillEntry = {
+      uri: "skill://demo/SKILL.md",
+      frontmatter: { name: "demo", description: "A demo" },
+      resources: [
+        {
+          uri: "skill://demo/x/../SKILL.md",
+          digest: await sha256Digest(bytes),
+          size: bytes.byteLength,
+        },
+      ],
+    };
+    const readResource = vi.fn(async (uri: string) => ({
+      result: { contents: [{ uri, text: skillMd }] },
+    }));
+    const client = { readResource } as unknown as InspectorClientProtocol;
+    const [report] = await verifySkills(client, [skill]);
+    expect(readResource).toHaveBeenCalledTimes(1);
+    expect(report.frontmatter).toEqual([]);
+    expect(report.ok).toBe(true);
+  });
+
+  it("fails a dynamic skill whose SKILL.md cannot be read", async () => {
+    // A dynamic skill has no manifest rows, so `files` stayed empty and its
+    // only static finding is a warning — an unreadable SKILL.md therefore
+    // reported `ok: true` for a skill whose mandatory frontmatter check never
+    // ran (Copilot).
+    const skill: SkillEntry = {
+      uri: "skill://gen/SKILL.md",
+      frontmatter: { name: "gen", description: "Generated" },
+      resources: "dynamic",
+    };
+    const readResource = vi.fn(async () => {
+      throw new Error("gone");
+    });
+    const client = { readResource } as unknown as InspectorClientProtocol;
+    const [report] = await verifySkills(client, [skill]);
+    expect(report.files).toEqual([
+      expect.objectContaining({
+        uri: "skill://gen/SKILL.md",
+        status: "read-error",
+        reason: "gone",
+      }),
+    ]);
+    expect(report.ok).toBe(false);
+  });
+
+  it("fails a dynamic skill whose SKILL.md answers with no matching block", async () => {
+    const skill: SkillEntry = {
+      uri: "skill://gen/SKILL.md",
+      frontmatter: { name: "gen", description: "Generated" },
+      resources: "dynamic",
+    };
+    const readResource = vi.fn(async () => ({
+      result: { contents: [{ uri: "skill://gen/other.md", text: "x" }] },
+    }));
+    const client = { readResource } as unknown as InspectorClientProtocol;
+    const [report] = await verifySkills(client, [skill]);
+    expect(report.files[0].status).toBe("read-error");
+    expect(report.ok).toBe(false);
+  });
+
+  it("does not read a failed manifest self-entry a second time", async () => {
+    // Its failure is already recorded by the manifest loop; the fallback exists
+    // for a skill whose manifest never listed the file at all.
+    const skill = await entry();
+    const readResource = vi.fn(async () => {
+      throw new Error("boom");
+    });
+    const client = { readResource } as unknown as InspectorClientProtocol;
+    const [report] = await verifySkills(client, [skill]);
+    // Two manifest entries, two reads — no third.
+    expect(readResource).toHaveBeenCalledTimes(2);
+    expect(report.files).toHaveLength(2);
+  });
+
+  it("stringifies a non-Error rejection rather than reading .message off it", async () => {
+    // A `throw "string"` anywhere in a transport reaches here; reading
+    // `.message` off one would put `undefined` where the diagnosis belongs.
+    const skill = await entry();
+    const readResource = vi.fn(() => {
+      // A non-Error rejection is the point of the test.
+      throw "plainstring";
+    });
+    const client = { readResource } as unknown as InspectorClientProtocol;
+    const [report] = await verifySkills(client, [skill]);
+    expect(report.files[0]).toMatchObject({
+      status: "read-error",
+      reason: "plainstring",
+    });
+  });
+
+  it("treats a result whose contents is not an array as no content", async () => {
+    // A server can return anything; `contents: "nope"` is not a block list, and
+    // hashing nothing against a digest would be a confident wrong answer.
+    const skill = await entry();
+    const readResource = vi.fn(async () => ({
+      result: { contents: "nope" },
+    }));
+    const client = { readResource } as unknown as InspectorClientProtocol;
+    const [report] = await verifySkills(client, [skill]);
+    expect(report.files.every((f) => f.status === "read-error")).toBe(true);
+    expect(report.ok).toBe(false);
+  });
+
   it("re-throws an auth-recovery error instead of recording it per file", async () => {
     // Not a property of the file in flight: the session's authorization
     // expired, so every remaining read fails the same way. Absorbing it would

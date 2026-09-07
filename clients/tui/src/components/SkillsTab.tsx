@@ -1,3 +1,23 @@
+/**
+ * The TUI's Skills pane — the SEP-2640 catalog in a terminal (#2248).
+ *
+ * **Why the TUI owns a pane rather than reusing the web screen's logic.** It
+ * does reuse everything that decides an answer: `checkSkillConformance`,
+ * `checkSkillNameCollisions` and `verifySkills` all live in `core/` and are
+ * driven identically here, so a verdict cannot differ depending on which client
+ * you asked. What is local is presentation, and the terminal's constraints are
+ * genuinely different — two panes in 80 columns, no colour to rely on, and a
+ * keyboard rather than a pointer.
+ *
+ * ⚠️ **Severity is carried by a glyph as well as a colour** (`✓` / `!` / `✗`).
+ * This pane is read over ssh, inside tmux, and piped through `script(1)`, where
+ * colour may not survive; a row whose only signal was `red` would then be
+ * indistinguishable from a clean one.
+ *
+ * The pane is shown only when the connected server declares the extension —
+ * that gate, and the reset that leaves the tab when it goes false, live in
+ * `App.tsx` because they are navigation concerns rather than this pane's.
+ */
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Box, Text, useInput, type Key } from "ink";
 import { ScrollView, type ScrollViewRef } from "ink-scroll-view";

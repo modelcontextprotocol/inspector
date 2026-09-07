@@ -561,6 +561,16 @@ function canonicalEntry(entry: SkillEntry): string {
 
 /** Object keys sorted recursively; array ORDER is preserved throughout. */
 function canonicalize(value: unknown): unknown {
+  // YAML can express `.nan` and `.inf`; JSON cannot. `JSON.stringify` turns
+  // every one of them into `null`, so without this a served `x: .nan` would
+  // compare EQUAL to a listing declaring `x: null` — a mismatch silently
+  // reported as agreement (Copilot). The listing side arrived over JSON-RPC and
+  // can never hold a non-finite number, so one appearing here is always a real
+  // difference. Rendered as an object, which cannot equal any JSON scalar, and
+  // which names the value in the finding rather than hiding it.
+  if (typeof value === "number" && !Number.isFinite(value)) {
+    return { "#non-finite": String(value) };
+  }
   if (Array.isArray(value)) return value.map(canonicalize);
   if (value === null || typeof value !== "object") return value;
   return sortKeys(value as Record<string, unknown>);
@@ -637,6 +647,20 @@ export async function sha256Digest(bytes: Uint8Array): Promise<string> {
 /** UTF-8 bytes of a `resources/read` text content block. */
 export function textToBytes(text: string): Uint8Array {
   return new TextEncoder().encode(text);
+}
+
+/**
+ * A skill file's bytes as UTF-8 text — the inverse of {@link textToBytes}.
+ *
+ * Deliberately **non-fatal**: a `SKILL.md` that is not valid UTF-8 decodes with
+ * replacement characters rather than throwing. That is the more useful failure,
+ * because the frontmatter comparison then reports a concrete difference between
+ * what the listing claimed and what the file actually holds, instead of
+ * collapsing into "could not decode" and skipping the check the SEP makes
+ * mandatory.
+ */
+export function bytesToText(bytes: Uint8Array): string {
+  return new TextDecoder().decode(bytes);
 }
 
 /**

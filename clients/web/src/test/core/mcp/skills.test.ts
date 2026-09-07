@@ -975,6 +975,43 @@ describe("checkSkillFrontmatterMatch (#2248)", () => {
     ).toHaveLength(1);
   });
 
+  it("does not let a YAML non-finite number match a listing's null", () => {
+    // `.nan` / `.inf` are YAML values JSON cannot express, and
+    // `JSON.stringify` turns every one of them into `null` — so a naive
+    // canonical comparison reported a served `.nan` as EQUAL to a listed
+    // `null`: a mismatch silently presented as agreement (Copilot).
+    const issues = checkSkillFrontmatterMatch(
+      entry({ threshold: null }),
+      file("threshold: .nan"),
+    );
+    expect(issues).toHaveLength(1);
+    expect(issues[0].code).toBe("frontmatter-mismatch");
+    // The value is named in the finding rather than hidden behind `null`.
+    expect(issues[0].message).toContain("NaN");
+  });
+
+  it("distinguishes the three non-finite values from one another", () => {
+    expect(
+      checkSkillFrontmatterMatch(entry({ x: null }), file("x: .inf")),
+    ).toHaveLength(1);
+    // Infinity vs -Infinity: both stringify to `null`, so they would have
+    // compared equal to each other as well.
+    const both = checkSkillFrontmatterMatch(
+      entry({ a: 1, b: 2 }),
+      file("a: .inf\nb: -.inf"),
+    );
+    expect(both).toHaveLength(2);
+    expect(both[0].message).toContain("Infinity");
+    expect(both[1].message).toContain("-Infinity");
+  });
+
+  it("still matches a null the served file also writes as null", () => {
+    // The fix must not turn a genuine agreement into a finding.
+    expect(
+      checkSkillFrontmatterMatch(entry({ x: null }), file("x: null")),
+    ).toEqual([]);
+  });
+
   it("reports nothing for two empty frontmatters", () => {
     expect(checkSkillFrontmatterMatch(entry({}), file(""))).toEqual([]);
   });
