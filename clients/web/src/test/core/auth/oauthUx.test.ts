@@ -467,7 +467,20 @@ describe("insecureTokenEndpoint copy", () => {
     expect(message).toContain(ENDPOINT);
     expect(message).toContain("HTTPS");
     expect(message).toContain("127.0.0.1");
-    expect(message).toContain("Token URL");
+    expect(message).toContain("Token URL override");
+    // The section name the UI actually renders. Sending someone to a settings
+    // section that does not exist is the worst error this message could make.
+    expect(message).toContain("OAuth Settings");
+    expect(message).not.toContain("Server Settings → Authorization");
+  });
+
+  it("does not claim no credentials were sent, which is false on a refresh", () => {
+    // The same notice serves mid-session refresh and re-auth, where credentials
+    // were legitimately sent earlier in the session. Scope the claim to the
+    // request actually refused.
+    const message = insecureTokenEndpointMessage({ tokenEndpoint: ENDPOINT });
+    expect(message).toContain("without sending this request");
+    expect(message).not.toContain("before any credentials were sent");
   });
 
   it("says a retry cannot help, which is the whole point of the message", () => {

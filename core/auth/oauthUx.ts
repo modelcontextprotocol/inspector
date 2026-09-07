@@ -383,6 +383,17 @@ export function insecureTokenEndpointTitle(): string {
  * Does not echo the SDK's own message, which reads as a flat refusal and tells
  * the user nothing about which lever to reach for.
  *
+ * The opening says "without sending **this** request" rather than "before any
+ * credentials were sent". The absolute form was wrong: this same notice serves
+ * the mid-session refresh and re-authentication paths, where credentials were
+ * legitimately sent earlier in the session, and a user who had been connected
+ * for an hour would rightly read it as describing a different failure.
+ *
+ * The section name is the one the UI actually renders — **OAuth Settings**,
+ * with a **Token URL override** field — not "Authorization". Sending someone to
+ * a settings section that does not exist is the worst possible error in the one
+ * message whose entire job is telling them where to go.
+ *
  * The scheme half says "not HTTPS" rather than "plain HTTP": the SDK's check is
  * `protocol !== "https:"`, so anything else an authorization server advertises
  * — including a mistyped `ftp:` or `ws:` endpoint — lands here too, and naming
@@ -403,12 +414,13 @@ export function insecureTokenEndpointMessage(options: {
 }): string {
   const target = options.serverName ? `"${options.serverName}"` : "this server";
   return (
-    `Authorization for ${target} was stopped before any credentials were sent: ` +
+    `Authorization for ${target} was stopped without sending this request: ` +
     `its token endpoint ${truncateUrlForDisplay(options.tokenEndpoint)} is ` +
     "not HTTPS, and its host is outside the MCP SDK's loopback exemption, " +
     "which covers only localhost, 127.0.0.1 and ::1. Re-authenticating cannot " +
     "change this. Serve the token endpoint over HTTPS, or move it to one of " +
-    "those three spellings — Server Settings → Authorization has a Token URL " +
-    "override if the authorization server advertises a different one."
+    "those three spellings — Server Settings → OAuth Settings has a " +
+    '"Token URL override" if the authorization server advertises a different ' +
+    "one."
   );
 }
