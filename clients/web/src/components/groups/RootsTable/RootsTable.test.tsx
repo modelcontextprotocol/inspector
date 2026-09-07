@@ -122,6 +122,35 @@ describe("RootsTable", () => {
     ).not.toBeInTheDocument();
   });
 
+  // The roots list is user-maintained and nothing dedupes it, so the same URI
+  // can appear twice and collide on the row key (#2206).
+  it("renders both rows when a root URI repeats (#2206)", () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    try {
+      renderWithMantine(
+        <RootsTable
+          {...baseProps}
+          roots={[
+            { name: "First", uri: "file:///dupe" },
+            { name: "Second", uri: "file:///dupe" },
+          ]}
+        />,
+      );
+      expect(screen.getByText("First")).toBeInTheDocument();
+      expect(screen.getByText("Second")).toBeInTheDocument();
+      const messages = consoleError.mock.calls.map((call) =>
+        call.map(String).join(" "),
+      );
+      expect(
+        messages.filter((message) => message.includes("same key")),
+      ).toEqual([]);
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
   it("renders the current draft values in the inputs", () => {
     renderWithMantine(
       <RootsTable

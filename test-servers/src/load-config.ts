@@ -93,6 +93,13 @@ export interface ConfigFile {
    */
   duplicateToolNames?: string[];
   /**
+   * URIs to emit **twice** in `resources/list` (same `uri`, the second's title
+   * marked "(duplicate)") — matched against the assembled list, so a
+   * template-listed URI counts as well as a statically-registered one. See
+   * {@link ServerConfig.duplicateResourceUris} (#2206).
+   */
+  duplicateResourceUris?: string[];
+  /**
    * Replace a registered tool's advertised `inputSchema`/`outputSchema` with a
    * raw JSON Schema document — the constructs a Zod-built preset cannot emit.
    * See {@link ServerConfig.rawToolSchemas} (#1005).
