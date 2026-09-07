@@ -216,6 +216,19 @@ describe("buildWebServerConfigFromEnv", () => {
     ]);
   });
 
+  it("keeps the root dot on an absolute non-loopback explicit entry", () => {
+    // Same rule as `canonicalOriginHost`, second location: a root dot outside
+    // the loopback family is the ABSOLUTE form of a name, so dropping it here
+    // would allow-list `https://service.example` — a different origin — for an
+    // operator who wrote `https://service.example.`.
+    process.env.ALLOWED_ORIGINS =
+      "https://service.example., http://localhost.:6274";
+    expect(buildWebServerConfigFromEnv().allowedOrigins).toEqual([
+      "https://service.example.",
+      "http://localhost:6274",
+    ]);
+  });
+
   it("does NOT unmap an IPv4-mapped IPv6 entry, which would authorize a different origin", () => {
     // `canonicalOriginHost` unmaps `[::ffff:7f00:1]` to `127.0.0.1`, which is
     // right for a bind host — that is the address the socket answers on — and

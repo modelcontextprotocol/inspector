@@ -203,22 +203,31 @@ export function isLoopbackHost(host: string): boolean {
  * {@link isLocalhostSubdomainHost} needs to preserve the dot so it can reject
  * `app.localhost.` for this same CSP reason. The two sit at different layers.
  */
+/**
+ * Drop a root FQDN dot, but **only** inside the loopback family.
+ *
+ * A root dot is the *absolute* form of a name, not noise: `service.example.`
+ * and `service.example` are different hosts, and the second may be completed
+ * through a resolver search suffix or fail outright — so removing it in general
+ * silently changes which server is meant. Inside `localhost` / `*.localhost`
+ * there is no such ambiguity, the suffix being reserved to loopback either way,
+ * and that is the only place the removal is needed: a root-dotted host is not a
+ * valid CSP `host-source`, so it cannot appear in an MCP Apps
+ * `frame-ancestors`.
+ *
+ * Expects an already-canonical host (lowercased, punycoded) — `URL.hostname` or
+ * {@link canonicalUrlHost} output. Shared by {@link canonicalOriginHost} and by
+ * the explicit `ALLOWED_ORIGINS` parser, which cannot use that helper because it
+ * must not inherit its IPv4-mapped unmapping; one definition of the rule keeps
+ * the two from drifting.
+ */
+export function stripLoopbackRootDot(host: string): string {
+  const bare = host.replace(/\.$/, "");
+  return bare === "localhost" || bare.endsWith(".localhost") ? bare : host;
+}
+
 export function canonicalOriginHost(host: string): string {
-  const canonical = canonicalUrlHost(host);
-  // ⚠️ Scoped to the loopback family ON PURPOSE. A root dot is not noise in
-  // general — it is the absolute form of a name, and dropping it changes which
-  // host is meant: `service.example.` is the fully-qualified name, while
-  // `service.example` is a distinct browser origin that a resolver may complete
-  // through a search suffix or fail outright. Advertising the second for the
-  // first would silently hand the user a different server.
-  //
-  // Inside `localhost` / `*.localhost` there is no such ambiguity — the suffix
-  // is reserved to loopback either way — and this is the only case the
-  // normalization exists for: keeping the advertised URL expressible as a CSP
-  // `host-source`, which a root-dotted host is not. Everything else keeps its
-  // dot and behaves exactly as it did before this helper existed.
-  const bare = canonical.replace(/\.$/, "");
-  return bare === "localhost" || bare.endsWith(".localhost") ? bare : canonical;
+  return stripLoopbackRootDot(canonicalUrlHost(host));
 }
 
 /**

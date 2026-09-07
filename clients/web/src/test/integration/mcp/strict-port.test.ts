@@ -1,5 +1,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { createServer, type Server } from "node:http";
+import { writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import {
   createTestServerHttp,
   type TestServerHttp,
@@ -102,6 +104,33 @@ describe("strictPort (#2280)", () => {
       await expect(server.start()).rejects.toThrow(
         /strictPort requires an explicit non-zero port/,
       );
+    },
+  );
+
+  it.each(["false", "true", 1, null])(
+    "rejects a non-boolean strictPort in a config file: %j",
+    (value) => {
+      // Consumed as a plain truthiness check at bind time, so the string
+      // "false" would read as *enabled* and silently disable the port walk —
+      // the opposite of what the author wrote.
+      const file = path.join(
+        tmpdir(),
+        `strict-port-${Date.now()}-${Math.random()}.json`,
+      );
+      writeFileSync(
+        file,
+        JSON.stringify({
+          serverInfo: { name: "x", version: "1.0.0" },
+          transport: { type: "streamable-http", port: 8099, strictPort: value },
+        }),
+      );
+      try {
+        expect(() => loadConfig(file)).toThrow(
+          /transport.strictPort must be a boolean/,
+        );
+      } finally {
+        rmSync(file, { force: true });
+      }
     },
   );
 

@@ -23,6 +23,7 @@ import { resolveAppOriginPort } from "./app-origin-controller.js";
 import { resolveBindHostname } from "./resolve-bind-host.js";
 import {
   canonicalOriginHost,
+  stripLoopbackRootDot,
   isAllInterfacesHost,
 } from "../../../core/node/hostUrl.ts";
 
@@ -537,8 +538,12 @@ export function buildWebServerConfig(
         // root-dotted host is not a valid CSP host-source, so such an entry
         // could never admit an MCP Apps embedder anyway.
         //
-        // ⚠️ The root dot is dropped by hand rather than by calling
-        // `canonicalOriginHost`, and the difference is load-bearing. That
+        // ⚠️ Only the *loopback* root dot is dropped, and it is dropped via
+        // `stripLoopbackRootDot` rather than `canonicalOriginHost`. Both halves
+        // of that matter. A root dot elsewhere is the absolute form of a name —
+        // `https://service.example.` and `https://service.example` are
+        // different origins — so removing it would authorize a host the
+        // operator did not name. And That
         // helper also unmaps an IPv4-mapped IPv6 host (`[::ffff:7f00:1]` →
         // `127.0.0.1`), which is right for a *bind host* — that is the address
         // the socket answers on — and wrong for an operator's explicit origin,
@@ -552,7 +557,7 @@ export function buildWebServerConfig(
         // Rebuilt from `parsed` rather than string-edited: `parsed.port` is
         // empty for a scheme-default port, which is what keeps the `:80` drop
         // that `URL.origin` already performed.
-        const host = parsed.hostname.replace(/\.$/, "");
+        const host = stripLoopbackRootDot(parsed.hostname);
         return parsed.port
           ? `${parsed.protocol}//${host}:${parsed.port}`
           : `${parsed.protocol}//${host}`;
