@@ -103,8 +103,10 @@ stricter react-hooks@7 rules are not enforced on the interim component surface
 (#1501).
 
 Tests live in `__tests__/`. The coverage gate covers **all of `src/**`**, React
-surface included — the Ink components mount through `ink-testing-library` (with
-the `ink-scroll-view` / `ink-form` passthrough doubles in `__tests__/helpers/`),
+surface included — the Ink components mount through
+`__tests__/helpers/renderTui.tsx`, `ink-testing-library`'s `render` wrapped so
+every frame it hands back is ANSI-stripped (with the `ink-scroll-view` /
+`ink-form` passthrough doubles in the same directory),
 `App.tsx` mounts against a mock of the `@inspector/core` surface, and keypresses
 are driven through stdin. The former interim exclusion of the components and
 `App.tsx` was lifted in #1501; the only exclusion left in `vitest.config.ts` is
@@ -112,6 +114,16 @@ are driven through stdin. The former interim exclusion of the components and
 statements of its own (its logic is measured in `core/` via the web suite, and
 `tui-servers.test.ts` still exercises it behaviorally — it is excluded only so it
 doesn't surface as a misleading 0/0 row).
+
+**Import `render` from `__tests__/helpers/renderTui.tsx`, never from
+`ink-testing-library` directly.** Ink writes styling as escape sequences *inside*
+the styled run, so an accelerator underline splits the word it decorates —
+`<Text underline>I</Text>nfo` reaches the frame buffer with escapes between `I`
+and `nfo`, and `expect(frame).toContain("Info")` fails against a component that
+is rendering correctly. Because chalk only emits color when it detects a TTY,
+this is invisible in CI and hits exactly the developer whose shell exports
+`FORCE_COLOR` (#2207). The wrapper strips styling from `lastFrame()` and
+`frames`; the untouched bytes stay available as `stdout.lastFrame()`.
 
 ### Bundling: React-rendering dependencies must be inlined (#1952)
 

@@ -171,10 +171,20 @@ Scope notes:
   only exclusion. `commander` uses `.exitOverride()` so a parse error throws
   instead of tearing down the test worker.
 - **TUI** covers **all of `src/**`, React surface included**. Components mount
-  through `ink-testing-library` with the passthrough doubles in
-  `__tests__/helpers/`; keypresses are driven through stdin. The only exclusion
-  is `src/tui-servers.ts` (a pure re-export, excluded so it doesn't surface as a
+  through `__tests__/helpers/renderTui.tsx` — `ink-testing-library`'s `render`
+  with every frame ANSI-stripped — alongside the passthrough doubles in the same
+  directory; keypresses are driven through stdin. The only exclusion is
+  `src/tui-servers.ts` (a pure re-export, excluded so it doesn't surface as a
   misleading 0/0 row).
+  ⚠️ **Import `render` from that helper, not from `ink-testing-library`.** Ink
+  writes styling *inside* the styled run, so `<Text underline>I</Text>nfo`
+  reaches the frame buffer with escapes between `I` and `nfo` and a plain
+  `toContain("Info")` fails against a component that is rendering correctly. It
+  only shows up where chalk emits color — a developer whose shell exports
+  `FORCE_COLOR` — so CI, which has no TTY, stays green on a suite that is red
+  for them (#2207). If a frame assertion fails on a string you can plainly see
+  in the printed diff, that is the tell. Reach `stdout.lastFrame()` on the
+  returned instance for the raw bytes.
 
 ### When a `v8 ignore` is justified
 

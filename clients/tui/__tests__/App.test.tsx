@@ -1,6 +1,6 @@
 import React from "react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render } from "ink-testing-library";
+import { render } from "./helpers/renderTui";
 
 type RenderResult = ReturnType<typeof render>;
 
