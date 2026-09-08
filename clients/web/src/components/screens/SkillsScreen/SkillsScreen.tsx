@@ -91,6 +91,18 @@ interface VerificationState {
    */
   key: string | null;
   files: Record<number, FileState>;
+  /**
+   * The text of the skill's own `SKILL.md` **as the verification read it**.
+   *
+   * Held so the frontmatter comparison and the digest describe the *same*
+   * fetch. They were derived from two separate `resources/read` calls — the
+   * on-selection preview and the Verify click — so a resource that changed
+   * between them could pair a verified digest with a frontmatter verdict for
+   * different bytes (Copilot). Set only when the verified row is the entry's
+   * own file; the preview remains the fallback until then, since a reader who
+   * has not clicked Verify should still get the check.
+   */
+  entryText?: string;
 }
 
 /**
@@ -869,6 +881,8 @@ export function SkillsScreen({
   });
 
   const fileStates = verification.key === manifestKey ? verification.files : {};
+  const verifiedEntryText =
+    verification.key === manifestKey ? verification.entryText : undefined;
 
   /**
    * Verify one manifest ROW. Keyed by row index, not by URI: the checker
@@ -893,8 +907,26 @@ export function SkillsScreen({
     );
   }, []);
 
+  /**
+   * Whether a manifest row IS the skill's own `SKILL.md`.
+   *
+   * By normalized identity, like every other URI comparison here — a manifest
+   * that spells its self-entry equivalently still names the same file.
+   */
+  const isSelfResource = useCallback(
+    (resource: SkillResource) =>
+      selected !== undefined &&
+      skillUriIdentity(resource.uri) === skillUriIdentity(selected.uri),
+    [selected],
+  );
+
   const verifyRow = useCallback(
-    async (index: number, resource: SkillResource, key: string) => {
+    async (
+      index: number,
+      resource: SkillResource,
+      key: string,
+      isSelfRow = false,
+    ) => {
       // NOTE: opening the Conformance section deliberately does NOT happen
       // here. `verifyRow` is called once per row by every "Verify all" worker
       // as it advances, so a batch begun on one skill keeps calling it after
@@ -907,7 +939,7 @@ export function SkillsScreen({
       // Claimed synchronously, so two verifications of this row are ordered
       // before either read starts.
       const attempt = (nextAttempt.current += 1);
-      const write = (state: FileState) =>
+      const write = (state: FileState, entryText?: string) =>
         setVerification((prev) => {
           // `null` is the un-adopted initial manifest; any other mismatch is a
           // continuation from a manifest that has since been invalidated.
@@ -917,16 +949,31 @@ export function SkillsScreen({
           // finishing last must not overwrite it.
           const held = files[index];
           if (held !== undefined && held.attempt > attempt) return prev;
-          return { key, files: { ...files, [index]: state } };
+          return {
+            key,
+            files: { ...files, [index]: state },
+            // Carried through explicitly: this returns a FRESH state object, so
+            // anything not named here is dropped — which silently discarded the
+            // verified `SKILL.md` text the frontmatter check depends on.
+            ...(entryText !== undefined
+              ? { entryText }
+              : prev.key === key && prev.entryText !== undefined
+                ? { entryText: prev.entryText }
+                : {}),
+          };
         });
       write({ attempt, status: "pending" });
       try {
         const contents = await onReadSkillFile(resource.uri);
-        const result = await verifySkillResource(
-          resource,
-          skillFileBytes(contents),
+        const bytes = skillFileBytes(contents);
+        const result = await verifySkillResource(resource, bytes);
+        // The entry's own file is captured in the SAME write as its verdict, so
+        // the frontmatter check reads the very bytes that were just hashed —
+        // see `VerificationState.entryText`.
+        write(
+          { attempt, status: "done", verification: result },
+          isSelfRow ? bytesToText(bytes) : undefined,
         );
-        write({ attempt, status: "done", verification: result });
       } catch (err) {
         write({
           attempt,
@@ -957,7 +1004,7 @@ export function SkillsScreen({
     const key = manifestKey;
     const worker = async (): Promise<void> => {
       for (let i = next++; i < manifest.length; i = next++) {
-        await verifyRow(i, manifest[i], key);
+        await verifyRow(i, manifest[i], key, isSelfResource(manifest[i]));
       }
     };
     const workers = Math.min(VERIFY_CONCURRENCY, manifest.length);
@@ -978,7 +1025,7 @@ export function SkillsScreen({
           return next;
         }),
     );
-  }, [manifest, manifestKey, openConformance, verifyRow]);
+  }, [manifest, manifestKey, openConformance, verifyRow, isSelfResource]);
 
   /**
    * Put one of the skill's files in the viewer. Driven both by the effect that
@@ -1397,7 +1444,13 @@ export function SkillsScreen({
    * first time a file happened to be fetched.
    */
   const frontmatterIssues = useMemo(() => {
-    if (!selected || !showingSkillMd || preview === undefined) return [];
+    if (!selected) return [];
+    // Prefer the text the VERIFICATION read, so the digest verdict above and
+    // this one describe one fetch rather than two.
+    if (verifiedEntryText !== undefined) {
+      return checkSkillFrontmatterMatch(selected, verifiedEntryText);
+    }
+    if (!showingSkillMd || preview === undefined) return [];
     // Run against the **raw fetched bytes**, not against `previewParts`.
     //
     // `previewParts` is a *presentation* value: it only exists when the
@@ -1418,7 +1471,7 @@ export function SkillsScreen({
       return [];
     }
     return checkSkillFrontmatterMatch(selected, text);
-  }, [selected, showingSkillMd, preview]);
+  }, [selected, showingSkillMd, preview, verifiedEntryText]);
 
   /**
    * The findings rendered as list items — everything except the two that are
@@ -1438,8 +1491,23 @@ export function SkillsScreen({
     [issues],
   );
 
-  const errorCount = issues.filter((i) => i.severity === "error").length;
-  const warningCount = issues.length - errorCount;
+  /**
+   * Everything the Conformance section reports, for the header badge.
+   *
+   * The frontmatter findings render inside this section, so counting only the
+   * static listing issues left the badge saying `0 error(s)` above a red
+   * `frontmatter-mismatch` alert — the section contradicting its own output
+   * (Copilot). Digest and size mismatches stay OUT: they have their own
+   * `mismatch(es)` badge, because "the listing is wrong" and "the bytes are
+   * wrong" are different answers and merging them would hide which failed.
+   */
+  const countedIssues = useMemo(
+    () => [...issues, ...frontmatterIssues],
+    [issues, frontmatterIssues],
+  );
+
+  const errorCount = countedIssues.filter((i) => i.severity === "error").length;
+  const warningCount = countedIssues.length - errorCount;
 
   return (
     // `data-*` readiness contract for the headless tab smoke (#2148); see
@@ -1940,6 +2008,7 @@ export function SkillsScreen({
                                         index,
                                         resource,
                                         manifestKey,
+                                        isSelfResource(resource),
                                       );
                                     }}
                                   >

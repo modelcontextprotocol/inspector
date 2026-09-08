@@ -146,13 +146,14 @@ import {
 import { buildClientExtensions } from "./extensions.js";
 import {
   DirectoryReadResultSchema,
-  GetSkillResultSchema,
+  GetSkillEnvelopeSchema,
   ListSkillsResultSchema,
   ModernDirectoryReadResultSchema,
   ModernListSkillsResultSchema,
   RESOURCES_DIRECTORY_READ_METHOD,
   SKILLS_EXTENSION_KEY,
   type DirectoryReadResult,
+  type GetSkillEnvelope,
   SKILLS_GET_METHOD,
   SKILLS_LIST_METHOD,
   type SkillEntry,
@@ -5609,11 +5610,28 @@ export class InspectorClient extends InspectorClientEventTarget {
 
   /**
    * One skill entry by URI (`skills/get`, SEP-2640). The result envelope is
-   * required — `GetSkillResultSchema` unwraps `{ skill }` and rejects an entry
+   * required — `GetSkillEnvelopeSchema` requires `{ skill }` and rejects an entry
    * returned inline, so a non-conforming shape fails here rather than being
    * silently normalized past the conformance checks.
    */
   async getSkill(uri: string, metadata?: RequestMetadata): Promise<SkillEntry> {
+    return (await this.getSkillResult(uri, metadata)).skill;
+  }
+
+  /**
+   * `skills/get` as the server sent it — the `{ skill }` envelope **and any
+   * other members it carried**.
+   *
+   * Separate from {@link getSkill} because the callers differ: the UIs want the
+   * entry, while the CLI prints the result and must not reshape it. SEP-2640
+   * explicitly leaves open whether this result carries `ttlMs` / `cacheScope`,
+   * so a server may send them — and unwrapping to the entry discards exactly
+   * those (Copilot).
+   */
+  async getSkillResult(
+    uri: string,
+    metadata?: RequestMetadata,
+  ): Promise<GetSkillEnvelope> {
     if (!this.client) {
       throw new Error("Client is not connected");
     }
@@ -5622,14 +5640,13 @@ export class InspectorClient extends InspectorClientEventTarget {
       uri,
       ...(effectiveMeta ? { _meta: effectiveMeta } : {}),
     };
-    // `GetSkillResultSchema` unwraps the envelope, so there is nothing to
-    // unwrap here.
+    // The envelope is returned whole; `getSkill` is the one that unwraps.
     try {
       return await this.invokeMcpClient(
         () =>
           this.client!.request(
             { method: SKILLS_GET_METHOD, params },
-            GetSkillResultSchema,
+            GetSkillEnvelopeSchema,
             this.getRequestOptions(this.progressTokenOf(metadata)),
           ),
         { method: SKILLS_GET_METHOD },

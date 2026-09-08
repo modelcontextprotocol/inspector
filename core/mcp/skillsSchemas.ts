@@ -167,7 +167,21 @@ export const ModernListSkillsResultSchema = ListSkillsResultSchema.extend({
  * — which is exactly the failure this extension's support exists to *report*.
  * A server that returns the entry inline now fails the parse, loudly.
  */
-const GetSkillEnvelopeSchema = z.looseObject({ skill: SkillEntrySchema });
+export const GetSkillEnvelopeSchema = z.looseObject({
+  skill: SkillEntrySchema,
+});
+
+/**
+ * The `skills/get` result as the server sent it, envelope and all.
+ *
+ * Exported alongside the unwrapping schema below because the two callers want
+ * different things: the UIs want the entry, while the CLI's job is to print
+ * **the result** — and the caching attributes SEP-2640 leaves open are members
+ * a `looseObject` accepts and the transform then discards, so unwrapping for
+ * everyone silently dropped them from a contract that promised not to reshape
+ * anything (Copilot).
+ */
+export type GetSkillEnvelope = z.infer<typeof GetSkillEnvelopeSchema>;
 
 /**
  * `skills/get` result, unwrapped to the entry it carries.

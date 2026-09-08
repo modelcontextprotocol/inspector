@@ -352,7 +352,15 @@ export async function runMethod(
       // not serve — "this server has no Skills support" and "no such skill"
       // are different answers (Copilot).
       assertSkillsSupported(inspectorClient, args.method);
-      const skill = await inspectorClient.getSkill(args.uri, args.metadata);
+      // The ENVELOPE, not the unwrapped entry. `getSkill` discards every other
+      // member the result carried — including the `ttlMs` / `cacheScope` that
+      // SEP-2640 explicitly leaves open — and a CLI whose contract is "print
+      // the result" must not drop what the server actually sent (Copilot).
+      const envelope = await inspectorClient.getSkillResult(
+        args.uri,
+        args.metadata,
+      );
+      const skill = envelope.skill;
       if (args.verify) {
         const reports = await verifySkills(
           inspectorClient,
@@ -368,11 +376,7 @@ export async function runMethod(
             : { exitCode: EXIT_CODES.SKILL_NONCONFORMANT }),
         };
       }
-      // The `{ skill }` envelope is restored here because it is what the wire
-      // carries: `GetSkillResultSchema` unwraps it for callers that want the
-      // entry, and a CLI whose contract is "print the result" must not quietly
-      // reshape one.
-      result = { skill };
+      result = envelope;
     } else if (args.method === "resources/directory/read") {
       if (!args.uri) {
         throw new Error(

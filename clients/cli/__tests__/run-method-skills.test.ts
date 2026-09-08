@@ -41,6 +41,7 @@ function mockClient(overrides: Record<string, unknown> = {}): InspectorClient {
     getSkillsExtension: vi.fn().mockReturnValue({ directoryRead: true }),
     listSkills: vi.fn().mockResolvedValue({ skills: [] }),
     getSkill: vi.fn(),
+    getSkillResult: vi.fn(),
     readResourceDirectory: vi.fn(),
     readResource: vi.fn().mockResolvedValue({
       result: { contents: [{ uri: "skill://demo/SKILL.md", text: SKILL_MD }] },
@@ -85,24 +86,47 @@ describe("runMethod skills dispatch (#2248)", () => {
     // -32602 a declared server returns for a URI it does not serve.
     const client = mockClient({
       getSkillsExtension: vi.fn().mockReturnValue(undefined),
-      getSkill: vi.fn(),
+      getSkillResult: vi.fn(),
     });
     await expect(
       runMethod(client, { method: "skills/get", uri: "skill://x/SKILL.md" }),
     ).rejects.toMatchObject({ exitCode: EXIT_CODES.USAGE });
-    expect(client.getSkill).not.toHaveBeenCalled();
+    expect(client.getSkillResult).not.toHaveBeenCalled();
   });
 
   it("keeps the { skill } envelope on skills/get", async () => {
     // The client unwraps it for callers that want the entry; a CLI whose
     // contract is "print the result" must not quietly reshape the wire form.
     const entry = await cleanEntry();
-    const client = mockClient({ getSkill: vi.fn().mockResolvedValue(entry) });
+    const client = mockClient({
+      getSkillResult: vi.fn().mockResolvedValue({ skill: entry }),
+    });
     const outcome = await runMethod(client, {
       method: "skills/get",
       uri: entry.uri,
     });
     expect(outcome).toMatchObject({ result: { skill: entry } });
+  });
+
+  it("prints the whole skills/get envelope, not just the entry", async () => {
+    // SEP-2640 leaves it open whether this result carries `ttlMs`/`cacheScope`,
+    // so a server may send them — and unwrapping to the entry discarded exactly
+    // those, from a path whose contract is "print the result" (Copilot).
+    const entry = await cleanEntry();
+    const envelope = {
+      skill: entry,
+      resultType: "complete",
+      ttlMs: 60,
+      cacheScope: "public",
+    };
+    const client = mockClient({
+      getSkillResult: vi.fn().mockResolvedValue(envelope),
+    });
+    const outcome = await runMethod(client, {
+      method: "skills/get",
+      uri: entry.uri,
+    });
+    expect(outcome).toMatchObject({ result: envelope });
   });
 
   it("requires --uri for skills/get", async () => {
@@ -179,7 +203,9 @@ describe("runMethod skills dispatch (#2248)", () => {
 
   it("--verify works on a single skills/get", async () => {
     const entry = await cleanEntry();
-    const client = mockClient({ getSkill: vi.fn().mockResolvedValue(entry) });
+    const client = mockClient({
+      getSkillResult: vi.fn().mockResolvedValue({ skill: entry }),
+    });
     const outcome = await runMethod(client, {
       method: "skills/get",
       uri: entry.uri,

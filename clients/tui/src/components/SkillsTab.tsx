@@ -333,7 +333,16 @@ export function SkillsTab({
                     ? "warning"
                     : null;
                 return (
-                  <Box key={skill.uri || index} paddingY={0} flexShrink={0}>
+                  // Index-keyed like the manifest and finding rows, and for
+                  // the same reason: a malformed listing can repeat a URI, and
+                  // this pane exists to show BOTH entries — a URI key would
+                  // collide them and let React drop or reuse the wrong row
+                  // (Copilot).
+                  <Box
+                    key={`${index}:${skill.uri}`}
+                    paddingY={0}
+                    flexShrink={0}
+                  >
                     <Text>
                       {isSelected ? "▶ " : "  "}
                       {worst ? (

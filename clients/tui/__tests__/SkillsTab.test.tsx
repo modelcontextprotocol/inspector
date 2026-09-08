@@ -605,6 +605,29 @@ describe("SkillsTab (#2248)", () => {
     expect(lastFrame() ?? "").toContain("urn:opaque");
   });
 
+  it("renders both rows when a listing repeats a URI", () => {
+    // A malformed listing can carry the same skill twice, and this pane exists
+    // to show BOTH — a URI-keyed row would collide them and let React drop or
+    // reuse one (Copilot).
+    const dup: SkillEntry = {
+      uri: "skill://twice/SKILL.md",
+      frontmatter: { name: "twice", description: "Listed twice" },
+      resources: [],
+    };
+    const { lastFrame } = render(
+      <SkillsTab
+        skills={[dup, dup]}
+        pageCount={1}
+        inspectorClient={null}
+        width={140}
+        height={30}
+      />,
+    );
+    const frame = lastFrame() ?? "";
+    expect(frame).toContain("Skills (2)");
+    expect(frame.match(/twice/g)?.length).toBeGreaterThanOrEqual(2);
+  });
+
   it("keys a row by its index when the entry carries no URI", () => {
     // A URI-less entry is a `malformed-uri` finding this pane reports, so it
     // must still render a addressable row rather than colliding React keys.

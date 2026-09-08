@@ -152,6 +152,9 @@ const ALL_SKILLS = [
   MISMATCHED_SKILL,
 ];
 
+/** Everything `readFixtureFile` can serve a `SKILL.md` for. */
+const SERVED_SKILLS = [...ALL_SKILLS, ACME, GLOBEX];
+
 /**
  * A `resources/read` that serves the fixture bytes for any known URI. A skill's
  * own `SKILL.md` comes from {@link skillMdFor}, so it agrees with the entry's
@@ -161,7 +164,10 @@ const ALL_SKILLS = [
 const readFixtureFile = vi.fn(async (uri: string) => {
   if (uri === "skill://data-analysis/reference.md") return { text: REF_TEXT };
   if (uri === "skill://tampered/notes.md") return { text: NOTES_TEXT };
-  const owner = ALL_SKILLS.find((skill) => skill.uri === uri);
+  // Every fixture, not only the four in the default catalog — the collision
+  // pair is served here too, or it would be handed another skill's SKILL.md and
+  // report a frontmatter mismatch that the fixture never meant to demonstrate.
+  const owner = SERVED_SKILLS.find((skill) => skill.uri === uri);
   return {
     text: owner ? skillMdFor(owner.frontmatter as Frontmatter) : SELF_TEXT,
     mimeType: "text/markdown",
@@ -2377,6 +2383,64 @@ describe("SkillsScreen frontmatter cross-check (#2248)", () => {
         screen.getByTestId("skill-frontmatter-issues"),
       ).toBeInTheDocument(),
     );
+  });
+
+  it("counts frontmatter findings in the Conformance badge", async () => {
+    // The findings render inside this section, so counting only the static
+    // listing issues left the badge saying `0 error(s)` above a red
+    // `frontmatter-mismatch` — the section contradicting its own output.
+    const user = userEvent.setup();
+    const lying: SkillEntry = {
+      ...CLEAN_SKILL,
+      frontmatter: { name: "data-analysis", description: "Disagrees" },
+    };
+    renderWithMantine(<ControlledSkillsScreen skills={[lying]} />);
+    await user.click(screen.getByText("data-analysis"));
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: /Conformance/ }),
+      ).toHaveTextContent("1 error(s), 0 warning(s)"),
+    );
+  });
+
+  it("prefers the bytes verification read over the preview read", async () => {
+    // The two verdicts came from separate `resources/read` calls, so a resource
+    // that changed between them could pair a verified digest with a frontmatter
+    // verdict computed for different bytes (Copilot). After Verify, the
+    // frontmatter check reads what the verification hashed.
+    const user = userEvent.setup();
+    let served = skillMdFor(CLEAN_FM); // agrees with the listing…
+    const onReadSkillFile = vi.fn(async (uri: string) => {
+      if (uri === "skill://data-analysis/reference.md")
+        return { text: REF_TEXT };
+      return { text: served, mimeType: "text/markdown" };
+    });
+    renderWithMantine(
+      <ControlledSkillsScreen onReadSkillFile={onReadSkillFile} />,
+    );
+    await user.click(screen.getByText("data-analysis"));
+    await user.click(screen.getByRole("button", { name: /Conformance/ }));
+    await waitFor(() =>
+      expect(screen.getByText("No structural issues")).toBeInTheDocument(),
+    );
+
+    // …and then the server starts serving something else.
+    served = skillMdFor({ ...CLEAN_FM, description: "Changed underneath" });
+    await user.click(
+      screen.getByRole("button", {
+        name: "Verify skill://data-analysis/SKILL.md",
+      }),
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("skill-frontmatter-issues"),
+      ).toBeInTheDocument(),
+    );
+    expect(
+      within(screen.getByTestId("skill-frontmatter-issues")).getByText(
+        /Changed underneath/,
+      ),
+    ).toBeInTheDocument();
   });
 
   it("reports nothing when the served frontmatter agrees", async () => {
