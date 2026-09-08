@@ -1154,6 +1154,27 @@ describe("checkSkillNameCollisions (#2248)", () => {
     expect(first?.message).toContain("skill://c/r/SKILL.md");
   });
 
+  it("bounds a large collision group instead of transcribing it", () => {
+    // Duplicate names are legal and SEP-2640 puts no ceiling on a catalog, so
+    // naming every other member made both the work and the generated text
+    // O(N²) — a server controls N, which turns a legal listing into a denial
+    // of service against the tool sent to inspect it (Copilot).
+    const N = 500;
+    const collisions = checkSkillNameCollisions(
+      Array.from({ length: N }, (_, i) => at(`skill://s${i}/r/SKILL.md`, "r")),
+    );
+    expect(collisions.size).toBe(N);
+    const message = collisions.get("skill://s0/r/SKILL.md")?.message ?? "";
+    // Three named, the rest counted — enough to see what the collision IS and
+    // where to look, without a transcript of the catalog.
+    expect(message).toMatch(/and 496 more/);
+    expect(message).toContain("499 other skills in this listing also declare");
+    // The bound is on the message, so its length cannot grow with the catalog.
+    expect(message.length).toBeLessThan(400);
+    // Still never names itself.
+    expect(message).not.toContain("skill://s0/r/SKILL.md");
+  });
+
   it("does not report the SAME skill listed twice as a collision", () => {
     // A repeated entry is a different defect from two skills sharing a name,
     // and calling it this one would be a wrong diagnosis rather than a missing

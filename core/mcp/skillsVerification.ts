@@ -33,6 +33,8 @@ import {
   checkSkillFrontmatterMatch,
   checkSkillNameCollisions,
   skillDisplayName,
+  SKILL_MAX_CATALOG_BYTES,
+  SKILL_MAX_CATALOG_SKILLS,
   SKILL_MAX_RESOURCE_ENTRIES,
   SKILL_MAX_TOTAL_BYTES,
   skillFileBytes,
@@ -220,6 +222,42 @@ function contentsFor(result: unknown, uri: string): ReadContents | undefined {
 }
 
 /**
+ * How many bytes a string occupies as UTF-8, without encoding a copy of it.
+ *
+ * `TextEncoder` would be the obvious answer and allocates a second buffer for
+ * a payload that may already be megabytes — and this is called on responses a
+ * hostile server chose the size of, which is the case the count exists to
+ * bound. Counting is O(n) and allocates nothing.
+ *
+ * A high surrogate is only worth 4 bytes when a low surrogate actually follows
+ * it. An unpaired one encodes as U+FFFD, which is 3 — the same as any other
+ * BMP character in that range, so it needs no special case beyond not
+ * consuming the next unit.
+ */
+export function utf8Length(value: string): number {
+  let total = 0;
+  for (let i = 0; i < value.length; i += 1) {
+    const code = value.charCodeAt(i);
+    if (code < 0x80) {
+      total += 1;
+    } else if (code < 0x800) {
+      total += 2;
+    } else if (code >= 0xd800 && code <= 0xdbff) {
+      const next = i + 1 < value.length ? value.charCodeAt(i + 1) : 0;
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        total += 4;
+        i += 1;
+      } else {
+        total += 3;
+      }
+    } else {
+      total += 3;
+    }
+  }
+  return total;
+}
+
+/**
  * What a `resources/read` response cost to receive, charged against the byte
  * budget regardless of whether any of it is usable.
  *
@@ -230,12 +268,13 @@ function contentsFor(result: unknown, uri: string): ReadContents | undefined {
  * or send an enormous blob that is not valid base64. Both leave the decode
  * paths empty-handed while the bytes have already crossed the wire.
  *
- * The figure is an **approximation, and deliberately never an undercount by
- * more than a small factor**: `text` is charged in UTF-16 code units (UTF-8 is
- * between 1× and 3× that for the same string) and `blob` in base64 characters
- * (roughly 4/3 of the bytes it decodes to, so an overcharge). Exactness is not
- * the point — this is a safety limit, not an accounting figure, and the caller
- * substitutes the exact decoded length whenever it has one.
+ * `text` is charged in **UTF-8 bytes**, the unit the limit is written in.
+ * Charging `text.length` instead — UTF-16 code units — undercharged every
+ * non-ASCII payload by up to 3×, so a decoy block of emoji or CJK kept the
+ * counter under 16 MiB while the wire carried far more, and the walk read on
+ * (Copilot). `blob` is charged in base64 characters, which is ~4/3 of what it
+ * decodes to: an OVERcharge, and deliberately left as one, since a blob that
+ * fails to decode has no byte count to be exact about.
  */
 function responseBytes(result: unknown): number {
   const contents = (result as { contents?: unknown })?.contents;
@@ -244,7 +283,7 @@ function responseBytes(result: unknown): number {
   for (const block of contents) {
     if (typeof block !== "object" || block === null) continue;
     const { text, blob } = block as { text?: unknown; blob?: unknown };
-    if (typeof text === "string") total += text.length;
+    if (typeof text === "string") total += utf8Length(text);
     if (typeof blob === "string") total += blob.length;
   }
   return total;
@@ -278,7 +317,21 @@ export async function verifySkills(
   // reports no collision: there is no listing to collide within.
   const collisions = checkSkillNameCollisions(entries);
   const reports: SkillVerifyReport[] = [];
+  // ⚠️ Run-level budgets, on top of the per-skill ones below. The per-skill
+  // caps bound what ONE entry can cost; nothing bounded how many entries there
+  // are, and SEP-2640 puts no ceiling on a catalog — so a listing of a hundred
+  // thousand skills, each individually conforming, made `--verify` run
+  // indefinitely and transfer unboundedly (Copilot). See
+  // {@link SKILL_MAX_CATALOG_SKILLS}.
+  let walkedSkills = 0;
+  let catalogBytes = 0;
   for (const entry of entries) {
+    // Static checks still run for every entry — they cost no I/O, so a skill
+    // past the budget is still reported on, just not read. What stops is the
+    // reading.
+    const withinBudget =
+      walkedSkills < SKILL_MAX_CATALOG_SKILLS &&
+      catalogBytes <= SKILL_MAX_CATALOG_BYTES;
     // The entry's own SKILL.md, read once and used twice — for its digest and
     // for the frontmatter cross-check. Reading it twice would double the load
     // on the server and, worse, could compare a digest against one snapshot
@@ -313,9 +366,10 @@ export async function verifySkills(
     // is bounded by the count cap regardless. A read is skipped only when the
     // running total would CROSS the limit, so a conforming skill (≤ 16 MiB in
     // total, by definition) is never truncated.
-    const manifest = boundedManifest(declared);
-    let incomplete =
-      manifest.length < declared.length
+    const manifest = withinBudget ? boundedManifest(declared) : [];
+    let incomplete = !withinBudget
+      ? `Not read: this run already reached its catalog budget of ${SKILL_MAX_CATALOG_SKILLS} skills / ${SKILL_MAX_CATALOG_BYTES} bytes. Nothing about this skill's files has been checked — verify it on its own with \`--method skills/get --uri\` to get a verdict.`
+      : manifest.length < declared.length
         ? `Only ${manifest.length} of ${declared.length} manifest entries were read: the skill exceeds the ${SKILL_MAX_RESOURCE_ENTRIES}-entry / ${SKILL_MAX_TOTAL_BYTES}-byte interoperability limits, so the rest were not fetched and cannot be reported on.`
         : undefined;
     // ⚠️ Bytes ACTUALLY RECEIVED, which is the only budget a server cannot
@@ -436,7 +490,7 @@ export async function verifySkills(
     // because a cap excluded it or because the byte budget broke the loop
     // first, still gets the fallback: the frontmatter comparison is mandatory
     // and must not be lost to a limit that exists to bound unrelated files.
-    if (!selfAttempted) {
+    if (withinBudget && !selfAttempted) {
       // Recorded as a file result, not swallowed. Because a dynamic skill has
       // no manifest rows, `files` would otherwise stay empty and its only static
       // finding is a warning — so an unreadable SKILL.md returned `ok: true`
@@ -483,6 +537,13 @@ export async function verifySkills(
         if (err instanceof AuthRecoveryRequiredError) throw err;
         fail(reasonOf(err));
       }
+    }
+
+    // Charged after this entry's reads, so the skill that crosses the run
+    // budget is still fully reported rather than half-read. The NEXT one stops.
+    if (withinBudget) {
+      walkedSkills += 1;
+      catalogBytes += receivedBytes;
     }
 
     const entryText =

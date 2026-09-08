@@ -381,6 +381,21 @@ wrong" and "this skill could not be fully checked" are different answers:
 | `failed` | `7` | Something SEP-2640 makes a MUST was broken — an error-severity finding, a digest or size mismatch, or an unreadable manifest file. |
 | `incomplete` | `8` | Nothing checked was wrong, but the read bounds stopped the walk before it finished. See `incomplete` in the report for the reason. |
 
+**The run is bounded, and says when a bound bit.** Three limits, all reported as
+`incomplete` (`8`) rather than as a pass or a failure, because an entry that was
+not read has not been cleared of anything:
+
+| Bound | Limit | Why |
+| --- | --- | --- |
+| Per skill | 512 manifest entries / 16 MiB | SEP-2640's own interoperability limits. |
+| Per skill, on the wire | 16 MiB actually served | The declared sizes are server-controlled; this one cannot be lied past. |
+| Per run | 256 skills / 64 MiB | SEP-2640 bounds a skill and deliberately does not bound a *catalog*. Every entry costs at least one `resources/read`, so without this a large listing — hostile or merely big — is unbounded work against the tool inspecting it. |
+
+The run bound is this tool's, not the spec's. A skill past it is still reported,
+with its static conformance findings and an `incomplete` reason saying nothing
+about its files was checked; verify it on its own with `--method skills/get
+--uri <skill>` to get a verdict for it.
+
 A **warning** never produces `7`. That distinction matters most for `resources: "dynamic"`, which is a
 *conforming* wire form for generated content: it means integrity cannot be
 verified, which is worth reporting, but failing CI for it would tell server

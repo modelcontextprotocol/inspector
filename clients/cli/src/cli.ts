@@ -752,7 +752,7 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     )
     .option(
       "--verify",
-      "Run the SEP-2640 conformance and digest checks over the skills returned, emit one JSON report per skill on stdout, and exit 7 if any fails. Use with --method skills/list or --method skills/get.",
+      "Run the SEP-2640 conformance and digest checks over the skills returned, emit one JSON report per skill on stdout, and exit 7 if any fails or 8 if any could not be fully checked within the read bounds. Use with --method skills/list or --method skills/get.",
     )
     .option(
       "--connect-timeout <ms>",

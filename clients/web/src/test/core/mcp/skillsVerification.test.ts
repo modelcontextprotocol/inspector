@@ -1,11 +1,15 @@
 import { describe, it, expect, vi } from "vitest";
 import type { InspectorClientProtocol } from "@inspector/core/mcp/inspectorClientProtocol.js";
 import type { SkillEntry } from "@inspector/core/mcp/skillsSchemas.js";
-import { sha256Digest } from "@inspector/core/mcp/skills.js";
+import {
+  SKILL_MAX_CATALOG_SKILLS,
+  sha256Digest,
+} from "@inspector/core/mcp/skills.js";
 import { AuthRecoveryRequiredError } from "@inspector/core/auth/challenge.js";
 import {
   allSkillsVerified,
   anySkillFailed,
+  utf8Length,
   verifySkills,
 } from "@inspector/core/mcp/skillsVerification.js";
 
@@ -689,6 +693,101 @@ describe("verifySkills (#2248)", () => {
     const [report] = await verifySkills(client, [skill]);
     expect(readResource.mock.calls.length).toBe(3);
     expect(report.incomplete).toMatch(/actually served/);
+  });
+
+  it("charges non-ASCII text in UTF-8 bytes, not UTF-16 units", async () => {
+    // `text.length` undercharged every non-ASCII payload by up to 3×, so a
+    // decoy block of emoji kept the counter under 16 MiB while the wire
+    // carried twice that, and the walk read on (Copilot). Each block below is
+    // 3 MiB of UTF-16 units and 12 MiB of UTF-8 bytes, so two cross the limit
+    // under correct accounting and six would be needed under the old one.
+    const emoji = "🙂".repeat(1.5 * 1024 * 1024); // 2 units each, 4 bytes each
+    const { skill } = await truncatable({ name: "emoji", count: 20 });
+    const readResource = vi.fn(async () => ({
+      result: {
+        contents: [{ uri: "skill://elsewhere/decoy.md", text: emoji }],
+      },
+    }));
+    const client = { readResource } as unknown as InspectorClientProtocol;
+    const [report] = await verifySkills(client, [skill]);
+    expect(readResource.mock.calls.length).toBe(3);
+    expect(report.incomplete).toMatch(/actually served/);
+  });
+
+  it("counts UTF-8 length exactly as TextEncoder does", async () => {
+    // The counter is hand-rolled to avoid allocating a copy of a payload a
+    // hostile server sized, so it is pinned against the reference encoder —
+    // including the surrogate cases that are the only reason it is not a
+    // one-liner.
+    const cases = [
+      "",
+      "plain ascii",
+      "café", // 2-byte
+      "日本語", // 3-byte
+      "🙂👍", // surrogate pairs, 4-byte
+      "a🙂b",
+      "\ud83d", // lone HIGH surrogate — U+FFFD, 3 bytes
+      "\udc4d", // lone LOW surrogate
+      "\ud83d\ud83d", // two highs in a row: neither pairs
+      "end\ud83d", // unpaired high at the very end
+    ];
+    const encoder = new TextEncoder();
+    for (const value of cases) {
+      expect(utf8Length(value)).toBe(encoder.encode(value).byteLength);
+    }
+  });
+
+  it("stops reading once the run's catalog budget is spent", async () => {
+    // The per-skill caps bound what ONE entry costs; nothing bounded how many
+    // entries there are, and SEP-2640 puts no ceiling on a catalog — so a
+    // listing of a hundred thousand conforming skills made `--verify` run
+    // indefinitely (Copilot).
+    // Each skill carries its OWN SKILL.md, whose frontmatter matches its
+    // listing entry — otherwise every report is `failed` on a frontmatter
+    // mismatch and the budget is not what the test is measuring.
+    const enc = new TextEncoder();
+    const mdFor = (i: number) =>
+      `---\nname: s${i}\ndescription: A demo\n---\n\n# s${i}\n`;
+    const many = await Promise.all(
+      Array.from(
+        { length: SKILL_MAX_CATALOG_SKILLS + 5 },
+        async (_, i): Promise<SkillEntry> => {
+          const bytes = enc.encode(mdFor(i));
+          return entry({
+            uri: `skill://s${i}/SKILL.md`,
+            frontmatter: { name: `s${i}`, description: "A demo" },
+            resources: [
+              {
+                uri: `skill://s${i}/SKILL.md`,
+                digest: await sha256Digest(bytes),
+                size: bytes.byteLength,
+              },
+            ],
+          });
+        },
+      ),
+    );
+    const readResource = vi.fn(async (uri: string) => ({
+      result: {
+        contents: [
+          { uri, text: mdFor(Number(/s(\d+)/.exec(uri)?.[1] ?? "0")) },
+        ],
+      },
+    }));
+    const client = { readResource } as unknown as InspectorClientProtocol;
+    const reports = await verifySkills(client, many);
+    // Every entry is still REPORTED — the static checks cost no I/O, so a
+    // skill past the budget is not silently dropped from the output.
+    expect(reports).toHaveLength(SKILL_MAX_CATALOG_SKILLS + 5);
+    expect(readResource.mock.calls.length).toBe(SKILL_MAX_CATALOG_SKILLS);
+    // …and the remainder says so, rather than passing or failing.
+    const past = reports.slice(SKILL_MAX_CATALOG_SKILLS);
+    for (const report of past) {
+      expect(report.outcome).toBe("incomplete");
+      expect(report.incomplete).toMatch(/catalog budget/);
+      expect(report.files).toHaveLength(0);
+    }
+    expect(reports[0].outcome).toBe("verified");
   });
 
   it("is not incomplete when the budget is crossed by the LAST entry", async () => {

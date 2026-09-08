@@ -54,6 +54,28 @@ export const SKILL_MAX_RESOURCE_ENTRIES = 512;
 /** Maximum total size, in bytes, of a single skill's resources (16 MiB). */
 export const SKILL_MAX_TOTAL_BYTES = 16 * 1024 * 1024;
 
+/**
+ * Maximum skills one verification run will actually read from, and the byte
+ * ceiling across all of them.
+ *
+ * ⚠️ **Not SEP-2640 limits — they are this tool's own.** The SEP bounds a
+ * single skill and deliberately does not bound a catalog: `skills/list` may be
+ * arbitrarily long, and a page may hold arbitrarily many entries, so the
+ * cursor-walk's page cap constrains nothing here. Every entry costs at least
+ * one `resources/read`, so an unbounded catalog is unbounded work and
+ * unbounded transfer against the tool sent to inspect it — a `--verify` in CI
+ * that never returns (Copilot).
+ *
+ * Entries past either bound are reported as `incomplete` rather than dropped
+ * or failed: they were not checked, which is neither a pass nor a verdict
+ * against the server. A host wanting more is not wrong — these are safety
+ * limits, not conformance ones — which is why the reason names them.
+ */
+export const SKILL_MAX_CATALOG_SKILLS = 256;
+
+/** @see {@link SKILL_MAX_CATALOG_SKILLS} — 64 MiB across the whole run. */
+export const SKILL_MAX_CATALOG_BYTES = 64 * 1024 * 1024;
+
 /** The suffix every skill URI ends with; the segment before it is the name. */
 export const SKILL_FILE_SUFFIX = "/SKILL.md";
 
@@ -972,6 +994,13 @@ export function checkSkillFrontmatterMatch(
 }
 
 /**
+ * How many colliding URIs a `duplicate-name` message names before it counts the
+ * rest. Three is enough to show the shape of the collision; the count carries
+ * the scale.
+ */
+const COLLISION_SAMPLE = 3;
+
+/**
  * Findings that can only be computed over the **whole listing**, keyed by the
  * entry they belong to (its normalized URI identity).
  *
@@ -1025,11 +1054,35 @@ export function checkSkillNameCollisions(
     const uris = [...identities].sort();
     for (const entry of group) {
       const self = skillUriIdentity(entry.uri);
-      const others = uris.filter((uri) => uri !== self);
+      // ⚠️ A bounded SAMPLE, taken with an early exit — not
+      // `uris.filter(...)` and not the whole list in the message. Duplicate
+      // names are legal and SEP-2640 puts no ceiling on a catalog, so a group
+      // of N made both the work and the generated text O(N²): every one of N
+      // entries scanned all N URIs and embedded the other N−1 (Copilot). A
+      // server controls N, which turns a legal listing into a denial of
+      // service against the tool meant to inspect it.
+      const sample: string[] = [];
+      for (const uri of uris) {
+        if (uri === self) continue;
+        sample.push(uri);
+        if (sample.length === COLLISION_SAMPLE) break;
+      }
+      const unshown = identities.size - 1 - sample.length;
+      // Naming a few and counting the rest keeps the finding actionable — a
+      // reader needs to see that it IS a collision and where to look, not a
+      // transcript of the catalog.
+      const others =
+        unshown > 0
+          ? `${sample.join(", ")}, and ${unshown} more`
+          : sample.join(", ");
+      const subject =
+        identities.size === 2
+          ? "Another skill in this listing also declares"
+          : `${identities.size - 1} other skills in this listing also declare`;
       issues.set(self, {
         code: "duplicate-name",
         severity: "warning",
-        message: `Another skill in this listing also declares the name "${name}" (${others.join(", ")}). This is legal — a consumer must tell them apart by their URIs rather than collapsing or preferring one.`,
+        message: `${subject} the name "${name}" (${others}). This is legal — a consumer must tell them apart by their URIs rather than collapsing or preferring one.`,
       });
     }
   }
