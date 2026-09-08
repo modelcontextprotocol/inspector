@@ -105,6 +105,18 @@ interface VerificationState {
    * has not clicked Verify should still get the check.
    */
   entryText?: string;
+  /**
+   * True when {@link entryText} came from a **verification** rather than the
+   * preview read.
+   *
+   * A later preview of the same `SKILL.md` must not overwrite text a
+   * verification produced: the digest verdict on screen was computed from that
+   * fetch, and replacing only the text would let the frontmatter findings
+   * describe different bytes — recreating the mixed-fetch verdict this state
+   * exists to prevent (Copilot). A verification always wins, since it brings a
+   * matching digest verdict with it.
+   */
+  entryTextVerified?: boolean;
 }
 
 /**
@@ -963,9 +975,12 @@ export function SkillsScreen({
             // anything not named here is dropped — which silently discarded the
             // verified `SKILL.md` text the frontmatter check depends on.
             ...(entryText !== undefined
-              ? { entryText }
+              ? { entryText, entryTextVerified: true }
               : prev.key === key && prev.entryText !== undefined
-                ? { entryText: prev.entryText }
+                ? {
+                    entryText: prev.entryText,
+                    entryTextVerified: prev.entryTextVerified,
+                  }
                 : {}),
           };
         });
@@ -1076,16 +1091,19 @@ export function SkillsScreen({
             } catch {
               return; // neither text nor blob; the viewer reports it
             }
-            setVerification((prev) =>
-              prev.key !== null && prev.key !== key
-                ? prev
-                : {
-                    ...prev,
-                    key,
-                    files: prev.key === key ? prev.files : {},
-                    entryText: text,
-                  },
-            );
+            setVerification((prev) => {
+              if (prev.key !== null && prev.key !== key) return prev;
+              const sameKey = prev.key === key;
+              // Never over a verification's own text — see
+              // `entryTextVerified`.
+              if (sameKey && prev.entryTextVerified) return prev;
+              return {
+                ...prev,
+                key,
+                files: sameKey ? prev.files : {},
+                entryText: text,
+              };
+            });
           }
         })
         .catch((err: unknown) => {

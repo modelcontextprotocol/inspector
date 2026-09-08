@@ -294,14 +294,25 @@ export async function verifySkills(
     // oversized set; this is what stops one that lied.
     let receivedBytes = 0;
     const entryIdentity = skillUriIdentity(entry.uri);
-    // Compared by NORMALIZED identity, like every other URI comparison here —
+    // ⚠️ Whether the self entry was **actually reached**, not merely whether
+    // the bounded slice contains it. The byte budget can break the loop before
+    // a later self-entry, and a flag describing the slice stayed true — which
+    // suppressed the fallback and skipped the mandatory frontmatter check
+    // entirely (Copilot). Set inside the loop, so it can only be true of a row
+    // the walk got to.
+    //
+    // Compared by NORMALIZED identity, like every other URI comparison here:
     // `checkSkillConformance` already accepts a manifest self-entry written in
     // an equivalent form, so a raw string test would disagree with it and read
     // the same file a second time.
-    const manifestListsSelf = manifest.some(
-      (resource) => skillUriIdentity(resource.uri) === entryIdentity,
-    );
+    let selfAttempted = false;
     for (const resource of manifest) {
+      if (skillUriIdentity(resource.uri) === entryIdentity) {
+        // Marked before the read, not after: a row the walk reached but could
+        // not read has still been attempted, and its failure is recorded here
+        // rather than re-attempted by the fallback.
+        selfAttempted = true;
+      }
       let contents: ReadContents | undefined;
       try {
         const invocation = await client.readResource(resource.uri, metadata);
@@ -357,13 +368,13 @@ export async function verifySkills(
     // being unenumerable; only integrity is. The same applies to a skill whose
     // manifest omits its own file.
     //
-    // Gated on `manifestListsSelf` rather than on `entryBytes`, so a self-entry
-    // the loop already tried and FAILED to read is not read a second time — its
-    // failure is recorded there. Note this is computed over the READ slice, so
-    // a self-entry pushed past the cap by a bloated manifest still reaches the
-    // fallback: the frontmatter comparison is mandatory and must not be lost to
-    // a limit that exists to bound unrelated files.
-    if (!manifestListsSelf) {
+    // Gated on `selfAttempted` rather than on `entryBytes`, so a self-entry the
+    // loop already tried and FAILED to read is not read a second time — its
+    // failure is recorded there. A self-entry the walk never reached, whether
+    // because a cap excluded it or because the byte budget broke the loop
+    // first, still gets the fallback: the frontmatter comparison is mandatory
+    // and must not be lost to a limit that exists to bound unrelated files.
+    if (!selfAttempted) {
       // Recorded as a file result, not swallowed. Because a dynamic skill has
       // no manifest rows, `files` would otherwise stay empty and its only static
       // finding is a warning — so an unreadable SKILL.md returned `ok: true`

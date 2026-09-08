@@ -2529,6 +2529,50 @@ describe("SkillsScreen frontmatter cross-check (#2248)", () => {
     );
   });
 
+  it("does not let a later preview overwrite a verification's own bytes", async () => {
+    // The digest verdict on screen was computed from the verification's fetch;
+    // replacing only the text would let the frontmatter findings describe
+    // different bytes, recreating the mixed-fetch verdict this state exists to
+    // prevent (Copilot).
+    const user = userEvent.setup();
+    let served = skillMdFor({ ...CLEAN_FM, description: "As verified" });
+    const onReadSkillFile = vi.fn(async (uri: string) => {
+      if (uri === "skill://data-analysis/reference.md") {
+        return { text: REF_TEXT };
+      }
+      return { text: served, mimeType: "text/markdown" };
+    });
+    renderWithMantine(
+      <ControlledSkillsScreen onReadSkillFile={onReadSkillFile} />,
+    );
+    await user.click(screen.getByText("data-analysis"));
+    await user.click(
+      screen.getByRole("button", {
+        name: "Verify skill://data-analysis/SKILL.md",
+      }),
+    );
+    await waitFor(() =>
+      expect(
+        within(screen.getByTestId("skill-frontmatter-issues")).getByText(
+          /As verified/,
+        ),
+      ).toBeInTheDocument(),
+    );
+
+    // The server changes, and the reader re-opens the file in the viewer. The
+    // verification's text must survive, since its digest verdict still shows.
+    served = skillMdFor({ ...CLEAN_FM, description: "Changed after" });
+    await user.click(
+      screen.getByRole("button", { name: "skill://data-analysis/SKILL.md" }),
+    );
+    await waitFor(() => expect(onReadSkillFile).toHaveBeenCalledTimes(3));
+    expect(
+      within(screen.getByTestId("skill-frontmatter-issues")).getByText(
+        /As verified/,
+      ),
+    ).toBeInTheDocument();
+  });
+
   it("keeps a frontmatter finding when the reader opens another file", async () => {
     // The check ran off whatever the viewer was showing, so opening a
     // supporting file made `showingSkillMd` false and silently dropped the

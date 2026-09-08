@@ -718,6 +718,51 @@ describe("verifySkills (#2248)", () => {
     );
   });
 
+  it("runs the fallback when the byte budget broke the loop before the self row", async () => {
+    // `manifestListsSelf` described the bounded SLICE, not the rows reached —
+    // so a break on the byte budget left it true, suppressed the fallback, and
+    // skipped the mandatory frontmatter check entirely (Copilot).
+    const md = "---\nname: late\ndescription: Served\n---\n\n# late\n";
+    const big = "z".repeat(9 * 1024 * 1024);
+    const enc = new TextEncoder();
+    const skill: SkillEntry = {
+      uri: "skill://late/SKILL.md",
+      frontmatter: { name: "late", description: "Listed" },
+      resources: [
+        // Two oversized files cross the budget before the self row is reached.
+        {
+          uri: "skill://late/a.md",
+          digest: await sha256Digest(enc.encode(big)),
+          size: 1,
+        },
+        {
+          uri: "skill://late/b.md",
+          digest: await sha256Digest(enc.encode(big)),
+          size: 1,
+        },
+        {
+          uri: "skill://late/SKILL.md",
+          digest: await sha256Digest(enc.encode(md)),
+          size: enc.encode(md).byteLength,
+        },
+      ],
+    };
+    const readResource = vi.fn(async (uri: string) => ({
+      result: {
+        contents: [{ uri, text: uri.endsWith("/SKILL.md") ? md : big }],
+      },
+    }));
+    const client = { readResource } as unknown as InspectorClientProtocol;
+    const [report] = await verifySkills(client, [skill]);
+    // The self file was still fetched, and its frontmatter still compared.
+    expect(readResource).toHaveBeenCalledWith(
+      "skill://late/SKILL.md",
+      undefined,
+    );
+    expect(report.frontmatter).toHaveLength(1);
+    expect(report.frontmatter[0].code).toBe("frontmatter-mismatch");
+  });
+
   it("does not truncate a conforming manifest", async () => {
     // A conforming skill totals at most 16 MiB by definition, so the bound
     // must never shorten one — otherwise it would trade a hostile-server
