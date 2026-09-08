@@ -147,6 +147,14 @@ describe("parseSkillFrontmatter (#2248)", () => {
     expect(parsed).toEqual({ error: expect.stringContaining("cyclic") });
   });
 
+  it("rejects a cycle that is not the first element", () => {
+    // `&a [1, *a]` — the self-reference sits after a plain value, so a guard
+    // that only inspected the head of a sequence would miss it.
+    expect(parseSkillFrontmatter("a: &a [1, *a]")).toEqual({
+      error: expect.stringContaining("cyclic"),
+    });
+  });
+
   it("rejects a cycle through a mapping, not only an array", () => {
     expect(parseSkillFrontmatter("a: &a\n  self: *a")).toEqual({
       error: expect.stringContaining("cyclic"),
