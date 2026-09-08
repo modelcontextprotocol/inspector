@@ -2134,6 +2134,90 @@ describe("SkillsScreen directory browsing (#2248)", () => {
     ).toBeInTheDocument();
   });
 
+  it("refuses a child that is not a DIRECT child of the directory read", async () => {
+    // `resources/directory/read` answers with the directory's direct children.
+    // A grandchild, or the directory itself echoed back, is still inside the
+    // root — so it passed the containment check and was rendered as though the
+    // server had said it lives here (Copilot). The row is shown, because that
+    // is the finding, but it is not a link.
+    const user = userEvent.setup();
+    const GRANDCHILD = {
+      uri: "skill://data-analysis/templates/invoice.md",
+      name: "invoice.md",
+      mimeType: "text/markdown",
+    };
+    await openRoot(
+      user,
+      directoryReader({
+        [ROOT]: { resources: [CHILD_FILE, GRANDCHILD, CHILD_DIR] },
+        // The second page lists the directory ITSELF alongside its child.
+        [CHILD_DIR.uri]: { resources: [CHILD_DIR, NESTED] },
+      }),
+    );
+    const table = () => within(screen.getByTestId("skill-directory"));
+    expect(table().getByText(/not a direct child/)).toBeInTheDocument();
+    // Named for what is wrong with it — it is inside the skill, so calling it
+    // "outside this skill" would send the reader after the wrong defect.
+    expect(table().queryByText(/outside this skill/)).not.toBeInTheDocument();
+    expect(
+      table().queryByRole("button", { name: `View ${GRANDCHILD.uri}` }),
+    ).not.toBeInTheDocument();
+    // The real direct children are unaffected.
+    expect(
+      table().getByRole("button", { name: `View ${CHILD_FILE.uri}` }),
+    ).toBeInTheDocument();
+
+    // …and the same holds one level down, where the offender is the directory
+    // being read. Left navigable it would be a link back to the page you are
+    // already on.
+    await user.click(
+      screen.getByRole("button", { name: `Open directory ${CHILD_DIR.uri}` }),
+    );
+    await waitFor(() =>
+      expect(table().getByText(NESTED.uri)).toBeInTheDocument(),
+    );
+    expect(table().getByText(/not a direct child/)).toBeInTheDocument();
+    expect(
+      table().queryByRole("button", {
+        name: `Open directory ${CHILD_DIR.uri}`,
+      }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("navigates on the normalized URI, so Up cannot walk into a `..` segment", async () => {
+    // Containment was decided on the normalized URI while navigation sent and
+    // stored the raw one, so for `skill://root/a/../templates` the first Up
+    // produced `skill://root/a/..` and a second walked into `skill://root/a`
+    // — a directory the check never validated (Copilot).
+    const user = userEvent.setup();
+    const DOTTED_DIR = {
+      uri: "skill://data-analysis/nested/../templates",
+      name: "templates",
+      mimeType: "inode/directory",
+    };
+    const reader = directoryReader({
+      [ROOT]: { resources: [DOTTED_DIR] },
+      // Keyed by the NORMALIZED URI: that is what must be sent.
+      "skill://data-analysis/templates": { resources: [NESTED] },
+    });
+    await openRoot(user, reader);
+    await user.click(
+      screen.getByRole("button", { name: `Open directory ${DOTTED_DIR.uri}` }),
+    );
+    await waitFor(() =>
+      expect(reader).toHaveBeenCalledWith(
+        "skill://data-analysis/templates",
+        undefined,
+      ),
+    );
+    await user.click(screen.getByRole("button", { name: "Up" }));
+    // One hop, straight back to the root — not to `skill://data-analysis/nested`.
+    await waitFor(() => expect(reader).toHaveBeenCalledWith(ROOT, undefined));
+    expect(reader.mock.calls.map((call) => call[0])).not.toContain(
+      "skill://data-analysis/nested",
+    );
+  });
+
   it("refuses a sibling whose path merely starts with the same characters", async () => {
     // The reason the check appends a separator: a bare `startsWith(skillRoot)`
     // would accept `skill://data-analysis-other/...` as a child of

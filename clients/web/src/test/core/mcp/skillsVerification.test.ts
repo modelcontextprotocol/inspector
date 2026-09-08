@@ -657,6 +657,40 @@ describe("verifySkills (#2248)", () => {
     expect(report.incomplete).toMatch(/actually served/);
   });
 
+  it("charges the budget for a response whose block never matched", async () => {
+    // The budget was charged only after a matching block had been decoded, so
+    // a server could answer every row with one enormous block labelled some
+    // OTHER URI: `contentsFor` found nothing, zero was banked, and the walk
+    // went on to issue up to 512 more of them (Copilot). The bytes crossed the
+    // wire either way, so the transfer is what pays.
+    const junk = "z".repeat(6 * 1024 * 1024);
+    const { skill } = await truncatable({ name: "junk", count: 20 });
+    const readResource = vi.fn(async () => ({
+      // Labelled a URI nobody asked for — the whole point.
+      result: { contents: [{ uri: "skill://elsewhere/huge.md", text: junk }] },
+    }));
+    const client = { readResource } as unknown as InspectorClientProtocol;
+    const [report] = await verifySkills(client, [skill]);
+    // Three reads of 6 MiB crosses 16 MiB; without the fix all 20 were issued.
+    expect(readResource.mock.calls.length).toBe(3);
+    expect(report.incomplete).toMatch(/actually served/);
+    expect(report.outcome).toBe("failed");
+  });
+
+  it("charges the budget for a response that could not be decoded", async () => {
+    // The second free route: an enormous `blob` that is not valid base64, so
+    // `skillFileBytes` throws before anything is counted.
+    const junk = "!".repeat(6 * 1024 * 1024);
+    const { skill } = await truncatable({ name: "junk", count: 20 });
+    const readResource = vi.fn(async (uri: string) => ({
+      result: { contents: [{ uri, blob: junk }] },
+    }));
+    const client = { readResource } as unknown as InspectorClientProtocol;
+    const [report] = await verifySkills(client, [skill]);
+    expect(readResource.mock.calls.length).toBe(3);
+    expect(report.incomplete).toMatch(/actually served/);
+  });
+
   it("is not incomplete when the budget is crossed by the LAST entry", async () => {
     // Crossing the line on the final row stopped nothing: every manifest entry
     // was fetched and checked. Reporting "Stopped after 4 of 4" there both

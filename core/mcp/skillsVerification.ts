@@ -220,6 +220,37 @@ function contentsFor(result: unknown, uri: string): ReadContents | undefined {
 }
 
 /**
+ * What a `resources/read` response cost to receive, charged against the byte
+ * budget regardless of whether any of it is usable.
+ *
+ * ⚠️ Deliberately measured on the RAW result rather than on decoded content.
+ * The budget exists to stop a server from making this walk transfer unbounded
+ * data, and a server that wants to do that has two free routes if only decoded
+ * bytes are counted: label an enormous block with a URI that was not asked for,
+ * or send an enormous blob that is not valid base64. Both leave the decode
+ * paths empty-handed while the bytes have already crossed the wire.
+ *
+ * The figure is an **approximation, and deliberately never an undercount by
+ * more than a small factor**: `text` is charged in UTF-16 code units (UTF-8 is
+ * between 1× and 3× that for the same string) and `blob` in base64 characters
+ * (roughly 4/3 of the bytes it decodes to, so an overcharge). Exactness is not
+ * the point — this is a safety limit, not an accounting figure, and the caller
+ * substitutes the exact decoded length whenever it has one.
+ */
+function responseBytes(result: unknown): number {
+  const contents = (result as { contents?: unknown })?.contents;
+  if (!Array.isArray(contents)) return 0;
+  let total = 0;
+  for (const block of contents) {
+    if (typeof block !== "object" || block === null) continue;
+    const { text, blob } = block as { text?: unknown; blob?: unknown };
+    if (typeof text === "string") total += text.length;
+    if (typeof blob === "string") total += blob.length;
+  }
+  return total;
+}
+
+/**
  * Verify every skill in `entries` against the connected server.
  *
  * Never throws for a single skill or a single file: a report that aborted on
@@ -316,49 +347,69 @@ export async function verifySkills(
         // rather than re-attempted by the fallback.
         selfAttempted = true;
       }
-      let contents: ReadContents | undefined;
+      // Bytes attributed to THIS response, charged whether or not any of them
+      // turn out to be usable — see `responseBytes`.
+      let charged = 0;
       try {
         const invocation = await client.readResource(resource.uri, metadata);
-        contents = contentsFor(invocation.result, resource.uri);
+        // ⚠️ Charged from the RAW response, BEFORE the block is selected and
+        // before it is decoded. Charging only the decoded bytes let a server
+        // spend the budget for free: return one enormous block labelled some
+        // other URI (so `contentsFor` finds nothing) or one enormous invalid
+        // base64 blob (so `skillFileBytes` throws), and the walk banked zero
+        // against the cap and went on to issue up to 512 more of them
+        // (Copilot). The safeguard has to be paid for by the transfer, not by
+        // the parse.
+        charged = responseBytes(invocation.result);
+        const contents = contentsFor(invocation.result, resource.uri);
+        if (!contents) {
+          files.push({
+            uri: resource.uri,
+            status: "read-error",
+            reason:
+              "resources/read returned no content block for this URI, so there are no bytes that can be checked against its digest.",
+          });
+        } else {
+          let bytes: Uint8Array | undefined;
+          try {
+            bytes = skillFileBytes(contents);
+          } catch (err) {
+            files.push({
+              uri: resource.uri,
+              status: "read-error",
+              reason: reasonOf(err),
+            });
+          }
+          if (bytes) {
+            // The decoded length is exact where `responseBytes` is only an
+            // estimate, so the larger of the two is charged: never less than
+            // what this file actually cost, and never less than what the rest
+            // of the response was estimated to cost.
+            charged = Math.max(charged, bytes.byteLength);
+            if (skillUriIdentity(resource.uri) === entryIdentity)
+              entryBytes = bytes;
+            const verification = await verifySkillResource(resource, bytes);
+            files.push({ uri: resource.uri, ...verification });
+          }
+        }
       } catch (err) {
         if (err instanceof AuthRecoveryRequiredError) throw err;
+        // Nothing to charge: a rejected read never handed us a payload to
+        // measure. Whatever the transport moved before failing is invisible
+        // at this layer.
         files.push({
           uri: resource.uri,
           status: "read-error",
           reason: reasonOf(err),
         });
-        continue;
       }
-      if (!contents) {
-        files.push({
-          uri: resource.uri,
-          status: "read-error",
-          reason:
-            "resources/read returned no content block for this URI, so there are no bytes that can be checked against its digest.",
-        });
-        continue;
-      }
-      let bytes: Uint8Array;
-      try {
-        bytes = skillFileBytes(contents);
-      } catch (err) {
-        files.push({
-          uri: resource.uri,
-          status: "read-error",
-          reason: reasonOf(err),
-        });
-        continue;
-      }
-      if (skillUriIdentity(resource.uri) === entryIdentity) entryBytes = bytes;
-      const verification = await verifySkillResource(resource, bytes);
-      files.push({ uri: resource.uri, ...verification });
-      // Counted AFTER verifying this file, so the one that crosses the line is
-      // still reported rather than fetched and discarded. The next read is what
-      // stops. ⚠️ This bounds the total across responses, not the size of any
-      // single one: a first response larger than the cap is already in memory
-      // by the time it can be measured, which would need a streaming read to
-      // prevent and is not something this API exposes.
-      receivedBytes += bytes.byteLength;
+      // Counted AFTER this row is recorded, so the response that crosses the
+      // line is still reported rather than fetched and discarded. The next
+      // read is what stops. ⚠️ This bounds the total across responses, not the
+      // size of any single one: a first response larger than the cap is
+      // already in memory by the time it can be measured, which would need a
+      // streaming read to prevent and is not something this API exposes.
+      receivedBytes += charged;
       if (receivedBytes > SKILL_MAX_TOTAL_BYTES) {
         // ⚠️ Only *incomplete* when the budget actually cost a read. Crossing
         // the line on the final entry stopped nothing — every manifest row was

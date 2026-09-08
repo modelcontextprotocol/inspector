@@ -698,6 +698,18 @@ function resourceFileName(uri: string): string {
 }
 
 /** `sha256:abcd…wxyz`, so a long digest stays readable in a table cell. */
+/**
+ * The parent directory of a skill URI, by path arithmetic.
+ *
+ * Only ever applied to a NORMALIZED URI — one with no `.`/`..` segments left —
+ * so the last `/` really is the boundary between a directory and its child. On
+ * a raw URI the same slice is meaningless: the parent of
+ * `skill://r/a/../templates` is `skill://r`, not `skill://r/a/..`.
+ */
+function parentOfSkillUri(uri: string): string {
+  return uri.slice(0, uri.lastIndexOf("/"));
+}
+
 function shortDigest(digest: string | undefined): string {
   if (!digest) return "—";
   return digest.length <= 24 ? digest : `${digest.slice(0, 16)}…`;
@@ -1351,6 +1363,9 @@ export function SkillsScreen({
   // same guard every other async slot on this screen uses.
   const directoryCurrent = directory.key === manifestKey;
   const directoryUri = directoryCurrent ? directory.uri : undefined;
+  // The directory these children were read FROM — the root until the reader
+  // descends. Every child row is judged against this, so the two cannot drift.
+  const readingUri = directoryUri ?? skillRoot;
   const directoryChildren = directoryCurrent ? directory.children : undefined;
   const directoryError = directoryCurrent ? directory.message : undefined;
   const directoryLoading = directoryCurrent && directory.loading === true;
@@ -2154,10 +2169,7 @@ export function SkillsScreen({
                               <FetchButton
                                 onClick={() =>
                                   readDirectory(
-                                    directoryUri.slice(
-                                      0,
-                                      directoryUri.lastIndexOf("/"),
-                                    ),
+                                    parentOfSkillUri(directoryUri),
                                     manifestKey,
                                   )
                                 }
@@ -2231,6 +2243,19 @@ export function SkillsScreen({
                                   skillRoot !== undefined &&
                                   (childUri === skillRoot ||
                                     childUri.startsWith(`${skillRoot}/`));
+                                // `resources/directory/read` answers with the
+                                // directory's DIRECT children. A grandchild, a
+                                // sibling's file, or the directory itself is
+                                // inside the root and so passed `inRoot`, and
+                                // was then rendered as though the server had
+                                // said it lives here (Copilot). This screen
+                                // exists to report what a server sent, so an
+                                // entry that is not a direct child is shown
+                                // and named rather than quietly navigable.
+                                const directChild =
+                                  childUri !== undefined &&
+                                  readingUri !== undefined &&
+                                  parentOfSkillUri(childUri) === readingUri;
                                 // A directory is not a manifest entry in the
                                 // first place — a manifest lists files — so it
                                 // is neither listed nor unlisted and gets no
@@ -2245,13 +2270,18 @@ export function SkillsScreen({
                                   // collapse into one.
                                   <Table.Tr key={index}>
                                     <Table.Td>
-                                      {!inRoot ? (
+                                      {!inRoot || !directChild ? (
                                         // Shown, never navigable. The reader
                                         // should see what the server sent, and
                                         // a child outside the skill it was
-                                        // asked about is itself the finding.
+                                        // asked about — or one that is not a
+                                        // child of this directory at all — is
+                                        // itself the finding.
                                         <NoVerdictText>
-                                          {child.name} (outside this skill)
+                                          {child.name}
+                                          {!inRoot
+                                            ? " (outside this skill)"
+                                            : " (not a direct child)"}
                                         </NoVerdictText>
                                       ) : (
                                         <ResourceUriButton
@@ -2267,8 +2297,20 @@ export function SkillsScreen({
                                           }
                                           onClick={() =>
                                             isDir
-                                              ? readDirectory(
-                                                  child.uri,
+                                              ? // ⚠️ The NORMALIZED URI, which
+                                                // is what `directChild` and
+                                                // `inRoot` were decided on.
+                                                // Storing the raw one instead
+                                                // meant "Up" did its path
+                                                // arithmetic on an identity
+                                                // nothing had validated — from
+                                                // `skill://r/a/../templates`
+                                                // the first Up produced
+                                                // `skill://r/a/..` and the
+                                                // second walked into
+                                                // `skill://r/a` (Copilot).
+                                                readDirectory(
+                                                  childUri,
                                                   manifestKey,
                                                 )
                                               : showResource(
