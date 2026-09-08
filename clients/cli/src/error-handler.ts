@@ -25,6 +25,29 @@ export const EXIT_CODES = {
   UNREACHABLE: 4,
   TOOL_ERROR: 5,
   SCHEMA_UNPORTABLE: 6,
+  /**
+   * `--verify` found a SEP-2640 violation: a conformance error, a digest or
+   * size mismatch, or a manifest file that could not be read (#2248).
+   *
+   * Its own code rather than reusing `SCHEMA_UNPORTABLE`, for the reason that
+   * one exists at all: a CI job that fails on an unportable tool schema and a
+   * CI job that fails on a tampered skill digest are different jobs, and
+   * collapsing them would make `if [ $? -eq 6 ]` ambiguous.
+   */
+  SKILL_NONCONFORMANT: 7,
+  /**
+   * `--verify` could not check the whole catalog: the read bounds stopped the
+   * walk before it finished (#2248).
+   *
+   * Distinct from `SKILL_NONCONFORMANT` because the server has broken no
+   * **MUST** — SEP-2640 states the 512-entry and 16 MiB limits as SHOULD NOT,
+   * with hosts free to support more — so exiting 7 would call a conforming
+   * server nonconformant. It is still non-zero, because reporting success for
+   * a manifest whose unread entries were never fetched is a false pass. A CI
+   * job that wants to tolerate oversized catalogs can allow 8 and still fail
+   * on 7.
+   */
+  SKILL_INCOMPLETE: 8,
 } as const;
 
 /** Machine-readable error envelope written as one JSON line on stderr. */

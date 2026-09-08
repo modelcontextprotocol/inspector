@@ -108,11 +108,12 @@ Options that specify the MCP server (catalog/config file, ad-hoc command/URL, en
 
 | Option                        | Description                                                                                                                                                                                                                                                                                                                                                                                                          |
 | ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--method <method>`           | MCP method to invoke. Supports `initialize` (connect-only probe → `{serverInfo, protocolVersion, capabilities, instructions}`), `tools/list`, `tools/call`, `resources/list`, `resources/read`, `resources/templates/list`, `prompts/list`, `prompts/get`, `logging/setLevel`, plus catalog-only `servers/list` / `servers/show` (no MCP connect). Stream / session-only methods (e.g. `logging/tail`) are rejected. |
+| `--method <method>`           | MCP method to invoke. Supports `initialize` (connect-only probe → `{serverInfo, protocolVersion, capabilities, instructions}`), `tools/list`, `tools/call`, `resources/list`, `resources/read`, `resources/templates/list`, `prompts/list`, `prompts/get`, `logging/setLevel`, `skills/list`, `skills/get`, `resources/directory/read`, plus catalog-only `servers/list` / `servers/show` (no MCP connect). Stream / session-only methods (e.g. `logging/tail`) are rejected. |
 | `--tool-name <name>`          | Tool name (for `tools/call`).                                                                                                                                                                                                                                                                                                                                                                                        |
 | `--tool-arg <key=value>`      | Tool argument; repeat for multiple. Use `key='{"json":true}'` for JSON. Values are coerced (JSON-parsed, so `count=1` becomes a number).                                                                                                                                                                                                                                                                             |
 | `--tool-args-json <json>`     | Tool arguments as a single JSON object (e.g. `'{"zip":"10001"}'`). Passed verbatim — no `key=value` coercion, so `"012"` stays a string. Mutually exclusive with `--tool-arg`.                                                                                                                                                                                                                                       |
-| `--uri <uri>`                 | Resource URI (for `resources/read`).                                                                                                                                                                                                                                                                                                                                                                                 |
+| `--uri <uri>`                 | Resource URI (`resources/read`), directory URI (`resources/directory/read`), or skill URI (`skills/get`).                                                                                                                                                                                                                                                                                                                                                                                 |
+| `--cursor <cursor>`           | Opaque pagination cursor for `resources/directory/read` — pass back the `nextCursor` from the previous page. The listing is not recursive and pages are not aggregated: SEP-2640 gives the cursor to the client, and descending is the caller's job. |
 | `--prompt-name <name>`        | Prompt name (for `prompts/get`).                                                                                                                                                                                                                                                                                                                                                                                     |
 | `--prompt-args <key=value>`   | Prompt arguments; repeat for multiple.                                                                                                                                                                                                                                                                                                                                                                               |
 | `--log-level <level>`         | Logging level for `logging/setLevel` (e.g. `debug`, `info`).                                                                                                                                                                                                                                                                                                                                                         |
@@ -121,6 +122,7 @@ Options that specify the MCP server (catalog/config file, ad-hoc command/URL, en
 | `--connect-timeout <ms>`      | Connection timeout in ms. Defaults to `15000` for ad-hoc `--server-url`/target runs (so a black-holed host fails fast) and to the file-level timeout for `--catalog`/`--config` runs. `0` disables the timeout.                                                                                                                                                                                                      |
 | `--app-info`                  | Probe a tool's MCP App UI metadata without invoking it. With `--method tools/call --tool-name <name>`: prints one JSON line (`hasApp`, `resourceUri`, `csp`, `permissions`, `domain`, …) and exits `0` if the tool has an app or `2` (`no_app`) if not. With `--method tools/list`: emits NDJSON — one app-info line per tool over a single connection.                                                              |
 | `--strict`                    | With `--method tools/list`: report tool-schema portability problems in full (path, issue, suggested fix) on stderr, and exit `6` if any is error-severity. Without it, a one-line count is printed instead. See [Schema portability](#schema-portability---strict). |
+| `--verify`                    | With `--method skills/list` or `--method skills/get`: run the SEP-2640 conformance, digest and frontmatter checks over the skills returned, emit one JSON report per skill on stdout, and exit `7` if any fails. See [Skill verification](#skill-verification---verify). |
 | `--format <text\|json>`       | Output format. `text` (default) pretty-prints the result. `json` emits a single JSON object on stdout (`{ "result": … }`, plus `{ "appInfo": … }` as a sibling key for App tools) with no banners, so the whole output pipes cleanly into `jq`.                                                                                                                                                                      |
 | `--relogin`                   | Delete stored OAuth for this server URL from the shared store before connect; interactive login still only runs if the server requires auth. Requires an HTTP/SSE URL (rejected for stdio). Conflicts with `--stored-auth-only` / `--use-stored-auth` / `--wait-for-auth` / catalog short-circuits.                                                                                                                  |
 | `--no-revoke`                 | With `--relogin`, skip the [RFC 7009](https://datatracker.ietf.org/doc/html/rfc7009) revocation request that would otherwise end the grant at the authorization server when the local state is deleted. The per-server `oauth.revokeOnClear` setting is the persistent form of the same opt-out; either one is enough to skip it. See [Revoking on `--relogin`](#revoking-on---relogin). |
@@ -333,6 +335,91 @@ mcp-inspector --cli --transport http --server-url https://api.example/mcp \
   --wait-for-auth 120 --method tools/list
 ```
 
+#### Skill verification (`--verify`)
+
+SEP-2640 puts real obligations on whoever consumes a skill: verify each fetched
+file against the digest its manifest advertised, check that the served
+`SKILL.md`'s frontmatter matches the one the listing advertised, and honour the
+per-skill limits. `--verify` runs all of them over a whole catalog and turns the
+answer into an exit code, so a server author can gate CI on it:
+
+```sh
+mcp-inspector --cli <server> --method skills/list --verify
+```
+
+Stdout is **NDJSON, one report per skill**, in listing order:
+
+```json
+{
+  "uri": "skill://tampered-notes/SKILL.md",
+  "name": "tampered-notes",
+  "conformance": [],
+  "frontmatter": [],
+  "files": [
+    { "uri": "skill://tampered-notes/SKILL.md", "status": "verified", "…": "…" },
+    { "uri": "skill://tampered-notes/notes.md", "status": "mismatch", "…": "…" }
+  ],
+  "ok": false
+}
+```
+
+Stderr gets a one-line summary, so a reader who piped stdout into `jq` still
+sees the verdict — and then, on a failing run, the ordinary
+[`ErrorEnvelope`](#exit-codes--error-envelopes) line that **every** non-zero
+exit writes. Two stderr lines on failure, one on success, which is the same
+shape `--strict` produces and is why the envelope is not suppressed here: a
+caller branching on `.code` should not have to special-case this command.
+`--method skills/get --uri <skill>` verifies exactly one skill, in the same
+shape.
+
+**What fails the run.** Three outcomes, three exit codes, because "this skill is
+wrong" and "this skill could not be fully checked" are different answers:
+
+| `outcome` | Exit | When |
+| --- | --- | --- |
+| `verified` | `0` | Everything was checked and everything passed. |
+| `failed` | `7` | Something SEP-2640 makes a MUST was broken — an error-severity finding, a digest or size mismatch, or an unreadable manifest file. |
+| `incomplete` | `8` | Nothing checked was wrong, but the read bounds stopped the walk before it finished. See `incomplete` in the report for the reason. |
+
+**The run is bounded, and says when a bound bit.** Three limits, all reported as
+`incomplete` (`8`) rather than as a pass or a failure, because an entry that was
+not read has not been cleared of anything:
+
+| Bound | Limit | Why |
+| --- | --- | --- |
+| Per skill | 512 manifest entries / 16 MiB | SEP-2640's own interoperability limits. |
+| Per skill, on the wire | 16 MiB actually served | The declared sizes are server-controlled; this one cannot be lied past. |
+| Per run | 256 skills / 64 MiB | SEP-2640 bounds a skill and deliberately does not bound a *catalog*. Every entry costs at least one `resources/read`, so without this a large listing — hostile or merely big — is unbounded work against the tool inspecting it. |
+
+The run bound is this tool's, not the spec's. A skill past it is still reported,
+with its static conformance findings and an `incomplete` reason saying nothing
+about its files was checked; verify it on its own with `--method skills/get
+--uri <skill>` to get a verdict for it.
+
+A **warning** never produces `7`. That distinction matters most for `resources: "dynamic"`, which is a
+*conforming* wire form for generated content: it means integrity cannot be
+verified, which is worth reporting, but failing CI for it would tell server
+authors their valid skill is broken.
+
+**Three checks, three different jobs**, and the second is the one nothing else
+covers:
+
+- **Conformance** — structural checks against the entry as listed (name grammar,
+  the name/URI invariant, digest and size formats, manifest completeness, the
+  interoperability limits).
+- **Frontmatter** — the served `SKILL.md`'s own YAML frontmatter, compared field
+  by field against the frontmatter the listing advertised. A digest cannot cover
+  this: it is taken over the bytes the server served, so it proves the file was
+  not altered in transit and says nothing about whether the *listing* described
+  it honestly. A server can advertise one description, serve another, and pass
+  every digest check.
+- **Files** — each manifest entry fetched and hashed. Reads are sequential: a
+  conforming manifest may declare 512 entries, and a parallel walk would open
+  512 `resources/read` calls against the server under test.
+
+A read failure is recorded against the file it happened on and the walk
+continues, so one unreadable file never hides the findings after it.
+
 ## Exit codes & error envelopes
 
 Every non-zero exit maps to a stable failure class, so a programmatic caller
@@ -348,6 +435,8 @@ prose from stderr:
 | `4`  | Server unreachable (DNS, connection refused, timeout, `fetch failed`).        |
 | `5`  | Tool error (`tools/call` returned `isError:true`, or the tool was not found). |
 | `6`  | `--strict` found an error-severity tool-schema portability problem (`schema_unportable` — the schema is valid JSON Schema, just not portable). |
+| `7`  | `--verify` found a SEP-2640 violation (`skills_nonconformant` — a conformance error, a digest or size mismatch, or an unreadable manifest file). |
+| `8`  | `--verify` could not check the whole catalog (`skills_incomplete` — the read bounds stopped the walk). The server broke no **MUST**: the 512-entry and 16 MiB limits are `SHOULD NOT`, and hosts may support more. A job that tolerates oversized catalogs can allow `8` and still fail on `7`. |
 
 On any non-zero exit the CLI also writes a single JSON line to **stderr** — the
 `ErrorEnvelope`:

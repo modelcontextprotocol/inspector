@@ -61,7 +61,8 @@ import type {
 import type { LogsUiState } from "../../screens/LoggingScreen/LoggingScreen";
 import type { SkillsUiState } from "../../screens/SkillsScreen/SkillsScreen";
 import type { SkillEntry } from "@inspector/core/mcp/skillsSchemas.js";
-import type { SkillFileContents } from "../../../utils/skillFileBytes";
+import type { SkillFileContents } from "@inspector/core/mcp/skills.js";
+import type { DirectoryReadResult } from "@inspector/core/mcp/skillsSchemas.js";
 import type { TasksUiState } from "../../screens/TasksScreen/TasksScreen";
 import type { ProtocolUiState } from "../../screens/ProtocolScreen/ProtocolScreen";
 import type { NetworkUiState } from "../../screens/NetworkScreen/NetworkScreen";
@@ -330,6 +331,15 @@ export interface SkillsPanelProps {
   onReadSkillFile: (uri: string) => Promise<SkillFileContents>;
   /** Re-fetch the selected entry through `skills/get`. */
   onGetSkill: (uri: string) => Promise<SkillEntry>;
+  /**
+   * One page of `resources/directory/read`, or **`undefined` when the server
+   * did not declare `directoryRead`** — which is what gates the Skills screen's
+   * Directory section (SEP-2640 makes the call a MUST NOT otherwise).
+   */
+  onReadResourceDirectory?: (
+    uri: string,
+    cursor?: string,
+  ) => Promise<DirectoryReadResult>;
 }
 
 /** The Tasks monitor: the task list, its progress map, and actions. */

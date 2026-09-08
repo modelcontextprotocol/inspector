@@ -28,21 +28,57 @@ const NOTES_TEXT = "different\n";
 const REF_DIGEST = await sha256Digest(textToBytes(REF_TEXT));
 const SELF_DIGEST = await sha256Digest(textToBytes(SELF_TEXT));
 
+type Frontmatter = { name: string; description: string };
+
+/**
+ * The `SKILL.md` a given frontmatter implies.
+ *
+ * Every fixture's served file is built from the very frontmatter its entry
+ * advertises, so the two agree by construction. SEP-2640 requires that match
+ * field for field and #2248 added the check that enforces it — hand-writing
+ * the file instead would report a frontmatter discrepancy in every fixture
+ * here, drowning the tests that are actually about one. Same discipline, and
+ * the same reason, as `skillMd` in `test-servers/src/skills.ts`.
+ */
+function skillMdFor(fm: Frontmatter): string {
+  return `---\nname: ${fm.name}\ndescription: ${fm.description}\n---\n\n# ${fm.name}\n`;
+}
+
+/** The entry's own SKILL.md manifest row: derived text, and its real digest. */
+async function selfEntry(uri: string, fm: Frontmatter) {
+  const text = skillMdFor(fm);
+  return {
+    uri,
+    digest: await sha256Digest(textToBytes(text)),
+    size: textToBytes(text).byteLength,
+  };
+}
+
+const CLEAN_FM: Frontmatter = {
+  name: "data-analysis",
+  description: "Analyze a CSV and summarize its columns",
+};
+const TAMPERED_FM: Frontmatter = {
+  name: "tampered",
+  description: "Bad digest",
+};
+const DYNAMIC_FM: Frontmatter = {
+  name: "dynamic-report",
+  description: "Generated files",
+};
+const MISMATCHED_FM: Frontmatter = {
+  name: "right-name",
+  description: "Name disagreement",
+};
+
 // Every manifest lists the skill's own SKILL.md: a manifest is the complete
 // file set, so one that omits it is a `manifest-missing-self` error and no
 // fixture here would be "clean".
 const CLEAN_SKILL: SkillEntry = {
   uri: "skill://data-analysis/SKILL.md",
-  frontmatter: {
-    name: "data-analysis",
-    description: "Analyze a CSV and summarize its columns",
-  },
+  frontmatter: CLEAN_FM,
   resources: [
-    {
-      uri: "skill://data-analysis/SKILL.md",
-      digest: SELF_DIGEST,
-      size: textToBytes(SELF_TEXT).byteLength,
-    },
+    await selfEntry("skill://data-analysis/SKILL.md", CLEAN_FM),
     {
       uri: "skill://data-analysis/reference.md",
       digest: REF_DIGEST,
@@ -53,13 +89,9 @@ const CLEAN_SKILL: SkillEntry = {
 
 const TAMPERED_SKILL: SkillEntry = {
   uri: "skill://tampered/SKILL.md",
-  frontmatter: { name: "tampered", description: "Bad digest" },
+  frontmatter: TAMPERED_FM,
   resources: [
-    {
-      uri: "skill://tampered/SKILL.md",
-      digest: SELF_DIGEST,
-      size: textToBytes(SELF_TEXT).byteLength,
-    },
+    await selfEntry("skill://tampered/SKILL.md", TAMPERED_FM),
     {
       // A well-formed digest of bytes the fake read does not return, and a
       // size that agrees — so the failure reported is a *digest* mismatch and
@@ -73,19 +105,43 @@ const TAMPERED_SKILL: SkillEntry = {
 
 const DYNAMIC_SKILL: SkillEntry = {
   uri: "skill://dynamic-report/SKILL.md",
-  frontmatter: { name: "dynamic-report", description: "Generated files" },
+  frontmatter: DYNAMIC_FM,
   resources: "dynamic",
 };
 
 const MISMATCHED_SKILL: SkillEntry = {
   uri: "skill://wrong-folder/SKILL.md",
-  frontmatter: { name: "right-name", description: "Name disagreement" },
+  frontmatter: MISMATCHED_FM,
+  resources: [await selfEntry("skill://wrong-folder/SKILL.md", MISMATCHED_FM)],
+};
+
+// Two skills sharing a name, and otherwise **fully conforming** — SEP-2640
+// requires only that the segment before /SKILL.md equal `frontmatter.name`,
+// which multi-segment paths satisfy while still sharing a final segment. Their
+// manifests list their own SKILL.md and their served files are derived from
+// their frontmatter, so the collision is genuinely their ONLY finding; a
+// fixture with an incidental `manifest-missing-self` would make the tests below
+// pass for the wrong reason.
+const ACME_REPORTS_FM: Frontmatter = {
+  name: "reports",
+  description: "Build the weekly report from the acme ledger",
+};
+const GLOBEX_REPORTS_FM: Frontmatter = {
+  name: "reports",
+  description: "Build the weekly report from the globex ledger",
+};
+const ACME: SkillEntry = {
+  uri: "skill://acme/reports/SKILL.md",
+  frontmatter: ACME_REPORTS_FM,
   resources: [
-    {
-      uri: "skill://wrong-folder/SKILL.md",
-      digest: SELF_DIGEST,
-      size: textToBytes(SELF_TEXT).byteLength,
-    },
+    await selfEntry("skill://acme/reports/SKILL.md", ACME_REPORTS_FM),
+  ],
+};
+const GLOBEX: SkillEntry = {
+  uri: "skill://globex/reports/SKILL.md",
+  frontmatter: GLOBEX_REPORTS_FM,
+  resources: [
+    await selfEntry("skill://globex/reports/SKILL.md", GLOBEX_REPORTS_FM),
   ],
 };
 
@@ -96,11 +152,29 @@ const ALL_SKILLS = [
   MISMATCHED_SKILL,
 ];
 
-/** A `resources/read` that serves the fixture bytes for any known URI. */
+/** Everything `readFixtureFile` can serve a `SKILL.md` for. */
+const SERVED_SKILLS = [...ALL_SKILLS, ACME, GLOBEX];
+
+/** The many-row fixture's frontmatter, shared with the stub that serves it. */
+const MANY_FM: Frontmatter = { name: "many", description: "Many rows" };
+
+/**
+ * A `resources/read` that serves the fixture bytes for any known URI. A skill's
+ * own `SKILL.md` comes from {@link skillMdFor}, so it agrees with the entry's
+ * advertised frontmatter by construction; a test that needs a disagreement
+ * supplies its own entry.
+ */
 const readFixtureFile = vi.fn(async (uri: string) => {
   if (uri === "skill://data-analysis/reference.md") return { text: REF_TEXT };
   if (uri === "skill://tampered/notes.md") return { text: NOTES_TEXT };
-  return { text: SELF_TEXT, mimeType: "text/markdown" };
+  // Every fixture, not only the four in the default catalog — the collision
+  // pair is served here too, or it would be handed another skill's SKILL.md and
+  // report a frontmatter mismatch that the fixture never meant to demonstrate.
+  const owner = SERVED_SKILLS.find((skill) => skill.uri === uri);
+  return {
+    text: owner ? skillMdFor(owner.frontmatter as Frontmatter) : SELF_TEXT,
+    mimeType: "text/markdown",
+  };
 });
 
 const baseProps: SkillsScreenProps = {
@@ -315,17 +389,22 @@ describe("SkillsScreen", () => {
     const user = userEvent.setup();
     // Held open so the batch is still in flight when the selection changes.
     const releases: (() => void)[] = [];
+    // Each URI gets the file its OWN entry implies, so the frontmatter check
+    // stays silent and this test measures only the open-state invariant it is
+    // about. A stub serving one skill's text for every URI produces a genuine
+    // mismatch, which now reveals Conformance by design.
     const onReadSkillFile = vi.fn(
-      () =>
+      (uri: string) =>
         new Promise<{ text: string }>((resolve) => {
-          releases.push(() => resolve({ text: SELF_TEXT }));
+          const fm = uri.startsWith("skill://many/") ? MANY_FM : CLEAN_FM;
+          releases.push(() => resolve({ text: skillMdFor(fm) }));
         }),
     );
     // More rows than the concurrency cap, so workers keep pulling.
     const manyRows: SkillEntry = {
       ...CLEAN_SKILL,
       uri: "skill://many/SKILL.md",
-      frontmatter: { name: "many", description: "Many rows" },
+      frontmatter: MANY_FM,
       resources: Array.from({ length: 10 }, (_, i) => ({
         uri: i === 0 ? "skill://many/SKILL.md" : `skill://many/f${i}.md`,
         digest: SELF_DIGEST,
@@ -576,15 +655,11 @@ describe("SkillsScreen", () => {
           {
             ...CLEAN_SKILL,
             resources: [
-              {
-                uri: "skill://data-analysis/SKILL.md",
-                digest: SELF_DIGEST,
-                size: textToBytes(SELF_TEXT).byteLength,
-              },
+              await selfEntry("skill://data-analysis/SKILL.md", CLEAN_FM),
               {
                 uri: "skill://data-analysis/SKILL.md",
                 digest: `sha256:${"d".repeat(64)}`,
-                size: textToBytes(SELF_TEXT).byteLength,
+                size: textToBytes(skillMdFor(CLEAN_FM)).byteLength,
               },
             ],
           },
@@ -1715,5 +1790,998 @@ describe("SkillsScreen", () => {
     await user.click(screen.getByText("tampered"));
     stale?.(new Error("too late"));
     expect(screen.queryByText("too late")).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * The Directory section (`resources/directory/read`, SEP-2640, #2248).
+ *
+ * Gated on the CALLBACK's presence, not on a boolean beside it: the SEP makes
+ * calling the method against a server that has not declared `directoryRead` a
+ * MUST NOT, and an absent callback is that rule expressed in the type.
+ */
+describe("SkillsScreen directory browsing (#2248)", () => {
+  const ROOT = "skill://data-analysis";
+  const CHILD_FILE = {
+    uri: "skill://data-analysis/reference.md",
+    name: "reference.md",
+    mimeType: "text/markdown",
+  };
+  const CHILD_DIR = {
+    uri: "skill://data-analysis/templates",
+    name: "templates",
+    mimeType: "inode/directory",
+  };
+  const NESTED = {
+    uri: "skill://data-analysis/templates/invoice.md",
+    name: "invoice.md",
+    mimeType: "text/markdown",
+  };
+
+  function directoryReader(
+    pages: Record<string, { resources: unknown[]; nextCursor?: string }>,
+  ) {
+    return vi.fn(async (uri: string, cursor?: string) => {
+      const page = pages[cursor === undefined ? uri : `${uri}#${cursor}`];
+      if (!page) throw new Error(`no page for ${uri} ${cursor ?? ""}`);
+      return page as never;
+    });
+  }
+
+  it("starts collapsed, since its content needs a round trip nobody has made", async () => {
+    // Open, it would hold a button and an empty frame — advertising content
+    // that is not there while taking height from the sections that have some.
+    const user = userEvent.setup();
+    renderWithMantine(
+      <ControlledSkillsScreen
+        onReadResourceDirectory={directoryReader({ [ROOT]: { resources: [] } })}
+      />,
+    );
+    await user.click(screen.getByText("data-analysis"));
+    expect(screen.getByRole("button", { name: /Directory/ })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+    // Still reachable, and the other sections are unaffected.
+    expect(screen.getByRole("button", { name: /Resources/ })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+  });
+
+  it("renders no Directory section when the server did not declare directoryRead", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(<ControlledSkillsScreen />);
+    await user.click(screen.getByText("data-analysis"));
+    expect(
+      screen.queryByRole("button", { name: /Directory/ }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("reads on a click, never on selection", async () => {
+    // Every round trip on this screen is asked for — the same posture "Fetch
+    // entry" takes.
+    const user = userEvent.setup();
+    const onReadResourceDirectory = directoryReader({
+      [ROOT]: { resources: [CHILD_FILE] },
+    });
+    renderWithMantine(
+      <ControlledSkillsScreen
+        onReadResourceDirectory={onReadResourceDirectory}
+      />,
+    );
+    await user.click(screen.getByText("data-analysis"));
+    expect(onReadResourceDirectory).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: /Directory/ }));
+    await user.click(screen.getByRole("button", { name: "Read directory" }));
+    await waitFor(() =>
+      expect(screen.getByTestId("skill-directory")).toBeInTheDocument(),
+    );
+    expect(onReadResourceDirectory).toHaveBeenCalledWith(ROOT, undefined);
+    expect(
+      within(screen.getByTestId("skill-directory")).getByText(
+        "skill://data-analysis/reference.md",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  /**
+   * Open the Directory section on the clean skill and read its root.
+   *
+   * Shared because the descend/ascend assertions below would otherwise each
+   * repeat four sequential `userEvent` clicks inside one 5s budget — enough to
+   * make them the first thing to time out when the suite runs under load,
+   * which is a property of the test rather than of the screen.
+   */
+  async function openRoot(
+    user: ReturnType<typeof userEvent.setup>,
+    reader: ReturnType<typeof directoryReader>,
+  ) {
+    renderWithMantine(
+      <ControlledSkillsScreen onReadResourceDirectory={reader} />,
+    );
+    await user.click(screen.getByText("data-analysis"));
+    // Directory starts collapsed — see `DEFAULT_OPEN_SECTIONS`.
+    await user.click(screen.getByRole("button", { name: /Directory/ }));
+    await user.click(screen.getByRole("button", { name: "Read directory" }));
+    await waitFor(() =>
+      expect(screen.getByTestId("skill-directory")).toBeInTheDocument(),
+    );
+  }
+
+  it("descends into a child directory", async () => {
+    const user = userEvent.setup();
+    await openRoot(
+      user,
+      directoryReader({
+        [ROOT]: { resources: [CHILD_FILE, CHILD_DIR] },
+        [CHILD_DIR.uri]: { resources: [NESTED] },
+      }),
+    );
+    // A directory child is labelled as one and descends rather than opening in
+    // the viewer; the listing is not recursive, so this is a second call.
+    await user.click(
+      screen.getByRole("button", { name: `Open directory ${CHILD_DIR.uri}` }),
+    );
+    await waitFor(() =>
+      expect(
+        within(screen.getByTestId("skill-directory")).getByText(NESTED.uri),
+      ).toBeInTheDocument(),
+    );
+  });
+
+  it("offers Up only below the skill root, and returns to it", async () => {
+    // Ascent is bounded by the root: this section browses the selected skill's
+    // tree, and walking above it would leave every other section's subject
+    // behind.
+    const user = userEvent.setup();
+    await openRoot(
+      user,
+      directoryReader({
+        [ROOT]: { resources: [CHILD_FILE, CHILD_DIR] },
+        [CHILD_DIR.uri]: { resources: [NESTED] },
+      }),
+    );
+    expect(
+      screen.queryByRole("button", { name: "Up" }),
+    ).not.toBeInTheDocument();
+    await user.click(
+      screen.getByRole("button", { name: `Open directory ${CHILD_DIR.uri}` }),
+    );
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Up" })).toBeInTheDocument(),
+    );
+    await user.click(screen.getByRole("button", { name: "Up" }));
+    await waitFor(() =>
+      expect(
+        within(screen.getByTestId("skill-directory")).getByText(CHILD_FILE.uri),
+      ).toBeInTheDocument(),
+    );
+    expect(
+      screen.queryByRole("button", { name: "Up" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("opens a file child in the viewer rather than descending", async () => {
+    const user = userEvent.setup();
+    const onReadResourceDirectory = directoryReader({
+      [ROOT]: { resources: [CHILD_FILE] },
+    });
+    renderWithMantine(
+      <ControlledSkillsScreen
+        onReadResourceDirectory={onReadResourceDirectory}
+      />,
+    );
+    await user.click(screen.getByText("data-analysis"));
+    await user.click(screen.getByRole("button", { name: /Directory/ }));
+    await user.click(screen.getByRole("button", { name: "Read directory" }));
+    await waitFor(() =>
+      expect(screen.getByTestId("skill-directory")).toBeInTheDocument(),
+    );
+    readFixtureFile.mockClear();
+    await user.click(
+      screen.getByRole("button", { name: `View ${CHILD_FILE.uri}` }),
+    );
+    await waitFor(() =>
+      expect(readFixtureFile).toHaveBeenCalledWith(CHILD_FILE.uri),
+    );
+  });
+
+  it("pages manually, accumulating children rather than replacing them", async () => {
+    // The cursor belongs to the client per the SEP, and this screen is what a
+    // server author uses to see their own pagination work — auto-walking it
+    // would hide the behaviour under test.
+    const user = userEvent.setup();
+    const onReadResourceDirectory = directoryReader({
+      [ROOT]: { resources: [CHILD_FILE], nextCursor: "1" },
+      [`${ROOT}#1`]: { resources: [CHILD_DIR] },
+    });
+    renderWithMantine(
+      <ControlledSkillsScreen
+        onReadResourceDirectory={onReadResourceDirectory}
+      />,
+    );
+    await user.click(screen.getByText("data-analysis"));
+    await user.click(screen.getByRole("button", { name: /Directory/ }));
+    await user.click(screen.getByRole("button", { name: "Read directory" }));
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Load more" }),
+      ).toBeInTheDocument(),
+    );
+    await user.click(screen.getByRole("button", { name: "Load more" }));
+    await waitFor(() => {
+      const table = within(screen.getByTestId("skill-directory"));
+      expect(table.getByText(CHILD_FILE.uri)).toBeInTheDocument();
+      expect(table.getByText(CHILD_DIR.uri)).toBeInTheDocument();
+    });
+    expect(
+      screen.queryByRole("button", { name: "Load more" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("marks a child the manifest declares as listed", async () => {
+    const user = userEvent.setup();
+    await openRoot(
+      user,
+      directoryReader({ [ROOT]: { resources: [CHILD_FILE] } }),
+    );
+    const table = within(screen.getByTestId("skill-directory"));
+    expect(table.getByText("listed")).toBeInTheDocument();
+    expect(
+      screen.queryByTestId("skill-directory-unlisted"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("flags a child the entry does not declare, without merging the two views", async () => {
+    // SEP-2640: a directory read is "a live observation" and hosts "MUST NOT
+    // treat the directory result as extending the manifest". The Inspector is
+    // not a host and does not refuse the read — what it must not do is present
+    // the child as one of the skill's files without saying where it came from.
+    const user = userEvent.setup();
+    const STRAY = {
+      uri: "skill://data-analysis/added-later.md",
+      name: "added-later.md",
+      mimeType: "text/markdown",
+    };
+    await openRoot(
+      user,
+      directoryReader({ [ROOT]: { resources: [CHILD_FILE, STRAY] } }),
+    );
+    const table = within(screen.getByTestId("skill-directory"));
+    expect(table.getByText("listed")).toBeInTheDocument();
+    expect(table.getByText("not listed")).toBeInTheDocument();
+    const banner = screen.getByTestId("skill-directory-unlisted");
+    expect(banner).toHaveTextContent(/1 file here that the held/);
+    // The recovery path the SEP names, rather than "read error".
+    expect(banner).toHaveTextContent(/skills\/get/);
+  });
+
+  it("gives a subdirectory no listed/unlisted verdict", async () => {
+    // A manifest lists files, so a directory is not a missing entry — a "not
+    // listed" chip on one would report a defect that is not there.
+    const user = userEvent.setup();
+    await openRoot(
+      user,
+      directoryReader({ [ROOT]: { resources: [CHILD_DIR] } }),
+    );
+    expect(
+      within(screen.getByTestId("skill-directory")).queryByText("not listed"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("skill-directory-unlisted"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("gives a dynamic skill's children no verdict either", async () => {
+    // `"dynamic"` advertises no manifest, so there is nothing for a child to be
+    // missing from — and a directory read is the only way its files are
+    // discoverable at all, which is the case the method exists for.
+    const user = userEvent.setup();
+    const reader = directoryReader({
+      "skill://dynamic-report": {
+        resources: [
+          {
+            uri: "skill://dynamic-report/generated.md",
+            name: "generated.md",
+            mimeType: "text/markdown",
+          },
+        ],
+      },
+    });
+    renderWithMantine(
+      <ControlledSkillsScreen onReadResourceDirectory={reader} />,
+    );
+    await user.click(screen.getByText("dynamic-report"));
+    await user.click(screen.getByRole("button", { name: /Directory/ }));
+    await user.click(screen.getByRole("button", { name: "Read directory" }));
+    await waitFor(() =>
+      expect(screen.getByTestId("skill-directory")).toBeInTheDocument(),
+    );
+    expect(
+      within(screen.getByTestId("skill-directory")).queryByText("not listed"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("skill-directory-unlisted"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("refuses to navigate a child outside the skill root", async () => {
+    // A server can return a child pointing anywhere; descending into one
+    // leaves the selected skill's tree, and "Up" only compares against
+    // `skillRoot`, so the walk could then continue outside it entirely
+    // (Copilot). The row is still SHOWN — a child outside the skill is itself
+    // the finding — but it is not a link.
+    const user = userEvent.setup();
+    const STRAY = {
+      uri: "skill://other-skill/notes.md",
+      name: "notes.md",
+      mimeType: "text/markdown",
+    };
+    await openRoot(
+      user,
+      directoryReader({ [ROOT]: { resources: [CHILD_FILE, STRAY] } }),
+    );
+    const table = within(screen.getByTestId("skill-directory"));
+    expect(table.getByText(/outside this skill/)).toBeInTheDocument();
+    expect(
+      table.queryByRole("button", { name: `View ${STRAY.uri}` }),
+    ).not.toBeInTheDocument();
+    // The legitimate sibling is unaffected.
+    expect(
+      table.getByRole("button", { name: `View ${CHILD_FILE.uri}` }),
+    ).toBeInTheDocument();
+  });
+
+  it("refuses a child that is not a DIRECT child of the directory read", async () => {
+    // `resources/directory/read` answers with the directory's direct children.
+    // A grandchild, or the directory itself echoed back, is still inside the
+    // root — so it passed the containment check and was rendered as though the
+    // server had said it lives here (Copilot). The row is shown, because that
+    // is the finding, but it is not a link.
+    const user = userEvent.setup();
+    const GRANDCHILD = {
+      uri: "skill://data-analysis/templates/invoice.md",
+      name: "invoice.md",
+      mimeType: "text/markdown",
+    };
+    await openRoot(
+      user,
+      directoryReader({
+        [ROOT]: { resources: [CHILD_FILE, GRANDCHILD, CHILD_DIR] },
+        // The second page lists the directory ITSELF alongside its child.
+        [CHILD_DIR.uri]: { resources: [CHILD_DIR, NESTED] },
+      }),
+    );
+    const table = () => within(screen.getByTestId("skill-directory"));
+    expect(table().getByText(/not a direct child/)).toBeInTheDocument();
+    // Named for what is wrong with it — it is inside the skill, so calling it
+    // "outside this skill" would send the reader after the wrong defect.
+    expect(table().queryByText(/outside this skill/)).not.toBeInTheDocument();
+    expect(
+      table().queryByRole("button", { name: `View ${GRANDCHILD.uri}` }),
+    ).not.toBeInTheDocument();
+    // The real direct children are unaffected.
+    expect(
+      table().getByRole("button", { name: `View ${CHILD_FILE.uri}` }),
+    ).toBeInTheDocument();
+
+    // …and the same holds one level down, where the offender is the directory
+    // being read. Left navigable it would be a link back to the page you are
+    // already on.
+    await user.click(
+      screen.getByRole("button", { name: `Open directory ${CHILD_DIR.uri}` }),
+    );
+    await waitFor(() =>
+      expect(table().getByText(NESTED.uri)).toBeInTheDocument(),
+    );
+    expect(table().getByText(/not a direct child/)).toBeInTheDocument();
+    expect(
+      table().queryByRole("button", {
+        name: `Open directory ${CHILD_DIR.uri}`,
+      }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("navigates on the normalized URI, so Up cannot walk into a `..` segment", async () => {
+    // Containment was decided on the normalized URI while navigation sent and
+    // stored the raw one, so for `skill://root/a/../templates` the first Up
+    // produced `skill://root/a/..` and a second walked into `skill://root/a`
+    // — a directory the check never validated (Copilot).
+    const user = userEvent.setup();
+    const DOTTED_DIR = {
+      uri: "skill://data-analysis/nested/../templates",
+      name: "templates",
+      mimeType: "inode/directory",
+    };
+    const reader = directoryReader({
+      [ROOT]: { resources: [DOTTED_DIR] },
+      // Keyed by the NORMALIZED URI: that is what must be sent.
+      "skill://data-analysis/templates": { resources: [NESTED] },
+    });
+    await openRoot(user, reader);
+    await user.click(
+      screen.getByRole("button", { name: `Open directory ${DOTTED_DIR.uri}` }),
+    );
+    await waitFor(() =>
+      expect(reader).toHaveBeenCalledWith(
+        "skill://data-analysis/templates",
+        undefined,
+      ),
+    );
+    await user.click(screen.getByRole("button", { name: "Up" }));
+    // One hop, straight back to the root — not to `skill://data-analysis/nested`.
+    await waitFor(() => expect(reader).toHaveBeenCalledWith(ROOT, undefined));
+    expect(reader.mock.calls.map((call) => call[0])).not.toContain(
+      "skill://data-analysis/nested",
+    );
+  });
+
+  it("refuses a sibling whose path merely starts with the same characters", async () => {
+    // The reason the check appends a separator: a bare `startsWith(skillRoot)`
+    // would accept `skill://data-analysis-other/...` as a child of
+    // `skill://data-analysis`.
+    const user = userEvent.setup();
+    const LOOKALIKE = {
+      uri: "skill://data-analysis-other/notes.md",
+      name: "other.md",
+      mimeType: "text/markdown",
+    };
+    await openRoot(
+      user,
+      directoryReader({ [ROOT]: { resources: [LOOKALIKE] } }),
+    );
+    expect(
+      within(screen.getByTestId("skill-directory")).getByText(
+        /outside this skill/,
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("accepts a `..` segment that resolves back inside the root", async () => {
+    // Worth pinning, because the intuition is wrong: `..` cannot escape the
+    // AUTHORITY. `skill://data-analysis/../x.md` normalizes to
+    // `skill://data-analysis/x.md`, which really is inside this skill — so
+    // rejecting it would refuse a legitimate child. Containment is decided on
+    // the normalized URI precisely so this resolves before it is compared.
+    const user = userEvent.setup();
+    const RESOLVES_INSIDE = {
+      uri: "skill://data-analysis/nested/../notes.md",
+      name: "notes.md",
+      mimeType: "text/markdown",
+    };
+    await openRoot(
+      user,
+      directoryReader({ [ROOT]: { resources: [RESOLVES_INSIDE] } }),
+    );
+    const table = within(screen.getByTestId("skill-directory"));
+    expect(table.queryByText(/outside this skill/)).not.toBeInTheDocument();
+    expect(
+      table.getByRole("button", { name: `View ${RESOLVES_INSIDE.uri}` }),
+    ).toBeInTheDocument();
+  });
+
+  it("says an empty directory is empty", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(
+      <ControlledSkillsScreen
+        onReadResourceDirectory={directoryReader({ [ROOT]: { resources: [] } })}
+      />,
+    );
+    await user.click(screen.getByText("data-analysis"));
+    await user.click(screen.getByRole("button", { name: /Directory/ }));
+    await user.click(screen.getByRole("button", { name: "Read directory" }));
+    await waitFor(() =>
+      expect(screen.getByText("This directory is empty.")).toBeInTheDocument(),
+    );
+  });
+
+  it("renders a read failure without losing the section", async () => {
+    const user = userEvent.setup();
+    const onReadResourceDirectory = vi.fn(async () => {
+      throw new Error("-32602 Not a directory resource");
+    });
+    renderWithMantine(
+      <ControlledSkillsScreen
+        onReadResourceDirectory={
+          onReadResourceDirectory as unknown as SkillsScreenProps["onReadResourceDirectory"]
+        }
+      />,
+    );
+    await user.click(screen.getByText("data-analysis"));
+    await user.click(screen.getByRole("button", { name: /Directory/ }));
+    await user.click(screen.getByRole("button", { name: "Read directory" }));
+    await waitFor(() =>
+      expect(screen.getByText(/Not a directory resource/)).toBeInTheDocument(),
+    );
+    expect(
+      screen.getByRole("button", { name: /Directory/ }),
+    ).toBeInTheDocument();
+  });
+
+  it("keeps the pages already shown when Load more fails, and can retry", async () => {
+    // Replacing the state outright made the table vanish and stranded the
+    // reader with no way back to that page short of restarting at the root.
+    const user = userEvent.setup();
+    let fail = true;
+    const onReadResourceDirectory = vi.fn(
+      async (_uri: string, cursor?: string) => {
+        if (cursor === undefined) {
+          return { resources: [CHILD_FILE], nextCursor: "1" } as never;
+        }
+        if (fail) {
+          fail = false;
+          throw new Error("page two exploded");
+        }
+        return { resources: [CHILD_DIR] } as never;
+      },
+    );
+    await openRoot(user, onReadResourceDirectory as never);
+    await user.click(screen.getByRole("button", { name: "Load more" }));
+    await waitFor(() =>
+      expect(screen.getByText(/page two exploded/)).toBeInTheDocument(),
+    );
+    // The first page is still on screen…
+    expect(
+      within(screen.getByTestId("skill-directory")).getByText(CHILD_FILE.uri),
+    ).toBeInTheDocument();
+    // …and the cursor survived, so the same page can be retried.
+    await user.click(screen.getByRole("button", { name: "Load more" }));
+    await waitFor(() => {
+      const table = within(screen.getByTestId("skill-directory"));
+      expect(table.getByText(CHILD_FILE.uri)).toBeInTheDocument();
+      expect(table.getByText(CHILD_DIR.uri)).toBeInTheDocument();
+    });
+  });
+
+  it("drops a listing when the selection changes mid-read", async () => {
+    // A read still in flight when the user switches skills must not land
+    // afterwards and paint one skill's tree under another's name.
+    const user = userEvent.setup();
+    let release: ((value: unknown) => void) | undefined;
+    const onReadResourceDirectory = vi.fn(
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+        }) as never,
+    );
+    renderWithMantine(
+      <ControlledSkillsScreen
+        onReadResourceDirectory={onReadResourceDirectory}
+      />,
+    );
+    await user.click(screen.getByText("data-analysis"));
+    await user.click(screen.getByRole("button", { name: /Directory/ }));
+    await user.click(screen.getByRole("button", { name: "Read directory" }));
+    await user.click(screen.getByText("right-name"));
+    release?.({ resources: [CHILD_FILE] });
+    await waitFor(() =>
+      expect(screen.queryByTestId("skill-directory")).not.toBeInTheDocument(),
+    );
+  });
+
+  it.each([
+    ["no /SKILL.md suffix", "not-a-uri"],
+    // Ends with the suffix and so LOOKS addressable, but does not parse. The
+    // identity fallback returned the raw string here, producing the "root"
+    // `not a uri` and enabling a directory request built from a URI the
+    // conformance checks had already rejected (Copilot).
+    ["unparseable but suffixed", "not a uri/SKILL.md"],
+    ["relative, not a full URI", "demo/SKILL.md"],
+  ])(
+    "renders no Directory section for a malformed skill URI (%s)",
+    async (_label, uri) => {
+      const user = userEvent.setup();
+      const odd: SkillEntry = {
+        uri,
+        frontmatter: { name: "odd", description: "d" },
+        resources: [],
+      };
+      renderWithMantine(
+        <ControlledSkillsScreen
+          skills={[odd]}
+          onReadResourceDirectory={directoryReader({})}
+        />,
+      );
+      await user.click(screen.getByText("odd"));
+      expect(
+        screen.queryByRole("button", { name: /Directory/ }),
+      ).not.toBeInTheDocument();
+    },
+  );
+
+  it("renders no Directory section for a skill whose URI is malformed", async () => {
+    // There is no root to browse, and `malformed-uri` already reports it in
+    // Conformance.
+    const user = userEvent.setup();
+    const odd: SkillEntry = {
+      uri: "not-a-uri",
+      frontmatter: { name: "odd", description: "d" },
+      resources: [],
+    };
+    renderWithMantine(
+      <ControlledSkillsScreen
+        skills={[odd]}
+        onReadResourceDirectory={directoryReader({})}
+      />,
+    );
+    await user.click(screen.getByText("odd"));
+    expect(
+      screen.queryByRole("button", { name: /Directory/ }),
+    ).not.toBeInTheDocument();
+  });
+});
+
+describe("SkillsScreen name collisions (#2248)", () => {
+  it("reports the collision on both entries, each naming the other", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(<ControlledSkillsScreen skills={[ACME, GLOBEX]} />);
+    await user.click(screen.getByText(ACME.uri));
+    // Stated as a banner at the top of Conformance, not as a bare code in the
+    // findings list — it changes how everything under it should be read.
+    const banner = screen.getByTestId("skill-name-collision");
+    expect(banner).toHaveTextContent("skill://globex/reports/SKILL.md");
+    expect(banner).not.toHaveTextContent("skill://acme/reports/SKILL.md");
+    // …and it is NOT also repeated in the list, which would read as two
+    // findings for one fact.
+    expect(screen.queryByTestId("skill-issues")).not.toBeInTheDocument();
+  });
+
+  it("states it on the other entry too, naming the first", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(<ControlledSkillsScreen skills={[ACME, GLOBEX]} />);
+    await user.click(screen.getByText(GLOBEX.uri));
+    expect(screen.getByTestId("skill-name-collision")).toHaveTextContent(
+      "skill://acme/reports/SKILL.md",
+    );
+  });
+
+  it("counts it as a warning, not an error", async () => {
+    // The server did nothing wrong — the obligation is on the consumer — so an
+    // error badge would tell a conforming author their catalog is invalid.
+    const user = userEvent.setup();
+    renderWithMantine(<ControlledSkillsScreen skills={[ACME, GLOBEX]} />);
+    await user.click(screen.getByText(ACME.uri));
+    // The count carries through the header badge like every other finding, and
+    // the badge is yellow — green would read as "nothing to see" for something
+    // meant to be noticed, red would call a conforming server broken.
+    const control = screen.getByRole("button", { name: /Conformance/ });
+    expect(control).toHaveTextContent("0 error(s), 1 warning(s)");
+    const style = badgeStyle(/warning\(s\)/);
+    expect(style).toContain("yellow");
+    expect(style).not.toContain("red");
+  });
+
+  it("opens Conformance for a skill whose only finding is the collision", async () => {
+    // Selected before mount, so this exercises `initialOpenSections` rather
+    // than the `useValueChange` path — the entry is otherwise clean, so
+    // `checkSkillConformance` alone would have collapsed the section while the
+    // badge said there was something to see.
+    renderWithMantine(
+      <SkillsScreen
+        {...baseProps}
+        skills={[ACME, GLOBEX]}
+        ui={{ ...EMPTY_SKILLS_UI, selectedSkillUri: ACME.uri }}
+      />,
+    );
+    expect(screen.getByRole("button", { name: /Conformance/ })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+  });
+
+  it("computes collisions over the whole catalog, not the filtered view", async () => {
+    // A finding that disappeared because the sidebar search excluded the other
+    // half would depend on what the reader typed.
+    const user = userEvent.setup();
+    renderWithMantine(
+      <ControlledSkillsScreen
+        skills={[ACME, GLOBEX]}
+        ui={{ ...EMPTY_SKILLS_UI, search: "acme" }}
+      />,
+    );
+    await user.click(screen.getByText(ACME.uri));
+    expect(screen.getByTestId("skill-name-collision")).toBeInTheDocument();
+  });
+
+  it("badges the collision in the sidebar, before either is selected", async () => {
+    // The collision is a property of the LISTING, so `checkSkillConformance`
+    // on one entry cannot see it — and a sidebar computed from that alone
+    // showed both colliding rows as clean until one was clicked, which is
+    // exactly when a reader most needs to be told two rows share a name
+    // (Copilot). Nothing is selected here on purpose.
+    renderWithMantine(<ControlledSkillsScreen skills={[ACME, GLOBEX]} />);
+    const rows = [ACME, GLOBEX].map((skill) =>
+      screen.getByText(skill.uri).closest(".mantine-NavLink-root"),
+    );
+    for (const row of rows) {
+      expect(row).not.toBeNull();
+      // One finding, badged — a warning, so yellow rather than the red that
+      // would call a conforming server broken.
+      const badge = row?.querySelector(".mantine-Badge-root");
+      expect(badge).not.toBeNull();
+      expect(badge).toHaveTextContent("1");
+      expect(badge?.getAttribute("style") ?? "").toContain("yellow");
+    }
+  });
+
+  it("says nothing when the names are distinct", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(<ControlledSkillsScreen />);
+    await user.click(screen.getByText("data-analysis"));
+    await user.click(screen.getByRole("button", { name: /Conformance/ }));
+    expect(screen.getByText("No structural issues")).toBeInTheDocument();
+  });
+});
+
+describe("SkillsScreen frontmatter cross-check (#2248)", () => {
+  it("reports a listing whose frontmatter disagrees with the served SKILL.md", async () => {
+    // The violation no digest can catch — the digest is over the bytes served
+    // and says nothing about whether the listing described them honestly.
+    const user = userEvent.setup();
+    const lying: SkillEntry = {
+      ...CLEAN_SKILL,
+      frontmatter: {
+        name: "data-analysis",
+        description: "Not what the file says",
+      },
+    };
+    renderWithMantine(<ControlledSkillsScreen skills={[lying]} />);
+    await user.click(screen.getByText("data-analysis"));
+    // No click to expand: a frontmatter finding reveals the section itself.
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("skill-frontmatter-issues"),
+      ).toBeInTheDocument(),
+    );
+    // Scoped to the findings block: the skill's own description is rendered in
+    // the header too, so an unscoped match would pass on the wrong element.
+    expect(
+      within(screen.getByTestId("skill-frontmatter-issues")).getByText(
+        /Not what the file says/,
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("still checks a SKILL.md the server typed as something other than markdown", async () => {
+    // The check was gated on the DISPLAY mime, so a server labelling its
+    // SKILL.md `text/plain` skipped a mandatory comparison while the report
+    // still read as clean (Copilot). It runs against the fetched bytes now.
+    const user = userEvent.setup();
+    const lying: SkillEntry = {
+      ...CLEAN_SKILL,
+      frontmatter: {
+        name: "data-analysis",
+        description: "Not what the file says",
+      },
+    };
+    renderWithMantine(
+      <ControlledSkillsScreen
+        skills={[lying]}
+        onReadSkillFile={vi.fn(async () => ({
+          text: skillMdFor(CLEAN_FM),
+          mimeType: "text/plain",
+        }))}
+      />,
+    );
+    await user.click(screen.getByText("data-analysis"));
+    // No click to expand: a frontmatter finding reveals the section itself.
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("skill-frontmatter-issues"),
+      ).toBeInTheDocument(),
+    );
+  });
+
+  it("checks a SKILL.md served as a base64 blob", async () => {
+    // Same gap by its other door: a blob never produced `previewParts`.
+    const user = userEvent.setup();
+    const lying: SkillEntry = {
+      ...CLEAN_SKILL,
+      frontmatter: { name: "data-analysis", description: "Disagrees" },
+    };
+    renderWithMantine(
+      <ControlledSkillsScreen
+        skills={[lying]}
+        onReadSkillFile={vi.fn(async () => ({
+          blob: btoa(skillMdFor(CLEAN_FM)),
+          mimeType: "application/octet-stream",
+        }))}
+      />,
+    );
+    await user.click(screen.getByText("data-analysis"));
+    // No click to expand: a frontmatter finding reveals the section itself.
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("skill-frontmatter-issues"),
+      ).toBeInTheDocument(),
+    );
+  });
+
+  it("reveals Conformance when a frontmatter finding arrives", async () => {
+    // A structurally clean entry opens collapsed, and the frontmatter findings
+    // arrive later from the SKILL.md read — so the alerts explaining a
+    // mandatory verification failure sat behind a click the reader had no
+    // reason to make (Copilot).
+    const user = userEvent.setup();
+    const lying: SkillEntry = {
+      ...CLEAN_SKILL,
+      frontmatter: { name: "data-analysis", description: "Disagrees" },
+    };
+    renderWithMantine(<ControlledSkillsScreen skills={[lying]} />);
+    await user.click(screen.getByText("data-analysis"));
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: /Conformance/ }),
+      ).toHaveAttribute("aria-expanded", "true"),
+    );
+    expect(screen.getByTestId("skill-frontmatter-issues")).toBeInTheDocument();
+  });
+
+  it("leaves a clean entry's Conformance collapsed", async () => {
+    // The reveal must not fire when there is nothing to reveal, or it undoes
+    // the auto-collapse it sits next to.
+    const user = userEvent.setup();
+    renderWithMantine(<ControlledSkillsScreen />);
+    await user.click(screen.getByText("data-analysis"));
+    await waitFor(() =>
+      expect(readFixtureFile).toHaveBeenCalledWith(CLEAN_SKILL.uri),
+    );
+    expect(screen.getByRole("button", { name: /Conformance/ })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+  });
+
+  it("does not let a later preview overwrite a verification's own bytes", async () => {
+    // The digest verdict on screen was computed from the verification's fetch;
+    // replacing only the text would let the frontmatter findings describe
+    // different bytes, recreating the mixed-fetch verdict this state exists to
+    // prevent (Copilot).
+    const user = userEvent.setup();
+    let served = skillMdFor({ ...CLEAN_FM, description: "As verified" });
+    const onReadSkillFile = vi.fn(async (uri: string) => {
+      if (uri === "skill://data-analysis/reference.md") {
+        return { text: REF_TEXT };
+      }
+      return { text: served, mimeType: "text/markdown" };
+    });
+    renderWithMantine(
+      <ControlledSkillsScreen onReadSkillFile={onReadSkillFile} />,
+    );
+    await user.click(screen.getByText("data-analysis"));
+    await user.click(
+      screen.getByRole("button", {
+        name: "Verify skill://data-analysis/SKILL.md",
+      }),
+    );
+    await waitFor(() =>
+      expect(
+        within(screen.getByTestId("skill-frontmatter-issues")).getByText(
+          /As verified/,
+        ),
+      ).toBeInTheDocument(),
+    );
+
+    // The server changes, and the reader re-opens the file in the viewer. The
+    // verification's text must survive, since its digest verdict still shows.
+    served = skillMdFor({ ...CLEAN_FM, description: "Changed after" });
+    await user.click(
+      screen.getByRole("button", { name: "skill://data-analysis/SKILL.md" }),
+    );
+    await waitFor(() => expect(onReadSkillFile).toHaveBeenCalledTimes(3));
+    expect(
+      within(screen.getByTestId("skill-frontmatter-issues")).getByText(
+        /As verified/,
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("keeps a frontmatter finding when the reader opens another file", async () => {
+    // The check ran off whatever the viewer was showing, so opening a
+    // supporting file made `showingSkillMd` false and silently dropped the
+    // finding AND its error count — erasing an observed conformance failure
+    // because the reader browsed a second file, with the skill unchanged
+    // (Copilot).
+    const user = userEvent.setup();
+    const lying: SkillEntry = {
+      ...CLEAN_SKILL,
+      frontmatter: { name: "data-analysis", description: "Disagrees" },
+    };
+    renderWithMantine(<ControlledSkillsScreen skills={[lying]} />);
+    await user.click(screen.getByText("data-analysis"));
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("skill-frontmatter-issues"),
+      ).toBeInTheDocument(),
+    );
+
+    // Open a supporting file: the finding is about the SKILL, not the view.
+    await user.click(
+      screen.getByRole("button", {
+        name: "skill://data-analysis/reference.md",
+      }),
+    );
+    await waitFor(() =>
+      expect(readFixtureFile).toHaveBeenCalledWith(
+        "skill://data-analysis/reference.md",
+      ),
+    );
+    expect(screen.getByTestId("skill-frontmatter-issues")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Conformance/ }),
+    ).toHaveTextContent("1 error(s)");
+  });
+
+  it("counts frontmatter findings in the Conformance badge", async () => {
+    // The findings render inside this section, so counting only the static
+    // listing issues left the badge saying `0 error(s)` above a red
+    // `frontmatter-mismatch` — the section contradicting its own output.
+    const user = userEvent.setup();
+    const lying: SkillEntry = {
+      ...CLEAN_SKILL,
+      frontmatter: { name: "data-analysis", description: "Disagrees" },
+    };
+    renderWithMantine(<ControlledSkillsScreen skills={[lying]} />);
+    await user.click(screen.getByText("data-analysis"));
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: /Conformance/ }),
+      ).toHaveTextContent("1 error(s), 0 warning(s)"),
+    );
+  });
+
+  it("prefers the bytes verification read over the preview read", async () => {
+    // The two verdicts came from separate `resources/read` calls, so a resource
+    // that changed between them could pair a verified digest with a frontmatter
+    // verdict computed for different bytes (Copilot). After Verify, the
+    // frontmatter check reads what the verification hashed.
+    const user = userEvent.setup();
+    let served = skillMdFor(CLEAN_FM); // agrees with the listing…
+    const onReadSkillFile = vi.fn(async (uri: string) => {
+      if (uri === "skill://data-analysis/reference.md")
+        return { text: REF_TEXT };
+      return { text: served, mimeType: "text/markdown" };
+    });
+    renderWithMantine(
+      <ControlledSkillsScreen onReadSkillFile={onReadSkillFile} />,
+    );
+    await user.click(screen.getByText("data-analysis"));
+    await user.click(screen.getByRole("button", { name: /Conformance/ }));
+    await waitFor(() =>
+      expect(screen.getByText("No structural issues")).toBeInTheDocument(),
+    );
+
+    // …and then the server starts serving something else.
+    served = skillMdFor({ ...CLEAN_FM, description: "Changed underneath" });
+    await user.click(
+      screen.getByRole("button", {
+        name: "Verify skill://data-analysis/SKILL.md",
+      }),
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("skill-frontmatter-issues"),
+      ).toBeInTheDocument(),
+    );
+    expect(
+      within(screen.getByTestId("skill-frontmatter-issues")).getByText(
+        /Changed underneath/,
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("reports nothing when the served frontmatter agrees", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(<ControlledSkillsScreen />);
+    await user.click(screen.getByText("data-analysis"));
+    await user.click(screen.getByRole("button", { name: /Conformance/ }));
+    await waitFor(() =>
+      expect(screen.getByText("No structural issues")).toBeInTheDocument(),
+    );
+    expect(
+      screen.queryByTestId("skill-frontmatter-issues"),
+    ).not.toBeInTheDocument();
   });
 });

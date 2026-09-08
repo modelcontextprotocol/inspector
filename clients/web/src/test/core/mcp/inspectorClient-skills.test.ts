@@ -228,6 +228,194 @@ describe("InspectorClient skills methods (#2234)", () => {
     expect(marked).toEqual([]);
   });
 
+  /** Declare the extension with (or without) the `directoryRead` sub-flag. */
+  function declareSkills(client: InspectorClient, directoryRead: boolean) {
+    internals(client).capabilities = {
+      extensions: { [SKILLS_EXTENSION_KEY]: { directoryRead } },
+    } as ServerCapabilities;
+  }
+
+  describe("readResourceDirectory (#2248)", () => {
+    const CHILD = {
+      uri: "skill://demo/ref.md",
+      name: "ref.md",
+      mimeType: "text/markdown",
+    };
+
+    it("throws when not connected, before the capability gate", async () => {
+      // The order matters: a disconnected client has no capabilities either,
+      // so checking the extension first would report every disconnected call
+      // as a missing `directoryRead` declaration.
+      const client = makeClient();
+      declareSkills(client, true);
+      await expect(
+        client.readResourceDirectory("skill://demo"),
+      ).rejects.toThrow(/not connected/i);
+    });
+
+    it("refuses the call when the server did not declare directoryRead", async () => {
+      // SEP-2640 makes this a MUST NOT for the client, so it is refused
+      // locally rather than sent and answered -32601. A request we were never
+      // allowed to make must not appear in the Protocol log as a server fault.
+      const client = makeClient();
+      const request = stubRequest(client, { resources: [] });
+      declareSkills(client, false);
+      await expect(
+        client.readResourceDirectory("skill://demo"),
+      ).rejects.toThrow(/directoryRead/);
+      expect(request).not.toHaveBeenCalled();
+    });
+
+    it("refuses the call when the extension is absent entirely", async () => {
+      const client = makeClient();
+      stubRequest(client, { resources: [] });
+      await expect(
+        client.readResourceDirectory("skill://demo"),
+      ).rejects.toThrow(/directoryRead/);
+    });
+
+    it("sends the uri and no cursor on the first page", async () => {
+      const client = makeClient();
+      const request = stubRequest(client, { resources: [CHILD] });
+      declareSkills(client, true);
+      const page = await client.readResourceDirectory("skill://demo");
+      expect(request.mock.calls[0][0].method).toBe("resources/directory/read");
+      expect(request.mock.calls[0][0].params.uri).toBe("skill://demo");
+      expect(request.mock.calls[0][0].params).not.toHaveProperty("cursor");
+      expect(page.resources).toEqual([CHILD]);
+    });
+
+    it("forwards a cursor and returns the server's nextCursor", async () => {
+      const client = makeClient();
+      const request = stubRequest(client, {
+        resources: [],
+        nextCursor: "3",
+      });
+      declareSkills(client, true);
+      const page = await client.readResourceDirectory("skill://demo", "2");
+      expect(request.mock.calls[0][0].params.cursor).toBe("2");
+      expect(page.nextCursor).toBe("3");
+    });
+
+    it("forwards an empty-string cursor, which is a legal opaque value", async () => {
+      const client = makeClient();
+      const request = stubRequest(client, { resources: [] });
+      declareSkills(client, true);
+      await client.readResourceDirectory("skill://demo", "");
+      expect(request.mock.calls[0][0].params.cursor).toBe("");
+    });
+
+    it("stamps call metadata as _meta", async () => {
+      const client = makeClient();
+      const request = stubRequest(client, { resources: [] });
+      declareSkills(client, true);
+      await client.readResourceDirectory("skill://demo", undefined, {
+        progressToken: "p",
+      });
+      expect(request.mock.calls[0][0].params._meta).toMatchObject({
+        progressToken: "p",
+      });
+    });
+
+    it("requires resultType on a modern connection", async () => {
+      const client = makeClient();
+      internals(client).protocolEra = "modern";
+      stubRequest(client, { resources: [] });
+      declareSkills(client, true);
+      await expect(
+        client.readResourceDirectory("skill://demo"),
+      ).rejects.toBeDefined();
+    });
+
+    it("accepts a legacy result without resultType", async () => {
+      const client = makeClient();
+      stubRequest(client, { resources: [CHILD] });
+      declareSkills(client, true);
+      await expect(
+        client.readResourceDirectory("skill://demo"),
+      ).resolves.toMatchObject({ resources: [CHILD] });
+    });
+
+    it("attributes a rejected decode to the exchange it came from", async () => {
+      const client = makeClient();
+      const marked: string[] = [];
+      (
+        client as unknown as {
+          markResponseRejected: (m: string, r: string) => void;
+        }
+      ).markResponseRejected = (method) => {
+        marked.push(method);
+      };
+      internals(client).client = {
+        request: async () => {
+          throw new SdkError(
+            SdkErrorCode.InvalidResult,
+            "Invalid result for resources/directory/read",
+          );
+        },
+      };
+      declareSkills(client, true);
+      await expect(
+        client.readResourceDirectory("skill://demo"),
+      ).rejects.toBeDefined();
+      expect(marked).toEqual(["resources/directory/read"]);
+    });
+
+    it("does NOT attribute a request that never produced a response", async () => {
+      // Marking here would stamp an earlier, successful exchange.
+      const client = makeClient();
+      const marked: string[] = [];
+      (
+        client as unknown as {
+          markResponseRejected: (m: string, r: string) => void;
+        }
+      ).markResponseRejected = (method) => {
+        marked.push(method);
+      };
+      internals(client).client = {
+        request: async () => {
+          throw new SdkError(
+            SdkErrorCode.ConnectionClosed,
+            "Connection closed",
+          );
+        },
+      };
+      declareSkills(client, true);
+      await expect(
+        client.readResourceDirectory("skill://demo"),
+      ).rejects.toThrow();
+      expect(marked).toEqual([]);
+    });
+  });
+
+  it("requires resultType on a modern skills/get", async () => {
+    // Base-protocol (SEP-2322) and present in SEP-2640's own example, unlike
+    // the caching attributes the SEP leaves open.
+    const client = makeClient();
+    internals(client).protocolEra = "modern";
+    stubRequest(client, { skill: ENTRY });
+    await expect(
+      client.getSkill("skill://demo/SKILL.md"),
+    ).rejects.toBeDefined();
+  });
+
+  it("accepts a modern skills/get without the caching attributes", async () => {
+    const client = makeClient();
+    internals(client).protocolEra = "modern";
+    stubRequest(client, { skill: ENTRY, resultType: "complete" });
+    await expect(client.getSkill("skill://demo/SKILL.md")).resolves.toEqual(
+      ENTRY,
+    );
+  });
+
+  it("accepts a legacy skills/get without resultType", async () => {
+    const client = makeClient();
+    stubRequest(client, { skill: ENTRY });
+    await expect(client.getSkill("skill://demo/SKILL.md")).resolves.toEqual(
+      ENTRY,
+    );
+  });
+
   it("rejects a skills/list result that is not a skills page", async () => {
     // The explicit result schema is the whole client-side mechanism for a
     // consumer-owned extension method, so a nonconforming result must fail

@@ -10,6 +10,7 @@ import type {
 } from "@modelcontextprotocol/client";
 import { InspectorClient } from "@inspector/core/mcp/index.js";
 import { getServerType } from "@inspector/core/mcp/config.js";
+import { getSkillsExtension } from "@inspector/core/mcp/skills.js";
 import type { JsonValue } from "@inspector/core/mcp/index.js";
 
 import type { TypedEventGeneric } from "@inspector/core/mcp/typedEventTarget.js";
@@ -837,6 +838,7 @@ function App() {
     onRefreshSkills,
     onReadSkillFile,
     onGetSkill,
+    onReadResourceDirectory,
     onRefreshTasks,
     onTogglePaginatedLists,
     onLoadMoreTools,
@@ -1839,6 +1841,14 @@ function App() {
     onRefreshSkills,
     onReadSkillFile,
     onGetSkill,
+    // Passed only when the server declared `directoryRead`, which is what gates
+    // the screen's Directory section. SEP-2640 makes calling
+    // `resources/directory/read` against a server that did not declare it a
+    // MUST NOT, so withholding the callback expresses the rule in the type
+    // rather than trusting a boolean beside it to be honoured.
+    ...(getSkillsExtension(capabilities)?.directoryRead
+      ? { onReadResourceDirectory }
+      : {}),
   };
 
   const tasksPanelProps: TasksPanelProps = {

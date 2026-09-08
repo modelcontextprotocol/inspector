@@ -4,6 +4,10 @@ import { createTransportNode } from "@inspector/core/mcp/node/transport.js";
 import { getSkillsExtension } from "@inspector/core/mcp/skills.js";
 import { ManagedSkillsState } from "@inspector/core/mcp/state/managedSkillsState.js";
 import {
+  allSkillsVerified,
+  verifySkills,
+} from "@inspector/core/mcp/skillsVerification.js";
+import {
   createTestServerHttp,
   type TestServerHttp,
   createTestServerInfo,
@@ -96,9 +100,11 @@ describe("Skills extension over a real transport (#2234)", () => {
       it("advertises the extension in its capabilities", async () => {
         const started = await startSkillsServer(modern);
         const connected = await connect(started.url, modern);
-        // Bare, per the fixture: no `directoryRead` until phase 3 serves it.
+        // `directoryRead` is declared because the fixture now serves the
+        // method (#2248) — the declaration and the handler are one switch, so
+        // this can never report a sub-option the server does not answer.
         expect(getSkillsExtension(connected.getCapabilities())).toEqual({
-          directoryRead: false,
+          directoryRead: true,
         });
       });
 
@@ -115,13 +121,25 @@ describe("Skills extension over a real transport (#2234)", () => {
         // below — so a modern page missing the envelope surfaces here as a
         // rejection rather than as a missing property.
         //
-        // The fixture pages at two, so a client that stops here sees half.
+        // The fixture pages at two over eight skills, so a client that stops
+        // here sees a quarter of the catalog.
         expect(first.skills).toHaveLength(2);
         expect(first.nextCursor).toBeDefined();
 
-        const second = await connected.listSkills(first.nextCursor);
-        expect(second.skills).toHaveLength(2);
-        expect(second.nextCursor).toBeUndefined();
+        // Walked to the end rather than asserting a fixed page count, so
+        // adding a fixture does not require editing this test — what it pins
+        // is that the cursor terminates and every page is full but the last.
+        let cursor = first.nextCursor;
+        let pages = 1;
+        let total = first.skills.length;
+        while (cursor !== undefined) {
+          const page = await connected.listSkills(cursor);
+          total += page.skills.length;
+          pages += 1;
+          cursor = page.nextCursor;
+        }
+        expect(pages).toBe(4);
+        expect(total).toBe(8);
       });
 
       it("walks every page through the managed store", async () => {
@@ -134,9 +152,15 @@ describe("Skills extension over a real transport (#2234)", () => {
             "data-analysis",
             "tampered-notes",
             "dynamic-report",
+            "stale-manifest",
+            "lying-listing",
+            // Two skills, one name — the collision case. The walk must keep
+            // both; collapsing them is the thing SEP-2640 forbids.
+            "reports",
+            "reports",
             "right-name",
           ]);
-          expect(store.getPagination()).toEqual({ pageCount: 2 });
+          expect(store.getPagination()).toEqual({ pageCount: 4 });
         } finally {
           store.destroy();
         }
@@ -169,6 +193,161 @@ describe("Skills extension over a real transport (#2234)", () => {
         const block = read.result.contents[0];
         expect(block.uri).toBe("skill://data-analysis/reference.md");
         expect("text" in block && block.text).toContain("Column rules");
+      });
+
+      it("reads a directory and pages through its children", async () => {
+        // The whole `resources/directory/read` round trip against a real
+        // server: the client's `directoryRead` gate, the era-selected result
+        // schema, and the fixture's cursor.
+        const started = await startSkillsServer(modern);
+        const connected = await connect(started.url, modern);
+        const first = await connected.readResourceDirectory(
+          "skill://data-analysis",
+        );
+        // Pages at one child, so a client ignoring `nextCursor` is visibly
+        // wrong here rather than merely lucky.
+        expect(first.resources).toHaveLength(1);
+        expect(first.nextCursor).toBeDefined();
+        const second = await connected.readResourceDirectory(
+          "skill://data-analysis",
+          first.nextCursor,
+        );
+        expect(second.nextCursor).toBeUndefined();
+        expect(
+          [...first.resources, ...second.resources].map((r) => r.uri).sort(),
+        ).toEqual([
+          "skill://data-analysis/SKILL.md",
+          "skill://data-analysis/reference.md",
+        ]);
+      });
+
+      it("lists a dynamic skill's files, which is what the method is for", async () => {
+        // `dynamic-report` advertises no manifest, so a directory read is the
+        // only way its files are discoverable at all — the case SEP-2640 says
+        // directory reading earns its place for.
+        const started = await startSkillsServer(modern);
+        const connected = await connect(started.url, modern);
+        const page = await connected.readResourceDirectory(
+          "skill://dynamic-report",
+        );
+        expect(page.resources[0].uri).toBe("skill://dynamic-report/SKILL.md");
+      });
+
+      it("lists a file the entry's manifest does not declare", async () => {
+        // The stale-snapshot case SEP-2640 governs: a directory read is "a
+        // live observation" that may run ahead of the held entry, and hosts
+        // MUST NOT treat it as extending the manifest. The entry itself is
+        // fully conforming — only the two views disagree — so nothing but this
+        // comparison can surface it.
+        const started = await startSkillsServer(modern);
+        const connected = await connect(started.url, modern);
+        const entry = await connected.getSkill(
+          "skill://stale-manifest/SKILL.md",
+        );
+        const declared = new Set(
+          (entry.resources === "dynamic" ? [] : entry.resources).map(
+            (r) => r.uri,
+          ),
+        );
+        expect(declared).toEqual(new Set(["skill://stale-manifest/SKILL.md"]));
+
+        const first = await connected.readResourceDirectory(
+          "skill://stale-manifest",
+        );
+        const second = await connected.readResourceDirectory(
+          "skill://stale-manifest",
+          first.nextCursor,
+        );
+        const children = [...first.resources, ...second.resources].map(
+          (r) => r.uri,
+        );
+        expect(children).toContain("skill://stale-manifest/added-later.md");
+        expect(declared.has("skill://stale-manifest/added-later.md")).toBe(
+          false,
+        );
+
+        // And the entry still verifies clean — the disagreement is the whole
+        // defect, and no digest check can see it.
+        const [report] = await verifySkills(connected, [entry]);
+        expect(report.ok).toBe(true);
+      });
+
+      it("reports a name collision without failing either skill", async () => {
+        // Both entries are fully conforming: SEP-2640 requires only that the
+        // segment before /SKILL.md equal the name, which multi-segment paths
+        // satisfy while sharing a final segment. The obligation is on the
+        // consumer, so this is a warning and `ok` stays true.
+        const started = await startSkillsServer(modern);
+        const connected = await connect(started.url, modern);
+        const store = new ManagedSkillsState(connected);
+        try {
+          const skills = await store.refresh();
+          const colliding = skills.filter(
+            (s) => s.frontmatter.name === "reports",
+          );
+          expect(colliding.map((s) => s.uri).sort()).toEqual([
+            "skill://acme/reports/SKILL.md",
+            "skill://globex/reports/SKILL.md",
+          ]);
+
+          const reports = await verifySkills(connected, skills);
+          for (const uri of colliding.map((s) => s.uri)) {
+            const report = reports.find((r) => r.uri === uri)!;
+            expect(report.conformance).toEqual([
+              expect.objectContaining({
+                code: "duplicate-name",
+                severity: "warning",
+              }),
+            ]);
+            expect(report.ok).toBe(true);
+          }
+        } finally {
+          store.destroy();
+        }
+      });
+
+      it("answers -32602 for a URI that is not a directory resource", async () => {
+        const started = await startSkillsServer(modern);
+        const connected = await connect(started.url, modern);
+        await expect(
+          connected.readResourceDirectory("skill://data-analysis/SKILL.md"),
+        ).rejects.toThrow(/Not a directory resource/);
+      });
+
+      it("verifies the whole catalog, failing exactly the three bad skills", async () => {
+        // End to end against the fixture: conformance, digests and the
+        // frontmatter cross-check, over a real transport. The three failures
+        // are one per violation class, and `dynamic-report` passing is the
+        // assertion that a warning does not fail a report.
+        const started = await startSkillsServer(modern);
+        const connected = await connect(started.url, modern);
+        const store = new ManagedSkillsState(connected);
+        try {
+          const skills = await store.refresh();
+          const reports = await verifySkills(connected, skills);
+          expect(reports.filter((r) => !r.ok).map((r) => r.name)).toEqual([
+            "tampered-notes",
+            "lying-listing",
+            "right-name",
+          ]);
+          expect(allSkillsVerified(reports)).toBe(false);
+
+          const tampered = reports.find((r) => r.name === "tampered-notes")!;
+          expect(tampered.files.some((f) => f.status === "mismatch")).toBe(
+            true,
+          );
+
+          // The one violation only the frontmatter check can catch: its digest
+          // verifies, because the digest is over the bytes the server served.
+          const lying = reports.find((r) => r.name === "lying-listing")!;
+          expect(lying.files.every((f) => f.status === "verified")).toBe(true);
+          expect(lying.frontmatter[0].code).toBe("frontmatter-mismatch");
+
+          const dynamic = reports.find((r) => r.name === "dynamic-report")!;
+          expect(dynamic.ok).toBe(true);
+        } finally {
+          store.destroy();
+        }
       });
 
       it("still serves an ordinary resource — the wrapper delegates", async () => {

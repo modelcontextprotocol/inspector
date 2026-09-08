@@ -6,16 +6,46 @@ import {
   ManagedResourceTemplatesState,
   ManagedPromptsState,
   ManagedRequestorTasksState,
+  ManagedSkillsState,
   MessageLogState,
 } from "@inspector/core/mcp/state/index.js";
+import { SKILLS_EXTENSION_KEY } from "@inspector/core/mcp/skillsSchemas.js";
 import { CliExitCodeError, EXIT_CODES } from "../error-handler.js";
 import { collectAppInfo } from "./collect-app-info.js";
+import { summarizeSkillVerification } from "./skills-verify.js";
+import {
+  allSkillsVerified,
+  anySkillFailed,
+  verifySkills,
+} from "@inspector/core/mcp/skillsVerification.js";
 import type {
   CliAppInfo,
   McpResponse,
   MethodArgs,
   MethodOutcome,
 } from "./method-types.js";
+
+/**
+ * Refuse a `skills/*` call against a server that never declared the extension.
+ *
+ * Shared by `skills/list` and `skills/get` so the two cannot drift: declaring
+ * the extension commits a server to both, so a client that gates one and not
+ * the other is inconsistent with the thing it is checking. Not needed for
+ * `resources/directory/read`, whose stricter `directoryRead` gate lives in
+ * `InspectorClient` itself.
+ */
+function assertSkillsSupported(
+  inspectorClient: InspectorClient,
+  method: string,
+): void {
+  if (!inspectorClient.getSkillsExtension()) {
+    throw new CliExitCodeError(
+      EXIT_CODES.USAGE,
+      `Server does not declare the ${SKILLS_EXTENSION_KEY} extension, so ${method} is not available.`,
+      { code: "skills_unsupported" },
+    );
+  }
+}
 
 /**
  * Run one MCP method against a connected {@link InspectorClient}.
@@ -35,6 +65,7 @@ export async function runMethod(
     null;
   let managedPromptsState: ManagedPromptsState | null = null;
   let managedTasksState: ManagedRequestorTasksState | null = null;
+  let managedSkillsState: ManagedSkillsState | null = null;
 
   try {
     let result: McpResponse;
@@ -283,6 +314,101 @@ export async function runMethod(
       result = (await inspectorClient.getRequestorTaskResult(
         args.taskId,
       )) as McpResponse;
+    } else if (args.method === "skills/list") {
+      // The store's cursor walk is reused rather than re-implemented — it
+      // carries the repeated-cursor and page-cap guards, and a second copy of
+      // a pagination walk is how the two come to disagree. What the CLI adds
+      // is the check below: the store answers "no extension" with an empty
+      // list, which is right for a UI that must render *something*, and wrong
+      // for a CLI where "this server has no skills" and "this server does not
+      // serve skills at all" are different answers a script has to tell apart.
+      assertSkillsSupported(inspectorClient, args.method);
+      managedSkillsState = new ManagedSkillsState(inspectorClient);
+      const skills = await managedSkillsState.refresh(args.metadata);
+      if (args.verify) {
+        const reports = await verifySkills(
+          inspectorClient,
+          skills,
+          args.metadata,
+        );
+        return {
+          kind: "ndjson",
+          lines: reports,
+          summary: summarizeSkillVerification(reports),
+          // Three outcomes, three exit codes: a broken MUST is 7, a walk the
+          // read bounds cut short is 8, and everything checked and passing is
+          // 0. Collapsing the middle case into either of the others reports
+          // something untrue about the server (Copilot).
+          ...(allSkillsVerified(reports)
+            ? {}
+            : {
+                exitCode: anySkillFailed(reports)
+                  ? EXIT_CODES.SKILL_NONCONFORMANT
+                  : EXIT_CODES.SKILL_INCOMPLETE,
+              }),
+        };
+      }
+      result = { skills };
+    } else if (args.method === "skills/get") {
+      if (!args.uri) {
+        throw new Error(
+          "URI is required for skills/get method. Use --uri to specify the skill URI.",
+        );
+      }
+      // Same gate as `skills/list`, and for the same reason. Without it an
+      // undeclared server answers `-32601`, which a script cannot tell apart
+      // from the `-32602` a *declared* server returns for a skill URI it does
+      // not serve — "this server has no Skills support" and "no such skill"
+      // are different answers (Copilot).
+      assertSkillsSupported(inspectorClient, args.method);
+      // The ENVELOPE, not the unwrapped entry. `getSkill` discards every other
+      // member the result carried — including the `ttlMs` / `cacheScope` that
+      // SEP-2640 explicitly leaves open — and a CLI whose contract is "print
+      // the result" must not drop what the server actually sent (Copilot).
+      const envelope = await inspectorClient.getSkillResult(
+        args.uri,
+        args.metadata,
+      );
+      const skill = envelope.skill;
+      if (args.verify) {
+        const reports = await verifySkills(
+          inspectorClient,
+          [skill],
+          args.metadata,
+        );
+        return {
+          kind: "ndjson",
+          lines: reports,
+          summary: summarizeSkillVerification(reports),
+          // Three outcomes, three exit codes: a broken MUST is 7, a walk the
+          // read bounds cut short is 8, and everything checked and passing is
+          // 0. Collapsing the middle case into either of the others reports
+          // something untrue about the server (Copilot).
+          ...(allSkillsVerified(reports)
+            ? {}
+            : {
+                exitCode: anySkillFailed(reports)
+                  ? EXIT_CODES.SKILL_NONCONFORMANT
+                  : EXIT_CODES.SKILL_INCOMPLETE,
+              }),
+        };
+      }
+      result = envelope;
+    } else if (args.method === "resources/directory/read") {
+      if (!args.uri) {
+        throw new Error(
+          "URI is required for resources/directory/read. Use --uri to specify the directory URI.",
+        );
+      }
+      // One page, not a walk. SEP-2640 says the listing is not recursive and
+      // clients descend by calling again on a child, so aggregating pages here
+      // would present a subtree as a directory — and the cursor is exposed as
+      // `--cursor` precisely so a script can do the descending.
+      result = await inspectorClient.readResourceDirectory(
+        args.uri,
+        args.cursor,
+        args.metadata,
+      );
     } else if (args.method === "roots/list") {
       result = { roots: inspectorClient.getRoots() };
     } else if (args.method === "roots/set") {
@@ -318,6 +444,7 @@ export async function runMethod(
     managedResourcesState?.destroy();
     managedResourceTemplatesState?.destroy();
     managedPromptsState?.destroy();
+    managedSkillsState?.destroy();
     managedTasksState?.destroy();
   }
 }

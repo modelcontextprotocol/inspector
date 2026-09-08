@@ -23,15 +23,15 @@
  * machinery (activation, per-skill consent, content-bound approval) is
  * implemented here. Surface and verify.
  *
- * ⚠️ **One SEP-2640 obligation is deliberately NOT checked here: that an entry's
- * `frontmatter` matches the fetched `SKILL.md`'s frontmatter field by field.**
- * The digest check does not cover it — a digest is taken over the bytes the
- * server served, so it proves the file was not tampered with in transit and
- * says nothing about whether the *listing* described that file honestly. A
- * server can therefore advertise one description, serve a different one, and
- * pass every check in this module. Closing it needs a YAML parser, which is a
- * new runtime dependency and a placement decision of its own, so it is tracked
- * on #2248 rather than half-done here.
+ * **The frontmatter cross-check closes the gap the digest cannot** (#2248).
+ * SEP-2640 requires that an entry's `frontmatter` match the fetched `SKILL.md`'s
+ * frontmatter field by field, and no digest can establish that: a digest is
+ * taken over the bytes the server served, so it proves the file was not altered
+ * in transit and says nothing about whether the *listing* described that file
+ * honestly. A server could advertise one description, serve another, and pass
+ * every other check in this module. {@link checkSkillFrontmatterMatch} is the
+ * check; it needs a real YAML parser, and `core/mcp/skillFile.ts` explains why
+ * that dependency is imported rather than approximated.
  */
 
 import type { ServerCapabilities } from "@modelcontextprotocol/client";
@@ -42,12 +42,39 @@ import {
   type SkillResource,
 } from "./skillsSchemas.js";
 import { sha256Bytes } from "./sha256.js";
+import {
+  jsonGraphError,
+  parseSkillFrontmatter,
+  splitSkillFile,
+} from "./skillFile.js";
 
 /** Maximum resource entries a single skill may declare (SEP-2640). */
 export const SKILL_MAX_RESOURCE_ENTRIES = 512;
 
 /** Maximum total size, in bytes, of a single skill's resources (16 MiB). */
 export const SKILL_MAX_TOTAL_BYTES = 16 * 1024 * 1024;
+
+/**
+ * Maximum skills one verification run will actually read from, and the byte
+ * ceiling across all of them.
+ *
+ * ⚠️ **Not SEP-2640 limits — they are this tool's own.** The SEP bounds a
+ * single skill and deliberately does not bound a catalog: `skills/list` may be
+ * arbitrarily long, and a page may hold arbitrarily many entries, so the
+ * cursor-walk's page cap constrains nothing here. Every entry costs at least
+ * one `resources/read`, so an unbounded catalog is unbounded work and
+ * unbounded transfer against the tool sent to inspect it — a `--verify` in CI
+ * that never returns (Copilot).
+ *
+ * Entries past either bound are reported as `incomplete` rather than dropped
+ * or failed: they were not checked, which is neither a pass nor a verdict
+ * against the server. A host wanting more is not wrong — these are safety
+ * limits, not conformance ones — which is why the reason names them.
+ */
+export const SKILL_MAX_CATALOG_SKILLS = 256;
+
+/** @see {@link SKILL_MAX_CATALOG_SKILLS} — 64 MiB across the whole run. */
+export const SKILL_MAX_CATALOG_BYTES = 64 * 1024 * 1024;
 
 /** The suffix every skill URI ends with; the segment before it is the name. */
 export const SKILL_FILE_SUFFIX = "/SKILL.md";
@@ -243,7 +270,11 @@ export type SkillIssueCode =
   | "resource-outside-skill-root"
   | "manifest-missing-self"
   | "resource-limit-exceeded"
-  | "size-limit-exceeded";
+  | "size-limit-exceeded"
+  | "frontmatter-absent"
+  | "frontmatter-unparsable"
+  | "frontmatter-mismatch"
+  | "duplicate-name";
 
 /**
  * `error` marks a **MUST** of SEP-2640 that the server broke, so a manifest
@@ -505,6 +536,30 @@ export function totalSkillBytes(resources: readonly SkillResource[]): number {
 }
 
 /**
+ * A stable key for "this exact entry", safe against a hostile listing.
+ *
+ * `JSON.stringify(entry)` is the obvious implementation and is the wrong one:
+ * `frontmatter` is unbounded server-controlled JSON, so a deep enough object
+ * throws `RangeError: Maximum call stack size exceeded` — and this is evaluated
+ * during render, so one catalog entry could crash the pane that exists to
+ * report on it (Copilot).
+ *
+ * The same guard that bounds the frontmatter comparison decides it here. When
+ * the entry is representable the key is its serialization, which is exact;
+ * when it is not, the key falls back to the entry's identity plus its manifest
+ * length. That fallback is deliberately coarse — such an entry already carries
+ * a `frontmatter-unparsable` error, so what matters is that it produces a
+ * usable key rather than a precise one.
+ */
+export function skillEntryKey(entry: SkillEntry): string {
+  if (jsonGraphError(entry) !== undefined) {
+    const count = Array.isArray(entry.resources) ? entry.resources.length : -1;
+    return `${skillUriIdentity(entry.uri)}#unrepresentable:${count}`;
+  }
+  return JSON.stringify(entry);
+}
+
+/**
  * Whether a `skills/get` entry describes the same skill as the `skills/list`
  * entry alongside it, compared **semantically** rather than byte-for-byte.
  *
@@ -635,6 +690,20 @@ export function textToBytes(text: string): Uint8Array {
 }
 
 /**
+ * A skill file's bytes as UTF-8 text — the inverse of {@link textToBytes}.
+ *
+ * Deliberately **non-fatal**: a `SKILL.md` that is not valid UTF-8 decodes with
+ * replacement characters rather than throwing. That is the more useful failure,
+ * because the frontmatter comparison then reports a concrete difference between
+ * what the listing claimed and what the file actually holds, instead of
+ * collapsing into "could not decode" and skipping the check the SEP makes
+ * mandatory.
+ */
+export function bytesToText(bytes: Uint8Array): string {
+  return new TextDecoder().decode(bytes);
+}
+
+/**
  * Raw bytes of a `resources/read` blob content block (standard base64).
  * Uses `atob`, which Node ≥22 and every browser provide, so this stays
  * dependency-free and works unchanged in both.
@@ -644,6 +713,32 @@ export function base64ToBytes(blob: string): Uint8Array {
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
   return bytes;
+}
+
+/**
+ * The content a `resources/read` returned for one skill file. Either `text` (a
+ * `TextResourceContents`) or `blob` (base64, a `BlobResourceContents`).
+ */
+export interface SkillFileContents {
+  text?: string;
+  blob?: string;
+  mimeType?: string;
+}
+
+/**
+ * The raw bytes of a skill file, as fetched — the bytes its digest was taken
+ * over.
+ *
+ * Throws for a result carrying neither `text` nor `blob`. That is a server bug,
+ * and it must not be quietly treated as empty content: an empty `Uint8Array`
+ * has a perfectly good SHA-256, so a silent fallback would report a *digest
+ * mismatch* — a confident, wrong diagnosis — instead of "this response carried
+ * no content at all". Callers surface the throw as a per-file read failure.
+ */
+export function skillFileBytes(contents: SkillFileContents): Uint8Array {
+  if (typeof contents.text === "string") return textToBytes(contents.text);
+  if (typeof contents.blob === "string") return base64ToBytes(contents.blob);
+  throw new Error("resources/read returned neither text nor blob content.");
 }
 
 /**
@@ -703,4 +798,293 @@ export async function verifySkillResource(
       ? { expectedSize, actualSize: bytes.byteLength }
       : {}),
   };
+}
+
+/**
+ * Structural equality for JSON-like values, with YAML's extra scalars handled.
+ *
+ * ⚠️ **Comparison is structural rather than serialized, and that is the point.**
+ * `JSON.stringify` is not injective over what a YAML parser produces: `.nan`,
+ * `.inf` and `-.inf` all serialize to `null`, so a served `x: .nan` compared
+ * EQUAL to a listing declaring `x: null` — and to each other. An earlier fix
+ * encoded non-finite numbers as a sentinel object, which merely moved the
+ * problem: a listing whose value genuinely *was* that object aliased the
+ * sentinel and matched a served `.nan` (Copilot). Any encoding into the value
+ * space can be aliased by a document containing the encoding, so there is no
+ * sentinel here at all.
+ *
+ * `Object.is` on the number path is what makes it work: it holds `NaN` equal to
+ * `NaN`, keeps `Infinity` and `-Infinity` distinct, and never equates either
+ * with `null`.
+ */
+function jsonLikeEqual(a: unknown, b: unknown): boolean {
+  if (typeof a === "number" || typeof b === "number") {
+    // `===` for finite numbers, `Object.is` only for the non-finite ones.
+    //
+    // `Object.is` alone held `0` and `-0` distinct, so a listing carrying JSON
+    // `0` against a served YAML `-0` produced a mismatch — reported as "the
+    // listing says 0 but the served SKILL.md says 0", a false finding with an
+    // unintelligible explanation (Copilot). JSON does not distinguish them
+    // (`JSON.stringify(-0)` is `"0"`), so neither may this. `===` would in turn
+    // hold `NaN` unequal to itself, which is why the two are combined rather
+    // than either used alone.
+    if (typeof a === "number" && typeof b === "number") {
+      return Number.isFinite(a) && Number.isFinite(b)
+        ? a === b
+        : Object.is(a, b);
+    }
+    // One side is not a number at all: different types, never equal.
+    return false;
+  }
+  if (a === null || b === null) return a === b;
+  if (typeof a !== "object" || typeof b !== "object") return Object.is(a, b);
+  const aArray = Array.isArray(a);
+  if (aArray !== Array.isArray(b)) return false;
+  if (aArray) {
+    const x = a as unknown[];
+    const y = b as unknown[];
+    // Array ORDER is significant — a YAML sequence is ordered.
+    return x.length === y.length && x.every((v, i) => jsonLikeEqual(v, y[i]));
+  }
+  const x = a as Record<string, unknown>;
+  const y = b as Record<string, unknown>;
+  const keys = Object.keys(x);
+  // Key order is not meaningful in either JSON or YAML, so only the key SET and
+  // the values matter.
+  return (
+    keys.length === Object.keys(y).length &&
+    keys.every((k) => Object.hasOwn(y, k) && jsonLikeEqual(x[k], y[k]))
+  );
+}
+
+/**
+ * A frontmatter value as it should READ in a finding.
+ *
+ * `JSON.stringify` renders every non-finite number as `null`, which would print
+ * "the listing says null but the served file says null" for a real difference.
+ * Only the display is special-cased; the comparison above never goes through a
+ * string, so this cannot reintroduce an aliasing bug.
+ */
+function displayValue(value: unknown): string {
+  if (typeof value === "number" && !Number.isFinite(value)) {
+    return String(value);
+  }
+  return JSON.stringify(canonicalize(value), (_key, member: unknown) =>
+    typeof member === "number" && !Number.isFinite(member)
+      ? `<${String(member)}>`
+      : member,
+  );
+}
+
+/**
+ * Compare the fetched `SKILL.md`'s own frontmatter against the frontmatter the
+ * entry advertised, field by field — the SEP-2640 obligation a digest cannot
+ * discharge (#2248).
+ *
+ * SEP-2640: *"hosts MUST parse its YAML frontmatter and compare it
+ * field-by-field against the entry's `frontmatter`. Any discrepancy MUST be
+ * treated as a verification failure equivalent to a digest mismatch"*. So every
+ * finding here is an `error`, matching what a digest mismatch reports — the
+ * spec makes them equivalent and the report must not rank one below the other.
+ *
+ * **One finding per differing field, not one per file.** "Frontmatter does not
+ * match" is unactionable for the server author who has to fix it; "listing says
+ * `description: A`, file says `description: B`" is the whole diagnosis. The
+ * union of both sides' keys is walked, so a field present on only one side is
+ * reported as such rather than silently skipped.
+ *
+ * ⚠️ **Only call this with the bytes of the entry's own `SKILL.md`.** The check
+ * is meaningless against a supporting file, which has no frontmatter to match,
+ * and would report every one of them as `frontmatter-absent`. Callers select
+ * the file; this function cannot tell which one it was handed.
+ *
+ * Values are compared as **canonical JSON**, so a frontmatter field holding a
+ * nested mapping compares equal when the two sides agree on content and differ
+ * only in key order — which is not a discrepancy in either JSON or YAML. Array
+ * order *is* significant and is preserved, because a YAML sequence is ordered.
+ */
+export function checkSkillFrontmatterMatch(
+  entry: SkillEntry,
+  skillFileText: string,
+): SkillIssue[] {
+  const { frontmatter } = splitSkillFile(skillFileText);
+  if (frontmatter === undefined) {
+    return [
+      {
+        code: "frontmatter-absent",
+        severity: "error",
+        message:
+          "The served SKILL.md carries no YAML frontmatter block, so the listing's frontmatter cannot be the file's.",
+        resourceUri: entry.uri,
+      },
+    ];
+  }
+  // The LISTING side is bounded too, before anything recurses over it. It
+  // arrives over JSON-RPC so it cannot be cyclic, but it is just as unbounded
+  // in depth — and both `jsonLikeEqual` and `displayValue` walk it, so a
+  // server advertising an absurdly nested value crashed the tool exactly as a
+  // cyclic served one did (Copilot). Checked before the file is parsed: there
+  // is no point reading one if the thing to compare it against is unusable.
+  const listedError = jsonGraphError(entry.frontmatter);
+  if (listedError) {
+    return [
+      {
+        code: "frontmatter-unparsable",
+        severity: "error",
+        message: `The listing's own frontmatter cannot be compared: ${listedError}`,
+        resourceUri: entry.uri,
+      },
+    ];
+  }
+  const parsed = parseSkillFrontmatter(frontmatter);
+  if ("error" in parsed) {
+    return [
+      {
+        code: "frontmatter-unparsable",
+        severity: "error",
+        message: `The served SKILL.md's frontmatter is not valid YAML: ${parsed.error}`,
+        resourceUri: entry.uri,
+      },
+    ];
+  }
+  const issues: SkillIssue[] = [];
+  // Sorted so the report is stable across runs — `Object.keys` order follows
+  // insertion, which is the wire order on one side and the file order on the
+  // other, and those need not agree even when the content does.
+  const fields = [
+    ...new Set([
+      ...Object.keys(entry.frontmatter),
+      ...Object.keys(parsed.fields),
+    ]),
+  ].sort();
+  for (const field of fields) {
+    const listed = entry.frontmatter[field];
+    const served = parsed.fields[field];
+    // `undefined` is the only way "absent" reaches here: JSON has no undefined
+    // value, and a YAML key written with an empty value parses to `null`, which
+    // is a present field holding null and compares as one.
+    if (listed === undefined) {
+      issues.push({
+        code: "frontmatter-mismatch",
+        severity: "error",
+        message: `The served SKILL.md declares "${field}" but the listing's frontmatter omits it.`,
+        resourceUri: entry.uri,
+      });
+      continue;
+    }
+    if (served === undefined) {
+      issues.push({
+        code: "frontmatter-mismatch",
+        severity: "error",
+        message: `The listing declares "${field}" but the served SKILL.md omits it.`,
+        resourceUri: entry.uri,
+      });
+      continue;
+    }
+    if (!jsonLikeEqual(listed, served)) {
+      issues.push({
+        code: "frontmatter-mismatch",
+        severity: "error",
+        message: `Field "${field}" differs: the listing says ${displayValue(listed)} but the served SKILL.md says ${displayValue(served)}.`,
+        resourceUri: entry.uri,
+      });
+    }
+  }
+  return issues;
+}
+
+/**
+ * How many colliding URIs a `duplicate-name` message names before it counts the
+ * rest. Three is enough to show the shape of the collision; the count carries
+ * the scale.
+ */
+const COLLISION_SAMPLE = 3;
+
+/**
+ * Findings that can only be computed over the **whole listing**, keyed by the
+ * entry they belong to (its normalized URI identity).
+ *
+ * Today that is exactly one: two entries in a single `skills/list` colliding on
+ * `frontmatter.name`. {@link checkSkillConformance} structurally cannot report
+ * it — it sees one entry at a time, and a collision is a property of the pair.
+ *
+ * SEP-2640: *"Hosts MUST NOT assume name uniqueness"*, and *"When two entries
+ * in one listing collide on `name`, hosts MUST disambiguate them — for example
+ * by their distinguishing path segments — rather than silently discarding or
+ * preferring one."*
+ *
+ * ⚠️ **A collision is a `warning`, not an `error`, and the distinction is the
+ * whole point of the severity split.** The obligation here is on the *host*,
+ * not the server: a server may legitimately publish two skills with the same
+ * name under different paths, and the SEP's own example
+ * (`acme/billing/refunds`) is exactly that. Reporting it as an error would tell
+ * a conforming server author their catalog is invalid. What the warning says is
+ * that a consumer must not collapse the two — which is why the Inspector shows
+ * each skill's URI beside its name, and now says so rather than leaving the
+ * reader to notice.
+ *
+ * Names are compared **raw**, not trimmed or case-folded. The Agent Skills
+ * grammar is lowercase already, and a checker that normalized more than the
+ * grammar does would report a collision between two names the spec considers
+ * distinct.
+ */
+export function checkSkillNameCollisions(
+  entries: readonly SkillEntry[],
+): Map<string, SkillIssue> {
+  const byName = new Map<string, SkillEntry[]>();
+  for (const entry of entries) {
+    const name = entry.frontmatter.name;
+    // An absent name is `missing-name`, reported per entry. Two entries that
+    // both omit one are not "colliding on a name" — there is no name — and
+    // saying so would bury the real finding under a derived one.
+    if (typeof name !== "string" || name.trim() === "") continue;
+    const group = byName.get(name);
+    if (group) group.push(entry);
+    else byName.set(name, [entry]);
+  }
+
+  const issues = new Map<string, SkillIssue>();
+  for (const [name, group] of byName) {
+    // Deduplicated by URI identity first: the SAME skill appearing twice in a
+    // listing is a repeated entry, not two skills sharing a name, and
+    // `skills/list` returning it twice is a different defect from the one this
+    // function reports.
+    const identities = new Set(group.map((e) => skillUriIdentity(e.uri)));
+    if (identities.size < 2) continue;
+    const uris = [...identities].sort();
+    for (const entry of group) {
+      const self = skillUriIdentity(entry.uri);
+      // ⚠️ A bounded SAMPLE, taken with an early exit — not
+      // `uris.filter(...)` and not the whole list in the message. Duplicate
+      // names are legal and SEP-2640 puts no ceiling on a catalog, so a group
+      // of N made both the work and the generated text O(N²): every one of N
+      // entries scanned all N URIs and embedded the other N−1 (Copilot). A
+      // server controls N, which turns a legal listing into a denial of
+      // service against the tool meant to inspect it.
+      const sample: string[] = [];
+      for (const uri of uris) {
+        if (uri === self) continue;
+        sample.push(uri);
+        if (sample.length === COLLISION_SAMPLE) break;
+      }
+      const unshown = identities.size - 1 - sample.length;
+      // Naming a few and counting the rest keeps the finding actionable — a
+      // reader needs to see that it IS a collision and where to look, not a
+      // transcript of the catalog.
+      const others =
+        unshown > 0
+          ? `${sample.join(", ")}, and ${unshown} more`
+          : sample.join(", ");
+      const subject =
+        identities.size === 2
+          ? "Another skill in this listing also declares"
+          : `${identities.size - 1} other skills in this listing also declare`;
+      issues.set(self, {
+        code: "duplicate-name",
+        severity: "warning",
+        message: `${subject} the name "${name}" (${others}). This is legal — a consumer must tell them apart by their URIs rather than collapsing or preferring one.`,
+      });
+    }
+  }
+  return issues;
 }

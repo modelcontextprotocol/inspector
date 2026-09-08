@@ -65,9 +65,15 @@ export function vitestSharedPaths(clientDir: string) {
     // is a statement about the installed tree, not about the manifests — check
     // the tree before adding or removing an entry.
     //
-    // `express` and `yaml` are reached only through `test-servers/src` —
-    // express by the http/oauth servers, yaml by `load-config.ts` — which is
-    // root-owned code with no manifest of its own.
+    // `express` is reached only through `test-servers/src` (the http/oauth
+    // servers), which is root-owned code with no manifest of its own.
+    //
+    // `yaml` was too — `load-config.ts` — but is now also a `core/` runtime
+    // import: `core/mcp/skillFile.ts` parses a served SKILL.md's frontmatter
+    // for the SEP-2640 cross-check (#2248). That matters to anyone revisiting
+    // this pin: it is no longer removable by retiring a test-server path, and
+    // as a dependency `core/` imports it is additionally named in all three
+    // bundler `external` lists.
     //
     // Pointing these at `<client>/node_modules` is what broke when the MCP
     // packages moved to the root (#1970): express was never declared by a client

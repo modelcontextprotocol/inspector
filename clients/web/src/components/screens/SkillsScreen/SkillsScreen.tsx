@@ -19,17 +19,29 @@ import {
 import { MdSearch, MdVerifiedUser } from "react-icons/md";
 import { RiArrowRightSLine } from "react-icons/ri";
 import type {
+  DirectoryReadResult,
   SkillEntry,
   SkillResource,
 } from "@inspector/core/mcp/skillsSchemas.js";
-import { DYNAMIC_RESOURCES } from "@inspector/core/mcp/skillsSchemas.js";
+import {
+  DIRECTORY_MIME_TYPE,
+  DYNAMIC_RESOURCES,
+} from "@inspector/core/mcp/skillsSchemas.js";
 import {
   checkSkillConformance,
+  checkSkillFrontmatterMatch,
+  checkSkillNameCollisions,
+  bytesToText,
   skillDisplayName,
+  skillEntryKey,
+  skillFileBytes,
   skillEntriesMatch,
+  normalizeSkillUri,
   skillUriIdentity,
+  SKILL_FILE_SUFFIX,
   totalSkillBytes,
   verifySkillResource,
+  type SkillFileContents,
   type SkillIssue,
   type SkillVerification,
 } from "@inspector/core/mcp/skills.js";
@@ -37,11 +49,7 @@ import { CodeHighlight } from "../../elements/CodeHighlight/CodeHighlight";
 import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";
 import { ListToggle } from "../../elements/ListToggle/ListToggle";
 import { useValueChange } from "../../../hooks/useValueChange";
-import {
-  skillFileBytes,
-  type SkillFileContents,
-} from "../../../utils/skillFileBytes";
-import { splitSkillFile } from "../../../utils/splitSkillFile";
+import { splitSkillFile } from "@inspector/core/mcp/skillFile.js";
 import {
   inferMimeFromUri,
   isGenericMime,
@@ -85,6 +93,30 @@ interface VerificationState {
    */
   key: string | null;
   files: Record<number, FileState>;
+  /**
+   * The text of the skill's own `SKILL.md` **as the verification read it**.
+   *
+   * Held so the frontmatter comparison and the digest describe the *same*
+   * fetch. They were derived from two separate `resources/read` calls — the
+   * on-selection preview and the Verify click — so a resource that changed
+   * between them could pair a verified digest with a frontmatter verdict for
+   * different bytes (Copilot). Set only when the verified row is the entry's
+   * own file; the preview remains the fallback until then, since a reader who
+   * has not clicked Verify should still get the check.
+   */
+  entryText?: string;
+  /**
+   * True when {@link entryText} came from a **verification** rather than the
+   * preview read.
+   *
+   * A later preview of the same `SKILL.md` must not overwrite text a
+   * verification produced: the digest verdict on screen was computed from that
+   * fetch, and replacing only the text would let the frontmatter findings
+   * describe different bytes — recreating the mixed-fetch verdict this state
+   * exists to prevent (Copilot). A verification always wins, since it brings a
+   * matching digest verdict with it.
+   */
+  entryTextVerified?: boolean;
 }
 
 /**
@@ -126,6 +158,38 @@ interface FetchedEntryState {
   message?: string;
 }
 
+/**
+ * One child of a directory resource, as `resources/directory/read` returned it.
+ * Structurally the base protocol's `Resource`; only the three members this
+ * section renders are named.
+ */
+interface DirectoryChild {
+  uri: string;
+  name: string;
+  mimeType?: string;
+}
+
+/**
+ * The directory browser's state: which directory is on screen, the children
+ * gathered so far, and the cursor for the next page.
+ *
+ * Pages **accumulate** rather than replacing, unlike a paged list elsewhere in
+ * the app, because a directory listing is one thing split across responses — a
+ * reader descending a tree wants the directory's contents, not page 2 of them.
+ * `key` invalidates it exactly as it does every other async slot here.
+ */
+interface DirectoryState {
+  key: string | null;
+  attempt?: number;
+  /** The directory being shown (or read). */
+  uri?: string;
+  children?: DirectoryChild[];
+  /** Cursor for the page after `children`, when the server sent one. */
+  nextCursor?: string;
+  loading?: boolean;
+  message?: string;
+}
+
 export interface SkillsScreenProps {
   /**
    * Identity of the connected session. Part of the invalidation key below, so
@@ -157,6 +221,20 @@ export interface SkillsScreenProps {
    * fresh read excuses.
    */
   onGetSkill: (uri: string) => Promise<SkillEntry>;
+  /**
+   * One page of `resources/directory/read` (SEP-2640), or **`undefined` when
+   * the server did not declare `directoryRead`** — which is how the Directory
+   * section is gated.
+   *
+   * Gated by the prop's presence rather than by a boolean beside it, so the
+   * section cannot be rendered without a way to populate it: the SEP makes
+   * calling this method against a server that has not declared the sub-flag a
+   * MUST NOT, and an absent callback is that rule expressed in the type.
+   */
+  onReadResourceDirectory?: (
+    uri: string,
+    cursor?: string,
+  ) => Promise<DirectoryReadResult>;
 }
 
 /**
@@ -329,6 +407,26 @@ const ResourceNameCaption = Text.withProps({
   maw: "50%",
 });
 
+/** A read that failed, in the Directory section. */
+const ReadFailureAlert = Alert.withProps({
+  color: "red",
+  variant: "light",
+  title: "Read failed",
+});
+
+/**
+ * The directory-vs-manifest divergence banner. Yellow: the server is not
+ * necessarily wrong — its listing may simply be newer than the held entry.
+ */
+const UnlistedChildrenAlert = Alert.withProps({
+  color: "yellow",
+  variant: "light",
+  title: "This directory lists files the entry does not",
+});
+
+/** The em dash standing in for a verdict that does not apply to a row. */
+const NoVerdictText = Text.withProps({ size: "xs", c: "dimmed" });
+
 const IssueStack = Stack.withProps({
   gap: "xs",
 });
@@ -437,7 +535,34 @@ const SkillTitle = Text.withProps({
 const SECTION_FLEX = "0 1 auto";
 
 /** Every section this screen can render, in display order. */
-const ALL_SECTIONS = ["conformance", "resources", "frontmatter", "resource"];
+const ALL_SECTIONS = [
+  "conformance",
+  "resources",
+  "directory",
+  "frontmatter",
+  "resource",
+];
+
+/**
+ * The sections that open by default — everything except Directory.
+ *
+ * Directory is the one section whose content requires a round trip the user has
+ * not made yet, so open it holds a button and an empty frame: it advertises
+ * content that is not there, while taking height from the sections that do have
+ * some. With five open sections in a short pane each is squeezed to its floor
+ * and scrolls internally, which is the documented fallback but a poor first
+ * impression — and the one it costs most is the file viewer, the section
+ * `viewerFlex` exists to give the remainder to.
+ *
+ * The same argument as Conformance's auto-collapse, one step earlier: that one
+ * closes a section whose header already carries the whole answer, this one
+ * closes a section that has no answer yet. Both are defaults; neither prevents
+ * opening it, and `openSections` outlives a selection, so a user who opens
+ * Directory keeps it open across skills.
+ */
+const DEFAULT_OPEN_SECTIONS = ALL_SECTIONS.filter(
+  (section) => section !== "directory",
+);
 
 /**
  * The open set for the FIRST render.
@@ -452,13 +577,19 @@ function initialOpenSections(
   skills: SkillEntry[],
   selectedSkillUri: string | undefined,
 ): string[] {
-  if (selectedSkillUri === undefined) return ALL_SECTIONS;
+  if (selectedSkillUri === undefined) return DEFAULT_OPEN_SECTIONS;
   const wanted = skillUriIdentity(selectedSkillUri);
   const entry = skills.find((skill) => skillUriIdentity(skill.uri) === wanted);
-  if (entry === undefined) return ALL_SECTIONS;
-  return checkSkillConformance(entry).length > 0
-    ? ALL_SECTIONS
-    : ALL_SECTIONS.filter((section) => section !== "conformance");
+  if (entry === undefined) return DEFAULT_OPEN_SECTIONS;
+  // Counts the collision finding too, or an entry whose ONLY finding is a name
+  // collision would mount with Conformance collapsed while its header badge
+  // said there was something to see.
+  const hasFindings =
+    checkSkillConformance(entry).length > 0 ||
+    checkSkillNameCollisions(skills).has(wanted);
+  return hasFindings
+    ? DEFAULT_OPEN_SECTIONS
+    : DEFAULT_OPEN_SECTIONS.filter((section) => section !== "conformance");
 }
 
 /**
@@ -567,6 +698,18 @@ function resourceFileName(uri: string): string {
 }
 
 /** `sha256:abcd…wxyz`, so a long digest stays readable in a table cell. */
+/**
+ * The parent directory of a skill URI, by path arithmetic.
+ *
+ * Only ever applied to a NORMALIZED URI — one with no `.`/`..` segments left —
+ * so the last `/` really is the boundary between a directory and its child. On
+ * a raw URI the same slice is meaningless: the parent of
+ * `skill://r/a/../templates` is `skill://r`, not `skill://r/a/..`.
+ */
+function parentOfSkillUri(uri: string): string {
+  return uri.slice(0, uri.lastIndexOf("/"));
+}
+
 function shortDigest(digest: string | undefined): string {
   if (!digest) return "—";
   return digest.length <= 24 ? digest : `${digest.slice(0, 16)}…`;
@@ -597,6 +740,7 @@ export function SkillsScreen({
   onRefreshList,
   onReadSkillFile,
   onGetSkill,
+  onReadResourceDirectory,
 }: SkillsScreenProps) {
   const { selectedSkillUri, search } = ui;
   // Both slices carry the manifest key they belong to, and every async
@@ -615,6 +759,7 @@ export function SkillsScreen({
   const [fetchedEntry, setFetchedEntry] = useState<FetchedEntryState>({
     key: null,
   });
+  const [directory, setDirectory] = useState<DirectoryState>({ key: null });
   // Every "Verify all" batch in flight, keyed by the manifest it belongs to.
   //
   // A **map**, not one slot, and the reason is a bug a single slot really had:
@@ -675,10 +820,30 @@ export function SkillsScreen({
     return skills.find((skill) => skillUriIdentity(skill.uri) === wanted);
   }, [skills, selectedSkillUri]);
 
-  const issues = useMemo(
-    () => (selected ? checkSkillConformance(selected) : []),
-    [selected],
-  );
+  /**
+   * Name collisions across the whole listing, keyed by URI identity.
+   *
+   * Computed over `skills` rather than the filtered view: a collision is a fact
+   * about the catalog the server served, and hiding it because the sidebar
+   * search happens to exclude the other half would make the finding depend on
+   * what the reader typed.
+   */
+  const collisions = useMemo(() => checkSkillNameCollisions(skills), [skills]);
+
+  const collision = selected
+    ? collisions.get(skillUriIdentity(selected.uri))
+    : undefined;
+
+  const issues = useMemo(() => {
+    if (!selected) return [];
+    // Merged into the entry's own findings so it carries through the header
+    // badge and the sidebar exactly as every other finding does — a reader
+    // asking "does this skill conform" must not have to know that one class of
+    // finding is counted somewhere else. It is *rendered* as a banner above
+    // rather than as a list item, and filtered out of the list accordingly.
+    const found = collisions.get(skillUriIdentity(selected.uri));
+    return [...checkSkillConformance(selected), ...(found ? [found] : [])];
+  }, [collisions, selected]);
 
   // A `resources: "dynamic"` skill advertises no manifest at all, so it has no
   // Resources section to show — the fact is a conformance statement, and it is
@@ -704,7 +869,12 @@ export function SkillsScreen({
   // and a fresh object every render would loop.
   const manifestKey = useMemo(
     () =>
-      `${sessionKey}\n${selected ? JSON.stringify(selected) : (selectedSkillUri ?? "")}`,
+      // `skillEntryKey`, not `JSON.stringify`: `selected` carries unbounded
+      // server-controlled frontmatter, and this runs during render — so a
+      // deeply nested entry threw `RangeError` before the screen could show
+      // the `frontmatter-unparsable` finding that describes it (Copilot). Same
+      // helper, and the same guard, the TUI uses.
+      `${sessionKey}\n${selected ? skillEntryKey(selected) : (selectedSkillUri ?? "")}`,
     [selected, selectedSkillUri, sessionKey],
   );
 
@@ -716,6 +886,11 @@ export function SkillsScreen({
     setVerification({ key: next, files: {} });
     setPreviewState({ key: next });
     setFetchedEntry({ key: next });
+    // A directory listing is a live observation of a path under the *selected*
+    // skill, so it is invalidated with everything else — carrying one across a
+    // selection change would show the previous skill's tree under the new
+    // skill's name.
+    setDirectory({ key: next });
     // Conformance tracks whether it has anything to say: an entry with no
     // errors and no warnings opens collapsed, because "0 error(s), 0
     // warning(s)" on the header already carries the whole message and an
@@ -737,6 +912,8 @@ export function SkillsScreen({
   });
 
   const fileStates = verification.key === manifestKey ? verification.files : {};
+  const entrySourceText =
+    verification.key === manifestKey ? verification.entryText : undefined;
 
   /**
    * Verify one manifest ROW. Keyed by row index, not by URI: the checker
@@ -761,8 +938,26 @@ export function SkillsScreen({
     );
   }, []);
 
+  /**
+   * Whether a manifest row IS the skill's own `SKILL.md`.
+   *
+   * By normalized identity, like every other URI comparison here — a manifest
+   * that spells its self-entry equivalently still names the same file.
+   */
+  const isSelfResource = useCallback(
+    (resource: SkillResource) =>
+      selected !== undefined &&
+      skillUriIdentity(resource.uri) === skillUriIdentity(selected.uri),
+    [selected],
+  );
+
   const verifyRow = useCallback(
-    async (index: number, resource: SkillResource, key: string) => {
+    async (
+      index: number,
+      resource: SkillResource,
+      key: string,
+      isSelfRow = false,
+    ) => {
       // NOTE: opening the Conformance section deliberately does NOT happen
       // here. `verifyRow` is called once per row by every "Verify all" worker
       // as it advances, so a batch begun on one skill keeps calling it after
@@ -775,7 +970,7 @@ export function SkillsScreen({
       // Claimed synchronously, so two verifications of this row are ordered
       // before either read starts.
       const attempt = (nextAttempt.current += 1);
-      const write = (state: FileState) =>
+      const write = (state: FileState, entryText?: string) =>
         setVerification((prev) => {
           // `null` is the un-adopted initial manifest; any other mismatch is a
           // continuation from a manifest that has since been invalidated.
@@ -785,16 +980,34 @@ export function SkillsScreen({
           // finishing last must not overwrite it.
           const held = files[index];
           if (held !== undefined && held.attempt > attempt) return prev;
-          return { key, files: { ...files, [index]: state } };
+          return {
+            key,
+            files: { ...files, [index]: state },
+            // Carried through explicitly: this returns a FRESH state object, so
+            // anything not named here is dropped — which silently discarded the
+            // verified `SKILL.md` text the frontmatter check depends on.
+            ...(entryText !== undefined
+              ? { entryText, entryTextVerified: true }
+              : prev.key === key && prev.entryText !== undefined
+                ? {
+                    entryText: prev.entryText,
+                    entryTextVerified: prev.entryTextVerified,
+                  }
+                : {}),
+          };
         });
       write({ attempt, status: "pending" });
       try {
         const contents = await onReadSkillFile(resource.uri);
-        const result = await verifySkillResource(
-          resource,
-          skillFileBytes(contents),
+        const bytes = skillFileBytes(contents);
+        const result = await verifySkillResource(resource, bytes);
+        // The entry's own file is captured in the SAME write as its verdict, so
+        // the frontmatter check reads the very bytes that were just hashed —
+        // see `VerificationState.entryText`.
+        write(
+          { attempt, status: "done", verification: result },
+          isSelfRow ? bytesToText(bytes) : undefined,
         );
-        write({ attempt, status: "done", verification: result });
       } catch (err) {
         write({
           attempt,
@@ -825,7 +1038,7 @@ export function SkillsScreen({
     const key = manifestKey;
     const worker = async (): Promise<void> => {
       for (let i = next++; i < manifest.length; i = next++) {
-        await verifyRow(i, manifest[i], key);
+        await verifyRow(i, manifest[i], key, isSelfResource(manifest[i]));
       }
     };
     const workers = Math.min(VERIFY_CONCURRENCY, manifest.length);
@@ -846,7 +1059,7 @@ export function SkillsScreen({
           return next;
         }),
     );
-  }, [manifest, manifestKey, openConformance, verifyRow]);
+  }, [manifest, manifestKey, openConformance, verifyRow, isSelfResource]);
 
   /**
    * Put one of the skill's files in the viewer. Driven both by the effect that
@@ -857,7 +1070,7 @@ export function SkillsScreen({
    * whichever one happened to be current when this callback was created.
    */
   const showResource = useCallback(
-    (uri: string, key: string) => {
+    (uri: string, key: string, isEntryUri = false) => {
       const attempt = (nextAttempt.current += 1);
       // A click handler cannot await, and this chain terminates in its own
       // `catch` that surfaces the message in the viewer. Both arms go through
@@ -876,7 +1089,35 @@ export function SkillsScreen({
       // to announce the previous one for as long as the read takes.
       writePreview({ uri });
       void onReadSkillFile(uri)
-        .then((contents) => writePreview({ uri, contents }))
+        .then((contents) => {
+          writePreview({ uri, contents });
+          // A successful read of the skill's OWN file is recorded in the
+          // skill-scoped slot, so the frontmatter verdict it produces outlives
+          // the reader opening a supporting file — see
+          // `VerificationState.entryText`. Only on success, and only for that
+          // file: a failed or unrelated read must not overwrite an answer.
+          if (isEntryUri) {
+            let text: string | undefined;
+            try {
+              text = bytesToText(skillFileBytes(contents));
+            } catch {
+              return; // neither text nor blob; the viewer reports it
+            }
+            setVerification((prev) => {
+              if (prev.key !== null && prev.key !== key) return prev;
+              const sameKey = prev.key === key;
+              // Never over a verification's own text — see
+              // `entryTextVerified`.
+              if (sameKey && prev.entryTextVerified) return prev;
+              return {
+                ...prev,
+                key,
+                files: sameKey ? prev.files : {},
+                entryText: text,
+              };
+            });
+          }
+        })
         .catch((err: unknown) => {
           writePreview({
             uri,
@@ -937,8 +1178,103 @@ export function SkillsScreen({
     }
     if (autoReadKey.current === manifestKey) return;
     autoReadKey.current = manifestKey;
-    showResource(selectedUri, manifestKey);
+    showResource(selectedUri, manifestKey, true);
   }, [manifestKey, selectedUri, showResource]);
+
+  /**
+   * The skill's root directory: its entry URI with `/SKILL.md` removed.
+   *
+   * Computed from the NORMALIZED URI, like every containment decision in
+   * `core/mcp/skills.ts`, so a `..` segment cannot produce a root the resolved
+   * path does not carry. `undefined` for a malformed entry URI — there is no
+   * root to browse, and `malformed-uri` already reports that in Conformance.
+   */
+  const skillRoot = useMemo(() => {
+    if (!selected) return undefined;
+    // `normalizeSkillUri`, NOT `skillUriIdentity`: the latter falls back to the
+    // raw string when parsing fails, so `not a uri/SKILL.md` yielded the "root"
+    // `not a uri` and enabled the Directory section — letting the UI send a
+    // directory request derived from a URI the conformance checks had already
+    // rejected as malformed (Copilot). Identity is the right tool for
+    // COMPARING two spellings; it is the wrong one for deciding that a URI is
+    // well-formed enough to build a request from.
+    const normalized = normalizeSkillUri(selected.uri);
+    return normalized !== undefined && normalized.endsWith(SKILL_FILE_SUFFIX)
+      ? normalized.slice(0, -SKILL_FILE_SUFFIX.length)
+      : undefined;
+  }, [selected]);
+
+  /**
+   * Read one page of a directory, replacing the listing (`cursor` omitted) or
+   * appending to it (`cursor` given).
+   *
+   * Keyed and attempt-stamped exactly as the other async slots here, so a read
+   * still in flight when the user descends into a different directory — or
+   * switches skills — cannot land afterwards and paint one directory's children
+   * under another's path.
+   */
+  const readDirectory = useCallback(
+    (uri: string, key: string, cursor?: string) => {
+      if (!onReadResourceDirectory) return;
+      const attempt = (nextAttempt.current += 1);
+      /**
+       * Commit a settled result, dropping it when it no longer belongs to the
+       * pane on screen — a different skill, or a newer read of this one.
+       */
+      const commit = (
+        next: (prev: DirectoryState) => Omit<DirectoryState, "key" | "attempt">,
+      ) =>
+        setDirectory((prev) => {
+          if (prev.key !== null && prev.key !== key) return prev;
+          if (prev.attempt !== undefined && prev.attempt > attempt) return prev;
+          return { key, attempt, ...next(prev) };
+        });
+      // The path is claimed before the request goes out, so the header names
+      // the directory being read rather than continuing to announce the
+      // previous one for as long as the read takes.
+      setDirectory((prev) =>
+        prev.key !== null && prev.key !== key
+          ? prev
+          : {
+              key,
+              attempt,
+              uri,
+              // Pages accumulate, so a "load more" keeps what is on screen;
+              // a fresh read of a different directory starts empty.
+              children: cursor === undefined ? undefined : prev.children,
+              loading: true,
+            },
+      );
+      // A click handler cannot await, and this chain terminates in its own
+      // `catch`, which surfaces the message in the section.
+      void onReadResourceDirectory(uri, cursor)
+        .then((page) => {
+          commit((prev) => ({
+            uri,
+            children: [
+              ...(cursor === undefined ? [] : (prev.children ?? [])),
+              ...page.resources,
+            ],
+            nextCursor: page.nextCursor,
+          }));
+        })
+        .catch((err: unknown) => {
+          // A FAILED page leaves what is already on screen where it is, and
+          // keeps the cursor that would retry it. Replacing the state outright
+          // made the table vanish and stranded the reader with no way back to
+          // that page short of restarting at the root (Copilot). Only a first
+          // read of a directory has nothing to preserve.
+          commit((prev) => ({
+            uri,
+            ...(cursor === undefined
+              ? {}
+              : { children: prev.children, nextCursor: cursor }),
+            message: err instanceof Error ? err.message : String(err),
+          }));
+        });
+    },
+    [onReadResourceDirectory],
+  );
 
   const fetchEntry = useCallback(() => {
     if (!selected) return;
@@ -1004,6 +1340,53 @@ export function SkillsScreen({
   const batchRunning = batches.has(manifestKey);
 
   const previewCurrent = previewState.key === manifestKey;
+  /**
+   * The identities of every file the held entry's manifest lists.
+   *
+   * SEP-2640 is explicit that a directory read is *"a live observation that may
+   * run ahead of or behind"* the entry, and that **"Hosts MUST NOT treat the
+   * directory result as extending the manifest"** — a child the server lists
+   * but the entry does not is, to a host acting on the skill, a verification
+   * failure exactly as a digest mismatch is. The Inspector is not a host and
+   * does not refuse the read; what it must not do is present such a child as
+   * one of the skill's files without saying which view it came from. So the two
+   * views are labelled rather than merged.
+   *
+   * Compared on the normalized identity, like every other URI comparison here.
+   */
+  const manifestIdentities = useMemo(
+    () => new Set(manifest.map((resource) => skillUriIdentity(resource.uri))),
+    [manifest],
+  );
+
+  // The directory slot, but only when it belongs to the current manifest —
+  // same guard every other async slot on this screen uses.
+  const directoryCurrent = directory.key === manifestKey;
+  const directoryUri = directoryCurrent ? directory.uri : undefined;
+  // The directory these children were read FROM — the root until the reader
+  // descends. Every child row is judged against this, so the two cannot drift.
+  const readingUri = directoryUri ?? skillRoot;
+  const directoryChildren = directoryCurrent ? directory.children : undefined;
+  const directoryError = directoryCurrent ? directory.message : undefined;
+  const directoryLoading = directoryCurrent && directory.loading === true;
+  const directoryNextCursor = directoryCurrent
+    ? directory.nextCursor
+    : undefined;
+  /**
+   * Children the directory listed that the held entry's manifest does not.
+   * Directories are excluded: a manifest lists files, so a directory is not a
+   * missing entry. So is a `"dynamic"` skill, which advertises no manifest for
+   * anything to be missing from.
+   */
+  const unlistedChildren = useMemo(() => {
+    if (directoryChildren === undefined || isDynamic) return [];
+    return directoryChildren.filter(
+      (child) =>
+        child.mimeType !== DIRECTORY_MIME_TYPE &&
+        !manifestIdentities.has(skillUriIdentity(child.uri)),
+    );
+  }, [directoryChildren, isDynamic, manifestIdentities]);
+
   const preview = previewCurrent ? previewState.contents : undefined;
   const previewError = previewCurrent ? previewState.message : undefined;
   // The file the viewer is showing (or fetching). Falls back to the skill's own
@@ -1089,10 +1472,13 @@ export function SkillsScreen({
     () => [
       "conformance",
       ...(isDynamic ? [] : ["resources"]),
+      ...(onReadResourceDirectory && skillRoot !== undefined
+        ? ["directory"]
+        : []),
       ...(previewParts?.frontmatter !== undefined ? ["frontmatter"] : []),
       "resource",
     ],
-    [isDynamic, previewParts],
+    [isDynamic, onReadResourceDirectory, previewParts, skillRoot],
   );
   const allSectionsOpen = sectionIds.every((id) => openSections.includes(id));
 
@@ -1113,8 +1499,109 @@ export function SkillsScreen({
       state.status === "done" && state.verification.status === "mismatch",
   ).length;
 
-  const errorCount = issues.filter((i) => i.severity === "error").length;
-  const warningCount = issues.length - errorCount;
+  /**
+   * The SEP-2640 frontmatter cross-check, run against the file on screen — but
+   * **only when that file is the skill's own `SKILL.md`**.
+   *
+   * The obligation is that the entry's `frontmatter` match the frontmatter of
+   * the file the entry names; running it against a supporting file would report
+   * `frontmatter-absent` for every one of them, which is the tool inventing a
+   * defect. `showingSkillMd` is the same identity comparison the rest of this
+   * screen uses.
+   *
+   * It is deliberately **not** part of the static `issues` above: those are
+   * derived from the listing alone and are available the moment the list
+   * arrives, while this one needs a `resources/read` the user asked for. Folding
+   * them together would make the header badge's count change on its own the
+   * first time a file happened to be fetched.
+   */
+  const frontmatterIssues = useMemo(() => {
+    if (!selected) return [];
+    // The skill-scoped text, whichever read produced it — so this verdict
+    // survives the reader opening another file, and agrees with the digest
+    // verdict when one verification produced both.
+    if (entrySourceText !== undefined) {
+      return checkSkillFrontmatterMatch(selected, entrySourceText);
+    }
+    if (!showingSkillMd || preview === undefined) return [];
+    // Run against the **raw fetched bytes**, not against `previewParts`.
+    //
+    // `previewParts` is a *presentation* value: it only exists when the
+    // displayed MIME is recognized as markdown, so a `SKILL.md` a server
+    // labelled `text/plain` — or anything else — skipped this check entirely
+    // while the report still read as clean (Copilot). The SEP makes the
+    // comparison mandatory for the skill's own file regardless of how the
+    // server typed it, and `showingSkillMd` already establishes that this IS
+    // that file. Decoding the same bytes the digest is taken over also keeps
+    // the two answers describing one payload rather than two derivations of it.
+    let text: string;
+    try {
+      text = bytesToText(skillFileBytes(preview));
+    } catch {
+      // Neither text nor blob: there are no bytes to compare, and the file
+      // viewer already reports the empty response. Inventing a frontmatter
+      // finding here would name the wrong defect.
+      return [];
+    }
+    return checkSkillFrontmatterMatch(selected, text);
+  }, [selected, showingSkillMd, preview, entrySourceText]);
+
+  /**
+   * The findings rendered as list items — everything except the two that are
+   * stated in prose above the list.
+   *
+   * Derived once and used for BOTH the "is there a list" decision and the list
+   * itself. Deciding on `issues` while rendering the filtered set is how an
+   * entry whose only finding is a banner one ended up showing an empty findings
+   * container instead of "no structural issues".
+   */
+  /**
+   * Reveal Conformance when the frontmatter check finds something.
+   *
+   * A structurally clean entry opens with the section COLLAPSED — the header
+   * badge carries the whole answer — but the frontmatter findings arrive later,
+   * from the `SKILL.md` read, and land inside that collapsed section. The badge
+   * now counts them, so the number changes; the alerts explaining a mandatory
+   * verification failure were still a click away (Copilot).
+   *
+   * Keyed on the entry so it fires **once** per skill, when findings first
+   * appear, rather than fighting a user who deliberately collapses it again.
+   * `useValueChange` runs during render and does only `setState`, as that hook
+   * requires; the key is a primitive so `Object.is` cannot loop.
+   */
+  useValueChange(frontmatterIssues.length > 0 ? manifestKey : "", (next) => {
+    if (next === "") return;
+    setOpenSections((prev) =>
+      prev.includes("conformance") ? prev : [...prev, "conformance"],
+    );
+  });
+
+  const listedIssues = useMemo(
+    () =>
+      issues.filter(
+        (issue) =>
+          issue.code !== "dynamic-resources" && issue.code !== "duplicate-name",
+      ),
+    [issues],
+  );
+
+  /**
+   * Everything the Conformance section reports, for the header badge.
+   *
+   * The frontmatter findings render inside this section, so counting only the
+   * static listing issues left the badge saying `0 error(s)` above a red
+   * `frontmatter-mismatch` alert — the section contradicting its own output
+   * (Copilot). Digest and size mismatches stay OUT: they have their own
+   * `mismatch(es)` badge, because "the listing is wrong" and "the bytes are
+   * wrong" are different answers and merging them would hide which failed.
+   */
+  const countedIssues = useMemo(
+    () => [...issues, ...frontmatterIssues],
+    [issues, frontmatterIssues],
+  );
+
+  const errorCount = countedIssues.filter((i) => i.severity === "error").length;
+  const warningCount = countedIssues.length - errorCount;
 
   return (
     // `data-*` readiness contract for the headless tab smoke (#2148); see
@@ -1152,7 +1639,17 @@ export function SkillsScreen({
               <EmptyState>No skills listed</EmptyState>
             ) : (
               filtered.map((skill) => {
-                const skillIssues = checkSkillConformance(skill);
+                // ⚠️ The collision is a property of the LISTING, not of the
+                // entry, so `checkSkillConformance` alone cannot see it — and
+                // a sidebar computed from that alone showed both colliding
+                // skills as clean until one was selected, which is exactly
+                // when a reader most needs to be told two rows are the same
+                // name (Copilot). Same composition as `conformance` above.
+                const collision = collisions.get(skillUriIdentity(skill.uri));
+                const skillIssues = [
+                  ...checkSkillConformance(skill),
+                  ...(collision ? [collision] : []),
+                ];
                 const errors = skillIssues.filter(
                   (i) => i.severity === "error",
                 ).length;
@@ -1311,7 +1808,25 @@ export function SkillsScreen({
                         integrity cannot be verified.
                       </Alert>
                     )}
-                    {issues.length === 0 ? (
+                    {/* A name collision is a fact about the LISTING rather
+                        than about this entry, so it is stated in prose at the
+                        top of the section and filtered out of the findings
+                        list below — the same treatment, and the same reason, as
+                        `dynamic-resources`: the same fact twice, once as a
+                        banner and once as a bare code, reads as two findings.
+                        It leads the section because it changes how everything
+                        under it should be read — these are the findings for
+                        ONE of two skills the server named the same thing. */}
+                    {collision && (
+                      <Alert
+                        color="yellow"
+                        title="Another skill shares this name"
+                        data-testid="skill-name-collision"
+                      >
+                        {collision.message}
+                      </Alert>
+                    )}
+                    {listedIssues.length === 0 ? (
                       // Titled for the check it actually summarises. Now that
                       // every verdict renders in this one section, an
                       // unqualified "Conforms" sits directly above a red digest
@@ -1322,30 +1837,46 @@ export function SkillsScreen({
                       </Alert>
                     ) : (
                       <IssueStack data-testid="skill-issues">
-                        {issues
-                          // The banner above already states this one, in prose.
-                          .filter((issue) => issue.code !== "dynamic-resources")
-                          .map((issue, index) => (
-                            <Alert
-                              // The index is load-bearing, not decoration: a
-                              // manifest repeating one URI three times yields
-                              // three `duplicate-resource` findings with
-                              // identical code and URI, and a key built from
-                              // those alone would make React drop the extras —
-                              // hiding findings in exactly the malformed input
-                              // this view exists to inspect.
-                              key={`${index}:${issue.code}:${issue.resourceUri ?? ""}`}
-                              color={issueColor(issue)}
-                              title={issue.code}
-                            >
-                              <Stack gap={2}>
-                                <Text size="sm">{issue.message}</Text>
-                                {issue.resourceUri && (
-                                  <MonoCaption>{issue.resourceUri}</MonoCaption>
-                                )}
-                              </Stack>
-                            </Alert>
-                          ))}
+                        {listedIssues.map((issue, index) => (
+                          <Alert
+                            // The index is load-bearing, not decoration: a
+                            // manifest repeating one URI three times yields
+                            // three `duplicate-resource` findings with
+                            // identical code and URI, and a key built from
+                            // those alone would make React drop the extras —
+                            // hiding findings in exactly the malformed input
+                            // this view exists to inspect.
+                            key={`${index}:${issue.code}:${issue.resourceUri ?? ""}`}
+                            color={issueColor(issue)}
+                            title={issue.code}
+                          >
+                            <Stack gap={2}>
+                              <Text size="sm">{issue.message}</Text>
+                              {issue.resourceUri && (
+                                <MonoCaption>{issue.resourceUri}</MonoCaption>
+                              )}
+                            </Stack>
+                          </Alert>
+                        ))}
+                      </IssueStack>
+                    )}
+                    {/* The frontmatter cross-check renders in Conformance
+                        rather than beside the Frontmatter section, because it
+                        is a *finding about the entry* and every other finding
+                        about the entry is here — a reader checking "does this
+                        skill conform" must not have to know that one class of
+                        violation is filed somewhere else. */}
+                    {frontmatterIssues.length > 0 && (
+                      <IssueStack data-testid="skill-frontmatter-issues">
+                        {frontmatterIssues.map((issue, index) => (
+                          <Alert
+                            key={`frontmatter:${index}`}
+                            color={issueColor(issue)}
+                            title={issue.code}
+                          >
+                            <Text size="sm">{issue.message}</Text>
+                          </Alert>
+                        ))}
                       </IssueStack>
                     )}
                     {manifest.map((resource, index) => {
@@ -1545,7 +2076,11 @@ export function SkillsScreen({
                                     variant={showing ? "light" : "subtle"}
                                     aria-current={showing ? "true" : undefined}
                                     onClick={() =>
-                                      showResource(resource.uri, manifestKey)
+                                      showResource(
+                                        resource.uri,
+                                        manifestKey,
+                                        isSelfResource(resource),
+                                      )
                                     }
                                   >
                                     {resource.uri}
@@ -1581,6 +2116,7 @@ export function SkillsScreen({
                                         index,
                                         resource,
                                         manifestKey,
+                                        isSelfResource(resource),
                                       );
                                     }}
                                   >
@@ -1592,6 +2128,243 @@ export function SkillsScreen({
                           })}
                         </Table.Tbody>
                       </ManifestTable>
+                    </Stack>
+                  </Accordion.Panel>
+                </Accordion.Item>
+              )}
+
+              {/* Gated on the CALLBACK, which the parent supplies only when
+                  the server declared `directoryRead`. SEP-2640 makes calling
+                  `resources/directory/read` against a server that has not
+                  declared it a MUST NOT, so an absent section is that rule
+                  rather than a UI preference. */}
+              {onReadResourceDirectory && skillRoot !== undefined && (
+                <Accordion.Item
+                  value="directory"
+                  flex={SECTION_FLEX}
+                  mih={
+                    openSections.includes("directory")
+                      ? OPEN_SECTION_MIN_HEIGHT
+                      : undefined
+                  }
+                >
+                  <Accordion.Control>
+                    <SectionHeading>Directory</SectionHeading>
+                  </Accordion.Control>
+                  <Accordion.Panel tabIndex={0}>
+                    <Stack gap="xs">
+                      {/* Read on a click, never on selection. A directory read
+                          is a live round trip, and this screen's posture is
+                          that every one of them is asked for — the same reason
+                          "Fetch entry" is a button and not an effect. */}
+                      <SectionControlsRow>
+                        <MonoCaption>{directoryUri ?? skillRoot}</MonoCaption>
+                        <Group gap="xs">
+                          {/* Ascending is bounded by the skill root: this
+                              section browses the selected skill's tree, and
+                              walking above it would leave the subject of every
+                              other section on screen. */}
+                          {directoryUri !== undefined &&
+                            directoryUri !== skillRoot && (
+                              <FetchButton
+                                onClick={() =>
+                                  readDirectory(
+                                    parentOfSkillUri(directoryUri),
+                                    manifestKey,
+                                  )
+                                }
+                              >
+                                Up
+                              </FetchButton>
+                            )}
+                          <FetchButton
+                            loading={directoryLoading}
+                            onClick={() =>
+                              readDirectory(skillRoot, manifestKey)
+                            }
+                          >
+                            {directoryChildren === undefined
+                              ? "Read directory"
+                              : "Reload root"}
+                          </FetchButton>
+                        </Group>
+                      </SectionControlsRow>
+                      {directoryError !== undefined && (
+                        <ReadFailureAlert>{directoryError}</ReadFailureAlert>
+                      )}
+                      {/* Stated in prose the first time the two views
+                          disagree, because the per-row chip alone does not say
+                          why it matters — and "the skill changed and needs
+                          re-approval" is what SEP-2640 asks a host to present
+                          here, rather than a read error. */}
+                      {unlistedChildren.length > 0 && (
+                        <UnlistedChildrenAlert data-testid="skill-directory-unlisted">
+                          The server is serving {unlistedChildren.length} file
+                          {unlistedChildren.length === 1 ? "" : "s"} here that
+                          the held <Code>skills/list</Code> entry does not
+                          declare. A directory read is a live observation and
+                          does <strong>not</strong> extend the manifest: to a
+                          host acting on this skill, reading one of these is a
+                          verification failure equivalent to a digest mismatch.
+                          Re-fetch the entry with <Code>skills/get</Code> to see
+                          whether the skill has changed.
+                        </UnlistedChildrenAlert>
+                      )}
+                      {directoryChildren !== undefined &&
+                        (directoryChildren.length === 0 ? (
+                          <EmptyState>This directory is empty.</EmptyState>
+                        ) : (
+                          <ManifestTable data-testid="skill-directory">
+                            <Table.Thead>
+                              <Table.Tr>
+                                <Table.Th>Name</Table.Th>
+                                <Table.Th>URI</Table.Th>
+                                <Table.Th>MIME type</Table.Th>
+                                <Table.Th>In manifest</Table.Th>
+                              </Table.Tr>
+                            </Table.Thead>
+                            <Table.Tbody>
+                              {directoryChildren.map((child, index) => {
+                                const isDir =
+                                  child.mimeType === DIRECTORY_MIME_TYPE;
+                                // A server can return a child pointing
+                                // anywhere. Descending into one leaves the
+                                // selected skill's tree, and the "Up" control
+                                // only compares against `skillRoot` — so the
+                                // walk could then continue outside it entirely
+                                // (Copilot). Containment is decided on the
+                                // NORMALIZED URI, like every containment check
+                                // in `core/mcp/skills.ts`, so a `..` segment
+                                // cannot walk out while still matching as a
+                                // prefix.
+                                const childUri = normalizeSkillUri(child.uri);
+                                const inRoot =
+                                  childUri !== undefined &&
+                                  skillRoot !== undefined &&
+                                  (childUri === skillRoot ||
+                                    childUri.startsWith(`${skillRoot}/`));
+                                // `resources/directory/read` answers with the
+                                // directory's DIRECT children. A grandchild, a
+                                // sibling's file, or the directory itself is
+                                // inside the root and so passed `inRoot`, and
+                                // was then rendered as though the server had
+                                // said it lives here (Copilot). This screen
+                                // exists to report what a server sent, so an
+                                // entry that is not a direct child is shown
+                                // and named rather than quietly navigable.
+                                const directChild =
+                                  childUri !== undefined &&
+                                  readingUri !== undefined &&
+                                  parentOfSkillUri(childUri) === readingUri;
+                                // A directory is not a manifest entry in the
+                                // first place — a manifest lists files — so it
+                                // is neither listed nor unlisted and gets no
+                                // verdict rather than a misleading "no".
+                                const listed = manifestIdentities.has(
+                                  skillUriIdentity(child.uri),
+                                );
+                                return (
+                                  // Index-keyed for the same reason the
+                                  // manifest rows are: a server repeating a URI
+                                  // is a defect to display, not two rows to
+                                  // collapse into one.
+                                  <Table.Tr key={index}>
+                                    <Table.Td>
+                                      {!inRoot || !directChild ? (
+                                        // Shown, never navigable. The reader
+                                        // should see what the server sent, and
+                                        // a child outside the skill it was
+                                        // asked about — or one that is not a
+                                        // child of this directory at all — is
+                                        // itself the finding.
+                                        <NoVerdictText>
+                                          {child.name}
+                                          {!inRoot
+                                            ? " (outside this skill)"
+                                            : " (not a direct child)"}
+                                        </NoVerdictText>
+                                      ) : (
+                                        <ResourceUriButton
+                                          // A directory descends; a file opens in
+                                          // the viewer below. One column, two
+                                          // destinations, so the label says which
+                                          // for a reader who cannot see the MIME
+                                          // column at a glance.
+                                          aria-label={
+                                            isDir
+                                              ? `Open directory ${child.uri}`
+                                              : `View ${child.uri}`
+                                          }
+                                          onClick={() =>
+                                            isDir
+                                              ? // ⚠️ The NORMALIZED URI, which
+                                                // is what `directChild` and
+                                                // `inRoot` were decided on.
+                                                // Storing the raw one instead
+                                                // meant "Up" did its path
+                                                // arithmetic on an identity
+                                                // nothing had validated — from
+                                                // `skill://r/a/../templates`
+                                                // the first Up produced
+                                                // `skill://r/a/..` and the
+                                                // second walked into
+                                                // `skill://r/a` (Copilot).
+                                                readDirectory(
+                                                  childUri,
+                                                  manifestKey,
+                                                )
+                                              : showResource(
+                                                  child.uri,
+                                                  manifestKey,
+                                                )
+                                          }
+                                        >
+                                          {isDir
+                                            ? `${child.name}/`
+                                            : child.name}
+                                        </ResourceUriButton>
+                                      )}
+                                    </Table.Td>
+                                    <Table.Td>
+                                      <MonoCaption>{child.uri}</MonoCaption>
+                                    </Table.Td>
+                                    <Table.Td>{child.mimeType ?? "—"}</Table.Td>
+                                    <Table.Td>
+                                      {isDir || isDynamic ? (
+                                        <NoVerdictText>—</NoVerdictText>
+                                      ) : (
+                                        <CountBadge
+                                          color={listed ? "green" : "yellow"}
+                                        >
+                                          {listed ? "listed" : "not listed"}
+                                        </CountBadge>
+                                      )}
+                                    </Table.Td>
+                                  </Table.Tr>
+                                );
+                              })}
+                            </Table.Tbody>
+                          </ManifestTable>
+                        ))}
+                      {/* Paging is manual because the SEP gives the cursor to
+                          the client and this screen is what a server author
+                          uses to see their own pagination work. Auto-walking it
+                          would hide exactly the behaviour under test. */}
+                      {directoryNextCursor !== undefined &&
+                        directoryUri !== undefined && (
+                          <FetchButton
+                            loading={directoryLoading}
+                            onClick={() =>
+                              readDirectory(
+                                directoryUri,
+                                manifestKey,
+                                directoryNextCursor,
+                              )
+                            }
+                          >
+                            Load more
+                          </FetchButton>
+                        )}
                     </Stack>
                   </Accordion.Panel>
                 </Accordion.Item>

@@ -60,34 +60,53 @@ as a missing capability rather than an error.
 | `subscriptions-never-acknowledged-http.json` **(modern era)** | A `subscriptions/listen` answered with a bare result  | [#2097](https://github.com/modelcontextprotocol/inspector/issues/2097) |
 | `tasks-{legacy,modern}-http.json` **(era per file)** | Tasks, both eras                                    | [#1631](https://github.com/modelcontextprotocol/inspector/issues/1631) |
 | `cancellation-modern-http.json` **(modern era)**           | Cancelling a call by closing its response stream    | [#2140](https://github.com/modelcontextprotocol/inspector/issues/2140) |
-| `skills-http.json` **(either era)** | Skills tab: `skills/list`, digest verification, and the non-conforming cases | [#2234](https://github.com/modelcontextprotocol/inspector/issues/2234) |
+| `skills-http.json` **(either era)** | Skills tab: `skills/list`, `resources/directory/read`, digest verification, the frontmatter cross-check, and the non-conforming cases | [#2234](https://github.com/modelcontextprotocol/inspector/issues/2234), [#2248](https://github.com/modelcontextprotocol/inspector/issues/2248) |
 
 ## Skills (SEP-2640)
 
-`skills-http.json` sets `"skills": true` and serves four skills over two
-`skills/list` pages. The extension is advertised **bare**: there is deliberately
-no `directoryRead` option to turn on, because nothing here serves
-`resources/directory/read` and a config that advertised it would produce exactly
-the false capability this fixture helps catch — Connection Info reporting a
-sub-option supported while the method answers `-32601`. Both come back in
-phase 3 ([#2248](https://github.com/modelcontextprotocol/inspector/issues/2248)).
+`skills-http.json` sets `"skills": true` and serves eight skills over four
+`skills/list` pages. Since
+[#2248](https://github.com/modelcontextprotocol/inspector/issues/2248) that one
+flag also declares **`directoryRead: true`** and registers the
+`resources/directory/read` handler. The declaration and the handler are one
+switch on purpose: the sub-flag's whole hazard is advertising a method nothing
+answers — Connection Info reporting a sub-option "Supported" while the method
+returns `-32601` — and a config that cannot express the declaration without the
+handler cannot reach it. To exercise the *undeclared* case, connect to any
+config **without** `"skills"`, where the Inspector must refuse to send the call
+locally rather than letting the server answer it.
 
-Every result carries the modern base envelope (`resultType` / `ttlMs` /
-`cacheScope`). `skills/*` are consumer-owned, so the SDK stamps nothing for
-them; without it a 2026-era connection would receive a result missing the
-envelope. It is stamped unconditionally rather than per era — the modern leg
-builds a fresh server per request, so there is no era to branch on when the
-handlers are registered, and on the legacy leg they are three extra members no
-codec inspects.
+**Both `skills/*` results carry the full modern base envelope** (`resultType` /
+`ttlMs` / `cacheScope`). They are consumer-owned methods, so the SDK stamps
+nothing for them; without it a 2026-era connection would receive a result
+missing the envelope. It is stamped unconditionally rather than per era — the
+modern leg builds a fresh server per request, so there is no era to branch on
+when the handlers are registered, and on the legacy leg they are three extra
+members no codec inspects.
+
+⚠️ **`resources/directory/read` deliberately carries `resultType` alone.**
+SEP-2640 states the caching attributes for a modern `skills/list` in as many
+words and says nothing of the kind for this method, whose one worked example
+carries `resultType` and nothing else. A fixture sending more than the SEP shows
+would make a client that wrongly *required* them look correct, which is the
+opposite of what a conformance fixture is for — so `readDirectoryPage` stops
+where the spec does, and `ModernDirectoryReadResultSchema` requires exactly as
+much.
+
 It works on **either era**: `skills/list`, `skills/get` and
 `resources/directory/read` are consumer-owned extension methods that neither
 era codec defines, so the SDK's era gate skips them entirely — which is why
 this fixture, unlike the tasks ones, needs no per-era variant.
 
-Three of the four skills are deliberately awkward, because the checks the Skills
-tab runs are untestable without them. Only two are actual violations — the
+Seven of the eight skills are deliberately awkward, because the checks the
+Skills tab runs are untestable without them. Only **three** are outright
+violations (`tampered-notes`, `lying-listing`, `wrong-folder` — the three
+`--verify` fails on). The rest are subtler and none is an error on its own: the
 `"dynamic"` form is **conforming**, and is here because "legal but unverifiable"
-is the case most easily buried:
+is the case most easily buried; `stale-manifest`'s entry is fully conforming
+too, with the defect living in the disagreement between its manifest and its
+directory listing; and the two `reports` skills are both entirely valid, with
+the obligation falling on whoever consumes them:
 
 | Skill | What it exercises |
 | --- | --- |
@@ -95,12 +114,54 @@ is the case most easily buried:
 | `tampered-notes` | An advertised digest that does not match the bytes served, so verification reports a **digest mismatch** with both digests shown. |
 | `dynamic-report` | `resources: "dynamic"` — a **legal** form for generated content. No manifest is advertised, so integrity cannot be verified at all; reported as a warning, not an error. |
 | `wrong-folder` | A URI path segment (`wrong-folder`) that disagrees with `frontmatter.name` (`right-name`), the one structural invariant SEP-2640 states outright. |
+| `stale-manifest` | A skill that **serves and directory-lists a file its `resources` manifest does not declare**. Its entry is otherwise fully conforming and verifies clean, so the disagreement between the two views is the only defect — and only a directory read can see it. SEP-2640 calls a directory result "a live observation" and says hosts MUST NOT treat it as extending the manifest, so the Directory section marks the extra child **not listed** rather than showing it as one of the skill's files. |
+| `acme/reports` + `globex/reports` | **Two conforming skills sharing the name `reports`.** SEP-2640 requires only that the segment before `/SKILL.md` equal `frontmatter.name`, which multi-segment paths satisfy while still sharing a final segment — its own `acme/billing/refunds` example is this shape. Hosts MUST NOT assume name uniqueness and MUST tell the two apart rather than collapsing or preferring one, so the Inspector reports a `duplicate-name` **warning** on both and shows each skill's URI beside its name. Also the only fixture with a multi-segment skill path. |
+| `lying-listing` | A `skills/list` entry advertising one `description` while the served `SKILL.md` carries another. **Its digest verifies** — a digest is taken over the bytes the server served and says nothing about whether the listing described them honestly — so this is the one violation only the frontmatter cross-check can catch. |
 
 Connection Info's **Skills Extension Options** section shows the `directoryRead`
-sub-flag — against this fixture, a red ✗. The Inspector surfaces the flag but
-does not call `resources/directory/read` yet, and the wire schema for that
-result is deliberately absent from `core/mcp/skillsSchemas.ts` too: phase 3 adds
-it against the normative text rather than shipping a guess nothing exercises.
+sub-flag — against this fixture, a green ✓. The Skills screen then renders a
+**Directory** section for the selected skill: press *Read directory* to list the
+skill root's children, click a directory row to descend, *Up* to come back, and
+*Load more* to page. Pages are one child each here, so a client that ignores
+`nextCursor` is visibly wrong rather than merely lucky. `dynamic-report` is the
+case the method actually exists for — it advertises no manifest, so a directory
+read is the only way its files are discoverable at all.
+
+From the CLI, the same catalog reports itself:
+
+```sh
+mcp-inspector --cli --server-url http://127.0.0.1:3230/mcp --transport http \
+  --method skills/list --verify
+```
+
+One JSON report per skill on stdout, a one-line summary on stderr, and exit **7**
+when any skill fails — which it does here, on `tampered-notes` (digest),
+`wrong-folder` (name) and `lying-listing` (frontmatter). The TUI's **Skills**
+pane runs the same checks for one selected skill on <kbd>Enter</kbd>.
+
+### Why these five shapes
+
+They are the client-side obligations SEP-2640 makes testable from a hostile
+server, which is how the
+[`modelcontextprotocol/conformance`](https://github.com/modelcontextprotocol/conformance)
+harness grades a *client*: it stands up a server and watches what the client
+does. **Three** of its five skills scenarios map onto a fixture here — a digest
+mismatch (`tampered-notes`), a frontmatter mismatch (`lying-listing`), and a
+read of a file the manifest does not list (`stale-manifest`).
+
+The other two are covered, but not by this fixture, and the distinction is worth
+keeping honest:
+
+- **Size mismatch** has no fixture. `test-servers/src/skills.ts` can override an
+  advertised *digest* and nothing else, so the size path — which
+  `verifySkillResource` checks first, before hashing — is exercised by unit
+  tests rather than against a live server. Adding it would mean an
+  `advertisedSize` override beside the digest one.
+- **No-prefetch** is a negative and could not have a fixture: it passes only if
+  connecting and calling `skills/list` produces *no* `resources/read` at all.
+  The Inspector satisfies it structurally — nothing is fetched until a user
+  selects a skill or presses Verify, which is why every round trip on the Skills
+  screen is a button rather than an effect.
 
 ## Cancelling a call
 

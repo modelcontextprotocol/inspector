@@ -16,6 +16,33 @@
  * reason the request is a plain `client.request`: the SDK has no high-level verb
  * for a consumer-owned extension method, so there is no cache-aware wrapper to
  * delegate to and no `cacheMode` to honor.
+ *
+ * ⚠️ **There is deliberately no `PagedSkillsState`, so the `paginatedLists`
+ * server setting does not apply to Skills (#2248).** Tools, prompts and
+ * resources each have a paged counterpart that setting switches them to; skills
+ * does not, and the reason is not that the walk is cheap.
+ *
+ * It is that **every consumer of this list is a whole-catalog verdict.** The
+ * Skills screen's conformance summary, and the CLI's `--verify` exit code, are
+ * statements about the catalog: "this server's skills conform". Computed over
+ * page one of three, that statement is *wrong* — it reports a clean catalog
+ * while the tampered digest sits on page three, and reports it with exactly the
+ * confidence of a real pass. Paging the other lists costs a reader some rows;
+ * paging this one would make the tool's own output untrue. The setting exists
+ * to let a user watch a server's pagination work, and this list's page count is
+ * surfaced instead (`getPagination`, rendered by both the web screen and the
+ * TUI pane), which serves that purpose without staking a verdict on a partial
+ * read.
+ *
+ * The cost argument, which is the one #2248 asked about, points the same way
+ * and is secondary: SEP-2640 makes a listing entry a *complete* manifest —
+ * verbatim frontmatter and the full `resources` set with digests — precisely so
+ * that "a host that pages through the listing has, in that one pass, everything
+ * it needs … there is no second round-trip per skill". A full walk is the
+ * access pattern the wire format was designed for. Revisit if a real server
+ * turns up whose catalog makes the walk painful; the guards this walk already
+ * carries (`SKILLS_MAX_PAGES`, the repeated-cursor check) are what bound it
+ * until then.
  */
 
 import type { InspectorClientProtocol } from "../inspectorClientProtocol.js";
