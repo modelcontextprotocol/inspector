@@ -375,6 +375,16 @@ export default defineConfig(({ command }) => {
           ],
           test: {
             name: "storybook",
+            // Vitest's default is 5000ms, which is the whole budget a play
+            // function gets — including work that is genuinely slow rather than
+            // racy. `JsonObjectInput`'s "Annotates The Offending Line" waits on
+            // Ace's JSON worker, which starts out of process and debounces its
+            // result; its own `waitFor` asked for 5000ms and so could never win
+            // against the per-test ceiling, and it lost on a loaded machine
+            // (#2292). A larger ceiling does not hide a defect here: a story
+            // that blows 15s has genuinely failed, and every assertion stays as
+            // strict as it was.
+            testTimeout: 15000,
             browser: {
               enabled: true,
               headless: true,
