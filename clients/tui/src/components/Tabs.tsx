@@ -1,6 +1,6 @@
 import React from "react";
 import { Box, Text } from "ink";
-import { type TabType, tabs } from "./tabsConfig.js";
+import { type TabType, visibleTabs as visibleTabsFor } from "./tabsConfig.js";
 
 /**
  * Split a tab label so the accelerator letter can be underlined wherever it
@@ -59,19 +59,14 @@ export function Tabs({
   showRequests = false,
   showSkills = false,
 }: TabsProps) {
-  let visibleTabs = tabs;
-  if (!showAuth) {
-    visibleTabs = visibleTabs.filter((tab) => tab.id !== "auth");
-  }
-  if (!showLogging) {
-    visibleTabs = visibleTabs.filter((tab) => tab.id !== "logging");
-  }
-  if (!showRequests) {
-    visibleTabs = visibleTabs.filter((tab) => tab.id !== "requests");
-  }
-  if (!showSkills) {
-    visibleTabs = visibleTabs.filter((tab) => tab.id !== "skills");
-  }
+  // Shared with `App`, which sizes the pane below this bar from the same list —
+  // see `tabBarRows`.
+  const visibleTabs = visibleTabsFor({
+    showAuth,
+    showLogging,
+    showRequests,
+    showSkills,
+  });
 
   return (
     <Box

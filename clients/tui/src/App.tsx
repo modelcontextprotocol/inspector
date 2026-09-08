@@ -81,6 +81,7 @@ import { InfoTab } from "./components/InfoTab.js";
 import { AuthTab } from "./components/AuthTab.js";
 import { ResourcesTab } from "./components/ResourcesTab.js";
 import { PromptsTab } from "./components/PromptsTab.js";
+import { tabBarRows, visibleTabs } from "./components/tabsConfig.js";
 import { SkillsTab } from "./components/SkillsTab.js";
 import { ToolsTab } from "./components/ToolsTab.js";
 import { NotificationsTab } from "./components/NotificationsTab.js";
@@ -1621,14 +1622,37 @@ function App({
 
   // Calculate layout dimensions
   const headerHeight = 1;
-  const tabsHeight = 1;
+  const serverListWidth = Math.floor(dimensions.width * 0.3);
+  const contentWidth = dimensions.width - serverListWidth;
+  // Derived, not assumed. The bar wraps once the visible tabs exceed the
+  // terminal width — which a stdio server with Skills does at any ordinary
+  // width — and a hard-coded 1 sized every pane below it one row too tall,
+  // clipping the bottom of the TUI (Copilot).
+  const tabsHeight = tabBarRows(
+    visibleTabs({
+      showAuth: !!(
+        selectedServer &&
+        selectedServerConfig &&
+        isOAuthCapableServerConfig(selectedServerConfig)
+      ),
+      showLogging:
+        !!selectedServer &&
+        inspectorClients[selectedServer]?.getServerType() === "stdio",
+      showRequests:
+        !!selectedServer &&
+        (inspectorClients[selectedServer]?.getServerType() === "sse" ||
+          inspectorClients[selectedServer]?.getServerType() ===
+            "streamable-http"),
+      showSkills: showSkillsTab,
+    }),
+    tabCounts,
+    contentWidth,
+  );
   // Server details will be flexible - calculate remaining space for content
   const availableHeight = dimensions.height - headerHeight - tabsHeight;
   // Reserve space for server details (will grow as needed, but we'll use flexGrow)
   const serverDetailsMinHeight = 3;
   const contentHeight = availableHeight - serverDetailsMinHeight;
-  const serverListWidth = Math.floor(dimensions.width * 0.3);
-  const contentWidth = dimensions.width - serverListWidth;
 
   const getStatusColor = (status: string) => {
     switch (status) {

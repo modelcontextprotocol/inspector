@@ -514,6 +514,30 @@ export function totalSkillBytes(resources: readonly SkillResource[]): number {
 }
 
 /**
+ * A stable key for "this exact entry", safe against a hostile listing.
+ *
+ * `JSON.stringify(entry)` is the obvious implementation and is the wrong one:
+ * `frontmatter` is unbounded server-controlled JSON, so a deep enough object
+ * throws `RangeError: Maximum call stack size exceeded` — and this is evaluated
+ * during render, so one catalog entry could crash the pane that exists to
+ * report on it (Copilot).
+ *
+ * The same guard that bounds the frontmatter comparison decides it here. When
+ * the entry is representable the key is its serialization, which is exact;
+ * when it is not, the key falls back to the entry's identity plus its manifest
+ * length. That fallback is deliberately coarse — such an entry already carries
+ * a `frontmatter-unparsable` error, so what matters is that it produces a
+ * usable key rather than a precise one.
+ */
+export function skillEntryKey(entry: SkillEntry): string {
+  if (jsonGraphError(entry) !== undefined) {
+    const count = Array.isArray(entry.resources) ? entry.resources.length : -1;
+    return `${skillUriIdentity(entry.uri)}#unrepresentable:${count}`;
+  }
+  return JSON.stringify(entry);
+}
+
+/**
  * Whether a `skills/get` entry describes the same skill as the `skills/list`
  * entry alongside it, compared **semantically** rather than byte-for-byte.
  *

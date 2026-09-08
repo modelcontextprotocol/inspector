@@ -92,8 +92,23 @@ export interface SkillVerifyReport {
    */
   files: SkillFileReport[];
   /**
+   * Why the manifest could not be checked in full, or `undefined` when it was.
+   *
+   * Set when the read bounds truncated the manifest. It is reported separately
+   * from `ok` being false so a consumer can tell "this skill is wrong" from
+   * "this skill was not fully checked" — but it does make `ok` false, because
+   * the alternative is worse: entries past the cap are never fetched, and
+   * `resource-limit-exceeded` is only a WARNING, so a manifest whose 513th
+   * file was tampered with reported `ok: true` and the CLI said the skill
+   * verified (Copilot). A bound that turns a denial of service into a false
+   * pass has traded down.
+   */
+  incomplete?: string;
+  /**
    * False when anything the SEP makes a MUST was broken: an error-severity
-   * finding, a digest or size mismatch, or a file that could not be read.
+   * finding, a digest or size mismatch, or a file that could not be read —
+   * **or when {@link incomplete} is set**, since a verification that did not
+   * finish cannot report success.
    *
    * A `warning` does **not** clear it — a `"dynamic"` manifest is legal, and a
    * report that failed CI for it would be telling server authors their
@@ -247,6 +262,10 @@ export async function verifySkills(
     // running total would CROSS the limit, so a conforming skill (≤ 16 MiB in
     // total, by definition) is never truncated.
     const manifest = boundedManifest(declared);
+    const incomplete =
+      manifest.length < declared.length
+        ? `Only ${manifest.length} of ${declared.length} manifest entries were read: the skill exceeds the ${SKILL_MAX_RESOURCE_ENTRIES}-entry / ${SKILL_MAX_TOTAL_BYTES}-byte interoperability limits, so the rest were not fetched and cannot be reported on.`
+        : undefined;
     const entryIdentity = skillUriIdentity(entry.uri);
     // Compared by NORMALIZED identity, like every other URI comparison here —
     // `checkSkillConformance` already accepts a manifest self-entry written in
@@ -327,6 +346,20 @@ export async function verifySkills(
             fail(reasonOf(err));
           }
         }
+        // If the DECLARED manifest lists this file but the read bounds
+        // excluded it, verify it here too. The fallback exists for the
+        // frontmatter check, but reading a file and then not checking the
+        // digest the manifest advertised for it would leave the entry's own
+        // SKILL.md the one file nobody verified (Copilot).
+        const declaredSelf = declared.find(
+          (resource) => skillUriIdentity(resource.uri) === entryIdentity,
+        );
+        if (declaredSelf && entryBytes !== undefined) {
+          files.push({
+            uri: entry.uri,
+            ...(await verifySkillResource(declaredSelf, entryBytes)),
+          });
+        }
       } catch (err) {
         // An expired authorization is the one error that is not this file's
         // problem — see the note on the function.
@@ -359,7 +392,9 @@ export async function verifySkills(
       conformance,
       frontmatter,
       files,
-      ok: !hasError && !fileFailed,
+      ...(incomplete ? { incomplete } : {}),
+      // An unfinished verification is not a passing one.
+      ok: !hasError && !fileFailed && incomplete === undefined,
     });
   }
   return reports;

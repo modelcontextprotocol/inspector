@@ -27,6 +27,7 @@ import {
   checkSkillConformance,
   checkSkillNameCollisions,
   skillDisplayName,
+  skillEntryKey,
   skillUriIdentity,
   type SkillIssue,
 } from "@inspector/core/mcp/skills.js";
@@ -86,18 +87,6 @@ const FILE_COLOR: Record<string, string> = {
   error: "red",
   "read-error": "red",
 };
-
-/**
- * What a verification result is a result *about*: the whole entry, serialized.
- *
- * `JSON.stringify` is enough here — this compares an entry against a later copy
- * of *itself* from the same server, so key order is stable and there is no need
- * for the canonical form `skillEntriesMatch` uses to compare two independently
- * produced entries.
- */
-function entryKey(entry: SkillEntry): string {
-  return JSON.stringify(entry);
-}
 
 /**
  * The explanation printed under a failed file row.
@@ -185,7 +174,7 @@ export function SkillsTab({
       void (async () => {
         try {
           const [result] = await verifySkills(inspectorClient, [skill]);
-          setReport({ key: entryKey(skill), result });
+          setReport({ key: skillEntryKey(skill), result });
         } catch (err) {
           if (err instanceof AuthRecoveryRequiredError) {
             onAuthRecoveryRequired?.(err);
@@ -265,7 +254,7 @@ export function SkillsTab({
   };
   const issues = selectedSkill ? findingsFor(selectedSkill) : [];
   const activeReport =
-    selectedSkill && report?.key === entryKey(selectedSkill)
+    selectedSkill && report?.key === skillEntryKey(selectedSkill)
       ? report.result
       : null;
   const manifest =

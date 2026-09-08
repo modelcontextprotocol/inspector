@@ -538,6 +538,7 @@ describe("verifySkills (#2248)", () => {
     const [report] = await verifySkills(client, [skill]);
     expect(readResource).toHaveBeenCalledTimes(512);
     expect(report.files).toHaveLength(512);
+    expect(report.ok).toBe(false);
     // …and the overage is still REPORTED, so bounding the reads does not
     // silence the finding that made them unnecessary.
     expect(report.conformance).toEqual(
@@ -581,11 +582,69 @@ describe("verifySkills (#2248)", () => {
     const [report] = await verifySkills(client, [skill]);
     // Two fit exactly; the third would cross, so it is never requested.
     expect(readResource).toHaveBeenCalledTimes(2);
+    // …and a verification that did not finish must not report success.
+    expect(report.incomplete).toMatch(/2 of 3 manifest entries/);
+    expect(report.ok).toBe(false);
     expect(report.conformance).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ code: "size-limit-exceeded" }),
       ]),
     );
+  });
+
+  it("does not report success for a manifest it could not finish reading", async () => {
+    // The trade this bound must NOT make: entries past the cap are never
+    // fetched and `resource-limit-exceeded` is only a warning, so a manifest
+    // whose 513th file is tampered with returned `ok: true` and the CLI said
+    // the skill verified — a denial of service swapped for a false pass
+    // (Copilot).
+    const skill: SkillEntry = {
+      uri: "skill://many/SKILL.md",
+      frontmatter: { name: "many", description: "Over the entry limit" },
+      resources: Array.from({ length: 600 }, (_, i) => ({
+        uri: i === 0 ? "skill://many/SKILL.md" : `skill://many/f${i}.md`,
+        digest: `sha256:${"a".repeat(64)}`,
+        size: 1,
+      })),
+    };
+    const readResource = vi.fn(async (uri: string) => ({
+      result: { contents: [{ uri, text: "x" }] },
+    }));
+    const client = { readResource } as unknown as InspectorClientProtocol;
+    const [report] = await verifySkills(client, [skill]);
+    expect(report.incomplete).toBeDefined();
+    expect(report.ok).toBe(false);
+  });
+
+  it("verifies the entry's own file even when the cap excluded it", async () => {
+    // The fallback exists for the frontmatter check, but reading the file and
+    // then skipping the digest its manifest advertised would leave the skill's
+    // own SKILL.md the one file nobody verified (Copilot).
+    const skill: SkillEntry = {
+      uri: "skill://huge/SKILL.md",
+      frontmatter: { name: "huge", description: "Listed" },
+      resources: [
+        ...Array.from({ length: 600 }, (_, i) => ({
+          uri: `skill://huge/f${i}.md`,
+          digest: `sha256:${"a".repeat(64)}`,
+          size: 1,
+        })),
+        {
+          uri: "skill://huge/SKILL.md",
+          digest: `sha256:${"b".repeat(64)}`,
+          size: 1,
+        },
+      ],
+    };
+    const readResource = vi.fn(async (uri: string) => ({
+      result: { contents: [{ uri, text: "x" }] },
+    }));
+    const client = { readResource } as unknown as InspectorClientProtocol;
+    const [report] = await verifySkills(client, [skill]);
+    const self = report.files.find((f) => f.uri === "skill://huge/SKILL.md");
+    // A real verdict on the advertised digest, not merely a read.
+    expect(self?.status).toBe("mismatch");
+    expect(self?.expectedDigest).toBe(`sha256:${"b".repeat(64)}`);
   });
 
   it("does not truncate a conforming manifest", async () => {
@@ -600,6 +659,9 @@ describe("verifySkills (#2248)", () => {
     const [report] = await verifySkills(client, [skill]);
     expect(readResource).toHaveBeenCalledTimes(2);
     expect(report.files).toHaveLength(2);
+    // Nothing was skipped, so nothing is reported as incomplete.
+    expect(report.incomplete).toBeUndefined();
+    expect(report.ok).toBe(true);
   });
 
   it("still reads the entry's own file when the cap would exclude it", async () => {

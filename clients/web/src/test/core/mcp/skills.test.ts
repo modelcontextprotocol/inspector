@@ -9,6 +9,7 @@ import {
   checkSkillConformance,
   checkSkillFrontmatterMatch,
   checkSkillNameCollisions,
+  skillEntryKey,
   getSkillsExtension,
   isSkillsExtensionSupported,
   normalizeSkillUri,
@@ -1199,5 +1200,51 @@ describe("checkSkillNameCollisions (#2248)", () => {
     expect(checkSkillNameCollisions([at("skill://a/SKILL.md", "a")]).size).toBe(
       0,
     );
+  });
+});
+
+describe("skillEntryKey (#2248)", () => {
+  const base: SkillEntry = {
+    uri: "skill://demo/SKILL.md",
+    frontmatter: { name: "demo", description: "A demo" },
+    resources: [],
+  };
+
+  it("distinguishes two entries that differ anywhere", () => {
+    expect(skillEntryKey(base)).toBe(skillEntryKey({ ...base }));
+    expect(skillEntryKey(base)).not.toBe(
+      skillEntryKey({
+        ...base,
+        frontmatter: { name: "demo", description: "changed" },
+      }),
+    );
+  });
+
+  it("survives frontmatter too deep to serialize", () => {
+    // `frontmatter` is unbounded server-controlled JSON, and this key is
+    // computed during render — so `JSON.stringify` let one catalog entry crash
+    // the pane that exists to report on it (Copilot).
+    let deep: unknown = "leaf";
+    for (let i = 0; i < 60000; i += 1) deep = { a: deep };
+    const hostile = {
+      ...base,
+      frontmatter: { name: "demo", deep },
+    } as unknown as SkillEntry;
+    expect(() => skillEntryKey(hostile)).not.toThrow();
+    expect(skillEntryKey(hostile)).toContain("unrepresentable");
+  });
+
+  it("still separates two unrepresentable entries by identity", () => {
+    // The fallback is coarse, but it must not collapse distinct skills into
+    // one key — that would show a verdict under the wrong name.
+    let deep: unknown = "leaf";
+    for (let i = 0; i < 60000; i += 1) deep = { a: deep };
+    const a = { ...base, frontmatter: { deep } } as unknown as SkillEntry;
+    const b = {
+      ...base,
+      uri: "skill://other/SKILL.md",
+      frontmatter: { deep },
+    } as unknown as SkillEntry;
+    expect(skillEntryKey(a)).not.toBe(skillEntryKey(b));
   });
 });
