@@ -702,6 +702,38 @@ describe("verifySkills (#2248)", () => {
     expect(report.files[0].status).toBe("mismatch");
   });
 
+  it("reports the capped self-entry under the URI the MANIFEST declared", async () => {
+    // A manifest may write its self-entry in a normalized-equivalent form. The
+    // fallback recorded `entry.uri`, so a consumer matching rows against the
+    // manifest found nothing — while a normalized "extra files" filter
+    // suppressed it as already covered. The verdict existed in the report and
+    // appeared nowhere on screen (Copilot).
+    const declaredSpelling = "skill://huge/x/../SKILL.md";
+    const skill: SkillEntry = {
+      uri: "skill://huge/SKILL.md",
+      frontmatter: { name: "huge", description: "Listed" },
+      resources: [
+        ...Array.from({ length: 600 }, (_, i) => ({
+          uri: `skill://huge/f${i}.md`,
+          digest: `sha256:${"a".repeat(64)}`,
+          size: 1,
+        })),
+        { uri: declaredSpelling, digest: `sha256:${"b".repeat(64)}`, size: 1 },
+      ],
+    };
+    const readResource = vi.fn(async (uri: string) => ({
+      result: { contents: [{ uri, text: "x" }] },
+    }));
+    const client = { readResource } as unknown as InspectorClientProtocol;
+    const [report] = await verifySkills(client, [skill]);
+    const self = report.files.find((f) => f.uri === declaredSpelling);
+    expect(self?.status).toBe("mismatch");
+    // …and NOT under the entry's own spelling, which no manifest row carries.
+    expect(report.files.some((f) => f.uri === "skill://huge/SKILL.md")).toBe(
+      false,
+    );
+  });
+
   it("does not truncate a conforming manifest", async () => {
     // A conforming skill totals at most 16 MiB by definition, so the bound
     // must never shorten one — otherwise it would trade a hostile-server

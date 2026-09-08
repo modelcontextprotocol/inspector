@@ -376,7 +376,13 @@ export async function verifySkills(
         );
         if (declaredSelf && entryBytes !== undefined) {
           files.push({
-            uri: entry.uri,
+            // The DECLARED spelling, not the entry's. They can differ — a
+            // manifest may write its self-entry in a normalized-equivalent
+            // form — and a consumer matching rows against the manifest then
+            // finds nothing, while a normalized "extra files" filter suppresses
+            // it as already covered. The result was a verdict that existed in
+            // the report and appeared nowhere on screen (Copilot).
+            uri: declaredSelf.uri,
             ...(await verifySkillResource(declaredSelf, entryBytes)),
           });
         }

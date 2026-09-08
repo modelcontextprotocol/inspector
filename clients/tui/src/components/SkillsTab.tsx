@@ -402,6 +402,26 @@ export function SkillsTab({
                 </Box>
               ))}
 
+              {/* ABOVE the manifest, because it explains the list that
+                  follows: only the first N rows were fetched, and the rest
+                  stay marked `·` because nobody looked at them. Below a
+                  512-row manifest it would be off-screen, which is the same as
+                  absent. `verifySkills` sets `incomplete` precisely so a
+                  consumer can tell "not fully checked" from a real failure
+                  (Copilot). */}
+              {activeReport?.incomplete && (
+                <>
+                  <Box marginTop={1} flexShrink={0}>
+                    <Text bold color="yellow">
+                      Incomplete:
+                    </Text>
+                  </Box>
+                  <Box paddingLeft={2} flexShrink={0}>
+                    <Text color="yellow">{activeReport.incomplete}</Text>
+                  </Box>
+                </>
+              )}
+
               <Box marginTop={1} flexShrink={0}>
                 <Text bold>
                   Manifest
@@ -504,7 +524,9 @@ export function SkillsTab({
                     : activeReport
                       ? activeReport.ok
                         ? "[Verified — Enter to re-verify]"
-                        : "[Verification FAILED — Enter to re-verify]"
+                        : activeReport.incomplete
+                          ? "[Verification INCOMPLETE — Enter to re-verify]"
+                          : "[Verification FAILED — Enter to re-verify]"
                       : "[Enter to verify digests and frontmatter]"}
                 </Text>
               </Box>

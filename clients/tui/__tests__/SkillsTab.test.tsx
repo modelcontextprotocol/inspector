@@ -750,6 +750,50 @@ describe("SkillsTab (#2248)", () => {
     );
   });
 
+  it("says a verification was INCOMPLETE rather than merely failed", async () => {
+    // `verifySkills` sets `incomplete` so a consumer can tell "not fully
+    // checked" from a real failure; printing only "Verification FAILED" threw
+    // that distinction away, and the entries beyond the cap stayed marked `·`
+    // with nothing explaining why (Copilot).
+    //
+    // Truncation is triggered by the BYTE budget rather than the 512-entry one
+    // so the manifest stays three rows long: a 512-row pane pushes the status
+    // line off the frame, which would make this assert the test's viewport
+    // rather than the pane's behaviour.
+    const big = "x".repeat(6 * 1024 * 1024);
+    const fat: SkillEntry = {
+      uri: "skill://fat/SKILL.md",
+      frontmatter: { name: "fat", description: "Understates its sizes" },
+      resources: Array.from({ length: 3 }, (_, i) => ({
+        uri: i === 0 ? "skill://fat/SKILL.md" : `skill://fat/f${i}.md`,
+        digest: CLEAN_DIGEST,
+        size: 1,
+      })),
+    };
+    const { lastFrame, stdin } = render(
+      <SkillsTab
+        skills={[fat]}
+        pageCount={1}
+        inspectorClient={mockClient(
+          vi.fn().mockImplementation(async (uri: string) => ({
+            result: { contents: [{ uri, text: big }] },
+          })),
+        )}
+        width={160}
+        height={40}
+        focusedPane="list"
+      />,
+    );
+    stdin.write(ENTER);
+    await tick();
+    await tick();
+    const frame = lastFrame() ?? "";
+    expect(frame).toContain("Incomplete:");
+    expect(frame).toContain("actually served");
+    expect(frame).toContain("Verification INCOMPLETE");
+    expect(frame).not.toContain("Verification FAILED");
+  });
+
   it("shows a read failure the manifest does not cover", async () => {
     // A dynamic skill has no manifest rows, so the synthetic read-error row
     // `verifySkills` records for its own SKILL.md was rendered nowhere and the
