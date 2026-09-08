@@ -2458,6 +2458,42 @@ describe("SkillsScreen frontmatter cross-check (#2248)", () => {
     );
   });
 
+  it("keeps a frontmatter finding when the reader opens another file", async () => {
+    // The check ran off whatever the viewer was showing, so opening a
+    // supporting file made `showingSkillMd` false and silently dropped the
+    // finding AND its error count — erasing an observed conformance failure
+    // because the reader browsed a second file, with the skill unchanged
+    // (Copilot).
+    const user = userEvent.setup();
+    const lying: SkillEntry = {
+      ...CLEAN_SKILL,
+      frontmatter: { name: "data-analysis", description: "Disagrees" },
+    };
+    renderWithMantine(<ControlledSkillsScreen skills={[lying]} />);
+    await user.click(screen.getByText("data-analysis"));
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("skill-frontmatter-issues"),
+      ).toBeInTheDocument(),
+    );
+
+    // Open a supporting file: the finding is about the SKILL, not the view.
+    await user.click(
+      screen.getByRole("button", {
+        name: "skill://data-analysis/reference.md",
+      }),
+    );
+    await waitFor(() =>
+      expect(readFixtureFile).toHaveBeenCalledWith(
+        "skill://data-analysis/reference.md",
+      ),
+    );
+    expect(screen.getByTestId("skill-frontmatter-issues")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Conformance/ }),
+    ).toHaveTextContent("1 error(s)");
+  });
+
   it("counts frontmatter findings in the Conformance badge", async () => {
     // The findings render inside this section, so counting only the static
     // listing issues left the badge saying `0 error(s)` above a red

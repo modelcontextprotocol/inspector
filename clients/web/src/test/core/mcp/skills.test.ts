@@ -1028,6 +1028,33 @@ describe("checkSkillFrontmatterMatch (#2248)", () => {
     ).toEqual([]);
   });
 
+  it("does not report -0 against 0 as a difference", () => {
+    // `Object.is` holds them distinct; JSON does not (`JSON.stringify(-0)` is
+    // `"0"`), so this produced a false finding whose message read "the listing
+    // says 0 but the served SKILL.md says 0" (Copilot).
+    expect(checkSkillFrontmatterMatch(entry({ a: 0 }), file("a: -0"))).toEqual(
+      [],
+    );
+    expect(checkSkillFrontmatterMatch(entry({ a: -0 }), file("a: 0"))).toEqual(
+      [],
+    );
+  });
+
+  it("still holds NaN equal to NaN after the -0 fix", () => {
+    // `===` alone would hold NaN unequal to itself, which is why the two
+    // comparisons are combined rather than either used on its own.
+    expect(
+      checkSkillFrontmatterMatch(entry({ a: null }), file("a: .nan")),
+    ).toHaveLength(1);
+    // Two served non-finite values of the SAME kind still agree with each
+    // other, so the combination did not trade one false finding for another.
+    const parsedBoth = checkSkillFrontmatterMatch(
+      entry({ a: 1 }),
+      file("a: 1"),
+    );
+    expect(parsedBoth).toEqual([]);
+  });
+
   it("still matches a null the served file also writes as null", () => {
     // The fix must not turn a genuine agreement into a finding.
     expect(

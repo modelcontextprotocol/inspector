@@ -364,8 +364,13 @@ Stdout is **NDJSON, one report per skill**, in listing order:
 ```
 
 Stderr gets a one-line summary, so a reader who piped stdout into `jq` still
-sees the verdict. `--method skills/get --uri <skill>` verifies exactly one
-skill, in the same shape.
+sees the verdict — and then, on a failing run, the ordinary
+[`ErrorEnvelope`](#exit-codes--error-envelopes) line that **every** non-zero
+exit writes. Two stderr lines on failure, one on success, which is the same
+shape `--strict` produces and is why the envelope is not suppressed here: a
+caller branching on `.code` should not have to special-case this command.
+`--method skills/get --uri <skill>` verifies exactly one skill, in the same
+shape.
 
 **What fails the run.** `ok` is false — and the exit code is `7` — for anything
 SEP-2640 makes a MUST: an error-severity conformance finding, a digest or size

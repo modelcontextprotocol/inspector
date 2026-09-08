@@ -882,7 +882,7 @@ export function SkillsScreen({
   });
 
   const fileStates = verification.key === manifestKey ? verification.files : {};
-  const verifiedEntryText =
+  const entrySourceText =
     verification.key === manifestKey ? verification.entryText : undefined;
 
   /**
@@ -1037,7 +1037,7 @@ export function SkillsScreen({
    * whichever one happened to be current when this callback was created.
    */
   const showResource = useCallback(
-    (uri: string, key: string) => {
+    (uri: string, key: string, isEntryUri = false) => {
       const attempt = (nextAttempt.current += 1);
       // A click handler cannot await, and this chain terminates in its own
       // `catch` that surfaces the message in the viewer. Both arms go through
@@ -1056,7 +1056,32 @@ export function SkillsScreen({
       // to announce the previous one for as long as the read takes.
       writePreview({ uri });
       void onReadSkillFile(uri)
-        .then((contents) => writePreview({ uri, contents }))
+        .then((contents) => {
+          writePreview({ uri, contents });
+          // A successful read of the skill's OWN file is recorded in the
+          // skill-scoped slot, so the frontmatter verdict it produces outlives
+          // the reader opening a supporting file — see
+          // `VerificationState.entryText`. Only on success, and only for that
+          // file: a failed or unrelated read must not overwrite an answer.
+          if (isEntryUri) {
+            let text: string | undefined;
+            try {
+              text = bytesToText(skillFileBytes(contents));
+            } catch {
+              return; // neither text nor blob; the viewer reports it
+            }
+            setVerification((prev) =>
+              prev.key !== null && prev.key !== key
+                ? prev
+                : {
+                    ...prev,
+                    key,
+                    files: prev.key === key ? prev.files : {},
+                    entryText: text,
+                  },
+            );
+          }
+        })
         .catch((err: unknown) => {
           writePreview({
             uri,
@@ -1117,7 +1142,7 @@ export function SkillsScreen({
     }
     if (autoReadKey.current === manifestKey) return;
     autoReadKey.current = manifestKey;
-    showResource(selectedUri, manifestKey);
+    showResource(selectedUri, manifestKey, true);
   }, [manifestKey, selectedUri, showResource]);
 
   /**
@@ -1453,10 +1478,11 @@ export function SkillsScreen({
    */
   const frontmatterIssues = useMemo(() => {
     if (!selected) return [];
-    // Prefer the text the VERIFICATION read, so the digest verdict above and
-    // this one describe one fetch rather than two.
-    if (verifiedEntryText !== undefined) {
-      return checkSkillFrontmatterMatch(selected, verifiedEntryText);
+    // The skill-scoped text, whichever read produced it — so this verdict
+    // survives the reader opening another file, and agrees with the digest
+    // verdict when one verification produced both.
+    if (entrySourceText !== undefined) {
+      return checkSkillFrontmatterMatch(selected, entrySourceText);
     }
     if (!showingSkillMd || preview === undefined) return [];
     // Run against the **raw fetched bytes**, not against `previewParts`.
@@ -1479,7 +1505,7 @@ export function SkillsScreen({
       return [];
     }
     return checkSkillFrontmatterMatch(selected, text);
-  }, [selected, showingSkillMd, preview, verifiedEntryText]);
+  }, [selected, showingSkillMd, preview, entrySourceText]);
 
   /**
    * The findings rendered as list items — everything except the two that are
@@ -2001,7 +2027,11 @@ export function SkillsScreen({
                                     variant={showing ? "light" : "subtle"}
                                     aria-current={showing ? "true" : undefined}
                                     onClick={() =>
-                                      showResource(resource.uri, manifestKey)
+                                      showResource(
+                                        resource.uri,
+                                        manifestKey,
+                                        isSelfResource(resource),
+                                      )
                                     }
                                   >
                                     {resource.uri}

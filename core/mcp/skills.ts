@@ -772,7 +772,24 @@ export async function verifySkillResource(
  * with `null`.
  */
 function jsonLikeEqual(a: unknown, b: unknown): boolean {
-  if (typeof a === "number" || typeof b === "number") return Object.is(a, b);
+  if (typeof a === "number" || typeof b === "number") {
+    // `===` for finite numbers, `Object.is` only for the non-finite ones.
+    //
+    // `Object.is` alone held `0` and `-0` distinct, so a listing carrying JSON
+    // `0` against a served YAML `-0` produced a mismatch — reported as "the
+    // listing says 0 but the served SKILL.md says 0", a false finding with an
+    // unintelligible explanation (Copilot). JSON does not distinguish them
+    // (`JSON.stringify(-0)` is `"0"`), so neither may this. `===` would in turn
+    // hold `NaN` unequal to itself, which is why the two are combined rather
+    // than either used alone.
+    if (typeof a === "number" && typeof b === "number") {
+      return Number.isFinite(a) && Number.isFinite(b)
+        ? a === b
+        : Object.is(a, b);
+    }
+    // One side is not a number at all: different types, never equal.
+    return false;
+  }
   if (a === null || b === null) return a === b;
   if (typeof a !== "object" || typeof b !== "object") return Object.is(a, b);
   const aArray = Array.isArray(a);
