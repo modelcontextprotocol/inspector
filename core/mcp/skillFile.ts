@@ -108,6 +108,59 @@ function hasContent(yamlText: string): boolean {
     .some((line) => line.trim() !== "" && !line.trimStart().startsWith("#"));
 }
 
+/**
+ * Depth bound for a parsed frontmatter graph.
+ *
+ * Generous next to anything a real `SKILL.md` carries — the format's own fields
+ * are flat — and far below the stack the comparison walk would need.
+ */
+const MAX_FRONTMATTER_DEPTH = 64;
+
+/**
+ * Why a parsed frontmatter cannot be compared, or `undefined` when it can.
+ *
+ * ⚠️ **A YAML document is a graph, not a tree, and JSON is a tree.** An alias
+ * can refer to its own ancestor — `meta: &m [*m]` parses without error into a
+ * self-referential array — and the field-by-field comparison is a recursive
+ * walk, so such a value crashed `--verify` and the TUI with a stack overflow
+ * instead of producing a finding. That is a hostile server taking the tool
+ * down, so it is rejected here, at the parse, rather than defended against at
+ * every consumer (Copilot).
+ *
+ * The depth bound closes the same hole by its other door: a legal, acyclic but
+ * absurdly nested document would exhaust the stack just as effectively, and a
+ * cycle check alone would pass it.
+ *
+ * Detection is per-PATH, not per-graph: `seen` is added on the way down and
+ * removed on the way back up, so a value that merely appears twice as a sibling
+ * — which YAML aliases make ordinary and which JSON represents perfectly well —
+ * is not mistaken for a cycle.
+ */
+function jsonGraphError(
+  value: unknown,
+  seen: Set<object>,
+  depth: number,
+): string | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  if (depth > MAX_FRONTMATTER_DEPTH) {
+    return `Frontmatter nests deeper than ${MAX_FRONTMATTER_DEPTH} levels, which cannot be compared field by field.`;
+  }
+  const node = value as object;
+  if (seen.has(node)) {
+    return "Frontmatter contains a cyclic YAML alias, which has no JSON equivalent and cannot be compared against the listing.";
+  }
+  seen.add(node);
+  const members = Array.isArray(node)
+    ? (node as unknown[])
+    : Object.values(node as Record<string, unknown>);
+  for (const member of members) {
+    const error = jsonGraphError(member, seen, depth + 1);
+    if (error) return error;
+  }
+  seen.delete(node);
+  return undefined;
+}
+
 export function parseSkillFrontmatter(yamlText: string): ParsedFrontmatter {
   let parsed: unknown;
   try {
@@ -130,5 +183,9 @@ export function parseSkillFrontmatter(yamlText: string): ParsedFrontmatter {
       error: "Frontmatter is not a YAML mapping of fields.",
     };
   }
+  // Checked BEFORE the value escapes this module, so no consumer has to be
+  // cycle-safe on its own.
+  const graphError = jsonGraphError(parsed, new Set(), 0);
+  if (graphError) return { error: graphError };
   return { fields: parsed as Record<string, unknown> };
 }

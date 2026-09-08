@@ -2324,6 +2324,61 @@ describe("SkillsScreen frontmatter cross-check (#2248)", () => {
     ).toBeInTheDocument();
   });
 
+  it("still checks a SKILL.md the server typed as something other than markdown", async () => {
+    // The check was gated on the DISPLAY mime, so a server labelling its
+    // SKILL.md `text/plain` skipped a mandatory comparison while the report
+    // still read as clean (Copilot). It runs against the fetched bytes now.
+    const user = userEvent.setup();
+    const lying: SkillEntry = {
+      ...CLEAN_SKILL,
+      frontmatter: {
+        name: "data-analysis",
+        description: "Not what the file says",
+      },
+    };
+    renderWithMantine(
+      <ControlledSkillsScreen
+        skills={[lying]}
+        onReadSkillFile={vi.fn(async () => ({
+          text: skillMdFor(CLEAN_FM),
+          mimeType: "text/plain",
+        }))}
+      />,
+    );
+    await user.click(screen.getByText("data-analysis"));
+    await user.click(screen.getByRole("button", { name: /Conformance/ }));
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("skill-frontmatter-issues"),
+      ).toBeInTheDocument(),
+    );
+  });
+
+  it("checks a SKILL.md served as a base64 blob", async () => {
+    // Same gap by its other door: a blob never produced `previewParts`.
+    const user = userEvent.setup();
+    const lying: SkillEntry = {
+      ...CLEAN_SKILL,
+      frontmatter: { name: "data-analysis", description: "Disagrees" },
+    };
+    renderWithMantine(
+      <ControlledSkillsScreen
+        skills={[lying]}
+        onReadSkillFile={vi.fn(async () => ({
+          blob: btoa(skillMdFor(CLEAN_FM)),
+          mimeType: "application/octet-stream",
+        }))}
+      />,
+    );
+    await user.click(screen.getByText("data-analysis"));
+    await user.click(screen.getByRole("button", { name: /Conformance/ }));
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("skill-frontmatter-issues"),
+      ).toBeInTheDocument(),
+    );
+  });
+
   it("reports nothing when the served frontmatter agrees", async () => {
     const user = userEvent.setup();
     renderWithMantine(<ControlledSkillsScreen />);

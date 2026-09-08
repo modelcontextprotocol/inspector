@@ -31,6 +31,7 @@ import {
   checkSkillConformance,
   checkSkillFrontmatterMatch,
   checkSkillNameCollisions,
+  bytesToText,
   skillDisplayName,
   skillFileBytes,
   skillEntriesMatch,
@@ -1396,17 +1397,28 @@ export function SkillsScreen({
    * first time a file happened to be fetched.
    */
   const frontmatterIssues = useMemo(() => {
-    if (!selected || !showingSkillMd || previewParts === undefined) return [];
-    // Reconstructed from the split rather than re-derived from the payload, so
-    // the check reads exactly the bytes the Frontmatter section displays.
-    if (previewParts.frontmatter === undefined) {
-      return checkSkillFrontmatterMatch(selected, previewParts.body);
+    if (!selected || !showingSkillMd || preview === undefined) return [];
+    // Run against the **raw fetched bytes**, not against `previewParts`.
+    //
+    // `previewParts` is a *presentation* value: it only exists when the
+    // displayed MIME is recognized as markdown, so a `SKILL.md` a server
+    // labelled `text/plain` — or anything else — skipped this check entirely
+    // while the report still read as clean (Copilot). The SEP makes the
+    // comparison mandatory for the skill's own file regardless of how the
+    // server typed it, and `showingSkillMd` already establishes that this IS
+    // that file. Decoding the same bytes the digest is taken over also keeps
+    // the two answers describing one payload rather than two derivations of it.
+    let text: string;
+    try {
+      text = bytesToText(skillFileBytes(preview));
+    } catch {
+      // Neither text nor blob: there are no bytes to compare, and the file
+      // viewer already reports the empty response. Inventing a frontmatter
+      // finding here would name the wrong defect.
+      return [];
     }
-    return checkSkillFrontmatterMatch(
-      selected,
-      `---\n${previewParts.frontmatter}\n---\n\n${previewParts.body}`,
-    );
-  }, [selected, showingSkillMd, previewParts]);
+    return checkSkillFrontmatterMatch(selected, text);
+  }, [selected, showingSkillMd, preview]);
 
   /**
    * The findings rendered as list items — everything except the two that are

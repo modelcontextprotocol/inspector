@@ -137,6 +137,50 @@ describe("parseSkillFrontmatter (#2248)", () => {
     });
   });
 
+  it("rejects a cyclic YAML alias instead of crashing on it", () => {
+    // A YAML document is a graph and JSON is a tree: `&m [*m]` parses cleanly
+    // into a self-referential array, and the field-by-field comparison is a
+    // recursive walk — so this crashed `--verify` and the TUI with a stack
+    // overflow rather than producing a finding. A hostile server taking the
+    // tool down is a worse outcome than any wrong verdict (Copilot).
+    const parsed = parseSkillFrontmatter("meta: &m [*m]");
+    expect(parsed).toEqual({ error: expect.stringContaining("cyclic") });
+  });
+
+  it("rejects a cycle through a mapping, not only an array", () => {
+    expect(parseSkillFrontmatter("a: &a\n  self: *a")).toEqual({
+      error: expect.stringContaining("cyclic"),
+    });
+  });
+
+  it("accepts a value that merely appears twice as a sibling", () => {
+    // An alias reused across siblings is ordinary YAML and represents fine in
+    // JSON — detection has to be per-path, not per-graph, or this would be
+    // reported as a cycle.
+    expect(parseSkillFrontmatter("base: &b [1, 2]\nx: *b\ny: *b")).toEqual({
+      fields: { base: [1, 2], x: [1, 2], y: [1, 2] },
+    });
+  });
+
+  it("rejects a frontmatter nested past the depth bound", () => {
+    // The other door to the same crash: legal, acyclic, and still deep enough
+    // to exhaust the stack, which a cycle check alone would let through.
+    const deep =
+      "a:\n" +
+      Array.from({ length: 80 }, (_, i) => `${"  ".repeat(i + 1)}a:`).join(
+        "\n",
+      );
+    expect(parseSkillFrontmatter(deep)).toEqual({
+      error: expect.stringContaining("nests deeper"),
+    });
+  });
+
+  it("accepts ordinary nesting well inside the bound", () => {
+    expect(parseSkillFrontmatter("a:\n  b:\n    c: 1")).toEqual({
+      fields: { a: { b: { c: 1 } } },
+    });
+  });
+
   it("reports invalid YAML with the parser's own message", () => {
     const parsed = parseSkillFrontmatter("a: [1,");
     expect("error" in parsed && parsed.error.length > 0).toBe(true);
