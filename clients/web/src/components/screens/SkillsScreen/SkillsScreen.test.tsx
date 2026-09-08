@@ -155,6 +155,9 @@ const ALL_SKILLS = [
 /** Everything `readFixtureFile` can serve a `SKILL.md` for. */
 const SERVED_SKILLS = [...ALL_SKILLS, ACME, GLOBEX];
 
+/** The many-row fixture's frontmatter, shared with the stub that serves it. */
+const MANY_FM: Frontmatter = { name: "many", description: "Many rows" };
+
 /**
  * A `resources/read` that serves the fixture bytes for any known URI. A skill's
  * own `SKILL.md` comes from {@link skillMdFor}, so it agrees with the entry's
@@ -386,17 +389,22 @@ describe("SkillsScreen", () => {
     const user = userEvent.setup();
     // Held open so the batch is still in flight when the selection changes.
     const releases: (() => void)[] = [];
+    // Each URI gets the file its OWN entry implies, so the frontmatter check
+    // stays silent and this test measures only the open-state invariant it is
+    // about. A stub serving one skill's text for every URI produces a genuine
+    // mismatch, which now reveals Conformance by design.
     const onReadSkillFile = vi.fn(
-      () =>
+      (uri: string) =>
         new Promise<{ text: string }>((resolve) => {
-          releases.push(() => resolve({ text: SELF_TEXT }));
+          const fm = uri.startsWith("skill://many/") ? MANY_FM : CLEAN_FM;
+          releases.push(() => resolve({ text: skillMdFor(fm) }));
         }),
     );
     // More rows than the concurrency cap, so workers keep pulling.
     const manyRows: SkillEntry = {
       ...CLEAN_SKILL,
       uri: "skill://many/SKILL.md",
-      frontmatter: { name: "many", description: "Many rows" },
+      frontmatter: MANY_FM,
       resources: Array.from({ length: 10 }, (_, i) => ({
         uri: i === 0 ? "skill://many/SKILL.md" : `skill://many/f${i}.md`,
         digest: SELF_DIGEST,
@@ -2315,7 +2323,7 @@ describe("SkillsScreen frontmatter cross-check (#2248)", () => {
     };
     renderWithMantine(<ControlledSkillsScreen skills={[lying]} />);
     await user.click(screen.getByText("data-analysis"));
-    await user.click(screen.getByRole("button", { name: /Conformance/ }));
+    // No click to expand: a frontmatter finding reveals the section itself.
     await waitFor(() =>
       expect(
         screen.getByTestId("skill-frontmatter-issues"),
@@ -2352,7 +2360,7 @@ describe("SkillsScreen frontmatter cross-check (#2248)", () => {
       />,
     );
     await user.click(screen.getByText("data-analysis"));
-    await user.click(screen.getByRole("button", { name: /Conformance/ }));
+    // No click to expand: a frontmatter finding reveals the section itself.
     await waitFor(() =>
       expect(
         screen.getByTestId("skill-frontmatter-issues"),
@@ -2377,11 +2385,46 @@ describe("SkillsScreen frontmatter cross-check (#2248)", () => {
       />,
     );
     await user.click(screen.getByText("data-analysis"));
-    await user.click(screen.getByRole("button", { name: /Conformance/ }));
+    // No click to expand: a frontmatter finding reveals the section itself.
     await waitFor(() =>
       expect(
         screen.getByTestId("skill-frontmatter-issues"),
       ).toBeInTheDocument(),
+    );
+  });
+
+  it("reveals Conformance when a frontmatter finding arrives", async () => {
+    // A structurally clean entry opens collapsed, and the frontmatter findings
+    // arrive later from the SKILL.md read — so the alerts explaining a
+    // mandatory verification failure sat behind a click the reader had no
+    // reason to make (Copilot).
+    const user = userEvent.setup();
+    const lying: SkillEntry = {
+      ...CLEAN_SKILL,
+      frontmatter: { name: "data-analysis", description: "Disagrees" },
+    };
+    renderWithMantine(<ControlledSkillsScreen skills={[lying]} />);
+    await user.click(screen.getByText("data-analysis"));
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: /Conformance/ }),
+      ).toHaveAttribute("aria-expanded", "true"),
+    );
+    expect(screen.getByTestId("skill-frontmatter-issues")).toBeInTheDocument();
+  });
+
+  it("leaves a clean entry's Conformance collapsed", async () => {
+    // The reveal must not fire when there is nothing to reveal, or it undoes
+    // the auto-collapse it sits next to.
+    const user = userEvent.setup();
+    renderWithMantine(<ControlledSkillsScreen />);
+    await user.click(screen.getByText("data-analysis"));
+    await waitFor(() =>
+      expect(readFixtureFile).toHaveBeenCalledWith(CLEAN_SKILL.uri),
+    );
+    expect(screen.getByRole("button", { name: /Conformance/ })).toHaveAttribute(
+      "aria-expanded",
+      "false",
     );
   });
 

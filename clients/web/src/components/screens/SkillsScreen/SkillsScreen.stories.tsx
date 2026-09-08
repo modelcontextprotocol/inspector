@@ -3,6 +3,7 @@ import type { ComponentProps } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { expect, fn, userEvent, waitFor, within } from "storybook/test";
 import type { SkillEntry } from "@inspector/core/mcp/skillsSchemas";
+import { sha256Bytes } from "@inspector/core/mcp/sha256";
 import { SkillsScreen } from "./SkillsScreen";
 import type { SkillsUiState } from "./SkillsScreen";
 import { EMPTY_SKILLS_UI } from "../screenUiState";
@@ -16,29 +17,74 @@ function StatefulSkillsScreen(args: ComponentProps<typeof SkillsScreen>) {
 }
 
 const REF_TEXT = "# Column rules\n";
-const SELF_TEXT = "# skill\n";
-// The real digests of those two strings, so the clean skill actually verifies
-// when the "Verify all" story runs — a placeholder would demo a false green.
-const REF_DIGEST =
-  "sha256:e201429aa2684958ca1a0537ab4eb4b7eb3a81c71e7cc7a11397eb500738e015";
-const SELF_DIGEST =
-  "sha256:6504f2de0a1febf7492c3b98f93d9ab49558eb364607a706f02fe9a75aa7f75b";
+
+/**
+ * A skill's own `SKILL.md`, built FROM the frontmatter its entry advertises.
+ *
+ * SEP-2640 requires the two to match field for field, and the screen now checks
+ * it — so a shared placeholder body with no frontmatter made every "conforming"
+ * story report a `frontmatter-absent` error. Deriving the file makes that class
+ * of drift impossible rather than merely fixed, which is the same discipline
+ * `test-servers/src/skills.ts` and the unit fixtures apply.
+ */
+const skillMd = (name: string, description: string) =>
+  `---\nname: ${name}\ndescription: ${description}\n---\n\n# ${name}\n`;
+
+/** Real digests, computed from the very bytes served, so the clean skill
+ *  actually verifies when the "Verify all" story runs — a hard-coded
+ *  placeholder would demo a false green, and could not survive an edit to the
+ *  text above. `sha256Bytes` is the repo's synchronous implementation, which is
+ *  what lets this happen at module scope in a CSF file. */
+const digestOf = (text: string) =>
+  `sha256:${[...sha256Bytes(new TextEncoder().encode(text))]
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("")}`;
+
+const REF_DIGEST = digestOf(REF_TEXT);
+
+/** The frontmatter each sample skill advertises, keyed by its path segment. */
+const SAMPLE_FM: Record<string, { name: string; description: string }> = {
+  "data-analysis": {
+    name: "data-analysis",
+    description: "Analyze a CSV and summarize its columns",
+  },
+  "tampered-notes": {
+    name: "tampered-notes",
+    description: "Advertises a digest its bytes do not match",
+  },
+  "wrong-folder": {
+    name: "right-name",
+    description: "Served from a folder that disagrees with its name",
+  },
+  "big-manifest": {
+    name: "big-manifest",
+    description: "A skill with a long manifest",
+  },
+};
+
+/** The file a given skill path serves, derived from its own frontmatter. */
+const selfText = (path: string) => {
+  const fm = SAMPLE_FM[path];
+  return fm ? skillMd(fm.name, fm.description) : "# skill\n";
+};
 
 /** Every manifest lists the skill's own SKILL.md — a manifest is the complete
  *  file set, so one that omits it is a `manifest-missing-self` error. */
-const selfEntry = (path: string) => ({
-  uri: `skill://${path}/SKILL.md`,
-  digest: SELF_DIGEST,
-  size: 8,
-});
+const selfEntry = (path: string) => {
+  const text = selfText(path);
+  return {
+    uri: `skill://${path}/SKILL.md`,
+    digest: digestOf(text),
+    size: new TextEncoder().encode(text).byteLength,
+  };
+};
 
 const sampleSkills: SkillEntry[] = [
   {
     uri: "skill://data-analysis/SKILL.md",
-    frontmatter: {
-      name: "data-analysis",
-      description: "Analyze a CSV and summarize its columns",
-    },
+    // Read from SAMPLE_FM, which is also what the served file is built from —
+    // so the entry and its SKILL.md agree by construction.
+    frontmatter: SAMPLE_FM["data-analysis"],
     resources: [
       selfEntry("data-analysis"),
       {
@@ -50,10 +96,7 @@ const sampleSkills: SkillEntry[] = [
   },
   {
     uri: "skill://tampered-notes/SKILL.md",
-    frontmatter: {
-      name: "tampered-notes",
-      description: "Advertises a digest its bytes do not match",
-    },
+    frontmatter: SAMPLE_FM["tampered-notes"],
     resources: [
       selfEntry("tampered-notes"),
       {
@@ -76,10 +119,7 @@ const sampleSkills: SkillEntry[] = [
   },
   {
     uri: "skill://wrong-folder/SKILL.md",
-    frontmatter: {
-      name: "right-name",
-      description: "URI path segment disagrees with frontmatter.name",
-    },
+    frontmatter: SAMPLE_FM["wrong-folder"],
     resources: [selfEntry("wrong-folder")],
   },
 ];
@@ -94,11 +134,19 @@ const meta: Meta<typeof SkillsScreen> = {
     ui: EMPTY_SKILLS_UI,
     onUiChange: fn(),
     onRefreshList: fn(),
-    onReadSkillFile: fn(async (uri: string) =>
-      uri.endsWith("reference.md")
-        ? { text: REF_TEXT }
-        : { text: SELF_TEXT, mimeType: "text/markdown" },
-    ),
+    onReadSkillFile: fn(async (uri: string) => {
+      if (uri.endsWith("reference.md")) return { text: REF_TEXT };
+      // Only a skill's OWN SKILL.md is derived from its frontmatter. Every
+      // other manifest file keeps the 8-byte placeholder its entry declares —
+      // serving the SKILL.md for `notes.md` made the tampered fixture fail its
+      // SIZE check first, which is a different finding from the digest
+      // mismatch that story exists to show.
+      if (!uri.endsWith("/SKILL.md")) {
+        return { text: "# skill\n", mimeType: "text/markdown" };
+      }
+      const path = uri.slice("skill://".length, -"/SKILL.md".length);
+      return { text: selfText(path), mimeType: "text/markdown" };
+    }),
     // Echoes back the entry `skills/list` advertised, so "Fetch with
     // skills/get" demonstrates the matching case rather than throwing.
     onGetSkill: fn(async (uri: string) => {
@@ -190,10 +238,7 @@ const LONG_SKILL_MD = [
 // overflowing content.
 const manyFilesSkill: SkillEntry = {
   uri: "skill://big-manifest/SKILL.md",
-  frontmatter: {
-    name: "big-manifest",
-    description: "A conforming skill that declares a great many files",
-  },
+  frontmatter: SAMPLE_FM["big-manifest"],
   resources: [
     selfEntry("big-manifest"),
     ...Array.from({ length: 120 }, (_, i) => ({
@@ -217,8 +262,10 @@ const manyFilesSkill: SkillEntry = {
 export const LongManifest: Story = {
   args: {
     skills: [manyFilesSkill],
+    // Derived like every other fixture, so the frontmatter check stays silent
+    // and this story measures only the long-manifest layout it is about.
     onReadSkillFile: fn(async () => ({
-      text: "---\nname: big-manifest\n---\n\n# Big manifest\n",
+      text: selfText("big-manifest"),
       mimeType: "text/markdown",
     })),
   },
@@ -276,10 +323,12 @@ const hostileHeaderSkill: SkillEntry = {
   resources: [
     {
       uri: `skill://${"very-long-path-segment/".repeat(30)}SKILL.md`,
-      digest: SELF_DIGEST,
+      // This fixture exercises LAYOUT under hostile strings; its digests are
+      // never verified by the story, so a placeholder is honest here.
+      digest: `sha256:${"0".repeat(64)}`,
       size: 8,
     },
-    { uri: HOSTILE_FILE_URI, digest: SELF_DIGEST, size: 8 },
+    { uri: HOSTILE_FILE_URI, digest: `sha256:${"0".repeat(64)}`, size: 8 },
   ],
 };
 

@@ -42,7 +42,11 @@ import {
   type SkillResource,
 } from "./skillsSchemas.js";
 import { sha256Bytes } from "./sha256.js";
-import { parseSkillFrontmatter, splitSkillFile } from "./skillFile.js";
+import {
+  jsonGraphError,
+  parseSkillFrontmatter,
+  splitSkillFile,
+} from "./skillFile.js";
 
 /** Maximum resource entries a single skill may declare (SEP-2640). */
 export const SKILL_MAX_RESOURCE_ENTRIES = 512;
@@ -848,6 +852,23 @@ export function checkSkillFrontmatterMatch(
         severity: "error",
         message:
           "The served SKILL.md carries no YAML frontmatter block, so the listing's frontmatter cannot be the file's.",
+        resourceUri: entry.uri,
+      },
+    ];
+  }
+  // The LISTING side is bounded too, before anything recurses over it. It
+  // arrives over JSON-RPC so it cannot be cyclic, but it is just as unbounded
+  // in depth — and both `jsonLikeEqual` and `displayValue` walk it, so a
+  // server advertising an absurdly nested value crashed the tool exactly as a
+  // cyclic served one did (Copilot). Checked before the file is parsed: there
+  // is no point reading one if the thing to compare it against is unusable.
+  const listedError = jsonGraphError(entry.frontmatter);
+  if (listedError) {
+    return [
+      {
+        code: "frontmatter-unparsable",
+        severity: "error",
+        message: `The listing's own frontmatter cannot be compared: ${listedError}`,
         resourceUri: entry.uri,
       },
     ];

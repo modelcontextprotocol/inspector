@@ -1035,6 +1035,36 @@ describe("checkSkillFrontmatterMatch (#2248)", () => {
     ).toEqual([]);
   });
 
+  it("bounds the LISTING side too, not only the served YAML", () => {
+    // The listing arrives over JSON-RPC so it cannot be cyclic, but it is just
+    // as unbounded in depth — and both the comparison and its message
+    // formatter walk it, so an absurdly nested advertised value crashed the
+    // tool exactly as a cyclic served one did (Copilot).
+    let deep: unknown = "leaf";
+    for (let i = 0; i < 5000; i += 1) deep = { a: deep };
+    const issues = checkSkillFrontmatterMatch(
+      entry({ x: deep as Record<string, unknown> }),
+      file("x: shallow"),
+    );
+    expect(issues).toEqual([
+      expect.objectContaining({
+        code: "frontmatter-unparsable",
+        severity: "error",
+      }),
+    ]);
+    expect(issues[0].message).toMatch(/listing's own frontmatter/);
+  });
+
+  it("still compares an ordinarily nested listing value", () => {
+    // The bound must not reject anything a real skill would carry.
+    expect(
+      checkSkillFrontmatterMatch(
+        entry({ meta: { a: { b: { c: [1, 2] } } } }),
+        file("meta:\n  a:\n    b:\n      c: [1, 2]"),
+      ),
+    ).toEqual([]);
+  });
+
   it("reports nothing for two empty frontmatters", () => {
     expect(checkSkillFrontmatterMatch(entry({}), file(""))).toEqual([]);
   });

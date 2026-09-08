@@ -1482,6 +1482,27 @@ export function SkillsScreen({
    * entry whose only finding is a banner one ended up showing an empty findings
    * container instead of "no structural issues".
    */
+  /**
+   * Reveal Conformance when the frontmatter check finds something.
+   *
+   * A structurally clean entry opens with the section COLLAPSED — the header
+   * badge carries the whole answer — but the frontmatter findings arrive later,
+   * from the `SKILL.md` read, and land inside that collapsed section. The badge
+   * now counts them, so the number changes; the alerts explaining a mandatory
+   * verification failure were still a click away (Copilot).
+   *
+   * Keyed on the entry so it fires **once** per skill, when findings first
+   * appear, rather than fighting a user who deliberately collapses it again.
+   * `useValueChange` runs during render and does only `setState`, as that hook
+   * requires; the key is a primitive so `Object.is` cannot loop.
+   */
+  useValueChange(frontmatterIssues.length > 0 ? manifestKey : "", (next) => {
+    if (next === "") return;
+    setOpenSections((prev) =>
+      prev.includes("conformance") ? prev : [...prev, "conformance"],
+    );
+  });
+
   const listedIssues = useMemo(
     () =>
       issues.filter(

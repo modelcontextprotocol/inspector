@@ -117,7 +117,13 @@ function hasContent(yamlText: string): boolean {
 const MAX_FRONTMATTER_DEPTH = 64;
 
 /**
- * Why a parsed frontmatter cannot be compared, or `undefined` when it can.
+ * Why a frontmatter value cannot be compared, or `undefined` when it can.
+ *
+ * Exported because **both sides need it**. The served side can be cyclic; the
+ * listed side arrives over JSON-RPC and cannot be, but it is just as unbounded
+ * in DEPTH — a server can advertise a listing nested tens of thousands of
+ * levels deep, and the comparison and its message formatter both recurse. A
+ * guard on only the YAML side left that door open (Copilot).
  *
  * ⚠️ **A YAML document is a graph, not a tree, and JSON is a tree.** An alias
  * can refer to its own ancestor — `meta: &m [*m]` parses without error into a
@@ -136,10 +142,10 @@ const MAX_FRONTMATTER_DEPTH = 64;
  * — which YAML aliases make ordinary and which JSON represents perfectly well —
  * is not mistaken for a cycle.
  */
-function jsonGraphError(
+export function jsonGraphError(
   value: unknown,
-  seen: Set<object>,
-  depth: number,
+  seen: Set<object> = new Set(),
+  depth = 0,
 ): string | undefined {
   if (typeof value !== "object" || value === null) return undefined;
   if (depth > MAX_FRONTMATTER_DEPTH) {
