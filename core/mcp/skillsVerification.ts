@@ -34,13 +34,18 @@ import {
   checkSkillNameCollisions,
   skillDisplayName,
   SKILL_MAX_RESOURCE_ENTRIES,
+  SKILL_MAX_TOTAL_BYTES,
   skillFileBytes,
   skillUriIdentity,
   verifySkillResource,
   type SkillIssue,
   type SkillVerification,
 } from "./skills.js";
-import { DYNAMIC_RESOURCES, type SkillEntry } from "./skillsSchemas.js";
+import {
+  DYNAMIC_RESOURCES,
+  type SkillEntry,
+  type SkillResource,
+} from "./skillsSchemas.js";
 
 /** One manifest entry's outcome. `read-error` means the fetch itself failed. */
 export type SkillFileStatus = SkillVerification["status"] | "read-error";
@@ -71,11 +76,12 @@ export interface SkillVerifyReport {
   /**
    * One entry per manifest file **read**, in manifest order.
    *
-   * ⚠️ Capped at `SKILL_MAX_RESOURCE_ENTRIES`. A manifest longer than that is
-   * already reported by the `resource-limit-exceeded` warning, and reading all
-   * of it would let a server dictate an unbounded number of round trips — so
-   * this can be SHORTER than the declared manifest, and a consumer must not
-   * read its length as the manifest's.
+   * ⚠️ Capped at `SKILL_MAX_RESOURCE_ENTRIES` entries **and**
+   * `SKILL_MAX_TOTAL_BYTES` of declared content. A manifest over either bound
+   * is already reported by `resource-limit-exceeded` / `size-limit-exceeded`,
+   * and reading it anyway would let a server dictate unbounded round trips or
+   * bandwidth — so this can be SHORTER than the declared manifest, and a
+   * consumer must not read its length as the manifest's.
    *
    * ⚠️ **Not necessarily empty for a `"dynamic"` skill.** Such a skill has no
    * manifest rows, but a failed read of its own `SKILL.md` — the file the
@@ -106,6 +112,33 @@ export interface SkillVerifyReport {
  */
 function reasonOf(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+/**
+ * The prefix of a manifest that may be read: at most
+ * {@link SKILL_MAX_RESOURCE_ENTRIES} entries, and at most
+ * {@link SKILL_MAX_TOTAL_BYTES} of declared content.
+ */
+function boundedManifest(
+  declared: readonly SkillResource[],
+): readonly SkillResource[] {
+  const kept: SkillResource[] = [];
+  let bytes = 0;
+  for (const resource of declared) {
+    if (kept.length >= SKILL_MAX_RESOURCE_ENTRIES) break;
+    // Only a usable, non-negative size counts — matching `totalSkillBytes`, so
+    // the bound and the finding that reports the overage agree on the total.
+    const size =
+      typeof resource.size === "number" &&
+      Number.isSafeInteger(resource.size) &&
+      resource.size >= 0
+        ? resource.size
+        : 0;
+    if (bytes + size > SKILL_MAX_TOTAL_BYTES) break;
+    bytes += size;
+    kept.push(resource);
+  }
+  return kept;
 }
 
 /** Result shape of one `resources/read`, narrowed to what a digest needs. */
@@ -196,14 +229,24 @@ export async function verifySkills(
 
     const declared =
       entry.resources === DYNAMIC_RESOURCES ? [] : entry.resources;
-    // ⚠️ **Bounded, because the manifest is server-controlled.** The 512-entry
-    // limit is CHECKED by `checkSkillConformance` — as a warning, since the SEP
-    // makes it an interoperability bound rather than a MUST — but checking it
-    // constrains nothing, so a hostile or broken server advertising a million
-    // entries had the tool perform a million sequential reads after the report
-    // already knew the manifest was over the limit (Copilot). The overage is
-    // reported by `resource-limit-exceeded`; reading it is what stops here.
-    const manifest = declared.slice(0, SKILL_MAX_RESOURCE_ENTRIES);
+    // ⚠️ **Bounded on BOTH interoperability limits, because the manifest is
+    // server-controlled.** `checkSkillConformance` reports when either is
+    // exceeded — as warnings, since the SEP makes them bounds rather than MUSTs
+    // — but checking constrains nothing, and this loop then downloads whatever
+    // was advertised anyway.
+    //
+    // The entry count alone is not enough: a manifest can sit at exactly 512
+    // entries and declare a gigabyte each, so bounding only the count still let
+    // a server dictate unbounded bandwidth and time (Copilot). Both overages
+    // are reported by `resource-limit-exceeded` / `size-limit-exceeded`; what
+    // stops here is *reading* them.
+    //
+    // Sizes are summed the way `totalSkillBytes` sums them — an entry
+    // declaring none contributes nothing, which cannot overstate the total and
+    // is bounded by the count cap regardless. A read is skipped only when the
+    // running total would CROSS the limit, so a conforming skill (≤ 16 MiB in
+    // total, by definition) is never truncated.
+    const manifest = boundedManifest(declared);
     const entryIdentity = skillUriIdentity(entry.uri);
     // Compared by NORMALIZED identity, like every other URI comparison here —
     // `checkSkillConformance` already accepts a manifest self-entry written in

@@ -547,6 +547,61 @@ describe("verifySkills (#2248)", () => {
     );
   });
 
+  it("bounds reads by the total-byte limit, not only the entry count", async () => {
+    // A manifest can sit at exactly 512 entries and declare a gigabyte each,
+    // so bounding the count alone still let a server dictate unbounded
+    // bandwidth after `size-limit-exceeded` had already been reported
+    // (Copilot).
+    const huge = 8 * 1024 * 1024; // two of these cross the 16 MiB bound
+    const skill: SkillEntry = {
+      uri: "skill://fat/SKILL.md",
+      frontmatter: { name: "fat", description: "Enormous files" },
+      resources: [
+        {
+          uri: "skill://fat/SKILL.md",
+          digest: `sha256:${"a".repeat(64)}`,
+          size: huge,
+        },
+        {
+          uri: "skill://fat/b.md",
+          digest: `sha256:${"a".repeat(64)}`,
+          size: huge,
+        },
+        {
+          uri: "skill://fat/c.md",
+          digest: `sha256:${"a".repeat(64)}`,
+          size: huge,
+        },
+      ],
+    };
+    const readResource = vi.fn(async (uri: string) => ({
+      result: { contents: [{ uri, text: "x" }] },
+    }));
+    const client = { readResource } as unknown as InspectorClientProtocol;
+    const [report] = await verifySkills(client, [skill]);
+    // Two fit exactly; the third would cross, so it is never requested.
+    expect(readResource).toHaveBeenCalledTimes(2);
+    expect(report.conformance).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: "size-limit-exceeded" }),
+      ]),
+    );
+  });
+
+  it("does not truncate a conforming manifest", async () => {
+    // A conforming skill totals at most 16 MiB by definition, so the bound
+    // must never shorten one — otherwise it would trade a hostile-server
+    // protection for a wrong answer about a good server.
+    const skill = await entry();
+    const { client, readResource } = clientServing({
+      "skill://demo/SKILL.md": SKILL_MD,
+      "skill://demo/ref.md": REF,
+    });
+    const [report] = await verifySkills(client, [skill]);
+    expect(readResource).toHaveBeenCalledTimes(2);
+    expect(report.files).toHaveLength(2);
+  });
+
   it("still reads the entry's own file when the cap would exclude it", async () => {
     // The frontmatter comparison is mandatory and must not be lost to a limit
     // that exists to bound *other* files — so a self-entry pushed past the cap
