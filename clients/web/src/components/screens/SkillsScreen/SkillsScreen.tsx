@@ -33,6 +33,7 @@ import {
   checkSkillNameCollisions,
   bytesToText,
   skillDisplayName,
+  skillEntryKey,
   skillFileBytes,
   skillEntriesMatch,
   normalizeSkillUri,
@@ -844,7 +845,12 @@ export function SkillsScreen({
   // and a fresh object every render would loop.
   const manifestKey = useMemo(
     () =>
-      `${sessionKey}\n${selected ? JSON.stringify(selected) : (selectedSkillUri ?? "")}`,
+      // `skillEntryKey`, not `JSON.stringify`: `selected` carries unbounded
+      // server-controlled frontmatter, and this runs during render — so a
+      // deeply nested entry threw `RangeError` before the screen could show
+      // the `frontmatter-unparsable` finding that describes it (Copilot). Same
+      // helper, and the same guard, the TUI uses.
+      `${sessionKey}\n${selected ? skillEntryKey(selected) : (selectedSkillUri ?? "")}`,
     [selected, selectedSkillUri, sessionKey],
   );
 
@@ -2181,6 +2187,22 @@ export function SkillsScreen({
                               {directoryChildren.map((child, index) => {
                                 const isDir =
                                   child.mimeType === DIRECTORY_MIME_TYPE;
+                                // A server can return a child pointing
+                                // anywhere. Descending into one leaves the
+                                // selected skill's tree, and the "Up" control
+                                // only compares against `skillRoot` — so the
+                                // walk could then continue outside it entirely
+                                // (Copilot). Containment is decided on the
+                                // NORMALIZED URI, like every containment check
+                                // in `core/mcp/skills.ts`, so a `..` segment
+                                // cannot walk out while still matching as a
+                                // prefix.
+                                const childUri = normalizeSkillUri(child.uri);
+                                const inRoot =
+                                  childUri !== undefined &&
+                                  skillRoot !== undefined &&
+                                  (childUri === skillRoot ||
+                                    childUri.startsWith(`${skillRoot}/`));
                                 // A directory is not a manifest entry in the
                                 // first place — a manifest lists files — so it
                                 // is neither listed nor unlisted and gets no
@@ -2195,31 +2217,43 @@ export function SkillsScreen({
                                   // collapse into one.
                                   <Table.Tr key={index}>
                                     <Table.Td>
-                                      <ResourceUriButton
-                                        // A directory descends; a file opens in
-                                        // the viewer below. One column, two
-                                        // destinations, so the label says which
-                                        // for a reader who cannot see the MIME
-                                        // column at a glance.
-                                        aria-label={
-                                          isDir
-                                            ? `Open directory ${child.uri}`
-                                            : `View ${child.uri}`
-                                        }
-                                        onClick={() =>
-                                          isDir
-                                            ? readDirectory(
-                                                child.uri,
-                                                manifestKey,
-                                              )
-                                            : showResource(
-                                                child.uri,
-                                                manifestKey,
-                                              )
-                                        }
-                                      >
-                                        {isDir ? `${child.name}/` : child.name}
-                                      </ResourceUriButton>
+                                      {!inRoot ? (
+                                        // Shown, never navigable. The reader
+                                        // should see what the server sent, and
+                                        // a child outside the skill it was
+                                        // asked about is itself the finding.
+                                        <NoVerdictText>
+                                          {child.name} (outside this skill)
+                                        </NoVerdictText>
+                                      ) : (
+                                        <ResourceUriButton
+                                          // A directory descends; a file opens in
+                                          // the viewer below. One column, two
+                                          // destinations, so the label says which
+                                          // for a reader who cannot see the MIME
+                                          // column at a glance.
+                                          aria-label={
+                                            isDir
+                                              ? `Open directory ${child.uri}`
+                                              : `View ${child.uri}`
+                                          }
+                                          onClick={() =>
+                                            isDir
+                                              ? readDirectory(
+                                                  child.uri,
+                                                  manifestKey,
+                                                )
+                                              : showResource(
+                                                  child.uri,
+                                                  manifestKey,
+                                                )
+                                          }
+                                        >
+                                          {isDir
+                                            ? `${child.name}/`
+                                            : child.name}
+                                        </ResourceUriButton>
+                                      )}
                                     </Table.Td>
                                     <Table.Td>
                                       <MonoCaption>{child.uri}</MonoCaption>

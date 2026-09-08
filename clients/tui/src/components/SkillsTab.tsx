@@ -431,8 +431,15 @@ export function SkillsTab({
                 </Text>
               </Box>
               {manifest.map((resource, idx) => {
+                // Matched on normalized identity, like the membership test
+                // just above — a raw comparison misses a report row recorded
+                // under an equivalent spelling, while `extraReportFiles`
+                // suppresses it as already covered, and the verdict renders
+                // nowhere (Copilot).
                 const fileReport = activeReport?.files.find(
-                  (file) => file.uri === resource.uri,
+                  (file) =>
+                    skillUriIdentity(file.uri) ===
+                    skillUriIdentity(resource.uri),
                 );
                 return (
                   <Box

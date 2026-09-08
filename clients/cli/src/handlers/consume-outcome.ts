@@ -1,5 +1,5 @@
 import { awaitableError, awaitableLog } from "../utils/awaitable-log.js";
-import { CliExitCodeError } from "../error-handler.js";
+import { CliExitCodeError, EXIT_CODES } from "../error-handler.js";
 import { emitResult } from "./emit-result.js";
 import type { MethodArgs, MethodOutcome } from "./method-types.js";
 
@@ -30,7 +30,12 @@ export async function consumeMethodOutcome(
     // last thing that happens.
     if (outcome.exitCode) {
       throw new CliExitCodeError(outcome.exitCode, outcome.summary ?? "", {
-        code: "skills_nonconformant",
+        // The envelope's `code` follows the exit code, so a caller reading one
+        // never has to reconcile it against the other.
+        code:
+          outcome.exitCode === EXIT_CODES.SKILL_INCOMPLETE
+            ? "skills_incomplete"
+            : "skills_nonconformant",
       });
     }
     return;

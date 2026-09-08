@@ -135,6 +135,33 @@ describe("consumeMethodOutcome NDJSON summary and exit code (#2248)", () => {
     });
   });
 
+  it("labels the envelope for an INCOMPLETE run, not a nonconformant one", async () => {
+    // The envelope's `code` follows the exit code, so a caller reading one
+    // never has to reconcile it against the other — and exit 8 means the
+    // server broke no MUST.
+    const streams = captureStreams();
+    let thrown: unknown;
+    try {
+      await consumeMethodOutcome(
+        {
+          kind: "ndjson",
+          lines: [{ outcome: "incomplete" }],
+          summary: "not fully checked",
+          exitCode: EXIT_CODES.SKILL_INCOMPLETE,
+        },
+        {},
+      );
+    } catch (err) {
+      thrown = err;
+    } finally {
+      streams.restore();
+    }
+    expect(thrown).toMatchObject({
+      exitCode: EXIT_CODES.SKILL_INCOMPLETE,
+      envelope: { code: "skills_incomplete" },
+    });
+  });
+
   it("leaves an --app-info NDJSON outcome unchanged", async () => {
     // No summary, no exit code — the field is additive and the older caller
     // must behave exactly as before.

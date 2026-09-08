@@ -372,10 +372,16 @@ caller branching on `.code` should not have to special-case this command.
 `--method skills/get --uri <skill>` verifies exactly one skill, in the same
 shape.
 
-**What fails the run.** `ok` is false — and the exit code is `7` — for anything
-SEP-2640 makes a MUST: an error-severity conformance finding, a digest or size
-mismatch, or a manifest file that could not be read. A **warning** does not fail
-it. That distinction matters most for `resources: "dynamic"`, which is a
+**What fails the run.** Three outcomes, three exit codes, because "this skill is
+wrong" and "this skill could not be fully checked" are different answers:
+
+| `outcome` | Exit | When |
+| --- | --- | --- |
+| `verified` | `0` | Everything was checked and everything passed. |
+| `failed` | `7` | Something SEP-2640 makes a MUST was broken — an error-severity finding, a digest or size mismatch, or an unreadable manifest file. |
+| `incomplete` | `8` | Nothing checked was wrong, but the read bounds stopped the walk before it finished. See `incomplete` in the report for the reason. |
+
+A **warning** never produces `7`. That distinction matters most for `resources: "dynamic"`, which is a
 *conforming* wire form for generated content: it means integrity cannot be
 verified, which is worth reporting, but failing CI for it would tell server
 authors their valid skill is broken.
@@ -415,6 +421,7 @@ prose from stderr:
 | `5`  | Tool error (`tools/call` returned `isError:true`, or the tool was not found). |
 | `6`  | `--strict` found an error-severity tool-schema portability problem (`schema_unportable` — the schema is valid JSON Schema, just not portable). |
 | `7`  | `--verify` found a SEP-2640 violation (`skills_nonconformant` — a conformance error, a digest or size mismatch, or an unreadable manifest file). |
+| `8`  | `--verify` could not check the whole catalog (`skills_incomplete` — the read bounds stopped the walk). The server broke no **MUST**: the 512-entry and 16 MiB limits are `SHOULD NOT`, and hosts may support more. A job that tolerates oversized catalogs can allow `8` and still fail on `7`. |
 
 On any non-zero exit the CLI also writes a single JSON line to **stderr** — the
 `ErrorEnvelope`:

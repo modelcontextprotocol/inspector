@@ -105,14 +105,32 @@ export interface SkillVerifyReport {
    */
   incomplete?: string;
   /**
+   * What the verification concluded. **Three outcomes, not two**, because
+   * "this skill is wrong" and "this skill could not be fully checked" are
+   * different answers and collapsing them misreports one of them:
+   *
+   * - `verified` — everything was checked and everything passed.
+   * - `failed` — something the SEP makes a MUST was broken.
+   * - `incomplete` — nothing checked was wrong, but the read bounds stopped
+   *   the walk before it finished. See {@link incomplete} for the reason.
+   *
+   * ⚠️ The `incomplete` case exists because both of the obvious two-state
+   * answers are wrong. Reporting success would be a **false pass** for a
+   * manifest whose unread 513th file is tampered with. Reporting failure
+   * would call a server nonconformant for exceeding limits SEP-2640 states as
+   * SHOULD NOT — with hosts free to support more — which contradicts this
+   * module's own rule that a warning never fails a report (Copilot).
+   */
+  outcome: "verified" | "failed" | "incomplete";
+  /**
    * False when anything the SEP makes a MUST was broken: an error-severity
-   * finding, a digest or size mismatch, or a file that could not be read —
-   * **or when {@link incomplete} is set**, since a verification that did not
-   * finish cannot report success.
+   * finding, a digest or size mismatch, or a file that could not be read.
    *
    * A `warning` does **not** clear it — a `"dynamic"` manifest is legal, and a
    * report that failed CI for it would be telling server authors their
-   * conforming skill is broken.
+   * conforming skill is broken. Neither does {@link incomplete}: an unfinished
+   * walk is reported through {@link outcome}, so `ok` keeps its narrow meaning
+   * of "nothing that was checked is wrong".
    */
   ok: boolean;
 }
@@ -419,16 +437,32 @@ export async function verifySkills(
       frontmatter,
       files,
       ...(incomplete ? { incomplete } : {}),
-      // An unfinished verification is not a passing one.
-      ok: !hasError && !fileFailed && incomplete === undefined,
+      ok: !hasError && !fileFailed,
+      outcome:
+        hasError || fileFailed
+          ? "failed"
+          : incomplete !== undefined
+            ? "incomplete"
+            : "verified",
     });
   }
   return reports;
 }
 
-/** True when every skill in the report passed. */
+/**
+ * True when every skill was checked in full and passed.
+ *
+ * Deliberately stricter than `every(r => r.ok)`: a report that could not be
+ * finished has not verified anything about the part it did not read, so it is
+ * not "verified" even though nothing it *did* read was wrong.
+ */
 export function allSkillsVerified(
   reports: readonly SkillVerifyReport[],
 ): boolean {
-  return reports.every((report) => report.ok);
+  return reports.every((report) => report.outcome === "verified");
+}
+
+/** True when any skill broke something the SEP makes a MUST. */
+export function anySkillFailed(reports: readonly SkillVerifyReport[]): boolean {
+  return reports.some((report) => report.outcome === "failed");
 }

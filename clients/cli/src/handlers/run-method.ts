@@ -15,6 +15,7 @@ import { collectAppInfo } from "./collect-app-info.js";
 import { summarizeSkillVerification } from "./skills-verify.js";
 import {
   allSkillsVerified,
+  anySkillFailed,
   verifySkills,
 } from "@inspector/core/mcp/skillsVerification.js";
 import type {
@@ -334,9 +335,17 @@ export async function runMethod(
           kind: "ndjson",
           lines: reports,
           summary: summarizeSkillVerification(reports),
+          // Three outcomes, three exit codes: a broken MUST is 7, a walk the
+          // read bounds cut short is 8, and everything checked and passing is
+          // 0. Collapsing the middle case into either of the others reports
+          // something untrue about the server (Copilot).
           ...(allSkillsVerified(reports)
             ? {}
-            : { exitCode: EXIT_CODES.SKILL_NONCONFORMANT }),
+            : {
+                exitCode: anySkillFailed(reports)
+                  ? EXIT_CODES.SKILL_NONCONFORMANT
+                  : EXIT_CODES.SKILL_INCOMPLETE,
+              }),
         };
       }
       result = { skills };
@@ -371,9 +380,17 @@ export async function runMethod(
           kind: "ndjson",
           lines: reports,
           summary: summarizeSkillVerification(reports),
+          // Three outcomes, three exit codes: a broken MUST is 7, a walk the
+          // read bounds cut short is 8, and everything checked and passing is
+          // 0. Collapsing the middle case into either of the others reports
+          // something untrue about the server (Copilot).
           ...(allSkillsVerified(reports)
             ? {}
-            : { exitCode: EXIT_CODES.SKILL_NONCONFORMANT }),
+            : {
+                exitCode: anySkillFailed(reports)
+                  ? EXIT_CODES.SKILL_NONCONFORMANT
+                  : EXIT_CODES.SKILL_INCOMPLETE,
+              }),
         };
       }
       result = envelope;

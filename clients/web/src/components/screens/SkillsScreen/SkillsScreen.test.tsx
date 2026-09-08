@@ -2107,6 +2107,77 @@ describe("SkillsScreen directory browsing (#2248)", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("refuses to navigate a child outside the skill root", async () => {
+    // A server can return a child pointing anywhere; descending into one
+    // leaves the selected skill's tree, and "Up" only compares against
+    // `skillRoot`, so the walk could then continue outside it entirely
+    // (Copilot). The row is still SHOWN — a child outside the skill is itself
+    // the finding — but it is not a link.
+    const user = userEvent.setup();
+    const STRAY = {
+      uri: "skill://other-skill/notes.md",
+      name: "notes.md",
+      mimeType: "text/markdown",
+    };
+    await openRoot(
+      user,
+      directoryReader({ [ROOT]: { resources: [CHILD_FILE, STRAY] } }),
+    );
+    const table = within(screen.getByTestId("skill-directory"));
+    expect(table.getByText(/outside this skill/)).toBeInTheDocument();
+    expect(
+      table.queryByRole("button", { name: `View ${STRAY.uri}` }),
+    ).not.toBeInTheDocument();
+    // The legitimate sibling is unaffected.
+    expect(
+      table.getByRole("button", { name: `View ${CHILD_FILE.uri}` }),
+    ).toBeInTheDocument();
+  });
+
+  it("refuses a sibling whose path merely starts with the same characters", async () => {
+    // The reason the check appends a separator: a bare `startsWith(skillRoot)`
+    // would accept `skill://data-analysis-other/...` as a child of
+    // `skill://data-analysis`.
+    const user = userEvent.setup();
+    const LOOKALIKE = {
+      uri: "skill://data-analysis-other/notes.md",
+      name: "other.md",
+      mimeType: "text/markdown",
+    };
+    await openRoot(
+      user,
+      directoryReader({ [ROOT]: { resources: [LOOKALIKE] } }),
+    );
+    expect(
+      within(screen.getByTestId("skill-directory")).getByText(
+        /outside this skill/,
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("accepts a `..` segment that resolves back inside the root", async () => {
+    // Worth pinning, because the intuition is wrong: `..` cannot escape the
+    // AUTHORITY. `skill://data-analysis/../x.md` normalizes to
+    // `skill://data-analysis/x.md`, which really is inside this skill — so
+    // rejecting it would refuse a legitimate child. Containment is decided on
+    // the normalized URI precisely so this resolves before it is compared.
+    const user = userEvent.setup();
+    const RESOLVES_INSIDE = {
+      uri: "skill://data-analysis/nested/../notes.md",
+      name: "notes.md",
+      mimeType: "text/markdown",
+    };
+    await openRoot(
+      user,
+      directoryReader({ [ROOT]: { resources: [RESOLVES_INSIDE] } }),
+    );
+    const table = within(screen.getByTestId("skill-directory"));
+    expect(table.queryByText(/outside this skill/)).not.toBeInTheDocument();
+    expect(
+      table.getByRole("button", { name: `View ${RESOLVES_INSIDE.uri}` }),
+    ).toBeInTheDocument();
+  });
+
   it("says an empty directory is empty", async () => {
     const user = userEvent.setup();
     renderWithMantine(

@@ -201,6 +201,47 @@ describe("runMethod skills dispatch (#2248)", () => {
     );
   });
 
+  it("exits 8, not 7, when the walk was only truncated", async () => {
+    // SEP-2640 states the read limits as SHOULD NOT and lets hosts support
+    // more, so exiting `SKILL_NONCONFORMANT` would call a conforming server
+    // nonconformant — while exiting 0 would report success for entries nobody
+    // fetched (Copilot).
+    const md = "---\nname: many\ndescription: Big\n---\n\n# many\n";
+    const enc = new TextEncoder();
+    const selfDigest = await sha256Digest(enc.encode(md));
+    const bodyDigest = await sha256Digest(enc.encode("x"));
+    const entry: SkillEntry = {
+      uri: "skill://many/SKILL.md",
+      frontmatter: { name: "many", description: "Big" },
+      resources: Array.from({ length: 600 }, (_, i) =>
+        i === 0
+          ? {
+              uri: "skill://many/SKILL.md",
+              digest: selfDigest,
+              size: enc.encode(md).byteLength,
+            }
+          : { uri: `skill://many/f${i}.md`, digest: bodyDigest, size: 1 },
+      ),
+    };
+    const client = mockClient({
+      listSkills: vi.fn().mockResolvedValue({ skills: [entry] }),
+      readResource: vi.fn(async (uri: string) => ({
+        result: {
+          contents: [{ uri, text: uri.endsWith("/SKILL.md") ? md : "x" }],
+        },
+      })),
+    });
+    const outcome = await runMethod(client, {
+      method: "skills/list",
+      verify: true,
+    });
+    if (outcome.kind !== "ndjson") throw new Error("unreachable");
+    expect(outcome.exitCode).toBe(EXIT_CODES.SKILL_INCOMPLETE);
+    expect(EXIT_CODES.SKILL_INCOMPLETE).not.toBe(
+      EXIT_CODES.SKILL_NONCONFORMANT,
+    );
+  });
+
   it("--verify works on a single skills/get", async () => {
     const entry = await cleanEntry();
     const client = mockClient({
@@ -227,6 +268,7 @@ describe("summarizeSkillVerification (#2248)", () => {
     frontmatter: [],
     files: [{ uri: "skill://demo/SKILL.md", status: "verified" }],
     ok: true,
+    outcome: "verified",
     ...over,
   });
 
@@ -247,6 +289,7 @@ describe("summarizeSkillVerification (#2248)", () => {
     // so collapsing the two counts would misreport the cause.
     const failed = report({
       ok: false,
+      outcome: "failed",
       files: [{ uri: "skill://demo/SKILL.md", status: "mismatch" }],
     });
     expect(summarizeSkillVerification([report(), failed])).toBe(
@@ -255,7 +298,7 @@ describe("summarizeSkillVerification (#2248)", () => {
   });
 
   it("reports a failure with no mismatched file", () => {
-    const failed = report({ ok: false, files: [] });
+    const failed = report({ ok: false, outcome: "failed", files: [] });
     expect(summarizeSkillVerification([failed])).toBe(
       "1 of 1 skill failed verification (0 digest/size mismatch across 0 files).",
     );

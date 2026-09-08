@@ -5,6 +5,7 @@ import { sha256Digest } from "@inspector/core/mcp/skills.js";
 import { AuthRecoveryRequiredError } from "@inspector/core/auth/challenge.js";
 import {
   allSkillsVerified,
+  anySkillFailed,
   verifySkills,
 } from "@inspector/core/mcp/skillsVerification.js";
 
@@ -14,6 +15,45 @@ import {
  * pin is the fetching policy and the failure handling, since the checks
  * themselves are covered in `skills.test.ts`.
  */
+
+/**
+ * A manifest big enough to be truncated, whose files all VERIFY — so the
+ * report's outcome isolates "incomplete" instead of also tripping a real
+ * failure. The entry's own SKILL.md carries frontmatter matching the listing,
+ * since a body of "x" would be `frontmatter-absent` and so genuinely failed.
+ */
+async function truncatable(options: {
+  name: string;
+  count: number;
+  body?: string;
+}): Promise<{ skill: SkillEntry; client: InspectorClientProtocol }> {
+  const { name, count, body = "x" } = options;
+  const md = `---\nname: ${name}\ndescription: Big\n---\n\n# ${name}\n`;
+  const enc = new TextEncoder();
+  const selfDigest = await sha256Digest(enc.encode(md));
+  const bodyDigest = await sha256Digest(enc.encode(body));
+  const selfUri = `skill://${name}/SKILL.md`;
+  const skill: SkillEntry = {
+    uri: selfUri,
+    frontmatter: { name, description: "Big" },
+    resources: Array.from({ length: count }, (_, i) =>
+      i === 0
+        ? { uri: selfUri, digest: selfDigest, size: enc.encode(md).byteLength }
+        : {
+            uri: `skill://${name}/f${i}.md`,
+            digest: bodyDigest,
+            size: enc.encode(body).byteLength,
+          },
+    ),
+  };
+  const client = {
+    readResource: async (uri: string) => ({
+      result: { contents: [{ uri, text: uri === selfUri ? md : body }] },
+    }),
+  } as unknown as InspectorClientProtocol;
+  return { skill, client };
+}
+
 describe("verifySkills (#2248)", () => {
   const SKILL_MD = "---\nname: demo\ndescription: A demo\n---\n\n# Demo\n";
   const REF = "# Reference\n";
@@ -522,100 +562,50 @@ describe("verifySkills (#2248)", () => {
     // The 512-entry limit is CHECKED but constrains nothing, so a hostile
     // server advertising far more had the tool perform that many sequential
     // reads after the report already knew the manifest was over (Copilot).
-    const skill: SkillEntry = {
-      uri: "skill://huge/SKILL.md",
-      frontmatter: { name: "huge", description: "Too many files" },
-      resources: Array.from({ length: 900 }, (_, i) => ({
-        uri: i === 0 ? "skill://huge/SKILL.md" : `skill://huge/f${i}.md`,
-        digest: `sha256:${"a".repeat(64)}`,
-        size: 1,
-      })),
-    };
-    const readResource = vi.fn(async (uri: string) => ({
-      result: { contents: [{ uri, text: "x" }] },
-    }));
-    const client = { readResource } as unknown as InspectorClientProtocol;
+    const { skill, client } = await truncatable({ name: "many", count: 900 });
+    const readResource = vi.spyOn(
+      client as unknown as { readResource: (u: string) => unknown },
+      "readResource",
+    );
     const [report] = await verifySkills(client, [skill]);
     expect(readResource).toHaveBeenCalledTimes(512);
     expect(report.files).toHaveLength(512);
-    expect(report.ok).toBe(false);
-    // …and the overage is still REPORTED, so bounding the reads does not
-    // silence the finding that made them unnecessary.
+    // Incomplete, not failed: every file it read verified.
+    expect(report.outcome).toBe("incomplete");
     expect(report.conformance).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ code: "resource-limit-exceeded" }),
       ]),
     );
   });
-
   it("bounds reads by the total-byte limit, not only the entry count", async () => {
     // A manifest can sit at exactly 512 entries and declare a gigabyte each,
     // so bounding the count alone still let a server dictate unbounded
-    // bandwidth after `size-limit-exceeded` had already been reported
-    // (Copilot).
-    const huge = 8 * 1024 * 1024; // two of these cross the 16 MiB bound
-    const skill: SkillEntry = {
-      uri: "skill://fat/SKILL.md",
-      frontmatter: { name: "fat", description: "Enormous files" },
-      resources: [
-        {
-          uri: "skill://fat/SKILL.md",
-          digest: `sha256:${"a".repeat(64)}`,
-          size: huge,
-        },
-        {
-          uri: "skill://fat/b.md",
-          digest: `sha256:${"a".repeat(64)}`,
-          size: huge,
-        },
-        {
-          uri: "skill://fat/c.md",
-          digest: `sha256:${"a".repeat(64)}`,
-          size: huge,
-        },
-      ],
-    };
-    const readResource = vi.fn(async (uri: string) => ({
-      result: { contents: [{ uri, text: "x" }] },
-    }));
-    const client = { readResource } as unknown as InspectorClientProtocol;
-    const [report] = await verifySkills(client, [skill]);
-    // Two fit exactly; the third would cross, so it is never requested.
-    expect(readResource).toHaveBeenCalledTimes(2);
-    // …and a verification that did not finish must not report success.
-    expect(report.incomplete).toMatch(/2 of 3 manifest entries/);
-    expect(report.ok).toBe(false);
-    expect(report.conformance).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ code: "size-limit-exceeded" }),
-      ]),
+    // bandwidth after `size-limit-exceeded` had been reported (Copilot).
+    const { skill, client } = await truncatable({
+      name: "fat",
+      count: 4,
+      body: "y".repeat(7 * 1024 * 1024),
+    });
+    const readResource = vi.spyOn(
+      client as unknown as { readResource: (u: string) => unknown },
+      "readResource",
     );
+    const [report] = await verifySkills(client, [skill]);
+    // The SKILL.md is small; 7 MiB bodies then cross the 16 MiB bound.
+    expect(readResource.mock.calls.length).toBeLessThan(4);
+    expect(report.outcome).toBe("incomplete");
   });
-
   it("does not report success for a manifest it could not finish reading", async () => {
-    // The trade this bound must NOT make: entries past the cap are never
-    // fetched and `resource-limit-exceeded` is only a warning, so a manifest
-    // whose 513th file is tampered with returned `ok: true` and the CLI said
-    // the skill verified — a denial of service swapped for a false pass
-    // (Copilot).
-    const skill: SkillEntry = {
-      uri: "skill://many/SKILL.md",
-      frontmatter: { name: "many", description: "Over the entry limit" },
-      resources: Array.from({ length: 600 }, (_, i) => ({
-        uri: i === 0 ? "skill://many/SKILL.md" : `skill://many/f${i}.md`,
-        digest: `sha256:${"a".repeat(64)}`,
-        size: 1,
-      })),
-    };
-    const readResource = vi.fn(async (uri: string) => ({
-      result: { contents: [{ uri, text: "x" }] },
-    }));
-    const client = { readResource } as unknown as InspectorClientProtocol;
+    // Entries past the cap are never fetched and `resource-limit-exceeded` is
+    // only a warning, so a manifest whose 513th file is tampered with returned
+    // `ok: true` and the CLI said the skill verified (Copilot).
+    const { skill, client } = await truncatable({ name: "many", count: 600 });
     const [report] = await verifySkills(client, [skill]);
     expect(report.incomplete).toBeDefined();
-    expect(report.ok).toBe(false);
+    expect(report.outcome).toBe("incomplete");
+    expect(allSkillsVerified([report])).toBe(false);
   });
-
   it("verifies the entry's own file even when the cap excluded it", async () => {
     // The fallback exists for the frontmatter check, but reading the file and
     // then skipping the digest its manifest advertised would leave the skill's
@@ -649,29 +639,23 @@ describe("verifySkills (#2248)", () => {
 
   it("stops on bytes ACTUALLY served, not the sizes the manifest declared", async () => {
     // The declared budget is server-controlled: advertising `size: 1` and then
-    // serving megabytes sailed straight through it, defeating the 16 MiB
-    // safeguard entirely (Copilot).
-    const big = "x".repeat(6 * 1024 * 1024);
-    const skill: SkillEntry = {
-      uri: "skill://liar/SKILL.md",
-      frontmatter: { name: "liar", description: "Understates its sizes" },
-      resources: Array.from({ length: 10 }, (_, i) => ({
-        uri: i === 0 ? "skill://liar/SKILL.md" : `skill://liar/f${i}.md`,
-        digest: `sha256:${"a".repeat(64)}`,
-        size: 1, // a lie
-      })),
-    };
-    const readResource = vi.fn(async (uri: string) => ({
-      result: { contents: [{ uri, text: big }] },
-    }));
-    const client = { readResource } as unknown as InspectorClientProtocol;
+    // serving megabytes sailed straight through it (Copilot). The fixture'"'"'s
+    // digests are honest, so the only thing wrong is the unfinished walk.
+    const { skill, client } = await truncatable({
+      name: "liar",
+      count: 10,
+      body: "z".repeat(6 * 1024 * 1024),
+    });
+    // …and now understate every non-entry size, which the old budget trusted.
+    for (const r of skill.resources as { size?: number }[]) r.size = 1;
+    const readResource = vi.spyOn(
+      client as unknown as { readResource: (u: string) => unknown },
+      "readResource",
+    );
     const [report] = await verifySkills(client, [skill]);
-    // Three 6 MiB bodies cross 16 MiB; the walk stops rather than reading ten.
-    expect(readResource).toHaveBeenCalledTimes(3);
+    expect(readResource.mock.calls.length).toBeLessThan(10);
     expect(report.incomplete).toMatch(/actually served/);
-    expect(report.ok).toBe(false);
   });
-
   it("still reports the file that crossed the byte budget", async () => {
     // The crossing file is verified before the walk stops, so its verdict is
     // not fetched and then thrown away.
@@ -748,7 +732,7 @@ describe("verifySkills (#2248)", () => {
     expect(report.files).toHaveLength(2);
     // Nothing was skipped, so nothing is reported as incomplete.
     expect(report.incomplete).toBeUndefined();
-    expect(report.ok).toBe(true);
+    expect(report.outcome).toBe("verified");
   });
 
   it("still reads the entry's own file when the cap would exclude it", async () => {
@@ -812,5 +796,56 @@ describe("verifySkills (#2248)", () => {
 
   it("allSkillsVerified is true for an empty report", async () => {
     expect(allSkillsVerified([])).toBe(true);
+  });
+});
+
+describe("verification outcomes (#2248)", () => {
+  const clean = async (): Promise<SkillEntry> => {
+    const md = "---\nname: ok\ndescription: Fine\n---\n\n# ok\n";
+    const bytes = new TextEncoder().encode(md);
+    return {
+      uri: "skill://ok/SKILL.md",
+      frontmatter: { name: "ok", description: "Fine" },
+      resources: [
+        {
+          uri: "skill://ok/SKILL.md",
+          digest: await sha256Digest(bytes),
+          size: bytes.byteLength,
+        },
+      ],
+    };
+  };
+
+  function serving(text: string) {
+    return {
+      readResource: async (uri: string) => ({
+        result: { contents: [{ uri, text }] },
+      }),
+    } as unknown as InspectorClientProtocol;
+  }
+
+  it("separates a broken MUST from an unfinished walk", async () => {
+    // The distinction the tri-state exists for: both are non-zero outcomes,
+    // but only one of them says the server did something wrong.
+    const md = "---\nname: ok\ndescription: Fine\n---\n\n# ok\n";
+    const good = await verifySkills(serving(md), [await clean()]);
+    expect(good[0].outcome).toBe("verified");
+    expect(allSkillsVerified(good)).toBe(true);
+    expect(anySkillFailed(good)).toBe(false);
+
+    const bad = await verifySkills(serving("tampered"), [await clean()]);
+    expect(bad[0].outcome).toBe("failed");
+    expect(allSkillsVerified(bad)).toBe(false);
+    expect(anySkillFailed(bad)).toBe(true);
+  });
+
+  it("does not report an incomplete walk as a failure", async () => {
+    // `anySkillFailed` selects the CLI exit code, so this is what keeps a
+    // conforming-but-oversized server off exit 7.
+    const { skill, client } = await truncatable({ name: "many", count: 600 });
+    const reports = await verifySkills(client, [skill]);
+    expect(reports[0].outcome).toBe("incomplete");
+    expect(anySkillFailed(reports)).toBe(false);
+    expect(allSkillsVerified(reports)).toBe(false);
   });
 });
