@@ -2401,6 +2401,27 @@ describe("SkillsScreen name collisions (#2248)", () => {
     expect(screen.getByTestId("skill-name-collision")).toBeInTheDocument();
   });
 
+  it("badges the collision in the sidebar, before either is selected", async () => {
+    // The collision is a property of the LISTING, so `checkSkillConformance`
+    // on one entry cannot see it — and a sidebar computed from that alone
+    // showed both colliding rows as clean until one was clicked, which is
+    // exactly when a reader most needs to be told two rows share a name
+    // (Copilot). Nothing is selected here on purpose.
+    renderWithMantine(<ControlledSkillsScreen skills={[ACME, GLOBEX]} />);
+    const rows = [ACME, GLOBEX].map((skill) =>
+      screen.getByText(skill.uri).closest(".mantine-NavLink-root"),
+    );
+    for (const row of rows) {
+      expect(row).not.toBeNull();
+      // One finding, badged — a warning, so yellow rather than the red that
+      // would call a conforming server broken.
+      const badge = row?.querySelector(".mantine-Badge-root");
+      expect(badge).not.toBeNull();
+      expect(badge).toHaveTextContent("1");
+      expect(badge?.getAttribute("style") ?? "").toContain("yellow");
+    }
+  });
+
   it("says nothing when the names are distinct", async () => {
     const user = userEvent.setup();
     renderWithMantine(<ControlledSkillsScreen />);

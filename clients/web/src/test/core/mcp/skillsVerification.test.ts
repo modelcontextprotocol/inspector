@@ -656,6 +656,35 @@ describe("verifySkills (#2248)", () => {
     expect(readResource.mock.calls.length).toBeLessThan(10);
     expect(report.incomplete).toMatch(/actually served/);
   });
+
+  it("is not incomplete when the budget is crossed by the LAST entry", async () => {
+    // Crossing the line on the final row stopped nothing: every manifest entry
+    // was fetched and checked. Reporting "Stopped after 4 of 4" there both
+    // reads as a contradiction and demotes a fully-read skill out of
+    // `verified` (Copilot).
+    //
+    // The sizes are understated for the same reason as the test above — with
+    // honest ones the *declared* prefilter stops first and the received-bytes
+    // guard is never reached at all. That understatement is itself a size
+    // mismatch, so this fixture is `failed`; what it pins is that the walk is
+    // not ALSO reported as cut short.
+    const { skill, client } = await truncatable({
+      name: "edge",
+      count: 4,
+      body: "z".repeat(6 * 1024 * 1024),
+    });
+    for (const r of skill.resources as { size?: number }[]) r.size = 1;
+    const readResource = vi.spyOn(
+      client as unknown as { readResource: (u: string) => unknown },
+      "readResource",
+    );
+    const [report] = await verifySkills(client, [skill]);
+    // All four read — the fourth is what crosses the 16 MiB budget.
+    expect(readResource.mock.calls.length).toBe(4);
+    expect(report.files).toHaveLength(4);
+    expect(report.incomplete).toBeUndefined();
+    expect(report.outcome).toBe("failed");
+  });
   it("still reports the file that crossed the byte budget", async () => {
     // The crossing file is verified before the walk stops, so its verdict is
     // not fetched and then thrown away.

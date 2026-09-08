@@ -303,4 +303,33 @@ describe("summarizeSkillVerification (#2248)", () => {
       "1 of 1 skill failed verification (0 digest/size mismatch across 0 files).",
     );
   });
+
+  it("does not claim a truncated walk verified", () => {
+    // An `incomplete` report keeps `ok: true` — nothing checked was wrong —
+    // so a summary branching on `ok` printed "no conformance errors" one line
+    // before the run exited SKILL_INCOMPLETE (Copilot).
+    const cut = report({
+      outcome: "incomplete",
+      incomplete: "Stopped after 2 of 9 manifest entries.",
+    });
+    expect(summarizeSkillVerification([cut])).toBe(
+      "Checked 1 skill and 1 file: no conformance errors in what was read." +
+        " 1 of 1 skill could not be fully checked: the read bounds stopped the walk.",
+    );
+  });
+
+  it("reports a mixed catalog on both counts", () => {
+    // The louder verdict must not hide the quieter one: a caller told only
+    // about the failure would think the rest of the catalog was cleared.
+    const failed = report({
+      ok: false,
+      outcome: "failed",
+      files: [{ uri: "skill://demo/SKILL.md", status: "mismatch" }],
+    });
+    const cut = report({ outcome: "incomplete", incomplete: "Stopped." });
+    expect(summarizeSkillVerification([report(), failed, cut])).toBe(
+      "1 of 3 skills failed verification (1 digest/size mismatch across 3 files)." +
+        " 1 of 3 skills could not be fully checked: the read bounds stopped the walk.",
+    );
+  });
 });

@@ -94,14 +94,17 @@ export interface SkillVerifyReport {
   /**
    * Why the manifest could not be checked in full, or `undefined` when it was.
    *
-   * Set when the read bounds truncated the manifest. It is reported separately
-   * from `ok` being false so a consumer can tell "this skill is wrong" from
-   * "this skill was not fully checked" — but it does make `ok` false, because
-   * the alternative is worse: entries past the cap are never fetched, and
-   * `resource-limit-exceeded` is only a WARNING, so a manifest whose 513th
-   * file was tampered with reported `ok: true` and the CLI said the skill
-   * verified (Copilot). A bound that turns a denial of service into a false
-   * pass has traded down.
+   * Set when the read bounds truncated the manifest, and **only** when entries
+   * were actually left unread — a file that crosses the byte budget as the
+   * last entry checked nothing short, so it is not incomplete.
+   *
+   * ⚠️ It does **not** make {@link ok} false. `ok` keeps the narrow meaning of
+   * "nothing that was checked is wrong", and a truncated walk checked nothing
+   * that was wrong. The signal a consumer must branch on is {@link outcome}
+   * being `"incomplete"`, never `!ok` — a manifest whose unread 513th file was
+   * tampered with reports `ok: true`, and a consumer that prints "verified" on
+   * `ok` alone turns a denial of service into a false pass (Copilot). Both the
+   * CLI summary and the TUI status line had exactly that bug.
    */
   incomplete?: string;
   /**
@@ -306,7 +309,7 @@ export async function verifySkills(
     // an equivalent form, so a raw string test would disagree with it and read
     // the same file a second time.
     let selfAttempted = false;
-    for (const resource of manifest) {
+    for (const [index, resource] of manifest.entries()) {
       if (skillUriIdentity(resource.uri) === entryIdentity) {
         // Marked before the read, not after: a row the walk reached but could
         // not read has still been attempted, and its failure is recorded here
@@ -357,7 +360,15 @@ export async function verifySkills(
       // prevent and is not something this API exposes.
       receivedBytes += bytes.byteLength;
       if (receivedBytes > SKILL_MAX_TOTAL_BYTES) {
-        incomplete = `Stopped after ${files.length} of ${declared.length} manifest entries: the files actually served exceed the ${SKILL_MAX_TOTAL_BYTES}-byte interoperability limit, whatever sizes the manifest declared.`;
+        // ⚠️ Only *incomplete* when the budget actually cost a read. Crossing
+        // the line on the final entry stopped nothing — every manifest row was
+        // fetched and checked — and reporting "Stopped after 3 of 3" there
+        // both reads as a contradiction and demotes a fully-checked skill out
+        // of `verified` (Copilot). The prefilter's own reason, if it dropped
+        // entries before the walk, is already set and is not overwritten.
+        if (index < manifest.length - 1) {
+          incomplete = `Stopped after ${index + 1} of ${declared.length} manifest entries: the files actually served exceed the ${SKILL_MAX_TOTAL_BYTES}-byte interoperability limit, whatever sizes the manifest declared.`;
+        }
         break;
       }
     }

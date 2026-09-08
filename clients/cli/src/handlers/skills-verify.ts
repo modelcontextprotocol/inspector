@@ -21,7 +21,14 @@ import type { SkillVerifyReport } from "@inspector/core/mcp/skillsVerification.j
 export function summarizeSkillVerification(
   reports: readonly SkillVerifyReport[],
 ): string {
-  const failed = reports.filter((report) => !report.ok).length;
+  // ⚠️ Counted off `outcome`, never off `ok`. `ok` means "nothing that was
+  // checked is wrong", which an `incomplete` report satisfies while the walk
+  // was cut short — so branching on `ok` printed "no conformance errors" one
+  // line before exiting SKILL_INCOMPLETE (Copilot).
+  const failed = reports.filter((report) => report.outcome === "failed").length;
+  const incomplete = reports.filter(
+    (report) => report.outcome === "incomplete",
+  ).length;
   const files = reports.reduce((sum, report) => sum + report.files.length, 0);
   const mismatched = reports.reduce(
     (sum, report) =>
@@ -30,7 +37,17 @@ export function summarizeSkillVerification(
   );
   const skillWord = reports.length === 1 ? "skill" : "skills";
   const fileWord = files === 1 ? "file" : "files";
-  return failed === 0
-    ? `Verified ${reports.length} ${skillWord} and ${files} ${fileWord}: no conformance errors.`
-    : `${failed} of ${reports.length} ${skillWord} failed verification (${mismatched} digest/size mismatch across ${files} ${fileWord}).`;
+  // A catalog can be both: some skills broken, others merely cut short. Say so
+  // rather than letting the louder verdict hide the quieter one.
+  const incompleteClause =
+    incomplete === 0
+      ? ""
+      : ` ${incomplete} of ${reports.length} ${skillWord} could not be fully checked: the read bounds stopped the walk.`;
+  const headline =
+    failed === 0
+      ? incomplete === 0
+        ? `Verified ${reports.length} ${skillWord} and ${files} ${fileWord}: no conformance errors.`
+        : `Checked ${reports.length} ${skillWord} and ${files} ${fileWord}: no conformance errors in what was read.`
+      : `${failed} of ${reports.length} ${skillWord} failed verification (${mismatched} digest/size mismatch across ${files} ${fileWord}).`;
+  return `${headline}${incompleteClause}`;
 }

@@ -89,6 +89,18 @@ const FILE_COLOR: Record<string, string> = {
 };
 
 /**
+ * The status line for each of the three verification outcomes.
+ *
+ * A `Record` over the union rather than a chain of ternaries, so adding a
+ * fourth outcome is a type error here instead of a silently missing label.
+ */
+const VERIFY_STATUS: Record<SkillVerifyReport["outcome"], string> = {
+  verified: "[Verified — Enter to re-verify]",
+  incomplete: "[Verification INCOMPLETE — Enter to re-verify]",
+  failed: "[Verification FAILED — Enter to re-verify]",
+};
+
+/**
  * The explanation printed under a failed file row.
  *
  * `verifySkillResource` sets `reason` for a SIZE mismatch but not for a digest
@@ -529,11 +541,12 @@ export function SkillsTab({
                   {verifying
                     ? "[Verifying…]"
                     : activeReport
-                      ? activeReport.ok
-                        ? "[Verified — Enter to re-verify]"
-                        : activeReport.incomplete
-                          ? "[Verification INCOMPLETE — Enter to re-verify]"
-                          : "[Verification FAILED — Enter to re-verify]"
+                      ? // ⚠️ Switched on `outcome`, not on `ok`. `ok` stays
+                        // true for an `incomplete` report — nothing checked
+                        // was wrong — so an `ok`-first branch printed
+                        // "Verified" for a walk the read bounds cut short and
+                        // the INCOMPLETE arm was unreachable (Copilot).
+                        VERIFY_STATUS[activeReport.outcome]
                       : "[Enter to verify digests and frontmatter]"}
                 </Text>
               </Box>

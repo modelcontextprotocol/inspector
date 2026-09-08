@@ -757,18 +757,35 @@ describe("SkillsTab (#2248)", () => {
     // with nothing explaining why (Copilot).
     //
     // Truncation is triggered by the BYTE budget rather than the 512-entry one
-    // so the manifest stays three rows long: a 512-row pane pushes the status
+    // so the manifest stays four rows long: a 512-row pane pushes the status
     // line off the frame, which would make this assert the test's viewport
     // rather than the pane's behaviour.
+    //
+    // ⚠️ Every digest and size here is HONEST, so the only thing wrong with
+    // this skill is the unfinished walk. An earlier version understated the
+    // sizes, which is itself a size mismatch — the report was `failed` and the
+    // test passed only because the status line branched on `ok` before
+    // `incomplete`, the very bug this pins (Copilot).
     const big = "x".repeat(6 * 1024 * 1024);
+    const bigDigest = await sha256Digest(textToBytes(big));
+    const fatMd = "---\nname: fat\ndescription: Four big files\n---\n\n# F\n";
     const fat: SkillEntry = {
       uri: "skill://fat/SKILL.md",
-      frontmatter: { name: "fat", description: "Understates its sizes" },
-      resources: Array.from({ length: 3 }, (_, i) => ({
-        uri: i === 0 ? "skill://fat/SKILL.md" : `skill://fat/f${i}.md`,
-        digest: CLEAN_DIGEST,
-        size: 1,
-      })),
+      frontmatter: { name: "fat", description: "Four big files" },
+      resources: [
+        {
+          uri: "skill://fat/SKILL.md",
+          digest: await sha256Digest(textToBytes(fatMd)),
+          size: textToBytes(fatMd).byteLength,
+        },
+        // Three 6 MiB files: the third crosses the 16 MiB budget, so the
+        // manifest is cut before it and one entry is never fetched.
+        ...Array.from({ length: 3 }, (_, i) => ({
+          uri: `skill://fat/f${i + 1}.md`,
+          digest: bigDigest,
+          size: textToBytes(big).byteLength,
+        })),
+      ],
     };
     const { lastFrame, stdin } = render(
       <SkillsTab
@@ -776,7 +793,14 @@ describe("SkillsTab (#2248)", () => {
         pageCount={1}
         inspectorClient={mockClient(
           vi.fn().mockImplementation(async (uri: string) => ({
-            result: { contents: [{ uri, text: big }] },
+            result: {
+              contents: [
+                {
+                  uri,
+                  text: uri === "skill://fat/SKILL.md" ? fatMd : big,
+                },
+              ],
+            },
           })),
         )}
         width={160}
@@ -789,7 +813,7 @@ describe("SkillsTab (#2248)", () => {
     await tick();
     const frame = lastFrame() ?? "";
     expect(frame).toContain("Incomplete:");
-    expect(frame).toContain("actually served");
+    expect(frame).toContain("interoperability limits");
     expect(frame).toContain("Verification INCOMPLETE");
     expect(frame).not.toContain("Verification FAILED");
   });

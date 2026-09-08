@@ -1624,7 +1624,17 @@ export function SkillsScreen({
               <EmptyState>No skills listed</EmptyState>
             ) : (
               filtered.map((skill) => {
-                const skillIssues = checkSkillConformance(skill);
+                // ⚠️ The collision is a property of the LISTING, not of the
+                // entry, so `checkSkillConformance` alone cannot see it — and
+                // a sidebar computed from that alone showed both colliding
+                // skills as clean until one was selected, which is exactly
+                // when a reader most needs to be told two rows are the same
+                // name (Copilot). Same composition as `conformance` above.
+                const collision = collisions.get(skillUriIdentity(skill.uri));
+                const skillIssues = [
+                  ...checkSkillConformance(skill),
+                  ...(collision ? [collision] : []),
+                ];
                 const errors = skillIssues.filter(
                   (i) => i.severity === "error",
                 ).length;
