@@ -148,6 +148,7 @@ import {
   DirectoryReadResultSchema,
   GetSkillEnvelopeSchema,
   ListSkillsResultSchema,
+  ModernGetSkillEnvelopeSchema,
   ModernDirectoryReadResultSchema,
   ModernListSkillsResultSchema,
   RESOURCES_DIRECTORY_READ_METHOD,
@@ -5640,13 +5641,21 @@ export class InspectorClient extends InspectorClientEventTarget {
       uri,
       ...(effectiveMeta ? { _meta: effectiveMeta } : {}),
     };
-    // The envelope is returned whole; `getSkill` is the one that unwraps.
+    // Era-aware for the same reason `skills/list` is: the method is
+    // consumer-owned, so no SDK codec stamps or checks its envelope. The modern
+    // variant requires `resultType` — a base-protocol member SEP-2322 puts on
+    // every modern result — and still not the caching attributes, which
+    // SEP-2640 leaves open. The envelope is returned whole; `getSkill`
+    // unwraps.
+    const resultSchema = this.isModernEra()
+      ? ModernGetSkillEnvelopeSchema
+      : GetSkillEnvelopeSchema;
     try {
       return await this.invokeMcpClient(
         () =>
           this.client!.request(
             { method: SKILLS_GET_METHOD, params },
-            GetSkillEnvelopeSchema,
+            resultSchema,
             this.getRequestOptions(this.progressTokenOf(metadata)),
           ),
         { method: SKILLS_GET_METHOD },

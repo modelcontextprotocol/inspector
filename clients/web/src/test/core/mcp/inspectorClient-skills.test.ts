@@ -388,6 +388,34 @@ describe("InspectorClient skills methods (#2234)", () => {
     });
   });
 
+  it("requires resultType on a modern skills/get", async () => {
+    // Base-protocol (SEP-2322) and present in SEP-2640's own example, unlike
+    // the caching attributes the SEP leaves open.
+    const client = makeClient();
+    internals(client).protocolEra = "modern";
+    stubRequest(client, { skill: ENTRY });
+    await expect(
+      client.getSkill("skill://demo/SKILL.md"),
+    ).rejects.toBeDefined();
+  });
+
+  it("accepts a modern skills/get without the caching attributes", async () => {
+    const client = makeClient();
+    internals(client).protocolEra = "modern";
+    stubRequest(client, { skill: ENTRY, resultType: "complete" });
+    await expect(client.getSkill("skill://demo/SKILL.md")).resolves.toEqual(
+      ENTRY,
+    );
+  });
+
+  it("accepts a legacy skills/get without resultType", async () => {
+    const client = makeClient();
+    stubRequest(client, { skill: ENTRY });
+    await expect(client.getSkill("skill://demo/SKILL.md")).resolves.toEqual(
+      ENTRY,
+    );
+  });
+
   it("rejects a skills/list result that is not a skills page", async () => {
     // The explicit result schema is the whole client-side mechanism for a
     // consumer-owned extension method, so a nonconforming result must fail

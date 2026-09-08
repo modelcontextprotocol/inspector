@@ -647,6 +647,61 @@ describe("verifySkills (#2248)", () => {
     expect(self?.expectedDigest).toBe(`sha256:${"b".repeat(64)}`);
   });
 
+  it("stops on bytes ACTUALLY served, not the sizes the manifest declared", async () => {
+    // The declared budget is server-controlled: advertising `size: 1` and then
+    // serving megabytes sailed straight through it, defeating the 16 MiB
+    // safeguard entirely (Copilot).
+    const big = "x".repeat(6 * 1024 * 1024);
+    const skill: SkillEntry = {
+      uri: "skill://liar/SKILL.md",
+      frontmatter: { name: "liar", description: "Understates its sizes" },
+      resources: Array.from({ length: 10 }, (_, i) => ({
+        uri: i === 0 ? "skill://liar/SKILL.md" : `skill://liar/f${i}.md`,
+        digest: `sha256:${"a".repeat(64)}`,
+        size: 1, // a lie
+      })),
+    };
+    const readResource = vi.fn(async (uri: string) => ({
+      result: { contents: [{ uri, text: big }] },
+    }));
+    const client = { readResource } as unknown as InspectorClientProtocol;
+    const [report] = await verifySkills(client, [skill]);
+    // Three 6 MiB bodies cross 16 MiB; the walk stops rather than reading ten.
+    expect(readResource).toHaveBeenCalledTimes(3);
+    expect(report.incomplete).toMatch(/actually served/);
+    expect(report.ok).toBe(false);
+  });
+
+  it("still reports the file that crossed the byte budget", async () => {
+    // The crossing file is verified before the walk stops, so its verdict is
+    // not fetched and then thrown away.
+    const big = "x".repeat(17 * 1024 * 1024);
+    const skill: SkillEntry = {
+      uri: "skill://liar/SKILL.md",
+      frontmatter: { name: "liar", description: "One enormous file" },
+      resources: [
+        {
+          uri: "skill://liar/SKILL.md",
+          digest: `sha256:${"a".repeat(64)}`,
+          size: 1,
+        },
+        {
+          uri: "skill://liar/b.md",
+          digest: `sha256:${"a".repeat(64)}`,
+          size: 1,
+        },
+      ],
+    };
+    const readResource = vi.fn(async (uri: string) => ({
+      result: { contents: [{ uri, text: big }] },
+    }));
+    const client = { readResource } as unknown as InspectorClientProtocol;
+    const [report] = await verifySkills(client, [skill]);
+    expect(readResource).toHaveBeenCalledTimes(1);
+    expect(report.files).toHaveLength(1);
+    expect(report.files[0].status).toBe("mismatch");
+  });
+
   it("does not truncate a conforming manifest", async () => {
     // A conforming skill totals at most 16 MiB by definition, so the bound
     // must never shorten one — otherwise it would trade a hostile-server

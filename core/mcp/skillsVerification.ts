@@ -262,10 +262,19 @@ export async function verifySkills(
     // running total would CROSS the limit, so a conforming skill (≤ 16 MiB in
     // total, by definition) is never truncated.
     const manifest = boundedManifest(declared);
-    const incomplete =
+    let incomplete =
       manifest.length < declared.length
         ? `Only ${manifest.length} of ${declared.length} manifest entries were read: the skill exceeds the ${SKILL_MAX_RESOURCE_ENTRIES}-entry / ${SKILL_MAX_TOTAL_BYTES}-byte interoperability limits, so the rest were not fetched and cannot be reported on.`
         : undefined;
+    // ⚠️ Bytes ACTUALLY RECEIVED, which is the only budget a server cannot
+    // lie its way past. `boundedManifest` above works from DECLARED sizes, and
+    // those are server-controlled — a manifest advertising `size: 1` (or, since
+    // the wire schema deliberately accepts it for reporting, no size at all)
+    // sailed through the declared budget and then served arbitrarily large
+    // bodies, defeating the 16 MiB safeguard entirely (Copilot). The declared
+    // prefilter still earns its place by refusing to *schedule* an obviously
+    // oversized set; this is what stops one that lied.
+    let receivedBytes = 0;
     const entryIdentity = skillUriIdentity(entry.uri);
     // Compared by NORMALIZED identity, like every other URI comparison here —
     // `checkSkillConformance` already accepts a manifest self-entry written in
@@ -311,6 +320,17 @@ export async function verifySkills(
       if (skillUriIdentity(resource.uri) === entryIdentity) entryBytes = bytes;
       const verification = await verifySkillResource(resource, bytes);
       files.push({ uri: resource.uri, ...verification });
+      // Counted AFTER verifying this file, so the one that crosses the line is
+      // still reported rather than fetched and discarded. The next read is what
+      // stops. ⚠️ This bounds the total across responses, not the size of any
+      // single one: a first response larger than the cap is already in memory
+      // by the time it can be measured, which would need a streaming read to
+      // prevent and is not something this API exposes.
+      receivedBytes += bytes.byteLength;
+      if (receivedBytes > SKILL_MAX_TOTAL_BYTES) {
+        incomplete = `Stopped after ${files.length} of ${declared.length} manifest entries: the files actually served exceed the ${SKILL_MAX_TOTAL_BYTES}-byte interoperability limit, whatever sizes the manifest declared.`;
+        break;
+      }
     }
 
     // A `"dynamic"` skill has no manifest, so the loop above read nothing —

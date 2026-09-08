@@ -184,6 +184,21 @@ export const GetSkillEnvelopeSchema = z.looseObject({
 export type GetSkillEnvelope = z.infer<typeof GetSkillEnvelopeSchema>;
 
 /**
+ * `skills/get` on a **modern** (2026-07-28+) connection: the envelope plus
+ * `resultType`, and deliberately still not the caching attributes.
+ *
+ * The "left open" quote above covers `ttlMs` / `cacheScope` and **only** those.
+ * `resultType` is a different thing: SEP-2322 makes it a member of every modern
+ * result, and SEP-2640's own `skills/get` example carries
+ * `"resultType": "complete"`. Leaving it optional here while requiring it of
+ * `resources/directory/read` was an inconsistency in this module rather than a
+ * distinction the spec draws (Copilot).
+ */
+export const ModernGetSkillEnvelopeSchema = GetSkillEnvelopeSchema.extend({
+  resultType: z.literal("complete"),
+});
+
+/**
  * `skills/get` result, unwrapped to the entry it carries.
  *
  * The transform means every caller receives a `SkillEntry` and none of them

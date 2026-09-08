@@ -5,7 +5,9 @@ import {
   ModernDirectoryReadResultSchema,
   RESOURCES_DIRECTORY_READ_METHOD,
   DYNAMIC_RESOURCES,
+  GetSkillEnvelopeSchema,
   GetSkillResultSchema,
+  ModernGetSkillEnvelopeSchema,
   ListSkillsResultSchema,
   ModernListSkillsResultSchema,
   SKILLS_EXTENSION_KEY,
@@ -282,5 +284,29 @@ describe("GetSkillResultSchema caching attributes (#2248)", () => {
         cacheScope: "public",
       }).success,
     ).toBe(true);
+  });
+
+  it("requires resultType on the modern envelope, but still not the caching fields", () => {
+    // "Left open" covers `ttlMs` / `cacheScope` and only those. `resultType` is
+    // base-protocol (SEP-2322) and appears in SEP-2640's own `skills/get`
+    // example, so leaving it optional here while requiring it of
+    // `resources/directory/read` was an inconsistency in this module rather
+    // than a distinction the spec draws (Copilot).
+    expect(
+      ModernGetSkillEnvelopeSchema.safeParse({ skill: ENTRY }).success,
+    ).toBe(false);
+    expect(
+      ModernGetSkillEnvelopeSchema.safeParse({
+        skill: ENTRY,
+        resultType: "complete",
+      }).success,
+    ).toBe(true);
+  });
+
+  it("keeps the legacy envelope permissive about resultType", () => {
+    // A 2026-era member a legacy server has no business sending.
+    expect(GetSkillEnvelopeSchema.safeParse({ skill: ENTRY }).success).toBe(
+      true,
+    );
   });
 });
