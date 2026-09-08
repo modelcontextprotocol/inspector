@@ -518,6 +518,71 @@ describe("verifySkills (#2248)", () => {
     expect(report.files[0].status).toBe("verified");
   });
 
+  it("bounds reads at the interoperability limit, not at the manifest length", async () => {
+    // The 512-entry limit is CHECKED but constrains nothing, so a hostile
+    // server advertising far more had the tool perform that many sequential
+    // reads after the report already knew the manifest was over (Copilot).
+    const skill: SkillEntry = {
+      uri: "skill://huge/SKILL.md",
+      frontmatter: { name: "huge", description: "Too many files" },
+      resources: Array.from({ length: 900 }, (_, i) => ({
+        uri: i === 0 ? "skill://huge/SKILL.md" : `skill://huge/f${i}.md`,
+        digest: `sha256:${"a".repeat(64)}`,
+        size: 1,
+      })),
+    };
+    const readResource = vi.fn(async (uri: string) => ({
+      result: { contents: [{ uri, text: "x" }] },
+    }));
+    const client = { readResource } as unknown as InspectorClientProtocol;
+    const [report] = await verifySkills(client, [skill]);
+    expect(readResource).toHaveBeenCalledTimes(512);
+    expect(report.files).toHaveLength(512);
+    // …and the overage is still REPORTED, so bounding the reads does not
+    // silence the finding that made them unnecessary.
+    expect(report.conformance).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: "resource-limit-exceeded" }),
+      ]),
+    );
+  });
+
+  it("still reads the entry's own file when the cap would exclude it", async () => {
+    // The frontmatter comparison is mandatory and must not be lost to a limit
+    // that exists to bound *other* files — so a self-entry pushed past the cap
+    // by a bloated manifest reaches the fallback read.
+    const skillMd = "---\nname: huge\ndescription: Served\n---\n\n# H\n";
+    const skill: SkillEntry = {
+      uri: "skill://huge/SKILL.md",
+      frontmatter: { name: "huge", description: "Listed" },
+      resources: [
+        ...Array.from({ length: 600 }, (_, i) => ({
+          uri: `skill://huge/f${i}.md`,
+          digest: `sha256:${"a".repeat(64)}`,
+          size: 1,
+        })),
+        // Beyond the 512 cap.
+        {
+          uri: "skill://huge/SKILL.md",
+          digest: `sha256:${"a".repeat(64)}`,
+          size: 1,
+        },
+      ],
+    };
+    const readResource = vi.fn(async (uri: string) => ({
+      result: {
+        contents: [{ uri, text: uri.endsWith("/SKILL.md") ? skillMd : "x" }],
+      },
+    }));
+    const client = { readResource } as unknown as InspectorClientProtocol;
+    const [report] = await verifySkills(client, [skill]);
+    expect(readResource).toHaveBeenCalledWith(
+      "skill://huge/SKILL.md",
+      undefined,
+    );
+    expect(report.frontmatter).toHaveLength(1);
+  });
+
   it("reports every skill it was given, in order", async () => {
     const a = await entry();
     const b = await entry({ uri: "skill://demo/SKILL.md" });

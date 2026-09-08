@@ -145,14 +145,23 @@ They are the client-side obligations SEP-2640 makes testable from a hostile
 server, which is how the
 [`modelcontextprotocol/conformance`](https://github.com/modelcontextprotocol/conformance)
 harness grades a *client*: it stands up a server and watches what the client
-does. Four of its five skills scenarios map onto a fixture here — a digest
-mismatch (`tampered-notes`), a size mismatch, a frontmatter mismatch
-(`lying-listing`), and a read of a file the manifest does not list
-(`stale-manifest`). The fifth, **no-prefetch**, is a negative: it passes only if
-connecting and calling `skills/list` produces *no* `resources/read` at all. The
-Inspector satisfies it structurally — nothing is fetched until a user selects a
-skill or presses Verify, which is why every round trip on the Skills screen is a
-button rather than an effect.
+does. **Three** of its five skills scenarios map onto a fixture here — a digest
+mismatch (`tampered-notes`), a frontmatter mismatch (`lying-listing`), and a
+read of a file the manifest does not list (`stale-manifest`).
+
+The other two are covered, but not by this fixture, and the distinction is worth
+keeping honest:
+
+- **Size mismatch** has no fixture. `test-servers/src/skills.ts` can override an
+  advertised *digest* and nothing else, so the size path — which
+  `verifySkillResource` checks first, before hashing — is exercised by unit
+  tests rather than against a live server. Adding it would mean an
+  `advertisedSize` override beside the digest one.
+- **No-prefetch** is a negative and could not have a fixture: it passes only if
+  connecting and calling `skills/list` produces *no* `resources/read` at all.
+  The Inspector satisfies it structurally — nothing is fetched until a user
+  selects a skill or presses Verify, which is why every round trip on the Skills
+  screen is a button rather than an effect.
 
 ## Cancelling a call
 

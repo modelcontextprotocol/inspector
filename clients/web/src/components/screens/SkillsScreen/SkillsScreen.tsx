@@ -35,6 +35,7 @@ import {
   skillDisplayName,
   skillFileBytes,
   skillEntriesMatch,
+  normalizeSkillUri,
   skillUriIdentity,
   SKILL_FILE_SUFFIX,
   totalSkillBytes,
@@ -1129,8 +1130,15 @@ export function SkillsScreen({
    */
   const skillRoot = useMemo(() => {
     if (!selected) return undefined;
-    const normalized = skillUriIdentity(selected.uri);
-    return normalized.endsWith(SKILL_FILE_SUFFIX)
+    // `normalizeSkillUri`, NOT `skillUriIdentity`: the latter falls back to the
+    // raw string when parsing fails, so `not a uri/SKILL.md` yielded the "root"
+    // `not a uri` and enabled the Directory section — letting the UI send a
+    // directory request derived from a URI the conformance checks had already
+    // rejected as malformed (Copilot). Identity is the right tool for
+    // COMPARING two spellings; it is the wrong one for deciding that a URI is
+    // well-formed enough to build a request from.
+    const normalized = normalizeSkillUri(selected.uri);
+    return normalized !== undefined && normalized.endsWith(SKILL_FILE_SUFFIX)
       ? normalized.slice(0, -SKILL_FILE_SUFFIX.length)
       : undefined;
   }, [selected]);

@@ -2206,6 +2206,36 @@ describe("SkillsScreen directory browsing (#2248)", () => {
     );
   });
 
+  it.each([
+    ["no /SKILL.md suffix", "not-a-uri"],
+    // Ends with the suffix and so LOOKS addressable, but does not parse. The
+    // identity fallback returned the raw string here, producing the "root"
+    // `not a uri` and enabling a directory request built from a URI the
+    // conformance checks had already rejected (Copilot).
+    ["unparseable but suffixed", "not a uri/SKILL.md"],
+    ["relative, not a full URI", "demo/SKILL.md"],
+  ])(
+    "renders no Directory section for a malformed skill URI (%s)",
+    async (_label, uri) => {
+      const user = userEvent.setup();
+      const odd: SkillEntry = {
+        uri,
+        frontmatter: { name: "odd", description: "d" },
+        resources: [],
+      };
+      renderWithMantine(
+        <ControlledSkillsScreen
+          skills={[odd]}
+          onReadResourceDirectory={directoryReader({})}
+        />,
+      );
+      await user.click(screen.getByText("odd"));
+      expect(
+        screen.queryByRole("button", { name: /Directory/ }),
+      ).not.toBeInTheDocument();
+    },
+  );
+
   it("renders no Directory section for a skill whose URI is malformed", async () => {
     // There is no root to browse, and `malformed-uri` already reports it in
     // Conformance.

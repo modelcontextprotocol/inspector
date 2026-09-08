@@ -33,6 +33,7 @@ import {
   checkSkillFrontmatterMatch,
   checkSkillNameCollisions,
   skillDisplayName,
+  SKILL_MAX_RESOURCE_ENTRIES,
   skillFileBytes,
   skillUriIdentity,
   verifySkillResource,
@@ -68,7 +69,13 @@ export interface SkillVerifyReport {
    */
   frontmatter: SkillIssue[];
   /**
-   * One entry per manifest file, in manifest order.
+   * One entry per manifest file **read**, in manifest order.
+   *
+   * ⚠️ Capped at `SKILL_MAX_RESOURCE_ENTRIES`. A manifest longer than that is
+   * already reported by the `resource-limit-exceeded` warning, and reading all
+   * of it would let a server dictate an unbounded number of round trips — so
+   * this can be SHORTER than the declared manifest, and a consumer must not
+   * read its length as the manifest's.
    *
    * ⚠️ **Not necessarily empty for a `"dynamic"` skill.** Such a skill has no
    * manifest rows, but a failed read of its own `SKILL.md` — the file the
@@ -187,8 +194,16 @@ export async function verifySkills(
     let entryBytes: Uint8Array | undefined;
     const files: SkillFileReport[] = [];
 
-    const manifest =
+    const declared =
       entry.resources === DYNAMIC_RESOURCES ? [] : entry.resources;
+    // ⚠️ **Bounded, because the manifest is server-controlled.** The 512-entry
+    // limit is CHECKED by `checkSkillConformance` — as a warning, since the SEP
+    // makes it an interoperability bound rather than a MUST — but checking it
+    // constrains nothing, so a hostile or broken server advertising a million
+    // entries had the tool perform a million sequential reads after the report
+    // already knew the manifest was over the limit (Copilot). The overage is
+    // reported by `resource-limit-exceeded`; reading it is what stops here.
+    const manifest = declared.slice(0, SKILL_MAX_RESOURCE_ENTRIES);
     const entryIdentity = skillUriIdentity(entry.uri);
     // Compared by NORMALIZED identity, like every other URI comparison here —
     // `checkSkillConformance` already accepts a manifest self-entry written in
@@ -244,7 +259,10 @@ export async function verifySkills(
     //
     // Gated on `manifestListsSelf` rather than on `entryBytes`, so a self-entry
     // the loop already tried and FAILED to read is not read a second time — its
-    // failure is recorded there.
+    // failure is recorded there. Note this is computed over the READ slice, so
+    // a self-entry pushed past the cap by a bloated manifest still reaches the
+    // fallback: the frontmatter comparison is mandatory and must not be lost to
+    // a limit that exists to bound unrelated files.
     if (!manifestListsSelf) {
       // Recorded as a file result, not swallowed. Because a dynamic skill has
       // no manifest rows, `files` would otherwise stay empty and its only static
