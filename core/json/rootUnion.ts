@@ -162,7 +162,7 @@ function propertiesOf(schema: RootUnionSchema): Record<string, unknown> {
 /**
  * Whether a branch is one a form can offer as an alternative.
  *
- * Three ways it is not, all of which would put an option in the picker that
+ * Four ways it is not, all of which would put an option in the picker that
  * cannot be filled in:
  *
  * - **It carries no fields.** A `{ type: "null" }` member — the nullable
@@ -174,6 +174,12 @@ function propertiesOf(schema: RootUnionSchema): Record<string, unknown> {
  * - **Its `type` rules objects out.** Tool arguments are a JSON object, so a
  *   `{ type: "string", properties: {…} }` member can never match — rendering it
  *   as a fillable form would offer a call that cannot be valid.
+ * - **It requires a name it never declares.** `required` is a list of names,
+ *   not of declarations, so `{ properties: { kind: … }, required: ["kind",
+ *   "payload"] }` is legal and says nothing about what `payload` accepts. Both
+ *   form builders enumerate `properties` alone, so no control is rendered for
+ *   it and the submit-time check reports it missing *permanently* — the same
+ *   dead end a `false`-schema required field produces (#2224).
  */
 function isOfferable(
   branch: RootUnionSchema,
@@ -191,7 +197,19 @@ function isOfferable(
   // a perfectly ordinary way to say "one of these two" — and judging it on its
   // own properties would decline it, leaving the gate checking the base alone
   // and accepting `{}`, which the schema rejects.
-  const properties = Object.values(propertiesOf(merged));
+  const mergedProperties = propertiesOf(merged);
+  // Judged on the MERGE for the same reason the fields are: a member may
+  // require a name the root declares, which is exactly the
+  // `anyOf: [{ required: ["email"] }, …]` shape above. `hasOwn` rather than
+  // `in`, since an argument legally named `constructor` or `toString` would
+  // otherwise resolve to the inherited one and read as declared.
+  if (
+    requiredOf(merged).some((name) => !Object.hasOwn(mergedProperties, name))
+  ) {
+    return false;
+  }
+
+  const properties = Object.values(mergedProperties);
   return (
     properties.length > 0 &&
     // Every value has to be something a renderer can read AND something a

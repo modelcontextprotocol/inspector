@@ -11,6 +11,7 @@ import {
   EMPTY_NETWORK_UI,
   EMPTY_PROMPTS_UI,
   EMPTY_RESOURCES_UI,
+  EMPTY_SKILLS_UI,
   EMPTY_TASKS_UI,
   EMPTY_TOOLS_UI,
 } from "../components/screens/screenUiState.js";
@@ -20,6 +21,7 @@ import type { LogsUiState } from "../components/screens/LoggingScreen/LoggingScr
 import type { NetworkUiState } from "../components/screens/NetworkScreen/NetworkScreen.js";
 import type { PromptsUiState } from "../components/screens/PromptsScreen/PromptsScreen.js";
 import type { ResourcesUiState } from "../components/screens/ResourcesScreen/ResourcesScreen.js";
+import type { SkillsUiState } from "../components/screens/SkillsScreen/SkillsScreen.js";
 import type { TasksUiState } from "../components/screens/TasksScreen/TasksScreen.js";
 import type { ToolsUiState } from "../components/screens/ToolsScreen/ToolsScreen.js";
 import {
@@ -77,6 +79,7 @@ export interface LiftedTabUiState {
   promptsUi: PromptsUiState;
   resourcesUi: ResourcesUiState;
   appsUi: AppsUiState;
+  skillsUi: SkillsUiState;
   tasksUi: TasksUiState;
   logsUi: LogsUiState;
   protocolUi: ProtocolUiState;
@@ -88,6 +91,7 @@ export interface TabUiSetters {
   setPromptsUi: (next: PromptsUiState) => void;
   setResourcesUi: (next: ResourcesUiState) => void;
   setAppsUi: (next: AppsUiState) => void;
+  setSkillsUi: (next: SkillsUiState) => void;
   setTasksUi: (next: TasksUiState) => void;
   setLogsUi: (next: LogsUiState) => void;
   setProtocolUi: (next: ProtocolUiState) => void;
@@ -102,6 +106,7 @@ export function buildTabUiSnapshot(
     Tools: state.toolsUi,
     Prompts: state.promptsUi,
     Resources: state.resourcesUi,
+    Skills: state.skillsUi,
     Tasks: state.tasksUi,
     Logs: state.logsUi,
     Protocol: state.protocolUi,
@@ -154,6 +159,11 @@ export function restoreTabUiFromSnapshot(
         break;
       case "Apps":
         setters.setAppsUi((value as AppsUiState | undefined) ?? EMPTY_APPS_UI);
+        break;
+      case "Skills":
+        setters.setSkillsUi(
+          (value as SkillsUiState | undefined) ?? EMPTY_SKILLS_UI,
+        );
         break;
       case "Tasks":
         setters.setTasksUi(
@@ -217,11 +227,27 @@ export function writeOAuthResumeSnapshot(
  * context, which a `file://` page or a plain-HTTP non-loopback host is not),
  * and otherwise a value that only has to be unique among the handful of
  * redirect attempts one page can have in flight — never a security token.
+ *
+ * The fallback chain matters even so. `crypto.getRandomValues` is *not*
+ * gated on a secure context and exists in every browser that has `crypto` at
+ * all — so precisely the situation `randomUUID` is unavailable in still has a
+ * CSPRNG on hand, and declining to use it would be a gratuitous downgrade
+ * (CodeQL `js/insecure-randomness`, alert 72, flags exactly that). `Math.random`
+ * survives only as the last resort for a `crypto`-less global.
  */
 function newAttemptId(): string {
   const uuid = globalThis.crypto?.randomUUID?.bind(globalThis.crypto);
   if (uuid) {
     return uuid();
+  }
+  // Called directly rather than through a bound alias: CodeQL's
+  // `js/insecure-randomness` browser model recognizes a secure RNG by the
+  // literal `crypto.getRandomValues(...)` method call, and an alias does not
+  // match it — so the indirection would leave the `Math.random` last resort
+  // below classified as an unmitigated source (Copilot).
+  if (globalThis.crypto?.getRandomValues) {
+    const bytes = globalThis.crypto.getRandomValues(new Uint8Array(16));
+    return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
   }
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 }

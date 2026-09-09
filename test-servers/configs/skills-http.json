@@ -1,0 +1,17 @@
+{
+  "serverInfo": {
+    "name": "skills",
+    "version": "1.0.0"
+  },
+  "tools": [
+    {
+      "preset": "echo"
+    }
+  ],
+  "resources": [],
+  "skills": true,
+  "transport": {
+    "type": "streamable-http",
+    "port": 3230
+  }
+}

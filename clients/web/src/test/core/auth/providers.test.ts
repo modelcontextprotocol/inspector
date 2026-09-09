@@ -7,6 +7,10 @@ import {
   type OAuthProviderConfig,
 } from "@inspector/core/auth/providers.js";
 import type { OAuthStorage } from "@inspector/core/auth/storage.js";
+import { OAuthStorageBase } from "@inspector/core/auth/oauth-storage.js";
+import { OAuthMemoryStore } from "@inspector/core/auth/store.js";
+import type { OAuthPersistBackend } from "@inspector/core/auth/oauth-persist.js";
+import { ensureCimdClientRegistration } from "@inspector/core/auth/cimd.js";
 import {
   BrowserNavigation,
   BrowserOAuthClientProvider,
@@ -216,6 +220,7 @@ describe("OAuthNavigation", () => {
         load: vi.fn().mockResolvedValue(undefined),
         getScope: vi.fn().mockResolvedValue(undefined),
         getClientInformation: vi.fn(async () => undefined),
+        getClientRegistrationKind: vi.fn(async () => undefined),
         saveClientInformation: vi.fn(async () => undefined),
         savePreregisteredClientInformation: vi.fn(async () => undefined),
         saveScope: vi.fn(async () => undefined),
@@ -238,11 +243,13 @@ describe("OAuthNavigation", () => {
     function makeProvider(
       storage: OAuthStorage,
       navCallback = vi.fn(),
+      extraConfig: Partial<OAuthProviderConfig> = {},
     ): BaseOAuthClientProvider {
       const config: OAuthProviderConfig = {
         storage,
         redirectUrlProvider: new MutableRedirectUrlProvider(),
         navigation: new CallbackNavigation(navCallback),
+        ...extraConfig,
       };
       return new BaseOAuthClientProvider(SERVER, config);
     }
@@ -623,6 +630,448 @@ describe("OAuthNavigation", () => {
           { access_token: "t", token_type: "Bearer" },
           { issuer },
         );
+      });
+
+      // #2242: the SDK binds an existing registration to its issuer by calling
+      // `saveClientInformation(info, { issuer })` with no registration kind.
+      // Treating every such save as DCR relabeled a CIMD registration
+      // "Dynamic (DCR)" in Connection Info, even though no `POST /register`
+      // ever happened.
+      describe("registration kind on an unstamped (SDK) save", () => {
+        const ISSUER = "https://as.example.com";
+        const METADATA_URL = "https://app.example.com/client-metadata.json";
+
+        /** Discovery state as SDK `auth()` persists it before saving client info. */
+        function seedDiscovery(
+          storage: OAuthStorage,
+          issuer: string,
+          cimd: boolean,
+        ) {
+          vi.mocked(storage.getDiscoveryState).mockResolvedValue({
+            authorizationServerUrl: issuer,
+            authorizationServerMetadata: {
+              issuer,
+              authorization_endpoint: `${issuer}/authorize`,
+              token_endpoint: `${issuer}/token`,
+              response_types_supported: ["code"],
+              ...(cimd && { client_id_metadata_document_supported: true }),
+            },
+          });
+        }
+
+        /** Storage whose issuer slot already holds a CIMD registration. */
+        function makeCimdStorage(): OAuthStorage {
+          const storage = makeStorage();
+          vi.mocked(storage.getClientInformation).mockImplementation(
+            async (_url: string, preregistered?: boolean) =>
+              preregistered ? undefined : { client_id: METADATA_URL },
+          );
+          vi.mocked(storage.getClientRegistrationKind).mockResolvedValue(
+            "cimd",
+          );
+          return storage;
+        }
+
+        it("keeps cimd when back-stamping a registration recorded as cimd", async () => {
+          const storage = makeCimdStorage();
+          const provider = makeProvider(storage, vi.fn(), {
+            clientMetadataUrl: METADATA_URL,
+          });
+
+          await provider.saveClientInformation(
+            { client_id: METADATA_URL },
+            { issuer: ISSUER },
+          );
+
+          expect(storage.saveClientInformation).toHaveBeenCalledWith(
+            SERVER,
+            { client_id: METADATA_URL },
+            { registrationKind: "cimd", issuer: ISSUER },
+          );
+        });
+
+        // RFC 7591 §3.2 leaves a dynamically issued `client_id` opaque, so an
+        // existing DCR may carry the configured metadata URL. Back-stamping it
+        // must not relabel it (Copilot).
+        it("keeps dcr when back-stamping a DCR that uses the metadata URL", async () => {
+          const storage = makeStorage();
+          vi.mocked(storage.getClientInformation).mockImplementation(
+            async (_url: string, preregistered?: boolean) =>
+              preregistered ? undefined : { client_id: METADATA_URL },
+          );
+          vi.mocked(storage.getClientRegistrationKind).mockResolvedValue("dcr");
+          // Even with an AS that does advertise CIMD.
+          seedDiscovery(storage, ISSUER, true);
+          const provider = makeProvider(storage, vi.fn(), {
+            clientMetadataUrl: METADATA_URL,
+          });
+
+          await provider.saveClientInformation(
+            { client_id: METADATA_URL },
+            { issuer: ISSUER },
+          );
+
+          expect(storage.saveClientInformation).toHaveBeenCalledWith(
+            SERVER,
+            { client_id: METADATA_URL },
+            { registrationKind: "dcr", issuer: ISSUER },
+          );
+        });
+
+        // Nothing stored for this issuer, so the SDK is creating the
+        // registration. It reaches its URL-based-client-ID branch exactly when
+        // the AS advertises CIMD — read back from the discovery state it
+        // persisted moments earlier.
+        it("records cimd for a new registration when the AS advertises CIMD", async () => {
+          const storage = makeStorage();
+          seedDiscovery(storage, ISSUER, true);
+          const provider = makeProvider(storage, vi.fn(), {
+            clientMetadataUrl: METADATA_URL,
+          });
+
+          await provider.saveClientInformation(
+            { client_id: METADATA_URL },
+            { issuer: ISSUER },
+          );
+
+          expect(storage.saveClientInformation).toHaveBeenCalledWith(
+            SERVER,
+            { client_id: METADATA_URL },
+            { registrationKind: "cimd", issuer: ISSUER },
+          );
+        });
+
+        it("records dcr for a new registration when the AS does not advertise CIMD", async () => {
+          const storage = makeStorage();
+          seedDiscovery(storage, ISSUER, false);
+          const provider = makeProvider(storage, vi.fn(), {
+            clientMetadataUrl: METADATA_URL,
+          });
+
+          await provider.saveClientInformation(
+            { client_id: METADATA_URL },
+            { issuer: ISSUER },
+          );
+
+          expect(storage.saveClientInformation).toHaveBeenCalledWith(
+            SERVER,
+            { client_id: METADATA_URL },
+            { registrationKind: "dcr", issuer: ISSUER },
+          );
+        });
+
+        it("records dcr when the discovery state describes a different issuer", async () => {
+          const storage = makeStorage();
+          seedDiscovery(storage, "https://as-other.example.com", true);
+          const provider = makeProvider(storage, vi.fn(), {
+            clientMetadataUrl: METADATA_URL,
+          });
+
+          await provider.saveClientInformation(
+            { client_id: METADATA_URL },
+            { issuer: ISSUER },
+          );
+
+          expect(storage.saveClientInformation).toHaveBeenCalledWith(
+            SERVER,
+            { client_id: METADATA_URL },
+            { registrationKind: "dcr", issuer: ISSUER },
+          );
+        });
+
+        it("records dcr for a server-minted client_id while CIMD is configured", async () => {
+          const storage = makeCimdStorage();
+          seedDiscovery(storage, ISSUER, true);
+          const provider = makeProvider(storage, vi.fn(), {
+            clientMetadataUrl: METADATA_URL,
+          });
+
+          await provider.saveClientInformation(
+            { client_id: "dcr-minted-id" },
+            { issuer: ISSUER },
+          );
+
+          // The id is not the metadata URL, so nothing is read at all.
+          expect(storage.getClientInformation).not.toHaveBeenCalled();
+          expect(storage.getDiscoveryState).not.toHaveBeenCalled();
+          expect(storage.saveClientInformation).toHaveBeenCalledWith(
+            SERVER,
+            { client_id: "dcr-minted-id" },
+            { registrationKind: "dcr", issuer: ISSUER },
+          );
+        });
+
+        it("records dcr when CIMD is not configured for this connection", async () => {
+          const storage = makeCimdStorage();
+          seedDiscovery(storage, ISSUER, true);
+          const provider = makeProvider(storage);
+
+          await provider.saveClientInformation(
+            { client_id: METADATA_URL },
+            { issuer: ISSUER },
+          );
+
+          expect(storage.saveClientInformation).toHaveBeenCalledWith(
+            SERVER,
+            { client_id: METADATA_URL },
+            { registrationKind: "dcr", issuer: ISSUER },
+          );
+        });
+
+        // SEP-2352 keys registrations per authorization server, so a second AS
+        // behind one resource is a separate determination. Driven against a real
+        // `OAuthStorageBase` and the real `ensureCimdClientRegistration`, because
+        // the behaviour under test is how the pre-registration binds provenance to
+        // a discovered issuer and how storage promotes and clears slots — neither
+        // of which a mock would express (Copilot).
+        describe("across two authorization servers", () => {
+          const ISSUER_B = "https://as-b.example.com";
+
+          function makeRealStorage(): OAuthStorage {
+            const backend: OAuthPersistBackend = {
+              read: async () => null,
+              write: async () => {},
+            };
+            return new OAuthStorageBase(new OAuthMemoryStore(), backend);
+          }
+
+          /**
+           * Discovery that points the resource at `issuer` as its authorization
+           * server and declares CIMD support per `cimd`. The RFC 9728 document
+           * has to name the AS, so that the RFC 8414 §3.3 issuer echo the SDK
+           * enforces resolves against the AS URL rather than the resource's.
+           */
+          function discoveryFetch(issuer: string, cimd: boolean): typeof fetch {
+            return async (input: RequestInfo | URL) => {
+              const url = String(input);
+              if (url.includes("/.well-known/oauth-protected-resource")) {
+                return new Response(
+                  JSON.stringify({
+                    resource: SERVER,
+                    authorization_servers: [issuer],
+                  }),
+                );
+              }
+              if (url.startsWith(issuer)) {
+                return new Response(
+                  JSON.stringify({
+                    issuer,
+                    authorization_endpoint: `${issuer}/authorize`,
+                    token_endpoint: `${issuer}/token`,
+                    response_types_supported: ["code"],
+                    ...(cimd && {
+                      client_id_metadata_document_supported: true,
+                    }),
+                  }),
+                );
+              }
+              throw new Error(`unexpected fetch: ${url}`);
+            };
+          }
+
+          /** Issuer A pre-registers via CIMD, then the SDK binds it. */
+          async function bindIssuerA(storage: OAuthStorage) {
+            const provider = makeProvider(storage, vi.fn(), {
+              clientMetadataUrl: METADATA_URL,
+            });
+            await ensureCimdClientRegistration({
+              serverUrl: SERVER,
+              provider,
+              fetchFn: discoveryFetch(ISSUER, true),
+            });
+            await provider.saveClientInformation(
+              { client_id: METADATA_URL },
+              { issuer: ISSUER },
+            );
+            expect(
+              await storage.getClientRegistrationKind(SERVER, ISSUER),
+            ).toBe("cimd");
+            return provider;
+          }
+
+          it("keeps cimd when a second CIMD-supporting issuer takes over", async () => {
+            const storage = makeRealStorage();
+            const provider = await bindIssuerA(storage);
+
+            // Issuer B also advertises CIMD, so the pre-registration records it
+            // for B too — it must not early-return on issuer A's client.
+            await ensureCimdClientRegistration({
+              serverUrl: SERVER,
+              provider,
+              fetchFn: discoveryFetch(ISSUER_B, true),
+            });
+            await storage.saveDiscoveryState(SERVER, {
+              authorizationServerUrl: ISSUER_B,
+              authorizationServerMetadata: {
+                issuer: ISSUER_B,
+                authorization_endpoint: `${ISSUER_B}/authorize`,
+                token_endpoint: `${ISSUER_B}/token`,
+                response_types_supported: ["code"],
+                client_id_metadata_document_supported: true,
+              },
+            });
+            await provider.saveClientInformation(
+              { client_id: METADATA_URL },
+              { issuer: ISSUER_B },
+            );
+
+            expect(
+              await storage.getClientRegistrationKind(SERVER, ISSUER_B),
+            ).toBe("cimd");
+            expect(
+              await storage.getClientRegistrationKind(SERVER, ISSUER),
+            ).toBe("cimd");
+          });
+
+          it("records dcr when a second issuer without CIMD mints the same URL as its client_id", async () => {
+            const storage = makeRealStorage();
+            const provider = await bindIssuerA(storage);
+
+            // Issuer B does *not* advertise CIMD, so nothing is recorded for B...
+            await ensureCimdClientRegistration({
+              serverUrl: SERVER,
+              provider,
+              fetchFn: discoveryFetch(ISSUER_B, false),
+            });
+            // Discovery state as SDK `auth()` persists it for issuer B — which
+            // is what tells the save apart from a CIMD one. Seeded explicitly so
+            // the assertion rests on B's advertised capabilities rather than on
+            // discovery state merely being absent.
+            await storage.saveDiscoveryState(SERVER, {
+              authorizationServerUrl: ISSUER_B,
+              authorizationServerMetadata: {
+                issuer: ISSUER_B,
+                authorization_endpoint: `${ISSUER_B}/authorize`,
+                token_endpoint: `${ISSUER_B}/token`,
+                response_types_supported: ["code"],
+              },
+            });
+
+            // ...and RFC 7591 §3.2 lets it mint an opaque id that happens to be
+            // the very URL issuer A uses as its CIMD client_id.
+            await provider.saveClientInformation(
+              { client_id: METADATA_URL },
+              { issuer: ISSUER_B },
+            );
+
+            expect(
+              await storage.getClientRegistrationKind(SERVER, ISSUER_B),
+            ).toBe("dcr");
+            // Issuer A's own provenance is untouched.
+            expect(
+              await storage.getClientRegistrationKind(SERVER, ISSUER),
+            ).toBe("cimd");
+          });
+
+          // Copilot: an AS advertising CIMD does not make an *existing* dynamic
+          // registration a CIMD one. RFC 7591 §3.2 leaves the id opaque, so a
+          // real DCR may carry the metadata URL; end to end, it must stay `dcr`.
+          it("does not relabel an existing DCR whose client_id is the metadata URL", async () => {
+            const storage = makeRealStorage();
+            const provider = makeProvider(storage, vi.fn(), {
+              clientMetadataUrl: METADATA_URL,
+            });
+
+            // A real dynamic registration that happens to use the same URL.
+            await provider.saveClientInformation(
+              { client_id: METADATA_URL },
+              { registrationKind: "dcr", issuer: ISSUER },
+            );
+
+            // The AS does advertise CIMD, so the pre-registration runs and finds
+            // that registration already in place.
+            await ensureCimdClientRegistration({
+              serverUrl: SERVER,
+              provider,
+              fetchFn: discoveryFetch(ISSUER, true),
+            });
+            // The SDK's issuer back-stamp of that same registration.
+            await provider.saveClientInformation(
+              { client_id: METADATA_URL },
+              { issuer: ISSUER },
+            );
+
+            expect(
+              await storage.getClientRegistrationKind(SERVER, ISSUER),
+            ).toBe("dcr");
+          });
+
+          // SDK v2 `auth()` answers `invalid_client` with
+          // `invalidateCredentials("client")` and an immediate retry. That clear
+          // removes the registration *and* its kind, so the retry takes the
+          // new-registration path and must be answered from the discovery state
+          // — which the clear does not touch (Copilot). Asserted against real
+          // storage, since the point is what `clearClientInformation` does.
+          it("keeps cimd through invalid-client recovery, which clears the credential", async () => {
+            const storage = makeRealStorage();
+            const provider = await bindIssuerA(storage);
+            // Discovery state as SDK `auth()` persisted it for issuer A.
+            await storage.saveDiscoveryState(SERVER, {
+              authorizationServerUrl: ISSUER,
+              authorizationServerMetadata: {
+                issuer: ISSUER,
+                authorization_endpoint: `${ISSUER}/authorize`,
+                token_endpoint: `${ISSUER}/token`,
+                response_types_supported: ["code"],
+                client_id_metadata_document_supported: true,
+              },
+            });
+
+            await provider.invalidateCredentials("client");
+
+            // The credential and its recorded kind are both gone...
+            expect(
+              await storage.getClientInformation(SERVER, false, ISSUER),
+            ).toBeUndefined();
+            expect(
+              await storage.getClientRegistrationKind(SERVER, ISSUER),
+            ).toBeUndefined();
+
+            // ...so the SDK's retry re-runs its URL-based client-ID branch.
+            await provider.saveClientInformation(
+              { client_id: METADATA_URL },
+              { issuer: ISSUER },
+            );
+
+            expect(
+              await storage.getClientRegistrationKind(SERVER, ISSUER),
+            ).toBe("cimd");
+          });
+
+          it("records dcr for a second issuer that mints its own client_id", async () => {
+            const storage = makeRealStorage();
+            const provider = await bindIssuerA(storage);
+
+            await provider.saveClientInformation(
+              { client_id: "b-registered-id" },
+              { issuer: ISSUER_B },
+            );
+
+            expect(
+              await storage.getClientRegistrationKind(SERVER, ISSUER_B),
+            ).toBe("dcr");
+          });
+        });
+
+        it("an explicit registrationKind wins and consults no storage reads", async () => {
+          const storage = makeCimdStorage();
+          const provider = makeProvider(storage, vi.fn(), {
+            clientMetadataUrl: METADATA_URL,
+          });
+
+          await provider.saveClientInformation(
+            { client_id: METADATA_URL },
+            { registrationKind: "cimd" },
+          );
+
+          expect(storage.getClientInformation).not.toHaveBeenCalled();
+          expect(storage.getClientRegistrationKind).not.toHaveBeenCalled();
+          expect(storage.saveClientInformation).toHaveBeenCalledWith(
+            SERVER,
+            { client_id: METADATA_URL },
+            { registrationKind: "cimd", issuer: undefined },
+          );
+        });
       });
 
       it("round-trips discovery state to storage", async () => {

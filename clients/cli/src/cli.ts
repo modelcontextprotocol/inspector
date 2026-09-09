@@ -679,7 +679,14 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
       parseKeyValuePair,
       {},
     )
-    .option("--uri <uri>", "URI of the resource (for resources/read method)")
+    .option(
+      "--uri <uri>",
+      "URI of the resource (resources/read, resources/directory/read) or of the skill (skills/get)",
+    )
+    .option(
+      "--cursor <cursor>",
+      "Opaque pagination cursor (for resources/directory/read; pass back the nextCursor from the previous page).",
+    )
     .option(
       "--prompt-name <promptName>",
       "Name of the prompt (for prompts/get method)",
@@ -742,6 +749,10 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     .option(
       "--strict",
       "Report tool-schema portability problems in full (path, issue, suggested fix) on stderr, and exit 6 if any is error-severity. Use with --method tools/list. Without it, a one-line count is printed instead.",
+    )
+    .option(
+      "--verify",
+      "Run the SEP-2640 conformance and digest checks over the skills returned, emit one JSON report per skill on stdout, and exit 7 if any fails or 8 if any could not be fully checked within the read bounds. Use with --method skills/list or --method skills/get.",
     )
     .option(
       "--connect-timeout <ms>",
@@ -848,6 +859,8 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     header?: Record<string, string>;
     appInfo?: boolean;
     strict?: boolean;
+    verify?: boolean;
+    cursor?: string;
     connectTimeout?: number;
     format?: OutputFormat;
     toolArgsJson?: string;
@@ -915,6 +928,18 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     if (options.appInfo) {
       throw new Error(
         "--strict cannot be combined with --app-info; run tools/list twice, once for each.",
+      );
+    }
+  }
+
+  // `--verify` is checked here for exactly the reason `--strict` is: the
+  // short-circuit returns below never reach `runMethod`, so validating further
+  // down would let `--verify --method servers/list` succeed while silently
+  // ignoring a flag documented as skills-only.
+  if (options.verify) {
+    if (options.method !== "skills/list" && options.method !== "skills/get") {
+      throw new Error(
+        "--verify requires --method skills/list or --method skills/get.",
       );
     }
   }
@@ -1147,6 +1172,8 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     toolMeta: options.toolMetadata,
     appInfo: options.appInfo === true,
     strict: options.strict === true,
+    verify: options.verify === true,
+    cursor: options.cursor,
     format: options.format,
   };
 

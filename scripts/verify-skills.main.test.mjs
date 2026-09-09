@@ -130,6 +130,36 @@ test("fails a skill that does not declare its invocation mode", () => {
   rmSync(dir, { recursive: true, force: true });
 });
 
+test("a hand-off case is checked against the whole model-invoked set", () => {
+  // The ordering trap this pins: `zeta` sorts AFTER `beta`, so validating each
+  // file as it is read would reject a chain through `zeta` as unknown purely
+  // because of where the alphabet put it.
+  const withChain = (chain) =>
+    JSON.stringify([
+      ...JSON.parse(goodEvals("beta")),
+      { prompt: "reached the long way", chain },
+    ]);
+
+  const ok = fixture({
+    beta: { skill: modelInvoked("beta"), evals: withChain(["zeta", "beta"]) },
+    zeta: { skill: modelInvoked("zeta"), evals: goodEvals("zeta") },
+  });
+  const passed = run(ok);
+  assert.equal(passed.code, 0, passed.out);
+  rmSync(ok, { recursive: true, force: true });
+
+  // A link the model cannot invoke can never fire, so it would score a
+  // permanent 0% that reads as a description problem rather than a typo.
+  const bad = fixture({
+    alpha: { skill: byName("alpha") },
+    beta: { skill: modelInvoked("beta"), evals: withChain(["alpha", "beta"]) },
+  });
+  const failed = run(bad);
+  assert.equal(failed.code, 1);
+  assert.match(failed.out, /`alpha`, which is not a model-invoked skill/);
+  rmSync(bad, { recursive: true, force: true });
+});
+
 test("fails a model-invoked skill with no eval cases", () => {
   const dir = fixture({ beta: { skill: modelInvoked("beta") } });
   const { code, out } = run(dir);

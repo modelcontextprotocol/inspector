@@ -14,6 +14,8 @@ export {
   lostAuthorizationStateTitle,
   issuerMismatchMessage,
   issuerMismatchTitle,
+  insecureTokenEndpointMessage,
+  insecureTokenEndpointTitle,
   type OAuthInteractiveAuthKind,
   type OAuthPreRedirectContext,
   type OAuthRecoverySource,

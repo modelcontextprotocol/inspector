@@ -14,6 +14,17 @@ reachability — `npm run skills:eval` — reports a hit rate rather than a verd
 session** (`claude -p`), `RUNS` times, and scores the fraction of runs in which
 the `Skill` tool fired with the expected name.
 
+There are **two kinds of case**, measured against different turn budgets and
+reported in separate columns:
+
+| | asserts | budget | column |
+| --- | --- | --- | --- |
+| `"expect": "<skill>"` / `null` | the skill is (or is not) the model's **first move** | 1 turn | first-move |
+| `"chain": ["a", …, "<skill>"]` | loading `a` **leads to** loading this skill | `CHAIN_MAX_TURNS` (14) | hand-off, `CHAIN_THRESHOLD` 0.5 |
+
+Almost every case is the first kind, and the four properties below are about
+that kind. The hand-off case has its own section further down.
+
 Four properties of that harness drive everything below:
 
 - **`--max-turns 1`.** The skill must fire in the model's **first assistant
@@ -180,6 +191,154 @@ unrelated to the repo (arithmetic, trivia, a one-line refactor). All 18 in this
 repo have held at 100% through every reshaping so far — if one starts firing, a
 description has grown too broad.
 
+### Chained cases: measuring a hand-off
+
+A skill body may point at another skill — `testing` opens by telling the model
+that picking a fixture is `/test-servers` and that it has to load it, and
+because `test-servers` is model-invocable that pointer is live rather than a
+dead end. **Nothing in a first-move case can observe whether that pointer is
+ever taken.** `test-servers` scores 5/5 on its own cases and every one of them
+asks for it by name; a skill only ever reached _through_ another would score a
+clean 100% while the hand-off silently never fired (#2204).
+
+A chained case names the ordered skills one run should load:
+
+```json
+{
+  "prompt": "Write an integration test that exercises tool listing against a real server.",
+  "chain": ["testing", "test-servers"]
+}
+```
+
+**Write a chained case when the prompt names nothing about the target skill and
+the path to it runs through another skill.** Write an ordinary first-move case
+for everything else — a prompt someone would actually type to reach this skill
+directly is a first-move case even when a hand-off could also get there, and it
+is the cheaper measurement by an order of magnitude.
+
+Six rules the shape enforces, each for a reason worth knowing:
+
+- **The chain ends with the skill whose file it lives in.** The case exists to
+  measure whether _this_ skill is reachable, so the file that must go red when
+  the hand-off stops working is the one belonging to the skill that stops being
+  reached. Anchoring on the first link would file the `testing → test-servers`
+  measurement under `testing`, where a `test-servers` description edit would
+  never be seen.
+- **A chained case satisfies neither floor.** It is not one of the five
+  positives and it is not the negative. It measures a different thing, so
+  letting it stand in would let a skill ship with no measurement of the way
+  users actually reach it.
+- **The match is an ordered _subsequence_, not a prefix and not a contiguous
+  run.** The model may load something before the chain starts and something
+  unrelated in between; neither changes the claim that A led to B. What does not
+  score is the reverse order.
+- **Every link after the first must land in a later assistant turn.** Position
+  in the stream is not causation: the model can emit several `tool_use` blocks
+  in one message, and it has not seen the first skill's body when it does — so
+  two `Skill` calls in the same turn are parallel guesses, not a hand-off, and
+  a flat index would score them as one (Copilot). This is the difference
+  between "B was loaded after A" and "A led to B", and it is the second way a
+  chained case can false-pass — the first being a prompt that carries the
+  target's own trigger, below. Only the chain's *first* link is unconstrained.
+- **Repeats and unknown links are rejected.** A repeated link cannot be
+  observed, and a link naming a skill the model cannot invoke can never fire —
+  it would score a permanent 0% that reads as a description problem.
+- **The two numbers never share a column.** A hand-off rate is a second-hop load
+  over many turns; a first-move rate is the model's opening move. Summing them
+  would produce a figure describing neither, and a handful of hand-off cases
+  would quietly move a headline everyone reads as trigger reliability.
+
+⚠️ **The prompt must not carry the TARGET skill's own trigger.** This is the
+subtle way a chained case false-passes. `test-servers` claims the situation "a
+change needs a real server to exercise it", so a prompt saying "…against a real
+server" matches it directly: the model can pick `testing` first and then pick
+`test-servers` from the *original prompt*, in that order, and the case scores a
+hit that would survive deleting the pointer from `testing` entirely (Copilot).
+Both committed cases said "against a real/live server" and were rewritten to
+"end to end" for exactly this reason — and the measured rate **fell from 100%
+and 67% to 33% and 33%**, which is the size of the effect this trap hides.
+**Write the prompt so only the loaded first skill can introduce the second**,
+and sanity-check it by asking whether the case would still pass if the pointer
+were removed.
+
+⚠️ **A chained case only measures a pointer that exists.** `pr-flow` says
+nothing about test fixtures, so a `["pr-flow", "test-servers"]` case measured 0%
+— correctly, and with no lever to fix it short of broadening a description onto
+another skill's ground. Before writing one, confirm the first link's body
+actually points at the target; otherwise the case is a permanent zero that reads
+as a description problem.
+
+⚠️ **A hand-off case is a measurement under the harness's tool policy, not a
+prediction about an unrestricted session.** `--max-turns 1` was doing much of
+the read-only containment on its own; a 14-turn budget removes that, so the deny
+list covers the agentic and network tools too (`Task` in particular, whose
+subagent the flag does not reach). Denying `Bash` also changes the path a run
+can take toward the second skill, since investigating a repo by hand often
+starts there. `Read`/`Glob`/`Grep` remain, which is enough to reach a hand-off.
+
+**A hand-off is far less reliable than a first move, and the threshold says so.**
+`CHAIN_THRESHOLD` defaults to **0.5**, not 0.8 — the weakest claim worth
+asserting is that the pointer is taken more often than not — and it is compared
+**strictly**. "More often than not" is `> 0.5`, and an inclusive compare would
+pass 2/4 whenever `RUNS` is even, reporting a result the criterion does not
+license (Copilot). A strict bound of `1.0` is therefore unreachable and the
+harness rejects it up front rather than failing every case.
+
+0.5 is a floor on **useful reliability for a second-hop load**, not a claim that
+0.8 is out of reach — a well-shaped pointer clears it outright, at 100% in the
+worked example below. Note that a *chain* bar of 0.8 would be a **strict** one
+(`> 0.8`, the comparison this threshold uses; the first-move 0.8 is the
+inclusive `>=`), so at `RUNS=5` only a clean 5/5 would pass it — 4/5 would not. What 0.5 buys is that the column keeps carrying signal across the
+*range* of pointer strengths a repo actually has: a hand-off is a noisier
+measurement than a first move, so a bar set where a strong pointer sits marks
+every merely-adequate one red and stops distinguishing them from a broken one.
+Read a hand-off number as a **pointer**-strength measurement — the strength of
+what the *first* skill's body says about the second, not of either description,
+since a well-written chained prompt is one the target's description cannot
+trigger on its own. Not a verdict, either; and read it at `RUNS=5`, since at
+`RUNS=3` one sample is worth 33 points.
+
+**A red hand-off case is a finding about the pointer, not a build break — and
+the fix is to reshape the pointer, never to lower the bar.** The committed
+`testing` -> `test-servers` cases are the worked example.
+
+Against the **weak** pointer — a one-sentence ⚠️ near the top of `testing`
+*classifying* which work belongs to `test-servers` — they measured **33% / 33%**
+on one `RUNS=3` run and **100% / 33%** on another. Those two runs are the
+unchanged-pointer pair the warning below is about: same prompts, same body, 67
+points apart on the first case.
+
+Rewriting that classification into an imperative first step ("load the
+`test-servers` skill now — that is step one"), and repeating it at the two later
+points where the model actually decides it is writing a fixture-backed test, took
+them to **100% / 100% at `RUNS=5`** with the prompts unchanged (#2247). Nothing
+else moved: the two descriptions were not touched, and the same suite scored
+**63/63** first-move cases at 100%. (An intermediate build of that change
+measured 100% / 80% on the full suite and 100% / 100% on a focused
+`-- test-servers` run — a reminder that even `RUNS=5` still carries 20 points of
+noise, well short of the 67 above.)
+
+The transferable part is that **a pointer is followed when it reads as an action
+with a trigger, and skimmed when it reads as a fact.** #2202 found the same
+lever on a *description*'s shape; this is it applied to a body. The corollary is
+where to put one: the top of a body is read before the model knows it needs the
+second skill, so a pointer that lives only there is a pointer it has already
+scrolled past by the time it matters.
+
+⚠️ **Do not read a rise between two `RUNS=3` runs as an improvement.** One
+sample is 33 points there, and the two weak-pointer runs above (33% / 33% and
+100% / 33%) straddle a 67-point swing on the same prompt with no change to the
+pointer. Note in particular that the
+turn-boundary rule added later can only ever *lower* a chained score — it
+rejects matches a flatter reading accepted — so a higher number after it is
+noise by construction, not an effect. `RUNS=5` is the smallest honest setting
+for a hand-off, and the cost is real: each sample is up to 14 turns.
+
+⚠️ **Expect a hand-off to cost far more than a first move.** Each sample is up
+to 14 turns rather than one, so a chained case is the most expensive line in the
+suite by a wide margin — the two above take longer between them than all seven
+first-move cases.
+
 ## The tuning loop
 
 **Probe first, then measure.** A full suite run is ~63 cases × `RUNS` sessions
@@ -194,9 +353,33 @@ prompt fires at all, and only then spend a full run on its rate:
 # snippet also runs under bash.
 printf '%s' "<prompt>" \
   | claude -p --output-format stream-json --verbose --max-turns 1 \
-      --disallowedTools Bash,Write,Edit,NotebookEdit \
+      --tools Read,Glob,Grep,Skill --allowedTools Read,Glob,Grep,Skill \
+      --disallowedTools Bash,Write,Edit,NotebookEdit,Task,Agent,SlashCommand,WebFetch,WebSearch,KillShell \
+      --strict-mcp-config \
   | jq -r 'select(.message.content?) | .message.content[]?
            | select(.type == "tool_use") | .name' | head -3
+```
+
+⚠️ **`--tools` is the restriction; `--allowedTools` only pre-approves.**
+Dropping the first leaves the bound resting on the deny list alone, so a tool a
+user's or a plugin's settings already permit stays reachable for all 14 turns
+(Copilot). Keep both.
+
+⚠️ **These flags are a copy of the harness's, so they go stale.** Whenever
+`runPrompt` in `scripts/skill-eval.mjs` changes its tool policy, change this
+snippet in the same edit — a probe that may call a tool the eval forbids
+predicts nothing, which is the whole reason the two are meant to match
+(Copilot). To probe a **hand-off** instead, raise `--max-turns` to
+`CHAIN_MAX_TURNS` and drop the `head -3`:
+
+```sh
+printf '%s' "<prompt>" \
+  | claude -p --output-format stream-json --verbose --max-turns 14 \
+      --tools Read,Glob,Grep,Skill --allowedTools Read,Glob,Grep,Skill \
+      --disallowedTools Bash,Write,Edit,NotebookEdit,Task,Agent,SlashCommand,WebFetch,WebSearch,KillShell \
+      --strict-mcp-config \
+  | jq -r 'select(.message.content?) | .message.content[]?
+           | select(.type == "tool_use" and .name == "Skill") | .input.skill'
 ```
 
 **Probe a marginal case more than once.** A prompt that fires on a single probe
@@ -211,6 +394,14 @@ npm run skills:eval                              # every model-invoked skill, RU
 RUNS=5 CONCURRENCY=6 npm run skills:eval
 npm run skills:eval -- testing                   # one skill's cases
 npm run skills:eval -- testing test-servers      # a set of skills
+CHAIN_THRESHOLD=0.4 CHAIN_MAX_TURNS=20 npm run skills:eval -- test-servers
+```
+
+The summary is two lines, never one:
+
+```
+7/7 first-move cases at or above 80%.
+2/2 hand-off cases above 50%.
 ```
 
 Narrowing the run never narrows what a **negative** case is scored against — a
@@ -257,6 +448,12 @@ break.
    prompts do not steady any rate (`RUNS` is the knob for that). Five prompts
    cover five ways someone might arrive at the skill, which is what catches a
    description that fires on one narrow phrasing and nothing else.
-5. `npm run verify:skills` passes and the listing is under budget.
-6. `RUNS=5 npm run skills:eval` — the **whole** suite — is ≥80% on every case,
-   including the skills you did not touch.
+5. **If this skill is meant to be reachable from another skill's body**, that
+   hand-off has a `chain` case — a pointer between skills is otherwise measured
+   by nothing at all, and a skill reached only that way scores a clean 100% on
+   direct cases while the hand-off never fires. It does not count toward the
+   floor in 4.
+6. `npm run verify:skills` passes and the listing is under budget.
+7. `RUNS=5 npm run skills:eval` — the **whole** suite — is ≥80% on every
+   first-move case, including the skills you did not touch, and the hand-off
+   column is read on its own rather than against that number.

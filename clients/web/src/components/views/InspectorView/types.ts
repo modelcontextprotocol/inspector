@@ -59,6 +59,10 @@ import type {
   ResourcesUiState,
 } from "../../screens/ResourcesScreen/ResourcesScreen";
 import type { LogsUiState } from "../../screens/LoggingScreen/LoggingScreen";
+import type { SkillsUiState } from "../../screens/SkillsScreen/SkillsScreen";
+import type { SkillEntry } from "@inspector/core/mcp/skillsSchemas.js";
+import type { SkillFileContents } from "@inspector/core/mcp/skills.js";
+import type { DirectoryReadResult } from "@inspector/core/mcp/skillsSchemas.js";
 import type { TasksUiState } from "../../screens/TasksScreen/TasksScreen";
 import type { ProtocolUiState } from "../../screens/ProtocolScreen/ProtocolScreen";
 import type { NetworkUiState } from "../../screens/NetworkScreen/NetworkScreen";
@@ -306,6 +310,36 @@ export interface AppsPanelProps {
   onCloseApp: () => void;
   onAppError: (err: Error) => void;
   onRefreshApps: () => void;
+}
+
+/** The Skills screen (SEP-2640): the enumerated skills and their verification. */
+export interface SkillsPanelProps {
+  /**
+   * Identity of the connected session. Part of the screen's invalidation key,
+   * so async verification state can never cross a connection — see
+   * `UseInspectorStoresResult.sessionNonce`.
+   */
+  skillsSessionKey: string;
+  skills: SkillEntry[];
+  /** Pages the last `skills/list` walk took. */
+  skillsPageCount: number;
+  skillsLoadError?: Error | null;
+  skillsUi: SkillsUiState;
+  onSkillsUiChange: (next: SkillsUiState) => void;
+  onRefreshSkills: () => void;
+  /** Read one skill file (`resources/read`) so its digest can be checked. */
+  onReadSkillFile: (uri: string) => Promise<SkillFileContents>;
+  /** Re-fetch the selected entry through `skills/get`. */
+  onGetSkill: (uri: string) => Promise<SkillEntry>;
+  /**
+   * One page of `resources/directory/read`, or **`undefined` when the server
+   * did not declare `directoryRead`** — which is what gates the Skills screen's
+   * Directory section (SEP-2640 makes the call a MUST NOT otherwise).
+   */
+  onReadResourceDirectory?: (
+    uri: string,
+    cursor?: string,
+  ) => Promise<DirectoryReadResult>;
 }
 
 /** The Tasks monitor: the task list, its progress map, and actions. */

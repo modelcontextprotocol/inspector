@@ -1,4 +1,5 @@
-import { awaitableLog } from "../utils/awaitable-log.js";
+import { awaitableError, awaitableLog } from "../utils/awaitable-log.js";
+import { CliExitCodeError, EXIT_CODES } from "../error-handler.js";
 import { emitResult } from "./emit-result.js";
 import type { MethodArgs, MethodOutcome } from "./method-types.js";
 
@@ -20,6 +21,22 @@ export async function consumeMethodOutcome(
   if (outcome.kind === "ndjson") {
     for (const line of outcome.lines) {
       await awaitableLog(JSON.stringify(line) + "\n");
+    }
+    // Summary on **stderr**, after the report, so it cannot contaminate the
+    // NDJSON a consumer is parsing on stdout.
+    if (outcome.summary) await awaitableError(`${outcome.summary}\n`);
+    // Thrown rather than returned so it routes through the CLI's single exit
+    // path — the report has already been written, which is why this is the
+    // last thing that happens.
+    if (outcome.exitCode) {
+      throw new CliExitCodeError(outcome.exitCode, outcome.summary ?? "", {
+        // The envelope's `code` follows the exit code, so a caller reading one
+        // never has to reconcile it against the other.
+        code:
+          outcome.exitCode === EXIT_CODES.SKILL_INCOMPLETE
+            ? "skills_incomplete"
+            : "skills_nonconformant",
+      });
     }
     return;
   }

@@ -54,6 +54,7 @@ inspector/
 ├── core/             Shared code consumed via the `@inspector/core` alias (no package.json)
 ├── test-servers/     Composable MCP test servers + fixtures used by integration and smoke tests
 ├── scripts/          Root build/verify tooling (install cascade, smokes, the verify:* guards)
+│                     and repo automation run from CI (the dependency, Dependabot-alert and SDK sweeps)
 ├── docs/             Task-oriented guides — see below
 ├── specification/    Design/build specifications
 ├── .claude/skills/   Agent skills: the repo's procedures, invokable by name
@@ -77,6 +78,7 @@ Each client has its own README with client-specific detail:
 | [Migrating from v1 to v2](./docs/v1-to-v2-migration.md) | CLI flag mapping, `--config` vs. `--catalog`, the Node engine bump, env-var renames |
 | [MCP server configuration](./docs/mcp-server-configuration.md) | Which server(s) the Inspector connects to, and the config file format |
 | [Reviewing an MCP App](./docs/mcp-app-review.md) | The CLI-first → one-shot-web recipe for automated App-tool review |
+| [Smoke-testing an MCP server](./docs/cli-smoke-testing.md) | The connect → list → call → assert workflow for a shell or CI job: `--format json` + `jq`, the exit-code map, and keeping OAuth non-interactive |
 | [Launcher and config consolidation](./docs/launcher-config-consolidation-plan.md) | Why the launcher runs a client in-process rather than spawning it |
 
 ## Testing and the quality gate

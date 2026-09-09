@@ -41,21 +41,127 @@ as a missing capability rather than an error.
 | `modern-network-http.json` **(modern era)**                | Network tab: `Mcp-*` headers + error taxonomy      | [#1628](https://github.com/modelcontextprotocol/inspector/issues/1628) |
 | `xmcpheader-modern-http.json` **(modern era)**             | Tools tab: `x-mcp-header` mirroring and exclusions | [#1632](https://github.com/modelcontextprotocol/inspector/issues/1632) |
 | `pagination-http.json` **(legacy era)**                    | Page-by-page list fetching                         | [#1721](https://github.com/modelcontextprotocol/inspector/issues/1721) |
+| `empty-cursor-http.json` **(legacy era)**                   | Pagination whose page-two cursor is `""`            | [#2220](https://github.com/modelcontextprotocol/inspector/issues/2220) |
 | `structured-output-http.json` **(legacy era)**             | Tools tab: a result's `structuredContent` section  | [#1908](https://github.com/modelcontextprotocol/inspector/issues/1908) |
 | `duplicate-tool-names-http.json` **(legacy era)**          | A `tools/list` that repeats a tool name            | [#1957](https://github.com/modelcontextprotocol/inspector/issues/1957) |
+| `duplicate-resource-uris-http.json` **(legacy era)**       | A `resources/list` that repeats a resource URI     | [#2206](https://github.com/modelcontextprotocol/inspector/issues/2206) |
 | `nullable-fields-http.json` **(legacy era)**               | Tools tab: nullable (`anyOf` + `null`) arguments   | [#1928](https://github.com/modelcontextprotocol/inspector/issues/1928) |
-| `root-union-schemas-http.json` **(legacy era)** | Tool schemas whose arguments are a root `anyOf` / `oneOf` | [#2123](https://github.com/modelcontextprotocol/inspector/issues/2123) |
+| `root-union-schemas-http.json` **(legacy era)** | Tool schemas whose arguments are a root `anyOf` / `oneOf`, including one no branch of which can be offered | [#2123](https://github.com/modelcontextprotocol/inspector/issues/2123), [#2224](https://github.com/modelcontextprotocol/inspector/issues/2224) |
 | `unportable-schemas-http.json` **(legacy era)** | Tool schemas a real client rejects, flagged in all three clients | [#1005](https://github.com/modelcontextprotocol/inspector/issues/1005) |
+| `unportable-schemas-many-http.json` **(legacy era)** | The same constructs at **volume** — 26 findings over four tools, enough to bury the argument form | [#2205](https://github.com/modelcontextprotocol/inspector/issues/2205) |
 | `rfc6570-templates-http.json` **(legacy era)**             | Resources tab: RFC 6570 resource-template expansion | [#1919](https://github.com/modelcontextprotocol/inspector/issues/1919) |
 | `advertised-extensions-http.json` **(legacy era)**         | Tool registration gated on advertised extensions    | [#1739](https://github.com/modelcontextprotocol/inspector/issues/1739) |
 | `oauth-custom-resource-metadata-http.json` **(legacy era)** | OAuth discovery driven by the challenge's `resource_metadata` | [#2071](https://github.com/modelcontextprotocol/inspector/issues/2071) |
 | `oauth-revocation-http.json` / `oauth-no-revocation-http.json` **(legacy era)** | RFC 7009 token revocation on clear, with and without a `revocation_endpoint` | [#2144](https://github.com/modelcontextprotocol/inspector/issues/2144) |
 | `oauth-rfc8414-at-oidc-path-http.json` **(legacy era)** | Plain OAuth 2.0 AS metadata served at the OIDC well-known path | [#2172](https://github.com/modelcontextprotocol/inspector/issues/2172) |
+| `oauth-insecure-token-endpoint-http.json` **(legacy era)** | A token endpoint the SDK refuses to post credentials to | [#2280](https://github.com/modelcontextprotocol/inspector/issues/2280) |
 | `logging-{legacy,modern}-http.json` **(era per file)** | Logging, both eras                                  | [#1629](https://github.com/modelcontextprotocol/inspector/issues/1629) |
 | `subscriptions-{legacy,modern}-http.json` **(era per file)** | Resource subscriptions, both eras                   | [#1630](https://github.com/modelcontextprotocol/inspector/issues/1630) |
 | `subscriptions-never-acknowledged-http.json` **(modern era)** | A `subscriptions/listen` answered with a bare result  | [#2097](https://github.com/modelcontextprotocol/inspector/issues/2097) |
 | `tasks-{legacy,modern}-http.json` **(era per file)** | Tasks, both eras                                    | [#1631](https://github.com/modelcontextprotocol/inspector/issues/1631) |
 | `cancellation-modern-http.json` **(modern era)**           | Cancelling a call by closing its response stream    | [#2140](https://github.com/modelcontextprotocol/inspector/issues/2140) |
+| `skills-http.json` **(either era)** | Skills tab: `skills/list`, `resources/directory/read`, digest verification, the frontmatter cross-check, and the non-conforming cases | [#2234](https://github.com/modelcontextprotocol/inspector/issues/2234), [#2248](https://github.com/modelcontextprotocol/inspector/issues/2248) |
+
+## Skills (SEP-2640)
+
+`skills-http.json` sets `"skills": true` and serves eight skills over four
+`skills/list` pages. Since
+[#2248](https://github.com/modelcontextprotocol/inspector/issues/2248) that one
+flag also declares **`directoryRead: true`** and registers the
+`resources/directory/read` handler. The declaration and the handler are one
+switch on purpose: the sub-flag's whole hazard is advertising a method nothing
+answers — Connection Info reporting a sub-option "Supported" while the method
+returns `-32601` — and a config that cannot express the declaration without the
+handler cannot reach it. To exercise the *undeclared* case, connect to any
+config **without** `"skills"`, where the Inspector must refuse to send the call
+locally rather than letting the server answer it.
+
+**Both `skills/*` results carry the full modern base envelope** (`resultType` /
+`ttlMs` / `cacheScope`). They are consumer-owned methods, so the SDK stamps
+nothing for them; without it a 2026-era connection would receive a result
+missing the envelope. It is stamped unconditionally rather than per era — the
+modern leg builds a fresh server per request, so there is no era to branch on
+when the handlers are registered, and on the legacy leg they are three extra
+members no codec inspects.
+
+⚠️ **`resources/directory/read` deliberately carries `resultType` alone.**
+SEP-2640 states the caching attributes for a modern `skills/list` in as many
+words and says nothing of the kind for this method, whose one worked example
+carries `resultType` and nothing else. A fixture sending more than the SEP shows
+would make a client that wrongly *required* them look correct, which is the
+opposite of what a conformance fixture is for — so `readDirectoryPage` stops
+where the spec does, and `ModernDirectoryReadResultSchema` requires exactly as
+much.
+
+It works on **either era**: `skills/list`, `skills/get` and
+`resources/directory/read` are consumer-owned extension methods that neither
+era codec defines, so the SDK's era gate skips them entirely — which is why
+this fixture, unlike the tasks ones, needs no per-era variant.
+
+Seven of the eight skills are deliberately awkward, because the checks the
+Skills tab runs are untestable without them. Only **three** are outright
+violations (`tampered-notes`, `lying-listing`, `wrong-folder` — the three
+`--verify` fails on). The rest are subtler and none is an error on its own: the
+`"dynamic"` form is **conforming**, and is here because "legal but unverifiable"
+is the case most easily buried; `stale-manifest`'s entry is fully conforming
+too, with the defect living in the disagreement between its manifest and its
+directory listing; and the two `reports` skills are both entirely valid, with
+the obligation falling on whoever consumes them:
+
+| Skill | What it exercises |
+| --- | --- |
+| `data-analysis` | The clean case — **Verify all** reports `verified` for every file. |
+| `tampered-notes` | An advertised digest that does not match the bytes served, so verification reports a **digest mismatch** with both digests shown. |
+| `dynamic-report` | `resources: "dynamic"` — a **legal** form for generated content. No manifest is advertised, so integrity cannot be verified at all; reported as a warning, not an error. |
+| `wrong-folder` | A URI path segment (`wrong-folder`) that disagrees with `frontmatter.name` (`right-name`), the one structural invariant SEP-2640 states outright. |
+| `stale-manifest` | A skill that **serves and directory-lists a file its `resources` manifest does not declare**. Its entry is otherwise fully conforming and verifies clean, so the disagreement between the two views is the only defect — and only a directory read can see it. SEP-2640 calls a directory result "a live observation" and says hosts MUST NOT treat it as extending the manifest, so the Directory section marks the extra child **not listed** rather than showing it as one of the skill's files. |
+| `acme/reports` + `globex/reports` | **Two conforming skills sharing the name `reports`.** SEP-2640 requires only that the segment before `/SKILL.md` equal `frontmatter.name`, which multi-segment paths satisfy while still sharing a final segment — its own `acme/billing/refunds` example is this shape. Hosts MUST NOT assume name uniqueness and MUST tell the two apart rather than collapsing or preferring one, so the Inspector reports a `duplicate-name` **warning** on both and shows each skill's URI beside its name. Also the only fixture with a multi-segment skill path. |
+| `lying-listing` | A `skills/list` entry advertising one `description` while the served `SKILL.md` carries another. **Its digest verifies** — a digest is taken over the bytes the server served and says nothing about whether the listing described them honestly — so this is the one violation only the frontmatter cross-check can catch. |
+
+Connection Info's **Skills Extension Options** section shows the `directoryRead`
+sub-flag — against this fixture, a green ✓. The Skills screen then renders a
+**Directory** section for the selected skill: press *Read directory* to list the
+skill root's children, click a directory row to descend, *Up* to come back, and
+*Load more* to page. Pages are one child each here, so a client that ignores
+`nextCursor` is visibly wrong rather than merely lucky. `dynamic-report` is the
+case the method actually exists for — it advertises no manifest, so a directory
+read is the only way its files are discoverable at all.
+
+From the CLI, the same catalog reports itself:
+
+```sh
+mcp-inspector --cli --server-url http://127.0.0.1:3230/mcp --transport http \
+  --method skills/list --verify
+```
+
+One JSON report per skill on stdout, a one-line summary on stderr, and exit **7**
+when any skill fails — which it does here, on `tampered-notes` (digest),
+`wrong-folder` (name) and `lying-listing` (frontmatter). The TUI's **Skills**
+pane runs the same checks for one selected skill on <kbd>Enter</kbd>.
+
+### Why these five shapes
+
+They are the client-side obligations SEP-2640 makes testable from a hostile
+server, which is how the
+[`modelcontextprotocol/conformance`](https://github.com/modelcontextprotocol/conformance)
+harness grades a *client*: it stands up a server and watches what the client
+does. **Three** of its five skills scenarios map onto a fixture here — a digest
+mismatch (`tampered-notes`), a frontmatter mismatch (`lying-listing`), and a
+read of a file the manifest does not list (`stale-manifest`).
+
+The other two are covered, but not by this fixture, and the distinction is worth
+keeping honest:
+
+- **Size mismatch** has no fixture. `test-servers/src/skills.ts` can override an
+  advertised *digest* and nothing else, so the size path — which
+  `verifySkillResource` checks first, before hashing — is exercised by unit
+  tests rather than against a live server. Adding it would mean an
+  `advertisedSize` override beside the digest one.
+- **No-prefetch** is a negative and could not have a fixture: it passes only if
+  connecting and calling `skills/list` produces *no* `resources/read` at all.
+  The Inspector satisfies it structurally — nothing is fetched until a user
+  selects a skill or presses Verify, which is why every round trip on the Skills
+  screen is a button rather than an effect.
 
 ## Cancelling a call
 
@@ -206,6 +312,14 @@ Under SDK v2 a `tools/call` rejecting with `-32602` renders as a distinct error 
 
 Turn on **"Fetch Lists One Page at a Time"** (Server Settings — the `paginatedLists` setting, or the **Paginated** switch in a list sidebar) and the lists load page 1 only (4 items) with a **Load next page** control and an _N pages loaded_ status. Each click fetches the next 4 and appends them; Refresh resets to page 1. With the switch off (the default), the same lists auto-aggregate all three pages on connect.
 
+### The empty-string cursor
+
+`empty-cursor-http.json` is the same 12-item, 4-per-page server with one difference: it hands out the **empty string** as the cursor for page two (`emptyStringCursor`), and the usual numeric index for page three. An MCP cursor is opaque — the spec constrains neither its content nor its length — so `""` is a legal `nextCursor` and a client must send it back verbatim.
+
+Every other fixture's cursor is a non-empty string, which is why this one exists: a client that builds its request params with a truthiness check (`cursor ? { cursor } : {}`) cannot tell `""` from "no cursor", so it drops it and re-requests page one. Nothing errors — the request is well-formed, it just asks the wrong question — and the symptom is a list that stops after four items, or a page walk that never advances ([#2220](https://github.com/modelcontextprotocol/inspector/issues/2220)).
+
+Connect with the **default (legacy)** era, turn **Paginated** on, and click **Load next page** twice on any of the three lists: the count must go 4 → 8 → 12 and the control must disappear at the end. On a build carrying the old guard the second click returns items 1–4 again.
+
 ## Structured output
 
 `structured-output-http.json` serves `list_items` (nested `structuredContent` — objects inside arrays inside an object, the shape from [#1908](https://github.com/modelcontextprotocol/inspector/issues/1908)), `get_temp` (a flat three-key payload), and `echo` (no `outputSchema` at all). It is a plain streamable-HTTP server — connect with the **default (legacy)** protocol era.
@@ -220,6 +334,12 @@ Connect (default legacy era), open the Tools tab, and type `get` into **Search t
 
 The duplicated copies are appended rather than placed beside their twin on purpose. React matches a leading run of same-key children first, so a head-adjacent duplicate happens to line up and the defect hides; separating the pair is what makes it observable — and it is also the realistic shape, two tool sources concatenated.
 
+## Duplicate resource URIs
+
+`duplicate-resource-uris-http.json` is the `resources/list` counterpart: it serves `resource_1` … `resource_4`, then repeats `test://resource_1` and `test://resource_3` at the end of the list with the same `uri` and a `(duplicate)` title (`duplicateResourceUris`). Unreachable through a preset for the same reason — `registerResource` keys on the URI — and appended rather than adjacent for the same reason as above.
+
+Connect (default legacy era) and open the Resources tab. With the browser console open, the **URIs** section must list all six rows and log **no** `Encountered two children with the same key` warning; typing `resource_2` into **Search** must narrow it to exactly one row. On the broken build the sidebar keyed rows by `resource.uri` alone, so the warning repeated on every render and a filtered-out row survived reconciliation ([#2206](https://github.com/modelcontextprotocol/inspector/issues/2206)).
+
 ## Nullable arguments
 
 `nullable-fields-http.json` serves `record_shipment`, whose four arguments are each declared with Zod's `.nullish()` — "optional **and** explicitly nullable". That compiles to `anyOf: [<branch>, { "type": "null" }]`, so the real type (and, for the enum, its `enum` list) sits on a branch rather than at the top level. `get_temp` sits alongside it with a plain, non-nullable `units` enum for comparison. Plain streamable-HTTP — connect with the **default (legacy)** protocol era.
@@ -230,7 +350,7 @@ The **TUI** had the same gap and is worth checking against the same server (`--t
 
 ## Root-level unions
 
-`root-union-schemas-http.json` serves two tools whose arguments are declared as a **composition at the root** of `inputSchema` rather than as a flat `properties` map — `echo` with an `anyOf` beside its own `message` property, and `get_weather` with an OpenAPI-style `discriminator` over a `oneOf`. Plain streamable-HTTP — connect with the **default (legacy)** protocol era.
+`root-union-schemas-http.json` serves three tools whose arguments are declared as a **composition at the root** of `inputSchema` rather than as a flat `properties` map — `echo` with an `anyOf` beside its own `message` property, `get_weather` with an OpenAPI-style `discriminator` over a `oneOf`, and `record_shipment_by` with a `oneOf` neither of whose branches can be offered. Plain streamable-HTTP — connect with the **default (legacy)** protocol era.
 
 The 2026-07-28 revision makes this shape explicitly legal: `type: "object"` is required at the root, and beyond that "any JSON Schema 2020-12 keyword may appear alongside `type`, including composition keywords (`oneOf`, `anyOf`, `allOf`, `not`)".
 
@@ -251,6 +371,7 @@ All three read one helper, [`core/json/rootUnion.ts`](../core/json/rootUnion.ts)
 What it declines to flatten is as deliberate as what it flattens, and every case falls back to whatever the schema's own `properties` describe rather than claiming something untrue:
 
 - **A union whose members are not all field-carrying object schemas** — including one whose member `type` rules objects out, since tool arguments are a JSON object and such a member can never match. A picker whose options render nothing is no better than no picker.
+- **A branch requiring a name nothing declares.** `required` lists names, not declarations, so `{ "properties": { "by": … }, "required": ["by", "address"] }` is legal and says nothing about what `address` accepts. Every form builder enumerates `properties` alone, so no control is rendered for it while the submit-time check reports it missing *permanently* — an option the picker offers and the user can never complete ([#2224](https://github.com/modelcontextprotocol/inspector/issues/2224)). The name only has to be declared *somewhere the merge reaches*: a branch requiring one the **root** declares — `anyOf: [{ "required": ["email"] }, …]`, an ordinary way to say "one of these two" — is offered as before.
 - **A branch that restates a constraint the root already states.** The two are conjunctive, so root `minimum: 10` under branch `minimum: 0` is still 10, disjoint `enum`s leave nothing satisfiable, and `type: "string"` under `type: "number"` describes a value that cannot exist — rendering either side would accept what the schema rejects. A property both declare *compatibly* is merged rather than replaced, so a root's `minimum` survives a branch's `maximum`, and a disagreement about `title`/`description` is not a conflict at all.
 - **A composition member stating anything the merge cannot apply.** Only `type`, `properties` and `required` are folded in, so a member carrying a nested `allOf`/`anyOf`, a `not`, an `additionalProperties`, or a `$ref` would have that constraint erased along with the keyword — turning an unsatisfiable schema (`allOf: [false, …]` admits nothing) into a fillable form. `allOf` members are checked against the accumulated merge rather than the root alone, so two of them contradicting each other is caught even when neither contradicts the root.
 - **A `oneOf` whose alternatives are not mutually exclusive.** `oneOf` demands that *exactly one* alternative match, which flattening cannot preserve — the branches are offered as if any would do. It is only safe with a discriminator: a property every branch pins to a `const` of its own **and requires**, since an optional one leaves `{}` matching every branch. An undiscriminated `oneOf` is declined; `anyOf` makes no such claim and is offered either way.
@@ -259,6 +380,8 @@ What it declines to flatten is as deliberate as what it flattens, and every case
 - **`not`**, which is not interpreted at all: there is no faithful form for "anything except this".
 
 Declining changes what *renders*, never whether the tool is treated as taking arguments: a declined union still has fields, so an App tool carrying one still asks for them rather than auto-invoking with `{}`.
+
+`record_shipment_by` is the case where declining leaves nothing on screen: its fields live entirely on branches that are all declined, so the web form has neither a picker nor a field to show. It opens the **Edit as JSON** editor instead of rendering a blank form the user would have to work out for themselves ([#2224](https://github.com/modelcontextprotocol/inspector/issues/2224)) — the arguments are still expressible, just not as fields. The switch is only *seeded*, so turning it back off works normally, and a tool that genuinely takes no arguments is left alone. The TUI has no such editor, so there the tool renders an empty Parameters section — no longer a form with a branch section that could never be submitted.
 
 ## Unportable tool schemas
 
@@ -288,6 +411,24 @@ has:
 ```bash
 mcp-inspector --cli http://127.0.0.1:6603/mcp --method tools/list --strict   # exits 6
 ```
+
+### The same rules at volume
+
+`unportable-schemas-many-http.json` (port 6613, legacy era) is the same four
+presets carrying **26 findings** — `echo` 11, `add` 6, `get_temp` 5 on its
+output schema, `get_weather` 4 — which is what a server generated from a
+codebase that spells every nullable field `"type": ["string", "null"]` actually
+looks like.
+
+It exists for [#2205](https://github.com/modelcontextprotocol/inspector/issues/2205)
+rather than for the rules themselves. Broken, selecting any tool here filled the
+whole detail panel with findings and pushed the argument form off the bottom —
+not one input field was reachable without scrolling, on every tool switch, and
+the findings address the server author rather than the caller who is trying to
+fill the form. Fixed, the section opens collapsed behind its
+`N error(s), M warning(s)` badge and the form is on screen immediately; the
+expand choice is global, so opening it once keeps it open across tools.
+
 
 - **CLI** — `--strict` prints the full report (path, issue, suggested fix) on
   stderr and exits `6` on an error-severity finding; without it, one summary
@@ -374,6 +515,24 @@ Add the server, click **Connect**, and watch the Inspector's first protected-res
 The same server is worth running against `--cli` / `--tui`, which reach it by a different route: with no stored token in the legacy era the Inspector connects with no auth provider (so the SDK cannot open a browser before the callback server is listening), the 401 surfaces as the SDK's headerless `UnauthorizedError`, and the client calls `authenticate()` with no challenge in hand. The transport therefore *observes* every 401/403 passively, so the advertised URL is still available on that path.
 
 The value now rides the normalized `AuthChallenge` as a string — it has to be serializable, because the web client's challenge crosses the remote-backend boundary as JSON — and is converted to a `URL` at the OAuth boundary, where it is handed to `auth()` as `resourceMetadataUrl` and to the CIMD pre-registration probe, which runs *before* `auth()` and would otherwise do its own default-location discovery. A malformed value is ignored rather than surfaced, matching the SDK's own `WWW-Authenticate` parser: discovery falls back to the default locations instead of failing the whole authorization on a bad header. The callback leg needs nothing extra — SDK `auth()` persists the URL in its discovery state, so it survives both the web full-page redirect and the CLI/TUI loopback callback.
+
+## A token endpoint the SDK will not use 
+
+`oauth-insecure-token-endpoint-http.json` is an ordinary combined AS + resource server with one thing changed: `oauth.issuerUrl` is `http://localhost.:8091`, so its advertised `token_endpoint` is `http://localhost.:8091/oauth/token`. Plain streamable-HTTP — connect with the **default (legacy)** protocol era.
+
+⚠️ **Do not run this fixture while port 8091 is already taken.** Like every fixture here it walks to the next free port on `EADDRINUSE` — but its `issuerUrl` is a *fixed string*, so a relocated server announces 8092 while all its OAuth metadata still points at whatever unrelated process holds 8091. The symptom is confusing rather than obvious: discovery reaches the wrong process, and the refusal this fixture exists to demonstrate either never fires or fires for the wrong reason. If the flow does not end at the notice described below, check that 8091 is actually this server (`lsof -nP -iTCP:8091 -sTCP:LISTEN`) before believing anything you see.
+
+The trailing dot is the whole trick, and it is doing real work rather than being a curiosity. `localhost.` is the *root-anchored* spelling of `localhost`: every resolver on the machine sends it to the loopback interface, so the fixture is reachable and the flow runs for real — but the SDK's `assertSecureTokenEndpoint` exempts only the three literals `localhost`, `127.0.0.1` and `::1`, and `localhost.` is none of them. So the credential-carrying request is refused with `InsecureTokenEndpointError` while everything else about the server works. It is the same over-narrow exemption that makes `http://tenant.app.localhost:3300` fail ([#1944](https://github.com/modelcontextprotocol/inspector/issues/1944), [typescript-sdk#2591](https://github.com/modelcontextprotocol/typescript-sdk/issues/2591)), reproducible without an `/etc/hosts` entry or dnsmasq.
+
+Add the server, click **Connect**, and complete the authorization. The redirect comes back with a code, the Inspector goes to exchange it, and the SDK refuses.
+
+What you should see is a red, non-expiring **"Token endpoint is not secure"** notification naming the endpoint and the two things that resolve it — serve it over HTTPS, or move it to one of the three hosts the SDK exempts — `localhost`, `127.0.0.1`, or `[::1]` (bracketed, since a bare IPv6 literal is not a legal URL host). It stays until you close it (`autoClose: false` stops it expiring on a timer; Mantine's own close control still dismisses it, which is what you want for a message you have finished reading). There is deliberately **no** action button.
+
+Note the second option is phrased as a *spelling* change, not a networking one. `localhost.` already **is** loopback, and so is `tenant.app.localhost`; what they are outside is a three-literal allow-list. Telling a reader to "use a loopback host" when they demonstrably already are is what sends them off to debug their resolver instead of their configuration.
+
+On the broken build you got a **"Re-authentication required"** banner with a **Re-authenticate** button ([#2280](https://github.com/modelcontextprotocol/inspector/issues/2280)). That button could never work: `InsecureTokenEndpointError` does not extend `OAuthError`, and `auth()` special-cases it to rethrow rather than start a fresh `/authorize` redirect, so clicking it re-ran the same flow to the same refusal. The only text on screen was the raw SDK message, which names the three exempt literals and says nothing about which lever to reach for.
+
+Note that the fix here is presentational only. Making a `*.localhost` token endpoint actually **work** has to land in the SDK — the assertion runs inside `executeTokenRequest`, takes no options, and there is no hook the Inspector could reach.
 
 ## Revoking tokens on clear (RFC 7009)
 

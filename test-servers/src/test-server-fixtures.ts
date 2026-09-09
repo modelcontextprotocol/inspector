@@ -273,6 +273,35 @@ export function createGetWeatherTool(): ToolDefinition {
 }
 
 /**
+ * Create a tool whose advertised arguments are a root `oneOf` **no branch of
+ * which can be offered**, for #2224. Each branch requires a name it never
+ * declares, so a form builder that enumerates `properties` alone renders no
+ * control for it while the submit gate reports it missing forever.
+ *
+ * The Zod `inputSchema` here is a placeholder: the shape that matters is the
+ * raw JSON Schema `root-union-schemas-http.json` substitutes through
+ * `rawToolSchemas`, since Zod cannot emit a root composition. The handler is
+ * what a real server would do with the arguments — echo them back, so what the
+ * form actually sent is visible in the result.
+ */
+export function createDeadEndUnionTool(): ToolDefinition {
+  return {
+    name: "record_shipment_by",
+    description:
+      "Record a shipment, by address or by tracking number. Its advertised schema is a root oneOf whose branches each require a name they never declare, so no branch is renderable.",
+    inputSchema: {
+      by: z
+        .string()
+        .optional()
+        .describe("Which alternative the call is making"),
+    },
+    handler: async (params: Record<string, unknown>) => {
+      return toToolResult(`Recorded shipment: ${JSON.stringify(params)}`);
+    },
+  };
+}
+
+/**
  * Create a tool whose SEP-2243 `x-mcp-header` annotation is INVALID: the header
  * name `"Bad Header"` contains a space, so it is not a valid RFC 9110 token.
  * The whole tool definition is therefore invalid, and a conforming Streamable

@@ -11,10 +11,16 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
+  caseHit,
+  chainHit,
+  formatReport,
+  passesThreshold,
   collectCases,
   collectSkillInvocations,
   runRejection,
@@ -23,6 +29,20 @@ import {
   sampleHit,
 } from "./skill-eval.mjs";
 import { MIN_POSITIVE_CASES } from "./lib/skill-manifest.mjs";
+
+/**
+ * What a run records, one skill per assistant turn — the shape a genuine
+ * hand-off has.
+ */
+const fired = (...names) =>
+  names.map((n, i) => ({ payload: JSON.stringify({ skill: n }), turn: i + 1 }));
+
+/** Several skills emitted together in ONE assistant turn. */
+const firedTogether = (turn, ...names) =>
+  names.map((n) => ({ payload: JSON.stringify({ skill: n }), turn }));
+
+/** The eval script itself, for the cases that must exercise `main`'s guards. */
+const SCRIPT_PATH = fileURLToPath(new URL("./skill-eval.mjs", import.meta.url));
 
 const assistant = (...blocks) =>
   JSON.stringify({ type: "assistant", message: { content: blocks } });
@@ -36,8 +56,9 @@ test("collectSkillInvocations finds Skill tool_use payloads", () => {
   const { invoked } = collectSkillInvocations(
     assistant(skillUse("testing")) + "\n",
   );
-  assert.equal(invoked.size, 1);
-  assert.ok([...invoked][0].includes("testing"));
+  assert.equal(invoked.length, 1);
+  assert.ok(invoked[0].payload.includes("testing"));
+  assert.equal(invoked[0].turn, 1);
 });
 
 test("collectSkillInvocations ignores other tools and other event types", () => {
@@ -46,38 +67,192 @@ test("collectSkillInvocations ignores other tools and other event types", () => 
     "\n" +
     JSON.stringify({ type: "result", result: "Skill" }) +
     "\n";
-  assert.equal(collectSkillInvocations(text).invoked.size, 0);
+  assert.equal(collectSkillInvocations(text).invoked.length, 0);
 });
 
 test("collectSkillInvocations survives malformed and blank lines", () => {
   const text = "not json\n\n" + assistant(skillUse("local-dev")) + "\n";
   const { invoked } = collectSkillInvocations(text);
-  assert.equal(invoked.size, 1);
+  assert.equal(invoked.length, 1);
 });
 
 test("collectSkillInvocations holds back a trailing partial line", () => {
   const whole = assistant(skillUse("local-dev"));
   const first = collectSkillInvocations(whole.slice(0, 20));
-  assert.equal(first.invoked.size, 0);
+  assert.equal(first.invoked.length, 0);
   assert.equal(first.rest, whole.slice(0, 20));
   // Feeding the remainder back with the held-over prefix completes the event.
   const second = collectSkillInvocations(first.rest + whole.slice(20) + "\n");
-  assert.equal(second.invoked.size, 1);
+  assert.equal(second.invoked.length, 1);
 });
 
 test("collectSkillInvocations tolerates a tool_use with no input", () => {
   const text = assistant({ type: "tool_use", name: "Skill" }) + "\n";
-  assert.deepEqual([...collectSkillInvocations(text).invoked], ["{}"]);
+  assert.deepEqual(collectSkillInvocations(text).invoked, [
+    { payload: "{}", turn: 1 },
+  ]);
 });
 
 test("sampleHit scores positive and negative cases", () => {
-  const fired = new Set(['{"skill":"testing"}']);
-  const none = new Set();
-  assert.equal(sampleHit("testing", fired), true);
-  assert.equal(sampleHit("local-dev", fired), false);
+  const hit = fired("testing");
+  const none = [];
+  assert.equal(sampleHit("testing", hit), true);
+  assert.equal(sampleHit("local-dev", hit), false);
   assert.equal(sampleHit(null, none), true);
-  assert.equal(sampleHit(null, fired), false);
+  assert.equal(sampleHit(null, hit), false);
   assert.equal(sampleHit("testing", none), false);
+});
+
+test("collectSkillInvocations preserves order and repeats", () => {
+  // A hand-off case asserts one skill was loaded AFTER another, so occurrence
+  // order is the observation. Deduplicating into a Set would make the B, A, B
+  // run below indistinguishable from one that never reached B from A.
+  const text =
+    [
+      assistant(skillUse("test-servers")),
+      assistant(skillUse("testing")),
+      assistant(skillUse("test-servers")),
+    ].join("\n") + "\n";
+  const { invoked } = collectSkillInvocations(text);
+  assert.deepEqual(
+    invoked.map((e) => [JSON.parse(e.payload).skill, e.turn]),
+    [
+      ["test-servers", 1],
+      ["testing", 2],
+      ["test-servers", 3],
+    ],
+  );
+});
+
+test("collectSkillInvocations tags each invocation with its assistant turn", () => {
+  // Two `Skill` blocks in ONE message share a turn: the model chose both before
+  // seeing either result, so nothing in that message can have caused anything
+  // else in it. The turn is what lets `chainHit` tell that apart from a
+  // hand-off; a flat index cannot.
+  const text =
+    [
+      assistant(skillUse("testing"), skillUse("test-servers")),
+      assistant(skillUse("board-ops")),
+    ].join("\n") + "\n";
+  const { invoked, nextTurn } = collectSkillInvocations(text);
+  assert.deepEqual(
+    invoked.map((e) => [JSON.parse(e.payload).skill, e.turn]),
+    [
+      ["testing", 1],
+      ["test-servers", 1],
+      ["board-ops", 2],
+    ],
+  );
+  // The count carries across chunks, so a stream read in pieces stays monotonic.
+  assert.equal(nextTurn, 2);
+  const more = collectSkillInvocations(
+    assistant(skillUse("local-dev")) + "\n",
+    nextTurn,
+  );
+  assert.equal(more.invoked[0].turn, 3);
+});
+
+test("chainHit refuses two skills loaded in the same assistant turn", () => {
+  // The finding this pins: the model can emit several `tool_use` blocks in one
+  // message, and it has NOT seen the first skill's body when it does. So an
+  // [A, B] pair from one message is two parallel guesses, and scoring it as a
+  // hand-off would report a causal link that cannot exist — a case that would
+  // keep passing after the pointer in `testing` was deleted.
+  assert.equal(
+    chainHit(
+      ["testing", "test-servers"],
+      firedTogether(1, "testing", "test-servers"),
+    ),
+    false,
+  );
+  // The same two skills one turn apart is the real thing.
+  assert.equal(
+    chainHit(
+      ["testing", "test-servers"],
+      [...firedTogether(1, "testing"), ...firedTogether(2, "test-servers")],
+    ),
+    true,
+  );
+  // A same-turn pair does not poison a later genuine hand-off.
+  assert.equal(
+    chainHit(
+      ["testing", "test-servers"],
+      [
+        ...firedTogether(1, "testing", "test-servers"),
+        ...firedTogether(2, "test-servers"),
+      ],
+    ),
+    true,
+  );
+  // Only the FIRST link is unconstrained; every later one needs a new turn.
+  assert.equal(
+    chainHit(
+      ["local-dev", "testing", "test-servers"],
+      [
+        ...firedTogether(1, "local-dev"),
+        ...firedTogether(2, "testing", "test-servers"),
+      ],
+    ),
+    false,
+  );
+});
+
+test("chainHit wants the links in order", () => {
+  assert.equal(chainHit(["testing", "test-servers"], fired("testing")), false);
+  assert.equal(
+    chainHit(["testing", "test-servers"], fired("testing", "test-servers")),
+    true,
+  );
+  // The reverse hand-off is a different claim and must not score.
+  assert.equal(
+    chainHit(["testing", "test-servers"], fired("test-servers", "testing")),
+    false,
+  );
+  assert.equal(chainHit(["testing", "test-servers"], []), false);
+});
+
+test("chainHit matches a subsequence, not a prefix or a contiguous run", () => {
+  // The model is free to load something before the chain starts, and something
+  // unrelated in between — neither changes the fact that A led to B.
+  assert.equal(
+    chainHit(
+      ["testing", "test-servers"],
+      fired("local-dev", "testing", "board-ops", "test-servers"),
+    ),
+    true,
+  );
+  // And a repeat of the first link before it does not consume the match.
+  assert.equal(
+    chainHit(
+      ["testing", "test-servers"],
+      fired("test-servers", "testing", "test-servers"),
+    ),
+    true,
+  );
+});
+
+test("caseHit routes each case shape to its own scorer", () => {
+  const ours = new Set(["testing", "test-servers"]);
+  const run = fired("testing", "test-servers");
+  assert.equal(
+    caseHit({ chain: ["testing", "test-servers"] }, run, ours),
+    true,
+  );
+  assert.equal(
+    caseHit({ chain: ["test-servers", "testing"] }, run, ours),
+    false,
+  );
+  assert.equal(caseHit({ expect: "testing" }, run, ours), true);
+  assert.equal(caseHit({ expect: null }, run, ours), false);
+  // A chained case says nothing about foreign skills, unlike a negative one.
+  assert.equal(
+    caseHit(
+      { chain: ["testing", "test-servers"] },
+      fired("testing", "my-personal-notes", "test-servers"),
+      ours,
+    ),
+    true,
+  );
 });
 
 test("invokedSkillNames matches structurally, not by substring", () => {
@@ -87,16 +262,10 @@ test("invokedSkillNames matches structurally, not by substring", () => {
   assert.deepEqual(invokedSkillNames('{"skill":"not-testing"}'), [
     "not-testing",
   ]);
-  assert.equal(
-    sampleHit("testing", new Set(['{"skill":"not-testing"}'])),
-    false,
-  );
-  assert.equal(sampleHit("testing", new Set(['{"skill":"testing"}'])), true);
+  assert.equal(sampleHit("testing", fired("not-testing")), false);
+  assert.equal(sampleHit("testing", fired("testing")), true);
   // The field name is not assumed, so any string value is a candidate.
-  assert.equal(
-    sampleHit("testing", new Set(['{"name":"testing","args":""}'])),
-    true,
-  );
+  assert.equal(sampleHit("testing", ['{"name":"testing","args":""}']), true);
 });
 
 test("invokedSkillNames tolerates payloads it cannot read", () => {
@@ -180,6 +349,185 @@ test("runPrompt collects invocations across chunk boundaries", async () => {
   assert.equal(sampleHit("testing", invoked), true);
 });
 
+test("runPrompt gives a hand-off case a wider turn budget", () => {
+  // `--max-turns 1` is what makes a first-move case a first-move case; a chain
+  // that only ever gets one turn can never observe a second-hop load.
+  const seen = [];
+  for (const opts of [{}, { maxTurns: 14 }]) {
+    runPrompt("p", {
+      ...opts,
+      spawnFn: (_c, args) => {
+        seen.push(args[args.indexOf("--max-turns") + 1]);
+        const c = new EventEmitter();
+        c.stdout = new EventEmitter();
+        c.stdin = { end: () => {} };
+        queueMicrotask(() => c.emit("close", 0));
+        return c;
+      },
+    }).catch(() => {});
+  }
+  assert.deepEqual(seen, ["1", "14"]);
+});
+
+test("runPrompt keeps the run read-only across every turn", () => {
+  // A wider budget removes the containment `--max-turns 1` was doing on its
+  // own, so the deny list has to cover the agentic and network tools too —
+  // `Task` in particular, whose subagent this flag does not reach.
+  let denied;
+  runPrompt("p", {
+    spawnFn: (_c, args) => {
+      denied = args[args.indexOf("--disallowedTools") + 1].split(",");
+      const c = new EventEmitter();
+      c.stdout = new EventEmitter();
+      c.stdin = { end: () => {} };
+      queueMicrotask(() => c.emit("close", 0));
+      return c;
+    },
+  }).catch(() => {});
+  for (const tool of ["Bash", "Write", "Edit", "NotebookEdit", "Task"]) {
+    assert.ok(denied.includes(tool), `${tool} must be denied`);
+  }
+});
+
+test("runPrompt bounds the run by what it needs, not only by what it forbids", () => {
+  // A deny list only names the tools known when it was written. This checkout
+  // configures an HTTP `mcp-docs` server in `.mcp.json`, and a contributor's
+  // own MCP servers and plugins add more that no list here has seen — over 14
+  // turns those can reach the network or mutate state.
+  let args;
+  runPrompt("p", {
+    spawnFn: (_c, a) => {
+      args = a;
+      const c = new EventEmitter();
+      c.stdout = new EventEmitter();
+      c.stdin = { end: () => {} };
+      queueMicrotask(() => c.emit("close", 0));
+      return c;
+    },
+  }).catch(() => {});
+  // `--tools` is the availability filter and is what actually bounds the run.
+  // `--allowedTools` only pre-approves: a tool a user's or a plugin's settings
+  // already permit would still be reachable across 14 turns without this.
+  for (const flag of ["--tools", "--allowedTools"]) {
+    assert.deepEqual(args[args.indexOf(flag) + 1].split(","), [
+      "Read",
+      "Glob",
+      "Grep",
+      "Skill",
+    ]);
+  }
+  // No `--mcp-config` accompanies it, so this drops every configured server.
+  assert.ok(args.includes("--strict-mcp-config"));
+  assert.ok(!args.includes("--mcp-config"));
+});
+
+test("a malformed threshold is rejected rather than silently measured", () => {
+  // `Number("abc")` is NaN, which fails every comparison and would print an
+  // `above NaN%` summary; a negative bar passes every chain unconditionally.
+  // Either turns an advertised env knob into a measurement that means nothing.
+  const run = (env) =>
+    spawnSync(process.execPath, [SCRIPT_PATH], {
+      encoding: "utf8",
+      env: { ...process.env, ...env },
+    });
+
+  for (const bad of ["abc", "-0.5", "1", "1.5"]) {
+    const { status, stderr } = run({ CHAIN_THRESHOLD: bad });
+    assert.equal(status, 1, `CHAIN_THRESHOLD=${bad} must be rejected`);
+    assert.match(stderr, /CHAIN_THRESHOLD must be a number in \[0, 1\)/);
+    assert.ok(stderr.includes(bad), "the message names the offending value");
+  }
+  // The first-move bar is inclusive, so 1 is legitimate there and only the
+  // nonsensical values are refused.
+  for (const bad of ["abc", "-1", "1.5"]) {
+    const { status, stderr } = run({ THRESHOLD: bad });
+    assert.equal(status, 1, `THRESHOLD=${bad} must be rejected`);
+    assert.match(stderr, /THRESHOLD must be a number in \[0, 1\]/);
+  }
+});
+
+test("passesThreshold is a floor for a first move and strictly above for a chain", () => {
+  // "More often than not" is `> 0.5`. An inclusive compare passes 2/4 whenever
+  // RUNS is even, reporting a result the stated criterion does not license.
+  assert.equal(passesThreshold(0.5, 0.5, true), false);
+  assert.equal(passesThreshold(2 / 3, 0.5, true), true);
+  // A first-move threshold is a floor to REACH: 4/5 clears 0.8 exactly.
+  assert.equal(passesThreshold(0.8, 0.8, false), true);
+  assert.equal(passesThreshold(0.6, 0.8, false), false);
+});
+
+const OPTS = { threshold: 0.8, chainThreshold: 0.5, chainMaxTurns: 14 };
+/** `RUNS` samples of one case, `hits` of which fired the whole chain/skill. */
+const samples = (c, hits, runs) =>
+  Array.from({ length: runs }, (_, i) => ({
+    c,
+    invoked: i < hits ? fired(...(c.chain ?? [c.expect])) : [],
+  }));
+
+test("the report keeps the two measurements in separate columns", () => {
+  // The acceptance criterion of #2204: a hand-off rate is never folded into
+  // the first-move headline. Nothing covered this while it lived in `main`.
+  const direct = { prompt: "d", expect: "test-servers" };
+  const chain = { prompt: "c", chain: ["testing", "test-servers"] };
+  const { lines, failed } = formatReport(
+    [direct, chain],
+    [...samples(direct, 3, 3), ...samples(chain, 1, 3)],
+    new Set(["testing", "test-servers"]),
+    OPTS,
+  );
+  const text = lines.join("\n");
+  assert.match(text, /First move \(1 turn\)/);
+  assert.match(text, /Hand-off \(14 turns\)/);
+  assert.match(text, /1\/1 first-move cases at or above 80%\./);
+  assert.match(text, /0\/1 hand-off cases above 50%\./);
+  // One summary line per kind, and no line that merges them.
+  assert.equal(text.match(/cases (at or above|above)/g).length, 2);
+  assert.equal(failed, 1, "the chained case is short, the direct one is not");
+});
+
+test("each group is scored against its own threshold", () => {
+  // 2/3 clears the chain bar strictly but would fail the first-move bar, so a
+  // single shared threshold would misreport whichever kind it was not tuned for.
+  const direct = { prompt: "d", expect: "test-servers" };
+  const chain = { prompt: "c", chain: ["testing", "test-servers"] };
+  const { lines, failed } = formatReport(
+    [direct, chain],
+    [...samples(direct, 2, 3), ...samples(chain, 2, 3)],
+    new Set(["testing", "test-servers"]),
+    OPTS,
+  );
+  const text = lines.join("\n");
+  assert.match(text, /FAIL\s+67%\s+test-servers/);
+  assert.match(text, /PASS\s+67%\s+testing → test-servers/);
+  assert.equal(failed, 1);
+});
+
+test("a single-kind selection reports only that kind, and says so", () => {
+  const direct = { prompt: "d", expect: "test-servers" };
+  const only = formatReport(
+    [direct],
+    samples(direct, 3, 3),
+    new Set(["test-servers"]),
+    OPTS,
+  );
+  assert.match(only.lines.join("\n"), /No hand-off cases in this selection\./);
+  assert.doesNotMatch(only.lines.join("\n"), /Hand-off \(14 turns\)/);
+  assert.equal(only.failed, 0);
+
+  // And a chain-only selection prints no first-move headline or summary.
+  const chain = { prompt: "c", chain: ["testing", "test-servers"] };
+  const chainOnly = formatReport(
+    [chain],
+    samples(chain, 3, 3),
+    new Set(["testing", "test-servers"]),
+    OPTS,
+  );
+  const text = chainOnly.lines.join("\n");
+  assert.doesNotMatch(text, /first-move cases/);
+  assert.match(text, /1\/1 hand-off cases above 50%\./);
+  assert.equal(chainOnly.failed, 0);
+});
+
 test("runPrompt rejects a run that produced no terminal result", async () => {
   await assert.rejects(
     runPrompt("p", { spawnFn: fakeSpawn({ code: 1 }) }),
@@ -211,12 +559,12 @@ test("a negative case ignores skills that are not this repo's", () => {
   // a negative prompt says nothing about these skills — failing on it would be
   // a false failure about someone else's environment.
   const ours = new Set(["testing", "local-dev"]);
-  const foreign = new Set(['{"skill":"my-personal-notes"}']);
-  const mine = new Set(['{"skill":"testing"}']);
+  const foreign = fired("my-personal-notes");
+  const mine = fired("testing");
 
   assert.equal(sampleHit(null, foreign, ours), true);
   assert.equal(sampleHit(null, mine, ours), false);
-  assert.equal(sampleHit(null, new Set(), ours), true);
+  assert.equal(sampleHit(null, [], ours), true);
   // A positive case is unaffected: it names the skill it wants.
   assert.equal(sampleHit("testing", mine, ours), true);
   assert.equal(sampleHit("testing", foreign, ours), false);
@@ -318,10 +666,7 @@ test("focused mode narrows the cases but not the repo's own skill set", () => {
     ["a+0", "a+1", "a+2", "a+3", "a+4", "a-"],
   );
   // The consequence, stated as the assertion that matters:
-  assert.equal(
-    sampleHit(null, new Set(['{"skill":"beta"}']), focused.ours),
-    false,
-  );
+  assert.equal(sampleHit(null, fired("beta"), focused.ours), false);
 
   rmSync(root, { recursive: true, force: true });
 });
@@ -378,7 +723,7 @@ test("a name-only skill is not part of the repo's model-invoked set", () => {
   const { ours } = collectCases(undefined, root);
   assert.equal(ours.has("gamma"), false);
   // So its firing does not fail a negative case — it cannot fire on its own.
-  assert.equal(sampleHit(null, new Set(['{"skill":"gamma"}']), ours), true);
+  assert.equal(sampleHit(null, fired("gamma"), ours), true);
   rmSync(root, { recursive: true, force: true });
 });
 

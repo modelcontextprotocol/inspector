@@ -1,6 +1,6 @@
 import React from "react";
 import { describe, it, expect, vi } from "vitest";
-import { render } from "ink-testing-library";
+import { render } from "./helpers/renderTui";
 import type { OAuthConnectionState } from "@inspector/core/auth/types.js";
 import type { InspectorClient } from "@inspector/core/mcp/index.js";
 

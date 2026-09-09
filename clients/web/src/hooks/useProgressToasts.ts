@@ -86,8 +86,22 @@ export function useProgressToasts(
       // "Tool progress" toast from lingering into the next session, and avoids
       // a race where the lingering toast's `onClose` would later delete an id
       // from the *new* session's set and trigger a duplicate-id re-show.
+      //
+      // The bookkeeping is dropped by **swapping in a fresh Set**, not by
+      // calling `liveToastIds.clear()` — the distinction is load-bearing and
+      // invisible otherwise (#2219). `hide()` does not fire `onClose`
+      // synchronously; it plays the toast's exit transition first. Every
+      // outgoing toast's `onClose` closes over *this* Set object, so clearing
+      // it in place would leave those callbacks pointed at the very container
+      // the next session refills — and a delayed `onClose` for an id the new
+      // session has already re-shown (both hooks derive ids from data, so a
+      // reconnect replays them exactly) would delete the new entry. The stream
+      // would then take the `show` branch instead of `update`, Mantine would
+      // refuse the duplicate id, and the toast would freeze mid-progress.
+      // Reassigning detaches the outgoing session's callbacks onto a Set
+      // nothing reads again.
       liveToastIds.forEach((id) => notifications.hide(id));
-      liveToastIds.clear();
+      progressToastIdsRef.current = new Set();
     };
   }, [inspectorClient]);
 }

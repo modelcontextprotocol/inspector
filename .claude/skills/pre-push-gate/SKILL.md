@@ -37,7 +37,7 @@ not.
 
 ⚠️ **There is no `npm run ci`.** The gate was renamed to `local:gate` (#2146)
 precisely because `npm ci` is a built-in that clean-installs from the lockfile
-and does *not* run this script. `npm run ci` now fails with npm's missing-script
+and does _not_ run this script. `npm run ci` now fails with npm's missing-script
 error.
 
 ## Verify by exit code, not by grepping output
@@ -50,7 +50,14 @@ npm run local:gate; echo "EXIT=$?"
 ```
 
 ⚠️ If you run it as a background task, the harness's "exit code 0" notification
-describes the *wrapper*, not the gate — read the `EXIT=` line.
+describes the _wrapper_, not the gate — read the `EXIT=` line.
+
+**Background it and then wait for that notification** — do not spend turns
+watching it. The gate takes several minutes, and re-running `tail` or an
+`echo ok` once per turn until it lands tells you nothing the completion
+notification would not have; see [Waiting on long-running
+work](../../../AGENTS.md#waiting-on-long-running-work). Waiting out one run this
+way cost ~80 consecutive no-op turns on #2250.
 
 ## Diagnosing a failing stage
 
@@ -105,7 +112,7 @@ a whitelist, so a module placed outside it falls out of the gate silently.
 ### `smoke:web*`
 
 ⚠️ **An orphaned prod web server from a previous run fakes a rejection.** It
-answers the readiness probe with *its* token, and the deep link comes back
+answers the readiness probe with _its_ token, and the deep link comes back
 `data-deeplink="rejected"` with no error. Assert the port is free before
 blaming the change.
 
@@ -118,7 +125,7 @@ Vite's `fs.allow`. Do a real `npm install` in the worktree.
 
 ⚠️ Two concurrent `npm run local:gate` runs starve each other — ~326 tests time
 out at 5s. Run one at a time. (A `pgrep -f "npm run local:gate"` wait loop
-matches *itself* and never exits.)
+matches _itself_ and never exits.)
 
 ## Local-only steps
 
@@ -128,7 +135,7 @@ Two stages have no GitHub CI counterpart, each deliberately:
   Firefox. Trialled as a CI job and removed (#2086): across a dozen runs it never
   disagreed with Chromium, and `playwright install --with-deps` carries a real
   flake surface. Kept in front of a human about to push instead.
-- **`smoke:tui`** — needs a real TTY. It *is* invoked in CI via `npm run smoke`
+- **`smoke:tui`** — needs a real TTY. It _is_ invoked in CI via `npm run smoke`
   and self-skips there on `process.env.CI`, so it needs no guarding.
 
 A guard (`scripts/lib/workflow-gate.mjs`, run by `npm run test:scripts`) fails

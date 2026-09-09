@@ -3,6 +3,7 @@ import {
   Button,
   Code,
   Flex,
+  Group,
   ScrollArea,
   SimpleGrid,
   Stack,
@@ -18,6 +19,7 @@ import type {
 } from "@modelcontextprotocol/client";
 import type { ServerType } from "@inspector/core/mcp/types.js";
 import { TASKS_EXTENSION_KEY } from "@inspector/core/mcp/modernTaskSchemas.js";
+import { getSkillsExtension } from "@inspector/core/mcp/skills.js";
 import type { OAuthClientRegistrationKind } from "@inspector/core/auth/types.js";
 import {
   CapabilityItem,
@@ -104,6 +106,15 @@ const SectionHeading = Title.withProps({
 // `scrollable-region-focusable`).
 const ValueCode = Code.withProps({ variant: "wrapping" });
 
+// One declared sub-option of an extension. Mirrors `CapabilityItem`'s ✓/✗ row
+// rather than reusing it: that element's `capability` prop is the closed union
+// of spec capability keys, and widening it to accept an arbitrary extension
+// sub-option name would collapse it to `string` and lose the typo protection
+// the union buys every other caller.
+const SubOptionRow = Group.withProps({ gap: "xs", wrap: "nowrap" });
+
+const SubOptionMark = Text.withProps({ fw: 600 });
+
 const ClearOAuthButton = Button.withProps({
   variant: "subtle",
   color: "red",
@@ -159,16 +170,20 @@ function formatSession(
   return isModernEra(era) ? "Sessionless" : "Session-based";
 }
 
-// Render an `extensions` capability map (SEP-2133) as a comma-separated list of
-// its extension identifiers, or an em dash when none are present. Works for
-// either side's map: the server's negotiated `capabilities.extensions` (present
-// on both eras via `getServerCapabilities()`) or the Inspector's own advertised
+// The extension identifiers in an `extensions` capability map (SEP-2133), one
+// per rendered row, or a single em dash when none are present. Works for either
+// side's map: the server's negotiated `capabilities.extensions` (present on both
+// eras via `getServerCapabilities()`) or the Inspector's own advertised
 // `clientCapabilities.extensions`. (#1740)
+//
+// A list rather than a comma-joined string (#2234): an identifier is ~30
+// characters and two of them wrap mid-name in a half-width column, which is
+// what made the joined form hard to read at a glance.
 function formatExtensions(
   extensions: Record<string, unknown> | undefined,
-): string {
+): string[] {
   const keys = extensions ? Object.keys(extensions) : [];
-  return keys.length > 0 ? keys.join(", ") : "—";
+  return keys.length > 0 ? keys : ["\u2014"];
 }
 
 const SERVER_CAPABILITY_KEYS: CapabilityKey[] = [
@@ -259,6 +274,9 @@ export function ConnectionInfoContent({
 }: ConnectionInfoContentProps) {
   const { serverInfo, protocolVersion, capabilities, instructions } =
     initializeResult;
+  // `undefined` when the server declared no Skills extension, which is what
+  // hides the section below — an absent extension has no sub-flags to report.
+  const skillsExtension = getSkillsExtension(capabilities);
 
   // Only trust `serverInfo` when the server actually reported it; otherwise the
   // name is a catalog fallback. Both rows `?.trim()` before the `||` (not `??`)
@@ -352,15 +370,48 @@ export function ConnectionInfoContent({
       <SimpleGrid cols={2}>
         <Stack gap="xs">
           <SectionHeading>Server Extensions</SectionHeading>
-          <ValueText>{formatExtensions(capabilities.extensions)}</ValueText>
+          {/* A plain `Text`, not the bold `ValueText`: these sections list
+              *items*, the way the capability columns above do, rather than
+              giving the value half of a label/value pair. Bolding them made
+              them read as emphasized answers to a question the section never
+              asks, and set them in a different font from the checklist rows
+              they sit directly beneath. */}
+          {formatExtensions(capabilities.extensions).map((extension) => (
+            <Text key={extension}>{extension}</Text>
+          ))}
         </Stack>
         <Stack gap="xs">
           <SectionHeading>Client Advertised Extensions</SectionHeading>
-          <ValueText>
-            {formatExtensions(clientCapabilities.extensions)}
-          </ValueText>
+          {formatExtensions(clientCapabilities.extensions).map((extension) => (
+            <Text key={extension}>{extension}</Text>
+          ))}
         </Stack>
       </SimpleGrid>
+
+      {/* Skills (SEP-2640). The "Server Extensions" row above already names the
+          identifier, so repeating it here would say nothing: what this section
+          adds is the extension's SUB-OPTIONS, which a flat list of keys cannot
+          show. `directoryRead` is the only one SEP-2640 defines, and whether a
+          server declared it is the fact a server author opens this modal to
+          check — it gates `resources/directory/read` (#2234). Rendered with the
+          same ✓/✗ vocabulary as the capability columns above so it reads as the
+          same kind of claim. */}
+      {skillsExtension && (
+        <Stack gap="xs">
+          <SectionHeading>Skills Extension Options</SectionHeading>
+          <SubOptionRow
+            data-testid="skills-directory-read"
+            data-supported={skillsExtension.directoryRead}
+          >
+            <SubOptionMark c={skillsExtension.directoryRead ? "green" : "red"}>
+              {skillsExtension.directoryRead ? "\u2713" : "\u2717"}
+            </SubOptionMark>
+            <Text>
+              Directory read — <Code>resources/directory/read</Code>
+            </Text>
+          </SubOptionRow>
+        </Stack>
+      )}
 
       {instructions && (
         <Stack gap="xs">

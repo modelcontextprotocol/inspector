@@ -251,17 +251,61 @@ export function listingCost(skills) {
 export const MIN_POSITIVE_CASES = 5;
 
 /**
+ * The fewest links a chained case may name.
+ *
+ * A one-link "chain" is a first-move case written the long way — it asserts
+ * nothing about a hand-off, and accepting it would let a skill satisfy the
+ * hand-off column without ever measuring one.
+ */
+export const MIN_CHAIN_LENGTH = 2;
+
+/**
+ * Whether a case measures a hand-off (`chain`) rather than a first move
+ * (`expect`).
+ *
+ * The two are scored against different turn budgets and reported in different
+ * columns, so every consumer has to tell them apart; doing it by field
+ * presence in one place keeps that decision from drifting between the
+ * validator and the runner.
+ *
+ * @param {unknown} c
+ * @returns {boolean}
+ */
+export function isChainCase(c) {
+  return c !== null && typeof c === "object" && Array.isArray(c.chain);
+}
+
+/**
  * Validate an `evals/evals.json` payload for a model-invoked skill.
  *
  * A skill that fires on everything is a context regression, not a win, and it
  * is the failure nobody notices by hand — so negatives are required, not
  * optional.
  *
+ * A case is one of two shapes, and it must be exactly one: a **first-move**
+ * case names `expect` (the skill the model should reach with its first tool
+ * call, or `null`), and a **hand-off** case names `chain` — the ordered skills
+ * a single run should load, ending with this one. Requiring exactly one of the
+ * two rather than letting `chain` shadow `expect` means a case that carries
+ * both is a typo caught here, not a silently half-scored measurement.
+ *
+ * A hand-off case counts toward neither the positive floor nor the negative
+ * requirement. It measures a different thing (a second-hop load, over many
+ * turns) and it is scored in its own column, so letting one stand in for a
+ * first-move positive would let a skill ship with no measurement of the way
+ * users actually reach it.
+ *
  * @param {string} skillName
  * @param {unknown} cases Parsed JSON.
+ * @param {Set<string> | null} [known] Every model-invoked skill in the repo.
+ *   When supplied, each link of a `chain` is checked against it — a link naming
+ *   a skill that does not exist, or one the model cannot invoke, can never fire
+ *   and would score the case a permanent 0% that reads as a description
+ *   problem. Omitted (null), the link names are left unchecked, so a caller
+ *   that has not yet parsed the whole directory can still validate shape.
  * @returns {string[]} errors
  */
-export function validateEvalCases(skillName, cases) {
+export function validateEvalCases(skillName, cases, known = null) {
   if (!Array.isArray(cases) || cases.length === 0) {
     return ["evals.json must be a non-empty array of cases"];
   }
@@ -274,11 +318,23 @@ export function validateEvalCases(skillName, cases) {
     if (typeof c.prompt !== "string" || c.prompt.trim() === "") {
       errors.push(`case ${i}: \`prompt\` must be a non-empty string`);
     }
+    if ("expect" in c && "chain" in c) {
+      errors.push(
+        `case ${i}: carries both \`expect\` and \`chain\` — a case is either a first-move case or a hand-off case`,
+      );
+      return;
+    }
+    if ("chain" in c) {
+      errors.push(...validateChain(skillName, i, c.chain, known));
+      return;
+    }
     if (
       !("expect" in c) ||
       (c.expect !== null && typeof c.expect !== "string")
     ) {
-      errors.push(`case ${i}: \`expect\` must be a skill name or null`);
+      errors.push(
+        `case ${i}: needs \`expect\` (a skill name, or null for a negative case) or \`chain\``,
+      );
     } else if (c.expect !== null && c.expect !== skillName) {
       // A case living in this skill's evals may only expect THIS skill. A
       // foreign name passes the eval whenever that other skill fires, so the
@@ -321,6 +377,57 @@ export function validateEvalCases(skillName, cases) {
     errors.push(
       "no negative case (`expect: null`) — a skill that fires on everything is a regression",
     );
+  }
+  return errors;
+}
+
+/**
+ * Validate one hand-off case's `chain`.
+ *
+ * The last link must be the owning skill, not the first. A hand-off case exists
+ * to measure whether **this** skill is reachable at all when nothing about the
+ * prompt names it, so the file that has to go red when the hand-off stops
+ * working is the one belonging to the skill that stops being reached. Anchoring
+ * on the first link instead would file the case under whichever skill happened
+ * to start the run, and a `test-servers` description edit would then be
+ * measured only inside `testing`.
+ *
+ * @param {string} skillName
+ * @param {number} i Case index, for the message.
+ * @param {unknown} chain
+ * @param {Set<string> | null} known
+ * @returns {string[]}
+ */
+function validateChain(skillName, i, chain, known) {
+  if (!Array.isArray(chain) || chain.length < MIN_CHAIN_LENGTH) {
+    return [
+      `case ${i}: \`chain\` must be an ordered array of at least ${MIN_CHAIN_LENGTH} skill names`,
+    ];
+  }
+  const errors = [];
+  if (chain.some((n) => typeof n !== "string" || n.trim() === "")) {
+    errors.push(`case ${i}: every \`chain\` link must be a non-empty string`);
+    return errors;
+  }
+  if (new Set(chain).size !== chain.length) {
+    // A repeated link cannot be observed: the run records which skills fired
+    // in what order, and a second load of one already recorded is
+    // indistinguishable from the first.
+    errors.push(`case ${i}: \`chain\` repeats a skill name`);
+  }
+  if (chain[chain.length - 1] !== skillName) {
+    errors.push(
+      `case ${i}: \`chain\` ends with \`${chain[chain.length - 1]}\`, but this file measures whether \`${skillName}\` is reached`,
+    );
+  }
+  if (known) {
+    for (const link of chain) {
+      if (!known.has(link)) {
+        errors.push(
+          `case ${i}: \`chain\` names \`${link}\`, which is not a model-invoked skill — it can never fire`,
+        );
+      }
+    }
   }
   return errors;
 }

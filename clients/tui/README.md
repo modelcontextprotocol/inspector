@@ -76,13 +76,14 @@ The TUI provides terminal-native tabs and panes for interacting with your MCP se
 - **Resources**: Browse and read resources exposed by the server.
 - **Prompts**: List and test prompts.
 - **Tools**: View available tools and execute them with form-like inputs. A tool whose advertised schema carries a portability problem is flagged in the list — red `!` for a construct a shipping MCP client refuses, yellow `?` for one handled unevenly — and the detail pane lists each finding under **Schema Portability** with the path, the problem, and a concrete fix. The verdict comes from [`core/json/schemaLint.ts`](../../core/json/schemaLint.ts), shared with the web Tools tab and the CLI's `--strict` report, so the three cannot disagree ([#1005](https://github.com/modelcontextprotocol/inspector/issues/1005)).
+- **Skills**: Shown only when the connected server declares the SEP-2640 Skills extension (`io.modelcontextprotocol/skills`), since it is a *server* declaration and so only knowable after connecting. The list marks each skill with its structural verdict — `✓` conforms, `!` warnings only, `✗` an error — using a glyph as well as a colour, because this pane is read over ssh, in tmux and through `script(1)`. The detail pane shows the entry's URI, description, conformance findings and manifest. **Enter** verifies the selected skill: one `resources/read` per manifest file, each hashed against its advertised digest, plus the frontmatter cross-check that compares the served `SKILL.md`'s own frontmatter against the one the listing advertised. Verification is a gesture rather than a page load because SEP-2640 says hosts MUST NOT retrieve a skill's files ahead of need. The checks are the same ones the web Skills tab and the CLI's `--verify` run ([#2234](https://github.com/modelcontextprotocol/inspector/issues/2234), [#2248](https://github.com/modelcontextprotocol/inspector/issues/2248)).
 - **Protocol**: View JSON-RPC request/response/notification history (matches the web Protocol monitor).
 - **Network**: View HTTP fetch traffic for SSE / Streamable HTTP servers (matches the web Network monitor).
 - **Console**: View stdio stderr from the connected server process (matches the web Console monitor).
 
 ## Navigation
 
-- Use the **Arrow Keys** (Left/Right) or **Tab** to switch between the main tabs (Resources, Tools, Prompts, etc.).
+- Use the **Arrow Keys** (Left/Right) or **Tab** to switch between the main tabs (Resources, Tools, Prompts, Skills, etc.).
 - Use the **Arrow Keys** (Up/Down) to scroll through lists of items.
 - Press **Enter** to select an item, execute a tool, or fetch a resource.
 - Press **Escape** or `Ctrl+C` to exit the application.
@@ -103,8 +104,10 @@ stricter react-hooks@7 rules are not enforced on the interim component surface
 (#1501).
 
 Tests live in `__tests__/`. The coverage gate covers **all of `src/**`**, React
-surface included — the Ink components mount through `ink-testing-library` (with
-the `ink-scroll-view` / `ink-form` passthrough doubles in `__tests__/helpers/`),
+surface included — the Ink components mount through
+`__tests__/helpers/renderTui.tsx`, `ink-testing-library`'s `render` wrapped so
+every frame it hands back is ANSI-stripped (with the `ink-scroll-view` /
+`ink-form` passthrough doubles in the same directory),
 `App.tsx` mounts against a mock of the `@inspector/core` surface, and keypresses
 are driven through stdin. The former interim exclusion of the components and
 `App.tsx` was lifted in #1501; the only exclusion left in `vitest.config.ts` is
@@ -112,6 +115,16 @@ are driven through stdin. The former interim exclusion of the components and
 statements of its own (its logic is measured in `core/` via the web suite, and
 `tui-servers.test.ts` still exercises it behaviorally — it is excluded only so it
 doesn't surface as a misleading 0/0 row).
+
+**Import `render` from `__tests__/helpers/renderTui.tsx`, never from
+`ink-testing-library` directly.** Ink writes styling as escape sequences *inside*
+the styled run, so an accelerator underline splits the word it decorates —
+`<Text underline>I</Text>nfo` reaches the frame buffer with escapes between `I`
+and `nfo`, and `expect(frame).toContain("Info")` fails against a component that
+is rendering correctly. Because chalk only emits color when it detects a TTY,
+this is invisible in CI and hits exactly the developer whose shell exports
+`FORCE_COLOR` (#2207). The wrapper strips styling from `lastFrame()` and
+`frames`; the untouched bytes stay available as `stdout.lastFrame()`.
 
 ### Bundling: React-rendering dependencies must be inlined (#1952)
 

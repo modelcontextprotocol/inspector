@@ -67,6 +67,9 @@ export interface ConfigFile {
    * and wire its handlers + `modern_task` / `modern_input_task` tools. Pair with
    * `transport.modern`. */
   tasksExtension?: boolean;
+  /** Advertise the Skills extension (SEP-2640) and serve its fixture skills,
+   * including `directoryRead` — see {@link ServerConfig.skills}. */
+  skills?: boolean;
   /** Advertise the MCP Apps `io.modelcontextprotocol/ui` extension with the nested
    * `elicitation` setting — the server half of app-rendered form elicitation
    * (#1854). Pair with the `app_choose_option` tool + `choose_option_app` resource. */
@@ -78,11 +81,24 @@ export interface ConfigFile {
     prompts?: number;
   };
   /**
+   * Hand out `""` as the cursor for page two of every paginated list, instead
+   * of the usual numeric index. See {@link ServerConfig.emptyStringCursor}
+   * (#2220).
+   */
+  emptyStringCursor?: boolean;
+  /**
    * Names of registered tools to emit **twice** in `tools/list` (same `name`,
    * the second's title marked "(duplicate)") — the nonconforming-but-real shape
    * no preset can produce. See {@link ServerConfig.duplicateToolNames} (#1957).
    */
   duplicateToolNames?: string[];
+  /**
+   * URIs to emit **twice** in `resources/list` (same `uri`, the second's title
+   * marked "(duplicate)") — matched against the assembled list, so a
+   * template-listed URI counts as well as a statically-registered one. See
+   * {@link ServerConfig.duplicateResourceUris} (#2206).
+   */
+  duplicateResourceUris?: string[];
   /**
    * Replace a registered tool's advertised `inputSchema`/`outputSchema` with a
    * raw JSON Schema document — the constructs a Zod-built preset cannot emit.

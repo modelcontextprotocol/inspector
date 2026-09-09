@@ -25,6 +25,17 @@ export const ThemePaper = Paper.extend({
         },
       };
     }
+    if (props.variant === "reauth") {
+      return {
+        root: {
+          // Centers the fixed-position re-auth banner against the viewport.
+          // Neither property is available as a Mantine style prop, so the
+          // theme layer is where they belong (#2218).
+          transform: "translate(-50%, -50%)",
+          zIndex: 200,
+        },
+      };
+    }
     if (props.variant === "panel") {
       return {
         root: {

@@ -34,6 +34,10 @@ import type {
 } from "../components/screens/ToolsScreen/ToolsScreen";
 import type { GetPromptState } from "../components/screens/PromptsScreen/PromptsScreen";
 import type { ReadResourceState } from "../components/screens/ResourcesScreen/ResourcesScreen";
+import type { SkillFileContents } from "@inspector/core/mcp/skills.js";
+import type { DirectoryReadResult } from "@inspector/core/mcp/skillsSchemas.js";
+import type { SkillEntry } from "@inspector/core/mcp/skillsSchemas.js";
+import { normalizeSkillUri } from "@inspector/core/mcp/skills.js";
 import { UrlElicitationErrorToastMessage } from "../components/elements/Toasts/UrlElicitationErrorToastMessage";
 import {
   errorCodeOf,
@@ -161,6 +165,8 @@ export interface UseServerCommandsOptions {
   activeToolCallTaskIdRef: { current: string | undefined };
   clearCompletedTasks: () => void;
   refreshTasks: () => Promise<unknown>;
+  /** Re-walk `skills/list` (SEP-2640). */
+  refreshSkills: () => Promise<unknown>;
 
   // --- The list stores and their two fetch modes (#1721). ---
   paginatedLists: boolean;
@@ -210,6 +216,20 @@ export interface ServerCommands {
   onReadResourceContents: (
     uri: string,
   ) => Promise<Awaited<ReturnType<InspectorClient["readResource"]>>["result"]>;
+  /**
+   * Read one skill file's contents (SEP-2640) — for display in the Skills
+   * screen's viewer, and for digest verification. Returns the single content
+   * block that answers the URI, narrowed to the two fields the digest is taken
+   * over.
+   */
+  onReadSkillFile: (uri: string) => Promise<SkillFileContents>;
+  /** One page of `resources/directory/read` (SEP-2640). */
+  onReadResourceDirectory: (
+    uri: string,
+    cursor?: string,
+  ) => Promise<DirectoryReadResult>;
+  /** Re-fetch one skill entry through `skills/get` (SEP-2640). */
+  onGetSkill: (uri: string) => Promise<SkillEntry>;
   onSubscribeResource: (uri: string) => void;
   onUnsubscribeResource: (uri: string) => void;
   onCompleteArgument: (
@@ -228,6 +248,7 @@ export interface ServerCommands {
   onRefreshTools: () => void;
   onRefreshPrompts: () => void;
   onRefreshResources: () => void;
+  onRefreshSkills: () => void;
   onRefreshTasks: () => void;
   onTogglePaginatedLists: (value: boolean) => void;
   onLoadMoreTools: () => void;
@@ -269,6 +290,7 @@ export function useServerCommands({
   activeToolCallTaskIdRef,
   clearCompletedTasks,
   refreshTasks,
+  refreshSkills,
   paginatedLists,
   paginatedListsOverride,
   toolsPagination,
@@ -932,6 +954,123 @@ export function useServerCommands({
       runCommandInBackground(() => resourcesPagination.onLoadMore(), "ambient"),
     [resourcesPagination, runCommandInBackground],
   );
+  // Skill files are still never pre-fetched in bulk — nothing walks the
+  // manifest reading everything. What IS read without being asked is the single
+  // `SKILL.md` of whichever skill is selected, so the file is on screen (#2263);
+  // SEP-2640 is explicit that a `resources/read` of a skill file is not a load
+  // and confers no standing, so that claims nothing on the user's behalf.
+  // Digest verification remains strictly on demand.
+  //
+  // Routed through `onReadResourceContents` so a skill read gets the same
+  // auth-recovery retry every other read does.
+  const onReadSkillFile = useCallback(
+    async (uri: string): Promise<SkillFileContents> => {
+      const result = await onReadResourceContents(uri);
+      // The returned URI must be the one asked for. A tempting fallback —
+      // "a single-block response must be the block we asked for" — is right
+      // for a viewer and WRONG here: these bytes are about to be hashed
+      // against `uri`'s advertised digest, so accepting a block the server
+      // labelled `b.md` would verify one file's content against another
+      // file's digest and could report that as `verified`. Knowing which
+      // bytes were hashed is the whole point.
+      //
+      // A normalized match is still accepted, because a server may echo the
+      // URI back in a different but equivalent form (a resolved `..`, a
+      // percent-encoding difference); `normalizeSkillUri` returns `undefined`
+      // for anything unparseable, and two `undefined`s must not compare equal.
+      const wanted = normalizeSkillUri(uri);
+      const block = result.contents.find((c) => {
+        if (c.uri === uri) return true;
+        const got = normalizeSkillUri(c.uri);
+        return got !== undefined && got === wanted;
+      });
+      if (!block) {
+        throw new Error(
+          `resources/read returned no content for ${uri}` +
+            (result.contents.length > 0
+              ? ` (got ${result.contents.map((c) => c.uri).join(", ")})`
+              : ""),
+        );
+      }
+      // `contents` is a union of the text and blob shapes, each with its own
+      // payload field required — so `in` is what narrows it, not a `typeof` on
+      // a property one arm does not declare.
+      return {
+        ...("text" in block ? { text: block.text } : { blob: block.blob }),
+        ...(typeof block.mimeType === "string"
+          ? { mimeType: block.mimeType }
+          : {}),
+      };
+    },
+    [onReadResourceContents],
+  );
+
+  // `skills/get` is the extension's second required method, and the Skills tab
+  // calls it on demand so a server author can see their own handler answer —
+  // and see whether it agrees with what their `skills/list` advertised.
+  const onGetSkill = useCallback(
+    async (uri: string): Promise<SkillEntry> => {
+      if (!inspectorClient) throw new Error("Client is not connected");
+      // Routed through the shared recovery like every other server command
+      // (#2174). Without it an expired authorization renders an error in the
+      // panel and stops there — no reauthorization, no retry — which is the
+      // one thing this hook exists to make impossible.
+      const get = () => inspectorClient.getSkill(uri);
+      try {
+        return await get();
+      } catch (err) {
+        if (err instanceof AuthRecoveryRequiredError && activeServerId) {
+          const satisfied = await handleCommandScopedAuthRecovery(err, {
+            serverId: activeServerId,
+            source: "resource",
+          });
+          if (satisfied) return get();
+        }
+        throw err;
+      }
+    },
+    [inspectorClient, activeServerId, handleCommandScopedAuthRecovery],
+  );
+
+  /**
+   * One page of `resources/directory/read` (SEP-2640) — the direct children of
+   * a directory resource.
+   *
+   * Not aggregated across pages, unlike the skills walk: the SEP says the
+   * listing is not recursive and clients descend by calling again, so the
+   * cursor belongs to the caller doing the descending. `InspectorClient` refuses
+   * the call outright when the server did not declare `directoryRead`, which is
+   * the spec's MUST NOT — nothing here has to re-check it.
+   */
+  const onReadResourceDirectory = useCallback(
+    async (uri: string, cursor?: string): Promise<DirectoryReadResult> => {
+      if (!inspectorClient) throw new Error("Client is not connected");
+      // Same shared auth recovery as every other server command (#2174).
+      const read = () => inspectorClient.readResourceDirectory(uri, cursor);
+      try {
+        return await read();
+      } catch (err) {
+        if (err instanceof AuthRecoveryRequiredError && activeServerId) {
+          const satisfied = await handleCommandScopedAuthRecovery(err, {
+            serverId: activeServerId,
+            source: "resource",
+          });
+          if (satisfied) return read();
+        }
+        throw err;
+      }
+    },
+    [inspectorClient, activeServerId, handleCommandScopedAuthRecovery],
+  );
+
+  const onRefreshSkills = useCallback(() => {
+    runCommandInBackground(
+      () => refreshSkills(),
+      "ambient",
+      "Failed to refresh skills",
+    );
+  }, [refreshSkills, runCommandInBackground]);
+
   const onRefreshTasks = useCallback(() => {
     runCommandInBackground(
       () => refreshTasks(),
@@ -947,6 +1086,9 @@ export function useServerCommands({
     onGetPrompt,
     onReadResource,
     onReadResourceContents,
+    onReadSkillFile,
+    onReadResourceDirectory,
+    onGetSkill,
     onSubscribeResource,
     onUnsubscribeResource,
     onCompleteArgument,
@@ -958,6 +1100,7 @@ export function useServerCommands({
     onRefreshTools,
     onRefreshPrompts,
     onRefreshResources,
+    onRefreshSkills,
     onRefreshTasks,
     onTogglePaginatedLists,
     onLoadMoreTools,

@@ -2284,6 +2284,86 @@ describe("SchemaForm raw JSON (#2151)", () => {
     await enableRawJson(user);
     expect(screen.getAllByLabelText("Edit as JSON")).toHaveLength(1);
   });
+
+  // #2224: a root union whose alternatives are all declined resolves to a base
+  // with nothing on it, so the form renders no picker and no fields. The switch
+  // is the only way to make the call — open it rather than leaving the user in
+  // front of a blank form to work that out.
+  describe("fallback for an unrenderable root union (#2224)", () => {
+    // Every member requires a name it never declares, so none is offerable.
+    const deadEnd: InspectorFormSchema = {
+      type: "object",
+      anyOf: [
+        {
+          type: "object",
+          properties: { kind: { type: "string", const: "a" } },
+          required: ["kind", "payload"],
+        },
+        {
+          type: "object",
+          properties: { kind: { type: "string", const: "b" } },
+          required: ["kind", "payload"],
+        },
+      ],
+    };
+
+    function switchElement(): HTMLInputElement {
+      return screen.getByLabelText("Edit as JSON") as HTMLInputElement;
+    }
+
+    it("opens the editor when the form would otherwise be empty", () => {
+      renderWithMantine(<RawHarness schema={deadEnd} />);
+      expect(switchElement().checked).toBe(true);
+      expect(getAceTextByLabel(/Arguments JSON/)).toBe("{}");
+    });
+
+    it("leaves the editor closed for a tool that takes no arguments", () => {
+      // Nothing to render here either, but nothing is missing: seeding a JSON
+      // editor for `{}` would be noise on every no-argument tool.
+      renderWithMantine(
+        <RawHarness schema={{ type: "object", properties: {} }} />,
+      );
+      expect(switchElement().checked).toBe(false);
+    });
+
+    it("still lets the user switch back to the fields", async () => {
+      const user = userEvent.setup();
+      renderWithMantine(<RawHarness schema={deadEnd} />);
+      await user.click(switchElement());
+      expect(switchElement().checked).toBe(false);
+    });
+
+    it("opens the editor for a schema that arrives after the first render", () => {
+      // The form is reused across tools rather than remounted, so a `useState`
+      // initializer alone would only ever see the tool it mounted on.
+      const { rerender } = renderWithMantine(
+        <SchemaForm schema={schema} values={{}} onChange={vi.fn()} />,
+      );
+      expect(switchElement().checked).toBe(false);
+
+      rerender(<SchemaForm schema={deadEnd} values={{}} onChange={vi.fn()} />);
+      expect(switchElement().checked).toBe(true);
+    });
+
+    it("does not close an editor the user opened when the schema changes", async () => {
+      // One-way: the fallback opens the editor, and nothing closes it but the
+      // user.
+      const user = userEvent.setup();
+      const { rerender } = renderWithMantine(
+        <SchemaForm schema={schema} values={{}} onChange={vi.fn()} />,
+      );
+      await enableRawJson(user);
+
+      rerender(
+        <SchemaForm
+          schema={{ type: "object", properties: {} }}
+          values={{}}
+          onChange={vi.fn()}
+        />,
+      );
+      expect(switchElement().checked).toBe(true);
+    });
+  });
 });
 
 // A plain `<input>` swallows Enter, so a string argument could not be given a

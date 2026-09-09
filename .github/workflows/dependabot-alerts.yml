@@ -1,0 +1,103 @@
+# Dependabot alert sweep (#2233), the alert-consuming half of #2229.
+#
+# Dependabot's SECURITY-update PRs are turned off for this repo; its ALERTS are
+# left on. Those are two independent settings, and this workflow depends on the
+# split: it reads the alerts and turns them into ordinary board-tracked issues,
+# so the fix is written by hand against `v2/main` like any other work.
+#
+#   alert -> this sweep -> issue (labeled, milestoned, boarded) -> maintainer PR -> v2/main
+#
+# It is a SCHEDULE, not an event handler, because there is no `dependabot_alert`
+# workflow trigger — that is a webhook event only. Daily is deliberate: with
+# security PRs off there is no mergeable-against-`main` artifact and no window to
+# race, so the merge guard #2060 needed has no analogue here. What replaces it is
+# a precondition inside the script: `automated-security-fixes` is a repo SETTING
+# and can be switched back on from the UI without a commit, so the sweep reads it
+# back and fails loudly on an explicit `enabled: true`. That read needs a
+# permission `GITHUB_TOKEN` cannot hold, so with the default token it reports
+# UNVERIFIED instead — see the token notes below; it is a conditional guard, not
+# an invariant.
+#
+# ⚠️ GitHub computes the dependency graph, and therefore every alert, from the
+# DEFAULT branch (`main`), while we ship from `v2/main`. Two consequences:
+#
+#  * An alert is re-checked against `v2/main`'s own lockfile before an issue is
+#    filed — hence the `ref: v2/main` checkout below. An alert whose vulnerable
+#    range no longer matches is already fixed on the branch we ship from and is
+#    waiting on a milestone merge to close, so it is skipped silently.
+#  * A vulnerable dependency introduced on `v2/main` and not yet merged to
+#    `main` produces NO alert at all. No approach that consumes GitHub's alerts
+#    avoids that. The release-time `npm audit --audit-level=high` report from
+#    #2231 is a second signal that partially covers it — at release time only;
+#    running that same report over `v2/main`'s lockfiles on a schedule would
+#    close it fully and is a separable follow-up.
+#
+# `vulnerability-alerts: read` is the one non-default permission, and
+# `GITHUB_TOKEN` supports it — no PAT is needed to read the alerts themselves.
+# Two side steps are outside its reach, and `PROJECT_TOKEN` is what covers them
+# when it exists:
+#
+#  * Writing the board card, since board #28 is an ORG project
+#    (`organization projects: write`). Absent, the issue is still filed labeled
+#    and milestoned and the next `/issue-triage` sweep boards it.
+#  * Reading back `automated-security-fixes`, which needs `administration: read`
+#    — a permission `permissions:` has no key for, so `GITHUB_TOKEN` can never
+#    have it. Absent, that assertion is reported as UNVERIFIED rather than
+#    failing the run; an explicit `enabled: true` still fails it.
+#
+# Nothing the sweep exists to do is skipped for want of that secret.
+#
+# The version-update half of #2229 is the sibling `dependency-refresh.yml`.
+name: Dependabot Alert Sweep
+
+on:
+  schedule:
+    - cron: "17 6 * * *" # 06:17 UTC daily; alerts are not minute-sensitive
+  workflow_dispatch:
+
+# The marker check is a read-before-write, not an atomic one, and nothing stops
+# a `workflow_dispatch` from landing on top of the scheduled run. Two overlapping
+# runs would both see no open issue and both file one, which is the exact
+# duplicate this sweep's whole idempotency design exists to prevent (Copilot).
+# `cancel-in-progress: false` because the queued run must WAIT and then re-read
+# the state the first run wrote — cancelling it would drop a sweep instead.
+concurrency:
+  group: dependabot-alert-sweep
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  issues: write
+  vulnerability-alerts: read
+
+jobs:
+  alert-sweep:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout v2/main
+        uses: actions/checkout@v7
+        with:
+          ref: v2/main
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22.x"
+          cache: "npm"
+
+      # Root install only, and no lifecycle scripts. The sweep's one dependency
+      # is `semver`; it reads every lockfile as JSON and never needs a client's
+      # tree on disk, so the postinstall cascade into `clients/*` that
+      # `dependency-refresh.yml` genuinely needs (it shells out to
+      # `npm outdated` in each) would be minutes of nothing here.
+      - name: Install root dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Run the Dependabot alert sweep
+        run: node scripts/dependabot-alerts.mjs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          # Optional: an org-project PAT with `organization projects: write`.
+          # Absent, the issue is filed unboarded and triage picks it up.
+          PROJECT_TOKEN: ${{ secrets.PROJECT_TOKEN }}

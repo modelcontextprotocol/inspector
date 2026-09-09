@@ -95,6 +95,7 @@ describe("useServers", () => {
     expect(ids).toEqual([
       "filesystem-server-default",
       "everything-server-default",
+      "example-server-default",
     ]);
     // Map key is used as both id and name; connection initializes disconnected
     for (const s of result.current.servers) {

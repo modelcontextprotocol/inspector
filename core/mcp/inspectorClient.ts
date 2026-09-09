@@ -145,6 +145,22 @@ import {
 } from "./modernTaskSchemas.js";
 import { buildClientExtensions } from "./extensions.js";
 import {
+  DirectoryReadResultSchema,
+  GetSkillEnvelopeSchema,
+  ListSkillsResultSchema,
+  ModernGetSkillEnvelopeSchema,
+  ModernDirectoryReadResultSchema,
+  ModernListSkillsResultSchema,
+  RESOURCES_DIRECTORY_READ_METHOD,
+  SKILLS_EXTENSION_KEY,
+  type DirectoryReadResult,
+  type GetSkillEnvelope,
+  SKILLS_GET_METHOD,
+  SKILLS_LIST_METHOD,
+  type SkillEntry,
+} from "./skillsSchemas.js";
+import { getSkillsExtension, type SkillsExtensionSupport } from "./skills.js";
+import {
   getElicitationUiResourceUri,
   isFormElicitation,
   supportsAppElicitation,
@@ -194,6 +210,7 @@ import {
   LIST_MAX_PAGES,
   ModernResultEnvelopeSchema,
   isSalvageableRejection,
+  isClientDecodeRejection,
   listPaginationExceeded,
   toolItemSchemaForEra,
   nextCursorOf,
@@ -3035,7 +3052,13 @@ export class InspectorClient extends InspectorClientEventTarget {
       throw new Error("Client is not connected");
     }
     const result = await this.client.request(
-      { method: "tasks/list", params: cursor ? { cursor } : {} },
+      {
+        method: "tasks/list",
+        // `!== undefined`, not truthiness: a cursor is opaque and `""` is a
+        // legal value a server may hand back. Dropping it asks for page one
+        // again, so a caller walking pages would loop on the first page.
+        params: cursor !== undefined ? { cursor } : {},
+      },
       ListTasksResultSchema,
       this.getRequestOptions(),
     );
@@ -5232,7 +5255,10 @@ export class InspectorClient extends InspectorClientEventTarget {
     const effectiveMeta = this.mergeMeta(metadata);
     const params: ListResourcesRequest["params"] = {
       ...(effectiveMeta ? { _meta: effectiveMeta } : {}),
-      ...(cursor ? { cursor } : {}),
+      // `!== undefined`, not truthiness: a cursor is opaque and `""` is a
+      // legal value a server may hand back. Dropping it asks for page one
+      // again, so a caller walking pages would loop on the first page.
+      ...(cursor !== undefined ? { cursor } : {}),
     };
     const response = await this.invokeMcpClient(() =>
       this.client!.request(
@@ -5406,7 +5432,10 @@ export class InspectorClient extends InspectorClientEventTarget {
     const effectiveMeta = this.mergeMeta(metadata);
     const params: ListResourceTemplatesRequest["params"] = {
       ...(effectiveMeta ? { _meta: effectiveMeta } : {}),
-      ...(cursor ? { cursor } : {}),
+      // `!== undefined`, not truthiness: a cursor is opaque and `""` is a
+      // legal value a server may hand back. Dropping it asks for page one
+      // again, so a caller walking pages would loop on the first page.
+      ...(cursor !== undefined ? { cursor } : {}),
     };
     const response = await this.invokeMcpClient(
       () =>
@@ -5470,7 +5499,10 @@ export class InspectorClient extends InspectorClientEventTarget {
     const effectiveMeta = this.mergeMeta(metadata);
     const params: ListPromptsRequest["params"] = {
       ...(effectiveMeta ? { _meta: effectiveMeta } : {}),
-      ...(cursor ? { cursor } : {}),
+      // `!== undefined`, not truthiness: a cursor is opaque and `""` is a
+      // legal value a server may hand back. Dropping it asks for page one
+      // again, so a caller walking pages would loop on the first page.
+      ...(cursor !== undefined ? { cursor } : {}),
     };
     const response = await this.invokeMcpClient(() =>
       this.client!.request(
@@ -5514,6 +5546,208 @@ export class InspectorClient extends InspectorClientEventTarget {
       ],
     });
     return { prompts };
+  }
+
+  /**
+   * The Skills extension (SEP-2640) the server declared, or `undefined` when it
+   * declared none. Gates the Skills tab and the skills store the same way
+   * {@link isTasksExtensionNegotiated} gates Tasks — but deliberately without an
+   * era check: `skills/*` are not spec method names in either codec, so a
+   * legacy-era server that declares the extension is serving it (#2234).
+   */
+  getSkillsExtension(): SkillsExtensionSupport | undefined {
+    return getSkillsExtension(this.capabilities);
+  }
+
+  /**
+   * One page of `skills/list` (SEP-2640).
+   *
+   * An ordinary `client.request` with an explicit result schema — the SDK's era
+   * gate skips methods neither codec defines, and `assertCapabilityForMethod`
+   * falls through to a no-op for them, so this is all the extension needs. The
+   * raw-wire path modern `tasks/*` uses would be wrong here: it exists for spec
+   * names the 2026 codec deleted, and taking it would bypass the SDK's response
+   * correlation for nothing (#2234).
+   */
+  async listSkills(
+    cursor?: string,
+    metadata?: RequestMetadata,
+  ): Promise<{ skills: SkillEntry[]; nextCursor?: string }> {
+    if (!this.client) {
+      throw new Error("Client is not connected");
+    }
+    const effectiveMeta = this.mergeMeta(metadata);
+    const params: Record<string, unknown> = {
+      ...(effectiveMeta ? { _meta: effectiveMeta } : {}),
+      // `!== undefined`, not truthiness: a cursor is opaque and the empty
+      // string is a legal value. Dropping `""` would silently re-request page
+      // one, which the store then reports as a repeated-cursor failure — a
+      // conforming server made to look broken.
+      ...(cursor !== undefined ? { cursor } : {}),
+    };
+    // Era-aware: a modern (2026-07-28+) `skills/list` result also carries the
+    // base list envelope (`resultType` / `ttlMs` / `cacheScope`). `skills/*` is
+    // consumer-owned, so the SDK codec validates none of it — without picking
+    // the schema here a modern server could answer `{ skills: [] }` and the
+    // conformance UI would show a clean list. Legacy stays permissive: those
+    // are 2026-era attributes.
+    const resultSchema = this.isModernEra()
+      ? ModernListSkillsResultSchema
+      : ListSkillsResultSchema;
+    const response = await this.invokeMcpClient(
+      () =>
+        this.client!.request(
+          { method: SKILLS_LIST_METHOD, params },
+          resultSchema,
+          this.getRequestOptions(this.progressTokenOf(metadata)),
+        ),
+      { method: SKILLS_LIST_METHOD },
+    );
+    return {
+      skills: response.skills,
+      nextCursor: response.nextCursor,
+    };
+  }
+
+  /**
+   * One skill entry by URI (`skills/get`, SEP-2640). The result envelope is
+   * required — `GetSkillEnvelopeSchema` requires `{ skill }` and rejects an entry
+   * returned inline, so a non-conforming shape fails here rather than being
+   * silently normalized past the conformance checks.
+   */
+  async getSkill(uri: string, metadata?: RequestMetadata): Promise<SkillEntry> {
+    return (await this.getSkillResult(uri, metadata)).skill;
+  }
+
+  /**
+   * `skills/get` as the server sent it — the `{ skill }` envelope **and any
+   * other members it carried**.
+   *
+   * Separate from {@link getSkill} because the callers differ: the UIs want the
+   * entry, while the CLI prints the result and must not reshape it. SEP-2640
+   * explicitly leaves open whether this result carries `ttlMs` / `cacheScope`,
+   * so a server may send them — and unwrapping to the entry discards exactly
+   * those (Copilot).
+   */
+  async getSkillResult(
+    uri: string,
+    metadata?: RequestMetadata,
+  ): Promise<GetSkillEnvelope> {
+    if (!this.client) {
+      throw new Error("Client is not connected");
+    }
+    const effectiveMeta = this.mergeMeta(metadata);
+    const params: Record<string, unknown> = {
+      uri,
+      ...(effectiveMeta ? { _meta: effectiveMeta } : {}),
+    };
+    // Era-aware for the same reason `skills/list` is: the method is
+    // consumer-owned, so no SDK codec stamps or checks its envelope. The modern
+    // variant requires `resultType` — a base-protocol member SEP-2322 puts on
+    // every modern result — and still not the caching attributes, which
+    // SEP-2640 leaves open. The envelope is returned whole; `getSkill`
+    // unwraps.
+    const resultSchema = this.isModernEra()
+      ? ModernGetSkillEnvelopeSchema
+      : GetSkillEnvelopeSchema;
+    try {
+      return await this.invokeMcpClient(
+        () =>
+          this.client!.request(
+            { method: SKILLS_GET_METHOD, params },
+            resultSchema,
+            this.getRequestOptions(this.progressTokenOf(metadata)),
+          ),
+        { method: SKILLS_GET_METHOD },
+      );
+    } catch (err) {
+      // Attribute a rejected envelope to the exchange it came from, so the
+      // Protocol tab stops rendering it as a clean success while the Skills
+      // screen shows an error — the same handling every managed list gets
+      // (#1953). Done here rather than in a store because `skills/get` has
+      // none: the screen calls it directly. Must happen in this catch, while
+      // the correlation window is still current, and ONLY for a decode
+      // rejection — a request that never produced a response would otherwise
+      // stamp an earlier, successful exchange.
+      if (isClientDecodeRejection(err)) {
+        this.markResponseRejected(
+          SKILLS_GET_METHOD,
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * One page of `resources/directory/read` (SEP-2640): the direct children of
+   * a directory resource.
+   *
+   * **Gated on the server's own declaration, and the gate throws rather than
+   * asks.** SEP-2640 is explicit that *"clients MUST NOT call
+   * `resources/directory/read` against a server that has not declared
+   * `directoryRead: true`"*, so this refuses locally instead of sending a call
+   * the spec forbids and letting the server answer `-32601`. Refusing here also
+   * keeps the Protocol tab honest: a request we were never allowed to make
+   * should not appear in the exchange log as a server-side failure.
+   *
+   * Not recursive — the SEP says clients descend by calling the method again on
+   * a child directory, so the walking is the caller's, not this method's.
+   */
+  async readResourceDirectory(
+    uri: string,
+    cursor?: string,
+    metadata?: RequestMetadata,
+  ): Promise<DirectoryReadResult> {
+    if (!this.client) {
+      throw new Error("Client is not connected");
+    }
+    const extension = this.getSkillsExtension();
+    if (!extension?.directoryRead) {
+      throw new Error(
+        `Server did not declare directoryRead in ${SKILLS_EXTENSION_KEY}; ${RESOURCES_DIRECTORY_READ_METHOD} must not be called.`,
+      );
+    }
+    const effectiveMeta = this.mergeMeta(metadata);
+    const params: Record<string, unknown> = {
+      uri,
+      ...(effectiveMeta ? { _meta: effectiveMeta } : {}),
+      // `!== undefined` for the same reason `listSkills` uses it: a cursor is
+      // opaque and `""` is a legal value, so truthiness would silently re-ask
+      // for page one.
+      ...(cursor !== undefined ? { cursor } : {}),
+    };
+    // Era-aware for the same reason `skills/list` is — the method is
+    // consumer-owned, so no SDK codec stamps or checks its envelope. The modern
+    // variant requires only `resultType`; see the schema for why it stops
+    // short of the caching attributes that `skills/list` requires.
+    const resultSchema = this.isModernEra()
+      ? ModernDirectoryReadResultSchema
+      : DirectoryReadResultSchema;
+    try {
+      return await this.invokeMcpClient(
+        () =>
+          this.client!.request(
+            { method: RESOURCES_DIRECTORY_READ_METHOD, params },
+            resultSchema,
+            this.getRequestOptions(this.progressTokenOf(metadata)),
+          ),
+        { method: RESOURCES_DIRECTORY_READ_METHOD },
+      );
+    } catch (err) {
+      // Same attribution `getSkill` does, and for the same reason: there is no
+      // managed store behind this method, so without this a rejected decode
+      // would render in the Protocol tab as a clean success while the caller
+      // showed an error. Only for a decode rejection — a request that never
+      // produced a response would otherwise stamp an earlier exchange.
+      if (isClientDecodeRejection(err)) {
+        this.markResponseRejected(
+          RESOURCES_DIRECTORY_READ_METHOD,
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+      throw err;
+    }
   }
 
   /**
