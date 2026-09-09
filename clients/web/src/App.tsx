@@ -10,6 +10,7 @@ import type {
 } from "@modelcontextprotocol/client";
 import { InspectorClient } from "@inspector/core/mcp/index.js";
 import { getServerType } from "@inspector/core/mcp/config.js";
+import { getSkillsExtension } from "@inspector/core/mcp/skills.js";
 import type { JsonValue } from "@inspector/core/mcp/index.js";
 
 import type { TypedEventGeneric } from "@inspector/core/mcp/typedEventTarget.js";
@@ -75,6 +76,7 @@ import type {
   ResourcesPanelProps,
   ServerListProps,
   ShellProps,
+  SkillsPanelProps,
   TasksPanelProps,
   ToolsPanelProps,
 } from "./components/views/InspectorView/types";
@@ -115,6 +117,7 @@ import { AuthRecoveryRequiredError } from "@inspector/core/auth/challenge.js";
 import { getAuthToken } from "./lib/authToken";
 import { messagesToLogEntries } from "./lib/protocolReplay";
 import { EMPTY_SETTINGS } from "./utils/serverSettingsDefaults";
+import { resolveOAuthClearIdentity } from "./utils/oauthClearKey";
 import {
   bodyDroppedToastId,
   CLIENT_CONFIG_LOAD_ERROR_NOTIFICATION_ID,
@@ -457,6 +460,11 @@ function App() {
     tasks,
     refreshTasks,
     clearCompletedTasks,
+    sessionNonce,
+    skills,
+    skillsPageCount,
+    skillsLoadError,
+    refreshSkills,
     subscriptions,
     subscriptionStreamState,
     messages,
@@ -827,6 +835,10 @@ function App() {
     onRefreshTools,
     onRefreshPrompts,
     onRefreshResources,
+    onRefreshSkills,
+    onReadSkillFile,
+    onGetSkill,
+    onReadResourceDirectory,
     onRefreshTasks,
     onTogglePaginatedLists,
     onLoadMoreTools,
@@ -850,6 +862,7 @@ function App() {
     activeToolCallTaskIdRef,
     clearCompletedTasks,
     refreshTasks,
+    refreshSkills,
     paginatedLists,
     paginatedListsOverride,
     toolsPagination,
@@ -1350,10 +1363,10 @@ function App() {
   const settingsModalIsStdio = settingsModalServerType === "stdio";
 
   /**
-   * Servers whose clear is in flight (#2144). Keyed by id, not a single flag:
-   * the callback explicitly supports clearing a server other than the active
-   * one, so a global lock would silently drop B's click while A's revocation
-   * was still out. See `runClear`.
+   * Servers whose clear is in flight (#2144). Keyed per server, not a single
+   * flag: the callback explicitly supports clearing a server other than the
+   * active one, so a global lock would silently drop B's click while A's
+   * revocation was still out. See `runClear`.
    */
   const clearOAuthInFlightRef = useRef<Set<string>>(new Set());
 
@@ -1375,11 +1388,27 @@ function App() {
       // — and with revocation taking up to five seconds, that means concurrent
       // RFC 7009 requests, concurrent store writes, and two contradictory
       // toasts. Keyed by server so a *different* server's clear is unaffected.
-      if (clearOAuthInFlightRef.current.has(server.id)) return;
-      clearOAuthInFlightRef.current.add(server.id);
+      //
+      // "Different server" is the OAuth storage key, not the catalog id
+      // (#2217, Copilot): two entries against one URL share one blob, one
+      // grant and one revocation, so an id-keyed guard lets exactly the race
+      // above through between them. And for anything touching the live
+      // session the key is the *client's*, not the entry's — an entry edited
+      // while connected reads a URL the session never authorized against, so
+      // an entry-keyed lock would name an operation nobody is performing.
+      // `resolveOAuthClearIdentity` is the same call the clear itself makes,
+      // so the two cannot disagree.
+      const { inFlightKey } = resolveOAuthClearIdentity({
+        server,
+        activeServerId,
+        activeClientConfig: inspectorClient?.getTransportConfig(),
+        activeEntryConfig: activeServer?.config,
+      });
+      if (clearOAuthInFlightRef.current.has(inFlightKey)) return;
+      clearOAuthInFlightRef.current.add(inFlightKey);
       clearServerOAuthAndDisconnect(server)
         .finally(() => {
-          clearOAuthInFlightRef.current.delete(server.id);
+          clearOAuthInFlightRef.current.delete(inFlightKey);
         })
         .catch((err: unknown) => {
           notifications.show({
@@ -1392,7 +1421,12 @@ function App() {
           });
         });
     },
-    [clearServerOAuthAndDisconnect],
+    [
+      clearServerOAuthAndDisconnect,
+      activeServerId,
+      inspectorClient,
+      activeServer,
+    ],
   );
 
   const handleClearConnectionOAuth = useCallback(() => {
@@ -1794,6 +1828,29 @@ function App() {
     onRefreshApps: onRefreshTools,
   };
 
+  const skillsPanelProps: SkillsPanelProps = {
+    // Server id AND per-connect nonce: the id alone would repeat on a
+    // reconnect to the same server, which is one of the crossings this key
+    // exists to prevent.
+    skillsSessionKey: `${activeServerId ?? ""}:${sessionNonce}`,
+    skills,
+    skillsPageCount,
+    skillsLoadError,
+    skillsUi: ui.skillsUi,
+    onSkillsUiChange: setUi.setSkillsUi,
+    onRefreshSkills,
+    onReadSkillFile,
+    onGetSkill,
+    // Passed only when the server declared `directoryRead`, which is what gates
+    // the screen's Directory section. SEP-2640 makes calling
+    // `resources/directory/read` against a server that did not declare it a
+    // MUST NOT, so withholding the callback expresses the rule in the type
+    // rather than trusting a boolean beside it to be honoured.
+    ...(getSkillsExtension(capabilities)?.directoryRead
+      ? { onReadResourceDirectory }
+      : {}),
+  };
+
   const tasksPanelProps: TasksPanelProps = {
     tasks,
     progressByTaskId,
@@ -1867,6 +1924,7 @@ function App() {
           prompts={promptsPanelProps}
           resources={resourcesPanelProps}
           apps={appsPanelProps}
+          skills={skillsPanelProps}
           tasks={tasksPanelProps}
           logs={logsPanelProps}
           protocol={protocolPanelProps}

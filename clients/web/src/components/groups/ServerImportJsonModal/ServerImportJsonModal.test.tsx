@@ -1,12 +1,14 @@
 import { describe, it, expect, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import {
+  act,
   renderWithMantine,
   screen,
   fireEvent,
   waitFor,
 } from "../../../test/renderWithMantine";
 import { setAceText } from "../../../test/aceEditor";
+import { VALIDATE_DEBOUNCE_MS } from "../../../hooks/useServerJsonImport";
 import { ServerImportJsonModal } from "./ServerImportJsonModal";
 
 const npmJson = JSON.stringify({
@@ -221,28 +223,41 @@ describe("ServerImportJsonModal", () => {
     expect(screen.getByRole("button", { name: "Add Server" })).toBeDisabled();
   });
 
+  // The window this exercises is the one between an edit and the debounce that
+  // re-disables the button, so the whole test runs on fake timers: the pending
+  // re-validation then cannot land unless this test advances it, and the window
+  // stops depending on how long the machine takes to get from the paste to the
+  // click. On real timers a loaded box could spend more than
+  // VALIDATE_DEBOUNCE_MS there, re-disable the button, and turn the click into a
+  // no-op that sets no submit error at all (#2250).
   it("guards against a live edit made before the debounce re-validates", async () => {
-    const onAddServer = vi.fn();
-    renderWithMantine(
-      <ServerImportJsonModal
-        opened
-        existingIds={[]}
-        onClose={vi.fn()}
-        onAddServer={onAddServer}
-      />,
-    );
-    await pasteJson(npmJson);
-    await waitFor(() =>
-      expect(screen.getByRole("button", { name: "Add Server" })).toBeEnabled(),
-    );
-    // Replace with invalid content; the button hasn't re-disabled yet (the
-    // debounce is still pending), so clicking exercises the submit-time guard.
-    await pasteJson("{not json");
-    fireEvent.click(screen.getByRole("button", { name: "Add Server" }));
-    expect(onAddServer).not.toHaveBeenCalled();
-    expect(
-      await screen.findByText(/Fix the validation errors/),
-    ).toBeInTheDocument();
+    vi.useFakeTimers();
+    try {
+      const onAddServer = vi.fn();
+      renderWithMantine(
+        <ServerImportJsonModal
+          opened
+          existingIds={[]}
+          onClose={vi.fn()}
+          onAddServer={onAddServer}
+        />,
+      );
+      await pasteJson(npmJson);
+      // Let the first validation land, so the button is enabled to click.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(VALIDATE_DEBOUNCE_MS);
+      });
+      expect(screen.getByRole("button", { name: "Add Server" })).toBeEnabled();
+      // Replace with invalid content and do *not* advance: the debounce stays
+      // pending, the button stays enabled, and clicking exercises the
+      // submit-time guard that re-parses the live text.
+      await pasteJson("{not json");
+      fireEvent.click(screen.getByRole("button", { name: "Add Server" }));
+      expect(onAddServer).not.toHaveBeenCalled();
+      expect(screen.getByText(/Fix the validation errors/)).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("loads server.json from a chosen file", async () => {

@@ -70,12 +70,27 @@ merely handled unevenly — and selecting the tool renders a **Schema
 portability** section (`SchemaFindingsList`) above the argument form, one block
 per finding with its path, the problem, and a concrete fix.
 
+That section **opens collapsed**, behind a count badge reading
+`N error(s), M warning(s)` (`#2205`). The findings address the *server author*
+but render in the panel the *caller* fills in, so on a server whose schemas are
+broadly unportable they used to put the same wall of text ahead of every tool's
+first input —
+`test-servers/configs/unportable-schemas-many-http.json` is 26 findings over
+four tools, none of which a caller needs in order to fill the form. Expanding it
+is one click, and the choice is **global rather than per tool**
+(`useSchemaFindingsExpanded`, stored as `inspector.schemaFindings.expanded`):
+this panel is reused across selections, so a per-tool disclosure would
+re-collapse on every click and reproduce the same scrolling. The badge stays
+visible either way, so nothing about a tool's standing is hidden by the closed
+state.
+
 Both read [`core/json/schemaLint.ts`](../../core/json/schemaLint.ts), which is
 also what backs the TUI's detail pane and the CLI's `--strict` report — so the
 three clients cannot disagree about whether a schema is portable. That module's
 header explains why it is a portability lint rather than a JSON Schema
 validator. `test-servers/configs/unportable-schemas-http.json` is a server that
-exercises every rule.
+exercises every rule, and `unportable-schemas-many-http.json` the same rules at
+volume.
 
 ## Non-component code: `src/lib` vs `src/utils`
 
@@ -93,10 +108,12 @@ Nothing _enforces_ the boundary — no path alias keys off it, and the coverage 
 
 ## Core tab automation contract
 
-The Tools, Resources, and Prompts screens each expose a `data-testid` plus a
+The Tools, Resources, Prompts and Skills screens each expose a `data-testid` plus a
 small set of `data-*` attributes, so a headless driver can `waitForSelector` on
 a deterministic signal rather than on visible copy. `scripts/smoke-web-tabs.mjs`
-drives all three against `test-servers/configs/web-tabs-http.json` ([#2148](https://github.com/modelcontextprotocol/inspector/issues/2148)).
+drives the first three of those four against `test-servers/configs/web-tabs-http.json`
+([#2148](https://github.com/modelcontextprotocol/inspector/issues/2148)); Skills
+publishes the same contract but is not smoked yet ([#2234](https://github.com/modelcontextprotocol/inspector/issues/2234)).
 Treat them as a public contract, for the same reason as the Apps ones below:
 
 | Attribute                            | Where              | Meaning                                                                                                                                                     |
@@ -114,6 +131,10 @@ Treat them as a public contract, for the same reason as the Apps ones below:
 | `data-prompt-count`                  | on `prompts-screen`| Entries from `prompts/list`.                                                                                                                                |
 | `data-get-status`                    | on `prompts-screen`| `idle` → `pending` → `ok` / `error` for the current `prompts/get`.                                                                                          |
 | `data-testid="prompt-messages"`      | messages panel     | The fetched prompt's **rendered** messages — the `prompts/get` counterpart of `resource-preview`, and asserted alongside `data-get-status` for the same reason. |
+| `data-testid="skills-screen"`        | Skills root        | The element carrying the two attributes below ([#2234](https://github.com/modelcontextprotocol/inspector/issues/2234)). Not driven by `smoke-web-tabs.mjs` yet — the attributes exist so it can be, and so a rename fails in the screen's unit test rather than later. |
+| `data-skill-count`                   | on `skills-screen` | Entries accumulated from `skills/list`.                                                                                                                     |
+| `data-skill-page-count`              | on `skills-screen` | Pages the last `skills/list` walk took — a **separate** fact from the count, and the one that shows pagination actually happened.                            |
+| `data-testid="skill-manifest"`       | detail pane        | The selected skill's resource manifest. Absent for a `resources: "dynamic"` skill, which has no manifest to render.                                          |
 
 Why attributes rather than text: a smoke that waited on a label fails the next
 time the label is reworded, which is noise rather than signal — and it fails as
@@ -372,6 +393,19 @@ Both the prod backend (`server/web-server-config.ts`) and the dev Vite server (`
 **The default is the IPv4 loopback _address_, deliberately not the name `localhost`** (#1951). `server.listen(port, host)` resolves a name through `dns.lookup` and binds the **single** address it gets back; since Node 17 the default result order is `verbatim`, so on a glibc Linux host — whose `/etc/hosts` maps `localhost` to both `127.0.0.1` and `::1` — that first address is `::1`. `HOST=localhost` there binds IPv6 loopback **only** and refuses every IPv4 client. On a desktop this is invisible (the browser resolves `localhost` the same way and lands on `::1` too); it breaks wherever the connection is made by something that pins `127.0.0.1` — a VS Code dev container's port forwarder, `ssh -L 6274:127.0.0.1:6274`, a container healthcheck. Binding the address takes the resolver out of the decision. Browsing to `http://localhost:PORT` still works, since browsers fall back across address families and the loopback allow-list covers all three forms. An explicit `HOST=localhost` is still honored as typed — the single-family bind is then your choice.
 
 The backend's `/api/*` routes also enforce an **origin allow-list** (`allowedOrigins`) as DNS-rebinding protection. When left to default on a loopback host, it expands to all three interchangeable loopback origin forms for the port — `http://localhost:PORT`, `http://127.0.0.1:PORT`, and `http://[::1]:PORT` — because `localhost` resolves to either IPv4 or IPv6 loopback and Node/Vite may bind the IPv6 form, so the browser can legitimately arrive at `http://[::1]:PORT`. Set `ALLOWED_ORIGINS` (comma-separated) to override; entries are canonicalized (`new URL(o).origin`), so a trailing slash / uppercase host / explicit `:80` still match. **Each entry must include the scheme** — `http://localhost:6274`, not `localhost:6274` (a scheme-less value is dropped with a warning). `ALLOWED_ORIGINS` **replaces** the default list (it does not merge), so **list every origin you'll browse from, including the loopback forms** you still want (`http://localhost:PORT`, `http://127.0.0.1:PORT`, `http://[::1]:PORT`) — otherwise local access stops working. A blank `ALLOWED_ORIGINS` does **not** disable the check — it falls back to the default (fail closed); there is no env knob to turn origin validation off.
+
+**Running the Inspector behind a `*.localhost` proxy.** A common local-dev shape gives each service a friendly name — `my-api.localhost`, `my-app.localhost`, `inspector.localhost` — instead of a set of ports. The Inspector works there, but the origin allow-list does not include those names by default, so set it explicitly:
+
+```sh
+ALLOWED_ORIGINS=http://inspector.localhost,http://localhost:6274,http://127.0.0.1:6274,http://[::1]:6274 \
+  mcp-inspector --web
+```
+
+⚠️ **List the loopback forms too, not just your proxy origin.** `ALLOWED_ORIGINS` **replaces** the default list rather than merging with it, so an entry of only `http://inspector.localhost` silently breaks browsing at `http://localhost:6274`. Add the port to the proxy origin if it is not on `:80`. The MCP Apps sandbox `frame-ancestors` is derived from the same list, so one entry covers the Apps tab as well.
+
+Without this you get a confusing failure rather than an obvious one: the page loads, because a same-origin `GET` carries no `Origin` header and so never reaches the guard, while **every state-changing request is rejected with a 403** — browsers attach `Origin` to anything that is not a `GET`/`HEAD`. Adding and connecting a server (`POST`) are the most visible, but saving settings, reordering and deleting a server (`PUT`/`DELETE`) fail the same way. The result reads as a connection problem rather than a configuration one.
+
+⚠️ **Only the browser resolves `*.localhost` for free.** Chrome and Firefox map those names to loopback internally per [RFC 6761 §6.3](https://www.rfc-editor.org/info/rfc6761/); the OS resolver on macOS does **not**, and Safari does not resolve them at all. That is fine for reaching the Inspector, but an **MCP server** URL on such a host is dialled by the Inspector's Node backend, so it still needs an `/etc/hosts` entry or dnsmasq. Note also that an MCP server on a `*.localhost` host **using OAuth** is currently refused by the SDK, which exempts only `localhost`, `127.0.0.1` and `::1` from its TLS requirement — see [typescript-sdk#2591](https://github.com/modelcontextprotocol/typescript-sdk/issues/2591).
 
 ### Hosting on a network
 

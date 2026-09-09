@@ -20,6 +20,20 @@
     "expect": "test-servers"
   },
   {
+    "prompt": "Write an integration test that exercises tool listing end to end.",
+    "chain": [
+      "testing",
+      "test-servers"
+    ]
+  },
+  {
+    "prompt": "Add end-to-end coverage for the tool-list pagination path.",
+    "chain": [
+      "testing",
+      "test-servers"
+    ]
+  },
+  {
     "prompt": "Sort this list alphabetically: banana, apple, cherry.",
     "expect": null
   },

@@ -149,6 +149,13 @@ export default defineConfig({
     "ajv",
     "atomically",
     "zod",
+    // Newly on `core/`'s runtime import graph as of #2248:
+    // `core/mcp/skillFile.ts` parses a served SKILL.md's YAML frontmatter to
+    // check it against the entry the listing advertised (SEP-2640). Already a
+    // root `dependency` — it was reached from `test-servers/src` — so this
+    // adds no package, but a root-declared dependency `core/` imports must be
+    // named in all three `external` lists or tsup inlines it here.
+    "yaml",
     // Reached through `core/` but not through this client's own code today.
     // AGENTS.md requires every root-declared package `core/` imports at runtime
     // in ALL three lists regardless, because which client reaches one is a

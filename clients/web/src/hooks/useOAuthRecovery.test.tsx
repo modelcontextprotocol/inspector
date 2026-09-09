@@ -9,7 +9,8 @@ import type {
 import type { AuthChallenge } from "@inspector/core/auth/challenge.js";
 import { AuthRecoveryRequiredError } from "@inspector/core/auth/challenge.js";
 import { EmaClientNotConfiguredError } from "@inspector/core/auth/ema/clientConfigError.js";
-import { useLayoutEffect, useRef } from "react";
+import { InsecureTokenEndpointError } from "@modelcontextprotocol/client";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import { renderWithMantine, act, waitFor } from "../test/renderWithMantine";
 import {
   OAUTH_RESUME_KEY,
@@ -112,6 +113,12 @@ const entry = (
   ...over,
 });
 
+/** A catalog entry pointing at a different URL, so a different OAuth blob. */
+const otherUrlEntry = (id: string): ServerEntry =>
+  entry(id, {
+    config: { type: "streamable-http", url: "https://other.example/mcp" },
+  });
+
 const challenge = (
   reason: AuthChallenge["reason"] = "unauthorized",
 ): AuthChallenge => ({ reason });
@@ -151,6 +158,13 @@ function fakeClient(over: Partial<Record<string, unknown>> = {}) {
     handleAuthChallenge: vi.fn().mockResolvedValue({ kind: "failed" }),
     disconnect: vi.fn().mockResolvedValue(undefined),
     resumeAfterOAuth: vi.fn().mockResolvedValue(undefined),
+    // #2217: the clear path resolves the session's OAuth key from the config
+    // the client was built with, since a catalog entry can be edited while
+    // connected without rebuilding it. Defaults to the shared fixture URL.
+    getTransportConfig: vi.fn(() => ({
+      type: "streamable-http" as const,
+      url: "https://mcp.example/mcp",
+    })),
     ...over,
   });
 }
@@ -169,9 +183,22 @@ interface HarnessProps {
   noFetchLog?: boolean;
 }
 
+/** One committed render's view of the two server-scoped pending slots. */
+interface PendingCommit {
+  stepUpServerId: string | undefined;
+  reauthServerId: string | undefined;
+}
+
 interface Harness {
   api: () => OAuthRecovery;
   rerender: (next: HarnessProps) => void;
+  /**
+   * Every committed render's pending slots, in order. Recorded from an effect
+   * with no dependency array, so one entry lands per commit — which is what
+   * lets a test assert that a reset was visible in the *first* frame after a
+   * server switch rather than merely eventually (#2223).
+   */
+  commits: PendingCommit[];
   spies: {
     setActiveServerId: ReturnType<typeof vi.fn>;
     setFailedServerId: ReturnType<typeof vi.fn>;
@@ -183,6 +210,7 @@ interface Harness {
 
 function harness(initial: HarnessProps = {}): Harness {
   let latest: OAuthRecovery | undefined;
+  const commits: PendingCommit[] = [];
   const spies = {
     setActiveServerId: vi.fn(),
     setFailedServerId: vi.fn(),
@@ -236,6 +264,15 @@ function harness(initial: HarnessProps = {}): Harness {
       clearResultPanels: spies.clearResultPanels,
       setSourceScopedError: spies.setSourceScopedError,
     });
+    // No dependency array: one entry per commit. `pendingReauth` is not part
+    // of the hook's public surface, so it is read back through the session ref
+    // the hook mirrors it into.
+    useEffect(() => {
+      commits.push({
+        stepUpServerId: latest?.pendingStepUp?.serverId,
+        reauthServerId: sessionRef.current.pendingReauth?.serverId,
+      });
+    });
     return null;
   }
 
@@ -246,6 +283,7 @@ function harness(initial: HarnessProps = {}): Harness {
       return latest;
     },
     rerender: (next) => rerender(<Probe p={next} />),
+    commits,
     spies,
   };
 }
@@ -322,6 +360,94 @@ describe("useOAuthRecovery", () => {
       expect(client.handleAuthChallenge).not.toHaveBeenCalled();
     });
 
+    it("clears both slots in the first committed frame after a server switch", async () => {
+      visibility.visible = false;
+      const client = fakeClient();
+      const servers = [entry("a"), entry("b")];
+      const h = harness({ servers, activeServerId: "a", client });
+
+      await act(async () => {
+        await h
+          .api()
+          .handleCommandScopedAuthRecovery(
+            new AuthRecoveryRequiredError(
+              AUTH_URL,
+              challenge("insufficient_scope"),
+            ),
+            { serverId: "a", source: "tool" },
+          );
+      });
+      await act(async () => {
+        client.emit("authChallengeInteractive", {
+          challenge: challenge(),
+          authorizationUrl: AUTH_URL,
+        });
+      });
+      await waitFor(() => {
+        const last = h.commits[h.commits.length - 1];
+        expect(last?.stepUpServerId).toBe("a");
+        expect(last?.reauthServerId).toBe("a");
+      });
+
+      const before = h.commits.length;
+      await act(async () => {
+        h.rerender({ servers, activeServerId: "b", client });
+      });
+
+      // The point of the test: the *first* frame after the switch already
+      // shows both slots empty. Resetting them in an effect instead would
+      // commit one frame still carrying server "a"'s step-up prompt and
+      // deferred re-auth, and would pass a `waitFor` assertion just the same.
+      expect(h.commits.length).toBeGreaterThan(before);
+      expect(h.commits[before]).toEqual({
+        stepUpServerId: undefined,
+        reauthServerId: undefined,
+      });
+    });
+
+    it("does not carry the left server's retry into a later ambient step-up", async () => {
+      const client = fakeClient({
+        handleAuthChallenge: vi.fn().mockResolvedValue({ kind: "satisfied" }),
+      });
+      const servers = [entry("a", {}, true), entry("b", {}, true)];
+      const h = harness({ servers, activeServerId: "a", client });
+      const retryA = vi.fn().mockResolvedValue(undefined);
+
+      await act(async () => {
+        await h
+          .api()
+          .handleCommandScopedAuthRecovery(
+            new AuthRecoveryRequiredError(
+              AUTH_URL,
+              challenge("insufficient_scope"),
+            ),
+            { serverId: "a", source: "tool", retryOperation: retryA },
+          );
+      });
+      expect(h.api().pendingStepUp?.serverId).toBe("a");
+
+      await act(async () => {
+        h.rerender({ servers, activeServerId: "b", client });
+      });
+      expect(h.api().pendingStepUp).toBeNull();
+
+      // Server B raises its own step-up, which carries no retry of its own.
+      await act(async () => {
+        client.emit("authChallengeInteractive", {
+          challenge: challenge("insufficient_scope"),
+          authorizationUrl: AUTH_URL,
+        });
+      });
+      await waitFor(() => expect(h.api().pendingStepUp?.serverId).toBe("b"));
+
+      await act(async () => {
+        await h.api().handleStepUpAuthorize();
+      });
+      // Authorizing B must not run the command A was left mid-way through.
+      expect(retryA).not.toHaveBeenCalled();
+      expect(toastTitles()).toContain("Permissions updated");
+    });
+
     it("refuses a second step-up while one is open", async () => {
       const client = fakeClient();
       const h = harness({ servers: [entry("a")], activeServerId: "a", client });
@@ -391,6 +517,87 @@ describe("useOAuthRecovery", () => {
       const h = harness({ servers: [entry("a")], activeServerId: "a", client });
       await waitFor(() => expect(client.getOAuthState).toHaveBeenCalled());
       expect(h.api().connectionInfoOAuth).toBeUndefined();
+    });
+
+    it("clears already-loaded details when a refresh read rejects", async () => {
+      let read: () => Promise<unknown> = () =>
+        Promise.resolve({ tokens: { access_token: "t" } });
+      const client = fakeClient({ getOAuthState: vi.fn(() => read()) });
+      const h = harness({ servers: [entry("a")], activeServerId: "a", client });
+      await waitFor(() => expect(h.api().connectionInfoOAuth).toBeDefined());
+
+      // The panel reports the *current* state, so a failed read must clear the
+      // details it already holds rather than leave a stale answer on screen.
+      read = () => Promise.reject(new Error("backend down"));
+      await act(async () => {
+        client.emit("oauthComplete", {});
+      });
+      await waitFor(() => expect(h.api().connectionInfoOAuth).toBeUndefined());
+    });
+
+    it("ignores an earlier read that rejects after a newer one succeeded", async () => {
+      let failFirst: (reason: unknown) => void = () => {};
+      let call = 0;
+      const client = fakeClient({
+        getOAuthState: vi.fn((): Promise<unknown> => {
+          call += 1;
+          if (call === 1) {
+            return new Promise((_resolve, reject) => {
+              failFirst = reject;
+            });
+          }
+          return Promise.resolve({ tokens: { access_token: "t" } });
+        }),
+      });
+      const h = harness({ servers: [entry("a")], activeServerId: "a", client });
+      await waitFor(() =>
+        expect(client.getOAuthState).toHaveBeenCalledTimes(1),
+      );
+
+      await act(async () => {
+        client.emit("oauthComplete", {});
+      });
+      await waitFor(() => expect(h.api().connectionInfoOAuth).toBeDefined());
+
+      // The stale read settles last. Without the sequence guard its catch
+      // would clear the newer read's result.
+      await act(async () => {
+        failFirst(new Error("backend down"));
+      });
+      expect(h.api().connectionInfoOAuth).toBeDefined();
+    });
+
+    it("drops a rejected read that lands after the client was replaced", async () => {
+      let failStale: (reason: unknown) => void = () => {};
+      const stale = fakeClient({
+        getOAuthState: vi.fn(
+          () =>
+            new Promise((_resolve, reject) => {
+              failStale = reject;
+            }),
+        ),
+      });
+      const props: HarnessProps = {
+        servers: [entry("a")],
+        activeServerId: "a",
+        client: stale,
+      };
+      const h = harness(props);
+      await waitFor(() => expect(stale.getOAuthState).toHaveBeenCalled());
+
+      // Reconnect. The new client's details are what the panel must keep.
+      const fresh = fakeClient({
+        getOAuthState: vi
+          .fn()
+          .mockResolvedValue({ tokens: { access_token: "t" } }),
+      });
+      h.rerender({ ...props, client: fresh });
+      await waitFor(() => expect(h.api().connectionInfoOAuth).toBeDefined());
+
+      await act(async () => {
+        failStale(new Error("backend down"));
+      });
+      expect(h.api().connectionInfoOAuth).toBeDefined();
     });
 
     it("drops a state read that lands after the session ended", async () => {
@@ -773,6 +980,137 @@ describe("useOAuthRecovery", () => {
       });
     });
 
+    it("claims an insecure token endpoint on the command path instead of rethrowing", async () => {
+      // The terminal token-endpoint refusal (#2280). A mid-session silent refresh rejects here rather than
+      // as an AuthRecoveryRequiredError, so before this it was rethrown into
+      // the generic reporting below.
+      const client = fakeClient();
+      const h = harness({ servers: [entry("a")], activeServerId: "a", client });
+      await act(async () => {
+        await expect(
+          h
+            .api()
+            .runWithCommandAuthRecovery(
+              () =>
+                Promise.reject(
+                  new InsecureTokenEndpointError(
+                    "http://localhost.:8091/token",
+                  ),
+                ),
+              "tool",
+            ),
+        ).resolves.toBeUndefined();
+      });
+      expect(toastTitles()).toContain("Token endpoint is not secure");
+    });
+
+    it("does not clear a banner belonging to a different server", async () => {
+      // The paths are asynchronous: server A can reject long after the user
+      // switched away and server B raised its own banner. An unconditional
+      // clear would erase B's, which is still valid and still actionable.
+      const client = fakeClient();
+      const h = harness({
+        servers: [entry("a"), entry("b")],
+        activeServerId: "b",
+        client,
+      });
+      await act(async () => {
+        client.emit("oauthError", { error: new Error("session expired") });
+      });
+      await waitFor(() => expect(h.api().reAuthBanner?.serverId).toBe("b"));
+
+      // The user switches to "a"; a stale continuation for it now rejects.
+      h.rerender({
+        servers: [entry("a"), entry("b")],
+        activeServerId: "a",
+        client,
+      });
+      await act(async () => {
+        await h
+          .api()
+          .runWithCommandAuthRecovery(
+            () =>
+              Promise.reject(
+                new InsecureTokenEndpointError("http://localhost.:8091/token"),
+              ),
+            "tool",
+          );
+      });
+
+      expect(toastTitles()).toContain("Token endpoint is not secure");
+      // B's banner survives — it is still valid and still actionable.
+      expect(h.api().reAuthBanner?.serverId).toBe("b");
+    });
+
+    it("clears a stale banner when a command-path failure is terminal", async () => {
+      // Every terminal arm goes through one wrapper for this reason: a banner
+      // left by an earlier failure carries a Re-authenticate button just as
+      // dead as the one this arm declines to offer, and the user cannot tell
+      // which failure it belongs to.
+      const client = fakeClient();
+      const h = harness({ servers: [entry("a")], activeServerId: "a", client });
+      await act(async () => {
+        client.emit("oauthError", { error: new Error("session expired") });
+      });
+      await waitFor(() => expect(h.api().reAuthBanner?.serverId).toBe("a"));
+
+      await act(async () => {
+        await h
+          .api()
+          .runWithCommandAuthRecovery(
+            () =>
+              Promise.reject(
+                new InsecureTokenEndpointError("http://localhost.:8091/token"),
+              ),
+            "tool",
+          );
+      });
+      expect(toastTitles()).toContain("Token endpoint is not secure");
+      expect(h.api().reAuthBanner).toBeNull();
+    });
+
+    it("shows the terminal notice instead of the generic title in the background form", async () => {
+      // The `errorTitle` call sites would otherwise render the raw SDK text
+      // under a generic heading.
+      const client = fakeClient();
+      const h = harness({ servers: [entry("a")], activeServerId: "a", client });
+      await act(async () => {
+        h.api().runCommandInBackground(
+          () =>
+            Promise.reject(
+              new InsecureTokenEndpointError("http://localhost.:8091/token"),
+            ),
+          "ambient",
+          "Refresh failed",
+        );
+        await Promise.resolve();
+      });
+      await waitFor(() =>
+        expect(toastTitles()).toContain("Token endpoint is not secure"),
+      );
+      expect(toastTitles()).not.toContain("Refresh failed");
+    });
+
+    it("still reports it at a call site whose panel owns reporting", async () => {
+      // The worse half of the old behavior: with no `errorTitle` the rejection
+      // was swallowed outright and the command just appeared to do nothing.
+      const client = fakeClient();
+      const h = harness({ servers: [entry("a")], activeServerId: "a", client });
+      await act(async () => {
+        h.api().runCommandInBackground(
+          () =>
+            Promise.reject(
+              new InsecureTokenEndpointError("http://localhost.:8091/token"),
+            ),
+          "ambient",
+        );
+        await Promise.resolve();
+      });
+      await waitFor(() =>
+        expect(toastTitles()).toContain("Token endpoint is not secure"),
+      );
+    });
+
     it("toasts a background failure only when given a title", async () => {
       const client = fakeClient();
       const h = harness({ servers: [entry("a")], activeServerId: "a", client });
@@ -975,6 +1313,28 @@ describe("useOAuthRecovery", () => {
       await waitFor(() => expect(h.api().reAuthBanner?.serverId).toBe("a"));
     });
 
+    it("clears a banner already on screen when a later oauthError is terminal", async () => {
+      // Otherwise the stale Re-authenticate button sits beside the terminal
+      // notice — the affordance this change removes, sourced from an earlier
+      // failure rather than this one.
+      const client = fakeClient();
+      const h = harness({ servers: [entry("a")], activeServerId: "a", client });
+      await act(async () => {
+        client.emit("oauthError", { error: new Error("token endpoint 500") });
+      });
+      await waitFor(() => expect(h.api().reAuthBanner?.serverId).toBe("a"));
+
+      await act(async () => {
+        client.emit("oauthError", {
+          error: new InsecureTokenEndpointError("http://localhost.:8091/token"),
+        });
+      });
+      await waitFor(() =>
+        expect(toastTitles()).toContain("Token endpoint is not secure"),
+      );
+      expect(h.api().reAuthBanner).toBeNull();
+    });
+
     it("ignores an oauthError with no active server", async () => {
       const client = fakeClient();
       const h = harness({ servers: [], activeServerId: undefined, client });
@@ -1136,6 +1496,41 @@ describe("useOAuthRecovery", () => {
       await waitFor(() =>
         expect(client.handleAuthChallenge).toHaveBeenCalledTimes(2),
       );
+    });
+
+    it("does not re-arm a deferred recovery whose failure is terminal", async () => {
+      // The restore's premise is that the recovery is still owed and a later
+      // trigger should retry it. For a refusal that can only fail the same way,
+      // re-arming means every future tab focus replays it under a toast
+      // promising a retry that cannot succeed — an unbounded loop on a terminal
+      // error (#2280).
+      const client = fakeClient({
+        handleAuthChallenge: vi
+          .fn()
+          .mockRejectedValue(
+            new InsecureTokenEndpointError("http://localhost.:8091/token"),
+          ),
+      });
+      const h = harness({ servers: [entry("a")], activeServerId: "a", client });
+      await defer(client, h);
+      await act(async () => {
+        becomeVisible();
+      });
+
+      await waitFor(() =>
+        expect(toastTitles()).toContain("Token endpoint is not secure"),
+      );
+      // Neither the retry promise nor the slot that would make good on it.
+      // `pendingReauth` is not on the hook's public surface, so it is read back
+      // through the commit probe, as the step-up tests above do.
+      expect(toastTitles()).not.toContain("Could not continue authorization");
+      expect(h.commits[h.commits.length - 1]?.reauthServerId).toBeUndefined();
+
+      // The load-bearing assertion: coming back to the tab does not replay it.
+      await act(async () => {
+        becomeVisible();
+      });
+      expect(client.handleAuthChallenge).toHaveBeenCalledTimes(1);
     });
 
     it("does not put a stale challenge back over a newer deferral", async () => {
@@ -1480,6 +1875,45 @@ describe("useOAuthRecovery", () => {
       expect(h.spies.setFailedServerId).not.toHaveBeenCalled();
     });
 
+    it("reports an insecure token endpoint terminally, with no banner and no red card", async () => {
+      // The terminal token-endpoint refusal (#2280). The three assertions are the whole point of the arm's
+      // position: the banner would carry a Re-authenticate button that cannot
+      // work, and flagging the card would present a configuration error as a
+      // failed connect attempt.
+      snapshot();
+      const client = fakeClient({
+        resumeAfterOAuth: vi
+          .fn()
+          .mockRejectedValue(
+            new InsecureTokenEndpointError("http://localhost.:8091/token"),
+          ),
+      });
+      const h = callbackHarness(`?code=abc&state=${AUTH_ID}`, {}, client);
+      await waitFor(() =>
+        expect(toastTitles()).toContain("Token endpoint is not secure"),
+      );
+      expect(h.api().reAuthBanner).toBeNull();
+      expect(h.spies.setFailedServerId).not.toHaveBeenCalled();
+    });
+
+    it("finds an insecure token endpoint wrapped under `cause` on the callback leg", async () => {
+      snapshot();
+      const client = fakeClient({
+        resumeAfterOAuth: vi.fn().mockRejectedValue(
+          new Error("resume failed", {
+            cause: new InsecureTokenEndpointError(
+              "http://localhost.:8091/token",
+            ),
+          }),
+        ),
+      });
+      const h = callbackHarness(`?code=abc&state=${AUTH_ID}`, {}, client);
+      await waitFor(() =>
+        expect(toastTitles()).toContain("Token endpoint is not secure"),
+      );
+      expect(h.api().reAuthBanner).toBeNull();
+    });
+
     it("offers one-click recovery when the authorization state was lost", async () => {
       snapshot();
       const client = fakeClient({
@@ -1608,12 +2042,103 @@ describe("useOAuthRecovery", () => {
       const client = fakeClient();
       const h = harness({ servers: [entry("a")], activeServerId: "a", client });
       await act(async () => {
-        await h.api().clearServerOAuthAndDisconnect(entry("b"));
+        // A genuinely unrelated entry: its own URL, so its own OAuth blob.
+        await h.api().clearServerOAuthAndDisconnect(otherUrlEntry("b"));
       });
       expect(client.disconnect).not.toHaveBeenCalled();
       expect(
         toastWith('Stored OAuth state was removed for "Server b"'),
       ).toBeDefined();
+    });
+
+    // #2217 — OAuth state is keyed by URL, so two catalog entries against the
+    // same URL share one blob. Clearing the inactive one destroys the active
+    // session's tokens (and revokes its grant), which an id-only check cannot
+    // see; the session was left connected on dead credentials with no notice.
+    it("disconnects the active session when clearing an entry that shares its URL", async () => {
+      const client = fakeClient();
+      const h = harness({
+        servers: [entry("a"), entry("b")],
+        activeServerId: "a",
+        client,
+      });
+      await act(async () => {
+        await h.api().clearServerOAuthAndDisconnect(entry("b"));
+      });
+      expect(client.disconnect).toHaveBeenCalled();
+      // The live client owns the clear, so in-memory flow state goes too.
+      expect(clearServerOAuthStateMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          isActiveConnection: true,
+          inspectorClient: client,
+        }),
+      );
+      expect(
+        toastWith(
+          "authorizes against the same URL, so its stored tokens went too",
+        ),
+      ).toBeDefined();
+    });
+
+    // Copilot on this PR: a card can be edited while connected and the catalog
+    // write does not rebuild the client, so the active *entry* can read a URL
+    // the live session never authorized against. Reading the entry would miss
+    // an entry still sitting on the client's real URL.
+    it("compares against the live client's URL, not the edited catalog entry's", async () => {
+      const client = fakeClient({
+        // Still authorized against the shared URL...
+        getTransportConfig: vi.fn(() => ({
+          type: "streamable-http" as const,
+          url: "https://mcp.example/mcp",
+        })),
+      });
+      const h = harness({
+        // ...while A's catalog entry has since been edited elsewhere.
+        servers: [otherUrlEntry("a"), entry("b")],
+        activeServerId: "a",
+        client,
+      });
+      await act(async () => {
+        await h.api().clearServerOAuthAndDisconnect(entry("b"));
+      });
+      expect(client.disconnect).toHaveBeenCalled();
+    });
+
+    // The same-URL branch still snapshots the session it acted on, so a switch
+    // during the in-flight clear must not drag the cleanup onto the new one.
+    it("does not disconnect a session switched to during a shared-URL clear", async () => {
+      let settle: (r: { cleared: boolean }) => void = () => {};
+      clearServerOAuthStateMock.mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            settle = resolve as typeof settle;
+          }),
+      );
+      const client = fakeClient();
+      const h = harness({
+        servers: [entry("a"), entry("b"), otherUrlEntry("c")],
+        activeServerId: "a",
+        client,
+      });
+
+      let done: Promise<void>;
+      await act(async () => {
+        done = h.api().clearServerOAuthAndDisconnect(entry("b"));
+        await Promise.resolve();
+      });
+
+      h.rerender({
+        servers: [entry("a"), entry("b"), otherUrlEntry("c")],
+        activeServerId: "c",
+        client,
+      });
+
+      await act(async () => {
+        settle({ cleared: true });
+        await done;
+      });
+
+      expect(client.disconnect).not.toHaveBeenCalled();
     });
 
     // #2144 — this is the web client's production wiring for revocation.

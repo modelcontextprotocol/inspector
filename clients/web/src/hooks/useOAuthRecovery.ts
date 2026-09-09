@@ -1,3 +1,4 @@
+import type { Dispatch, SetStateAction } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { RefObject } from "react";
 import { notifications } from "@mantine/notifications";
@@ -30,11 +31,13 @@ import {
   emaStepUpSuccessMessage,
 } from "@inspector/core/auth/oauthUx.js";
 import { isEmaClientNotConfiguredError } from "@inspector/core/auth/ema/clientConfigError.js";
+import { reportTerminalInsecureTokenEndpoint as reportTerminalInsecureTokenEndpointNotice } from "../lib/insecureTokenEndpointNotice";
 import type { OAuthDetails } from "../components/groups/ConnectionInfoContent/ConnectionInfoContent";
 import { oauthDetailsFromConnectionState } from "../components/groups/ConnectionInfoContent/oauthDetailsFromConnectionState";
 import { getWebRemoteOAuthStorage } from "../lib/remoteOAuthStorage";
 import { getWebProxiedFetch } from "../lib/webProxiedFetch";
 import { clearServerOAuthState } from "../lib/clearServerOAuthState";
+import { resolveOAuthClearIdentity } from "../utils/oauthClearKey";
 import { getAuthToken } from "../lib/authToken";
 import {
   isBrowserTabVisible,
@@ -54,6 +57,7 @@ import {
 import { OAUTH_CALLBACK_PATH } from "../utils/oauthFlow";
 import { INSPECTOR_SERVERS_TAB } from "../utils/inspectorTabs";
 import type { PendingReauth } from "../utils/pendingReauth";
+import { useValueChange } from "./useValueChange";
 import {
   authRecoveryRestoredMessage,
   authRecoveryAbandonedMessage,
@@ -208,7 +212,13 @@ export interface OAuthRecovery {
   onBeforeOAuthRedirect: (authorizationUrl: URL) => void;
   prepareOAuthRedirect: (args: PrepareOAuthRedirectArgs) => void;
   reAuthBanner: ReAuthBannerState | null;
-  setReAuthBanner: (next: ReAuthBannerState | null) => void;
+  /**
+   * The raw state setter, functional form included. Consumers need the updater
+   * to clear a banner **only when it belongs to the server they are reporting
+   * on** — these paths are asynchronous, so a late continuation for server A
+   * must not erase a banner server B raised in the meantime.
+   */
+  setReAuthBanner: Dispatch<SetStateAction<ReAuthBannerState | null>>;
   /**
    * Drops the banner and both pending-OAuth slots. Called from the session
    * reset, which runs on every disconnect: an unanswered step-up prompt or a
@@ -318,19 +328,52 @@ export function useOAuthRecovery({
     sessionRef.current.pendingReauth = pendingReauth;
   });
 
-  useEffect(() => {
-    const pending = sessionRef.current.pendingReauth;
-    if (pending && pending.serverId !== activeServerId) {
-      setPendingReauth(null);
-    }
-    const stepUp = sessionRef.current.pendingStepUp;
-    if (stepUp && stepUp.serverId !== activeServerId) {
-      setPendingStepUp(null);
-    }
-  }, [sessionRef, activeServerId]);
+  // Both slots are server-scoped, so switching servers has to clear whichever
+  // one belongs to the server we just left. Adjusted **during render** rather
+  // than in an effect: an effect only runs after the commit, so the frame that
+  // shows the new server would still paint the previous server's re-auth
+  // banner or step-up prompt — a modal-grade authorization affordance attached
+  // to the wrong server (#2223). `activeServerId` is a primitive, so it is
+  // referentially stable across renders that mean "no change", which is what
+  // `useValueChange`'s `Object.is` comparison requires. The previous value is
+  // read from the updater argument rather than from `sessionRef.current`,
+  // keeping the callback pure — a render can be replayed or abandoned, so it
+  // must not depend on external mutable state.
+  useValueChange(activeServerId, () => {
+    setPendingReauth((current) =>
+      current && current.serverId !== activeServerId ? null : current,
+    );
+    setPendingStepUp((current) =>
+      current && current.serverId !== activeServerId ? null : current,
+    );
+  });
 
+  /**
+   * Opens the step-up prompt, or refuses when one is already up.
+   *
+   * The retry is installed here rather than by the caller because it belongs
+   * to the prompt and must be written in the same synchronous step that opens
+   * it (#2237). Two things follow, and both are load-bearing:
+   *
+   * - A **refused** prompt installs nothing, so a command that was just told
+   *   it cannot start does not replace the open prompt's operation (#2165).
+   * - An **ambient** prompt passes `null` and so *overwrites* whatever the
+   *   previous prompt left in the ref. Nothing else has to clear it: the paths
+   *   that drop the slot as a consequence of something else — the
+   *   server-switch reset, `resetOAuthRecoveryState` on disconnect — can leave
+   *   a stale closure behind, because the only thing that reads it is
+   *   `handleStepUpAuthorize`, which needs a prompt, and every prompt comes
+   *   through here. Clearing it from an effect instead would race: an async
+   *   continuation can open a prompt and install its retry before a previous
+   *   commit's passive effect flushes, and that effect's stale
+   *   `pendingStepUp === null` snapshot would then delete the new prompt's
+   *   retry (Copilot on #2237).
+   */
   const trySetPendingStepUp = useCallback(
-    (next: PendingStepUp): boolean => {
+    (
+      next: PendingStepUp,
+      retryOperation: (() => Promise<unknown>) | null,
+    ): boolean => {
       if (sessionRef.current.pendingStepUp !== null) {
         notifications.show({
           title: "Step-up authorization in progress",
@@ -342,9 +385,37 @@ export function useOAuthRecovery({
         return false;
       }
       setPendingStepUp(next);
+      pendingStepUpRetryRef.current = retryOperation;
       return true;
     },
     [sessionRef],
+  );
+
+  /**
+   * Report a terminal token-endpoint refusal (#2280) and clear any re-auth banner.
+   *
+   * Every arm goes through this rather than calling the notice helper directly.
+   * The banner clear is not incidental: a banner left from an *earlier* failure
+   * carries a Re-authenticate button that is just as dead as the one this
+   * change removes, and the user cannot tell which failure it belongs to. Round
+   * 4 fixed that for one arm by hand; wrapping it is what stops the next arm
+   * from omitting it.
+   *
+   * Returns whether the error was claimed, so callers keep their fall-through.
+   */
+  const reportTerminalInsecureTokenEndpoint = useCallback(
+    (
+      err: unknown,
+      serverId: string | undefined,
+      serverName?: string,
+    ): boolean =>
+      reportTerminalInsecureTokenEndpointNotice({
+        err,
+        serverId,
+        serverName,
+        setReAuthBanner,
+      }),
+    [setReAuthBanner],
   );
 
   const showReAuthBanner = useCallback(
@@ -354,6 +425,14 @@ export function useOAuthRecovery({
       options?: { reason?: AuthChallengeReason },
     ) => {
       const server = sessionRef.current.servers.find((s) => s.id === serverId);
+      // The terminal token-endpoint refusal (#2280). The SDK rethrows `InsecureTokenEndpointError` instead
+      // of retrying, so the banner's "Re-authenticate" could only fail the same
+      // way. Claimed here, at the single funnel every re-auth banner goes
+      // through, rather than at each of its call sites — a new caller then gets
+      // the right behavior by default instead of by remembering.
+      if (reportTerminalInsecureTokenEndpoint(detail, serverId, server?.name)) {
+        return;
+      }
       const message = reAuthBannerMessage({
         serverName: server?.name,
         detail:
@@ -374,7 +453,7 @@ export function useOAuthRecovery({
         message,
       });
     },
-    [sessionRef],
+    [sessionRef, reportTerminalInsecureTokenEndpoint],
   );
 
   /** Clears pending OAuth resume state — explicit user disconnect only. */
@@ -405,13 +484,31 @@ export function useOAuthRecovery({
     }
     let cancelled = false;
 
+    // Reads are concurrent — an `oauthComplete` can start a second one while
+    // the first is still in flight — and nothing makes them settle in order.
+    // Only the newest read may write, so a slow earlier one cannot overwrite
+    // (or, on rejection, clear) a newer result.
+    let latest = 0;
+
     const refresh = (): void => {
-      void inspectorClient.getOAuthState().then((state) => {
-        if (cancelled) return;
-        setConnectionInfoOAuthWhenConnected(
-          state ? oauthDetailsFromConnectionState(state) : undefined,
-        );
-      });
+      const seq = ++latest;
+      // void: a synchronous useEffect body cannot await. The chain is
+      // terminated below, so the rejection is handled rather than discarded.
+      void inspectorClient
+        .getOAuthState()
+        .then((state) => {
+          if (cancelled || seq !== latest) return;
+          setConnectionInfoOAuthWhenConnected(
+            state ? oauthDetailsFromConnectionState(state) : undefined,
+          );
+        })
+        .catch(() => {
+          // The read failed (backend down, 401 on the API token, malformed
+          // stored state). Clear rather than keep the last successful read —
+          // a stale answer is indistinguishable from a fresh one in the panel.
+          if (cancelled || seq !== latest) return;
+          setConnectionInfoOAuthWhenConnected(undefined);
+        });
     };
 
     const onAmbientAuthChallenge = (): void => {
@@ -619,13 +716,18 @@ export function useOAuthRecovery({
     }) => {
       const server = sessionRef.current.servers.find((s) => s.id === serverId);
       if (isStepUpConfirmation(challenge, server)) {
-        trySetPendingStepUp({
-          challenge,
-          authorizationUrl,
-          serverId,
-          source,
-          enterpriseManaged: isEmaStepUp(challenge, server),
-        });
+        // Ambient: nothing to retry, and passing `null` is what evicts a
+        // previous prompt's closure.
+        trySetPendingStepUp(
+          {
+            challenge,
+            authorizationUrl,
+            serverId,
+            source,
+            enterpriseManaged: isEmaStepUp(challenge, server),
+          },
+          null,
+        );
         return;
       }
       prepareOAuthRedirect({
@@ -690,23 +792,16 @@ export function useOAuthRecovery({
         ) {
           return true;
         }
-        // The retry belongs to the prompt, so it is installed only once the
-        // prompt is actually open (#2165). `trySetPendingStepUp` REFUSES a
-        // second prompt while one is already up — writing the ref first meant
-        // the refused command's operation replaced the open prompt's, and
-        // authorizing that prompt then ran the command the user was just told
-        // could not start.
-        if (
-          trySetPendingStepUp({
+        trySetPendingStepUp(
+          {
             challenge: error.authChallenge,
             authorizationUrl: error.authorizationUrl,
             serverId: options.serverId,
             source: options.source,
             enterpriseManaged: isEmaStepUp(error.authChallenge, server),
-          })
-        ) {
-          pendingStepUpRetryRef.current = options.retryOperation ?? null;
-        }
+          },
+          options.retryOperation ?? null,
+        );
         return false;
       }
 
@@ -759,10 +854,35 @@ export function useOAuthRecovery({
           }
           return undefined;
         }
+        // The terminal token-endpoint refusal (#2280), on the command path. A mid-session silent refresh
+        // against an unusable token endpoint rejects here rather than as an
+        // `AuthRecoveryRequiredError`, so without this it is rethrown and lands
+        // in `runCommandInBackground` — which either shows the raw SDK text
+        // under a generic title or, at a call site whose panel owns reporting,
+        // swallows it and leaves the command looking like it did nothing.
+        //
+        // Claimed rather than rethrown, taking the same `undefined` exit the
+        // unsatisfied-recovery branch above already uses: the failure is
+        // terminal and now fully reported, so an awaited caller should stop
+        // rather than render it a second time.
+        const server = sessionRef.current.servers.find(
+          (s) => s.id === activeServerId,
+        );
+        if (
+          reportTerminalInsecureTokenEndpoint(err, activeServerId, server?.name)
+        ) {
+          return undefined;
+        }
         throw err;
       }
     },
-    [inspectorClient, activeServerId, handleCommandScopedAuthRecovery],
+    [
+      inspectorClient,
+      activeServerId,
+      handleCommandScopedAuthRecovery,
+      sessionRef,
+      reportTerminalInsecureTokenEndpoint,
+    ],
   );
 
   /**
@@ -872,6 +992,25 @@ export function useOAuthRecovery({
           });
         }
       } catch (err) {
+        // The terminal token-endpoint refusal (#2280) first, and specifically BEFORE the restore below.
+        // `handleAuthChallenge` runs the same SDK auth flow, so it can raise
+        // this terminal error — and the restore's whole premise is that the
+        // recovery is still owed and a later trigger should retry it. For a
+        // refusal that can only fail the same way, re-arming the slot means
+        // every future tab focus and reconnect replays it, under a toast
+        // promising a retry that cannot succeed. Report it and let it go.
+        const failedServer = sessionRef.current.servers.find(
+          (s) => s.id === pending.serverId,
+        );
+        if (
+          reportTerminalInsecureTokenEndpoint(
+            err,
+            pending.serverId,
+            failedServer?.name,
+          )
+        ) {
+          return;
+        }
         // The slot was cleared above only to keep a tab-visible event and a
         // reconnect from starting the same authorization twice — not because
         // the recovery was delivered. It still is owed, so restore it and let
@@ -917,6 +1056,7 @@ export function useOAuthRecovery({
       }
     },
     [
+      reportTerminalInsecureTokenEndpoint,
       sessionRef,
       inspectorClient,
       connectionStatus,
@@ -1268,6 +1408,12 @@ export function useOAuthRecovery({
           });
           return;
         }
+        // Above `setFailedServerId` for the same reason the EMA arm is: this is
+        // a configuration error, not a failed attempt, so it should not flag
+        // the card red or pull the monitoring sidebar open.
+        if (reportTerminalInsecureTokenEndpoint(err, server.id, server.name)) {
+          return;
+        }
         // The token exchange (or the re-handshake behind it) failed. Flag the
         // server (#1621) so the monitoring sidebar opens onto the OAuth
         // requests that explain it (#2108) — the rebuilt client restored the
@@ -1372,6 +1518,7 @@ export function useOAuthRecovery({
     initialConfigSettledRef,
     clearResultPanels,
     showReAuthBanner,
+    reportTerminalInsecureTokenEndpoint,
     webOAuthStorage,
     setUi,
     setActiveTab,
@@ -1379,8 +1526,31 @@ export function useOAuthRecovery({
 
   const clearServerOAuthAndDisconnect = useCallback(
     async (server: ClearableServer) => {
-      const isActive = server.id === activeServerId;
-      const client = isActive ? inspectorClient : null;
+      // OAuth state is keyed by the server URL, but "is this the active
+      // connection" was keyed by catalog entry id — and `serverList` enforces
+      // no URL uniqueness, so two entries with different ids and the same URL
+      // are a supported (and useful) state: separate names, headers or
+      // settings against one server. Clearing the inactive one deletes the
+      // *shared* blob and, with #2144 in, revokes the active session's grant —
+      // while an id-only check takes the inactive branch and leaves that
+      // session connected on credentials that no longer exist, silently
+      // (#2217). Comparing the storage keys is what sees it; the id check
+      // cannot, by construction.
+      //
+      // The live client's own config is what the comparison uses, because a
+      // card can be edited while connected and the catalog write does not
+      // rebuild the client (Copilot). `resolveOAuthClearIdentity` owns the
+      // rule; `App`'s in-flight guard reads the same answer from it.
+      const { isActive, sharesActiveOAuthKey, affectsActiveSession } =
+        resolveOAuthClearIdentity({
+          server,
+          activeServerId,
+          activeClientConfig: inspectorClient?.getTransportConfig(),
+          activeEntryConfig: sessionRef.current.servers.find(
+            (s) => s.id === activeServerId,
+          )?.config,
+        });
+      const client = affectsActiveSession ? inspectorClient : null;
       // The RFC 7009 leg is a bounded network request (#2144), so this callback
       // can stay suspended for seconds — long enough for the user to close the
       // modal and switch servers. `isActive` and `inspectorClient` were
@@ -1395,15 +1565,19 @@ export function useOAuthRecovery({
       // disconnect/reconnect to the SAME server builds a replacement
       // `InspectorClient`, so an id-only check passes again and the old clear
       // would run its session-wide cleanup against the new session.
+      //
+      // The id compared is the *active* one snapshotted alongside `isActive`,
+      // not the cleared entry's — for a shared-key clear those differ, and the
+      // session being protected is the active one.
       const stillTargetsActiveSession = (): boolean =>
-        isActive &&
-        sessionRef.current.activeServerId === server.id &&
+        affectsActiveSession &&
+        sessionRef.current.activeServerId === activeServerId &&
         sessionRef.current.inspectorClient === client;
 
       const { cleared, revocation } = await clearServerOAuthState({
         config: server.config,
         inspectorClient: client,
-        isActiveConnection: isActive,
+        isActiveConnection: affectsActiveSession,
         oauthStorage: webOAuthStorage,
         revoke: server.settings?.oauthRevokeOnClear !== false,
         fetchFn: getWebProxiedFetch(getAuthToken()),
@@ -1430,7 +1604,7 @@ export function useOAuthRecovery({
             finalizeExplicitDisconnect();
           }
         }
-      } else if (!isActive || stillTargetsActiveSession()) {
+      } else if (!affectsActiveSession || stillTargetsActiveSession()) {
         // No client to disconnect — either this is a stored-only clear, or the
         // active session has none yet (it is being built or torn down). Either
         // way the resume snapshot is stale and must go; skipping it would leave
@@ -1444,7 +1618,14 @@ export function useOAuthRecovery({
         title: "OAuth state cleared",
         message: isActive
           ? `Stored tokens and client registration were removed. Reconnect to run a fresh authorization flow.${revocationSuffix(revocation)}`
-          : `Stored OAuth state was removed for "${server.name}". Connect to authorize again.${revocationSuffix(revocation)}`,
+          : sharesActiveOAuthKey
+            ? // States the credential impact, which is certain, rather than
+              // the disconnect, which is not: the stale-session guard skips it
+              // after a switch, and `disconnect()` can reject (that failure
+              // gets its own toast above). Either way the shared state is gone,
+              // so the session must reconnect (Copilot).
+              `Stored OAuth state was removed for "${server.name}". The active session authorizes against the same URL, so its stored tokens went too — reconnect to run a fresh authorization flow.${revocationSuffix(revocation)}`
+            : `Stored OAuth state was removed for "${server.name}". Connect to authorize again.${revocationSuffix(revocation)}`,
         color: "blue",
       });
     },

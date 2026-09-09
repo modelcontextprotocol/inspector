@@ -13,12 +13,37 @@ describe("PROGRESS_TOAST_AUTOCLOSE_MS", () => {
 
 describe("progressToastId", () => {
   it("keys by the progress token", () => {
-    expect(progressToastId("abc")).toBe("progress-abc");
-    expect(progressToastId(7)).toBe("progress-7");
+    expect(progressToastId("abc")).toBe("progress-s:abc");
+    expect(progressToastId(7)).toBe("progress-n:7");
   });
 
   it("shares one id when the server sends no token", () => {
-    expect(progressToastId(undefined)).toBe("progress-default");
+    expect(progressToastId(undefined)).toBe("progress-none");
+  });
+
+  it("does not collide a numeric token with the same-looking string token", () => {
+    expect(progressToastId(7)).not.toBe(progressToastId("7"));
+  });
+
+  it("does not collide the absent token with any token a server can send", () => {
+    const absent = progressToastId(undefined);
+    for (const token of ["default", "none", "", "0"]) {
+      expect(progressToastId(token)).not.toBe(absent);
+    }
+    expect(progressToastId(0)).not.toBe(absent);
+  });
+
+  it("gives each distinct token its own id", () => {
+    const ids = [
+      progressToastId(undefined),
+      progressToastId(0),
+      progressToastId(7),
+      progressToastId("0"),
+      progressToastId("7"),
+      progressToastId("none"),
+      progressToastId("default"),
+    ];
+    expect(new Set(ids).size).toBe(ids.length);
   });
 });
 

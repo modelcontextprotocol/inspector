@@ -1,6 +1,6 @@
 import React from "react";
 import { describe, it, expect } from "vitest";
-import { render } from "ink-testing-library";
+import { render } from "./helpers/renderTui";
 import { Tabs } from "../src/components/Tabs.js";
 
 const noop = () => {};
@@ -48,6 +48,38 @@ describe("Tabs", () => {
       />,
     );
     expect(lastFrame() ?? "").toContain("Network");
+  });
+
+  it("hides the skills tab by default and shows it when showSkills is true", () => {
+    // A *server-declared* extension (SEP-2640), unlike the transport-derived
+    // gates above — it is only knowable after connecting, so the default has
+    // to be hidden.
+    const hidden = render(
+      <Tabs activeTab="info" onTabChange={noop} width={140} />,
+    );
+    expect(hidden.lastFrame() ?? "").not.toContain("Skills");
+    const shown = render(
+      <Tabs
+        activeTab="info"
+        onTabChange={noop}
+        width={140}
+        showSkills={true}
+      />,
+    );
+    expect(shown.lastFrame() ?? "").toContain("Skills");
+  });
+
+  it("renders a count on the skills tab", () => {
+    const { lastFrame } = render(
+      <Tabs
+        activeTab="skills"
+        onTabChange={noop}
+        width={140}
+        showSkills={true}
+        counts={{ skills: 4 }}
+      />,
+    );
+    expect(lastFrame() ?? "").toContain("Skills (4)");
   });
 
   it("marks the active tab with the ▶ marker", () => {

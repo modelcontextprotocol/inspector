@@ -50,3 +50,8 @@ export type {
 } from "./pagedRequestorTasksState.js";
 export { ResourceSubscriptionsState } from "./resourceSubscriptionsState.js";
 export type { ResourceSubscriptionsStateEventMap } from "./resourceSubscriptionsState.js";
+export { ManagedSkillsState } from "./managedSkillsState.js";
+export type {
+  ManagedSkillsStateEventMap,
+  SkillsPaginationState,
+} from "./managedSkillsState.js";

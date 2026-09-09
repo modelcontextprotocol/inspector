@@ -49,6 +49,7 @@ import {
   createModernTaskTools,
   wireModernTaskHandlers,
 } from "./modern-tasks.js";
+import { SKILLS_EXTENSION_KEY, wireSkillsHandlers } from "./skills.js";
 
 /**
  * MCP Apps extension id. Hardcoded for the same reason the Inspector's
@@ -480,6 +481,24 @@ export interface ServerConfig {
     prompts?: number;
   };
   /**
+   * Hand out the **empty string** as the cursor for page two of every
+   * paginated list, instead of the usual numeric index (#2220).
+   *
+   * An MCP cursor is opaque: the spec constrains neither its content nor its
+   * length, so `""` is a legal `nextCursor` and a conforming client has to send
+   * it back verbatim. A client that builds its request params with a
+   * truthiness check cannot tell `""` from "no cursor", so it drops it and
+   * silently re-requests page one — a list that stops after one page, or a
+   * walk that loops on it forever, with no error anywhere because the request
+   * is perfectly well-formed.
+   *
+   * Nothing else in this repo produces that shape: every other fixture's
+   * cursor is a non-empty index string, which the buggy guard happens to carry
+   * correctly. Off by default so the existing pagination fixtures keep their
+   * numeric cursors.
+   */
+  emptyStringCursor?: boolean; // default: false
+  /**
    * Emit the named registered tools **twice** in `tools/list`, with the same
    * `name` on both entries and " (duplicate)" appended to the second's title.
    *
@@ -495,6 +514,29 @@ export interface ServerConfig {
    * ignored.
    */
   duplicateToolNames?: string[];
+  /**
+   * URIs to emit **twice** in `resources/list` (same `uri`, the second's title
+   * marked "(duplicate)").
+   *
+   * The `resources/list` analogue of {@link duplicateToolNames}, and
+   * unreachable the same way: `registerResource` keys on the URI, so no preset
+   * can produce a repeat. A real server can — two resource sources
+   * concatenated — and the Inspector has to render that faithfully rather than
+   * collide on the React key (#2206).
+   *
+   * Matched against **everything the list actually carries**, which is the
+   * static registrations *and* whatever a resource template's `list` callback
+   * contributes — not `state.registeredResources` alone (Copilot). Both land in
+   * the same Resources sidebar list and collide on the same React key, so
+   * scoping this to static registrations only would leave half the surface
+   * unreproducible. A URI that appears in neither is ignored.
+   *
+   * The copies go **after** the whole list rather than beside their twin, for
+   * the reason spelled out on `duplicateToolNames`: a head-adjacent pair
+   * happens to survive reconciliation, so only a separated pair exposes the
+   * defect.
+   */
+  duplicateResourceUris?: string[];
   /**
    * Replace a registered tool's `inputSchema` / `outputSchema` in `tools/list`
    * with a **raw** JSON Schema document (#1005).
@@ -556,6 +598,22 @@ export interface ServerConfig {
    * `modern: true`. See `modern-tasks.ts`.
    */
   tasksExtension?: boolean;
+  /**
+   * Advertise the Skills extension (SEP-2640) and serve `skills/list` /
+   * `skills/get` plus the `skill://` files those entries name. The fixture set
+   * deliberately includes non-conforming skills — see `skills.ts`.
+   *
+   * Turning this on also declares **`directoryRead: true`** and serves
+   * `resources/directory/read` over the same `skill://` tree (#2248). The two
+   * are one switch rather than two on purpose: the sub-flag's whole hazard is
+   * advertising a method nothing answers — Connection Info reporting
+   * "Supported" for a call that returns `-32601` — and a config that cannot
+   * express the declaration without the handler cannot reach it. A fixture for
+   * the *undeclared* case is still available and is the more useful one:
+   * any config without `skills` at all, against which the Inspector must
+   * refuse to send the call locally.
+   */
+  skills?: boolean;
   /**
    * Advertise the MCP Apps `io.modelcontextprotocol/ui` extension with the
    * nested `elicitation` setting — the server-side half of the app-rendered
@@ -822,6 +880,21 @@ export function createMcpServer(config: ServerConfig): McpServer {
       ...(capabilities.extensions ?? {}),
       [TASKS_EXTENSION_KEY]: {},
     };
+  }
+
+  // Skills extension (SEP-2640): a server-declared extension. `directoryRead`
+  // is declared because `wireSkillsHandlers` registers the handler for it in
+  // the same `config.skills` branch below — see `ServerConfig.skills` for why
+  // the declaration and the handler are one switch.
+  if (config.skills) {
+    capabilities.extensions = {
+      ...(capabilities.extensions ?? {}),
+      [SKILLS_EXTENSION_KEY]: { directoryRead: true },
+    };
+    // Skill files are fetched through ordinary `resources/read`, so the
+    // resources capability has to be advertised even when the config registers
+    // no ordinary resources of its own.
+    capabilities.resources = capabilities.resources ?? {};
   }
 
   // MCP Apps app-rendered elicitation (#1854): the server-side half of the
@@ -1238,6 +1311,33 @@ export function createMcpServer(config: ServerConfig): McpServer {
   // Set up pagination handlers if maxPageSize is configured
   const maxPageSize = config.maxPageSize || {};
 
+  /**
+   * The cursor codec every paginated list below shares.
+   *
+   * Ordinarily a cursor is the next page's start index rendered as a string.
+   * Under {@link ServerConfig.emptyStringCursor} the *first* boundary — and
+   * only that one — is handed out as `""` instead, which is what exercises a
+   * client's ability to tell an empty cursor from an absent one (#2220). Later
+   * boundaries stay numeric, so a fixture with more than two pages still walks
+   * to the end.
+   *
+   * `decode` maps `""` back to that boundary only when the mode is on; with it
+   * off an empty cursor means page one, exactly as the previous
+   * `cursor ? parseInt(cursor, 10) : 0` did.
+   */
+  const emptyStringCursor = config.emptyStringCursor === true;
+  const cursorCodec = (pageSize: number) => ({
+    encode: (index: number): string =>
+      emptyStringCursor && index === pageSize ? "" : index.toString(),
+    decode: (cursor: string | undefined): number => {
+      if (cursor === undefined || cursor === "") {
+        return emptyStringCursor && cursor === "" ? pageSize : 0;
+      }
+      const parsed = parseInt(cursor, 10);
+      return Number.isNaN(parsed) ? 0 : parsed;
+    },
+  });
+
   // Emit each named tool a second time, same `name`, title marked so the two
   // rows are told apart on screen. See ServerConfig.duplicateToolNames (#1957).
   //
@@ -1295,6 +1395,7 @@ export function createMcpServer(config: ServerConfig): McpServer {
       // No pagination configured: one page holding everything, so the duplicate
       // override can share this handler without inventing a page size.
       const pageSize = maxPageSize.tools ?? Number.MAX_SAFE_INTEGER;
+      const codec = cursorCodec(pageSize);
 
       // Convert registered tools to Tool format, mirroring the SDK's tools/list.
       // The input-schema JSON comes from the SDK's memoised converter; the
@@ -1324,11 +1425,11 @@ export function createMcpServer(config: ServerConfig): McpServer {
       // boundary exactly as a real server's would.
       const allTools = withDuplicates(withRawSchemas(registeredTools));
 
-      const startIndex = cursor ? parseInt(cursor, 10) : 0;
+      const startIndex = codec.decode(cursor);
       const endIndex = startIndex + pageSize;
       const page = allTools.slice(startIndex, endIndex);
       const nextCursor =
-        endIndex < allTools.length ? endIndex.toString() : undefined;
+        endIndex < allTools.length ? codec.encode(endIndex) : undefined;
 
       return {
         tools: page,
@@ -1337,13 +1438,40 @@ export function createMcpServer(config: ServerConfig): McpServer {
     });
   }
 
-  // Resources pagination
-  if (capabilities.resources && maxPageSize.resources !== undefined) {
+  // Emit each named resource a second time, same `uri`, title marked so the two
+  // rows are told apart on screen. Applied to the assembled list, so a URI a
+  // resource template listed is duplicated exactly as a statically-registered
+  // one is. See ServerConfig.duplicateResourceUris (#2206) — and the note there
+  // on why the copies are appended.
+  const duplicateResourceUris = new Set(config.duplicateResourceUris ?? []);
+  const withDuplicateResources = (resources: Resource[]): Resource[] =>
+    duplicateResourceUris.size === 0
+      ? resources
+      : [
+          ...resources,
+          ...resources
+            .filter((resource) => duplicateResourceUris.has(resource.uri))
+            .map((resource) => ({
+              ...resource,
+              title: `${resource.title ?? resource.name} (duplicate)`,
+            })),
+        ];
+
+  // Resources pagination, and the duplicate-URI override, both need the same
+  // hand-built list, so the handler is installed when either is configured.
+  if (
+    capabilities.resources &&
+    (maxPageSize.resources !== undefined || duplicateResourceUris.size > 0)
+  ) {
     mcpServer.server.setRequestHandler(
       "resources/list",
       async (request, ctx) => {
         const cursor = request.params?.cursor;
-        const pageSize = maxPageSize.resources!;
+        // No pagination configured: one page holding everything, so the
+        // duplicate override can share this handler without inventing a page
+        // size — mirroring the `tools/list` handler above.
+        const pageSize = maxPageSize.resources ?? Number.MAX_SAFE_INTEGER;
+        const codec = cursorCodec(pageSize);
 
         // Collect all resources (static + from templates)
         const allResources: Resource[] = [];
@@ -1384,11 +1512,12 @@ export function createMcpServer(config: ServerConfig): McpServer {
           }
         }
 
-        const startIndex = cursor ? parseInt(cursor, 10) : 0;
+        const listed = withDuplicateResources(allResources);
+        const startIndex = codec.decode(cursor);
         const endIndex = startIndex + pageSize;
-        const page = allResources.slice(startIndex, endIndex);
+        const page = listed.slice(startIndex, endIndex);
         const nextCursor =
-          endIndex < allResources.length ? endIndex.toString() : undefined;
+          endIndex < listed.length ? codec.encode(endIndex) : undefined;
 
         return {
           resources: page,
@@ -1405,6 +1534,7 @@ export function createMcpServer(config: ServerConfig): McpServer {
       async (request) => {
         const cursor = request.params?.cursor;
         const pageSize = maxPageSize.resourceTemplates!;
+        const codec = cursorCodec(pageSize);
 
         // Convert registered resource templates to ResourceTemplate format
         const allTemplates: Array<{
@@ -1441,11 +1571,11 @@ export function createMcpServer(config: ServerConfig): McpServer {
           }
         }
 
-        const startIndex = cursor ? parseInt(cursor, 10) : 0;
+        const startIndex = codec.decode(cursor);
         const endIndex = startIndex + pageSize;
         const page = allTemplates.slice(startIndex, endIndex);
         const nextCursor =
-          endIndex < allTemplates.length ? endIndex.toString() : undefined;
+          endIndex < allTemplates.length ? codec.encode(endIndex) : undefined;
 
         return {
           resourceTemplates: page as ResourceTemplate[],
@@ -1460,6 +1590,7 @@ export function createMcpServer(config: ServerConfig): McpServer {
     mcpServer.server.setRequestHandler("prompts/list", async (request) => {
       const cursor = request.params?.cursor;
       const pageSize = maxPageSize.prompts!;
+      const codec = cursorCodec(pageSize);
 
       // Convert registered prompts to Prompt format. The argument descriptors
       // are derived from the config's raw arg shape (the SDK no longer exposes
@@ -1479,11 +1610,11 @@ export function createMcpServer(config: ServerConfig): McpServer {
         }
       }
 
-      const startIndex = cursor ? parseInt(cursor, 10) : 0;
+      const startIndex = codec.decode(cursor);
       const endIndex = startIndex + pageSize;
       const page = allPrompts.slice(startIndex, endIndex);
       const nextCursor =
-        endIndex < allPrompts.length ? endIndex.toString() : undefined;
+        endIndex < allPrompts.length ? codec.encode(endIndex) : undefined;
 
       return {
         prompts: page,
@@ -1501,6 +1632,13 @@ export function createMcpServer(config: ServerConfig): McpServer {
   // (no tasks/list, no tasks/result) plus the CreateTaskResult tools/call seam.
   if (modernTaskRuntime) {
     wireModernTaskHandlers(mcpServer, modernTaskRuntime);
+  }
+
+  // Skills extension (SEP-2640): raw skills/list + skills/get, and the
+  // `skill://` half of resources/read. Wired after the SDK's own handlers so
+  // the resources/read wrapper can delegate non-skill URIs to them.
+  if (config.skills) {
+    wireSkillsHandlers(mcpServer);
   }
 
   // Extension-gated tools (#1739): start each gated tool disabled, then enable

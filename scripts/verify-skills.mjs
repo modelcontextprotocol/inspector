@@ -254,6 +254,8 @@ function main(argv = process.argv.slice(2)) {
   }
 
   const parsed = [];
+  const evalFiles = [];
+  const modelInvokedDirs = new Set();
   for (const dir of dirs) {
     const file = path.join(SKILLS_DIR, dir, "SKILL.md");
     if (!existsSync(file)) {
@@ -266,6 +268,7 @@ function main(argv = process.argv.slice(2)) {
     parsed.push(skill);
 
     if (skill.modelInvoked) {
+      modelInvokedDirs.add(dir);
       const evalsFile = path.join(SKILLS_DIR, dir, "evals", "evals.json");
       if (!existsSync(evalsFile)) {
         failures.push(
@@ -280,9 +283,21 @@ function main(argv = process.argv.slice(2)) {
         failures.push(`${dir}/evals/evals.json: not valid JSON — ${e.message}`);
         continue;
       }
-      for (const e of validateEvalCases(dir, cases)) {
-        failures.push(`${dir}/evals/evals.json: ${e}`);
-      }
+      evalFiles.push({ dir, cases });
+    }
+  }
+
+  // Validated after the loop, not inside it: a hand-off case names other
+  // skills, and checking those links needs the model-invoked set complete.
+  // Inside the loop the check would depend on directory order — `test-servers`
+  // sorts before `testing`, so a chain through `testing` would be rejected as
+  // unknown purely because of where the alphabet put it.
+  // Keyed on the DIRECTORY name, which is what a chain link names and what a
+  // skill is addressed by; the frontmatter `name` can be absent or disagree,
+  // and either would silently shrink the set a chain is checked against.
+  for (const { dir, cases } of evalFiles) {
+    for (const e of validateEvalCases(dir, cases, modelInvokedDirs)) {
+      failures.push(`${dir}/evals/evals.json: ${e}`);
     }
   }
 

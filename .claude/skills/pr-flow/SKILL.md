@@ -68,7 +68,7 @@ not:
   only defaults the `-s` flag for `git format-patch`; `git commit` never reads it,
   and there is no `commit.signoff` equivalent.
 - ⚠️ **A `prepare-commit-msg` hook works, but think before installing one.** The
-  trailer is a certification, and a hook makes it on your behalf for *every*
+  trailer is a certification, and a hook makes it on your behalf for _every_
   commit, including work you merely cherry-picked. Inside that hook,
   `git var GIT_AUTHOR_IDENT` returns your config identity rather than the
   preserved author, so it cannot even tell it is signing for someone else.
@@ -90,7 +90,7 @@ access sees only silences the check without anyone certifying anything.
 The signoff is a [Developer Certificate of
 Origin](https://developercertificate.org/) assertion made in **your own name**. It
 does not claim you wrote the code, so signing off a cherry-pick is legitimate.
-What is never acceptable is fabricating *someone else's* certification.
+What is never acceptable is fabricating _someone else's_ certification.
 
 ## 4. Run the gate
 
@@ -107,13 +107,85 @@ committed — so attach them to the PR body from there rather than referencing a
 in-repo path. Name them for what they show (`tools-tab-before.png`), not
 `Screenshot 2026-07-31 at 14.02.11.png`.
 
+### 5a. Capture settings — web
+
+Everything in 5a is about a **browser** capture and assumes Playwright driving
+the web client. A **TUI** change has no viewport and no `fullPage` mode: size
+the terminal so no line wraps or truncates, and go straight to 5b, which applies
+to every image regardless of how it was taken.
+
+**Shoot the web client at 1280×900, full page.** It is the one size already
+written down anywhere in the repo — `scripts/smoke-web-tabs.mjs` and
+`scripts/smoke-web-elicitation.mjs` set exactly that viewport (the other two web
+smokes set none) — and adopting it as the standard here is what makes a reviewer
+comparing two PRs compare the same thing. The older shots checked into
+`specification/screenshots/` were taken at assorted sizes, which is the problem,
+not the precedent. Prefer a full-page shot over a
+Playwright `clip` region: a clip sized to one panel cuts off anything placed
+beside it, and two clips of different sizes make a before/after pair hard to
+read as a pair.
+
+⚠️ **Widening the window does not widen the Monitor sidebar.** The
+main/sidebar split is a draggable divider whose width is stored independently of
+the viewport (`localStorage["inspector.monitor.width"]`, default **420px**,
+clamped to **320–720**), so a bigger screen grows the _content_ column and
+leaves the sidebar exactly as clipped as it was. Both levers have to be set, and
+only one of them is obvious. On #2234 this cost three full re-captures: the
+first set clipped the sidebar, the second still clipped it after only the window
+was widened, and the third worked once the divider itself was moved.
+
+**So when a shot includes the Monitor sidebar, set its width explicitly** —
+give it enough room that no row truncates, favoring the sidebar over the
+left-hand list, which usually has room to give up. Two ways, in order of
+preference:
+
+```js
+// Deterministic: seed the stored width before the app loads.
+await context.addInitScript(() =>
+  localStorage.setItem("inspector.monitor.width", "640"),
+);
+```
+
+```js
+// Or drive the divider itself — it is a keyboard-operable ARIA separator,
+// and ArrowLeft widens the sidebar one 16px step per press.
+const handle = page.getByRole("separator", {
+  name: "Resize monitoring sidebar",
+});
+await handle.focus();
+for (let i = 0; i < 14; i++) await handle.press("ArrowLeft");
+```
+
+Two more mechanics worth setting before the shutter:
+
+- **Wait ~900ms after switching the main view.** The Servers→Tools switch is a
+  crossfade, so an immediate shot renders _both_ views stacked translucently and
+  reads as a broken app. Waiting on a locator in the incoming view is not enough —
+  the outgoing one is still fading.
+- **Mark focus when the change is about focus.** Tab order and keybinding fixes
+  look identical at rest, so after driving the keystroke, `page.evaluate` over
+  `document.activeElement`, outline it, and log its tag + `aria-label` — that
+  line is the actual assertion and the image is the evidence. **Say in the PR
+  body that the outline is script-added**, not app UI.
+
+### 5b. Read the shot back before uploading — web and TUI
+
+**Open every image and confirm nothing is cut off at either edge** — no
+truncated row, clipped badge, or value running under a panel border, and no
+half-faded view. This is a real check with your own eyes, not a formality: a
+clipped screenshot is worse than no screenshot, because a reviewer reads the
+truncation as a rendering bug in the feature under review and files it back at
+you. Re-shoot rather than shipping one that "mostly" shows the change.
+
+### 5c. Upload
+
 To host them, upload to GitHub's attachment endpoint with your `gh` token. Two
 mechanics, both of which bite:
 
 - The parameters go in the **query string**, with the raw bytes as the body. A
   JSON body fails with a misleading "Invalid name for request".
 - ⚠️ **Do not put the token in argv.** `-H "Authorization: token $(gh auth
-  token)"` puts your credential in curl's command line, where any local user or
+token)"` puts your credential in curl's command line, where any local user or
   process can read it off the process table while the upload runs (Copilot).
   Feed it through `--config -` instead: curl reads its options from stdin, so
   the token never becomes an argument.
@@ -124,7 +196,7 @@ printf 'header = "Authorization: token %s"\n' "$(gh auth token)" | curl -sS --co
   "https://uploads.github.com/user-attachments/assets?repository_id=<REPO_ID>&name=tools-tab-after.png&content_type=image/png"
 ```
 
-(The token is still in the shell's environment and in `printf`'s *stdin*, which
+(The token is still in the shell's environment and in `printf`'s _stdin_, which
 is not world-readable the way `/proc/<pid>/cmdline` is.)
 
 ## 6. Open the PR
@@ -168,17 +240,78 @@ gh api graphql -f query='
 ```
 
 Poll for the review with a `startswith` match — the review login carries a
-`[bot]` suffix.
+`[bot]` suffix. **Put that poll in one backgrounded loop that exits when the
+round lands, and wait for its notification** rather than re-fetching once per
+turn; a review is remote state the harness cannot observe, which is exactly the
+exception described in [Waiting on long-running
+work](../../../AGENTS.md#waiting-on-long-running-work) — and exactly where the
+poll belongs when one is needed.
+
+```sh
+EXPECTED=1   # the review COUNT you are waiting to reach — see below
+while :; do
+  # Capture first, so a gh failure stops the loop instead of being swallowed by
+  # a pipeline. --slurp cannot be combined with --jq, hence the separate jq.
+  raw=$(gh api --paginate --slurp \
+    repos/modelcontextprotocol/inspector/pulls/<N>/reviews) || {
+      echo "gh api failed ($?) — not retrying blind" >&2; exit 1; }
+  n=$(jq '[.[][] | select(.user.login | startswith("copilot-pull-request-reviewer"))] | length' <<<"$raw") || {
+      echo "jq failed ($?) on an unexpected response shape" >&2; exit 1; }
+  case $n in '' | *[!0-9]*) echo "not a count: '$n'" >&2; exit 1 ;; esac
+  [ "$n" -ge "$EXPECTED" ] && break
+  sleep 30
+done
+```
+
+`EXPECTED` is the review **count** you are waiting to reach, so it is `1` only
+on the first round — on round two the first round's review is still there and an
+existence check returns immediately. `sleep 30` is the remote-API floor the rule
+above sets. **Every step that can fail exits the loop rather than
+retrying.** Piping the count straight into `awk` would make an auth or API error
+read as a count of `0`; and a `jq` failure on an unexpected shape leaves `n`
+empty, whereupon `[ "" -ge 1 ]` exits non-zero, `break` never fires, and the job
+sleeps and retries forever — the same unbounded wait, reached from the other
+end. A background task that can never succeed is worse than one that never
+started, because it looks like progress. Give the inline comments a further ~60s after the body lands; they
+arrive late (see step 8).
 
 ## 8. Respond to the review
 
 - It is **not** necessary to implement every suggestion. Implementing one a
   different way, or declining it with a reason, is fine.
-- After making the changes, **respond to each comment** with what was done, or
-  why it was ignored.
-- ⚠️ **Inline replies go hidden once the fix is pushed** (the threads become
-  outdated), so **mirror each round at PR level** as a summary comment, and always
-  read the "Suppressed comments" block.
+- After making the changes, **reply to each review comment in its own thread**
+  with what was done, or why it was declined. That inline reply is the primary
+  response and it is not optional — each review comment is a discussion thread
+  with its own resolve state, and a reply _in_ the thread is the only thing a
+  reviewer reading that thread sees. It does **not** resolve the thread:
+  resolving is a separate act — the "Resolve conversation" button, or the
+  `resolveReviewThread` GraphQL mutation — and it is the reviewer's to make. The
+  reply is what makes resolving it defensible.
+
+  ```sh
+  # Fetch the round's comments by REVIEW id — the unpaginated /reviews listing
+  # hides later rounds behind your own replies.
+  # --paginate: this endpoint returns 30 per page, and a round you only half
+  # fetch is a round you only half answer.
+  gh api --paginate repos/modelcontextprotocol/inspector/pulls/<N>/reviews/<REVIEW_ID>/comments \
+    --jq '.[]|"\(.id) \(.path):\(.line)\n\(.body)"'
+
+  # Reply into one thread, keyed by the comment id from above.
+  gh api repos/modelcontextprotocol/inspector/pulls/<N>/comments/<COMMENT_ID>/replies \
+    -f body='Fixed in <sha> — …'
+  ```
+
+- ⚠️ **Then mirror the round at PR level, in addition — never instead.** Inline
+  replies go hidden once the fix is pushed, because the threads become outdated,
+  so a summary comment is what keeps the round readable afterwards. It does
+  **not** discharge the per-comment replies: a rollup bullet cannot be connected
+  back to the thread it answers, so the thread stays open with a finding and
+  silence in it, and by round three matching bullets to comments is
+  reconstruction rather than reading.
+- ⚠️ Always read the **"Suppressed comments"** block in the review body. Those
+  findings have no comment id, so they have no thread to reply into — the
+  PR-level mirror is the only place they can be answered, and it is the one case
+  where answering there is the whole response.
 - ⚠️ **Copilot's inline comments lag its review body.** The body's "generated N
   comments" count lands first; fetch by recency and reconcile. Repeated
   re-review silence means the session ended.

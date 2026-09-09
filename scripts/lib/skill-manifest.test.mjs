@@ -9,6 +9,8 @@ import assert from "node:assert/strict";
 import {
   splitFrontmatter,
   parseSkill,
+  isChainCase,
+  MIN_CHAIN_LENGTH,
   MIN_POSITIVE_CASES,
   validateEvalCases,
   listingCost,
@@ -204,8 +206,116 @@ test("validateEvalCases rejects malformed cases", () => {
   );
   assert.match(
     validateEvalCases("x", [{ prompt: "a", expect: 7 }]).join(),
-    /expect. must be a skill name or null/,
+    /needs .expect./,
   );
+  assert.match(
+    validateEvalCases("x", [{ prompt: "a" }]).join(),
+    /needs .expect. .* or .chain./,
+  );
+});
+
+test("a hand-off case names an ordered chain ending in this skill", () => {
+  const base = [
+    ...Array.from({ length: MIN_POSITIVE_CASES }, (_, i) => ({
+      prompt: `p${i}`,
+      expect: "test-servers",
+    })),
+    { prompt: "n", expect: null },
+  ];
+  const withChain = (chain) => [...base, { prompt: "c", chain }];
+  const known = new Set(["testing", "test-servers", "pr-flow"]);
+
+  assert.deepEqual(
+    validateEvalCases(
+      "test-servers",
+      withChain(["testing", "test-servers"]),
+      known,
+    ),
+    [],
+  );
+  // The case belongs to the skill that must be REACHED, so a chain anchored on
+  // its first link would file a `test-servers` measurement under `testing` and
+  // leave a `test-servers` description edit unmeasured by its own file.
+  assert.match(
+    validateEvalCases(
+      "test-servers",
+      withChain(["test-servers", "testing"]),
+      known,
+    ).join(),
+    /ends with .testing., but this file measures .* .test-servers./,
+  );
+  assert.match(
+    validateEvalCases(
+      "test-servers",
+      withChain(["test-servers"]),
+      known,
+    ).join(),
+    new RegExp(`at least ${MIN_CHAIN_LENGTH} skill names`),
+  );
+  assert.match(
+    validateEvalCases(
+      "test-servers",
+      withChain(["testing", "testing", "test-servers"]),
+      known,
+    ).join(),
+    /repeats a skill name/,
+  );
+  assert.match(
+    validateEvalCases(
+      "test-servers",
+      withChain(["nope", "test-servers"]),
+      known,
+    ).join(),
+    /.nope., which is not a model-invoked skill/,
+  );
+  assert.match(
+    validateEvalCases(
+      "test-servers",
+      withChain(["", "test-servers"]),
+      known,
+    ).join(),
+    /non-empty string/,
+  );
+  // Without the known set the shape is still checked; only the link names go
+  // unverified, so a caller that has not parsed the directory can still run.
+  assert.deepEqual(
+    validateEvalCases("test-servers", withChain(["nope", "test-servers"])),
+    [],
+  );
+});
+
+test("a hand-off case satisfies neither floor and never doubles as a first move", () => {
+  // A hand-off is a second-hop load over many turns and is scored in its own
+  // column. Letting one stand in for a first-move positive would let a skill
+  // ship with no measurement of the way users actually reach it.
+  const chained = Array.from({ length: MIN_POSITIVE_CASES + 1 }, (_, i) => ({
+    prompt: `c${i}`,
+    chain: ["testing", "test-servers"],
+  }));
+  const errors = validateEvalCases("test-servers", chained).join(" ");
+  assert.match(errors, /no positive case/);
+  assert.match(errors, /no negative case/);
+});
+
+test("a case carrying both shapes is a typo, not a half-scored measurement", () => {
+  assert.match(
+    validateEvalCases("test-servers", [
+      {
+        prompt: "c",
+        expect: "test-servers",
+        chain: ["testing", "test-servers"],
+      },
+    ]).join(),
+    /carries both .expect. and .chain./,
+  );
+});
+
+test("isChainCase tells the two shapes apart", () => {
+  assert.equal(isChainCase({ chain: ["a", "b"] }), true);
+  assert.equal(isChainCase({ expect: "a" }), false);
+  assert.equal(isChainCase({ expect: null }), false);
+  assert.equal(isChainCase(null), false);
+  assert.equal(isChainCase("chain"), false);
 });
 
 test("parseClaudeVersion reads the CLI's version banner", () => {

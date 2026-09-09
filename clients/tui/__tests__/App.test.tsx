@@ -1,6 +1,6 @@
 import React from "react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render } from "ink-testing-library";
+import { render } from "./helpers/renderTui";
 
 type RenderResult = ReturnType<typeof render>;
 
@@ -24,6 +24,8 @@ const h = vi.hoisted(() => {
     resources: unknown[];
     resourceTemplates: unknown[];
     prompts: unknown[];
+    skills: unknown[];
+    skillsExtension: { directoryRead: boolean } | undefined;
     messages: unknown[];
     fetchRequests: unknown[];
     stderrLogs: unknown[];
@@ -39,6 +41,8 @@ const h = vi.hoisted(() => {
     resources: [],
     resourceTemplates: [],
     prompts: [],
+    skills: [],
+    skillsExtension: undefined as { directoryRead: boolean } | undefined,
     messages: [],
     fetchRequests: [],
     stderrLogs: [],
@@ -160,6 +164,10 @@ const h = vi.hoisted(() => {
           | "sse"
           | "streamable-http",
     );
+    // The Skills tab is gated on a SERVER declaration, so the default here is
+    // "not declared" — the tab is hidden unless a test opts in by pointing
+    // `ctrl.skillsExtension` at a declaration.
+    getSkillsExtension = vi.fn(() => ctrl.skillsExtension);
     authenticate = (...a: Parameters<InspectorClient["authenticate"]>) =>
       clientSpies.authenticate(...a);
     clearOAuthTokens = (
@@ -232,6 +240,11 @@ const h = vi.hoisted(() => {
       resourceTemplates: ctrl.resourceTemplates,
     })),
     useManagedPrompts: vi.fn(() => ({ prompts: ctrl.prompts })),
+    useManagedSkills: vi.fn(() => ({
+      skills: ctrl.skills,
+      pageCount: ctrl.skills.length > 0 ? 1 : 0,
+      error: null,
+    })),
     useMessageLog: vi.fn(() => ({ messages: ctrl.messages })),
     useFetchRequestLog: vi.fn(() => ({ fetchRequests: ctrl.fetchRequests })),
     useStderrLog: vi.fn(() => ({ stderrLogs: ctrl.stderrLogs })),
@@ -246,6 +259,7 @@ vi.mock("@inspector/core/mcp/state/index.js", () => ({
   ManagedResourcesState: h.FakeManager,
   ManagedResourceTemplatesState: h.FakeManager,
   ManagedPromptsState: h.FakeManager,
+  ManagedSkillsState: h.FakeManager,
   MessageLogState: h.FakeManager,
   FetchRequestLogState: h.FakeManager,
   StderrLogState: h.FakeManager,
@@ -270,6 +284,9 @@ vi.mock("@inspector/core/react/useManagedResources.js", () => ({
 }));
 vi.mock("@inspector/core/react/useManagedResourceTemplates.js", () => ({
   useManagedResourceTemplates: h.useManagedResourceTemplates,
+}));
+vi.mock("@inspector/core/react/useManagedSkills.js", () => ({
+  useManagedSkills: h.useManagedSkills,
 }));
 vi.mock("@inspector/core/react/useManagedPrompts.js", () => ({
   useManagedPrompts: h.useManagedPrompts,
@@ -664,6 +681,8 @@ beforeEach(() => {
     resources: [],
     resourceTemplates: [],
     prompts: [],
+    skills: [],
+    skillsExtension: undefined as { directoryRead: boolean } | undefined,
     messages: [],
     fetchRequests: [],
     stderrLogs: [],
@@ -749,6 +768,69 @@ describe("App (foundation)", () => {
     stdin.write("c");
     await tick();
     expect(h.connect).toHaveBeenCalled();
+  });
+
+  it("hides the Skills tab until the server declares the extension", async () => {
+    // A *server*-declared extension (SEP-2640), so unlike the transport-derived
+    // tabs it is only knowable after connecting — and showing it against a
+    // server that never declared it would send `skills/list` to a server that
+    // answers -32601 (#2248).
+    h.ctrl.status = "connected";
+    const r = await mount(oneStdio());
+    await expectFrame(r, "Tools");
+    expect(r.lastFrame() ?? "").not.toContain("Skills");
+  });
+
+  it("shows the Skills tab, with its count, once the extension is declared", async () => {
+    h.ctrl.status = "connected";
+    h.ctrl.skillsExtension = { directoryRead: false };
+    h.ctrl.skills = [
+      {
+        uri: "skill://demo/SKILL.md",
+        frontmatter: { name: "demo", description: "d" },
+        resources: [],
+      },
+    ];
+    const r = await mount(oneStdio());
+    await expectFrame(r, "Skills (1)");
+  });
+
+  it("opens the Skills tab with its 'k' accelerator", async () => {
+    // `k`, not `s` — the accelerator has to appear in the label and stay
+    // unique; see `tabsConfig.ts`.
+    h.ctrl.status = "connected";
+    h.ctrl.skillsExtension = { directoryRead: true };
+    const r = await mount(oneStdio());
+    await expectFrame(r, "Skills");
+    r.stdin.write("k");
+    await expectFrame(r, "Select a skill to view details");
+  });
+
+  it("leaves the Skills tab when the selected server does not serve it", async () => {
+    // The tab disappears from the bar when the gate goes false, but `activeTab`
+    // is independent of the bar — so without this the render branch keeps
+    // showing the pane for a server that never declared the extension, and the
+    // user is stranded on content they cannot navigate back to (Copilot).
+    h.ctrl.status = "connected";
+    h.ctrl.skillsExtension = { directoryRead: false };
+    const r = await mount(oneStdio());
+    await expectFrame(r, "Skills");
+    r.stdin.write("k");
+    await expectFrame(r, "Select a skill to view details");
+
+    // The server stops declaring it — the shape of switching to one without
+    // the extension, since the declaration is read off the live client.
+    h.ctrl.skillsExtension = undefined;
+    r.rerender(
+      <App
+        mcpServers={oneStdio()}
+        clientConfig={emptyClientConfig}
+        callbackUrlConfig={callbackUrlConfig}
+      />,
+    );
+    await tick();
+    await expectFrame(r, "Server Configuration");
+    expect(r.lastFrame() ?? "").not.toContain("Select a skill to view details");
   });
 
   it("disconnects with 'd' when connected", async () => {

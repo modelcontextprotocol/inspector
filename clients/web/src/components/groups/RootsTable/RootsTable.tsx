@@ -12,6 +12,7 @@ import {
 } from "@mantine/core";
 import { ClearButton } from "../../elements/ClearButton/ClearButton";
 import type { Root } from "@modelcontextprotocol/client";
+import { listRowKey } from "../../../utils/listRowKey";
 
 export type RootDraft = { name: string; uri: string };
 
@@ -62,8 +63,10 @@ export function RootsTable({
             </Table.Tr>
           </Table.Thead>
           <Table.Tbody>
-            {roots.map((root) => (
-              <Table.Tr key={root.uri}>
+            {/* Keyed on position as well as URI: nothing dedupes the roots
+                list, so the same URI can appear twice and collide (#2206). */}
+            {roots.map((root, index) => (
+              <Table.Tr key={listRowKey(root.uri, index)}>
                 <Table.Td>{root.name}</Table.Td>
                 <Table.Td>{root.uri}</Table.Td>
                 <Table.Td>

@@ -47,6 +47,25 @@ import type { OAuthStorage, RevocationSnapshot } from "./storage.js";
  */
 export const DEFAULT_REVOCATION_TIMEOUT_MS = 5000;
 
+/**
+ * The least budget worth spending a revocation request on.
+ *
+ * The shared deadline below is consumed sequentially, so the grant that follows
+ * a slow one can arrive with a sliver of budget left — a couple of milliseconds,
+ * which is less than a TCP handshake, let alone a round trip. Issuing that
+ * request buys nothing: it is guaranteed to time out, and its outcome is the
+ * same `failed` the exhausted-budget branch already reports, only after a
+ * needless call to the authorization server.
+ *
+ * It also removes a boundary that nothing can land on cleanly. `remainingMs > 0`
+ * is decided by timer resolution: the deadline is enforced by a `setTimeout`,
+ * and a clock that has not yet ticked past the deadline when the loop comes
+ * round leaves a fractional budget behind, so the same run issues one request or
+ * two depending on scheduling noise (#2252). A floor an order of magnitude above
+ * that noise makes the decision the same every time.
+ */
+export const MIN_REVOCATION_REQUEST_BUDGET_MS = 5;
+
 /** Why a revocation request was not sent. */
 export type TokenRevocationSkipReason =
   /** The caller turned revocation off for this server. */
@@ -163,6 +182,26 @@ export function buildRevocationRequest(params: RevocationRequestParams): {
       // there is no precedent to match, and the raw form is ambiguous for a
       // client id containing `:` and makes `btoa` throw outright on a
       // non-Latin-1 secret. Encoding is what the server decodes.
+      //
+      // ⚠️ `encodeURIComponent` is **not** the form-urlencoded algorithm §2.3.1
+      // names (RFC 6749 Appendix B), and #2222 was filed on the assumption that
+      // the difference breaks a secret containing `+`. It does not, and the
+      // reasoning is worth keeping because the next reader will have the same
+      // doubt: `encodeURIComponent` **escapes** `+` as `%2B`. The characters it
+      // leaves bare are exactly `!'()*-._~` plus alphanumerics, and a
+      // form-urldecoder passes every one of them through unchanged. It can
+      // therefore never emit the one character the two algorithms disagree
+      // about, so its output decodes identically under both — verified over
+      // every code point up to U+2FFF, and pinned by the round-trip cases in
+      // `revocation.test.ts`.
+      //
+      // Switching to `URLSearchParams` would be the literal algorithm and a
+      // small *regression*: it encodes a space as `+`, which a compliant server
+      // reads back as a space but a lenient one — decoding with
+      // `decodeURIComponent` alone, having never implemented the `+` rule —
+      // reads as a literal `+`. `%20` is understood by both. So the encoding
+      // here is the one that survives either server, which matters more than
+      // matching the spec's wording for a header no server sees twice.
       const credentials = `${encodeURIComponent(client.client_id)}:${encodeURIComponent(client.client_secret)}`;
       headers.Authorization = `Basic ${base64Encode(credentials)}`;
     } else if (method === "client_secret_post" && client.client_secret) {
@@ -211,7 +250,17 @@ export interface RevokeTokenParams extends RevocationRequestParams {
 export async function revokeToken(
   params: RevokeTokenParams,
 ): Promise<TokenRevocationOutcome> {
-  const timeoutMs = params.timeoutMs ?? DEFAULT_REVOCATION_TIMEOUT_MS;
+  // Whole milliseconds, because `AbortSignal.timeout` takes an integer: Node
+  // throws `ERR_OUT_OF_RANGE` on a fractional delay — before the fetch, so the
+  // request is never sent and the caller gets that as the revocation's failure
+  // detail. What is left of a shared deadline is measured with a
+  // sub-millisecond clock, so a fractional budget does arrive here. Rounded
+  // rather than floored so a caller's own whole-millisecond timeout survives the
+  // trip through that clock and is still the number the timeout message names.
+  const timeoutMs = Math.max(
+    0,
+    Math.round(params.timeoutMs ?? DEFAULT_REVOCATION_TIMEOUT_MS),
+  );
   try {
     // Inside the try: `encodeURIComponent` throws on a lone UTF-16 surrogate,
     // which is valid JSON and so can reach here from a persisted client id or
@@ -672,7 +721,11 @@ async function runPlan(
   // on purpose (a burst of parallel requests to one authorization server is
   // not a kindness), so the budget is shared instead.
   const timeoutMs = params.timeoutMs ?? DEFAULT_REVOCATION_TIMEOUT_MS;
-  const deadlineAt = Date.now() + timeoutMs;
+  // `performance.now()` rather than `Date.now()`: this is an elapsed-time
+  // measurement, and a wall clock can be stepped by NTP or a suspend/resume
+  // mid-teardown, which would either expire the budget early or extend it. It is
+  // also sub-millisecond, so a budget is not spent or preserved by rounding.
+  const deadlineAt = performance.now() + timeoutMs;
 
   for (const grant of plan.grants) {
     // Metadata is cached once per server, not per issuer, so it describes
@@ -715,8 +768,10 @@ async function runPlan(
       continue;
     }
 
-    const remainingMs = deadlineAt - Date.now();
-    if (remainingMs <= 0) {
+    const remainingMs = deadlineAt - performance.now();
+    // Not `<= 0`: see MIN_REVOCATION_REQUEST_BUDGET_MS. A budget too small to
+    // complete a request is treated as no budget at all.
+    if (remainingMs <= MIN_REVOCATION_REQUEST_BUDGET_MS) {
       outcomes.push({
         status: "failed",
         endpoint,

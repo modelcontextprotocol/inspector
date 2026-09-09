@@ -16,6 +16,7 @@ import {
   createGetEnvTool,
   createAddTool,
   createGetSumTool,
+  createDeadEndUnionTool,
   createGetWeatherTool,
   createInvalidHeaderTool,
   createSpecErrorTriggerTool,
@@ -111,6 +112,8 @@ function resolveToolPreset(
       return createGetSumTool();
     case "get_weather":
       return createGetWeatherTool();
+    case "record_shipment_by":
+      return createDeadEndUnionTool();
     case "invalid_header_tool":
       return createInvalidHeaderTool();
     case "trigger_header_mismatch":

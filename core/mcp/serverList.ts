@@ -1056,10 +1056,30 @@ export function expectedSecretFields(stored: StoredMCPServer): string[] {
 }
 
 /**
+ * Public MCP org demo server seeded as the remote example (#2201). It is the
+ * feature-reference server the MCP org hosts, so pointing a shipped default at
+ * it keeps the seed in-org rather than at a third-party endpoint.
+ *
+ * Its authorization server advertises Dynamic Client Registration and fronts a
+ * *mock* upstream IdP, so the whole OAuth round trip completes with no account,
+ * no API key and no pre-registered client — which is what makes it usable as a
+ * seed at all. Everything it exposes is synthetic reference data.
+ */
+export const EXAMPLE_SERVER_URL =
+  "https://example-server.modelcontextprotocol.io/mcp";
+
+/**
  * Default seeds written to `~/.mcp-inspector/mcp.json` on first launch when
- * the file is absent. Picked to cover the two shapes a developer reaches for
- * first: a real filesystem scoped to /tmp, and the canonical "everything"
- * reference server.
+ * the file is absent. Picked to cover the three shapes a developer reaches for
+ * first: a real filesystem scoped to /tmp, the canonical "everything"
+ * reference server, and a remote Streamable HTTP server behind OAuth.
+ *
+ * The remote seed carries no `protocolEra`, so it connects under
+ * `DEFAULT_PROTOCOL_ERA` (`"legacy"`) like every other entry that omits the
+ * field. That matches the server, which answers the plain `initialize`
+ * handshake at 2025-11-25 and rejects `server/discover` — it has no modern
+ * (SEP-2663) era to negotiate, so `"auto"` would only cost a failed probe and
+ * `"modern"` would fail the connection outright.
  */
 export const DEFAULT_SEED_CONFIG: MCPConfig = {
   mcpServers: {
@@ -1072,6 +1092,10 @@ export const DEFAULT_SEED_CONFIG: MCPConfig = {
       type: "stdio",
       command: "npx",
       args: ["-y", "@modelcontextprotocol/server-everything"],
+    },
+    "example-server-default": {
+      type: "streamable-http",
+      url: EXAMPLE_SERVER_URL,
     },
   },
 };

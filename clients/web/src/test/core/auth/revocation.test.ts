@@ -3,6 +3,7 @@ import type { OAuthMetadata } from "@modelcontextprotocol/client";
 import { BrowserOAuthStorage } from "@inspector/core/auth/browser/storage.js";
 import {
   DEFAULT_REVOCATION_TIMEOUT_MS,
+  MIN_REVOCATION_REQUEST_BUDGET_MS,
   aggregateOutcomes,
   buildRevocationRequest,
   revocationAuthMethods,
@@ -207,6 +208,62 @@ describe("buildRevocationRequest", () => {
     expect(body(init).has("client_secret")).toBe(false);
   });
 
+  // #2222 asked whether `encodeURIComponent` is safe here, since §2.3.1 names
+  // the form-urlencoded algorithm (RFC 6749 Appendix B) and this is not it. It
+  // is safe, and these cases are what say so: each credential is checked on the
+  // wire *and* round-tripped through a real form-urldecoder, which is the
+  // decoder a compliant authorization server runs. Before this, no case in
+  // either suite could distinguish the two algorithms — the fixture decoded
+  // with `decodeURIComponent`, the encoder's own inverse, so every input passed
+  // by construction.
+  describe.each([
+    // The character the report turned on, and the answer to it:
+    // `encodeURIComponent` escapes `+` as `%2B` rather than leaving it bare, so
+    // a form-urldecoder never gets the chance to read it as a space. Base64
+    // secrets contain `+` routinely, which is what makes this the case worth
+    // pinning rather than reasoning about.
+    { what: "a plus", id: "cid", secret: "ab+cd", wire: "cid:ab%2Bcd" },
+    // A space is the one place the two algorithms visibly differ — `%20` here,
+    // `+` under `URLSearchParams`. Both decode to a space at a compliant
+    // server, and only `%20` also survives a server that decodes with
+    // `decodeURIComponent` alone, which is why the encoder was left as it is.
+    { what: "a space", id: "cid", secret: "ab cd", wire: "cid:ab%20cd" },
+    // The case the original encoding change was made for: an unencoded `:` in
+    // the id would move the separator and split the credential in the wrong
+    // place. It must keep working.
+    { what: "a colon", id: "c:id", secret: "sec", wire: "c%3Aid:sec" },
+    // `%` is what makes a raw credential undecodable rather than merely
+    // mis-decoded — an unescaped one starts an escape sequence that isn't.
+    { what: "a percent", id: "cid", secret: "s%ec", wire: "cid:s%25ec" },
+  ])("a credential containing $what", ({ id, secret, wire }) => {
+    const basic = (): string => {
+      const { init } = buildRevocationRequest({
+        endpoint: REVOKE_URL,
+        token: "r",
+        tokenTypeHint: "refresh_token",
+        clientInformation: { client_id: id, client_secret: secret },
+        supportedAuthMethods: ["client_secret_basic"],
+      });
+      return String(headerOf(init, "Authorization")).slice("Basic ".length);
+    };
+
+    it("is percent-encoded on the wire", () => {
+      expect(atob(basic())).toBe(wire);
+    });
+
+    it("survives a compliant server's form-urldecode", () => {
+      const decoded = atob(basic());
+      const separator = decoded.indexOf(":");
+      // `+` to space *before* percent-decoding, exactly as `test-servers`'
+      // `/oauth/revoke` now does. Written out here rather than imported so the
+      // assertion does not lean on the fixture it exists to corroborate.
+      const formUrlDecode = (v: string): string =>
+        decodeURIComponent(v.replace(/\+/g, "%20"));
+      expect(formUrlDecode(decoded.slice(0, separator))).toBe(id);
+      expect(formUrlDecode(decoded.slice(separator + 1))).toBe(secret);
+    });
+  });
+
   it("sends the secret in the body for client_secret_post", () => {
     const { init } = buildRevocationRequest({
       endpoint: REVOKE_URL,
@@ -291,7 +348,16 @@ describe("revokeToken", () => {
   // persisted client id or secret and makes `encodeURIComponent` throw. Every
   // caller has already cleared its local state by the time this runs, so a
   // rejection here would break the documented best-effort guarantee.
+  //
+  // The stub is a real `Response` rather than a bare `vi.fn()`: an unencodable
+  // credential must fail *before* the request goes out, and against a stub that
+  // returns nothing the assertion would hold either way — reading `.ok` off
+  // `undefined` throws into the same `catch`. Asserting the fetch was never
+  // called is what makes this about the encoder (#2222).
   it("reports an unencodable credential as failed rather than throwing", async () => {
+    const fetchFn = vi.fn<typeof fetch>(
+      async () => new Response(null, { status: 200 }),
+    );
     const outcome = await revokeToken({
       endpoint: REVOKE_URL,
       token: "r",
@@ -302,9 +368,10 @@ describe("revokeToken", () => {
         client_secret: `bad${String.fromCharCode(0xd800)}`,
       },
       supportedAuthMethods: ["client_secret_basic"],
-      fetchFn: vi.fn<typeof fetch>(),
+      fetchFn,
     });
 
+    expect(fetchFn).not.toHaveBeenCalled();
     expect(outcome).toMatchObject({ status: "failed", endpoint: REVOKE_URL });
   });
 
@@ -364,6 +431,27 @@ describe("revokeToken", () => {
     });
     expect(seen?.signal).toBeInstanceOf(AbortSignal);
     expect(DEFAULT_REVOCATION_TIMEOUT_MS).toBeGreaterThan(0);
+  });
+
+  // What is left of a shared deadline is measured with a sub-millisecond clock,
+  // so the budget handed down here is routinely fractional — and Node's
+  // `AbortSignal.timeout` throws `ERR_OUT_OF_RANGE` on a non-integer delay,
+  // before the fetch, turning a perfectly good request into a revocation failure
+  // that never left the process (#2252).
+  it("accepts a fractional budget and still sends the request", async () => {
+    const fetchFn = vi.fn<typeof fetch>(
+      async () => new Response(null, { status: 200 }),
+    );
+    const outcome = await revokeToken({
+      endpoint: REVOKE_URL,
+      token: "r",
+      tokenTypeHint: "refresh_token",
+      supportedAuthMethods: [],
+      fetchFn,
+      timeoutMs: 19.996,
+    });
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+    expect(outcome).toMatchObject({ status: "revoked" });
   });
 });
 
@@ -770,6 +858,58 @@ describe("revokeStoredOAuthTokens (plan + execute)", () => {
     expect(elapsed).toBeLessThan(70);
     // The first burned the budget; the rest are reported as never attempted.
     expect(fetchFn).toHaveBeenCalledTimes(1);
+  });
+
+  // The boundary the shared budget used to be decided on was `remainingMs > 0`,
+  // which timer resolution can land either side of: a grant that finished a
+  // hair before the deadline left a fractional budget behind, and the next grant
+  // spent it on a request that could not possibly complete (#2252). The floor
+  // makes that decision the same on every run.
+  it("does not issue a request with less than the minimum budget left", async () => {
+    const grant = (n: string) => ({
+      issuer: "https://as.example.com",
+      token: `r-${n}`,
+      tokenTypeHint: "refresh_token" as const,
+    });
+    const timeoutMs = 40;
+    // The clock is stubbed rather than slept against. A real sleep makes this a
+    // ONE-SIDED detector: under contention the first request overruns, the
+    // remainder goes negative, and the unfixed `remainingMs <= 0` bound skips
+    // the second grant for the wrong reason — so the test passes on an
+    // implementation that has no floor at all. Advancing a stub inside the
+    // fetch puts the second grant's remainder at exactly
+    // `MIN_REVOCATION_REQUEST_BUDGET_MS - 1` on every machine: positive, and
+    // under the floor, which is the only state that tells the two apart.
+    let now = 1_000;
+    const nowSpy = vi.spyOn(performance, "now").mockImplementation(() => now);
+    const fetchFn = vi.fn<typeof fetch>(async () => {
+      now += timeoutMs - MIN_REVOCATION_REQUEST_BUDGET_MS + 1;
+      return new Response(null, { status: 200 });
+    });
+
+    try {
+      const outcome = await executeOAuthRevocation(
+        {
+          serverUrl: SERVER_URL,
+          grants: [grant("a"), grant("b")],
+          failures: [],
+          endpoint: REVOKE_URL,
+          supportedAuthMethods: [],
+          metadataIssuer: "https://as.example.com",
+        },
+        { fetchFn, timeoutMs },
+      );
+
+      expect(fetchFn).toHaveBeenCalledTimes(1);
+      // The unattempted grant outranks the first one's success, so the caller
+      // hears that a grant may still be live rather than that all was well.
+      expect(outcome).toMatchObject({ status: "failed" });
+      expect(outcome.status === "failed" ? outcome.detail : "").toContain(
+        "budget was exhausted",
+      );
+    } finally {
+      nowSpy.mockRestore();
+    }
   });
 
   // A grant bound to an issuer the cached metadata does not describe cannot be

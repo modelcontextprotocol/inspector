@@ -931,7 +931,26 @@ export function SchemaForm({
   // rather than reported under a reserved name: field names come straight out
   // of a server's schema, so any sentinel this form invented could collide with
   // a real argument and clear a block the user cannot see.
-  const [rawJsonMode, setRawJsonMode] = useState(false);
+  //
+  // A root union whose alternatives are all declined resolves to a base with
+  // nothing on it, so the form renders neither a picker nor a field — the user
+  // is left staring at a switch they have to know to reach for in order to make
+  // the call at all (#2224). Open the editor for them in that one case: the
+  // arguments are still expressible, just not as fields. Seeded rather than
+  // forced, so the switch keeps working; re-seeded during render (never in an
+  // effect) because this form is reused across tools rather than remounted, and
+  // a `useState` initializer would only ever see the first one.
+  const rawJsonFallback =
+    allowRawJson &&
+    branches.length === 0 &&
+    (schema.oneOf !== undefined || schema.anyOf !== undefined) &&
+    Object.keys(properties).length === 0;
+  const [rawJsonMode, setRawJsonMode] = useState(rawJsonFallback);
+  useValueChange(rawJsonFallback, (fallback) => {
+    // One-way: a schema that stops needing the fallback does not close an
+    // editor the user may have opened on purpose.
+    if (fallback) setRawJsonMode(true);
+  });
   const [rawJsonInvalid, setRawJsonInvalid] = useState(false);
 
   // Stable so `RawArgumentsField`'s reporting effect subscribes once rather

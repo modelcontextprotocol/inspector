@@ -4,6 +4,7 @@ import {
 } from "@inspector/core/auth/node/storage-node.js";
 import {
   DEFAULT_REVOCATION_TIMEOUT_MS,
+  MIN_REVOCATION_REQUEST_BUDGET_MS,
   clearAndPlanRevocation,
   executeOAuthRevocation,
   type OAuthRevocationPlan,
@@ -113,17 +114,19 @@ async function sendPlans(
   budgetMs: number,
 ): Promise<TokenRevocationOutcome | undefined> {
   const fetchFn = createProxyFetch() ?? fetch;
-  const deadlineAt = Date.now() + budgetMs;
+  // Monotonic and epsilon-floored for the same reasons as the shared deadline
+  // inside `executeOAuthRevocation` — see MIN_REVOCATION_REQUEST_BUDGET_MS.
+  const deadlineAt = performance.now() + budgetMs;
   let reported: TokenRevocationOutcome | undefined;
   let lastSkip: TokenRevocationOutcome | undefined;
   for (const plan of plans) {
-    const remainingMs = deadlineAt - Date.now();
+    const remainingMs = deadlineAt - performance.now();
     // A plan that already knows its answer needs no network, so the budget is
     // irrelevant to it. Synthesising exhaustion here would warn that a grant
     // may still be live when the key held no grant at all — a false alarm, and
     // one that outranks the real outcome under the failure-first rule below.
     const needsNetwork = plan.outcome === undefined;
-    if (needsNetwork && remainingMs <= 0) {
+    if (needsNetwork && remainingMs <= MIN_REVOCATION_REQUEST_BUDGET_MS) {
       // Overrides an earlier success rather than deferring to it: this key's
       // grant may still be live at the authorization server, and that is the
       // thing the user needs to hear about. Same failure-first rule as below.

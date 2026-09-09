@@ -3,7 +3,11 @@
     "name": "root-union-schemas-showcase",
     "version": "1.0.0"
   },
-  "tools": [{ "preset": "echo" }, { "preset": "get_weather" }],
+  "tools": [
+    { "preset": "echo" },
+    { "preset": "get_weather" },
+    { "preset": "record_shipment_by" }
+  ],
   "rawToolSchemas": {
     "echo": {
       "inputSchema": {
@@ -28,6 +32,26 @@
               "phone": { "type": "string" }
             },
             "required": ["kind", "phone"]
+          }
+        ]
+      }
+    },
+    "record_shipment_by": {
+      "inputSchema": {
+        "type": "object",
+        "discriminator": { "propertyName": "by" },
+        "oneOf": [
+          {
+            "type": "object",
+            "title": "By address",
+            "properties": { "by": { "type": "string", "const": "address" } },
+            "required": ["by", "address"]
+          },
+          {
+            "type": "object",
+            "title": "By tracking number",
+            "properties": { "by": { "type": "string", "const": "tracking" } },
+            "required": ["by", "tracking"]
           }
         ]
       }

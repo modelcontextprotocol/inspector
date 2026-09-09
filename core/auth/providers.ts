@@ -293,16 +293,19 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
     // SDK v2's `OAuthClientProvider.saveClientInformation` passes an
     // `OAuthClientInformationContext` ({ issuer }); our own DCR/CIMD callers
     // pass `SaveClientInformationOptions` ({ registrationKind }). Accept either
-    // and read whichever keys are present: the SDK supplies `issuer` (SEP-2352
-    // per-AS keying) and defaults registration kind to DCR; our callers supply
-    // the registration kind and no issuer yet.
+    // and read whichever keys are present. The SDK supplies `issuer` (SEP-2352
+    // per-AS keying) and never a kind, so `resolveSdkRegistrationKind` recovers
+    // one. Our own callers always supply the kind, and supply the `issuer` too
+    // when they know it — `ensureCimdClientRegistration` does, having just
+    // discovered it; the unkeyed slot is only for the case where AS metadata
+    // carried no `issuer` at all.
     options?: SaveClientInformationOptions | OAuthClientInformationContext,
   ): Promise<void> {
+    const issuer = options && "issuer" in options ? options.issuer : undefined;
     const registrationKind =
       options && "registrationKind" in options
         ? options.registrationKind
-        : "dcr";
-    const issuer = options && "issuer" in options ? options.issuer : undefined;
+        : await this.resolveSdkRegistrationKind(clientInformation, issuer);
     await this.storage.saveClientInformation(
       this.serverUrl,
       clientInformation,
@@ -311,6 +314,87 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
         issuer,
       },
     );
+  }
+
+  /**
+   * Resolve the registration kind for a save that carries no explicit one — that
+   * is, one the SDK made. SDK v2's `saveClientInformation` contract passes only
+   * `{ issuer }`, so the mechanism cannot be handed to us; treating every such
+   * save as DCR is what relabeled a CIMD registration `Dynamic (DCR)` in
+   * Connection Info the moment the SDK bound it to an issuer (#2242).
+   *
+   * Two cases reach here, and they are told apart by whether a registration
+   * already exists for this issuer:
+   *
+   * - **A back-stamp.** A registration is already stored for this issuer under
+   *   this `client_id`, and the SDK is only adding the `issuer` to it. Its
+   *   recorded kind is the answer — kind and credential are written and cleared
+   *   together, so a stored registration always has one.
+   * - **A new registration.** Nothing is stored for this issuer, so this save
+   *   creates it. SDK v2 `auth()` reaches its URL-based-client-ID branch — rather
+   *   than `registerClient` — exactly when the AS advertises
+   *   `client_id_metadata_document_supported` and a `clientMetadataUrl` is
+   *   configured, and it persists the AS metadata via `saveDiscoveryState`
+   *   *before* it reads or writes client information. So the branch it took is
+   *   not inferred here, it is read back from the state it just wrote.
+   *
+   * This is why the check is not "the `client_id` looks like our metadata URL".
+   * RFC 7591 §3.2 makes a dynamically issued `client_id` opaque, so an AS may
+   * mint that very URL from `POST /register`; the URL comparison only decides
+   * whether CIMD is *in play* for this connection, and the two cases above decide
+   * what actually happened (#2242, Copilot).
+   *
+   * Consequences worth stating, since each was a defect on the way here:
+   *
+   * - An existing DCR whose `client_id` happens to be the metadata URL stays
+   *   `dcr` — it takes the back-stamp path and its recorded kind says so.
+   * - `invalidateCredentials("client")`, which SDK `auth()` calls on
+   *   `invalid_client` before retrying, clears the registration and its kind. The
+   *   retry therefore takes the new-registration path and is answered from
+   *   discovery state, which that clear does not touch.
+   * - A second AS behind one resource gets its own answer, since discovery state
+   *   describes the issuer the SDK actually resolved. One that does not advertise
+   *   CIMD is `dcr` even when it mints the metadata URL as its `client_id`.
+   * - A transient failure in our own CIMD preflight costs nothing: the SDK's own
+   *   discovery is what this reads.
+   */
+  private async resolveSdkRegistrationKind(
+    clientInformation: OAuthClientInformation,
+    issuer: string | undefined,
+  ): Promise<SaveClientInformationOptions["registrationKind"]> {
+    const clientMetadataUrl = this.clientMetadataUrl?.trim();
+    if (
+      !clientMetadataUrl ||
+      clientInformation.client_id !== clientMetadataUrl
+    ) {
+      return "dcr";
+    }
+
+    // Issuer-keyed, with `getClientInformation`'s own fallback to the unkeyed
+    // slot covering a registration written before an issuer was known.
+    const stored = await this.storage.getClientInformation(
+      this.serverUrl,
+      false,
+      issuer,
+    );
+    if (stored?.client_id === clientMetadataUrl) {
+      const storedKind = await this.storage.getClientRegistrationKind(
+        this.serverUrl,
+        issuer,
+      );
+      // `"static"` lives in the preregistered slot, never this one.
+      return storedKind === "cimd" ? "cimd" : "dcr";
+    }
+
+    // A new registration: read back the branch the SDK took.
+    const discovery = await this.storage.getDiscoveryState(this.serverUrl);
+    const metadata = discovery?.authorizationServerMetadata;
+    // Require the metadata to describe *this* issuer, so a state left over from
+    // a previously resolved AS cannot answer for a different one.
+    if (issuer !== undefined && metadata?.issuer !== issuer) return "dcr";
+    return metadata?.client_id_metadata_document_supported === true
+      ? "cimd"
+      : "dcr";
   }
 
   async saveScope(scope: string | undefined): Promise<void> {
