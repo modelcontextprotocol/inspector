@@ -3909,7 +3909,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     const headers = this.mirroredTaskParamHeaders(tool, args);
     let lastTask: InspectorTask | undefined;
     try {
-      const settlement = await session.callToolAndSettle<CallToolResult>(
+      const execution = await session.callTool<CallToolResult>(
         tool.name,
         toJsonValue(args) as Readonly<Record<string, TasksJsonValue>>,
         {
@@ -3925,12 +3925,15 @@ export class InspectorClient extends InspectorClientEventTarget {
                 >,
               }),
           ...(headers === undefined ? {} : { headers }),
-          onEvent: (event) => {
-            lastTask =
-              this.emitTaskExecutionEvent(event, progressToken) ?? lastTask;
-          },
         },
       );
+      const settlement = await execution.settle({
+        signal,
+        onEvent: (event) => {
+          lastTask =
+            this.emitTaskExecutionEvent(event, progressToken) ?? lastTask;
+        },
+      });
       if (settlement.outcome.status === "cancelled") {
         throw new ToolCallCancelledError(tool.name);
       }

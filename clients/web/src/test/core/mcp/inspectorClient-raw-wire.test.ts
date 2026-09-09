@@ -51,6 +51,10 @@ describe("InspectorClient raw-wire channel (#1631)", () => {
 
   interface TaskSessionCallOptions {
     task: { preference: "allow" | "prefer"; retentionMs?: number };
+  }
+
+  interface TaskExecutionSettleOptions {
+    signal?: AbortSignal;
     onEvent: (event: unknown) => void;
   }
 
@@ -58,11 +62,15 @@ describe("InspectorClient raw-wire channel (#1631)", () => {
     client: object | null;
     protocolEra?: "legacy" | "modern";
     taskSession: {
-      callToolAndSettle: (
+      callTool: (
         name: string,
         args: Readonly<Record<string, unknown>>,
         options: TaskSessionCallOptions,
-      ) => Promise<{ outcome: unknown; lastTask?: unknown }>;
+      ) => Promise<{
+        settle: (
+          options: TaskExecutionSettleOptions,
+        ) => Promise<{ outcome: unknown; lastTask?: unknown }>;
+      }>;
     } | null;
     taskInputOrigin: (
       delivery: "peer-request" | "request-retry" | "task-update",
@@ -93,16 +101,12 @@ describe("InspectorClient raw-wire channel (#1631)", () => {
 
   function attachTaskBoundary(
     client: InspectorClient,
-    callToolAndSettle: TaskBoundaryInternals["taskSession"] extends infer Session
-      ? Session extends { callToolAndSettle: infer Call }
-        ? Call
-        : never
-      : never,
+    callTool: NonNullable<TaskBoundaryInternals["taskSession"]>["callTool"],
   ): void {
     const boundary = taskInternals(client);
     boundary.client = {};
     boundary.protocolEra = "modern";
-    boundary.taskSession = { callToolAndSettle };
+    boundary.taskSession = { callTool };
   }
 
   it("throws when there is no transport", async () => {
@@ -427,38 +431,33 @@ describe("InspectorClient raw-wire channel (#1631)", () => {
     "maps %s task options to the ext-tasks preference contract",
     async (taskOptions, expectedPreference, expectedRetention) => {
       const client = makeClient();
-      const callToolAndSettle = vi.fn(
-        async (
-          _name: string,
-          _args: Readonly<Record<string, unknown>>,
-          options: TaskSessionCallOptions,
-        ) => {
-          options.onEvent({
-            type: "task",
+      const settle = vi.fn(async (options: TaskExecutionSettleOptions) => {
+        options.onEvent({
+          type: "task",
+          task: {
+            taskId: "task-preference",
+            status: "working",
+            lastUpdatedAt: "2026-01-02T03:04:05.000Z",
+          },
+        });
+        options.onEvent({
+          type: "outcome",
+          outcome: {
+            status: "completed",
+            result: successfulResult,
             task: {
               taskId: "task-preference",
-              status: "working",
-              lastUpdatedAt: "2026-01-02T03:04:05.000Z",
-            },
-          });
-          options.onEvent({
-            type: "outcome",
-            outcome: {
               status: "completed",
-              result: successfulResult,
-              task: {
-                taskId: "task-preference",
-                status: "completed",
-                createdAt: "2026-01-02T03:04:05.000Z",
-              },
+              createdAt: "2026-01-02T03:04:05.000Z",
             },
-          });
-          return {
-            outcome: { status: "completed", result: successfulResult },
-          };
-        },
-      );
-      attachTaskBoundary(client, callToolAndSettle);
+          },
+        });
+        return {
+          outcome: { status: "completed", result: successfulResult },
+        };
+      });
+      const callTool = vi.fn(async () => ({ settle }));
+      attachTaskBoundary(client, callTool);
       const updates: Array<{
         task: TaskWithOptionalCreatedAt;
         result?: CallToolResult;
@@ -476,7 +475,7 @@ describe("InspectorClient raw-wire channel (#1631)", () => {
       );
 
       expect(invocation.result).toEqual(successfulResult);
-      expect(callToolAndSettle).toHaveBeenCalledWith(
+      expect(callTool).toHaveBeenCalledWith(
         taskTool.name,
         {},
         expect.objectContaining({
@@ -484,6 +483,11 @@ describe("InspectorClient raw-wire channel (#1631)", () => {
             preference: expectedPreference,
             retentionMs: expectedRetention,
           },
+        }),
+      );
+      expect(settle).toHaveBeenCalledWith(
+        expect.objectContaining({
+          onEvent: expect.any(Function),
         }),
       );
       expect(updates).toEqual([
@@ -510,18 +514,20 @@ describe("InspectorClient raw-wire channel (#1631)", () => {
     const client = makeClient();
     attachTaskBoundary(
       client,
-      vi.fn(async (_name, _args, options) => {
-        options.onEvent({
-          type: "task",
-          task: {
-            taskId: "task-failed",
-            status: "working",
-            createdAt: "2026-01-02T03:04:05.000Z",
-            lastUpdatedAt: "2026-01-02T03:04:06.000Z",
-          },
-        });
-        throw new Error("worker exploded");
-      }),
+      vi.fn(async () => ({
+        settle: vi.fn(async (options: TaskExecutionSettleOptions) => {
+          options.onEvent({
+            type: "task",
+            task: {
+              taskId: "task-failed",
+              status: "working",
+              createdAt: "2026-01-02T03:04:05.000Z",
+              lastUpdatedAt: "2026-01-02T03:04:06.000Z",
+            },
+          });
+          throw new Error("worker exploded");
+        }),
+      })),
     );
     const updates: Array<{ error?: Error }> = [];
     client.addEventListener("requestorTaskUpdated", (event) => {
@@ -543,7 +549,9 @@ describe("InspectorClient raw-wire channel (#1631)", () => {
     attachTaskBoundary(
       client,
       vi.fn(async () => ({
-        outcome: { status: "completed", result: invalidResult },
+        settle: vi.fn(async () => ({
+          outcome: { status: "completed", result: invalidResult },
+        })),
       })),
     );
     const toolWithOutput: Tool = {
@@ -641,9 +649,11 @@ describe("InspectorClient raw-wire channel (#1631)", () => {
     const cause = new Error("host transport failed");
     attachTaskBoundary(
       client,
-      vi.fn(async () => {
-        throw new DispatchError("dispatch policy wrapper", false, { cause });
-      }),
+      vi.fn(async () => ({
+        settle: vi.fn(async () => {
+          throw new DispatchError("dispatch policy wrapper", false, { cause });
+        }),
+      })),
     );
 
     await expect(client.callTool(taskTool, {})).rejects.toBe(cause);
@@ -658,7 +668,9 @@ describe("InspectorClient raw-wire channel (#1631)", () => {
     attachTaskBoundary(
       client,
       vi.fn(async () => ({
-        outcome: { status: "completed", result: invalidResult },
+        settle: vi.fn(async () => ({
+          outcome: { status: "completed", result: invalidResult },
+        })),
       })),
     );
     const toolWithOutput: Tool = {
