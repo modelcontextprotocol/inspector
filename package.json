@@ -91,6 +91,7 @@
     "@modelcontextprotocol/client": "2.0.0",
     "@modelcontextprotocol/core": "2.0.0",
     "@modelcontextprotocol/ext-apps": "^1.7.4",
+    "@modelcontextprotocol/ext-tasks": "file:../mcp-ext-tasks/packages/ext-tasks",
     "@modelcontextprotocol/server": "2.0.0",
     "@modelcontextprotocol/server-legacy": "2.0.0",
     "@napi-rs/keyring": "^1.3.0",

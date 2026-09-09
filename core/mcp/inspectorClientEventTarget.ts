@@ -26,6 +26,7 @@ import type {
   ResourceSubscriptionStreamState,
   ExcludedTool,
   RequestMetadata,
+  InspectorTask,
 } from "./types.js";
 import type { MalformedListItem } from "./listSalvage.js";
 import type {
@@ -35,7 +36,6 @@ import type {
   Root,
   Progress,
   ProgressToken,
-  Task,
   CallToolResult,
   ProtocolError,
   ProtocolEra,
@@ -47,8 +47,8 @@ import type { JsonValue } from "../json/jsonUtils.js";
 import type { OAuthTokens } from "@modelcontextprotocol/client";
 import type { AuthChallenge } from "../auth/challenge.js";
 
-/** Task with createdAt optional so we can emit synthetic tasks (e.g. on result/error) that omit it. */
-export type TaskWithOptionalCreatedAt = Omit<Task, "createdAt"> & {
+/** Task update shape retained for state-store compatibility. */
+export type TaskWithOptionalCreatedAt = Omit<InspectorTask, "createdAt"> & {
   createdAt?: string;
 };
 
@@ -148,7 +148,7 @@ export interface InspectorClientEventMap {
   resourceSubscriptionStreamChange: ResourceSubscriptionStreamState;
   // Task events
   /** Fired only from server notification notifications/tasks/status. */
-  taskStatusChange: { taskId: string; task: Task };
+  taskStatusChange: { taskId: string; task: InspectorTask };
   /** Fired from callToolStream for each task update. */
   toolCallTaskUpdated: {
     taskId: string;
@@ -171,7 +171,7 @@ export interface InspectorClientEventMap {
    * event carries only the caller's progressToken, not the taskId).
    */
   requestorTaskProgress: { taskId: string; progress: Progress };
-  tasksChange: Task[];
+  tasksChange: InspectorTask[];
   // Signal events (no payload)
   connect: void;
   disconnect: void;

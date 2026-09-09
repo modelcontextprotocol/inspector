@@ -357,7 +357,7 @@ describe("modern-era negotiation (2026-07-28)", () => {
     const { tools } = await connected.listTools();
     const tool = tools.find((t) => t.name === "mrtr_loop");
     await expect(connected.callTool(tool!, {})).rejects.toThrow(
-      /exceeded .* input_required rounds/,
+      /exceeded .* input[-_]required rounds/,
     );
   });
 
