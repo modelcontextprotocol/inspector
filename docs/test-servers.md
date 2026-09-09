@@ -55,6 +55,7 @@ as a missing capability rather than an error.
 | `oauth-revocation-http.json` / `oauth-no-revocation-http.json` **(legacy era)** | RFC 7009 token revocation on clear, with and without a `revocation_endpoint` | [#2144](https://github.com/modelcontextprotocol/inspector/issues/2144) |
 | `oauth-rfc8414-at-oidc-path-http.json` **(legacy era)** | Plain OAuth 2.0 AS metadata served at the OIDC well-known path | [#2172](https://github.com/modelcontextprotocol/inspector/issues/2172) |
 | `oauth-insecure-token-endpoint-http.json` **(legacy era)** | A token endpoint the SDK refuses to post credentials to | [#2280](https://github.com/modelcontextprotocol/inspector/issues/2280) |
+| `oauth-cimd-http.json` **(legacy era)** | URL-based client IDs (CIMD / SEP-991), DCR deliberately off | [#2242](https://github.com/modelcontextprotocol/inspector/issues/2242) |
 | `logging-{legacy,modern}-http.json` **(era per file)** | Logging, both eras                                  | [#1629](https://github.com/modelcontextprotocol/inspector/issues/1629) |
 | `subscriptions-{legacy,modern}-http.json` **(era per file)** | Resource subscriptions, both eras                   | [#1630](https://github.com/modelcontextprotocol/inspector/issues/1630) |
 | `subscriptions-never-acknowledged-http.json` **(modern era)** | A `subscriptions/listen` answered with a bare result  | [#2097](https://github.com/modelcontextprotocol/inspector/issues/2097) |
@@ -533,6 +534,60 @@ Note the second option is phrased as a *spelling* change, not a networking one. 
 On the broken build you got a **"Re-authentication required"** banner with a **Re-authenticate** button ([#2280](https://github.com/modelcontextprotocol/inspector/issues/2280)). That button could never work: `InsecureTokenEndpointError` does not extend `OAuthError`, and `auth()` special-cases it to rethrow rather than start a fresh `/authorize` redirect, so clicking it re-ran the same flow to the same refusal. The only text on screen was the raw SDK message, which names the three exempt literals and says nothing about which lever to reach for.
 
 Note that the fix here is presentational only. Making a `*.localhost` token endpoint actually **work** has to land in the SDK — the assertion runs inside `executeTokenRequest`, takes no options, and there is no hook the Inspector could reach.
+
+## URL-based client IDs (CIMD / SEP-991)
+
+`oauth-cimd-http.json` is a combined AS + resource server that advertises
+`client_id_metadata_document_supported: true` and — the part that makes it usable — **hosts the client
+metadata document itself**, at `/client-metadata.json`. Plain streamable-HTTP; connect with the
+**default (legacy)** protocol era.
+
+Hosting the document is the whole reason this fixture exists. In CIMD the `client_id` *is* a URL that
+the authorization server dereferences to learn the client's metadata, so a server that merely
+advertises support is only half a fixture: exercising it still meant standing up a second host by
+hand. That is why [#2242](https://github.com/modelcontextprotocol/inspector/issues/2242) shipped
+verified by its tests alone, and the v2.6.0 release ledger recorded it as the one row that had an
+observable UI surface but no way to reach it.
+
+**`supportDCR` is `false` on purpose.** With both registration paths available a successful connection
+proves nothing about which one ran — precisely the confusion #2242 was about, where Connection Info
+reported `Dynamic (DCR)` for a connection that never issued a `POST /oauth/register`. With DCR off,
+CIMD is the only way the flow can complete, so reaching a connected state *is* the assertion.
+
+⚠️ **CIMD is configured install-wide, not per server.** It lives in `client.json`
+(`~/.mcp-inspector/storage/client.json`) as `cimd: { enabled: true, clientMetadataUrl }`, reachable
+from **Client settings**, not from a server's own OAuth settings. A `clientMetadataUrl` written into a
+catalog entry's `oauth` block is silently ignored — and with `supportDCR: true` the connection then
+succeeds *via DCR*, which looks like CIMD working until you read the client id.
+
+⚠️ **The Inspector requires that URL to be HTTPS, and there is no loopback exemption**
+(`getCimdClientMetadataUrlError` in `core/client/config-parse.ts`, applied to `client.json` on disk as
+well as to the settings form). So this server's own `http://` document is **not** usable as a
+`clientMetadataUrl`: it exists for the authorization-server side of the flow and for tests that drive
+the AS directly. To drive the Inspector end to end you need the document served over HTTPS —
+`https://127.0.0.1:8443/client-metadata.json` from a throwaway self-signed listener works, with
+`NODE_TLS_REJECT_UNAUTHORIZED=0` in the *test server's* environment so its own fetch of that document
+succeeds. That asymmetry is tracked in
+[#2305](https://github.com/modelcontextprotocol/inspector/issues/2305); it is the same over-narrow
+allow-list shape as the token-endpoint exemption above.
+
+With that in place: set the metadata URL in Client settings, connect, and open **Connection Info**.
+It should read `Client registration — Client ID Metadata (CIMD)` with the **client id equal to the
+metadata URL**, which is what CIMD means and what distinguishes it from a DCR-issued
+`test_client_…`. On the broken build it read `Dynamic (DCR)` for exactly this flow
+([#2242](https://github.com/modelcontextprotocol/inspector/issues/2242)).
+
+⚠️ **`clientMetadata.redirectUris` must list the callback for the port you are running.** The
+Inspector's browser redirect is `<web origin>/oauth/callback` and the CLI/TUI's is
+`http://127.0.0.1:6276/oauth/callback`; the authorization server checks the incoming `redirect_uri`
+against this list. The shipped fixture lists **6274** (the default), **6330** and **6276**; on any
+other port the flow fails with `Invalid redirect_uri`, which reads like a CIMD problem and is not one.
+Add your port to the config rather than debugging the registration path.
+
+⚠️ **The same fixed-`issuerUrl` hazard as the fixture above applies**, for the same reason: the
+`client_id` this server publishes is derived from its issuer URL, so a server that walked to another
+port on `EADDRINUSE` publishes a `client_id` pointing at whatever process holds 8092. Check with
+`lsof -nP -iTCP:8092 -sTCP:LISTEN` before believing a failure.
 
 ## Revoking tokens on clear (RFC 7009)
 

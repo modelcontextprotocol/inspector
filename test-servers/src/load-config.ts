@@ -37,6 +37,18 @@ export interface ConfigFileOAuth {
   }>;
   supportDCR?: boolean;
   supportCIMD?: boolean;
+  /**
+   * Serve a CIMD client metadata document, making a CIMD fixture
+   * self-contained. `redirectUris` must list the Inspector callback for the
+   * web port under test. See the field's doc comment in
+   * `composable-test-server.ts`.
+   */
+  clientMetadata?: {
+    redirectUris: string[];
+    clientName?: string;
+    scope?: string;
+  };
+  clientMetadataPath?: string;
   tokenExpirationSeconds?: number;
   supportRefreshTokens?: boolean;
   /** RFC 7009 revocation endpoint; default true (#2144). */

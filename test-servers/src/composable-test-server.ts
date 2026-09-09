@@ -735,6 +735,34 @@ export interface ServerConfig {
     supportCIMD?: boolean;
 
     /**
+     * Serve a CIMD client metadata document from this server, so a CIMD
+     * fixture is self-contained.
+     *
+     * CIMD makes the `client_id` a URL that the authorization server fetches
+     * to learn the client's metadata (SEP-991). Nothing in this repo served
+     * such a document, so exercising CIMD meant standing up a second host by
+     * hand — which is why #2242 shipped verified only by its tests. With this
+     * set, the server hosts the document at `clientMetadataPath` (default
+     * `/client-metadata.json`) and that URL is a usable `client_id`.
+     *
+     * `redirectUris` MUST list the Inspector's callback for the port you run
+     * it on (`<web origin>/oauth/callback`) — the authorization server checks
+     * the incoming `redirect_uri` against this list, and a mismatch fails the
+     * flow with `Invalid redirect_uri` rather than anything CIMD-specific.
+     *
+     * Only served when `supportCIMD` is true: a document advertising a client
+     * the server would then refuse is a worse fixture than none.
+     */
+    clientMetadata?: {
+      redirectUris: string[];
+      clientName?: string;
+      scope?: string;
+    };
+
+    /** Where to serve `clientMetadata` (default `/client-metadata.json`). */
+    clientMetadataPath?: string;
+
+    /**
      * Token expiration time in seconds (default: 3600)
      */
     tokenExpirationSeconds?: number;

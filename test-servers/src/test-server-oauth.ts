@@ -283,6 +283,38 @@ function setupMetadataEndpoints(
     });
   }
 
+  // CIMD client metadata document (SEP-991). The `client_id` in a CIMD flow is
+  // a URL the authorization server dereferences, so a fixture that advertises
+  // `client_id_metadata_document_supported` without hosting a document
+  // anywhere is only half a fixture — it needs a second host to be usable at
+  // all. Serving it here makes a CIMD run self-contained.
+  //
+  // Gated on `supportCIMD` as well as on the document's presence: advertising
+  // a client this server would then refuse to honour is worse than serving
+  // nothing.
+  if (config.supportCIMD && config.clientMetadata) {
+    const doc = config.clientMetadata;
+    const metadataPath = config.clientMetadataPath ?? "/client-metadata.json";
+    app.get(metadataPath, (req: Request, res: Response) => {
+      // Derived from the request rather than from `issuerUrl`, so the
+      // document's own `client_id` always equals the URL it was fetched from
+      // — which is what CIMD requires, and what stays true if the server
+      // walked to another port on EADDRINUSE.
+      const requestBaseUrl = `${req.protocol}://${req.get("host")}`;
+      res.json({
+        client_id: new URL(metadataPath, requestBaseUrl).href,
+        client_name: doc.clientName ?? "MCP Inspector (CIMD test fixture)",
+        redirect_uris: doc.redirectUris,
+        // CIMD clients are public and authenticate with nothing; the server's
+        // own CIMD branch assumes exactly this (no client_secret is issued).
+        token_endpoint_auth_method: "none",
+        grant_types: ["authorization_code", "refresh_token"],
+        response_types: ["code"],
+        ...(doc.scope ? { scope: doc.scope } : {}),
+      });
+    });
+  }
+
   // OAuth Protected Resource Metadata. `resourceMetadataPath` moves the
   // document off the well-known path entirely (rather than serving both), so
   // a client that ignores the advertised `resource_metadata` URL gets a 404
