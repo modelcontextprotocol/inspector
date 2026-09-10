@@ -1,6 +1,13 @@
 import { describe, it, expect, vi } from "vitest";
-import type { CallToolResult, Tool } from "@modelcontextprotocol/client";
-import { DispatchError } from "@modelcontextprotocol/ext-tasks/client";
+import {
+  ProtocolError,
+  type CallToolResult,
+  type Tool,
+} from "@modelcontextprotocol/client";
+import {
+  DispatchError,
+  JsonRpcResponseError,
+} from "@modelcontextprotocol/ext-tasks/client";
 import { InspectorClient } from "@inspector/core/mcp/inspectorClient.js";
 import type { TaskWithOptionalCreatedAt } from "@inspector/core/mcp/inspectorClientEventTarget.js";
 import { ModernGetTaskResultSchema } from "@inspector/core/mcp/modernTaskSchemas.js";
@@ -37,7 +44,10 @@ describe("InspectorClient raw-wire channel (#1631)", () => {
       request: unknown,
       options?: {
         signal?: AbortSignal;
-        context?: { headers?: Readonly<Record<string, string>> };
+        context?: {
+          headers?: Readonly<Record<string, string>>;
+          requestTimeoutMs?: number;
+        };
       },
     ) => Promise<unknown>;
     rawWireRequest: (
@@ -50,7 +60,8 @@ describe("InspectorClient raw-wire channel (#1631)", () => {
   }
 
   interface TaskSessionCallOptions {
-    requestTimeoutMs: number;
+    requestTimeoutMs?: number;
+    metadata?: Readonly<Record<string, unknown>>;
     task: { preference: "allow" | "prefer"; retentionMs?: number };
   }
 
@@ -78,6 +89,7 @@ describe("InspectorClient raw-wire channel (#1631)", () => {
     ) => "server-request" | "input-required" | "task-input-required";
     emitTaskExecutionEvent: (event: unknown) => unknown;
     emitTaskError: (lastTask: unknown, reason: unknown) => void;
+    dispatchTaskProgress: (notification: unknown) => void;
   }
 
   function internals(client: InspectorClient): RawWireInternals {
@@ -141,12 +153,13 @@ describe("InspectorClient raw-wire channel (#1631)", () => {
     const consumed = internals(client).consumeRawWireResponse({
       id: sent!.id,
       result: {
+        resultType: "complete",
         taskId: "x",
         status: "completed",
         createdAt: "a",
         lastUpdatedAt: "b",
         ttlMs: null,
-        result: { content: [] },
+        result: { resultType: "complete", content: [] },
       },
     });
     expect(consumed).toBe(true);
@@ -211,6 +224,50 @@ describe("InspectorClient raw-wire channel (#1631)", () => {
       );
       const assertion = expect(promise).rejects.toThrow(/timed out/);
       await vi.advanceTimersByTimeAsync(20);
+      await assertion;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("honors the ext-tasks operation timeout context", async () => {
+    vi.useFakeTimers();
+    try {
+      const client = makeClient();
+      internals(client).requestTimeout = 10_000;
+      internals(client).transport = {
+        send: vi.fn().mockResolvedValue(undefined),
+      };
+      const promise = internals(client).dispatchTaskRequest(
+        { method: "tasks/get" },
+        { context: { requestTimeoutMs: 25 } },
+      );
+      const assertion = expect(promise).rejects.toThrow(/25 ms/);
+      await vi.advanceTimersByTimeAsync(25);
+      await assertion;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("uses the SDK 60-second default when no timeout is configured", async () => {
+    vi.useFakeTimers();
+    try {
+      const client = makeClient();
+      internals(client).transport = {
+        send: vi.fn().mockResolvedValue(undefined),
+      };
+      const promise = internals(client).dispatchTaskRequest({
+        method: "tasks/get",
+      });
+      let settled = false;
+      void promise.catch(() => {
+        settled = true;
+      });
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(settled).toBe(false);
+      const assertion = expect(promise).rejects.toThrow(/60000 ms/);
+      await vi.advanceTimersByTimeAsync(30_000);
       await assertion;
     } finally {
       vi.useRealTimers();
@@ -513,6 +570,137 @@ describe("InspectorClient raw-wire channel (#1631)", () => {
     },
   );
 
+  it("delivers raw-call progress before a task snapshot and releases the token", async () => {
+    const client = makeClient();
+    const progress: unknown[] = [];
+    client.addEventListener("progressNotification", (event) => {
+      progress.push(event.detail);
+    });
+    let progressToken: string | number | undefined;
+    attachTaskBoundary(
+      client,
+      vi.fn(async (_name, _args, options) => {
+        progressToken = options.metadata?.progressToken as
+          | string
+          | number
+          | undefined;
+        taskInternals(client).dispatchTaskProgress({
+          method: "notifications/progress",
+          params: { progressToken, progress: 1, total: 2 },
+        });
+        return {
+          settle: vi.fn(async () => ({
+            outcome: { status: "completed", result: successfulResult },
+          })),
+        };
+      }),
+    );
+
+    const invocation = await client.callTool(taskTool, {});
+
+    expect(invocation.metadata?.progressToken).toBe(progressToken);
+    expect(progress).toEqual([{ progressToken, progress: 1, total: 2 }]);
+    taskInternals(client).dispatchTaskProgress({
+      method: "notifications/progress",
+      params: { progressToken, progress: 2, total: 2 },
+    });
+    expect(progress).toHaveLength(1);
+  });
+
+  const makeBoundaryClient = (
+    options?: ConstructorParameters<typeof InspectorClient>[1],
+  ): InspectorClient =>
+    new InspectorClient(
+      { type: "stdio", command: "noop", args: [] },
+      options ?? { environment: { transport: () => ({}) as never } },
+    );
+
+  it("omits the progress token when progress is disabled", async () => {
+    const client = makeBoundaryClient({
+      environment: { transport: () => ({}) as never },
+      progress: false,
+    });
+    let sentMetadata: Readonly<Record<string, unknown>> | undefined;
+    attachTaskBoundary(
+      client,
+      vi.fn(async (_name, _args, options) => {
+        sentMetadata = options.metadata;
+        return {
+          settle: vi.fn(async () => ({
+            outcome: { status: "completed", result: successfulResult },
+          })),
+        };
+      }),
+    );
+
+    const invocation = await client.callTool(taskTool, {});
+
+    expect(sentMetadata?.progressToken).toBeUndefined();
+    expect(invocation.metadata?.progressToken).toBeUndefined();
+  });
+
+  it("reuses a caller progress token across concurrent raw calls", async () => {
+    const client = makeBoundaryClient();
+    let releaseSettle: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      releaseSettle = resolve;
+    });
+    const callTool = vi.fn(async () => ({
+      settle: vi.fn(async (options: TaskExecutionSettleOptions) => {
+        options.onEvent({
+          type: "task",
+          task: {
+            taskId: "shared-token",
+            status: "working",
+            lastUpdatedAt: "2026-01-02T03:04:05.000Z",
+          },
+        });
+        await gate;
+        return {
+          outcome: { status: "completed", result: successfulResult },
+        };
+      }),
+    }));
+    attachTaskBoundary(client, callTool);
+    const progresses: unknown[] = [];
+    client.addEventListener("progressNotification", (event) => {
+      progresses.push(event.detail);
+    });
+
+    const sharedToken = "caller-token";
+    const first = client.callTool(
+      taskTool,
+      {},
+      {
+        progressToken: sharedToken,
+      },
+    );
+    const second = client.callTool(
+      taskTool,
+      {},
+      {
+        progressToken: sharedToken,
+      },
+    );
+    await vi.waitFor(() => expect(callTool).toHaveBeenCalledTimes(2));
+    taskInternals(client).dispatchTaskProgress({
+      method: "notifications/progress",
+      params: { progressToken: sharedToken, progress: 1 },
+    });
+    expect(progresses).toHaveLength(1);
+
+    releaseSettle?.();
+    const [firstDone, secondDone] = await Promise.all([first, second]);
+    expect(firstDone.metadata?.progressToken).toBe(sharedToken);
+    expect(secondDone.metadata?.progressToken).toBe(sharedToken);
+
+    taskInternals(client).dispatchTaskProgress({
+      method: "notifications/progress",
+      params: { progressToken: sharedToken, progress: 2 },
+    });
+    expect(progresses).toHaveLength(1);
+  });
+
   it("projects a task-scoped failure onto the public task event", async () => {
     const client = makeClient();
     attachTaskBoundary(
@@ -662,6 +850,46 @@ describe("InspectorClient raw-wire channel (#1631)", () => {
     await expect(client.callTool(taskTool, {})).rejects.toBe(cause);
   });
 
+  it("preserves ext-tasks protocol error code and data", async () => {
+    const client = makeClient();
+    const errorData = { reason: "task rejected" };
+    attachTaskBoundary(
+      client,
+      vi.fn(async () => ({
+        settle: vi.fn(async (options: TaskExecutionSettleOptions) => {
+          options.onEvent({
+            type: "task",
+            task: {
+              taskId: "task-protocol-error",
+              status: "working",
+              createdAt: "2026-01-02T03:04:05.000Z",
+              lastUpdatedAt: "2026-01-02T03:04:05.000Z",
+            },
+          });
+          throw new JsonRpcResponseError({
+            code: -32099,
+            message: "Task protocol failure",
+            data: errorData,
+          });
+        }),
+      })),
+    );
+    const taskErrors: ProtocolError[] = [];
+    client.addEventListener("requestorTaskUpdated", (event) => {
+      if (event.detail.error) taskErrors.push(event.detail.error);
+    });
+
+    const rejection = client.callTool(taskTool, {});
+
+    await expect(rejection).rejects.toMatchObject({
+      code: -32099,
+      data: errorData,
+    });
+    expect(taskErrors.at(-1)).toMatchObject({
+      code: -32099,
+      data: errorData,
+    });
+  });
   it("validates output from the public streaming task path", async () => {
     const client = makeClient();
     const invalidResult: CallToolResult = {

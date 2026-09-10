@@ -1,5 +1,6 @@
 import {
   Client,
+  DEFAULT_REQUEST_TIMEOUT_MSEC,
   isInputRequiredResult,
   withInputRequired,
 } from "@modelcontextprotocol/client";
@@ -8,8 +9,10 @@ import {
   createTaskSessionEndpointId,
   createTaskSessionFromClient,
   DispatchError,
+  JsonRpcResponseError,
   resultFromTaskOutcome,
   taskViewFromExecutionEvent,
+  TaskFailedError,
   toolDeclarationFromMcpTool,
   withRelatedTaskMetadata,
 } from "@modelcontextprotocol/ext-tasks/client";
@@ -301,11 +304,17 @@ function jsonObject(value: unknown): Readonly<Record<string, TasksJsonValue>> {
   return object;
 }
 
-/** Restore host/transport error identity after ext-tasks applies dispatch policy. */
+/** Restore host/transport and protocol error identity after ext-tasks policy. */
 function unwrapTaskDispatchError(error: unknown): unknown {
-  return error instanceof DispatchError && error.cause instanceof Error
-    ? error.cause
-    : error;
+  const unwrapped =
+    error instanceof DispatchError && error.cause instanceof Error
+      ? error.cause
+      : error;
+  if (unwrapped instanceof JsonRpcResponseError)
+    return new ProtocolError(unwrapped.code, unwrapped.message, unwrapped.data);
+  if (unwrapped instanceof TaskFailedError && unwrapped.code !== undefined)
+    return new ProtocolError(unwrapped.code, unwrapped.message, unwrapped.data);
+  return unwrapped;
 }
 
 /**
@@ -665,6 +674,8 @@ export class InspectorClient extends InspectorClientEventTarget {
   private modernNeverAcknowledged = false;
   /** Correlates task-call progress tokens to task ids after the first snapshot. */
   private readonly taskProgressIds = new Map<ProgressToken, string>();
+  /** Active raw tools/call owners per progress token, before task correlation. */
+  private readonly rawCallProgressTokens = new Map<ProgressToken, number>();
   // Abort controller for the in-flight ordinary (non-task) tool call. Aborting
   // it hands the SDK the MCP cancellation flow for that request and rejects the
   // pending call, which `callTool` surfaces as a `ToolCallCancelledError`. Which
@@ -1064,12 +1075,13 @@ export class InspectorClient extends InspectorClientEventTarget {
     const progressToken = params.progressToken;
     if (progressToken === undefined) return;
     const taskId = this.taskProgressIds.get(progressToken);
-    if (!taskId) return;
+    if (!taskId && !this.rawCallProgressTokens.has(progressToken)) return;
     if (this.progress) this.dispatchTypedEvent("progressNotification", params);
-    this.dispatchTypedEvent("requestorTaskProgress", {
-      taskId,
-      progress: params,
-    });
+    if (taskId)
+      this.dispatchTypedEvent("requestorTaskProgress", {
+        taskId,
+        progress: params,
+      });
   }
 
   private attachTransportListeners(baseTransport: Transport): void {
@@ -1496,6 +1508,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     this.outboundRequestMethods.clear();
     this.lastAnsweredRequestByMethod.clear();
     this.taskProgressIds.clear();
+    this.rawCallProgressTokens.clear();
     // Per-session for the same reason: both name entries of the PREVIOUS
     // server's list. Cleared here as well as in `disconnect()` because the
     // route out that tears down nothing (`onerror` with no `onclose`) would
@@ -2338,7 +2351,11 @@ export class InspectorClient extends InspectorClientEventTarget {
       method: record.method,
       ...(params === undefined ? {} : { params }),
     };
-    const timeoutMs = timeoutOverride ?? this.requestTimeout ?? 30_000;
+    const timeoutMs =
+      timeoutOverride ??
+      options.context?.requestTimeoutMs ??
+      this.requestTimeout ??
+      DEFAULT_REQUEST_TIMEOUT_MSEC;
 
     return await new Promise<JsonRpcResponse>((resolve, reject) => {
       let onAbort: (() => void) | undefined;
@@ -3901,6 +3918,12 @@ export class InspectorClient extends InspectorClientEventTarget {
     if (!session) throw new Error("Client is not connected");
     const headers = this.mirroredTaskParamHeaders(tool, args);
     let lastTask: InspectorTask | undefined;
+    if (progressToken !== undefined) {
+      this.rawCallProgressTokens.set(
+        progressToken,
+        (this.rawCallProgressTokens.get(progressToken) ?? 0) + 1,
+      );
+    }
     try {
       const execution = await session.callTool<CallToolResult>(
         tool.name,
@@ -3938,6 +3961,15 @@ export class InspectorClient extends InspectorClientEventTarget {
         this.emitTaskError(lastTask, operationError);
       }
       throw operationError;
+    } finally {
+      if (progressToken !== undefined) {
+        const owners = this.rawCallProgressTokens.get(progressToken) ?? 0;
+        if (owners <= 1) this.rawCallProgressTokens.delete(progressToken);
+        else this.rawCallProgressTokens.set(progressToken, owners - 1);
+        if (this.taskProgressIds.get(progressToken) === lastTask?.taskId) {
+          this.taskProgressIds.delete(progressToken);
+        }
+      }
     }
   }
 
@@ -3966,6 +3998,7 @@ export class InspectorClient extends InspectorClientEventTarget {
         ? { ...(generalMetadata || {}), ...(toolSpecificMetadata || {}) }
         : undefined;
     const metadata = this.mergeMeta(callMetadata);
+    let invocationMetadata = metadata;
     const timestamp = new Date();
 
     let result: CallToolResult;
@@ -3991,15 +4024,23 @@ export class InspectorClient extends InspectorClientEventTarget {
         { method: "tools/call", toolName: tool.name },
       );
     } else {
+      const progressToken = this.progress
+        ? (this.progressTokenOf(metadata) ?? crypto.randomUUID())
+        : undefined;
+      invocationMetadata =
+        progressToken === undefined
+          ? metadata
+          : { ...(metadata ?? {}), progressToken };
       result = await this.withDirectAuthRecovery(
         () =>
           this.callTaskToolAndSettle(
             tool,
             convertedArgs,
-            metadata,
+            invocationMetadata,
             taskOptions === undefined ? "allow" : "prefer",
             taskOptions?.ttl,
             signal,
+            progressToken,
           ),
         { method: "tools/call", toolName: tool.name },
       );
@@ -4018,7 +4059,7 @@ export class InspectorClient extends InspectorClientEventTarget {
       result,
       timestamp,
       success: true,
-      metadata,
+      metadata: invocationMetadata,
       outputValidationError,
     };
     this.dispatchTypedEvent("toolCallResultChange", invocation);
@@ -4280,11 +4321,12 @@ export class InspectorClient extends InspectorClientEventTarget {
   }
 
   private toProtocolError(reason: unknown): ProtocolError {
-    return reason instanceof ProtocolError
-      ? reason
+    const normalized = unwrapTaskDispatchError(reason);
+    return normalized instanceof ProtocolError
+      ? normalized
       : new ProtocolError(
           ProtocolErrorCode.InternalError,
-          reason instanceof Error ? reason.message : String(reason),
+          normalized instanceof Error ? normalized.message : String(normalized),
         );
   }
 
@@ -4377,9 +4419,6 @@ export class InspectorClient extends InspectorClientEventTarget {
         );
       }
       throw operationError;
-    } finally {
-      if (progressToken !== undefined)
-        this.taskProgressIds.delete(progressToken);
     }
   }
 
