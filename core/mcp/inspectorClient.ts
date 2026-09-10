@@ -4234,6 +4234,18 @@ export class InspectorClient extends InspectorClientEventTarget {
           },
     );
     await this.closeTaskSession();
+    // Re-check session ownership because disconnect() (or a transport crash)
+    // can overtake either await above: it closes the current task session
+    // while this method is suspended, and installing a new session on the
+    // torn-down client would leave extension-owned callbacks and state alive
+    // until a later reconnect/disconnect. `disconnecting` covers a teardown
+    // that claimed ownership but has not yet settled the status.
+    if (
+      this.client !== client ||
+      this.disconnecting ||
+      this.status !== "connected"
+    )
+      return;
     this.taskSession = createTaskSessionFromClient(client, {
       endpointId,
       rawDispatch: this.dispatchTaskRequest,

@@ -73,6 +73,12 @@ describe("InspectorClient raw-wire channel (#1631)", () => {
 
   interface TaskBoundaryInternals {
     client: object | null;
+    status: string;
+    disconnecting: boolean;
+    protocolVersion?: string;
+    transportConfig: { type: string; command?: string; args?: string[] };
+    attachTaskSession: () => Promise<void>;
+    closeTaskSession: () => Promise<void>;
     protocolEra?: "legacy" | "modern";
     taskSession: {
       callTool: (
@@ -311,6 +317,50 @@ describe("InspectorClient raw-wire channel (#1631)", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("does not install a task session when a disconnect overtakes attachTaskSession", async () => {
+    const client = makeClient();
+    const boundary = taskInternals(client);
+    // Minimal SDK-client surface createTaskSessionFromClient reads on install.
+    const sdkClient = {
+      getServerCapabilities: () => ({}),
+      getProtocolEra: () => "modern" as const,
+    };
+    boundary.client = sdkClient;
+    boundary.status = "connected";
+    boundary.protocolVersion = "2026-07-28";
+
+    // No SDK client at all: attach is a no-op.
+    boundary.client = null;
+    await boundary.attachTaskSession();
+    expect(boundary.taskSession).toBeNull();
+    boundary.client = sdkClient;
+
+    // A disconnect that claimed teardown ownership while attach was suspended.
+    boundary.disconnecting = true;
+    await boundary.attachTaskSession();
+    expect(boundary.taskSession).toBeNull();
+
+    // A disconnect that already settled the status.
+    boundary.disconnecting = false;
+    boundary.status = "disconnected";
+    await boundary.attachTaskSession();
+    expect(boundary.taskSession).toBeNull();
+
+    // A reconnect that replaced the SDK client while attach was suspended on
+    // its first await (the endpoint-id derivation).
+    boundary.status = "connected";
+    const staleAttach = boundary.attachTaskSession();
+    boundary.client = {};
+    await staleAttach;
+    expect(boundary.taskSession).toBeNull();
+
+    // The same attach with no overtaking teardown installs the session.
+    boundary.client = sdkClient;
+    await boundary.attachTaskSession();
+    expect(boundary.taskSession).not.toBeNull();
+    await boundary.closeTaskSession();
   });
 
   it("uses the SDK 60-second default when no timeout is configured", async () => {

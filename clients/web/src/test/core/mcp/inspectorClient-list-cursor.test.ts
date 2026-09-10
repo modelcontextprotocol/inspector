@@ -18,6 +18,12 @@ import { InspectorClient } from "@inspector/core/mcp/inspectorClient.js";
  * pins is that `""` survives and that a genuinely absent cursor still sends no
  * `cursor` key at all. The SDK client is stubbed rather than connected — the
  * decision under test is made entirely in `InspectorClient`.
+ *
+ * `listRequestorTasks` is asserted against the ext-tasks session instead of
+ * the SDK client because this branch routes it through
+ * `runTaskSessionOperation`; the session owns the wire params, and its own
+ * suite pins the verbatim-cursor behavior there. The Inspector-side property
+ * is that the cursor reaches `session.listTasks` unchanged.
  */
 describe("InspectorClient list cursor handling (#2220)", () => {
   /**
@@ -106,12 +112,6 @@ describe("InspectorClient list cursor handling (#2220)", () => {
       result: { resourceTemplates: [] },
       call: (client, cursor) => client.listResourceTemplates(cursor),
     },
-    {
-      name: "listRequestorTasks",
-      method: "tasks/list",
-      result: { tasks: [] },
-      call: (client, cursor) => client.listRequestorTasks(cursor),
-    },
   ];
 
   it.each(ADAPTERS)(
@@ -152,6 +152,29 @@ describe("InspectorClient list cursor handling (#2220)", () => {
 
       const sent = request.mock.calls[0][0];
       expect(sent.params.cursor).toBe("page-2");
+    },
+  );
+
+  it.each([[""], [undefined], ["page-2"]])(
+    "listRequestorTasks forwards cursor %j to the ext-tasks session unchanged",
+    async (cursor) => {
+      const client = makeClient();
+      const listTasks = vi.fn(async (received?: string) => {
+        // The session owns the wire params; the Inspector-side property is
+        // that the cursor arrives here verbatim.
+        void received;
+        return { tasks: [] };
+      });
+      (
+        client as unknown as {
+          taskSession: { listTasks: typeof listTasks } | null;
+        }
+      ).taskSession = { listTasks };
+
+      await client.listRequestorTasks(cursor);
+
+      expect(listTasks).toHaveBeenCalledTimes(1);
+      expect(listTasks.mock.calls[0][0]).toBe(cursor);
     },
   );
 });
