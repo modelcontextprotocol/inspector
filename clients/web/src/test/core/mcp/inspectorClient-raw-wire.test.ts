@@ -50,6 +50,7 @@ describe("InspectorClient raw-wire channel (#1631)", () => {
   }
 
   interface TaskSessionCallOptions {
+    requestTimeoutMs: number;
     task: { preference: "allow" | "prefer"; retentionMs?: number };
   }
 
@@ -431,6 +432,7 @@ describe("InspectorClient raw-wire channel (#1631)", () => {
     "maps %s task options to the ext-tasks preference contract",
     async (taskOptions, expectedPreference, expectedRetention) => {
       const client = makeClient();
+      internals(client).requestTimeout = 12_345;
       const settle = vi.fn(async (options: TaskExecutionSettleOptions) => {
         options.onEvent({
           type: "task",
@@ -479,6 +481,7 @@ describe("InspectorClient raw-wire channel (#1631)", () => {
         taskTool.name,
         {},
         expect.objectContaining({
+          requestTimeoutMs: 12_345,
           task: {
             preference: expectedPreference,
             retentionMs: expectedRetention,

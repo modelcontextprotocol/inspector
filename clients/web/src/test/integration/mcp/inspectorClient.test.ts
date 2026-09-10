@@ -362,6 +362,24 @@ describe("InspectorClient", () => {
       messageLogState.destroy();
     });
 
+    it("sets error status when transport creation fails", async () => {
+      client = new InspectorClient(
+        { type: "stdio", command: "missing", args: [] },
+        {
+          environment: {
+            transport: () => {
+              throw new Error("transport factory failed");
+            },
+          },
+        },
+      );
+
+      await expect(client.connect()).rejects.toThrow(
+        "transport factory failed",
+      );
+      expect(client.getStatus()).toBe("error");
+    });
+
     it("rejects connect() with a timeout error when serverSettings.connectionTimeout fires", async () => {
       // Stub transport whose start() never resolves — simulates a slow /
       // unreachable upstream. InspectorClient.connect() should race against

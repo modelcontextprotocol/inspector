@@ -1601,151 +1601,151 @@ export class InspectorClient extends InspectorClientEventTarget {
     }
     this.status = "connecting";
     this.dispatchTypedEvent("statusChange", this.status);
+    try {
+      // Start from a clean session — see `resetSessionState` for why this is
+      // start-clean rather than relying on `disconnect()`.
+      this.resetSessionState();
+      // Settle UI requests from any previous session before installing fresh
+      // receiver handlers. Binding close in resetSessionState aborts receiver
+      // callbacks; this sweep also covers ordinary peer requests.
+      this.clearAndAnnouncePendingPeerRequests();
+      this.rejectPendingRawWireRequests("Connection ended");
+      await this.closeTaskSessionBestEffort();
 
-    // Start from a clean session — see `resetSessionState` for why this is
-    // start-clean rather than relying on `disconnect()`.
-    this.resetSessionState();
-    // Settle UI requests from any previous session before installing fresh
-    // receiver handlers. Binding close in resetSessionState aborts receiver
-    // callbacks; this sweep also covers ordinary peer requests.
-    this.clearAndAnnouncePendingPeerRequests();
-    this.rejectPendingRawWireRequests("Connection ended");
-    await this.closeTaskSessionBestEffort();
-
-    const oauthManager = this.oauthManager;
-    if (
-      this.baseTransport &&
-      this.isHttpOAuthConfig() &&
-      oauthManager &&
-      !this.transportHasAuthProvider &&
-      !oauthManager.isEnterpriseManaged() &&
-      (await oauthManager.isOAuthAuthorized())
-    ) {
-      await this.dropCachedTransport();
-    }
-
-    // Create transport (single place for create / wrap / attach).
-    if (!this.baseTransport) {
-      const transportOptions: CreateTransportOptions = {
-        fetchFn: this.fetchFn,
-        pipeStderr: this.pipeStderr,
-        onStderr: (entry: StderrLogEntry) => {
-          this.dispatchStderrLog(entry);
-        },
-        onFetchRequest: (entry: FetchRequestEntryBase) => {
-          this.dispatchFetchRequest({ ...entry, category: "transport" });
-        },
-        onFetchResponseBody: (id: string, body: string) => {
-          this.dispatchFetchRequestBodyUpdate(id, body);
-        },
-        ...(this.serverSettings && { settings: this.serverSettings }),
-      };
-      if (this.isHttpOAuthConfig() && oauthManager) {
-        // Record every 401/403 the transport sees, whatever else happens to
-        // it. The legacy first-authorization path deliberately runs with no
-        // authProvider and no challenge interception (see below), so the SDK
-        // raises a headerless `UnauthorizedError` and the client calls
-        // `authenticate()` with nothing in hand — this is the only place the
-        // challenge's RFC 9728 `resource_metadata` still exists (#2071).
-        const manager = oauthManager;
-        transportOptions.onAuthChallengeObserved = (challenge) => {
-          manager.noteObservedAuthChallenge(challenge);
-        };
-        if (oauthManager.isEnterpriseManaged()) {
-          await oauthManager.trySilentEnterpriseManagedAuth();
-          const provider = await oauthManager.createOAuthProviderForTransport();
-          const tokens = await provider.tokens();
-          if (!tokens?.access_token) {
-            const err = new Error(
-              "Unauthorized: EMA resource access token unavailable",
-            ) as Error & { status?: number; code?: number };
-            err.status = 401;
-            err.code = 401;
-            throw err;
-          }
-          transportOptions.authProvider = provider;
-        } else if (await oauthManager.isOAuthAuthorized()) {
-          // Without stored tokens, omit authProvider so connect() surfaces a plain
-          // 401 instead of the SDK opening a browser before the app callback
-          // server is listening (TUI/CLI run authenticate() explicitly).
-          transportOptions.authProvider =
-            await oauthManager.createOAuthProviderForTransport();
-        }
-      }
+      const oauthManager = this.oauthManager;
       if (
-        this.directAuthRecovery &&
-        this.directAuthRecoveryActive !== false &&
+        this.baseTransport &&
         this.isHttpOAuthConfig() &&
         oauthManager &&
-        // No stored tokens means no authProvider (see above), and then a 401 on
-        // the era-negotiation probe reaches the SDK as a raw `SdkHttpError`.
-        // The probe's classifier ignores the HTTP status — it only looks for a
-        // JSON-RPC error body — so it verdicts "not a modern server", and pin
-        // ("modern") mode rethrows that as ERA_NEGOTIATION_FAILED with the 401
-        // discarded entirely: no status, not even a cause. Intercepting makes
-        // the 401 a typed AuthChallengeError, which survives the probe as
-        // `data.cause` for `findNestedAuthError` to recover (#1805).
-        //
-        // WORKAROUND (#1807, upstream modelcontextprotocol/typescript-sdk#2561):
-        // remove this clause once the SDK classifies a probe 401/403 as
-        // auth-required. `findNestedAuthError` is the permanent fix; the
-        // `|| this.probesProtocolEra()` clause below exists only to compensate
-        // for that upstream gap and should be deleted with it.
-        //
-        // Known, accepted side effect of turning intercept on with no stored
-        // tokens: `parseAuthChallengeFromResponse` treats 403 as a challenge
-        // too, so a probe answered 403 for a *non-auth* reason (a gateway
-        // rejecting the unknown `server/discover` method, say) now starts OAuth
-        // discovery instead of letting "auto" fall back to the legacy
-        // `initialize`. The outcome is a surfaced `oauthError`, not a hang, and
-        // it goes away with this clause.
-        (transportOptions.authProvider || this.probesProtocolEra())
+        !this.transportHasAuthProvider &&
+        !oauthManager.isEnterpriseManaged() &&
+        (await oauthManager.isOAuthAuthorized())
       ) {
-        transportOptions.interceptAuthChallenges = true;
+        await this.dropCachedTransport();
       }
-      this.transportHasAuthProvider = !!transportOptions.authProvider;
-      const { transport: baseTransport } = this.transportClientFactory(
-        this.transportConfig,
-        transportOptions,
-      );
-      this.baseTransport = baseTransport;
-      if (this.directAuthRecovery) {
-        this.directAuthRecoveryActive = !(
-          baseTransport instanceof RemoteClientTransport
-        );
-      }
-      if (
-        baseTransport instanceof RemoteClientTransport &&
-        oauthManager &&
-        this.isHttpOAuthConfig()
-      ) {
-        baseTransport.setAuthRecovery({
-          handleAuthChallenge: (challenge, options) =>
-            oauthManager.handleAuthChallenge(challenge, options),
-          pushAuthState: () => this.pushRemoteAuthState(),
-        });
-        baseTransport.setOnAuthChallenge((challenge) => {
-          void this.handleAmbientAuthChallenge(challenge);
-        });
-      }
-      const messageTracking = this.createMessageTrackingCallbacks();
-      this.transport = new MessageTrackingTransport(
-        baseTransport,
-        messageTracking,
-        {
-          rawRequestChannel: {
-            consume: (message) => this.consumeRawWireResponse(message),
+
+      // Create transport (single place for create / wrap / attach).
+      if (!this.baseTransport) {
+        const transportOptions: CreateTransportOptions = {
+          fetchFn: this.fetchFn,
+          pipeStderr: this.pipeStderr,
+          onStderr: (entry: StderrLogEntry) => {
+            this.dispatchStderrLog(entry);
           },
-        },
-      );
-      this.attachTransportListeners(this.baseTransport);
-    }
+          onFetchRequest: (entry: FetchRequestEntryBase) => {
+            this.dispatchFetchRequest({ ...entry, category: "transport" });
+          },
+          onFetchResponseBody: (id: string, body: string) => {
+            this.dispatchFetchRequestBodyUpdate(id, body);
+          },
+          ...(this.serverSettings && { settings: this.serverSettings }),
+        };
+        if (this.isHttpOAuthConfig() && oauthManager) {
+          // Record every 401/403 the transport sees, whatever else happens to
+          // it. The legacy first-authorization path deliberately runs with no
+          // authProvider and no challenge interception (see below), so the SDK
+          // raises a headerless `UnauthorizedError` and the client calls
+          // `authenticate()` with nothing in hand — this is the only place the
+          // challenge's RFC 9728 `resource_metadata` still exists (#2071).
+          const manager = oauthManager;
+          transportOptions.onAuthChallengeObserved = (challenge) => {
+            manager.noteObservedAuthChallenge(challenge);
+          };
+          if (oauthManager.isEnterpriseManaged()) {
+            await oauthManager.trySilentEnterpriseManagedAuth();
+            const provider =
+              await oauthManager.createOAuthProviderForTransport();
+            const tokens = await provider.tokens();
+            if (!tokens?.access_token) {
+              const err = new Error(
+                "Unauthorized: EMA resource access token unavailable",
+              ) as Error & { status?: number; code?: number };
+              err.status = 401;
+              err.code = 401;
+              throw err;
+            }
+            transportOptions.authProvider = provider;
+          } else if (await oauthManager.isOAuthAuthorized()) {
+            // Without stored tokens, omit authProvider so connect() surfaces a plain
+            // 401 instead of the SDK opening a browser before the app callback
+            // server is listening (TUI/CLI run authenticate() explicitly).
+            transportOptions.authProvider =
+              await oauthManager.createOAuthProviderForTransport();
+          }
+        }
+        if (
+          this.directAuthRecovery &&
+          this.directAuthRecoveryActive !== false &&
+          this.isHttpOAuthConfig() &&
+          oauthManager &&
+          // No stored tokens means no authProvider (see above), and then a 401 on
+          // the era-negotiation probe reaches the SDK as a raw `SdkHttpError`.
+          // The probe's classifier ignores the HTTP status — it only looks for a
+          // JSON-RPC error body — so it verdicts "not a modern server", and pin
+          // ("modern") mode rethrows that as ERA_NEGOTIATION_FAILED with the 401
+          // discarded entirely: no status, not even a cause. Intercepting makes
+          // the 401 a typed AuthChallengeError, which survives the probe as
+          // `data.cause` for `findNestedAuthError` to recover (#1805).
+          //
+          // WORKAROUND (#1807, upstream modelcontextprotocol/typescript-sdk#2561):
+          // remove this clause once the SDK classifies a probe 401/403 as
+          // auth-required. `findNestedAuthError` is the permanent fix; the
+          // `|| this.probesProtocolEra()` clause below exists only to compensate
+          // for that upstream gap and should be deleted with it.
+          //
+          // Known, accepted side effect of turning intercept on with no stored
+          // tokens: `parseAuthChallengeFromResponse` treats 403 as a challenge
+          // too, so a probe answered 403 for a *non-auth* reason (a gateway
+          // rejecting the unknown `server/discover` method, say) now starts OAuth
+          // discovery instead of letting "auto" fall back to the legacy
+          // `initialize`. The outcome is a surfaced `oauthError`, not a hang, and
+          // it goes away with this clause.
+          (transportOptions.authProvider || this.probesProtocolEra())
+        ) {
+          transportOptions.interceptAuthChallenges = true;
+        }
+        this.transportHasAuthProvider = !!transportOptions.authProvider;
+        const { transport: baseTransport } = this.transportClientFactory(
+          this.transportConfig,
+          transportOptions,
+        );
+        this.baseTransport = baseTransport;
+        if (this.directAuthRecovery) {
+          this.directAuthRecoveryActive = !(
+            baseTransport instanceof RemoteClientTransport
+          );
+        }
+        if (
+          baseTransport instanceof RemoteClientTransport &&
+          oauthManager &&
+          this.isHttpOAuthConfig()
+        ) {
+          baseTransport.setAuthRecovery({
+            handleAuthChallenge: (challenge, options) =>
+              oauthManager.handleAuthChallenge(challenge, options),
+            pushAuthState: () => this.pushRemoteAuthState(),
+          });
+          baseTransport.setOnAuthChallenge((challenge) => {
+            void this.handleAmbientAuthChallenge(challenge);
+          });
+        }
+        const messageTracking = this.createMessageTrackingCallbacks();
+        this.transport = new MessageTrackingTransport(
+          baseTransport,
+          messageTracking,
+          {
+            rawRequestChannel: {
+              consume: (message) => this.consumeRawWireResponse(message),
+            },
+          },
+        );
+        this.attachTransportListeners(this.baseTransport);
+      }
 
-    if (!this.transport) {
-      throw new Error("Transport not initialized");
-    }
+      if (!this.transport) {
+        throw new Error("Transport not initialized");
+      }
 
-    try {
       // Register the handlers for server→client requests and the
       // capability-independent notifications before the handshake — see
       // `registerPeerRequestHandlers` for why the ordering is load-bearing.
@@ -1842,14 +1842,7 @@ export class InspectorClient extends InspectorClientEventTarget {
       // #1395). If "connect" fired first, that gate would read undefined
       // capabilities and wipe tools/prompts/resources to empty on every connect.
       await this.fetchServerInfo();
-      try {
-        await this.attachTaskSession();
-      } catch (error) {
-        this.logger.warn(
-          { error },
-          "Failed to attach ext-tasks session; continuing without task support",
-        );
-      }
+      await this.attachTaskSession();
 
       // Set initial logging level if configured and server supports it.
       //
@@ -3916,6 +3909,7 @@ export class InspectorClient extends InspectorClientEventTarget {
           resultCodec: taskToolResultCodec,
           declaration: toolDeclarationFromMcpTool(tool),
           signal,
+          requestTimeoutMs: this.requestTimeout,
           task: { preference, retentionMs },
           ...(metadata === undefined
             ? {}

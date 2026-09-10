@@ -97,6 +97,28 @@ describe("modern-era negotiation (2026-07-28)", () => {
     return connected;
   }
 
+  it("fails connect when the required Tasks session cannot attach", async () => {
+    const started = await startServer();
+    const connected = new InspectorClient(
+      { type: "streamable-http", url: started.url },
+      {
+        environment: { transport: createTransportNode },
+        versionNegotiation: eraToVersionNegotiation("modern"),
+      },
+    );
+    const boundary = connected as unknown as {
+      attachTaskSession: () => Promise<void>;
+    };
+    boundary.attachTaskSession = () =>
+      Promise.reject(new Error("task session attach failed"));
+    client = connected;
+
+    await expect(connected.connect()).rejects.toThrow(
+      "task session attach failed",
+    );
+    expect(connected.getStatus()).toBe("error");
+  });
+
   it("negotiates the modern era under 'auto' with a populated discover result", async () => {
     const started = await startServer();
     const connected = await connectWithEra(started.url, "auto");
