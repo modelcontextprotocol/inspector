@@ -40,6 +40,7 @@ describe("InspectorClient raw-wire channel (#1631)", () => {
       ) => Promise<void>;
     } | null;
     requestTimeout?: number;
+    resetTimeoutOnProgress?: boolean;
     dispatchTaskRequest: (
       request: unknown,
       options?: {
@@ -244,6 +245,68 @@ describe("InspectorClient raw-wire channel (#1631)", () => {
       );
       const assertion = expect(promise).rejects.toThrow(/25 ms/);
       await vi.advanceTimersByTimeAsync(25);
+      await assertion;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("re-arms the raw request timeout on progress when resetTimeoutOnProgress is enabled", async () => {
+    vi.useFakeTimers();
+    try {
+      const client = makeClient();
+      internals(client).requestTimeout = 10;
+      internals(client).transport = {
+        send: vi.fn().mockResolvedValue(undefined),
+      };
+      const promise = internals(client).dispatchTaskRequest({
+        method: "tools/call",
+        params: { name: "x", _meta: { progressToken: "raw-progress" } },
+      });
+      let settled = false;
+      void promise.catch(() => {
+        settled = true;
+      });
+      await vi.advanceTimersByTimeAsync(8);
+      taskInternals(client).dispatchTaskProgress({
+        method: "notifications/progress",
+        params: { progressToken: "raw-progress", progress: 1 },
+      });
+      // 16ms elapsed exceeds the 10ms budget, but progress at 8ms re-armed it.
+      await vi.advanceTimersByTimeAsync(8);
+      expect(settled).toBe(false);
+      const assertion = expect(promise).rejects.toThrow(
+        /timed out after 10 ms/,
+      );
+      await vi.advanceTimersByTimeAsync(10);
+      await assertion;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not re-arm the raw request timeout when resetTimeoutOnProgress is disabled", async () => {
+    vi.useFakeTimers();
+    try {
+      const client = makeClient();
+      internals(client).requestTimeout = 10;
+      internals(client).resetTimeoutOnProgress = false;
+      internals(client).transport = {
+        send: vi.fn().mockResolvedValue(undefined),
+      };
+      const promise = internals(client).dispatchTaskRequest({
+        method: "tools/call",
+        params: { name: "x", _meta: { progressToken: "raw-progress" } },
+      });
+      const assertion = expect(promise).rejects.toThrow(
+        /timed out after 10 ms/,
+      );
+      await vi.advanceTimersByTimeAsync(8);
+      taskInternals(client).dispatchTaskProgress({
+        method: "notifications/progress",
+        params: { progressToken: "raw-progress", progress: 1 },
+      });
+      await vi.advanceTimersByTimeAsync(4);
       await assertion;
     } finally {
       vi.useRealTimers();

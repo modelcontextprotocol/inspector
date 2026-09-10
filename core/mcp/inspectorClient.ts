@@ -515,6 +515,10 @@ export class InspectorClient extends InspectorClientEventTarget {
       resolve: (response: JsonRpcResponse) => void;
       reject: (error: Error) => void;
       cleanup: () => void;
+      // Present when the request carries a progress token and
+      // resetTimeoutOnProgress is enabled: re-arms the request's timeout.
+      progressToken?: ProgressToken;
+      resetTimeout?: () => void;
     }
   >();
   private rawWireRequestCounter = 0;
@@ -1075,6 +1079,12 @@ export class InspectorClient extends InspectorClientEventTarget {
     const progressToken = params.progressToken;
     if (progressToken === undefined) return;
     const taskId = this.taskProgressIds.get(progressToken);
+    // Re-arm any pending raw request's timeout on progress because a
+    // long-running immediate modern call that keeps reporting progress must
+    // not time out (same contract as the SDK path's resetTimeoutOnProgress).
+    for (const pending of this.pendingRawWireRequests.values()) {
+      if (pending.progressToken === progressToken) pending.resetTimeout?.();
+    }
     if (!taskId && !this.rawCallProgressTokens.has(progressToken)) return;
     if (this.progress) this.dispatchTypedEvent("progressNotification", params);
     if (taskId)
@@ -2357,6 +2367,17 @@ export class InspectorClient extends InspectorClientEventTarget {
       this.requestTimeout ??
       DEFAULT_REQUEST_TIMEOUT_MSEC;
 
+    // Extract the request's progress token (if any) because
+    // notifications/progress uses it to re-arm this request's timeout,
+    // matching the SDK path's resetTimeoutOnProgress.
+    const meta = (params as Readonly<Record<string, JsonValue>> | undefined)?.[
+      "_meta"
+    ];
+    const progressToken =
+      meta !== null && typeof meta === "object" && !Array.isArray(meta)
+        ? (meta as { progressToken?: ProgressToken }).progressToken
+        : undefined;
+
     return await new Promise<JsonRpcResponse>((resolve, reject) => {
       let onAbort: (() => void) | undefined;
       const cleanup = () => {
@@ -2364,16 +2385,30 @@ export class InspectorClient extends InspectorClientEventTarget {
         if (signal && onAbort) signal.removeEventListener("abort", onAbort);
         this.pendingRawWireRequests.delete(id);
       };
-      const timer = setTimeout(() => {
+      const onTimeout = () => {
         cleanup();
         reject(
           new DispatchError(
             `Raw MCP request "${message.method}" timed out after ${timeoutMs} ms`,
           ),
         );
-      }, timeoutMs);
+      };
+      let timer = setTimeout(onTimeout, timeoutMs);
+      const resetTimeout =
+        progressToken !== undefined && this.resetTimeoutOnProgress
+          ? () => {
+              clearTimeout(timer);
+              timer = setTimeout(onTimeout, timeoutMs);
+            }
+          : undefined;
 
-      this.pendingRawWireRequests.set(id, { resolve, reject, cleanup });
+      this.pendingRawWireRequests.set(id, {
+        resolve,
+        reject,
+        cleanup,
+        progressToken,
+        resetTimeout,
+      });
       if (signal) {
         onAbort = () => {
           const pending = this.pendingRawWireRequests.get(id);
