@@ -298,6 +298,78 @@ describe("withOAuthRequestTimeout", () => {
     expect((await assertion) as Error).toBeInstanceOf(OAuthRequestTimeoutError);
   });
 
+  it("releases both tee branches when the deadline wins", async () => {
+    vi.useFakeTimers();
+    // Losing the race rejects the caller; on its own it does not stop the read.
+    // A drain still running would keep pulling bytes *and* keep buffering them
+    // for the unread original branch — unbounded memory on exactly the
+    // signal-ignoring body the race exists to contain. Observed through the
+    // stream's own `cancel`, which is what tearing the branches down calls.
+    let cancelled = false;
+    const stalled = new ReadableStream<Uint8Array>({
+      start(ctrl) {
+        ctrl.enqueue(new TextEncoder().encode('{"issuer":'));
+      },
+      // Never resolves: headers arrived, the body never finishes.
+      pull() {
+        return new Promise<void>(() => {});
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    const wrapped = withOAuthRequestTimeout(
+      vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(
+          new Response(stalled, { headers: { "content-type": "text/plain" } }),
+        ),
+      1000,
+    );
+
+    const assertion = wrapped(URL_UNDER_TEST).catch((err: unknown) => err);
+    await vi.advanceTimersByTimeAsync(1000);
+
+    expect((await assertion) as Error).toBeInstanceOf(OAuthRequestTimeoutError);
+    // The cancels are deliberately not awaited — cancelling one branch of a tee
+    // can wait on the other — so let them settle before observing.
+    for (let i = 0; i < 20; i++) await Promise.resolve();
+    expect(cancelled).toBe(true);
+  });
+
+  it("still reports the timeout when tearing the branches down fails", async () => {
+    vi.useFakeTimers();
+    // Cancelling a stream that is already errored, locked elsewhere, or whose
+    // source rejects is not a failure here — the cleanup runs on a path that is
+    // already rejecting with something the caller cares about far more.
+    const hostile = new ReadableStream<Uint8Array>({
+      start(ctrl) {
+        ctrl.enqueue(new TextEncoder().encode("x"));
+      },
+      pull() {
+        return new Promise<void>(() => {});
+      },
+      cancel() {
+        throw new Error("cancel blew up");
+      },
+    });
+    const wrapped = withOAuthRequestTimeout(
+      vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(
+          new Response(hostile, { headers: { "content-type": "text/plain" } }),
+        ),
+      1000,
+    );
+
+    const assertion = wrapped(URL_UNDER_TEST).catch((err: unknown) => err);
+    await vi.advanceTimersByTimeAsync(1000);
+
+    expect((await assertion) as Error).toBeInstanceOf(OAuthRequestTimeoutError);
+    // And no unhandled rejection escapes from the cleanup.
+    for (let i = 0; i < 20; i++) await Promise.resolve();
+  });
+
   it("hands back the original response, not a copy", async () => {
     const original = new Response('{"issuer":"https://as.example.com"}', {
       status: 201,

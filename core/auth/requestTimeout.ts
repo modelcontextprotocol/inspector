@@ -319,6 +319,44 @@ function requestHeadersOf(
   return new Headers();
 }
 
+/**
+ * Pull a reader to completion, discarding what it yields. An absent reader — a
+ * null-body response — is already complete.
+ *
+ * Read through an explicit reader rather than `clone().arrayBuffer()` so the
+ * losing side of the race has something it can cancel: `arrayBuffer()` locks
+ * the stream to an internal reader nothing else can reach.
+ */
+async function drainToEnd(
+  reader: ReadableStreamDefaultReader<Uint8Array> | undefined,
+): Promise<void> {
+  if (!reader) return;
+  for (;;) {
+    const { done } = await reader.read();
+    if (done) return;
+  }
+}
+
+/**
+ * Tear down both branches of the tee.
+ *
+ * Deliberately **not awaited**, and the `void`s say which of the documented
+ * cases this is: the callee owns its failures (each carries its own `catch`),
+ * and the caller genuinely cannot await — cancelling one branch of a tee can
+ * itself wait on the other, which would hold the timeout open for exactly as
+ * long as the stall it is meant to end. Best-effort on each besides: a stream
+ * already cancelled, errored or locked elsewhere is not a failure here, and
+ * this runs on a path that is already rejecting with something the caller cares
+ * about more.
+ */
+function cancelBoth(
+  reader: ReadableStreamDefaultReader<Uint8Array> | undefined,
+  response: Response | undefined,
+): void {
+  void reader?.cancel().catch(() => {});
+  void response?.body?.cancel().catch(() => {});
+}
+
 /** The request URL, whatever form `fetch`'s first argument took. */
 function requestUrlOf(input: RequestInfo | URL): string {
   if (typeof input === "string") return input;
@@ -466,11 +504,16 @@ export function withOAuthRequestTimeout(
     const nextInit: RequestInit = { ...init, signal };
     REQUEST_DEADLINES.set(nextInit, budget);
 
+    // Held so the losing path can tear both tee branches down — see below.
+    let settled: Response | undefined;
+    let drainReader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+
     try {
       const response = await Promise.race([
         fetchFn(input, nextInit),
         abandoned,
       ]);
+      settled = response;
       // `fetch` resolves once the response *headers* arrive, so stopping here
       // would leave the body unbounded: an authorization server can send
       // headers, or half a JSON document, and then stall, and the caller's
@@ -496,9 +539,19 @@ export function withOAuthRequestTimeout(
       // `content-length` wrong, so those had to be stripped — a rebuilt
       // response was observably not the original in at least four ways. Not
       // rebuilding removes the whole class.
-      await Promise.race([response.clone().arrayBuffer(), abandoned]);
+      const copy = response.clone();
+      drainReader = copy.body?.getReader();
+      await Promise.race([drainToEnd(drainReader), abandoned]);
       return response;
     } catch (err) {
+      // ⚠️ Losing the race rejects the caller; on its own it does not stop the
+      // read. `clone()` tees the body, so a drain still running would keep
+      // pulling bytes *and* keep buffering them for the unread original branch
+      // — unbounded memory on exactly the signal-ignoring body the race exists
+      // to contain (Copilot). Both branches are cancelled here, which is safe
+      // precisely because this path throws: the caller never receives the
+      // response, so nothing is left to read it.
+      cancelBoth(drainReader, settled);
       // `controller.abort()` above can reject the underlying fetch *before*
       // `reject` runs, in which case the race settles with undici's
       // `AbortError` instead of ours. Which of the two wins is an ordering
