@@ -21,6 +21,11 @@
  *     the web client against a strict modern server, same as from the CLI/TUI.
  */
 
+import {
+  isOAuthRequestTimeoutWire,
+  OAuthRequestTimeoutError,
+} from "../../auth/requestTimeout.js";
+
 export interface RemoteFetchOptions {
   /** Base URL of the remote server (e.g. http://localhost:3000) */
   baseUrl: string;
@@ -158,6 +163,22 @@ export function createRemoteFetch(options: RemoteFetchOptions): typeof fetch {
 
     if (!res.ok) {
       const text = await res.text();
+      // A deadline the backend enforced arrives as an ordinary error response;
+      // rebuild the typed error from its marker so the `instanceof` checks
+      // downstream — most importantly the one that lets a stalled probe escape
+      // `withRfc8414OidcCompat` — still see a timeout for what it is (#2319,
+      // Copilot). This is the only path on which such a timeout can reach the
+      // browser without a client-side wrapper having fired first: the discovery
+      // the SDK runs from inside the transport has no wrapper at all.
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        parsed = undefined;
+      }
+      if (isOAuthRequestTimeoutWire(parsed)) {
+        throw new OAuthRequestTimeoutError(parsed.url, parsed.timeoutMs);
+      }
       throw new Error(`Remote fetch failed (${res.status}): ${text}`);
     }
 

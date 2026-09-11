@@ -1,5 +1,9 @@
 import { describe, it, expect, vi } from "vitest";
 import { createRemoteFetch } from "@inspector/core/mcp/remote/createRemoteFetch.js";
+import {
+  OAUTH_TIMEOUT_WIRE_CODE,
+  OAuthRequestTimeoutError,
+} from "@inspector/core/auth/requestTimeout.js";
 
 function ok(body: object): Response {
   return new Response(JSON.stringify(body), {
@@ -239,6 +243,85 @@ describe("createRemoteFetch", () => {
       await remoteFetch("http://upstream.example/");
 
       expect(signalOf(fetchFn)).toBeUndefined();
+    });
+  });
+
+  describe("proxy-side deadline (#2319)", () => {
+    function remoteReturning(status: number, body: string) {
+      const fetchFn = vi.fn<typeof fetch>().mockResolvedValue(
+        new Response(body, {
+          status,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+      return createRemoteFetch({
+        baseUrl: "http://remote.example",
+        fetchFn: fetchFn as unknown as typeof fetch,
+      });
+    }
+
+    it("rebuilds an OAuthRequestTimeoutError from the route's marker", async () => {
+      // The one path where a timeout reaches the browser without a client-side
+      // wrapper having fired first: the discovery the SDK runs from inside the
+      // transport has no wrapper at all, so the backend's deadline is the only
+      // one, and it arrives as an ordinary error response.
+      const remoteFetch = remoteReturning(
+        504,
+        JSON.stringify({
+          error: "proxied request to https://as.example.com/x timed out",
+          code: OAUTH_TIMEOUT_WIRE_CODE,
+          url: "https://as.example.com/x",
+          timeoutMs: 30000,
+        }),
+      );
+
+      const err = await remoteFetch("https://as.example.com/x").catch(
+        (e: unknown) => e,
+      );
+
+      expect(err).toBeInstanceOf(OAuthRequestTimeoutError);
+      const timeout = err as OAuthRequestTimeoutError;
+      expect(timeout.url).toBe("https://as.example.com/x");
+      expect(timeout.timeoutMs).toBe(30000);
+    });
+
+    it("leaves an ordinary error response as a plain Error", async () => {
+      const remoteFetch = remoteReturning(
+        500,
+        JSON.stringify({ error: "connect ECONNREFUSED" }),
+      );
+
+      const err = await remoteFetch("https://as.example.com/x").catch(
+        (e: unknown) => e,
+      );
+
+      expect(err).not.toBeInstanceOf(OAuthRequestTimeoutError);
+      expect((err as Error).message).toMatch(/Remote fetch failed \(500\)/);
+    });
+
+    it("ignores a non-JSON error body rather than throwing on the parse", async () => {
+      const remoteFetch = remoteReturning(502, "<html>bad gateway</html>");
+
+      const err = await remoteFetch("https://as.example.com/x").catch(
+        (e: unknown) => e,
+      );
+
+      expect((err as Error).message).toMatch(/Remote fetch failed \(502\)/);
+    });
+
+    it("ignores a marker whose fields are the wrong shape", async () => {
+      // An upstream could serve JSON of its own through a failing proxy; the
+      // guard checks the field types, not just the code.
+      const remoteFetch = remoteReturning(
+        504,
+        JSON.stringify({ code: OAUTH_TIMEOUT_WIRE_CODE, url: 5 }),
+      );
+
+      const err = await remoteFetch("https://as.example.com/x").catch(
+        (e: unknown) => e,
+      );
+
+      expect(err).not.toBeInstanceOf(OAuthRequestTimeoutError);
     });
   });
 });

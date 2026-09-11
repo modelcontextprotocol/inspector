@@ -28,7 +28,10 @@ import { bodyLimit } from "hono/body-limit";
 import { watch as chokidarWatch, type FSWatcher } from "chokidar";
 import { createTransportNode } from "../../node/transport.js";
 import { createProxyFetch } from "../../node/proxyFetch.js";
-import { DEFAULT_OAUTH_REQUEST_TIMEOUT_MS } from "../../../auth/requestTimeout.js";
+import {
+  DEFAULT_OAUTH_REQUEST_TIMEOUT_MS,
+  OAUTH_TIMEOUT_WIRE_CODE,
+} from "../../../auth/requestTimeout.js";
 import type {
   RemoteConnectRequest,
   RemoteSendRequest,
@@ -234,6 +237,21 @@ export interface RemoteServerOptions {
 
   /** Optional path for the user's server list file (/api/servers). Default: ~/.mcp-inspector/mcp.json */
   mcpConfigPath?: string;
+
+  /**
+   * Deadline for the outbound request `/api/fetch` makes, in milliseconds
+   * (#2319). Defaults to {@link DEFAULT_OAUTH_REQUEST_TIMEOUT_MS}, the same
+   * budget the browser-side `withOAuthRequestTimeout` uses, so the two agree on
+   * when an attempt is hopeless.
+   *
+   * This is the backstop for a client that vanishes without aborting; the
+   * primary mechanism is the caller's own signal, which `createRemoteFetch`
+   * forwards onto this hop. Exposed rather than hardcoded so a test can prove
+   * the backstop actually fires without spending thirty seconds of wall clock
+   * on it — and because a very slow authorization server is a legitimate reason
+   * to want a longer one.
+   */
+  fetchTimeoutMs?: number;
 
   /**
    * When false, the server list is read-only for this session: all
@@ -570,6 +588,10 @@ export function createRemoteApp(
   options: RemoteServerOptions,
 ): CreateRemoteAppResult {
   const dangerouslyOmitAuth = !!options.dangerouslyOmitAuth;
+  const fetchTimeoutMs = Math.max(
+    0,
+    Math.round(options.fetchTimeoutMs ?? DEFAULT_OAUTH_REQUEST_TIMEOUT_MS),
+  );
 
   // Determine auth token when auth is enabled: options > env var > generate
   const authToken = dangerouslyOmitAuth
@@ -1227,6 +1249,11 @@ export function createRemoteApp(
     // client that vanishes without aborting, and it matches the client-side
     // budget so the two agree on when this is hopeless.
     const controller = new AbortController();
+    // Set by the timer below and read in the `catch`. The fetch rejects with
+    // the signal's abort reason, but which of several aborts won is not worth
+    // inferring from the error — the flag says it directly, the same
+    // normalization `withOAuthRequestTimeout` uses.
+    let deadlineFired = false;
     const clientSignal: AbortSignal | undefined = c.req.raw.signal;
     const signal = clientSignal
       ? AbortSignal.any([controller.signal, clientSignal])
@@ -1235,15 +1262,14 @@ export function createRemoteApp(
     // the body has been either read or explicitly cancelled — this route never
     // hands a live stream to its caller, so there is nothing left for the timer
     // to protect and nothing it could sever.
-    const timer = setTimeout(
-      () =>
-        controller.abort(
-          new Error(
-            `proxied request to ${url} timed out after ${DEFAULT_OAUTH_REQUEST_TIMEOUT_MS}ms`,
-          ),
+    const timer = setTimeout(() => {
+      deadlineFired = true;
+      controller.abort(
+        new Error(
+          `proxied request to ${url} timed out after ${fetchTimeoutMs}ms`,
         ),
-      DEFAULT_OAUTH_REQUEST_TIMEOUT_MS,
-    );
+      );
+    }, fetchTimeoutMs);
 
     try {
       // Proxy-aware, not the bare global. This route is the browser's ONLY way
@@ -1296,6 +1322,21 @@ export function createRemoteApp(
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
+      if (deadlineFired) {
+        // Stamped so the browser can rebuild an `OAuthRequestTimeoutError`
+        // rather than receiving a plain `Error` that no `instanceof` check
+        // downstream can recognize (Copilot). 504 because that is what this
+        // is — the gateway gave up on the upstream, not a fault in the route.
+        return c.json(
+          {
+            error: msg,
+            code: OAUTH_TIMEOUT_WIRE_CODE,
+            url,
+            timeoutMs: fetchTimeoutMs,
+          },
+          504,
+        );
+      }
       return c.json({ error: msg }, 500);
     } finally {
       clearTimeout(timer);

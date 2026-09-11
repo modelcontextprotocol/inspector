@@ -318,10 +318,12 @@ describe("withOAuthRequestTimeout", () => {
     await expect(wrapped(URL_UNDER_TEST)).rejects.toBe(boom);
   });
 
-  it("rounds a fractional budget, because setTimeout takes an integer", async () => {
+  it("rounds a fractional budget, which is reported to the caller", async () => {
     vi.useFakeTimers();
-    // A budget derived from `performance.now()` arrives fractional; a fractional
-    // delay throws ERR_OUT_OF_RANGE before the request is ever made.
+    // `setTimeout` would accept the fraction and truncate it. The rounding is
+    // for the budget's *reported* form: a `performance.now()` subtraction would
+    // otherwise name "1000.4000000953674ms" in the message and expose a
+    // non-integer `timeoutMs`.
     const wrapped = withOAuthRequestTimeout(neverSettles, 1000.4);
 
     const assertion = wrapped(URL_UNDER_TEST).catch((err: unknown) => err);

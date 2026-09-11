@@ -51,6 +51,7 @@ interface StartOpts {
   secretStore?: SecretStore;
   logger?: pinoType.Logger;
   seedConfig?: string;
+  fetchTimeoutMs?: number;
 }
 
 async function start(opts: StartOpts = {}): Promise<Harness> {
@@ -65,6 +66,9 @@ async function start(opts: StartOpts = {}): Promise<Harness> {
     initialConfig: { defaultEnvironment: {} },
     secretStore: opts.secretStore ?? new InMemorySecretStore(),
     logger: opts.logger,
+    ...(opts.fetchTimeoutMs !== undefined && {
+      fetchTimeoutMs: opts.fetchTimeoutMs,
+    }),
   });
   const { baseUrl, server } = await new Promise<{
     baseUrl: string;
@@ -465,9 +469,40 @@ describe("server.ts supplemental coverage", () => {
       const payload = (await res.json()) as { status: number; body?: string };
       expect(payload.status).toBe(200);
       expect(payload.body).toBeUndefined();
-      // The upstream sees its connection go away once the handler returns.
-      // Without the cancel this never resolves and the test times out.
+      // The observable contract: the route does not leave the upstream stream
+      // running after it has answered. (Per the qualification above, this does
+      // not isolate the explicit `cancel()` as the cause.)
       await openStreamClosed;
+    });
+
+    it("answers 504 with a typed marker when its own deadline fires (#2319)", async () => {
+      // The backstop, on its own short budget so this costs milliseconds rather
+      // than the production thirty seconds. It matters because this is the only
+      // deadline on the transport-internal discovery path, which has no
+      // client-side wrapper — so its error has to survive the hop as something
+      // an `instanceof OAuthRequestTimeoutError` check can still recognize.
+      await stop(h);
+      h = await start({ fetchTimeoutMs: 120 });
+
+      const res = await fetch(`${h.baseUrl}/api/fetch`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ url: `${targetUrl}/stall` }),
+      });
+
+      expect(res.status).toBe(504);
+      const payload = (await res.json()) as {
+        error: string;
+        code: string;
+        url: string;
+        timeoutMs: number;
+      };
+      expect(payload.code).toBe("oauth_request_timeout");
+      expect(payload.url).toBe(`${targetUrl}/stall`);
+      expect(payload.timeoutMs).toBe(120);
+      expect(payload.error).toContain("timed out after 120ms");
+      // And the upstream is released rather than left running.
+      await stallClosed;
     });
 
     it("routes the outbound request through HTTP_PROXY (#2067)", async () => {

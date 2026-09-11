@@ -83,6 +83,40 @@ export class OAuthRequestTimeoutError extends Error {
   }
 }
 
+/**
+ * How a proxy-side deadline is carried back to the browser (#2319).
+ *
+ * `/api/fetch` serializes its failures as a JSON error response, and
+ * `createRemoteFetch` turns any non-OK answer into a plain `Error` — so a
+ * timeout enforced by the *backend* would arrive as an untyped error and the
+ * `instanceof OAuthRequestTimeoutError` checks downstream would all be false
+ * (Copilot). That matters most exactly where there is no client-side wrapper to
+ * have fired first: the discovery the SDK runs from inside the transport. So
+ * the route stamps this marker and `createRemoteFetch` reconstructs the typed
+ * error from it.
+ */
+export const OAUTH_TIMEOUT_WIRE_CODE = "oauth_request_timeout";
+
+/** The body `/api/fetch` returns when its own deadline fired. */
+export interface OAuthRequestTimeoutWire {
+  code: typeof OAUTH_TIMEOUT_WIRE_CODE;
+  url: string;
+  timeoutMs: number;
+}
+
+/** Whether a parsed `/api/fetch` error body is a proxy-side deadline. */
+export function isOAuthRequestTimeoutWire(
+  value: unknown,
+): value is OAuthRequestTimeoutWire {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Record<string, unknown>;
+  return (
+    candidate.code === OAUTH_TIMEOUT_WIRE_CODE &&
+    typeof candidate.url === "string" &&
+    typeof candidate.timeoutMs === "number"
+  );
+}
+
 /** The request URL, whatever form `fetch`'s first argument took. */
 function requestUrlOf(input: RequestInfo | URL): string {
   if (typeof input === "string") return input;
@@ -187,12 +221,20 @@ export function withOAuthRequestTimeout(
   fetchFn: typeof fetch,
   timeoutMs: number = DEFAULT_OAUTH_REQUEST_TIMEOUT_MS,
 ): typeof fetch {
-  // Whole milliseconds, because `setTimeout` and `AbortSignal.timeout` both
-  // take an integer: Node throws `ERR_OUT_OF_RANGE` on a fractional delay —
-  // before the fetch, so the request is never sent and the caller sees a failed
-  // operation rather than a timeout. A budget derived from `performance.now()`
-  // is fractional, so this is reachable. `revocation.ts:253` carries the same
-  // note for the same reason.
+  // Whole milliseconds. Not for the reason `revocation.ts:253` gives — that one
+  // calls `AbortSignal.timeout`, which really does throw `ERR_OUT_OF_RANGE` on
+  // a fractional delay (verified on Node 26) and so would fail before the
+  // request was sent. This wrapper drives its deadline with `setTimeout` and an
+  // `AbortController`, and `setTimeout` accepts a fractional delay and
+  // truncates it, so nothing here would throw (Copilot).
+  //
+  // The real reason is that the budget is *reported*: it is interpolated into
+  // the timeout message and exposed as `OAuthRequestTimeoutError.timeoutMs`. A
+  // caller whose budget came from a `performance.now()` subtraction would
+  // otherwise produce "timed out after 1000.4000000953674ms" and a non-integer
+  // public field. Rounding rather than flooring so a caller's own
+  // whole-millisecond timeout survives the trip through that clock and is still
+  // the number the message names.
   const budget = Math.max(0, Math.round(timeoutMs));
 
   return async (input, init) => {
