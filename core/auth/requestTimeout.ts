@@ -157,34 +157,65 @@ export function isOAuthRequestTimeoutWire(
  * uncertain — no server URL yet, a URL that will not parse, either side — is
  * treated as the MCP endpoint and exempted.
  *
- * Compared on **origin alone**, not origin + pathname. Path matching looks more
- * precise and is wrong: legacy SSE opens the configured URL (`/sse`), is handed
- * a *separate* message endpoint by the server, and POSTs every JSON-RPC message
- * to that second pathname — so a path rule bounds and body-buffers real MCP
- * traffic, and a slow tool call over SSE is severed at 30s and reported as an
- * `OAuthRequestTimeoutError` (Copilot).
+ * The comparison is **as narrow as the transport allows**, which is not the same
+ * rule for both of them:
  *
- * Origin is not a loose approximation of the right rule; it is exact, because
- * the SDK *enforces* that the SSE message endpoint shares the stream URL's
- * origin and rejects one that does not. Every MCP request this chain carries is
- * therefore same-origin with the configured URL, by construction.
+ * - **Streamable HTTP** sends every MCP request to the configured URL, so
+ *   `origin + pathname` is exact. Same-origin OAuth work — a protected-resource
+ *   document, or an authorization server deployed beside the resource — is a
+ *   different path and stays bounded, which is what #2319 asks for (Copilot).
+ * - **Legacy SSE** opens the configured URL (`/sse`), is handed a *separate*
+ *   message endpoint by the server, and POSTs every JSON-RPC message to that
+ *   second pathname. We never see that URL — it arrives inside the stream, in
+ *   the SDK's own parser — so a path rule there bounds and body-buffers real
+ *   MCP traffic, severing a slow tool call at 30s and reporting it as an
+ *   `OAuthRequestTimeoutError`. Origin is the narrowest rule available, and it
+ *   is exact rather than approximate: the SDK *enforces* that the message
+ *   endpoint shares the stream URL's origin and rejects one that does not.
  *
- * What it costs: an OAuth endpoint hosted on the MCP server's own origin — the
- * protected-resource metadata document, or an authorization server deployed
- * beside the resource — is exempt here and so unbounded on this chain. That is
- * the fail-open direction again, and the loss is narrow: the OAuth *chain*
- * bounds the Inspector's own discovery and token requests to those same URLs,
- * so only the SDK's transport-internal OAuth against a same-origin server falls
- * back to the SDK's per-request timeout, which is where it was before #2319.
+ * So the residual gap is confined to legacy SSE against a server that also
+ * hosts its own OAuth endpoints, where transport-internal OAuth falls back to
+ * the SDK's per-request timeout — where it was before #2319. The Inspector's
+ * own discovery and token requests to those URLs are bounded regardless, on the
+ * OAuth chain.
+ *
+ * ⚠️ **Fails open** on every uncertainty, and the uncertainties differ by rule:
+ * no server URL, an unparseable URL on either side, or *not knowing which
+ * transport this is* all resolve to exempt — the last one by falling back to
+ * the wider origin rule.
  */
+/**
+ * Read the transport hint, treating "absent" and "threw" alike as the wide
+ * case. A path rule applied to a connection that turns out to be legacy SSE
+ * severs real MCP traffic, so every uncertainty resolves toward the origin rule.
+ */
+function readNegotiatesEndpoint(hint: (() => boolean) | undefined): boolean {
+  if (!hint) return true;
+  try {
+    return hint();
+  } catch {
+    return true;
+  }
+}
+
 export function exemptMcpEndpoint(
   getServerUrl: () => string | undefined,
+  /**
+   * Whether the message endpoint is negotiated rather than configured — true
+   * for legacy SSE. Read per call, since the transport can change between
+   * connects. Absent, or throwing, is treated as `true`.
+   */
+  negotiatesEndpoint?: () => boolean,
 ): (url: string) => boolean {
   return (url) => {
     const serverUrl = getServerUrl();
     if (!serverUrl) return true;
+    const negotiated = readNegotiatesEndpoint(negotiatesEndpoint);
     try {
-      return new URL(url).origin === new URL(serverUrl).origin;
+      const a = new URL(url);
+      const b = new URL(serverUrl);
+      if (a.origin !== b.origin) return false;
+      return negotiated || a.pathname === b.pathname;
     } catch {
       return true;
     }

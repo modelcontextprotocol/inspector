@@ -840,7 +840,14 @@ export class InspectorClient extends InspectorClientEventTarget {
       withOAuthRequestTimeout(
         withOverrides,
         DEFAULT_OAUTH_REQUEST_TIMEOUT_MS,
-        exemptMcpEndpoint(() => this.getServerUrl()),
+        exemptMcpEndpoint(
+          () => this.getServerUrl(),
+          // Legacy SSE negotiates its message endpoint inside the stream, so
+          // its path is unknowable here and the exemption has to widen to the
+          // origin. Streamable HTTP sends everything to the configured URL, so
+          // the path rule is exact there and same-origin OAuth stays bounded.
+          () => this.transportConfig?.type === "sse",
+        ),
       ),
     );
     // #2319: the auth chain is composed separately so the deadline sits

@@ -506,6 +506,58 @@ describe("withOAuthRequestTimeout", () => {
       expect(isExempt(`${SERVER}#frag`)).toBe(true);
     });
 
+    /** Streamable HTTP: every MCP request goes to the configured URL. */
+    const streamable = (serverUrl: string) =>
+      exemptMcpEndpoint(
+        () => serverUrl,
+        () => false,
+      );
+    /** Legacy SSE: the message endpoint arrives inside the stream. */
+    const sse = (serverUrl: string) =>
+      exemptMcpEndpoint(
+        () => serverUrl,
+        () => true,
+      );
+
+    it("bounds same-origin OAuth work on a Streamable HTTP connection", () => {
+      // The narrow rule, available because the endpoint is the configured URL.
+      const isExempt = streamable(SERVER);
+
+      expect(isExempt(SERVER)).toBe(true);
+      expect(
+        isExempt(
+          "https://srv.example.com/.well-known/oauth-protected-resource/mcp",
+        ),
+      ).toBe(false);
+      expect(isExempt("https://srv.example.com/token")).toBe(false);
+    });
+
+    it("widens to the origin on legacy SSE, whose message path is unknowable", () => {
+      // The cost of the wider rule, asserted rather than implied: same-origin
+      // OAuth is exempt here, and falls back to the SDK's per-request timeout.
+      const isExempt = sse("https://srv.example.com/sse");
+
+      expect(
+        isExempt("https://srv.example.com/.well-known/openid-configuration"),
+      ).toBe(true);
+      expect(isExempt("https://as.example.com/token")).toBe(false);
+    });
+
+    it("falls back to the origin rule when the transport is unknown", () => {
+      // Fails open on this uncertainty like every other: a path rule applied to
+      // a connection that turns out to be SSE severs real MCP traffic.
+      const noHint = exemptMcpEndpoint(() => SERVER);
+      const throws = exemptMcpEndpoint(
+        () => SERVER,
+        () => {
+          throw new Error("not yet connected");
+        },
+      );
+
+      expect(noHint("https://srv.example.com/token")).toBe(true);
+      expect(throws("https://srv.example.com/token")).toBe(true);
+    });
+
     it("exempts legacy SSE's separate message endpoint", () => {
       // The case a path rule gets wrong: `SSEClientTransport` opens the
       // configured URL and is handed a *different* pathname to POST every
@@ -531,21 +583,6 @@ describe("withOAuthRequestTimeout", () => {
       // Origin is scheme + host + port, so any of the three differing bounds it.
       expect(isExempt("http://srv.example.com/token")).toBe(false);
       expect(isExempt("https://srv.example.com:8443/token")).toBe(false);
-    });
-
-    it("exempts a same-origin OAuth endpoint, which is the cost of the rule", () => {
-      // Stated as a test rather than left implicit: protected-resource metadata
-      // lives on the resource's own origin, so it is exempt here. The OAuth
-      // chain still bounds the Inspector's own requests to it; only the SDK's
-      // transport-internal OAuth against a same-origin server falls back to the
-      // SDK's per-request timeout.
-      const isExempt = exemptMcpEndpoint(() => SERVER);
-
-      expect(
-        isExempt(
-          "https://srv.example.com/.well-known/oauth-protected-resource/mcp",
-        ),
-      ).toBe(true);
     });
 
     it("fails open when the server URL is unknown or unparseable", () => {
