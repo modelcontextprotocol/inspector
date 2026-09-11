@@ -4,6 +4,7 @@ import {
   OAuthRequestTimeoutError,
   withOAuthRequestTimeout,
 } from "@inspector/core/auth/requestTimeout.js";
+import { withRfc8414OidcCompat } from "@inspector/core/auth/oidcDiscoveryCompat.js";
 
 const URL_UNDER_TEST =
   "https://as.example.com/.well-known/oauth-authorization-server";
@@ -326,6 +327,78 @@ describe("withOAuthRequestTimeout", () => {
     await vi.advanceTimersByTimeAsync(1);
     expect((await assertion) as OAuthRequestTimeoutError).toMatchObject({
       timeoutMs: DEFAULT_OAUTH_REQUEST_TIMEOUT_MS,
+    });
+  });
+
+  describe("composed under withRfc8414OidcCompat (#2319 ordering)", () => {
+    // `withRfc8414OidcCompat` re-fetches an OIDC candidate after a failed RFC
+    // 8414 discovery, so where the deadline sits relative to it decides which
+    // request is being timed. `InspectorClient` and the CLI both put it
+    // innermost; these two cases are why.
+    const RFC8414 =
+      "https://as.example.com/.well-known/oauth-authorization-server/tenant";
+    // A path-suffixed RFC 8414 candidate has two OIDC siblings, and the compat
+    // wrapper tries both.
+    const PROBES = [
+      "https://as.example.com/.well-known/openid-configuration/tenant",
+      "https://as.example.com/tenant/.well-known/openid-configuration",
+    ];
+
+    /** Answers the RFC 8414 leg with a prompt 404, then stalls on the probe. */
+    function stallingProbeFetch() {
+      return vi.fn<typeof fetch>((input) => {
+        if (String(input) === RFC8414) {
+          return Promise.resolve(new Response(null, { status: 404 }));
+        }
+        return new Promise<Response>(() => {});
+      });
+    }
+
+    it("outside, a stalled probe is misreported under the preceding URL", async () => {
+      vi.useFakeTimers();
+      const inner = stallingProbeFetch();
+      const wrapped = withOAuthRequestTimeout(
+        withRfc8414OidcCompat(inner),
+        1000,
+      );
+
+      const assertion = wrapped(RFC8414).catch((err: unknown) => err);
+      await vi.advanceTimersByTimeAsync(1000);
+
+      const err = (await assertion) as OAuthRequestTimeoutError;
+      expect(err).toBeInstanceOf(OAuthRequestTimeoutError);
+      // The endpoint that stalled was PROBE. One budget covers both legs, and
+      // the error names the request the caller made rather than the one that
+      // hung — exactly the diagnostic this change exists to provide.
+      expect(err.url).toBe(RFC8414);
+    });
+
+    it("innermost, each leg is bounded on its own and the probe is abandoned", async () => {
+      vi.useFakeTimers();
+      const inner = stallingProbeFetch();
+      const wrapped = withRfc8414OidcCompat(
+        withOAuthRequestTimeout(inner, 1000),
+      );
+
+      const settled = wrapped(RFC8414).then(
+        (response) => response,
+        (err: unknown) => err,
+      );
+      // The probe is timed from when it starts, on a budget of its own — not on
+      // whatever an outer one had left after the RFC 8414 leg.
+      await vi.advanceTimersByTimeAsync(1000);
+
+      const result = await settled;
+      // The compat wrapper is deliberately inert when a probe *throws* — it
+      // hands the original response back and lets discovery run its normal
+      // course — so a timed-out probe surfaces as the original 404 rather than
+      // as an error, and the second candidate is not tried. What innermost buys
+      // is that the probe is bounded at all, and that a stall in it can never be
+      // attributed to the RFC 8414 request the caller actually made.
+      expect(result).toBeInstanceOf(Response);
+      expect((result as Response).status).toBe(404);
+      expect(inner).toHaveBeenCalledTimes(2);
+      expect(String(inner.mock.calls[1][0])).toBe(PROBES[0]);
     });
   });
 

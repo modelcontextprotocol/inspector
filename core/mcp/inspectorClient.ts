@@ -811,8 +811,9 @@ export class InspectorClient extends InspectorClientEventTarget {
     // `this.fetchFn` directly. The overrides are read lazily — `oauthManager` is
     // created a few lines below, and `setOAuthConfig` can change them later — so
     // the wrapper is inert until a server actually configures one.
-    this.fetchFn = withOAuthEndpointOverrides(this.fetchFn ?? fetch, () =>
-      this.oauthManager?.getEndpointOverrides(),
+    const withOverrides = withOAuthEndpointOverrides(
+      this.fetchFn ?? fetch,
+      () => this.oauthManager?.getEndpointOverrides(),
     );
     // #2172: recover discovery when a plain OAuth 2.0 authorization server
     // publishes RFC 8414 metadata at `/.well-known/openid-configuration`, which
@@ -823,8 +824,18 @@ export class InspectorClient extends InspectorClientEventTarget {
     // still hit the upstream failure. The substituted response is stamped with
     // `COMPAT_SOURCE_HEADER` so a captured entry names the URL its body came
     // from rather than appearing to be a 200 from the RFC 8414 path.
-    this.fetchFn = withRfc8414OidcCompat(this.fetchFn);
-    this.effectiveAuthFetch = this.buildEffectiveAuthFetch();
+    this.fetchFn = withRfc8414OidcCompat(withOverrides);
+    // #2319: the auth chain is composed separately so the deadline sits
+    // *inside* the compat wrapper. Reusing `this.fetchFn` as the base would put
+    // it outside, and then a stalled OIDC probe would be reported under the
+    // URL of the RFC 8414 request that preceded it — defeating the whole point
+    // of naming the endpoint — while every probe in the loop shared that one
+    // request's budget (Copilot). Innermost here matches the CLI's
+    // `storedAuthFetch`. The transport keeps `this.fetchFn`, deliberately
+    // unbounded: its bodies are streams that are supposed to stay open.
+    this.effectiveAuthFetch = this.buildEffectiveAuthFetch(
+      withRfc8414OidcCompat(withOAuthRequestTimeout(withOverrides)),
+    );
 
     this.sessionId = options.sessionId;
 
@@ -991,16 +1002,15 @@ export class InspectorClient extends InspectorClientEventTarget {
     );
   }
 
-  private buildEffectiveAuthFetch(): typeof fetch {
-    // #2319: bound every OAuth-path request — discovery, dynamic client
-    // registration, the token exchange, the refresh. Applied here rather than
-    // to `this.fetchFn` because the transport is handed `this.fetchFn`
-    // directly, and a deadline on a Streamable HTTP / SSE response would sever
-    // the very stream it is supposed to hold open. The cost of that placement
-    // is that the discovery the SDK runs from *inside* the transport (the
-    // 401/refresh path) is not covered here; that leg sits inside an SDK
-    // request and is bounded by its per-request timeout.
-    const base = withOAuthRequestTimeout(this.fetchFn ?? fetch);
+  /**
+   * @param base - the composed OAuth-path fetch, deadline innermost (#2319).
+   * Passed in rather than read off `this.fetchFn`, which is the *transport*
+   * chain and must stay unbounded. The cost of keeping the two apart is that
+   * the discovery the SDK runs from inside the transport (the 401/refresh path)
+   * is not covered by the deadline; that leg sits inside an SDK request and is
+   * bounded by its per-request timeout.
+   */
+  private buildEffectiveAuthFetch(base: typeof fetch): typeof fetch {
     // Capture auth response bodies (OAuth discovery, DCR, token exchange) so
     // they're inspectable in the Network tab. Token-exchange responses carry
     // `access_token` / `refresh_token`; the Network UI masks those (and other
