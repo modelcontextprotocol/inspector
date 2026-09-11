@@ -271,7 +271,18 @@ export function withRfc8414OidcCompat(fetchFn: typeof fetch): typeof fetch {
       // rejects immediately on a pre-aborted signal, so this is mostly about
       // not sending the request at all — the same reasoning as the
       // short-circuit in `withOAuthRequestTimeout`.
-      if (callerSignal?.aborted) throw callerSignal.reason;
+      //
+      // Every exceptional exit below releases `response` first. On a normal
+      // return it is the value the caller gets and reads; on a throw nobody
+      // will ever read it, and an unread body holds its connection open on
+      // Node/undici — the same reason the successful-substitution path
+      // releases it (Copilot). Matters most for a standalone user of this
+      // exported wrapper, where no timeout wrapper is underneath to have
+      // already drained it.
+      if (callerSignal?.aborted) {
+        await releaseBody(response);
+        throw callerSignal.reason;
+      }
 
       let probe: Response;
       try {
@@ -287,13 +298,19 @@ export function withRfc8414OidcCompat(fetchFn: typeof fetch): typeof fetch {
         // is one the SDK's own `buildDiscoveryUrls` emits, so a stall here is a
         // stall the SDK would have hit itself, unbounded. Everything else — a
         // CORS rejection, DNS, a reset — still falls back as documented above.
-        if (err instanceof OAuthRequestTimeoutError) throw err;
+        if (err instanceof OAuthRequestTimeoutError) {
+          await releaseBody(response);
+          throw err;
+        }
         // Likewise a caller that gave up: substituting the preceding 404 for
         // its own abort would report a discovery failure for a request it
         // deliberately cancelled. The caller's own `reason` is what surfaces,
         // here and at the two sites below, rather than whatever shape the
         // underlying layer happened to reject with.
-        if (callerSignal?.aborted) throw callerSignal.reason;
+        if (callerSignal?.aborted) {
+          await releaseBody(response);
+          throw callerSignal.reason;
+        }
         return response;
       }
       if (!probe.ok) {
@@ -307,7 +324,10 @@ export function withRfc8414OidcCompat(fetchFn: typeof fetch): typeof fetch {
         // the body is being discarded must not be answered with the preceding
         // response either, and `continue` would otherwise carry on probing for
         // a caller that has stopped waiting.
-        if (callerSignal?.aborted) throw callerSignal.reason;
+        if (callerSignal?.aborted) {
+          await releaseBody(response);
+          throw callerSignal.reason;
+        }
         if (continuesDiscovery(probe.status)) continue;
         return response;
       }
@@ -331,7 +351,10 @@ export function withRfc8414OidcCompat(fetchFn: typeof fetch): typeof fetch {
         // discovery failure in place of its own abort reason (Copilot). A body
         // that merely will not parse still falls through, which is the case
         // this catch exists for.
-        if (callerSignal?.aborted) throw callerSignal.reason;
+        if (callerSignal?.aborted) {
+          await releaseBody(response);
+          throw callerSignal.reason;
+        }
         return response;
       }
       if (!isRfc8414OnlyMetadata(parsed)) {

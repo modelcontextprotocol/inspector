@@ -543,6 +543,41 @@ describe("probe cancellation (#2319)", () => {
     expect(await settled).toBe(reason);
   });
 
+  it("releases the discarded discovery response on an exceptional exit", async () => {
+    // Nobody receives `response` when the loop throws, and an unread body holds
+    // its connection open on Node/undici — the same reason the successful
+    // substitution path releases it.
+    const cancels = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    const discovery = new Response(
+      new ReadableStream<Uint8Array>({
+        start(ctrl) {
+          ctrl.enqueue(new TextEncoder().encode("not found"));
+        },
+      }),
+      { status: 404 },
+    );
+    // Spy on the body's cancel, which is what `releaseBody` calls.
+    const body = discovery.body;
+    if (body) vi.spyOn(body, "cancel").mockImplementation(cancels);
+
+    const inner = vi.fn<typeof fetch>((input) =>
+      String(input) === RFC8414
+        ? Promise.resolve(discovery)
+        : new Promise<Response>(() => {}),
+    );
+    const wrapped = withRfc8414OidcCompat(inner);
+
+    const settled = wrapped(RFC8414, {
+      signal: AbortSignal.abort(new Error("gone")),
+    }).then(
+      () => "resolved",
+      () => "threw",
+    );
+
+    expect(await settled).toBe("threw");
+    expect(cancels).toHaveBeenCalled();
+  });
+
   it("still falls back to the original response on an ordinary probe failure", async () => {
     const inner = vi.fn<typeof fetch>((input) => {
       if (String(input) === RFC8414) {

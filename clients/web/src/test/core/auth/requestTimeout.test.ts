@@ -7,10 +7,11 @@
  * - **The bound itself**, including the *body*: `fetch` resolves on headers, so
  *   a server that sends them and then stalls has to be caught by the buffering
  *   race, not by the fetch promise.
- * - **The rebuilt response.** Buffering means the caller gets a different
- *   `Response` object, so `url` / `redirected` / `type` are asserted to survive
- *   and `content-encoding` / `content-length` to be dropped — the buffer holds
- *   the decoded body, which makes both of those headers lies.
+ * - **The response's identity.** The bound drains a *clone* and hands back the
+ *   original, so the cases assert identity, that the body is still readable
+ *   after the drain, and that a caller's own `clone()` keeps its metadata —
+ *   the property a rebuilt response could not have, since `url` / `redirected`
+ *   / `type` are internal slots.
  * - **Cancellation semantics.** The caller's signal is forwarded *and* raced,
  *   so the tests distinguish the two: one uses a fetch that honours the signal,
  *   another uses one that ignores it entirely.
@@ -44,8 +45,9 @@ afterEach(() => {
 
 describe("withOAuthRequestTimeout", () => {
   it("passes a prompt response through", async () => {
-    // Not the same object: the body is buffered under the deadline (see the
-    // stalled-body case below) and the response rebuilt around it.
+    // The same object: the body is drained through a clone under the deadline
+    // (see the stalled-body case below), so nothing about the response the
+    // caller receives changes.
     const inner = vi
       .fn<typeof fetch>()
       .mockResolvedValue(new Response('{"ok":true}', { status: 200 }));
