@@ -25,14 +25,24 @@ ways to depend on one, and they need different halves of that skill:
   coverage gap only reachable over a real connection; reproducing a reported bug
   against a server. These need the whole procedure — the staleness hazard, and
   then whichever half matches how the server is stood up.
-  ⚠️ **An automated test builds the server IN-PROCESS; it does not spawn one.**
-  It calls `createTestServerHttp(...)` / `.start()` / `.stop()` from
-  `@modelcontextprotocol/inspector-test-server` and owns the lifecycle — no
-  subprocess, no JSON config, no showcase config to pick and no protocol-era
-  table to consult (era is a constructor option). That API and its reference
-  test are the **"Two ways to use a fixture"** section of `test-servers`; the
-  showcase config and era guidance there are the *manual* path and do not apply
-  to you. Read the right half.
+  ⚠️ **An automated test does not pick a showcase config, whichever way it
+  stands the server up.** Two shapes, and both come from the
+  `@modelcontextprotocol/inspector-test-server` API rather than from
+  `test-servers/configs/`:
+  - **In-process HTTP** — `createTestServerHttp(...)` / `.start()` / `.stop()`,
+    with the test owning the lifecycle. Use it when the case needs HTTP or SSE,
+    a specific tool set, or the modern handler (`modern: {}` is a constructor
+    option, so no era table applies).
+  - **Spawned stdio** — `getTestMcpServerCommand()` handed to a stdio transport
+    or to the built CLI, which spawns it. A subprocess *is* started, but it runs
+    the stdio fixture's **default** config, so there is still nothing to pick.
+    Use it when stdio is the point and the default tool set suffices.
+
+  Both are the **"Three ways to use a fixture"** section of `test-servers`,
+  which names a reference test for each. The showcase config and protocol-era
+  guidance there belong to the *manual* two-process path and apply to neither.
+  What does apply to both is that section's build warning. Read the right
+  third.
   ⚠️ **Connecting is a strong hint, not the rule.** A few integration tests
   deliberately hand-roll a JSON-RPC server because the composable fixture
   *cannot* produce what they assert on — `inspectorClient-malformed-list.test.ts`

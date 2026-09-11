@@ -17,24 +17,40 @@ and what the broken build did — is
 [`docs/test-servers.md`](../../../docs/test-servers.md). This skill is how to
 run one.
 
-## Two ways to use a fixture — pick the right one first
+## Three ways to use a fixture — pick the right one first
 
-A fixture is used in **one of two shapes**, and almost everything below is about
-the second. Establish which one you are in before reading further, because the
-config file, the protocol-era table and the staleness hazard belong to only one
-of them.
+A fixture is used in **one of three shapes**, and most of what follows is about
+the third. Establish which one you are in before reading further, because the
+showcase **config file and the protocol-era table** belong to that one alone.
 
-- **In-process — an automated test.** The test *constructs* the server from the
-  `@modelcontextprotocol/inspector-test-server` API and owns its lifecycle. No
-  subprocess is spawned, no JSON config is read, and no showcase config is
-  picked. **This is what an integration test does**, and it is the shape you
-  want whenever the caller is a test rather than a person.
+| Shape | Who | Server runs | Config file |
+| --- | --- | --- | --- |
+| **In-process HTTP** | an automated test | inside the test process, built from the API | none — options are constructor args |
+| **Spawned stdio** | an automated test | a child process the transport starts | none — the stdio fixture runs its default config |
+| **Two processes** | a person, by hand | a terminal you started | yes — a showcase `--config <name>.json` |
+
+- **In-process HTTP — `createTestServerHttp`.** The test *constructs* the server
+  and owns its lifecycle. No subprocess, no JSON config, no showcase config to
+  pick. This is the shape for anything needing HTTP/SSE, a specific tool set, or
+  the modern handler.
+- **Spawned stdio — `getTestMcpServerCommand()`.** The test hands the built
+  fixture's `{ command, args }` to a stdio transport (or to the built CLI), and
+  the transport spawns it. A subprocess *is* started, but **still no config
+  file**: that entry point runs the stdio server's default config, so there is
+  nothing to pick. Reach for it when stdio is the point (`InspectorClient` over
+  stdio, the CLI's out-of-process E2E suite) and the default tool set is enough.
 - **Two processes — a manual check.** You run `server-composable.js --config
   <name>.json` in one terminal and the Inspector in another, then click. Picking
-  the showcase config and the protocol era applies here, and `Run one by hand`
-  below is this path.
+  the showcase config and the protocol era applies **here only**, and
+  `Run one by hand` below is this path.
 
-### In-process: build the server from the API
+⚠️ **The build applies to all three.** Every shape resolves
+`test-servers/build/` — the two automated ones through the
+`@modelcontextprotocol/inspector-test-server` alias, the manual one by running
+the emitted `.js` directly — so `Build first` and its stale-build hazard are
+**not** manual-path guidance. Read that section whichever shape you are in.
+
+### Automated, in-process HTTP: build the server from the API
 
 ```ts
 import {
@@ -74,8 +90,9 @@ it("…", async () => {
 
 The reference test is
 [`clients/web/src/test/integration/mcp/inspectorClient-excluded-tools.test.ts`](../../../clients/web/src/test/integration/mcp/inspectorClient-excluded-tools.test.ts)
-— read it before writing a new one; it is the shape every fixture-backed
-integration test in this repo follows.
+— read it before writing a new one; it is the shape fixture-backed integration
+tests follow when the server is built in-process. (Stdio-backed ones follow the
+next subsection instead.)
 
 Four mechanics of this path:
 
@@ -99,13 +116,50 @@ Four mechanics of this path:
 
 ⚠️ **The barrel is an alias to the BUILD, not to the source** —
 `vitest.shared.mts` maps `@modelcontextprotocol/inspector-test-server` to
-`test-servers/build/index.js`. So the `Build first` section applies to this path
-in full, including the stale-build hazard: an edit to `test-servers/src` that is
-not rebuilt is invisible to an in-process test exactly as it is to a spawned one.
+`test-servers/build/index.js`. So `Build first` applies to this path in full,
+stale-build hazard included: an edit to `test-servers/src` that is not rebuilt
+is invisible to an in-process test exactly as it is to a spawned one.
+
+### Automated, spawned stdio: hand over the command
+
+```ts
+import { getTestMcpServerCommand } from "@modelcontextprotocol/inspector-test-server";
+
+const { command, args } = getTestMcpServerCommand();
+const client = new InspectorClient(
+  { type: "stdio", command, args },
+  { environment: { transport: createTransportNode } },
+);
+await client.connect();
+// … afterEach → client.disconnect(), which is what stops the child.
+```
+
+`getTestMcpServerCommand()` returns `node <test-servers/build/test-server-stdio.js>`.
+Three consequences:
+
+- **You do not own the process, the transport does.** There is no `start()` /
+  `stop()` pair — disconnecting the client is what reaps the child, so the
+  `afterEach` that matters is `client.disconnect()`.
+- **No config is selected and none can be.** That entry point starts the stdio
+  server on its **default** config, so the showcase-config table and the
+  protocol-era guidance below do not apply. If the case needs a specific tool
+  set or the modern handler, it is an in-process HTTP test, not this.
+- **It is still the build.** The path comes from the module's own resolved
+  location under the alias, so it is `test-servers/build/`, with the same
+  staleness hazard.
+
+The same command feeds the CLI's out-of-process E2E suite
+(`clients/cli/__tests__/e2e.test.ts`), which spawns the built CLI *and* lets it
+spawn the fixture. Reference tests for this shape:
+`clients/web/src/test/integration/mcp/inspectorClient-response-rejected.test.ts`
+and `clients/cli/__tests__/methods.test.ts`.
 
 ## Build first
 
-The servers are spawned as real subprocesses, so the build output must exist:
+Every shape above resolves generated output — an automated test imports the
+barrel, which is **aliased to `test-servers/build/index.js`**, and the stdio and
+manual paths run emitted `.js` as real subprocesses. So the build must exist
+whichever one you are in:
 
 ```sh
 cd clients/web && npm run test-servers:build   # tsc -p test-servers → test-servers/build/
