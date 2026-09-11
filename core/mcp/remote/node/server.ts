@@ -28,10 +28,7 @@ import { bodyLimit } from "hono/body-limit";
 import { watch as chokidarWatch, type FSWatcher } from "chokidar";
 import { createTransportNode } from "../../node/transport.js";
 import { createProxyFetch } from "../../node/proxyFetch.js";
-import {
-  DEFAULT_OAUTH_REQUEST_TIMEOUT_MS,
-  OAUTH_TIMEOUT_WIRE_CODE,
-} from "../../../auth/requestTimeout.js";
+import { OAUTH_TIMEOUT_WIRE_CODE } from "../../../auth/requestTimeout.js";
 import type {
   RemoteConnectRequest,
   RemoteSendRequest,
@@ -237,21 +234,6 @@ export interface RemoteServerOptions {
 
   /** Optional path for the user's server list file (/api/servers). Default: ~/.mcp-inspector/mcp.json */
   mcpConfigPath?: string;
-
-  /**
-   * Deadline for the outbound request `/api/fetch` makes, in milliseconds
-   * (#2319). Defaults to {@link DEFAULT_OAUTH_REQUEST_TIMEOUT_MS}, the same
-   * budget the browser-side `withOAuthRequestTimeout` uses, so the two agree on
-   * when an attempt is hopeless.
-   *
-   * This is the backstop for a client that vanishes without aborting; the
-   * primary mechanism is the caller's own signal, which `createRemoteFetch`
-   * forwards onto this hop. Exposed rather than hardcoded so a test can prove
-   * the backstop actually fires without spending thirty seconds of wall clock
-   * on it — and because a very slow authorization server is a legitimate reason
-   * to want a longer one.
-   */
-  fetchTimeoutMs?: number;
 
   /**
    * When false, the server list is read-only for this session: all
@@ -588,10 +570,6 @@ export function createRemoteApp(
   options: RemoteServerOptions,
 ): CreateRemoteAppResult {
   const dangerouslyOmitAuth = !!options.dangerouslyOmitAuth;
-  const fetchTimeoutMs = Math.max(
-    0,
-    Math.round(options.fetchTimeoutMs ?? DEFAULT_OAUTH_REQUEST_TIMEOUT_MS),
-  );
 
   // Determine auth token when auth is enabled: options > env var > generate
   const authToken = dangerouslyOmitAuth
@@ -1227,6 +1205,8 @@ export function createRemoteApp(
       method?: string;
       headers?: Record<string, string>;
       body?: string;
+      /** Per-request deadline, set only by a bounded OAuth call (#2319). */
+      timeoutMs?: number;
     };
     try {
       body = (await c.req.json()) as typeof body;
@@ -1234,7 +1214,13 @@ export function createRemoteApp(
       return c.json({ error: "Invalid JSON body" }, 400);
     }
 
-    const { url, method = "GET", headers = {}, body: reqBody } = body;
+    const {
+      url,
+      method = "GET",
+      headers = {},
+      body: reqBody,
+      timeoutMs: requestedTimeoutMs,
+    } = body;
     if (!url) {
       return c.json({ error: "Missing url" }, 400);
     }
@@ -1262,14 +1248,30 @@ export function createRemoteApp(
     // the body has been either read or explicitly cancelled — this route never
     // hands a live stream to its caller, so there is nothing left for the timer
     // to protect and nothing it could sever.
-    const timer = setTimeout(() => {
-      deadlineFired = true;
-      controller.abort(
-        new Error(
-          `proxied request to ${url} timed out after ${fetchTimeoutMs}ms`,
-        ),
-      );
-    }, fetchTimeoutMs);
+    // ⚠️ Only the caller decides whether this request is bounded, and by how
+    // much. This route is the browser's way out to the network for MCP traffic
+    // as well as OAuth work, so an unconditional timer here would abort a
+    // Streamable HTTP tool call that legitimately withholds its response
+    // headers for longer than the budget — reintroducing on the backend exactly
+    // the regression `exemptMcpEndpoint` exists to prevent on the client, and
+    // reporting it as an OAuth timeout besides (Copilot). No deadline in the
+    // envelope means no timer at all.
+    const deadlineMs =
+      typeof requestedTimeoutMs === "number" &&
+      Number.isFinite(requestedTimeoutMs)
+        ? Math.max(0, Math.round(requestedTimeoutMs))
+        : undefined;
+    const timer =
+      deadlineMs === undefined
+        ? undefined
+        : setTimeout(() => {
+            deadlineFired = true;
+            controller.abort(
+              new Error(
+                `proxied request to ${url} timed out after ${deadlineMs}ms`,
+              ),
+            );
+          }, deadlineMs);
 
     try {
       // Proxy-aware, not the bare global. This route is the browser's ONLY way
@@ -1332,14 +1334,14 @@ export function createRemoteApp(
             error: msg,
             code: OAUTH_TIMEOUT_WIRE_CODE,
             url,
-            timeoutMs: fetchTimeoutMs,
+            timeoutMs: deadlineMs,
           },
           504,
         );
       }
       return c.json({ error: msg }, 500);
     } finally {
-      clearTimeout(timer);
+      if (timer !== undefined) clearTimeout(timer);
     }
   });
 

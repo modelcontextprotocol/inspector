@@ -22,6 +22,7 @@
  */
 
 import {
+  deadlineForRequestInit,
   isOAuthRequestTimeoutWire,
   OAuthRequestTimeoutError,
 } from "../../auth/requestTimeout.js";
@@ -154,10 +155,26 @@ export function createRemoteFetch(options: RemoteFetchOptions): typeof fetch {
           ? input.signal
           : undefined;
 
+    // #2319: tell the route whether *this* request is bounded, and by how much.
+    // The route serves MCP traffic as well as OAuth work, and a Streamable HTTP
+    // tool call can legitimately withhold its response headers for minutes — so
+    // a timer there must be per-request rather than unconditional (Copilot). An
+    // exempt request carries no deadline and the route applies none.
+    //
+    // In the JSON envelope rather than a header: `headers` is re-sent verbatim
+    // to the upstream server, so a marker header would leak to a third party.
+    const timeoutMs = deadlineForRequestInit(init);
+
     const res = await fetchFn(`${baseUrl}/api/fetch`, {
       method: "POST",
       headers: reqHeaders,
-      body: JSON.stringify({ url, method, headers, body }),
+      body: JSON.stringify({
+        url,
+        method,
+        headers,
+        body,
+        ...(timeoutMs !== undefined && { timeoutMs }),
+      }),
       signal,
     });
 

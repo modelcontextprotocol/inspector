@@ -56,6 +56,7 @@ export {
   DEFAULT_OAUTH_REQUEST_TIMEOUT_MS,
   OAUTH_TIMEOUT_WIRE_CODE,
   OAuthRequestTimeoutError,
+  deadlineForRequestInit,
   exemptMcpEndpoint,
   isOAuthRequestTimeoutWire,
   withOAuthRequestTimeout,

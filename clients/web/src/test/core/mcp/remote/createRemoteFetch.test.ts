@@ -3,6 +3,7 @@ import { createRemoteFetch } from "@inspector/core/mcp/remote/createRemoteFetch.
 import {
   OAUTH_TIMEOUT_WIRE_CODE,
   OAuthRequestTimeoutError,
+  withOAuthRequestTimeout,
 } from "@inspector/core/auth/requestTimeout.js";
 
 function ok(body: object): Response {
@@ -332,6 +333,63 @@ describe("createRemoteFetch", () => {
       );
 
       expect(err).not.toBeInstanceOf(OAuthRequestTimeoutError);
+    });
+  });
+
+  describe("carrying the caller's deadline to the route (#2319)", () => {
+    function envelopeOf(fetchFn: ReturnType<typeof vi.fn<typeof fetch>>) {
+      const init = fetchFn.mock.calls[0][1] as RequestInit;
+      return JSON.parse(init.body as string) as Record<string, unknown>;
+    }
+
+    it("puts a bounded call's budget in the envelope, not in the headers", async () => {
+      const fetchFn = vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(ok(standardRemoteBody));
+      const remoteFetch = createRemoteFetch({
+        baseUrl: "http://remote.example",
+        fetchFn: (input, init) => fetchFn(input, init),
+      });
+      // Composed the way `InspectorClient` composes it: the wrapper outside,
+      // the remote fetch beneath.
+      const bounded = withOAuthRequestTimeout(remoteFetch, 7000);
+
+      await bounded("http://upstream.example/token");
+
+      const envelope = envelopeOf(fetchFn);
+      expect(envelope.timeoutMs).toBe(7000);
+      // Not a header: `headers` is re-sent verbatim to the upstream server, so
+      // a marker there would leak the Inspector's internals to a third party.
+      expect(JSON.stringify(envelope.headers)).not.toContain("7000");
+    });
+
+    it("omits the budget for an exempt call, so the route bounds nothing", async () => {
+      const fetchFn = vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(ok(standardRemoteBody));
+      const remoteFetch = createRemoteFetch({
+        baseUrl: "http://remote.example",
+        fetchFn: (input, init) => fetchFn(input, init),
+      });
+      const bounded = withOAuthRequestTimeout(remoteFetch, 7000, () => true);
+
+      await bounded("http://upstream.example/mcp");
+
+      expect(envelopeOf(fetchFn)).not.toHaveProperty("timeoutMs");
+    });
+
+    it("omits the budget for a direct call that no wrapper bounded", async () => {
+      const fetchFn = vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(ok(standardRemoteBody));
+      const remoteFetch = createRemoteFetch({
+        baseUrl: "http://remote.example",
+        fetchFn: (input, init) => fetchFn(input, init),
+      });
+
+      await remoteFetch("http://upstream.example/mcp");
+
+      expect(envelopeOf(fetchFn)).not.toHaveProperty("timeoutMs");
     });
   });
 });

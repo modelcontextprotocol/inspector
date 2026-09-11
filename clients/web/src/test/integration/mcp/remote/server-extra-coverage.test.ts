@@ -51,7 +51,6 @@ interface StartOpts {
   secretStore?: SecretStore;
   logger?: pinoType.Logger;
   seedConfig?: string;
-  fetchTimeoutMs?: number;
 }
 
 async function start(opts: StartOpts = {}): Promise<Harness> {
@@ -66,9 +65,6 @@ async function start(opts: StartOpts = {}): Promise<Harness> {
     initialConfig: { defaultEnvironment: {} },
     secretStore: opts.secretStore ?? new InMemorySecretStore(),
     logger: opts.logger,
-    ...(opts.fetchTimeoutMs !== undefined && {
-      fetchTimeoutMs: opts.fetchTimeoutMs,
-    }),
   });
   const { baseUrl, server } = await new Promise<{
     baseUrl: string;
@@ -475,19 +471,16 @@ describe("server.ts supplemental coverage", () => {
       await openStreamClosed;
     });
 
-    it("answers 504 with a typed marker when its own deadline fires (#2319)", async () => {
-      // The backstop, on its own short budget so this costs milliseconds rather
-      // than the production thirty seconds. It matters because this is the only
-      // deadline on the transport-internal discovery path, which has no
-      // client-side wrapper — so its error has to survive the hop as something
-      // an `instanceof OAuthRequestTimeoutError` check can still recognize.
-      await stop(h);
-      h = await start({ fetchTimeoutMs: 120 });
-
+    it("answers 504 with a typed marker when the request's deadline fires (#2319)", async () => {
+      // The caller's budget travels in the envelope, so this costs milliseconds
+      // rather than the production thirty seconds. The marker matters because
+      // a backend-enforced deadline is the only one on the transport-internal
+      // discovery path, and its error has to survive the hop as something an
+      // `instanceof OAuthRequestTimeoutError` check can still recognize.
       const res = await fetch(`${h.baseUrl}/api/fetch`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ url: `${targetUrl}/stall` }),
+        body: JSON.stringify({ url: `${targetUrl}/stall`, timeoutMs: 120 }),
       });
 
       expect(res.status).toBe(504);
@@ -503,6 +496,65 @@ describe("server.ts supplemental coverage", () => {
       expect(payload.error).toContain("timed out after 120ms");
       // And the upstream is released rather than left running.
       await stallClosed;
+    });
+
+    it("applies no deadline to a request that carries none (#2319)", async () => {
+      // ⚠️ The regression this guards: an unconditional timer here would abort
+      // a Streamable HTTP tool call that legitimately withholds its response
+      // headers — reintroducing on the backend exactly what `exemptMcpEndpoint`
+      // prevents on the client, and reporting it as an OAuth timeout besides.
+      const caller = new AbortController();
+      const pending = fetch(`${h.baseUrl}/api/fetch`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ url: `${targetUrl}/stall` }),
+        signal: caller.signal,
+      });
+      const settled = pending.then(
+        (r) => `responded ${r.status}`,
+        () => "aborted by us",
+      );
+
+      await vi.waitFor(() => {
+        expect(upstreamHits).toContain("/stall");
+      });
+      // Well past any budget the route might have applied on its own. Nothing
+      // should have answered: an unbounded request is still in flight.
+      await new Promise((r) => setTimeout(r, 400));
+      expect(
+        await Promise.race([settled, Promise.resolve("still pending")]),
+      ).toBe("still pending");
+
+      caller.abort();
+      expect(await settled).toBe("aborted by us");
+    });
+
+    it("ignores a non-numeric deadline rather than trusting it (#2319)", async () => {
+      const caller = new AbortController();
+      const pending = fetch(`${h.baseUrl}/api/fetch`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          url: `${targetUrl}/stall`,
+          timeoutMs: "soon",
+        }),
+        signal: caller.signal,
+      });
+      const settled = pending.then(
+        (r) => `responded ${r.status}`,
+        () => "aborted by us",
+      );
+
+      await vi.waitFor(() => {
+        expect(upstreamHits).toContain("/stall");
+      });
+      await new Promise((r) => setTimeout(r, 300));
+      expect(
+        await Promise.race([settled, Promise.resolve("still pending")]),
+      ).toBe("still pending");
+
+      caller.abort();
+      expect(await settled).toBe("aborted by us");
     });
 
     it("routes the outbound request through HTTP_PROXY (#2067)", async () => {

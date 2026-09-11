@@ -148,6 +148,39 @@ export function exemptMcpEndpoint(
   };
 }
 
+/**
+ * The deadline a wrapped call is running under, keyed by the exact `RequestInit`
+ * the wrapper handed down (#2319).
+ *
+ * This is how the budget crosses the proxy hop without travelling *upstream*.
+ * `/api/fetch` must not time every request it serves — `createRemoteFetch` also
+ * carries MCP traffic, and a Streamable HTTP tool call can legitimately withhold
+ * its response headers for minutes — so the route needs to know which requests
+ * are bounded and which are not (Copilot). A header would be the obvious
+ * carrier and is the wrong one: `serializeRequest` copies request headers
+ * verbatim into the payload and the route re-sends them to the authorization
+ * server, so a marker header would leak to a third party.
+ *
+ * A `WeakMap` keyed on the init object has neither problem. It is invisible to
+ * serialization, it needs no cast onto `RequestInit`, and it is collected with
+ * the object — the wrapper builds a fresh init per call, so there is one entry
+ * per in-flight request and nothing accumulates.
+ */
+const REQUEST_DEADLINES = new WeakMap<object, number>();
+
+/**
+ * The deadline `withOAuthRequestTimeout` stamped on this init, if any.
+ *
+ * `undefined` means the request is not bounded by this wrapper and must not be
+ * bounded by anything downstream either — an exempt MCP request reads as
+ * `undefined` because the exempt path never builds an init of its own.
+ */
+export function deadlineForRequestInit(
+  init: RequestInit | undefined,
+): number | undefined {
+  return init ? REQUEST_DEADLINES.get(init) : undefined;
+}
+
 /** The request URL, whatever form `fetch`'s first argument took. */
 function requestUrlOf(input: RequestInfo | URL): string {
   if (typeof input === "string") return input;
@@ -342,9 +375,14 @@ export function withOAuthRequestTimeout(
       }
     });
 
+    // Built once and stamped, so `createRemoteFetch` can read the budget off it
+    // and tell `/api/fetch` this particular request is bounded.
+    const nextInit: RequestInit = { ...init, signal };
+    REQUEST_DEADLINES.set(nextInit, budget);
+
     try {
       const response = await Promise.race([
-        fetchFn(input, { ...init, signal }),
+        fetchFn(input, nextInit),
         abandoned,
       ]);
       // `fetch` resolves once the response *headers* arrive, so stopping here

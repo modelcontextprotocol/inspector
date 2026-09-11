@@ -25,6 +25,7 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import {
   DEFAULT_OAUTH_REQUEST_TIMEOUT_MS,
   OAuthRequestTimeoutError,
+  deadlineForRequestInit,
   exemptMcpEndpoint,
   withOAuthRequestTimeout,
 } from "@inspector/core/auth/requestTimeout.js";
@@ -411,6 +412,46 @@ describe("withOAuthRequestTimeout", () => {
     await vi.advanceTimersByTimeAsync(1);
     expect((await assertion) as OAuthRequestTimeoutError).toMatchObject({
       timeoutMs: DEFAULT_OAUTH_REQUEST_TIMEOUT_MS,
+    });
+  });
+
+  describe("the deadline stamped on the init (#2319 proxy hop)", () => {
+    // How the budget reaches `/api/fetch` without travelling upstream: a header
+    // would be copied verbatim into the payload and re-sent to the
+    // authorization server, so the carrier is a WeakMap keyed on the init.
+    it("stamps the budget on the init it hands down", async () => {
+      const inner = vi.fn<typeof fetch>().mockResolvedValue(new Response("{}"));
+      const wrapped = withOAuthRequestTimeout(inner, 1234);
+
+      await wrapped(URL_UNDER_TEST);
+
+      expect(deadlineForRequestInit(inner.mock.calls[0][1])).toBe(1234);
+    });
+
+    it("stamps the rounded budget, matching what is reported", async () => {
+      const inner = vi.fn<typeof fetch>().mockResolvedValue(new Response("{}"));
+      const wrapped = withOAuthRequestTimeout(inner, 1000.4);
+
+      await wrapped(URL_UNDER_TEST);
+
+      expect(deadlineForRequestInit(inner.mock.calls[0][1])).toBe(1000);
+    });
+
+    it("stamps nothing on an exempt request", async () => {
+      // The route must apply no deadline to MCP traffic, and it decides that
+      // from the absence of a budget in the envelope.
+      const inner = vi.fn<typeof fetch>().mockResolvedValue(new Response("{}"));
+      const wrapped = withOAuthRequestTimeout(inner, 1234, () => true);
+
+      await wrapped(URL_UNDER_TEST, { method: "POST" });
+
+      expect(deadlineForRequestInit(inner.mock.calls[0][1])).toBeUndefined();
+    });
+
+    it("reads nothing off an init that never went through the wrapper", () => {
+      expect(deadlineForRequestInit(undefined)).toBeUndefined();
+      expect(deadlineForRequestInit({})).toBeUndefined();
+      expect(deadlineForRequestInit({ method: "GET" })).toBeUndefined();
     });
   });
 
