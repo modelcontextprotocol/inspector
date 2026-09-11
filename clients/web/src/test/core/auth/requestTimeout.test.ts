@@ -96,11 +96,12 @@ describe("withOAuthRequestTimeout", () => {
     expect((await assertion) as Error).toBeInstanceOf(OAuthRequestTimeoutError);
   });
 
-  it("still enforces the deadline when the signal is dropped in flight", async () => {
+  it("still enforces the deadline when the fetch ignores the signal", async () => {
     vi.useFakeTimers();
-    // The browser's `createRemoteFetch` re-issues the call to `/api/fetch` and
-    // forwards no signal, so aborting locally cancels nothing. The race is what
-    // has to bound it.
+    // The signal now reaches all the way out — `createRemoteFetch` forwards it
+    // onto the proxy hop and `/api/fetch` composes it into its outbound call —
+    // but a `fetchFn` that ignores `AbortSignal` cancels nothing, so the race
+    // is what bounds this case.
     const signalIgnoring: typeof fetch = () => new Promise<Response>(() => {});
     const wrapped = withOAuthRequestTimeout(signalIgnoring, 1000);
 
@@ -127,9 +128,9 @@ describe("withOAuthRequestTimeout", () => {
   });
 
   it("races caller cancellation too, so it wins on a signal-ignoring fetch", async () => {
-    // Forwarding alone is not enough on the browser's `createRemoteFetch` path,
-    // which drops the signal: without the race the caller's abort would sit
-    // pending for the whole budget instead of winning.
+    // Forwarding alone is not enough against a `fetchFn` that ignores the
+    // signal: without the race the caller's abort would sit pending for the
+    // whole budget instead of winning.
     const wrapped = withOAuthRequestTimeout(neverSettles, 60_000);
 
     const caller = new AbortController();
@@ -148,8 +149,8 @@ describe("withOAuthRequestTimeout", () => {
     await expect(
       wrapped(URL_UNDER_TEST, { signal: AbortSignal.abort(reason) }),
     ).rejects.toBe(reason);
-    // Racing it would still have evaluated the inner fetch, which on the
-    // signal-dropping proxy path means the request actually goes out.
+    // Racing it would still have evaluated the inner fetch, and a fetch that
+    // does not check an already-aborted signal would send the request.
     expect(inner).not.toHaveBeenCalled();
   });
 
@@ -257,12 +258,41 @@ describe("withOAuthRequestTimeout", () => {
     expect(response.statusText).toBe("Created");
     expect(response.ok).toBe(true);
     expect(response.headers.get("x-probe")).toBe("kept");
+    expect(response.headers.get("content-encoding")).toBeNull();
+    expect(response.headers.get("content-length")).toBeNull();
     expect(response.url).toBe(original.url);
     expect(response.redirected).toBe(original.redirected);
     expect(response.type).toBe(original.type);
     await expect(response.json()).resolves.toEqual({
       issuer: "https://as.example.com",
     });
+  });
+
+  it("drops content-encoding and content-length, which the buffer invalidates", async () => {
+    // `arrayBuffer()` hands back the *decoded* entity body, so an inherited
+    // `content-encoding` would describe an encoding the bytes no longer have
+    // and the inherited `content-length` would be the compressed size. Both are
+    // wrong, and both show up in the Network capture.
+    const decoded = '{"issuer":"https://as.example.com"}';
+    const wrapped = withOAuthRequestTimeout(
+      vi.fn<typeof fetch>().mockResolvedValue(
+        new Response(decoded, {
+          headers: {
+            "content-type": "application/json",
+            "content-encoding": "gzip",
+            "content-length": "42",
+          },
+        }),
+      ),
+      1000,
+    );
+
+    const response = await wrapped(URL_UNDER_TEST);
+
+    expect(response.headers.get("content-encoding")).toBeNull();
+    expect(response.headers.get("content-length")).toBeNull();
+    expect(response.headers.get("content-type")).toBe("application/json");
+    await expect(response.text()).resolves.toBe(decoded);
   });
 
   it("rebuilds a null-body status without handing it a body", async () => {

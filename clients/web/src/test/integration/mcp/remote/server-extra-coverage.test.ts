@@ -300,6 +300,10 @@ describe("server.ts supplemental coverage", () => {
     let h: Harness;
     let target: ServerType;
     let targetUrl: string;
+    /** Resolves when an upstream `/stall` request is closed by its client. */
+    let stallClosed: Promise<void>;
+    /** Paths the upstream fixture has actually received. */
+    let upstreamHits: string[];
 
     // Isolate the WHOLE suite from the developer's (or CI's) proxy environment.
     // Setting only uppercase HTTP_PROXY in the one proxy test would not be
@@ -336,7 +340,21 @@ describe("server.ts supplemental coverage", () => {
       h = await start();
       // A tiny upstream HTTP server we can point /api/fetch at.
       const { createServer } = await import("node:http");
+      let markClosed: () => void = () => {};
+      stallClosed = new Promise<void>((resolve) => {
+        markClosed = resolve;
+      });
+      upstreamHits = [];
       const srv = createServer((req, res) => {
+        upstreamHits.push(req.url ?? "");
+        if (req.url === "/stall") {
+          // Accept the request, answer nothing, and report when the client
+          // gives up — the #2319 wedged-authorization-server shape. `close` on
+          // the response fires whether the socket was torn down or the handler
+          // simply ended, and nothing here ever ends it.
+          res.on("close", () => markClosed());
+          return;
+        }
         if (req.url === "/stream") {
           res.writeHead(200, { "Content-Type": "text/event-stream" });
           res.write("data: hi\n\n");
@@ -379,6 +397,35 @@ describe("server.ts supplemental coverage", () => {
         ),
       );
       await stop(h);
+    });
+
+    it("releases the upstream request when the browser cancels (#2319)", async () => {
+      // The point of forwarding the signal through `createRemoteFetch`: without
+      // it the browser's abort settled only its own promise, and this handler
+      // plus the upstream socket stayed pending for as long as the server cared
+      // to stall — once per timed-out attempt. Asserted at the route rather
+      // than on a mock, because the mock cannot show the socket being released.
+      const caller = new AbortController();
+      const pending = fetch(`${h.baseUrl}/api/fetch`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ url: `${targetUrl}/stall` }),
+        signal: caller.signal,
+      });
+      const rejected = pending.catch((err: unknown) => err);
+
+      // Wait until the upstream has actually received the request, so the abort
+      // cannot race ahead of it and pass for the wrong reason.
+      await vi.waitFor(() => {
+        expect(upstreamHits).toContain("/stall");
+      });
+      caller.abort();
+
+      expect(await rejected).toBeInstanceOf(Error);
+      // The upstream sees its connection go away. Without the signal composed
+      // into the route's outbound fetch this never resolves and the test times
+      // out.
+      await stallClosed;
     });
 
     it("routes the outbound request through HTTP_PROXY (#2067)", async () => {

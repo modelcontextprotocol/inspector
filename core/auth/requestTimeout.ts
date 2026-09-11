@@ -36,17 +36,23 @@
  * too, and — the point of naming the URL in the error — says *which* endpoint
  * stalled instead of blaming the handshake.
  *
- * ## Why a race, and not just the signal
+ * ## The signal, the proxy hop, and why the race is still here
  *
- * The signal alone cannot enforce this. In the browser the OAuth fetch is
- * `createRemoteFetch`, which re-issues the call as a POST to `/api/fetch` and
- * does not forward `init.signal`; the backend's outbound fetch gets no signal
- * either. So on exactly the path this bound exists for — a browser session
- * against a wedged authorization server — aborting the local promise would
- * change nothing. The race is what actually enforces the deadline; the signal
- * is kept because it does cancel the direct-fetch paths (CLI, TUI, backend)
- * rather than merely abandoning them. Same reasoning, same shape, as
- * `revokeToken`.
+ * The signal is the primary mechanism and it now reaches all the way out. On a
+ * direct fetch (CLI, TUI, backend) it cancels the request outright. In the
+ * browser the OAuth fetch is `createRemoteFetch`, which re-issues the call as a
+ * POST to `/api/fetch` — and as of #2319 it forwards the signal onto that hop,
+ * where the route composes `c.req.raw.signal` into its own outbound fetch. So
+ * an abort here tears down the backend's request to the authorization server
+ * rather than leaving it running detached, which is what it used to do.
+ *
+ * The race is kept anyway, and it is not redundant. It bounds what the signal
+ * cannot: a `fetchFn` that ignores `AbortSignal` altogether — an injected or
+ * test double, or any future transport that drops it the way the proxy used to
+ * — and a backend that is itself wedged, where the outbound request is
+ * cancelled but the hop back never completes. A deadline that depends on every
+ * layer beneath it honouring a signal is not a deadline. Same reasoning, same
+ * shape, as `revokeToken`.
  */
 
 /**
@@ -120,19 +126,32 @@ const NULL_BODY_STATUSES = new Set([101, 103, 204, 205, 304]);
 /**
  * Rebuild a `Response` around an already-buffered body.
  *
+ * Two things have to be carried across by hand.
+ *
  * `url`, `redirected` and `type` are getters with no constructor option, and
  * callers do read them — the RFC 8414/OIDC compat wrapper stamps a header
  * naming the URL a body came from, and the SDK's discovery reports the
- * responding URL in its errors. So they are copied across explicitly rather
- * than silently reset to `""` / `false` / `"default"`.
+ * responding URL in its errors. So they are copied explicitly rather than
+ * silently reset to `""` / `false` / `"default"`.
+ *
+ * `content-encoding` and `content-length`, by contrast, must be *dropped*.
+ * `arrayBuffer()` hands back the **decoded** entity body, so a gzipped metadata
+ * document arrives here as plain JSON bytes: an inherited `content-encoding`
+ * would describe an encoding the body no longer has, and the inherited
+ * `content-length` would be the compressed size — both of them wrong, and both
+ * visible in the Network capture (Copilot). `responseWithBody` in
+ * `endpointOverrides.ts` deletes the same two headers for the same reason.
  */
 function rebuildResponse(response: Response, body: ArrayBuffer): Response {
+  const headers = new Headers(response.headers);
+  headers.delete("content-encoding");
+  headers.delete("content-length");
   const rebuilt = new Response(
     NULL_BODY_STATUSES.has(response.status) ? null : body,
     {
       status: response.status,
       statusText: response.statusText,
-      headers: response.headers,
+      headers,
     },
   );
   for (const key of ["url", "redirected", "type"] as const) {
@@ -181,9 +200,10 @@ export function withOAuthRequestTimeout(
     const controller = new AbortController();
     const callerSignal = callerSignalOf(input, init);
     // Before anything is constructed or sent. Racing an already-aborted signal
-    // would still evaluate `fetchFn(...)`, and on the signal-dropping
-    // `createRemoteFetch` path that means the OAuth request goes out even
-    // though the caller cancelled before the call (Copilot).
+    // would still evaluate `fetchFn(...)`, and a `fetchFn` that does not check
+    // an already-aborted signal — the proxy hop was one until #2319 — would
+    // send the OAuth request even though the caller cancelled before the call
+    // (Copilot).
     if (callerSignal?.aborted) throw callerSignal.reason;
 
     const signal = callerSignal
@@ -199,18 +219,17 @@ export function withOAuthRequestTimeout(
     const abandoned = new Promise<never>((_resolve, reject) => {
       timer = setTimeout(() => {
         timedOut = true;
-        // Abort first so a direct fetch is actually cancelled rather than left
-        // running detached, then reject so the proxied fetch — which never saw
-        // the signal — is abandoned on schedule too.
+        // Abort first, which is what actually cancels the request — through
+        // the proxy hop too, since #2319 — then reject, so a `fetchFn` that
+        // ignores the signal is still abandoned on schedule.
         controller.abort(new OAuthRequestTimeoutError(url, budget));
         reject(new OAuthRequestTimeoutError(url, budget));
       }, budget);
 
       // The caller's cancellation is raced too, not merely forwarded. Forwarding
-      // it is enough on a direct fetch, but on the browser's `createRemoteFetch`
-      // path — the one this wrapper exists for — the signal is dropped in
-      // flight, so an abort would otherwise leave this promise pending for the
-      // whole budget instead of the outer cancellation winning as documented
+      // it is enough wherever the signal is honoured, but a `fetchFn` that
+      // ignores it would otherwise leave this promise pending for the whole
+      // budget instead of the outer cancellation winning as documented
       // (Copilot). The caller's own `reason` is preserved, so it still sees its
       // abort rather than a substituted error.
       // Not aborted — the short-circuit above returned for that case.
