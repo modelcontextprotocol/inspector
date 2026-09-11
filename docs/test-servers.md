@@ -572,11 +572,20 @@ actually listening on; a host outside those three — `localhost.` and `tenant.a
 even though both resolve to loopback — is still rejected, deliberately, so this allow-list and the
 SDK's cannot disagree about one URL.
 
-⚠️ **Before [#2305](https://github.com/modelcontextprotocol/inspector/issues/2305) there was no
-loopback exemption at all**, so driving this flow meant standing up a throwaway self-signed HTTPS
-listener to hold the document and setting `NODE_TLS_REJECT_UNAUTHORIZED=0` in the *test server's*
-environment so its own fetch of that document would succeed. That workaround is no longer needed — if
-you find it in a script or an older note, delete it.
+⚠️ **Before [#2305](https://github.com/modelcontextprotocol/inspector/issues/2305) the config and
+form validator had no loopback exemption** — the *runtime* already tolerated an `http://` URL as an
+already-stored `client_id`, which is precisely the asymmetry that issue is about; there was simply no
+way to get such a value past validation and into `client.json`. So driving this flow meant standing
+up a throwaway self-signed HTTPS listener to hold the document and setting
+`NODE_TLS_REJECT_UNAUTHORIZED=0` in the *test server's* environment so its own fetch of that document
+would succeed. That workaround is no longer needed — if you find it in a script or an older note,
+delete it.
+
+⚠️ **Use the canonical spelling of the host.** `http://127.1/…` and `http://2130706433/…` are accepted
+by the validator (and by the SDK) because both canonicalize to `127.0.0.1` — but a CIMD `client_id`
+is compared as a **string** by the authorization server against the URL it dereferenced, so an
+exotic spelling can fail that comparison on a server that normalizes differently than the one here.
+Paste the origin the fixture announced rather than an equivalent you typed yourself.
 
 ⚠️ **Clear OAuth state before the run if you have connected to this fixture before.** Tokens and the
 registered client persist in `~/.mcp-inspector/storage/oauth.json` independently of the install-wide
