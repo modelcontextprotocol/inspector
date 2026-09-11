@@ -335,7 +335,27 @@ describe("client config", () => {
       );
     });
 
-    it("does not widen the exemption beyond the three literals", () => {
+    it("accepts alternate spellings that canonicalize to the same addresses", () => {
+      // The check runs against the WHATWG-canonicalized `URL.hostname`, so the
+      // exemption covers these three *addresses*, not three input strings. Each
+      // of these reaches the loopback interface, which is what the security
+      // argument is about — and the SDK canonicalizes identically, so an alias
+      // accepted here is one it accepts for a token endpoint too.
+      for (const value of [
+        "http://127.1:8090/client-metadata.json",
+        "http://2130706433:8090/client-metadata.json",
+        "http://0x7f.0.0.1:8090/client-metadata.json",
+        "http://[0:0:0:0:0:0:0:1]:8090/client-metadata.json",
+        // WHATWG strips a root-anchored dot from an IP literal but not from a
+        // name, which is why this passes where `localhost.` below does not.
+        "http://127.0.0.1.:8090/client-metadata.json",
+        "http://LOCALHOST:8090/client-metadata.json",
+      ]) {
+        expect(getCimdClientMetadataUrlError(value)).toBeUndefined();
+      }
+    });
+
+    it("does not widen the exemption beyond those three addresses", () => {
       // `localhost.` and `*.localhost` resolve to loopback on every resolver,
       // but they are outside the SDK's allow-list — so they are outside ours
       // too, deliberately, rather than the two disagreeing about one URL.

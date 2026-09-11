@@ -513,9 +513,13 @@ Same MCP URL (`stytch-as-demo.val.run/mcp` or `mcp.stytch.dev/mcp`), leave CIMD 
 For offline CIMD regression — or a **strict** fail-with-CIMD-off / succeed-with-CIMD-on pair without Stytch’s DCR fallback — use the shipped `oauth-cimd-http.json` fixture, which sets `supportCIMD: true` and **`supportDCR: false`** and hosts the client metadata document itself at `/client-metadata.json`.
 
 ```bash
-cd clients/web && npm run test-servers:build
+# The build script lives in clients/web; both paths below are repo-root-relative,
+# so come back up before starting the server.
+(cd clients/web && npm run test-servers:build)
 node test-servers/build/server-composable.js --config test-servers/configs/oauth-cimd-http.json
 ```
+
+The server announces its URL on **stderr**, and walks to the next free port on `EADDRINUSE` — read the announced URL rather than assuming 8092.
 
 Since [#2305](https://github.com/modelcontextprotocol/inspector/issues/2305) a loopback `http://` metadata URL is a **valid persisted `client.json` setting and a valid entry in the settings form**, not a test-only affordance — `getCimdClientMetadataUrlError` exempts `localhost`, `127.0.0.1` and `[::1]`, the same three literals the SDK exempts for token endpoints. So point `clientMetadataUrl` straight at the URL the fixture announced (`http://127.0.0.1:8092/client-metadata.json` on its configured port) with no HTTPS listener. Before that change the exemption existed only in `ensureCimdClientRegistration`, for an already-stored `client_id`, and driving this by hand needed a self-signed HTTPS listener plus `NODE_TLS_REJECT_UNAUTHORIZED=0`.
 

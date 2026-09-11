@@ -83,19 +83,34 @@ export const CIMD_METADATA_URL_HTTPS_ERROR =
  * validation would not let anyone enter, and CIMD could not be driven against
  * any fixture in this repo (#2305).
  *
- * ⚠️ This is the SDK's *three-literal* list, deliberately, and not the broader
- * `isLoopbackHost` in `core/node/hostUrl.ts` — which imports `node:net` and so
- * cannot be reached from this browser-safe module. Matching the SDK literal for
- * literal also keeps the two allow-lists from disagreeing about the same URL.
- * `::1` arrives from `URL.hostname` bracketed, which is the form stored here.
+ * ⚠️ This is the SDK's own list, matched member for member — not the broader
+ * `isLoopbackHost` in `core/node/hostUrl.ts`, which imports `node:net` and so
+ * cannot be reached from this browser-safe module. The SDK's
+ * `assertSecureTokenEndpoint` tests `url.hostname` against exactly
+ * `localhost` / `127.0.0.1` / `[::1]` (plus a `::1` arm `URL.hostname` never
+ * produces, since it brackets IPv6 literals). Keeping the two identical is what
+ * stops them disagreeing about one URL.
+ *
+ * ⚠️ **The comparison is against the WHATWG-canonicalized `URL.hostname`, so it
+ * covers alternate spellings of these three *addresses*, not three input
+ * strings.** `http://127.1/…`, `http://2130706433/…`, `http://0x7f.0.0.1/…` and
+ * `http://[0:0:0:0:0:0:0:1]/…` all canonicalize into the set and are accepted;
+ * so is a root-anchored `http://127.0.0.1./…`, which WHATWG strips the dot from
+ * for IP literals but *not* for `localhost.`. That is deliberate on both counts:
+ * the security argument is about the address the request actually reaches, and
+ * every one of these is the loopback interface. It is also exactly what the SDK
+ * does — it canonicalizes through `new URL` the same way — so an alias accepted
+ * here is an alias the SDK accepts too.
  */
 const CIMD_HTTP_EXEMPT_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
 /**
  * True when a plain-`http:` CIMD metadata URL on this host is acceptable. Takes
- * the bare host (`URL.hostname`), never a `host:port`. Not exported: the only
- * caller is the validator below, and the exemption is exercised through it
- * rather than through a second public surface that could drift from it.
+ * the already-canonicalized `URL.hostname`, never a raw authority or a
+ * `host:port` — passing an unparsed string would compare the wrong thing and
+ * silently reject every alias above. Not exported: the only caller is the
+ * validator below, and the exemption is exercised through it rather than
+ * through a second public surface that could drift from it.
  */
 function isCimdHttpExemptHost(hostname: string): boolean {
   return CIMD_HTTP_EXEMPT_HOSTS.has(hostname);
