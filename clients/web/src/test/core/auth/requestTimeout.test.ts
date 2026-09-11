@@ -506,17 +506,46 @@ describe("withOAuthRequestTimeout", () => {
       expect(isExempt(`${SERVER}#frag`)).toBe(true);
     });
 
-    it("bounds OAuth work on the same chain", () => {
+    it("exempts legacy SSE's separate message endpoint", () => {
+      // The case a path rule gets wrong: `SSEClientTransport` opens the
+      // configured URL and is handed a *different* pathname to POST every
+      // JSON-RPC message to. Bounding those would sever a slow tool call over
+      // SSE and report it as an OAuth timeout. The SDK enforces that the
+      // message endpoint shares the stream URL's origin, which is what makes
+      // an origin rule exact rather than approximate.
+      const isExempt = exemptMcpEndpoint(() => "https://srv.example.com/sse");
+
+      expect(isExempt("https://srv.example.com/messages?sessionId=abc")).toBe(
+        true,
+      );
+      expect(isExempt("https://srv.example.com/")).toBe(true);
+    });
+
+    it("bounds OAuth work on a different origin", () => {
+      const isExempt = exemptMcpEndpoint(() => SERVER);
+
+      expect(isExempt("https://as.example.com/token")).toBe(false);
+      expect(
+        isExempt("https://as.example.com/.well-known/openid-configuration"),
+      ).toBe(false);
+      // Origin is scheme + host + port, so any of the three differing bounds it.
+      expect(isExempt("http://srv.example.com/token")).toBe(false);
+      expect(isExempt("https://srv.example.com:8443/token")).toBe(false);
+    });
+
+    it("exempts a same-origin OAuth endpoint, which is the cost of the rule", () => {
+      // Stated as a test rather than left implicit: protected-resource metadata
+      // lives on the resource's own origin, so it is exempt here. The OAuth
+      // chain still bounds the Inspector's own requests to it; only the SDK's
+      // transport-internal OAuth against a same-origin server falls back to the
+      // SDK's per-request timeout.
       const isExempt = exemptMcpEndpoint(() => SERVER);
 
       expect(
         isExempt(
           "https://srv.example.com/.well-known/oauth-protected-resource/mcp",
         ),
-      ).toBe(false);
-      expect(isExempt("https://as.example.com/token")).toBe(false);
-      // Same origin, different path — still not the endpoint.
-      expect(isExempt("https://srv.example.com/mcp/register")).toBe(false);
+      ).toBe(true);
     });
 
     it("fails open when the server URL is unknown or unparseable", () => {
@@ -540,6 +569,7 @@ describe("withOAuthRequestTimeout", () => {
       expect(isExempt("https://other.example.com/mcp")).toBe(false);
       current = "https://other.example.com/mcp";
       expect(isExempt("https://other.example.com/mcp")).toBe(true);
+      expect(isExempt(SERVER)).toBe(false);
     });
   });
 

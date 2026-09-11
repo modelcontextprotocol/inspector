@@ -290,8 +290,10 @@ export function withRfc8414OidcCompat(fetchFn: typeof fetch): typeof fetch {
         if (err instanceof OAuthRequestTimeoutError) throw err;
         // Likewise a caller that gave up: substituting the preceding 404 for
         // its own abort would report a discovery failure for a request it
-        // deliberately cancelled.
-        if (callerSignal?.aborted) throw err;
+        // deliberately cancelled. The caller's own `reason` is what surfaces,
+        // here and at the two sites below, rather than whatever shape the
+        // underlying layer happened to reject with.
+        if (callerSignal?.aborted) throw callerSignal.reason;
         return response;
       }
       if (!probe.ok) {
@@ -301,6 +303,11 @@ export function withRfc8414OidcCompat(fetchFn: typeof fetch): typeof fetch {
         // candidate exhaust the origin's pool (Copilot). Same discipline as
         // `core/mcp/node/authChallengeFetch.ts`.
         await releaseBody(probe);
+        // Rechecked after the release, which awaits: an abort that lands while
+        // the body is being discarded must not be answered with the preceding
+        // response either, and `continue` would otherwise carry on probing for
+        // a caller that has stopped waiting.
+        if (callerSignal?.aborted) throw callerSignal.reason;
         if (continuesDiscovery(probe.status)) continue;
         return response;
       }
@@ -317,6 +324,14 @@ export function withRfc8414OidcCompat(fetchFn: typeof fetch): typeof fetch {
         body = await probe.text();
         parsed = JSON.parse(body);
       } catch {
+        // `fetch` resolves on headers, so the abort can land here rather than
+        // in the catch above: the probe's headers arrived, the caller gave up,
+        // and `probe.text()` rejects on the partial body. Substituting the
+        // preceding 404 would hand a standalone user of this wrapper a
+        // discovery failure in place of its own abort reason (Copilot). A body
+        // that merely will not parse still falls through, which is the case
+        // this catch exists for.
+        if (callerSignal?.aborted) throw callerSignal.reason;
         return response;
       }
       if (!isRfc8414OnlyMetadata(parsed)) {

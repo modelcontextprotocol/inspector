@@ -504,6 +504,45 @@ describe("probe cancellation (#2319)", () => {
     expect(inner).toHaveBeenCalledTimes(1);
   });
 
+  it("rethrows an abort that lands while the probe body is pending", async () => {
+    // `fetch` resolves on headers, so a late abort rejects `probe.text()`
+    // rather than the fetch — a separate catch, which used to answer with the
+    // preceding 404.
+    const caller = new AbortController();
+    const inner = vi.fn<typeof fetch>((input, init) => {
+      if (String(input) === RFC8414) {
+        return Promise.resolve(new Response(null, { status: 404 }));
+      }
+      // Headers now, body never.
+      return Promise.resolve(
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(ctrl) {
+              ctrl.enqueue(new TextEncoder().encode('{"issuer":'));
+              init?.signal?.addEventListener("abort", () =>
+                ctrl.error(init.signal?.reason as Error),
+              );
+            },
+          }),
+          { headers: { "content-type": "application/json" } },
+        ),
+      );
+    });
+    const wrapped = withRfc8414OidcCompat(inner);
+
+    const settled = wrapped(RFC8414, { signal: caller.signal }).then(
+      (r) => r,
+      (e: unknown) => e,
+    );
+    await vi.waitFor(() => {
+      expect(inner).toHaveBeenCalledTimes(2);
+    });
+    const reason = new Error("caller gave up mid-body");
+    caller.abort(reason);
+
+    expect(await settled).toBe(reason);
+  });
+
   it("still falls back to the original response on an ordinary probe failure", async () => {
     const inner = vi.fn<typeof fetch>((input) => {
       if (String(input) === RFC8414) {

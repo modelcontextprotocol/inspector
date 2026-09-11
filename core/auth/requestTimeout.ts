@@ -157,9 +157,25 @@ export function isOAuthRequestTimeoutWire(
  * uncertain — no server URL yet, a URL that will not parse, either side — is
  * treated as the MCP endpoint and exempted.
  *
- * Compared on origin + pathname: the SDK varies method and query across its MCP
- * requests but not the endpoint, while OAuth discovery goes to a different path
- * (`/.well-known/…`) and usually a different origin entirely.
+ * Compared on **origin alone**, not origin + pathname. Path matching looks more
+ * precise and is wrong: legacy SSE opens the configured URL (`/sse`), is handed
+ * a *separate* message endpoint by the server, and POSTs every JSON-RPC message
+ * to that second pathname — so a path rule bounds and body-buffers real MCP
+ * traffic, and a slow tool call over SSE is severed at 30s and reported as an
+ * `OAuthRequestTimeoutError` (Copilot).
+ *
+ * Origin is not a loose approximation of the right rule; it is exact, because
+ * the SDK *enforces* that the SSE message endpoint shares the stream URL's
+ * origin and rejects one that does not. Every MCP request this chain carries is
+ * therefore same-origin with the configured URL, by construction.
+ *
+ * What it costs: an OAuth endpoint hosted on the MCP server's own origin — the
+ * protected-resource metadata document, or an authorization server deployed
+ * beside the resource — is exempt here and so unbounded on this chain. That is
+ * the fail-open direction again, and the loss is narrow: the OAuth *chain*
+ * bounds the Inspector's own discovery and token requests to those same URLs,
+ * so only the SDK's transport-internal OAuth against a same-origin server falls
+ * back to the SDK's per-request timeout, which is where it was before #2319.
  */
 export function exemptMcpEndpoint(
   getServerUrl: () => string | undefined,
@@ -168,9 +184,7 @@ export function exemptMcpEndpoint(
     const serverUrl = getServerUrl();
     if (!serverUrl) return true;
     try {
-      const a = new URL(url);
-      const b = new URL(serverUrl);
-      return a.origin === b.origin && a.pathname === b.pathname;
+      return new URL(url).origin === new URL(serverUrl).origin;
     } catch {
       return true;
     }
