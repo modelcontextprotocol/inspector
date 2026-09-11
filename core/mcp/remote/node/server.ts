@@ -1231,9 +1231,10 @@ export function createRemoteApp(
     const signal = clientSignal
       ? AbortSignal.any([controller.signal, clientSignal])
       : controller.signal;
-    // Cleared in `finally`, before the handler returns. A streaming response is
-    // returned here without its body being read, so a timer left armed would
-    // sever a live stream 30 seconds in.
+    // Cleared in `finally`, before the handler returns. Safe because by then
+    // the body has been either read or explicitly cancelled — this route never
+    // hands a live stream to its caller, so there is nothing left for the timer
+    // to protect and nothing it could sever.
     const timer = setTimeout(
       () =>
         controller.abort(
@@ -1271,6 +1272,19 @@ export function createRemoteApp(
       let resBody: string | undefined;
       if (!isStream && res.body) {
         resBody = await res.text();
+      } else if (isStream) {
+        // This route does not return the stream — it answers with JSON and no
+        // body — so nobody downstream owns it and nothing will ever read it.
+        // Left un-cancelled, an OAuth endpoint that sends event-stream or
+        // NDJSON headers and never closes would hold the upstream socket open
+        // for good, since the `finally` below clears the only deadline once
+        // this handler returns (Copilot). Best-effort, like `releaseBody` in
+        // `oidcDiscoveryCompat`: a body already consumed, locked or absent is
+        // not an error here. Measured, undici does reclaim an unread body on
+        // its own in this configuration — so this is belt and braces rather
+        // than a demonstrated leak, and it is kept because relying on that is
+        // an implementation detail of the fetch beneath us, not a contract.
+        await res.body?.cancel().catch(() => {});
       }
 
       return c.json({

@@ -304,6 +304,8 @@ describe("server.ts supplemental coverage", () => {
     let stallClosed: Promise<void>;
     /** Paths the upstream fixture has actually received. */
     let upstreamHits: string[];
+    /** Resolves when the never-ending `/stream-open` response is closed. */
+    let openStreamClosed: Promise<void>;
 
     // Isolate the WHOLE suite from the developer's (or CI's) proxy environment.
     // Setting only uppercase HTTP_PROXY in the one proxy test would not be
@@ -345,8 +347,22 @@ describe("server.ts supplemental coverage", () => {
         markClosed = resolve;
       });
       upstreamHits = [];
+      let markStreamClosed: () => void = () => {};
+      openStreamClosed = new Promise<void>((resolve) => {
+        markStreamClosed = resolve;
+      });
       const srv = createServer((req, res) => {
         upstreamHits.push(req.url ?? "");
+        if (req.url === "/stream-open") {
+          // Event-stream headers, one frame, and then nothing — the shape that
+          // used to leave a socket open for good, because the route classifies
+          // it as a stream, returns JSON without the body, and clears its
+          // deadline on the way out.
+          res.writeHead(200, { "Content-Type": "text/event-stream" });
+          res.write("data: hi\n\n");
+          res.on("close", () => markStreamClosed());
+          return;
+        }
         if (req.url === "/stall") {
           // Accept the request, answer nothing, and report when the client
           // gives up — the #2319 wedged-authorization-server shape. `close` on
@@ -426,6 +442,32 @@ describe("server.ts supplemental coverage", () => {
       // into the route's outbound fetch this never resolves and the test times
       // out.
       await stallClosed;
+    });
+
+    it("cancels a discarded stream that sends headers and never ends (#2319)", async () => {
+      // The route answers with JSON and no body, so nobody downstream owns the
+      // upstream stream and nothing will ever read it; the route cancels it
+      // explicitly rather than relying on that being reclaimed for it.
+      //
+      // ⚠️ This pins the OUTCOME, not the mechanism: measured, it still passes
+      // with the explicit `cancel()` removed, because undici reclaims an unread
+      // response body here on its own. So the cancel is defensive — it makes
+      // the release explicit and independent of that behaviour — and this test
+      // will catch the route starting to hold the stream open, not the cancel
+      // being deleted. Said plainly rather than left to imply a stronger claim.
+      const res = await fetch(`${h.baseUrl}/api/fetch`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ url: `${targetUrl}/stream-open` }),
+      });
+
+      expect(res.status).toBe(200);
+      const payload = (await res.json()) as { status: number; body?: string };
+      expect(payload.status).toBe(200);
+      expect(payload.body).toBeUndefined();
+      // The upstream sees its connection go away once the handler returns.
+      // Without the cancel this never resolves and the test times out.
+      await openStreamClosed;
     });
 
     it("routes the outbound request through HTTP_PROXY (#2067)", async () => {
