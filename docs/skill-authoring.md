@@ -201,6 +201,17 @@ ever taken.** `test-servers` scores 5/5 on its own cases and every one of them
 asks for it by name; a skill only ever reached _through_ another would score a
 clean 100% while the hand-off silently never fired (#2204).
 
+⚠️ **A green hand-off number is not evidence the hand-off is USEFUL.** The case
+can observe one thing — that skill B was loaded. Whether B then answers the
+question the prompt actually asked is outside what any `chain` case measures, in
+either direction: B can be loaded and say nothing relevant, or say something
+actively wrong for the caller that arrived through A. `testing` ->
+`test-servers` scored 100% while `test-servers` documented only the two-process
+manual path, so every model that followed the pointer from an *integration-test*
+prompt was handed the wrong half of the procedure (#2264). So when a chain case
+goes green, **read B's body as the caller who arrives through A** and check that
+what it says fits that caller. The number cannot do that for you.
+
 A chained case names the ordered skills one run should load:
 
 ```json
@@ -285,8 +296,8 @@ license (Copilot). A strict bound of `1.0` is therefore unreachable and the
 harness rejects it up front rather than failing every case.
 
 0.5 is a floor on **useful reliability for a second-hop load**, not a claim that
-0.8 is out of reach — a well-shaped pointer clears it outright, at 100% in the
-worked example below. Note that a *chain* bar of 0.8 would be a **strict** one
+0.8 is out of reach — the one pointer measured after reshaping cleared it
+outright, at 100% in the worked example below. Note that a *chain* bar of 0.8 would be a **strict** one
 (`> 0.8`, the comparison this threshold uses; the first-move 0.8 is the
 inclusive `>=`), so at `RUNS=5` only a clean 5/5 would pass it — 4/5 would not. What 0.5 buys is that the column keeps carrying signal across the
 *range* of pointer strengths a repo actually has: a hand-off is a noisier
@@ -319,11 +330,18 @@ measured 100% / 80% on the full suite and 100% / 100% on a focused
 noise, well short of the 67 above.)
 
 The transferable part is that **a pointer is followed when it reads as an action
-with a trigger, and skimmed when it reads as a fact.** #2202 found the same
-lever on a *description*'s shape; this is it applied to a body. The corollary is
-where to put one: the top of a body is read before the model knows it needs the
-second skill, so a pointer that lives only there is a pointer it has already
-scrolled past by the time it matters.
+with a trigger, placed where the decision is actually made.** #2202 found the
+same lever on a *description*'s shape; this is it applied to a body.
+
+⚠️ **Read that as ONE lever, not two.** The #2247 edit changed the wording *and*
+the placement in the same revision, and only the combination was measured, so
+the run establishes the pair — it does not license attributing the rise to
+imperative phrasing alone, nor to repetition alone. The split into two levers is
+the plausible reading of the mechanism, not a measured result: the top of a body
+is read before the model knows it needs the second skill, so a pointer that
+lives only there has plausibly been scrolled past by the time it matters. Taking
+them apart would need two more runs — reword without moving, and move without
+rewording — and nobody has paid for those. Until someone does, ship both.
 
 ⚠️ **Do not read a rise between two `RUNS=3` runs as an improvement.** One
 sample is 33 points there, and the two weak-pointer runs above (33% / 33% and
@@ -452,7 +470,9 @@ break.
    hand-off has a `chain` case — a pointer between skills is otherwise measured
    by nothing at all, and a skill reached only that way scores a clean 100% on
    direct cases while the hand-off never fires. It does not count toward the
-   floor in 4.
+   floor in 4. **Then read the target's body as the caller arriving through that
+   pointer** — the case proves the load, never that what loads is the half that
+   caller needs (#2264).
 6. `npm run verify:skills` passes and the listing is under budget.
 7. `RUNS=5 npm run skills:eval` — the **whole** suite — is ≥80% on every
    first-move case, including the skills you did not touch, and the hand-off

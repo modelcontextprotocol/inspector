@@ -17,6 +17,92 @@ and what the broken build did — is
 [`docs/test-servers.md`](../../../docs/test-servers.md). This skill is how to
 run one.
 
+## Two ways to use a fixture — pick the right one first
+
+A fixture is used in **one of two shapes**, and almost everything below is about
+the second. Establish which one you are in before reading further, because the
+config file, the protocol-era table and the staleness hazard belong to only one
+of them.
+
+- **In-process — an automated test.** The test *constructs* the server from the
+  `@modelcontextprotocol/inspector-test-server` API and owns its lifecycle. No
+  subprocess is spawned, no JSON config is read, and no showcase config is
+  picked. **This is what an integration test does**, and it is the shape you
+  want whenever the caller is a test rather than a person.
+- **Two processes — a manual check.** You run `server-composable.js --config
+  <name>.json` in one terminal and the Inspector in another, then click. Picking
+  the showcase config and the protocol era applies here, and `Run one by hand`
+  below is this path.
+
+### In-process: build the server from the API
+
+```ts
+import {
+  createTestServerHttp,
+  type TestServerHttp,
+  createTestServerInfo,
+  createEchoTool,
+} from "@modelcontextprotocol/inspector-test-server";
+
+let server: TestServerHttp | null = null;
+
+afterEach(async () => {
+  // Stop it even when the assertion threw, or the port leaks into the next test.
+  if (server) {
+    try {
+      await server.stop();
+    } catch {
+      // ignore
+    }
+    server = null;
+  }
+});
+
+it("…", async () => {
+  const started = createTestServerHttp({
+    serverInfo: createTestServerInfo("excluded-tools-test", "1.0.0"),
+    tools: [createEchoTool()],
+    // `modern: {}` opts the fixture into the 2026-07-28 handler; omit it for legacy.
+  });
+  await started.start();
+  server = started;
+
+  // `started.url` is the bound URL — read it, never reconstruct it from a port.
+  // …connect an InspectorClient to it and assert.
+});
+```
+
+The reference test is
+[`clients/web/src/test/integration/mcp/inspectorClient-excluded-tools.test.ts`](../../../clients/web/src/test/integration/mcp/inspectorClient-excluded-tools.test.ts)
+— read it before writing a new one; it is the shape every fixture-backed
+integration test in this repo follows.
+
+Four mechanics of this path:
+
+- **The factories come from one barrel.** `createTestServerHttp` /
+  `createTestServerStdio` build the server; the `create*Tool`,
+  `create*Resource` and `create*Prompt` fixtures in
+  `test-servers/src/test-server-fixtures.ts` populate it;
+  `createTestServerInfo` fills in `serverInfo`. Prefer an existing fixture
+  factory to hand-writing a `ToolDefinition` — that is what makes the fixture a
+  shared one.
+- **`start()` then `stop()`, and `stop()` in an `afterEach`.** The server binds a
+  real port, so a test that throws before stopping leaks it into the rest of the
+  file.
+- **Read `started.url`.** `createTestServerHttp` resolves through
+  `findAvailablePort()`, which walks upward when the port is taken, so an
+  assumed port is the same bug the two-process path has.
+- **Era is a constructor option, not a config file.** `modern: {}` on the config
+  object selects the modern handler; the client side picks its own negotiation
+  (`eraToVersionNegotiation`). The showcase-config era table below does not
+  apply.
+
+⚠️ **The barrel is an alias to the BUILD, not to the source** —
+`vitest.shared.mts` maps `@modelcontextprotocol/inspector-test-server` to
+`test-servers/build/index.js`. So the `Build first` section applies to this path
+in full, including the stale-build hazard: an edit to `test-servers/src` that is
+not rebuilt is invisible to an in-process test exactly as it is to a spawned one.
+
 ## Build first
 
 The servers are spawned as real subprocesses, so the build output must exist:
@@ -41,9 +127,11 @@ rm -rf test-servers/build
 The `.tsbuildinfo` is pinned inside `build/` so that clean actually invalidates
 the cache.
 
-## Run one
+## Run one by hand (two processes)
 
-Two processes: the test server, then the Inspector.
+This is the **manual-check** path from the section above; an automated test
+builds the server in-process instead. Two processes: the test server, then the
+Inspector.
 
 ```sh
 # 1. The server, from the repo root, with the config you picked:
