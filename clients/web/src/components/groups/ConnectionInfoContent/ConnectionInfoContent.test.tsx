@@ -567,6 +567,168 @@ describe("ConnectionInfoContent", () => {
     expect(screen.getByText("token-123")).toBeInTheDocument();
   });
 
+  it("weights labels bold and values normal, in both halves of the modal", () => {
+    renderWithMantine(
+      <ConnectionInfoContent
+        initializeResult={fullResult}
+        clientCapabilities={fullClientCaps}
+        transport="streamable-http"
+        oauth={{
+          protocol: "standard",
+          authorized: true,
+          clientId: "client-abc",
+          scopes: ["read"],
+        }}
+      />,
+    );
+
+    // The convention is the whole point of #2328: the label is the fixed
+    // scaffolding a reader scans down, the value is what differs. Asserted in
+    // Server Implementation *and* OAuth Details, because the defect being
+    // guarded against is the two halves disagreeing — checking one alone would
+    // pass on a modal that is internally inconsistent.
+    for (const label of ["Name", "Protocol", "Client ID", "Scopes"]) {
+      expect(screen.getAllByText(label)[0]).toHaveStyle({ fontWeight: "600" });
+    }
+    // `getByText`, not `queryByText` + `?? ""`: an absent value would make the
+    // optional form pass vacuously (undefined → "" → not "600"), so the test
+    // would go green on a row that had stopped rendering at all.
+    for (const value of ["Everything Server", "read"]) {
+      expect(screen.getByText(value).style.fontWeight).not.toBe("600");
+    }
+
+    // Badge values count too. `ThemeBadge` defaults to `fw: 600`, so Status,
+    // Transport and Era read bold-label/bold-value unless overridden — the
+    // whole-modal claim is false without this.
+    for (const badge of ["streamable-http", "Legacy", "Authorized"]) {
+      // `getByText` lands on the Badge's inner label span; `fw` is applied to
+      // the root, so walk up to it or the assertion reads an empty string and
+      // passes against anything.
+      const root = screen.getByText(badge).closest('[class*="Badge-root"]');
+      expect((root as HTMLElement | null)?.style.fontWeight).toBe("400");
+    }
+  });
+
+  it("gives Client ID and Auth URL the full width, with no inset surface", () => {
+    renderWithMantine(
+      <ConnectionInfoContent
+        initializeResult={fullResult}
+        clientCapabilities={fullClientCaps}
+        transport="streamable-http"
+        oauth={{
+          protocol: "standard",
+          authorized: true,
+          clientId:
+            "http://127.0.0.1:8093/client-metadata.json?profile=long-enough-to-wrap",
+          authUrl: "https://auth.example.com/authorize",
+        }}
+      />,
+    );
+
+    // A CIMD client id IS a URL, so it is long by construction. In the
+    // two-column grid it got half the modal and broke mid-token
+    // (`…/client-metadata.` / `json`), which reads as a rendering fault rather
+    // than as one value.
+    for (const value of [
+      "http://127.0.0.1:8093/client-metadata.json?profile=long-enough-to-wrap",
+      "https://auth.example.com/authorize",
+    ]) {
+      expect(screen.getByText(value)).toHaveStyle({
+        backgroundColor: "transparent",
+      });
+    }
+
+    // The background alone does not pin the *layout*: swapping FullWidthField
+    // back for the two-column SimpleGrid would keep it transparent and still
+    // pass. Assert the structure that makes the value full width — label and
+    // value are siblings in a column, and neither sits in a SimpleGrid.
+    for (const [label, value] of [
+      [
+        "Client ID",
+        "http://127.0.0.1:8093/client-metadata.json?profile=long-enough-to-wrap",
+      ],
+      ["Auth URL", "https://auth.example.com/authorize"],
+    ]) {
+      const labelNode = screen.getByText(label);
+      const valueNode = screen.getByText(value);
+      expect(valueNode.parentElement).toBe(labelNode.parentElement);
+      expect(valueNode.closest('[class*="SimpleGrid"]')).toBeNull();
+    }
+  });
+
+  it("bolds the token captions, which are field labels in the same list", () => {
+    renderWithMantine(
+      <ConnectionInfoContent
+        initializeResult={fullResult}
+        clientCapabilities={fullClientCaps}
+        transport="streamable-http"
+        oauth={{
+          protocol: "standard",
+          authorized: true,
+          accessToken: "token-123",
+          idToken: "id-token-456",
+        }}
+      />,
+    );
+
+    // OAuthTokenField renders its own caption, so the weight convention has to
+    // be asserted through it — the other weight test renders no token at all.
+    for (const caption of ["Access Token", "ID Token"]) {
+      expect(screen.getByText(caption).style.fontWeight).toBe("600");
+    }
+  });
+
+  it("groups the full-width fields at the end, Client ID directly above Access Token", () => {
+    renderWithMantine(
+      <ConnectionInfoContent
+        initializeResult={fullResult}
+        clientCapabilities={fullClientCaps}
+        transport="streamable-http"
+        oauth={{
+          protocol: "standard",
+          authorized: true,
+          clientId: "http://127.0.0.1:8093/client-metadata.json",
+          clientRegistrationKind: "cimd",
+          authUrl: "https://auth.example.com/authorize",
+          scopes: ["mcp"],
+          accessToken: "token-123",
+        }}
+      />,
+    );
+
+    // Order is the assertion, so read the labels off the DOM rather than
+    // checking each is merely present: the inline two-column rows come first,
+    // then every label-over-value field together. Interleaving them is what
+    // this guards against — it broke the scan down the label column, and the
+    // tokens already used the full-width layout at the bottom.
+    const order = [
+      "Client registration",
+      "Scopes",
+      "Auth URL",
+      "Client ID",
+      "Access Token",
+    ];
+    const positions = order.map((label) => {
+      const node = screen.getAllByText(label)[0];
+      expect(node).toBeInTheDocument();
+      return (
+        node.compareDocumentPosition(screen.getAllByText("Protocol")[0]) &
+        Node.DOCUMENT_POSITION_PRECEDING
+      );
+    });
+    expect(positions.every(Boolean)).toBe(true);
+
+    const labelNode = (label: string) => screen.getAllByText(label)[0];
+    for (let i = 0; i < order.length - 1; i++) {
+      const earlier = labelNode(order[i]);
+      const later = labelNode(order[i + 1]);
+      expect(
+        earlier.compareDocumentPosition(later) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+    }
+  });
+
   it("renders EMA idp session when provided", () => {
     renderWithMantine(
       <ConnectionInfoContent
