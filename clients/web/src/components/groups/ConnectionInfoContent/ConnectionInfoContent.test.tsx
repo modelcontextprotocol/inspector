@@ -590,8 +590,22 @@ describe("ConnectionInfoContent", () => {
     for (const label of ["Name", "Protocol", "Client ID", "Scopes"]) {
       expect(screen.getAllByText(label)[0]).toHaveStyle({ fontWeight: "600" });
     }
+    // `getByText`, not `queryByText` + `?? ""`: an absent value would make the
+    // optional form pass vacuously (undefined → "" → not "600"), so the test
+    // would go green on a row that had stopped rendering at all.
     for (const value of ["Everything Server", "read"]) {
-      expect(screen.queryByText(value)?.style.fontWeight ?? "").not.toBe("600");
+      expect(screen.getByText(value).style.fontWeight).not.toBe("600");
+    }
+
+    // Badge values count too. `ThemeBadge` defaults to `fw: 600`, so Status,
+    // Transport and Era read bold-label/bold-value unless overridden — the
+    // whole-modal claim is false without this.
+    for (const badge of ["streamable-http", "Legacy", "Authorized"]) {
+      // `getByText` lands on the Badge's inner label span; `fw` is applied to
+      // the root, so walk up to it or the assertion reads an empty string and
+      // passes against anything.
+      const root = screen.getByText(badge).closest('[class*="Badge-root"]');
+      expect((root as HTMLElement | null)?.style.fontWeight).toBe("400");
     }
   });
 
@@ -622,6 +636,45 @@ describe("ConnectionInfoContent", () => {
       expect(screen.getByText(value)).toHaveStyle({
         backgroundColor: "transparent",
       });
+    }
+
+    // The background alone does not pin the *layout*: swapping FullWidthField
+    // back for the two-column SimpleGrid would keep it transparent and still
+    // pass. Assert the structure that makes the value full width — label and
+    // value are siblings in a column, and neither sits in a SimpleGrid.
+    for (const [label, value] of [
+      [
+        "Client ID",
+        "http://127.0.0.1:8093/client-metadata.json?profile=long-enough-to-wrap",
+      ],
+      ["Auth URL", "https://auth.example.com/authorize"],
+    ]) {
+      const labelNode = screen.getByText(label);
+      const valueNode = screen.getByText(value);
+      expect(valueNode.parentElement).toBe(labelNode.parentElement);
+      expect(valueNode.closest('[class*="SimpleGrid"]')).toBeNull();
+    }
+  });
+
+  it("bolds the token captions, which are field labels in the same list", () => {
+    renderWithMantine(
+      <ConnectionInfoContent
+        initializeResult={fullResult}
+        clientCapabilities={fullClientCaps}
+        transport="streamable-http"
+        oauth={{
+          protocol: "standard",
+          authorized: true,
+          accessToken: "token-123",
+          idToken: "id-token-456",
+        }}
+      />,
+    );
+
+    // OAuthTokenField renders its own caption, so the weight convention has to
+    // be asserted through it — the other weight test renders no token at all.
+    for (const caption of ["Access Token", "ID Token"]) {
+      expect(screen.getByText(caption).style.fontWeight).toBe("600");
     }
   });
 

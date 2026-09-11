@@ -92,6 +92,13 @@ const ValueText = Text.withProps({
   size: "sm",
 });
 
+// A badge standing in as the *value* half of a label/value row. The app-wide
+// `ThemeBadge` defaults to `fw: 600`, which is right for a standalone chip but
+// makes these rows read bold-label/bold-value — the one convention this modal
+// is not supposed to have. The chip still reads as a chip: its emphasis comes
+// from the outline and colour, not the font weight (#2328).
+const ValueBadge = Badge.withProps({ variant: "outline", fw: 400 });
+
 // Shown for Name/Version when the server didn't report `serverInfo` — an em dash
 // plus an explicit note so the client-side catalog fallback is never mistaken
 // for a value the server sent. Exported so tests/stories assert against it
@@ -331,10 +338,10 @@ export function ConnectionInfoContent({
           <ValueText>{protocolVersion || "—"}</ValueText>
 
           <FieldLabel>Transport</FieldLabel>
-          <Badge variant="outline">{transport}</Badge>
+          <ValueBadge>{transport}</ValueBadge>
 
           <FieldLabel>Era</FieldLabel>
-          <EraBadge era={protocolEra} />
+          <EraBadge era={protocolEra} fw={400} />
 
           <FieldLabel>Session</FieldLabel>
           <ValueText>{formatSession(protocolEra, transport)}</ValueText>
@@ -452,12 +459,9 @@ export function ConnectionInfoContent({
               <ValueText>{formatProtocol(oauth.protocol)}</ValueText>
 
               <FieldLabel>Status</FieldLabel>
-              <Badge
-                variant="outline"
-                color={oauth.authorized ? "green" : "gray"}
-              >
+              <ValueBadge color={oauth.authorized ? "green" : "gray"}>
                 {oauth.authorized ? "Authorized" : "Not authorized"}
-              </Badge>
+              </ValueBadge>
             </SimpleGrid>
             {oauth.clientRegistrationKind && (
               <SimpleGrid cols={2}>
