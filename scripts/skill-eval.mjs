@@ -57,11 +57,14 @@ const THRESHOLD = Number(process.env.THRESHOLD ?? 0.8);
 // acceptable is a separate judgement rather than one inherited from a number
 // tuned for the other measurement. 0.5 is the weakest claim worth asserting —
 // the pointer is taken more often than not — and it is a floor on useful
-// reliability for a SECOND-HOP load, not a claim that 0.8 is unreachable. A
-// well-shaped pointer clears 0.8 outright: the committed `testing` ->
+// reliability for a SECOND-HOP load, not a claim that 0.8 is unreachable. One
+// well-shaped pointer has cleared 0.8 outright: the committed `testing` ->
 // `test-servers` cases measured 33% (RUNS=3) when `testing` merely classified
 // which work belonged to `test-servers`, and 100%/100% (RUNS=5) once #2247
-// reshaped that into an imperative step. (An intermediate build of that change
+// reshaped that into an imperative step. That is ONE pointer over ONE edit that
+// moved wording and placement together, so read it as an existence proof that
+// the ceiling is above 0.8 — not as a general property of "well-shaped"
+// pointers, and not as grounds for raising this floor (Copilot, #2264). (An intermediate build of that change
 // measured 100%/80%. That is NOT an example of clearing a 0.8 bar — this
 // threshold is compared strictly, so 80% would fail one — but it is worth
 // knowing as the residual noise still present at RUNS=5.) What 0.5 buys

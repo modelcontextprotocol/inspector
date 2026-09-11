@@ -11,7 +11,7 @@ statements, functions, and branches.** That rule and the React/Mantine
 conventions live in [`AGENTS.md`](../../../AGENTS.md); this skill is where a
 test goes, how to run it, and how to clear the gate.
 
-## Before you write it: does the test need a real server?
+## Before you write it: does the test use a `test-servers/` fixture?
 
 **If it does, load the `test-servers` skill now — that is step one, before
 choosing a location or writing a line.**
@@ -23,8 +23,35 @@ ways to depend on one, and they need different halves of that skill:
 - **It connects to a fixture.** An integration test that connects; an
   end-to-end test that connects; a smoke that drives a connected flow; a
   coverage gap only reachable over a real connection; reproducing a reported bug
-  against a server. These need the whole procedure — which showcase config,
-  which protocol era, and the staleness hazard.
+  against a server. These need the whole procedure — the staleness hazard, and
+  then whichever half matches how the server is stood up.
+  ⚠️ **Which shape you need depends on what is driving, and there are three.**
+  All three are the **"Three ways to use a fixture"** section of `test-servers`,
+  which names the entry point and a reference for each — read the right third:
+  - **An integration or CLI test → in-process HTTP.**
+    `createTestServerHttp(...)` / `.start()` / `.stop()`, with the test owning
+    the lifecycle. Use it when the case needs HTTP or SSE, a specific tool set,
+    or the modern handler (`modern: {}` is a constructor option). **No showcase
+    config and no era table apply.**
+  - **An integration or CLI test where stdio is the point → spawned stdio.**
+    `getTestMcpServerCommand()` handed to a stdio transport or to the built CLI,
+    which spawns it. A subprocess *is* started, but it runs the stdio fixture's
+    **default** config, so there is still nothing to pick — and nothing to
+    override, so if the case needs a specific tool set it is an in-process HTTP
+    test instead.
+  - **A config-driven web smoke, or `pack:verify` → spawned composable HTTP.**
+    `smoke:web:elicitation`, `smoke:web:app`, `smoke:web:tabs` and `pack:verify`
+    all spawn `server-composable.js --config <name>.json`. **The showcase-config
+    and protocol-era guidance applies to you in full** — being automated does
+    not exempt a smoke from it.
+
+  ⚠️ **"A smoke" is not a shape, so do not route by that word.** `smoke:cli`
+  uses the first two — an in-process `createTestServerHttp` for the header
+  round-trip, and the built stdio entry in a `--catalog` for the connect checks
+  — and `smoke:tui` uses the stdio entry alone. Only the web smokes above are
+  config-driven. Pick by what the caller actually stands up.
+
+  What applies to all three is that section's build warning.
   ⚠️ **Connecting is a strong hint, not the rule.** A few integration tests
   deliberately hand-roll a JSON-RPC server because the composable fixture
   *cannot* produce what they assert on — `inspectorClient-malformed-list.test.ts`
@@ -39,7 +66,19 @@ ways to depend on one, and they need different halves of that skill:
 ⚠️ **"A build ran" is not the dependency — using the artefact is.**
 `clients/web`'s `pretest` runs `test-servers:build` before *every* unit run, so
 the fixture is on disk for tests that never reference it. What counts is whether
-the test imports, spawns, or points a config at it.
+the test **starts, spawns, configures, or hands a built entry to the subject
+under test**. That last clause is what covers `smoke:tui`, which drives no
+transport at all and still depends on the fixture — see the build-only bullet
+above.
+
+⚠️ **And *importing* the package is not the dependency either.** The barrel
+exports plain functions as well as server factories, so a test can import from
+it and never stand a server up — `src/test/core/mcp/test-server-scope.test.ts`
+imports `createScopeCheckMiddleware` and friends to unit-test the scope
+middleware as a pure function, with no `start()` anywhere in the file. None of
+the procedure applies to it — no config, no era, no lifecycle — it is an
+ordinary unit test that happens to import its subject from that package. Ask
+whether a *server* runs, not whether the import line is present.
 
 So the condition does **not** hold when the test renders a component from
 fixture props, exercises a pure function or a parser, or is a smoke that touches
