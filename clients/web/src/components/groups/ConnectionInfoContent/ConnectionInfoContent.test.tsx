@@ -567,6 +567,64 @@ describe("ConnectionInfoContent", () => {
     expect(screen.getByText("token-123")).toBeInTheDocument();
   });
 
+  it("weights labels bold and values normal, in both halves of the modal", () => {
+    renderWithMantine(
+      <ConnectionInfoContent
+        initializeResult={fullResult}
+        clientCapabilities={fullClientCaps}
+        transport="streamable-http"
+        oauth={{
+          protocol: "standard",
+          authorized: true,
+          clientId: "client-abc",
+          scopes: ["read"],
+        }}
+      />,
+    );
+
+    // The convention is the whole point of #2328: the label is the fixed
+    // scaffolding a reader scans down, the value is what differs. Asserted in
+    // Server Implementation *and* OAuth Details, because the defect being
+    // guarded against is the two halves disagreeing — checking one alone would
+    // pass on a modal that is internally inconsistent.
+    for (const label of ["Name", "Protocol", "Client ID", "Scopes"]) {
+      expect(screen.getAllByText(label)[0]).toHaveStyle({ fontWeight: "600" });
+    }
+    for (const value of ["Everything Server", "read"]) {
+      expect(screen.queryByText(value)?.style.fontWeight ?? "").not.toBe("600");
+    }
+  });
+
+  it("gives Client ID and Auth URL the full width, with no inset surface", () => {
+    renderWithMantine(
+      <ConnectionInfoContent
+        initializeResult={fullResult}
+        clientCapabilities={fullClientCaps}
+        transport="streamable-http"
+        oauth={{
+          protocol: "standard",
+          authorized: true,
+          clientId:
+            "http://127.0.0.1:8093/client-metadata.json?profile=long-enough-to-wrap",
+          authUrl: "https://auth.example.com/authorize",
+        }}
+      />,
+    );
+
+    // A CIMD client id IS a URL, so it is long by construction. In the
+    // two-column grid it got half the modal and broke mid-token
+    // (`…/client-metadata.` / `json`), which reads as a rendering fault rather
+    // than as one value.
+    for (const value of [
+      "http://127.0.0.1:8093/client-metadata.json?profile=long-enough-to-wrap",
+      "https://auth.example.com/authorize",
+    ]) {
+      expect(screen.getByText(value)).toHaveStyle({
+        backgroundColor: "transparent",
+      });
+    }
+  });
+
   it("renders EMA idp session when provided", () => {
     renderWithMantine(
       <ConnectionInfoContent

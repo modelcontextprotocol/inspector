@@ -79,9 +79,17 @@ export interface ConnectionInfoContentProps {
   onClearOAuth?: () => void;
 }
 
-const ValueText = Text.withProps({
+// Label/value pairs in this modal read label-bold, value-normal: the label is
+// the fixed scaffolding a reader scans down, and the value is the thing that
+// differs per connection. The reverse (which this was until #2328) bolded every
+// answer, so nothing stood out and the two columns fought each other.
+const FieldLabel = Text.withProps({
   size: "sm",
   fw: 600,
+});
+
+const ValueText = Text.withProps({
+  size: "sm",
 });
 
 // Shown for Name/Version when the server didn't report `serverInfo` — an em dash
@@ -104,7 +112,14 @@ const SectionHeading = Title.withProps({
 // `Code` block — that keeps the whole value visible and removes a scroll region
 // that would otherwise need its own keyboard access (axe
 // `scrollable-region-focusable`).
-const ValueCode = Code.withProps({ variant: "wrapping" });
+const ValueCode = Code.withProps({ variant: "wrapping-plain" });
+
+// A long OAuth value (client id, auth URL) gets its label on its own line and
+// the value across the full modal width beneath it, the way `OAuthTokenField`
+// already lays out a token. In the two-column grid these values had roughly
+// half the width and wrapped mid-token — `…/client-metadata.` / `json` — which
+// reads as a rendering fault rather than as one URL (#2328).
+const FullWidthField = Stack.withProps({ gap: 4 });
 
 // One declared sub-option of an extension. Mirrors `CapabilityItem`'s ✓/✗ row
 // rather than reusing it: that element's `capability` prop is the closed union
@@ -306,22 +321,22 @@ export function ConnectionInfoContent({
       <Stack gap="xs">
         <SectionHeading>Server Implementation</SectionHeading>
         <SimpleGrid cols={2}>
-          <Text size="sm">Name</Text>
+          <FieldLabel>Name</FieldLabel>
           <ValueText>{displayName}</ValueText>
 
-          <Text size="sm">Version</Text>
+          <FieldLabel>Version</FieldLabel>
           <ValueText>{displayVersion}</ValueText>
 
-          <Text size="sm">Protocol</Text>
+          <FieldLabel>Protocol</FieldLabel>
           <ValueText>{protocolVersion || "—"}</ValueText>
 
-          <Text size="sm">Transport</Text>
+          <FieldLabel>Transport</FieldLabel>
           <Badge variant="outline">{transport}</Badge>
 
-          <Text size="sm">Era</Text>
+          <FieldLabel>Era</FieldLabel>
           <EraBadge era={protocolEra} />
 
-          <Text size="sm">Session</Text>
+          <FieldLabel>Session</FieldLabel>
           <ValueText>{formatSession(protocolEra, transport)}</ValueText>
         </SimpleGrid>
       </Stack>
@@ -330,7 +345,7 @@ export function ConnectionInfoContent({
         <Stack gap="xs">
           <SectionHeading>Discovery</SectionHeading>
           <SimpleGrid cols={2}>
-            <Text size="sm">Supported versions</Text>
+            <FieldLabel>Supported versions</FieldLabel>
             <ValueText>
               {discoverResult.supportedVersions.length > 0
                 ? discoverResult.supportedVersions.join(", ")
@@ -433,10 +448,10 @@ export function ConnectionInfoContent({
           <SectionHeading>OAuth Details</SectionHeading>
           <Stack gap="xs">
             <SimpleGrid cols={2}>
-              <Text size="sm">Protocol</Text>
+              <FieldLabel>Protocol</FieldLabel>
               <ValueText>{formatProtocol(oauth.protocol)}</ValueText>
 
-              <Text size="sm">Status</Text>
+              <FieldLabel>Status</FieldLabel>
               <Badge
                 variant="outline"
                 color={oauth.authorized ? "green" : "gray"}
@@ -445,14 +460,14 @@ export function ConnectionInfoContent({
               </Badge>
             </SimpleGrid>
             {oauth.clientId && (
-              <SimpleGrid cols={2}>
-                <Text size="sm">Client ID</Text>
+              <FullWidthField>
+                <FieldLabel>Client ID</FieldLabel>
                 <ValueCode>{oauth.clientId}</ValueCode>
-              </SimpleGrid>
+              </FullWidthField>
             )}
             {oauth.clientRegistrationKind && (
               <SimpleGrid cols={2}>
-                <Text size="sm">Client registration</Text>
+                <FieldLabel>Client registration</FieldLabel>
                 <ValueText>
                   {formatClientRegistrationKind(oauth.clientRegistrationKind)}
                 </ValueText>
@@ -460,19 +475,19 @@ export function ConnectionInfoContent({
             )}
             {oauth.protocol === "ema" && oauth.idpSession && (
               <SimpleGrid cols={2}>
-                <Text size="sm">IdP session</Text>
+                <FieldLabel>IdP session</FieldLabel>
                 <ValueText>{formatIdpSession(oauth.idpSession)}</ValueText>
               </SimpleGrid>
             )}
             {oauth.authUrl && (
-              <SimpleGrid cols={2}>
-                <Text size="sm">Auth URL</Text>
+              <FullWidthField>
+                <FieldLabel>Auth URL</FieldLabel>
                 <ValueCode>{oauth.authUrl}</ValueCode>
-              </SimpleGrid>
+              </FullWidthField>
             )}
             {oauth.scopes && oauth.scopes.length > 0 && (
               <SimpleGrid cols={2}>
-                <Text size="sm">Scopes</Text>
+                <FieldLabel>Scopes</FieldLabel>
                 <ValueText>{formatScopes(oauth.scopes)}</ValueText>
               </SimpleGrid>
             )}

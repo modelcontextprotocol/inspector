@@ -26,7 +26,10 @@ const CaptionRow = Flex.withProps({
   wrap: "nowrap",
 });
 
-const Caption = Text.withProps({ size: "sm" });
+// Bold, matching every other field label in Connection Info (#2328) — the
+// token rows sit in the same OAuth Details list as Client ID and Scopes, so a
+// lighter caption here would break the column a reader scans down.
+const Caption = Text.withProps({ size: "sm", fw: 600 });
 
 const Toolbar = Flex.withProps({
   gap: 4,
