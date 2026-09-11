@@ -391,9 +391,10 @@ export function withOAuthRequestTimeout(
       // `response.json()` would hang with nothing watching it (Copilot). Every
       // response on this path is a small, finite document — metadata,
       // a registration, a token — so buffering it under the same deadline
-      // bounds the whole exchange. This is the other reason the wrapper must
-      // never be applied to the transport fetch, whose bodies are streams that
-      // are supposed to stay open.
+      // bounds the whole exchange. It is also the second reason `isExempt` is
+      // not optional on a mixed chain: an exempt request skips this buffering
+      // entirely, which is what lets an SSE body stay open rather than being
+      // drained into memory here.
       const body = await Promise.race([response.arrayBuffer(), abandoned]);
       return rebuildResponse(response, body);
     } catch (err) {

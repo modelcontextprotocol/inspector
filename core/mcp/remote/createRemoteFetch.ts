@@ -184,9 +184,14 @@ export function createRemoteFetch(options: RemoteFetchOptions): typeof fetch {
       // rebuild the typed error from its marker so the `instanceof` checks
       // downstream — most importantly the one that lets a stalled probe escape
       // `withRfc8414OidcCompat` — still see a timeout for what it is (#2319,
-      // Copilot). This is the only path on which such a timeout can reach the
-      // browser without a client-side wrapper having fired first: the discovery
-      // the SDK runs from inside the transport has no wrapper at all.
+      // Copilot).
+      //
+      // Both ends run the same budget, so the client's race usually settles
+      // first and this path is not taken. It matters when the backend's timer
+      // wins anyway — most plausibly a backgrounded tab, where the browser
+      // throttles `setTimeout` while the server's fires on schedule. Without
+      // this, which of two equal deadlines happened to fire would decide
+      // whether the error carried its endpoint.
       let parsed: unknown;
       try {
         parsed = JSON.parse(text);

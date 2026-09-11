@@ -272,10 +272,12 @@ describe("createRemoteFetch", () => {
     }
 
     it("rebuilds an OAuthRequestTimeoutError from the route's marker", async () => {
-      // The one path where a timeout reaches the browser without a client-side
-      // wrapper having fired first: the discovery the SDK runs from inside the
-      // transport has no wrapper at all, so the backend's deadline is the only
-      // one, and it arrives as an ordinary error response.
+      // The proxy boundary in isolation: whichever end's deadline fires, a
+      // timeout that comes back as an ordinary error response must still
+      // reconstruct as a typed one. Both ends run the same budget in
+      // production, so this path is the backend winning the race — a
+      // backgrounded tab throttling `setTimeout` is the plausible case — and
+      // which one fired must not decide whether the error names its endpoint.
       const remoteFetch = remoteReturning(
         504,
         JSON.stringify({
