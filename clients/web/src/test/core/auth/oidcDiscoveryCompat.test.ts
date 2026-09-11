@@ -578,6 +578,36 @@ describe("probe cancellation (#2319)", () => {
     expect(cancels).toHaveBeenCalled();
   });
 
+  it("does not wait on a cancel that never settles", async () => {
+    // ⚠️ `ReadableStream.cancel()` adopts the underlying source's cancel
+    // promise, which is permitted never to settle — so awaiting the release on
+    // a path that is propagating a cancellation would hang the very thing it
+    // was meant to end.
+    const discovery = new Response(
+      new ReadableStream<Uint8Array>({
+        start(ctrl) {
+          ctrl.enqueue(new TextEncoder().encode("not found"));
+        },
+        cancel() {
+          return new Promise<void>(() => {});
+        },
+      }),
+      { status: 404 },
+    );
+    const inner = vi.fn<typeof fetch>((input) =>
+      String(input) === RFC8414
+        ? Promise.resolve(discovery)
+        : new Promise<Response>(() => {}),
+    );
+    const wrapped = withRfc8414OidcCompat(inner);
+    const reason = new Error("gone");
+
+    // Would hang if the release were awaited; the assertion is that it settles.
+    await expect(
+      wrapped(RFC8414, { signal: AbortSignal.abort(reason) }),
+    ).rejects.toBe(reason);
+  });
+
   it("still falls back to the original response on an ordinary probe failure", async () => {
     const inner = vi.fn<typeof fetch>((input) => {
       if (String(input) === RFC8414) {

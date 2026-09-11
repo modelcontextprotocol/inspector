@@ -171,6 +171,22 @@ async function releaseBody(response: Response): Promise<void> {
 }
 
 /**
+ * The same release, started but not waited on.
+ *
+ * ⚠️ `ReadableStream.cancel()` adopts the underlying source's cancel promise,
+ * which is permitted never to settle — so awaiting it on a path that is
+ * *propagating a cancellation* can hang the very thing that was meant to end
+ * (Copilot). Every exceptional exit below uses this: the release is a courtesy
+ * to the connection pool, and the caller's abort or timeout must reach it
+ * regardless. The `void` is the documented case where the callee owns its
+ * failures — `releaseBody` swallows its own — and the caller genuinely cannot
+ * await.
+ */
+function releaseBodyDetached(response: Response): void {
+  void releaseBody(response);
+}
+
+/**
  * Whether a parsed body is RFC 8414 authorization-server metadata that is *not*
  * a valid OpenID provider document — the exact shape the upstream schema
  * selection rejects.
@@ -280,7 +296,7 @@ export function withRfc8414OidcCompat(fetchFn: typeof fetch): typeof fetch {
       // exported wrapper, where no timeout wrapper is underneath to have
       // already drained it.
       if (callerSignal?.aborted) {
-        await releaseBody(response);
+        releaseBodyDetached(response);
         throw callerSignal.reason;
       }
 
@@ -299,7 +315,7 @@ export function withRfc8414OidcCompat(fetchFn: typeof fetch): typeof fetch {
         // stall the SDK would have hit itself, unbounded. Everything else — a
         // CORS rejection, DNS, a reset — still falls back as documented above.
         if (err instanceof OAuthRequestTimeoutError) {
-          await releaseBody(response);
+          releaseBodyDetached(response);
           throw err;
         }
         // Likewise a caller that gave up: substituting the preceding 404 for
@@ -308,7 +324,7 @@ export function withRfc8414OidcCompat(fetchFn: typeof fetch): typeof fetch {
         // here and at the two sites below, rather than whatever shape the
         // underlying layer happened to reject with.
         if (callerSignal?.aborted) {
-          await releaseBody(response);
+          releaseBodyDetached(response);
           throw callerSignal.reason;
         }
         return response;
@@ -325,7 +341,7 @@ export function withRfc8414OidcCompat(fetchFn: typeof fetch): typeof fetch {
         // response either, and `continue` would otherwise carry on probing for
         // a caller that has stopped waiting.
         if (callerSignal?.aborted) {
-          await releaseBody(response);
+          releaseBodyDetached(response);
           throw callerSignal.reason;
         }
         if (continuesDiscovery(probe.status)) continue;
@@ -352,7 +368,7 @@ export function withRfc8414OidcCompat(fetchFn: typeof fetch): typeof fetch {
         // that merely will not parse still falls through, which is the case
         // this catch exists for.
         if (callerSignal?.aborted) {
-          await releaseBody(response);
+          releaseBodyDetached(response);
           throw callerSignal.reason;
         }
         return response;

@@ -56,6 +56,8 @@
  * shape, as `revokeToken`.
  */
 
+import { redactUrlQuery } from "../mcp/fetchTracking.js";
+
 /**
  * 30 seconds. Deliberately generous: discovery against a slow or cold-starting
  * authorization server is legitimate, and a bound that fires on a server that
@@ -63,8 +65,6 @@
  * halves the 60s the SDK handshake incidentally provides, and it is the only
  * bound at all on the legs that sit outside an SDK request.
  */
-import { redactUrlQuery } from "../mcp/fetchTracking.js";
-
 export const DEFAULT_OAUTH_REQUEST_TIMEOUT_MS = 30_000;
 
 /**
