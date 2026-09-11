@@ -117,7 +117,7 @@
     "@eslint/js": "^10.0.1",
     "@types/node": "^24.12.4",
     "@types/proper-lockfile": "^4.1.4",
-    "@vitest/coverage-v8": "4.1.10",
+    "@vitest/coverage-v8": "4.1.11",
     "eslint": "^10.8.0",
     "eslint-plugin-react-hooks": "^7.1.1",
     "express": "^5.2.1",
@@ -126,6 +126,6 @@
     "semver": "^7.8.5",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.65.0",
-    "vitest": "4.1.10"
+    "vitest": "4.1.11"
   }
 }
