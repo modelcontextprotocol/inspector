@@ -53,6 +53,7 @@ import {
   getAuthorizationServerUrlCandidates,
 } from "@inspector/core/auth/discovery.js";
 import { withRfc8414OidcCompat } from "@inspector/core/auth/oidcDiscoveryCompat.js";
+import { withOAuthRequestTimeout } from "@inspector/core/auth/requestTimeout.js";
 import { writeStoreFile } from "@inspector/core/storage/store-io.js";
 import {
   refreshAuthorization,
@@ -353,7 +354,14 @@ export async function refreshStoredAuthToken(
   // else puts a proxy under it, and a server reachable only through
   // `HTTPS_PROXY` would otherwise be probed directly. The same fetch is handed
   // to the token request below, so neither leg bypasses the proxy (Copilot).
-  const storedAuthFetch = withRfc8414OidcCompat(createProxyFetch() ?? fetch);
+  // #2319: this path runs outside `InspectorClient`, so nothing else bounds it
+  // — the discovery and the token request below would otherwise hang forever
+  // against an authorization server that accepts the connection and never
+  // answers. Innermost, so the compat wrapper's own probe requests inherit the
+  // deadline too.
+  const storedAuthFetch = withRfc8414OidcCompat(
+    withOAuthRequestTimeout(createProxyFetch() ?? fetch),
+  );
   const discover: typeof discoverAuthorizationServerMetadata =
     deps.discover ??
     ((authorizationServerUrl, options) =>

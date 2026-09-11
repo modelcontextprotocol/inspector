@@ -256,6 +256,7 @@ import {
 } from "../auth/challenge.js";
 import { withOAuthEndpointOverrides } from "../auth/endpointOverrides.js";
 import { withRfc8414OidcCompat } from "../auth/oidcDiscoveryCompat.js";
+import { withOAuthRequestTimeout } from "../auth/requestTimeout.js";
 import type { TokenRevocationOutcome } from "../auth/revocation.js";
 import type { OAuthTokens } from "@modelcontextprotocol/client";
 import { silentLogger, type InspectorLogger } from "../logging/logger.js";
@@ -991,7 +992,15 @@ export class InspectorClient extends InspectorClientEventTarget {
   }
 
   private buildEffectiveAuthFetch(): typeof fetch {
-    const base = this.fetchFn ?? fetch;
+    // #2319: bound every OAuth-path request — discovery, dynamic client
+    // registration, the token exchange, the refresh. Applied here rather than
+    // to `this.fetchFn` because the transport is handed `this.fetchFn`
+    // directly, and a deadline on a Streamable HTTP / SSE response would sever
+    // the very stream it is supposed to hold open. The cost of that placement
+    // is that the discovery the SDK runs from *inside* the transport (the
+    // 401/refresh path) is not covered here; that leg sits inside an SDK
+    // request and is bounded by its per-request timeout.
+    const base = withOAuthRequestTimeout(this.fetchFn ?? fetch);
     // Capture auth response bodies (OAuth discovery, DCR, token exchange) so
     // they're inspectable in the Network tab. Token-exchange responses carry
     // `access_token` / `refresh_token`; the Network UI masks those (and other
