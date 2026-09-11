@@ -206,6 +206,19 @@ describe("client config", () => {
     ).toThrow(/HTTPS/);
   });
 
+  it("parseClientConfig accepts a loopback http CIMD URL", () => {
+    for (const clientMetadataUrl of [
+      "http://localhost:8090/client-metadata.json",
+      "http://127.0.0.1:8090/client-metadata.json",
+      "http://[::1]:8090/client-metadata.json",
+    ]) {
+      const config = parseClientConfig({
+        cimd: { enabled: true, clientMetadataUrl },
+      });
+      expect(config.cimd?.clientMetadataUrl).toBe(clientMetadataUrl);
+    }
+  });
+
   it("parseClientConfig rejects CIMD URL without path", () => {
     expect(() =>
       parseClientConfig({
@@ -298,6 +311,50 @@ describe("client config", () => {
       expect(getCimdClientMetadataUrlError("https://example.com")).toBe(
         CIMD_METADATA_URL_PATH_ERROR,
       );
+    });
+
+    it("accepts plain http on the three exempt loopback literals", () => {
+      expect(
+        getCimdClientMetadataUrlError(
+          "http://localhost:8090/client-metadata.json",
+        ),
+      ).toBeUndefined();
+      expect(
+        getCimdClientMetadataUrlError(
+          "http://127.0.0.1:8090/client-metadata.json",
+        ),
+      ).toBeUndefined();
+      expect(
+        getCimdClientMetadataUrlError("http://[::1]:8090/client-metadata.json"),
+      ).toBeUndefined();
+    });
+
+    it("still requires a path on an exempt loopback host", () => {
+      expect(getCimdClientMetadataUrlError("http://localhost:8090")).toBe(
+        CIMD_METADATA_URL_PATH_ERROR,
+      );
+    });
+
+    it("does not widen the exemption beyond the three literals", () => {
+      // `localhost.` and `*.localhost` resolve to loopback on every resolver,
+      // but they are outside the SDK's allow-list — so they are outside ours
+      // too, deliberately, rather than the two disagreeing about one URL.
+      for (const value of [
+        "http://tenant.app.localhost:3300/client-metadata.json",
+        "http://127.0.0.2:8090/client-metadata.json",
+        "http://localhost.example.com/client-metadata.json",
+      ]) {
+        expect(getCimdClientMetadataUrlError(value)).toBe(
+          CIMD_METADATA_URL_HTTPS_ERROR,
+        );
+      }
+      // The root-anchored spelling never reaches the protocol check at all:
+      // `isAbsoluteHttpUrl` rejects its trailing empty label first, so it is
+      // flagged as unparseable rather than as non-HTTPS. Pinned so a later
+      // change to either check has to decide about this case on purpose.
+      expect(
+        getCimdClientMetadataUrlError("http://localhost./client-metadata.json"),
+      ).toBe(CIMD_METADATA_URL_INVALID_ERROR);
     });
   });
 

@@ -560,16 +560,23 @@ from **Client settings**, not from a server's own OAuth settings. A `clientMetad
 catalog entry's `oauth` block is silently ignored — and with `supportDCR: true` the connection then
 succeeds *via DCR*, which looks like CIMD working until you read the client id.
 
-⚠️ **The Inspector requires that URL to be HTTPS, and there is no loopback exemption**
+**Use this server's own document as the `clientMetadataUrl`** — `/client-metadata.json` on the origin
+the server announced on startup (`http://127.0.0.1:8092/client-metadata.json` when it got its
+configured port; read the announced URL, since this fixture walks upward on `EADDRINUSE` like every
+other one here). The Inspector requires HTTPS *except* on the three
+loopback literals `localhost`, `127.0.0.1` and `[::1]`
 (`getCimdClientMetadataUrlError` in `core/client/config-parse.ts`, applied to `client.json` on disk as
-well as to the settings form). So this server's own `http://` document is **not** usable as a
-`clientMetadataUrl`: it exists for the authorization-server side of the flow and for tests that drive
-the AS directly. To drive the Inspector end to end you need the document served over HTTPS —
-`https://127.0.0.1:8443/client-metadata.json` from a throwaway self-signed listener works, with
-`NODE_TLS_REJECT_UNAUTHORIZED=0` in the *test server's* environment so its own fetch of that document
-succeeds. That asymmetry is tracked in
-[#2305](https://github.com/modelcontextprotocol/inspector/issues/2305); it is the same over-narrow
-allow-list shape as the token-endpoint exemption above.
+well as to the settings form), which is the same exemption the SDK applies to token endpoints and what
+the runtime already tolerated for an already-stored `client_id`. Give the URL the host the server is
+actually listening on; a host outside those three — `localhost.` and `tenant.app.localhost` included,
+even though both resolve to loopback — is still rejected, deliberately, so this allow-list and the
+SDK's cannot disagree about one URL.
+
+⚠️ **Before [#2305](https://github.com/modelcontextprotocol/inspector/issues/2305) there was no
+loopback exemption at all**, so driving this flow meant standing up a throwaway self-signed HTTPS
+listener to hold the document and setting `NODE_TLS_REJECT_UNAUTHORIZED=0` in the *test server's*
+environment so its own fetch of that document would succeed. That workaround is no longer needed — if
+you find it in a script or an older note, delete it.
 
 With that in place: set the metadata URL in Client settings, connect, and open **Connection Info**.
 It should read `Client registration — Client ID Metadata (CIMD)` with the **client id equal to the

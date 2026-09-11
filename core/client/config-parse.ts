@@ -58,9 +58,48 @@ const HttpUrlStringSchema = z
 export const CIMD_METADATA_URL_INVALID_ERROR =
   "Must be a valid URL, like https://example.com/oauth/client.json";
 
-/** Field-level error when a CIMD metadata URL is not HTTPS. */
+/**
+ * Field-level error when a CIMD metadata URL is neither HTTPS nor served from
+ * one of the exempt loopback literals. The message names the exemption rather
+ * than saying only "must use HTTPS", so a developer pointing the field at a
+ * local fixture is told which spellings work instead of concluding that nothing
+ * local can (the same phrasing lesson as the token-endpoint notice in
+ * `core/auth/oauthUx.ts`).
+ */
 export const CIMD_METADATA_URL_HTTPS_ERROR =
-  "CIMD client metadata URL must use HTTPS";
+  "CIMD client metadata URL must use HTTPS, except on localhost, 127.0.0.1 or [::1]";
+
+/**
+ * Hosts for which a plain `http:` CIMD metadata URL is accepted.
+ *
+ * SEP-991 expects HTTPS in production for a real reason: a CIMD `client_id` is
+ * a URL the authorization server dereferences, and over plain HTTP the document
+ * it gets back is attacker-modifiable in transit. Loopback is the documented
+ * exception to exactly that reasoning — there is no network segment to sit on —
+ * which is why the SDK exempts these same three literals from its token-endpoint
+ * TLS assertion, and why `core/auth/cimd.ts` already notes that an
+ * already-stored `client_id` may be an `http://` URL "used by local dev/test
+ * metadata servers". Without this, the runtime tolerated a value the config
+ * validation would not let anyone enter, and CIMD could not be driven against
+ * any fixture in this repo (#2305).
+ *
+ * ⚠️ This is the SDK's *three-literal* list, deliberately, and not the broader
+ * `isLoopbackHost` in `core/node/hostUrl.ts` — which imports `node:net` and so
+ * cannot be reached from this browser-safe module. Matching the SDK literal for
+ * literal also keeps the two allow-lists from disagreeing about the same URL.
+ * `::1` arrives from `URL.hostname` bracketed, which is the form stored here.
+ */
+const CIMD_HTTP_EXEMPT_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
+
+/**
+ * True when a plain-`http:` CIMD metadata URL on this host is acceptable. Takes
+ * the bare host (`URL.hostname`), never a `host:port`. Not exported: the only
+ * caller is the validator below, and the exemption is exercised through it
+ * rather than through a second public surface that could drift from it.
+ */
+function isCimdHttpExemptHost(hostname: string): boolean {
+  return CIMD_HTTP_EXEMPT_HOSTS.has(hostname);
+}
 
 /** Field-level error when a CIMD metadata URL has no path segment. */
 export const CIMD_METADATA_URL_PATH_ERROR =
@@ -81,7 +120,7 @@ export function getCimdClientMetadataUrlError(
   }
   try {
     const url = new URL(trimmed);
-    if (url.protocol !== "https:") {
+    if (url.protocol !== "https:" && !isCimdHttpExemptHost(url.hostname)) {
       return CIMD_METADATA_URL_HTTPS_ERROR;
     }
     if (url.pathname === "/" || url.pathname === "") {

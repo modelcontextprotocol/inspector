@@ -307,15 +307,16 @@ export function ClientSettingsForm({
               {settings.cimdEnabled && (
                 <>
                   <HintText>
-                    The metadata document must be served over HTTPS and list
-                    this redirect URI:{" "}
+                    The metadata document must be served over HTTPS — or over
+                    plain HTTP from localhost, 127.0.0.1 or [::1], for a local
+                    fixture — and list this redirect URI:{" "}
                     {typeof window !== "undefined"
                       ? `${window.location.origin}/oauth/callback`
                       : "http://localhost:6274/oauth/callback"}
                   </HintText>
                   <ClearableTextInput
                     label="Client ID metadata document URL"
-                    description="Public HTTPS URL of your OAuth client metadata JSON document."
+                    description="HTTPS URL of your OAuth client metadata JSON document (http:// is accepted only on localhost, 127.0.0.1 or [::1])."
                     value={settings.clientMetadataUrl}
                     onChange={(e) =>
                       patch({ clientMetadataUrl: e.currentTarget.value })
