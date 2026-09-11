@@ -578,6 +578,14 @@ listener to hold the document and setting `NODE_TLS_REJECT_UNAUTHORIZED=0` in th
 environment so its own fetch of that document would succeed. That workaround is no longer needed — if
 you find it in a script or an older note, delete it.
 
+⚠️ **Clear OAuth state before the run if you have connected to this fixture before.** Tokens and the
+registered client persist in `~/.mcp-inspector/storage/oauth.json` independently of the install-wide
+CIMD toggle, and the Inspector reuses valid stored tokens before prompting — so a leftover grant can
+carry a run that the registration path never actually completed, which is the same
+"it connected, therefore CIMD worked" trap `supportDCR: false` exists to close. Use **Clear OAuth
+state and disconnect** (Server Settings → Authorization), or point `MCP_STORAGE_DIR` at a throwaway
+directory, which additionally survives a restarted fixture having forgotten a client it once issued.
+
 With that in place: set the metadata URL in Client settings, connect, and open **Connection Info**.
 It should read `Client registration — Client ID Metadata (CIMD)` with the **client id equal to the
 metadata URL**, which is what CIMD means and what distinguishes it from a DCR-issued

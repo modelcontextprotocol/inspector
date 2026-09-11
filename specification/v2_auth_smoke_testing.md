@@ -40,7 +40,7 @@ Web uses `http://localhost:6274/oauth/callback` on the main app server — not t
 | --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Static / preregistered client** | You supply `oauthClientId` and optionally `oauthClientSecret` in Server Settings. Inspector skips DCR and uses your credentials.                                                                                                              |
 | **DCR**                           | Dynamic Client Registration (RFC 7591). Inspector registers at the AS `registration_endpoint` on first connect; no client id in config.                                                                                                       |
-| **CIMD**                          | Client ID Metadata Document (SEP-991). Inspector uses an HTTPS metadata URL as `client_id` when the AS advertises `client_id_metadata_document_supported`.                                                                                    |
+| **CIMD**                          | Client ID Metadata Document (SEP-991). Inspector uses an HTTPS metadata URL as `client_id` when the AS advertises `client_id_metadata_document_supported` — or a plain `http://` one on `localhost` / `127.0.0.1` / `[::1]`, the loopback exemption added in [#2305](https://github.com/modelcontextprotocol/inspector/issues/2305) for local fixtures. |
 | **Client credentials grant**      | OAuth 2.0 machine-to-machine `grant_type=client_credentials`. **Not** what we mean by “static client credentials” here. Inspector does not implement this grant yet ([#1225](https://github.com/modelcontextprotocol/inspector/issues/1225)). |
 
 ## Prerequisites
@@ -395,7 +395,7 @@ The full `redirect_uris` list also includes other localhost ports and MCPJam app
 
 #### Why MCPJam’s document works with Inspector
 
-CIMD treats the metadata **HTTPS URL** as the OAuth `client_id`. On authorize, Stytch (or any CIMD-capable AS) fetches that JSON and checks:
+CIMD treats the metadata **HTTPS URL** as the OAuth `client_id` (loopback `http://` is the one exemption — see [§ local fallback](#local-fallback-composable-test-server); everything in this Stytch section is HTTPS). On authorize, Stytch (or any CIMD-capable AS) fetches that JSON and checks:
 
 1. The document’s `client_id` field matches the URL.
 2. The `redirect_uri` on the request appears **exactly** in `redirect_uris`.
@@ -521,9 +521,13 @@ node test-servers/build/server-composable.js --config test-servers/configs/oauth
 
 The server announces its URL on **stderr**, and walks to the next free port on `EADDRINUSE` — read the announced URL rather than assuming 8092.
 
-Since [#2305](https://github.com/modelcontextprotocol/inspector/issues/2305) a loopback `http://` metadata URL is a **valid persisted `client.json` setting and a valid entry in the settings form**, not a test-only affordance — `getCimdClientMetadataUrlError` exempts `localhost`, `127.0.0.1` and `[::1]`, the same three literals the SDK exempts for token endpoints. So point `clientMetadataUrl` straight at the URL the fixture announced (`http://127.0.0.1:8092/client-metadata.json` on its configured port) with no HTTPS listener. Before that change the exemption existed only in `ensureCimdClientRegistration`, for an already-stored `client_id`, and driving this by hand needed a self-signed HTTPS listener plus `NODE_TLS_REJECT_UNAUTHORIZED=0`.
+Since [#2305](https://github.com/modelcontextprotocol/inspector/issues/2305) a loopback `http://` metadata URL is a **valid persisted `client.json` setting and a valid entry in the settings form**, not a test-only affordance — `getCimdClientMetadataUrlError` exempts `localhost`, `127.0.0.1` and `[::1]`, the same three literals the SDK exempts for token endpoints. So `clientMetadataUrl` can point straight at the document this fixture serves, with no HTTPS listener. Before that change the exemption existed only in `ensureCimdClientRegistration`, for an already-stored `client_id`, and driving this by hand needed a self-signed HTTPS listener plus `NODE_TLS_REJECT_UNAUTHORIZED=0`.
 
-With CIMD off in Client Settings, connect + authenticate should **fail**; with CIMD on and that local metadata URL, it should **succeed**. `docs/test-servers.md` has the full walkthrough, including the `redirect_uris` port trap.
+⚠️ **The server announces its MCP endpoint, not the metadata URL** — the line on stderr ends in `/mcp`. Take the **origin** (host and port) from it and append `/client-metadata.json`: an announced `http://127.0.0.1:8092/mcp` means `clientMetadataUrl` is `http://127.0.0.1:8092/client-metadata.json`. Don't assume 8092; the fixture walks past a taken port.
+
+⚠️ **Clear OAuth state before each phase, or neither outcome below is deterministic.** Tokens and the registered client persist in `~/.mcp-inspector/storage/oauth.json` independently of the install-wide CIMD toggle, and the Inspector reuses valid stored tokens before prompting — so a leftover grant from an earlier CIMD-on run makes the CIMD-off phase *connect*, and the negative control silently proves nothing. Use **Clear OAuth state and disconnect** (Server Settings → Authorization) before the off phase and again between the off and on phases. Pointing `MCP_STORAGE_DIR` at a throwaway directory for the whole run is the stronger version, and also survives a restarted fixture having forgotten a client it once issued.
+
+With that state cleared: with CIMD off in Client Settings, connect + authenticate should **fail**; with CIMD on and that local metadata URL, it should **succeed**. `docs/test-servers.md` has the full walkthrough, including the `redirect_uris` port trap.
 
 ---
 
