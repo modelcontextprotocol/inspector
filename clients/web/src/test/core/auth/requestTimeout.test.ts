@@ -387,6 +387,46 @@ describe("withOAuthRequestTimeout", () => {
     });
   });
 
+  it("falls back to the default on a non-finite budget", async () => {
+    vi.useFakeTimers();
+    // `NaN` survives `Math.max(0, Math.round(NaN))` and `setTimeout(fn, NaN)`
+    // fires immediately, so without this every OAuth request under a budget
+    // that came out of bad arithmetic would fail at once with "timed out after
+    // NaNms".
+    for (const bad of [NaN, Infinity, -Infinity]) {
+      const wrapped = withOAuthRequestTimeout(neverSettles, bad);
+      const assertion = wrapped(URL_UNDER_TEST).catch((err: unknown) => err);
+
+      await vi.advanceTimersByTimeAsync(DEFAULT_OAUTH_REQUEST_TIMEOUT_MS - 1);
+      expect(await Promise.race([assertion, Promise.resolve("pending")])).toBe(
+        "pending",
+      );
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect((await assertion) as OAuthRequestTimeoutError).toMatchObject({
+        timeoutMs: DEFAULT_OAUTH_REQUEST_TIMEOUT_MS,
+      });
+    }
+  });
+
+  it("clamps an over-large budget to what setTimeout can schedule", async () => {
+    vi.useFakeTimers();
+    // Past 2**31-1 the delay overflows a 32-bit signed int and Node falls back
+    // to 1ms — an immediate timeout, the opposite of what was asked for.
+    const wrapped = withOAuthRequestTimeout(neverSettles, 2 ** 40);
+
+    const assertion = wrapped(URL_UNDER_TEST).catch((err: unknown) => err);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(await Promise.race([assertion, Promise.resolve("pending")])).toBe(
+      "pending",
+    );
+
+    await vi.advanceTimersByTimeAsync(2_147_483_647);
+    expect((await assertion) as OAuthRequestTimeoutError).toMatchObject({
+      timeoutMs: 2_147_483_647,
+    });
+  });
+
   it("clamps a negative budget to zero rather than throwing", async () => {
     vi.useFakeTimers();
     const wrapped = withOAuthRequestTimeout(neverSettles, -1);

@@ -1256,10 +1256,15 @@ export function createRemoteApp(
     // the regression `exemptMcpEndpoint` exists to prevent on the client, and
     // reporting it as an OAuth timeout besides (Copilot). No deadline in the
     // envelope means no timer at all.
+    // Clamped to what `setTimeout` can schedule: past 2**31-1 the delay
+    // overflows and Node falls back to 1ms, turning an over-large budget into
+    // an immediate timeout. Non-finite is ignored outright rather than
+    // defaulted — an envelope carrying `NaN` is a malformed request, and the
+    // safe reading of a malformed deadline is "no deadline".
     const deadlineMs =
       typeof requestedTimeoutMs === "number" &&
       Number.isFinite(requestedTimeoutMs)
-        ? Math.max(0, Math.round(requestedTimeoutMs))
+        ? Math.min(2_147_483_647, Math.max(0, Math.round(requestedTimeoutMs)))
         : undefined;
     const timer =
       deadlineMs === undefined

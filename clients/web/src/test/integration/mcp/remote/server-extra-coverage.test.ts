@@ -473,10 +473,12 @@ describe("server.ts supplemental coverage", () => {
 
     it("answers 504 with a typed marker when the request's deadline fires (#2319)", async () => {
       // The caller's budget travels in the envelope, so this costs milliseconds
-      // rather than the production thirty seconds. The marker matters because
-      // a backend-enforced deadline is the only one on the transport-internal
-      // discovery path, and its error has to survive the hop as something an
-      // `instanceof OAuthRequestTimeoutError` check can still recognize.
+      // rather than the production thirty seconds. What it pins is typed-marker
+      // preservation when the *backend* wins the client-side race — both ends
+      // run the same budget, and a backgrounded tab throttling `setTimeout` is
+      // the plausible way the server's fires first. The error has to survive
+      // the hop as something an `instanceof OAuthRequestTimeoutError` check can
+      // still recognize, whichever end produced it.
       const res = await fetch(`${h.baseUrl}/api/fetch`, {
         method: "POST",
         headers: { "content-type": "application/json" },

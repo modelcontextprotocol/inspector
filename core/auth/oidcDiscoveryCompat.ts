@@ -90,7 +90,7 @@
  * wiring in `core/mcp/inspectorClient.ts`.
  */
 
-import { OAuthRequestTimeoutError } from "./requestTimeout.js";
+import { callerSignalOf, OAuthRequestTimeoutError } from "./requestTimeout.js";
 import {
   OAuthMetadataSchema,
   OpenIdProviderDiscoveryMetadataSchema,
@@ -249,6 +249,13 @@ export function withRfc8414OidcCompat(fetchFn: typeof fetch): typeof fetch {
     if (candidates.length === 0) return response;
 
     const headers = discoveryHeaders(input, init);
+    // The probe is a request the caller never made, issued on its behalf — so
+    // it has to be cancellable by the caller too. Without the signal, aborting
+    // after the initial 404 left the probe running to its own deadline and the
+    // caller was handed a timeout in place of its own abort (Copilot). Same
+    // precedence rule as everywhere else, hence the shared helper rather than a
+    // second copy of it.
+    const callerSignal = callerSignalOf(input, init);
     // The loop advances to the next candidate only where the SDK's own loop
     // would. Anywhere else it hands the original response back and lets
     // discovery run its normal course, because *promoting a later candidate
@@ -260,9 +267,15 @@ export function withRfc8414OidcCompat(fetchFn: typeof fetch): typeof fetch {
     // those, returning `response` leaves the SDK to make the same request and
     // reach the same verdict it always would.
     for (const candidate of candidates) {
+      // Don't issue a probe the caller has already given up on. A real `fetch`
+      // rejects immediately on a pre-aborted signal, so this is mostly about
+      // not sending the request at all — the same reasoning as the
+      // short-circuit in `withOAuthRequestTimeout`.
+      if (callerSignal?.aborted) throw callerSignal.reason;
+
       let probe: Response;
       try {
-        probe = await fetchFn(candidate, { headers });
+        probe = await fetchFn(candidate, { headers, signal: callerSignal });
       } catch (err) {
         // A deadline the Inspector imposed is *our* error, not the server's
         // answer, so it escapes rather than being folded back into the original
@@ -275,6 +288,10 @@ export function withRfc8414OidcCompat(fetchFn: typeof fetch): typeof fetch {
         // stall the SDK would have hit itself, unbounded. Everything else — a
         // CORS rejection, DNS, a reset — still falls back as documented above.
         if (err instanceof OAuthRequestTimeoutError) throw err;
+        // Likewise a caller that gave up: substituting the preceding 404 for
+        // its own abort would report a discovery failure for a request it
+        // deliberately cancelled.
+        if (callerSignal?.aborted) throw err;
         return response;
       }
       if (!probe.ok) {

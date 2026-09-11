@@ -84,16 +84,45 @@ export class OAuthRequestTimeoutError extends Error {
 }
 
 /**
+ * The largest delay `setTimeout` can actually schedule. Past `2 ** 31 - 1` the
+ * delay overflows a 32-bit signed integer and Node falls back to **1ms**, so an
+ * `Infinity` or an over-large budget produces an *immediate* timeout — the exact
+ * opposite of what the caller asked for (Copilot).
+ */
+const MAX_TIMER_DELAY_MS = 2_147_483_647;
+
+/**
+ * Coerce a caller's budget into something `setTimeout` can honour and the error
+ * can honestly report.
+ *
+ * - Non-finite (`NaN`, `±Infinity`) falls back to the default. `NaN` survives
+ *   `Math.max(0, Math.round(...))` and `setTimeout(fn, NaN)` fires immediately,
+ *   so a caller whose arithmetic produced a `NaN` would otherwise see every
+ *   OAuth request fail at once with "timed out after NaNms".
+ * - Above `MAX_TIMER_DELAY_MS` it clamps rather than overflowing to 1ms.
+ * - Negative clamps to 0, which is a real budget (fire on the next tick), not
+ *   an error.
+ *
+ * Rounded because the budget is *reported* — see the note at the call site.
+ */
+function normalizeBudget(timeoutMs: number): number {
+  if (!Number.isFinite(timeoutMs)) return DEFAULT_OAUTH_REQUEST_TIMEOUT_MS;
+  return Math.min(MAX_TIMER_DELAY_MS, Math.max(0, Math.round(timeoutMs)));
+}
+
+/**
  * How a proxy-side deadline is carried back to the browser (#2319).
  *
  * `/api/fetch` serializes its failures as a JSON error response, and
  * `createRemoteFetch` turns any non-OK answer into a plain `Error` — so a
  * timeout enforced by the *backend* would arrive as an untyped error and the
  * `instanceof OAuthRequestTimeoutError` checks downstream would all be false
- * (Copilot). That matters most exactly where there is no client-side wrapper to
- * have fired first: the discovery the SDK runs from inside the transport. So
- * the route stamps this marker and `createRemoteFetch` reconstructs the typed
- * error from it.
+ * (Copilot). Both ends run the same budget, so the client's race usually
+ * settles first; this matters when the backend's timer wins anyway — most
+ * plausibly a backgrounded tab, where the browser throttles `setTimeout` while
+ * the server's fires on schedule. Which of two equal deadlines happened to fire
+ * must not decide whether the error names its endpoint. So the route stamps
+ * this marker and `createRemoteFetch` reconstructs the typed error from it.
  */
 export const OAUTH_TIMEOUT_WIRE_CODE = "oauth_request_timeout";
 
@@ -204,7 +233,7 @@ function requestUrlOf(input: RequestInfo | URL): string {
  * `Request`'s signal rather than clear it (Copilot). An explicit `null` is the
  * genuine "no signal" override and is honoured as one.
  */
-function callerSignalOf(
+export function callerSignalOf(
   input: RequestInfo | URL,
   init: RequestInit | undefined,
 ): AbortSignal | undefined {
@@ -324,7 +353,7 @@ export function withOAuthRequestTimeout(
   // public field. Rounding rather than flooring so a caller's own
   // whole-millisecond timeout survives the trip through that clock and is still
   // the number the message names.
-  const budget = Math.max(0, Math.round(timeoutMs));
+  const budget = normalizeBudget(timeoutMs);
 
   return async (input, init) => {
     const url = requestUrlOf(input);
