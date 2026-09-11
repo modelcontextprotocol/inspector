@@ -96,6 +96,12 @@ export const SDK_GROUPS = [
     repo: "modelcontextprotocol/ext-apps",
     packages: ["@modelcontextprotocol/ext-apps"],
   },
+  {
+    key: "ext-tasks",
+    label: "MCP Tasks extension SDK",
+    repo: "modelcontextprotocol/ext-tasks",
+    packages: ["@modelcontextprotocol/ext-tasks"],
+  },
 ];
 
 /** Every package under this prefix is in scope for the watch. */

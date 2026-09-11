@@ -86,6 +86,17 @@ describe("InspectorClient raw-wire channel (#1631)", () => {
         args: Readonly<Record<string, unknown>>,
         options: TaskSessionCallOptions,
       ) => Promise<{
+        kind?: string;
+        serializeReference?: () => Record<string, unknown>;
+        settle: (
+          options: TaskExecutionSettleOptions,
+        ) => Promise<{ outcome: unknown; lastTask?: unknown }>;
+      }>;
+      resumeTask?: (
+        reference: Record<string, unknown>,
+        options: Record<string, unknown>,
+      ) => Promise<{
+        kind?: string;
         settle: (
           options: TaskExecutionSettleOptions,
         ) => Promise<{ outcome: unknown; lastTask?: unknown }>;
@@ -832,6 +843,146 @@ describe("InspectorClient raw-wire channel (#1631)", () => {
       params: { progressToken: sharedToken, progress: 2 },
     });
     expect(progresses).toHaveLength(1);
+  });
+
+  it("routes shared-token progress to every correlated task, not only the latest", async () => {
+    const client = makeBoundaryClient();
+    let releaseSettle: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      releaseSettle = resolve;
+    });
+    // Each concurrent call correlates the shared token to its OWN task id.
+    let taskCounter = 0;
+    const callTool = vi.fn(async () => {
+      taskCounter += 1;
+      const taskId = `shared-token-task-${taskCounter}`;
+      return {
+        settle: vi.fn(async (options: TaskExecutionSettleOptions) => {
+          options.onEvent({
+            type: "task",
+            task: {
+              taskId,
+              status: "working",
+              lastUpdatedAt: "2026-01-02T03:04:05.000Z",
+            },
+          });
+          await gate;
+          return {
+            outcome: { status: "completed", result: successfulResult },
+          };
+        }),
+      };
+    });
+    attachTaskBoundary(client, callTool);
+    const taskProgress: { taskId: string }[] = [];
+    client.addEventListener("requestorTaskProgress", (event) => {
+      taskProgress.push({ taskId: event.detail.taskId });
+    });
+
+    const sharedToken = "caller-token";
+    const first = client.callTool(taskTool, {}, { progressToken: sharedToken });
+    const second = client.callTool(
+      taskTool,
+      {},
+      { progressToken: sharedToken },
+    );
+    await vi.waitFor(() => expect(callTool).toHaveBeenCalledTimes(2));
+    taskInternals(client).dispatchTaskProgress({
+      method: "notifications/progress",
+      params: { progressToken: sharedToken, progress: 1 },
+    });
+    // The wire cannot say which owner the progress belongs to, so both
+    // correlated tasks receive it — the earlier one is not overwritten.
+    expect(taskProgress.map((p) => p.taskId).sort()).toEqual([
+      "shared-token-task-1",
+      "shared-token-task-2",
+    ]);
+
+    releaseSettle?.();
+    await Promise.all([first, second]);
+    // Both calls settled, so the correlation set is fully released.
+    taskProgress.length = 0;
+    taskInternals(client).dispatchTaskProgress({
+      method: "notifications/progress",
+      params: { progressToken: sharedToken, progress: 2 },
+    });
+    expect(taskProgress).toHaveLength(0);
+  });
+
+  it("resumes the created task instead of re-calling the tool on a recovery rerun", async () => {
+    const client = makeBoundaryClient();
+    const reference = {
+      endpointId: "e",
+      generation: "v2",
+      taskId: "recovered-task",
+      originalOperation: "tools/call",
+    };
+    const callTool = vi.fn(async () => ({
+      kind: "task",
+      serializeReference: () => reference,
+      settle: vi.fn(async () => ({
+        outcome: { status: "completed", result: successfulResult },
+      })),
+    }));
+    const resumeTask = vi.fn(async (reference: Record<string, unknown>) => ({
+      kind: "task",
+      // A resumed execution re-serializes to the same task identity.
+      serializeReference: () => reference,
+      settle: vi.fn(async () => ({
+        outcome: { status: "completed", result: successfulResult },
+      })),
+    }));
+    const boundary = taskInternals(client);
+    boundary.client = {};
+    boundary.protocolEra = "modern";
+    boundary.taskSession = { callTool, resumeTask };
+    const invoke = (
+      client as unknown as {
+        callTaskToolAndSettle: (
+          tool: Tool,
+          args: Record<string, unknown>,
+          metadata: undefined,
+          preference: "prefer",
+          retentionMs: undefined,
+          signal: undefined,
+          progressToken: undefined,
+          recovery?: { reference?: Record<string, unknown> },
+        ) => Promise<unknown>;
+      }
+    ).callTaskToolAndSettle.bind(client);
+
+    // First attempt: no reference yet, so the tool is called and the box is
+    // populated the moment the task exists.
+    const recovery: { reference?: Record<string, unknown> } = {};
+    await invoke(
+      taskTool,
+      {},
+      undefined,
+      "prefer",
+      undefined,
+      undefined,
+      undefined,
+      recovery,
+    );
+    expect(callTool).toHaveBeenCalledTimes(1);
+    expect(resumeTask).not.toHaveBeenCalled();
+    expect(recovery.reference).toBe(reference);
+
+    // Recovery rerun: the populated box routes through resumeTask, so no
+    // second remote task is created.
+    await invoke(
+      taskTool,
+      {},
+      undefined,
+      "prefer",
+      undefined,
+      undefined,
+      undefined,
+      recovery,
+    );
+    expect(callTool).toHaveBeenCalledTimes(1);
+    expect(resumeTask).toHaveBeenCalledTimes(1);
+    expect(resumeTask.mock.calls[0]?.[0]).toBe(reference);
   });
 
   it("projects a task-scoped failure onto the public task event", async () => {

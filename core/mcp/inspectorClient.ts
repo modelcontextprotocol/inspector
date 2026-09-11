@@ -22,6 +22,7 @@ import type {
   DispatchOptions,
   JsonRpcResponse,
   RawClientDispatch,
+  SerializedTaskReference,
   TaskCapabilities,
   TaskEnabledSession,
   TaskExecutionEvent,
@@ -678,8 +679,13 @@ export class InspectorClient extends InspectorClientEventTarget {
   // site to the two failure handlers. Cleared by any user-initiated refresh (a
   // subscribe/unsubscribe is a fresh attempt, and the server may have changed).
   private modernNeverAcknowledged = false;
-  /** Correlates task-call progress tokens to task ids after the first snapshot. */
-  private readonly taskProgressIds = new Map<ProgressToken, string>();
+  /**
+   * Correlates task-call progress tokens to task ids after the first snapshot.
+   * A Set per token because concurrent calls may reuse a caller-supplied
+   * token; collapsing them to one task id would cross-wire
+   * `requestorTaskProgress` between the calls.
+   */
+  private readonly taskProgressIds = new Map<ProgressToken, Set<string>>();
   /** Active raw tools/call owners per progress token, before task correlation. */
   private readonly rawCallProgressTokens = new Map<ProgressToken, number>();
   // Abort controller for the in-flight ordinary (non-task) tool call. Aborting
@@ -1080,16 +1086,19 @@ export class InspectorClient extends InspectorClientEventTarget {
     };
     const progressToken = params.progressToken;
     if (progressToken === undefined) return;
-    const taskId = this.taskProgressIds.get(progressToken);
+    const taskIds = this.taskProgressIds.get(progressToken);
     // Re-arm any pending raw request's timeout on progress because a
     // long-running immediate modern call that keeps reporting progress must
     // not time out (same contract as the SDK path's resetTimeoutOnProgress).
     for (const pending of this.pendingRawWireRequests.values()) {
       if (pending.progressToken === progressToken) pending.resetTimeout?.();
     }
-    if (!taskId && !this.rawCallProgressTokens.has(progressToken)) return;
+    if (!taskIds?.size && !this.rawCallProgressTokens.has(progressToken))
+      return;
     if (this.progress) this.dispatchTypedEvent("progressNotification", params);
-    if (taskId)
+    // The wire cannot say which owner a shared token's progress belongs to, so
+    // every correlated task receives it rather than only the most recent one.
+    for (const taskId of taskIds ?? [])
       this.dispatchTypedEvent("requestorTaskProgress", {
         taskId,
         progress: params,
@@ -3950,6 +3959,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     retentionMs: number | undefined,
     signal?: AbortSignal,
     progressToken?: ProgressToken,
+    recovery?: { reference?: SerializedTaskReference },
   ): Promise<CallToolResult> {
     const session = this.taskSession;
     if (!session) throw new Error("Client is not connected");
@@ -3962,25 +3972,37 @@ export class InspectorClient extends InspectorClientEventTarget {
       );
     }
     try {
-      const execution = await session.callTool<CallToolResult>(
-        tool.name,
-        toJsonValue(args) as Readonly<Record<string, TasksJsonValue>>,
-        {
-          resultCodec: taskToolResultCodec,
-          declaration: toolDeclarationFromMcpTool(tool),
-          signal,
-          requestTimeoutMs: this.requestTimeout,
-          task: { preference, retentionMs },
-          ...(metadata === undefined
-            ? {}
-            : {
-                metadata: toJsonValue(metadata) as Readonly<
-                  Record<string, TasksJsonValue>
-                >,
-              }),
-          ...(headers === undefined ? {} : { headers }),
-        },
-      );
+      // On an auth-recovery rerun, resume the task the first attempt created
+      // (its reference is captured below), because repeating tools/call would
+      // start a duplicate task on the server.
+      const execution = recovery?.reference
+        ? await session.resumeTask<CallToolResult>(recovery.reference, {
+            resultCodec: taskToolResultCodec,
+            declaration: toolDeclarationFromMcpTool(tool),
+            signal,
+          })
+        : await session.callTool<CallToolResult>(
+            tool.name,
+            toJsonValue(args) as Readonly<Record<string, TasksJsonValue>>,
+            {
+              resultCodec: taskToolResultCodec,
+              declaration: toolDeclarationFromMcpTool(tool),
+              signal,
+              requestTimeoutMs: this.requestTimeout,
+              task: { preference, retentionMs },
+              ...(metadata === undefined
+                ? {}
+                : {
+                    metadata: toJsonValue(metadata) as Readonly<
+                      Record<string, TasksJsonValue>
+                    >,
+                  }),
+              ...(headers === undefined ? {} : { headers }),
+            },
+          );
+      if (recovery !== undefined && execution.kind === "task") {
+        recovery.reference = execution.serializeReference();
+      }
       const settlement = await execution.settle({
         signal,
         onEvent: (event) => {
@@ -4003,8 +4025,12 @@ export class InspectorClient extends InspectorClientEventTarget {
         const owners = this.rawCallProgressTokens.get(progressToken) ?? 0;
         if (owners <= 1) this.rawCallProgressTokens.delete(progressToken);
         else this.rawCallProgressTokens.set(progressToken, owners - 1);
-        if (this.taskProgressIds.get(progressToken) === lastTask?.taskId) {
-          this.taskProgressIds.delete(progressToken);
+        // Release only this call's own correlation; a concurrent call sharing
+        // the token keeps its entry in the set.
+        if (lastTask !== undefined) {
+          const taskIds = this.taskProgressIds.get(progressToken);
+          taskIds?.delete(lastTask.taskId);
+          if (taskIds?.size === 0) this.taskProgressIds.delete(progressToken);
         }
       }
     }
@@ -4068,6 +4094,9 @@ export class InspectorClient extends InspectorClientEventTarget {
         progressToken === undefined
           ? metadata
           : { ...(metadata ?? {}), progressToken };
+      // Shared across recovery reruns because a rerun must resume the task the
+      // first attempt already created rather than start a duplicate.
+      const recovery: { reference?: SerializedTaskReference } = {};
       result = await this.withDirectAuthRecovery(
         () =>
           this.callTaskToolAndSettle(
@@ -4078,6 +4107,7 @@ export class InspectorClient extends InspectorClientEventTarget {
             taskOptions?.ttl,
             signal,
             progressToken,
+            recovery,
           ),
         { method: "tools/call", toolName: tool.name },
       );
@@ -4365,7 +4395,9 @@ export class InspectorClient extends InspectorClientEventTarget {
     if (view === undefined) return undefined;
     const task = this.toInspectorTask(view);
     if (progressToken !== undefined) {
-      this.taskProgressIds.set(progressToken, task.taskId);
+      const taskIds = this.taskProgressIds.get(progressToken) ?? new Set();
+      taskIds.add(task.taskId);
+      this.taskProgressIds.set(progressToken, taskIds);
     }
     const outcomeDetail =
       event.type !== "outcome" || event.outcome.status === "cancelled"
@@ -4443,6 +4475,9 @@ export class InspectorClient extends InspectorClientEventTarget {
         : { ...(metadata ?? {}), progressToken };
     const timestamp = new Date();
     try {
+      // Shared across recovery reruns because a rerun must resume the task the
+      // first attempt already created rather than start a duplicate.
+      const recovery: { reference?: SerializedTaskReference } = {};
       const result = await this.withDirectAuthRecovery(
         () =>
           this.callTaskToolAndSettle(
@@ -4453,6 +4488,7 @@ export class InspectorClient extends InspectorClientEventTarget {
             taskOptions?.ttl,
             undefined,
             progressToken,
+            recovery,
           ),
         { method: "tools/call", toolName: tool.name },
       );

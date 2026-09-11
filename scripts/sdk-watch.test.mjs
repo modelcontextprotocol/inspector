@@ -41,6 +41,7 @@ import {
 
 const SDK = SDK_GROUPS[0];
 const EXT = SDK_GROUPS[1];
+const TASKS = SDK_GROUPS[2];
 
 /** Every version triple current, so a group is behind only where a test says so. */
 function currentVersions(overrides = {}) {
@@ -898,6 +899,30 @@ test("main files one issue per upstream when both groups are behind", () => {
     ["modelcontextprotocol/typescript-sdk", "modelcontextprotocol/ext-apps"],
   );
   assert.equal(filed[1].from, "1.7.5", "from is the installed version");
+});
+
+test("main watches ext-tasks as its own upstream group", () => {
+  // ext-tasks ships from its own repo, so it needs its own group entry
+  // rather than being folded into a sibling's.
+  const spawn = fakeSpawn({ latest: latestAt(TASKS, "0.2.0") });
+  const output = outputFile();
+  writeFileSync(output, "");
+
+  main("o/r", spawn, {
+    readFile: fakeReadFile({
+      declared: { "@modelcontextprotocol/ext-tasks": "0.1.0" },
+      installed: { "@modelcontextprotocol/ext-tasks": "0.1.0" },
+    }),
+    output,
+  });
+
+  const filed = readFiled(output);
+  assert.deepEqual(
+    filed.map((f) => f.repo),
+    ["modelcontextprotocol/ext-tasks"],
+  );
+  assert.equal(filed[0].from, "0.1.0");
+  assert.equal(filed[0].to, "0.2.0");
 });
 
 /** An open issue this sweep already filed for `target`. */
