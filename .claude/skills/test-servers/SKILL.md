@@ -19,15 +19,20 @@ run one.
 
 ## Three ways to use a fixture — pick the right one first
 
-A fixture is used in **one of three shapes**, and most of what follows is about
-the third. Establish which one you are in before reading further, because the
-showcase **config file and the protocol-era table** belong to that one alone.
+A fixture is stood up in **one of three shapes**, and most of what follows is
+about the third. Establish which one you are in before reading further, because
+the showcase **config file and the protocol-era table** belong to that one alone.
 
-| Shape | Who | Server runs | Config file |
+⚠️ **The cut is how the server is stood up, not who is driving.** Automated and
+by-hand is the wrong axis: the composable-config shape has *both* kinds of
+consumer, and a smoke that spawns it needs every bit of the config and era
+guidance a person at two terminals does.
+
+| Shape | Server runs | Config file | Consumers |
 | --- | --- | --- | --- |
-| **In-process HTTP** | an automated test | inside the test process, built from the API | none — options are constructor args |
-| **Spawned stdio** | an automated test | a child process the transport starts | none — the stdio fixture runs its default config |
-| **Two processes** | a person, by hand | a terminal you started | yes — a showcase `--config <name>.json` |
+| **In-process HTTP** | inside the test process, built from the API | none — options are constructor args | integration tests |
+| **Spawned stdio** | a child process the transport starts | none — the stdio fixture runs its default config | integration tests, the CLI suites |
+| **Spawned composable HTTP** | a child process started with `--config` | **yes** — a showcase `--config <name>.json` | the web smokes, `pack:verify`, **and** a person by hand |
 
 - **In-process HTTP — `createTestServerHttp`.** The test *constructs* the server
   and owns its lifecycle. No subprocess, no JSON config, no showcase config to
@@ -39,16 +44,22 @@ showcase **config file and the protocol-era table** belong to that one alone.
   file**: that entry point runs the stdio server's default config, so there is
   nothing to pick. Reach for it when stdio is the point (`InspectorClient` over
   stdio, the CLI's out-of-process E2E suite) and the default tool set is enough.
-- **Two processes — a manual check.** You run `server-composable.js --config
-  <name>.json` in one terminal and the Inspector in another, then click. Picking
-  the showcase config and the protocol era applies **here only**, and
-  `Run one by hand` below is this path.
+- **Spawned composable HTTP — `server-composable.js --config <name>.json`.**
+  Picking the showcase config and the protocol era applies **to this shape**,
+  whoever starts it. Two consumers, and they differ only in who runs the second
+  process:
+  - **A script.** `scripts/smoke-web-elicitation.mjs` spawns it directly;
+    `scripts/lib/mcp-app-flow.mjs` (`startMcpAppServer`) does it for
+    `smoke:web:app`, `smoke:web:tabs` and `pack:verify`. These are automated and
+    config-driven, and the whole of this skill applies to them.
+  - **You, in a terminal**, with the Inspector in another — `Run one by hand`
+    below.
 
 ⚠️ **The build applies to all three.** Every shape resolves
-`test-servers/build/` — the two automated ones through the
-`@modelcontextprotocol/inspector-test-server` alias, the manual one by running
-the emitted `.js` directly — so `Build first` and its stale-build hazard are
-**not** manual-path guidance. Read that section whichever shape you are in.
+`test-servers/build/` — the two API-driven ones through the
+`@modelcontextprotocol/inspector-test-server` alias, the composable one by
+running the emitted `.js` directly — so `Build first` and its stale-build hazard
+are **not** guidance for one path. Read that section whichever shape you are in.
 
 ### Automated, in-process HTTP: build the server from the API
 
@@ -156,10 +167,10 @@ and `clients/cli/__tests__/methods.test.ts`.
 
 ## Build first
 
-Every shape above resolves generated output — an automated test imports the
+Every shape above resolves generated output — the in-process one imports the
 barrel, which is **aliased to `test-servers/build/index.js`**, and the stdio and
-manual paths run emitted `.js` as real subprocesses. So the build must exist
-whichever one you are in:
+composable-config ones run emitted `.js` as real subprocesses. So the build must
+exist whichever one you are in:
 
 ```sh
 cd clients/web && npm run test-servers:build   # tsc -p test-servers → test-servers/build/
@@ -183,9 +194,9 @@ the cache.
 
 ## Run one by hand (two processes)
 
-This is the **manual-check** path from the section above; an automated test
-builds the server in-process instead. Two processes: the test server, then the
-Inspector.
+This is the **spawned composable HTTP** shape from the section above, driven by
+you rather than by a smoke script — the config and era guidance is the same
+either way. Two processes: the test server, then the Inspector.
 
 ```sh
 # 1. The server, from the repo root, with the config you picked:

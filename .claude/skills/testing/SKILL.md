@@ -25,24 +25,27 @@ ways to depend on one, and they need different halves of that skill:
   coverage gap only reachable over a real connection; reproducing a reported bug
   against a server. These need the whole procedure — the staleness hazard, and
   then whichever half matches how the server is stood up.
-  ⚠️ **An automated test does not pick a showcase config, whichever way it
-  stands the server up.** Two shapes, and both come from the
-  `@modelcontextprotocol/inspector-test-server` API rather than from
-  `test-servers/configs/`:
-  - **In-process HTTP** — `createTestServerHttp(...)` / `.start()` / `.stop()`,
-    with the test owning the lifecycle. Use it when the case needs HTTP or SSE,
-    a specific tool set, or the modern handler (`modern: {}` is a constructor
-    option, so no era table applies).
-  - **Spawned stdio** — `getTestMcpServerCommand()` handed to a stdio transport
-    or to the built CLI, which spawns it. A subprocess *is* started, but it runs
-    the stdio fixture's **default** config, so there is still nothing to pick.
-    Use it when stdio is the point and the default tool set suffices.
+  ⚠️ **Which shape you need depends on what is driving, and there are three.**
+  All three are the **"Three ways to use a fixture"** section of `test-servers`,
+  which names the entry point and a reference for each — read the right third:
+  - **An integration or CLI test → in-process HTTP.**
+    `createTestServerHttp(...)` / `.start()` / `.stop()`, with the test owning
+    the lifecycle. Use it when the case needs HTTP or SSE, a specific tool set,
+    or the modern handler (`modern: {}` is a constructor option). **No showcase
+    config and no era table apply.**
+  - **An integration or CLI test where stdio is the point → spawned stdio.**
+    `getTestMcpServerCommand()` handed to a stdio transport or to the built CLI,
+    which spawns it. A subprocess *is* started, but it runs the stdio fixture's
+    **default** config, so there is still nothing to pick — and nothing to
+    override, so if the case needs a specific tool set it is an in-process HTTP
+    test instead.
+  - **A smoke → spawned composable HTTP, and it IS config-driven.**
+    `smoke:web:elicitation`, `smoke:web:app`, `smoke:web:tabs` and `pack:verify`
+    all spawn `server-composable.js --config <name>.json`. **The showcase-config
+    and protocol-era guidance applies to you in full** — being automated does
+    not exempt a smoke from it.
 
-  Both are the **"Three ways to use a fixture"** section of `test-servers`,
-  which names a reference test for each. The showcase config and protocol-era
-  guidance there belong to the *manual* two-process path and apply to neither.
-  What does apply to both is that section's build warning. Read the right
-  third.
+  What applies to all three is that section's build warning.
   ⚠️ **Connecting is a strong hint, not the rule.** A few integration tests
   deliberately hand-roll a JSON-RPC server because the composable fixture
   *cannot* produce what they assert on — `inspectorClient-malformed-list.test.ts`
