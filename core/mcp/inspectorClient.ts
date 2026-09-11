@@ -4011,6 +4011,16 @@ export class InspectorClient extends InspectorClientEventTarget {
         },
       });
       if (settlement.outcome.status === "cancelled") {
+        // Synthesize the terminal "cancelled" update when none was observed,
+        // because the cancel ack ends the local task lifetime immediately —
+        // often before the server publishes a cancelled snapshot — and the
+        // UI must land on the true state without a refresh (#1455).
+        if (settlement.outcome.task === undefined && lastTask !== undefined) {
+          const task: InspectorTask = { ...lastTask, status: "cancelled" };
+          const detail = { taskId: task.taskId, task };
+          this.dispatchTypedEvent("toolCallTaskUpdated", detail);
+          this.dispatchTypedEvent("requestorTaskUpdated", detail);
+        }
         throw new ToolCallCancelledError(tool.name);
       }
       return this.unwrapTaskOutcome(settlement.outcome);
