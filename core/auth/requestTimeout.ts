@@ -220,9 +220,19 @@ function rebuildResponse(response: Response, body: ArrayBuffer): Response {
     },
   );
   for (const key of ["url", "redirected", "type"] as const) {
+    // Enumerability is taken from whatever the freshly built `Response` already
+    // has for this key, rather than asserted. Hard-coding either answer makes
+    // the rebuilt response observably different from a native one — and which
+    // answer is right is the host's business: under the Fetch standard (and
+    // undici) these are prototype getters with no own enumerable key at all,
+    // while happy-dom defines them as own enumerable data properties. Copying
+    // the descriptor keeps `Object.keys`, object spread and `JSON.stringify`
+    // identical to a response that never passed through here, in both
+    // (Copilot). `false` for the getter case, where there is no own descriptor.
+    const existing = Object.getOwnPropertyDescriptor(rebuilt, key);
     Object.defineProperty(rebuilt, key, {
       value: response[key],
-      enumerable: true,
+      enumerable: existing?.enumerable ?? false,
       configurable: true,
     });
   }
@@ -232,12 +242,15 @@ function rebuildResponse(response: Response, body: ArrayBuffer): Response {
 /**
  * Wrap a `fetch` so every call through it is bounded by `timeoutMs`.
  *
- * Apply this to an **OAuth-path** fetch only. It must never wrap the transport
- * fetch: a Streamable HTTP or SSE response is a long-lived stream that is
- * *supposed* to stay open, and a deadline there would sever every connection
- * after the budget. `InspectorClient` keeps the two apart by wrapping inside
- * `buildEffectiveAuthFetch` rather than wrapping `this.fetchFn`, which the
- * transport is handed directly.
+ * Every request that reaches it unexempted is bounded — so on a chain that
+ * carries anything other than OAuth work, `isExempt` is not optional. A
+ * Streamable HTTP or SSE response is a long-lived stream that is *supposed* to
+ * stay open, and a Streamable HTTP POST for a long-running tool call
+ * legitimately withholds its response headers for minutes; a deadline over
+ * either severs a working connection. `InspectorClient` uses the wrapper on
+ * both of its chains and the two differ only in this: the OAuth chain passes no
+ * predicate because every request on it is OAuth work, while the transport
+ * chain passes `exemptMcpEndpoint`.
  *
  * `isExempt` lets one wrapped fetch serve a mixed chain. It is how the
  * *transport* fetch can be bounded at all: that chain carries both the SDK's

@@ -305,6 +305,16 @@ describe("withOAuthRequestTimeout", () => {
     expect(response.url).toBe("https://as.example.com/redirected");
     expect(response.redirected).toBe(true);
     expect(response.type).toBe("cors");
+    // The rebuild must not change what enumerates. Which keys a `Response` owns
+    // is the host's business — under the Fetch standard these three are
+    // prototype getters and a native response has no own enumerable keys, while
+    // happy-dom makes them own enumerable data properties — so this compares
+    // against a baseline built in the same runtime rather than asserting either
+    // answer. Hard-coding one would make the rebuilt response observably
+    // different from a response that never passed through the wrapper, in
+    // `Object.keys`, object spread and `JSON.stringify`.
+    const baseline = Object.keys(new Response("{}")).sort();
+    expect(Object.keys(response).sort()).toEqual(baseline);
     await expect(response.json()).resolves.toEqual({
       issuer: "https://as.example.com",
     });

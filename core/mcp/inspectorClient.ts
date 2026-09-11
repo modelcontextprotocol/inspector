@@ -849,8 +849,9 @@ export class InspectorClient extends InspectorClientEventTarget {
     // URL of the RFC 8414 request that preceded it — defeating the whole point
     // of naming the endpoint — while every probe in the loop shared that one
     // request's budget (Copilot). Innermost here matches the CLI's
-    // `storedAuthFetch`. The transport keeps `this.fetchFn`, deliberately
-    // unbounded: its bodies are streams that are supposed to stay open.
+    // `storedAuthFetch`. It also passes no `isExempt`, unlike the transport
+    // chain above: every request on this chain is OAuth work, so there is
+    // nothing here to exempt.
     this.effectiveAuthFetch = this.buildEffectiveAuthFetch(
       withRfc8414OidcCompat(withOAuthRequestTimeout(withOverrides)),
     );
@@ -1022,11 +1023,18 @@ export class InspectorClient extends InspectorClientEventTarget {
 
   /**
    * @param base - the composed OAuth-path fetch, deadline innermost (#2319).
-   * Passed in rather than read off `this.fetchFn`, which is the *transport*
-   * chain and must stay unbounded. The cost of keeping the two apart is that
-   * the discovery the SDK runs from inside the transport (the 401/refresh path)
-   * is not covered by the deadline; that leg sits inside an SDK request and is
-   * bounded by its per-request timeout.
+   *
+   * Passed in rather than read off `this.fetchFn` because the two chains are
+   * bounded on different terms, not because one of them is unbounded. Both
+   * carry a deadline; the transport chain additionally exempts the MCP endpoint
+   * (`exemptMcpEndpoint`), since its bodies are streams meant to stay open and
+   * a long-running tool call may withhold its headers for minutes. Reusing it
+   * here would extend that exemption to the OAuth manager's own requests — and
+   * an authorization server published at the MCP endpoint's path would then go
+   * unbounded on the one chain that exists to bound it.
+   *
+   * The SDK's transport-internal discovery (the 401/refresh path) is covered by
+   * the transport chain's own deadline, not by this one.
    */
   private buildEffectiveAuthFetch(base: typeof fetch): typeof fetch {
     // Capture auth response bodies (OAuth discovery, DCR, token exchange) so
