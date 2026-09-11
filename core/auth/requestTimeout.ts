@@ -198,6 +198,15 @@ function readNegotiatesEndpoint(hint: (() => boolean) | undefined): boolean {
   }
 }
 
+/**
+ * The media type every OAuth token-family request uses — the token exchange,
+ * the refresh, and revocation are all `application/x-www-form-urlencoded` per
+ * RFC 6749 §4.1.3 and RFC 7009 §2.1. MCP is JSON-RPC over `application/json`
+ * and never uses it, which is what makes this a safe discriminator rather than
+ * a heuristic.
+ */
+const OAUTH_FORM_MEDIA_TYPE = "application/x-www-form-urlencoded";
+
 export function exemptMcpEndpoint(
   getServerUrl: () => string | undefined,
   /**
@@ -206,8 +215,22 @@ export function exemptMcpEndpoint(
    * connects. Absent, or throwing, is treated as `true`.
    */
   negotiatesEndpoint?: () => boolean,
-): (url: string) => boolean {
-  return (url) => {
+): (url: string, headers: Headers) => boolean {
+  return (url, headers) => {
+    // A URL match is not by itself proof of MCP traffic. `oauthTokenUrl` takes
+    // any absolute URL, so a user may point it at the MCP endpoint's own URL,
+    // and the transport-internal refresh then travels this chain to a path the
+    // rules below would exempt — leaving the one request this whole change
+    // exists to bound running unbounded (Copilot). The token family is
+    // form-encoded and MCP never is, so the media type settles it before any
+    // URL comparison happens.
+    if (
+      (headers.get("content-type") ?? "").split(";")[0].trim().toLowerCase() ===
+      OAUTH_FORM_MEDIA_TYPE
+    ) {
+      return false;
+    }
+
     const serverUrl = getServerUrl();
     if (!serverUrl) return true;
     const negotiated = readNegotiatesEndpoint(negotiatesEndpoint);
@@ -253,6 +276,21 @@ export function deadlineForRequestInit(
   init: RequestInit | undefined,
 ): number | undefined {
   return init ? REQUEST_DEADLINES.get(init) : undefined;
+}
+
+/**
+ * The request's headers, whatever form `fetch`'s arguments took. `init` wins
+ * over a `Request`'s own, matching `fetch`.
+ */
+function requestHeadersOf(
+  input: RequestInfo | URL,
+  init: RequestInit | undefined,
+): Headers {
+  if (init?.headers) return new Headers(init.headers);
+  if (typeof input !== "string" && !(input instanceof URL)) {
+    return new Headers(input.headers);
+  }
+  return new Headers();
 }
 
 /** The request URL, whatever form `fetch`'s first argument took. */
@@ -359,6 +397,9 @@ function rebuildResponse(response: Response, body: ArrayBuffer): Response {
  * predicate because every request on it is OAuth work, while the transport
  * chain passes `exemptMcpEndpoint`.
  *
+ * `isExempt` receives the request's URL **and headers**, because a URL alone
+ * cannot always tell the two kinds of traffic apart — see `exemptMcpEndpoint`.
+ *
  * `isExempt` lets one wrapped fetch serve a mixed chain. It is how the
  * *transport* fetch can be bounded at all: that chain carries both the SDK's
  * OAuth work and the MCP traffic itself, and the MCP traffic must not be
@@ -382,7 +423,7 @@ function rebuildResponse(response: Response, body: ArrayBuffer): Response {
 export function withOAuthRequestTimeout(
   fetchFn: typeof fetch,
   timeoutMs: number = DEFAULT_OAUTH_REQUEST_TIMEOUT_MS,
-  isExempt?: (url: string) => boolean,
+  isExempt?: (url: string, headers: Headers) => boolean,
 ): typeof fetch {
   // Whole milliseconds. Not for the reason `revocation.ts:253` gives — that one
   // calls `AbortSignal.timeout`, which really does throw `ERR_OUT_OF_RANGE` on
@@ -405,7 +446,9 @@ export function withOAuthRequestTimeout(
     // An exempt request is passed through completely untouched — no deadline,
     // no signal of ours, and crucially no body buffering, since the responses
     // this exists for are streams that must stay open (see `isExempt` above).
-    if (isExempt?.(url)) return fetchFn(input, init);
+    if (isExempt?.(url, requestHeadersOf(input, init))) {
+      return fetchFn(input, init);
+    }
 
     const controller = new AbortController();
     const callerSignal = callerSignalOf(input, init);

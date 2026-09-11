@@ -498,12 +498,11 @@ describe("withOAuthRequestTimeout", () => {
   describe("exemptMcpEndpoint (the transport chain's mixed traffic)", () => {
     const SERVER = "https://srv.example.com/mcp";
 
-    it("exempts the MCP endpoint itself, whatever method or query", () => {
-      const isExempt = exemptMcpEndpoint(() => SERVER);
-
-      expect(isExempt(SERVER)).toBe(true);
-      expect(isExempt(`${SERVER}?sessionId=abc`)).toBe(true);
-      expect(isExempt(`${SERVER}#frag`)).toBe(true);
+    /** Most cases are plain JSON-RPC traffic, which carries no form media type. */
+    const JSON_HEADERS = new Headers({ "content-type": "application/json" });
+    /** The token family: RFC 6749 §4.1.3 and RFC 7009 §2.1 are form-encoded. */
+    const FORM_HEADERS = new Headers({
+      "content-type": "application/x-www-form-urlencoded;charset=UTF-8",
     });
 
     /** Streamable HTTP: every MCP request goes to the configured URL. */
@@ -519,17 +518,46 @@ describe("withOAuthRequestTimeout", () => {
         () => true,
       );
 
+    it("exempts the MCP endpoint itself, whatever method or query", () => {
+      const isExempt = exemptMcpEndpoint(() => SERVER);
+
+      expect(isExempt(SERVER, JSON_HEADERS)).toBe(true);
+      expect(isExempt(`${SERVER}?sessionId=abc`, JSON_HEADERS)).toBe(true);
+      expect(isExempt(`${SERVER}#frag`, JSON_HEADERS)).toBe(true);
+    });
+
+    it("never exempts a form-encoded request, whatever URL it uses", () => {
+      // `oauthTokenUrl` takes any absolute URL, including the MCP endpoint's
+      // own — at which point a URL rule would exempt the transport-internal
+      // refresh, the one request this change exists to bound. The token family
+      // is form-encoded and MCP never is, so the media type settles it first.
+      for (const isExempt of [
+        streamable(SERVER),
+        sse(SERVER),
+        exemptMcpEndpoint(() => SERVER),
+      ]) {
+        expect(isExempt(SERVER, FORM_HEADERS)).toBe(false);
+      }
+      // And a missing server URL no longer fails open past it either.
+      expect(exemptMcpEndpoint(() => undefined)(SERVER, FORM_HEADERS)).toBe(
+        false,
+      );
+    });
+
     it("bounds same-origin OAuth work on a Streamable HTTP connection", () => {
       // The narrow rule, available because the endpoint is the configured URL.
       const isExempt = streamable(SERVER);
 
-      expect(isExempt(SERVER)).toBe(true);
+      expect(isExempt(SERVER, JSON_HEADERS)).toBe(true);
       expect(
         isExempt(
           "https://srv.example.com/.well-known/oauth-protected-resource/mcp",
+          JSON_HEADERS,
         ),
       ).toBe(false);
-      expect(isExempt("https://srv.example.com/token")).toBe(false);
+      expect(isExempt("https://srv.example.com/token", JSON_HEADERS)).toBe(
+        false,
+      );
     });
 
     it("widens to the origin on legacy SSE, whose message path is unknowable", () => {
@@ -538,9 +566,14 @@ describe("withOAuthRequestTimeout", () => {
       const isExempt = sse("https://srv.example.com/sse");
 
       expect(
-        isExempt("https://srv.example.com/.well-known/openid-configuration"),
+        isExempt(
+          "https://srv.example.com/.well-known/openid-configuration",
+          JSON_HEADERS,
+        ),
       ).toBe(true);
-      expect(isExempt("https://as.example.com/token")).toBe(false);
+      expect(isExempt("https://as.example.com/token", JSON_HEADERS)).toBe(
+        false,
+      );
     });
 
     it("falls back to the origin rule when the transport is unknown", () => {
@@ -554,8 +587,8 @@ describe("withOAuthRequestTimeout", () => {
         },
       );
 
-      expect(noHint("https://srv.example.com/token")).toBe(true);
-      expect(throws("https://srv.example.com/token")).toBe(true);
+      expect(noHint("https://srv.example.com/token", JSON_HEADERS)).toBe(true);
+      expect(throws("https://srv.example.com/token", JSON_HEADERS)).toBe(true);
     });
 
     it("exempts legacy SSE's separate message endpoint", () => {
@@ -567,22 +600,34 @@ describe("withOAuthRequestTimeout", () => {
       // an origin rule exact rather than approximate.
       const isExempt = exemptMcpEndpoint(() => "https://srv.example.com/sse");
 
-      expect(isExempt("https://srv.example.com/messages?sessionId=abc")).toBe(
-        true,
-      );
-      expect(isExempt("https://srv.example.com/")).toBe(true);
+      expect(
+        isExempt(
+          "https://srv.example.com/messages?sessionId=abc",
+          JSON_HEADERS,
+        ),
+      ).toBe(true);
+      expect(isExempt("https://srv.example.com/", JSON_HEADERS)).toBe(true);
     });
 
     it("bounds OAuth work on a different origin", () => {
       const isExempt = exemptMcpEndpoint(() => SERVER);
 
-      expect(isExempt("https://as.example.com/token")).toBe(false);
+      expect(isExempt("https://as.example.com/token", JSON_HEADERS)).toBe(
+        false,
+      );
       expect(
-        isExempt("https://as.example.com/.well-known/openid-configuration"),
+        isExempt(
+          "https://as.example.com/.well-known/openid-configuration",
+          JSON_HEADERS,
+        ),
       ).toBe(false);
       // Origin is scheme + host + port, so any of the three differing bounds it.
-      expect(isExempt("http://srv.example.com/token")).toBe(false);
-      expect(isExempt("https://srv.example.com:8443/token")).toBe(false);
+      expect(isExempt("http://srv.example.com/token", JSON_HEADERS)).toBe(
+        false,
+      );
+      expect(isExempt("https://srv.example.com:8443/token", JSON_HEADERS)).toBe(
+        false,
+      );
     });
 
     it("fails open when the server URL is unknown or unparseable", () => {
@@ -590,23 +635,37 @@ describe("withOAuthRequestTimeout", () => {
       // severs a long-running tool call, while failing to bound leaves the
       // SDK's own per-request timeout as the backstop it already was.
       expect(
-        exemptMcpEndpoint(() => undefined)("https://as.example.com/token"),
+        exemptMcpEndpoint(() => undefined)(
+          "https://as.example.com/token",
+          JSON_HEADERS,
+        ),
       ).toBe(true);
-      expect(exemptMcpEndpoint(() => "")("https://as.example.com/token")).toBe(
+      expect(
+        exemptMcpEndpoint(() => "")(
+          "https://as.example.com/token",
+          JSON_HEADERS,
+        ),
+      ).toBe(true);
+      expect(exemptMcpEndpoint(() => "not a url")(SERVER, JSON_HEADERS)).toBe(
         true,
       );
-      expect(exemptMcpEndpoint(() => "not a url")(SERVER)).toBe(true);
-      expect(exemptMcpEndpoint(() => SERVER)("not a url")).toBe(true);
+      expect(exemptMcpEndpoint(() => SERVER)("not a url", JSON_HEADERS)).toBe(
+        true,
+      );
     });
 
     it("reads the server URL per call, since it changes between connects", () => {
       let current = SERVER;
       const isExempt = exemptMcpEndpoint(() => current);
 
-      expect(isExempt("https://other.example.com/mcp")).toBe(false);
+      expect(isExempt("https://other.example.com/mcp", JSON_HEADERS)).toBe(
+        false,
+      );
       current = "https://other.example.com/mcp";
-      expect(isExempt("https://other.example.com/mcp")).toBe(true);
-      expect(isExempt(SERVER)).toBe(false);
+      expect(isExempt("https://other.example.com/mcp", JSON_HEADERS)).toBe(
+        true,
+      );
+      expect(isExempt(SERVER, JSON_HEADERS)).toBe(false);
     });
   });
 

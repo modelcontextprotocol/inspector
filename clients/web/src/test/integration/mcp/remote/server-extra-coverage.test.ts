@@ -505,6 +505,15 @@ describe("server.ts supplemental coverage", () => {
       // a Streamable HTTP tool call that legitimately withholds its response
       // headers — reintroducing on the backend exactly what `exemptMcpEndpoint`
       // prevents on the client, and reporting it as an OAuth timeout besides.
+      //
+      // ⚠️ What it does NOT catch, stated so nobody reads more into it: the
+      // wait below is 400ms, so an unconditional timer restored at the
+      // production 30s budget would still leave the request pending here and
+      // the test would pass (Copilot). Catching that needs either a ~31s wait
+      // on every CI run or a route-level deadline knob existing only for the
+      // test — and a second source of truth for the deadline is the defect
+      // round 13 removed. Measured, this fails against an unconditional timer
+      // at any budget shorter than the wait.
       const caller = new AbortController();
       const pending = fetch(`${h.baseUrl}/api/fetch`, {
         method: "POST",
