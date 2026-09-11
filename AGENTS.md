@@ -318,6 +318,12 @@ node/field/option IDs, and the option-deletion hazard` was cut at `#28`, so 90
    negative requirement, and it is only worth writing where the first link's
    body actually points at the target — a chain through a skill that says
    nothing about it is a permanent 0% with no lever.
+   ⚠️ **A green chain case proves the second skill LOADED, never that it
+   answered.** `testing` -> `test-servers` held 100% while `test-servers`
+   documented only the two-process manual path, so a model arriving from an
+   integration-test prompt was handed the wrong half of the procedure (#2264).
+   When a chain goes green, read the target's body as the caller who arrives
+   through the pointer; no number measures that.
    ⚠️ **The gate cannot catch a description that never matches.** `verify:skills`
    checks that a skill is well-formed and that its cases exist; only
    `skills:eval` observes whether it actually fires, and that cannot be gated —
