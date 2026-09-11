@@ -29,6 +29,7 @@ import { watch as chokidarWatch, type FSWatcher } from "chokidar";
 import { createTransportNode } from "../../node/transport.js";
 import { createProxyFetch } from "../../node/proxyFetch.js";
 import { OAUTH_TIMEOUT_WIRE_CODE } from "../../../auth/requestTimeout.js";
+import { redactUrlQuery } from "../../fetchTracking.js";
 import type {
   RemoteConnectRequest,
   RemoteSendRequest,
@@ -1266,6 +1267,11 @@ export function createRemoteApp(
       Number.isFinite(requestedTimeoutMs)
         ? Math.min(2_147_483_647, Math.max(0, Math.round(requestedTimeoutMs)))
         : undefined;
+    // Redacted for the same reason `OAuthRequestTimeoutError` redacts: this
+    // message and this URL are handed back to the browser, recorded in the
+    // Network log and persisted, and an OAuth endpoint's query string can carry
+    // a `code`, an `access_token` or a `client_secret` (Copilot).
+    const safeUrl = redactUrlQuery(url);
     const timer =
       deadlineMs === undefined
         ? undefined
@@ -1273,7 +1279,7 @@ export function createRemoteApp(
             deadlineFired = true;
             controller.abort(
               new Error(
-                `proxied request to ${url} timed out after ${deadlineMs}ms`,
+                `proxied request to ${safeUrl} timed out after ${deadlineMs}ms`,
               ),
             );
           }, deadlineMs);
@@ -1338,7 +1344,7 @@ export function createRemoteApp(
           {
             error: msg,
             code: OAUTH_TIMEOUT_WIRE_CODE,
-            url,
+            url: safeUrl,
             timeoutMs: deadlineMs,
           },
           504,

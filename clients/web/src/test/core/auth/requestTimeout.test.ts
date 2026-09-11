@@ -88,6 +88,36 @@ describe("withOAuthRequestTimeout", () => {
     expect(timeout.timeoutMs).toBe(1000);
   });
 
+  it("redacts sensitive query values from the endpoint it names", async () => {
+    vi.useFakeTimers();
+    // This message is recorded verbatim by `createFetchTracker` into the
+    // Network log and the persisted session, and an OAuth endpoint's query
+    // string can carry a `code`, an `access_token` or a `client_secret` —
+    // which `fetchTracking` already redacts everywhere else it records a URL.
+    const sensitive =
+      "https://as.example.com/token?code=abc123&client_secret=shhh&state=keepme";
+    const wrapped = withOAuthRequestTimeout(neverSettles, 1000);
+
+    const assertion = wrapped(sensitive).catch((err: unknown) => err);
+    await vi.advanceTimersByTimeAsync(1000);
+    const err = (await assertion) as OAuthRequestTimeoutError;
+
+    for (const secret of ["abc123", "shhh"]) {
+      expect(err.message).not.toContain(secret);
+      expect(err.url).not.toContain(secret);
+    }
+    // Still identifiable, which was the point of naming the endpoint: the path
+    // and every non-sensitive parameter survive. Read through `URL`, since
+    // `URLSearchParams.toString()` percent-encodes the redaction marker.
+    const redacted = new URL(err.url);
+    expect(redacted.origin + redacted.pathname).toBe(
+      "https://as.example.com/token",
+    );
+    expect(redacted.searchParams.get("state")).toBe("keepme");
+    expect(redacted.searchParams.get("code")).toBe("[REDACTED]");
+    expect(redacted.searchParams.get("client_secret")).toBe("[REDACTED]");
+  });
+
   it("takes the URL off a Request object too", async () => {
     vi.useFakeTimers();
     const wrapped = withOAuthRequestTimeout(neverSettles, 1000);

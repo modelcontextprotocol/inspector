@@ -63,6 +63,8 @@
  * halves the 60s the SDK handshake incidentally provides, and it is the only
  * bound at all on the legs that sit outside an SDK request.
  */
+import { redactUrlQuery } from "../mcp/fetchTracking.js";
+
 export const DEFAULT_OAUTH_REQUEST_TIMEOUT_MS = 30_000;
 
 /**
@@ -73,13 +75,26 @@ export const DEFAULT_OAUTH_REQUEST_TIMEOUT_MS = 30_000;
  * hosts, and which of them stalled is the whole diagnostic.
  */
 export class OAuthRequestTimeoutError extends Error {
+  /**
+   * The endpoint that stalled, with sensitive query values redacted.
+   *
+   * Redacted in the constructor rather than at each display site, so every
+   * consumer is covered by construction: this error's message is recorded
+   * verbatim by `createFetchTracker` into the Network log and the persisted
+   * session, and an OAuth endpoint can carry a `code`, an `access_token` or a
+   * `client_secret` in its query string — which `fetchTracking` already
+   * deliberately redacts everywhere else it records a URL (Copilot). The path
+   * and every non-sensitive parameter survive, so the endpoint stays
+   * identifiable, which was the point of naming it.
+   */
   readonly url: string;
   readonly timeoutMs: number;
 
   constructor(url: string, timeoutMs: number) {
-    super(`OAuth request to ${url} timed out after ${timeoutMs}ms`);
+    const safeUrl = redactUrlQuery(url);
+    super(`OAuth request to ${safeUrl} timed out after ${timeoutMs}ms`);
     this.name = "OAuthRequestTimeoutError";
-    this.url = url;
+    this.url = safeUrl;
     this.timeoutMs = timeoutMs;
   }
 }
