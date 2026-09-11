@@ -1323,7 +1323,14 @@ export function createRemoteApp(
         // its own in this configuration — so this is belt and braces rather
         // than a demonstrated leak, and it is kept because relying on that is
         // an implementation detail of the fetch beneath us, not a contract.
-        await res.body?.cancel().catch(() => {});
+        //
+        // ⚠️ Started, not awaited. `ReadableStream.cancel()` adopts the
+        // underlying source's cancel promise, which is permitted never to
+        // settle — awaiting it would keep this handler pending forever, and on
+        // an unbounded request there is no timer to release it either
+        // (Copilot). The `void` is the documented case where the callee owns
+        // its failures, via the `catch` below, and the caller cannot await.
+        void res.body?.cancel().catch(() => {});
       }
 
       return c.json({

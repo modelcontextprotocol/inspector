@@ -353,6 +353,14 @@ describe("server.ts supplemental coverage", () => {
       });
       const srv = createServer((req, res) => {
         upstreamHits.push(req.url ?? "");
+        if (req.url === "/stream-hostile") {
+          // Headers, one frame, and a connection whose teardown the route must
+          // not wait on: `ReadableStream.cancel()` adopts the source's cancel
+          // promise, which may never settle.
+          res.writeHead(200, { "Content-Type": "text/event-stream" });
+          res.write("data: hi\n\n");
+          return;
+        }
         if (req.url === "/stream-open") {
           // Event-stream headers, one frame, and then nothing — the shape that
           // used to leave a socket open for good, because the route classifies
@@ -566,6 +574,22 @@ describe("server.ts supplemental coverage", () => {
 
       caller.abort();
       expect(await settled).toBe("aborted by us");
+    });
+
+    it("answers a discarded stream without waiting on its cancellation", async () => {
+      // ⚠️ The route starts the cancel and returns. Awaiting it would keep the
+      // handler pending on a source that never settles its cancel promise —
+      // and on an unbounded request there is no timer to release it either.
+      const res = await fetch(`${h.baseUrl}/api/fetch`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ url: `${targetUrl}/stream-hostile` }),
+      });
+
+      expect(res.status).toBe(200);
+      const payload = (await res.json()) as { status: number; body?: string };
+      expect(payload.status).toBe(200);
+      expect(payload.body).toBeUndefined();
     });
 
     it("routes the outbound request through HTTP_PROXY (#2067)", async () => {
