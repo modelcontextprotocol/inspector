@@ -256,7 +256,11 @@ import {
 } from "../auth/challenge.js";
 import { withOAuthEndpointOverrides } from "../auth/endpointOverrides.js";
 import { withRfc8414OidcCompat } from "../auth/oidcDiscoveryCompat.js";
-import { withOAuthRequestTimeout } from "../auth/requestTimeout.js";
+import {
+  DEFAULT_OAUTH_REQUEST_TIMEOUT_MS,
+  exemptMcpEndpoint,
+  withOAuthRequestTimeout,
+} from "../auth/requestTimeout.js";
 import type { TokenRevocationOutcome } from "../auth/revocation.js";
 import type { OAuthTokens } from "@modelcontextprotocol/client";
 import { silentLogger, type InspectorLogger } from "../logging/logger.js";
@@ -824,7 +828,21 @@ export class InspectorClient extends InspectorClientEventTarget {
     // still hit the upstream failure. The substituted response is stamped with
     // `COMPAT_SOURCE_HEADER` so a captured entry names the URL its body came
     // from rather than appearing to be a 200 from the RFC 8414 path.
-    this.fetchFn = withRfc8414OidcCompat(withOverrides);
+    // The transport chain is bounded too, but only for the requests on it that
+    // are *not* MCP traffic — the OAuth work the SDK runs from inside the
+    // transport on the 401/refresh path, which otherwise waits out the SDK's
+    // incidental per-request timeout and reports a bare `Request timed out`
+    // naming no endpoint (Copilot). The MCP endpoint itself is exempt, and the
+    // predicate fails open: a long-running tool call withholding its response
+    // headers for minutes, or an SSE body that stays open, must never be timed
+    // here. Deadline innermost, for the same reason as the auth chain below.
+    this.fetchFn = withRfc8414OidcCompat(
+      withOAuthRequestTimeout(
+        withOverrides,
+        DEFAULT_OAUTH_REQUEST_TIMEOUT_MS,
+        exemptMcpEndpoint(() => this.getServerUrl()),
+      ),
+    );
     // #2319: the auth chain is composed separately so the deadline sits
     // *inside* the compat wrapper. Reusing `this.fetchFn` as the base would put
     // it outside, and then a stalled OIDC probe would be reported under the

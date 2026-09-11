@@ -117,6 +117,37 @@ export function isOAuthRequestTimeoutWire(
   );
 }
 
+/**
+ * Build the `isExempt` predicate for a chain that carries MCP traffic as well as
+ * OAuth work: it returns true for the MCP endpoint itself.
+ *
+ * ⚠️ **Fails open, deliberately.** The two errors are not symmetric. Bounding a
+ * request that should not be bounded severs a long-running tool call or an SSE
+ * stream — a severe, user-visible regression. Failing to bound one leaves the
+ * SDK's own per-request timeout as the backstop it has always been. So anything
+ * uncertain — no server URL yet, a URL that will not parse, either side — is
+ * treated as the MCP endpoint and exempted.
+ *
+ * Compared on origin + pathname: the SDK varies method and query across its MCP
+ * requests but not the endpoint, while OAuth discovery goes to a different path
+ * (`/.well-known/…`) and usually a different origin entirely.
+ */
+export function exemptMcpEndpoint(
+  getServerUrl: () => string | undefined,
+): (url: string) => boolean {
+  return (url) => {
+    const serverUrl = getServerUrl();
+    if (!serverUrl) return true;
+    try {
+      const a = new URL(url);
+      const b = new URL(serverUrl);
+      return a.origin === b.origin && a.pathname === b.pathname;
+    } catch {
+      return true;
+    }
+  };
+}
+
 /** The request URL, whatever form `fetch`'s first argument took. */
 function requestUrlOf(input: RequestInfo | URL): string {
   if (typeof input === "string") return input;
@@ -208,6 +239,17 @@ function rebuildResponse(response: Response, body: ArrayBuffer): Response {
  * `buildEffectiveAuthFetch` rather than wrapping `this.fetchFn`, which the
  * transport is handed directly.
  *
+ * `isExempt` lets one wrapped fetch serve a mixed chain. It is how the
+ * *transport* fetch can be bounded at all: that chain carries both the SDK's
+ * OAuth work and the MCP traffic itself, and the MCP traffic must not be
+ * timed — a Streamable HTTP POST for a long-running tool call legitimately
+ * withholds its response headers for minutes, and an SSE body stays open
+ * indefinitely. So `InspectorClient` exempts the MCP endpoint by URL and bounds
+ * everything else on that chain, and **fails open**: if the server URL cannot
+ * be determined or parsed, everything is exempt. Bounding a request that should
+ * not be bounded breaks a working tool call; failing to bound one leaves the
+ * SDK's own per-request timeout as the backstop it already was.
+ *
  * A caller's own signal is preserved — whether it arrived in `init` or embedded
  * in a `Request` — and is both forwarded to the inner fetch (composed with
  * `AbortSignal.any`) and raced here, so an outer cancellation still wins even on
@@ -220,6 +262,7 @@ function rebuildResponse(response: Response, body: ArrayBuffer): Response {
 export function withOAuthRequestTimeout(
   fetchFn: typeof fetch,
   timeoutMs: number = DEFAULT_OAUTH_REQUEST_TIMEOUT_MS,
+  isExempt?: (url: string) => boolean,
 ): typeof fetch {
   // Whole milliseconds. Not for the reason `revocation.ts:253` gives — that one
   // calls `AbortSignal.timeout`, which really does throw `ERR_OUT_OF_RANGE` on
@@ -239,6 +282,11 @@ export function withOAuthRequestTimeout(
 
   return async (input, init) => {
     const url = requestUrlOf(input);
+    // An exempt request is passed through completely untouched — no deadline,
+    // no signal of ours, and crucially no body buffering, since the responses
+    // this exists for are streams that must stay open (see `isExempt` above).
+    if (isExempt?.(url)) return fetchFn(input, init);
+
     const controller = new AbortController();
     const callerSignal = callerSignalOf(input, init);
     // Before anything is constructed or sent. Racing an already-aborted signal

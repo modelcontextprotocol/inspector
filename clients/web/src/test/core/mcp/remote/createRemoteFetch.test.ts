@@ -206,25 +206,32 @@ describe("createRemoteFetch", () => {
     it("forwards a Request's own signal when init has none", async () => {
       const { fetchFn, remoteFetch } = capture();
       const caller = new AbortController();
+      // Compared against `request.signal`, not `caller.signal`: the Fetch
+      // standard gives `new Request(url, { signal })` a *dependent* signal, so
+      // the two are distinct objects in a spec-compliant runtime. Asserting
+      // against the controller's would encode non-standard identity and could
+      // pass or fail on the host rather than on the behaviour (Copilot).
+      const request = new Request("http://upstream.example/", {
+        signal: caller.signal,
+      });
 
-      await remoteFetch(
-        new Request("http://upstream.example/", { signal: caller.signal }),
-      );
+      await remoteFetch(request);
 
-      expect(signalOf(fetchFn)).toBe(caller.signal);
+      expect(signalOf(fetchFn)).toBe(request.signal);
     });
 
     it("treats an undefined init.signal as absent, keeping the Request's", async () => {
       // WebIDL dictionary conversion: a member present as `undefined` is absent.
       const { fetchFn, remoteFetch } = capture();
       const caller = new AbortController();
+      const request = new Request("http://upstream.example/", {
+        signal: caller.signal,
+      });
 
-      await remoteFetch(
-        new Request("http://upstream.example/", { signal: caller.signal }),
-        { signal: undefined },
-      );
+      await remoteFetch(request, { signal: undefined });
 
-      expect(signalOf(fetchFn)).toBe(caller.signal);
+      // Against `request.signal` for the dependent-signal reason above.
+      expect(signalOf(fetchFn)).toBe(request.signal);
     });
 
     it("honours an explicit null init.signal as no signal", async () => {

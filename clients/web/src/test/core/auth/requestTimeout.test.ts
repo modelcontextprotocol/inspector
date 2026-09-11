@@ -25,6 +25,7 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import {
   DEFAULT_OAUTH_REQUEST_TIMEOUT_MS,
   OAuthRequestTimeoutError,
+  exemptMcpEndpoint,
   withOAuthRequestTimeout,
 } from "@inspector/core/auth/requestTimeout.js";
 import { withRfc8414OidcCompat } from "@inspector/core/auth/oidcDiscoveryCompat.js";
@@ -270,6 +271,24 @@ describe("withOAuthRequestTimeout", () => {
       statusText: "Created",
       headers: { "content-type": "application/json", "x-probe": "kept" },
     });
+    // Seeded to NON-default values, which is the whole point of the case: a
+    // synthetic `new Response(...)` already has `url === ""`, `redirected ===
+    // false` and `type === "default"` — exactly the rebuilt response's own
+    // defaults — so asserting against those would stay green with the
+    // `Object.defineProperty` loop deleted from `rebuildResponse` (Copilot).
+    // These are read-only getters, hence the same mechanism the source uses.
+    Object.defineProperty(original, "url", {
+      value: "https://as.example.com/redirected",
+      configurable: true,
+    });
+    Object.defineProperty(original, "redirected", {
+      value: true,
+      configurable: true,
+    });
+    Object.defineProperty(original, "type", {
+      value: "cors",
+      configurable: true,
+    });
     const wrapped = withOAuthRequestTimeout(
       vi.fn<typeof fetch>().mockResolvedValue(original),
       1000,
@@ -283,9 +302,9 @@ describe("withOAuthRequestTimeout", () => {
     expect(response.headers.get("x-probe")).toBe("kept");
     expect(response.headers.get("content-encoding")).toBeNull();
     expect(response.headers.get("content-length")).toBeNull();
-    expect(response.url).toBe(original.url);
-    expect(response.redirected).toBe(original.redirected);
-    expect(response.type).toBe(original.type);
+    expect(response.url).toBe("https://as.example.com/redirected");
+    expect(response.redirected).toBe(true);
+    expect(response.type).toBe("cors");
     await expect(response.json()).resolves.toEqual({
       issuer: "https://as.example.com",
     });
@@ -383,6 +402,80 @@ describe("withOAuthRequestTimeout", () => {
     expect((await assertion) as OAuthRequestTimeoutError).toMatchObject({
       timeoutMs: DEFAULT_OAUTH_REQUEST_TIMEOUT_MS,
     });
+  });
+
+  describe("exemptMcpEndpoint (the transport chain's mixed traffic)", () => {
+    const SERVER = "https://srv.example.com/mcp";
+
+    it("exempts the MCP endpoint itself, whatever method or query", () => {
+      const isExempt = exemptMcpEndpoint(() => SERVER);
+
+      expect(isExempt(SERVER)).toBe(true);
+      expect(isExempt(`${SERVER}?sessionId=abc`)).toBe(true);
+      expect(isExempt(`${SERVER}#frag`)).toBe(true);
+    });
+
+    it("bounds OAuth work on the same chain", () => {
+      const isExempt = exemptMcpEndpoint(() => SERVER);
+
+      expect(
+        isExempt(
+          "https://srv.example.com/.well-known/oauth-protected-resource/mcp",
+        ),
+      ).toBe(false);
+      expect(isExempt("https://as.example.com/token")).toBe(false);
+      // Same origin, different path — still not the endpoint.
+      expect(isExempt("https://srv.example.com/mcp/register")).toBe(false);
+    });
+
+    it("fails open when the server URL is unknown or unparseable", () => {
+      // The two errors are not symmetric: bounding what should not be bounded
+      // severs a long-running tool call, while failing to bound leaves the
+      // SDK's own per-request timeout as the backstop it already was.
+      expect(
+        exemptMcpEndpoint(() => undefined)("https://as.example.com/token"),
+      ).toBe(true);
+      expect(exemptMcpEndpoint(() => "")("https://as.example.com/token")).toBe(
+        true,
+      );
+      expect(exemptMcpEndpoint(() => "not a url")(SERVER)).toBe(true);
+      expect(exemptMcpEndpoint(() => SERVER)("not a url")).toBe(true);
+    });
+
+    it("reads the server URL per call, since it changes between connects", () => {
+      let current = SERVER;
+      const isExempt = exemptMcpEndpoint(() => current);
+
+      expect(isExempt("https://other.example.com/mcp")).toBe(false);
+      current = "https://other.example.com/mcp";
+      expect(isExempt("https://other.example.com/mcp")).toBe(true);
+    });
+  });
+
+  it("passes an exempt request through with no deadline and no buffering", async () => {
+    vi.useFakeTimers();
+    // Untouched means untouched: no signal of ours, and the body is left as a
+    // live stream rather than buffered — which is what an SSE response needs.
+    const body = new ReadableStream<Uint8Array>({
+      start(ctrl) {
+        ctrl.enqueue(new TextEncoder().encode("data: hi\n\n"));
+      },
+    });
+    const original = new Response(body, {
+      headers: { "content-type": "text/event-stream" },
+    });
+    const inner = vi.fn<typeof fetch>().mockResolvedValue(original);
+    const wrapped = withOAuthRequestTimeout(inner, 1000, () => true);
+
+    const response = await wrapped(URL_UNDER_TEST);
+
+    expect(response).toBe(original);
+    expect(
+      (inner.mock.calls[0][1] as RequestInit | undefined)?.signal,
+    ).toBeUndefined();
+    // Nothing is armed, so advancing past the budget cannot sever it.
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(response.bodyUsed).toBe(false);
   });
 
   describe("composed under withRfc8414OidcCompat (#2319 ordering)", () => {
