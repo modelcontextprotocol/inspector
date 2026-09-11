@@ -183,7 +183,9 @@ describe("createRemoteFetch", () => {
         .mockResolvedValue(ok(standardRemoteBody));
       const remoteFetch = createRemoteFetch({
         baseUrl: "http://remote.example",
-        fetchFn: fetchFn as unknown as typeof fetch,
+        // A contextually typed forwarding function rather than a double cast:
+        // the mock stays inspectable and nothing bypasses the type system.
+        fetchFn: (input, init) => fetchFn(input, init),
       });
       return { fetchFn, remoteFetch };
     }
@@ -256,7 +258,8 @@ describe("createRemoteFetch", () => {
       );
       return createRemoteFetch({
         baseUrl: "http://remote.example",
-        fetchFn: fetchFn as unknown as typeof fetch,
+        // Forwarding function, not a double cast — see `capture` above.
+        fetchFn: (input, init) => fetchFn(input, init),
       });
     }
 

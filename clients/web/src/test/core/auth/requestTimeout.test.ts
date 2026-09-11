@@ -1,3 +1,26 @@
+/**
+ * Unit coverage for `withOAuthRequestTimeout` (#2319) — the deadline every
+ * OAuth-path request runs under.
+ *
+ * What is pinned here, and why each case exists rather than being obvious:
+ *
+ * - **The bound itself**, including the *body*: `fetch` resolves on headers, so
+ *   a server that sends them and then stalls has to be caught by the buffering
+ *   race, not by the fetch promise.
+ * - **The rebuilt response.** Buffering means the caller gets a different
+ *   `Response` object, so `url` / `redirected` / `type` are asserted to survive
+ *   and `content-encoding` / `content-length` to be dropped — the buffer holds
+ *   the decoded body, which makes both of those headers lies.
+ * - **Cancellation semantics.** The caller's signal is forwarded *and* raced,
+ *   so the tests distinguish the two: one uses a fetch that honours the signal,
+ *   another uses one that ignores it entirely.
+ * - **Composition with `withRfc8414OidcCompat`**, written as a contrast between
+ *   the two orderings. It is the ordering that is under test, not one
+ *   arrangement's behaviour, so the wrong one is asserted to misattribute.
+ *
+ * Fake timers throughout: every budget here is exercised by advancing the clock
+ * rather than by waiting, so the suite costs milliseconds.
+ */
 import { describe, it, expect, vi, afterEach } from "vitest";
 import {
   DEFAULT_OAUTH_REQUEST_TIMEOUT_MS,
