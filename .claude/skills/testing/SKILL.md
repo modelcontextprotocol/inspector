@@ -39,11 +39,17 @@ ways to depend on one, and they need different halves of that skill:
     **default** config, so there is still nothing to pick — and nothing to
     override, so if the case needs a specific tool set it is an in-process HTTP
     test instead.
-  - **A smoke → spawned composable HTTP, and it IS config-driven.**
+  - **A config-driven web smoke, or `pack:verify` → spawned composable HTTP.**
     `smoke:web:elicitation`, `smoke:web:app`, `smoke:web:tabs` and `pack:verify`
     all spawn `server-composable.js --config <name>.json`. **The showcase-config
     and protocol-era guidance applies to you in full** — being automated does
     not exempt a smoke from it.
+
+  ⚠️ **"A smoke" is not a shape, so do not route by that word.** `smoke:cli`
+  uses the first two — an in-process `createTestServerHttp` for the header
+  round-trip, and the built stdio entry in a `--catalog` for the connect checks
+  — and `smoke:tui` uses the stdio entry alone. Only the web smokes above are
+  config-driven. Pick by what the caller actually stands up.
 
   What applies to all three is that section's build warning.
   ⚠️ **Connecting is a strong hint, not the rule.** A few integration tests
@@ -60,7 +66,10 @@ ways to depend on one, and they need different halves of that skill:
 ⚠️ **"A build ran" is not the dependency — using the artefact is.**
 `clients/web`'s `pretest` runs `test-servers:build` before *every* unit run, so
 the fixture is on disk for tests that never reference it. What counts is whether
-the test **starts, spawns, or configures** a server from it.
+the test **starts, spawns, configures, or hands a built entry to the subject
+under test**. That last clause is what covers `smoke:tui`, which drives no
+transport at all and still depends on the fixture — see the build-only bullet
+above.
 
 ⚠️ **And *importing* the package is not the dependency either.** The barrel
 exports plain functions as well as server factories, so a test can import from

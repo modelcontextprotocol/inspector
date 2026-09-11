@@ -30,20 +30,29 @@ guidance a person at two terminals does.
 
 | Shape | Server runs | Config file | Consumers |
 | --- | --- | --- | --- |
-| **In-process HTTP** | inside the test process, built from the API | none — options are constructor args | integration tests |
-| **Spawned stdio** | a child process the transport starts | none — the stdio fixture runs its default config | integration tests, the CLI suites |
-| **Spawned composable HTTP** | a child process started with `--config` | **yes** — a showcase `--config <name>.json` | the web smokes, `pack:verify`, **and** a person by hand |
+| **In-process HTTP** | inside the test process, built from the API | none — options are constructor args | integration tests, CLI tests, **`smoke:cli`** |
+| **Spawned stdio** | a child process the transport (or the binary under test) starts | none — the stdio fixture runs its default config | integration tests, the CLI suites, **`smoke:cli`**, **`smoke:tui`** |
+| **Spawned composable HTTP** | a child process started with `--config` | **yes** — a showcase `--config <name>.json` | the **web** smokes, `pack:verify`, **and** a person by hand |
 
-- **In-process HTTP — `createTestServerHttp`.** The test *constructs* the server
-  and owns its lifecycle. No subprocess, no JSON config, no showcase config to
-  pick. This is the shape for anything needing HTTP/SSE, a specific tool set, or
-  the modern handler.
+⚠️ **"A smoke" is not a shape** — `smoke:cli` uses the first two and `smoke:tui`
+the second, while only the config-driven web smokes use the third. Pick by the
+row, never by the caller's category.
+
+- **In-process HTTP — `createTestServerHttp`.** The caller *constructs* the
+  server and owns its lifecycle. No subprocess, no JSON config, no showcase
+  config to pick. This is the shape for anything needing HTTP/SSE, a specific
+  tool set, or the modern handler — and it is not test-only: `scripts/smoke-cli.mjs`
+  starts one in the smoke process so it can read back the headers the CLI sent.
 - **Spawned stdio — `getTestMcpServerCommand()`.** The test hands the built
   fixture's `{ command, args }` to a stdio transport (or to the built CLI), and
   the transport spawns it. A subprocess *is* started, but **still no config
   file**: that entry point runs the stdio server's default config, so there is
   nothing to pick. Reach for it when stdio is the point (`InspectorClient` over
   stdio, the CLI's out-of-process E2E suite) and the default tool set is enough.
+  A caller may also just *name* the built entry rather than connect to it —
+  `smoke:cli` and `smoke:tui` write it into a `--catalog` as
+  `{ type: "stdio", command: node, args: [<built entry>] }` — which is still
+  this shape, and still the build.
 - **Spawned composable HTTP — `server-composable.js --config <name>.json`.**
   Picking the showcase config and the protocol era applies **to this shape**,
   whoever starts it. Two consumers, and they differ only in who runs the second
@@ -51,7 +60,9 @@ guidance a person at two terminals does.
   - **A script.** `scripts/smoke-web-elicitation.mjs` spawns it directly;
     `scripts/lib/mcp-app-flow.mjs` (`startMcpAppServer`) does it for
     `smoke:web:app`, `smoke:web:tabs` and `pack:verify`. These are automated and
-    config-driven, and the whole of this skill applies to them.
+    config-driven, and the whole of this skill applies to them. ⚠️ **Not every
+    smoke is here** — `smoke:cli` and `smoke:tui` use the two shapes above and
+    pick no config at all.
   - **You, in a terminal**, with the Inspector in another — `Run one by hand`
     below.
 
