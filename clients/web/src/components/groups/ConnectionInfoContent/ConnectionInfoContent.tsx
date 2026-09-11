@@ -459,12 +459,6 @@ export function ConnectionInfoContent({
                 {oauth.authorized ? "Authorized" : "Not authorized"}
               </Badge>
             </SimpleGrid>
-            {oauth.clientId && (
-              <FullWidthField>
-                <FieldLabel>Client ID</FieldLabel>
-                <ValueCode>{oauth.clientId}</ValueCode>
-              </FullWidthField>
-            )}
             {oauth.clientRegistrationKind && (
               <SimpleGrid cols={2}>
                 <FieldLabel>Client registration</FieldLabel>
@@ -479,17 +473,29 @@ export function ConnectionInfoContent({
                 <ValueText>{formatIdpSession(oauth.idpSession)}</ValueText>
               </SimpleGrid>
             )}
+            {oauth.scopes && oauth.scopes.length > 0 && (
+              <SimpleGrid cols={2}>
+                <FieldLabel>Scopes</FieldLabel>
+                <ValueText>{formatScopes(oauth.scopes)}</ValueText>
+              </SimpleGrid>
+            )}
+            {/* The full-width fields are kept together at the end of the
+                section, directly above the token rows, which use the same
+                label-over-value layout. Interleaved with the inline two-column
+                rows they broke the scan down the label column for every row
+                after them, and Client ID — the one most likely to be long —
+                was the worst offender (#2328). */}
             {oauth.authUrl && (
               <FullWidthField>
                 <FieldLabel>Auth URL</FieldLabel>
                 <ValueCode>{oauth.authUrl}</ValueCode>
               </FullWidthField>
             )}
-            {oauth.scopes && oauth.scopes.length > 0 && (
-              <SimpleGrid cols={2}>
-                <FieldLabel>Scopes</FieldLabel>
-                <ValueText>{formatScopes(oauth.scopes)}</ValueText>
-              </SimpleGrid>
+            {oauth.clientId && (
+              <FullWidthField>
+                <FieldLabel>Client ID</FieldLabel>
+                <ValueCode>{oauth.clientId}</ValueCode>
+              </FullWidthField>
             )}
             {oauth.accessToken && (
               <OAuthTokenField

@@ -625,6 +625,57 @@ describe("ConnectionInfoContent", () => {
     }
   });
 
+  it("groups the full-width fields at the end, Client ID directly above Access Token", () => {
+    renderWithMantine(
+      <ConnectionInfoContent
+        initializeResult={fullResult}
+        clientCapabilities={fullClientCaps}
+        transport="streamable-http"
+        oauth={{
+          protocol: "standard",
+          authorized: true,
+          clientId: "http://127.0.0.1:8093/client-metadata.json",
+          clientRegistrationKind: "cimd",
+          authUrl: "https://auth.example.com/authorize",
+          scopes: ["mcp"],
+          accessToken: "token-123",
+        }}
+      />,
+    );
+
+    // Order is the assertion, so read the labels off the DOM rather than
+    // checking each is merely present: the inline two-column rows come first,
+    // then every label-over-value field together. Interleaving them is what
+    // this guards against — it broke the scan down the label column, and the
+    // tokens already used the full-width layout at the bottom.
+    const order = [
+      "Client registration",
+      "Scopes",
+      "Auth URL",
+      "Client ID",
+      "Access Token",
+    ];
+    const positions = order.map((label) => {
+      const node = screen.getAllByText(label)[0];
+      expect(node).toBeInTheDocument();
+      return (
+        node.compareDocumentPosition(screen.getAllByText("Protocol")[0]) &
+        Node.DOCUMENT_POSITION_PRECEDING
+      );
+    });
+    expect(positions.every(Boolean)).toBe(true);
+
+    const labelNode = (label: string) => screen.getAllByText(label)[0];
+    for (let i = 0; i < order.length - 1; i++) {
+      const earlier = labelNode(order[i]);
+      const later = labelNode(order[i + 1]);
+      expect(
+        earlier.compareDocumentPosition(later) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+    }
+  });
+
   it("renders EMA idp session when provided", () => {
     renderWithMantine(
       <ConnectionInfoContent
