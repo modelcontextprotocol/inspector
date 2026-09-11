@@ -363,6 +363,26 @@ describe("InspectorClient raw-wire channel (#1631)", () => {
     await boundary.closeTaskSession();
   });
 
+  it("projects configured roots to the typed ext-tasks handler shape", () => {
+    const client = makeClient();
+    const boundary = client as unknown as {
+      roots?: readonly Record<string, unknown>[];
+      applicationRoots: () => readonly Record<string, unknown>[];
+    };
+    // No roots configured: an empty list, not undefined.
+    expect(boundary.applicationRoots()).toEqual([]);
+    boundary.roots = [
+      { uri: "file:///bare" },
+      { uri: "file:///named", name: "Named" },
+      { uri: "file:///meta", _meta: { vendor: true } },
+    ];
+    expect(boundary.applicationRoots()).toEqual([
+      { uri: "file:///bare" },
+      { uri: "file:///named", name: "Named" },
+      { uri: "file:///meta", _meta: { vendor: true } },
+    ]);
+  });
+
   it("uses the SDK 60-second default when no timeout is configured", async () => {
     vi.useFakeTimers();
     try {

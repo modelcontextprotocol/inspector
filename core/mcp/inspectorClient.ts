@@ -17,6 +17,8 @@ import {
   withRelatedTaskMetadata,
 } from "@modelcontextprotocol/ext-tasks/client";
 import type {
+  ApplicationElicitContentValue,
+  ApplicationRoot,
   DispatchOptions,
   JsonRpcResponse,
   RawClientDispatch,
@@ -4275,7 +4277,14 @@ export class InspectorClient extends InspectorClientEventTarget {
             action: result.action,
             ...(result.content === undefined
               ? {}
-              : { content: jsonObject(result.content) }),
+              : {
+                  // Narrowing cast (subset of JsonValue): the elicitation UI
+                  // produces schema-constrained scalars/string arrays, and
+                  // the ext-tasks wire schema re-validates on send.
+                  content: jsonObject(result.content) as Readonly<
+                    Record<string, ApplicationElicitContentValue>
+                  >,
+                }),
           };
         },
         sampling: async (request, context) => {
@@ -4294,13 +4303,26 @@ export class InspectorClient extends InspectorClientEventTarget {
             content: toJsonValue(result.content),
           };
         },
-        roots: async () => ({
-          roots: this.roots?.map((root) => jsonObject(root)) ?? [],
-        }),
+        roots: async () => ({ roots: this.applicationRoots() }),
       }),
       onError: (error) =>
         this.logger.error({ error }, "ext-tasks background error"),
     });
+  }
+
+  /**
+   * Project configured roots to the ext-tasks handler shape. Mapped
+   * field-by-field because ApplicationRoot requires a typed string uri,
+   * which a JSON-record projection would erase.
+   */
+  private applicationRoots(): readonly ApplicationRoot[] {
+    return (
+      this.roots?.map((root) => ({
+        uri: root.uri,
+        ...(root.name === undefined ? {} : { name: root.name }),
+        ...(root._meta === undefined ? {} : { _meta: jsonObject(root._meta) }),
+      })) ?? []
+    );
   }
 
   /** Release extension-owned state without ever leaving the SDK adapter installed. */
