@@ -510,14 +510,16 @@ Same MCP URL (`stytch-as-demo.val.run/mcp` or `mcp.stytch.dev/mcp`), leave CIMD 
 
 ### Local fallback (composable test server)
 
-For offline CIMD regression — or a **strict** fail-with-CIMD-off / succeed-with-CIMD-on pair without Stytch’s DCR fallback — use the in-repo `TestServerHttp` with `supportCIMD: true` and **`supportDCR: false`** (see `inspectorClient-oauth-e2e.test.ts`). `ensureCimdClientRegistration` allows `http://127.0.0.1` metadata URLs in tests only.
+For offline CIMD regression — or a **strict** fail-with-CIMD-off / succeed-with-CIMD-on pair without Stytch’s DCR fallback — use the shipped `oauth-cimd-http.json` fixture, which sets `supportCIMD: true` and **`supportDCR: false`** and hosts the client metadata document itself at `/client-metadata.json`.
 
 ```bash
-cd test-servers && npm run build
-node build/server-composable.js --config path/to/oauth-cimd-only.json
+cd clients/web && npm run test-servers:build
+node test-servers/build/server-composable.js --config test-servers/configs/oauth-cimd-http.json
 ```
 
-Example composable OAuth flags: `"supportCIMD": true`, `"supportDCR": false`. With CIMD off in Client Settings, connect + authenticate should **fail**; with CIMD on and a valid local metadata URL, it should **succeed**.
+Since [#2305](https://github.com/modelcontextprotocol/inspector/issues/2305) a loopback `http://` metadata URL is a **valid persisted `client.json` setting and a valid entry in the settings form**, not a test-only affordance — `getCimdClientMetadataUrlError` exempts `localhost`, `127.0.0.1` and `[::1]`, the same three literals the SDK exempts for token endpoints. So point `clientMetadataUrl` straight at the URL the fixture announced (`http://127.0.0.1:8092/client-metadata.json` on its configured port) with no HTTPS listener. Before that change the exemption existed only in `ensureCimdClientRegistration`, for an already-stored `client_id`, and driving this by hand needed a self-signed HTTPS listener plus `NODE_TLS_REJECT_UNAUTHORIZED=0`.
+
+With CIMD off in Client Settings, connect + authenticate should **fail**; with CIMD on and that local metadata URL, it should **succeed**. `docs/test-servers.md` has the full walkthrough, including the `redirect_uris` port trap.
 
 ---
 
