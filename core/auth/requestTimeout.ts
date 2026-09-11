@@ -93,15 +93,19 @@ function requestUrlOf(input: RequestInfo | URL): string {
  * cancellation semantics for `withOAuthRequestTimeout(new Request(url, { signal }))`
  * (Copilot).
  *
- * `init.signal` still wins whenever the key is *present*, per the fetch spec:
- * an explicit `null` there means "no signal" even when `input` is a `Request`
- * that has one.
+ * An `init.signal` still wins, but only when it is not `undefined`. `RequestInit`
+ * is a WebIDL dictionary, where a member present with the value `undefined` is
+ * converted as *absent* — so `{ ...base, signal: undefined }`, which is what a
+ * spread over an options object that had no signal produces, must inherit the
+ * `Request`'s signal rather than clear it (Copilot). An explicit `null` is the
+ * genuine "no signal" override and is honoured as one.
  */
 function callerSignalOf(
   input: RequestInfo | URL,
   init: RequestInit | undefined,
 ): AbortSignal | undefined {
-  if (init && "signal" in init) return init.signal ?? undefined;
+  const explicit = init?.signal;
+  if (explicit !== undefined) return explicit ?? undefined;
   if (typeof input !== "string" && !(input instanceof URL)) return input.signal;
   return undefined;
 }
@@ -176,6 +180,12 @@ export function withOAuthRequestTimeout(
     const url = requestUrlOf(input);
     const controller = new AbortController();
     const callerSignal = callerSignalOf(input, init);
+    // Before anything is constructed or sent. Racing an already-aborted signal
+    // would still evaluate `fetchFn(...)`, and on the signal-dropping
+    // `createRemoteFetch` path that means the OAuth request goes out even
+    // though the caller cancelled before the call (Copilot).
+    if (callerSignal?.aborted) throw callerSignal.reason;
+
     const signal = callerSignal
       ? AbortSignal.any([controller.signal, callerSignal])
       : controller.signal;
@@ -203,13 +213,10 @@ export function withOAuthRequestTimeout(
       // whole budget instead of the outer cancellation winning as documented
       // (Copilot). The caller's own `reason` is preserved, so it still sees its
       // abort rather than a substituted error.
+      // Not aborted — the short-circuit above returned for that case.
       if (callerSignal) {
-        if (callerSignal.aborted) {
-          reject(callerSignal.reason);
-        } else {
-          onCallerAbort = () => reject(callerSignal.reason);
-          callerSignal.addEventListener("abort", onCallerAbort, { once: true });
-        }
+        onCallerAbort = () => reject(callerSignal.reason);
+        callerSignal.addEventListener("abort", onCallerAbort, { once: true });
       }
     });
 

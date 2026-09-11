@@ -139,13 +139,34 @@ describe("withOAuthRequestTimeout", () => {
     await expect(pending).rejects.toBe(reason);
   });
 
-  it("rejects immediately when the caller's signal is already aborted", async () => {
-    const wrapped = withOAuthRequestTimeout(neverSettles, 60_000);
+  it("rejects an already-aborted signal without sending the request", async () => {
+    const inner = vi.fn<typeof fetch>(neverSettles);
+    const wrapped = withOAuthRequestTimeout(inner, 60_000);
     const reason = new Error("already gone");
 
     await expect(
       wrapped(URL_UNDER_TEST, { signal: AbortSignal.abort(reason) }),
     ).rejects.toBe(reason);
+    // Racing it would still have evaluated the inner fetch, which on the
+    // signal-dropping proxy path means the request actually goes out.
+    expect(inner).not.toHaveBeenCalled();
+  });
+
+  it("treats an undefined init.signal as absent, keeping a Request's own", async () => {
+    // `RequestInit` is a WebIDL dictionary: a member present as `undefined` is
+    // converted as absent. `{ ...base, signal: undefined }` is what a spread
+    // over an options object with no signal produces.
+    const wrapped = withOAuthRequestTimeout(neverSettles, 60_000);
+
+    const caller = new AbortController();
+    const pending = wrapped(
+      new Request(URL_UNDER_TEST, { signal: caller.signal }),
+      { signal: undefined },
+    );
+    const reason = new Error("request cancelled");
+    caller.abort(reason);
+
+    await expect(pending).rejects.toBe(reason);
   });
 
   it("honours the signal embedded in a Request input", async () => {
