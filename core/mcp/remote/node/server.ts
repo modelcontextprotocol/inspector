@@ -28,6 +28,8 @@ import { bodyLimit } from "hono/body-limit";
 import { watch as chokidarWatch, type FSWatcher } from "chokidar";
 import { createTransportNode } from "../../node/transport.js";
 import { createProxyFetch } from "../../node/proxyFetch.js";
+import { OAUTH_TIMEOUT_WIRE_CODE } from "../../../auth/requestTimeout.js";
+import { redactUrlQuery } from "../../fetchTracking.js";
 import type {
   RemoteConnectRequest,
   RemoteSendRequest,
@@ -1204,6 +1206,8 @@ export function createRemoteApp(
       method?: string;
       headers?: Record<string, string>;
       body?: string;
+      /** Per-request deadline, set only by a bounded OAuth call (#2319). */
+      timeoutMs?: number;
     };
     try {
       body = (await c.req.json()) as typeof body;
@@ -1211,10 +1215,74 @@ export function createRemoteApp(
       return c.json({ error: "Invalid JSON body" }, 400);
     }
 
-    const { url, method = "GET", headers = {}, body: reqBody } = body;
+    const {
+      url,
+      method = "GET",
+      headers = {},
+      body: reqBody,
+      timeoutMs: requestedTimeoutMs,
+    } = body;
     if (!url) {
       return c.json({ error: "Missing url" }, 400);
     }
+
+    // #2319: bound the outbound call, and release it when the browser gives up.
+    // This hop is where a client-side deadline used to stop being enforceable:
+    // the browser abandons its promise, but the request it made is served here,
+    // and an outbound fetch with neither a signal nor a timeout holds a handler
+    // and an authorization-server socket open indefinitely — once per timed-out
+    // retry (Copilot). `c.req.raw.signal` is the propagated cancellation, now
+    // that `createRemoteFetch` forwards it; the timer is the backstop for a
+    // client that vanishes without aborting, and it matches the client-side
+    // budget so the two agree on when this is hopeless.
+    const controller = new AbortController();
+    // Set by the timer below and read in the `catch`. The fetch rejects with
+    // the signal's abort reason, but which of several aborts won is not worth
+    // inferring from the error — the flag says it directly, the same
+    // normalization `withOAuthRequestTimeout` uses.
+    let deadlineFired = false;
+    const clientSignal: AbortSignal | undefined = c.req.raw.signal;
+    const signal = clientSignal
+      ? AbortSignal.any([controller.signal, clientSignal])
+      : controller.signal;
+    // Cleared in `finally`, before the handler returns. Safe because by then
+    // the body has been either read or explicitly cancelled — this route never
+    // hands a live stream to its caller, so there is nothing left for the timer
+    // to protect and nothing it could sever.
+    // ⚠️ Only the caller decides whether this request is bounded, and by how
+    // much. This route is the browser's way out to the network for MCP traffic
+    // as well as OAuth work, so an unconditional timer here would abort a
+    // Streamable HTTP tool call that legitimately withholds its response
+    // headers for longer than the budget — reintroducing on the backend exactly
+    // the regression `exemptMcpEndpoint` exists to prevent on the client, and
+    // reporting it as an OAuth timeout besides (Copilot). No deadline in the
+    // envelope means no timer at all.
+    // Clamped to what `setTimeout` can schedule: past 2**31-1 the delay
+    // overflows and Node falls back to 1ms, turning an over-large budget into
+    // an immediate timeout. Non-finite is ignored outright rather than
+    // defaulted — an envelope carrying `NaN` is a malformed request, and the
+    // safe reading of a malformed deadline is "no deadline".
+    const deadlineMs =
+      typeof requestedTimeoutMs === "number" &&
+      Number.isFinite(requestedTimeoutMs)
+        ? Math.min(2_147_483_647, Math.max(0, Math.round(requestedTimeoutMs)))
+        : undefined;
+    // Redacted for the same reason `OAuthRequestTimeoutError` redacts: this
+    // message and this URL are handed back to the browser, recorded in the
+    // Network log and persisted, and an OAuth endpoint's query string can carry
+    // a `code`, an `access_token` or a `client_secret` (Copilot).
+    const safeUrl = redactUrlQuery(url);
+    const timer =
+      deadlineMs === undefined
+        ? undefined
+        : setTimeout(() => {
+            deadlineFired = true;
+            controller.abort(
+              new Error(
+                `proxied request to ${safeUrl} timed out after ${deadlineMs}ms`,
+              ),
+            );
+          }, deadlineMs);
 
     try {
       // Proxy-aware, not the bare global. This route is the browser's ONLY way
@@ -1228,6 +1296,7 @@ export function createRemoteApp(
         method,
         headers: new Headers(headers),
         body: reqBody,
+        signal,
       });
 
       const resHeaders: Record<string, string> = {};
@@ -1242,6 +1311,26 @@ export function createRemoteApp(
       let resBody: string | undefined;
       if (!isStream && res.body) {
         resBody = await res.text();
+      } else if (isStream) {
+        // This route does not return the stream — it answers with JSON and no
+        // body — so nobody downstream owns it and nothing will ever read it.
+        // Left un-cancelled, an OAuth endpoint that sends event-stream or
+        // NDJSON headers and never closes would hold the upstream socket open
+        // for good, since the `finally` below clears the only deadline once
+        // this handler returns (Copilot). Best-effort, like `releaseBody` in
+        // `oidcDiscoveryCompat`: a body already consumed, locked or absent is
+        // not an error here. Measured, undici does reclaim an unread body on
+        // its own in this configuration — so this is belt and braces rather
+        // than a demonstrated leak, and it is kept because relying on that is
+        // an implementation detail of the fetch beneath us, not a contract.
+        //
+        // ⚠️ Started, not awaited. `ReadableStream.cancel()` adopts the
+        // underlying source's cancel promise, which is permitted never to
+        // settle — awaiting it would keep this handler pending forever, and on
+        // an unbounded request there is no timer to release it either
+        // (Copilot). The `void` is the documented case where the callee owns
+        // its failures, via the `catch` below, and the caller cannot await.
+        void res.body?.cancel().catch(() => {});
       }
 
       return c.json({
@@ -1253,7 +1342,24 @@ export function createRemoteApp(
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
+      if (deadlineFired) {
+        // Stamped so the browser can rebuild an `OAuthRequestTimeoutError`
+        // rather than receiving a plain `Error` that no `instanceof` check
+        // downstream can recognize (Copilot). 504 because that is what this
+        // is — the gateway gave up on the upstream, not a fault in the route.
+        return c.json(
+          {
+            error: msg,
+            code: OAUTH_TIMEOUT_WIRE_CODE,
+            url: safeUrl,
+            timeoutMs: deadlineMs,
+          },
+          504,
+        );
+      }
       return c.json({ error: msg }, 500);
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
     }
   });
 

@@ -90,6 +90,7 @@
  * wiring in `core/mcp/inspectorClient.ts`.
  */
 
+import { callerSignalOf, OAuthRequestTimeoutError } from "./requestTimeout.js";
 import {
   OAuthMetadataSchema,
   OpenIdProviderDiscoveryMetadataSchema,
@@ -167,6 +168,22 @@ function continuesDiscovery(status: number): boolean {
  */
 async function releaseBody(response: Response): Promise<void> {
   await response.body?.cancel().catch(() => {});
+}
+
+/**
+ * The same release, started but not waited on.
+ *
+ * ⚠️ `ReadableStream.cancel()` adopts the underlying source's cancel promise,
+ * which is permitted never to settle — so awaiting it on a path that is
+ * *propagating a cancellation* can hang the very thing that was meant to end
+ * (Copilot). Every exceptional exit below uses this: the release is a courtesy
+ * to the connection pool, and the caller's abort or timeout must reach it
+ * regardless. The `void` is the documented case where the callee owns its
+ * failures — `releaseBody` swallows its own — and the caller genuinely cannot
+ * await.
+ */
+function releaseBodyDetached(response: Response): void {
+  void releaseBody(response);
 }
 
 /**
@@ -248,6 +265,13 @@ export function withRfc8414OidcCompat(fetchFn: typeof fetch): typeof fetch {
     if (candidates.length === 0) return response;
 
     const headers = discoveryHeaders(input, init);
+    // The probe is a request the caller never made, issued on its behalf — so
+    // it has to be cancellable by the caller too. Without the signal, aborting
+    // after the initial 404 left the probe running to its own deadline and the
+    // caller was handed a timeout in place of its own abort (Copilot). Same
+    // precedence rule as everywhere else, hence the shared helper rather than a
+    // second copy of it.
+    const callerSignal = callerSignalOf(input, init);
     // The loop advances to the next candidate only where the SDK's own loop
     // would. Anywhere else it hands the original response back and lets
     // discovery run its normal course, because *promoting a later candidate
@@ -259,10 +283,50 @@ export function withRfc8414OidcCompat(fetchFn: typeof fetch): typeof fetch {
     // those, returning `response` leaves the SDK to make the same request and
     // reach the same verdict it always would.
     for (const candidate of candidates) {
+      // Don't issue a probe the caller has already given up on. A real `fetch`
+      // rejects immediately on a pre-aborted signal, so this is mostly about
+      // not sending the request at all — the same reasoning as the
+      // short-circuit in `withOAuthRequestTimeout`.
+      //
+      // Every exceptional exit below releases `response` first. On a normal
+      // return it is the value the caller gets and reads; on a throw nobody
+      // will ever read it, and an unread body holds its connection open on
+      // Node/undici — the same reason the successful-substitution path
+      // releases it (Copilot). Matters most for a standalone user of this
+      // exported wrapper, where no timeout wrapper is underneath to have
+      // already drained it.
+      if (callerSignal?.aborted) {
+        releaseBodyDetached(response);
+        throw callerSignal.reason;
+      }
+
       let probe: Response;
       try {
-        probe = await fetchFn(candidate, { headers });
-      } catch {
+        probe = await fetchFn(candidate, { headers, signal: callerSignal });
+      } catch (err) {
+        // A deadline the Inspector imposed is *our* error, not the server's
+        // answer, so it escapes rather than being folded back into the original
+        // response (#2319, Copilot). Swallowing it would hand the caller the
+        // preceding 404 and discard the one thing the deadline adds — the name
+        // of the endpoint that stalled — leaving discovery to fail later under
+        // a message that points at the wrong URL. There is no flow this can
+        // break that was not already broken: every candidate this loop probes
+        // is one the SDK's own `buildDiscoveryUrls` emits, so a stall here is a
+        // stall the SDK would have hit itself, unbounded. Everything else — a
+        // CORS rejection, DNS, a reset — still falls back as documented above.
+        if (err instanceof OAuthRequestTimeoutError) {
+          releaseBodyDetached(response);
+          throw err;
+        }
+        // Likewise a caller that gave up: substituting the preceding 404 for
+        // its own abort would report a discovery failure for a request it
+        // deliberately cancelled. The caller's own `reason` is what surfaces,
+        // here and at the two sites below, rather than whatever shape the
+        // underlying layer happened to reject with.
+        if (callerSignal?.aborted) {
+          releaseBodyDetached(response);
+          throw callerSignal.reason;
+        }
         return response;
       }
       if (!probe.ok) {
@@ -272,6 +336,14 @@ export function withRfc8414OidcCompat(fetchFn: typeof fetch): typeof fetch {
         // candidate exhaust the origin's pool (Copilot). Same discipline as
         // `core/mcp/node/authChallengeFetch.ts`.
         await releaseBody(probe);
+        // Rechecked after the release, which awaits: an abort that lands while
+        // the body is being discarded must not be answered with the preceding
+        // response either, and `continue` would otherwise carry on probing for
+        // a caller that has stopped waiting.
+        if (callerSignal?.aborted) {
+          releaseBodyDetached(response);
+          throw callerSignal.reason;
+        }
         if (continuesDiscovery(probe.status)) continue;
         return response;
       }
@@ -288,6 +360,17 @@ export function withRfc8414OidcCompat(fetchFn: typeof fetch): typeof fetch {
         body = await probe.text();
         parsed = JSON.parse(body);
       } catch {
+        // `fetch` resolves on headers, so the abort can land here rather than
+        // in the catch above: the probe's headers arrived, the caller gave up,
+        // and `probe.text()` rejects on the partial body. Substituting the
+        // preceding 404 would hand a standalone user of this wrapper a
+        // discovery failure in place of its own abort reason (Copilot). A body
+        // that merely will not parse still falls through, which is the case
+        // this catch exists for.
+        if (callerSignal?.aborted) {
+          releaseBodyDetached(response);
+          throw callerSignal.reason;
+        }
         return response;
       }
       if (!isRfc8414OnlyMetadata(parsed)) {

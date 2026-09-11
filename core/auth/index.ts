@@ -51,6 +51,18 @@ export {
   withRfc8414OidcCompat,
 } from "./oidcDiscoveryCompat.js";
 
+// OAuth-path request deadline (#2319)
+export {
+  DEFAULT_OAUTH_REQUEST_TIMEOUT_MS,
+  OAUTH_TIMEOUT_WIRE_CODE,
+  OAuthRequestTimeoutError,
+  deadlineForRequestInit,
+  exemptMcpEndpoint,
+  isOAuthRequestTimeoutWire,
+  withOAuthRequestTimeout,
+} from "./requestTimeout.js";
+export type { OAuthRequestTimeoutWire } from "./requestTimeout.js";
+
 // Storage
 export type {
   OAuthStorage,

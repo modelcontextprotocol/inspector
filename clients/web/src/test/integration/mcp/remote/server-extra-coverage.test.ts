@@ -300,6 +300,12 @@ describe("server.ts supplemental coverage", () => {
     let h: Harness;
     let target: ServerType;
     let targetUrl: string;
+    /** Resolves when an upstream `/stall` request is closed by its client. */
+    let stallClosed: Promise<void>;
+    /** Paths the upstream fixture has actually received. */
+    let upstreamHits: string[];
+    /** Resolves when the never-ending `/stream-open` response is closed. */
+    let openStreamClosed: Promise<void>;
 
     // Isolate the WHOLE suite from the developer's (or CI's) proxy environment.
     // Setting only uppercase HTTP_PROXY in the one proxy test would not be
@@ -336,7 +342,43 @@ describe("server.ts supplemental coverage", () => {
       h = await start();
       // A tiny upstream HTTP server we can point /api/fetch at.
       const { createServer } = await import("node:http");
+      let markClosed: () => void = () => {};
+      stallClosed = new Promise<void>((resolve) => {
+        markClosed = resolve;
+      });
+      upstreamHits = [];
+      let markStreamClosed: () => void = () => {};
+      openStreamClosed = new Promise<void>((resolve) => {
+        markStreamClosed = resolve;
+      });
       const srv = createServer((req, res) => {
+        upstreamHits.push(req.url ?? "");
+        if (req.url === "/stream-hostile") {
+          // Headers, one frame, and a connection whose teardown the route must
+          // not wait on: `ReadableStream.cancel()` adopts the source's cancel
+          // promise, which may never settle.
+          res.writeHead(200, { "Content-Type": "text/event-stream" });
+          res.write("data: hi\n\n");
+          return;
+        }
+        if (req.url === "/stream-open") {
+          // Event-stream headers, one frame, and then nothing — the shape that
+          // used to leave a socket open for good, because the route classifies
+          // it as a stream, returns JSON without the body, and clears its
+          // deadline on the way out.
+          res.writeHead(200, { "Content-Type": "text/event-stream" });
+          res.write("data: hi\n\n");
+          res.on("close", () => markStreamClosed());
+          return;
+        }
+        if (req.url === "/stall") {
+          // Accept the request, answer nothing, and report when the client
+          // gives up — the #2319 wedged-authorization-server shape. `close` on
+          // the response fires whether the socket was torn down or the handler
+          // simply ended, and nothing here ever ends it.
+          res.on("close", () => markClosed());
+          return;
+        }
         if (req.url === "/stream") {
           res.writeHead(200, { "Content-Type": "text/event-stream" });
           res.write("data: hi\n\n");
@@ -379,6 +421,175 @@ describe("server.ts supplemental coverage", () => {
         ),
       );
       await stop(h);
+    });
+
+    it("releases the upstream request when the browser cancels (#2319)", async () => {
+      // The point of forwarding the signal through `createRemoteFetch`: without
+      // it the browser's abort settled only its own promise, and this handler
+      // plus the upstream socket stayed pending for as long as the server cared
+      // to stall — once per timed-out attempt. Asserted at the route rather
+      // than on a mock, because the mock cannot show the socket being released.
+      const caller = new AbortController();
+      const pending = fetch(`${h.baseUrl}/api/fetch`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ url: `${targetUrl}/stall` }),
+        signal: caller.signal,
+      });
+      const rejected = pending.catch((err: unknown) => err);
+
+      // Wait until the upstream has actually received the request, so the abort
+      // cannot race ahead of it and pass for the wrong reason.
+      await vi.waitFor(() => {
+        expect(upstreamHits).toContain("/stall");
+      });
+      caller.abort();
+
+      expect(await rejected).toBeInstanceOf(Error);
+      // The upstream sees its connection go away. Without the signal composed
+      // into the route's outbound fetch this never resolves and the test times
+      // out.
+      await stallClosed;
+    });
+
+    it("cancels a discarded stream that sends headers and never ends (#2319)", async () => {
+      // The route answers with JSON and no body, so nobody downstream owns the
+      // upstream stream and nothing will ever read it; the route cancels it
+      // explicitly rather than relying on that being reclaimed for it.
+      //
+      // ⚠️ This pins the OUTCOME, not the mechanism: measured, it still passes
+      // with the explicit `cancel()` removed, because undici reclaims an unread
+      // response body here on its own. So the cancel is defensive — it makes
+      // the release explicit and independent of that behaviour — and this test
+      // will catch the route starting to hold the stream open, not the cancel
+      // being deleted. Said plainly rather than left to imply a stronger claim.
+      const res = await fetch(`${h.baseUrl}/api/fetch`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ url: `${targetUrl}/stream-open` }),
+      });
+
+      expect(res.status).toBe(200);
+      const payload = (await res.json()) as { status: number; body?: string };
+      expect(payload.status).toBe(200);
+      expect(payload.body).toBeUndefined();
+      // The observable contract: the route does not leave the upstream stream
+      // running after it has answered. (Per the qualification above, this does
+      // not isolate the explicit `cancel()` as the cause.)
+      await openStreamClosed;
+    });
+
+    it("answers 504 with a typed marker when the request's deadline fires (#2319)", async () => {
+      // The caller's budget travels in the envelope, so this costs milliseconds
+      // rather than the production thirty seconds. What it pins is typed-marker
+      // preservation when the *backend* wins the client-side race — both ends
+      // run the same budget, and a backgrounded tab throttling `setTimeout` is
+      // the plausible way the server's fires first. The error has to survive
+      // the hop as something an `instanceof OAuthRequestTimeoutError` check can
+      // still recognize, whichever end produced it.
+      const res = await fetch(`${h.baseUrl}/api/fetch`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ url: `${targetUrl}/stall`, timeoutMs: 120 }),
+      });
+
+      expect(res.status).toBe(504);
+      const payload = (await res.json()) as {
+        error: string;
+        code: string;
+        url: string;
+        timeoutMs: number;
+      };
+      expect(payload.code).toBe("oauth_request_timeout");
+      expect(payload.url).toBe(`${targetUrl}/stall`);
+      expect(payload.timeoutMs).toBe(120);
+      expect(payload.error).toContain("timed out after 120ms");
+      // And the upstream is released rather than left running.
+      await stallClosed;
+    });
+
+    it("applies no deadline to a request that carries none (#2319)", async () => {
+      // ⚠️ The regression this guards: an unconditional timer here would abort
+      // a Streamable HTTP tool call that legitimately withholds its response
+      // headers — reintroducing on the backend exactly what `exemptMcpEndpoint`
+      // prevents on the client, and reporting it as an OAuth timeout besides.
+      //
+      // ⚠️ What it does NOT catch, stated so nobody reads more into it: the
+      // wait below is 400ms, so an unconditional timer restored at the
+      // production 30s budget would still leave the request pending here and
+      // the test would pass (Copilot). Catching that needs either a ~31s wait
+      // on every CI run or a route-level deadline knob existing only for the
+      // test — and a second source of truth for the deadline is the defect
+      // round 13 removed. Measured, this fails against an unconditional timer
+      // at any budget shorter than the wait.
+      const caller = new AbortController();
+      const pending = fetch(`${h.baseUrl}/api/fetch`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ url: `${targetUrl}/stall` }),
+        signal: caller.signal,
+      });
+      const settled = pending.then(
+        (r) => `responded ${r.status}`,
+        () => "aborted by us",
+      );
+
+      await vi.waitFor(() => {
+        expect(upstreamHits).toContain("/stall");
+      });
+      // Well past any budget the route might have applied on its own. Nothing
+      // should have answered: an unbounded request is still in flight.
+      await new Promise((r) => setTimeout(r, 400));
+      expect(
+        await Promise.race([settled, Promise.resolve("still pending")]),
+      ).toBe("still pending");
+
+      caller.abort();
+      expect(await settled).toBe("aborted by us");
+    });
+
+    it("ignores a non-numeric deadline rather than trusting it (#2319)", async () => {
+      const caller = new AbortController();
+      const pending = fetch(`${h.baseUrl}/api/fetch`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          url: `${targetUrl}/stall`,
+          timeoutMs: "soon",
+        }),
+        signal: caller.signal,
+      });
+      const settled = pending.then(
+        (r) => `responded ${r.status}`,
+        () => "aborted by us",
+      );
+
+      await vi.waitFor(() => {
+        expect(upstreamHits).toContain("/stall");
+      });
+      await new Promise((r) => setTimeout(r, 300));
+      expect(
+        await Promise.race([settled, Promise.resolve("still pending")]),
+      ).toBe("still pending");
+
+      caller.abort();
+      expect(await settled).toBe("aborted by us");
+    });
+
+    it("answers a discarded stream without waiting on its cancellation", async () => {
+      // ⚠️ The route starts the cancel and returns. Awaiting it would keep the
+      // handler pending on a source that never settles its cancel promise —
+      // and on an unbounded request there is no timer to release it either.
+      const res = await fetch(`${h.baseUrl}/api/fetch`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ url: `${targetUrl}/stream-hostile` }),
+      });
+
+      expect(res.status).toBe(200);
+      const payload = (await res.json()) as { status: number; body?: string };
+      expect(payload.status).toBe(200);
+      expect(payload.body).toBeUndefined();
     });
 
     it("routes the outbound request through HTTP_PROXY (#2067)", async () => {

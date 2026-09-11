@@ -256,6 +256,11 @@ import {
 } from "../auth/challenge.js";
 import { withOAuthEndpointOverrides } from "../auth/endpointOverrides.js";
 import { withRfc8414OidcCompat } from "../auth/oidcDiscoveryCompat.js";
+import {
+  DEFAULT_OAUTH_REQUEST_TIMEOUT_MS,
+  exemptMcpEndpoint,
+  withOAuthRequestTimeout,
+} from "../auth/requestTimeout.js";
 import type { TokenRevocationOutcome } from "../auth/revocation.js";
 import type { OAuthTokens } from "@modelcontextprotocol/client";
 import { silentLogger, type InspectorLogger } from "../logging/logger.js";
@@ -810,8 +815,9 @@ export class InspectorClient extends InspectorClientEventTarget {
     // `this.fetchFn` directly. The overrides are read lazily — `oauthManager` is
     // created a few lines below, and `setOAuthConfig` can change them later — so
     // the wrapper is inert until a server actually configures one.
-    this.fetchFn = withOAuthEndpointOverrides(this.fetchFn ?? fetch, () =>
-      this.oauthManager?.getEndpointOverrides(),
+    const withOverrides = withOAuthEndpointOverrides(
+      this.fetchFn ?? fetch,
+      () => this.oauthManager?.getEndpointOverrides(),
     );
     // #2172: recover discovery when a plain OAuth 2.0 authorization server
     // publishes RFC 8414 metadata at `/.well-known/openid-configuration`, which
@@ -822,8 +828,40 @@ export class InspectorClient extends InspectorClientEventTarget {
     // still hit the upstream failure. The substituted response is stamped with
     // `COMPAT_SOURCE_HEADER` so a captured entry names the URL its body came
     // from rather than appearing to be a 200 from the RFC 8414 path.
-    this.fetchFn = withRfc8414OidcCompat(this.fetchFn);
-    this.effectiveAuthFetch = this.buildEffectiveAuthFetch();
+    // The transport chain is bounded too, but only for the requests on it that
+    // are *not* MCP traffic — the OAuth work the SDK runs from inside the
+    // transport on the 401/refresh path, which otherwise waits out the SDK's
+    // incidental per-request timeout and reports a bare `Request timed out`
+    // naming no endpoint (Copilot). The MCP endpoint itself is exempt, and the
+    // predicate fails open: a long-running tool call withholding its response
+    // headers for minutes, or an SSE body that stays open, must never be timed
+    // here. Deadline innermost, for the same reason as the auth chain below.
+    this.fetchFn = withRfc8414OidcCompat(
+      withOAuthRequestTimeout(
+        withOverrides,
+        DEFAULT_OAUTH_REQUEST_TIMEOUT_MS,
+        exemptMcpEndpoint(
+          () => this.getServerUrl(),
+          // Legacy SSE negotiates its message endpoint inside the stream, so
+          // its path is unknowable here and the exemption has to widen to the
+          // origin. Streamable HTTP sends everything to the configured URL, so
+          // the path rule is exact there and same-origin OAuth stays bounded.
+          () => this.transportConfig?.type === "sse",
+        ),
+      ),
+    );
+    // #2319: the auth chain is composed separately so the deadline sits
+    // *inside* the compat wrapper. Reusing `this.fetchFn` as the base would put
+    // it outside, and then a stalled OIDC probe would be reported under the
+    // URL of the RFC 8414 request that preceded it — defeating the whole point
+    // of naming the endpoint — while every probe in the loop shared that one
+    // request's budget (Copilot). Innermost here matches the CLI's
+    // `storedAuthFetch`. It also passes no `isExempt`, unlike the transport
+    // chain above: every request on this chain is OAuth work, so there is
+    // nothing here to exempt.
+    this.effectiveAuthFetch = this.buildEffectiveAuthFetch(
+      withRfc8414OidcCompat(withOAuthRequestTimeout(withOverrides)),
+    );
 
     this.sessionId = options.sessionId;
 
@@ -990,8 +1028,22 @@ export class InspectorClient extends InspectorClientEventTarget {
     );
   }
 
-  private buildEffectiveAuthFetch(): typeof fetch {
-    const base = this.fetchFn ?? fetch;
+  /**
+   * @param base - the composed OAuth-path fetch, deadline innermost (#2319).
+   *
+   * Passed in rather than read off `this.fetchFn` because the two chains are
+   * bounded on different terms, not because one of them is unbounded. Both
+   * carry a deadline; the transport chain additionally exempts the MCP endpoint
+   * (`exemptMcpEndpoint`), since its bodies are streams meant to stay open and
+   * a long-running tool call may withhold its headers for minutes. Reusing it
+   * here would extend that exemption to the OAuth manager's own requests — and
+   * an authorization server published at the MCP endpoint's path would then go
+   * unbounded on the one chain that exists to bound it.
+   *
+   * The SDK's transport-internal discovery (the 401/refresh path) is covered by
+   * the transport chain's own deadline, not by this one.
+   */
+  private buildEffectiveAuthFetch(base: typeof fetch): typeof fetch {
     // Capture auth response bodies (OAuth discovery, DCR, token exchange) so
     // they're inspectable in the Network tab. Token-exchange responses carry
     // `access_token` / `refresh_token`; the Network UI masks those (and other

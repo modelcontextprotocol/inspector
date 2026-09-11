@@ -439,3 +439,186 @@ describe("withRfc8414OidcCompat", () => {
     expect(base).toHaveBeenCalledTimes(2);
   });
 });
+
+describe("probe cancellation (#2319)", () => {
+  const RFC8414 =
+    "https://as.example.com/.well-known/oauth-authorization-server/tenant";
+
+  /** 404 on the RFC 8414 leg, then never answers the OIDC probe. */
+  function stallingProbeFetch() {
+    return vi.fn<typeof fetch>((input, init) => {
+      if (String(input) === RFC8414) {
+        return Promise.resolve(new Response(null, { status: 404 }));
+      }
+      return new Promise<Response>((_resolve, reject) => {
+        // A real `fetch` rejects immediately on a signal that is already
+        // aborted, so the double is only useful if it does the same.
+        if (init?.signal?.aborted) {
+          reject(init.signal.reason as Error);
+          return;
+        }
+        init?.signal?.addEventListener("abort", () =>
+          reject(init.signal?.reason as Error),
+        );
+      });
+    });
+  }
+
+  it("carries the caller's signal into the probe", async () => {
+    const inner = stallingProbeFetch();
+    const wrapped = withRfc8414OidcCompat(inner);
+    const caller = new AbortController();
+
+    const settled = wrapped(RFC8414, { signal: caller.signal }).then(
+      (r) => r,
+      (e: unknown) => e,
+    );
+    // Wait until the probe is actually in flight, so the abort exercises
+    // cancellation rather than the pre-aborted short-circuit.
+    await vi.waitFor(() => {
+      expect(inner).toHaveBeenCalledTimes(2);
+    });
+    const reason = new Error("caller gave up");
+    caller.abort(reason);
+
+    // Not the preceding 404: substituting it would report a discovery failure
+    // for a request the caller deliberately cancelled.
+    expect(await settled).toBe(reason);
+    expect((inner.mock.calls[1][1] as RequestInit).signal).toBe(caller.signal);
+  });
+
+  it("does not issue a probe the caller already cancelled", async () => {
+    const inner = stallingProbeFetch();
+    const wrapped = withRfc8414OidcCompat(inner);
+    const reason = new Error("already gone");
+
+    const settled = wrapped(RFC8414, {
+      signal: AbortSignal.abort(reason),
+    }).then(
+      (r) => r,
+      (e: unknown) => e,
+    );
+
+    expect(await settled).toBe(reason);
+    // Only the RFC 8414 leg, which the caller did make.
+    expect(inner).toHaveBeenCalledTimes(1);
+  });
+
+  it("rethrows an abort that lands while the probe body is pending", async () => {
+    // `fetch` resolves on headers, so a late abort rejects `probe.text()`
+    // rather than the fetch — a separate catch, which used to answer with the
+    // preceding 404.
+    const caller = new AbortController();
+    const inner = vi.fn<typeof fetch>((input, init) => {
+      if (String(input) === RFC8414) {
+        return Promise.resolve(new Response(null, { status: 404 }));
+      }
+      // Headers now, body never.
+      return Promise.resolve(
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(ctrl) {
+              ctrl.enqueue(new TextEncoder().encode('{"issuer":'));
+              init?.signal?.addEventListener("abort", () =>
+                ctrl.error(init.signal?.reason as Error),
+              );
+            },
+          }),
+          { headers: { "content-type": "application/json" } },
+        ),
+      );
+    });
+    const wrapped = withRfc8414OidcCompat(inner);
+
+    const settled = wrapped(RFC8414, { signal: caller.signal }).then(
+      (r) => r,
+      (e: unknown) => e,
+    );
+    await vi.waitFor(() => {
+      expect(inner).toHaveBeenCalledTimes(2);
+    });
+    const reason = new Error("caller gave up mid-body");
+    caller.abort(reason);
+
+    expect(await settled).toBe(reason);
+  });
+
+  it("releases the discarded discovery response on an exceptional exit", async () => {
+    // Nobody receives `response` when the loop throws, and an unread body holds
+    // its connection open on Node/undici — the same reason the successful
+    // substitution path releases it.
+    const cancels = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    const discovery = new Response(
+      new ReadableStream<Uint8Array>({
+        start(ctrl) {
+          ctrl.enqueue(new TextEncoder().encode("not found"));
+        },
+      }),
+      { status: 404 },
+    );
+    // Spy on the body's cancel, which is what `releaseBody` calls.
+    const body = discovery.body;
+    if (body) vi.spyOn(body, "cancel").mockImplementation(cancels);
+
+    const inner = vi.fn<typeof fetch>((input) =>
+      String(input) === RFC8414
+        ? Promise.resolve(discovery)
+        : new Promise<Response>(() => {}),
+    );
+    const wrapped = withRfc8414OidcCompat(inner);
+
+    const settled = wrapped(RFC8414, {
+      signal: AbortSignal.abort(new Error("gone")),
+    }).then(
+      () => "resolved",
+      () => "threw",
+    );
+
+    expect(await settled).toBe("threw");
+    expect(cancels).toHaveBeenCalled();
+  });
+
+  it("does not wait on a cancel that never settles", async () => {
+    // ⚠️ `ReadableStream.cancel()` adopts the underlying source's cancel
+    // promise, which is permitted never to settle — so awaiting the release on
+    // a path that is propagating a cancellation would hang the very thing it
+    // was meant to end.
+    const discovery = new Response(
+      new ReadableStream<Uint8Array>({
+        start(ctrl) {
+          ctrl.enqueue(new TextEncoder().encode("not found"));
+        },
+        cancel() {
+          return new Promise<void>(() => {});
+        },
+      }),
+      { status: 404 },
+    );
+    const inner = vi.fn<typeof fetch>((input) =>
+      String(input) === RFC8414
+        ? Promise.resolve(discovery)
+        : new Promise<Response>(() => {}),
+    );
+    const wrapped = withRfc8414OidcCompat(inner);
+    const reason = new Error("gone");
+
+    // Would hang if the release were awaited; the assertion is that it settles.
+    await expect(
+      wrapped(RFC8414, { signal: AbortSignal.abort(reason) }),
+    ).rejects.toBe(reason);
+  });
+
+  it("still falls back to the original response on an ordinary probe failure", async () => {
+    const inner = vi.fn<typeof fetch>((input) => {
+      if (String(input) === RFC8414) {
+        return Promise.resolve(new Response(null, { status: 404 }));
+      }
+      return Promise.reject(new TypeError("network error"));
+    });
+    const wrapped = withRfc8414OidcCompat(inner);
+
+    const response = await wrapped(RFC8414);
+
+    expect(response.status).toBe(404);
+  });
+});

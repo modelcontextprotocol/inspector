@@ -21,6 +21,12 @@
  *     the web client against a strict modern server, same as from the CLI/TUI.
  */
 
+import {
+  deadlineForRequestInit,
+  isOAuthRequestTimeoutWire,
+  OAuthRequestTimeoutError,
+} from "../../auth/requestTimeout.js";
+
 export interface RemoteFetchOptions {
   /** Base URL of the remote server (e.g. http://localhost:3000) */
   baseUrl: string;
@@ -133,14 +139,68 @@ export function createRemoteFetch(options: RemoteFetchOptions): typeof fetch {
       reqHeaders["x-mcp-remote-auth"] = `Bearer ${options.authToken}`;
     }
 
+    // #2319: forward the caller's cancellation onto the proxy hop. Without it
+    // an abort — including the OAuth deadline's own — settled only the caller's
+    // promise: the POST stayed in flight, so the backend never saw its request
+    // cancelled and its outbound fetch to the authorization server was left
+    // running detached, holding a handler and a socket for as long as the
+    // server cared to stall (Copilot). `init.signal` wins when present and not
+    // `undefined` (a WebIDL dictionary member present as `undefined` converts
+    // as absent), otherwise a `Request` carries its own.
+    const explicitSignal = init?.signal;
+    const signal =
+      explicitSignal !== undefined
+        ? (explicitSignal ?? undefined)
+        : input instanceof Request
+          ? input.signal
+          : undefined;
+
+    // #2319: tell the route whether *this* request is bounded, and by how much.
+    // The route serves MCP traffic as well as OAuth work, and a Streamable HTTP
+    // tool call can legitimately withhold its response headers for minutes — so
+    // a timer there must be per-request rather than unconditional (Copilot). An
+    // exempt request carries no deadline and the route applies none.
+    //
+    // In the JSON envelope rather than a header: `headers` is re-sent verbatim
+    // to the upstream server, so a marker header would leak to a third party.
+    const timeoutMs = deadlineForRequestInit(init);
+
     const res = await fetchFn(`${baseUrl}/api/fetch`, {
       method: "POST",
       headers: reqHeaders,
-      body: JSON.stringify({ url, method, headers, body }),
+      body: JSON.stringify({
+        url,
+        method,
+        headers,
+        body,
+        ...(timeoutMs !== undefined && { timeoutMs }),
+      }),
+      signal,
     });
 
     if (!res.ok) {
       const text = await res.text();
+      // A deadline the backend enforced arrives as an ordinary error response;
+      // rebuild the typed error from its marker so the `instanceof` checks
+      // downstream — most importantly the one that lets a stalled probe escape
+      // `withRfc8414OidcCompat` — still see a timeout for what it is (#2319,
+      // Copilot).
+      //
+      // Both ends run the same budget, so the client's race usually settles
+      // first and this path is not taken. It matters when the backend's timer
+      // wins anyway — most plausibly a backgrounded tab, where the browser
+      // throttles `setTimeout` while the server's fires on schedule. Without
+      // this, which of two equal deadlines happened to fire would decide
+      // whether the error carried its endpoint.
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        parsed = undefined;
+      }
+      if (isOAuthRequestTimeoutWire(parsed)) {
+        throw new OAuthRequestTimeoutError(parsed.url, parsed.timeoutMs);
+      }
       throw new Error(`Remote fetch failed (${res.status}): ${text}`);
     }
 

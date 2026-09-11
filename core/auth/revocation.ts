@@ -268,14 +268,15 @@ export async function revokeToken(
     // outcome — and every caller has already cleared its local state by now, so
     // a rejection would break the documented best-effort guarantee.
     const { url, init } = buildRevocationRequest(params);
-    // The signal alone is not enough to bound this. In the browser the fetch is
-    // `createRemoteFetch`, which re-issues the call as a POST to `/api/fetch`
-    // and does not forward `init.signal`; the backend's outbound fetch gets no
-    // signal either. So a wedged authorization server would hold the teardown
-    // open indefinitely on exactly the path the timeout exists for. The race is
-    // what actually enforces the deadline; the signal is kept because it does
-    // cancel the direct-fetch paths (CLI, TUI, backend) rather than merely
-    // abandoning them.
+    // The signal cancels; the race is what guarantees the deadline. Since #2319
+    // the signal reaches every path — `createRemoteFetch` forwards it onto the
+    // `/api/fetch` hop and that route composes it into its outbound fetch, so a
+    // browser-side abort now tears down the backend's request to the
+    // authorization server as well as the direct-fetch paths (CLI, TUI,
+    // backend) it always did. The race is still not redundant: it bounds a
+    // `fetchFn` that ignores `AbortSignal` altogether, and a backend that is
+    // itself wedged. Same reasoning, and the same shape, as
+    // `withOAuthRequestTimeout`.
     const response = await withDeadline(
       params.fetchFn(url, { ...init, signal: AbortSignal.timeout(timeoutMs) }),
       timeoutMs,
@@ -307,11 +308,12 @@ export async function revokeToken(
 /**
  * Reject with a timeout error if `promise` has not settled within `timeoutMs`.
  *
- * The underlying request is abandoned rather than cancelled — nothing here can
- * cancel a fetch the proxy already stripped the signal from. That is the right
- * trade for this caller: the point is that the *teardown* proceeds, and the
- * response, if it ever arrives, is a revocation we no longer need to wait for.
- * The timer is cleared on the settled path so a caller is never held awake by it.
+ * This abandons the promise; cancelling the request is the caller's signal's job
+ * (see `revokeToken`, where the two are used together). Abandonment alone is an
+ * acceptable floor for this caller even where the signal is ignored: the point
+ * is that the *teardown* proceeds, and the response, if it ever arrives, is a
+ * revocation we no longer need to wait for. The timer is cleared on the settled
+ * path so a caller is never held awake by it.
  */
 async function withDeadline<T>(
   promise: Promise<T>,

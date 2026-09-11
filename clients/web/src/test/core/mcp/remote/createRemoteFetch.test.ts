@@ -1,5 +1,10 @@
 import { describe, it, expect, vi } from "vitest";
 import { createRemoteFetch } from "@inspector/core/mcp/remote/createRemoteFetch.js";
+import {
+  OAUTH_TIMEOUT_WIRE_CODE,
+  OAuthRequestTimeoutError,
+  withOAuthRequestTimeout,
+} from "@inspector/core/auth/requestTimeout.js";
 
 function ok(body: object): Response {
   return new Response(JSON.stringify(body), {
@@ -167,5 +172,226 @@ describe("createRemoteFetch", () => {
     expect(res.statusText).toBe("Created");
     expect(res.headers.get("x-test")).toBe("yes");
     expect(await res.text()).toBe("hello");
+  });
+
+  describe("cancellation forwarding (#2319)", () => {
+    // Without this the caller's abort settled only its own promise: the POST
+    // stayed in flight, the backend never saw its request cancelled, and its
+    // outbound fetch to the authorization server ran on detached.
+    function capture() {
+      const fetchFn = vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(ok(standardRemoteBody));
+      const remoteFetch = createRemoteFetch({
+        baseUrl: "http://remote.example",
+        // A contextually typed forwarding function rather than a double cast:
+        // the mock stays inspectable and nothing bypasses the type system.
+        fetchFn: (input, init) => fetchFn(input, init),
+      });
+      return { fetchFn, remoteFetch };
+    }
+
+    function signalOf(fetchFn: ReturnType<typeof vi.fn<typeof fetch>>) {
+      return (fetchFn.mock.calls[0][1] as RequestInit).signal;
+    }
+
+    it("forwards init.signal onto the proxy hop", async () => {
+      const { fetchFn, remoteFetch } = capture();
+      const caller = new AbortController();
+
+      await remoteFetch("http://upstream.example/", { signal: caller.signal });
+
+      expect(signalOf(fetchFn)).toBe(caller.signal);
+    });
+
+    it("forwards a Request's own signal when init has none", async () => {
+      const { fetchFn, remoteFetch } = capture();
+      const caller = new AbortController();
+      // Compared against `request.signal`, not `caller.signal`: the Fetch
+      // standard gives `new Request(url, { signal })` a *dependent* signal, so
+      // the two are distinct objects in a spec-compliant runtime. Asserting
+      // against the controller's would encode non-standard identity and could
+      // pass or fail on the host rather than on the behaviour (Copilot).
+      const request = new Request("http://upstream.example/", {
+        signal: caller.signal,
+      });
+
+      await remoteFetch(request);
+
+      expect(signalOf(fetchFn)).toBe(request.signal);
+    });
+
+    it("treats an undefined init.signal as absent, keeping the Request's", async () => {
+      // WebIDL dictionary conversion: a member present as `undefined` is absent.
+      const { fetchFn, remoteFetch } = capture();
+      const caller = new AbortController();
+      const request = new Request("http://upstream.example/", {
+        signal: caller.signal,
+      });
+
+      await remoteFetch(request, { signal: undefined });
+
+      // Against `request.signal` for the dependent-signal reason above.
+      expect(signalOf(fetchFn)).toBe(request.signal);
+    });
+
+    it("honours an explicit null init.signal as no signal", async () => {
+      const { fetchFn, remoteFetch } = capture();
+      const caller = new AbortController();
+
+      await remoteFetch(
+        new Request("http://upstream.example/", { signal: caller.signal }),
+        { signal: null },
+      );
+
+      expect(signalOf(fetchFn)).toBeUndefined();
+    });
+
+    it("sends no signal when the caller supplied none", async () => {
+      const { fetchFn, remoteFetch } = capture();
+
+      await remoteFetch("http://upstream.example/");
+
+      expect(signalOf(fetchFn)).toBeUndefined();
+    });
+  });
+
+  describe("proxy-side deadline (#2319)", () => {
+    function remoteReturning(status: number, body: string) {
+      const fetchFn = vi.fn<typeof fetch>().mockResolvedValue(
+        new Response(body, {
+          status,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+      return createRemoteFetch({
+        baseUrl: "http://remote.example",
+        // Forwarding function, not a double cast — see `capture` above.
+        fetchFn: (input, init) => fetchFn(input, init),
+      });
+    }
+
+    it("rebuilds an OAuthRequestTimeoutError from the route's marker", async () => {
+      // The proxy boundary in isolation: whichever end's deadline fires, a
+      // timeout that comes back as an ordinary error response must still
+      // reconstruct as a typed one. Both ends run the same budget in
+      // production, so this path is the backend winning the race — a
+      // backgrounded tab throttling `setTimeout` is the plausible case — and
+      // which one fired must not decide whether the error names its endpoint.
+      const remoteFetch = remoteReturning(
+        504,
+        JSON.stringify({
+          error: "proxied request to https://as.example.com/x timed out",
+          code: OAUTH_TIMEOUT_WIRE_CODE,
+          url: "https://as.example.com/x",
+          timeoutMs: 30000,
+        }),
+      );
+
+      const err = await remoteFetch("https://as.example.com/x").catch(
+        (e: unknown) => e,
+      );
+
+      expect(err).toBeInstanceOf(OAuthRequestTimeoutError);
+      const timeout = err as OAuthRequestTimeoutError;
+      expect(timeout.url).toBe("https://as.example.com/x");
+      expect(timeout.timeoutMs).toBe(30000);
+    });
+
+    it("leaves an ordinary error response as a plain Error", async () => {
+      const remoteFetch = remoteReturning(
+        500,
+        JSON.stringify({ error: "connect ECONNREFUSED" }),
+      );
+
+      const err = await remoteFetch("https://as.example.com/x").catch(
+        (e: unknown) => e,
+      );
+
+      expect(err).not.toBeInstanceOf(OAuthRequestTimeoutError);
+      expect((err as Error).message).toMatch(/Remote fetch failed \(500\)/);
+    });
+
+    it("ignores a non-JSON error body rather than throwing on the parse", async () => {
+      const remoteFetch = remoteReturning(502, "<html>bad gateway</html>");
+
+      const err = await remoteFetch("https://as.example.com/x").catch(
+        (e: unknown) => e,
+      );
+
+      expect((err as Error).message).toMatch(/Remote fetch failed \(502\)/);
+    });
+
+    it("ignores a marker whose fields are the wrong shape", async () => {
+      // An upstream could serve JSON of its own through a failing proxy; the
+      // guard checks the field types, not just the code.
+      const remoteFetch = remoteReturning(
+        504,
+        JSON.stringify({ code: OAUTH_TIMEOUT_WIRE_CODE, url: 5 }),
+      );
+
+      const err = await remoteFetch("https://as.example.com/x").catch(
+        (e: unknown) => e,
+      );
+
+      expect(err).not.toBeInstanceOf(OAuthRequestTimeoutError);
+    });
+  });
+
+  describe("carrying the caller's deadline to the route (#2319)", () => {
+    function envelopeOf(fetchFn: ReturnType<typeof vi.fn<typeof fetch>>) {
+      const init = fetchFn.mock.calls[0][1] as RequestInit;
+      return JSON.parse(init.body as string) as Record<string, unknown>;
+    }
+
+    it("puts a bounded call's budget in the envelope, not in the headers", async () => {
+      const fetchFn = vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(ok(standardRemoteBody));
+      const remoteFetch = createRemoteFetch({
+        baseUrl: "http://remote.example",
+        fetchFn: (input, init) => fetchFn(input, init),
+      });
+      // Composed the way `InspectorClient` composes it: the wrapper outside,
+      // the remote fetch beneath.
+      const bounded = withOAuthRequestTimeout(remoteFetch, 7000);
+
+      await bounded("http://upstream.example/token");
+
+      const envelope = envelopeOf(fetchFn);
+      expect(envelope.timeoutMs).toBe(7000);
+      // Not a header: `headers` is re-sent verbatim to the upstream server, so
+      // a marker there would leak the Inspector's internals to a third party.
+      expect(JSON.stringify(envelope.headers)).not.toContain("7000");
+    });
+
+    it("omits the budget for an exempt call, so the route bounds nothing", async () => {
+      const fetchFn = vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(ok(standardRemoteBody));
+      const remoteFetch = createRemoteFetch({
+        baseUrl: "http://remote.example",
+        fetchFn: (input, init) => fetchFn(input, init),
+      });
+      const bounded = withOAuthRequestTimeout(remoteFetch, 7000, () => true);
+
+      await bounded("http://upstream.example/mcp");
+
+      expect(envelopeOf(fetchFn)).not.toHaveProperty("timeoutMs");
+    });
+
+    it("omits the budget for a direct call that no wrapper bounded", async () => {
+      const fetchFn = vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(ok(standardRemoteBody));
+      const remoteFetch = createRemoteFetch({
+        baseUrl: "http://remote.example",
+        fetchFn: (input, init) => fetchFn(input, init),
+      });
+
+      await remoteFetch("http://upstream.example/mcp");
+
+      expect(envelopeOf(fetchFn)).not.toHaveProperty("timeoutMs");
+    });
   });
 });

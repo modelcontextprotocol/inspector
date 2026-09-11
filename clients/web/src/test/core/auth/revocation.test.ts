@@ -393,11 +393,11 @@ describe("revokeToken", () => {
     });
   });
 
-  // The web fetch is `createRemoteFetch`, which re-issues the call as a POST to
-  // `/api/fetch` and drops `init.signal`; the backend's outbound fetch gets no
-  // signal either. A signal-only bound is therefore inert on exactly the path
-  // the timeout exists for, so the deadline has to hold against a fetch that
-  // ignores the signal entirely.
+  // The signal reaches every path since #2319 — `createRemoteFetch` forwards it
+  // onto the `/api/fetch` hop and that route composes it into its outbound
+  // fetch — but a signal-only bound is still only as good as the fetch beneath
+  // it. A `fetchFn` that ignores `AbortSignal`, or a wedged backend, would
+  // leave a signal-only deadline inert, so it has to hold without one.
   it("gives up on a fetch that never settles and ignores the signal", async () => {
     const outcome = await revokeToken({
       endpoint: REVOKE_URL,
