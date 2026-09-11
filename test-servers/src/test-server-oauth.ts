@@ -102,6 +102,27 @@ function asMetadataPath(config: OAuthConfig): string {
 }
 
 /**
+ * Where the CIMD client metadata document is served from, validated the same
+ * way the two metadata paths above are — and for a sharper reason than either.
+ * This path is not merely advertised: it becomes the document's own
+ * `client_id`, so a value such as `//other-host/doc` would publish a client id
+ * naming a host this server does not control, and `/doc?version=1` would
+ * publish one that cannot reach the route Express registered (Copilot).
+ */
+function clientMetadataPath(config: OAuthConfig): string {
+  const path = config.clientMetadataPath;
+  if (path === undefined) {
+    return "/client-metadata.json";
+  }
+  if (!isOriginRelativePath(path)) {
+    throw new Error(
+      `oauth.clientMetadataPath must be an origin-relative path (got ${JSON.stringify(path)})`,
+    );
+  }
+  return path;
+}
+
+/**
  * The `WWW-Authenticate` challenge sent with every 401.
  *
  * RFC 9728 §5.1: a resource server advertises where its protected-resource
@@ -280,6 +301,44 @@ function setupMetadataEndpoints(
       };
 
       res.json(metadata);
+    });
+  }
+
+  // CIMD client metadata document (SEP-991). The `client_id` in a CIMD flow is
+  // a URL the authorization server dereferences, so a fixture that advertises
+  // `client_id_metadata_document_supported` without hosting a document
+  // anywhere is only half a fixture — it needs a second host to be usable at
+  // all. Serving it here makes a CIMD run self-contained.
+  //
+  // Gated on `supportCIMD` as well as on the document's presence: advertising
+  // a client this server would then refuse to honour is worse than serving
+  // nothing.
+  if (config.supportCIMD && config.clientMetadata) {
+    const doc = config.clientMetadata;
+    const metadataPath = clientMetadataPath(config);
+    app.get(metadataPath, (req: Request, res: Response) => {
+      // Derived from the request rather than from `issuerUrl`, so the
+      // document's own `client_id` always equals the URL it was fetched from
+      // — which is what CIMD requires, and what stays true if the server
+      // walked to another port on EADDRINUSE.
+      //
+      // `originalUrl` rather than the registered route, so a client id that
+      // carries a query string (`/client-metadata.json?profile=a`) still gets
+      // a document whose `client_id` is byte-identical to the URL that was
+      // fetched. Answering with the bare route instead would hand back a
+      // document that fails the very equality CIMD turns on (Copilot).
+      const requestBaseUrl = `${req.protocol}://${req.get("host")}`;
+      res.json({
+        client_id: new URL(req.originalUrl, requestBaseUrl).href,
+        client_name: doc.clientName ?? "MCP Inspector (CIMD test fixture)",
+        redirect_uris: doc.redirectUris,
+        // CIMD clients are public and authenticate with nothing; the server's
+        // own CIMD branch assumes exactly this (no client_secret is issued).
+        token_endpoint_auth_method: "none",
+        grant_types: ["authorization_code", "refresh_token"],
+        response_types: ["code"],
+        ...(doc.scope ? { scope: doc.scope } : {}),
+      });
     });
   }
 
