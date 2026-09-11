@@ -17,12 +17,18 @@ afterEach(() => {
 });
 
 describe("withOAuthRequestTimeout", () => {
-  it("passes a prompt response straight through", async () => {
-    const ok = new Response("{}", { status: 200 });
-    const inner = vi.fn<typeof fetch>().mockResolvedValue(ok);
+  it("passes a prompt response through", async () => {
+    // Not the same object: the body is buffered under the deadline (see the
+    // stalled-body case below) and the response rebuilt around it.
+    const inner = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(new Response('{"ok":true}', { status: 200 }));
     const wrapped = withOAuthRequestTimeout(inner, 1000);
 
-    await expect(wrapped(URL_UNDER_TEST)).resolves.toBe(ok);
+    const response = await wrapped(URL_UNDER_TEST);
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ ok: true });
     expect(inner).toHaveBeenCalledTimes(1);
   });
 
@@ -103,7 +109,7 @@ describe("withOAuthRequestTimeout", () => {
     expect((await assertion) as Error).toBeInstanceOf(OAuthRequestTimeoutError);
   });
 
-  it("preserves a caller-supplied signal, which still wins on its own", async () => {
+  it("forwards a caller-supplied signal to the inner fetch", async () => {
     const inner: typeof fetch = (_input, init) =>
       new Promise<Response>((_resolve, reject) => {
         init?.signal?.addEventListener("abort", () =>
@@ -117,6 +123,139 @@ describe("withOAuthRequestTimeout", () => {
     caller.abort();
 
     await expect(pending).rejects.toThrow("caller cancelled");
+  });
+
+  it("races caller cancellation too, so it wins on a signal-ignoring fetch", async () => {
+    // Forwarding alone is not enough on the browser's `createRemoteFetch` path,
+    // which drops the signal: without the race the caller's abort would sit
+    // pending for the whole budget instead of winning.
+    const wrapped = withOAuthRequestTimeout(neverSettles, 60_000);
+
+    const caller = new AbortController();
+    const pending = wrapped(URL_UNDER_TEST, { signal: caller.signal });
+    const reason = new Error("caller gave up");
+    caller.abort(reason);
+
+    await expect(pending).rejects.toBe(reason);
+  });
+
+  it("rejects immediately when the caller's signal is already aborted", async () => {
+    const wrapped = withOAuthRequestTimeout(neverSettles, 60_000);
+    const reason = new Error("already gone");
+
+    await expect(
+      wrapped(URL_UNDER_TEST, { signal: AbortSignal.abort(reason) }),
+    ).rejects.toBe(reason);
+  });
+
+  it("honours the signal embedded in a Request input", async () => {
+    // `init.signal` is absent here, so the Request's own signal is the caller's
+    // — reading `init` alone would silently override it.
+    const wrapped = withOAuthRequestTimeout(neverSettles, 60_000);
+
+    const caller = new AbortController();
+    const pending = wrapped(
+      new Request(URL_UNDER_TEST, { signal: caller.signal }),
+    );
+    const reason = new Error("request cancelled");
+    caller.abort(reason);
+
+    await expect(pending).rejects.toBe(reason);
+  });
+
+  it("lets an explicit null init.signal override a Request's own", async () => {
+    vi.useFakeTimers();
+    // Per the fetch spec a present `signal` key wins, `null` included.
+    const wrapped = withOAuthRequestTimeout(neverSettles, 1000);
+
+    const caller = new AbortController();
+    const pending = wrapped(
+      new Request(URL_UNDER_TEST, { signal: caller.signal }),
+      { signal: null },
+    );
+    const assertion = pending.catch((err: unknown) => err);
+    caller.abort(new Error("ignored"));
+    await vi.advanceTimersByTimeAsync(1000);
+
+    expect((await assertion) as Error).toBeInstanceOf(OAuthRequestTimeoutError);
+  });
+
+  it("removes its abort listener once the request settles", async () => {
+    const caller = new AbortController();
+    const removeSpy = vi.spyOn(caller.signal, "removeEventListener");
+    const wrapped = withOAuthRequestTimeout(
+      vi.fn<typeof fetch>().mockResolvedValue(new Response("{}")),
+      60_000,
+    );
+
+    await wrapped(URL_UNDER_TEST, { signal: caller.signal });
+
+    // A caller signal outlives one request — one connect attempt makes several
+    // — so a listener left behind per request would accumulate on it.
+    expect(removeSpy).toHaveBeenCalledWith("abort", expect.any(Function));
+  });
+
+  it("bounds a stalled response body, not just the headers", async () => {
+    vi.useFakeTimers();
+    // `fetch` resolves on headers. A server that sends them and then stalls
+    // would leave the caller's `response.json()` hanging unwatched.
+    const stalledBody: typeof fetch = () =>
+      Promise.resolve(
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(ctrl) {
+              ctrl.enqueue(new TextEncoder().encode('{"issuer":'));
+            },
+          }),
+          { headers: { "content-type": "application/json" } },
+        ),
+      );
+    const wrapped = withOAuthRequestTimeout(stalledBody, 1000);
+
+    const assertion = wrapped(URL_UNDER_TEST).catch((err: unknown) => err);
+    await vi.advanceTimersByTimeAsync(1000);
+
+    expect((await assertion) as Error).toBeInstanceOf(OAuthRequestTimeoutError);
+  });
+
+  it("returns a readable response whose metadata survives the rebuild", async () => {
+    const original = new Response('{"issuer":"https://as.example.com"}', {
+      status: 201,
+      statusText: "Created",
+      headers: { "content-type": "application/json", "x-probe": "kept" },
+    });
+    const wrapped = withOAuthRequestTimeout(
+      vi.fn<typeof fetch>().mockResolvedValue(original),
+      1000,
+    );
+
+    const response = await wrapped(URL_UNDER_TEST);
+
+    expect(response.status).toBe(201);
+    expect(response.statusText).toBe("Created");
+    expect(response.ok).toBe(true);
+    expect(response.headers.get("x-probe")).toBe("kept");
+    expect(response.url).toBe(original.url);
+    expect(response.redirected).toBe(original.redirected);
+    expect(response.type).toBe(original.type);
+    await expect(response.json()).resolves.toEqual({
+      issuer: "https://as.example.com",
+    });
+  });
+
+  it("rebuilds a null-body status without handing it a body", async () => {
+    // `new Response(body, { status: 204 })` throws; the rebuild has to pass null.
+    const wrapped = withOAuthRequestTimeout(
+      vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(new Response(null, { status: 204 })),
+      1000,
+    );
+
+    const response = await wrapped(URL_UNDER_TEST);
+
+    expect(response.status).toBe(204);
+    expect(response.body).toBeNull();
   });
 
   it("propagates a non-timeout failure unchanged", async () => {
@@ -173,7 +312,7 @@ describe("withOAuthRequestTimeout", () => {
     vi.useFakeTimers();
     const clearSpy = vi.spyOn(globalThis, "clearTimeout");
     const wrapped = withOAuthRequestTimeout(
-      vi.fn<typeof fetch>().mockResolvedValue(new Response(null)),
+      vi.fn<typeof fetch>().mockResolvedValue(new Response("{}")),
       1000,
     );
 
