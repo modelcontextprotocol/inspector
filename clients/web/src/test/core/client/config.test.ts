@@ -206,6 +206,19 @@ describe("client config", () => {
     ).toThrow(/HTTPS/);
   });
 
+  it("parseClientConfig accepts a loopback http CIMD URL", () => {
+    for (const clientMetadataUrl of [
+      "http://localhost:8090/client-metadata.json",
+      "http://127.0.0.1:8090/client-metadata.json",
+      "http://[::1]:8090/client-metadata.json",
+    ]) {
+      const config = parseClientConfig({
+        cimd: { enabled: true, clientMetadataUrl },
+      });
+      expect(config.cimd?.clientMetadataUrl).toBe(clientMetadataUrl);
+    }
+  });
+
   it("parseClientConfig rejects CIMD URL without path", () => {
     expect(() =>
       parseClientConfig({
@@ -298,6 +311,70 @@ describe("client config", () => {
       expect(getCimdClientMetadataUrlError("https://example.com")).toBe(
         CIMD_METADATA_URL_PATH_ERROR,
       );
+    });
+
+    it("accepts plain http on the three exempt loopback literals", () => {
+      expect(
+        getCimdClientMetadataUrlError(
+          "http://localhost:8090/client-metadata.json",
+        ),
+      ).toBeUndefined();
+      expect(
+        getCimdClientMetadataUrlError(
+          "http://127.0.0.1:8090/client-metadata.json",
+        ),
+      ).toBeUndefined();
+      expect(
+        getCimdClientMetadataUrlError("http://[::1]:8090/client-metadata.json"),
+      ).toBeUndefined();
+    });
+
+    it("still requires a path on an exempt loopback host", () => {
+      expect(getCimdClientMetadataUrlError("http://localhost:8090")).toBe(
+        CIMD_METADATA_URL_PATH_ERROR,
+      );
+    });
+
+    it("accepts alternate spellings that canonicalize to the same addresses", () => {
+      // The check runs against the WHATWG-canonicalized `URL.hostname`, so the
+      // exemption covers these three *addresses*, not three input strings. Each
+      // of these reaches the loopback interface, which is what the security
+      // argument is about — and the SDK canonicalizes identically, so an alias
+      // accepted here is one it accepts for a token endpoint too.
+      for (const value of [
+        "http://127.1:8090/client-metadata.json",
+        "http://2130706433:8090/client-metadata.json",
+        "http://0x7f.0.0.1:8090/client-metadata.json",
+        "http://[0:0:0:0:0:0:0:1]:8090/client-metadata.json",
+        // WHATWG strips a root-anchored dot from an IP literal but not from a
+        // name, which is why this passes where `localhost.` below does not.
+        "http://127.0.0.1.:8090/client-metadata.json",
+        "http://LOCALHOST:8090/client-metadata.json",
+      ]) {
+        expect(getCimdClientMetadataUrlError(value)).toBeUndefined();
+      }
+    });
+
+    it("does not widen the exemption beyond those three addresses", () => {
+      // `localhost.` and `*.localhost` resolve to loopback on every resolver,
+      // but they are outside the SDK's allow-list — so they are outside ours
+      // too, deliberately, rather than the two disagreeing about one URL.
+      for (const value of [
+        "http://tenant.app.localhost:3300/client-metadata.json",
+        "http://127.0.0.2:8090/client-metadata.json",
+        "http://localhost.example.com/client-metadata.json",
+      ]) {
+        expect(getCimdClientMetadataUrlError(value)).toBe(
+          CIMD_METADATA_URL_HTTPS_ERROR,
+        );
+      }
+      // The root-anchored spelling never reaches the protocol check at all:
+      // `isAbsoluteHttpUrl` rejects its trailing empty label first, so it is
+      // flagged as unparseable rather than as non-HTTPS. Pinned so a later
+      // change to either check has to decide about this case on purpose.
+      expect(
+        getCimdClientMetadataUrlError("http://localhost./client-metadata.json"),
+      ).toBe(CIMD_METADATA_URL_INVALID_ERROR);
     });
   });
 

@@ -10,6 +10,10 @@ import {
   loadConfig,
   resolveConfig,
 } from "@modelcontextprotocol/inspector-test-server";
+import {
+  getCimdClientMetadataUrlError,
+  parseClientConfig,
+} from "@inspector/core/client/config-parse.js";
 
 /**
  * Live coverage of `test-servers/configs/oauth-cimd-http.json` — the fixture
@@ -34,11 +38,13 @@ import {
  *  - the document's `client_id` equals the URL it was fetched from, which is
  *    what makes it a legal CIMD client id rather than an arbitrary blob.
  *
- * The document is served over plain HTTP here. That is deliberate and is *not*
- * a usable `clientMetadataUrl` for the Inspector, which requires HTTPS with no
- * loopback exemption (#2305) — driving the UI needs a self-signed HTTPS
- * listener, as `docs/test-servers.md` describes. This endpoint exists for the
- * authorization-server side of the flow and for exactly these assertions.
+ * The document is served over plain HTTP here, on `localhost`. Since #2305 that
+ * *is* a usable `clientMetadataUrl`: the Inspector's HTTPS requirement now
+ * exempts the same three loopback literals the SDK exempts for token endpoints,
+ * so the fixture can be driven from the web client with no self-signed HTTPS
+ * listener. The last case below pins that, because it is the property the
+ * fixture's whole reason for existing rests on — a re-tightened validator would
+ * put the manual repro back out of reach without failing anything else here.
  */
 describe("CIMD showcase fixture (#2242)", () => {
   let server: TestServerHttp | null = null;
@@ -119,6 +125,22 @@ describe("CIMD showcase fixture (#2242)", () => {
     expect(doc.redirect_uris).toContain("http://127.0.0.1:6276/oauth/callback");
     // CIMD clients are public; the server's own CIMD branch issues no secret.
     expect(doc.token_endpoint_auth_method).toBe("none");
+  });
+
+  it("serves the document at a URL the Inspector accepts as a clientMetadataUrl", async () => {
+    const started = await startShowcase();
+    const documentUrl = `${originOf(started)}/client-metadata.json`;
+
+    // The #2305 property: no self-signed HTTPS listener, no
+    // NODE_TLS_REJECT_UNAUTHORIZED=0 — the served URL is legal config as-is,
+    // both inline in the settings form and in `client.json` on disk.
+    expect(new URL(documentUrl).protocol).toBe("http:");
+    expect(getCimdClientMetadataUrlError(documentUrl)).toBeUndefined();
+    expect(
+      parseClientConfig({
+        cimd: { enabled: true, clientMetadataUrl: documentUrl },
+      }).cimd?.clientMetadataUrl,
+    ).toBe(documentUrl);
   });
 
   it("preserves a query-bearing document URL in the client_id it publishes", async () => {
