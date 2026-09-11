@@ -168,4 +168,77 @@ describe("createRemoteFetch", () => {
     expect(res.headers.get("x-test")).toBe("yes");
     expect(await res.text()).toBe("hello");
   });
+
+  describe("cancellation forwarding (#2319)", () => {
+    // Without this the caller's abort settled only its own promise: the POST
+    // stayed in flight, the backend never saw its request cancelled, and its
+    // outbound fetch to the authorization server ran on detached.
+    function capture() {
+      const fetchFn = vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(ok(standardRemoteBody));
+      const remoteFetch = createRemoteFetch({
+        baseUrl: "http://remote.example",
+        fetchFn: fetchFn as unknown as typeof fetch,
+      });
+      return { fetchFn, remoteFetch };
+    }
+
+    function signalOf(fetchFn: ReturnType<typeof vi.fn<typeof fetch>>) {
+      return (fetchFn.mock.calls[0][1] as RequestInit).signal;
+    }
+
+    it("forwards init.signal onto the proxy hop", async () => {
+      const { fetchFn, remoteFetch } = capture();
+      const caller = new AbortController();
+
+      await remoteFetch("http://upstream.example/", { signal: caller.signal });
+
+      expect(signalOf(fetchFn)).toBe(caller.signal);
+    });
+
+    it("forwards a Request's own signal when init has none", async () => {
+      const { fetchFn, remoteFetch } = capture();
+      const caller = new AbortController();
+
+      await remoteFetch(
+        new Request("http://upstream.example/", { signal: caller.signal }),
+      );
+
+      expect(signalOf(fetchFn)).toBe(caller.signal);
+    });
+
+    it("treats an undefined init.signal as absent, keeping the Request's", async () => {
+      // WebIDL dictionary conversion: a member present as `undefined` is absent.
+      const { fetchFn, remoteFetch } = capture();
+      const caller = new AbortController();
+
+      await remoteFetch(
+        new Request("http://upstream.example/", { signal: caller.signal }),
+        { signal: undefined },
+      );
+
+      expect(signalOf(fetchFn)).toBe(caller.signal);
+    });
+
+    it("honours an explicit null init.signal as no signal", async () => {
+      const { fetchFn, remoteFetch } = capture();
+      const caller = new AbortController();
+
+      await remoteFetch(
+        new Request("http://upstream.example/", { signal: caller.signal }),
+        { signal: null },
+      );
+
+      expect(signalOf(fetchFn)).toBeUndefined();
+    });
+
+    it("sends no signal when the caller supplied none", async () => {
+      const { fetchFn, remoteFetch } = capture();
+
+      await remoteFetch("http://upstream.example/");
+
+      expect(signalOf(fetchFn)).toBeUndefined();
+    });
+  });
 });

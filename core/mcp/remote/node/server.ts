@@ -28,6 +28,7 @@ import { bodyLimit } from "hono/body-limit";
 import { watch as chokidarWatch, type FSWatcher } from "chokidar";
 import { createTransportNode } from "../../node/transport.js";
 import { createProxyFetch } from "../../node/proxyFetch.js";
+import { DEFAULT_OAUTH_REQUEST_TIMEOUT_MS } from "../../../auth/requestTimeout.js";
 import type {
   RemoteConnectRequest,
   RemoteSendRequest,
@@ -1216,6 +1217,33 @@ export function createRemoteApp(
       return c.json({ error: "Missing url" }, 400);
     }
 
+    // #2319: bound the outbound call, and release it when the browser gives up.
+    // This hop is where a client-side deadline used to stop being enforceable:
+    // the browser abandons its promise, but the request it made is served here,
+    // and an outbound fetch with neither a signal nor a timeout holds a handler
+    // and an authorization-server socket open indefinitely — once per timed-out
+    // retry (Copilot). `c.req.raw.signal` is the propagated cancellation, now
+    // that `createRemoteFetch` forwards it; the timer is the backstop for a
+    // client that vanishes without aborting, and it matches the client-side
+    // budget so the two agree on when this is hopeless.
+    const controller = new AbortController();
+    const clientSignal: AbortSignal | undefined = c.req.raw.signal;
+    const signal = clientSignal
+      ? AbortSignal.any([controller.signal, clientSignal])
+      : controller.signal;
+    // Cleared in `finally`, before the handler returns. A streaming response is
+    // returned here without its body being read, so a timer left armed would
+    // sever a live stream 30 seconds in.
+    const timer = setTimeout(
+      () =>
+        controller.abort(
+          new Error(
+            `proxied request to ${url} timed out after ${DEFAULT_OAUTH_REQUEST_TIMEOUT_MS}ms`,
+          ),
+        ),
+      DEFAULT_OAUTH_REQUEST_TIMEOUT_MS,
+    );
+
     try {
       // Proxy-aware, not the bare global. This route is the browser's ONLY way
       // out to the network: the web client's `environment.fetch` is
@@ -1228,6 +1256,7 @@ export function createRemoteApp(
         method,
         headers: new Headers(headers),
         body: reqBody,
+        signal,
       });
 
       const resHeaders: Record<string, string> = {};
@@ -1254,6 +1283,8 @@ export function createRemoteApp(
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       return c.json({ error: msg }, 500);
+    } finally {
+      clearTimeout(timer);
     }
   });
 

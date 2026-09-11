@@ -373,32 +373,25 @@ describe("withOAuthRequestTimeout", () => {
       expect(err.url).toBe(RFC8414);
     });
 
-    it("innermost, each leg is bounded on its own and the probe is abandoned", async () => {
+    it("innermost, the probe's own timeout escapes and names the probe", async () => {
       vi.useFakeTimers();
       const inner = stallingProbeFetch();
       const wrapped = withRfc8414OidcCompat(
         withOAuthRequestTimeout(inner, 1000),
       );
 
-      const settled = wrapped(RFC8414).then(
-        (response) => response,
-        (err: unknown) => err,
-      );
+      const assertion = wrapped(RFC8414).catch((err: unknown) => err);
       // The probe is timed from when it starts, on a budget of its own — not on
       // whatever an outer one had left after the RFC 8414 leg.
       await vi.advanceTimersByTimeAsync(1000);
 
-      const result = await settled;
-      // The compat wrapper is deliberately inert when a probe *throws* — it
-      // hands the original response back and lets discovery run its normal
-      // course — so a timed-out probe surfaces as the original 404 rather than
-      // as an error, and the second candidate is not tried. What innermost buys
-      // is that the probe is bounded at all, and that a stall in it can never be
-      // attributed to the RFC 8414 request the caller actually made.
-      expect(result).toBeInstanceOf(Response);
-      expect((result as Response).status).toBe(404);
+      const err = (await assertion) as OAuthRequestTimeoutError;
+      // The compat wrapper is inert on an ordinary probe failure, but a deadline
+      // the Inspector imposed escapes it, so the caller is told which endpoint
+      // stalled rather than being handed the preceding 404.
+      expect(err).toBeInstanceOf(OAuthRequestTimeoutError);
+      expect(err.url).toBe(PROBES[0]);
       expect(inner).toHaveBeenCalledTimes(2);
-      expect(String(inner.mock.calls[1][0])).toBe(PROBES[0]);
     });
   });
 

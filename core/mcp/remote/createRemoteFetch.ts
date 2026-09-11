@@ -133,10 +133,27 @@ export function createRemoteFetch(options: RemoteFetchOptions): typeof fetch {
       reqHeaders["x-mcp-remote-auth"] = `Bearer ${options.authToken}`;
     }
 
+    // #2319: forward the caller's cancellation onto the proxy hop. Without it
+    // an abort — including the OAuth deadline's own — settled only the caller's
+    // promise: the POST stayed in flight, so the backend never saw its request
+    // cancelled and its outbound fetch to the authorization server was left
+    // running detached, holding a handler and a socket for as long as the
+    // server cared to stall (Copilot). `init.signal` wins when present and not
+    // `undefined` (a WebIDL dictionary member present as `undefined` converts
+    // as absent), otherwise a `Request` carries its own.
+    const explicitSignal = init?.signal;
+    const signal =
+      explicitSignal !== undefined
+        ? (explicitSignal ?? undefined)
+        : input instanceof Request
+          ? input.signal
+          : undefined;
+
     const res = await fetchFn(`${baseUrl}/api/fetch`, {
       method: "POST",
       headers: reqHeaders,
       body: JSON.stringify({ url, method, headers, body }),
+      signal,
     });
 
     if (!res.ok) {

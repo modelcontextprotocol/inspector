@@ -90,6 +90,7 @@
  * wiring in `core/mcp/inspectorClient.ts`.
  */
 
+import { OAuthRequestTimeoutError } from "./requestTimeout.js";
 import {
   OAuthMetadataSchema,
   OpenIdProviderDiscoveryMetadataSchema,
@@ -262,7 +263,18 @@ export function withRfc8414OidcCompat(fetchFn: typeof fetch): typeof fetch {
       let probe: Response;
       try {
         probe = await fetchFn(candidate, { headers });
-      } catch {
+      } catch (err) {
+        // A deadline the Inspector imposed is *our* error, not the server's
+        // answer, so it escapes rather than being folded back into the original
+        // response (#2319, Copilot). Swallowing it would hand the caller the
+        // preceding 404 and discard the one thing the deadline adds — the name
+        // of the endpoint that stalled — leaving discovery to fail later under
+        // a message that points at the wrong URL. There is no flow this can
+        // break that was not already broken: every candidate this loop probes
+        // is one the SDK's own `buildDiscoveryUrls` emits, so a stall here is a
+        // stall the SDK would have hit itself, unbounded. Everything else — a
+        // CORS rejection, DNS, a reset — still falls back as documented above.
+        if (err instanceof OAuthRequestTimeoutError) throw err;
         return response;
       }
       if (!probe.ok) {
