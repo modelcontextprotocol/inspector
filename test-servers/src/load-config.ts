@@ -48,6 +48,11 @@ export interface ConfigFileOAuth {
     clientName?: string;
     scope?: string;
   };
+  /**
+   * Where to serve `clientMetadata` (default `/client-metadata.json`);
+   * validated as an origin-relative path, since it becomes the document's own
+   * `client_id`. See `composable-test-server.ts`.
+   */
   clientMetadataPath?: string;
   tokenExpirationSeconds?: number;
   supportRefreshTokens?: boolean;
@@ -258,6 +263,12 @@ function validateConfig(
     if (asPath !== undefined && !isOriginRelativePath(asPath)) {
       throw new Error(
         `Invalid config in ${filePath}: oauth.asMetadataPath must be an origin-relative path (e.g. "/.well-known/openid-configuration") — a value such as "//host/doc" would move the document off this server entirely`,
+      );
+    }
+    const cimdPath = oauth.clientMetadataPath;
+    if (cimdPath !== undefined && !isOriginRelativePath(cimdPath)) {
+      throw new Error(
+        `Invalid config in ${filePath}: oauth.clientMetadataPath must be an origin-relative path (e.g. "/client-metadata.json") — this path becomes the document's own client_id, so a value such as "//host/doc" would publish a client id naming a host this server does not serve`,
       );
     }
     if (transportType === "stdio" && oauth.enabled === true) {

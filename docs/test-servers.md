@@ -584,10 +584,11 @@ against this list. The shipped fixture lists **6274** (the default), **6330** an
 other port the flow fails with `Invalid redirect_uri`, which reads like a CIMD problem and is not one.
 Add your port to the config rather than debugging the registration path.
 
-⚠️ **The same fixed-`issuerUrl` hazard as the fixture above applies**, for the same reason: the
-`client_id` this server publishes is derived from its issuer URL, so a server that walked to another
-port on `EADDRINUSE` publishes a `client_id` pointing at whatever process holds 8092. Check with
-`lsof -nP -iTCP:8092 -sTCP:LISTEN` before believing a failure.
+This fixture has **no** fixed-`issuerUrl` hazard, unlike several of the ones above: it configures no
+`issuerUrl`, and the document's `client_id` is derived from the request it was fetched over — query
+string included — so a server that walked to another port on `EADDRINUSE` still publishes a
+`client_id` equal to the URL you fetched, and the integration test drives it on a harness-chosen port
+for exactly that reason. The fixed-port dependency that *does* bite is `redirect_uris`, above.
 
 ## Revoking tokens on clear (RFC 7009)
 

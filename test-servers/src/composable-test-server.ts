@@ -759,7 +759,16 @@ export interface ServerConfig {
       scope?: string;
     };
 
-    /** Where to serve `clientMetadata` (default `/client-metadata.json`). */
+    /**
+     * Where to serve `clientMetadata` (default `/client-metadata.json`).
+     *
+     * Must be origin-relative with no query or fragment, and is validated as
+     * such — both by `loadConfig` and again at server setup for a config built
+     * in code. Unlike the other metadata paths this one is not merely
+     * advertised: it becomes the document's own `client_id`, so an off-origin
+     * or query-bearing value would publish a client id this server cannot
+     * honour (Copilot).
+     */
     clientMetadataPath?: string;
 
     /**

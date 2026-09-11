@@ -1,4 +1,6 @@
 import { describe, it, expect, afterEach } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -117,6 +119,60 @@ describe("CIMD showcase fixture (#2242)", () => {
     expect(doc.redirect_uris).toContain("http://127.0.0.1:6276/oauth/callback");
     // CIMD clients are public; the server's own CIMD branch issues no secret.
     expect(doc.token_endpoint_auth_method).toBe("none");
+  });
+
+  it("preserves a query-bearing document URL in the client_id it publishes", async () => {
+    const started = await startShowcase();
+    const documentUrl = `${originOf(started)}/client-metadata.json?profile=a`;
+
+    const res = await fetch(documentUrl);
+    expect(res.ok).toBe(true);
+    const doc = await res.json();
+
+    // CIMD turns on the document's `client_id` being the URL it was fetched
+    // from. Answering `?profile=a` with the bare route would publish a
+    // document that fails that equality for a client id the server just
+    // served (Copilot).
+    expect(doc.client_id).toBe(documentUrl);
+  });
+
+  it("rejects a clientMetadataPath that would publish a foreign client_id", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cimd-config-"));
+    const badPath = path.join(dir, "bad-cimd.json");
+    const base = JSON.parse(fs.readFileSync(configPath, "utf8"));
+    fs.writeFileSync(
+      badPath,
+      JSON.stringify({
+        ...base,
+        oauth: { ...base.oauth, clientMetadataPath: "//other-host/doc" },
+      }),
+    );
+
+    try {
+      // The path is not merely advertised: it becomes the document's own
+      // `client_id`, so an off-origin value publishes a client id naming a
+      // host this server does not serve.
+      expect(() => loadConfig(badPath)).toThrow(/clientMetadataPath/);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects the same path built programmatically rather than from JSON", async () => {
+    const resolved = resolveConfig(loadConfig(configPath));
+    const started = createTestServerHttp({
+      ...resolved,
+      oauth: { ...resolved.oauth!, clientMetadataPath: "/doc?version=1" },
+      serverInfo: createTestServerInfo("oauth-cimd-badpath-test", "1.0.0"),
+      port: undefined,
+    });
+    server = started;
+
+    // `loadConfig` covers the JSON route only, so the server-setup check is
+    // what catches a `ServerConfig` assembled in code — the same split the
+    // two existing metadata paths have.
+    await expect(started.start()).rejects.toThrow(/clientMetadataPath/);
+    server = null;
   });
 
   it("does not serve the document when CIMD is switched off", async () => {
