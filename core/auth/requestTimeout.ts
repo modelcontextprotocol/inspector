@@ -26,8 +26,9 @@
  * resolves as soon as response headers arrive, so a server that sends headers
  * — or half a JSON document — and then stalls would leave the caller's
  * `response.json()` hanging with nothing watching it. Every response on this
- * path is a small finite document, so the body is buffered under the same race
- * and the response rebuilt around it.
+ * path is a small finite document, so a *clone* of it is drained under the same
+ * race and the original — untouched, with every native slot intact — is what
+ * the caller gets.
  *
  * Today the common case is bounded, but only incidentally: a discovery stall
  * that happens to sit inside an SDK `initialize` rides that request's own
@@ -231,7 +232,17 @@ export function exemptMcpEndpoint(
       return false;
     }
 
-    const serverUrl = getServerUrl();
+    // `getServerUrl()` throws for a non-HTTP configuration, and this wrapped
+    // fetch can be handed to a transport or a custom factory that calls it
+    // anyway — propagating a configuration error out of a fetch would turn the
+    // documented fail-open into a hard failure (Copilot). Caught here for the
+    // same reason `readNegotiatesEndpoint` catches.
+    let serverUrl: string | undefined;
+    try {
+      serverUrl = getServerUrl();
+    } catch {
+      return true;
+    }
     if (!serverUrl) return true;
     const negotiated = readNegotiatesEndpoint(negotiatesEndpoint);
     try {
@@ -327,64 +338,6 @@ export function callerSignalOf(
 }
 
 /**
- * Statuses the Fetch Standard defines as null-body. Handing the `Response`
- * constructor a body with one of these throws a `TypeError`, so the rebuilt
- * response below must pass `null` instead.
- */
-const NULL_BODY_STATUSES = new Set([101, 103, 204, 205, 304]);
-
-/**
- * Rebuild a `Response` around an already-buffered body.
- *
- * Two things have to be carried across by hand.
- *
- * `url`, `redirected` and `type` are getters with no constructor option, and
- * callers do read them — the RFC 8414/OIDC compat wrapper stamps a header
- * naming the URL a body came from, and the SDK's discovery reports the
- * responding URL in its errors. So they are copied explicitly rather than
- * silently reset to `""` / `false` / `"default"`.
- *
- * `content-encoding` and `content-length`, by contrast, must be *dropped*.
- * `arrayBuffer()` hands back the **decoded** entity body, so a gzipped metadata
- * document arrives here as plain JSON bytes: an inherited `content-encoding`
- * would describe an encoding the body no longer has, and the inherited
- * `content-length` would be the compressed size — both of them wrong, and both
- * visible in the Network capture (Copilot). `responseWithBody` in
- * `endpointOverrides.ts` deletes the same two headers for the same reason.
- */
-function rebuildResponse(response: Response, body: ArrayBuffer): Response {
-  const headers = new Headers(response.headers);
-  headers.delete("content-encoding");
-  headers.delete("content-length");
-  const rebuilt = new Response(
-    NULL_BODY_STATUSES.has(response.status) ? null : body,
-    {
-      status: response.status,
-      statusText: response.statusText,
-      headers,
-    },
-  );
-  for (const key of ["url", "redirected", "type"] as const) {
-    // Enumerability is taken from whatever the freshly built `Response` already
-    // has for this key, rather than asserted. Hard-coding either answer makes
-    // the rebuilt response observably different from a native one — and which
-    // answer is right is the host's business: under the Fetch standard (and
-    // undici) these are prototype getters with no own enumerable key at all,
-    // while happy-dom defines them as own enumerable data properties. Copying
-    // the descriptor keeps `Object.keys`, object spread and `JSON.stringify`
-    // identical to a response that never passed through here, in both
-    // (Copilot). `false` for the getter case, where there is no own descriptor.
-    const existing = Object.getOwnPropertyDescriptor(rebuilt, key);
-    Object.defineProperty(rebuilt, key, {
-      value: response[key],
-      enumerable: existing?.enumerable ?? false,
-      configurable: true,
-    });
-  }
-  return rebuilt;
-}
-
-/**
  * Wrap a `fetch` so every call through it is bounded by `timeoutMs`.
  *
  * Every request that reaches it unexempted is bounded — so on a chain that
@@ -417,8 +370,9 @@ function rebuildResponse(response: Response, body: ArrayBuffer): Response {
  * a fetch that drops the signal. This wrapper only ever *adds* a reason to give
  * up; it never removes the caller's.
  *
- * The response **body** is buffered under the same deadline, because `fetch`
- * resolves on headers and a stalled body would otherwise be unbounded.
+ * The response **body** is drained through a clone under the same deadline,
+ * because `fetch` resolves on headers and a stalled body would otherwise be
+ * unbounded. The caller receives the original response, not a copy.
  */
 export function withOAuthRequestTimeout(
   fetchFn: typeof fetch,
@@ -512,8 +466,23 @@ export function withOAuthRequestTimeout(
       // not optional on a mixed chain: an exempt request skips this buffering
       // entirely, which is what lets an SSE body stay open rather than being
       // drained into memory here.
-      const body = await Promise.race([response.arrayBuffer(), abandoned]);
-      return rebuildResponse(response, body);
+      // Read a *clone* under the deadline and hand back the original. Cloning
+      // tees the body, so draining one branch buffers the other: by the time
+      // this resolves the original is fully in memory and the caller reads it
+      // without touching the network again — the bound is the same, and the
+      // response the caller gets is the one `fetch` produced.
+      //
+      // The alternative, rebuilding a `Response` around the buffered bytes,
+      // could never be faithful (Copilot). `url`, `redirected` and `type` are
+      // internal slots; shadowing them as own properties satisfies a direct
+      // read and is lost again the moment a caller calls `clone()`, which
+      // returns a fresh native `Response`. The headers guard differs too, and
+      // the decoded bytes made the inherited `content-encoding` and
+      // `content-length` wrong, so those had to be stripped — a rebuilt
+      // response was observably not the original in at least four ways. Not
+      // rebuilding removes the whole class.
+      await Promise.race([response.clone().arrayBuffer(), abandoned]);
+      return response;
     } catch (err) {
       // `controller.abort()` above can reject the underlying fetch *before*
       // `reject` runs, in which case the race settles with undici's

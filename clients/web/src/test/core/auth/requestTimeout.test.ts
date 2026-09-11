@@ -266,29 +266,11 @@ describe("withOAuthRequestTimeout", () => {
     expect((await assertion) as Error).toBeInstanceOf(OAuthRequestTimeoutError);
   });
 
-  it("returns a readable response whose metadata survives the rebuild", async () => {
+  it("hands back the original response, not a copy", async () => {
     const original = new Response('{"issuer":"https://as.example.com"}', {
       status: 201,
       statusText: "Created",
       headers: { "content-type": "application/json", "x-probe": "kept" },
-    });
-    // Seeded to NON-default values, which is the whole point of the case: a
-    // synthetic `new Response(...)` already has `url === ""`, `redirected ===
-    // false` and `type === "default"` — exactly the rebuilt response's own
-    // defaults — so asserting against those would stay green with the
-    // `Object.defineProperty` loop deleted from `rebuildResponse` (Copilot).
-    // These are read-only getters, hence the same mechanism the source uses.
-    Object.defineProperty(original, "url", {
-      value: "https://as.example.com/redirected",
-      configurable: true,
-    });
-    Object.defineProperty(original, "redirected", {
-      value: true,
-      configurable: true,
-    });
-    Object.defineProperty(original, "type", {
-      value: "cors",
-      configurable: true,
     });
     const wrapped = withOAuthRequestTimeout(
       vi.fn<typeof fetch>().mockResolvedValue(original),
@@ -297,68 +279,84 @@ describe("withOAuthRequestTimeout", () => {
 
     const response = await wrapped(URL_UNDER_TEST);
 
-    expect(response.status).toBe(201);
-    expect(response.statusText).toBe("Created");
-    expect(response.ok).toBe(true);
-    expect(response.headers.get("x-probe")).toBe("kept");
-    expect(response.headers.get("content-encoding")).toBeNull();
-    expect(response.headers.get("content-length")).toBeNull();
-    expect(response.url).toBe("https://as.example.com/redirected");
-    expect(response.redirected).toBe(true);
-    expect(response.type).toBe("cors");
-    // The rebuild must not change what enumerates. Which keys a `Response` owns
-    // is the host's business — under the Fetch standard these three are
-    // prototype getters and a native response has no own enumerable keys, while
-    // happy-dom makes them own enumerable data properties — so this compares
-    // against a baseline built in the same runtime rather than asserting either
-    // answer. Hard-coding one would make the rebuilt response observably
-    // different from a response that never passed through the wrapper, in
-    // `Object.keys`, object spread and `JSON.stringify`.
-    const baseline = Object.keys(new Response("{}")).sort();
-    expect(Object.keys(response).sort()).toEqual(baseline);
+    // Identity, which is the strongest form of "nothing was changed": every
+    // native slot, the headers guard and `clone()` behave as they would if this
+    // wrapper were not in the chain at all.
+    expect(response).toBe(original);
     await expect(response.json()).resolves.toEqual({
       issuer: "https://as.example.com",
     });
   });
 
-  it("drops content-encoding and content-length, which the buffer invalidates", async () => {
-    // `arrayBuffer()` hands back the *decoded* entity body, so an inherited
-    // `content-encoding` would describe an encoding the bytes no longer have
-    // and the inherited `content-length` would be the compressed size. Both are
-    // wrong, and both show up in the Network capture.
-    const decoded = '{"issuer":"https://as.example.com"}';
+  it("leaves the body readable after draining the clone", async () => {
+    // The bound works by draining a clone; teeing buffers the other branch, so
+    // the caller must still be able to read the original without a second trip.
     const wrapped = withOAuthRequestTimeout(
-      vi.fn<typeof fetch>().mockResolvedValue(
-        new Response(decoded, {
-          headers: {
-            "content-type": "application/json",
-            "content-encoding": "gzip",
-            "content-length": "42",
-          },
-        }),
-      ),
+      vi.fn<typeof fetch>().mockResolvedValue(new Response("hello")),
       1000,
     );
 
     const response = await wrapped(URL_UNDER_TEST);
 
-    expect(response.headers.get("content-encoding")).toBeNull();
-    expect(response.headers.get("content-length")).toBeNull();
-    expect(response.headers.get("content-type")).toBe("application/json");
-    await expect(response.text()).resolves.toBe(decoded);
+    expect(response.bodyUsed).toBe(false);
+    await expect(response.text()).resolves.toBe("hello");
   });
 
-  it("rebuilds a null-body status without handing it a body", async () => {
-    // `new Response(body, { status: 204 })` throws; the rebuild has to pass null.
+  it("leaves the caller free to clone it again, with metadata intact", async () => {
+    // The case a rebuilt response could never satisfy: `url` / `redirected` /
+    // `type` are internal slots, so a shadowed own property survives a direct
+    // read and is lost the moment anyone calls `clone()`.
+    const original = new Response("{}", { status: 200 });
+    Object.defineProperty(original, "url", {
+      value: "https://as.example.com/redirected",
+      configurable: true,
+    });
+    Object.defineProperty(original, "redirected", {
+      value: true,
+      configurable: true,
+    });
     const wrapped = withOAuthRequestTimeout(
-      vi
-        .fn<typeof fetch>()
-        .mockResolvedValue(new Response(null, { status: 204 })),
+      vi.fn<typeof fetch>().mockResolvedValue(original),
+      1000,
+    );
+
+    const response = await wrapped(URL_UNDER_TEST);
+    const copy = response.clone();
+
+    expect(copy.url).toBe("https://as.example.com/redirected");
+    expect(copy.redirected).toBe(true);
+    await expect(copy.json()).resolves.toEqual({});
+  });
+
+  it("keeps content-encoding and content-length, which are the server's own", async () => {
+    // Nothing is rebuilt, so nothing invalidates them: the caller gets the
+    // response `fetch` produced and decodes it the way `fetch` intends.
+    const original = new Response("{}", {
+      headers: {
+        "content-type": "application/json",
+        "content-encoding": "gzip",
+      },
+    });
+    const wrapped = withOAuthRequestTimeout(
+      vi.fn<typeof fetch>().mockResolvedValue(original),
       1000,
     );
 
     const response = await wrapped(URL_UNDER_TEST);
 
+    expect(response.headers.get("content-encoding")).toBe("gzip");
+  });
+
+  it("passes a null-body status through untouched", async () => {
+    const original = new Response(null, { status: 204 });
+    const wrapped = withOAuthRequestTimeout(
+      vi.fn<typeof fetch>().mockResolvedValue(original),
+      1000,
+    );
+
+    const response = await wrapped(URL_UNDER_TEST);
+
+    expect(response).toBe(original);
     expect(response.status).toBe(204);
     expect(response.body).toBeNull();
   });
@@ -651,6 +649,22 @@ describe("withOAuthRequestTimeout", () => {
       );
       expect(exemptMcpEndpoint(() => SERVER)("not a url", JSON_HEADERS)).toBe(
         true,
+      );
+    });
+
+    it("fails open when the server-URL getter throws", () => {
+      // `InspectorClient.getServerUrl()` throws for a non-HTTP configuration,
+      // and this wrapped fetch can still be handed to a transport or a custom
+      // factory that calls it — propagating a configuration error out of a
+      // fetch would turn the documented fail-open into a hard failure.
+      const isExempt = exemptMcpEndpoint(() => {
+        throw new Error("Server URL is only available for HTTP transports");
+      });
+
+      expect(isExempt("https://as.example.com/token", JSON_HEADERS)).toBe(true);
+      // Still not past the form-encoded check, which runs first.
+      expect(isExempt("https://as.example.com/token", FORM_HEADERS)).toBe(
+        false,
       );
     });
 
