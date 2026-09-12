@@ -10,16 +10,23 @@
  * has, and for the same reason: a budget nobody can find is a budget nobody
  * revisits.
  *
- * These are generous on purpose and cost a passing run nothing. Playwright
- * budgets are ceilings on a poll, not sleeps: every one of them returns the
- * instant its locator condition holds. What they have to absorb is a smoke
- * running against a cold `dist/` build on a machine already carrying three
- * other agent sessions' gates.
+ * Three of the four are ceilings on a poll rather than sleeps — `ui`,
+ * `roundTrip` and `nested` each return the instant their locator condition
+ * holds, so a passing smoke pays only the time the app actually took. What they
+ * absorb is a smoke running against a cold `dist/` build on a machine already
+ * carrying other agent sessions' gates.
  *
- * ⚠️ Raising one of these does NOT make a smoke wait longer for a server that
- * is never coming: the launcher-death race in `smoke-web-browser.mjs` and the
- * `waitForStage` diagnostics in the other two are what report that, and they
- * report it with a cause rather than a timeout.
+ * ⚠️ `bestEffort` is the exception and is not free: its expiry is caught and
+ * ignored, so a smoke that never reaches network idle spends the full budget on
+ * an otherwise **passing** run. That is why it is the smallest of the four, and
+ * why it should stay that way.
+ *
+ * ⚠️ Raising any of these does delay the report when the thing waited on never
+ * arrives — a larger budget is a longer wait before the failure. What the
+ * launcher-death race in `smoke-web-browser.mjs` and the `waitForStage`
+ * diagnostics in the other two buy is a better *eventual* message, naming a
+ * cause instead of a locator; they do not make the wait shorter. Weigh both
+ * when changing a value here.
  */
 
 export const BROWSER_TIMEOUTS = Object.freeze({

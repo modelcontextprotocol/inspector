@@ -222,6 +222,34 @@ configure({ asyncUtilTimeout: 1_000 });`;
   assert.deepEqual(checkAsyncUtilSource(source, "storybook/test"), []);
 });
 
+test("a call disabled in a TRAILING line comment does not satisfy the check", () => {
+  // The anchored regex this replaced only stripped `//` at the start of a line,
+  // so a call commented out after code survived and the guard passed with no
+  // effective configuration (Copilot).
+  const source = `import { configure } from "storybook/test";
+const disabled = true; // configure({ asyncUtilTimeout: 1000 });`;
+  assert.deepEqual(checkAsyncUtilSource(source, "storybook/test"), [
+    "does not call configure()",
+  ]);
+});
+
+test("a // inside a string literal is not treated as a comment", () => {
+  // The failure mode in the other direction: an unanchored strip would truncate
+  // any line holding a URL, which could remove the real call.
+  const source = `import { configure } from "storybook/test";
+const docs = "https://testing-library.com/docs";
+configure({ asyncUtilTimeout: 1000 });`;
+  assert.deepEqual(checkAsyncUtilSource(source, "storybook/test"), []);
+  assert.match(stripComments(source), /https:\/\/testing-library/);
+});
+
+test("stripComments handles escapes and mid-line block comments", () => {
+  assert.equal(stripComments("a /* x */ b"), "a  b");
+  // A backslash-escaped quote must not close the string early, or everything
+  // after it would be scanned as code.
+  assert.match(stripComments('const s = "a\\" // b";\nkeep'), /keep/);
+});
+
 test("stripComments leaves executable code alone", () => {
   const source = `/** header */
 import { configure } from "storybook/test"; // trailing

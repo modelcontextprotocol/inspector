@@ -10,8 +10,13 @@
  * eight logical cores). A correct, deterministic test cut off mid-flight by
  * such a budget fails a gate its diff did not break, which trains people to
  * re-run rather than read — the same argument AGENTS.md's "Lint has no warning
- * tier" makes from the other direction. #2292, #2278, #2250, #1942 and #1742
- * were each that class, found and fixed one site at a time.
+ * tier" makes from the other direction. #2292, #1942 and #1742 were each that
+ * class — a budget or poll ceiling nobody chose — found and fixed one site at a
+ * time. ⚠️ Not every timing failure in this repo's history belongs here: #2278
+ * was a missing condition wait around a geometry read and #2250 a genuine race
+ * in a test's own timing, both fixed by making the test wait for the right
+ * thing. Citing those as evidence for a larger ceiling would argue against
+ * #1596, which this guard is meant to uphold rather than erode (Copilot).
  *
  * Three properties, which is what makes this worth a guard rather than a
  * comment:
@@ -172,22 +177,67 @@ export function checkProject(name, config, expected = EXPECTED_PROJECTS) {
 }
 
 /**
- * Strip `//` and block comments so a commented-out call cannot satisfy a check.
+ * Strip comments so a disabled call cannot satisfy a check.
  *
  * Comment-aware rather than exact, deliberately: a naive scan of the raw source
  * would accept a `// configure({ asyncUtilTimeout: 1000 })` left behind by
  * someone disabling it, which is the most likely way this stops being
- * configured (Copilot). String literals are not parsed out — a `configure(` in
- * a string would still be accepted — but these two files are fifteen lines each
- * and the false-positive that matters is the commented one.
+ * configured (Copilot).
+ *
+ * A scanner rather than a regex, for two reasons that a regex gets wrong in
+ * opposite directions. It must strip a comment that **follows code** on a line
+ * — `const disabled = true; // configure({ … })` — which an anchored
+ * line-comment pattern misses entirely (Copilot); and it must NOT treat the
+ * `//` inside a string literal as the start of one, which an unanchored pattern
+ * would, silently truncating any line holding a URL. Tracking quotes is the
+ * only way to have both.
  *
  * @param {string} source
  * @returns {string}
  */
 export function stripComments(source) {
-  return source
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .replace(/(^|\n)\s*\/\/[^\n]*/g, "$1");
+  let out = "";
+  let quote = null;
+  for (let i = 0; i < source.length; i += 1) {
+    const c = source[i];
+    const next = source[i + 1];
+    if (quote) {
+      // A backslash escapes the next character, so a `\"` cannot close a `"`.
+      if (c === "\\") {
+        out += c + (next ?? "");
+        i += 1;
+        continue;
+      }
+      if (c === quote) quote = null;
+      out += c;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === "`") {
+      quote = c;
+      out += c;
+      continue;
+    }
+    if (c === "/" && next === "/") {
+      while (i < source.length && source[i] !== "\n") i += 1;
+      // Keep the newline, so line structure (and any anchored match a caller
+      // makes) survives the strip.
+      out += "\n";
+      continue;
+    }
+    if (c === "/" && next === "*") {
+      i += 2;
+      while (
+        i < source.length &&
+        !(source[i] === "*" && source[i + 1] === "/")
+      ) {
+        i += 1;
+      }
+      i += 1;
+      continue;
+    }
+    out += c;
+  }
+  return out;
 }
 
 /**
