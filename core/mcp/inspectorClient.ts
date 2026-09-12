@@ -3965,6 +3965,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     if (!session) throw new Error("Client is not connected");
     const headers = this.mirroredTaskParamHeaders(tool, args);
     let lastTask: InspectorTask | undefined;
+    let outcomeEmitted = false;
     if (progressToken !== undefined) {
       this.rawCallProgressTokens.set(
         progressToken,
@@ -3989,6 +3990,10 @@ export class InspectorClient extends InspectorClientEventTarget {
               declaration: toolDeclarationFromMcpTool(tool),
               signal,
               requestTimeoutMs: this.requestTimeout,
+              // Forwarded so legacy calls routed through the SDK adapter keep
+              // the inactivity-timeout semantics of the old direct
+              // client.request path (modern raw dispatch re-arms on its own).
+              resetTimeoutOnProgress: this.resetTimeoutOnProgress,
               task: { preference, retentionMs },
               ...(metadata === undefined
                 ? {}
@@ -4006,8 +4011,12 @@ export class InspectorClient extends InspectorClientEventTarget {
       const settlement = await execution.settle({
         signal,
         onEvent: (event) => {
-          lastTask =
-            this.emitTaskExecutionEvent(event, progressToken) ?? lastTask;
+          const emitted = this.emitTaskExecutionEvent(event, progressToken);
+          // A dispatched outcome event already carried the terminal error,
+          // so the catch below must not re-emit the same failure.
+          if (event.type === "outcome" && emitted !== undefined)
+            outcomeEmitted = true;
+          lastTask = emitted ?? lastTask;
         },
       });
       if (settlement.outcome.status === "cancelled") {
@@ -4026,7 +4035,10 @@ export class InspectorClient extends InspectorClientEventTarget {
       return this.unwrapTaskOutcome(settlement.outcome);
     } catch (error) {
       const operationError = unwrapTaskDispatchError(error);
-      if (!(operationError instanceof ToolCallCancelledError)) {
+      if (
+        !(operationError instanceof ToolCallCancelledError) &&
+        !outcomeEmitted
+      ) {
         this.emitTaskError(lastTask, operationError);
       }
       throw operationError;
