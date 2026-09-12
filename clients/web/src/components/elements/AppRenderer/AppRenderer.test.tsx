@@ -557,17 +557,28 @@ describe("AppRenderer", () => {
       // budget that is too tight rather than of a broken observer. Raised
       // rather than retried: a `waitFor` that is generous costs nothing on the
       // passing path, since it returns as soon as the assertion holds.
-      await waitFor(() =>
-        expect(bridge.sendHostContextChange).toHaveBeenCalledWith(
-          expect.objectContaining({
-            theme: "dark",
-            styles: expect.objectContaining({
-              variables: expect.objectContaining({
-                "--color-background-primary": "#101113",
+      //
+      // #2323 briefly deleted this argument as one of its "a budget inside an
+      // equal budget can never be observed" cases, which it was: 5000 inside a
+      // 5000ms test could never win. That is fixed from the other end now — the
+      // enclosing budget is 15000 — so the raise is observable again and has to
+      // stay, because the value it beats is a measured failure rather than a
+      // default. It does NOT ride on `asyncUtilTimeout`, which is pinned at
+      // 1000 precisely because raising it globally was measured worse
+      // (Copilot).
+      await waitFor(
+        () =>
+          expect(bridge.sendHostContextChange).toHaveBeenCalledWith(
+            expect.objectContaining({
+              theme: "dark",
+              styles: expect.objectContaining({
+                variables: expect.objectContaining({
+                  "--color-background-primary": "#101113",
+                }),
               }),
             }),
-          }),
-        ),
+          ),
+        { timeout: 5000 },
       );
     } finally {
       getComputedStyleSpy.mockRestore();

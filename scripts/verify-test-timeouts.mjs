@@ -212,16 +212,42 @@ export function checkAsyncUtilSource(
 ) {
   const code = stripComments(source);
   const failures = [];
-  if (!new RegExp(`from\\s+["']${from.replace(/\//g, "\\/")}["']`).test(code)) {
+
+  // Bind-then-check, not two independent regexes. Checking "imports from X" and
+  // "calls configure()" separately passes on a split import — `cleanup` from
+  // `@testing-library/react` and `configure` from `@testing-library/dom` — which
+  // is a configuration applied to a copy no test calls, and green by inspection
+  // (Copilot). So find the name `configure` is bound to *in the import from the
+  // required module*, and require the call to use that name.
+  const importRe = new RegExp(
+    `import\\s*\\{([^}]*)\\}\\s*from\\s*["']${from.replace(/[.*+?^$()|[\]\\]/g, "\\$&").replace(/\//g, "\\/")}["']`,
+  );
+  const imported = importRe.exec(code);
+  if (!imported) {
     failures.push(`does not import from "${from}"`);
-  }
-  if (!/\bconfigure\s*\(/.test(code)) {
-    failures.push("does not call configure()");
     return failures;
   }
-  const match = /asyncUtilTimeout\s*:\s*(\d[\d_]*)/.exec(code);
+
+  // `configure`, or `configure as somethingElse`.
+  const binding = imported[1]
+    .split(",")
+    .map((spec) => spec.trim())
+    .map((spec) => /^configure(?:\s+as\s+([A-Za-z_$][\w$]*))?$/.exec(spec))
+    .find(Boolean);
+  if (!binding) {
+    failures.push(`does not import configure from "${from}"`);
+    return failures;
+  }
+  const name = binding[1] ?? "configure";
+
+  const call = new RegExp(`\\b${name}\\s*\\(([\\s\\S]*?)\\)`).exec(code);
+  if (!call) {
+    failures.push(`does not call ${name}()`);
+    return failures;
+  }
+  const match = /asyncUtilTimeout\s*:\s*(\d[\d_]*)/.exec(call[1]);
   if (!match) {
-    failures.push("calls configure() without an asyncUtilTimeout");
+    failures.push(`calls ${name}() without an asyncUtilTimeout`);
   } else if (Number(match[1].replace(/_/g, "")) !== expected) {
     failures.push(
       `configures asyncUtilTimeout as ${match[1]}, expected ${expected}`,

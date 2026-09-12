@@ -82,6 +82,15 @@ async function loadWithProbe(available: boolean, detail = "no D-Bus session") {
   return import("@inspector/core/auth/node/secret-store-selection.js");
 }
 
+/**
+ * Past the integration project's own 30s deliberately, and one of the few sites
+ * that should be (#2323): the test using this waits on a second process holding
+ * the secrets-file lock until `proper-lockfile`'s retries run out, which is real
+ * elapsed contention rather than slack for a loaded machine. Named to match
+ * `file-lock.test.ts`, which bounds the same wait.
+ */
+const LOCK_RETRIES_EXHAUSTED_MS = 60_000;
+
 describe("parseSecretStoreEnv", () => {
   it("accepts each kind, case- and whitespace-insensitively", () => {
     expect(parseSecretStoreEnv("keyring")).toBe("keyring");
@@ -684,42 +693,42 @@ describe("absorbFileSecretsIntoKeyring", () => {
     return filePath;
   }
 
-  it("does not throw when another process holds the lock (#2082)", async () => {
-    // `withSecretFileLock` throws on a lock held past its retry budget, which
-    // is right for a `set` — the user is waiting on that value — and wrong
-    // here. This function is awaited directly by both `resolveSecretStore`
-    // branches, so an escaping error fails store resolution and with it the
-    // whole session: a stuck writer elsewhere on the box would stop the
-    // Inspector from starting. Leaving the file for the next run is the only
-    // acceptable outcome.
-    const filePath = await seedFile({ "srv:oauthClientSecret": "from-file" });
-    process.env.MCP_INSPECTOR_SECRET_FILE = filePath;
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const mod = await loadWithProbe(true);
+  it(
+    "does not throw when another process holds the lock (#2082)",
+    async () => {
+      // `withSecretFileLock` throws on a lock held past its retry budget, which
+      // is right for a `set` — the user is waiting on that value — and wrong
+      // here. This function is awaited directly by both `resolveSecretStore`
+      // branches, so an escaping error fails store resolution and with it the
+      // whole session: a stuck writer elsewhere on the box would stop the
+      // Inspector from starting. Leaving the file for the next run is the only
+      // acceptable outcome.
+      const filePath = await seedFile({ "srv:oauthClientSecret": "from-file" });
+      process.env.MCP_INSPECTOR_SECRET_FILE = filePath;
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const mod = await loadWithProbe(true);
 
-    const properLockfile = (await import("proper-lockfile")).default;
-    const release = await properLockfile.lock(filePath, {
-      realpath: false,
-      stale: 10_000,
-    });
+      const properLockfile = (await import("proper-lockfile")).default;
+      const release = await properLockfile.lock(filePath, {
+        realpath: false,
+        stale: 10_000,
+      });
 
-    await expect(
-      mod.absorbFileSecretsIntoKeyring(new InMemorySecretStore()),
-    ).resolves.toBeUndefined();
-    await release();
+      await expect(
+        mod.absorbFileSecretsIntoKeyring(new InMemorySecretStore()),
+      ).resolves.toBeUndefined();
+      await release();
 
-    // Left exactly as it was, and said so — asserting the *lock* message
-    // specifically, since the pre-existing claim-failure warning also ends in
-    // "left in place" and would let this pass without the lock ever being hit.
-    expect(existsSync(filePath)).toBe(true);
-    expect(warn).toHaveBeenCalledWith(
-      expect.stringContaining("Could not lock the secrets file"),
-    );
-    // Past the integration project's own 30s deliberately, and one of the few
-    // sites that should be (#2323): this test waits on a second process holding
-    // the secrets-file lock until `proper-lockfile` gives up on it, which is
-    // real elapsed contention rather than slack for a loaded machine.
-  }, 60_000);
+      // Left exactly as it was, and said so — asserting the *lock* message
+      // specifically, since the pre-existing claim-failure warning also ends in
+      // "left in place" and would let this pass without the lock ever being hit.
+      expect(existsSync(filePath)).toBe(true);
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining("Could not lock the secrets file"),
+      );
+    },
+    LOCK_RETRIES_EXHAUSTED_MS,
+  );
 
   it("takes no lock when there is nothing to migrate (#2082)", async () => {
     // The overwhelmingly common startup: a keychain is available and no file

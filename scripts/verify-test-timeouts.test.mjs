@@ -128,6 +128,42 @@ configure({ testIdAttribute: "data-testid" });`;
   ]);
 });
 
+test("a split import does not satisfy the check", () => {
+  // The hole this closes: checking "imports from X" and "calls configure()"
+  // independently passes when `configure` comes from a *different* Testing
+  // Library copy than the one the tests use, which is a configuration nothing
+  // reads — and green by inspection (Copilot).
+  const source = `import { cleanup } from "@testing-library/react";
+import { configure } from "@testing-library/dom";
+configure({ asyncUtilTimeout: 1000 });`;
+  assert.deepEqual(checkAsyncUtilSource(source, "@testing-library/react"), [
+    'does not import configure from "@testing-library/react"',
+  ]);
+});
+
+test("configure imported under an alias is followed to its call", () => {
+  const source = `import { configure as cfg } from "storybook/test";
+cfg({ asyncUtilTimeout: 1000 });`;
+  assert.deepEqual(checkAsyncUtilSource(source, "storybook/test"), []);
+
+  const unused = `import { configure as cfg } from "storybook/test";
+configure({ asyncUtilTimeout: 1000 });`;
+  assert.deepEqual(checkAsyncUtilSource(unused, "storybook/test"), [
+    "does not call cfg()",
+  ]);
+});
+
+test("the timeout is read from the configure call, not from anywhere in the file", () => {
+  // A matching number elsewhere in the module must not stand in for the
+  // argument actually passed.
+  const source = `import { configure } from "storybook/test";
+const asyncUtilTimeout = 1000;
+configure({ testIdAttribute: "data-testid" });`;
+  assert.deepEqual(checkAsyncUtilSource(source, "storybook/test"), [
+    "calls configure() without an asyncUtilTimeout",
+  ]);
+});
+
 test("the import is checked, not just the call", () => {
   // Storybook instruments its own Testing Library copy, so configuring
   // `@testing-library/*` from a story setup configures a copy no play function
@@ -140,11 +176,13 @@ configure({ asyncUtilTimeout: 1000 });`;
 });
 
 test("a setup file with no configure() at all is caught", () => {
-  const failures = checkAsyncUtilSource(
-    "export const nothing = 1;\n",
-    "storybook/test",
+  // Reported as the missing import and nothing else: once the module is not
+  // imported there is no binding to look for a call to, so listing a second
+  // failure would be guesswork about which of the two the author meant.
+  assert.deepEqual(
+    checkAsyncUtilSource("export const nothing = 1;\n", "storybook/test"),
+    ['does not import from "storybook/test"'],
   );
-  assert.equal(failures.length, 2);
 });
 
 test("both web projects have an asyncUtilTimeout site", () => {
