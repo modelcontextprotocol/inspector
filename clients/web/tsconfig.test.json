@@ -41,7 +41,13 @@
     "src/test/**/*.ts",
     "src/test/**/*.tsx",
     "../../core/**/__tests__/**/*.ts",
-    "../../core/**/__tests__/**/*.tsx"
+    "../../core/**/__tests__/**/*.tsx",
+    // The shared no-retry setup every Vitest project loads (#2323). It is
+    // referenced by the configs as a resolved PATH rather than imported, so no
+    // project's tsconfig picks it up transitively the way `vitest.shared.mts`
+    // is picked up through `vitest.config.ts` — it needs naming, or it lands in
+    // no tsconfig project at all and `verify:typecheck-coverage` fails.
+    "../../vitest.setup.shared.mts"
   ],
   "exclude": []
 }

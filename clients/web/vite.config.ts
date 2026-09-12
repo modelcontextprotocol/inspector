@@ -14,7 +14,12 @@ import {
 } from "./server/vite-base-config";
 import { buildWebServerConfigFromEnv } from "./server/web-server-config";
 import { createBrowserExternalizedBuiltinGate } from "./server/browser-externalized-builtin-gate";
-import { vitestSharedPaths } from "../../vitest.shared.mts";
+import {
+  INTEGRATION_TIMEOUTS,
+  NO_RETRY_SETUP,
+  TIMEOUTS,
+  vitestSharedPaths,
+} from "../../vitest.shared.mts";
 const dirname =
   typeof __dirname !== "undefined"
     ? __dirname
@@ -314,7 +319,10 @@ export default defineConfig(({ command }) => {
             include: ["clients/web/src/**/*.test.{ts,tsx}"],
             // Integration tests run in the integration project below (node env).
             exclude: [integrationGlob],
-            setupFiles: [path.join(dirname, "src/test/setup.ts")],
+            setupFiles: [
+              path.join(dirname, "src/test/setup.ts"),
+              NO_RETRY_SETUP,
+            ],
             // Pin after-hooks to LIFO (reverse registration). This is Vitest 4's
             // own default (`resolved.sequence.hooks ??= "stack"` — the CLI
             // help-text's "parallel" is stale), so this line documents intent and
@@ -330,6 +338,12 @@ export default defineConfig(({ command }) => {
             // `container.isConnected` self-checks are the real guard against a
             // future regression.
             sequence: { hooks: "stack" },
+            // Shared budgets (#2323). This is the largest test surface in the
+            // repo — 342 files — and every one of them ran on Vitest's own
+            // 5000ms until now. The single site that had been patched by hand
+            // (`App.test.tsx`'s three-modal sequence) named that default as its
+            // reason for existing.
+            ...TIMEOUTS,
           },
         },
         {
@@ -347,11 +361,15 @@ export default defineConfig(({ command }) => {
             // can transform core/ modules and run tests against the source.
             root: repoRoot,
             include: [integrationGlob],
+            setupFiles: [NO_RETRY_SETUP],
             // Integration tests spawn real HTTP/stdio servers via test-servers/,
             // bind sockets, run e2e OAuth flows, and exercise filesystem-backed
-            // storage. 30s matches the v1.5 core/vitest.config.ts.
-            testTimeout: 30000,
-            hookTimeout: 30000,
+            // storage. 30s matches the v1.5 core/vitest.config.ts. Now stated
+            // once in `vitest.shared.mts` (#2323) rather than here, together
+            // with the `teardownTimeout` that was left on the 10000ms default —
+            // teardown is where these suites unlink that filesystem-backed
+            // storage and reap the servers they spawned.
+            ...INTEGRATION_TIMEOUTS,
             // Inline the MCP SDK so vi.mock("@modelcontextprotocol/client")
             // hooks the same transformed copy that source files import.
             // Externalized node_modules are loaded via Node's loader and bypass
@@ -384,7 +402,18 @@ export default defineConfig(({ command }) => {
             // (#2292). A larger ceiling does not hide a defect here: a story
             // that blows 15s has genuinely failed, and every assertion stays as
             // strict as it was.
-            testTimeout: 15000,
+            // …which is the shared `TIMEOUTS.testTimeout` today (#2323): this
+            // project is where the value was first chosen, and the other five
+            // now follow it rather than restate it. The hook and teardown
+            // budgets come along with it, having been left on the defaults.
+            ...TIMEOUTS,
+            // Carries the shared no-retry assertion and nothing else.
+            // ⚠️ It is deliberately NOT in `.storybook/` and declares no
+            // annotations: `@storybook/addon-vitest` skips its automatic
+            // preview-annotation provisioning only for a setup file that is
+            // both inside `configDir` and calls `setProjectAnnotations`, and
+            // this one is neither (#1898).
+            setupFiles: [NO_RETRY_SETUP],
             browser: {
               enabled: true,
               headless: true,
@@ -395,12 +424,15 @@ export default defineConfig(({ command }) => {
                 },
               ],
             },
-            // No `setupFiles`: since Storybook 10.3 `@storybook/addon-vitest`
+            // The `setupFiles` above is the project's only one, and it
+            // carries no preview annotations: since Storybook 10.3
+            // `@storybook/addon-vitest`
             // provisions the preview annotations (`.storybook/preview.tsx` plus
             // `@storybook/addon-a11y/preview`) itself, and *skips* doing so when
-            // it finds a setup file calling `setProjectAnnotations` — so the old
-            // `.storybook/vitest.setup.ts` was both redundant and actively
-            // opting out of the automatic path (#1898). A green suite doesn't
+            // it finds a setup file that is both inside `configDir` and calls
+            // `setProjectAnnotations` — so the old `.storybook/vitest.setup.ts`
+            // was both redundant and actively opting out of the automatic path
+            // (#1898). A green suite doesn't
             // prove the automatic provisioning works (stories rendered without
             // the Mantine decorator would very likely still pass), so
             // `src/test/PreviewAnnotations.stories.tsx` asserts it directly.

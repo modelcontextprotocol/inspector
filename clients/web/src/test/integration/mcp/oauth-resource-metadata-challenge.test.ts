@@ -74,7 +74,7 @@ describe("OAuth challenge resource_metadata (RFC 9728)", () => {
     serverUrl = `http://localhost:${port}`;
     storageDir = mkdtempSync(join(tmpdir(), "mcp-inspector-2071-"));
     await waitForOAuthWellKnown(serverUrl);
-  }, 30_000);
+  });
 
   afterAll(async () => {
     await mcpServer?.stop();
@@ -83,7 +83,7 @@ describe("OAuth challenge resource_metadata (RFC 9728)", () => {
       rmSync(storageDir, { recursive: true, force: true });
       storageDir = "";
     }
-  }, 30_000);
+  });
 
   it("advertises the non-default metadata URL on the 401 challenge", async () => {
     const response = await fetch(`${serverUrl}/mcp`, { method: "POST" });
@@ -179,7 +179,7 @@ describe("OAuth challenge resource_metadata (RFC 9728)", () => {
     ).toEqual([]);
 
     await client.disconnect();
-  }, 30_000);
+  });
 
   it("observes the SSE challenge through a caller-supplied eventSourceInit.fetch", async () => {
     // That explicit fetch is deliberately not proxy- or intercept-wrapped, so
@@ -225,7 +225,7 @@ describe("OAuth challenge resource_metadata (RFC 9728)", () => {
     expect(observed).toContainEqual(
       expect.objectContaining({ resourceMetadataUrl: METADATA_URL_LITERAL }),
     );
-  }, 30_000);
+  });
 
   it("keeps the showcase config valid and carrying the custom path", () => {
     const configPath = fileURLToPath(

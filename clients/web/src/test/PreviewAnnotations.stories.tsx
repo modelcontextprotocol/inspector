@@ -8,8 +8,15 @@ import { theme } from "../theme/theme";
 // `.storybook/vitest.setup.ts` used to call `setProjectAnnotations([...])` to
 // hand the preview annotations to the Storybook vitest project. Since Storybook
 // 10.3 `@storybook/addon-vitest` applies them automatically — and *skips* doing
-// so when it finds such a setup file — so the file was removed and the
-// `setupFiles` entry dropped from the `storybook` project in `vite.config.ts`.
+// so when it finds a setup file that is both inside `configDir` and calls
+// `setProjectAnnotations` — so that file was removed.
+//
+// The project does have a `setupFiles` entry again (#2323), and it is a
+// different thing: `src/test/storybookSetup.ts` configures Testing Library's
+// `asyncUtilTimeout` and nothing else. It satisfies *neither* half of the
+// condition above — it lives outside `.storybook/` and names no annotations —
+// so the automatic path is still the one in use, and this guard still asserts
+// that it worked.
 //
 // A green suite is not evidence that the automatic path works. Two things the
 // setup file used to provision are silently losable:

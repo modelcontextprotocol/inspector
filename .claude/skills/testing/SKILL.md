@@ -255,9 +255,16 @@ renders. The rule stands on consistency, not on timer safety.
   `defaultColorScheme="dark"`.
 - **Mid-flight transition state** (e.g. asserting a `data-anim="out"` cell during
   an exit crossfade) is the only reason to use `renderWithMantineTransitions`.
-  Pass `settleMs` derived from the component's real animation duration
-  (`HEADER_ANIM_MS + 200`), do **not** also use `vi.useFakeTimers()` in that test
-  (the auto-settle no-ops under fake timers), and if the test unmounts the tree
+  Pass `settleMs` derived from the component's real animation duration **plus
+  the helper's shared slack** — `HEADER_ANIM_MS + RAF_SLACK_MS`, both imported,
+  never a literal: the first term tracks the component and the second tracks how
+  busy the machine is, and only the second should move when the machine gets
+  busier (#2323). Do **not** also use `vi.useFakeTimers()` in that test:
+  the auto-settle awaits a real `setTimeout`, so under fake timers it **throws**
+  with a message telling you to call `vi.useRealTimers()` first — it does not
+  silently skip. That is deliberate (a deadlock would otherwise hang until the
+  project's `hookTimeout`), but it means the combination fails the test rather
+  than degrading. If the test unmounts the tree
   itself use the `unmount()` the helper returns. The mechanism is documented at
   length on the helper — read there before changing it.
 

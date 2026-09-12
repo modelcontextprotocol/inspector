@@ -101,6 +101,7 @@ export default defineConfig([
     files: [
       "test-servers/src/**/*.{ts,tsx,mts,cts}",
       "vitest.shared.mts",
+      "vitest.setup.shared.mts",
       "eslint.config.js",
     ],
     extends: [js.configs.recommended, tseslint.configs.recommended],
@@ -121,6 +122,7 @@ export default defineConfig([
       "core/**/*.{ts,tsx}",
       "test-servers/src/**/*.{ts,tsx,mts,cts}",
       "vitest.shared.mts",
+      "vitest.setup.shared.mts",
     ],
     ...typeAware,
   },

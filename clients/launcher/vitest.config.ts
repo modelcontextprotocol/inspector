@@ -1,10 +1,18 @@
 import { defineConfig } from "vitest/config";
+import { NO_RETRY_SETUP, TIMEOUTS } from "../../vitest.shared.mts";
 
 export default defineConfig({
   test: {
     globals: false,
     environment: "node",
     include: ["__tests__/**/*.test.ts"],
+    setupFiles: [NO_RETRY_SETUP],
+    // Shared budgets (#2323). This project holds a single test file, which is
+    // exactly why it is pinned rather than left on the defaults: it is cheap to
+    // include and expensive to remember when a second file arrives. This import
+    // is the only thing this config takes from the shared module — the resolve
+    // aliases are for clients that load React or `core/`.
+    ...TIMEOUTS,
     coverage: {
       provider: "v8",
       reporter: ["text", "html", "json-summary"],

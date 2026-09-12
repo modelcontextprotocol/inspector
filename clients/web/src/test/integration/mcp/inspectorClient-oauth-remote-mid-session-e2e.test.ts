@@ -104,7 +104,7 @@ describe("InspectorClient remote mid-session OAuth", () => {
     }
     remoteBaseUrl = undefined;
     remoteAuthToken = undefined;
-  }, 30_000);
+  });
 
   afterAll(() => {
     try {
@@ -206,7 +206,7 @@ describe("InspectorClient remote mid-session OAuth", () => {
     expect(client.getStatus()).toBe("connected");
 
     await client.disconnect();
-  }, 15_000);
+  });
 
   it("recovers on reconnect when stored access token was invalidated before connect", async () => {
     await setupRemoteServer();
@@ -446,7 +446,7 @@ describe("InspectorClient remote mid-session OAuth", () => {
 
     await callbackClient.disconnect();
     await client.disconnect();
-  }, 30_000);
+  });
 
   it("resumeAfterOAuth falls back to connect when remote session is dead", async () => {
     await setupRemoteServer();
@@ -549,7 +549,7 @@ describe("InspectorClient remote mid-session OAuth", () => {
 
     await callbackClient.disconnect();
     await client.disconnect();
-  }, 30_000);
+  });
 
   it("dispatches authChallengeInteractive for ambient interactive recovery", async () => {
     await setupRemoteServer();
@@ -640,7 +640,7 @@ describe("InspectorClient remote mid-session OAuth", () => {
     ).toBeInstanceOf(URL);
 
     await client.disconnect();
-  }, 15_000);
+  });
 
   it("recovers from ambient auth notification after idle token invalidation", async () => {
     await setupRemoteServer();
@@ -731,5 +731,5 @@ describe("InspectorClient remote mid-session OAuth", () => {
     expect(client.getStatus()).toBe("connected");
 
     await client.disconnect();
-  }, 15_000);
+  });
 });

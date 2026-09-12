@@ -396,6 +396,80 @@ diagnose a failing gate — is the `testing` skill. These are the rules.
 - **Render React components through `renderWithMantine`** (`src/test/renderWithMantine.tsx`); do not hand-roll a bare `MantineProvider`, which skips the project theme and the helper's options and drifts from every other test. Pass the `colorScheme` option to exercise a forced scheme rather than hand-rolling `defaultColorScheme`. Use `renderWithMantineTransitions` **only** when a test must assert mid-flight transition state, and read the long comment on the helper before changing anything about it.
 - **The web coverage `include` is a whitelist.** It names `components`/`hooks`/`theme`/`lib`/`utils`/`server` plus the browser-consumed `core/*` runtime, so a module placed **outside** those directories falls out of the gate entirely, silently. Place new modules inside a gated directory. The documented exceptions — `src/App.tsx` and the `src/main.tsx` / `src/index.ts` bootstraps — are called out in a comment on the `include` array itself.
 
+### Test-gate timeouts are chosen values, stated once
+
+**Every wall-clock budget a test gate runs under is a value somebody picked,
+and it lives in one place (#2323).** The shared budgets are `TIMEOUTS` and
+`INTEGRATION_TIMEOUTS` in `vitest.shared.mts`; all six Vitest projects spread
+one of them, and Testing Library's `asyncUtilTimeout` — which no Vitest config
+can see — is configured in each web project's setup file
+(`src/test/setup.ts`, `src/test/storybookSetup.ts`).
+`npm run verify:test-timeouts` resolves each project through Vitest itself and
+enforces all of it.
+
+This is not a licence to relax the bar. #1596 settled that: **a test that races
+is fixed with fake timers or an awaited condition, never with headroom.** The
+complementary case is what these budgets exist for — a test that is correct and
+deterministic and is simply cut off, because the number bounding it was a
+library default sized for an idle machine rather than for the one this repo is
+worked on (three or four concurrent agent sessions in separate worktrees, each
+free to run a full `local:gate`). Raising a budget nobody chose hides no race.
+
+- **Raise a budget in the shared object, not at a suite.** A per-suite
+  `}, 30_000)` moves one site and leaves every future file where it was — which
+  is how five of the six projects came to have no stated budget at all. Delete a
+  restatement of the project's own value rather than keeping it in sync.
+- **A per-suite raise is right only where the work is genuinely different**, and
+  then it says so: real cross-process lock contention (`file-lock.test.ts`), a
+  full interactive OAuth round trip (`oauth-interactive.test.ts`). Name the
+  constant and state the reason at the site.
+- **A rule about what the code _does_ is asserted at runtime, not read out of
+  the source.** Both of this section's runtime checks
+  (`vitest.setup.shared.mts`, `clients/web/src/test/asyncUtilTimeout.test.ts`)
+  began as source scanning in #2334, and the review found a new valid
+  JavaScript spelling the scanner missed in five consecutive rounds — each fix
+  correct, each making it more parser-shaped, until it carried eight helpers
+  doing quote tracking and bracket balancing. Asking the runtime needs no
+  spelling to be anticipated and covers cases the scan could not reach at all.
+  Reach for `verify:*` when the question is about **configuration**, which a
+  tool can be asked to resolve; assert at runtime when it is about behavior.
+- **A budget is stated, which is not the same as raised.** Testing Library's
+  `asyncUtilTimeout` is pinned at its own default in both web setup files
+  because raising it was *measured worse*: a wait that is meant to expire —
+  a test asserting something never appears, a poll allowed to run out — spends
+  its whole budget on the happy path, so a raise is a proportional cost on
+  exactly those tests and starves the worker pool. Measure before raising a
+  budget that a passing test can spend in full; the call-site comment records
+  the three-arm run.
+- **An inner budget must be strictly smaller than the budget enclosing it.**
+  `waitFor({ timeout: N })` inside a test whose own budget is `N` can never win:
+  the test expires first and reports a timeout naming neither the wait nor its
+  subject (#2292). So when two bounds cover the same work they must differ, and
+  the **inner** one — the one carrying the useful diagnostic — has to be the
+  tighter, which is arranged by raising the outer rather than shrinking the
+  inner. Both shapes in this repo read that way: `AppRenderer.test.tsx`'s 5s
+  `waitFor` inside a 15s test, and `clients/cli/__tests__/e2e.test.ts`'s 15s
+  child timer (which kills the process group and names the CLI) inside a 25s
+  test.
+- **`retry` stays unset.** A retry turns a load-induced red into a silent green
+  on the only pre-push gate this repo has, and hides a real race behind a second
+  attempt. `vitest.setup.shared.mts` asserts it **at runtime**, in every
+  project, reading the value Vitest resolved for the test — so a per-test
+  option, a `describe` option, a project setting and a `--retry` flag all land
+  on the same check.
+- **The Playwright locator budgets the web smokes use are named constants in
+  `scripts/lib/browser-timeouts.mjs`** — raise one there, not at a call site.
+  The *remaining* smoke-helper budgets and CI's missing `timeout-minutes` are
+  tracked on #2333 rather than settled here.
+- **Do not scale a fixed sleep.** A `setTimeout(r, N)` with no condition is not
+  a timeout: it always waits the full window, so raising it slows every passing
+  run and still races on a loaded one. Replace one with a condition wait when it
+  actually flakes (#2250). The single exception is the transition auto-settle in
+  `clients/web/src/test/renderWithMantine.tsx`, whose failure is silent and
+  displaced rather than loud and local — and there only its `RAF_SLACK_MS` term
+  moves, never the term derived from the component's own animation constant.
+
+
 ## Mandatory pre-push gate
 
 - **ALWAYS run `npm run format` before committing.** The **root** `format` auto-fixes `core/`, the root `scripts/` tooling, the root shared surface, and every client's scope in one shot. `validate` runs the non-fixing `format:check` and will fail in CI on any unformatted file, so run the auto-fixer first rather than letting `format:check` catch it.

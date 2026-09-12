@@ -108,12 +108,46 @@ export function renderWithMantineTransitions(
   return { ...result, unmount: downgradingUnmount };
 }
 
-// Fallback settle window: ≈500ms clears a typical few-hundred-millisecond
-// transition plus the two-frame rAF scheduling slack. Callers that know their
-// component's animation duration should pass `settleMs` (its longest JS timer
-// chain — duration plus any `enterDelay`/`exitDelay` — plus slack) rather than
-// rely on this default.
-const DEFAULT_SETTLE_MS = 500;
+// A settle window is two terms with completely different relationships to the
+// machine, and they must not be scaled as one number (#2323).
+//
+// The first term tracks the component: the longest JS timer chain its
+// transition schedules — its duration plus any `enterDelay`/`exitDelay`. That
+// is fixed by the component and load does not move it. Callers that know their
+// component derive it from the component's own exported constant, which is why
+// `ViewHeader.test.tsx` writes `HEADER_ANIM_MS + RAF_SLACK_MS` rather than a
+// literal: bumping the animation then cannot silently outrun the settle.
+//
+// The second term is this one — the slack in which the rAF callbacks, the React
+// commit and the terminal `setTimeout` they schedule actually have to *run*.
+// That work is CPU-bound, so it is the term an oversubscribed machine eats, and
+// the only term that should grow when the machine gets busier.
+//
+// ⚠️ Unlike a timeout, this is a fixed sleep: it always waits the full window
+// and never exits early. Raising it therefore costs every *passing* run (3 call
+// sites x 300ms ≈ 0.9s), which is the opposite call from the one made for the
+// repo's ordinary fixed sleeps. It is justified here only because this failure
+// is silent and displaced rather than loud and local: an insufficient settle
+// fails nothing at its own site — the test's assertions have already passed —
+// and surfaces either as a leaked timer that `setup.ts` cancels with no report
+// at all, or as an uncaught post-teardown `window is not defined` failing the
+// whole run from an arbitrary innocent file (#1760). Re-running localizes
+// neither. Do not generalize this to the ordinary sleeps.
+//
+// (A condition wait is not available and should not be re-litigated: a
+// completed *enter* transition leaves no DOM signal to `waitFor` on, which is
+// the whole reason this is a sleep at all.)
+export const RAF_SLACK_MS = 500;
+
+// The animation term of the fallback window, for a caller that does not know
+// its component's duration. A typical Mantine transition is a few hundred ms.
+const TYPICAL_ANIM_MS = 300;
+
+// Fallback settle window, used by `settleTransitions()` called with no
+// argument. Built from the same slack constant as the derived call sites so the
+// two cannot drift apart. Callers that know their component's animation
+// duration should pass `settleMs` instead of relying on this.
+const DEFAULT_SETTLE_MS = TYPICAL_ANIM_MS + RAF_SLACK_MS;
 
 // Set by `renderWithMantineTransitions`; consumed once by the `afterEach` below.
 // `armedSettleMs === null` means no real-transitions render happened this test,
@@ -165,8 +199,12 @@ function resetArming() {
 // `setTimeout`, and the React work they schedule against the still-mounted tree
 // — whichever is the actual escapee, it resolves on a live component before
 // cleanup unmounts. Because it awaits a *real* `setTimeout`, it deadlocks under
-// fake timers, so guard against that with a clear message rather than a 5s
-// test-timeout hang.
+// fake timers, so guard against that with a clear message rather than leaving
+// it to the project's `hookTimeout` — which is what actually bounds this await,
+// since the auto-settle runs in an `afterEach`. That is 30000ms
+// (`vitest.shared.mts`, #2323), so without this throw a fake-timer deadlock
+// would take half a minute to report something naming neither transitions nor
+// fake timers.
 export async function settleTransitions(ms: number = DEFAULT_SETTLE_MS) {
   if (vi.isFakeTimers()) {
     throw new Error(

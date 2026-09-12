@@ -174,7 +174,7 @@ describe("web-client cancellation over a per-request stream (#2140)", () => {
     // `notifications/cancelled` it was free to ignore (and did), its request
     // signal never fired, and this promise never resolved.
     await expect(slow.aborted).resolves.toBe(true);
-  }, 30_000);
+  });
 
   it("advertises the per-request stream only for streamable-http", () => {
     // The flag is what the SDK forks on, and the factory is where a server's

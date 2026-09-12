@@ -91,6 +91,7 @@ import {
   connectViaDeepLink,
 } from "./lib/deep-link-connect.mjs";
 import { startMcpAppServer } from "./lib/mcp-app-flow.mjs";
+import { BROWSER_TIMEOUTS } from "./lib/browser-timeouts.mjs";
 
 const repoRoot = resolve(import.meta.dirname, "..");
 
@@ -173,7 +174,7 @@ async function openTab(page, name) {
   await page
     .locator(`label[for$="-${name}"]`)
     .first()
-    .click({ timeout: 30_000 });
+    .click({ timeout: BROWSER_TIMEOUTS.ui });
 }
 
 /**
@@ -184,7 +185,7 @@ async function waitForStage(page, { selector, screen, attrs, what }) {
   try {
     await page
       .locator(selector)
-      .waitFor({ state: "attached", timeout: 45_000 });
+      .waitFor({ state: "attached", timeout: BROWSER_TIMEOUTS.roundTrip });
   } catch {
     const root = page.locator(screen);
     const present = (await root.count()) > 0;
@@ -244,10 +245,10 @@ try {
     });
     await page
       .getByRole("button", { name: TOOL, exact: true })
-      .click({ timeout: 30_000 });
+      .click({ timeout: BROWSER_TIMEOUTS.ui });
     await page
       .getByRole("button", { name: /execute tool/i })
-      .click({ timeout: 30_000 });
+      .click({ timeout: BROWSER_TIMEOUTS.ui });
     await waitForStage(page, {
       selector: '[data-testid="tools-screen"][data-call-status="ok"]',
       screen: '[data-testid="tools-screen"]',
@@ -259,7 +260,7 @@ try {
     // the data.
     await page
       .locator('[data-testid="structured-output"]')
-      .waitFor({ state: "attached", timeout: 15_000 });
+      .waitFor({ state: "attached", timeout: BROWSER_TIMEOUTS.nested });
 
     // ── Resources ──────────────────────────────────────────────────────────
     await openTab(page, "Resources");
@@ -280,12 +281,12 @@ try {
     // is closed rather than clicking blind, which would toggle it shut.
     const uris = page.getByRole("button", { name: /^URIs/ });
     if ((await uris.getAttribute("aria-expanded")) !== "true") {
-      await uris.click({ timeout: 15_000 });
+      await uris.click({ timeout: BROWSER_TIMEOUTS.nested });
     }
     // Selecting a resource reads it — there is no separate Read button here.
     await page
       .getByRole("button", { name: RESOURCE, exact: true })
-      .click({ timeout: 30_000 });
+      .click({ timeout: BROWSER_TIMEOUTS.ui });
     await waitForStage(page, {
       // Both the RPC status AND the rendered preview. The status flips the
       // moment `resources/read` resolves, so stopping there would stay green
@@ -311,7 +312,7 @@ try {
     // submit step follows.
     await page
       .getByRole("button", { name: new RegExp(`^${PROMPT}`) })
-      .click({ timeout: 30_000 });
+      .click({ timeout: BROWSER_TIMEOUTS.ui });
     await waitForStage(page, {
       // As with the resource preview: the messages panel must have rendered,
       // not merely `prompts/get` returned (Copilot, #2148).

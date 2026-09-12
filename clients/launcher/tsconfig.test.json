@@ -6,7 +6,15 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "noEmit": true,
-    "rootDir": ".",
+    // Wide enough to contain `vitest.shared.mts`, which `vitest.config.ts`
+    // imports for the shared test budgets (#2323). `rootDir` only shapes error
+    // reporting under `noEmit`, and the emitting build config next door keeps
+    // its own `./src` — this project compiles nothing. `cli` and `tui` reach
+    // the same file with no `rootDir` at all, which infers the same thing.
+    "rootDir": "../..",
+    // Same import: `.mts` in a specifier needs this, and it is safe for the
+    // same reason — nothing here is emitted. `cli` and `tui` both set it.
+    "allowImportingTsExtensions": true,
     "types": ["node"]
   },
   // `vitest.config.ts` lives here (not the src project) because the build

@@ -30,6 +30,7 @@
     "test-servers/src/**/*.tsx",
     "test-servers/src/**/*.mts",
     "test-servers/src/**/*.cts",
-    "vitest.shared.mts"
+    "vitest.shared.mts",
+    "vitest.setup.shared.mts"
   ]
 }

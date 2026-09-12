@@ -96,7 +96,7 @@ describe("OAuth token revocation (RFC 7009)", () => {
     metadata = (await (
       await fetch(`${serverUrl}/.well-known/oauth-authorization-server`)
     ).json()) as OAuthMetadata;
-  }, 30_000);
+  });
 
   afterAll(async () => {
     await mcpServer?.stop();
@@ -105,7 +105,7 @@ describe("OAuth token revocation (RFC 7009)", () => {
       rmSync(storageDir, { recursive: true, force: true });
       storageDir = "";
     }
-  }, 30_000);
+  });
 
   /** Run a real authorization-code exchange and return the issued tokens. */
   async function authorize(

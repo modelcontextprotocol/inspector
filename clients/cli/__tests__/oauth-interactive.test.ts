@@ -1,3 +1,12 @@
+/**
+ * Interactive OAuth against a real HTTP test server.
+ *
+ * Every test here raises past the cli project's shared 15s budget, and is meant
+ * to: each boots a server, waits for its well-known documents, runs a full
+ * authorization round trip, then disconnects. That is elapsed work, not slack
+ * for a loaded machine, so it stays stated per test rather than folding into
+ * the shared value (#2323).
+ */
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -90,6 +99,9 @@ const callbackUrlConfig = {
 };
 const presetRedirectUrl = "http://127.0.0.1:6276/oauth/callback";
 
+/** A full interactive OAuth round trip against a freshly booted server. */
+const OAUTH_ROUND_TRIP_MS = 30_000;
+
 describe("CLI interactive OAuth (integration)", () => {
   let mcpServer: TestServerHttp | null = null;
 
@@ -104,148 +116,160 @@ describe("CLI interactive OAuth (integration)", () => {
     } catch {
       // ignore
     }
-  }, 30_000);
+    // No budget: stopping the server and unlinking a file is not the round trip
+    // this file's constant describes, and the shared `hookTimeout` is already
+    // 30000 — so a per-hook argument here would restate it and say the wrong
+    // thing about it (Copilot).
+  });
 
-  it("connects to an OAuth-protected server via the loopback callback server", async () => {
-    const serverConfig = {
-      ...getDefaultServerConfig(),
-      serverType: "streamable-http" as const,
-      ...createOAuthTestServerConfig({
-        requireAuth: true,
-        supportDCR: true,
-      }),
-    };
+  it(
+    "connects to an OAuth-protected server via the loopback callback server",
+    async () => {
+      const serverConfig = {
+        ...getDefaultServerConfig(),
+        serverType: "streamable-http" as const,
+        ...createOAuthTestServerConfig({
+          requireAuth: true,
+          supportDCR: true,
+        }),
+      };
 
-    mcpServer = new TestServerHttp(serverConfig);
-    const port = await mcpServer.start();
-    const serverUrl = `http://localhost:${port}`;
-    await waitForOAuthWellKnown(serverUrl);
+      mcpServer = new TestServerHttp(serverConfig);
+      const port = await mcpServer.start();
+      const serverUrl = `http://localhost:${port}`;
+      await waitForOAuthWellKnown(serverUrl);
 
-    const redirectUrlProvider = new MutableRedirectUrlProvider();
-    redirectUrlProvider.redirectUrl = presetRedirectUrl;
-    const navigation = createAutoCompleteNavigation(redirectUrlProvider);
-    const client = new InspectorClient(
-      {
-        type: "streamable-http",
-        url: `${serverUrl}/mcp`,
-      } as MCPServerConfig,
-      {
-        environment: {
-          transport: createTransportNode,
-          oauth: {
-            storage: new NodeOAuthStorage(oauthTestStatePath),
-            navigation,
-            redirectUrlProvider,
+      const redirectUrlProvider = new MutableRedirectUrlProvider();
+      redirectUrlProvider.redirectUrl = presetRedirectUrl;
+      const navigation = createAutoCompleteNavigation(redirectUrlProvider);
+      const client = new InspectorClient(
+        {
+          type: "streamable-http",
+          url: `${serverUrl}/mcp`,
+        } as MCPServerConfig,
+        {
+          environment: {
+            transport: createTransportNode,
+            oauth: {
+              storage: new NodeOAuthStorage(oauthTestStatePath),
+              navigation,
+              redirectUrlProvider,
+            },
           },
+          directAuthRecovery: true,
+          oauth: {},
         },
-        directAuthRecovery: true,
-        oauth: {},
-      },
-    );
+      );
 
-    await connectInspectorWithOAuth(
-      client,
-      { type: "streamable-http", url: `${serverUrl}/mcp` },
-      redirectUrlProvider,
-      callbackUrlConfig,
-      undefined,
-      { isTTY: true },
-    );
-
-    const tools = await client.listTools();
-    expect(tools.tools.length).toBeGreaterThan(0);
-    await client.disconnect();
-  }, 30_000);
-
-  it("retries an RPC after step-up authorization when the user confirms", async () => {
-    const baseConfig = getDefaultServerConfig();
-
-    const serverConfig = {
-      ...baseConfig,
-      serverType: "streamable-http" as const,
-      tools: baseConfig.tools!.map((tool) =>
-        tool.name === "get_temp"
-          ? { ...tool, requiredScopes: ["weather:read"] }
-          : tool,
-      ),
-      ...createOAuthTestServerConfig({
-        requireAuth: true,
-        supportRefreshTokens: true,
-        supportDCR: true,
-      }),
-    };
-
-    mcpServer = new TestServerHttp(serverConfig);
-    const port = await mcpServer.start();
-    const serverUrl = `http://localhost:${port}`;
-    await waitForOAuthWellKnown(serverUrl);
-
-    const redirectUrlProvider = new MutableRedirectUrlProvider();
-    redirectUrlProvider.redirectUrl = presetRedirectUrl;
-    const navigation = createAutoCompleteNavigation(redirectUrlProvider);
-    const client = new InspectorClient(
-      {
-        type: "streamable-http",
-        url: `${serverUrl}/mcp`,
-      } as MCPServerConfig,
-      {
-        environment: {
-          transport: createTransportNode,
-          oauth: {
-            storage: new NodeOAuthStorage(oauthTestStatePath),
-            navigation,
-            redirectUrlProvider,
-          },
-        },
-        directAuthRecovery: true,
-        oauth: {
-          scope: "mcp tools:read",
-        },
-      },
-    );
-
-    await connectInspectorWithOAuth(
-      client,
-      { type: "streamable-http", url: `${serverUrl}/mcp` },
-      redirectUrlProvider,
-      callbackUrlConfig,
-      undefined,
-      { isTTY: true },
-    );
-
-    const tools = await client.listTools();
-    const getTempTool = tools.tools.find((tool) => tool.name === "get_temp");
-    expect(getTempTool).toBeDefined();
-
-    const stderrSpy = vi
-      .spyOn(process.stderr, "write")
-      .mockImplementation(() => true);
-
-    try {
-      const result = await withCliAuthRecoveryRetry(
+      await connectInspectorWithOAuth(
         client,
         { type: "streamable-http", url: `${serverUrl}/mcp` },
         redirectUrlProvider,
         callbackUrlConfig,
-        makeFakeServerSettings(),
-        () =>
-          client.callTool(getTempTool!, {
-            city: "NYC",
-            units: "C",
-          }),
-        { confirmStepUp: async () => true, isTTY: true },
+        undefined,
+        { isTTY: true },
       );
 
-      const stepUpPrompted = stderrSpy.mock.calls.some(
-        ([chunk]) =>
-          typeof chunk === "string" &&
-          chunk.includes("Proceed with step-up authorization?"),
-      );
-      expect(stepUpPrompted).toBe(true);
-      expect(result.success).toBe(true);
-    } finally {
-      stderrSpy.mockRestore();
+      const tools = await client.listTools();
+      expect(tools.tools.length).toBeGreaterThan(0);
       await client.disconnect();
-    }
-  }, 30_000);
+    },
+    OAUTH_ROUND_TRIP_MS,
+  );
+
+  it(
+    "retries an RPC after step-up authorization when the user confirms",
+    async () => {
+      const baseConfig = getDefaultServerConfig();
+
+      const serverConfig = {
+        ...baseConfig,
+        serverType: "streamable-http" as const,
+        tools: baseConfig.tools!.map((tool) =>
+          tool.name === "get_temp"
+            ? { ...tool, requiredScopes: ["weather:read"] }
+            : tool,
+        ),
+        ...createOAuthTestServerConfig({
+          requireAuth: true,
+          supportRefreshTokens: true,
+          supportDCR: true,
+        }),
+      };
+
+      mcpServer = new TestServerHttp(serverConfig);
+      const port = await mcpServer.start();
+      const serverUrl = `http://localhost:${port}`;
+      await waitForOAuthWellKnown(serverUrl);
+
+      const redirectUrlProvider = new MutableRedirectUrlProvider();
+      redirectUrlProvider.redirectUrl = presetRedirectUrl;
+      const navigation = createAutoCompleteNavigation(redirectUrlProvider);
+      const client = new InspectorClient(
+        {
+          type: "streamable-http",
+          url: `${serverUrl}/mcp`,
+        } as MCPServerConfig,
+        {
+          environment: {
+            transport: createTransportNode,
+            oauth: {
+              storage: new NodeOAuthStorage(oauthTestStatePath),
+              navigation,
+              redirectUrlProvider,
+            },
+          },
+          directAuthRecovery: true,
+          oauth: {
+            scope: "mcp tools:read",
+          },
+        },
+      );
+
+      await connectInspectorWithOAuth(
+        client,
+        { type: "streamable-http", url: `${serverUrl}/mcp` },
+        redirectUrlProvider,
+        callbackUrlConfig,
+        undefined,
+        { isTTY: true },
+      );
+
+      const tools = await client.listTools();
+      const getTempTool = tools.tools.find((tool) => tool.name === "get_temp");
+      expect(getTempTool).toBeDefined();
+
+      const stderrSpy = vi
+        .spyOn(process.stderr, "write")
+        .mockImplementation(() => true);
+
+      try {
+        const result = await withCliAuthRecoveryRetry(
+          client,
+          { type: "streamable-http", url: `${serverUrl}/mcp` },
+          redirectUrlProvider,
+          callbackUrlConfig,
+          makeFakeServerSettings(),
+          () =>
+            client.callTool(getTempTool!, {
+              city: "NYC",
+              units: "C",
+            }),
+          { confirmStepUp: async () => true, isTTY: true },
+        );
+
+        const stepUpPrompted = stderrSpy.mock.calls.some(
+          ([chunk]) =>
+            typeof chunk === "string" &&
+            chunk.includes("Proceed with step-up authorization?"),
+        );
+        expect(stepUpPrompted).toBe(true);
+        expect(result.success).toBe(true);
+      } finally {
+        stderrSpy.mockRestore();
+        await client.disconnect();
+      }
+    },
+    OAUTH_ROUND_TRIP_MS,
+  );
 });

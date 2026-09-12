@@ -70,7 +70,7 @@ describe("OAuth connect on the probing eras (#1805)", () => {
       await mcpServer.stop();
       mcpServer = null;
     }
-  }, 30_000);
+  });
 
   afterAll(() => {
     try {
@@ -166,7 +166,7 @@ describe("OAuth connect on the probing eras (#1805)", () => {
       expect(
         (error as AuthRecoveryRequiredError).authorizationUrl,
       ).toBeInstanceOf(URL);
-    }, 30_000);
+    });
 
     it(`connects on the "${era}" era once authorization completes`, async () => {
       const serverUrl = await startProtectedModernServer();
@@ -183,6 +183,6 @@ describe("OAuth connect on the probing eras (#1805)", () => {
       expect(authorizing.getProtocolEra()).toBe("modern");
       expect(authorizing.getProtocolVersion()).toBe(MODERN_PROTOCOL_VERSION);
       expect((await authorizing.listTools()).tools.length).toBeGreaterThan(0);
-    }, 30_000);
+    });
   }
 });
