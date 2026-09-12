@@ -37,6 +37,16 @@ import { fileURLToPath } from "node:url";
  * converts a load-induced red into a silent green on the only pre-push gate
  * this repo has. `scripts/verify-test-timeouts.mjs` enforces both halves.
  */
+/**
+ * Absolute path to the setup file every project loads, which asserts at runtime
+ * that no test declares a `retry` (#2323). Exported from here so the six
+ * projects name one path rather than six copies of a relative one.
+ */
+export const NO_RETRY_SETUP = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "vitest.setup.shared.mts",
+);
+
 export const TIMEOUTS = Object.freeze({
   /**
    * 3x Vitest's default. Covers the measured load; past this a genuinely hung

@@ -16,6 +16,7 @@ import { buildWebServerConfigFromEnv } from "./server/web-server-config";
 import { createBrowserExternalizedBuiltinGate } from "./server/browser-externalized-builtin-gate";
 import {
   INTEGRATION_TIMEOUTS,
+  NO_RETRY_SETUP,
   TIMEOUTS,
   vitestSharedPaths,
 } from "../../vitest.shared.mts";
@@ -318,7 +319,10 @@ export default defineConfig(({ command }) => {
             include: ["clients/web/src/**/*.test.{ts,tsx}"],
             // Integration tests run in the integration project below (node env).
             exclude: [integrationGlob],
-            setupFiles: [path.join(dirname, "src/test/setup.ts")],
+            setupFiles: [
+              path.join(dirname, "src/test/setup.ts"),
+              NO_RETRY_SETUP,
+            ],
             // Pin after-hooks to LIFO (reverse registration). This is Vitest 4's
             // own default (`resolved.sequence.hooks ??= "stack"` — the CLI
             // help-text's "parallel" is stale), so this line documents intent and
@@ -357,6 +361,7 @@ export default defineConfig(({ command }) => {
             // can transform core/ modules and run tests against the source.
             root: repoRoot,
             include: [integrationGlob],
+            setupFiles: [NO_RETRY_SETUP],
             // Integration tests spawn real HTTP/stdio servers via test-servers/,
             // bind sockets, run e2e OAuth flows, and exercise filesystem-backed
             // storage. 30s matches the v1.5 core/vitest.config.ts. Now stated
@@ -402,11 +407,13 @@ export default defineConfig(({ command }) => {
             // now follow it rather than restate it. The hook and teardown
             // budgets come along with it, having been left on the defaults.
             ...TIMEOUTS,
-            // One `configure({ asyncUtilTimeout })` call, and deliberately not
-            // in `.storybook/` — see the file's own header for why that
-            // location and the absence of `setProjectAnnotations` are what keep
-            // the automatic preview-annotation provisioning below intact.
-            setupFiles: [path.join(dirname, "src/test/storybookSetup.ts")],
+            // Carries the shared no-retry assertion and nothing else.
+            // ⚠️ It is deliberately NOT in `.storybook/` and declares no
+            // annotations: `@storybook/addon-vitest` skips its automatic
+            // preview-annotation provisioning only for a setup file that is
+            // both inside `configDir` and calls `setProjectAnnotations`, and
+            // this one is neither (#1898).
+            setupFiles: [NO_RETRY_SETUP],
             browser: {
               enabled: true,
               headless: true,

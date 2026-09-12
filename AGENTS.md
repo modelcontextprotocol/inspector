@@ -423,6 +423,16 @@ free to run a full `local:gate`). Raising a budget nobody chose hides no race.
   then it says so: real cross-process lock contention (`file-lock.test.ts`), a
   full interactive OAuth round trip (`oauth-interactive.test.ts`). Name the
   constant and state the reason at the site.
+- **A rule about what the code _does_ is asserted at runtime, not read out of
+  the source.** Both of this section's runtime checks
+  (`vitest.setup.shared.mts`, `clients/web/src/test/asyncUtilTimeout.test.ts`)
+  began as source scanning in #2334, and the review found a new valid
+  JavaScript spelling the scanner missed in five consecutive rounds — each fix
+  correct, each making it more parser-shaped, until it carried eight helpers
+  doing quote tracking and bracket balancing. Asking the runtime needs no
+  spelling to be anticipated and covers cases the scan could not reach at all.
+  Reach for `verify:*` when the question is about **configuration**, which a
+  tool can be asked to resolve; assert at runtime when it is about behavior.
 - **A budget is stated, which is not the same as raised.** Testing Library's
   `asyncUtilTimeout` is pinned at its own default in both web setup files
   because raising it was *measured worse*: a wait that is meant to expire —
@@ -443,7 +453,10 @@ free to run a full `local:gate`). Raising a budget nobody chose hides no race.
   test.
 - **`retry` stays unset.** A retry turns a load-induced red into a silent green
   on the only pre-push gate this repo has, and hides a real race behind a second
-  attempt. The guard enforces this.
+  attempt. `vitest.setup.shared.mts` asserts it **at runtime**, in every
+  project, reading the value Vitest resolved for the test — so a per-test
+  option, a `describe` option, a project setting and a `--retry` flag all land
+  on the same check.
 - **The Playwright locator budgets the web smokes use are named constants in
   `scripts/lib/browser-timeouts.mjs`** — raise one there, not at a call site.
   The *remaining* smoke-helper budgets and CI's missing `timeout-minutes` are

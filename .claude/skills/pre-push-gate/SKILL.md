@@ -89,9 +89,9 @@ than fixing it.
 
 ### `verify:test-timeouts`
 
-A Vitest project resolves to a wall-clock budget nobody stated, a web setup
-file stopped configuring Testing Library's `asyncUtilTimeout`, or someone added
-a `retry`. The shared values live in `vitest.shared.mts` (`TIMEOUTS` /
+A Vitest project resolves to a wall-clock budget nobody stated, or stopped
+loading `vitest.setup.shared.mts`. (A `retry` itself fails at **runtime**, from
+that setup file, with a message naming the test — not here.) The shared values live in `vitest.shared.mts` (`TIMEOUTS` /
 `INTEGRATION_TIMEOUTS`) and every project spreads one of them — so **raise a
 budget there**, not with a per-suite `}, 30_000)` argument, which only moves the
 one site and leaves every future file on the default. A per-suite raise is
