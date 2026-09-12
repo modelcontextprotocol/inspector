@@ -64,6 +64,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import { startProdWebServer } from "./lib/prod-web-server.mjs";
+import { BROWSER_TIMEOUTS } from "./lib/browser-timeouts.mjs";
 import {
   attachPageDiagnostics,
   loadBrowser,
@@ -135,7 +136,7 @@ try {
     // authenticates without a query param.
     const response = await page.goto(server.baseUrl, {
       waitUntil: "domcontentloaded",
-      timeout: 30_000,
+      timeout: BROWSER_TIMEOUTS.ui,
     });
     if (!response || !response.ok()) {
       throw new Error(
@@ -145,12 +146,12 @@ try {
     // First meaningful frame: the always-present "Add Servers" control.
     await page
       .getByRole("button", { name: /Add Servers/ })
-      .waitFor({ state: "visible", timeout: 30_000 });
+      .waitFor({ state: "visible", timeout: BROWSER_TIMEOUTS.ui });
     // Settle window: let lazily-evaluated chunks that throw a tick after first
     // paint surface before we assert a clean boot. networkidle is best-effort
     // (the Google-Fonts request may never idle on a restricted network).
     await page
-      .waitForLoadState("networkidle", { timeout: 5_000 })
+      .waitForLoadState("networkidle", { timeout: BROWSER_TIMEOUTS.bestEffort })
       .catch(() => {});
     await delay(500);
   };

@@ -493,7 +493,7 @@ describe("modern-era negotiation (2026-07-28)", () => {
 
     await expect(settled).resolves.toBeInstanceOf(ToolCallCancelledError);
     await expect(aborted).resolves.toBe(true);
-  }, 30_000);
+  });
 
   // The test above builds its own never-returning tool, which is the sharpest
   // way to assert on the server's abort signal but says nothing about the
@@ -576,7 +576,7 @@ describe("modern-era negotiation (2026-07-28)", () => {
     // The handler must return promptly, saying it was cancelled — not run on to
     // its 30th second, which is what it did before the fix.
     await expect(outcome).resolves.toContain("cancelled after");
-  }, 30_000);
+  });
 
   it("cancels an in-flight MRTR call while its embedded request is pending", async () => {
     const started = await startMrtrServer(createMrtrTool());

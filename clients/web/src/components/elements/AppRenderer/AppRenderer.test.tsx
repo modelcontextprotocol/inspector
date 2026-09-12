@@ -557,19 +557,17 @@ describe("AppRenderer", () => {
       // budget that is too tight rather than of a broken observer. Raised
       // rather than retried: a `waitFor` that is generous costs nothing on the
       // passing path, since it returns as soon as the assertion holds.
-      await waitFor(
-        () =>
-          expect(bridge.sendHostContextChange).toHaveBeenCalledWith(
-            expect.objectContaining({
-              theme: "dark",
-              styles: expect.objectContaining({
-                variables: expect.objectContaining({
-                  "--color-background-primary": "#101113",
-                }),
+      await waitFor(() =>
+        expect(bridge.sendHostContextChange).toHaveBeenCalledWith(
+          expect.objectContaining({
+            theme: "dark",
+            styles: expect.objectContaining({
+              variables: expect.objectContaining({
+                "--color-background-primary": "#101113",
               }),
             }),
-          ),
-        { timeout: 5000 },
+          }),
+        ),
       );
     } finally {
       getComputedStyleSpy.mockRestore();

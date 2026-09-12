@@ -1,7 +1,7 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
-import { vitestSharedPaths } from "../../vitest.shared.mts";
+import { TIMEOUTS, vitestSharedPaths } from "../../vitest.shared.mts";
 
 const dirname = path.dirname(fileURLToPath(import.meta.url));
 const { projectResolve } = vitestSharedPaths(dirname);
@@ -13,6 +13,10 @@ export default defineConfig({
     environment: "node",
     include: ["__tests__/**/*.test.{ts,tsx}"],
     setupFiles: ["./__tests__/setup.ts"],
+    // Shared budgets (#2323). Ink renders through React, so every assertion
+    // here waits on a React commit under v8 instrumentation — the shape behind
+    // the poll-budget raises in #1742 and #1942.
+    ...TIMEOUTS,
     coverage: {
       provider: "v8",
       reporter: ["text", "html", "json-summary"],

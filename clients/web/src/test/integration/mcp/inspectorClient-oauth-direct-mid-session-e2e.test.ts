@@ -54,7 +54,7 @@ describe("InspectorClient direct mid-session OAuth", () => {
       await mcpServer.stop();
       mcpServer = null;
     }
-  }, 30_000);
+  });
 
   afterAll(() => {
     try {
@@ -139,7 +139,7 @@ describe("InspectorClient direct mid-session OAuth", () => {
     expect(client.getStatus()).toBe("connected");
 
     await client.disconnect();
-  }, 30_000);
+  });
 
   it("step-up after insufficient_scope throws AuthRecoveryRequiredError then succeeds after OAuth", async () => {
     const staticClientId = "test-direct-step-up";
@@ -244,5 +244,5 @@ describe("InspectorClient direct mid-session OAuth", () => {
     expect(result.success).toBe(true);
 
     await client.disconnect();
-  }, 30_000);
+  });
 });

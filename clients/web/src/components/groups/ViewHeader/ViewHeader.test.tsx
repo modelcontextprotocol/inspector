@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import userEvent from "@testing-library/user-event";
 import {
   act,
+  RAF_SLACK_MS,
   renderWithMantine,
   renderWithMantineTransitions,
   screen,
@@ -18,7 +19,18 @@ import { HEADER_ANIM_MS, ViewHeader } from "./ViewHeader";
 // duration plus rAF scheduling slack, so bumping HEADER_ANIM_MS can't silently
 // make the settle insufficient. (This is why ViewHeader.tsx exports
 // HEADER_ANIM_MS — the settle window must track the animation it settles.)
-const TRANSITION_SETTLE_MS = HEADER_ANIM_MS + 200;
+//
+// The slack half is `RAF_SLACK_MS` rather than a bare `+ 200` (#2323): the two
+// terms answer to different things — the first to the component, the second to
+// how busy the machine is — and only the second should move when the machine
+// gets busier. Naming it is what lets it move in one place, here and in the
+// helper's own fallback.
+//
+// No `enterDelay`/`exitDelay` is passed to any of ViewHeader's four
+// `Transition`s, so HEADER_ANIM_MS really is the longest JS chain. The 150ms
+// stagger visible in the UI is a CSS `animation-delay` (`App.css`), and a CSS
+// animation schedules no JS timer for the settle to drain.
+const TRANSITION_SETTLE_MS = HEADER_ANIM_MS + RAF_SLACK_MS;
 
 // Mock @mantine/hooks so we can control useMediaQuery results per test.
 const mediaQueryMock = vi.hoisted(() => ({ value: false }));

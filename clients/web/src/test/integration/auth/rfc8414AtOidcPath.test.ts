@@ -51,12 +51,12 @@ describe("RFC 8414 metadata at the OIDC well-known path (#2172)", () => {
     const port = await mcpServer.start();
     serverUrl = `http://localhost:${port}`;
     await waitForOAuthWellKnown(serverUrl, { metadataPath: OIDC_PATH });
-  }, 30_000);
+  });
 
   afterAll(async () => {
     await mcpServer?.stop();
     mcpServer = null;
-  }, 30_000);
+  });
 
   it("serves plain RFC 8414 metadata only from the OIDC path", async () => {
     const oidc = await fetch(`${serverUrl}${OIDC_PATH}`);

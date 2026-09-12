@@ -7,6 +7,14 @@
  * is one process-wide queue per path, so two in-process callers are ordered
  * before the lock ever sees them. A child process is not scaffolding here —
  * it is the only participant that can produce the interleaving.
+ *
+ * Four tests here raise their own budget past the integration project's 30s,
+ * and are among the handful in the repo that still should (#2323). What they
+ * wait on is not React or a renderer — it is `proper-lockfile`'s stale-lock
+ * timeout and a second OS process actually contending for the file, which is
+ * real elapsed work rather than slack. The named constants below say so at
+ * each site; the restatements of the project's own 30s that used to sit
+ * alongside them are gone.
  */
 import {
   describe,
@@ -28,6 +36,11 @@ import {
   withSecretFileLock,
   resetFileLockWarnings,
 } from "@inspector/core/auth/node/file-lock.js";
+
+/** A test that waits out a full stale-lock takeover in a second process. */
+const LOCK_TAKEOVER_MS = 90_000;
+/** A test that waits on cross-process contention but not on a stale window. */
+const LOCK_CONTENTION_MS = 60_000;
 import { FileSecretStore } from "@inspector/core/auth/node/file-secret-store.js";
 import { SecretStoreUnavailableError } from "@inspector/core/auth/node/secret-store.js";
 
@@ -150,7 +163,7 @@ describe("withSecretFileLock across processes", () => {
     // …and having waited, it did not report a degraded write.
     expect(warnings()).toBe("");
     await done;
-  }, 20_000);
+  });
 
   it("locks a file that does not exist yet", async () => {
     // The first `set` on a fresh install has no `secrets.json` — and
@@ -204,7 +217,7 @@ describe("withSecretFileLock across processes", () => {
     expect(await reader.get("srv", "env:FROM_CHILD")).toBe("1");
     expect(await reader.get("srv", "env:FROM_PARENT")).toBe("2");
     expect(warnings()).toBe("");
-  }, 20_000);
+  });
 
   it("creates the storage directory so the very first save is locked too", async () => {
     // `writeStoreFile` creates the parent directory, but from *inside* the
@@ -232,7 +245,7 @@ describe("withSecretFileLock across processes", () => {
     expect(await reader.get("srv", "env:FIRST_EVER")).toBe("1");
     // No degrade warning: the lock was genuinely held, not skipped.
     expect(warnings()).toBe("");
-  }, 20_000);
+  });
 });
 
 describe("withSecretFileLock degrades rather than failing", () => {
@@ -263,131 +276,147 @@ describe("withSecretFileLock degrades rather than failing", () => {
     expect(warn).toHaveBeenCalledTimes(1);
   });
 
-  it("refuses the save rather than writing alongside a live holder", async () => {
-    // `ELOCKED` is evidence the lock is *working*, so degrading here would
-    // enter the exact interleaving the lock exists to prevent — and enter it
-    // knowing another writer is there. Held from this process, which is
-    // indistinguishable to `proper-lockfile` from a remote holder (it is not
-    // reentrant); the in-process queue is what keeps that out of the way in
-    // production.
-    //
-    // The wait is real: the retry budget deliberately outlasts the 10s stale
-    // window so a *crashed* holder resolves by takeover instead of failing
-    // everyone else's saves. This holder is alive and refreshing, so it never
-    // goes stale and the budget is spent in full.
-    const target = filePath();
-    const lockfile = require_(LOCKFILE_MODULE) as {
-      lock: (f: string, o: object) => Promise<() => Promise<void>>;
-    };
-    // The **same** `stale` production uses, and that is not incidental:
-    // `isLockStale` is evaluated against the *waiter's* threshold while the
-    // holder refreshes on its own `stale / 2`. A holder configured looser
-    // (say 60s) refreshes every 30s and is therefore declared stale by a
-    // 10s waiter after 10s — the waiter takes over and the save succeeds,
-    // quietly testing the opposite of what this test claims.
-    const release = await lockfile.lock(target, {
-      realpath: false,
-      stale: 10_000,
-    });
+  it(
+    "refuses the save rather than writing alongside a live holder",
+    async () => {
+      // `ELOCKED` is evidence the lock is *working*, so degrading here would
+      // enter the exact interleaving the lock exists to prevent — and enter it
+      // knowing another writer is there. Held from this process, which is
+      // indistinguishable to `proper-lockfile` from a remote holder (it is not
+      // reentrant); the in-process queue is what keeps that out of the way in
+      // production.
+      //
+      // The wait is real: the retry budget deliberately outlasts the 10s stale
+      // window so a *crashed* holder resolves by takeover instead of failing
+      // everyone else's saves. This holder is alive and refreshing, so it never
+      // goes stale and the budget is spent in full.
+      const target = filePath();
+      const lockfile = require_(LOCKFILE_MODULE) as {
+        lock: (f: string, o: object) => Promise<() => Promise<void>>;
+      };
+      // The **same** `stale` production uses, and that is not incidental:
+      // `isLockStale` is evaluated against the *waiter's* threshold while the
+      // holder refreshes on its own `stale / 2`. A holder configured looser
+      // (say 60s) refreshes every 30s and is therefore declared stale by a
+      // 10s waiter after 10s — the waiter takes over and the save succeeds,
+      // quietly testing the opposite of what this test claims.
+      const release = await lockfile.lock(target, {
+        realpath: false,
+        stale: 10_000,
+      });
 
-    const store = new FileSecretStore({ filePath: target });
-    // One call, both assertions off the same rejection: each attempt spends
-    // the full retry budget, so a second would double the test's runtime to
-    // re-prove the same thing.
-    const err = await store
-      .set("srv", "env:MINE", "1")
-      .catch((e: unknown) => e);
-    expect(err).toBeInstanceOf(SecretStoreUnavailableError);
-    expect((err as Error).message).toMatch(/was not saved/);
-    await release();
+      const store = new FileSecretStore({ filePath: target });
+      // One call, both assertions off the same rejection: each attempt spends
+      // the full retry budget, so a second would double the test's runtime to
+      // re-prove the same thing.
+      const err = await store
+        .set("srv", "env:MINE", "1")
+        .catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(SecretStoreUnavailableError);
+      expect((err as Error).message).toMatch(/was not saved/);
+      await release();
 
-    // Nothing was written behind the holder's back.
-    expect(existsSync(target)).toBe(false);
-  }, 90_000);
+      // Nothing was written behind the holder's back.
+      expect(existsSync(target)).toBe(false);
+    },
+    LOCK_TAKEOVER_MS,
+  );
 
-  it("refuses rather than degrading when a stale lock cannot be cleared", async () => {
-    // `acquireLock` does not only *create* directories — on finding a stale
-    // one it removes it and retries, and that removal can fail. A stale lock
-    // with anything inside it fails `ENOTEMPTY`, which is not `ELOCKED`, and
-    // treating every non-`ELOCKED` error as "locks do not work here" meant
-    // every Inspector on the box quietly bypassed the *same* stuck lock and
-    // raced its writes — while the release-failure message was telling the
-    // operator saves would keep failing until they cleared it.
-    const target = filePath();
-    const lockPath = `${target}.lock`;
-    await fs.mkdir(path.dirname(target), { recursive: true });
-    await fs.mkdir(lockPath);
-    await fs.writeFile(`${lockPath}/stray`, "", "utf-8");
-    // Backdated so it reads as stale — which is what sends `acquireLock` down
-    // the remove-and-retry path rather than straight to `ELOCKED`.
-    const longDead = new Date(Date.now() - 60_000);
-    await fs.utimes(lockPath, longDead, longDead);
+  it(
+    "refuses rather than degrading when a stale lock cannot be cleared",
+    async () => {
+      // `acquireLock` does not only *create* directories — on finding a stale
+      // one it removes it and retries, and that removal can fail. A stale lock
+      // with anything inside it fails `ENOTEMPTY`, which is not `ELOCKED`, and
+      // treating every non-`ELOCKED` error as "locks do not work here" meant
+      // every Inspector on the box quietly bypassed the *same* stuck lock and
+      // raced its writes — while the release-failure message was telling the
+      // operator saves would keep failing until they cleared it.
+      const target = filePath();
+      const lockPath = `${target}.lock`;
+      await fs.mkdir(path.dirname(target), { recursive: true });
+      await fs.mkdir(lockPath);
+      await fs.writeFile(`${lockPath}/stray`, "", "utf-8");
+      // Backdated so it reads as stale — which is what sends `acquireLock` down
+      // the remove-and-retry path rather than straight to `ELOCKED`.
+      const longDead = new Date(Date.now() - 60_000);
+      await fs.utimes(lockPath, longDead, longDead);
 
-    const store = new FileSecretStore({ filePath: target });
-    const err = await store
-      .set("srv", "env:MINE", "1")
-      .catch((e: unknown) => e);
+      const store = new FileSecretStore({ filePath: target });
+      const err = await store
+        .set("srv", "env:MINE", "1")
+        .catch((e: unknown) => e);
 
-    expect(err).toBeInstanceOf(SecretStoreUnavailableError);
-    expect((err as Error).message).toMatch(/was not saved/);
-    // Nothing written behind the stuck lock, and no "unprotected" warning:
-    // this is a refusal, not a degrade.
-    expect(existsSync(target)).toBe(false);
-    expect(warnings()).not.toContain("not protected");
-  }, 90_000);
+      expect(err).toBeInstanceOf(SecretStoreUnavailableError);
+      expect((err as Error).message).toMatch(/was not saved/);
+      // Nothing written behind the stuck lock, and no "unprotected" warning:
+      // this is a refusal, not a degrade.
+      expect(existsSync(target)).toBe(false);
+      expect(warnings()).not.toContain("not protected");
+    },
+    LOCK_TAKEOVER_MS,
+  );
 
-  it("takes over the lock of a holder that died, rather than failing the save", async () => {
-    // The invariant behind refusing on `ELOCKED`: refusing is only defensible
-    // because a *crashed* holder resolves on its own first. `RETRY` therefore
-    // has to outlast `STALE_MS` — if the budget were the shorter of the two,
-    // one Inspector killed mid-save would make every later save on the box
-    // fail until someone deleted the lock by hand.
-    //
-    // A dead holder is exactly a lock directory nobody is refreshing, so it
-    // is staged directly: no child to race, and no dependence on how quickly
-    // a killed process is reaped.
-    const target = filePath();
-    const lockPath = `${target}.lock`;
-    await fs.mkdir(path.dirname(target), { recursive: true });
-    await fs.mkdir(lockPath);
-    const longDead = new Date(Date.now() - 60_000);
-    await fs.utimes(lockPath, longDead, longDead);
+  it(
+    "takes over the lock of a holder that died, rather than failing the save",
+    async () => {
+      // The invariant behind refusing on `ELOCKED`: refusing is only defensible
+      // because a *crashed* holder resolves on its own first. `RETRY` therefore
+      // has to outlast `STALE_MS` — if the budget were the shorter of the two,
+      // one Inspector killed mid-save would make every later save on the box
+      // fail until someone deleted the lock by hand.
+      //
+      // A dead holder is exactly a lock directory nobody is refreshing, so it
+      // is staged directly: no child to race, and no dependence on how quickly
+      // a killed process is reaped.
+      const target = filePath();
+      const lockPath = `${target}.lock`;
+      await fs.mkdir(path.dirname(target), { recursive: true });
+      await fs.mkdir(lockPath);
+      const longDead = new Date(Date.now() - 60_000);
+      await fs.utimes(lockPath, longDead, longDead);
 
-    const store = new FileSecretStore({ filePath: target });
-    await store.set("srv", "env:AFTER_CRASH", "1");
+      const store = new FileSecretStore({ filePath: target });
+      await store.set("srv", "env:AFTER_CRASH", "1");
 
-    const reader = new FileSecretStore({ filePath: target });
-    expect(await reader.get("srv", "env:AFTER_CRASH")).toBe("1");
-    // Took the lock over — did not fall through to an unlocked write.
-    expect(warnings()).toBe("");
-  }, 60_000);
+      const reader = new FileSecretStore({ filePath: target });
+      expect(await reader.get("srv", "env:AFTER_CRASH")).toBe("1");
+      // Took the lock over — did not fall through to an unlocked write.
+      expect(warnings()).toBe("");
+    },
+    LOCK_CONTENTION_MS,
+  );
 
-  it("stays silent per the delete contract when the lock is held", async () => {
-    // `delete` reports nothing by contract — only `set` hard-fails — so the
-    // refusal above must not turn a delete into a throw.
-    const target = filePath();
-    const store = new FileSecretStore({ filePath: target });
-    await store.set("srv", "env:A", "1");
+  it(
+    "stays silent per the delete contract when the lock is held",
+    async () => {
+      // `delete` reports nothing by contract — only `set` hard-fails — so the
+      // refusal above must not turn a delete into a throw.
+      const target = filePath();
+      const store = new FileSecretStore({ filePath: target });
+      await store.set("srv", "env:A", "1");
 
-    const lockfile = require_(LOCKFILE_MODULE) as {
-      lock: (f: string, o: object) => Promise<() => Promise<void>>;
-    };
-    // The **same** `stale` production uses, and that is not incidental:
-    // `isLockStale` is evaluated against the *waiter's* threshold while the
-    // holder refreshes on its own `stale / 2`. A holder configured looser
-    // (say 60s) refreshes every 30s and is therefore declared stale by a
-    // 10s waiter after 10s — the waiter takes over and the save succeeds,
-    // quietly testing the opposite of what this test claims.
-    const release = await lockfile.lock(target, {
-      realpath: false,
-      stale: 10_000,
-    });
-    await expect(store.delete("srv", "env:A")).resolves.toBeUndefined();
-    await release();
+      const lockfile = require_(LOCKFILE_MODULE) as {
+        lock: (f: string, o: object) => Promise<() => Promise<void>>;
+      };
+      // The **same** `stale` production uses, and that is not incidental:
+      // `isLockStale` is evaluated against the *waiter's* threshold while the
+      // holder refreshes on its own `stale / 2`. A holder configured looser
+      // (say 60s) refreshes every 30s and is therefore declared stale by a
+      // 10s waiter after 10s — the waiter takes over and the save succeeds,
+      // quietly testing the opposite of what this test claims.
+      const release = await lockfile.lock(target, {
+        realpath: false,
+        stale: 10_000,
+      });
+      await expect(store.delete("srv", "env:A")).resolves.toBeUndefined();
+      await release();
 
-    // …and the entry it could not delete is still there, not half-removed.
-    expect(await store.get("srv", "env:A")).toBe("1");
-  }, 90_000);
+      // …and the entry it could not delete is still there, not half-removed.
+      expect(await store.get("srv", "env:A")).toBe("1");
+    },
+    LOCK_TAKEOVER_MS,
+  );
 });
 
 describe("withSecretFileLock reports what it cannot clean up", () => {
@@ -457,7 +486,7 @@ describe("withSecretFileLock reports what it cannot clean up", () => {
 
     // Unguarded, the winner's directory is gone.
     expect(existsSync(lockPath)).toBe(false);
-  }, 30_000);
+  });
 
   it("tells the operator to clear a lock that cannot expire on its own", async () => {
     // `rmdir` refuses a non-empty directory — and so does stale takeover,
@@ -510,5 +539,5 @@ describe("withSecretFileLock reports what it cannot clean up", () => {
     // that did nothing wrong. `onCompromised` has already said what happened.
     expect(warnings()).not.toContain("by hand");
     expect(warnings()).not.toContain("Could not release the lock");
-  }, 30_000);
+  });
 });

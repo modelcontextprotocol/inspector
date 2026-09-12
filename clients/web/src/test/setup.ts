@@ -1,6 +1,25 @@
 import "@testing-library/jest-dom/vitest";
 import { afterEach } from "vitest";
-import { cleanup } from "@testing-library/react";
+import { cleanup, configure } from "@testing-library/react";
+
+// Testing Library's own `asyncUtilTimeout` default is 1000ms
+// (`@testing-library/dom/dist/config.js`), and it governs every `waitFor` and
+// `findBy*` in the unit project — 788 call sites — none of which chose it. One
+// `configure` call is the whole surface, which is why it is here rather than
+// argued a site at a time (#2323).
+//
+// 5x, because a contended happy-dom render is the worst-measured case on this
+// team's machine (8 logical cores, three or four concurrent worktree sessions
+// each free to run the full `local:gate`), and because once the project's
+// `testTimeout` rises to 15000 this becomes the *binding* constraint on every
+// async assertion in the project — the enclosing budget stops being the thing
+// that cuts a wait short and this starts being it.
+//
+// The trade-off, stated rather than hidden: a genuinely-failing async
+// assertion now takes 5s to report instead of 1s. Only failing assertions pay
+// it, once each, on runs that are already the slow path. A *passing* `waitFor`
+// returns the instant its callback stops throwing and is unaffected.
+configure({ asyncUtilTimeout: 5000 });
 
 // Node 22+ exposes an experimental `localStorage` placeholder that overrides
 // happy-dom's implementation. Without `--localstorage-file`, it's an empty

@@ -1,0 +1,290 @@
+/**
+ * Guards the wall-clock budgets every Vitest project in this repo runs under
+ * (#2323), and the two decisions that came with them.
+ *
+ * The class it encodes against: a budget nobody chose. Three of the six
+ * projects ran on Vitest's own `testTimeout: 5000` and five on its
+ * `hookTimeout` / `teardownTimeout: 10000` — values sized for an idle machine,
+ * not for the one this team works on (three or four concurrent agent sessions
+ * in separate worktrees, each free to run the full `npm run local:gate`, on
+ * eight logical cores). A correct, deterministic test cut off mid-flight by
+ * such a budget fails a gate its diff did not break, which trains people to
+ * re-run rather than read — the same argument AGENTS.md's "Lint has no warning
+ * tier" makes from the other direction. #2292, #2278, #2250, #1942 and #1742
+ * were each that class, found and fixed one site at a time.
+ *
+ * Three properties, which is what makes this worth a guard rather than a
+ * comment:
+ *
+ * 1. **Resolved, not declared.** It asks Vitest to resolve each project and
+ *    reads the number a test actually gets. Asserting that a key is absent from
+ *    some config block would pass just as happily on a config that had stopped
+ *    being loaded at all.
+ * 2. **Unknown projects fail loudly.** A seventh project added without a row
+ *    here is exactly the drift this exists to prevent, so it is an error rather
+ *    than something the table silently skips.
+ * 3. **`retry` must stay unset.** A retry converts a load-induced red into a
+ *    silent green on the only pre-push gate this repo has, and would re-open
+ *    #1596 by hiding a real race behind a second attempt. That was a deliberate
+ *    "do not raise" decision, so it is enforced rather than remembered.
+ *
+ * It also asserts the Testing Library half, which no Vitest config can see:
+ * `asyncUtilTimeout` governs every `waitFor` / `findBy*` in the web projects,
+ * defaults to 1000ms, and becomes the *binding* constraint on an async
+ * assertion once the enclosing per-test budget rises.
+ *
+ * ⚠️ Observed to FAIL against the unfixed config before it was trusted: on
+ * `origin/v2/main` it reports `unit`, `tui` and `launcher` at
+ * `testTimeout: 5000`, five of the six projects at `hookTimeout: 10000`, and
+ * both `asyncUtilTimeout` assertions unmet.
+ */
+
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+
+/**
+ * The budgets, restated here rather than imported from `vitest.shared.mts`.
+ *
+ * That duplication is the point: importing the same object the configs spread
+ * in would make this guard agree with any value at all, including a default
+ * someone reinstated by deleting the spread. A guard has to state the
+ * expectation independently or it is only asserting that a file parses.
+ */
+export const EXPECTED_TIMEOUTS = Object.freeze({
+  testTimeout: 15_000,
+  hookTimeout: 30_000,
+  teardownTimeout: 30_000,
+});
+
+/** Web's `integration` project pays for real servers, sockets and OAuth flows. */
+export const EXPECTED_INTEGRATION_TIMEOUTS = Object.freeze({
+  ...EXPECTED_TIMEOUTS,
+  testTimeout: 30_000,
+});
+
+/**
+ * Every Vitest project in the repo, keyed by the resolved project name. Vitest
+ * appends the browser instance to a browser project's name, so `storybook`
+ * resolves as `storybook (chromium)`; match on the leading segment.
+ */
+export const EXPECTED_PROJECTS = Object.freeze({
+  unit: EXPECTED_TIMEOUTS,
+  integration: EXPECTED_INTEGRATION_TIMEOUTS,
+  storybook: EXPECTED_TIMEOUTS,
+  cli: EXPECTED_TIMEOUTS,
+  tui: EXPECTED_TIMEOUTS,
+  launcher: EXPECTED_TIMEOUTS,
+});
+
+/**
+ * The four Vitest configs to resolve, and the project names each must yield.
+ *
+ * The node clients name no project, so their single project resolves with an
+ * empty name — `projects` supplies the name this guard checks it under. Web's
+ * three name themselves, so its entry lists them and the resolver matches by
+ * name instead of by position.
+ */
+export const CONFIG_ROOTS = Object.freeze([
+  { root: "clients/web", projects: ["unit", "integration", "storybook"] },
+  { root: "clients/cli", projects: ["cli"] },
+  { root: "clients/tui", projects: ["tui"] },
+  { root: "clients/launcher", projects: ["launcher"] },
+]);
+
+/**
+ * Files that must configure Testing Library's `asyncUtilTimeout`, with the
+ * import each has to configure it through. Storybook instruments its own copy
+ * of Testing Library so its interactions panel can trace each step, so
+ * configuring `@testing-library/*` there would configure a copy no play
+ * function calls.
+ */
+export const ASYNC_UTIL_SITES = Object.freeze([
+  {
+    file: "clients/web/src/test/setup.ts",
+    from: "@testing-library/react",
+    project: "unit",
+  },
+  {
+    file: "clients/web/src/test/storybookSetup.ts",
+    from: "storybook/test",
+    project: "storybook",
+  },
+]);
+
+/**
+ * Compare one resolved project against its row.
+ *
+ * @param {string} name project name as this guard knows it
+ * @param {{testTimeout?: unknown, hookTimeout?: unknown, teardownTimeout?: unknown, retry?: unknown}} config
+ * @param {Record<string, Readonly<Record<string, number>>>} [expected]
+ * @returns {string[]} one message per violation; empty when the project is fine
+ */
+export function checkProject(name, config, expected = EXPECTED_PROJECTS) {
+  const row = expected[name];
+  if (!row) {
+    return [
+      `project "${name}" has no row in EXPECTED_PROJECTS — a project whose budgets ` +
+        `nobody stated is exactly the drift this guard exists to prevent. Add it.`,
+    ];
+  }
+  const failures = [];
+  for (const [key, want] of Object.entries(row)) {
+    const got = config[key];
+    if (got !== want) {
+      failures.push(
+        `project "${name}" resolves ${key} to ${String(got)}, expected ${want}`,
+      );
+    }
+  }
+  // Vitest leaves `retry` undefined when nothing sets it; 0 is the same
+  // decision written out.
+  const retry = config.retry;
+  if (retry !== undefined && retry !== 0) {
+    failures.push(
+      `project "${name}" sets retry to ${String(retry)} — a retry turns a ` +
+        `load-induced red into a silent green on the only pre-push gate here (#1596)`,
+    );
+  }
+  return failures;
+}
+
+/**
+ * Does this source configure `asyncUtilTimeout`, through the right import?
+ *
+ * Deliberately a source check and not a runtime one: the value only exists
+ * inside a running test environment, and a `configure` call reached by no
+ * project would satisfy a runtime probe of this module just as well.
+ *
+ * @param {string} source
+ * @param {string} from module the `configure` must come from
+ * @returns {string[]}
+ */
+export function checkAsyncUtilSource(source, from) {
+  const failures = [];
+  if (!new RegExp(`from\\s+["']${from.replace("/", "\\/")}["']`).test(source)) {
+    failures.push(`does not import from "${from}"`);
+  }
+  if (!/\bconfigure\s*\(/.test(source)) {
+    failures.push("does not call configure()");
+  } else if (!/asyncUtilTimeout\s*:\s*\d+/.test(source)) {
+    failures.push("calls configure() without an asyncUtilTimeout");
+  }
+  return failures;
+}
+
+/**
+ * Resolve every project of one config, via Vitest's own resolver.
+ *
+ * @param {string} root absolute directory holding the `vitest.config.ts` or `vite.config.ts`
+ * @returns {Promise<{name: string, config: Record<string, unknown>}[]>}
+ */
+async function resolveProjects(root) {
+  const { createVitest } = await import("vitest/node");
+  const config = ["vitest.config.ts", "vite.config.ts"]
+    .map((f) => join(root, f))
+    .find((f) => existsSync(f));
+  if (!config) {
+    throw new Error(`no vitest/vite config under ${root}`);
+  }
+  const vitest = await createVitest("test", {
+    watch: false,
+    run: true,
+    root,
+    config,
+  });
+  try {
+    return vitest.projects.map((p) => ({
+      name: p.name,
+      config: /** @type {Record<string, unknown>} */ (p.config),
+    }));
+  } finally {
+    await vitest.close();
+  }
+}
+
+/**
+ * Match a resolved project to the name this guard knows it by.
+ *
+ * A node client's single project resolves nameless, so its config entry
+ * supplies the name. Web's three name themselves, but a browser project's name
+ * carries its instance (`storybook (chromium)`), so compare the leading
+ * segment rather than the whole string.
+ *
+ * @param {{name: string}} project
+ * @param {string[]} expectedNames
+ * @returns {string | undefined}
+ */
+export function identifyProject(project, expectedNames) {
+  if (expectedNames.length === 1 && !project.name) return expectedNames[0];
+  const base = project.name.replace(/\s*\(.*\)$/, "");
+  return expectedNames.find((n) => n === base);
+}
+
+async function main() {
+  const failures = [];
+  let checked = 0;
+
+  for (const { root, projects: expectedNames } of CONFIG_ROOTS) {
+    const resolved = await resolveProjects(resolve(repoRoot, root));
+    const seen = new Set();
+    for (const project of resolved) {
+      const name = identifyProject(project, expectedNames);
+      if (!name) {
+        failures.push(
+          `${root}: resolved an unexpected project "${project.name}" — add it to ` +
+            `CONFIG_ROOTS and EXPECTED_PROJECTS rather than leaving its budgets unstated`,
+        );
+        continue;
+      }
+      seen.add(name);
+      checked += 1;
+      failures.push(
+        ...checkProject(name, project.config).map((f) => `${root}: ${f}`),
+      );
+    }
+    for (const name of expectedNames) {
+      if (!seen.has(name)) {
+        failures.push(`${root}: project "${name}" did not resolve at all`);
+      }
+    }
+  }
+
+  for (const { file, from, project } of ASYNC_UTIL_SITES) {
+    const abs = resolve(repoRoot, file);
+    if (!existsSync(abs)) {
+      failures.push(
+        `${file} is missing — the "${project}" project has no asyncUtilTimeout`,
+      );
+      continue;
+    }
+    failures.push(
+      ...checkAsyncUtilSource(readFileSync(abs, "utf-8"), from).map(
+        (f) => `${file} (${project} project) ${f}`,
+      ),
+    );
+  }
+
+  if (failures.length > 0) {
+    console.error("verify:test-timeouts FAILED\n");
+    for (const f of failures) console.error(`  - ${f}`);
+    console.error(
+      "\nEvery test-gate budget must be a value someone chose, sized for a machine\n" +
+        "running three or four concurrent worktree gates (#2323). The shared values live\n" +
+        "in `vitest.shared.mts` (TIMEOUTS / INTEGRATION_TIMEOUTS) and every project\n" +
+        "spreads one of them; Testing Library's own asyncUtilTimeout is configured in\n" +
+        "each web project's setup file. Raising a budget is a decision to state there,\n" +
+        "not a per-suite argument to add — and `retry` stays unset.",
+    );
+    process.exit(1);
+  }
+
+  console.log(
+    `verify:test-timeouts OK — ${checked} Vitest projects on stated budgets, ` +
+      `no retry, ${ASYNC_UTIL_SITES.length} asyncUtilTimeout sites configured.`,
+  );
+}
+
+if (process.argv[1] === fileURLToPath(import.meta.url)) main();

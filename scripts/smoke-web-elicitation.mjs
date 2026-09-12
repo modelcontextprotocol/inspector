@@ -57,6 +57,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { join, resolve } from "node:path";
 import { startProdWebServer } from "./lib/prod-web-server.mjs";
 import { stopChild } from "./lib/child-cleanup.mjs";
+import { BROWSER_TIMEOUTS } from "./lib/browser-timeouts.mjs";
 import {
   attachPageDiagnostics,
   loadBrowser,
@@ -203,13 +204,16 @@ async function runTool(page) {
   // The main-view tabs are a Mantine SegmentedControl: a visually-hidden radio
   // plus a sibling <label for>. The label is the clickable element — there is
   // no role="tab" here, and the radio itself has no hit box.
-  await page.locator('label[for$="-Tools"]').first().click({ timeout: 30_000 });
+  await page
+    .locator('label[for$="-Tools"]')
+    .first()
+    .click({ timeout: BROWSER_TIMEOUTS.ui });
   await page
     .getByRole("button", { name: TOOL, exact: true })
-    .click({ timeout: 30_000 });
+    .click({ timeout: BROWSER_TIMEOUTS.ui });
   await page
     .getByRole("button", { name: /execute tool/i })
-    .click({ timeout: 30_000 });
+    .click({ timeout: BROWSER_TIMEOUTS.ui });
 }
 
 try {
@@ -244,7 +248,10 @@ try {
       '[data-testid="app-elicitation"][data-app-elicitation-status="ready"]',
     );
     try {
-      await modal.waitFor({ state: "attached", timeout: 45_000 });
+      await modal.waitFor({
+        state: "attached",
+        timeout: BROWSER_TIMEOUTS.roundTrip,
+      });
     } catch {
       const any = page.locator('[data-testid="app-elicitation"]');
       const last = (await any.count())
@@ -261,14 +268,16 @@ try {
     const app = page
       .frameLocator('[data-testid="app-elicitation"] iframe')
       .frameLocator("iframe");
-    await app.locator('[data-testid="choose-a"]').click({ timeout: 30_000 });
+    await app
+      .locator('[data-testid="choose-a"]')
+      .click({ timeout: BROWSER_TIMEOUTS.ui });
 
     // The tool echoes the ElicitResult it received, so the result pane proves
     // the app's standard result reached the SERVER — not merely the host.
     await page
       .getByText(/"action":"accept".*"choice":"option-a"/)
       .first()
-      .waitFor({ state: "attached", timeout: 45_000 });
+      .waitFor({ state: "attached", timeout: BROWSER_TIMEOUTS.roundTrip });
     await shot(page, "app-elicitation-result");
 
     // ── 2. Not negotiated: the same tool falls back to the native form ─────
@@ -279,11 +288,14 @@ try {
     const nativeDialog = page.getByRole("dialog", {
       name: /elicitation request/i,
     });
-    await nativeDialog.waitFor({ state: "visible", timeout: 45_000 });
+    await nativeDialog.waitFor({
+      state: "visible",
+      timeout: BROWSER_TIMEOUTS.roundTrip,
+    });
     await nativeDialog
       .getByText("Choose option A or B.")
       .first()
-      .waitFor({ state: "visible", timeout: 15_000 });
+      .waitFor({ state: "visible", timeout: BROWSER_TIMEOUTS.nested });
     // The modal fades in; a screenshot taken on the first visible frame catches
     // a transparent overlay. Nothing is asserted on this delay.
     await delay(600);

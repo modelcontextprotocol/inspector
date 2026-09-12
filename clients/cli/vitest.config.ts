@@ -1,7 +1,7 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
-import { vitestSharedPaths } from "../../vitest.shared.mts";
+import { TIMEOUTS, vitestSharedPaths } from "../../vitest.shared.mts";
 
 const dirname = path.dirname(fileURLToPath(import.meta.url));
 const { projectResolve } = vitestSharedPaths(dirname);
@@ -13,7 +13,9 @@ export default defineConfig({
     environment: "node",
     include: ["__tests__/**/*.test.ts"],
     setupFiles: ["__tests__/helpers/mock-open-url.ts"],
-    testTimeout: 15000,
+    // Shared budgets (#2323). `testTimeout` was already 15000 here by hand;
+    // the hook and teardown budgets were Vitest's defaults until now.
+    ...TIMEOUTS,
     // The in-process runner (__tests__/helpers/cli-runner.ts) patches
     // process.std{out,err}.write to capture CLI output. Test files run in
     // separate forked processes (and tests within a file run sequentially), so

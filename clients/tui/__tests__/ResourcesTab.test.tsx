@@ -27,11 +27,23 @@ const tick = async () => {
     await new Promise((resolve) => setTimeout(resolve, 4));
 };
 
-/** Poll the frame until it contains `substr` — stable under coverage load. */
+/**
+ * Poll the frame until it contains `substr` — stable under coverage load.
+ *
+ * The default budget (`tries` x the ~32ms `tick` below) matches `App.test.tsx`'s
+ * `POLL_TRIES`, which was raised twice for exactly this shape (#1742, #1942).
+ * It used to be 25 here — one third of the same renderer's budget under the
+ * same v8 instrumentation, for no stated reason, which made this the next one
+ * to go red. A high ceiling costs a passing assertion nothing: the loop returns
+ * the instant the predicate holds and only the slow path ever spends it
+ * (#2323).
+ */
+const POLL_TRIES = 100;
+
 async function waitForFrame(
   getFrame: () => string | undefined,
   substr: string,
-  tries = 25,
+  tries = POLL_TRIES,
 ) {
   for (let i = 0; i < tries; i++) {
     if ((getFrame() ?? "").includes(substr)) return;

@@ -7,6 +7,17 @@ import { getTestMcpServerCommand } from "@modelcontextprotocol/inspector-test-se
 const here = dirname(fileURLToPath(import.meta.url));
 const BIN = resolve(here, "../build/index.js");
 
+/**
+ * In-test bound on the spawned child, deliberately BELOW the cli project's own
+ * `testTimeout` (15000, from `vitest.shared.mts`). The two used to be equal, so
+ * which one fired was arbitrary — and they do different things: this one kills
+ * the child's process group and rejects with a message naming the CLI, while
+ * the project budget just fails the test with a generic timeout and leaves a
+ * detached `node` behind. The useful diagnostic is here, so this is the bound
+ * that must win (#2323).
+ */
+const CHILD_TIMEOUT_MS = 12_000;
+
 interface SpawnResult {
   exitCode: number | null;
   stdout: string;
@@ -36,7 +47,7 @@ function spawnCli(args: string[]): Promise<SpawnResult> {
         child.kill("SIGTERM");
       }
       reject(new Error("E2E CLI timed out"));
-    }, 15000);
+    }, CHILD_TIMEOUT_MS);
     child.stdout.on("data", (d) => (stdout += d.toString()));
     child.stderr.on("data", (d) => (stderr += d.toString()));
     child.on("error", (err) => {

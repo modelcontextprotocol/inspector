@@ -87,6 +87,22 @@ versions. **Align the versions** — bump it in every install that declares it.
 Do not raise the heap with `--max-old-space-size`; that hides the class rather
 than fixing it.
 
+### `verify:test-timeouts`
+
+A Vitest project resolves to a wall-clock budget nobody stated, a web setup
+file stopped configuring Testing Library's `asyncUtilTimeout`, or someone added
+a `retry`. The shared values live in `vitest.shared.mts` (`TIMEOUTS` /
+`INTEGRATION_TIMEOUTS`) and every project spreads one of them — so **raise a
+budget there**, not with a per-suite `}, 30_000)` argument, which only moves the
+one site and leaves every future file on the default. A per-suite raise is
+right only where the work is genuinely different (real cross-process lock
+contention, a full OAuth round trip); say so at the site. `retry` stays unset:
+it turns a load-induced red into a silent green on the only pre-push gate here.
+
+A **failing test** is a different problem from a budget — read the failure
+before reaching for a number. An assertion that races is #1596's class and is
+fixed with fake timers or an awaited condition, not with headroom.
+
 ### `lint`
 
 **There is no warning tier** — every `lint` script runs `--max-warnings 0`, so a

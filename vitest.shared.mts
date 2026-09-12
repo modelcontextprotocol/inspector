@@ -1,11 +1,72 @@
 /**
- * Vitest/Vite resolve aliases shared between clients/web and node clients
- * (cli, tui). Pass each client's directory so bare-module pins resolve against
- * that client's node_modules.
+ * The two things every Vitest project in this repo shares.
+ *
+ * 1. Resolve aliases and dedupe pins, for `clients/web` and the node clients
+ *    (cli, tui). Pass each client's directory so bare-module pins resolve
+ *    against that client's node_modules.
+ * 2. The wall-clock budgets below (`TIMEOUTS` / `INTEGRATION_TIMEOUTS`), which
+ *    every one of the six projects spreads in — `clients/launcher` included,
+ *    which imports this module for them and nothing else.
  */
 
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+
+/**
+ * Wall-clock budgets shared by every Vitest project in this repo (#2323).
+ *
+ * These are values somebody chose. Before this existed, three of the six
+ * projects ran on Vitest's own `testTimeout: 5000` and five on its
+ * `hookTimeout`/`teardownTimeout: 10000` — numbers sized for an idle machine,
+ * not for the one this team works on (8 logical cores, three or four
+ * concurrent agent sessions in separate worktrees each free to run the full
+ * `npm run local:gate`, sustained load averages of 50-70). A correct,
+ * deterministic test cut off mid-flight by an unchosen budget fails a gate it
+ * did not break, which trains people to re-run rather than read.
+ *
+ * This is NOT a licence to hide races. #1596 settled that stance and every fix
+ * it produced stands; what a raised ceiling buys is only that a test which
+ * *would* have passed is allowed to finish. A poll or a `waitFor` exits the
+ * instant its predicate holds, so a passing run pays nothing for the headroom —
+ * only a genuinely hung test spends the whole budget, and 15s over 342 files is
+ * still a diagnosis measured in seconds.
+ *
+ * One object rather than six hand-written triples, because six independent
+ * answers to the same question is exactly how five of the projects came to have
+ * no answer at all. `retry` is deliberately absent and must stay unset: a retry
+ * converts a load-induced red into a silent green on the only pre-push gate
+ * this repo has. `scripts/verify-test-timeouts.mjs` enforces both halves.
+ */
+export const TIMEOUTS = Object.freeze({
+  /**
+   * 3x Vitest's default. Covers the measured load; past this a genuinely hung
+   * unit test costs the whole budget to discover. Both projects that had
+   * already answered this question by hand — `clients/cli` and web's
+   * `storybook` (#2292) — independently arrived at 15000, which is why it is
+   * the shared value rather than a new one.
+   */
+  testTimeout: 15_000,
+  /**
+   * Hooks do the setup and teardown a test's own budget never covers —
+   * spawning servers, provisioning temp dirs, unlinking filesystem-backed
+   * storage. They are also where the real-transitions auto-settle in
+   * `clients/web/src/test/renderWithMantine.tsx` awaits, so this is the one
+   * budget in the repo that actually governs a deliberate wait.
+   */
+  hookTimeout: 30_000,
+  teardownTimeout: 30_000,
+});
+
+/**
+ * Web's `integration` project: same hook budgets, a longer per-test one. These
+ * suites spawn real HTTP/stdio servers, bind sockets and run end-to-end OAuth
+ * flows, so 30s is the work rather than the slack — it predates this change
+ * (matching the v1.5 `core/vitest.config.ts`) and is carried forward unchanged.
+ */
+export const INTEGRATION_TIMEOUTS = Object.freeze({
+  ...TIMEOUTS,
+  testTimeout: 30_000,
+});
 
 export function vitestSharedPaths(clientDir: string) {
   const dirname = path.resolve(clientDir);

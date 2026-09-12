@@ -715,6 +715,10 @@ describe("absorbFileSecretsIntoKeyring", () => {
     expect(warn).toHaveBeenCalledWith(
       expect.stringContaining("Could not lock the secrets file"),
     );
+    // Past the integration project's own 30s deliberately, and one of the few
+    // sites that should be (#2323): this test waits on a second process holding
+    // the secrets-file lock until `proper-lockfile` gives up on it, which is
+    // real elapsed contention rather than slack for a loaded machine.
   }, 60_000);
 
   it("takes no lock when there is nothing to migrate (#2082)", async () => {
