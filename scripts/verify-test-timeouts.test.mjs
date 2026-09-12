@@ -27,8 +27,11 @@ import {
   checkProject,
   checkSetupFilesWiring,
   discoverConfigRoots,
+  findScriptRetries,
+  findTestLevelRetries,
   identifyProject,
   stripComments,
+  VITEST_CONFIG_FILENAMES,
 } from "./verify-test-timeouts.mjs";
 
 const ok = { ...EXPECTED_TIMEOUTS };
@@ -310,4 +313,76 @@ test("discovery finds exactly the configs this guard is set up to check", () => 
     CONFIG_ROOTS.map((c) => c.root).sort(),
   );
   assert.deepEqual(checkConfigRootCoverage(discoverConfigRoots()), []);
+});
+
+test("a retry on an individual test or suite is caught", () => {
+  // The project-level check cannot see these, and the decision is about the
+  // behavior rather than about one config key (Copilot).
+  for (const src of [
+    `it("x", { retry: 2 }, async () => {});`,
+    `test("x", { retry: 1 }, () => {});`,
+    `describe("x", { retry: 3 }, () => {});`,
+    `it.each([1])("x %i", { retry: 2 }, () => {});`,
+    'describe.each([[1, 2]])("x", { retry: 1 }, () => {});',
+    `it('single quoted', { timeout: 100, retry: 2 }, () => {});`,
+  ]) {
+    assert.equal(findTestLevelRetries(src).length, 1, src);
+  }
+});
+
+test("a retry that is not a test option is not a false positive", () => {
+  // All four shapes exist in this repo. A bare /\bretry\b/ scan would fail on
+  // every one of them, and a guard that cries wolf gets disabled.
+  for (const src of [
+    `const fixture = { retry: 2 };`,
+    `expect(client.retry).toBe(2);`,
+    `it("x", async () => { await withRetries({ retry: 2 }); });`,
+    `vi.mock("x", () => ({ retry: 2 }));`,
+  ]) {
+    assert.deepEqual(findTestLevelRetries(src), [], src);
+  }
+});
+
+test("a retry hidden in a comment is not reported", () => {
+  assert.deepEqual(
+    findTestLevelRetries(`// it("x", { retry: 2 }, () => {});`),
+    [],
+  );
+});
+
+test("a --retry flag in an npm script is caught", () => {
+  assert.deepEqual(findScriptRetries({ test: "vitest run --retry=2" }), [
+    "test: vitest run --retry=2",
+  ]);
+  assert.equal(findScriptRetries({ test: "vitest run --retry 2" }).length, 1);
+});
+
+test("a script that merely contains the word retry is not a false positive", () => {
+  assert.deepEqual(
+    findScriptRetries({ test: "vitest run retry-helper.ts" }),
+    [],
+  );
+  assert.deepEqual(findScriptRetries({ test: "vitest run --no-retry-x" }), []);
+  assert.deepEqual(findScriptRetries({}), []);
+  assert.deepEqual(findScriptRetries(undefined), []);
+});
+
+test("discovery knows every filename Vitest loads a config from", () => {
+  // Deny-by-default only holds if discovery sees every config Vitest would; a
+  // `vitest.config.mts` this list did not name would be invisible (Copilot).
+  for (const ext of ["ts", "mts", "cts", "js", "mjs", "cjs"]) {
+    assert.ok(
+      VITEST_CONFIG_FILENAMES.includes(`vitest.config.${ext}`),
+      `vitest.config.${ext}`,
+    );
+    assert.ok(
+      VITEST_CONFIG_FILENAMES.includes(`vite.config.${ext}`),
+      `vite.config.${ext}`,
+    );
+  }
+  // vitest.config.* is preferred over vite.config.*, as Vitest itself does.
+  assert.ok(
+    VITEST_CONFIG_FILENAMES.indexOf("vitest.config.cjs") <
+      VITEST_CONFIG_FILENAMES.indexOf("vite.config.ts"),
+  );
 });

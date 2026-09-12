@@ -31,7 +31,12 @@
  * 3. **`retry` must stay unset.** A retry converts a load-induced red into a
  *    silent green on the only pre-push gate this repo has, and would re-open
  *    #1596 by hiding a real race behind a second attempt. That was a deliberate
- *    "do not raise" decision, so it is enforced rather than remembered.
+ *    "do not raise" decision, so it is enforced rather than remembered — and
+ *    enforced in all three places Vitest accepts one, since the decision is
+ *    about the behavior rather than about a config key: the resolved project,
+ *    an individual `it`/`describe` options object, and a `--retry` flag in an
+ *    npm script (Copilot). What stays outside its reach is a human typing
+ *    `--retry` into their own shell, which no committed check can see.
  *
  * It also asserts the Testing Library half, which no Vitest config can see:
  * `asyncUtilTimeout` governs every `waitFor` / `findBy*` in the web projects
@@ -46,6 +51,7 @@
  * both `asyncUtilTimeout` assertions unmet.
  */
 
+import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -138,6 +144,22 @@ export const EXPECTED_ASYNC_UTIL_TIMEOUT = 1_000;
  * (below) walks it rather than trusting a hand-written list.
  */
 export const CLIENTS_DIR = "clients";
+
+/**
+ * Every filename Vitest will load a config from, most specific first.
+ *
+ * The full set, not the two spellings this repo happens to use: discovery is
+ * only deny-by-default if it sees every config Vitest would (Copilot). A
+ * `clients/foo/vitest.config.mts` that this list did not name would be
+ * invisible, and an invisible config yields no project to reject — the same
+ * hole as a hand-written `CONFIG_ROOTS`, one level down. Order matters at
+ * resolution time, where the first match wins, and mirrors Vitest's own
+ * preference for a `vitest.config.*` over a `vite.config.*`.
+ */
+export const VITEST_CONFIG_FILENAMES = Object.freeze([
+  ...["ts", "mts", "cts", "js", "mjs", "cjs"].map((e) => `vitest.config.${e}`),
+  ...["ts", "mts", "cts", "js", "mjs", "cjs"].map((e) => `vite.config.${e}`),
+]);
 
 /**
  * Compare one resolved project against its row.
@@ -341,6 +363,48 @@ export function checkSetupFilesWiring(
 }
 
 /**
+ * A `retry` declared on an individual test or suite, or passed on a command
+ * line — the two places a project-level check cannot see.
+ *
+ * The "no retry" decision is about the behavior, not about one config key, so a
+ * guard that only reads `project.config.retry` leaves `it("…", { retry: 2 })`
+ * and `--retry=2` in an npm script wide open (Copilot). Both are scanned here.
+ *
+ * The test-definition pattern deliberately requires the `retry` to sit in an
+ * **options object that follows the test name**, which is the only position
+ * Vitest reads it from. That keeps a `retry` field in fixture data, a variable
+ * named `retry`, or a mocked API's option out of it — this repo has several, and
+ * a bare `/\bretry\b/` scan would fail on all of them.
+ *
+ * @param {string} source
+ * @returns {string[]} the matched declarations, empty when there are none
+ */
+export function findTestLevelRetries(source) {
+  const code = stripComments(source);
+  // The optional group between the chain and the name is `it.each`'s table —
+  // `it.each([...])("name", …)` or its tagged-template form — which otherwise
+  // pushes the name out of the position this pattern looks for, so every
+  // parameterized suite would be a blind spot.
+  const re =
+    /\b(?:it|test|describe|suite|bench)(?:\.\w+)*(?:\s*(?:\([^()]*\)|`[^`]*`))?\s*\(\s*(?:"[^"]*"|'[^']*'|`[^`]*`)\s*,\s*\{[^}]*?\bretry\s*:\s*([^,}\s]+)/g;
+  return [...code.matchAll(re)].map((m) => `retry: ${m[1]}`);
+}
+
+/**
+ * A `retry` flag passed to vitest from an npm script.
+ *
+ * @param {Record<string, unknown>} scripts
+ * @returns {string[]} `"<name>: <script>"` for each offender
+ */
+export function findScriptRetries(scripts) {
+  return Object.entries(scripts ?? {})
+    .filter(
+      ([, cmd]) => typeof cmd === "string" && /(^|\s)--retry(=|\s|$)/.test(cmd),
+    )
+    .map(([name, cmd]) => `${name}: ${String(cmd)}`);
+}
+
+/**
  * Every Vitest config under `clients/`, as repo-relative directories.
  *
  * Discovery rather than the hand-written `CONFIG_ROOTS` list, so that a new
@@ -360,9 +424,7 @@ export function discoverConfigRoots(root = repoRoot) {
     .filter((e) => e.isDirectory())
     .map((e) => join(clients, e.name))
     .filter((dir) =>
-      ["vitest.config.ts", "vite.config.ts"].some((f) =>
-        existsSync(join(dir, f)),
-      ),
+      VITEST_CONFIG_FILENAMES.some((f) => existsSync(join(dir, f))),
     )
     .map((dir) => relative(root, dir).split("\\").join("/"))
     .sort();
@@ -400,14 +462,14 @@ export function checkConfigRootCoverage(discovered, configured = CONFIG_ROOTS) {
 /**
  * Resolve every project of one config, via Vitest's own resolver.
  *
- * @param {string} root absolute directory holding the `vitest.config.ts` or `vite.config.ts`
+ * @param {string} root absolute directory holding one of `VITEST_CONFIG_FILENAMES`
  * @returns {Promise<{name: string, config: Record<string, unknown>}[]>}
  */
 async function resolveProjects(root) {
   const { createVitest } = await import("vitest/node");
-  const config = ["vitest.config.ts", "vite.config.ts"]
-    .map((f) => join(root, f))
-    .find((f) => existsSync(f));
+  const config = VITEST_CONFIG_FILENAMES.map((f) => join(root, f)).find((f) =>
+    existsSync(f),
+  );
   if (!config) {
     throw new Error(`no vitest/vite config under ${root}`);
   }
@@ -482,6 +544,43 @@ async function main() {
     }
   }
 
+  // `retry`, in the two places a resolved project cannot show it. Tracked files
+  // only — an untracked scratch test is not something this repo ships.
+  const testFiles = execFileSync(
+    "git",
+    ["ls-files", "*.test.ts", "*.test.tsx", "*.test.mts", "*.stories.tsx"],
+    { cwd: repoRoot, encoding: "utf-8" },
+  )
+    .split("\n")
+    .filter(Boolean);
+  for (const file of testFiles) {
+    const found = findTestLevelRetries(
+      readFileSync(resolve(repoRoot, file), "utf-8"),
+    );
+    for (const decl of found) {
+      failures.push(
+        `${file} declares \`${decl}\` on a test or suite — a retry turns a ` +
+          `load-induced red into a silent green on the only pre-push gate here (#1596)`,
+      );
+    }
+  }
+
+  const manifests = execFileSync(
+    "git",
+    ["ls-files", "package.json", "*/package.json", "*/*/package.json"],
+    { cwd: repoRoot, encoding: "utf-8" },
+  )
+    .split("\n")
+    .filter(Boolean);
+  for (const file of manifests) {
+    const { scripts } = JSON.parse(
+      readFileSync(resolve(repoRoot, file), "utf-8"),
+    );
+    for (const offender of findScriptRetries(scripts)) {
+      failures.push(`${file} passes --retry from a script — ${offender}`);
+    }
+  }
+
   for (const { file, from, project } of ASYNC_UTIL_SITES) {
     const abs = resolve(repoRoot, file);
     if (!existsSync(abs)) {
@@ -513,7 +612,9 @@ async function main() {
 
   console.log(
     `verify:test-timeouts OK — ${checked} Vitest projects on stated budgets, ` +
-      `no retry, ${ASYNC_UTIL_SITES.length} asyncUtilTimeout sites configured.`,
+      `no retry in any project, test or script (${testFiles.length} test files, ` +
+      `${manifests.length} manifests), ` +
+      `${ASYNC_UTIL_SITES.length} asyncUtilTimeout sites configured.`,
   );
 }
 
