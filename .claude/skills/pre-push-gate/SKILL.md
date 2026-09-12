@@ -30,10 +30,17 @@ review, which is the argument for not making a fourth. `npm run local:gate`
 prints each stage as it starts, so the running command is the other reliable
 answer.
 
-It is a **strict superset** of GitHub CI (which additionally runs `npm install`,
-and runs `coverage` as a parallel job). So the direction that matters holds:
-**passing `local:gate` locally means CI's gates will pass.** The reverse does
-not.
+It runs **every check** GitHub CI runs (which additionally runs `npm install`,
+and runs `coverage` as a parallel job), plus two local-only steps. So the
+direction that matters holds: **passing `local:gate` locally means CI's gates
+will pass.** The reverse does not.
+
+One difference in *invocations*, not checks: CI runs each client's unit suite
+twice — bare inside `validate`, instrumented inside `coverage` — on two
+parallel runners, while the gate runs it **once**, instrumented (#2341). The
+gate's first stage is `local:validate`, which is `validate` minus each client's
+`test` leg; `npm run validate` itself is unchanged. The reasoning is in
+[`AGENTS.md`](../../../AGENTS.md#mandatory-pre-push-gate).
 
 ⚠️ **There is no `npm run ci`.** The gate was renamed to `local:gate` (#2146)
 precisely because `npm ci` is a built-in that clean-installs from the lockfile

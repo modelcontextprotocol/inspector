@@ -472,16 +472,19 @@ While the Web Client provides a rich visual interface, the CLI is designed for:
 Like the other clients, the CLI self-validates from its own folder:
 
 ```bash
-npm run validate       # format:check && lint && typecheck && test  (fast; no coverage gate)
+npm run check          # format:check && lint && typecheck  (no tests)
+npm run validate       # check && test  (fast; no coverage gate)
 npm test               # build test-servers + binary, then run all tests
 npm run test:coverage  # build + tests under the per-file ≥90 coverage gate
 ```
 
 The CLI's `test` / `test:coverage` **build the binary first** (out-of-process
-`e2e.test.ts` spawns it). `validate` is `format:check && lint && typecheck && test`
-with no separate `build` step (`pretest` builds). Repo-root `validate:cli`
-delegates here; the coverage gate is `npm run coverage` / `coverage:cli` (also in
-`npm run local:gate`), matching AGENTS.md.
+`e2e.test.ts` spawns it). `check` is `format:check && lint && typecheck` and
+`validate` is `check && test`, with no separate `build` step (`pretest` builds).
+Repo-root `validate:cli` delegates to `validate`, and the root `local:validate`
+— the first stage of `npm run local:gate` — runs `check` instead, so the gate
+runs the suite once, under `coverage` / `coverage:cli` (#2341), matching
+AGENTS.md.
 
 Tests run the CLI **in-process** (importing `runCli()`) so `src/` is measured
 under coverage, with a thin out-of-process spawn layer for the real binary. See

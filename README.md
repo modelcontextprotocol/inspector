@@ -88,7 +88,7 @@ Each client self-validates from its own folder; the root scripts chain them. The
 ```bash
 npm run validate     # fast inner loop: format:check + lint + typecheck + build + unit tests
 npm run coverage     # the per-file ≥90% gate (lines/statements/functions/branches)
-npm run local:gate   # MANDATORY before pushing — a strict superset of GitHub CI
+npm run local:gate   # MANDATORY before pushing — every GitHub CI check, plus two local-only ones
 ```
 
 `npm run local:gate` chains every check below, plus the smokes and the Storybook tests. [Testing and the quality gate](./docs/quality-gate.md) owns the stage list and says what each one covers and why two are local-only; [`AGENTS.md`](./AGENTS.md) holds the testing rules themselves.

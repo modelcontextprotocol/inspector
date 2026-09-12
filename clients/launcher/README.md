@@ -110,7 +110,8 @@ stale fixture reports a product failure rather than a staleness one.
 Like the web client, the launcher self-validates from its own folder:
 
 ```bash
-npm run validate  # format:check && lint && build && test:coverage
+npm run check     # format:check && lint && typecheck && build  (no tests)
+npm run validate  # check && test
 ```
 
 This has **no** dependency on the other clients being built — it only checks the
@@ -118,7 +119,9 @@ launcher's own source. `eslint.config.js` is a Node-only flat config (the web
 client's React/Storybook plugins stripped out), and the per-file coverage gate
 covers `parse-launcher-argv.ts` (the pure arg-parsing logic); `src/index.ts` is
 excluded as binary bootstrap and is instead exercised by the smokes above. The
-repo-root `validate:launcher` simply delegates here (`cd clients/launcher && npm run validate`).
+repo-root `validate:launcher` simply delegates here (`cd clients/launcher && npm run validate`),
+and the root `local:validate` — the first stage of `npm run local:gate` — runs
+`check` instead, so the gate runs the suite once, under `coverage:launcher` (#2341).
 
 ## Publishing
 
