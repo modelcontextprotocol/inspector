@@ -40,6 +40,32 @@ import type {
 import type { OAuthStorage } from "../auth/storage.js";
 import type { AuthChallenge } from "../auth/challenge.js";
 
+/** Generation-neutral task status rendered by Inspector requester surfaces. */
+export type InspectorTaskStatus =
+  | "working"
+  | "input_required"
+  | "completed"
+  | "failed"
+  | "cancelled";
+
+/**
+ * Project-owned requester task shape. Stable fields are normalized across MCP
+ * task generations; generation-specific wire detail remains available as raw data.
+ */
+export interface InspectorTask {
+  taskId: string;
+  status: InspectorTaskStatus;
+  statusMessage?: string;
+  createdAt: string;
+  lastUpdatedAt: string;
+  /** Requested/advertised retention in milliseconds; null means unspecified. */
+  ttl: number | null;
+  /** Server-suggested delay before the next poll, in milliseconds. */
+  pollInterval?: number;
+  /** Original generation-specific task payload, preserved without type claims. */
+  raw?: Readonly<Record<string, unknown>>;
+}
+
 // Stdio transport config
 export interface StdioServerConfig {
   // Optional: stdio is the implicit default when `type` is absent. A
