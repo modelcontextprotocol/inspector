@@ -9,6 +9,7 @@ import { storybookTest } from "@storybook/addon-vitest/vitest-plugin";
 import { playwright } from "@vitest/browser-playwright";
 import { honoMiddlewarePlugin } from "./server/vite-hono-plugin";
 import {
+  getStorybookOptimizeDeps,
   getViteBaseConfig,
   getViteDevOptimizeDeps,
 } from "./server/vite-base-config";
@@ -391,6 +392,10 @@ export default defineConfig(({ command }) => {
               configDir: path.join(dirname, ".storybook"),
             }),
           ],
+          // Re-bundled on every run rather than read from the cache — the
+          // stale-cache failure it prevents, and why `force` is the lever, are
+          // on the helper (#2340).
+          optimizeDeps: getStorybookOptimizeDeps(),
           test: {
             name: "storybook",
             // Vitest's default is 5000ms, which is the whole budget a play
