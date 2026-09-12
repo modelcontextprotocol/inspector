@@ -37,10 +37,19 @@ import {
   resetFileLockWarnings,
 } from "@inspector/core/auth/node/file-lock.js";
 
-/** A test that waits out a full stale-lock takeover in a second process. */
-const LOCK_TAKEOVER_MS = 90_000;
-/** A test that waits on cross-process contention but not on a stale window. */
-const LOCK_CONTENTION_MS = 60_000;
+/**
+ * A test that waits for `proper-lockfile`'s retries to run out against a holder
+ * that never yields — a live second process, or a stale lock it cannot clear.
+ * Nothing is taken over here; the budget is spent in full by construction,
+ * which is why it is the longer of the two.
+ */
+const LOCK_RETRIES_EXHAUSTED_MS = 90_000;
+/**
+ * A test that waits out the stale window and then *succeeds* by taking the dead
+ * holder's lock over. Shorter, because it ends the moment the takeover lands
+ * rather than when the retries stop.
+ */
+const STALE_LOCK_TAKEOVER_MS = 60_000;
 import { FileSecretStore } from "@inspector/core/auth/node/file-secret-store.js";
 import { SecretStoreUnavailableError } from "@inspector/core/auth/node/secret-store.js";
 
@@ -319,7 +328,7 @@ describe("withSecretFileLock degrades rather than failing", () => {
       // Nothing was written behind the holder's back.
       expect(existsSync(target)).toBe(false);
     },
-    LOCK_TAKEOVER_MS,
+    LOCK_RETRIES_EXHAUSTED_MS,
   );
 
   it(
@@ -354,7 +363,7 @@ describe("withSecretFileLock degrades rather than failing", () => {
       expect(existsSync(target)).toBe(false);
       expect(warnings()).not.toContain("not protected");
     },
-    LOCK_TAKEOVER_MS,
+    LOCK_RETRIES_EXHAUSTED_MS,
   );
 
   it(
@@ -384,7 +393,7 @@ describe("withSecretFileLock degrades rather than failing", () => {
       // Took the lock over — did not fall through to an unlocked write.
       expect(warnings()).toBe("");
     },
-    LOCK_CONTENTION_MS,
+    STALE_LOCK_TAKEOVER_MS,
   );
 
   it(
@@ -415,7 +424,7 @@ describe("withSecretFileLock degrades rather than failing", () => {
       // …and the entry it could not delete is still there, not half-removed.
       expect(await store.get("srv", "env:A")).toBe("1");
     },
-    LOCK_TAKEOVER_MS,
+    LOCK_RETRIES_EXHAUSTED_MS,
   );
 });
 

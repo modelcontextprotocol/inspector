@@ -1,12 +1,17 @@
 /**
  * Setup file for the `storybook` Vitest project (#2323).
  *
- * It exists for one call. Storybook's instrumented Testing Library re-exports
- * the same `asyncUtilTimeout: 1000` default as the unit project's, and it
- * governs the 80 `waitFor` / `findBy*` sites across the story files. Those play
- * functions run in a real Chromium against a real Storybook preview, so 1000ms
- * is the *tighter* of the two bounds the project has — the per-test ceiling is
- * 15000 (#2292) — and it is the one nobody chose.
+ * It exists for one call. Storybook's instrumented Testing Library carries its
+ * own `asyncUtilTimeout`, and it governs the 80 `waitFor` / `findBy*` sites
+ * across the story files. It is the *tighter* of the two bounds this project
+ * has — the per-test ceiling is 15000 (#2292) — so it is stated here rather
+ * than inherited, which also pins it against a Storybook upgrade changing the
+ * default under all 80 sites at once.
+ *
+ * The value matches the unit project's, and for the reason recorded in
+ * `setup.ts`: raising it was measured and rejected. A wait that is *meant* to
+ * expire spends its whole budget on the happy path, so a raise is a
+ * proportional cost on exactly those tests.
  *
  * ⚠️ Two things about this file that are deliberate and easy to undo:
  *
@@ -27,4 +32,4 @@
 
 import { configure } from "storybook/test";
 
-configure({ asyncUtilTimeout: 5000 });
+configure({ asyncUtilTimeout: 1000 });

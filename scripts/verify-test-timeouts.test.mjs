@@ -116,7 +116,7 @@ test("an unrecognized project name is not silently matched", () => {
 
 test("a setup file that configures asyncUtilTimeout passes", () => {
   const source = `import { cleanup, configure } from "@testing-library/react";
-configure({ asyncUtilTimeout: 5000 });`;
+configure({ asyncUtilTimeout: 1000 });`;
   assert.deepEqual(checkAsyncUtilSource(source, "@testing-library/react"), []);
 });
 
@@ -133,7 +133,7 @@ test("the import is checked, not just the call", () => {
   // `@testing-library/*` from a story setup configures a copy no play function
   // ever calls — green by inspection, dead in practice.
   const source = `import { configure } from "@testing-library/dom";
-configure({ asyncUtilTimeout: 5000 });`;
+configure({ asyncUtilTimeout: 1000 });`;
   assert.deepEqual(checkAsyncUtilSource(source, "storybook/test"), [
     'does not import from "storybook/test"',
   ]);
@@ -158,13 +158,13 @@ test("a commented-out configure() does not satisfy the check", () => {
   // The most likely way this stops being configured is someone disabling it in
   // place, and a raw-source scan would read that as configured (Copilot).
   const lineComment = `import { configure } from "storybook/test";
-// configure({ asyncUtilTimeout: 5000 });`;
+// configure({ asyncUtilTimeout: 1000 });`;
   assert.deepEqual(checkAsyncUtilSource(lineComment, "storybook/test"), [
     "does not call configure()",
   ]);
 
   const blockComment = `import { configure } from "storybook/test";
-/* configure({ asyncUtilTimeout: 5000 }); */`;
+/* configure({ asyncUtilTimeout: 1000 }); */`;
   assert.deepEqual(checkAsyncUtilSource(blockComment, "storybook/test"), [
     "does not call configure()",
   ]);
@@ -172,24 +172,24 @@ test("a commented-out configure() does not satisfy the check", () => {
 
 test("the configured value must be the expected one, not merely present", () => {
   const source = `import { configure } from "storybook/test";
-configure({ asyncUtilTimeout: 1 });`;
+configure({ asyncUtilTimeout: 9000 });`;
   assert.deepEqual(checkAsyncUtilSource(source, "storybook/test"), [
-    `configures asyncUtilTimeout as 1, expected ${EXPECTED_ASYNC_UTIL_TIMEOUT}`,
+    `configures asyncUtilTimeout as 9000, expected ${EXPECTED_ASYNC_UTIL_TIMEOUT}`,
   ]);
 });
 
 test("a numeric separator in the configured value is read, not rejected", () => {
   const source = `import { configure } from "storybook/test";
-configure({ asyncUtilTimeout: 5_000 });`;
+configure({ asyncUtilTimeout: 1_000 });`;
   assert.deepEqual(checkAsyncUtilSource(source, "storybook/test"), []);
 });
 
 test("stripComments leaves executable code alone", () => {
   const source = `/** header */
 import { configure } from "storybook/test"; // trailing
-configure({ asyncUtilTimeout: 5000 });`;
+configure({ asyncUtilTimeout: 1000 });`;
   const code = stripComments(source);
-  assert.match(code, /configure\(\{ asyncUtilTimeout: 5000 \}\)/);
+  assert.match(code, /configure\(\{ asyncUtilTimeout: 1000 \}\)/);
   assert.doesNotMatch(code, /header/);
 });
 

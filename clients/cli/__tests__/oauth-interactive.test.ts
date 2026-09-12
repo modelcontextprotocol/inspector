@@ -116,7 +116,11 @@ describe("CLI interactive OAuth (integration)", () => {
     } catch {
       // ignore
     }
-  }, OAUTH_ROUND_TRIP_MS);
+    // No budget: stopping the server and unlinking a file is not the round trip
+    // this file's constant describes, and the shared `hookTimeout` is already
+    // 30000 — so a per-hook argument here would restate it and say the wrong
+    // thing about it (Copilot).
+  });
 
   it(
     "connects to an OAuth-protected server via the loopback callback server",

@@ -29,9 +29,11 @@
  *    "do not raise" decision, so it is enforced rather than remembered.
  *
  * It also asserts the Testing Library half, which no Vitest config can see:
- * `asyncUtilTimeout` governs every `waitFor` / `findBy*` in the web projects,
- * defaults to 1000ms, and becomes the *binding* constraint on an async
- * assertion once the enclosing per-test budget rises.
+ * `asyncUtilTimeout` governs every `waitFor` / `findBy*` in the web projects
+ * and is the binding constraint on an async assertion, since it is tighter than
+ * any per-test budget here. What is enforced is that each web project *states*
+ * it — raising it was measured and rejected, for the reason recorded in
+ * `clients/web/src/test/setup.ts`.
  *
  * ⚠️ Observed to FAIL against the unfixed config before it was trusted: on
  * `origin/v2/main` it reports `unit`, `tui` and `launcher` at
@@ -118,8 +120,13 @@ export const ASYNC_UTIL_SITES = Object.freeze([
  * The value those sites must configure — stated here for the same reason the
  * Vitest budgets are: a guard that accepts any number at all would pass on
  * `asyncUtilTimeout: 1` (Copilot).
+ *
+ * It is Testing Library's own default, and deliberately so: what this guard
+ * enforces is that the value is *stated*, not that it is large. Raising it was
+ * measured and rejected — see the long comment in
+ * `clients/web/src/test/setup.ts`.
  */
-export const EXPECTED_ASYNC_UTIL_TIMEOUT = 5_000;
+export const EXPECTED_ASYNC_UTIL_TIMEOUT = 1_000;
 
 /**
  * Directory every Vitest config in this repo lives one level under. Discovery
@@ -168,7 +175,7 @@ export function checkProject(name, config, expected = EXPECTED_PROJECTS) {
  * Strip `//` and block comments so a commented-out call cannot satisfy a check.
  *
  * Comment-aware rather than exact, deliberately: a naive scan of the raw source
- * would accept a `// configure({ asyncUtilTimeout: 5000 })` left behind by
+ * would accept a `// configure({ asyncUtilTimeout: 1000 })` left behind by
  * someone disabling it, which is the most likely way this stops being
  * configured (Copilot). String literals are not parsed out — a `configure(` in
  * a string would still be accepted — but these two files are fifteen lines each
@@ -363,7 +370,12 @@ export function identifyProject(project, expectedNames) {
 }
 
 async function main() {
-  const failures = [];
+  // Seeded from discovery, not empty: the unknown-project check below can only
+  // reject a project this guard actually resolves, so a config it never opens
+  // is invisible to it. Without this line the deny-by-default claim rested on
+  // `test:scripts` happening to run the same comparison — a different command,
+  // which a standalone `npm run verify:test-timeouts` does not invoke (Copilot).
+  const failures = checkConfigRootCoverage(discoverConfigRoots());
   let checked = 0;
 
   for (const { root, projects: expectedNames } of CONFIG_ROOTS) {

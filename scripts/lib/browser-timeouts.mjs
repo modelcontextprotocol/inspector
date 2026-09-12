@@ -2,8 +2,9 @@
  * Playwright wall-clock budgets for the web smokes (#2323).
  *
  * Before this, `smoke-web-tabs.mjs`, `smoke-web-elicitation.mjs` and
- * `smoke-web-browser.mjs` carried 15 locator budgets between them across three
- * independently-chosen scales, with no config anywhere to raise. They are the
+ * `smoke-web-browser.mjs` carried 19 budgets between them across three
+ * independently-chosen scales, with no config anywhere to raise — 17 locator
+ * operations plus a `page.goto` and a `waitForLoadState`. They are the
  * same three or four decisions repeated, so they are named once here and the
  * scripts import them — the same shape `render-smoke.mjs`'s `DEFAULTS` already
  * has, and for the same reason: a budget nobody can find is a budget nobody

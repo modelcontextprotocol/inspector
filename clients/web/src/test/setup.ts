@@ -2,24 +2,37 @@ import "@testing-library/jest-dom/vitest";
 import { afterEach } from "vitest";
 import { cleanup, configure } from "@testing-library/react";
 
-// Testing Library's own `asyncUtilTimeout` default is 1000ms
-// (`@testing-library/dom/dist/config.js`), and it governs every `waitFor` and
-// `findBy*` in the unit project — 788 call sites — none of which chose it. One
-// `configure` call is the whole surface, which is why it is here rather than
-// argued a site at a time (#2323).
+// Testing Library's `asyncUtilTimeout` governs every `waitFor` and `findBy*` in
+// this project — 788 call sites — and is the tighter of the two bounds on any
+// async assertion here, so it is stated rather than inherited (#2323). Pinning
+// it also means a Testing Library upgrade that changes its default cannot move
+// every one of those sites silently.
 //
-// 5x, because a contended happy-dom render is the worst-measured case on this
-// team's machine (8 logical cores, three or four concurrent worktree sessions
-// each free to run the full `local:gate`), and because once the project's
-// `testTimeout` rises to 15000 this becomes the *binding* constraint on every
-// async assertion in the project — the enclosing budget stops being the thing
-// that cuts a wait short and this starts being it.
+// ⚠️ The value is 1000 — Testing Library's own default — and that is a
+// MEASURED decision, not a shrug. #2323 proposed 5000 on the reasoning that a
+// contended happy-dom render is the worst case and that this becomes the
+// binding constraint once the project's `testTimeout` rises. Measured on this
+// machine, 5000 made the suite WORSE: three arms of three full unit runs each,
+// same worktree, comparable load —
 //
-// The trade-off, stated rather than hidden: a genuinely-failing async
-// assertion now takes 5s to report instead of 1s. Only failing assertions pay
-// it, once each, on runs that are already the slow path. A *passing* `waitFor`
-// returns the instant its callback stops throwing and is unaffected.
-configure({ asyncUtilTimeout: 5000 });
+//   • unmodified `v2/main`:            3/3 green
+//   • this change with 5000:           1, 4 and 0 files timing out at 15000ms
+//   • this change with the default:    3/3 green
+//
+// The failures were a different, unrelated set each time and every one passed
+// in about a second in isolation, which is the shape of CPU starvation rather
+// than of a slow assertion. The mechanism is that `asyncUtilTimeout` is not
+// only a ceiling: any wait that is *meant* to expire — a test asserting
+// something never appears, and anything that lets a poll run out — spends the
+// whole budget on the happy path, so a 5x raise is a 5x cost on those tests,
+// which saturates the worker pool and starves tests that were never slow.
+//
+// So the general rule this repo now follows — a budget must be a value someone
+// chose — is satisfied by choosing it, not by raising it. Raising it is what
+// #2323's own "do not raise" list would have said had the measurement been
+// taken first. The tests that assert absence by letting a wait expire are the
+// real defect and are tracked on #2335; when they are gone, revisit this.
+configure({ asyncUtilTimeout: 1000 });
 
 // Node 22+ exposes an experimental `localStorage` placeholder that overrides
 // happy-dom's implementation. Without `--localstorage-file`, it's an empty

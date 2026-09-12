@@ -423,6 +423,14 @@ free to run a full `local:gate`). Raising a budget nobody chose hides no race.
   then it says so: real cross-process lock contention (`file-lock.test.ts`), a
   full interactive OAuth round trip (`oauth-interactive.test.ts`). Name the
   constant and state the reason at the site.
+- **A budget is stated, which is not the same as raised.** Testing Library's
+  `asyncUtilTimeout` is pinned at its own default in both web setup files
+  because raising it was *measured worse*: a wait that is meant to expire —
+  a test asserting something never appears, a poll allowed to run out — spends
+  its whole budget on the happy path, so a raise is a proportional cost on
+  exactly those tests and starves the worker pool. Measure before raising a
+  budget that a passing test can spend in full; the call-site comment records
+  the three-arm run.
 - **Never nest a budget inside an equal-or-larger one.** `waitFor({ timeout: N })`
   inside a test whose own budget is `N` can never win, and it reports as a
   timeout naming neither the wait nor its subject (#2292). Two bounds on the
