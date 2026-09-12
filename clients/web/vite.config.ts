@@ -391,6 +391,24 @@ export default defineConfig(({ command }) => {
               configDir: path.join(dirname, ".storybook"),
             }),
           ],
+          optimizeDeps: {
+            // Re-bundle the browser dep pre-bundle on every run instead of
+            // trusting the cached one (#2340). Vite keys that cache on the
+            // lockfile and on this config, never on what the story graph
+            // imports, so a cached bundle stays "valid" after a story or
+            // component gains an import of a package that is already
+            // installed. The first request for it then re-runs the optimizer
+            // mid-run, which bumps the `?v=` browser hash and rewrites the
+            // shared chunks; the `@storybook/react` renderer already loaded in
+            // a live test iframe still holds the old hash for its lazy
+            // `import("@storybook/react-dom-shim")`, so every story that
+            // iframe renders from then on fails with "Failed to fetch
+            // dynamically imported module", and the next run is green because
+            // the cache has caught up. `force` discards the cache up front, so
+            // the scanner crawls every story entry before the browser opens —
+            // the same cold path CI takes on every PR. Cost: ~0.8s per run.
+            force: true,
+          },
           test: {
             name: "storybook",
             // Vitest's default is 5000ms, which is the whole budget a play

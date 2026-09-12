@@ -55,6 +55,13 @@ export function getViteBaseConfig() {
       // components import it at runtime (e.g. `protocolUtils`'s
       // `isInputRequiredResult` / `SUBSCRIPTION_ID_META_KEY`), so listing it
       // here keeps the dep graph stable across story files.
+      //
+      // That was one instance of a class, not the class: any package a story
+      // or component starts importing after the cache was written is
+      // discovered the same way, and pinning each one here would chase the
+      // symptom. The `storybook` project in `vite.config.ts` now sets
+      // `optimizeDeps.force` so every run re-scans the story entries up front
+      // (#2340); this entry stays as the explicit include it always was.
       include: ["@modelcontextprotocol/client"],
     },
   };
