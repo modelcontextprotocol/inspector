@@ -641,16 +641,16 @@ describe("the gate's name", () => {
           !reached.has(`validate:${c}`),
           `local:validate must not reach validate:${c}`,
         );
-      assert.match(
-        scripts["local:validate"],
-        /\brun check(?=$|[\s&;])/,
-        "local:validate must run each client's `check`",
-      );
+      // Each client is visited AND its `check` is the very next command —
+      // matched together, so dropping one client's `npm run check` while the
+      // `cd` and another client's `check` remain cannot stay green (Copilot).
       for (const c of clients)
         assert.match(
           scripts["local:validate"],
-          new RegExp(`(?:cd (?:\\.\\./|clients/)${c}|--prefix clients/${c})`),
-          `local:validate must visit clients/${c}`,
+          new RegExp(
+            `(?:cd (?:\\.\\./|clients/)${c} && npm run check|--prefix clients/${c} run check)(?=$|[\\s&;])`,
+          ),
+          `local:validate must run \`check\` in clients/${c}`,
         );
     });
 
@@ -688,9 +688,19 @@ describe("the gate's name", () => {
             /^(pre|post)?test(:|$)/,
             `clients/${c} check must not reach ${name}`,
           );
-        assert.ok(
-          !/\bvitest\b/.test([...fromCheck].map((n) => s[n]).join(" ")),
+        // `reachableScripts` follows `npm run <name>` only, so also reject the
+        // spellings that reach the suite without one: a direct `vitest`, and
+        // npm's built-in `npm test` / `npm t` / `npm tst` aliases (Copilot).
+        const checkCommands = [...fromCheck].map((n) => s[n]).join(" ");
+        assert.doesNotMatch(
+          checkCommands,
+          /\bvitest\b/,
           `clients/${c} check must not invoke vitest`,
+        );
+        assert.doesNotMatch(
+          checkCommands,
+          /\bnpm (?:test|t|tst)(?=$|[\s&;])/,
+          `clients/${c} check must not invoke \`npm test\``,
         );
         // And `check` is the whole of `validate` minus the test leg: what
         // `validate` reaches is exactly itself, plus what `check` reaches, plus
