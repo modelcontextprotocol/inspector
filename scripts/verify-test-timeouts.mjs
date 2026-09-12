@@ -318,8 +318,12 @@ export function checkAsyncUtilSource(
   // is something else entirely (Copilot). Requiring all of them to agree is
   // stricter than checking the last and gives a clearer message than "the
   // effective value is X" would.
+  // ⚠️ `(?<![.\\w$])` and not `\\b`: a word boundary succeeds straight after a
+  // dot, so `other.configure({ … })` matched the imported name and satisfied the
+  // check while the imported binding was never called at all (Copilot). Excluded
+  // are a member access and any identifier this name is merely the tail of.
   const calls = [];
-  const nameRe = new RegExp(`\\b${name}\\s*\\(`, "g");
+  const nameRe = new RegExp(`(?<![.\\w$])${name}\\s*\\(`, "g");
   let m;
   while ((m = nameRe.exec(code)) !== null) {
     const open = m.index + m[0].length - 1;
@@ -524,8 +528,13 @@ function readRetryOption(code, i) {
   const end = matchBracket(code, k);
   if (end === -1) return null;
   const options = code.slice(k + 1, end);
-  const retry = /(?:^|[\s,{])retry\s*:\s*([^,}\s]+)/.exec(options);
-  return retry ? `retry: ${retry[1]}` : null;
+  // Two forms, because JavaScript has two. `retry: 2` and the shorthand
+  // `{ retry }`, which is the same declaration with the value bound above and
+  // which a colon-requiring pattern misses entirely (Copilot).
+  const explicit = /(?:^|[\s,{])retry\s*:\s*([^,}\s]+)/.exec(options);
+  if (explicit) return `retry: ${explicit[1]}`;
+  const shorthand = /(?:^|[\s,{])retry\s*(?:,|$)/.test(options);
+  return shorthand ? "retry (shorthand)" : null;
 }
 
 /**

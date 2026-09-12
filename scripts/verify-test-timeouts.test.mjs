@@ -345,6 +345,8 @@ test("a retry that is not a test option is not a false positive", () => {
     `vi.mock("x", () => ({ retry: 2 }));`,
     `it("has retry: 2 in the name", () => {});`,
     `const o = { noRetry: 2 };`,
+    // Shorthand for a DIFFERENT property must not match the shorthand form.
+    `it("x", { retryCount }, () => {});`,
   ]) {
     assert.deepEqual(findTestLevelRetries(src), [], src);
   }
@@ -410,4 +412,35 @@ test("a configure() call that sets something else does not hide the real one", (
 configure({ testIdAttribute: "data-testid" });
 configure({ asyncUtilTimeout: 1000 });`;
   assert.deepEqual(checkAsyncUtilSource(source, "storybook/test"), []);
+});
+
+test("the shorthand property form is caught", () => {
+  // `{ retry }` is the same declaration as `{ retry: 2 }` with the value bound
+  // above, and a colon-requiring pattern misses it entirely (Copilot).
+  assert.deepEqual(
+    findTestLevelRetries('const retry = 2; it("x", { retry }, () => {});'),
+    ["retry (shorthand)"],
+  );
+  assert.deepEqual(
+    findTestLevelRetries('it("x", { timeout: 100, retry }, () => {});'),
+    ["retry (shorthand)"],
+  );
+});
+
+test("a member call is not mistaken for the imported binding", () => {
+  // `\\b` succeeds straight after a dot, so `other.configure(…)` satisfied the
+  // check while the imported binding was never called at all (Copilot).
+  const source = `import { configure } from "storybook/test";
+other.configure({ asyncUtilTimeout: 1000 });`;
+  assert.deepEqual(checkAsyncUtilSource(source, "storybook/test"), [
+    "does not call configure()",
+  ]);
+});
+
+test("a longer identifier ending in the binding name is not a call to it", () => {
+  const source = `import { configure } from "storybook/test";
+reconfigure({ asyncUtilTimeout: 1000 });`;
+  assert.deepEqual(checkAsyncUtilSource(source, "storybook/test"), [
+    "does not call configure()",
+  ]);
 });
