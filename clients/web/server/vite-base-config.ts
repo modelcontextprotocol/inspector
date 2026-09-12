@@ -59,11 +59,40 @@ export function getViteBaseConfig() {
       // That was one instance of a class, not the class: any package a story
       // or component starts importing after the cache was written is
       // discovered the same way, and pinning each one here would chase the
-      // symptom. The `storybook` project in `vite.config.ts` now sets
-      // `optimizeDeps.force` so every run re-scans the story entries up front
-      // (#2340); this entry stays as the explicit include it always was.
+      // symptom. `getStorybookOptimizeDeps` below adds `force` so every run
+      // re-scans the story entries up front (#2340); this entry stays as the
+      // explicit include it always was.
       include: ["@modelcontextprotocol/client"],
     },
+  };
+}
+
+/**
+ * Storybook (browser Vitest project) optimizeDeps: the base set, re-bundled
+ * on every run instead of read from the cache (#2340).
+ *
+ * Vite keys that cache on the lockfile and on the config, never on what the
+ * story graph imports, so a cached bundle stays "valid" after a story or
+ * component gains an import of a package that is already installed. With a
+ * valid cache Vite skips the scan, and the first request for the new package
+ * re-runs the optimizer mid-run: the shared chunks are rewritten, the `?v=`
+ * browser hash is bumped, and Vite sends a `full-reload` that the Vitest
+ * tester iframes do not act on. The `@storybook/react` renderer already loaded
+ * in a live iframe still holds the old hash for its lazy
+ * `import("@storybook/react-dom-shim")`, so every story that iframe renders
+ * from then on fails with "Failed to fetch dynamically imported module" — and
+ * the next run is green, because the cache has caught up. `force` discards the
+ * cache up front so the scanner crawls every story entry before the browser
+ * opens: the same cold path CI takes on every PR. Cost: ~0.8s per run.
+ *
+ * Spread from `getViteBaseConfig()` rather than left to Vitest's project merge
+ * so the include/exclude the base set carries are the helper's own claim, and
+ * tested as such.
+ */
+export function getStorybookOptimizeDeps() {
+  return {
+    ...getViteBaseConfig().optimizeDeps,
+    force: true,
   };
 }
 
