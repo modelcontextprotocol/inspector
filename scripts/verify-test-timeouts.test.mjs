@@ -18,12 +18,17 @@ import assert from "node:assert/strict";
 import {
   ASYNC_UTIL_SITES,
   CONFIG_ROOTS,
+  EXPECTED_ASYNC_UTIL_TIMEOUT,
   EXPECTED_INTEGRATION_TIMEOUTS,
   EXPECTED_PROJECTS,
   EXPECTED_TIMEOUTS,
   checkAsyncUtilSource,
+  checkConfigRootCoverage,
   checkProject,
+  checkSetupFilesWiring,
+  discoverConfigRoots,
   identifyProject,
+  stripComments,
 } from "./verify-test-timeouts.mjs";
 
 const ok = { ...EXPECTED_TIMEOUTS };
@@ -147,4 +152,96 @@ test("both web projects have an asyncUtilTimeout site", () => {
     "storybook",
     "unit",
   ]);
+});
+
+test("a commented-out configure() does not satisfy the check", () => {
+  // The most likely way this stops being configured is someone disabling it in
+  // place, and a raw-source scan would read that as configured (Copilot).
+  const lineComment = `import { configure } from "storybook/test";
+// configure({ asyncUtilTimeout: 5000 });`;
+  assert.deepEqual(checkAsyncUtilSource(lineComment, "storybook/test"), [
+    "does not call configure()",
+  ]);
+
+  const blockComment = `import { configure } from "storybook/test";
+/* configure({ asyncUtilTimeout: 5000 }); */`;
+  assert.deepEqual(checkAsyncUtilSource(blockComment, "storybook/test"), [
+    "does not call configure()",
+  ]);
+});
+
+test("the configured value must be the expected one, not merely present", () => {
+  const source = `import { configure } from "storybook/test";
+configure({ asyncUtilTimeout: 1 });`;
+  assert.deepEqual(checkAsyncUtilSource(source, "storybook/test"), [
+    `configures asyncUtilTimeout as 1, expected ${EXPECTED_ASYNC_UTIL_TIMEOUT}`,
+  ]);
+});
+
+test("a numeric separator in the configured value is read, not rejected", () => {
+  const source = `import { configure } from "storybook/test";
+configure({ asyncUtilTimeout: 5_000 });`;
+  assert.deepEqual(checkAsyncUtilSource(source, "storybook/test"), []);
+});
+
+test("stripComments leaves executable code alone", () => {
+  const source = `/** header */
+import { configure } from "storybook/test"; // trailing
+configure({ asyncUtilTimeout: 5000 });`;
+  const code = stripComments(source);
+  assert.match(code, /configure\(\{ asyncUtilTimeout: 5000 \}\)/);
+  assert.doesNotMatch(code, /header/);
+});
+
+test("a project that does not load its declared setup file is caught", () => {
+  // Reading the file proves it configures the timeout; only this proves the
+  // project ever loads it. Deleting the setupFiles entry used to leave the
+  // guard reporting both projects configured (Copilot).
+  const failures = checkSetupFilesWiring("unit", []);
+  assert.equal(failures.length, 1);
+  assert.match(failures[0], /does not load .*setup\.ts as a setupFile/);
+});
+
+test("a setup file loaded under an absolute path is recognized", () => {
+  assert.deepEqual(
+    checkSetupFilesWiring("unit", [
+      "/repo/clients/web/src/test/setup.ts",
+      "/repo/other.ts",
+    ]),
+    [],
+  );
+});
+
+test("a project with no declared site is not required to load one", () => {
+  assert.deepEqual(checkSetupFilesWiring("cli", []), []);
+  assert.deepEqual(checkSetupFilesWiring("cli", undefined), []);
+});
+
+test("a Vitest config this guard does not check is an error", () => {
+  const failures = checkConfigRootCoverage([
+    "clients/web",
+    "clients/cli",
+    "clients/tui",
+    "clients/launcher",
+    "clients/desktop",
+  ]);
+  assert.equal(failures.length, 1);
+  assert.match(failures[0], /clients\/desktop has a Vitest config/);
+});
+
+test("a stale row naming a config that no longer exists is an error", () => {
+  const failures = checkConfigRootCoverage(["clients/web", "clients/cli"]);
+  assert.equal(failures.length, 2);
+  for (const f of failures) assert.match(f, /has no Vitest config on disk/);
+});
+
+test("discovery finds exactly the configs this guard is set up to check", () => {
+  // The two halves have to agree against the real repo, not only against
+  // fixtures — that agreement is what makes the unknown-project check below
+  // mean anything.
+  assert.deepEqual(
+    discoverConfigRoots().sort(),
+    CONFIG_ROOTS.map((c) => c.root).sort(),
+  );
+  assert.deepEqual(checkConfigRootCoverage(discoverConfigRoots()), []);
 });

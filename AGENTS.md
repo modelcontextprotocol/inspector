@@ -431,7 +431,10 @@ free to run a full `local:gate`). Raising a budget nobody chose hides no race.
 - **`retry` stays unset.** A retry turns a load-induced red into a silent green
   on the only pre-push gate this repo has, and hides a real race behind a second
   attempt. The guard enforces this.
-- **Group F's smoke and CI budgets are tracked on #2333**, not settled here.
+- **The Playwright locator budgets the web smokes use are named constants in
+  `scripts/lib/browser-timeouts.mjs`** — raise one there, not at a call site.
+  The *remaining* smoke-helper budgets and CI's missing `timeout-minutes` are
+  tracked on #2333 rather than settled here.
 - **Do not scale a fixed sleep.** A `setTimeout(r, N)` with no condition is not
   a timeout: it always waits the full window, so raising it slows every passing
   run and still races on a loaded one. Replace one with a condition wait when it

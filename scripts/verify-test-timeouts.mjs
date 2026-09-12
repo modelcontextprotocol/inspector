@@ -39,8 +39,8 @@
  * both `asyncUtilTimeout` assertions unmet.
  */
 
-import { existsSync, readFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -115,6 +115,19 @@ export const ASYNC_UTIL_SITES = Object.freeze([
 ]);
 
 /**
+ * The value those sites must configure — stated here for the same reason the
+ * Vitest budgets are: a guard that accepts any number at all would pass on
+ * `asyncUtilTimeout: 1` (Copilot).
+ */
+export const EXPECTED_ASYNC_UTIL_TIMEOUT = 5_000;
+
+/**
+ * Directory every Vitest config in this repo lives one level under. Discovery
+ * (below) walks it rather than trusting a hand-written list.
+ */
+export const CLIENTS_DIR = "clients";
+
+/**
  * Compare one resolved project against its row.
  *
  * @param {string} name project name as this guard knows it
@@ -152,25 +165,151 @@ export function checkProject(name, config, expected = EXPECTED_PROJECTS) {
 }
 
 /**
- * Does this source configure `asyncUtilTimeout`, through the right import?
+ * Strip `//` and block comments so a commented-out call cannot satisfy a check.
+ *
+ * Comment-aware rather than exact, deliberately: a naive scan of the raw source
+ * would accept a `// configure({ asyncUtilTimeout: 5000 })` left behind by
+ * someone disabling it, which is the most likely way this stops being
+ * configured (Copilot). String literals are not parsed out — a `configure(` in
+ * a string would still be accepted — but these two files are fifteen lines each
+ * and the false-positive that matters is the commented one.
+ *
+ * @param {string} source
+ * @returns {string}
+ */
+export function stripComments(source) {
+  return source
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/(^|\n)\s*\/\/[^\n]*/g, "$1");
+}
+
+/**
+ * Does this source configure `asyncUtilTimeout` at the expected value, through
+ * the right import?
  *
  * Deliberately a source check and not a runtime one: the value only exists
  * inside a running test environment, and a `configure` call reached by no
- * project would satisfy a runtime probe of this module just as well.
+ * project would satisfy a runtime probe of this module just as well. What
+ * closes that second gap is `checkSetupFilesWiring` below, which asks the
+ * resolved project whether it actually loads the file.
  *
  * @param {string} source
  * @param {string} from module the `configure` must come from
+ * @param {number} [expected] the value it must configure
  * @returns {string[]}
  */
-export function checkAsyncUtilSource(source, from) {
+export function checkAsyncUtilSource(
+  source,
+  from,
+  expected = EXPECTED_ASYNC_UTIL_TIMEOUT,
+) {
+  const code = stripComments(source);
   const failures = [];
-  if (!new RegExp(`from\\s+["']${from.replace("/", "\\/")}["']`).test(source)) {
+  if (!new RegExp(`from\\s+["']${from.replace(/\//g, "\\/")}["']`).test(code)) {
     failures.push(`does not import from "${from}"`);
   }
-  if (!/\bconfigure\s*\(/.test(source)) {
+  if (!/\bconfigure\s*\(/.test(code)) {
     failures.push("does not call configure()");
-  } else if (!/asyncUtilTimeout\s*:\s*\d+/.test(source)) {
+    return failures;
+  }
+  const match = /asyncUtilTimeout\s*:\s*(\d[\d_]*)/.exec(code);
+  if (!match) {
     failures.push("calls configure() without an asyncUtilTimeout");
+  } else if (Number(match[1].replace(/_/g, "")) !== expected) {
+    failures.push(
+      `configures asyncUtilTimeout as ${match[1]}, expected ${expected}`,
+    );
+  }
+  return failures;
+}
+
+/**
+ * Is each declared site actually loaded by the project it claims to configure?
+ *
+ * Without this the guard reads two files and reports both projects configured
+ * while `setupFiles` had been deleted from `vite.config.ts` and Testing Library
+ * had silently gone back to its 1000ms default (Copilot). Vitest resolves
+ * `setupFiles` to absolute paths, so compare by suffix against the declared
+ * repo-relative path.
+ *
+ * @param {string} name project name as this guard knows it
+ * @param {unknown} setupFiles the project's resolved `setupFiles`
+ * @param {readonly {file: string, project: string}[]} [sites]
+ * @returns {string[]}
+ */
+export function checkSetupFilesWiring(
+  name,
+  setupFiles,
+  sites = ASYNC_UTIL_SITES,
+) {
+  const site = sites.find((s) => s.project === name);
+  if (!site) return [];
+  const loaded = Array.isArray(setupFiles) ? setupFiles : [];
+  const wanted = site.file.split("/").join("/");
+  const found = loaded.some(
+    (f) => typeof f === "string" && f.split("\\").join("/").endsWith(wanted),
+  );
+  return found
+    ? []
+    : [
+        `project "${name}" does not load ${site.file} as a setupFile, so its ` +
+          `asyncUtilTimeout never takes effect`,
+      ];
+}
+
+/**
+ * Every Vitest config under `clients/`, as repo-relative directories.
+ *
+ * Discovery rather than the hand-written `CONFIG_ROOTS` list, so that a new
+ * client with its own config cannot go unwatched — which would have made the
+ * "a project with no row is an error" promise vacuous, since an undiscovered
+ * config yields no project to reject (Copilot). `CONFIG_ROOTS` still exists to
+ * say which project names each config must produce; this is what proves the
+ * list is complete.
+ *
+ * @param {string} [root] absolute repo root
+ * @returns {string[]}
+ */
+export function discoverConfigRoots(root = repoRoot) {
+  const clients = resolve(root, CLIENTS_DIR);
+  if (!existsSync(clients)) return [];
+  return readdirSync(clients, { withFileTypes: true })
+    .filter((e) => e.isDirectory())
+    .map((e) => join(clients, e.name))
+    .filter((dir) =>
+      ["vitest.config.ts", "vite.config.ts"].some((f) =>
+        existsSync(join(dir, f)),
+      ),
+    )
+    .map((dir) => relative(root, dir).split("\\").join("/"))
+    .sort();
+}
+
+/**
+ * Compare what is on disk against what this guard is configured to check.
+ *
+ * @param {string[]} discovered
+ * @param {readonly {root: string}[]} [configured]
+ * @returns {string[]}
+ */
+export function checkConfigRootCoverage(discovered, configured = CONFIG_ROOTS) {
+  const known = new Set(configured.map((c) => c.root));
+  const failures = [];
+  for (const root of discovered) {
+    if (!known.has(root)) {
+      failures.push(
+        `${root} has a Vitest config that this guard does not check — add it to ` +
+          `CONFIG_ROOTS and EXPECTED_PROJECTS rather than leaving its budgets unstated`,
+      );
+    }
+  }
+  for (const root of known) {
+    if (!discovered.includes(root)) {
+      failures.push(
+        `CONFIG_ROOTS names ${root}, which has no Vitest config on disk — a stale ` +
+          `row silently stops checking anything`,
+      );
+    }
   }
   return failures;
 }
@@ -243,6 +382,9 @@ async function main() {
       checked += 1;
       failures.push(
         ...checkProject(name, project.config).map((f) => `${root}: ${f}`),
+        ...checkSetupFilesWiring(name, project.config.setupFiles).map(
+          (f) => `${root}: ${f}`,
+        ),
       );
     }
     for (const name of expectedNames) {

@@ -1,3 +1,16 @@
+/**
+ * Pins the invariants of `browser-timeouts.mjs` — a constants module, so what
+ * is testable about it is the shape of the values rather than any logic.
+ *
+ * Worth pinning anyway, because the values are the module's whole contract and
+ * a smoke cannot report a bad one. A budget that arrived as `undefined` or a
+ * string reaches Playwright as "no timeout" or NaN and a smoke then hangs
+ * against the job's own ceiling rather than failing with a cause. And the
+ * ordering below IS the semantics documented on each key: the names say what
+ * each budget has to absorb, so a `nested` wait outliving its enclosing
+ * `roundTrip` one would mean the names had stopped describing the values.
+ */
+
 import test from "node:test";
 import assert from "node:assert/strict";
 

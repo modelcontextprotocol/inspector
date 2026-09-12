@@ -4295,58 +4295,67 @@ describe("App dedupes concurrent OAuth clears that share a storage key (#2217)",
     );
   }
 
-  // Three full modal interaction sequences against the whole App tree. This
-  // used to carry `{ timeout: 20000 }` because the project ran on Vitest's 5s
-  // default and this test tripped it under load; the project now states 15000
-  // itself (#2323), so the raise has nothing left to say that the shared value
-  // does not.
-  it("suppresses a second clear for another entry with the same URL, and allows one after it settles", async () => {
-    // `delay: null` drops userEvent's inter-event waits, which dominate here.
-    const user = userEvent.setup({ delay: null });
-    renderWithMantine(<App />);
+  // Three full modal interaction sequences against the whole App tree — three
+  // times the work of any other test in this file, and the only one here that
+  // ever tripped the old 5s default under load. It keeps its own budget after
+  // #2323 rather than folding into the shared 15000: this is the "genuinely
+  // different work" exception that change establishes, and the 20000 was a
+  // value somebody had already chosen against an observed failure. Lowering it
+  // to the shared ceiling would trade a measured number for a general one and
+  // could reintroduce the flake (Copilot).
+  const THREE_MODAL_SEQUENCE_MS = 20_000;
 
-    await user.click(screen.getByText("connect"));
-    await waitFor(() => expect(clientInstances).toHaveLength(1));
-    // The instances are typed `EventTarget`; an intersection names the
-    // test-only spy without erasing that (Copilot).
-    const client = clientInstances[0] as EventTarget & {
-      clearOAuthTokens: ReturnType<typeof vi.fn>;
-    };
+  it(
+    "suppresses a second clear for another entry with the same URL, and allows one after it settles",
+    async () => {
+      // `delay: null` drops userEvent's inter-event waits, which dominate here.
+      const user = userEvent.setup({ delay: null });
+      renderWithMantine(<App />);
 
-    // Hold the first clear open, as a pending RFC 7009 request would.
-    let settle: (v: { status: string; reason: string }) => void = () => {};
-    client.clearOAuthTokens.mockImplementation(
-      () =>
-        new Promise((resolve) => {
-          settle = resolve as typeof settle;
-        }),
-    );
+      await user.click(screen.getByText("connect"));
+      await waitFor(() => expect(clientInstances).toHaveLength(1));
+      // The instances are typed `EventTarget`; an intersection names the
+      // test-only spy without erasing that (Copilot).
+      const client = clientInstances[0] as EventTarget & {
+        clearOAuthTokens: ReturnType<typeof vi.fn>;
+      };
 
-    await clearFromSettings(user, "open-settings");
-    await waitFor(() =>
-      expect(client.clearOAuthTokens).toHaveBeenCalledTimes(1),
-    );
+      // Hold the first clear open, as a pending RFC 7009 request would.
+      let settle: (v: { status: string; reason: string }) => void = () => {};
+      client.clearOAuthTokens.mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            settle = resolve as typeof settle;
+          }),
+      );
 
-    // Entry B: a different catalog id, the same OAuth storage key. Both clears
-    // route through the live client precisely because they share that key, so
-    // an id-keyed guard would let this second one straight through.
-    await clearFromSettings(user, "open-settings-b");
-    expect(client.clearOAuthTokens).toHaveBeenCalledTimes(1);
+      await clearFromSettings(user, "open-settings");
+      await waitFor(() =>
+        expect(client.clearOAuthTokens).toHaveBeenCalledTimes(1),
+      );
 
-    // Suppression is for the duration of the in-flight clear only — the key
-    // must be released when it settles, or the control is dead for the rest of
-    // the session.
-    await act(async () => {
-      settle({ status: "skipped", reason: "no_endpoint" });
-      await Promise.resolve();
-    });
-    client.clearOAuthTokens.mockResolvedValue({
-      status: "skipped",
-      reason: "no_endpoint",
-    });
-    await clearFromSettings(user, "open-settings-b");
-    await waitFor(() =>
-      expect(client.clearOAuthTokens).toHaveBeenCalledTimes(2),
-    );
-  });
+      // Entry B: a different catalog id, the same OAuth storage key. Both clears
+      // route through the live client precisely because they share that key, so
+      // an id-keyed guard would let this second one straight through.
+      await clearFromSettings(user, "open-settings-b");
+      expect(client.clearOAuthTokens).toHaveBeenCalledTimes(1);
+
+      // Suppression is for the duration of the in-flight clear only — the key
+      // must be released when it settles, or the control is dead for the rest of
+      // the session.
+      await act(async () => {
+        settle({ status: "skipped", reason: "no_endpoint" });
+        await Promise.resolve();
+      });
+      client.clearOAuthTokens.mockResolvedValue({
+        status: "skipped",
+        reason: "no_endpoint",
+      });
+      await clearFromSettings(user, "open-settings-b");
+      await waitFor(() =>
+        expect(client.clearOAuthTokens).toHaveBeenCalledTimes(2),
+      );
+    },
+    THREE_MODAL_SEQUENCE_MS,
+  );
 });
