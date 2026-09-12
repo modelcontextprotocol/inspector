@@ -324,6 +324,11 @@ test("a retry on an individual test or suite is caught", () => {
     `describe("x", { retry: 3 }, () => {});`,
     `it.each([1])("x %i", { retry: 2 }, () => {});`,
     'describe.each([[1, 2]])("x", { retry: 1 }, () => {});',
+    // Nested parentheses in the chain's own argument. A character class cannot
+    // step over either of these, so both were blind spots (Copilot).
+    'it.each([makeCase()])("x", { retry: 2 }, () => {});',
+    'it.skipIf(() => isWindows())("x", { retry: 2 }, () => {});',
+    'it.each`a|b`("x", { retry: 3 }, () => {});',
     `it('single quoted', { timeout: 100, retry: 2 }, () => {});`,
   ]) {
     assert.equal(findTestLevelRetries(src).length, 1, src);
@@ -338,6 +343,8 @@ test("a retry that is not a test option is not a false positive", () => {
     `expect(client.retry).toBe(2);`,
     `it("x", async () => { await withRetries({ retry: 2 }); });`,
     `vi.mock("x", () => ({ retry: 2 }));`,
+    `it("has retry: 2 in the name", () => {});`,
+    `const o = { noRetry: 2 };`,
   ]) {
     assert.deepEqual(findTestLevelRetries(src), [], src);
   }
@@ -385,4 +392,22 @@ test("discovery knows every filename Vitest loads a config from", () => {
     VITEST_CONFIG_FILENAMES.indexOf("vitest.config.cjs") <
       VITEST_CONFIG_FILENAMES.indexOf("vite.config.ts"),
   );
+});
+
+test("every configure() call is inspected, not just the first", () => {
+  // The later call wins at runtime, so approving a file on its first call would
+  // approve one whose effective timeout is something else entirely (Copilot).
+  const overridden = `import { configure } from "storybook/test";
+configure({ asyncUtilTimeout: 1000 });
+configure({ asyncUtilTimeout: 5000 });`;
+  assert.deepEqual(checkAsyncUtilSource(overridden, "storybook/test"), [
+    "configures asyncUtilTimeout as 5000, expected 1000",
+  ]);
+});
+
+test("a configure() call that sets something else does not hide the real one", () => {
+  const source = `import { configure } from "storybook/test";
+configure({ testIdAttribute: "data-testid" });
+configure({ asyncUtilTimeout: 1000 });`;
+  assert.deepEqual(checkAsyncUtilSource(source, "storybook/test"), []);
 });

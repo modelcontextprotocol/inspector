@@ -312,18 +312,41 @@ export function checkAsyncUtilSource(
   }
   const name = binding[1] ?? "configure";
 
-  const call = new RegExp(`\\b${name}\\s*\\(([\\s\\S]*?)\\)`).exec(code);
-  if (!call) {
+  // EVERY call, not the first. A setup file holding the expected call followed
+  // by a second one is the shape that matters: the later call wins at runtime,
+  // so inspecting only the first would approve a file whose effective timeout
+  // is something else entirely (Copilot). Requiring all of them to agree is
+  // stricter than checking the last and gives a clearer message than "the
+  // effective value is X" would.
+  const calls = [];
+  const nameRe = new RegExp(`\\b${name}\\s*\\(`, "g");
+  let m;
+  while ((m = nameRe.exec(code)) !== null) {
+    const open = m.index + m[0].length - 1;
+    const close = matchBracket(code, open);
+    if (close === -1) break;
+    calls.push(code.slice(open + 1, close));
+    nameRe.lastIndex = close;
+  }
+  if (calls.length === 0) {
     failures.push(`does not call ${name}()`);
     return failures;
   }
-  const match = /asyncUtilTimeout\s*:\s*(\d[\d_]*)/.exec(call[1]);
-  if (!match) {
+
+  const configured = calls
+    .map((args) => /asyncUtilTimeout\s*:\s*(\d[\d_]*)/.exec(args))
+    .filter(Boolean)
+    .map((match) => match[1]);
+  if (configured.length === 0) {
     failures.push(`calls ${name}() without an asyncUtilTimeout`);
-  } else if (Number(match[1].replace(/_/g, "")) !== expected) {
-    failures.push(
-      `configures asyncUtilTimeout as ${match[1]}, expected ${expected}`,
-    );
+    return failures;
+  }
+  for (const value of configured) {
+    if (Number(value.replace(/_/g, "")) !== expected) {
+      failures.push(
+        `configures asyncUtilTimeout as ${value}, expected ${expected}`,
+      );
+    }
   }
   return failures;
 }
@@ -363,6 +386,76 @@ export function checkSetupFilesWiring(
 }
 
 /**
+ * Skip whitespace from `i`.
+ *
+ * @param {string} code
+ * @param {number} i
+ * @returns {number}
+ */
+function skipWs(code, i) {
+  while (i < code.length && /\s/.test(code[i])) i += 1;
+  return i;
+}
+
+/**
+ * Index just past the string or template literal starting at `i`.
+ *
+ * @param {string} code
+ * @param {number} i index of the opening quote
+ * @returns {number} index after the closing quote, or `code.length` if unclosed
+ */
+function skipString(code, i) {
+  const quote = code[i];
+  let j = i + 1;
+  while (j < code.length) {
+    if (code[j] === "\\") {
+      j += 2;
+      continue;
+    }
+    if (code[j] === quote) return j + 1;
+    j += 1;
+  }
+  return code.length;
+}
+
+/**
+ * Index of the bracket closing the one at `i`, honoring nesting and skipping
+ * string literals so a bracket inside a string cannot unbalance the count.
+ *
+ * This is what a regex cannot do, and the reason this scan is structural: a
+ * character class like `[^()]*` cannot consume `it.each([makeCase()])` or
+ * `it.skipIf(() => isWindows())`, so every such suite was a blind spot
+ * (Copilot).
+ *
+ * @param {string} code
+ * @param {number} i index of the opening bracket
+ * @returns {number} index of the matching close, or -1
+ */
+function matchBracket(code, i) {
+  const open = code[i];
+  const close = open === "(" ? ")" : "}";
+  let depth = 0;
+  let j = i;
+  while (j < code.length) {
+    const c = code[j];
+    if (c === '"' || c === "'" || c === "`") {
+      j = skipString(code, j);
+      continue;
+    }
+    if (c === open) depth += 1;
+    else if (c === close) {
+      depth -= 1;
+      if (depth === 0) return j;
+    }
+    j += 1;
+  }
+  return -1;
+}
+
+/** Test-definition heads a `retry` option can be attached to. */
+const TEST_HEAD = /\b(?:it|test|describe|suite|bench)(?:\.\w+)*/g;
+
+/**
  * A `retry` declared on an individual test or suite, or passed on a command
  * line — the two places a project-level check cannot see.
  *
@@ -370,24 +463,69 @@ export function checkSetupFilesWiring(
  * guard that only reads `project.config.retry` leaves `it("…", { retry: 2 })`
  * and `--retry=2` in an npm script wide open (Copilot). Both are scanned here.
  *
- * The test-definition pattern deliberately requires the `retry` to sit in an
- * **options object that follows the test name**, which is the only position
- * Vitest reads it from. That keeps a `retry` field in fixture data, a variable
- * named `retry`, or a mocked API's option out of it — this repo has several, and
- * a bare `/\bretry\b/` scan would fail on all of them.
+ * Structural rather than a single regex, for two reasons learned one round
+ * apart. The `retry` must sit in an **options object that follows the test
+ * name**, which is the only position Vitest reads it from — that is what keeps
+ * a `retry` field in fixture data, a variable named `retry`, or a mocked API's
+ * option out of it, and this repo has several. And the chain may carry an
+ * argument of its own — `it.each([makeCase()])`, `it.skipIf(() => isWin())`,
+ * `it.each\`table\`` — which a character-class regex cannot step over once it
+ * contains nested parentheses, silently skipping every such suite.
  *
  * @param {string} source
  * @returns {string[]} the matched declarations, empty when there are none
  */
 export function findTestLevelRetries(source) {
   const code = stripComments(source);
-  // The optional group between the chain and the name is `it.each`'s table —
-  // `it.each([...])("name", …)` or its tagged-template form — which otherwise
-  // pushes the name out of the position this pattern looks for, so every
-  // parameterized suite would be a blind spot.
-  const re =
-    /\b(?:it|test|describe|suite|bench)(?:\.\w+)*(?:\s*(?:\([^()]*\)|`[^`]*`))?\s*\(\s*(?:"[^"]*"|'[^']*'|`[^`]*`)\s*,\s*\{[^}]*?\bretry\s*:\s*([^,}\s]+)/g;
-  return [...code.matchAll(re)].map((m) => `retry: ${m[1]}`);
+  const found = [];
+  TEST_HEAD.lastIndex = 0;
+  let head;
+  while ((head = TEST_HEAD.exec(code)) !== null) {
+    const decl = readRetryOption(code, head.index + head[0].length);
+    if (decl) found.push(decl);
+  }
+  return found;
+}
+
+/**
+ * Read a `retry` out of the options object of the test call starting at `i`.
+ *
+ * @param {string} code comment-stripped source
+ * @param {number} i index just past the `it`/`describe`/… chain
+ * @returns {string | null}
+ */
+function readRetryOption(code, i) {
+  let j = skipWs(code, i);
+
+  // `it.each\`table\`` puts a tagged template between the chain and the call.
+  if (code[j] === "`") j = skipWs(code, skipString(code, j));
+  if (code[j] !== "(") return null;
+
+  // The first `(` is either the call itself or the chain's own argument
+  // (`it.each([...])`, `it.skipIf(…)`). It is the call when a string literal —
+  // the test name — comes first; otherwise step over it, balanced, and the real
+  // call is the next `(`.
+  let open = j;
+  let name = skipWs(code, open + 1);
+  if (!/["'`]/.test(code[name] ?? "")) {
+    const close = matchBracket(code, open);
+    if (close === -1) return null;
+    open = skipWs(code, close + 1);
+    if (code[open] !== "(") return null;
+    name = skipWs(code, open + 1);
+    if (!/["'`]/.test(code[name] ?? "")) return null;
+  }
+
+  let k = skipWs(code, skipString(code, name));
+  if (code[k] !== ",") return null;
+  k = skipWs(code, k + 1);
+  if (code[k] !== "{") return null;
+
+  const end = matchBracket(code, k);
+  if (end === -1) return null;
+  const options = code.slice(k + 1, end);
+  const retry = /(?:^|[\s,{])retry\s*:\s*([^,}\s]+)/.exec(options);
+  return retry ? `retry: ${retry[1]}` : null;
 }
 
 /**

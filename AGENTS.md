@@ -431,11 +431,16 @@ free to run a full `local:gate`). Raising a budget nobody chose hides no race.
   exactly those tests and starves the worker pool. Measure before raising a
   budget that a passing test can spend in full; the call-site comment records
   the three-arm run.
-- **Never nest a budget inside an equal-or-larger one.** `waitFor({ timeout: N })`
-  inside a test whose own budget is `N` can never win, and it reports as a
-  timeout naming neither the wait nor its subject (#2292). Two bounds on the
-  same work must differ, and the one carrying the useful diagnostic must be the
-  tighter (`clients/cli/__tests__/e2e.test.ts`).
+- **An inner budget must be strictly smaller than the budget enclosing it.**
+  `waitFor({ timeout: N })` inside a test whose own budget is `N` can never win:
+  the test expires first and reports a timeout naming neither the wait nor its
+  subject (#2292). So when two bounds cover the same work they must differ, and
+  the **inner** one — the one carrying the useful diagnostic — has to be the
+  tighter, which is arranged by raising the outer rather than shrinking the
+  inner. Both shapes in this repo read that way: `AppRenderer.test.tsx`'s 5s
+  `waitFor` inside a 15s test, and `clients/cli/__tests__/e2e.test.ts`'s 15s
+  child timer (which kills the process group and names the CLI) inside a 25s
+  test.
 - **`retry` stays unset.** A retry turns a load-induced red into a silent green
   on the only pre-push gate this repo has, and hides a real race behind a second
   attempt. The guard enforces this.
