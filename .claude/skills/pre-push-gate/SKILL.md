@@ -148,9 +148,41 @@ Vite's `fs.allow`. Do a real `npm install` in the worktree.
 
 ### Everything times out at once
 
-⚠️ Two concurrent `npm run local:gate` runs starve each other — ~326 tests time
-out at 5s. Run one at a time. (A `pgrep -f "npm run local:gate"` wait loop
-matches _itself_ and never exits.)
+⚠️ Two `npm run local:gate` runs on one machine starve each other — under four
+worktrees ~326 tests timed out at 5s (#2323), and even two collide
+deterministically on the web smokes' fixed ports. Since #2339 the gate takes a
+**machine-wide lease**, so a second run queues rather than overlapping; if
+everything is still timing out at once, look for what is _not_ the gate: a
+bypassed lease (`INSPECTOR_SKIP_GATE_LEASE` set in that shell), a bare
+`npm run coverage` or `test:storybook` in another session, or Spotlight
+indexing a fresh `node_modules` (a `mdworker` storm after `npm install` in a
+new worktree pushed the load average to 20 for ten minutes). Do not write a
+"wait until the machine is clear" loop — two of them deadlock on each other,
+and a `pgrep -f "npm run local:gate"` loop matches _itself_ and never exits.
+
+### Waiting on the lease
+
+A gate that starts with
+
+```
+gate-lease: pid 12345 in /Users/you/Projects/mcp-inspector-wt-1, running for 2m10s holds the gate lease; waiting …
+```
+
+is queued behind another worktree's gate, and will start the moment it
+releases (it re-checks every 2s and prints `still waiting` once a minute). The
+holder's pid and worktree are in the line, so you can decide whether to wait
+or to stop that gate. A holder that was **killed** — a closed terminal, an
+OOM'd session — stops refreshing its lock and is taken over after 30s; nothing
+needs cleaning up by hand. The one exception is a dead holder's lock directory
+that cannot be removed (a stray file inside it, or permissions): the takeover
+fails, the waiter keeps waiting, and the wait runs to its 45-minute cap naming
+the path — remove that directory by hand. So the give-up happens against a
+live gate that has hung, or a stale lock that would not go away; never on its
+own.
+
+`INSPECTOR_SKIP_GATE_LEASE=1 npm run local:gate` runs without the lease. It is
+for a measurement that needs contention; it does not get a result sooner,
+because the queued run finishes before an overlapped one would.
 
 ## Local-only steps
 

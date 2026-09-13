@@ -23,7 +23,11 @@ import {
   findWorkflowViolations,
   formatWorkflowViolations,
 } from "./workflow-gate.mjs";
-import { reachableScripts } from "./npm-scripts.mjs";
+import {
+  GATE_LEASE_WRAPPER,
+  reachableScripts,
+  scriptChainRuns,
+} from "./npm-scripts.mjs";
 
 const repoRoot = join(import.meta.dirname, "..", "..");
 const workflowDir = join(repoRoot, ".github", "workflows");
@@ -607,7 +611,22 @@ describe("the gate's name", () => {
 
   it("is `local:gate`, and runs the local-only Storybook step", () => {
     assert.ok(scripts["local:gate"], "the pre-push gate must exist");
-    assert.match(scripts["local:gate"], /local:storybook/);
+    assert.match(scripts["local:gate:stages"], /local:storybook/);
+  });
+
+  it("runs its stages under the lease wrapper, and nothing else (#2339)", () => {
+    // The wrapper serializes gates across worktrees. It must be the ONLY thing
+    // `local:gate` does — a stage placed beside it would run outside the
+    // lease — and it must run exactly the stages script, so every assertion
+    // below about what the gate runs can read `local:gate:stages` directly.
+    assert.equal(
+      scripts["local:gate"],
+      `${GATE_LEASE_WRAPPER}npm run local:gate:stages`,
+    );
+    assert.ok(
+      scriptChainRuns(scripts, "local:gate", "local:storybook"),
+      "the wrapper is transparent to a chain vouch",
+    );
   });
 
   describe("runs each client's test suite once, not twice (#2341)", () => {
@@ -631,8 +650,11 @@ describe("the gate's name", () => {
     );
 
     it("starts from `local:validate`, and never from `validate`", () => {
-      assert.match(scripts["local:gate"], /^npm run local:validate && /);
-      assert.doesNotMatch(scripts["local:gate"], /\brun validate(?=$|[\s&;])/);
+      assert.match(scripts["local:gate:stages"], /^npm run local:validate && /);
+      assert.doesNotMatch(
+        scripts["local:gate:stages"],
+        /\brun validate(?=$|[\s&;])/,
+      );
       // Nothing reachable from the WHOLE gate — not just its first stage —
       // may run `validate` or a client's `validate:*`: those are the doors
       // through which the bare `test` leg would come back, and a later stage

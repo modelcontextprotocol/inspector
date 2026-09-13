@@ -30,7 +30,7 @@ import {
   ciRunsUnconditionally,
   runsCommand,
 } from "./verify-skills.mjs";
-import { scriptChainRuns } from "./lib/npm-scripts.mjs";
+import { GATE_LEASE_WRAPPER, scriptChainRuns } from "./lib/npm-scripts.mjs";
 
 const SCRIPT = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -489,6 +489,43 @@ test("scriptChainRuns follows the chain to a real invocation", () => {
     ),
     true,
   );
+});
+
+test("scriptChainRuns looks through the local:gate lease wrapper, and only it", () => {
+  // `local:gate` runs its stages under `scripts/gate-lease.mjs` (#2339). The
+  // wrapper runs exactly the `npm run …` it is handed, so a vouch sees past
+  // it; a wrapper carrying flags, or any other wrapper, still hides the chain.
+  const T = "verify:skills:cli";
+  const stages = `npm run validate && npm run ${T}`;
+  assert.equal(
+    scriptChainRuns(
+      {
+        "local:gate": `${GATE_LEASE_WRAPPER}npm run local:gate:stages`,
+        "local:gate:stages": stages,
+      },
+      "local:gate",
+      T,
+    ),
+    true,
+  );
+  assert.equal(
+    scriptChainRuns(
+      { "local:gate": `${GATE_LEASE_WRAPPER}npm run ${T}` },
+      "local:gate",
+      T,
+    ),
+    true,
+  );
+  for (const wrapped of [
+    `node scripts/gate-lease.mjs --quiet npm run ${T}`,
+    `node scripts/other-wrapper.mjs npm run ${T}`,
+  ]) {
+    assert.equal(
+      scriptChainRuns({ "local:gate": wrapped }, "local:gate", T),
+      false,
+      wrapped,
+    );
+  }
 });
 
 test("scriptChainRuns is not satisfied by a mention or a longer name", () => {
