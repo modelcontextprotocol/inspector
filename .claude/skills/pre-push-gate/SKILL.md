@@ -173,8 +173,12 @@ releases (it re-checks every 2s and prints `still waiting` once a minute). The
 holder's pid and worktree are in the line, so you can decide whether to wait
 or to stop that gate. A holder that was **killed** — a closed terminal, an
 OOM'd session — stops refreshing its lock and is taken over after 30s; nothing
-needs cleaning up by hand. The wait gives up after 45 minutes, naming the
-holder, which only ever happens against a live gate that has hung.
+needs cleaning up by hand. The one exception is a dead holder's lock directory
+that cannot be removed (a stray file inside it, or permissions): the takeover
+fails, the waiter keeps waiting, and the wait runs to its 45-minute cap naming
+the path — remove that directory by hand. So the give-up happens against a
+live gate that has hung, or a stale lock that would not go away; never on its
+own.
 
 `INSPECTOR_SKIP_GATE_LEASE=1 npm run local:gate` runs without the lease. It is
 for a measurement that needs contention; it does not get a result sooner,

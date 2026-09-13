@@ -379,9 +379,14 @@ test("main: no command is a usage error", async () => {
 test("a signal to the wrapper stops the whole tree, releases the lease and exits 128+signal", async () => {
   const dir = freshDir();
   const pidFile = join(dir, "grandchild.pid");
-  // The gate stand-in: records its pid, then idles forever unless signalled.
+  // The gate stand-in: starts a descendant of its own (as `npm run` does,
+  // four levels deep), records both pids, then idles forever unless
+  // signalled. The descendant is what proves the whole *tree* is stopped —
+  // a regression to `child.kill()` or a non-detached spawn would leave it
+  // running and fail below.
   const idle =
-    `require("fs").writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));` +
+    `const d = require("child_process").spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });` +
+    `require("fs").writeFileSync(${JSON.stringify(pidFile)}, process.pid + " " + d.pid);` +
     `setInterval(() => {}, 1000)`;
   const wrapper = spawn(
     process.execPath,
@@ -397,11 +402,12 @@ test("a signal to the wrapper stops the whole tree, releases the lease and exits
     wrapper.once("exit", (code, signal) => resolve({ code, signal })),
   );
 
-  let grandchild = null;
+  let tree = [];
   try {
     await waitFor(() => existsSync(pidFile));
-    grandchild = Number(readFileSync(pidFile, "utf8"));
-    assert.ok(isAlive(grandchild));
+    tree = readFileSync(pidFile, "utf8").split(" ").map(Number);
+    assert.equal(tree.length, 2);
+    for (const pid of tree) assert.ok(isAlive(pid), `pid ${pid} started`);
     assert.ok(existsSync(lockPathOf(dir)), "the wrapper held the lease");
   } finally {
     // On every path — a failed setup assertion included — the wrapper is
@@ -410,7 +416,11 @@ test("a signal to the wrapper stops the whole tree, releases the lease and exits
   }
   const outcome = await exited;
   assert.deepEqual(outcome, { code: 143, signal: null }, stderr);
-  await waitFor(() => !isAlive(grandchild));
+  for (const pid of tree)
+    await waitFor(() => !isAlive(pid)).catch(() => {
+      process.kill(pid, "SIGKILL");
+      assert.fail(`pid ${pid} outlived the wrapper — the tree was not stopped`);
+    });
   assert.ok(
     !existsSync(lockPathOf(dir)),
     "the lease was released on the way out",

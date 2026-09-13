@@ -444,12 +444,21 @@ export async function runUnderLease({
     // waiter reading a fresh lock must not be told about the previous
     // holder — unless the lock is no longer ours, in which case the record
     // is the winner's too.
-    if (guarded.mine()) rmSync(leaseTarget(dir), { force: true });
+    try {
+      if (guarded.mine()) rmSync(leaseTarget(dir), { force: true });
+    } catch {
+      // Diagnostic only; never let it stand between a finished gate and the
+      // release below.
+    }
     try {
       await release();
     } catch (err) {
+      // `ERELEASED` means the library's own refresh tick already found the
+      // lock taken over and dropped it; the directory there now is the
+      // winner's live lock, and `onCompromised` has already said so.
+      if (err?.code === "ERELEASED") return;
       log(
-        `gate-lease: could not release the lease (${err?.message ?? err}); it goes stale on its own after ${formatDuration(STALE_MS)}.`,
+        `gate-lease: could not release the lease (${err?.message ?? err}). A waiter takes it over once it is ${formatDuration(STALE_MS)} stale — unless whatever blocked this removal persists, in which case remove ${lockPathOf(dir)} by hand.`,
       );
     }
     log(
