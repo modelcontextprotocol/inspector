@@ -330,7 +330,7 @@ function main(argv = process.argv.slice(2)) {
   // The authoritative parse, when it is available — strictly a bonus, and only
   // from the EXACT pinned CLI.
   //
-  // `local:gate` runs `validate` (and therefore this) before the pinned
+  // `local:gate` runs `local:validate` (and therefore this) before the pinned
   // `verify:skills:cli` step, so a local CLI on any other version could reject
   // skills that CI's pinned validator accepts — and the gate would exit here,
   // never reaching the reproducible step (Copilot). Accepting merely "new enough"

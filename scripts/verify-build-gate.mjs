@@ -350,8 +350,9 @@ if (!output.includes(ERROR_PREFIX)) {
 // so PROBE_MODULE must appear. Without this, a repo that already leaks a built-in
 // would report OK even if the probe was tree-shaken or entryPath went stale —
 // branch (c)'s failure, silently inverted into a pass. (Unreachable inside
-// `npm run local:gate`: `validate`'s `build:web` fails first on a pre-existing leak — but
-// this script is a documented standalone command, run exactly when debugging one.)
+// `npm run local:gate`: web's `check` — its `build`, run by `local:validate` —
+// fails first on a pre-existing leak; but this script is a documented
+// standalone command, run exactly when debugging one.)
 if (!output.includes(PROBE_MODULE)) {
   fail(
     `the #1769 gate fired, but ${PROBE_MODULE} isn't among the offenders — it ` +

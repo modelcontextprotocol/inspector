@@ -32,8 +32,10 @@ answer.
 
 It runs **every check** GitHub CI runs (which additionally runs `npm install`,
 and runs `coverage` as a parallel job), plus two local-only steps. So the
-direction that matters holds: **passing `local:gate` locally means CI's gates
-will pass.** The reverse does not.
+direction that matters holds: **passing `local:gate` locally means every check
+CI applies has already passed on your machine** — the strongest predictor of a
+green CI there is here, though not a proof (a different OS, and the bare test
+pass noted below). The reverse does not hold at all.
 
 One difference in *invocations*, not checks: CI runs each client's unit suite
 twice — bare inside `validate`, instrumented inside `coverage` — on two
