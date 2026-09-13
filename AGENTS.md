@@ -217,8 +217,8 @@ Skills are conditional — a skill's body loads only when it is invoked — so a
 skill that stops being reachable loses behavior **silently**. Four rules keep
 that from happening:
 
-1. **`npm run verify:skills` must pass.** It runs inside `validate` (and so in
-   `local:gate` and in CI). It parses each `SKILL.md`'s frontmatter the way Claude
+1. **`npm run verify:skills` must pass.** It runs inside `validate:guards`,
+   which `validate` (CI) and `local:validate` (the gate) both run first. It parses each `SKILL.md`'s frontmatter the way Claude
    Code does and fails on anything that would strip the metadata — most importantly
    **malformed YAML**, which loads the body with an _empty_ description, so
    `/skill-name` still works and a manual spot check passes while the skill can
@@ -509,7 +509,7 @@ The two coverage guards do **not** catch this, and adding a third is not the fix
 
 **Every `lint` script runs with `--max-warnings 0`, so a warning fails `validate` exactly as an error does (#2085).** All six scopes carry the flag — each of `clients/{web,cli,tui,launcher}`'s `eslint .`, plus the root's `lint:core` and `lint:shared`.
 
-This exists because the gate's promise — that passing `npm run local:gate` locally means CI's gates pass — was kept while a real bug walked through it. `react-hooks/exhaustive-deps` ships at `warn` in the recommended set, and two `useCallback`s in `App.tsx` omitted a non-stable `refresh` from their dependency arrays; ESLint printed the right message on both lines on every run, nothing consumed it, and the stale closure was caught only by a review round on #2076. It is the same argument [Build output is never a gate target](#build-output-is-never-a-gate-target) makes from the other direction: a channel nobody fails on is one people learn to skim.
+This exists because the gate's promise — that a green `npm run local:gate` means every check CI applies has already passed — was kept while a real bug walked through it. `react-hooks/exhaustive-deps` ships at `warn` in the recommended set, and two `useCallback`s in `App.tsx` omitted a non-stable `refresh` from their dependency arrays; ESLint printed the right message on both lines on every run, nothing consumed it, and the stale closure was caught only by a review round on #2076. It is the same argument [Build output is never a gate target](#build-output-is-never-a-gate-target) makes from the other direction: a channel nobody fails on is one people learn to skim.
 
 Two consequences worth stating:
 

@@ -48,6 +48,25 @@ test("reachableScripts: follows `npm run` refs and pre/post hooks (r10)", () => 
   assert.ok(!reached.has("unrelated"));
 });
 
+test("reachableScripts: follows every npm spelling of `run` (#2341)", () => {
+  // `run-script` is the canonical command; `run`, `rum` and `urn` are its
+  // aliases. A chain written in any of them reaches the same scripts, so a
+  // guard that only followed `npm run` would let `npm run-script validate:web`
+  // reintroduce what it exists to forbid (Copilot).
+  const scripts = {
+    gate: "npm run-script a && npm rum b && npm urn c && npm run d",
+    a: "noop",
+    b: "noop",
+    c: "noop",
+    d: "noop",
+    e: "noop",
+  };
+  const reached = reachableScripts(scripts, "gate");
+  for (const name of ["a", "b", "c", "d"])
+    assert.ok(reached.has(name), `npm spelling reaching ${name}`);
+  assert.ok(!reached.has("e"));
+});
+
 test("reachableScripts: a `prevalidate`-hosted typecheck is reachable (r10)", () => {
   const scripts = {
     validate: "npm run build && npm run test",
