@@ -13,6 +13,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  rmSync,
   utimesSync,
   writeFileSync,
 } from "node:fs";
@@ -35,6 +36,7 @@ import {
   main,
   readHolder,
   runUnderLease,
+  spawnSpec,
 } from "./gate-lease.mjs";
 
 const SCRIPT = fileURLToPath(new URL("./gate-lease.mjs", import.meta.url));
@@ -125,6 +127,24 @@ test("exitCodeFor: the child's code, else 128 + signal", () => {
   assert.equal(exitCodeFor({ code: null, signal: "SIGNOPE" }), 128);
 });
 
+test("spawnSpec: shell-free and grouped on POSIX; cmd.exe-quoted on Windows", () => {
+  // `npm` is `npm.cmd` on Windows and cannot be started without a shell, and
+  // a shell re-parses any argument holding a space — the same pair of rules
+  // `scripts/install-clients.mjs` and `scripts/lib/win-shell-args.mjs` encode.
+  const args = ["run", "local:gate:stages", "a b"];
+  assert.deepEqual(spawnSpec("npm", args, "darwin"), {
+    command: "npm",
+    args,
+    shell: false,
+    detached: true,
+  });
+  assert.deepEqual(spawnSpec("npm", args, "linux").detached, true);
+  const win = spawnSpec("npm", args, "win32");
+  assert.equal(win.shell, true);
+  assert.equal(win.detached, false);
+  assert.deepEqual(win.args, ["run", "local:gate:stages", '"a b"']);
+});
+
 test("readHolder/describeHolder: a missing or malformed record is not an error", () => {
   const dir = freshDir();
   assert.equal(readHolder(dir), null);
@@ -212,6 +232,73 @@ test("a stale lock (its holder died) is taken over, not waited on", async () => 
     0,
   );
   assert.ok(!existsSync(lockPathOf(dir)));
+});
+
+test("a stale lock that cannot be removed is waited on, not bypassed", async () => {
+  const dir = freshDir();
+  // Stale by mtime, but with a file inside — the library's takeover `rmdir`
+  // fails ENOTEMPTY, which is not ELOCKED. Something still holds the path,
+  // so degrading to an unleased run here would be the overlap this prevents.
+  mkdirSync(lockPathOf(dir), { recursive: true });
+  writeFileSync(join(lockPathOf(dir), "stray"), "");
+  const dead = new Date(Date.now() - STALE_MS - 1_000);
+  utimesSync(lockPathOf(dir), dead, dead);
+  const { lines, log } = collectLog();
+  await assert.rejects(runNode("", { dir, log, maxWaitMs: 0 }), /gave up/);
+  assert.equal(
+    lines.filter((l) => l.includes("running without")).length,
+    0,
+    lines.join("\n"),
+  );
+  assert.ok(existsSync(lockPathOf(dir)));
+});
+
+test("a command that cannot be spawned still releases the lease", async () => {
+  const dir = freshDir();
+  const { log } = collectLog();
+  await assert.rejects(
+    runUnderLease({
+      command: join(dir, "no-such-binary"),
+      args: [],
+      dir,
+      log,
+      stdio: "ignore",
+      pollMs: 25,
+    }),
+    { code: "ENOENT" },
+  );
+  assert.ok(
+    !existsSync(lockPathOf(dir)),
+    "the lease must not outlive the failed spawn",
+  );
+  assert.ok(!existsSync(leaseTarget(dir)));
+});
+
+test("a lock replaced mid-run (stale takeover) is the winner's, and is left alone", async () => {
+  const dir = freshDir();
+  const { lines, log } = collectLog();
+  const run = runNode("setTimeout(() => {}, 400)", { dir, log });
+  await waitFor(() => existsSync(leaseTarget(dir)));
+  // What a waiter does after our refresh timer was starved past STALE_MS:
+  // remove our directory and create its own. A new inode, so the guard can
+  // tell it is not ours — and must not `rmdir` it on our way out, or a third
+  // gate would run beside the winner.
+  rmSync(lockPathOf(dir), { recursive: true });
+  mkdirSync(lockPathOf(dir));
+  writeFileSync(
+    leaseTarget(dir),
+    JSON.stringify({ pid: 1, cwd: "/winner", startedAt: Date.now() }),
+  );
+  assert.equal(await run, 0);
+  assert.ok(
+    existsSync(lockPathOf(dir)),
+    "the winner's lock survived our release",
+  );
+  assert.equal(readHolder(dir)?.cwd, "/winner", "and so did its record");
+  assert.ok(
+    lines.some((l) => l.includes("taken over by another gate")),
+    lines.join("\n"),
+  );
 });
 
 test("a live lock that never releases fails the wait loudly, naming the holder", async () => {
@@ -310,12 +397,17 @@ test("a signal to the wrapper stops the whole tree, releases the lease and exits
     wrapper.once("exit", (code, signal) => resolve({ code, signal })),
   );
 
-  await waitFor(() => existsSync(pidFile));
-  const grandchild = Number(readFileSync(pidFile, "utf8"));
-  assert.ok(isAlive(grandchild));
-  assert.ok(existsSync(lockPathOf(dir)), "the wrapper held the lease");
-
-  wrapper.kill("SIGTERM");
+  let grandchild = null;
+  try {
+    await waitFor(() => existsSync(pidFile));
+    grandchild = Number(readFileSync(pidFile, "utf8"));
+    assert.ok(isAlive(grandchild));
+    assert.ok(existsSync(lockPathOf(dir)), "the wrapper held the lease");
+  } finally {
+    // On every path — a failed setup assertion included — the wrapper is
+    // told to stop, so an idle grandchild can never outlive the suite.
+    wrapper.kill("SIGTERM");
+  }
   const outcome = await exited;
   assert.deepEqual(outcome, { code: 143, signal: null }, stderr);
   await waitFor(() => !isAlive(grandchild));

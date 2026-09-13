@@ -60,13 +60,22 @@
  */
 
 import { spawn } from "node:child_process";
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import nodeFs, {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  rmdirSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { constants as osConstants, tmpdir } from "node:os";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 // CJS-only package; a default import is the shape every loader agrees on.
 import properLockfile from "proper-lockfile";
+import { winShellArgs } from "./lib/win-shell-args.mjs";
 
 /** Set (to anything but `0` or empty) to run without taking the lease. */
 export const SKIP_ENV = "INSPECTOR_SKIP_GATE_LEASE";
@@ -174,6 +183,90 @@ export function describeHolder(holder, now = Date.now()) {
 }
 
 /**
+ * A lock directory's identity: what changes when it is removed and recreated.
+ * `ino` and birth time rather than mtime, which the holder's own refresh
+ * rewrites legitimately; `null` when it cannot be read.
+ */
+function identify(lockPath) {
+  try {
+    const stat = statSync(lockPath);
+    return { ino: stat.ino, birthtimeMs: stat.birthtimeMs };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A `proper-lockfile` `fs` shim whose directory removal refuses to delete a
+ * lock that is no longer the one this process created.
+ *
+ * The library's stale takeover is not single-winner (see
+ * `core/auth/node/file-lock.ts`, whose guard this mirrors): a holder whose
+ * refresh timer was starved past {@link STALE_MS} can have its directory
+ * replaced by a waiter, and its `release()` — and the library's `signal-exit`
+ * handler — would then `rmdir` the *winner's* lock by path, letting a third
+ * gate in beside the winner. Every removal the library performs goes through
+ * this object, so guarding here covers both paths. Identity is captured in
+ * the `mkdir` callback, the moment the directory becomes ours; `owned.id`
+ * stays `null` until then so a stale directory the library removes on the
+ * way to acquiring passes through untouched.
+ */
+function guardedFs(lockPath, owned, onRefused) {
+  const mine = () => {
+    if (owned.id === null) return true;
+    const now = identify(lockPath);
+    if (now === null) return false;
+    return now.ino === owned.id.ino && now.birthtimeMs === owned.id.birthtimeMs;
+  };
+  const removeIfMine = () => {
+    if (!mine()) {
+      onRefused();
+      return;
+    }
+    rmdirSync(lockPath);
+  };
+  return {
+    fs: {
+      ...nodeFs,
+      mkdir: (p, cb) =>
+        nodeFs.mkdir(p, (err) => {
+          if (!err) owned.id = identify(lockPath);
+          cb(err);
+        }),
+      // Reported as success when refused, so the library forgets the lock
+      // either way rather than handing its exit handler a stale record.
+      rmdir: (_p, cb) => {
+        try {
+          removeIfMine();
+          cb(null);
+        } catch (err) {
+          cb(err);
+        }
+      },
+      rmdirSync: () => removeIfMine(),
+    },
+    mine,
+  };
+}
+
+/**
+ * How to spawn `command args` on this platform. Shell-free everywhere but
+ * Windows, where `npm` is `npm.cmd` and needs `cmd.exe` to start at all
+ * (Node refuses shell-free `.cmd` spawns), so the arguments are quoted for
+ * it. The process group that lets one signal reach the whole tree is a POSIX
+ * notion, hence `detached` only there.
+ */
+export function spawnSpec(command, args, platform = process.platform) {
+  const win32 = platform === "win32";
+  return {
+    command,
+    args: winShellArgs(args, platform),
+    shell: win32,
+    detached: !win32,
+  };
+}
+
+/**
  * Send `signal` to the child's whole process group (it was spawned as a group
  * leader), falling back to the child alone where groups are unavailable or the
  * group is already gone.
@@ -201,7 +294,7 @@ function signalTree(child, signal) {
  * at all — the caller then runs unleased. Throws only when the wait budget is
  * exhausted against a live holder.
  */
-async function acquireLease({ dir, log, pollMs, progressMs, maxWaitMs }) {
+async function acquireLease({ dir, fs, log, pollMs, progressMs, maxWaitMs }) {
   const target = leaseTarget(dir);
   const startedWaiting = Date.now();
   let lastProgress = startedWaiting;
@@ -212,6 +305,7 @@ async function acquireLease({ dir, log, pollMs, progressMs, maxWaitMs }) {
         realpath: false,
         stale: STALE_MS,
         retries: 0,
+        fs,
         // The library's default throws from a timer with no caller on the
         // stack, which would take the *holder* down mid-gate. A compromised
         // lease means another gate is now running alongside this one — worth
@@ -222,7 +316,13 @@ async function acquireLease({ dir, log, pollMs, progressMs, maxWaitMs }) {
           ),
       });
     } catch (err) {
-      if (err?.code !== "ELOCKED") {
+      // `ELOCKED` is not the only "someone holds it": a stale directory the
+      // library could not remove (`ENOTEMPTY`, `EACCES`, `EROFS`) surfaces as
+      // an ordinary error, and running unleased beside whatever holds it is
+      // the overlap this exists to prevent. So the discriminator is the
+      // directory: if it exists, wait; only a lock that could not be created
+      // at all is a reason to degrade.
+      if (err?.code !== "ELOCKED" && !existsSync(lockPathOf(dir))) {
         log(
           `gate-lease: could not take the lease at ${lockPathOf(dir)} (${err?.message ?? err}); running without it.`,
         );
@@ -285,6 +385,13 @@ export async function runUnderLease({
 }) {
   let release = null;
   let waited = 0;
+  // Filled in by the shim the moment the lock directory is ours.
+  const owned = { id: null };
+  const guarded = guardedFs(lockPathOf(dir), owned, () =>
+    log(
+      "gate-lease: the lease was taken over by another gate while this one ran, so its lock was left alone rather than removed.",
+    ),
+  );
   if (isSkipped(env)) {
     log(`gate-lease: ${SKIP_ENV} is set; running without the lease.`);
   } else {
@@ -299,7 +406,14 @@ export async function runUnderLease({
     }
     if (usable) {
       const startedWaiting = Date.now();
-      release = await acquireLease({ dir, log, pollMs, progressMs, maxWaitMs });
+      release = await acquireLease({
+        dir,
+        fs: guarded.fs,
+        log,
+        pollMs,
+        progressMs,
+        maxWaitMs,
+      });
       waited = Date.now() - startedWaiting;
     }
     if (release !== null) {
@@ -322,11 +436,34 @@ export async function runUnderLease({
   }
 
   const startedRunning = Date.now();
-  const child = spawn(command, args, {
+  // Release on every way out — a spawn failure included, or the lock would
+  // sit held for STALE_MS with no gate running behind it.
+  const finishLease = async () => {
+    if (release === null) return;
+    // The record is only meaningful while the lock beside it is held; a
+    // waiter reading a fresh lock must not be told about the previous
+    // holder — unless the lock is no longer ours, in which case the record
+    // is the winner's too.
+    if (guarded.mine()) rmSync(leaseTarget(dir), { force: true });
+    try {
+      await release();
+    } catch (err) {
+      log(
+        `gate-lease: could not release the lease (${err?.message ?? err}); it goes stale on its own after ${formatDuration(STALE_MS)}.`,
+      );
+    }
+    log(
+      `gate-lease: released after ${formatDuration(Date.now() - startedRunning)}${waited >= pollMs ? ` (waited ${formatDuration(waited)} first)` : ""}.`,
+    );
+  };
+
+  const spec = spawnSpec(command, args);
+  const child = spawn(spec.command, spec.args, {
     stdio,
     env,
+    shell: spec.shell,
     // Its own group, so one signal reaches every descendant. See the header.
-    detached: process.platform !== "win32",
+    detached: spec.detached,
   });
 
   const signals = ["SIGINT", "SIGTERM", "SIGHUP"];
@@ -350,28 +487,16 @@ export async function runUnderLease({
     return [signal, handler];
   });
 
-  const outcome = await new Promise((resolve, reject) => {
-    child.once("error", reject);
-    child.once("exit", (code, signal) => resolve({ code, signal }));
-  }).finally(() => {
+  let outcome;
+  try {
+    outcome = await new Promise((resolve, reject) => {
+      child.once("error", reject);
+      child.once("exit", (code, signal) => resolve({ code, signal }));
+    });
+  } finally {
     clearTimeout(escalation);
     for (const [signal, handler] of handlers) process.off(signal, handler);
-  });
-
-  if (release !== null) {
-    // The record is only meaningful while the lock beside it is held; a
-    // waiter reading a fresh lock must not be told about the previous holder.
-    rmSync(leaseTarget(dir), { force: true });
-    try {
-      await release();
-    } catch (err) {
-      log(
-        `gate-lease: could not release the lease (${err?.message ?? err}); it goes stale on its own after ${formatDuration(STALE_MS)}.`,
-      );
-    }
-    log(
-      `gate-lease: released after ${formatDuration(Date.now() - startedRunning)}${waited >= pollMs ? ` (waited ${formatDuration(waited)} first)` : ""}.`,
-    );
+    await finishLease();
   }
   return stoppedBy !== null
     ? exitCodeFor({ code: null, signal: stoppedBy })
