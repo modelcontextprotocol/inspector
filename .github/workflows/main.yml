@@ -49,7 +49,9 @@ jobs:
         # (#2159), which consumes nothing this job produces — every client's
         # `test:coverage` builds whatever it needs itself. Unit tests run in
         # both jobs (fast here, instrumented there); now that the two run in
-        # parallel that duplication costs no wall clock at all.
+        # parallel that duplication costs no wall clock at all. (The local gate,
+        # which runs serially, calls `local:validate` instead and runs them once
+        # — #2341. Keep `validate` here: this job IS the fast inner loop.)
         # A future optimization could split `coverage` into per-client parallel
         # jobs, but that's a larger restructure and deliberately out of scope.
         run: npm run validate
@@ -109,9 +111,10 @@ jobs:
 
       - name: Run cross-client smokes
         # NOTE: this workflow runs GitHub CI's tier only. The LOCAL pre-push
-        # gate is `npm run local:gate`, and it is a strict superset — do not add
-        # it, a `local:*` script, `smoke:web:firefox`/`smoke:web:webkit`,
-        # `smoke:web:engine`, or a non-Chromium `SMOKE_BROWSER` to any workflow.
+        # gate is `npm run local:gate`, and it runs every check here plus the
+        # local-only ones — do not add it, a `local:*` script,
+        # `smoke:web:firefox`/`smoke:web:webkit`, `smoke:web:engine`, or a
+        # non-Chromium `SMOKE_BROWSER` to any workflow.
         # `npm run test:scripts` fails if you do (scripts/lib/workflow-gate.mjs,
         # #2146). `npm run smoke` and `smoke:web:chromium` belong here and are
         # not affected. The canonical CI-vs-local table is in the root README.

@@ -25,14 +25,17 @@ export function tokenize(command) {
  * <name>` references within a single manifest's `scripts`, plus npm's implicit
  * `pre<name>`/`post<name>` lifecycle hooks (npm runs those around `<name>`
  * without an explicit `npm run`, so a gate moved into e.g. `prevalidate` is
- * still reached). A gate harvested from a script that nothing reachable from
+ * still reached). Every spelling npm accepts for `run` is followed —
+ * `run-script` is the canonical command and `run`, `rum` and `urn` are its
+ * aliases — so a chain written as `npm run-script validate:web` reaches the
+ * same scripts as `npm run validate:web` (Copilot, #2341). A gate harvested from a script that nothing reachable from
  * `entry` invokes gates nothing, so callers restrict to this set to assert "CI
  * actually runs this", not merely "the script exists".
  */
 export function reachableScripts(scripts, entry = "validate") {
   const reached = new Set();
   const queue = [entry];
-  const runRef = /npm run ([\w:-]+)/g;
+  const runRef = /npm (?:run-script|run|rum|urn) ([\w:-]+)/g;
   while (queue.length > 0) {
     const name = queue.shift();
     if (reached.has(name)) continue;

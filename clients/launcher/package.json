@@ -20,6 +20,7 @@
     "format:check": "prettier --check src __tests__ scripts \"*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}\"",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
-    "validate": "npm run format:check && npm run lint && npm run typecheck && npm run build && npm run test"
+    "check": "npm run format:check && npm run lint && npm run typecheck && npm run build",
+    "validate": "npm run check && npm run test"
   }
 }

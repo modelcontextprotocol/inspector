@@ -7,9 +7,11 @@
  *     two verify gates, `smoke` and the Storybook tests. `npm run smoke` covers
  *     `smoke:launcher`, `smoke:cli`, `smoke:tui`, `smoke:web` and
  *     `smoke:web:chromium` — all of which BELONG there.
- *   - **`npm run local:gate`**, the pre-push gate, is a strict superset: it adds
- *     the **Firefox** engine pass, and `smoke:tui` really runs there rather than
- *     self-skipping. WebKit is on demand and belongs to neither tier.
+ *   - **`npm run local:gate`**, the pre-push gate, runs every check CI runs and
+ *     adds the **Firefox** engine pass, and `smoke:tui` really runs there rather
+ *     than self-skipping. WebKit is on demand and belongs to neither tier. It
+ *     runs each client's unit suite once (instrumented, under `coverage`) via
+ *     `local:validate`, where CI's two parallel jobs run it twice (#2341).
  *
  * The narrow thing that must never reach CI is a **non-Chromium engine pass**.
  * `smoke:web:firefox` was placed in the local gate on purpose (#2086,

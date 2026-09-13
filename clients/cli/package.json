@@ -17,7 +17,8 @@
   "scripts": {
     "build": "tsup",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.test.json",
-    "validate": "npm run format:check && npm run lint && npm run typecheck && npm run test",
+    "check": "npm run format:check && npm run lint && npm run typecheck",
+    "validate": "npm run check && npm run test",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "npm run test-servers:build && npm run build && vitest run --coverage",

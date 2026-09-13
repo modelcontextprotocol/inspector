@@ -217,8 +217,8 @@ Skills are conditional — a skill's body loads only when it is invoked — so a
 skill that stops being reachable loses behavior **silently**. Four rules keep
 that from happening:
 
-1. **`npm run verify:skills` must pass.** It runs inside `validate` (and so in
-   `local:gate` and in CI). It parses each `SKILL.md`'s frontmatter the way Claude
+1. **`npm run verify:skills` must pass.** It runs inside `validate:guards`,
+   which `validate` (CI) and `local:validate` (the gate) both run first. It parses each `SKILL.md`'s frontmatter the way Claude
    Code does and fails on anything that would strip the metadata — most importantly
    **malformed YAML**, which loads the body with an _empty_ description, so
    `/skill-name` still works and a manual spot check passes while the skill can
@@ -473,7 +473,8 @@ free to run a full `local:gate`). Raising a budget nobody chose hides no race.
 ## Mandatory pre-push gate
 
 - **ALWAYS run `npm run format` before committing.** The **root** `format` auto-fixes `core/`, the root `scripts/` tooling, the root shared surface, and every client's scope in one shot. `validate` runs the non-fixing `format:check` and will fail in CI on any unformatted file, so run the auto-fixer first rather than letting `format:check` catch it.
-- **`npm run local:gate` is the mandatory pre-push command.** It is a **strict superset** of `.github/workflows/main.yml`, so passing it locally means CI's gates will pass. Expect several minutes.
+- **`npm run local:gate` is the mandatory pre-push command.** It runs **every check** `.github/workflows/main.yml` runs, plus two local-only steps, so a green run here is the strongest predictor of a green CI this repo has: every check CI applies has already passed on your machine. It is not a proof — CI runs on a different OS and, since #2341, runs each client's suite bare where the gate runs it only instrumented — so the one residual is a test that passes *only* when slowed down, which is a race (#1596) to fix, never headroom to keep. Expect several minutes.
+- **The gate runs each client's test suite once, instrumented; CI runs it twice (#2341).** CI's `build` job runs the bare `test` inside `validate` and its parallel `coverage` job runs `test:coverage`, which costs CI no wall clock. Serially in one process the bare pass was ~80s of a ~370s gate, re-running exactly the files the coverage pass runs a few minutes later — so the gate calls **`local:validate`**, which is `validate` minus each client's `test` leg (every client's `validate` is `check && test`, and `local:validate` runs the `check` half). "Every check" is therefore a claim about checks, not invocations, and it holds because `@vitest/coverage-v8` collects coverage from V8's own profiler (`Profiler.takePreciseCoverage`) and rewrites no source: a test file sees identical code either way, and the instrumented run is only *slower*, which makes it the stricter of the two for the failure class this repo actually sees (a correct test cut off under load). A test that passed only *because* it ran slower would be a race — #1596's class, a defect wherever it surfaces — and CI's bare pass still runs it. **`npm run validate` is unchanged**, because CI runs it directly and it is the inner-loop check; `verify:*` guards that ask "is this reachable from `validate`" are unaffected. `local:validate` lives in the `local:` namespace so the workflow guard keeps it out of CI by construction.
 - **`npm run validate` is the fast inner-loop check and is NOT an acceptable substitute.** It runs `test`, not `test:coverage`, so it does **zero** coverage gating, no smokes, and no Storybook tests. Skipping the gate is how a push passes every fast local check and still fails CI.
 - There is deliberately **no `npm run ci`** — that name collided with the `npm ci` built-in, which clean-installs from the lockfile and does not run this script.
 - What each stage covers, and why two of them are local-only, is [`docs/quality-gate.md`](./docs/quality-gate.md); how to diagnose a failing stage is the `pre-push-gate` skill.
@@ -508,7 +509,7 @@ The two coverage guards do **not** catch this, and adding a third is not the fix
 
 **Every `lint` script runs with `--max-warnings 0`, so a warning fails `validate` exactly as an error does (#2085).** All six scopes carry the flag — each of `clients/{web,cli,tui,launcher}`'s `eslint .`, plus the root's `lint:core` and `lint:shared`.
 
-This exists because the gate's promise — that passing `npm run local:gate` locally means CI's gates pass — was kept while a real bug walked through it. `react-hooks/exhaustive-deps` ships at `warn` in the recommended set, and two `useCallback`s in `App.tsx` omitted a non-stable `refresh` from their dependency arrays; ESLint printed the right message on both lines on every run, nothing consumed it, and the stale closure was caught only by a review round on #2076. It is the same argument [Build output is never a gate target](#build-output-is-never-a-gate-target) makes from the other direction: a channel nobody fails on is one people learn to skim.
+This exists because the gate's promise — that a green `npm run local:gate` means every check CI applies has already passed — was kept while a real bug walked through it. `react-hooks/exhaustive-deps` ships at `warn` in the recommended set, and two `useCallback`s in `App.tsx` omitted a non-stable `refresh` from their dependency arrays; ESLint printed the right message on both lines on every run, nothing consumed it, and the stale closure was caught only by a review round on #2076. It is the same argument [Build output is never a gate target](#build-output-is-never-a-gate-target) makes from the other direction: a channel nobody fails on is one people learn to skim.
 
 Two consequences worth stating:
 
