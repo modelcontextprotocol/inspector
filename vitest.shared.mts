@@ -83,12 +83,13 @@ export const INTEGRATION_TIMEOUTS = Object.freeze({
  *
  * The five forks-pool projects — web `unit` and `integration`, `cli`, `tui`,
  * `launcher` — therefore inherit Vitest's non-watch default,
- * `availableParallelism() - 1`: 7 on the eight-logical-core M3 this team
- * works on. Web's `storybook` project is the exception: it runs the browser
- * pool, whose default is a different expression,
- * `min(12, availableParallelism() - 1)` — also 7 here, but capped on larger
- * machines because the main thread chokes past ~12 browser workers
- * (vitest#7871) — and 1 unless the run is headless with file parallelism. A
+ * `max(availableParallelism() - 1, 1)`: 7 on the eight-logical-core M3 this
+ * team works on. Web's `storybook` project is the exception: it runs the
+ * browser pool, whose default is a different expression,
+ * `max(min(12, availableParallelism() - 1), 1)` — also 7 here, but capped on
+ * larger machines because the main thread chokes past ~12 browser workers
+ * (vitest#7871) — and a single worker unless the run is headless, file
+ * parallelism is on, and the provider supports it. A
  * `maxWorkers` set on that project *would* apply to it (`getThreadsCount`
  * reads it before falling back), so it is not exempt from this decision;
  * but nothing below measured it. The numbers are the forks pool's, and a cap

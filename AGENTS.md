@@ -458,9 +458,9 @@ free to run a full `local:gate`). Raising a budget nobody chose hides no race.
   option, a `describe` option, a project setting and a `--retry` flag all land
   on the same check.
 - **`maxWorkers` stays unset — on measurement, not by omission (#2336).** The
-  five forks-pool projects inherit `availableParallelism() - 1`; web's
+  five forks-pool projects inherit `max(availableParallelism() - 1, 1)`; web's
   `storybook` project runs the browser pool, whose own default is
-  `min(12, availableParallelism() - 1)` and which was not measured (a cap set
+  `max(min(12, availableParallelism() - 1), 1)` and which was not measured (a cap set
   there would apply, so it is not exempt — it just needs its own numbers).
   Capping the forks pool to 4 was
   measured at the leased baseline as +14% wall on the web unit suite and +39%
