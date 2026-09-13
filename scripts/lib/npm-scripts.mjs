@@ -50,6 +50,16 @@ export function reachableScripts(scripts, entry = "validate") {
   return reached;
 }
 
+/** The lease wrapper `local:gate` runs under (#2339); see `scripts/gate-lease.mjs`. */
+export const GATE_LEASE_WRAPPER = "node scripts/gate-lease.mjs ";
+
+/** `node scripts/gate-lease.mjs npm run X` → `npm run X`; anything else unchanged. */
+function unwrapGateLease(segment) {
+  return segment.startsWith(GATE_LEASE_WRAPPER)
+    ? segment.slice(GATE_LEASE_WRAPPER.length).trim()
+    : segment;
+}
+
 /** The command strings of every script reachable from the root `validate`. */
 function rootReachedCommands(rootScripts) {
   return [...reachableScripts(rootScripts)]
@@ -108,6 +118,12 @@ export function rootReachesScript(rootScripts, scriptName) {
  * flags, as are npm's implicit `pre`/`post` hooks. Only the target is matched
  * exactly, which suits the argument-less scripts a vouch asks about.
  *
+ * One wrapper is transparent: `node scripts/gate-lease.mjs npm run X` runs
+ * `npm run X` under the local:gate lease (#2339) and nothing else, so a vouch
+ * about what `local:gate` runs looks through it. It is matched by its exact
+ * leading tokens — a wrapper with flags, or any other wrapper, still hides the
+ * invocation, because this helper cannot know what an arbitrary wrapper does.
+ *
  * @param {Record<string, string>} scripts
  * @param {string} entry
  * @param {string} target
@@ -124,7 +140,9 @@ export function scriptChainRuns(scripts, entry, target) {
       if (typeof scripts?.[hook] === "string") queue.push(hook);
     const body = scripts?.[name];
     if (typeof body !== "string") continue;
-    for (const segment of body.split(/\n|;|&&/).map((part) => part.trim())) {
+    for (const segment of body
+      .split(/\n|;|&&/)
+      .map((part) => unwrapGateLease(part.trim()))) {
       if (segment === `npm run ${target}`) return true;
       const tokens = segment.split(/\s+/);
       if (tokens[0] === "npm" && tokens[1] === "run" && tokens[2]) {

@@ -17,6 +17,7 @@ import { join } from "node:path";
 import { describe, it } from "node:test";
 import { ENGINE_SMOKES } from "./run-engine-smokes.mjs";
 import { SUPPORTED_BROWSERS } from "./lib/headless-browser.mjs";
+import { scriptChainRuns } from "./lib/npm-scripts.mjs";
 
 const scriptDir = import.meta.dirname;
 const scripts = JSON.parse(
@@ -73,7 +74,8 @@ describe("every engine tier consumes ENGINE_SMOKES", () => {
 
   it("the Firefox tier goes through the runner and is in the pre-push gate", () => {
     assert.match(scripts["smoke:web:firefox"], /run-engine-smokes\.mjs/);
-    assert.match(scripts["local:gate"], /smoke:web:firefox/);
+    // Through the #2339 lease wrapper, which `scriptChainRuns` looks past.
+    assert.ok(scriptChainRuns(scripts, "local:gate", "smoke:web:firefox"));
   });
 
   it("every supported engine has a `smoke:web:<engine>` script", () => {
