@@ -633,13 +633,16 @@ describe("the gate's name", () => {
     it("starts from `local:validate`, and never from `validate`", () => {
       assert.match(scripts["local:gate"], /^npm run local:validate && /);
       assert.doesNotMatch(scripts["local:gate"], /\brun validate(?=$|[\s&;])/);
-      // `local:validate` must not reach a client's `validate` either — that is
-      // the one door through which the bare `test` leg would come back.
-      const reached = reachableScripts(scripts, "local:validate");
+      // Nothing reachable from the WHOLE gate — not just its first stage —
+      // may run `validate` or a client's `validate:*`: those are the doors
+      // through which the bare `test` leg would come back, and a later stage
+      // could open one just as easily as the first (Copilot).
+      const reached = reachableScripts(scripts, "local:gate");
+      assert.ok(!reached.has("validate"), "local:gate must not reach validate");
       for (const c of clients)
         assert.ok(
           !reached.has(`validate:${c}`),
-          `local:validate must not reach validate:${c}`,
+          `local:gate must not reach validate:${c}`,
         );
       // Each client is visited AND its `check` is the very next command —
       // matched together, so dropping one client's `npm run check` while the
