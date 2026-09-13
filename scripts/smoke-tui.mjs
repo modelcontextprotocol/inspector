@@ -93,7 +93,16 @@ if (!existsSync(launcher)) {
 // No `script(1)` (Windows). Running without a PTY is not a weaker check, it is
 // a guaranteed failure — so say why rather than report a crash as a defect.
 // `node-pty` is the portable answer if this ever needs to run there.
-const pty = resolvePtyWrapper();
+let pty;
+try {
+  pty = resolvePtyWrapper();
+} catch (err) {
+  // The probe timed out: `script(1)` exists and the machine did not let it
+  // finish. That is a starved gate, not a platform without a PTY — reported as
+  // a failure so a load spike cannot quietly turn this smoke into a skip
+  // (#2333). The budget and the measurement are on `SCRIPT_PROBE_TIMEOUT_MS`.
+  fail(err instanceof Error ? err.message : String(err));
+}
 if (!pty.ok) {
   skip(
     `${pty.reason} — the Ink TUI needs raw mode, which requires a real ` +

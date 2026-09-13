@@ -109,6 +109,26 @@ export function ptyCommand({ command, args = [], flavor }) {
 }
 
 /**
+ * How long `script --version` gets to exit (#2333).
+ *
+ * A ceiling on a synchronous spawn, not a sleep: the probe returns the moment
+ * the process exits, and `script --version` exits at once on every flavor —
+ * BSD `script` with a usage error, util-linux and busybox with a version line.
+ * Measured here on darwin, twenty spawns with the machine at load average 4
+ * (recent peak 19): 1.3ms median, 3.6ms max. Five seconds is over a thousand
+ * times that, and what it has to absorb is process creation on a machine
+ * several gates deep, not the command.
+ *
+ * The number matters less than what its expiry means. `spawnSync` reports a
+ * timeout in the same `error` slot as ENOENT, and `probeScriptVersion` used to
+ * read both as "no `script(1)`" — so a starved probe turned `smoke:tui` into a
+ * documented **skip**, exit 0, with a message blaming the machine's PATH. A
+ * false skip on the one pre-push gate is worse than a false failure, which is
+ * why the timeout is now told apart and thrown instead (see below).
+ */
+export const SCRIPT_PROBE_TIMEOUT_MS = 5_000;
+
+/**
  * Probe the local `script(1)`: is it there, and what does it say about itself?
  *
  * **`spawnSync` does not throw on ENOENT** — it *returns* `{ error }` with
@@ -124,23 +144,42 @@ export function ptyCommand({ command, args = [], flavor }) {
  * answers `illegal option -- -` plus its usage on stderr — which is exactly the
  * evidence `scriptFlavorFor` reads. Only `error` means "could not run it".
  *
- * @param {(cmd: string, args: string[]) => { stdout?: string, stderr?: string, error?: Error }} [runner]
+ * A **timeout** is not unavailability either, and it is the one `error` that
+ * must not be folded into "not available": `script(1)` was found and started,
+ * and the machine did not let it finish. Reporting that as "no `script(1)` on
+ * PATH" would make `smoke:tui` skip — a green exit on a run that tested
+ * nothing — so it throws, naming the budget, and the caller fails loudly.
+ *
+ * @param {(cmd: string, args: string[]) => { stdout?: string, stderr?: string, error?: Error & { code?: string } }} [runner]
  *   Injected for tests; defaults to a real `spawnSync`.
  * @returns {{ available: boolean, output: string }}
+ * @throws {Error} when the probe timed out (`error.code === "ETIMEDOUT"`).
  */
 export function probeScriptVersion(
   runner = (cmd, args) =>
-    spawnSync(cmd, args, { encoding: "utf8", timeout: 5000 }),
+    spawnSync(cmd, args, {
+      encoding: "utf8",
+      timeout: SCRIPT_PROBE_TIMEOUT_MS,
+    }),
 ) {
+  let r;
   try {
-    const r = runner("script", ["--version"]);
-    // `error` covers ENOENT, EACCES and the timeout; a missing result at all
-    // means the runner told us nothing, which is not evidence of a working one.
-    if (!r || r.error) return { available: false, output: "" };
-    return { available: true, output: `${r.stdout ?? ""}${r.stderr ?? ""}` };
+    r = runner("script", ["--version"]);
   } catch {
+    // A runner that throws outright (injected, or a future spawn shape).
     return { available: false, output: "" };
   }
+  if (r?.error?.code === "ETIMEDOUT") {
+    throw new Error(
+      `\`script --version\` did not exit within ${SCRIPT_PROBE_TIMEOUT_MS}ms — ` +
+        "a starved or hung probe, not a missing `script(1)`, so smoke:tui " +
+        "must not skip on it",
+    );
+  }
+  // `error` covers ENOENT and EACCES; a missing result at all means the runner
+  // told us nothing, which is not evidence of a working one.
+  if (!r || r.error) return { available: false, output: "" };
+  return { available: true, output: `${r.stdout ?? ""}${r.stderr ?? ""}` };
 }
 
 /**
@@ -151,11 +190,16 @@ export function probeScriptVersion(
  * invocation" send the reader somewhere different — so the failure carries a
  * `reason` rather than being a bare `null` the caller has to narrate.
  *
+ * A probe that **timed out** is neither — it throws through here untouched,
+ * because "the machine would not run `script`" is a failure to report, not a
+ * reason to skip (see `probeScriptVersion`).
+ *
  * @param {object} [opts]
  * @param {string} [opts.platform]
  * @param {() => { available: boolean, output: string }} [opts.probe]
  * @returns {{ ok: true, flavor: string, wrap: (spec: { command: string, args?: string[] }) => { command: string, args: string[] } }
  *          | { ok: false, reason: string }}
+ * @throws {Error} when the probe timed out.
  */
 export function resolvePtyWrapper({
   platform = process.platform,

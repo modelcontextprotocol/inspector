@@ -25,7 +25,16 @@
  * Takes only the slice of Playwright's `page` it uses (`goto`, `locator` →
  * `waitFor`/`getAttribute`), which is what lets its failure branches be
  * unit-tested against a stand-in — a smoke only ever drives its happy path.
+ *
+ * The two budgets default to `BROWSER_TIMEOUTS` rather than restating them
+ * (#2333): `goto` and the status element attaching are the page loading and
+ * painting (`ui`), and `data-status="connected"` only appears after a round
+ * trip to the MCP server (`roundTrip`). `driveAppFlow` in `mcp-app-flow.mjs`
+ * passes the same two through, so the two helpers cannot drift apart — which
+ * is the point: they used to carry the same literals by hand.
  */
+
+import { BROWSER_TIMEOUTS } from "./browser-timeouts.mjs";
 
 /**
  * The deep link that connects to `mcpUrl`.
@@ -57,8 +66,8 @@ export async function connectViaDeepLink({
   page,
   url,
   expectDeepLink = true,
-  gotoTimeoutMs = 30_000,
-  connectTimeoutMs = 45_000,
+  gotoTimeoutMs = BROWSER_TIMEOUTS.ui,
+  connectTimeoutMs = BROWSER_TIMEOUTS.roundTrip,
 }) {
   const response = await page.goto(url, {
     waitUntil: "domcontentloaded",

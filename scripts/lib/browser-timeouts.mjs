@@ -8,7 +8,9 @@
  * same three or four decisions repeated, so they are named once here and the
  * scripts import them — the same shape `render-smoke.mjs`'s `DEFAULTS` already
  * has, and for the same reason: a budget nobody can find is a budget nobody
- * revisits.
+ * revisits. The shared flow helpers (`deep-link-connect.mjs`,
+ * `mcp-app-flow.mjs`) default their budgets to these too (#2333); they used to
+ * carry `ui`/`roundTrip` as literals of their own.
  *
  * Three of the four are ceilings on a poll rather than sleeps — `ui`,
  * `roundTrip` and `nested` each return the instant their locator condition

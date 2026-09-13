@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   ptyCommand,
   probeScriptVersion,
+  SCRIPT_PROBE_TIMEOUT_MS,
   resolvePtyWrapper,
   scriptFlavorFor,
   shellQuote,
@@ -120,7 +121,7 @@ test("shellQuote survives an embedded single quote", () => {
   assert.equal(shellQuote("plain"), "'plain'");
 });
 
-test("probeScriptVersion combines both streams and never throws", () => {
+test("probeScriptVersion combines both streams and reads a runner failure as unavailable", () => {
   assert.deepEqual(
     probeScriptVersion(() => ({ stdout: "out ", stderr: "err" })),
     { available: true, output: "out err" },
@@ -168,10 +169,34 @@ test("probeScriptVersion treats result.error as unavailable, not as empty output
     probeScriptVersion(() => ({ error: enoent, stdout: "", stderr: "" })),
     { available: false, output: "" },
   );
-  // The timeout shape reports the same way.
+  // An `error` with no recognisable code is still "could not run it".
   assert.equal(
-    probeScriptVersion(() => ({ error: new Error("ETIMEDOUT") })).available,
+    probeScriptVersion(() => ({ error: new Error("EACCES") })).available,
     false,
+  );
+});
+
+// The one `error` that must NOT read as unavailable (#2333). `script(1)` was
+// found and started; the machine did not let it finish. Folded into
+// `available: false` it becomes a `smoke:tui` SKIP — exit 0, blaming PATH — on
+// exactly the loaded machine the gate is supposed to be believable on.
+test("probeScriptVersion throws on a timed-out probe instead of reporting no script(1)", () => {
+  const timedOut = Object.assign(new Error("spawnSync script ETIMEDOUT"), {
+    code: "ETIMEDOUT",
+  });
+  assert.throws(
+    () =>
+      probeScriptVersion(() => ({ error: timedOut, stdout: "", stderr: "" })),
+    new RegExp(`did not exit within ${SCRIPT_PROBE_TIMEOUT_MS}ms`),
+  );
+  // And it reaches the caller: resolvePtyWrapper must not turn it into a skip.
+  assert.throws(
+    () =>
+      resolvePtyWrapper({
+        platform: "darwin",
+        probe: () => probeScriptVersion(() => ({ error: timedOut })),
+      }),
+    /did not exit within/,
   );
 });
 

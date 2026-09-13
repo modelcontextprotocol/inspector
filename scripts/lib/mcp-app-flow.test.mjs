@@ -16,6 +16,7 @@
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { BROWSER_TIMEOUTS } from "./browser-timeouts.mjs";
 import {
   buildAppDeepLink,
   driveAppFlow,
@@ -23,9 +24,15 @@ import {
   sandboxProxyPageFor,
 } from "./mcp-app-flow.mjs";
 
-/** Minimal Playwright `page` stand-in. `plan` maps a selector to its behavior. */
+/**
+ * Minimal Playwright `page` stand-in. `plan` maps a selector to its behavior.
+ * `waits` records the budget each `waitFor` was given, so a test can pin the
+ * defaults without a real browser.
+ */
 function fakePage(plan, { gotoStatus = 200 } = {}) {
+  const waits = {};
   return {
+    waits,
     goto: async () => ({
       ok: () => gotoStatus === 200,
       status: () => gotoStatus,
@@ -33,7 +40,8 @@ function fakePage(plan, { gotoStatus = 200 } = {}) {
     locator: (selector) => {
       const entry = plan[selector] ?? {};
       return {
-        waitFor: async () => {
+        waitFor: async (opts) => {
+          waits[selector] = opts?.timeout;
           if (entry.waitFails) throw new Error(`timeout: ${selector}`);
         },
         getAttribute: async (name) => entry.attrs?.[name] ?? null,
@@ -108,6 +116,17 @@ describe("sandboxProxyPageFor", () => {
 describe("driveAppFlow", () => {
   it("resolves when every stage succeeds", async () => {
     await driveAppFlow({ page: fakePage(happyPlan()), url: "http://x/" });
+  });
+
+  it("shares its connect budgets with connectViaDeepLink and waits a roundTrip for ready (#2333)", async () => {
+    // The connect pair is handed straight through, so `ui`/`roundTrip` here
+    // are the same two `connectViaDeepLink` defaults to; `ready` is a round
+    // trip of its own (sandbox load + bridge handshake), not a `nested` render.
+    const page = fakePage(happyPlan());
+    await driveAppFlow({ page, url: "http://x/" });
+    assert.equal(page.waits[STATUS], BROWSER_TIMEOUTS.ui);
+    assert.equal(page.waits[CONNECTED], BROWSER_TIMEOUTS.roundTrip);
+    assert.equal(page.waits[READY], BROWSER_TIMEOUTS.roundTrip);
   });
 
   it("reports a non-200 document instead of waiting on selectors", async () => {
