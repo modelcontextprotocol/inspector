@@ -468,7 +468,11 @@ export async function runUnderLease({
     );
   };
 
-  const signals = ["SIGINT", "SIGTERM", "SIGHUP"];
+  // Every signal a terminal or a supervisor sends to end a run: Ctrl-C, a
+  // plain kill, a closed terminal, and Ctrl-\ — the child is in its own
+  // group, so any of these left unhandled would end this process and
+  // orphan the gate behind a lease that then goes stale under it.
+  const signals = ["SIGINT", "SIGTERM", "SIGHUP", "SIGQUIT"];
   let stoppedBy = null;
   let escalation = null;
   let handlers = [];
