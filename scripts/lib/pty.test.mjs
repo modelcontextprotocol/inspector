@@ -189,6 +189,15 @@ test("probeScriptVersion throws on a timed-out probe instead of reporting no scr
       probeScriptVersion(() => ({ error: timedOut, stdout: "", stderr: "" })),
     new RegExp(`did not exit within ${SCRIPT_PROBE_TIMEOUT_MS}ms`),
   );
+  // A runner that THROWS the same error is normalized onto the same path — the
+  // `catch` must not quietly turn a thrown ETIMEDOUT back into "unavailable".
+  assert.throws(
+    () =>
+      probeScriptVersion(() => {
+        throw timedOut;
+      }),
+    /did not exit within/,
+  );
   // And it reaches the caller: resolvePtyWrapper must not turn it into a skip.
   assert.throws(
     () =>
