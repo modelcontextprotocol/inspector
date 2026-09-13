@@ -460,44 +460,49 @@ export async function runUnderLease({
       log(
         `gate-lease: could not release the lease (${err?.message ?? err}). A waiter takes it over once it is ${formatDuration(STALE_MS)} stale — unless whatever blocked this removal persists, in which case remove ${lockPathOf(dir)} by hand.`,
       );
+      // Not "released after": the lock may still be blocking the queue.
+      return;
     }
     log(
       `gate-lease: released after ${formatDuration(Date.now() - startedRunning)}${waited >= pollMs ? ` (waited ${formatDuration(waited)} first)` : ""}.`,
     );
   };
 
-  const spec = spawnSpec(command, args);
-  const child = spawn(spec.command, spec.args, {
-    stdio,
-    env,
-    shell: spec.shell,
-    // Its own group, so one signal reaches every descendant. See the header.
-    detached: spec.detached,
-  });
-
   const signals = ["SIGINT", "SIGTERM", "SIGHUP"];
   let stoppedBy = null;
   let escalation = null;
-  const onSignal = (signal) => {
-    if (stoppedBy !== null) return;
-    stoppedBy = signal;
-    log(`gate-lease: received ${signal}; stopping the gate.`);
-    signalTree(child, signal);
-    escalation = setTimeout(() => {
-      log(
-        `gate-lease: the gate did not exit within ${graceMs}ms of ${signal}; sending SIGKILL.`,
-      );
-      signalTree(child, "SIGKILL");
-    }, graceMs);
-  };
-  const handlers = signals.map((signal) => {
-    const handler = () => onSignal(signal);
-    process.on(signal, handler);
-    return [signal, handler];
-  });
-
+  let handlers = [];
   let outcome;
+  // Everything from here to the child's exit is inside the `try`, so a
+  // synchronous failure to even start it — an argument `winShellArgs`
+  // refuses, a spawn option Node rejects — releases the lease the same way
+  // an asynchronous spawn error does.
   try {
+    const spec = spawnSpec(command, args);
+    const child = spawn(spec.command, spec.args, {
+      stdio,
+      env,
+      shell: spec.shell,
+      // Its own group, so one signal reaches every descendant. See the header.
+      detached: spec.detached,
+    });
+    const onSignal = (signal) => {
+      if (stoppedBy !== null) return;
+      stoppedBy = signal;
+      log(`gate-lease: received ${signal}; stopping the gate.`);
+      signalTree(child, signal);
+      escalation = setTimeout(() => {
+        log(
+          `gate-lease: the gate did not exit within ${graceMs}ms of ${signal}; sending SIGKILL.`,
+        );
+        signalTree(child, "SIGKILL");
+      }, graceMs);
+    };
+    handlers = signals.map((signal) => {
+      const handler = () => onSignal(signal);
+      process.on(signal, handler);
+      return [signal, handler];
+    });
     outcome = await new Promise((resolve, reject) => {
       child.once("error", reject);
       child.once("exit", (code, signal) => resolve({ code, signal }));

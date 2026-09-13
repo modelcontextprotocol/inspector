@@ -274,6 +274,27 @@ test("a command that cannot be spawned still releases the lease", async () => {
   assert.ok(!existsSync(leaseTarget(dir)));
 });
 
+test("a command that fails synchronously before it starts still releases the lease", async () => {
+  const dir = freshDir();
+  const { log } = collectLog();
+  // `spawn` validates its arguments synchronously: a non-array `args` throws
+  // before any child exists, the same class as `winShellArgs` refusing a `%`
+  // on Windows. That throw must not strand the lock until stale takeover.
+  await assert.rejects(
+    runUnderLease({
+      command: process.execPath,
+      args: "-e",
+      dir,
+      log,
+      stdio: "ignore",
+      pollMs: 25,
+    }),
+    { code: "ERR_INVALID_ARG_TYPE" },
+  );
+  assert.ok(!existsSync(lockPathOf(dir)));
+  assert.ok(!existsSync(leaseTarget(dir)));
+});
+
 test("a lock replaced mid-run (stale takeover) is the winner's, and is left alone", async () => {
   const dir = freshDir();
   const { lines, log } = collectLog();
