@@ -457,8 +457,12 @@ free to run a full `local:gate`). Raising a budget nobody chose hides no race.
   project, reading the value Vitest resolved for the test — so a per-test
   option, a `describe` option, a project setting and a `--retry` flag all land
   on the same check.
-- **`maxWorkers` stays unset — on measurement, not by omission (#2336).** Every
-  Vitest project inherits `availableParallelism() - 1`. Capping it to 4 was
+- **`maxWorkers` stays unset — on measurement, not by omission (#2336).** The
+  five forks-pool projects inherit `availableParallelism() - 1`; web's
+  `storybook` project runs the browser pool, whose own default is
+  `min(12, availableParallelism() - 1)` and which was not measured (a cap set
+  there would apply, so it is not exempt — it just needs its own numbers).
+  Capping the forks pool to 4 was
   measured at the leased baseline as +14% wall on the web unit suite and +39%
   on `coverage:web` for zero fewer failures (0 of 18 runs either way), so the
   cap is a permanent solo-run cost. The only thing it moved was one test's 5s
