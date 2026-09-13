@@ -78,6 +78,67 @@ export const INTEGRATION_TIMEOUTS = Object.freeze({
   testTimeout: 30_000,
 });
 
+/**
+ * `maxWorkers` is deliberately unset, here and in every project (#2336).
+ *
+ * The five forks-pool projects — web `unit` and `integration`, `cli`, `tui`,
+ * `launcher` — therefore inherit Vitest's non-watch default,
+ * `max(availableParallelism() - 1, 1)`: 7 on the eight-logical-core M3 this
+ * team works on. Web's `storybook` project is the exception: it runs the
+ * browser pool, whose default is a different expression,
+ * `max(min(12, availableParallelism() - 1), 1)` — also 7 here, but capped on
+ * larger machines because the main thread chokes past ~12 browser workers
+ * (vitest#7871) — and a single worker unless the run is headless, file
+ * parallelism is on, and the provider supports it. A
+ * `maxWorkers` set on that project *would* apply to it (`getThreadsCount`
+ * reads it before falling back), so it is not exempt from this decision;
+ * but nothing below measured it. The numbers are the forks pool's, and a cap
+ * for Storybook would need its own measurement.
+ *
+ * Keeping the default is a choice, not an omission, and this is the
+ * measurement it rests on. On `v2/main` @ `f16a51d4` — after the gate lease
+ * (#2339) — with the arms interleaved (default / `--maxWorkers=4` / default),
+ * three rounds, one worktree, nothing else of ours running:
+ *
+ *   web `unit`, 345 files       default  54.9s wall   378s CPU
+ *                                4        62.4s wall   294s CPU   +14% wall, -22% CPU
+ *   web `test:coverage`, 422    default  88.0s wall   461s CPU
+ *                                4       122.5s wall   376s CPU   +39% wall, -18% CPU
+ *   failures across all 18 runs  0
+ *
+ * So a cap is a permanent solo-run cost — ~35s on every `coverage:web`, a
+ * tenth of the whole gate — bought against a flake that did not occur once
+ * at the baseline every other #2338 number is tuned to. The CPU a cap gives
+ * back matters only when something else wants the cycles, and since #2339
+ * that is no longer another gate: gates serialize under
+ * `scripts/gate-lease.mjs`. What remains is non-gate work in a sibling
+ * session. Measured against a concurrent bare `vitest run --project=unit`
+ * in the same worktree (5 / 3 / 3 pairings): with the sibling at the
+ * default, capping our run cost us +8% and gave the sibling 14% back; with
+ * both capped, both sides ran at ~100s — the same total throughput as both
+ * at the default (99s + 92s), because eight cores are saturated either way.
+ * The one thing a cap moved was failures: two of the ten 7-vs-7 runs lost
+ * `AppRenderer.test.tsx`'s theme-flip case to its 5s inner `waitFor` at 14
+ * workers; none of the twelve runs with a cap on either side did. That is a
+ * single test's inner budget starving under two sessions' worth of workers
+ * — #2338's aspect 3, fixable at that site — not a case for taxing every
+ * solo run.
+ *
+ * Why not cap only locally, via an env var this file reads and `local:gate`
+ * sets? CI never runs `local:gate`, so CI would pay nothing — but every
+ * budget above is wall-clock, so a purely scheduling difference between the
+ * local gate and CI can flip an outcome, and the gate's whole promise is
+ * that passing it here means CI passes. One configuration in both places is
+ * the property worth keeping. CI's runners resolve the same expression
+ * against their own core count, so leaving it unset costs CI nothing.
+ *
+ * Reopen this if the lease goes away, or if `Test timed out` recurs on a run
+ * whose only contention is a sibling session — the 4-vs-4 figures above are
+ * the starting point. Whatever is committed then is a *chosen* number: macOS
+ * exposes no CPU affinity API, so no cap pins a worker to a performance core
+ * and none is "one per P-core".
+ */
+
 export function vitestSharedPaths(clientDir: string) {
   const dirname = path.resolve(clientDir);
   const repoRoot = path.resolve(dirname, "../..");
