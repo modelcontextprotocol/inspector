@@ -17,24 +17,35 @@
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { BROWSER_TIMEOUTS } from "./browser-timeouts.mjs";
 import {
   buildConnectDeepLink,
   connectViaDeepLink,
 } from "./deep-link-connect.mjs";
 
-/** Minimal Playwright `page` stand-in. `plan` maps a selector to its behavior. */
+/**
+ * Minimal Playwright `page` stand-in. `plan` maps a selector to its behavior.
+ * `gotoTimeouts` and `waits` record the budget each call was given, so a test
+ * can pin the defaults without a real browser.
+ */
 function fakePage(plan, { gotoStatus = 200 } = {}) {
   const gotos = [];
+  const gotoTimeouts = [];
+  const waits = {};
   return {
     gotos,
-    goto: async (url) => {
+    gotoTimeouts,
+    waits,
+    goto: async (url, opts) => {
       gotos.push(url);
+      gotoTimeouts.push(opts?.timeout);
       return { ok: () => gotoStatus === 200, status: () => gotoStatus };
     },
     locator: (selector) => {
       const entry = plan[selector] ?? {};
       return {
-        waitFor: async () => {
+        waitFor: async (opts) => {
+          waits[selector] = opts?.timeout;
           if (entry.waitFails) throw new Error(`timeout: ${selector}`);
         },
         getAttribute: async (name) => entry.attrs?.[name] ?? null,
@@ -94,6 +105,18 @@ describe("connectViaDeepLink", () => {
     const page = fakePage(happyPlan());
     await connectViaDeepLink({ page, url: "http://x/" });
     assert.deepEqual(page.gotos, ["http://x/"]);
+  });
+
+  it("defaults each budget to the shared BROWSER_TIMEOUTS entry (#2333)", async () => {
+    // These used to be 30_000 / 45_000 literals of the helper's own — the same
+    // values `browser-timeouts.mjs` names `ui` and `roundTrip`, kept in step by
+    // hand. Pinning the defaults to the constants is what makes a raise there
+    // reach this helper and `driveAppFlow` at once.
+    const page = fakePage(happyPlan());
+    await connectViaDeepLink({ page, url: "http://x/" });
+    assert.deepEqual(page.gotoTimeouts, [BROWSER_TIMEOUTS.ui]);
+    assert.equal(page.waits[STATUS], BROWSER_TIMEOUTS.ui);
+    assert.equal(page.waits[CONNECTED], BROWSER_TIMEOUTS.roundTrip);
   });
 
   it("reports a non-200 document instead of waiting on selectors", async () => {

@@ -30,6 +30,7 @@
 
 import { join } from "node:path";
 import { startAnnouncedChild } from "./announced-child.mjs";
+import { BROWSER_TIMEOUTS } from "./browser-timeouts.mjs";
 import {
   buildConnectDeepLink,
   connectViaDeepLink,
@@ -167,6 +168,13 @@ export function buildAppDeepLink({
  * Takes only the small slice of Playwright's `page` it uses (`goto`, `locator`
  * → `waitFor`/`getAttribute`/`count`), which is what lets its failure paths be
  * unit-tested against a stand-in — a smoke only ever exercises its happy path.
+ *
+ * The three budgets are `BROWSER_TIMEOUTS` entries, not restated literals
+ * (#2333). The first two are handed straight to `connectViaDeepLink`, so the
+ * two helpers share one pair by construction. `ready` is a `roundTrip` too:
+ * the widget has to load inside the sandbox and answer through the bridge
+ * before the attribute can flip, which is the same shape as the connect wait,
+ * not a render of something already on screen (`nested`).
  */
 export async function driveAppFlow({
   page,
@@ -174,9 +182,9 @@ export async function driveAppFlow({
   expectDeepLink = true,
   what = "app",
   extraDiagnostics = null,
-  gotoTimeoutMs = 30_000,
-  connectTimeoutMs = 45_000,
-  readyTimeoutMs = 45_000,
+  gotoTimeoutMs = BROWSER_TIMEOUTS.ui,
+  connectTimeoutMs = BROWSER_TIMEOUTS.roundTrip,
+  readyTimeoutMs = BROWSER_TIMEOUTS.roundTrip,
 }) {
   // 1-2. Navigated, the deep link accepted by the token gate, and connected.
   await connectViaDeepLink({

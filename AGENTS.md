@@ -472,8 +472,19 @@ free to run a full `local:gate`). Raising a budget nobody chose hides no race.
   per-project cap without re-running that measurement.
 - **The Playwright locator budgets the web smokes use are named constants in
   `scripts/lib/browser-timeouts.mjs`** — raise one there, not at a call site.
-  The *remaining* smoke-helper budgets and CI's missing `timeout-minutes` are
-  tracked on #2333 rather than settled here.
+  The shared flow helpers (`deep-link-connect.mjs`, `mcp-app-flow.mjs`)
+  default to the same constants, so a budget that moves there moves for every
+  smoke at once. The process-level budgets are stated the same way in their
+  own modules — `DEFAULTS` in `announced-child.mjs` and `render-smoke.mjs`,
+  `SCRIPT_PROBE_TIMEOUT_MS` in `pty.mjs` — each with the measurement that
+  sized it (#2333).
+- **Every CI job declares `timeout-minutes`, sized from observed runs.** It is
+  a hung-job guard, not a flake remedy — GitHub runners are not the contended
+  machine — so the rule is roughly twice the slowest run observed, rounded up
+  to the next five minutes, stated per job in `.github/workflows/main.yml`
+  with the range it was read from. A job that starts taking longer gets its
+  number raised there, with the new range; the 360-minute default it replaces
+  is how a hang blocks a runner for six hours.
 - **Do not scale a fixed sleep.** A `setTimeout(r, N)` with no condition is not
   a timeout: it always waits the full window, so raising it slows every passing
   run and still races on a loaded one. Replace one with a condition wait when it
