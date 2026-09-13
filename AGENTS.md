@@ -457,6 +457,15 @@ free to run a full `local:gate`). Raising a budget nobody chose hides no race.
   project, reading the value Vitest resolved for the test — so a per-test
   option, a `describe` option, a project setting and a `--retry` flag all land
   on the same check.
+- **`maxWorkers` stays unset — on measurement, not by omission (#2336).** Every
+  Vitest project inherits `availableParallelism() - 1`. Capping it to 4 was
+  measured at the leased baseline as +14% wall on the web unit suite and +39%
+  on `coverage:web` for zero fewer failures (0 of 18 runs either way), so the
+  cap is a permanent solo-run cost. The only thing it moved was one test's 5s
+  inner `waitFor` when two sessions ran suites at once — a site to fix, not a
+  reason to cap. The numbers, the sibling-session trade and what would reopen
+  the question are on the comment in `vitest.shared.mts`; do not add a
+  per-project cap without re-running that measurement.
 - **The Playwright locator budgets the web smokes use are named constants in
   `scripts/lib/browser-timeouts.mjs`** — raise one there, not at a call site.
   The *remaining* smoke-helper budgets and CI's missing `timeout-minutes` are
