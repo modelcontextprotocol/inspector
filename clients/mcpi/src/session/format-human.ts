@@ -627,6 +627,54 @@ export function formatAppInfoListHuman(
   return out.join("\n");
 }
 
+/**
+ * Format `skills/list --verify` / `skills/get --verify` NDJSON lines.
+ * Each line is a {@link SkillVerifyReport}; the caller already computed the
+ * one-line stderr summary (`summarizeSkillVerification`) shared with the
+ * one-shot CLI, so this only renders the per-skill breakdown.
+ */
+export function formatSkillVerifyListHuman(
+  lines: unknown[],
+  style: Style = PLAIN,
+): string {
+  const out = [heading(style, `Skill verification (${lines.length}):`)];
+  for (const raw of lines) {
+    const report = raw as JsonObject;
+    const name = String(report.name ?? "?");
+    const uri = String(report.uri ?? "");
+    const outcome = report.outcome as string | undefined;
+    const conformance = asArray<JsonObject>(report.conformance);
+    const frontmatter = asArray<JsonObject>(report.frontmatter);
+    const files = asArray<JsonObject>(report.files);
+    const errorCount = [...conformance, ...frontmatter].filter(
+      (issue) => issue.severity === "error",
+    ).length;
+    const mismatchCount = files.filter(
+      (file) => file.status === "mismatch" || file.status === "read-error",
+    ).length;
+    const verdict =
+      outcome === "verified"
+        ? style.green("verified")
+        : outcome === "incomplete"
+          ? style.dim("incomplete")
+          : style.red("failed");
+    const detail =
+      outcome === "verified"
+        ? ""
+        : outcome === "incomplete"
+          ? style.dim(
+              ` — ${String(report.incomplete ?? "read bounds cut the walk short")}`,
+            )
+          : style.dim(
+              ` — ${errorCount} issue(s), ${mismatchCount} file mismatch(es)`,
+            );
+    out.push(
+      `* ${code(style, name)} (${formatUri(style, uri)}) — ${verdict}${detail}`,
+    );
+  }
+  return out.join("\n");
+}
+
 /** Format a single app-info probe. */
 export function formatAppInfoHuman(
   info: JsonObject,

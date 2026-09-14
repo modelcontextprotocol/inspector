@@ -301,7 +301,12 @@ export class DaemonServer {
       );
     }
     if (outcome.kind === "ndjson") {
-      return { kind: "ndjson", lines: outcome.lines };
+      return {
+        kind: "ndjson",
+        lines: outcome.lines,
+        summary: outcome.summary,
+        exitCode: outcome.exitCode,
+      };
     }
     return {
       kind: "result",

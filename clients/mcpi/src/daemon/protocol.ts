@@ -120,4 +120,16 @@ export type RpcResult =
       result: Record<string, unknown>;
       appInfo?: CliAppInfo;
     }
-  | { kind: "ndjson"; lines: unknown[] };
+  | {
+      kind: "ndjson";
+      lines: unknown[];
+      /**
+       * `skills/list --verify` / `skills/get --verify` one-line stderr
+       * verdict (#2248). Carried across the daemon socket so the session CLI
+       * can report the same summary the one-shot CLI does, rather than
+       * silently dropping it the way an earlier pass through this file did.
+       */
+      summary?: string;
+      /** Non-zero when the emitted report is itself a failure (`--verify`). */
+      exitCode?: number;
+    };

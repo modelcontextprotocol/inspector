@@ -19,6 +19,7 @@ import {
   formatSessionInfoHuman,
   formatAppInfoListHuman,
   formatAppInfoHuman,
+  formatSkillVerifyListHuman,
   formatStreamEventHuman,
   formatRpcResultHuman,
 } from "../src/session/format-human.js";
@@ -374,6 +375,31 @@ describe("format-human", () => {
       ]),
     ).toContain("no app");
 
+    const verifyText = formatSkillVerifyListHuman([
+      { name: "ok-skill", uri: "skill://ok/SKILL.md", outcome: "verified" },
+      {
+        name: "bad-skill",
+        uri: "skill://bad/SKILL.md",
+        outcome: "failed",
+        conformance: [{ severity: "error" }],
+        files: [{ status: "mismatch" }],
+      },
+      {
+        name: "cut-short",
+        uri: "skill://cut/SKILL.md",
+        outcome: "incomplete",
+        incomplete: "read bounds hit",
+      },
+    ]);
+    expect(verifyText).toContain("Skill verification (3):");
+    expect(verifyText).toContain("`ok-skill`");
+    expect(verifyText).toContain("verified");
+    expect(verifyText).toContain(
+      "`bad-skill` (skill://bad/SKILL.md) — failed — 1 issue(s), 1 file mismatch(es)",
+    );
+    expect(verifyText).toContain("`cut-short`");
+    expect(verifyText).toContain("read bounds hit");
+
     expect(
       formatAppInfoHuman({
         toolName: "t",
@@ -483,11 +509,15 @@ describe("format-human", () => {
 
 describe("writeSessionOutput", () => {
   let stdout: string;
+  let stderr: string;
   let original: typeof process.stdout.write;
+  let originalErr: typeof process.stderr.write;
 
   beforeEach(() => {
     stdout = "";
+    stderr = "";
     original = process.stdout.write;
+    originalErr = process.stderr.write;
     process.stdout.write = ((chunk: unknown, ...rest: unknown[]) => {
       stdout += typeof chunk === "string" ? chunk : String(chunk);
       const cb = rest.find((r) => typeof r === "function") as
@@ -496,10 +526,19 @@ describe("writeSessionOutput", () => {
       cb?.();
       return true;
     }) as typeof process.stdout.write;
+    process.stderr.write = ((chunk: unknown, ...rest: unknown[]) => {
+      stderr += typeof chunk === "string" ? chunk : String(chunk);
+      const cb = rest.find((r) => typeof r === "function") as
+        | (() => void)
+        | undefined;
+      cb?.();
+      return true;
+    }) as typeof process.stderr.write;
   });
 
   afterEach(() => {
     process.stdout.write = original;
+    process.stderr.write = originalErr;
   });
 
   it("pretty-prints json without a result envelope", async () => {
@@ -589,6 +628,52 @@ describe("writeSessionOutput", () => {
       },
     );
     expect(stdout).toContain('"ok": 1');
+  });
+
+  it("renders skill-verify NDJSON with its own formatter, not app-info's", async () => {
+    await writeSessionOutput(
+      { format: "text" },
+      {
+        kind: "ndjson",
+        variant: "skill-verify",
+        lines: [
+          { name: "ok-skill", uri: "skill://ok/SKILL.md", outcome: "verified" },
+        ],
+        summary: "Verified 1 skill and 0 files: no conformance errors.",
+      },
+    );
+    expect(stdout).toContain("Skill verification (1):");
+    expect(stdout).not.toContain("App info");
+    expect(stderr).toBe(
+      "Verified 1 skill and 0 files: no conformance errors.\n",
+    );
+  });
+
+  it("throws with the verify exit code after printing the report and summary", async () => {
+    await expect(
+      writeSessionOutput(
+        { format: "json" },
+        {
+          kind: "ndjson",
+          variant: "skill-verify",
+          lines: [
+            {
+              name: "bad-skill",
+              uri: "skill://bad/SKILL.md",
+              outcome: "failed",
+            },
+          ],
+          summary: "1 of 1 skill failed verification.",
+          exitCode: EXIT_CODES.SKILL_NONCONFORMANT,
+        },
+      ),
+    ).rejects.toMatchObject({
+      exitCode: EXIT_CODES.SKILL_NONCONFORMANT,
+      envelope: { code: "skills_nonconformant" },
+    });
+    // Report already on stdout, summary on stderr — both happen before the throw.
+    expect(stdout).toContain("bad-skill");
+    expect(stderr).toBe("1 of 1 skill failed verification.\n");
   });
 
   it("formats every admin/stream payload kind", async () => {

@@ -720,6 +720,34 @@ function registerRpcCommands(program: CommandType): void {
           });
         });
         break;
+      case "skills/list":
+        cmd.option(
+          "--verify",
+          "Run the SEP-2640 conformance and digest checks over every skill returned",
+        );
+        cmd.action(async (o) => {
+          await runRpc(program, method, {
+            verify: o.verify === true,
+            metadata: o.metadata,
+          });
+        });
+        break;
+      case "skills/get":
+        cmd
+          .argument("[uri]", "Skill URI")
+          .option("--uri <uri>", "Skill URI")
+          .option(
+            "--verify",
+            "Run the SEP-2640 conformance and digest checks over this skill",
+          );
+        cmd.action(async (uriPos: string | undefined, o) => {
+          await runRpc(program, method, {
+            uri: (o.uri as string | undefined) ?? uriPos,
+            verify: o.verify === true,
+            metadata: o.metadata,
+          });
+        });
+        break;
       case "prompts/get":
         cmd
           .argument("[promptName]", "Prompt name")

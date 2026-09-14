@@ -10,6 +10,14 @@ import { styleFromOpts } from "@inspector/cli/style.js";
 
 const STREAM_METHODS = new Set(["logging/tail", "resources/subscribe"]);
 
+/**
+ * The only two methods whose NDJSON output is a `--verify` conformance report
+ * rather than `tools/list --app-info` probe lines. Everything else that ever
+ * returns `kind: "ndjson"` is the app-info shape, so this is a short
+ * allow-list rather than the other way round.
+ */
+const NDJSON_VARIANTS = new Set(["skills/list", "skills/get"]);
+
 export type SessionDispatchOpts = {
   format?: OutputFormat;
   plain?: boolean;
@@ -70,6 +78,9 @@ export async function dispatchSessionRpc(
       {
         kind: "ndjson",
         lines: outcome.lines,
+        variant: NDJSON_VARIANTS.has(method) ? "skill-verify" : "app-info",
+        summary: outcome.summary,
+        exitCode: outcome.exitCode,
       },
     );
     return;

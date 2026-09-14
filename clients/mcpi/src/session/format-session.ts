@@ -1,4 +1,7 @@
-import { awaitableLog } from "@inspector/cli/utils/awaitable-log.js";
+import {
+  awaitableError,
+  awaitableLog,
+} from "@inspector/cli/utils/awaitable-log.js";
 import type { SessionInfo } from "../daemon/protocol.js";
 import { CliExitCodeError, EXIT_CODES } from "@inspector/cli/error-handler.js";
 import type { OutputFormat } from "@inspector/cli/handlers/format-output.js";
@@ -12,6 +15,7 @@ import {
   formatServerShowHuman,
   formatSessionInfoHuman,
   formatSessionsListHuman,
+  formatSkillVerifyListHuman,
   formatStreamEventHuman,
 } from "./format-human.js";
 import { PLAIN, type Style } from "@inspector/cli/style.js";
@@ -42,7 +46,16 @@ export type SessionWriteKind =
       /** For exit-code messages when result.isError. */
       toolName?: string;
     }
-  | { kind: "ndjson"; lines: unknown[] }
+  | {
+      kind: "ndjson";
+      lines: unknown[];
+      /** Distinguishes `tools/list --app-info` probe lines from a `--verify` report. */
+      variant?: "app-info" | "skill-verify";
+      /** `--verify` one-line stderr verdict; absent for `--app-info`. */
+      summary?: string;
+      /** Non-zero when the emitted `--verify` report is itself a failure. */
+      exitCode?: number;
+    }
   | { kind: "stream-event"; data: unknown }
   | { kind: "servers/list"; servers: unknown[] }
   | { kind: "servers/show"; server: JsonObject }
@@ -80,12 +93,27 @@ export async function writeSessionOutput(
 
   if (format === "json") {
     await awaitableLog(formatSessionJson(jsonPayload(payload)));
+    await writeNdjsonSummary(payload);
     applyExitCodes(payload);
     return;
   }
 
   await awaitableLog(humanPayload(payload, style) + "\n");
+  await writeNdjsonSummary(payload);
   applyExitCodes(payload);
+}
+
+/**
+ * `skills/list --verify` / `skills/get --verify`: the one-line verdict goes to
+ * **stderr**, after the report, in both `--format text` and `--format json` —
+ * mirrors the one-shot CLI (`consumeMethodOutcome`), so a reader piping stdout
+ * into `jq` still sees it and a `--format json` caller isn't left without one
+ * just because the report itself is already structured.
+ */
+async function writeNdjsonSummary(payload: SessionWriteKind): Promise<void> {
+  if (payload.kind === "ndjson" && payload.summary) {
+    await awaitableError(`${payload.summary}\n`);
+  }
 }
 
 function jsonPayload(payload: SessionWriteKind): unknown {
@@ -134,7 +162,9 @@ function humanPayload(payload: SessionWriteKind, style: Style): string {
       return formatted ?? JSON.stringify(payload.result, null, 2);
     }
     case "ndjson":
-      return formatAppInfoListHuman(payload.lines, style);
+      return payload.variant === "skill-verify"
+        ? formatSkillVerifyListHuman(payload.lines, style)
+        : formatAppInfoListHuman(payload.lines, style);
     case "stream-event":
       return formatStreamEventHuman(payload.data, style);
     case "servers/list":
@@ -202,6 +232,17 @@ function asAppInfoProbe(result: JsonObject): CliAppInfo | undefined {
 }
 
 function applyExitCodes(payload: SessionWriteKind): void {
+  if (payload.kind === "ndjson" && payload.exitCode) {
+    // Report already written above; thrown last so it routes through the
+    // session CLI's single exit path, same as the one-shot CLI's
+    // `consumeMethodOutcome` (Copilot).
+    throw new CliExitCodeError(payload.exitCode, payload.summary ?? "", {
+      code:
+        payload.exitCode === EXIT_CODES.SKILL_INCOMPLETE
+          ? "skills_incomplete"
+          : "skills_nonconformant",
+    });
+  }
   if (payload.kind === "rpc") {
     // Only `--app-info` probes (result is the info object) map to NO_APP.
     // Auto-collected `payload.appInfo` from tools/call+json must not.
