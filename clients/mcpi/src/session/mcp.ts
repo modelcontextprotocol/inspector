@@ -23,7 +23,6 @@ import {
   withConnectTimeout,
 } from "@inspector/cli/handlers/connect-timeout.js";
 import {
-  metaValueToString,
   SESSION_RPC_METHODS,
   type MethodArgs,
 } from "@inspector/cli/handlers/method-types.js";
@@ -607,7 +606,7 @@ function registerRpcCommands(program: CommandType): void {
         cmd.action(async (o) => {
           await runRpc(program, method, {
             appInfo: o.appInfo === true,
-            metadata: stringifyMeta(o.metadata),
+            metadata: o.metadata,
           });
         });
         break;
@@ -653,8 +652,8 @@ function registerRpcCommands(program: CommandType): void {
             await runRpc(program, method, {
               toolName,
               toolArg,
-              toolMeta: stringifyMeta(o.toolMetadata),
-              metadata: stringifyMeta(o.metadata),
+              toolMeta: o.toolMetadata,
+              metadata: o.metadata,
               task: o.task === true,
               appInfo: o.appInfo === true,
             });
@@ -670,7 +669,7 @@ function registerRpcCommands(program: CommandType): void {
         cmd.action(async (uriPos: string | undefined, o) => {
           await runRpc(program, method, {
             uri: (o.uri as string | undefined) ?? uriPos,
-            metadata: stringifyMeta(o.metadata),
+            metadata: o.metadata,
           });
         });
         break;
@@ -688,7 +687,7 @@ function registerRpcCommands(program: CommandType): void {
           await runRpc(program, method, {
             promptName: (o.promptName as string | undefined) ?? promptPos,
             promptArgs: (o.promptArgs ?? {}) as Record<string, JsonValue>,
-            metadata: stringifyMeta(o.metadata),
+            metadata: o.metadata,
           });
         });
         break;
@@ -712,7 +711,7 @@ function registerRpcCommands(program: CommandType): void {
             completeRef: o.completeRef as string | undefined,
             completeArgName: o.completeArgName as string | undefined,
             completeArgValue: (o.completeArgValue as string | undefined) ?? "",
-            metadata: stringifyMeta(o.metadata),
+            metadata: o.metadata,
           });
         });
         break;
@@ -729,7 +728,7 @@ function registerRpcCommands(program: CommandType): void {
           }
           await runRpc(program, method, {
             logLevel: level as LoggingLevel | undefined,
-            metadata: stringifyMeta(o.metadata),
+            metadata: o.metadata,
           });
         });
         break;
@@ -740,7 +739,7 @@ function registerRpcCommands(program: CommandType): void {
         cmd.action(async (taskPos: string | undefined, o) => {
           await runRpc(program, method, {
             taskId: (o.taskId as string | undefined) ?? taskPos,
-            metadata: stringifyMeta(o.metadata),
+            metadata: o.metadata,
           });
         });
         break;
@@ -749,14 +748,14 @@ function registerRpcCommands(program: CommandType): void {
         cmd.action(async (o) => {
           await runRpc(program, method, {
             rootsJson: o.rootsJson as string | undefined,
-            metadata: stringifyMeta(o.metadata),
+            metadata: o.metadata,
           });
         });
         break;
       default:
         cmd.action(async (o) => {
           await runRpc(program, method, {
-            metadata: stringifyMeta(o.metadata),
+            metadata: o.metadata,
           });
         });
         break;
@@ -797,15 +796,6 @@ function parseKeyValue(
     parsedValue = val;
   }
   return { ...previous, [key]: parsedValue };
-}
-
-function stringifyMeta(
-  meta: Record<string, JsonValue> | undefined,
-): Record<string, string> | undefined {
-  if (!meta || Object.keys(meta).length === 0) return undefined;
-  return Object.fromEntries(
-    Object.entries(meta).map(([k, v]) => [k, metaValueToString(v)]),
-  );
 }
 
 function looksLikeUrl(value: string): boolean {

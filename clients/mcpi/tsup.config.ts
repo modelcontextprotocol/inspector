@@ -29,6 +29,8 @@ export default defineConfig({
     "commander",
     "pino",
     "open",
+    "yaml",
+    "proper-lockfile",
   ],
   esbuildOptions(options) {
     options.alias = {
