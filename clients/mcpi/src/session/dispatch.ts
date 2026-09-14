@@ -7,6 +7,7 @@ import type {
 import type { OutputFormat } from "@inspector/cli/handlers/format-output.js";
 import { writeSessionOutput } from "./format-session.js";
 import { styleFromOpts } from "@inspector/cli/style.js";
+import { promptElicitation } from "./elicitation-prompt.js";
 
 const STREAM_METHODS = new Set(["logging/tail", "resources/subscribe"]);
 
@@ -71,7 +72,17 @@ export async function dispatchSessionRpc(
     return;
   }
 
-  const outcome = await callDaemon<RpcResult>("rpc", params, { socketPath });
+  const outcome = await callDaemon<RpcResult>("rpc", params, {
+    socketPath,
+    onElicitation: (frame) =>
+      promptElicitation(frame, {
+        style,
+        interactive:
+          format === "text" &&
+          process.stdin.isTTY === true &&
+          process.stdout.isTTY === true,
+      }),
+  });
   if (outcome.kind === "ndjson") {
     await writeSessionOutput(
       { format, style },

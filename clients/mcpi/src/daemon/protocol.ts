@@ -1,6 +1,7 @@
 import type {
   InspectorServerSettings,
   MCPServerConfig,
+  PendingRequestOrigin,
 } from "@inspector/core/mcp/types.js";
 import type {
   CliAppInfo,
@@ -80,6 +81,46 @@ export type DaemonResponse =
 export type DaemonStreamFrame =
   | { id: string; stream: "data"; data: unknown }
   | { id: string; stream: "end" };
+
+/**
+ * One elicitation request/answer exchange, carried mid-`rpc` call when the
+ * in-flight tool/prompt/resource call surfaces a legacy or modern non-task
+ * MRTR elicitation (dual-era support, phase 1 — task-augmented MRTR
+ * elicitation is a separate follow-up, since that call already returns
+ * immediately and never blocks a `rpc` round-trip in the first place).
+ *
+ * Written by the daemon onto the SAME connection as the originating `rpc`
+ * request, before its `DaemonResponse`; the CLI answers on that same
+ * connection with an {@link ElicitationResponseFrame}, and the daemon resumes
+ * the (still in-flight) call. See `ipc-glue.ts`'s `acceptDaemonConnection` for
+ * why this needs no new channel: each `rpc` request already owns its
+ * connection exclusively, and core itself never has more than one elicitation
+ * pending at a time (sequential by design) — though a single call can
+ * pause/resume through several of these exchanges before its final response.
+ */
+export type ElicitationRequestFrame = {
+  id: string;
+  kind: "elicitation-request";
+  /** `ElicitationCreateMessage.id` — echoed back so the answer can be matched. */
+  elicitationId: string;
+  mode: "form" | "url";
+  message: string;
+  /** Form mode only. */
+  requestedSchema?: Record<string, unknown>;
+  /** URL mode only. */
+  url?: string;
+  /** Legacy server→client request vs. modern non-task MRTR round. */
+  origin: PendingRequestOrigin;
+};
+
+export type ElicitationResponseFrame = {
+  id: string;
+  kind: "elicitation-response";
+  elicitationId: string;
+  action: "accept" | "decline" | "cancel";
+  /** Form mode `action: "accept"` only. */
+  content?: Record<string, unknown>;
+};
 
 export type SessionInfo = {
   name: string;

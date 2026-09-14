@@ -361,7 +361,12 @@ async function createSessionClient(
     initialLoggingLevel: "debug",
     progress: false,
     sample: false,
-    elicit: false,
+    // Phase 1 of dual-era elicitation support: advertise URL-mode only. Form
+    // mode isn't rendered yet (that's a follow-up phase), so it stays
+    // unadvertised here — a form-mode elicitation arriving anyway (a server
+    // ignoring our capabilities) is defensively auto-declined by the daemon's
+    // elicitation prompt.
+    elicit: { url: true },
     serverSettings,
     ...(serverSettings?.protocolEra && {
       versionNegotiation: eraToVersionNegotiation(serverSettings.protocolEra),

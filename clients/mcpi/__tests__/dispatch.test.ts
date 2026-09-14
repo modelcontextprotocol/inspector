@@ -3,11 +3,16 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 const callDaemon = vi.fn();
 const ensureDaemon = vi.fn();
 const streamDaemon = vi.fn();
+const promptElicitation = vi.fn();
 
 vi.mock("../src/daemon/index.js", () => ({
   callDaemon: (...args: unknown[]) => callDaemon(...args),
   ensureDaemon: (...args: unknown[]) => ensureDaemon(...args),
   streamDaemon: (...args: unknown[]) => streamDaemon(...args),
+}));
+
+vi.mock("../src/session/elicitation-prompt.js", () => ({
+  promptElicitation: (...args: unknown[]) => promptElicitation(...args),
 }));
 
 describe("dispatchSessionRpc", () => {
@@ -28,6 +33,7 @@ describe("dispatchSessionRpc", () => {
     ensureDaemon.mockResolvedValue({ socketPath: "/tmp/t.sock" });
     callDaemon.mockReset();
     streamDaemon.mockReset();
+    promptElicitation.mockReset();
   });
 
   afterEach(() => {
@@ -99,6 +105,63 @@ describe("dispatchSessionRpc", () => {
     );
     expect(stdout).toContain("Subscribed:");
     expect(streamDaemon).toHaveBeenCalled();
+  });
+
+  it("wires onElicitation as interactive when text format + TTY stdin/stdout", async () => {
+    callDaemon.mockResolvedValue({ kind: "result", result: {} });
+    const stdinDesc = Object.getOwnPropertyDescriptor(process.stdin, "isTTY");
+    const stdoutDesc = Object.getOwnPropertyDescriptor(process.stdout, "isTTY");
+    Object.defineProperty(process.stdin, "isTTY", {
+      configurable: true,
+      value: true,
+    });
+    Object.defineProperty(process.stdout, "isTTY", {
+      configurable: true,
+      value: true,
+    });
+    try {
+      const { dispatchSessionRpc } = await import(
+        "../src/session/dispatch.js"
+      );
+      await dispatchSessionRpc(
+        "tools/call",
+        {},
+        { format: "text", requireExplicit: false },
+      );
+      const opts = callDaemon.mock.calls[0][2] as {
+        onElicitation: (frame: unknown) => unknown;
+      };
+      expect(opts.onElicitation).toBeInstanceOf(Function);
+      promptElicitation.mockResolvedValue({ action: "cancel" });
+      await opts.onElicitation({ id: "x" });
+      expect(promptElicitation).toHaveBeenCalledWith(
+        { id: "x" },
+        expect.objectContaining({ interactive: true }),
+      );
+    } finally {
+      if (stdinDesc) Object.defineProperty(process.stdin, "isTTY", stdinDesc);
+      if (stdoutDesc)
+        Object.defineProperty(process.stdout, "isTTY", stdoutDesc);
+    }
+  });
+
+  it("wires onElicitation as non-interactive for --format json", async () => {
+    callDaemon.mockResolvedValue({ kind: "result", result: {} });
+    const { dispatchSessionRpc } = await import("../src/session/dispatch.js");
+    await dispatchSessionRpc(
+      "tools/call",
+      {},
+      { format: "json", requireExplicit: false },
+    );
+    const opts = callDaemon.mock.calls[0][2] as {
+      onElicitation: (frame: unknown) => unknown;
+    };
+    promptElicitation.mockResolvedValue({ action: "cancel" });
+    await opts.onElicitation({ id: "x" });
+    expect(promptElicitation).toHaveBeenCalledWith(
+      { id: "x" },
+      expect.objectContaining({ interactive: false }),
+    );
   });
 });
 

@@ -12,6 +12,8 @@ import type {
   DaemonRequest,
   DaemonResponse,
   DaemonStreamFrame,
+  ElicitationRequestFrame,
+  ElicitationResponseFrame,
 } from "./protocol.js";
 
 export type StreamStarter = (writeData: (data: unknown) => void) => () => void;
@@ -23,15 +25,93 @@ export type HandleOutcome = {
   startStream?: StreamStarter;
 };
 
-export type HandleRequest = (request: DaemonRequest) => Promise<HandleOutcome>;
+/**
+ * Bridges a single in-flight `rpc` call to its owning connection so it can
+ * pause mid-call for a legacy/modern-non-task elicitation, and resume once
+ * the CLI answers. See `ElicitationRequestFrame`'s doc comment in
+ * `protocol.ts` for why one exchange (repeatable) is all a single connection
+ * ever needs.
+ */
+export type ElicitationChannel = {
+  request(frame: ElicitationRequestFrame): Promise<ElicitationResponseFrame>;
+};
+
+export type HandleRequest = (
+  request: DaemonRequest,
+  elicitation: ElicitationChannel,
+) => Promise<HandleOutcome>;
+
+/**
+ * Per-connection {@link ElicitationChannel}. Writes an elicitation-request
+ * frame straight onto the socket (ahead of the eventual `DaemonResponse`) and
+ * waits for the next line to answer it; `acceptDaemonConnection`'s line
+ * handler gives that next line to {@link tryConsumeLine} instead of parsing
+ * it as a new top-level request. Rejects any pending exchange if the socket
+ * disconnects, so a dropped client can't hang the daemon-side call forever.
+ */
+class ConnectionElicitationChannel implements ElicitationChannel {
+  private pending: {
+    resolve: (frame: ElicitationResponseFrame) => void;
+    reject: (error: Error) => void;
+  } | null = null;
+
+  constructor(private readonly socket: net.Socket) {
+    const onDisconnect = () => this.rejectPending("Connection closed");
+    socket.once("close", onDisconnect);
+    socket.once("error", onDisconnect);
+  }
+
+  request(frame: ElicitationRequestFrame): Promise<ElicitationResponseFrame> {
+    if (this.pending) {
+      return Promise.reject(
+        new Error(
+          "Another elicitation is already pending on this connection",
+        ),
+      );
+    }
+    return new Promise((resolve, reject) => {
+      this.pending = { resolve, reject };
+      if (this.socket.destroyed) {
+        this.rejectPending("Connection closed");
+        return;
+      }
+      this.socket.write(JSON.stringify(frame) + "\n");
+    });
+  }
+
+  /** Returns true if this line was consumed as a pending elicitation answer. */
+  tryConsumeLine(line: string): boolean {
+    if (!this.pending) return false;
+    let parsed: ElicitationResponseFrame;
+    try {
+      parsed = JSON.parse(line);
+    } catch {
+      return false;
+    }
+    if (!parsed || parsed.kind !== "elicitation-response") return false;
+    const { resolve } = this.pending;
+    this.pending = null;
+    resolve(parsed);
+    return true;
+  }
+
+  private rejectPending(message: string): void {
+    if (!this.pending) return;
+    const { reject } = this.pending;
+    this.pending = null;
+    reject(new Error(message));
+  }
+}
 
 export function acceptDaemonConnection(
   socket: net.Socket,
   handle: HandleRequest,
 ): void {
   const rl = createInterface({ input: socket, crlfDelay: Infinity });
+  const elicitationChannel = new ConnectionElicitationChannel(socket);
   rl.on("line", (line) => {
     void (async () => {
+      if (elicitationChannel.tryConsumeLine(line)) return;
       let request: DaemonRequest;
       try {
         const parsed = parseRequestLine(line);
@@ -50,7 +130,7 @@ export function acceptDaemonConnection(
         );
         return;
       }
-      const outcome = await handle(request);
+      const outcome = await handle(request, elicitationChannel);
       if (socket.destroyed) return;
       socket.write(encodeResponse(outcome.response));
 

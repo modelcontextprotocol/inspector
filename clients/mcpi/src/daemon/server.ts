@@ -10,8 +10,10 @@ import type { MethodArgs } from "@inspector/cli/handlers/method-types.js";
 import {
   acceptDaemonConnection,
   removeStaleDaemonSocket,
+  type ElicitationChannel,
   type HandleOutcome,
 } from "./ipc-glue.js";
+import { wireElicitationBridge } from "./elicitation-bridge.js";
 import { assertDaemonToken, getDaemonTokenFromEnv } from "./auth.js";
 import {
   ensureDaemonDir,
@@ -30,6 +32,23 @@ import type {
   SessionShowResult,
 } from "./protocol.js";
 import { DEFAULT_IDLE_MS, SessionRegistry } from "./sessions.js";
+
+/**
+ * Default channel used when a caller doesn't wire a real one (in-process
+ * `handle`/`handleOutcome` test call sites that predate elicitation support).
+ * Immediately cancels any elicitation, matching `elicit: false` behavior —
+ * these callers never advertise elicitation support to the server anyway.
+ */
+const autoCancelElicitationChannel: ElicitationChannel = {
+  request(frame) {
+    return Promise.resolve({
+      id: frame.id,
+      kind: "elicitation-response",
+      elicitationId: frame.elicitationId,
+      action: "cancel",
+    });
+  },
+};
 
 export type DaemonServerOptions = {
   dir?: string;
@@ -74,7 +93,9 @@ export class DaemonServer {
     this.writeLock();
 
     this.server = net.createServer((socket) => {
-      acceptDaemonConnection(socket, (req) => this.handleOutcome(req));
+      acceptDaemonConnection(socket, (req, elicitation) =>
+        this.handleOutcome(req, elicitation),
+      );
     });
 
     await new Promise<void>((resolve, reject) => {
@@ -126,15 +147,21 @@ export class DaemonServer {
   }
 
   /** Handle one request; returns the response body (used by in-process tests). */
-  async handle(request: DaemonRequest): Promise<DaemonResponse> {
-    return (await this.handleOutcome(request)).response;
+  async handle(
+    request: DaemonRequest,
+    elicitation: ElicitationChannel = autoCancelElicitationChannel,
+  ): Promise<DaemonResponse> {
+    return (await this.handleOutcome(request, elicitation)).response;
   }
 
   /** Full handle including optional stream starter (socket accept path). */
-  async handleOutcome(request: DaemonRequest): Promise<HandleOutcome> {
+  async handleOutcome(
+    request: DaemonRequest,
+    elicitation: ElicitationChannel = autoCancelElicitationChannel,
+  ): Promise<HandleOutcome> {
     try {
       assertDaemonToken(this.requiredToken, request.token);
-      return await this.dispatch(request);
+      return await this.dispatch(request, elicitation);
     } catch (error) {
       if (error instanceof CliExitCodeError) {
         return {
@@ -165,7 +192,10 @@ export class DaemonServer {
     }
   }
 
-  private async dispatch(request: DaemonRequest): Promise<HandleOutcome> {
+  private async dispatch(
+    request: DaemonRequest,
+    elicitation: ElicitationChannel,
+  ): Promise<HandleOutcome> {
     switch (request.op) {
       case "ping":
         return {
@@ -270,7 +300,11 @@ export class DaemonServer {
           response: {
             id: request.id,
             ok: true,
-            result: await this.runRpc(request.params as RpcParams),
+            result: await this.runRpc(
+              request.id,
+              request.params as RpcParams,
+              elicitation,
+            ),
           },
         };
       case "stream":
@@ -284,7 +318,11 @@ export class DaemonServer {
     }
   }
 
-  private async runRpc(params: RpcParams): Promise<RpcResult> {
+  private async runRpc(
+    requestId: string,
+    params: RpcParams,
+    elicitation: ElicitationChannel,
+  ): Promise<RpcResult> {
     if (!params?.method) {
       throw new CliExitCodeError(EXIT_CODES.USAGE, "rpc requires a method", {
         code: "invalid_params",
@@ -292,7 +330,13 @@ export class DaemonServer {
     }
     const client = this.registry.clientFor(params.name, params.requireExplicit);
     const methodArgs = stripSessionFields(params);
-    const outcome = await runMethod(client, methodArgs);
+    const unwire = wireElicitationBridge(client, elicitation, requestId);
+    let outcome;
+    try {
+      outcome = await runMethod(client, methodArgs);
+    } finally {
+      unwire();
+    }
     if (outcome.kind === "stream") {
       throw new CliExitCodeError(
         EXIT_CODES.USAGE,
