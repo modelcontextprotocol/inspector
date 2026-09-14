@@ -1,7 +1,11 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
-import { vitestSharedPaths } from "../../vitest.shared.mts";
+import {
+  NO_RETRY_SETUP,
+  TIMEOUTS,
+  vitestSharedPaths,
+} from "../../vitest.shared.mts";
 
 const dirname = path.dirname(fileURLToPath(import.meta.url));
 const { projectResolve } = vitestSharedPaths(dirname);
@@ -20,7 +24,9 @@ export default defineConfig({
     globals: false,
     environment: "node",
     include: ["__tests__/**/*.test.ts"],
-    testTimeout: 15000,
+    setupFiles: [NO_RETRY_SETUP],
+    // Shared budgets (#2323).
+    ...TIMEOUTS,
     pool: "forks",
     coverage: {
       provider: "v8",

@@ -23,6 +23,7 @@ export function parseToolCallPositionals(
     } catch (e) {
       throw new Error(
         `Invalid JSON tool arguments: ${e instanceof Error ? e.message : String(e)}`,
+        { cause: e },
       );
     }
     if (
@@ -123,6 +124,7 @@ function parseJsonObject(raw: string, flag: string): Record<string, JsonValue> {
   } catch (e) {
     throw new Error(
       `${flag} is not valid JSON: ${e instanceof Error ? e.message : String(e)}`,
+      { cause: e },
     );
   }
   if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {

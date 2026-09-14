@@ -53,6 +53,11 @@ export const BUNDLED_CLIENTS = [
     config: "clients/tui/tsup.config.ts",
     build: "clients/tui/build",
   },
+  {
+    name: "mcpi",
+    config: "clients/mcpi/tsup.config.ts",
+    build: "clients/mcpi/build",
+  },
 ];
 
 /**

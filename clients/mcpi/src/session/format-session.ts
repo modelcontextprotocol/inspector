@@ -196,7 +196,9 @@ function asAppInfoProbe(result: JsonObject): CliAppInfo | undefined {
     return undefined;
   }
   // Narrowed by the structural checks above; CliAppInfo adds optional fields.
-  return result as CliAppInfo;
+  // `JsonObject`'s index signature doesn't structurally overlap with
+  // `CliAppInfo`'s concrete shape, so `as` needs the `unknown` bridge.
+  return result as unknown as CliAppInfo;
 }
 
 function applyExitCodes(payload: SessionWriteKind): void {

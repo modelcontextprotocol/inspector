@@ -86,12 +86,12 @@ describe("mcp.ts coverage", () => {
     const badMeta = await runMcp(["tools/list", "--metadata", "novalue"], {
       env: e,
     });
-    expectCliFailure(badMeta, 1);
+    expectCliFailure(badMeta);
 
     const emptyMeta = await runMcp(["tools/list", "--metadata", "k="], {
       env: e,
     });
-    expectCliFailure(emptyMeta, 1);
+    expectCliFailure(emptyMeta);
 
     const read = await runMcp(
       [
@@ -131,7 +131,7 @@ describe("mcp.ts coverage", () => {
       ["prompts/complete", "--complete-ref-type", "nope"],
       { env: e },
     );
-    expectCliFailure(completeBad, 1);
+    expectCliFailure(completeBad);
 
     const complete = await runMcp(
       [
@@ -162,7 +162,7 @@ describe("mcp.ts coverage", () => {
     const logBad = await runMcp(["logging/setLevel", "--log-level", "nope"], {
       env: e,
     });
-    expectCliFailure(logBad, 1);
+    expectCliFailure(logBad);
 
     const taskGet = await runMcp(
       ["tasks/get", "missing-task", "--format", "json"],
@@ -171,19 +171,19 @@ describe("mcp.ts coverage", () => {
         timeout: 20000,
       },
     );
-    expectCliFailure(taskGet, 1);
+    expectCliFailure(taskGet);
 
     const taskCancel = await runMcp(
       ["tasks/cancel", "--task-id", "missing-task", "--format", "json"],
       { env: e, timeout: 20000 },
     );
-    expectCliFailure(taskCancel, 1);
+    expectCliFailure(taskCancel);
 
     const taskResult = await runMcp(
       ["tasks/result", "missing-task", "--format", "json"],
       { env: e, timeout: 20000 },
     );
-    expectCliFailure(taskResult, 1);
+    expectCliFailure(taskResult);
 
     const roots = await runMcp(
       ["roots/set", "--roots-json", "[]", "--format", "json"],

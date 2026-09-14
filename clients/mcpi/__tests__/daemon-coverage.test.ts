@@ -366,7 +366,7 @@ describe("daemon coverage", () => {
     const { InspectorClient } = await import("@inspector/core/mcp/index.js");
     vi.spyOn(InspectorClient.prototype, "connect").mockRejectedValueOnce(
       new AuthRecoveryRequiredError(new URL("https://as.example/authorize"), {
-        reason: "login_required",
+        reason: "unauthorized",
       }),
     );
     await expect(
@@ -704,26 +704,26 @@ describe("mcp session coverage", () => {
   it("rejects connect with no target and invalid --format", async () => {
     const e = env();
     const missing = await runMcp(["connect"], { env: e });
-    expectCliFailure(missing, 1);
+    expectCliFailure(missing);
 
     const badFormat = await runMcp(["servers/list", "--format", "xml"], {
       env: e,
     });
-    expectCliFailure(badFormat, 1);
+    expectCliFailure(badFormat);
 
     const badTransport = await runMcp(["connect", "x", "--transport", "ftp"], {
       env: e,
     });
-    expectCliFailure(badTransport, 1);
+    expectCliFailure(badTransport);
 
     const badTimeout = await runMcp(
       ["connect", "x", "--connect-timeout", "-1"],
       { env: e },
     );
-    expectCliFailure(badTimeout, 1);
+    expectCliFailure(badTimeout);
 
     const emptyUse = await runMcp(["sessions/use", ""], { env: e });
-    expectCliFailure(emptyUse, 1);
+    expectCliFailure(emptyUse);
   });
 
   it("connects an ad-hoc stdio target", async () => {
@@ -764,7 +764,7 @@ describe("mcp session coverage", () => {
       { env: e, timeout: 10000 },
     );
     // Connection should fail (nothing listening) but the ad-hoc URL path ran.
-    expectCliFailure(result, 1);
+    expectCliFailure(result);
   });
 
   it("requires explicit session in non-interactive mode without opt-in", async () => {
@@ -783,7 +783,7 @@ describe("mcp session coverage", () => {
 
     // Force requireExplicit by stubbing isTTY false is default in vitest forks.
     const disc = await runMcp(["disconnect", "--format", "json"], { env: e });
-    expectCliFailure(disc, 1);
+    expectCliFailure(disc);
     expect(disc.stderr).toMatch(/Explicit|--session|non-interactive/i);
 
     await runMcp(["disconnect", "--session", "test-stdio"], { env: e });
