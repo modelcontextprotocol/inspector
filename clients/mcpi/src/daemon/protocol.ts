@@ -6,6 +6,11 @@ import type {
   CliAppInfo,
   MethodArgs,
 } from "@inspector/cli/handlers/method-types.js";
+import type {
+  Implementation,
+  ProtocolEra,
+  ServerCapabilities,
+} from "@modelcontextprotocol/client";
 
 /** Operations the session daemon accepts over IPC. */
 export type DaemonOp =
@@ -14,6 +19,7 @@ export type DaemonOp =
   | "disconnect"
   | "sessions/list"
   | "sessions/use"
+  | "sessions/show"
   | "daemon/status"
   | "daemon/stop"
   | "rpc"
@@ -81,6 +87,23 @@ export type SessionInfo = {
   connectedAt: number;
   lastAccessedAt: number;
   isMru: boolean;
+};
+
+/**
+ * `sessions/show` result: daemon bookkeeping ({@link SessionInfo}) plus the
+ * live MCP connection state — era-agnostic (`serverInfo`/`capabilities`/
+ * `instructions`/`protocolVersion` are populated the same way whether they
+ * came from a legacy `initialize` response or a modern `server/discover`)
+ * and era-specific (`protocolEra`, `supportedVersions` — the latter only set
+ * when the connect actually probed `server/discover`, i.e. `auto`/`modern`).
+ */
+export type SessionShowResult = SessionInfo & {
+  serverInfo?: Implementation;
+  protocolVersion?: string;
+  protocolEra?: ProtocolEra;
+  capabilities?: ServerCapabilities;
+  instructions?: string;
+  supportedVersions?: string[];
 };
 
 export type DaemonStatus = {

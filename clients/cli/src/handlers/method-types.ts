@@ -91,9 +91,15 @@ export type MethodOutcome =
  * TODO(#1432): several of these (subscribe, tasks, roots, logging/tail, …) are
  * not exposed by `mcp-inspector --cli` today; they exist for the experimental
  * session CLI (`mcpi`) and other Node runners that share this dispatcher.
+ *
+ * Deliberately excludes `"initialize"` — that's still a valid {@link
+ * ONE_SHOT_METHODS} entry (scripting parity with the literal wire method
+ * name), but for `mcpi` it read as "send another initialize", which it never
+ * did (it only replays cached connect-time state). `mcpi sessions/show`
+ * covers the same data (server info, capabilities, negotiated era) alongside
+ * daemon session bookkeeping instead.
  */
 export const SESSION_RPC_METHODS = [
-  "initialize",
   "tools/list",
   "tools/call",
   "resources/list",

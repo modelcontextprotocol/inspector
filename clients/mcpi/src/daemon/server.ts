@@ -27,6 +27,7 @@ import type {
   RpcParams,
   RpcResult,
   SessionNameParams,
+  SessionShowResult,
 } from "./protocol.js";
 import { DEFAULT_IDLE_MS, SessionRegistry } from "./sessions.js";
 
@@ -227,6 +228,30 @@ export class DaemonServer {
             ok: true,
             result: this.registry.use(params.name),
           },
+        };
+      }
+      case "sessions/show": {
+        const params = (request.params ?? {}) as SessionNameParams;
+        const session = this.registry.sessionFor(
+          params.name,
+          params.requireExplicit,
+        );
+        const client = session.client;
+        const result: SessionShowResult = {
+          name: session.name,
+          serverIdentity: session.serverIdentity,
+          connectedAt: session.connectedAt,
+          lastAccessedAt: session.lastAccessedAt,
+          isMru: true,
+          serverInfo: client.getServerInfo(),
+          protocolVersion: client.getProtocolVersion(),
+          protocolEra: client.getProtocolEra(),
+          capabilities: client.getCapabilities(),
+          instructions: client.getInstructions(),
+          supportedVersions: client.getDiscoverResult()?.supportedVersions,
+        };
+        return {
+          response: { id: request.id, ok: true, result },
         };
       }
       case "daemon/status":

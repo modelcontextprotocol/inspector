@@ -140,15 +140,26 @@ export class SessionRegistry {
   }
 
   /**
+   * Resolve a session for an RPC/stream/show, touch MRU, and return the
+   * live session (name/serverIdentity/timestamps plus the client).
+   */
+  sessionFor(
+    name: string | undefined,
+    requireExplicit: boolean | undefined,
+  ): LiveSession {
+    const session = this.resolve(name, requireExplicit);
+    this.touch(session.name);
+    return session;
+  }
+
+  /**
    * Resolve a session for an RPC/stream, touch MRU, and return its client.
    */
   clientFor(
     name: string | undefined,
     requireExplicit: boolean | undefined,
   ): InspectorClient {
-    const session = this.resolve(name, requireExplicit);
-    this.touch(session.name);
-    return session.client;
+    return this.sessionFor(name, requireExplicit).client;
   }
 
   use(name: string): SessionInfo {

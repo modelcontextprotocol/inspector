@@ -139,7 +139,7 @@ describe("mcp session CLI", () => {
     expect(result.stdout).toContain("test-stdio");
   });
 
-  it("runs tools/list, tools/call, and initialize over a live session", async () => {
+  it("runs tools/list, tools/call, and sessions/show over a live session", async () => {
     configPath = createSampleTestConfig();
     const e = env();
 
@@ -185,16 +185,19 @@ describe("mcp session CLI", () => {
     });
     expectCliSuccess(resources);
 
-    const init = await runMcp(
-      ["@test-stdio", "initialize", "--format", "json"],
+    const shown = await runMcp(
+      ["@test-stdio", "sessions/show", "--format", "json"],
       { env: e, timeout: 20000 },
     );
-    expectCliSuccess(init);
-    const initBody = JSON.parse(init.stdout) as {
+    expectCliSuccess(shown);
+    const shownBody = JSON.parse(shown.stdout) as {
+      name?: string;
       serverInfo?: { name?: string };
       protocolVersion?: string;
+      protocolEra?: string;
     };
-    expect(initBody.protocolVersion).toBeTruthy();
+    expect(shownBody.protocolVersion).toBeTruthy();
+    expect(shownBody.protocolEra).toBeTruthy();
 
     await runMcp(
       ["disconnect", "--session", "test-stdio", "--format", "json"],

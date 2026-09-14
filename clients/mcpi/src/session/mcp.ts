@@ -18,7 +18,7 @@ import { type LoggingLevel } from "@modelcontextprotocol/client";
 import { LoggingLevelSchema } from "@modelcontextprotocol/core";
 import { CliExitCodeError, EXIT_CODES } from "@inspector/cli/error-handler.js";
 import { callDaemon, ensureDaemon } from "../daemon/index.js";
-import type { SessionInfo } from "../daemon/protocol.js";
+import type { SessionInfo, SessionShowResult } from "../daemon/protocol.js";
 import {
   annotateServerEntriesWithSessions,
   listServerEntries,
@@ -535,6 +535,27 @@ function registerSessionAdmin(program: CommandType): void {
       const result = await callDaemon<SessionInfo>(
         "sessions/use",
         { name },
+        { socketPath },
+      );
+      await writeSessionOutput(outOpts(opts), {
+        kind: "session",
+        session: result,
+      });
+    });
+
+  program
+    .command("sessions/show")
+    .description(
+      "Show session + connection details: server info, capabilities, negotiated protocol era (defaults to MRU)",
+    )
+    .argument("[session]", "Session @name / name (defaults to MRU)")
+    .action(async (sessionArg: string | undefined) => {
+      const opts = program.opts<GlobalOpts>();
+      const name = stripAt(opts.session) ?? stripAt(sessionArg);
+      const { socketPath } = await ensureDaemon();
+      const result = await callDaemon<SessionShowResult>(
+        "sessions/show",
+        { name, requireExplicit: requireExplicitSession() },
         { socketPath },
       );
       await writeSessionOutput(outOpts(opts), {

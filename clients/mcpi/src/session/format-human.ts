@@ -552,16 +552,54 @@ export function formatSessionsListHuman(
   return lines.join("\n");
 }
 
-/** Format a single session info (connect / sessions/use). */
+/** Format a single session info (connect / sessions/use / sessions/show). */
 export function formatSessionInfoHuman(
   session: JsonObject,
   style: Style = PLAIN,
 ): string {
   const mru = session.isMru === true ? style.green(" (MRU)") : "";
-  return [
+  const lines = [
     `${heading(style, "Session")} ${code(style, `@${String(session.name)}`)}${mru}`,
     `Server: ${style.dim(String(session.serverIdentity ?? ""))}`,
-  ].join("\n");
+  ];
+
+  // Connection details (`sessions/show` only — plain `use`/`connect`
+  // results don't carry these).
+  const era = session.protocolEra;
+  const protocolVersion = session.protocolVersion;
+  if (era !== undefined || protocolVersion !== undefined) {
+    const versionSuffix =
+      protocolVersion !== undefined ? ` (${String(protocolVersion)})` : "";
+    lines.push(
+      `Era: ${style.dim(`${String(era ?? "unknown")}${versionSuffix}`)}`,
+    );
+  }
+  const serverInfo = session.serverInfo as JsonObject | undefined;
+  if (serverInfo?.name !== undefined) {
+    const version =
+      serverInfo.version !== undefined ? ` v${String(serverInfo.version)}` : "";
+    lines.push(
+      `Server info: ${style.dim(`${String(serverInfo.name)}${version}`)}`,
+    );
+  }
+  const capabilities = session.capabilities as JsonObject | undefined;
+  if (capabilities !== undefined) {
+    const keys = Object.keys(capabilities);
+    lines.push(
+      `Capabilities: ${style.dim(keys.length > 0 ? keys.join(", ") : "(none)")}`,
+    );
+  }
+  const supportedVersions = session.supportedVersions;
+  if (Array.isArray(supportedVersions) && supportedVersions.length > 0) {
+    lines.push(
+      `Supported versions: ${style.dim(supportedVersions.join(", "))}`,
+    );
+  }
+  if (typeof session.instructions === "string" && session.instructions !== "") {
+    lines.push(`Instructions: ${style.dim(session.instructions)}`);
+  }
+
+  return lines.join("\n");
 }
 
 /** Format tools/list --app-info lines. */
