@@ -84,7 +84,9 @@ export async function callDaemon<T = unknown>(
       if (!trimmed) return Promise.resolve();
       let parsed: DaemonResponse | ElicitationRequestFrame;
       try {
-        parsed = JSON.parse(trimmed) as DaemonResponse | ElicitationRequestFrame;
+        parsed = JSON.parse(trimmed) as
+          | DaemonResponse
+          | ElicitationRequestFrame;
       } catch (error) {
         fail(error);
         return Promise.resolve();
@@ -186,7 +188,9 @@ export async function callDaemon<T = unknown>(
         buffer = buffer.slice(idx + 1);
         // Sequential so an awaited onElicitation prompt fully settles (and
         // its answer is written) before the next buffered line is handled.
-        queue = queue.then(() => handleLine(line)).catch((error) => fail(error));
+        queue = queue
+          .then(() => handleLine(line))
+          .catch((error) => fail(error));
       }
     });
 

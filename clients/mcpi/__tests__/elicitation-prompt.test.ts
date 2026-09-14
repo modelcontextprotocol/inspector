@@ -4,9 +4,14 @@ import type { ElicitationRequestFrame } from "../src/daemon/protocol.js";
 
 const question = vi.fn();
 const close = vi.fn();
+const promptFormMock = vi.fn();
 
 vi.mock("node:readline/promises", () => ({
   createInterface: () => ({ question, close }),
+}));
+
+vi.mock("../src/session/form-prompt.js", () => ({
+  promptForm: (...args: unknown[]) => promptFormMock(...args),
 }));
 
 /**
@@ -32,6 +37,7 @@ describe("promptElicitation", () => {
     }) as typeof process.stderr.write;
     question.mockReset();
     close.mockReset();
+    promptFormMock.mockReset();
   });
 
   afterEach(() => {
@@ -55,10 +61,28 @@ describe("promptElicitation", () => {
     };
   }
 
-  it("declines form-mode elicitations without prompting (not yet rendered)", async () => {
-    const { promptElicitation } = await import(
-      "../src/session/elicitation-prompt.js"
-    );
+  function formFrame(
+    overrides: Partial<ElicitationRequestFrame> = {},
+  ): ElicitationRequestFrame {
+    return {
+      id: "req-1",
+      kind: "elicitation-request",
+      elicitationId: "elicitation-1",
+      mode: "form",
+      message: "Please provide your name",
+      requestedSchema: {
+        type: "object",
+        properties: { name: { type: "string" } },
+        required: ["name"],
+      },
+      origin: "server-request",
+      ...overrides,
+    };
+  }
+
+  it("declines form-mode elicitations whose schema isn't the restricted primitive shape", async () => {
+    const { promptElicitation } =
+      await import("../src/session/elicitation-prompt.js");
     const frame = urlFrame({ mode: "form", url: undefined });
     const answer = await promptElicitation(frame, { interactive: true, style });
     expect(answer).toEqual({
@@ -71,10 +95,34 @@ describe("promptElicitation", () => {
     expect(stderr).toContain("doesn't support");
   });
 
+  it("declines form-mode elicitations non-interactively without prompting", async () => {
+    const { promptElicitation } =
+      await import("../src/session/elicitation-prompt.js");
+    const frame = urlFrame({
+      mode: "form",
+      url: undefined,
+      requestedSchema: {
+        type: "object",
+        properties: { name: { type: "string" } },
+      },
+    });
+    const answer = await promptElicitation(frame, {
+      interactive: false,
+      style,
+    });
+    expect(answer).toEqual({
+      id: "req-1",
+      kind: "elicitation-response",
+      elicitationId: "elicitation-1",
+      action: "decline",
+    });
+    expect(question).not.toHaveBeenCalled();
+    expect(stderr).toContain("requires an interactive terminal");
+  });
+
   it("cancels non-interactively (e.g. --format json or non-TTY) without prompting", async () => {
-    const { promptElicitation } = await import(
-      "../src/session/elicitation-prompt.js"
-    );
+    const { promptElicitation } =
+      await import("../src/session/elicitation-prompt.js");
     const frame = urlFrame();
     const answer = await promptElicitation(frame, {
       interactive: false,
@@ -91,9 +139,8 @@ describe("promptElicitation", () => {
   });
 
   it("cancels non-interactively without a url line when the frame has none", async () => {
-    const { promptElicitation } = await import(
-      "../src/session/elicitation-prompt.js"
-    );
+    const { promptElicitation } =
+      await import("../src/session/elicitation-prompt.js");
     const frame = urlFrame({ url: undefined });
     const answer = await promptElicitation(frame, {
       interactive: false,
@@ -105,9 +152,8 @@ describe("promptElicitation", () => {
 
   it("accepts when the interactive user confirms completion", async () => {
     question.mockResolvedValue("");
-    const { promptElicitation } = await import(
-      "../src/session/elicitation-prompt.js"
-    );
+    const { promptElicitation } =
+      await import("../src/session/elicitation-prompt.js");
     const frame = urlFrame();
     const answer = await promptElicitation(frame, { interactive: true, style });
     expect(answer).toEqual({
@@ -123,9 +169,8 @@ describe("promptElicitation", () => {
 
   it("cancels when the interactive user types 'c'", async () => {
     question.mockResolvedValue("c");
-    const { promptElicitation } = await import(
-      "../src/session/elicitation-prompt.js"
-    );
+    const { promptElicitation } =
+      await import("../src/session/elicitation-prompt.js");
     const frame = urlFrame();
     const answer = await promptElicitation(frame, { interactive: true, style });
     expect(answer.action).toBe("cancel");
@@ -133,10 +178,56 @@ describe("promptElicitation", () => {
 
   it("falls back to cancel if reading input throws", async () => {
     question.mockRejectedValue(new Error("stdin closed"));
-    const { promptElicitation } = await import(
-      "../src/session/elicitation-prompt.js"
-    );
+    const { promptElicitation } =
+      await import("../src/session/elicitation-prompt.js");
     const frame = urlFrame();
+    const answer = await promptElicitation(frame, { interactive: true, style });
+    expect(answer.action).toBe("cancel");
+    expect(close).toHaveBeenCalled();
+  });
+
+  it("accepts an interactive form submission and returns its content", async () => {
+    promptFormMock.mockResolvedValue({
+      action: "accept",
+      content: { name: "octocat" },
+    });
+    const { promptElicitation } =
+      await import("../src/session/elicitation-prompt.js");
+    const frame = formFrame();
+    const answer = await promptElicitation(frame, { interactive: true, style });
+    expect(answer).toEqual({
+      id: "req-1",
+      kind: "elicitation-response",
+      elicitationId: "elicitation-1",
+      action: "accept",
+      content: { name: "octocat" },
+    });
+    expect(close).toHaveBeenCalled();
+  });
+
+  it("declines an interactive form when promptForm reports decline", async () => {
+    promptFormMock.mockResolvedValue({ action: "decline" });
+    const { promptElicitation } =
+      await import("../src/session/elicitation-prompt.js");
+    const frame = formFrame();
+    const answer = await promptElicitation(frame, { interactive: true, style });
+    expect(answer.action).toBe("decline");
+  });
+
+  it("cancels an interactive form when promptForm reports cancel", async () => {
+    promptFormMock.mockResolvedValue({ action: "cancel" });
+    const { promptElicitation } =
+      await import("../src/session/elicitation-prompt.js");
+    const frame = formFrame();
+    const answer = await promptElicitation(frame, { interactive: true, style });
+    expect(answer.action).toBe("cancel");
+  });
+
+  it("falls back to cancel if promptForm throws", async () => {
+    promptFormMock.mockRejectedValue(new Error("stdin closed"));
+    const { promptElicitation } =
+      await import("../src/session/elicitation-prompt.js");
+    const frame = formFrame();
     const answer = await promptElicitation(frame, { interactive: true, style });
     expect(answer.action).toBe("cancel");
     expect(close).toHaveBeenCalled();

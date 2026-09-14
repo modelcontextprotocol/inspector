@@ -120,9 +120,7 @@ describe("dispatchSessionRpc", () => {
       value: true,
     });
     try {
-      const { dispatchSessionRpc } = await import(
-        "../src/session/dispatch.js"
-      );
+      const { dispatchSessionRpc } = await import("../src/session/dispatch.js");
       await dispatchSessionRpc(
         "tools/call",
         {},

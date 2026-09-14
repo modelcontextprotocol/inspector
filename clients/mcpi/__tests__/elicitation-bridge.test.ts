@@ -25,7 +25,9 @@ function fakeClient(): {
   return {
     client,
     emit: (detail: unknown) =>
-      target.dispatchEvent(new CustomEvent("newPendingElicitation", { detail })),
+      target.dispatchEvent(
+        new CustomEvent("newPendingElicitation", { detail }),
+      ),
   };
 }
 

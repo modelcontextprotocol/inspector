@@ -1,11 +1,17 @@
 /**
- * Terminal UI for a mid-`rpc` elicitation exchange (dual-era support, phase
- * 1 — legacy + modern non-task MRTR, URL mode only; form-mode rendering is a
- * follow-up phase). Mirrors the web client's URL-mode convention
- * (`InlineElicitationRequest`/`PendingClientRequestModal`): the actual
- * out-of-band completion can't be observed here, so the user self-reports it
- * by answering a confirm prompt — there is no "decline" for URL mode, only
- * accept (they say they finished) or cancel.
+ * Terminal UI for a mid-`rpc` elicitation exchange (dual-era support). Covers
+ * both delivery mechanisms (legacy server→client request, modern non-task
+ * MRTR round) and both modes:
+ *
+ * - **URL mode** mirrors the web client's convention
+ *   (`InlineElicitationRequest`/`PendingClientRequestModal`): the actual
+ *   out-of-band completion can't be observed here, so the user self-reports
+ *   it by answering a confirm prompt — there is no "decline" for URL mode,
+ *   only accept (they say they finished) or cancel.
+ * - **Form mode** renders one prompt per field from the schema (see
+ *   `form-schema.ts`/`form-prompt.ts`), with a review step before submitting.
+ *   Schemas outside the spec's restricted primitive-field shape (should
+ *   never happen from a well-behaved server) fall back to a clear decline.
  */
 import { createInterface } from "node:readline/promises";
 import type { Style } from "@inspector/cli/style.js";
@@ -13,6 +19,8 @@ import type {
   ElicitationRequestFrame,
   ElicitationResponseFrame,
 } from "../daemon/protocol.js";
+import { parseFormSchema } from "./form-schema.js";
+import { promptForm } from "./form-prompt.js";
 
 export type PromptElicitationOpts = {
   /** False for non-interactive callers (e.g. `--format json`, non-TTY). */
@@ -54,15 +62,52 @@ export async function promptElicitation(
   const { style } = opts;
 
   if (frame.mode === "form") {
-    // Form rendering isn't built yet (a follow-up phase); decline clearly
-    // rather than silently guessing at field values or hanging.
-    process.stderr.write(
-      style.yellow(
-        "This server is asking for form input, which mcpi doesn't support " +
-          "yet — declining.\n",
-      ) + `  ${frame.message}\n`,
-    );
-    return declineResponse(frame);
+    const fields = parseFormSchema(frame.requestedSchema);
+    if (!fields) {
+      // Schema outside the spec's restricted primitive-field shape —
+      // shouldn't happen from a well-behaved server; decline clearly rather
+      // than silently guessing at field values.
+      process.stderr.write(
+        style.yellow(
+          "This server's form request uses a schema mcpi doesn't support " +
+            "— declining.\n",
+        ) + `  ${frame.message}\n`,
+      );
+      return declineResponse(frame);
+    }
+
+    if (!opts.interactive) {
+      process.stderr.write(
+        style.yellow(
+          "This server is asking for form input, which requires an " +
+            "interactive terminal — declining.\n",
+        ) + `  ${frame.message}\n`,
+      );
+      return declineResponse(frame);
+    }
+
+    const rl = createInterface({
+      input: process.stdin,
+      output: process.stderr,
+    });
+    try {
+      const outcome = await promptForm(rl, frame.message, fields, style);
+      if (outcome.action === "accept") {
+        return {
+          id: frame.id,
+          kind: "elicitation-response",
+          elicitationId: frame.elicitationId,
+          action: "accept",
+          content: outcome.content,
+        };
+      }
+      if (outcome.action === "decline") return declineResponse(frame);
+      return cancelResponse(frame);
+    } catch {
+      return cancelResponse(frame);
+    } finally {
+      rl.close();
+    }
   }
 
   if (!opts.interactive) {

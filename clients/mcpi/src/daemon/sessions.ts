@@ -366,7 +366,7 @@ async function createSessionClient(
     // unadvertised here — a form-mode elicitation arriving anyway (a server
     // ignoring our capabilities) is defensively auto-declined by the daemon's
     // elicitation prompt.
-    elicit: { url: true },
+    elicit: { url: true, form: true },
     serverSettings,
     ...(serverSettings?.protocolEra && {
       versionNegotiation: eraToVersionNegotiation(serverSettings.protocolEra),

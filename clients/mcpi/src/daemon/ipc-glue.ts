@@ -64,9 +64,7 @@ class ConnectionElicitationChannel implements ElicitationChannel {
   request(frame: ElicitationRequestFrame): Promise<ElicitationResponseFrame> {
     if (this.pending) {
       return Promise.reject(
-        new Error(
-          "Another elicitation is already pending on this connection",
-        ),
+        new Error("Another elicitation is already pending on this connection"),
       );
     }
     return new Promise((resolve, reject) => {
