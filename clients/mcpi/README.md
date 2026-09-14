@@ -84,12 +84,51 @@ mcpi tools/list
 
 See [`specification/v2_cli_v2.md`](../../specification/v2_cli_v2.md) for the as-built design and to-do list.
 
+## Protocol era support
+
+mcpi shares `core`'s `InspectorClient`, so it negotiates whichever era
+(`legacy` 2025-03-26-style vs. `modern`/2026-era, e.g. task-augmented calls,
+`server/discover`) the target actually speaks — no extra flags needed for
+that to work. Two things are mcpi-specific:
+
+- **`--era <era>` on `connect`**: `legacy` (default), `auto` (probe via
+  `server/discover` before connecting), or `modern`. Overrides whatever a
+  catalog/config entry's `protocolEra` says, and is the only way to set it
+  for an ad-hoc target (no config entry to read one from).
+
+  ```bash
+  mcpi connect my-modern-server --config path/to/mcp.json --era modern
+  mcpi connect https://example.com/mcp --era auto
+  ```
+
+- **Era visibility in session output**: `sessions/list`, `sessions/use`, and
+  `connect` all show the negotiated era inline (`@name (MRU) — server
+[modern]`). `sessions/show <name>` gives the full picture — era, negotiated
+  protocol version, server info, capabilities, and (when the connect probed
+  `server/discover`) the server's supported-versions list:
+
+  ```
+  $ mcpi sessions/show my-modern-server
+  Session: my-modern-server
+  Server: https://example.com/mcp
+  Era: modern (2026-06-18)
+  Supported versions: 2025-03-26, 2026-06-18
+  ...
+  ```
+
+A paused modern (SEP-2663) task — one whose `tasks/get` shows
+`status: "input_required"` — can be resumed with `tasks/update`:
+
+```bash
+mcpi tasks/update <taskId> --input-responses '{"<requestId>":{"approved":true}}'
+```
+
 ## Relation to one-shot CLI
 
-| | One-shot | Session (`mcpi`) |
-| --- | --- | --- |
-| Entrypoint | `mcp-inspector --cli` | `mcpi` |
-| Package (dev) | `clients/cli` | `clients/mcpi` |
-| Lifecycle | Connect → one `--method` → disconnect | Connect once → many subcommands |
+|               | One-shot                              | Session (`mcpi`)                |
+| ------------- | ------------------------------------- | ------------------------------- |
+| Entrypoint    | `mcp-inspector --cli`                 | `mcpi`                          |
+| Package (dev) | `clients/cli`                         | `clients/mcpi`                  |
+| Lifecycle     | Connect → one `--method` → disconnect | Connect once → many subcommands |
 
 One-shot docs: [`clients/cli/README.md`](../cli/README.md).
