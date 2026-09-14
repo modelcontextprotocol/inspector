@@ -1,0 +1,15 @@
+{
+  "serverInfo": {
+    "name": "structured-output-showcase",
+    "version": "1.0.0"
+  },
+  "tools": [
+    { "preset": "list_items" },
+    { "preset": "get_temp" },
+    { "preset": "echo" }
+  ],
+  "transport": {
+    "type": "streamable-http",
+    "port": 6601
+  }
+}

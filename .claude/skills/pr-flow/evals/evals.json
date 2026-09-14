@@ -1,0 +1,30 @@
+[
+  {
+    "prompt": "I've finished the fix for issue 2071. Take it through to a pull request.",
+    "expect": "pr-flow"
+  },
+  {
+    "prompt": "How do I get Copilot to review a PR in this repo?",
+    "expect": "pr-flow"
+  },
+  {
+    "prompt": "The DCO check is red on my branch. How do I fix the commits I already pushed?",
+    "expect": "pr-flow"
+  },
+  {
+    "prompt": "Copilot left a pile of review comments on my PR. How do I answer them so nothing gets lost?",
+    "expect": "pr-flow"
+  },
+  {
+    "prompt": "My PR is open and green. Walk me through getting it merged and closed out here.",
+    "expect": "pr-flow"
+  },
+  {
+    "prompt": "What does this regex match? /^[a-z]+$/",
+    "expect": null
+  },
+  {
+    "prompt": "Translate 'good morning' into Spanish.",
+    "expect": null
+  }
+]

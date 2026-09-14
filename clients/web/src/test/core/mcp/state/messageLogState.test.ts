@@ -234,4 +234,69 @@ describe("MessageLogState", () => {
     state.destroy();
     expect(() => state.destroy()).not.toThrow();
   });
+
+  // A response the SERVER answered successfully but the CLIENT then refused
+  // (the SDK codec rejecting the result). The frame is a valid JSON-RPC
+  // result, so without the annotation the entry renders as a clean success
+  // (#1953).
+  describe("responseRejected", () => {
+    const REASON = "Invalid result for tools/list: ttlMs required";
+
+    it("annotates the request entry the response was folded into", () => {
+      client.dispatchTypedEvent("message", requestEntry(1));
+      client.dispatchTypedEvent("message", responseEntry(1));
+
+      const seen: MessageEntry[] = [];
+      state.addEventListener("message", (e) => seen.push(e.detail));
+      client.dispatchTypedEvent("responseRejected", { id: 1, reason: REASON });
+
+      expect(state.getMessages()[0]?.clientError).toBe(REASON);
+      expect(seen).toHaveLength(1);
+    });
+
+    it("annotates a standalone response entry with no matching request", () => {
+      client.dispatchTypedEvent("message", responseEntry(7));
+      client.dispatchTypedEvent("responseRejected", { id: 7, reason: REASON });
+
+      expect(state.getMessages()[0]?.clientError).toBe(REASON);
+    });
+
+    it("skips a request still awaiting its response", () => {
+      // Same JSON-RPC id reused after the first exchange completed: the
+      // pending one isn't what was rejected.
+      client.dispatchTypedEvent("message", requestEntry(1));
+      client.dispatchTypedEvent("message", responseEntry(1));
+      client.dispatchTypedEvent("message", requestEntry(1));
+
+      client.dispatchTypedEvent("responseRejected", { id: 1, reason: REASON });
+
+      const [completed, pending] = state.getMessages();
+      expect(pending?.clientError).toBeUndefined();
+      expect(completed?.clientError).toBe(REASON);
+    });
+
+    it("ignores an id that matches no entry", () => {
+      client.dispatchTypedEvent("message", requestEntry(1));
+      client.dispatchTypedEvent("message", responseEntry(1));
+
+      let fired = 0;
+      state.addEventListener("messagesChange", () => {
+        fired++;
+      });
+      client.dispatchTypedEvent("responseRejected", { id: 99, reason: REASON });
+
+      expect(fired).toBe(0);
+      expect(state.getMessages()[0]?.clientError).toBeUndefined();
+    });
+
+    it("never annotates a notification", () => {
+      client.dispatchTypedEvent("message", notificationEntry());
+      client.dispatchTypedEvent("responseRejected", {
+        id: 1,
+        reason: REASON,
+      });
+
+      expect(state.getMessages()[0]?.clientError).toBeUndefined();
+    });
+  });
 });

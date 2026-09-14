@@ -98,6 +98,31 @@ export class MessageLogState extends TypedEventTarget<MessageLogStateEventMap> {
       pushEntry(entry);
     };
 
+    // A response the client rejected after the fact (the wire frame was valid
+    // JSON-RPC, but the SDK codec refused the result). Annotate the entry that
+    // carries that JSON-RPC id so it stops rendering as a clean success — the
+    // request entry when the response was folded into it, otherwise the
+    // standalone response entry. Searched newest-first: ids are unique within
+    // a session, and the failing exchange is by construction a recent one.
+    const onResponseRejected = (
+      event: TypedEventGeneric<InspectorClientEventMap, "responseRejected">,
+    ): void => {
+      const { id, reason } = event.detail;
+      for (let i = this.messages.length - 1; i >= 0; i--) {
+        const entry = this.messages[i]!;
+        const entryId = (entry.message as { id?: string | number }).id;
+        if (entryId !== id) continue;
+        if (entry.direction === "notification") continue;
+        // A request entry with no response yet isn't the one being rejected —
+        // keep looking for the standalone response frame.
+        if (entry.direction === "request" && !entry.response) continue;
+        entry.clientError = reason;
+        this.dispatchTypedEvent("message", entry);
+        this.dispatchTypedEvent("messagesChange", this.getMessages());
+        return;
+      }
+    };
+
     const onStatusChange = (): void => {
       if (isTerminalStatus(this.client?.getStatus())) {
         this.messages = [];
@@ -106,10 +131,12 @@ export class MessageLogState extends TypedEventTarget<MessageLogStateEventMap> {
       }
     };
     this.client.addEventListener("message", onMessage);
+    this.client.addEventListener("responseRejected", onResponseRejected);
     this.client.addEventListener("statusChange", onStatusChange);
     this.unsubscribe = () => {
       if (this.client) {
         this.client.removeEventListener("message", onMessage);
+        this.client.removeEventListener("responseRejected", onResponseRejected);
         this.client.removeEventListener("statusChange", onStatusChange);
       }
       this.client = null;

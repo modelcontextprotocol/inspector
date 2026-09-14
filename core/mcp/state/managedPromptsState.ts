@@ -8,17 +8,11 @@ import type { Prompt } from "@modelcontextprotocol/client";
 import {
   ManagedListState,
   DEFAULT_LIST_CHANGED_DEBOUNCE_MS,
+  type ManagedListEventMap,
 } from "./managedListState.js";
 
-export interface ManagedPromptsStateEventMap {
+export interface ManagedPromptsStateEventMap extends ManagedListEventMap {
   promptsChange: Prompt[];
-  /**
-   * Fires when the "list changed since last refresh" flag flips. True when a
-   * `prompts/list_changed` arrives (auto-refresh off), false once the user
-   * refreshes or the connection drops. Drives the sidebar list-changed
-   * indicator (#1402).
-   */
-  listChangedChange: boolean;
 }
 
 export class ManagedPromptsState extends ManagedListState<
@@ -30,6 +24,7 @@ export class ManagedPromptsState extends ManagedListState<
     debounceMs = DEFAULT_LIST_CHANGED_DEBOUNCE_MS,
   ) {
     super(client, {
+      listMethod: "prompts/list",
       changeEvent: "promptsChange",
       listChangedEvent: "promptsListChanged",
       capabilityKey: "prompts",

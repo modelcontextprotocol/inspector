@@ -5,6 +5,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import {
   InMemorySecretStore,
+  SessionSecretStore,
   KeychainUnavailableError,
   SECRET_FIELD_IDP_CLIENT_SECRET,
   type SecretStore,
@@ -60,6 +61,52 @@ describe("client node-persistence", () => {
     expect(
       await secretStore.get(CLIENT_KEYCHAIN_ID, SECRET_FIELD_IDP_CLIENT_SECRET),
     ).toBe("plain");
+  });
+
+  it("aborts rather than overwriting when the keychain read fails", async () => {
+    // The keychain-wins lookup used the tolerant `get`, which maps an
+    // unreadable store to `null` — and the branch below writes on `null`. So
+    // a transient read failure let the older client.json copy overwrite a
+    // newer stored secret, and the disk copy was then stripped.
+    const filePath = await makeTmpFile(
+      JSON.stringify(configWithPlaintextSecret),
+    );
+    let wrote = false;
+    const flaky: SecretStore = {
+      get: async () => null,
+      getStrict: async () => {
+        throw new KeychainUnavailableError(new Error("temporarily down"));
+      },
+      set: async () => {
+        wrote = true;
+      },
+      delete: async () => {},
+      deleteAllForServer: async () => {},
+    };
+
+    const loaded = await readClientConfigStore(filePath, flaky);
+
+    expect(wrote).toBe(false);
+    // The plaintext survives for the next attempt.
+    expect(readFileSync(filePath, "utf-8")).toContain("plain");
+    expect(loaded.enterpriseManagedAuth?.idp.clientSecret).toBe("plain");
+  });
+
+  it("keeps the plaintext on disk when the store is session-scoped", async () => {
+    // The container fallback. Migrating here would delete a secret that
+    // survives restarts and keep only a copy that dies with the process —
+    // and it happens on an ordinary read, so merely loading the app would
+    // do it. The session still works: the value is loaded into the store.
+    const filePath = await makeTmpFile(
+      JSON.stringify(configWithPlaintextSecret),
+    );
+    const secretStore = new SessionSecretStore();
+
+    const loaded = await readClientConfigStore(filePath, secretStore);
+
+    expect(loaded.enterpriseManagedAuth?.idp.clientSecret).toBe("plain");
+    // The disk copy is deliberately left alone.
+    expect(readFileSync(filePath, "utf-8")).toContain("plain");
   });
 
   it("does not overwrite an existing keychain secret during migration", async () => {
@@ -175,5 +222,151 @@ describe("client node-persistence", () => {
     expect(
       await secretStore.get(CLIENT_KEYCHAIN_ID, SECRET_FIELD_IDP_CLIENT_SECRET),
     ).toBeNull();
+  });
+});
+
+describe("session-scoped store keeps client.json durable (#1950 review r19)", () => {
+  it("does not strip the IdP secret when the store cannot outlive the process", async () => {
+    // The read-path migration already withheld its strip for a session
+    // store, but the write path did not — and `readClientConfigStore` hands
+    // the rehydrated secret to the form, which resends the whole object when
+    // an unrelated field changes. Saving a CIMD URL therefore moved the only
+    // durable copy into RAM, to be lost at exit.
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "client-durable-"));
+    const file = path.join(dir, "client.json");
+    try {
+      // Legacy state: the secret is *already* on disk in plaintext, which is
+      // what the durability guard exists to preserve.
+      await fs.writeFile(
+        file,
+        JSON.stringify({
+          enterpriseManagedAuth: {
+            enabled: true,
+            idp: {
+              issuer: "https://idp.example/",
+              clientId: "cid",
+              clientSecret: "must-survive",
+            },
+          },
+        }),
+        "utf-8",
+      );
+      await writeClientConfigStore(
+        file,
+        {
+          enterpriseManagedAuth: {
+            enabled: true,
+            idp: {
+              issuer: "https://idp.example/",
+              clientId: "cid",
+              clientSecret: "must-survive",
+            },
+          },
+        },
+        new SessionSecretStore(),
+      );
+      expect(await fs.readFile(file, "utf-8")).toContain("must-survive");
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not write a newly entered IdP secret to disk on a session store", async () => {
+    // Same overshoot as the server path: preserving *legacy* plaintext is
+    // right, treating every submitted value as legacy is not — it would put a
+    // freshly typed secret in `client.json` while the footer says a session
+    // store writes secrets nowhere.
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "client-fresh-"));
+    const file = path.join(dir, "client.json");
+    try {
+      await writeClientConfigStore(
+        file,
+        {
+          enterpriseManagedAuth: {
+            enabled: true,
+            idp: {
+              issuer: "https://idp.example/",
+              clientId: "cid",
+              clientSecret: "never-typed-before",
+            },
+          },
+        },
+        new SessionSecretStore(),
+      );
+      expect(await fs.readFile(file, "utf-8")).not.toContain(
+        "never-typed-before",
+      );
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps a new secret off disk when the prior file is unreadable", async () => {
+    // Provenance cannot be established from a file that will not parse, and
+    // the conservative direction is to treat the value as new — writing a
+    // secret to disk on a guess is the failure that matters.
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "client-bad-"));
+    const file = path.join(dir, "client.json");
+    try {
+      await fs.writeFile(file, "{ not json", "utf-8");
+      await writeClientConfigStore(
+        file,
+        {
+          enterpriseManagedAuth: {
+            enabled: true,
+            idp: {
+              issuer: "https://idp.example/",
+              clientId: "cid",
+              clientSecret: "unprovenanced",
+            },
+          },
+        },
+        new SessionSecretStore(),
+      );
+      expect(await fs.readFile(file, "utf-8")).not.toContain("unprovenanced");
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("writes nothing extra when a session store has no IdP secret at all", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "client-none-"));
+    const file = path.join(dir, "client.json");
+    try {
+      await writeClientConfigStore(
+        file,
+        { cimd: { enabled: true, clientMetadataUrl: "https://x.test/cimd" } },
+        new SessionSecretStore(),
+      );
+      expect(await fs.readFile(file, "utf-8")).toContain("cimd");
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("still strips against a durable store, so the guard is the difference", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "client-durable-"));
+    const file = path.join(dir, "client.json");
+    try {
+      await writeClientConfigStore(
+        file,
+        {
+          enterpriseManagedAuth: {
+            enabled: true,
+            idp: {
+              issuer: "https://idp.example/",
+              clientId: "cid",
+              clientSecret: "goes-to-the-store",
+            },
+          },
+        },
+        new InMemorySecretStore(),
+      );
+      expect(await fs.readFile(file, "utf-8")).not.toContain(
+        "goes-to-the-store",
+      );
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
   });
 });

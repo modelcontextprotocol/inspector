@@ -30,33 +30,41 @@ const TOKEN = "smoke-web-token";
 // literal because this plain .mjs script can't import the TS source.
 const TOKEN_GLOBAL = "__INSPECTOR_API_TOKEN__";
 
-const server = startProdWebServer({ host: HOST, port: PORT, token: TOKEN });
+const server = startProdWebServer({
+  host: HOST,
+  port: PORT,
+  token: TOKEN,
+  label: "smoke:web",
+});
 
-function fail(message) {
+// Async because `server.stop()` awaits the child's exit before removing its temp
+// catalog — so every call site must `await fail(...)`, or execution would run on
+// past it instead of exiting.
+async function fail(message) {
   console.error(`smoke:web FAILED — ${message}`);
-  server.stop();
+  await server.stop();
   process.exit(1);
 }
 
 try {
   const res = await server.waitForReady();
   if (res.status !== 200) {
-    fail(`GET / returned HTTP ${res.status}, expected 200`);
+    await fail(`GET / returned HTTP ${res.status}, expected 200`);
   }
   const body = await res.text();
   if (!body.includes(TOKEN_GLOBAL)) {
-    fail(
+    await fail(
       `served HTML is missing the ${TOKEN_GLOBAL} global (token not injected)`,
     );
   }
   if (!body.includes(TOKEN)) {
-    fail("served HTML is missing the injected auth-token value");
+    await fail("served HTML is missing the injected auth-token value");
   }
   console.log(
     `smoke:web OK — GET / => 200 with injected ${TOKEN_GLOBAL} at ${server.baseUrl}`,
   );
-  server.stop();
+  await server.stop();
   process.exit(0);
 } catch (err) {
-  fail(err instanceof Error ? err.message : String(err));
+  await fail(err instanceof Error ? err.message : String(err));
 }

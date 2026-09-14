@@ -441,11 +441,72 @@ describe("ServerConfigModal", () => {
     expect(props.onSubmit).not.toHaveBeenCalled();
   });
 
+  it("discards in-progress edits when reopened, and leaves them alone while closed", async () => {
+    const user = userEvent.setup({ delay: null });
+    const props = base();
+    const { rerender } = renderWithMantine(
+      <ServerConfigModal {...props} opened={false} />,
+    );
+
+    // Open: the form is seeded from `initial`.
+    rerender(<ServerConfigModal {...props} opened />);
+    await user.type(screen.getByLabelText(/Server ID/i), "alpha");
+    expect(screen.getByLabelText(/Server ID/i)).toHaveValue("alpha");
+
+    // Close: nothing is reset while the modal is closed (it is unmounted, so
+    // there is nothing to observe) — this exercises the closed-path guard.
+    rerender(<ServerConfigModal {...props} opened={false} />);
+    expect(screen.queryByText("Add server")).not.toBeInTheDocument();
+
+    // Reopen: the abandoned "alpha" is gone.
+    rerender(<ServerConfigModal {...props} opened />);
+    expect(screen.getByLabelText(/Server ID/i)).toHaveValue("");
+  });
+
   it("calls onClose when Cancel is clicked", async () => {
     const user = userEvent.setup({ delay: null });
     const props = base();
     renderWithMantine(<ServerConfigModal {...props} />);
     await user.click(screen.getByRole("button", { name: /Cancel/ }));
     expect(props.onClose).toHaveBeenCalledOnce();
+  });
+});
+
+describe("secret-storage footer (#1950 review r20)", () => {
+  it("discloses where stdio env values will be kept", () => {
+    // This dialog takes stdio `env` values, which are extracted into the
+    // secret store exactly as Server Settings' are — so it is a secret-entry
+    // surface. It had no disclosure at all, which made it the one place a
+    // user could type a secret without being told where it goes.
+    renderWithMantine(
+      <ServerConfigModal
+        opened
+        mode="add"
+        existingIds={[]}
+        onClose={vi.fn()}
+        onSubmit={vi.fn()}
+        secretStorage={{
+          kind: "memory",
+          reason: "fallback",
+          durable: false,
+        }}
+      />,
+    );
+    expect(screen.getByTestId("secret-storage-footer")).toHaveTextContent(
+      "Secrets: Memory (this session only)",
+    );
+  });
+
+  it("renders no footer when the backend didn't report a store", () => {
+    renderWithMantine(
+      <ServerConfigModal
+        opened
+        mode="add"
+        existingIds={[]}
+        onClose={vi.fn()}
+        onSubmit={vi.fn()}
+      />,
+    );
+    expect(screen.queryByTestId("secret-storage-footer")).toBeNull();
   });
 });

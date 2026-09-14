@@ -18,6 +18,9 @@ import {
   createMrtrSamplingTool,
   createMrtrLoopTool,
   createMrtrEdgeCaseTool,
+  loadConfig,
+  resolveConfig,
+  type ToolDefinition,
 } from "@modelcontextprotocol/inspector-test-server";
 import type { ServerConfig } from "@modelcontextprotocol/inspector-test-server";
 import type {
@@ -26,6 +29,13 @@ import type {
 } from "@modelcontextprotocol/client";
 import { LOG_LEVEL_META_KEY } from "@modelcontextprotocol/client";
 import type { MessageEntry } from "@inspector/core/mcp/types.js";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+// clients/web/src/test/integration/mcp → repo root is six levels up. Derived
+// from the module URL rather than `process.cwd()` so the showcase config
+// resolves the same however vitest is invoked.
+const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "../".repeat(6));
 
 /**
  * Live coverage of the modern (2026-07-28) connection path (#1700). The bundled
@@ -389,6 +399,185 @@ describe("modern-era negotiation (2026-07-28)", () => {
     expect(Object.keys(retry2.inputResponses ?? {})).toHaveLength(0);
   });
 
+  // #1860. Drives the reproduction the README documents, through the SAME
+  // artifacts a human would use — the showcase config file, resolved through the
+  // preset registry — so the config entry, the `mrtr_empty` registry branch, and
+  // the handler are all covered rather than just the fixture factory. The
+  // assertion is that a completed MRTR call really does hand back an empty
+  // `CallToolResult`: that is the input the Tools panel has to render as
+  // "completed, returned nothing" instead of its pre-run placeholder.
+  it("completes an MRTR sequence with an empty result (mrtr_empty, via the showcase config)", async () => {
+    const config = loadConfig(
+      join(repoRoot, "test-servers/configs/mrtr-showcase-http.json"),
+    );
+    expect(config.tools).toContainEqual({ preset: "mrtr_empty" });
+
+    const started = createTestServerHttp(resolveConfig(config));
+    await started.start();
+    server = started;
+    const connected = await connectWithEra(started.url, "modern");
+
+    let pausedAtPendingUi = false;
+    connected.addEventListener("newPendingElicitation", (event) => {
+      pausedAtPendingUi = true;
+      void event.detail.respond({
+        action: "accept",
+        content: { ack: true },
+      });
+    });
+
+    const { tools } = await connected.listTools();
+    const tool = tools.find((t) => t.name === "mrtr_empty");
+    expect(tool).toBeDefined();
+
+    const result = await connected.callTool(tool!, {});
+    expect(result.success).toBe(true);
+    expect(pausedAtPendingUi).toBe(true);
+    expect(result.result!.content).toEqual([]);
+    expect(result.result!.structuredContent).toBeUndefined();
+    expect(result.result!.isError).toBeFalsy();
+  });
+
+  // #2140: on the 2026-07-28 era, closing the request's own response stream IS
+  // the cancellation signal for Streamable HTTP; `notifications/cancelled` is
+  // the stdio mechanism and the spec says it is neither required nor expected
+  // here. The SDK implements that fork off `transport.hasPerRequestStream` —
+  // but every Inspector connection is wrapped in `MessageTrackingTransport`,
+  // which was not forwarding it, so all three clients POSTed the notification
+  // and a spec-compliant server acknowledged it `202` and kept running.
+  //
+  // This asserts at the far end, on the server's own request signal: nothing on
+  // the client side distinguishes a cancel that reached the server from one
+  // that was dropped, which is exactly how this shipped.
+  it("cancels by aborting the request's stream, which the server observes", async () => {
+    let sawAbort!: (value: boolean) => void;
+    const aborted = new Promise<boolean>((resolve) => {
+      sawAbort = resolve;
+    });
+    let started!: () => void;
+    const running = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+
+    const slowServer = createTestServerHttp({
+      serverInfo: createTestServerInfo("cancel-era-test", "1.0.0"),
+      tools: [
+        {
+          name: "slow_task",
+          description: "Runs until the client cancels it",
+          handler: async (_params, _context, extra) => {
+            extra?.signal?.addEventListener("abort", () => sawAbort(true), {
+              once: true,
+            });
+            started();
+            // Never settles on its own, so a regression is a timeout rather
+            // than a pass.
+            return new Promise(() => {});
+          },
+        },
+      ],
+      modern: {},
+    });
+    await slowServer.start();
+    server = slowServer;
+
+    const connected = await connectWithEra(slowServer.url, "modern");
+    const { tools } = await connected.listTools();
+    const tool = tools.find((t) => t.name === "slow_task");
+
+    // Hold the rejection immediately so it is never seen as unhandled while we
+    // wait on the server side.
+    const settled = connected.callTool(tool!, {}).catch((err: unknown) => err);
+    await running;
+    expect(connected.cancelToolCall()).toBe(true);
+
+    await expect(settled).resolves.toBeInstanceOf(ToolCallCancelledError);
+    await expect(aborted).resolves.toBe(true);
+  });
+
+  // The test above builds its own never-returning tool, which is the sharpest
+  // way to assert on the server's abort signal but says nothing about the
+  // artifacts a human actually uses. This one drives the documented showcase
+  // through the SAME path they would — the checked-in config, resolved through
+  // the preset registry — so a misspelt preset name, a config naming a dead
+  // preset, or a regression in the `slow_task` handler's own abort loop fails
+  // here rather than only when someone runs the repro by hand.
+  //
+  // It observes the handler's own return value, not the client's view. Counting
+  // progress notifications would be a false negative: the SDK drops a cancelled
+  // request's progress handler locally, so the client stops seeing ticks the
+  // moment it cancels whether or not the server ever stopped working — the very
+  // silence this bug hid behind.
+  it("stops the showcase tool's work on cancel (slow_task, via the showcase config)", async () => {
+    const config = loadConfig(
+      join(repoRoot, "test-servers/configs/cancellation-modern-http.json"),
+    );
+    expect(config.tools).toContainEqual({ preset: "slow_task" });
+
+    const resolved = resolveConfig(config);
+    expect(resolved.tools?.map((tool) => tool.name)).toEqual([
+      "slow_task",
+      "echo",
+    ]);
+
+    // Wrap the resolved preset rather than replacing it, so what runs is the
+    // real registered handler and only its outcome is observed. `tools` is a
+    // union with the task-tool shape, whose handler has a different signature,
+    // so narrow to the plain one this preset actually is.
+    const preset = resolved.tools!.find(
+      (tool): tool is ToolDefinition => tool.name === "slow_task",
+    )!;
+    let reportOutcome!: (text: string) => void;
+    const outcome = new Promise<string>((resolve) => {
+      reportOutcome = resolve;
+    });
+    let firstTick!: () => void;
+    const running = new Promise<void>((resolve) => {
+      firstTick = resolve;
+    });
+
+    const started = createTestServerHttp({
+      ...resolved,
+      tools: resolved.tools!.map((tool) =>
+        tool.name === "slow_task"
+          ? {
+              ...preset,
+              handler: async (params, context, extra) => {
+                extra?.signal?.addEventListener("abort", () => firstTick(), {
+                  once: true,
+                });
+                const result = await preset.handler(params, context, extra);
+                reportOutcome(JSON.stringify(result));
+                return result;
+              },
+            }
+          : tool,
+      ),
+    });
+    await started.start();
+    server = started;
+    const connected = await connectWithEra(started.url, "modern");
+
+    const { tools } = await connected.listTools();
+    const tool = tools.find((t) => t.name === "slow_task");
+    expect(tool).toBeDefined();
+
+    // Hold the rejection immediately so it is never seen as unhandled.
+    const settled = connected
+      .callTool(tool!, { seconds: 30 })
+      .catch((err: unknown) => err);
+
+    // Let it get past its first tick, then cancel.
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    expect(connected.cancelToolCall()).toBe(true);
+    await expect(settled).resolves.toBeInstanceOf(ToolCallCancelledError);
+    await running;
+
+    // The handler must return promptly, saying it was cancelled — not run on to
+    // its 30th second, which is what it did before the fix.
+    await expect(outcome).resolves.toContain("cancelled after");
+  });
+
   it("cancels an in-flight MRTR call while its embedded request is pending", async () => {
     const started = await startMrtrServer(createMrtrTool());
     const connected = await connectWithEra(started.url, "modern");
@@ -458,7 +647,7 @@ describe("modern-era negotiation (2026-07-28)", () => {
         versionNegotiation: eraToVersionNegotiation("modern"),
         serverSettings: {
           headers: [],
-          metadata: [],
+          metadata: {},
           env: [],
           connectionTimeout: 0,
           requestTimeout: 0,
@@ -487,7 +676,7 @@ describe("modern-era negotiation (2026-07-28)", () => {
         versionNegotiation: eraToVersionNegotiation("modern"),
         serverSettings: {
           headers: [],
-          metadata: [],
+          metadata: {},
           env: [],
           connectionTimeout: 0,
           requestTimeout: 0,
@@ -538,7 +727,7 @@ describe("modern-era negotiation (2026-07-28)", () => {
         versionNegotiation: eraToVersionNegotiation("modern"),
         serverSettings: {
           headers: [],
-          metadata: [],
+          metadata: {},
           env: [],
           connectionTimeout: 0,
           requestTimeout: 0,

@@ -15,7 +15,9 @@ export const Collapsed: Story = {
   args: { expanded: false },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    expect(canvas.getByRole("button", { name: "Expand" })).toBeInTheDocument();
+    await expect(
+      canvas.getByRole("button", { name: "Expand" }),
+    ).toBeInTheDocument();
   },
 };
 
@@ -23,7 +25,7 @@ export const Expanded: Story = {
   args: { expanded: true },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    expect(
+    await expect(
       canvas.getByRole("button", { name: "Collapse" }),
     ).toBeInTheDocument();
   },

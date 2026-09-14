@@ -1,0 +1,17 @@
+{
+  "serverInfo": {
+    "name": "mcp-app-domain-showcase",
+    "version": "1.0.0"
+  },
+  "tools": [{ "preset": "echo" }, { "preset": "mcp_app_demo" }],
+  "resources": [
+    {
+      "preset": "mcp_app_demo_widget",
+      "params": { "domain": "my-app-domain.example.com" }
+    }
+  ],
+  "transport": {
+    "type": "streamable-http",
+    "port": 3134
+  }
+}

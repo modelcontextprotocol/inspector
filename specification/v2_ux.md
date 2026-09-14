@@ -294,7 +294,7 @@ Shown as a modal or dedicated screen after successful connection.
 - Server capabilities: Tools, Resources, Prompts, Logging, Completions, Tasks, Experimental
 - Client capabilities: Sampling, Elicitation, Roots, Tasks, Experimental
 - Display server instructions if provided
-- Show OAuth connection snapshot when applicable (`InspectorClient.getOAuthState()` → `OAuthConnectionState`): protocol, authorization status, client id, EMA IdP session, cached auth URL, scopes, access token with copy and in-place JWT decode (`OAuthAccessTokenField`)
+- Show OAuth connection snapshot when applicable (`InspectorClient.getOAuthState()` → `OAuthConnectionState`): protocol, authorization status, client id, EMA IdP session, cached auth URL, scopes, and the stored tokens — access token, plus the `id_token` when the authorization server returned one — each with copy and in-place JWT decode (`OAuthTokenField`)
 
 ### Feature Screens
 
@@ -390,7 +390,11 @@ When a tool execution triggers sampling or elicitation requests, they appear inl
   - Step description if provided
   - Elapsed time display
 - Execute button with loading state
-- **Cancel button** sends `notifications/cancelled`
+- **Cancel button** sends the transport-appropriate cancellation signal (#2140):
+  on a 2026-07-28 Streamable HTTP connection it aborts the request's own SSE
+  response stream, which the spec makes the cancellation signal; on stdio (and
+  on any pre-2026 connection, where the per-stream mechanism does not exist) it
+  sends `notifications/cancelled`
 - **Inline Client Request Queue** - When tool triggers sampling/elicitation:
   - Pending requests shown inline (not as separate modal)
   - Queue counter shows total pending requests

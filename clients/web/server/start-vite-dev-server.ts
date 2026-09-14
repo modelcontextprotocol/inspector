@@ -36,8 +36,9 @@ export async function startViteDevServer(
   // `server.fs.allow` here. Without them, App.tsx's `@inspector/core/*`
   // imports fail to resolve and the page 500s (#1452 smoke test). The aliases
   // and dedupe are factored into `vitest.shared.mts` so both paths stay in
-  // sync — pass the client dir (`root`) so bare-module pins resolve against
-  // `clients/web/node_modules`.
+  // sync — pass the client dir (`root`), which is what the `react` /
+  // `react-dom` pins resolve against. The root-declared packages resolve from
+  // the repo root instead, which that file derives from the same argument.
   const { repoRoot, sharedAliases, sharedDedupe, nodeModulesAliases } =
     vitestSharedPaths(root);
   const inlineConfig: InlineConfig = {
@@ -57,6 +58,12 @@ export async function startViteDevServer(
     server: {
       port: config.port,
       host: config.hostname,
+      // `strictPort: true` (matching `vite.config.ts`) so a busy port fails
+      // loudly instead of silently binding a different one — the origin
+      // allow-list and the sandbox `frame-ancestors` are derived from
+      // `config.port`, so a drifted bind would 403 every connect and CSP-block
+      // the MCP Apps iframe while the banner advertises the unusable port.
+      strictPort: true,
       // Allow Vite to serve source files from the repo root (core/ lives
       // outside clients/web), matching `vite.config.ts`'s `server.fs.allow`.
       fs: {

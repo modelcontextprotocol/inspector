@@ -1,0 +1,37 @@
+{
+  "serverInfo": {
+    "name": "oauth-cimd-showcase",
+    "version": "1.0.0"
+  },
+  "tools": [
+    {
+      "preset": "echo"
+    }
+  ],
+  "oauth": {
+    "enabled": true,
+    "mode": "combined",
+    "requireAuth": true,
+    "scopesSupported": [
+      "mcp"
+    ],
+    "supportCIMD": true,
+    "supportDCR": false,
+    "supportRefreshTokens": true,
+    "clientMetadata": {
+      "clientName": "MCP Inspector (CIMD test fixture)",
+      "scope": "mcp",
+      "redirectUris": [
+        "http://127.0.0.1:6274/oauth/callback",
+        "http://localhost:6274/oauth/callback",
+        "http://127.0.0.1:6330/oauth/callback",
+        "http://localhost:6330/oauth/callback",
+        "http://127.0.0.1:6276/oauth/callback"
+      ]
+    }
+  },
+  "transport": {
+    "type": "streamable-http",
+    "port": 8092
+  }
+}

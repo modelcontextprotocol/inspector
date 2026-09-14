@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   SAFE_CSP_SOURCE,
   approveCspSources,
+  approveSandboxPermissions,
   buildSandboxCspPolicy,
   escapeHtmlAttr,
   wrapSandboxedHtml,
@@ -66,6 +67,29 @@ describe("approveCspSources", () => {
     warn.mockRestore();
   });
 
+  it("names the offending field and states the expected shape, without calling the value unsafe", () => {
+    // #2064: the filter screens for injection safety only, so the message must
+    // not read as a verdict on the value. These four fields are origin lists,
+    // so the real cause is almost always "not an origin" — a CSP keyword has
+    // no field in the contract to be requested through. Naming the key also
+    // tells an app declaring several lists which one the bad entry was in.
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    approveCspSources({
+      connectDomains: ["'unsafe-eval'"],
+      frameDomains: ["<script>"],
+    });
+    const messages = warn.mock.calls.map(([message]) => String(message));
+    expect(messages).toHaveLength(2);
+    expect(messages[0]).toContain('"connectDomains"');
+    expect(messages[1]).toContain('"frameDomains"');
+    for (const message of messages) {
+      expect(message).toContain("expected an origin");
+      expect(message).not.toContain("unsafe");
+    }
+    expect(warn.mock.calls[0]?.[1]).toBe("'unsafe-eval'");
+    warn.mockRestore();
+  });
+
   it("omits a key when every entry is rejected", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     expect(approveCspSources({ connectDomains: ['"; x'] })).toEqual({});
@@ -78,6 +102,62 @@ describe("approveCspSources", () => {
         connectDomains: "https://x.com" as unknown as string[],
       }),
     ).toEqual({});
+  });
+});
+
+describe("approveSandboxPermissions", () => {
+  it("keeps the spec's empty-object marker for each known key", () => {
+    expect(
+      approveSandboxPermissions({ camera: {}, clipboardWrite: {} }),
+    ).toEqual({ camera: {}, clipboardWrite: {} });
+  });
+
+  it("drops a truthy non-marker the proxy would have honored", () => {
+    // buildAllowAttribute() tests each key for truthiness, so the string
+    // "false" — a plausible way for a server to mean "off" — would otherwise
+    // switch the camera on. `true` is rejected too: it is not a marker the
+    // spec defines, and guessing in the granting direction is the wrong bet.
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    expect(
+      approveSandboxPermissions({
+        camera: "false",
+        microphone: true,
+        geolocation: 1,
+        clipboardWrite: [],
+      }),
+    ).toBeUndefined();
+    expect(warn).toHaveBeenCalledTimes(4);
+    warn.mockRestore();
+  });
+
+  it("accepts a non-empty object, since `{}` is the spec's extension point", () => {
+    // The key's presence is the request; a field the host doesn't know can't
+    // narrow it, and rejecting it would drop grants from servers written
+    // against a newer spec. The value is normalized to `{}` on the way out.
+    expect(approveSandboxPermissions({ camera: { enabled: false } })).toEqual({
+      camera: {},
+    });
+  });
+
+  it("drops `false` without warning, and ignores unknown keys", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    expect(
+      approveSandboxPermissions({
+        camera: false,
+        midi: {},
+        clipboardWrite: {},
+      }),
+    ).toEqual({ clipboardWrite: {} });
+    // `false` is an explicit refusal, not a malformed value.
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it("returns undefined when there is nothing to grant", () => {
+    expect(approveSandboxPermissions(undefined)).toBeUndefined();
+    expect(approveSandboxPermissions(null)).toBeUndefined();
+    expect(approveSandboxPermissions("camera")).toBeUndefined();
+    expect(approveSandboxPermissions({})).toBeUndefined();
   });
 });
 

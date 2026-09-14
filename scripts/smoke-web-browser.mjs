@@ -29,12 +29,13 @@
  * Two channels carry the failure. A *synchronous* uncaught exception (the
  * CASE-1 shape above — a stub call during module init) fires `pageerror`. Its
  * *async* twin — the same `TypeError` reached through an `await`/`.then()`, or a
- * failed dynamic import (this app lazy-loads chunks) — is NOT a `pageerror`;
- * Chromium logs it on the **console** channel as `Uncaught (in promise) …` /
- * `Failed to fetch dynamically imported module`. Both are hard failures.
+ * failed dynamic import (this app lazy-loads chunks) — is NOT a `pageerror`; it
+ * arrives on the **console** channel as `Uncaught (in promise) …` /
+ * `Failed to fetch dynamically imported module`. Both are hard failures, and
+ * both channels are read on every engine rather than branching per browser.
  *
- * Every *other* `console.error` is NOT a hard failure: the console is where
- * Chromium also reports benign things a boot smoke shouldn't fail on — a failed
+ * Every *other* `console.error` is NOT a hard failure: the console is also where
+ * benign things a boot smoke shouldn't fail on land — a failed
  * subresource load (e.g. the Google-Fonts `<link>` in index.html on a
  * network-restricted box) or a React key/prop warning. Those are printed as
  * diagnostics. The `Uncaught` / dynamic-import prefixes are unambiguous — a
@@ -42,29 +43,49 @@
  * never starts with `Uncaught` — so hard-failing on them can't reintroduce that
  * flake.
  *
- * Playwright lives in clients/web's node_modules, so it's resolved with a
- * `createRequire` based at clients/web/package.json rather than a bare
- * `import("playwright")`. A bare ESM specifier resolves relative to *this
- * script's* directory (scripts/), not the cwd — so `cd clients/web` in the npm
- * script would NOT make it resolvable (it only appeared to work locally when an
- * ancestor node_modules happened to carry playwright; it fails in CI, which has
- * none). createRequire pins resolution to clients/web regardless of cwd.
+ * Launching the browser (and resolving Playwright from clients/web, which has
+ * its own gotcha — see `lib/headless-browser.mjs`) is delegated to that module,
+ * which is also where `SMOKE_BROWSER` picks the engine: `chromium` (the
+ * default), `firefox`, or `webkit` (#2086). GitHub CI runs this in **Chromium**
+ * only; `npm run local:gate`, the local pre-push gate, also runs it in **Firefox** via
+ * `smoke:web:firefox`; **WebKit is on demand only**. This smoke passes in all
+ * three — it is the two App smokes that fail under WebKit (see their headers).
+ *
+ * The engine question here is narrower than in the App smokes — this asserts a clean
+ * first paint, i.e. that the shipped bundle's syntax and API level are
+ * *reachable* on the engine at all, rather than anything about the sandbox — but
+ * it is real, and it is nearly free to include.
  *
  * Expects `clients/web/dist` and `clients/launcher/build` to be built first —
  * the validate / CI ordering guarantees this.
  */
 
-import { createRequire } from "node:module";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import { startProdWebServer } from "./lib/prod-web-server.mjs";
+import { BROWSER_TIMEOUTS } from "./lib/browser-timeouts.mjs";
+import {
+  attachPageDiagnostics,
+  loadBrowser,
+  resolveBrowserName,
+} from "./lib/headless-browser.mjs";
 
-const scriptDir = dirname(fileURLToPath(import.meta.url));
-// Resolve playwright from clients/web (where it's installed) no matter the cwd.
-const requireFromWeb = createRequire(
-  resolve(scriptDir, "..", "clients/web/package.json"),
-);
+const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+
+// Resolved before the web server is started, so an unsupported SMOKE_BROWSER
+// fails immediately. Every message carries the engine, so a failure names which
+// one broke.
+let BROWSER;
+try {
+  BROWSER = resolveBrowserName();
+} catch (err) {
+  console.error(
+    `smoke:web:browser FAILED — ${err instanceof Error ? err.message : String(err)}`,
+  );
+  process.exit(1);
+}
+const LABEL = `smoke:web:browser [${BROWSER}]`;
 
 const HOST = "127.0.0.1";
 // Distinct from smoke:web's SMOKE_WEB_PORT so overriding one doesn't make both
@@ -72,13 +93,12 @@ const HOST = "127.0.0.1";
 const PORT = process.env.SMOKE_WEB_BROWSER_PORT ?? "6298";
 const TOKEN = "smoke-web-browser-token";
 
-// Console messages that are the async half of the uncaught-crash class (an
-// unhandled promise rejection or a failed dynamic import). Hard failures, unlike
-// benign console noise. See the header comment for why this can't reintroduce
-// the font/CDN flake.
-const FATAL_CONSOLE = /^Uncaught\b|Failed to fetch dynamically imported module/;
-
-const server = startProdWebServer({ host: HOST, port: PORT, token: TOKEN });
+const server = startProdWebServer({
+  host: HOST,
+  port: PORT,
+  token: TOKEN,
+  label: LABEL,
+});
 let browser = null;
 
 async function shutdown() {
@@ -90,62 +110,33 @@ async function shutdown() {
     }
     browser = null;
   }
-  server.stop();
+  await server.stop();
 }
 
 async function fail(message) {
-  console.error(`smoke:web:browser FAILED — ${message}`);
+  console.error(`${LABEL} FAILED — ${message}`);
   await shutdown();
   process.exit(1);
 }
 
-async function loadChromium() {
-  let chromium;
-  try {
-    ({ chromium } = requireFromWeb("playwright"));
-  } catch (err) {
-    // A failure here means the playwright *npm package* isn't resolvable from
-    // clients/web — fixed by installing devDependencies, NOT by `playwright
-    // install` (which fetches browser binaries). `npm install` at the repo root
-    // cascades into clients/web via postinstall.
-    throw new Error(
-      `could not resolve the Playwright package from clients/web — run \`npm install\` at the repo root (${err instanceof Error ? err.message : String(err)})`,
-    );
-  }
-  try {
-    return await chromium.launch({ headless: true });
-  } catch (err) {
-    throw new Error(
-      `chromium failed to launch — on a bare Linux box run \`npx playwright install --with-deps chromium\` for the system libraries (${err instanceof Error ? err.message : String(err)})`,
-    );
-  }
-}
-
 try {
   await server.waitForReady();
-  browser = await loadChromium();
+  browser = await loadBrowser(repoRoot, BROWSER);
   const page = await browser.newPage();
 
   // Uncaught (synchronous) page errors are a hard failure — a Node-only module
   // reaching the browser bundle surfaces here as a TypeError when its empty stub
-  // is called during module init.
-  const pageErrors = [];
-  // Console errors are diagnostic only EXCEPT those matching FATAL_CONSOLE (the
-  // async half of the same crash class) — see the header comment.
-  const consoleErrors = [];
-  page.on("pageerror", (err) =>
-    pageErrors.push(err instanceof Error ? err.message : String(err)),
-  );
-  page.on("console", (msg) => {
-    if (msg.type() === "error") consoleErrors.push(msg.text());
-  });
+  // is called during module init. Console errors are diagnostic only EXCEPT the
+  // async half of that same crash class; see the header comment, and the shared
+  // helper for the split.
+  const diagnostics = attachPageDiagnostics(page);
 
   const render = async () => {
     // Token is injected into index.html by the prod server, so a bare `/` load
     // authenticates without a query param.
     const response = await page.goto(server.baseUrl, {
       waitUntil: "domcontentloaded",
-      timeout: 30_000,
+      timeout: BROWSER_TIMEOUTS.ui,
     });
     if (!response || !response.ok()) {
       throw new Error(
@@ -155,12 +146,12 @@ try {
     // First meaningful frame: the always-present "Add Servers" control.
     await page
       .getByRole("button", { name: /Add Servers/ })
-      .waitFor({ state: "visible", timeout: 30_000 });
+      .waitFor({ state: "visible", timeout: BROWSER_TIMEOUTS.ui });
     // Settle window: let lazily-evaluated chunks that throw a tick after first
     // paint surface before we assert a clean boot. networkidle is best-effort
     // (the Google-Fonts request may never idle on a restricted network).
     await page
-      .waitForLoadState("networkidle", { timeout: 5_000 })
+      .waitForLoadState("networkidle", { timeout: BROWSER_TIMEOUTS.bestEffort })
       .catch(() => {});
     await delay(500);
   };
@@ -170,39 +161,35 @@ try {
   try {
     await Promise.race([server.whenChildExits(), render()]);
   } catch (err) {
-    const diagnostics = [
-      ...pageErrors,
-      ...consoleErrors.map((m) => `console: ${m}`),
+    const notes = [
+      ...diagnostics.pageErrors,
+      ...diagnostics.consoleErrors.map((m) => `console: ${m}`),
     ];
     await fail(
       `${err instanceof Error ? err.message : String(err)}${
-        diagnostics.length
-          ? ` — page diagnostics: ${diagnostics.join("; ")}`
-          : ""
+        notes.length ? ` — page diagnostics: ${notes.join("; ")}` : ""
       }`,
     );
   }
 
   // Hard failures: any uncaught (sync) page error, plus console errors that are
   // the async half of the class (unhandled rejection / failed dynamic import).
-  const fatalConsole = consoleErrors.filter((m) => FATAL_CONSOLE.test(m));
-  if (pageErrors.length > 0 || fatalConsole.length > 0) {
-    await fail(
-      `app logged uncaught error(s): ${[...pageErrors, ...fatalConsole].join("; ")}`,
-    );
+  const fatal = diagnostics.fatal();
+  if (fatal.length > 0) {
+    await fail(`app logged uncaught error(s): ${fatal.join("; ")}`);
   }
 
   // Non-fatal console errors: surface them so a real problem isn't invisible,
   // without failing the smoke on benign subresource/warning noise.
-  const benignConsole = consoleErrors.filter((m) => !FATAL_CONSOLE.test(m));
-  if (benignConsole.length > 0) {
+  const benign = diagnostics.benignConsole();
+  if (benign.length > 0) {
     console.log(
-      `smoke:web:browser note — ${benignConsole.length} non-fatal console error(s): ${benignConsole.join("; ")}`,
+      `${LABEL} note — ${benign.length} non-fatal console error(s): ${benign.join("; ")}`,
     );
   }
 
   console.log(
-    `smoke:web:browser OK — app booted at ${server.baseUrl}, rendered "Add Servers" with no uncaught errors (sync page error or unhandled rejection)`,
+    `${LABEL} OK — app booted at ${server.baseUrl}, rendered "Add Servers" with no uncaught errors (sync page error or unhandled rejection)`,
   );
   await shutdown();
   process.exit(0);

@@ -17,11 +17,13 @@ import { RiErrorWarningLine } from "react-icons/ri";
 import type { FetchRequestEntry } from "@inspector/core/mcp/types.js";
 import { isLongLivedStreamResponse } from "@inspector/core/mcp/fetchTracking.js";
 import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";
+import { getMimeKind } from "../../elements/ContentViewer/contentViewerUtils";
 import { CopyButton } from "../../elements/CopyButton/CopyButton";
 import { ExpandToggle } from "../../elements/ExpandToggle/ExpandToggle";
 import { MethodBadge } from "../../elements/MethodBadge/MethodBadge";
 import { CategoryBadge } from "../../elements/CategoryBadge/CategoryBadge";
 import { maskSecretsInBody } from "../../../utils/maskSecrets";
+import { useValueChange } from "../../../hooks/useValueChange";
 import {
   oauthNetworkPhase,
   oauthNetworkPhaseLabel,
@@ -370,9 +372,16 @@ const RevealButton = Button.withProps({
 function BodyPreview({
   body,
   contentType,
+  label,
 }: {
   body: string;
   contentType?: string;
+  /**
+   * What this body *is* ("Request body", "Response body"), so a JSON payload's
+   * editor is named. An expanded entry holds both, and the list holds many
+   * pairs, so unnamed they all announce identically to a screen reader.
+   */
+  label: string;
 }) {
   // Reveal state for masked secrets. Hooks run before any early return so the
   // order stays stable across the too-large / has-secrets branches. The reveal
@@ -382,6 +391,23 @@ function BodyPreview({
   const [revealed, setRevealed] = useState(false);
 
   const tooLarge = body.length > MAX_INLINE_BODY_CHARS;
+
+  // Forward the declared MIME, but only when it is JSON.
+  //
+  // `ContentViewer` renders a *declared* `application/json` as JSON even when
+  // it does not parse — the server said what it sent — while an undeclared
+  // body only gets that treatment if it parses. Without this the Network tab
+  // could never reach the declared branch, so a malformed JSON response read
+  // as plain text with no indication that it was meant to be JSON.
+  //
+  // Narrowed to JSON on purpose: forwarding the content type wholesale would
+  // also route a `text/html` body into the sandboxed HTML frame and a
+  // `text/csv` one into a table. Turning wire bodies into rendered documents
+  // is a real change to what the Network tab is, and not one this makes.
+  const jsonMimeType =
+    contentType && getMimeKind(contentType) === "json"
+      ? contentType
+      : undefined;
 
   // OAuth responses (token exchange, DCR) and the token request carry
   // bearer-grade secrets. Mask them by default and gate the raw values behind
@@ -412,7 +438,14 @@ function BodyPreview({
   }
 
   if (!hasSecrets) {
-    return <ContentViewer block={{ type: "text", text: body }} copyable />;
+    return (
+      <ContentViewer
+        block={{ type: "text", text: body }}
+        copyable
+        mimeType={jsonMimeType}
+        jsonLabel={`${label} JSON`}
+      />
+    );
   }
 
   const shown = revealed ? body : masked;
@@ -431,7 +464,14 @@ function BodyPreview({
           {revealed ? "Hide" : "Reveal"}
         </RevealButton>
       </Group>
-      <ContentViewer block={{ type: "text", text: shown }} copyable />
+      <ContentViewer
+        block={{ type: "text", text: shown }}
+        copyable
+        // The masked form is what is rendered, and masking can leave a
+        // still-valid JSON document — so the declared type still applies.
+        mimeType={jsonMimeType}
+        jsonLabel={`${label} JSON`}
+      />
     </Stack>
   );
 }
@@ -443,30 +483,35 @@ export function NetworkEntry({
   revealed = false,
   onRevealComplete,
 }: NetworkEntryProps) {
-  const [isExpanded, setIsExpanded] = useState(isListExpanded);
+  // Seeded from both sources so an entry that mounts already targeted by
+  // "Reveal in Network" starts open — the render-time syncs below only fire on
+  // a *change*, so neither of them covers the first render.
+  const [isExpanded, setIsExpanded] = useState(isListExpanded || revealed);
   const rootRef = useRef<HTMLDivElement>(null);
 
   // The list-level Expand/Collapse toggle is authoritative: each time the
   // parent changes `isListExpanded`, every entry snaps to that state and
   // any per-entry override is intentionally discarded. Mirrors
-  // ProtocolEntry; do not change without aligning both. This re-runs on
-  // re-render when `isListExpanded` keeps its reference, but the setter
-  // is a no-op when the next value equals the current one.
-  useEffect(() => {
-    setIsExpanded(isListExpanded);
-  }, [isListExpanded]);
+  // ProtocolEntry; do not change without aligning both.
+  useValueChange(isListExpanded, setIsExpanded);
 
-  // "Reveal in Network" one-shot: when targeted, force this entry open and
-  // scroll it into view, then clear the signal. The scroll runs in a rAF so it
-  // lands after `useScrollMemory`'s layout-effect restore (which would otherwise
-  // fight it) and after the force-expand has grown the row. `onRevealComplete`
+  // "Reveal in Network" one-shot, part 1: force the targeted entry open. This
+  // is deliberately ordered *after* the list sync above, so that if both change
+  // in the same render the reveal wins.
+  useValueChange(revealed, (nextRevealed) => {
+    if (nextRevealed) setIsExpanded(true);
+  });
+
+  // "Reveal in Network" one-shot, part 2: scroll the entry into view, then
+  // clear the signal. The scroll runs in a rAF so it lands after
+  // `useScrollMemory`'s layout-effect restore (which would otherwise fight it)
+  // and after the force-expand above has grown the row. `onRevealComplete`
   // clears the parent's `revealId`, which flips `revealed` back to false and re-
   // runs this effect's cleanup — so it must fire *inside* the rAF, after the
   // scroll, otherwise the cleanup's `cancelAnimationFrame` would race and could
   // cancel the very frame doing the scroll.
   useEffect(() => {
     if (!revealed) return;
-    setIsExpanded(true);
     const raf = requestAnimationFrame(() => {
       rootRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
       onRevealComplete?.();
@@ -581,6 +626,7 @@ export function NetworkEntry({
                   key={`${entry.requestHeaders["content-type"] ?? ""}|${entry.requestBody}`}
                   body={entry.requestBody}
                   contentType={entry.requestHeaders["content-type"]}
+                  label="Request body"
                 />
               </Stack>
             )}
@@ -598,6 +644,7 @@ export function NetworkEntry({
                     key={`${entry.responseHeaders?.["content-type"] ?? ""}|${entry.responseBody}`}
                     body={entry.responseBody}
                     contentType={entry.responseHeaders?.["content-type"]}
+                    label="Response body"
                   />
                 ) : (
                   <DimmedNote>

@@ -297,7 +297,7 @@ export function parseServerJson(raw: string): ParsedServerJson {
     data = JSON.parse(raw);
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
-    throw new Error(`Invalid JSON: ${detail}`);
+    throw new Error(`Invalid JSON: ${detail}`, { cause: err });
   }
   const top = asObject(data);
   if (!top) throw new Error("Expected a JSON object at the top level");

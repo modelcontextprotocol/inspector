@@ -1,4 +1,5 @@
 import { useMemo, useState, type ReactNode } from "react";
+import type { Tool } from "@modelcontextprotocol/client";
 import {
   Button,
   Collapse,
@@ -9,6 +10,7 @@ import {
   Title,
   UnstyledButton,
 } from "@mantine/core";
+import type { ReplayParamsOverride } from "../../../lib/protocolReplay";
 import type { ProtocolEra } from "@modelcontextprotocol/client";
 import type {
   MessageEntry,
@@ -47,7 +49,13 @@ export interface ProtocolListPanelProps {
   onClearSection: (section: ProtocolSectionName) => void;
   /** Export just one section's entries. */
   onExportSection: (section: ProtocolSectionName) => void;
-  onReplay: (id: string) => void;
+  onReplay: (id: string, overrideParams?: ReplayParamsOverride) => void;
+  /**
+   * The connected server's tools. Forwarded to each entry only so an edited
+   * `tools/call` replay can tell whether an argument would be coerced by the
+   * schema on the way out (#2151).
+   */
+  tools?: Tool[];
   onTogglePin: (id: string) => void;
   sortDirection: SortDirection;
   onSortChange: (next: SortDirection) => void;
@@ -235,6 +243,7 @@ function matchesFilters(
 }
 
 export function ProtocolListPanel({
+  tools,
   entries,
   pinnedIds,
   searchText,
@@ -318,6 +327,7 @@ export function ProtocolListPanel({
           embedded={embedded}
           onReplay={onReplay}
           onTogglePin={onTogglePin}
+          tools={tools}
         />
       ) : (
         <ProtocolEntry
@@ -326,7 +336,7 @@ export function ProtocolListPanel({
           isPinned={sectionPinned}
           isListExpanded={!compact}
           embedded={embedded}
-          onReplay={() => onReplay(row.entry.id)}
+          onReplay={(overrideParams) => onReplay(row.entry.id, overrideParams)}
           onTogglePin={() => onTogglePin(row.entry.id)}
           onRevealInNetwork={
             onRevealInNetwork && revealableIds?.has(row.entry.id)
@@ -334,6 +344,7 @@ export function ProtocolListPanel({
               : undefined
           }
           correlatedHttpStatus={correlatedStatusById?.get(row.entry.id)}
+          tools={tools}
         />
       ),
     );

@@ -79,6 +79,13 @@ export interface WaitForOAuthWellKnownOptions {
   interval?: number;
   /** Max time per fetch attempt (so one hung request doesn't burn the whole timeout). Default 1000. */
   requestTimeout?: number;
+  /**
+   * Origin-relative path the AS metadata document is served from. Defaults to
+   * the RFC 8414 well-known path; pass the configured `oauth.asMetadataPath`
+   * when the fixture moved the document (#2172), since polling a route the
+   * server deliberately does not serve can only ever time out.
+   */
+  metadataPath?: string;
 }
 
 /**
@@ -97,8 +104,9 @@ export async function waitForOAuthWellKnown(
     timeout = 5000,
     interval = 50,
     requestTimeout = 1000,
+    metadataPath = "/.well-known/oauth-authorization-server",
   } = options ?? {};
-  const wellKnownUrl = `${serverBaseUrl.replace(/\/$/, "")}/.well-known/oauth-authorization-server`;
+  const wellKnownUrl = `${serverBaseUrl.replace(/\/$/, "")}${metadataPath}`;
   const start = Date.now();
   let lastStatus: number | undefined;
   let lastError: unknown;

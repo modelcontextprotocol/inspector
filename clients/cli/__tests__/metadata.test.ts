@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { runCli } from "./helpers/cli-runner.js";
+import type { StrictJsonObject } from "@inspector/core/json/jsonUtils.js";
 import {
   expectCliSuccess,
   expectCliFailure,
@@ -11,7 +12,11 @@ import {
   createAddTool,
   createTestServerInfo,
 } from "@modelcontextprotocol/inspector-test-server";
-import { NO_SERVER_SENTINEL } from "./helpers/fixtures.js";
+import {
+  NO_SERVER_SENTINEL,
+  createTestConfig,
+  deleteConfigFile,
+} from "./helpers/fixtures.js";
 
 describe("Metadata Tests", () => {
   describe("General Metadata", () => {
@@ -373,16 +378,17 @@ describe("Metadata Tests", () => {
 
         expectCliSuccess(result);
 
-        // Validate metadata values are sent as strings
+        // A JSON-parseable value goes out as that JSON type, not as its
+        // string spelling (#1910) — `_meta` takes any JSON.
         const recordedRequests = server.getRecordedRequests();
         const toolsListRequest = recordedRequests.find(
           (r) => r.method === "tools/list",
         );
         expect(toolsListRequest).toBeDefined();
         expect(toolsListRequest?.metadata).toEqual({
-          integer_value: "42",
-          decimal_value: "3.14159",
-          negative_value: "-10",
+          integer_value: 42,
+          decimal_value: 3.14159,
+          negative_value: -10,
         });
       } finally {
         await server.stop();
@@ -428,7 +434,7 @@ describe("Metadata Tests", () => {
       }
     });
 
-    it("JSON.stringifies object/array metadata (not String → [object Object])", async () => {
+    it("sends object/array/boolean metadata as real JSON, not stringified (#1910)", async () => {
       const server = createTestServerHttp({
         serverInfo: createTestServerInfo(),
         tools: [createEchoTool()],
@@ -456,9 +462,9 @@ describe("Metadata Tests", () => {
           (r) => r.method === "tools/list",
         );
         expect(toolsListRequest?.metadata).toEqual({
-          nested: '{"key":"value"}',
-          list: "[1,2,3]",
-          flag: "true",
+          nested: { key: "value" },
+          list: [1, 2, 3],
+          flag: true,
         });
       } finally {
         await server.stop();
@@ -819,7 +825,7 @@ describe("Metadata Tests", () => {
         );
         expect(toolsListRequest).toBeDefined();
         expect(toolsListRequest?.metadata).toEqual({
-          integration_test: "true",
+          integration_test: true,
           test_phase: "all_methods",
         });
       } finally {
@@ -866,14 +872,73 @@ describe("Metadata Tests", () => {
         );
         expect(toolCallRequest).toBeDefined();
         expect(toolCallRequest?.metadata).toEqual({
-          session_id: "12345",
-          user_id: "67890",
+          session_id: 12345,
+          user_id: 67890,
           timestamp: "2024-01-01T00:00:00Z",
           request_id: "req-abc-123",
           tool_session: "session-xyz-789",
           execution_context: "test",
           priority: "high",
         });
+      } finally {
+        await server.stop();
+      }
+    });
+
+    it.each([
+      ["an overflowing literal", "n=1e400"],
+      ["a negative overflow", "n=-1e400"],
+      ["one nested in an object", 'o={"a":1e400}'],
+    ])("rejects %s rather than sending null", async (_label, pair) => {
+      // `JSON.parse` accepts these and yields ±Infinity, which
+      // `JSON.stringify` writes as `null` — so accepting the flag would
+      // transmit a value the user did not ask for.
+      const server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        tools: [createEchoTool()],
+      });
+      try {
+        await server.start();
+        const result = await runCli([
+          server.url,
+          "--cli",
+          "--method",
+          "tools/list",
+          "--metadata",
+          pair,
+          "--transport",
+          "http",
+        ]);
+        expect(result.exitCode).not.toBe(0);
+        expect(`${result.stderr}${result.stdout}`).toMatch(/finite/i);
+      } finally {
+        await server.stop();
+      }
+    });
+
+    it("names the key but never the value when rejecting", async () => {
+      // The pair can carry a credential, and this message reaches stderr and
+      // CI logs.
+      const server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        tools: [createEchoTool()],
+      });
+      try {
+        await server.start();
+        const result = await runCli([
+          server.url,
+          "--cli",
+          "--method",
+          "tools/list",
+          "--metadata",
+          'credentials={"accessToken":"sk-live-nope","n":1e400}',
+          "--transport",
+          "http",
+        ]);
+        const output = `${result.stderr}${result.stdout}`;
+        expect(result.exitCode).not.toBe(0);
+        expect(output).toContain("credentials");
+        expect(output).not.toContain("sk-live");
       } finally {
         await server.stop();
       }
@@ -919,8 +984,8 @@ describe("Metadata Tests", () => {
         expect(toolCallRequest).toBeDefined();
         expect(toolCallRequest?.metadata).toEqual({
           valid_key: "valid_value",
-          numeric_key: "123",
-          boolean_key: "true",
+          numeric_key: 123,
+          boolean_key: true,
           json_key: '\'{"test":"value"}\'', // Single quotes are preserved
           special_key: "!@#$%^&*()",
           unicode_key: "🚀🎉✨",
@@ -964,6 +1029,145 @@ describe("Metadata Tests", () => {
         expect(toolsListRequest).toBeDefined();
         expect(toolsListRequest?.metadata).toEqual({ client: "test-client" });
       } finally {
+        await server.stop();
+      }
+    });
+  });
+  describe("Per-server metadata from mcp.json (#2093)", () => {
+    /**
+     * Write a one-server catalog pointing at `url`, carrying `metadata` as the
+     * on-disk per-server key. Returns the catalog path; the caller deletes it.
+     */
+    function writeCatalogWithMetadata(
+      url: string,
+      metadata: StrictJsonObject,
+    ): string {
+      return createTestConfig({
+        mcpServers: {
+          "meta-server": {
+            type: "streamable-http",
+            url,
+            metadata,
+          },
+        },
+      });
+    }
+
+    it("applies a server's persisted metadata to every request", async () => {
+      // The setting belongs to the server, not to the client that reads it —
+      // web and the TUI already honored it, and the CLI silently did not,
+      // because `InspectorClient` reads `defaultMetadata` rather than falling
+      // back to `serverSettings.metadata`.
+      const server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        tools: [createEchoTool()],
+      });
+      let catalogPath: string | undefined;
+
+      try {
+        await server.start();
+        catalogPath = writeCatalogWithMetadata(server.url, { tenant: "acme" });
+
+        const result = await runCli([
+          "--catalog",
+          catalogPath,
+          "--server",
+          "meta-server",
+          "--cli",
+          "--method",
+          "tools/list",
+        ]);
+
+        expectCliSuccess(result);
+        expect(expectValidJson(result)).toHaveProperty("tools");
+
+        const toolsListRequest = server
+          .getRecordedRequests()
+          .find((r) => r.method === "tools/list");
+        expect(toolsListRequest).toBeDefined();
+        expect(toolsListRequest?.metadata).toEqual({ tenant: "acme" });
+      } finally {
+        if (catalogPath) deleteConfigFile(catalogPath);
+        await server.stop();
+      }
+    });
+
+    it("merges --metadata over the persisted defaults", async () => {
+      // `--metadata` is per-invocation and stays that way: non-colliding keys
+      // merge with the catalog's, and a colliding one wins (call-time keys
+      // override defaults in `InspectorClient.mergeMeta`).
+      const server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        tools: [createEchoTool()],
+      });
+      let catalogPath: string | undefined;
+
+      try {
+        await server.start();
+        catalogPath = writeCatalogWithMetadata(server.url, {
+          tenant: "acme",
+          region: "eu",
+        });
+
+        const result = await runCli([
+          "--catalog",
+          catalogPath,
+          "--server",
+          "meta-server",
+          "--cli",
+          "--method",
+          "tools/list",
+          "--metadata",
+          "tenant=override",
+        ]);
+
+        expectCliSuccess(result);
+
+        const toolsListRequest = server
+          .getRecordedRequests()
+          .find((r) => r.method === "tools/list");
+        expect(toolsListRequest?.metadata).toEqual({
+          tenant: "override",
+          region: "eu",
+        });
+      } finally {
+        if (catalogPath) deleteConfigFile(catalogPath);
+        await server.stop();
+      }
+    });
+
+    it("sends no _meta when the persisted metadata is empty", async () => {
+      // `{}` means "no defaults" — an empty map must not put a bare `_meta` on
+      // the wire, matching what the option-less CLI has always sent.
+      const server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        tools: [createEchoTool()],
+      });
+      let catalogPath: string | undefined;
+
+      try {
+        await server.start();
+        catalogPath = writeCatalogWithMetadata(server.url, {});
+
+        const result = await runCli([
+          "--catalog",
+          catalogPath,
+          "--server",
+          "meta-server",
+          "--cli",
+          "--method",
+          "tools/list",
+        ]);
+
+        expectCliSuccess(result);
+
+        const toolsListRequest = server
+          .getRecordedRequests()
+          .find((r) => r.method === "tools/list");
+        expect(toolsListRequest).toBeDefined();
+        expect(toolsListRequest?.metadata).toBeUndefined();
+      } finally {
+        if (catalogPath) deleteConfigFile(catalogPath);
         await server.stop();
       }
     });

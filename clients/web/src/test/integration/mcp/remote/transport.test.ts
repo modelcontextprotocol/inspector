@@ -30,9 +30,13 @@ import {
   createTestServerHttp,
   getTestMcpServerCommand,
   createEchoTool,
+  createGetWeatherTool,
   createTestServerInfo,
 } from "@modelcontextprotocol/inspector-test-server";
-import type { MCPServerConfig } from "@inspector/core/mcp/types.js";
+import {
+  eraToVersionNegotiation,
+  type MCPServerConfig,
+} from "@inspector/core/mcp/types.js";
 
 interface StartRemoteServerOptions {
   logger?: pino.Logger;
@@ -408,7 +412,7 @@ describe("Remote transport e2e", () => {
           { key: "X-Trace", value: "abc123" },
         ],
         env: [],
-        metadata: [],
+        metadata: {},
         connectionTimeout: 0,
         requestTimeout: 0,
         taskTtl: 0,
@@ -443,6 +447,122 @@ describe("Remote transport e2e", () => {
         }
         expect(lowered["x-tenant"]).toBe("acme");
         expect(lowered["x-trace"]).toBe("abc123");
+      } finally {
+        await client.disconnect();
+      }
+    });
+
+    it("end-to-end: the negotiated Mcp-Protocol-Version reaches the upstream server after initialize (#1935)", async () => {
+      // The browser's SDK Client owns the initialize handshake, so its
+      // setProtocolVersion() lands on the *remote* transport. Without the
+      // forward to the backend, the backend's real streamable-HTTP transport
+      // never learns the version and every post-initialize request — starting
+      // with `notifications/initialized` — goes out without the header, which
+      // a stateful server may reject outright.
+      mcpHttpServer = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        tools: [createEchoTool()],
+        serverType: "streamable-http",
+      });
+      await mcpHttpServer.start();
+
+      const config: MCPServerConfig = {
+        type: "streamable-http",
+        url: mcpHttpServer.url,
+      };
+
+      const { client, fetchRequestLogState } =
+        await setupRemoteAndConnect(config);
+
+      try {
+        await client.listTools();
+
+        const protocolVersion = client.getProtocolVersion();
+        expect(protocolVersion).toBeDefined();
+
+        const posts = fetchRequestLogState
+          .getFetchRequests()
+          .filter((r) => r.method === "POST");
+        const headerFor = (body: string): string | undefined => {
+          const entry = posts.find((r) => (r.requestBody ?? "").includes(body));
+          expect(entry).toBeDefined();
+          for (const [k, v] of Object.entries(entry?.requestHeaders ?? {})) {
+            if (k.toLowerCase() === "mcp-protocol-version") return v;
+          }
+          return undefined;
+        };
+
+        // The initialize POST itself predates negotiation and carries none.
+        expect(headerFor('"method":"initialize"')).toBeUndefined();
+        // Everything after it does.
+        expect(headerFor('"method":"notifications/initialized"')).toBe(
+          protocolVersion,
+        );
+        expect(headerFor('"method":"tools/list"')).toBe(protocolVersion);
+      } finally {
+        await client.disconnect();
+      }
+    });
+
+    it("end-to-end: SEP-2243 Mcp-Param-* mirroring reaches the upstream modern server (#1846)", async () => {
+      // A modern (2026-07-28) server whose `get_weather` tool annotates `city`
+      // with `x-mcp-header: "City"`. The SDK's modern handler validates the
+      // mirrored header and rejects the call with -32020 when it is missing, so
+      // a *successful* call proves the header rode browser → backend → upstream.
+      mcpHttpServer = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        tools: [createGetWeatherTool()],
+        serverType: "streamable-http",
+        modern: {},
+      });
+      await mcpHttpServer.start();
+
+      const { baseUrl, server, authToken } = await startRemoteServer(0);
+      remoteServer = server;
+
+      const config: MCPServerConfig = {
+        type: "streamable-http",
+        url: mcpHttpServer.url,
+      };
+      const createTransport = createRemoteTransport({ baseUrl, authToken });
+      const client = new InspectorClient(config, {
+        environment: { transport: createTransport },
+        versionNegotiation: eraToVersionNegotiation("auto"),
+      });
+      const fetchRequestLogState = new FetchRequestLogState(client);
+
+      try {
+        await client.connect();
+        expect(client.getProtocolEra()).toBe("modern");
+
+        const { tools } = await client.listTools();
+        const weather = tools.find((t) => t.name === "get_weather");
+        expect(weather).toBeDefined();
+
+        const invocation = await client.callTool(weather!, { city: "London" });
+        // Success only happens if the strict modern server saw Mcp-Param-City.
+        expect(invocation.success).toBe(true);
+
+        // And the backend's upstream fetch tracking shows the mirrored header on
+        // the wire it sent to the modern server.
+        const toolCallPost = fetchRequestLogState
+          .getFetchRequests()
+          .filter((r) => r.method === "POST")
+          .find((r) => {
+            const lowered: Record<string, string> = {};
+            for (const [k, v] of Object.entries(r.requestHeaders ?? {})) {
+              lowered[k.toLowerCase()] = v;
+            }
+            return lowered["mcp-param-city"] !== undefined;
+          });
+        expect(toolCallPost).toBeDefined();
+        const lowered: Record<string, string> = {};
+        for (const [k, v] of Object.entries(
+          toolCallPost?.requestHeaders ?? {},
+        )) {
+          lowered[k.toLowerCase()] = v;
+        }
+        expect(lowered["mcp-param-city"]).toBe("London");
       } finally {
         await client.disconnect();
       }

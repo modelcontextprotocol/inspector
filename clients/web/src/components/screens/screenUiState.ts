@@ -7,6 +7,7 @@ import type { ToolsUiState } from "./ToolsScreen/ToolsScreen";
 import type { PromptsUiState } from "./PromptsScreen/PromptsScreen";
 import type { ResourcesUiState } from "./ResourcesScreen/ResourcesScreen";
 import type { AppsUiState } from "./AppsScreen/AppsScreen";
+import type { SkillsUiState } from "./SkillsScreen/SkillsScreen";
 import type { TasksUiState } from "./TasksScreen/TasksScreen";
 import type { LogsUiState } from "./LoggingScreen/LoggingScreen";
 import type { ProtocolUiState } from "./ProtocolScreen/ProtocolScreen";
@@ -16,7 +17,7 @@ import { ALL_LEVELS_VISIBLE } from "./LoggingScreen/logLevels";
 import { ALL_CATEGORIES_VISIBLE } from "./NetworkScreen/fetchCategories";
 
 export const EMPTY_TOOLS_UI: ToolsUiState = {
-  selectedToolName: undefined,
+  selectedToolKey: undefined,
   formValues: {},
   search: "",
   runAsTask: false,
@@ -40,6 +41,11 @@ export const EMPTY_RESOURCES_UI: ResourcesUiState = {
 export const EMPTY_APPS_UI: AppsUiState = {
   selectedAppName: undefined,
   formValues: {},
+  search: "",
+};
+
+export const EMPTY_SKILLS_UI: SkillsUiState = {
+  selectedSkillUri: undefined,
   search: "",
 };
 
@@ -74,6 +80,7 @@ export const TAB_UI_REGISTRY = {
   Tools: { empty: EMPTY_TOOLS_UI },
   Prompts: { empty: EMPTY_PROMPTS_UI },
   Resources: { empty: EMPTY_RESOURCES_UI },
+  Skills: { empty: EMPTY_SKILLS_UI },
   Tasks: { empty: EMPTY_TASKS_UI },
   Logs: { empty: EMPTY_LOGS_UI },
   Protocol: { empty: EMPTY_PROTOCOL_UI },

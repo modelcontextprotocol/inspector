@@ -126,4 +126,32 @@ describe("ElicitationFormPanel", () => {
     await user.type(screen.getByLabelText("Host"), "l");
     expect(onChange).toHaveBeenCalledWith({ host: "l" });
   });
+
+  // #2020: text a field cannot turn into a value reports `undefined`, so it is
+  // indistinguishable from an empty field in `values` — Submit stayed enabled
+  // and the answer went out without the property.
+  it("disables Submit while a field holds text it cannot send", async () => {
+    const user = userEvent.setup();
+    const numberRequest: ElicitRequestFormParams = {
+      message: "Please provide the port.",
+      requestedSchema: {
+        type: "object" as const,
+        properties: { port: { type: "number" as const, title: "Port number" } },
+      },
+    };
+    renderWithMantine(
+      <ElicitationFormPanel {...baseProps} request={numberRequest} />,
+    );
+    const submit = screen.getByRole("button", { name: "Submit" });
+    expect(submit).toBeEnabled();
+
+    // Past MAX_SAFE_INTEGER the field reports no value rather than a rounded
+    // one, so the answer would go out without the property.
+    const input = screen.getByLabelText(/Port number/);
+    await user.type(input, "90071992547409910");
+    expect(submit).toBeDisabled();
+
+    await user.clear(input);
+    expect(submit).toBeEnabled();
+  });
 });

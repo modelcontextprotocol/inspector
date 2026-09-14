@@ -13,7 +13,11 @@ import type {
   ElicitRequestFormParams,
 } from "@modelcontextprotocol/client";
 import type { PendingRequestOrigin } from "@inspector/core/mcp/types.js";
-import type { InspectorFormSchema } from "../../../utils/jsonUtils";
+import { useState } from "react";
+import {
+  hasMissingRequiredFields,
+  type InspectorFormSchema,
+} from "../../../utils/jsonUtils";
 import { SchemaForm } from "../SchemaForm/SchemaForm";
 import { MrtrOriginNote } from "../../elements/MrtrOriginNote/MrtrOriginNote";
 
@@ -86,6 +90,19 @@ export function InlineElicitationRequest({
   onSubmit,
   onCancel,
 }: InlineElicitationRequestProps) {
+  // Same gate as `ElicitationFormPanel`, which this is the inline form of: a
+  // missing required answer, or a field holding text it could not turn into a
+  // value, must not be submittable — neither is visible in `values` (#2020).
+  const [hasInvalidDraft, setHasInvalidDraft] = useState(false);
+  const formValues = values ?? {};
+  const submitDisabled =
+    isFormMode(request) &&
+    (hasMissingRequiredFields(
+      request.requestedSchema as InspectorFormSchema,
+      formValues,
+    ) ||
+      hasInvalidDraft);
+
   return (
     <RequestContainer>
       <Stack gap="sm">
@@ -100,8 +117,9 @@ export function InlineElicitationRequest({
         {isFormMode(request) && (
           <SchemaForm
             schema={request.requestedSchema as InspectorFormSchema}
-            values={values ?? {}}
+            values={formValues}
             onChange={onChange}
+            onValidityChange={setHasInvalidDraft}
           />
         )}
 
@@ -120,7 +138,7 @@ export function InlineElicitationRequest({
         <ActionsRow>
           <CompactButton onClick={onCancel}>Cancel</CompactButton>
           {isFormMode(request) && (
-            <Button size="xs" onClick={onSubmit}>
+            <Button size="xs" onClick={onSubmit} disabled={submitDisabled}>
               Submit
             </Button>
           )}

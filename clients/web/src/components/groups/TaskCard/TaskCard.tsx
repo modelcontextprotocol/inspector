@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   Button,
   Card,
@@ -13,6 +13,7 @@ import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";
 import { ExpandToggle } from "../../elements/ExpandToggle/ExpandToggle";
 import { ProgressDisplay } from "../../elements/ProgressDisplay/ProgressDisplay";
 import { TaskStatusBadge } from "../../elements/TaskStatusBadge/TaskStatusBadge";
+import { useValueChange } from "../../../hooks/useValueChange";
 
 export type TaskProgress = Pick<
   ProgressNotification["params"],
@@ -116,9 +117,9 @@ export function TaskCard({
   const [isExpanded, setIsExpanded] = useState(isListExpanded);
   const isActive = status === "working" || status === "input_required";
 
-  useEffect(() => {
-    setIsExpanded(isListExpanded);
-  }, [isListExpanded]);
+  // The list-level Expand/Collapse toggle is authoritative: any per-card
+  // override is discarded whenever the parent changes `isListExpanded`.
+  useValueChange(isListExpanded, setIsExpanded);
 
   return (
     <TaskContainer>

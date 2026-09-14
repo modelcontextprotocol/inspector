@@ -12,9 +12,11 @@ import type {
 } from "./composable-test-server.js";
 import {
   createEchoTool,
+  createNullableFieldsTool,
   createGetEnvTool,
   createAddTool,
   createGetSumTool,
+  createDeadEndUnionTool,
   createGetWeatherTool,
   createInvalidHeaderTool,
   createSpecErrorTriggerTool,
@@ -28,12 +30,15 @@ import {
   createMrtrSamplingTool,
   createMrtrLoopTool,
   createMrtrEdgeCaseTool,
+  createMrtrEmptyResultTool,
   createCollectUrlElicitationTool,
   createUrlElicitationFormTool,
   createSendNotificationTool,
+  createSlowTaskTool,
   createGetAnnotatedMessageTool,
   createGetTempTool,
   createGetTempExtraTool,
+  createListItemsTool,
   createAddResourceTool,
   createRemoveResourceTool,
   createAddToolTool,
@@ -52,6 +57,9 @@ import {
   createImmediateReturnTaskTool,
   createMcpAppDemoTool,
   createMcpAppDemoResource,
+  createAppElicitationTool,
+  createAppElicitationResource,
+  createMrtrAppElicitationTool,
   createArchitectureResource,
   createTestCwdResource,
   createTestEnvResource,
@@ -60,6 +68,8 @@ import {
   createFileResourceTemplate,
   createUserResourceTemplate,
   createNumberedResourceTemplates,
+  createRfc6570ResourceTemplates,
+  createRfc6570BaseResource,
   createSimplePrompt,
   createArgsPrompt,
   createNumberedPrompts,
@@ -90,6 +100,9 @@ function resolveToolPreset(
   switch (name) {
     case "echo":
       return createEchoTool();
+    case "record_shipment":
+    case "nullable_fields":
+      return createNullableFieldsTool();
     case "get-env":
     case "get_env":
       return createGetEnvTool();
@@ -99,6 +112,8 @@ function resolveToolPreset(
       return createGetSumTool();
     case "get_weather":
       return createGetWeatherTool();
+    case "record_shipment_by":
+      return createDeadEndUnionTool();
     case "invalid_header_tool":
       return createInvalidHeaderTool();
     case "trigger_header_mismatch":
@@ -146,18 +161,24 @@ function resolveToolPreset(
       return createMrtrLoopTool();
     case "mrtr_edge":
       return createMrtrEdgeCaseTool();
+    case "mrtr_empty":
+      return createMrtrEmptyResultTool();
     case "collect_url_elicitation":
       return createCollectUrlElicitationTool();
     case "url_elicitation_form":
       return createUrlElicitationFormTool();
     case "send_notification":
       return createSendNotificationTool();
+    case "slow_task":
+      return createSlowTaskTool();
     case "get_annotated_message":
       return createGetAnnotatedMessageTool();
     case "get_temp":
       return createGetTempTool();
     case "get_temp_extra":
       return createGetTempExtraTool();
+    case "list_items":
+      return createListItemsTool();
     case "add_resource":
       return createAddResourceTool();
     case "remove_resource":
@@ -211,6 +232,10 @@ function resolveToolPreset(
       );
     case "mcp_app_demo":
       return createMcpAppDemoTool();
+    case "app_choose_option":
+      return createAppElicitationTool();
+    case "mrtr_app_choose_option":
+      return createMrtrAppElicitationTool();
     default:
       throw new Error(`Unknown tool preset: ${name}`);
   }
@@ -234,7 +259,11 @@ function resolveResourcePreset(
     case "numbered_resources":
       return createNumberedResources(Number(get("count")) || 3);
     case "mcp_app_demo_widget":
-      return createMcpAppDemoResource();
+      return createMcpAppDemoResource(get("domain") as string | undefined);
+    case "choose_option_app":
+      return createAppElicitationResource();
+    case "rfc6570_base":
+      return createRfc6570BaseResource();
     default:
       throw new Error(`Unknown resource preset: ${name}`);
   }
@@ -253,6 +282,8 @@ function resolveResourceTemplatePreset(
       return createUserResourceTemplate();
     case "numbered_resource_templates":
       return createNumberedResourceTemplates(Number(get("count")) || 3);
+    case "rfc6570_templates":
+      return createRfc6570ResourceTemplates();
     default:
       throw new Error(`Unknown resource template preset: ${name}`);
   }

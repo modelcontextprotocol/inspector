@@ -1,12 +1,24 @@
-import { useState, useEffect, useCallback } from "react";
+import { useCallback } from "react";
 import type { InspectorClientProtocol } from "../mcp/inspectorClientProtocol.js";
 import type {
   PagedRequestorTasksState,
-  PagedRequestorTasksStateEventMap,
   LoadPageResult,
 } from "../mcp/state/pagedRequestorTasksState.js";
 import type { Task } from "@modelcontextprotocol/client";
-import type { TypedEventGeneric } from "../mcp/typedEventTarget.js";
+import { useStoreSnapshot } from "./useStoreSnapshot.js";
+
+/**
+ * Shared stable empty list for the no-server case. Module scope so the
+ * snapshot doesn't change identity every render — see `useStoreSnapshot`.
+ * Read-only by contract: nothing mutates a list this hook returns.
+ */
+const NO_TASKS: Task[] = [];
+
+const readTasks = (state: PagedRequestorTasksState): Task[] => state.getTasks();
+// This store has no dedicated pagination event — the cursor advances with the
+// page, so it rides `tasksChange` like the list does.
+const readNextCursor = (state: PagedRequestorTasksState): string | undefined =>
+  state.getNextCursor() ?? undefined;
 
 export interface UsePagedRequestorTasksResult {
   tasks: Task[];
@@ -23,45 +35,27 @@ export function usePagedRequestorTasks(
   client: InspectorClientProtocol | null,
   pagedRequestorTasksState: PagedRequestorTasksState | null,
 ): UsePagedRequestorTasksResult {
-  const [tasks, setTasks] = useState<Task[]>(
-    pagedRequestorTasksState?.getTasks() ?? [],
+  const tasks = useStoreSnapshot(
+    pagedRequestorTasksState,
+    "tasksChange",
+    readTasks,
+    NO_TASKS,
   );
-  const [nextCursor, setNextCursor] = useState<string | undefined>(
-    pagedRequestorTasksState?.getNextCursor() ?? undefined,
+  const nextCursor = useStoreSnapshot(
+    pagedRequestorTasksState,
+    "tasksChange",
+    readNextCursor,
+    undefined,
   );
-
-  useEffect(() => {
-    if (!pagedRequestorTasksState) {
-      setTasks([]);
-      setNextCursor(undefined);
-      return;
-    }
-    setTasks(pagedRequestorTasksState.getTasks());
-    setNextCursor(pagedRequestorTasksState.getNextCursor() ?? undefined);
-    const onTasksChange = (
-      event: TypedEventGeneric<PagedRequestorTasksStateEventMap, "tasksChange">,
-    ) => {
-      setTasks(event.detail);
-      setNextCursor(pagedRequestorTasksState.getNextCursor() ?? undefined);
-    };
-    pagedRequestorTasksState.addEventListener("tasksChange", onTasksChange);
-    return () => {
-      pagedRequestorTasksState.removeEventListener(
-        "tasksChange",
-        onTasksChange,
-      );
-    };
-  }, [pagedRequestorTasksState]);
 
   const loadPage = useCallback(
     async (cursor?: string): Promise<LoadPageResult> => {
       if (!pagedRequestorTasksState || !client) {
-        return { tasks: [], nextCursor: undefined };
+        return { tasks: NO_TASKS, nextCursor: undefined };
       }
-      const result = await pagedRequestorTasksState.loadPage(cursor);
-      setTasks(pagedRequestorTasksState.getTasks());
-      setNextCursor(pagedRequestorTasksState.getNextCursor() ?? undefined);
-      return result;
+      // The store dispatches `tasksChange` as it commits the page, so both
+      // snapshots above update on their own.
+      return pagedRequestorTasksState.loadPage(cursor);
     },
     [client, pagedRequestorTasksState],
   );

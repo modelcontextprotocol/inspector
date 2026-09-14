@@ -8,11 +8,15 @@
 # load. (The other clients don't hit this because none of them ship a nested
 # .gitignore.)
 #
-# Crucially this file does NOT list `build` or `dist`, so both the prod runner
-# (build/) and the SPA (dist/) are packed. The root "files" allowlist already
-# restricts publishing to those two directories, so everything else in
-# clients/web (src, configs, node_modules, coverage, storybook-static) stays out
-# regardless — the entries below are just belt-and-suspenders.
+# Crucially this file does NOT list `build`, `dist`, or `static`, so all three
+# are packed: the prod runner (build/), the SPA (dist/), and the MCP Apps
+# sandbox proxy page (static/sandbox_proxy.html — a committed source file, read
+# from disk at runtime by server/sandbox-controller.ts as
+# `<runner dir>/../static/sandbox_proxy.html`, so it must ship at exactly that
+# path; #1859). The root "files" allowlist names those three directories and
+# nothing else under clients/web, so the rest (src, configs, node_modules,
+# coverage, storybook-static) stays out regardless — the entries below are just
+# belt-and-suspenders.
 node_modules
 coverage
 storybook-static

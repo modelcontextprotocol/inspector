@@ -321,7 +321,8 @@ describe("ProtocolListPanel", () => {
       />,
     );
     await user.click(screen.getByRole("button", { name: "Replay" }));
-    expect(onReplay).toHaveBeenCalledWith("req-1");
+    // The second argument is the Edit-and-replay override, absent here (#2151).
+    expect(onReplay).toHaveBeenCalledWith("req-1", undefined);
   });
 
   it("invokes onTogglePin with the entry id when Pin is clicked", async () => {
@@ -364,7 +365,7 @@ describe("ProtocolListPanel", () => {
       />,
     );
     await user.click(screen.getByRole("button", { name: "Replay" }));
-    expect(onReplay).toHaveBeenCalledWith("req-1");
+    expect(onReplay).toHaveBeenCalledWith("req-1", undefined);
     await user.click(screen.getByRole("button", { name: "Unpin" }));
     expect(onTogglePin).toHaveBeenCalledWith("req-1");
   });

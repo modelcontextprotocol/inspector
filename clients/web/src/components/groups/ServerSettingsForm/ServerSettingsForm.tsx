@@ -1,8 +1,10 @@
 import {
   Accordion,
   ActionIcon,
+  Alert,
   Button,
   Checkbox,
+  Code,
   Flex,
   Group,
   NumberInput,
@@ -12,11 +14,14 @@ import {
   TextInput,
 } from "@mantine/core";
 import { ClearButton } from "../../elements/ClearButton/ClearButton";
+import { JsonObjectInput } from "../../elements/JsonObjectInput/JsonObjectInput";
+import type { ChangeEvent } from "react";
 import type { ProtocolEra } from "@modelcontextprotocol/client";
 import type {
   InspectorServerSettings,
   ModernLogLevel,
   OAuthSettings,
+  RequestMetadata,
   ServerProtocolEra,
   ServerType,
 } from "@inspector/core/mcp/types.js";
@@ -26,6 +31,12 @@ import {
   MODERN_LOG_LEVELS,
 } from "@inspector/core/mcp/types.js";
 import { isOAuthCapableServerType } from "@inspector/core/mcp/config.js";
+import {
+  RESERVED_AUTHORIZATION_PARAMS,
+  authorizationParamKeyError,
+  isReservedAuthorizationParam,
+} from "@inspector/core/auth/authorizationParams.js";
+import { oauthEndpointUrlError } from "@inspector/core/auth/endpointOverrides.js";
 import { ADVERTISABLE_EXTENSIONS } from "@inspector/core/mcp/extensions.js";
 import type { Root } from "@modelcontextprotocol/client";
 
@@ -71,9 +82,12 @@ export interface ServerSettingsFormProps {
   onRemoveEnv: (index: number) => void;
   onEnvChange: (index: number, key: string, value: string) => void;
   onCwdChange: (value: string) => void;
-  onAddMetadata: () => void;
-  onRemoveMetadata: (index: number) => void;
-  onMetadataChange: (index: number, key: string, value: string) => void;
+  /**
+   * Replace the whole default-`_meta` payload. Not the `(index, key, value)`
+   * row callback the header/env editors use — metadata is edited as a JSON
+   * object, since a `_meta` value may be any JSON (#1910).
+   */
+  onMetadataChange: (metadata: RequestMetadata) => void;
   onTimeoutChange: (
     field: "connectionTimeout" | "requestTimeout" | "taskTtl",
     value: number,
@@ -184,6 +198,25 @@ const EmptyHint = Text.withProps({
   fs: "italic",
 });
 
+// Matches the label/description pair Mantine renders for a single input, so the
+// authorization-parameter row list reads as one labelled field next to Scopes.
+const FieldLabel = Text.withProps({
+  size: "sm",
+  fw: 500,
+});
+
+const FieldDescription = Text.withProps({
+  size: "xs",
+  c: "dimmed",
+});
+
+// `align="flex-start"` keeps the key/value/remove controls top-aligned when the
+// key input grows an error message, so the row doesn't jump as it appears.
+const AuthorizationParamRow = Group.withProps({
+  grow: true,
+  align: "flex-start",
+});
+
 const ClearStoredOAuthButton = Button.withProps({
   variant: "light",
   color: "red",
@@ -200,10 +233,22 @@ const ClearStoredOAuthHint = Text.withProps({
 
 function KeyValueRows({
   items,
+  entityLabel,
   onChange,
   onRemove,
 }: {
   items: { key: string; value: string }[];
+  /**
+   * Singular noun for one row ("header", "environment variable", …). Used only
+   * to build each control's `aria-label`: the section heading and the "Key" /
+   * "Value" placeholders are not programmatically associated with the inputs,
+   * so without it an assistive technology cannot tell one section's key box
+   * from another's, and every remove button announces only "X". The row number
+   * rides along because two rows can carry the same key — mid-edit, or a
+   * duplicate a server persisted — and a key-only name would leave both rows'
+   * controls indistinguishable, which is the thing this exists to prevent.
+   */
+  entityLabel: string;
   onChange: (index: number, key: string, value: string) => void;
   onRemove: (index: number) => void;
 }) {
@@ -216,31 +261,118 @@ function KeyValueRows({
 
   return (
     <>
-      {items.map((item, index) => (
-        <Group key={index} grow>
-          <ClearableTextInput
-            placeholder="Key"
-            value={item.key}
-            onChange={(e) => onChange(index, e.currentTarget.value, item.value)}
-            rightSection={
-              item.key ? (
-                <ClearButton onClick={() => onChange(index, "", item.value)} />
-              ) : null
-            }
-          />
-          <ClearableTextInput
-            placeholder="Value"
-            value={item.value}
-            onChange={(e) => onChange(index, item.key, e.currentTarget.value)}
-            rightSection={
-              item.value ? (
-                <ClearButton onClick={() => onChange(index, item.key, "")} />
-              ) : null
-            }
-          />
-          <RemoveIcon onClick={() => onRemove(index)}>X</RemoveIcon>
-        </Group>
-      ))}
+      {items.map((item, index) => {
+        const key = item.key.trim();
+        const rowLabel = key ? `${key}, row ${index + 1}` : `row ${index + 1}`;
+        return (
+          <Group key={index} grow>
+            <ClearableTextInput
+              placeholder="Key"
+              aria-label={`${entityLabel} name, ${rowLabel}`}
+              value={item.key}
+              onChange={(e) =>
+                onChange(index, e.currentTarget.value, item.value)
+              }
+              rightSection={
+                item.key ? (
+                  <ClearButton
+                    aria-label={`Clear ${entityLabel} name, ${rowLabel}`}
+                    onClick={() => onChange(index, "", item.value)}
+                  />
+                ) : null
+              }
+            />
+            <ClearableTextInput
+              placeholder="Value"
+              aria-label={`${entityLabel} value, ${rowLabel}`}
+              value={item.value}
+              onChange={(e) => onChange(index, item.key, e.currentTarget.value)}
+              rightSection={
+                item.value ? (
+                  <ClearButton
+                    aria-label={`Clear ${entityLabel} value, ${rowLabel}`}
+                    onClick={() => onChange(index, item.key, "")}
+                  />
+                ) : null
+              }
+            />
+            <RemoveIcon
+              aria-label={`Remove ${entityLabel}, ${rowLabel}`}
+              onClick={() => onRemove(index)}
+            >
+              X
+            </RemoveIcon>
+          </Group>
+        );
+      })}
+    </>
+  );
+}
+
+// Reserved-key rejection is inline per row (#2018): the reason is passed as the
+// key input's `error` **string**, so Mantine renders it in the input's own error
+// slot and wires the `aria-describedby` association — a bare boolean would mark
+// the field invalid without telling a screen reader why. The section-level Alert
+// below repeats it so the rejection stays visible when the offending row is
+// scrolled out of view.
+//
+// Each control carries a per-row `aria-label`: the section heading and the
+// placeholders are not programmatically associated with the inputs, so without
+// one an assistive technology cannot tell the key box from the value box, and
+// the remove button announces only "X".
+function AuthorizationParamRows({
+  params,
+  onChange,
+  onRemove,
+}: {
+  params: { key: string; value: string }[];
+  onChange: (index: number, key: string, value: string) => void;
+  onRemove: (index: number) => void;
+}) {
+  return (
+    <>
+      {params.map((param, index) => {
+        const rowLabel = param.key.trim() || `row ${index + 1}`;
+        return (
+          <AuthorizationParamRow key={index}>
+            <ClearableTextInput
+              aria-label={`Authorization parameter name, ${rowLabel}`}
+              placeholder="Parameter (e.g. kc_idp_hint)"
+              value={param.key}
+              error={authorizationParamKeyError(param.key)}
+              onChange={(e) =>
+                onChange(index, e.currentTarget.value, param.value)
+              }
+              rightSection={
+                param.key ? (
+                  <ClearButton
+                    onClick={() => onChange(index, "", param.value)}
+                  />
+                ) : null
+              }
+            />
+            <ClearableTextInput
+              aria-label={`Authorization parameter value, ${rowLabel}`}
+              placeholder="Value"
+              value={param.value}
+              onChange={(e) =>
+                onChange(index, param.key, e.currentTarget.value)
+              }
+              rightSection={
+                param.value ? (
+                  <ClearButton onClick={() => onChange(index, param.key, "")} />
+                ) : null
+              }
+            />
+            <RemoveIcon
+              aria-label={`Remove authorization parameter ${rowLabel}`}
+              onClick={() => onRemove(index)}
+            >
+              X
+            </RemoveIcon>
+          </AuthorizationParamRow>
+        );
+      })}
     </>
   );
 }
@@ -309,8 +441,6 @@ export function ServerSettingsForm({
   onRemoveEnv,
   onEnvChange,
   onCwdChange,
-  onAddMetadata,
-  onRemoveMetadata,
   onMetadataChange,
   onTimeoutChange,
   onAutoRefreshChange,
@@ -374,14 +504,101 @@ export function ServerSettingsForm({
       onTimeoutChange(field, numValue);
     };
 
+  // #2018 — custom authorization-request parameters. The rows ride the single
+  // `onOAuthChange` callback with the rest of the Authorization section rather
+  // than growing three more props on this form.
+  const authorizationParams = settings.oauthAuthorizationParams ?? [];
+
   function currentOAuth(): OAuthSettings {
     return {
       clientId: settings.oauthClientId ?? "",
       clientSecret: settings.oauthClientSecret ?? "",
       scopes: settings.oauthScopes ?? "",
+      authorizationParams,
+      authorizationUrl: settings.oauthAuthorizationUrl ?? "",
+      tokenUrl: settings.oauthTokenUrl ?? "",
       enterpriseManaged: settings.enterpriseManaged ?? false,
       onInsufficientScope: settings.oauthOnInsufficientScope,
+      // Unset means the default, on — only an explicit opt-out is stored.
+      requestRefreshToken: settings.oauthRequestRefreshToken ?? true,
+      // Unset means the default, on — only an explicit opt-out is stored.
+      revokeOnClear: settings.oauthRevokeOnClear ?? true,
     };
+  }
+
+  // #1906 — the overrides are suppressed under EMA for the same reason the
+  // custom authorization parameters are: that leg authorizes against the
+  // enterprise IdP, a different authorization server.
+  const endpointOverrideEmaNote = settings.enterpriseManaged
+    ? " Not applied while Enterprise-managed authorization is on: that flow authorizes against the enterprise IdP, a different authorization server."
+    : "";
+
+  // #2068 — the opt-out only removes the SDK's *automatic* `offline_access`.
+  // `prompt=consent` keys off the scope, not the grant, so an `offline_access`
+  // the user typed here still forces the prompt the checkbox claims to avoid.
+  // Flag that combination rather than letting it read as a fixed configuration.
+  const scopesIncludeOfflineAccess = (settings.oauthScopes ?? "")
+    .split(/\s+/)
+    .includes("offline_access");
+  const refreshTokenOptedOut = settings.oauthRequestRefreshToken === false;
+
+  // #2068 — annotated under EMA. Not because the provider is bypassed (EMA
+  // wraps a BaseOAuthClientProvider and forwards its `clientMetadata`), but
+  // because the IdP authorization leg — the one the user signs in through —
+  // uses a fixed `openid offline_access` scope this setting cannot change. The
+  // control therefore cannot affect EMA's consent behavior, which is the whole
+  // reason to touch it. Say so rather than leave it looking effective, matching
+  // how the endpoint overrides annotate themselves.
+  const refreshTokenEmaNote = settings.enterpriseManaged
+    ? " Not applied while Enterprise-managed authorization is on: that flow signs in against the enterprise IdP using its own fixed scope, which this setting cannot change."
+    : "";
+
+  const rejectedParamKeys = authorizationParams
+    .map((p) => p.key.trim())
+    .filter((key) => isReservedAuthorizationParam(key));
+
+  function changeAuthorizationParams(
+    params: { key: string; value: string }[],
+  ): void {
+    onOAuthChange({ ...currentOAuth(), authorizationParams: params });
+  }
+
+  function handleRequestRefreshTokenChange(
+    event: ChangeEvent<HTMLInputElement>,
+  ): void {
+    onOAuthChange({
+      ...currentOAuth(),
+      requestRefreshToken: event.currentTarget.checked,
+    });
+  }
+
+  function handleRevokeOnClearChange(
+    event: ChangeEvent<HTMLInputElement>,
+  ): void {
+    onOAuthChange({
+      ...currentOAuth(),
+      revokeOnClear: event.currentTarget.checked,
+    });
+  }
+
+  function handleAddAuthorizationParam(): void {
+    changeAuthorizationParams([...authorizationParams, { key: "", value: "" }]);
+  }
+
+  function handleRemoveAuthorizationParam(index: number): void {
+    changeAuthorizationParams(
+      authorizationParams.filter((_, i) => i !== index),
+    );
+  }
+
+  function handleAuthorizationParamChange(
+    index: number,
+    key: string,
+    value: string,
+  ): void {
+    changeAuthorizationParams(
+      authorizationParams.map((p, i) => (i === index ? { key, value } : p)),
+    );
   }
 
   return (
@@ -512,6 +729,7 @@ export function ServerSettingsForm({
               ) : (
                 <KeyValueRows
                   items={settings.env}
+                  entityLabel="environment variable"
                   onChange={onEnvChange}
                   onRemove={onRemoveEnv}
                 />
@@ -527,9 +745,11 @@ export function ServerSettingsForm({
           <Stack gap="md">
             <Group justify="space-between">
               <HintText>
-                Headers sent with every HTTP request to this server. If OAuth is
-                configured below, the `Authorization` header is owned by the
-                OAuth flow and any value set here is ignored.
+                Headers sent with every HTTP request to this server. A custom
+                `Authorization` header takes precedence over an OAuth access
+                token — the SDK transports apply these headers last — so remove
+                it once OAuth is configured, or the flow's token never gets
+                sent.
               </HintText>
               <AddButton onClick={onAddHeader}>+ Add Header</AddButton>
             </Group>
@@ -538,6 +758,7 @@ export function ServerSettingsForm({
             ) : (
               <KeyValueRows
                 items={settings.headers}
+                entityLabel="header"
                 onChange={onHeaderChange}
                 onRemove={onRemoveHeader}
               />
@@ -550,21 +771,23 @@ export function ServerSettingsForm({
         <Accordion.Control>Request Metadata</Accordion.Control>
         <Accordion.Panel>
           <Stack gap="md">
-            <Group justify="space-between">
-              <HintText>
-                Metadata sent with every MCP request (included in _meta field)
-              </HintText>
-              <AddButton onClick={onAddMetadata}>+ Add Metadata</AddButton>
-            </Group>
-            {settings.metadata.length === 0 ? (
-              <EmptyHint>No request metadata configured</EmptyHint>
-            ) : (
-              <KeyValueRows
-                items={settings.metadata}
-                onChange={onMetadataChange}
-                onRemove={onRemoveMetadata}
-              />
-            )}
+            <HintText>
+              Metadata merged into the <Code>_meta</Code> field of every MCP
+              request to this server, as a JSON object. Values may be any JSON —
+              objects, arrays, numbers, booleans, <Code>null</Code> — not just
+              strings. Leave it as <Code>{"{}"}</Code> to send none. The keys
+              the protocol reserves keep their own shape:{" "}
+              <Code>progressToken</Code> must be a string or a safe integer (one
+              JavaScript can represent exactly), and{" "}
+              <Code>io.modelcontextprotocol/related-task</Code> an object with a
+              string <Code>taskId</Code>. A reserved key that does not match is
+              dropped from the request rather than sent.
+            </HintText>
+            <JsonObjectInput
+              ariaLabel="Request metadata JSON"
+              value={settings.metadata}
+              onChange={onMetadataChange}
+            />
           </Stack>
         </Accordion.Panel>
       </Accordion.Item>
@@ -694,6 +917,111 @@ export function ServerSettingsForm({
                     <ClearButton
                       onClick={() =>
                         onOAuthChange({ ...currentOAuth(), scopes: "" })
+                      }
+                    />
+                  ) : null
+                }
+              />
+              <Checkbox
+                label="Request refresh token"
+                description={`Declares the refresh_token grant, so the authorization server may issue a refresh token and renew access tokens without a new sign-in. Uncheck it for authorization servers that reject the offline_access scope and forced consent prompt the grant brings with it. Applies on the next connect.${refreshTokenEmaNote}`}
+                checked={settings.oauthRequestRefreshToken ?? true}
+                onChange={handleRequestRefreshTokenChange}
+              />
+              <Checkbox
+                label="Revoke tokens on clear"
+                description="Calls the authorization server's RFC 7009 revocation endpoint when the stored OAuth state is cleared, so the grant ends when the session does instead of staying valid until it expires. Servers that advertise no revocation_endpoint are unaffected. Uncheck it to reproduce a client that disconnects still holding live tokens."
+                checked={settings.oauthRevokeOnClear ?? true}
+                onChange={handleRevokeOnClearChange}
+              />
+              {refreshTokenOptedOut && scopesIncludeOfflineAccess ? (
+                <Alert color="yellow" title="offline_access is still requested">
+                  The Scopes field above lists offline_access, and
+                  prompt=consent is added whenever that scope is requested —
+                  regardless of this setting. Remove it from Scopes as well, or
+                  the consent prompt this checkbox is meant to avoid still goes
+                  out.
+                </Alert>
+              ) : null}
+              <Stack gap="xs">
+                <FieldLabel>Additional authorization parameters</FieldLabel>
+                <FieldDescription>
+                  Extra query parameters appended to the authorization request
+                  only — never the token request. Use them for provider-specific
+                  hints such as kc_idp_hint, login_hint, prompt, acr_values, or
+                  audience.
+                  {settings.enterpriseManaged
+                    ? " Not sent while Enterprise-managed authorization is on: that flow authorizes against the enterprise IdP, a different authorization server."
+                    : ""}
+                </FieldDescription>
+                {authorizationParams.length === 0 ? (
+                  <EmptyHint>No additional parameters configured</EmptyHint>
+                ) : (
+                  <AuthorizationParamRows
+                    params={authorizationParams}
+                    onChange={handleAuthorizationParamChange}
+                    onRemove={handleRemoveAuthorizationParam}
+                  />
+                )}
+                {rejectedParamKeys.length > 0 ? (
+                  <Alert color="red" title="Reserved parameters ignored">
+                    {`${rejectedParamKeys.join(", ")} ${
+                      rejectedParamKeys.length === 1 ? "is" : "are"
+                    } set by the authorization flow and will not be sent. Overriding ${
+                      rejectedParamKeys.length === 1 ? "it" : "them"
+                    } would break PKCE, the CSRF state binding, or the resource indicator. Reserved: ${RESERVED_AUTHORIZATION_PARAMS.join(
+                      ", ",
+                    )}.`}
+                  </Alert>
+                ) : null}
+                <AddButton onClick={handleAddAuthorizationParam}>
+                  + Add Parameter
+                </AddButton>
+              </Stack>
+              <ClearableTextInput
+                label="Authorization URL override"
+                description={`Leave blank to use the authorization_endpoint the authorization server's metadata advertises. Set it to point this server at a development or staging authorization server instead. Endpoints only — the discovered issuer is unchanged, so an authorization server advertising a different issuer is rejected on callback (RFC 9207).${endpointOverrideEmaNote}`}
+                placeholder="https://staging.auth.example.com/authorize"
+                value={settings.oauthAuthorizationUrl ?? ""}
+                error={oauthEndpointUrlError(
+                  settings.oauthAuthorizationUrl ?? "",
+                )}
+                onChange={(e) =>
+                  onOAuthChange({
+                    ...currentOAuth(),
+                    authorizationUrl: e.currentTarget.value,
+                  })
+                }
+                rightSection={
+                  settings.oauthAuthorizationUrl ? (
+                    <ClearButton
+                      onClick={() =>
+                        onOAuthChange({
+                          ...currentOAuth(),
+                          authorizationUrl: "",
+                        })
+                      }
+                    />
+                  ) : null
+                }
+              />
+              <ClearableTextInput
+                label="Token URL override"
+                description={`Leave blank to use the token_endpoint the authorization server's metadata advertises. Independent of the authorization URL — either can be overridden alone.${endpointOverrideEmaNote}`}
+                placeholder="https://staging.auth.example.com/token"
+                value={settings.oauthTokenUrl ?? ""}
+                error={oauthEndpointUrlError(settings.oauthTokenUrl ?? "")}
+                onChange={(e) =>
+                  onOAuthChange({
+                    ...currentOAuth(),
+                    tokenUrl: e.currentTarget.value,
+                  })
+                }
+                rightSection={
+                  settings.oauthTokenUrl ? (
+                    <ClearButton
+                      onClick={() =>
+                        onOAuthChange({ ...currentOAuth(), tokenUrl: "" })
                       }
                     />
                   ) : null

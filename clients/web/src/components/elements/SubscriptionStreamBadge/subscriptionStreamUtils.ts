@@ -1,4 +1,5 @@
 import type { ResourceSubscriptionStreamStatus } from "../../../../../../core/mcp/types.js";
+import { NEVER_ACKNOWLEDGED_SUBSCRIPTION_MESSAGE } from "../../../../../../core/mcp/subscriptionAck.js";
 
 export interface StreamPresentation {
   /** Mantine palette color name conveying the status. */
@@ -38,6 +39,11 @@ const PRESENTATION: Record<
     color: "gray",
     label: "Stream ended",
     tooltip: `${STREAM_INTRO} The stream is closed and won't reconnect on its own — either the server ended it (for example, on shutdown) or reconnection was abandoned after repeated failures. Re-subscribe to try again.`,
+  },
+  "never-acknowledged": {
+    color: "orange",
+    label: "Not acknowledged",
+    tooltip: `${STREAM_INTRO} ${NEVER_ACKNOWLEDGED_SUBSCRIPTION_MESSAGE} Re-subscribe to try again.`,
   },
 };
 

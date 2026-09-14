@@ -7,10 +7,15 @@
  */
 
 import { describe, it, expect, vi } from "vitest";
-import type { Transport } from "@modelcontextprotocol/client";
+import type { Transport, JSONRPCMessage } from "@modelcontextprotocol/client";
 import { RemoteSession } from "@inspector/core/mcp/remote/node/remote-session.js";
 import type { FetchRequestEntryBase } from "@inspector/core/mcp/types.js";
 import { AuthChallengeError } from "@inspector/core/auth/challenge.js";
+
+// Stage a deliberately off-spec message as `unknown` and narrow with a single
+// cast — the guard branches these fixtures exercise are ones the typed
+// `JSONRPCMessage` shape forbids, and `unknown` is the safe top type to pass in.
+const asMsg = (m: unknown): JSONRPCMessage => m as JSONRPCMessage;
 
 function makeFetchEntry(
   overrides: Partial<FetchRequestEntryBase> = {},
@@ -21,6 +26,16 @@ function makeFetchEntry(
     method: "GET",
     url: "http://example.com/",
     requestHeaders: {},
+    ...overrides,
+  };
+}
+
+/** A structurally valid `Transport`, so a fixture needs no cast. */
+function makeTransport(overrides: Partial<Transport> = {}): Transport {
+  return {
+    start: async () => {},
+    send: async () => {},
+    close: async () => {},
     ...overrides,
   };
 }
@@ -120,6 +135,45 @@ describe("RemoteSession", () => {
     expect(session.transport).toBe(transport);
   });
 
+  // #1935: the browser's Client negotiates the version, so the backend has to
+  // be told before it can stamp `Mcp-Protocol-Version` on upstream requests.
+  it("applyProtocolVersion forwards a new version to the transport once", () => {
+    const session = new RemoteSession("s8a");
+    const setProtocolVersion = vi.fn();
+    session.setTransport(makeTransport({ setProtocolVersion }));
+
+    session.applyProtocolVersion("2025-11-25");
+    session.applyProtocolVersion("2025-11-25");
+    expect(setProtocolVersion.mock.calls).toEqual([["2025-11-25"]]);
+
+    // A renegotiated version (e.g. after a reconnect) is re-applied.
+    session.applyProtocolVersion("2026-07-28");
+    expect(setProtocolVersion).toHaveBeenLastCalledWith("2026-07-28");
+  });
+
+  it("applyProtocolVersion ignores an absent, non-token, or non-string version", () => {
+    const session = new RemoteSession("s8b");
+    const setProtocolVersion = vi.fn();
+    session.setTransport(makeTransport({ setProtocolVersion }));
+
+    session.applyProtocolVersion(undefined);
+    // Header injection attempt — must never reach the upstream transport.
+    session.applyProtocolVersion("2025-11-25\r\nX-Evil: 1");
+    session.applyProtocolVersion("");
+    // The value arrives from an unvalidated JSON body, so a non-string must be
+    // rejected on its type — `RegExp.test` would coerce these into a match.
+    session.applyProtocolVersion(123);
+    session.applyProtocolVersion(true);
+    session.applyProtocolVersion(null);
+    expect(setProtocolVersion).not.toHaveBeenCalled();
+  });
+
+  it("applyProtocolVersion is a no-op on a transport without setProtocolVersion (stdio)", () => {
+    const session = new RemoteSession("s8c");
+    session.setTransport(makeTransport());
+    expect(() => session.applyProtocolVersion("2025-11-25")).not.toThrow();
+  });
+
   it("hasEventConsumer reflects whether a consumer is attached", () => {
     const session = new RemoteSession("s9");
     expect(session.hasEventConsumer()).toBe(false);
@@ -180,6 +234,76 @@ describe("RemoteSession", () => {
     const wait = session.waitForRequestResponse(42);
     session.onMessage({ jsonrpc: "2.0", id: 42, result: { tools: [] } });
     await expect(wait).resolves.toBeUndefined();
+  });
+
+  it("a matching progress notification re-arms the wait past its original deadline (#2028)", async () => {
+    vi.useFakeTimers();
+    const session = new RemoteSession("s-progress-reset");
+    const wait = session.waitForRequestResponse(5, 1000);
+    // Almost at the deadline, then a progress note for this request arrives.
+    await vi.advanceTimersByTimeAsync(900);
+    session.onMessage({
+      jsonrpc: "2.0",
+      method: "notifications/progress",
+      params: { progressToken: 5, progress: 1, total: 10 },
+    });
+    // Past the *original* 1000ms deadline: without the re-arm this would have
+    // already rejected, and the resolve below would be a no-op on a dead wait.
+    await vi.advanceTimersByTimeAsync(900);
+    session.onMessage({ jsonrpc: "2.0", id: 5, result: {} });
+    await expect(wait).resolves.toBeUndefined();
+    vi.useRealTimers();
+  });
+
+  it("a notifications/message does NOT re-arm the wait (log messages don't extend the deadline, #2028)", async () => {
+    vi.useFakeTimers();
+    const session = new RemoteSession("s-message-no-reset");
+    const wait = session.waitForRequestResponse(6, 1000);
+    const rejection = expect(wait).rejects.toThrow(/timed out/);
+    await vi.advanceTimersByTimeAsync(500);
+    session.onMessage({
+      jsonrpc: "2.0",
+      method: "notifications/message",
+      params: { level: "info", data: { msg: "tick" } },
+    });
+    await vi.advanceTimersByTimeAsync(500);
+    await rejection;
+    vi.useRealTimers();
+  });
+
+  it("noteRequestProgress is a no-op for an id with no pending wait", () => {
+    const session = new RemoteSession("s-progress-noop");
+    expect(() => session.noteRequestProgress(999)).not.toThrow();
+  });
+
+  it("a progress notification on a timeoutMs=0 wait leaves it timerless and it still resolves", async () => {
+    const session = new RemoteSession("s-progress-notimer");
+    const wait = session.waitForRequestResponse(7, 0);
+    session.onMessage({
+      jsonrpc: "2.0",
+      method: "notifications/progress",
+      params: { progressToken: 7, progress: 1 },
+    });
+    session.onMessage({ jsonrpc: "2.0", id: 7, result: {} });
+    await expect(wait).resolves.toBeUndefined();
+  });
+
+  it("a progress notification with a non-token progressToken re-arms nothing", async () => {
+    vi.useFakeTimers();
+    const session = new RemoteSession("s-progress-bad-token");
+    const wait = session.waitForRequestResponse(8, 1000);
+    const rejection = expect(wait).rejects.toThrow(/timed out/);
+    // A malformed token (object) must be ignored, not coerced to a key.
+    session.onMessage(
+      asMsg({
+        jsonrpc: "2.0",
+        method: "notifications/progress",
+        params: { progressToken: { bad: true }, progress: 1 },
+      }),
+    );
+    await vi.advanceTimersByTimeAsync(1000);
+    await rejection;
+    vi.useRealTimers();
   });
 
   it("endSend is a no-op when no send is active", () => {

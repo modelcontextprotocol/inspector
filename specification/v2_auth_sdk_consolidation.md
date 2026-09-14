@@ -4,7 +4,7 @@
 
 #### [Overview](v2_auth.md) | [EMA / XAA](v2_auth_ema.md) | [Hardening](v2_auth_hardening.md) | [Mid-session](v2_auth_mid_session.md) | [Smoke testing](v2_auth_smoke_testing.md) | SDK consolidation
 
-Record of how Inspector uses `@modelcontextprotocol/client` **2.0.0-beta.4** for authorization after the v2 SDK upgrade: what we moved onto the SDK, what we left Inspector-owned and why, and which small SDK API gaps would let us delete more local wire later.
+Record of how Inspector uses `@modelcontextprotocol/client` **2.0.0** for authorization after the v2 SDK upgrade: what we moved onto the SDK, what we left Inspector-owned and why, and which small SDK API gaps would let us delete more local wire later.
 
 Related as-built specs: [Hardening](v2_auth_hardening.md), [EMA](v2_auth_ema.md), [Mid-session](v2_auth_mid_session.md).
 

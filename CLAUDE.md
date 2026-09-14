@@ -1,2 +1,1 @@
 @./AGENTS.md
-@./README.md

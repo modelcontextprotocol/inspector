@@ -50,7 +50,7 @@ export const WithEntries: Story = {
   args: { entries: sample },
   // List scrollbar reserves a gutter and stays hidden when idle (#1474).
   play: async ({ canvasElement }) => {
-    expectScrollbarGutterIdleHidden(canvasElement);
+    await expectScrollbarGutterIdleHidden(canvasElement);
   },
 };
 

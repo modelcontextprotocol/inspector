@@ -19,15 +19,19 @@ describe("handleError", () => {
     vi.restoreAllMocks();
   });
 
-  it("emits a JSON error envelope on stderr and exits with the classified code", () => {
-    const writeSpy = vi
-      .spyOn(process.stderr, "write")
-      .mockImplementation((() => true) as never);
+  it("emits a JSON error envelope on stderr and exits with the classified code", async () => {
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(((
+      _chunk: unknown,
+      cb?: () => void,
+    ) => {
+      cb?.();
+      return true;
+    }) as never);
     const exitSpy = vi
       .spyOn(process, "exit")
       .mockImplementation((() => undefined) as never);
 
-    handleError(new Error("boom"));
+    await handleError(new Error("boom"));
 
     expect(exitSpy).toHaveBeenCalledWith(EXIT_CODES.USAGE);
     const written = writeSpy.mock.calls[0]![0] as string;
@@ -38,17 +42,48 @@ describe("handleError", () => {
     expect(parsed.error.message).toBe("boom");
   });
 
-  it("uses a CliExitCodeError's exitCode and envelope code", () => {
-    vi.spyOn(process.stderr, "write").mockImplementation((() => true) as never);
+  it("uses a CliExitCodeError's exitCode and envelope code", async () => {
+    vi.spyOn(process.stderr, "write").mockImplementation(((
+      _chunk: unknown,
+      cb?: () => void,
+    ) => {
+      cb?.();
+      return true;
+    }) as never);
     const exitSpy = vi
       .spyOn(process, "exit")
       .mockImplementation((() => undefined) as never);
 
-    handleError(
+    await handleError(
       new CliExitCodeError(EXIT_CODES.NO_APP, "no app", { code: "no_app" }),
     );
 
     expect(exitSpy).toHaveBeenCalledWith(EXIT_CODES.NO_APP);
+  });
+
+  it("exits only after stderr has taken the envelope", async () => {
+    // The whole point of the await: a pipe defers the write, and
+    // `process.exit()` discards anything still queued. A spy that called back
+    // synchronously would pass with or without it, so this one defers.
+    let flushed = false;
+    vi.spyOn(process.stderr, "write").mockImplementation(((
+      _chunk: unknown,
+      cb?: () => void,
+    ) => {
+      setTimeout(() => {
+        flushed = true;
+        cb?.();
+      }, 0);
+      return false;
+    }) as never);
+    const exitSpy = vi
+      .spyOn(process, "exit")
+      .mockImplementation((() => undefined) as never);
+
+    await handleError(new Error("boom"));
+
+    expect(flushed).toBe(true);
+    expect(exitSpy).toHaveBeenCalledWith(EXIT_CODES.USAGE);
   });
 });
 
@@ -62,6 +97,18 @@ describe("classifyError", () => {
     expect(envelope.code).toBe("auth_required");
     expect(envelope.status).toBe(401);
     expect(envelope.url).toBe("https://x.example/mcp");
+  });
+
+  it("derives schema_unportable from the exit code when no envelope is given", () => {
+    // `CliExitCodeError` lets a caller omit the envelope, in which case the
+    // machine code comes from `codeForExit`. A new exit code that is missing
+    // there degrades to the generic `error`, which is exactly the kind of
+    // silent mislabelling the code map exists to prevent (#1005).
+    const { exitCode, envelope } = classifyError(
+      new CliExitCodeError(EXIT_CODES.SCHEMA_UNPORTABLE, "1 finding"),
+    );
+    expect(exitCode).toBe(EXIT_CODES.SCHEMA_UNPORTABLE);
+    expect(envelope.code).toBe("schema_unportable");
   });
 
   it("classifies a WWW-Authenticate message as AUTH_REQUIRED without a status", () => {
@@ -84,6 +131,21 @@ describe("classifyError", () => {
   it("classifies a connection-refused cause as UNREACHABLE", () => {
     const err = new Error("connect ECONNREFUSED 127.0.0.1:1");
     expect(classifyError(err).exitCode).toBe(EXIT_CODES.UNREACHABLE);
+  });
+
+  it("classifies InspectorClient's connect-time timeout as UNREACHABLE (#2320)", () => {
+    // The core's Promise.race rejection reads "Connection timed out after …",
+    // which the older `connect timed out` alternation never matched — so the
+    // one timeout the Inspector itself owns fell through to the generic exit
+    // code. Now that it fires by default (30 s), it has to classify with the
+    // rest of the network-layer failures.
+    const err = new Error(
+      "Connection timed out after 30000 ms. To accommodate a slower server, " +
+        "you may increase the timeout value in Server Settings.",
+    );
+    const { exitCode, envelope } = classifyError(err);
+    expect(exitCode).toBe(EXIT_CODES.UNREACHABLE);
+    expect(envelope.code).toBe("unreachable");
   });
 
   it("falls back to USAGE for an unrecognized Error", () => {

@@ -24,7 +24,11 @@ import {
   createNumberedPrompts,
 } from "@modelcontextprotocol/inspector-test-server";
 import type { Tool } from "@modelcontextprotocol/client";
-import { ProtocolError, ProtocolErrorCode } from "@modelcontextprotocol/client";
+import {
+  Client,
+  ProtocolError,
+  ProtocolErrorCode,
+} from "@modelcontextprotocol/client";
 
 const serverCommand = getTestMcpServerCommand();
 
@@ -55,23 +59,6 @@ async function getTool(client: InspectorClient, name: string): Promise<Tool> {
   const tool = (await getAllTools(client)).find((t) => t.name === name);
   if (!tool) throw new Error(`Tool ${name} not found`);
   return tool;
-}
-
-/**
- * Attach a no-op catch to every outstanding receiver-task payload promise so a
- * deliberate reject (failure-path test) doesn't bubble up as an unhandled
- * rejection. The real consumer (the server polling tasks/result) handles the
- * rejection, but it may not have a handler attached at the instant we reject.
- */
-function suppressReceiverPayloadRejections(client: InspectorClient): void {
-  const records = (
-    client as unknown as {
-      receiverTaskRecords: Map<string, { payloadPromise: Promise<unknown> }>;
-    }
-  ).receiverTaskRecords;
-  for (const record of records.values()) {
-    record.payloadPromise.catch(() => {});
-  }
 }
 
 describe("InspectorClient coverage backfill", () => {
@@ -131,26 +118,17 @@ describe("InspectorClient coverage backfill", () => {
     });
   });
 
-  describe("getAppRendererClient proxy", () => {
-    it("returns null before connect and a memoized proxy after connect", async () => {
+  describe("getAppRendererClient", () => {
+    it("returns null before connect and the SDK client after connect", async () => {
       client = stdioClient();
       // Not connected yet → null.
       expect(client.getAppRendererClient()).toBeNull();
 
       await client.connect();
-      const proxy = client.getAppRendererClient();
-      expect(proxy).not.toBeNull();
-      // Second call returns the same memoized proxy.
-      expect(client.getAppRendererClient()).toBe(proxy);
-
-      // Accessing setNotificationHandler returns the wrapped function (covers
-      // the prop === "setNotificationHandler" branch), and accessing another
-      // prop returns the underlying value (covers the fall-through return).
-      const wrapped = (proxy as unknown as { setNotificationHandler: unknown })
-        .setNotificationHandler;
-      expect(typeof wrapped).toBe("function");
-      const other = (proxy as unknown as { request: unknown }).request;
-      expect(typeof other).toBe("function");
+      const appClient = client.getAppRendererClient();
+      expect(appClient).toBeInstanceOf(Client);
+      // Same instance on every call — it is the client, not a wrapper (#1745).
+      expect(client.getAppRendererClient()).toBe(appClient);
     });
   });
 
@@ -200,8 +178,11 @@ describe("InspectorClient coverage backfill", () => {
   });
 
   describe("setRoots", () => {
-    it("enables roots when previously undefined and dispatches rootsChange", async () => {
-      // No roots option → this.roots is undefined initially.
+    it("stores roots and dispatches rootsChange when none were configured", async () => {
+      // No roots option → this.roots is undefined initially. Note setRoots does
+      // *not* enable the capability: this client still has no `roots/list`
+      // handler and no `capabilities.roots`, so only `getRoots()` reflects the
+      // change — see the note on setRoots (#1797).
       client = stdioClient();
       await client.connect();
       const rootsChange = waitForEvent(client, "rootsChange", {
@@ -323,9 +304,6 @@ describe("InspectorClient coverage backfill", () => {
         .catch((e: unknown) => e);
 
       const sample = await samplingPromise;
-      // Pre-attach a catch to the receiver task's payload promise so its
-      // rejection (driven below) doesn't surface as an unhandled rejection.
-      suppressReceiverPayloadRejections(client);
       // Reject instead of respond — drives the receiver-task error callback,
       // which sets status "failed" and calls upsertReceiverTask.
       await sample.reject(new Error("user rejected sampling"));
@@ -374,7 +352,6 @@ describe("InspectorClient coverage backfill", () => {
         .catch((e: unknown) => e);
 
       const elicitation = await elicitationPromise;
-      suppressReceiverPayloadRejections(client);
       await elicitation.reject(new Error("user declined elicitation"));
 
       const outcome = await callPromise;
@@ -407,7 +384,7 @@ describe("InspectorClient coverage backfill", () => {
           serverSettings: {
             headers: [],
             env: [],
-            metadata: [{ key: "x-test", value: "1" }],
+            metadata: { "x-test": "1" },
             connectionTimeout: 0,
             requestTimeout: 0,
             taskTtl: 0,
@@ -673,7 +650,7 @@ describe("InspectorClient coverage backfill", () => {
           serverSettings: {
             headers: [],
             env: [],
-            metadata: [],
+            metadata: {},
             connectionTimeout: 1,
             requestTimeout: 0,
             taskTtl: 0,

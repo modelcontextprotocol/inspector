@@ -64,3 +64,14 @@ describe("PromptMessagesDisplay", () => {
     ).not.toBeInTheDocument();
   });
 });
+
+// The `data-testid` the headless tab smoke waits on (#2148). It asserts the
+// messages RENDERED, which `data-get-status="ok"` alone does not — that flips
+// as soon as `prompts/get` resolves. Pinned here so a rename fails loudly in a
+// unit test rather than as an opaque timeout in a five-minute gate.
+describe("automation contract (#2148)", () => {
+  it("exposes a stable data-testid on the panel", () => {
+    renderWithMantine(<PromptMessagesDisplay messages={messages} />);
+    expect(screen.getByTestId("prompt-messages")).toBeInTheDocument();
+  });
+});

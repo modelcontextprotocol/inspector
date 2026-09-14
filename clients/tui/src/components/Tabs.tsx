@@ -1,6 +1,6 @@
 import React from "react";
 import { Box, Text } from "ink";
-import { type TabType, tabs } from "./tabsConfig.js";
+import { type TabType, visibleTabs as visibleTabsFor } from "./tabsConfig.js";
 
 /**
  * Split a tab label so the accelerator letter can be underlined wherever it
@@ -30,6 +30,7 @@ interface TabsProps {
     auth?: number;
     resources?: number;
     prompts?: number;
+    skills?: number;
     tools?: number;
     messages?: number;
     requests?: number;
@@ -39,6 +40,13 @@ interface TabsProps {
   showAuth?: boolean;
   showLogging?: boolean;
   showRequests?: boolean;
+  /**
+   * The Skills tab is shown only when the connected server declared the
+   * SEP-2640 Skills extension — unlike Auth/Logging/Requests, which key off the
+   * transport, this one keys off a *server* declaration, so it can only be
+   * known after connecting.
+   */
+  showSkills?: boolean;
 }
 
 export function Tabs({
@@ -49,17 +57,16 @@ export function Tabs({
   showAuth = true,
   showLogging = true,
   showRequests = false,
+  showSkills = false,
 }: TabsProps) {
-  let visibleTabs = tabs;
-  if (!showAuth) {
-    visibleTabs = visibleTabs.filter((tab) => tab.id !== "auth");
-  }
-  if (!showLogging) {
-    visibleTabs = visibleTabs.filter((tab) => tab.id !== "logging");
-  }
-  if (!showRequests) {
-    visibleTabs = visibleTabs.filter((tab) => tab.id !== "requests");
-  }
+  // Shared with `App`, which sizes the pane below this bar from the same list —
+  // see `tabBarRows`.
+  const visibleTabs = visibleTabsFor({
+    showAuth,
+    showLogging,
+    showRequests,
+    showSkills,
+  });
 
   return (
     <Box

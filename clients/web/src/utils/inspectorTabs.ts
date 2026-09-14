@@ -11,6 +11,7 @@ export const INSPECTOR_TAB_IDS = [
   "Tools",
   "Prompts",
   "Resources",
+  "Skills",
   "Tasks",
   "Logs",
   "Protocol",

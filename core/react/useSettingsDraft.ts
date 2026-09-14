@@ -28,11 +28,12 @@ export interface UseSettingsDraftOptions<T> {
   targetId: string | undefined;
   /**
    * Resolves the initial draft for a given server id at the moment the
-   * modal opens. Called once per target — must be stable enough that
-   * the caller doesn't accidentally provoke re-initialization while
-   * the user is editing. (We do not include this function in the
-   * effect deps; it's read through a ref so callers don't have to
-   * `useCallback` it.)
+   * modal opens. Called once per target, **during render** — so it must
+   * be pure: a render can be replayed under StrictMode or abandoned by
+   * concurrent React, which would run any side effect an unpredictable
+   * number of times. Its identity is never a dependency of anything, so
+   * callers do not have to `useCallback` it, and re-creating it on every
+   * render cannot re-seed an in-progress edit.
    */
   resolveInitial: (id: string) => T;
   /** Persist the draft. Called from the debounced flush and from `flush`. */
@@ -73,31 +74,41 @@ export function useSettingsDraft<T>({
   const [draft, setDraft] = useState<T | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
+  // Seeding happens during render, not in an effect. An effect keyed on
+  // `targetId` renders once with the *previous* target's draft, paints
+  // it, and only then corrects itself — so opening the modal on a second
+  // server briefly shows the first one's values. React's documented
+  // "adjusting state when a prop changes" pattern discards the
+  // in-progress render instead, so nothing stale reaches the DOM.
+  // (`clients/web` spells the same thing `useValueChange`; `core/` cannot
+  // import from a client.)
+  //
+  // `seededFor` is compared rather than `draft`, because "already seeded
+  // for this target" and "the draft happens to be null" are different
+  // states: a caller whose `resolveInitial` legitimately yields `null`
+  // would otherwise be re-seeded on every render.
+  const [seededFor, setSeededFor] = useState<string | undefined>(undefined);
+  if (seededFor !== targetId) {
+    setSeededFor(targetId);
+    setDraft(targetId ? resolveInitial(targetId) : null);
+  }
+
   // Read callbacks (and the current draft) through refs so the consumer
   // doesn't have to `useCallback` them, and so the returned `flush`
-  // identity is stable across keystrokes. The effect that
-  // re-initializes the draft must depend on `targetId` only — anything
-  // else in its deps risks resetting an in-progress edit when the
-  // parent re-renders for unrelated reasons (e.g. a background
-  // server-list refresh).
-  const resolveInitialRef = useRef(resolveInitial);
+  // identity is stable across keystrokes. Written in an effect rather
+  // than during render (`react-hooks/refs`): a render can be replayed or
+  // abandoned, and every reader here — the debounce timer and `flush` —
+  // runs after a commit, so a post-commit write is what they need.
   const onPersistRef = useRef(onPersist);
   const onErrorRef = useRef(onError);
   const draftRef = useRef<T | null>(null);
   const targetIdRef = useRef(targetId);
-  resolveInitialRef.current = resolveInitial;
-  onPersistRef.current = onPersist;
-  onErrorRef.current = onError;
-  draftRef.current = draft;
-  targetIdRef.current = targetId;
-
   useEffect(() => {
-    if (!targetId) {
-      setDraft(null);
-      return;
-    }
-    setDraft(resolveInitialRef.current(targetId));
-  }, [targetId]);
+    onPersistRef.current = onPersist;
+    onErrorRef.current = onError;
+    draftRef.current = draft;
+    targetIdRef.current = targetId;
+  });
 
   // Unmount cleanup — a stale timer firing after unmount is harmless
   // today (the persist call still goes through to the backend) but

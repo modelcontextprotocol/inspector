@@ -1,0 +1,30 @@
+[
+  {
+    "prompt": "What is the difference between the launcher-driven run scripts and starting a client directly, and when should I use each?",
+    "expect": "local-dev"
+  },
+  {
+    "prompt": "I added a package and now one of the client bundles fails at run time. What do I check?",
+    "expect": "local-dev"
+  },
+  {
+    "prompt": "Do I need to rebuild anything before I can run `npm run web` in this repo?",
+    "expect": "local-dev"
+  },
+  {
+    "prompt": "How do I run the CLI from the built launcher in this repo instead of via npx?",
+    "expect": "local-dev"
+  },
+  {
+    "prompt": "Do I need to do anything special to set this repo up inside a git worktree?",
+    "expect": "local-dev"
+  },
+  {
+    "prompt": "Write a haiku about autumn.",
+    "expect": null
+  },
+  {
+    "prompt": "Explain the difference between let and const in JavaScript.",
+    "expect": null
+  }
+]

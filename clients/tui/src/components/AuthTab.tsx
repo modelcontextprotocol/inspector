@@ -28,6 +28,14 @@ interface AuthTabProps {
   inspectorClient: InspectorClient | null;
   oauthStatus: "idle" | "authenticating" | "error";
   oauthMessage: string | null;
+  /**
+   * How to colour {@link oauthMessage} on the `idle` status. Defaults to
+   * `"info"` (cyan). `"warning"` exists for the one message that reports a
+   * *partial* success: the OAuth state really was cleared, so this is not an
+   * error, but the grant may still be live at the authorization server and
+   * cyan would understate that (#2144).
+   */
+  oauthMessageTone?: "info" | "warning";
   oauthRevision: number;
   pendingStepUp?: {
     challenge: AuthChallenge;
@@ -39,7 +47,15 @@ interface AuthTabProps {
   width: number;
   height: number;
   focused?: boolean;
-  onClearOAuth: () => void;
+  /**
+   * Clears (and, unless opted out, revokes) this server's OAuth state.
+   *
+   * Returns a promise so the confirmation below can wait for it. The RFC 7009
+   * revocation leg is a network request with a five-second bound (#2144), so
+   * this is no longer instantaneous, and announcing "cleared" on the keypress
+   * would say it while the work was still in flight.
+   */
+  onClearOAuth: () => void | Promise<void>;
   connectionStatus: ConnectionStatus;
 }
 
@@ -57,6 +73,7 @@ export function AuthTab({
   inspectorClient,
   oauthStatus,
   oauthMessage,
+  oauthMessageTone = "info",
   oauthRevision,
   pendingStepUp,
   onAuthorizeStepUp,
@@ -73,7 +90,47 @@ export function AuthTab({
   const [oauthState, setOauthState] = useState<
     OAuthConnectionState | undefined
   >(undefined);
-  const [clearedConfirmation, setClearedConfirmation] = useState(false);
+  const [clearState, setClearState] = useState<
+    "idle" | "clearing" | "cleared" | "failed"
+  >("idle");
+  const [clearFailure, setClearFailure] = useState<string | null>(null);
+  /**
+   * The server a clear was started for, and a sequence number. The clear is a
+   * bounded network request now, so it can settle after the user has moved on
+   * — at which point server A's confirmation must not appear under server B.
+   */
+  const clearAttemptRef = useRef(0);
+  /**
+   * In-flight lock. A ref, not the `clearState` above: two `s` keypresses
+   * delivered in the same input turn both read the state React last rendered,
+   * so a state-based guard lets both start and race each other over the same
+   * store entry. A ref is set before the call and seen by the second read.
+   */
+  const clearInFlightRef = useRef(false);
+  /**
+   * Set synchronously when a clear starts, and consumed by the reset effect
+   * below. The clear itself bumps `oauthRevision` on its way out, so without
+   * this the reset would race the confirmation it is meant to outlive — and
+   * which of the two lands first is not something the ordering guarantees.
+   */
+  const ownClearRef = useRef(false);
+  const serverNameRef = useRef(serverName);
+  useEffect(() => {
+    serverNameRef.current = serverName;
+  }, [serverName]);
+  // A new selection retires any in-flight clear and drops the previous one's
+  // banner: neither belongs to the server now on screen.
+  useEffect(() => {
+    clearAttemptRef.current++;
+    clearInFlightRef.current = false;
+    // The retired clear returns before its `oauthRevision` bump, so the marker
+    // has no bump to skip. Left set, it would swallow the first unrelated
+    // revision on the server just selected and strand that server's banner.
+    ownClearRef.current = false;
+    setClearState("idle");
+    setClearFailure(null);
+    setLastClearDisconnected(false);
+  }, [serverName]);
   const [lastClearDisconnected, setLastClearDisconnected] = useState(false);
   const [stepUpChoiceIndex, setStepUpChoiceIndex] = useState(0);
 
@@ -91,7 +148,13 @@ export function AuthTab({
   }, [refreshOAuthState, oauthRevision, connectionStatus]);
 
   useEffect(() => {
-    setClearedConfirmation(false);
+    // Skip exactly the revision bump our own clear caused; reset on the next.
+    if (ownClearRef.current) {
+      ownClearRef.current = false;
+      return;
+    }
+    setClearState("idle");
+    setClearFailure(null);
     setLastClearDisconnected(false);
   }, [oauthRevision]);
 
@@ -154,9 +217,49 @@ export function AuthTab({
         const h = scrollViewRef.current.getViewportHeight() || 1;
         scrollViewRef.current.scrollBy(h);
       } else if (input.toLowerCase() === "s") {
+        // Ignore repeats while one is in flight: the second would race the
+        // first over the same store entry, and the user cannot see that the
+        // first is still running except by the pending line below.
+        if (clearInFlightRef.current) return;
+        clearInFlightRef.current = true;
+        const attempt = ++clearAttemptRef.current;
+        const attemptServer = serverName;
         setLastClearDisconnected(isLiveConnection);
-        onClearOAuth();
-        setClearedConfirmation(true);
+        setClearFailure(null);
+        ownClearRef.current = true;
+        setClearState("clearing");
+        // A completion is only ours if nothing has superseded it and the
+        // selection has not moved on.
+        const current = () =>
+          clearAttemptRef.current === attempt &&
+          serverNameRef.current === attemptServer;
+        void Promise.resolve(onClearOAuth()).then(
+          () => {
+            // `current()` FIRST, before touching either shared ref. A stale
+            // completion — server A settling after the user moved to B and
+            // started a clear there — would otherwise drop B's lock and let a
+            // second B clear run concurrently. A stale clear owns nothing.
+            if (!current()) return;
+            clearInFlightRef.current = false;
+            setClearState("cleared");
+          },
+          (err: unknown) => {
+            if (!current()) return;
+            clearInFlightRef.current = false;
+            // A rejection is NOT a revocation failure — those come back as
+            // outcomes and are reported through the message line. This is the
+            // local clear or the disconnect itself failing, so announcing
+            // "OAuth state cleared" here would be a plain lie.
+            //
+            // It also means `handleClearOAuth` never reached its
+            // `oauthRevision` bump, so the marker below has no bump to skip.
+            // Left set, it would swallow the next *unrelated* revision change
+            // and strand this banner after the OAuth state moved on.
+            ownClearRef.current = false;
+            setClearFailure(err instanceof Error ? err.message : String(err));
+            setClearState("failed");
+          },
+        );
       }
     },
     { isActive: focused },
@@ -190,7 +293,9 @@ export function AuthTab({
             <Text color="red">{oauthMessage}</Text>
           )}
           {oauthStatus === "idle" && oauthMessage && (
-            <Text color="cyan">{oauthMessage}</Text>
+            <Text color={oauthMessageTone === "warning" ? "yellow" : "cyan"}>
+              {oauthMessage}
+            </Text>
           )}
 
           {pendingStepUp ? (
@@ -320,11 +425,20 @@ export function AuthTab({
               Clear OAuth <Text underline>S</Text>tate
               {isLiveConnection && " and disconnect"}
             </SelectableItem>
-            {clearedConfirmation && (
+            {clearState === "clearing" && (
+              <Text color="yellow">Clearing OAuth state…</Text>
+            )}
+            {clearState === "cleared" && (
               <Text color="green">
                 {lastClearDisconnected
                   ? "OAuth state cleared. Disconnected."
                   : "OAuth state cleared."}
+              </Text>
+            )}
+            {clearState === "failed" && (
+              <Text color="red">
+                Could not clear OAuth state
+                {clearFailure ? `: ${clearFailure}` : "."}
               </Text>
             )}
           </Box>

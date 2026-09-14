@@ -6,6 +6,8 @@ import {
   getValueAtPath,
   collectSchemaDefaults,
   hasMissingRequiredFields,
+  applySchemaConstants,
+  seedSchemaValues,
 } from "./jsonUtils";
 import type { InspectorFormSchema } from "./jsonUtils";
 
@@ -221,6 +223,42 @@ describe("collectSchemaDefaults", () => {
   it("returns an empty object when the schema has no properties", () => {
     expect(collectSchemaDefaults({ type: "object" })).toEqual({});
   });
+
+  // The form normalizes a nullable union before rendering, so this has to as
+  // well: a nested object's `properties` live on the union's surviving branch,
+  // and a default only visible there would be displayed but never submitted.
+  it("collects defaults hoisted out of a nullable object union", () => {
+    const schema: InspectorFormSchema = {
+      type: "object",
+      properties: {
+        profile: {
+          anyOf: [
+            {
+              type: "object",
+              properties: { nick: { type: "string", default: "ada" } },
+            },
+            { type: "null" },
+          ],
+        },
+      },
+    };
+    expect(collectSchemaDefaults(schema)).toEqual({
+      profile: { nick: "ada" },
+    });
+  });
+
+  it("keeps a default declared on the union wrapper itself", () => {
+    const schema: InspectorFormSchema = {
+      type: "object",
+      properties: {
+        direction: {
+          default: "envio",
+          anyOf: [{ type: "string", enum: ["envio"] }, { type: "null" }],
+        },
+      },
+    };
+    expect(collectSchemaDefaults(schema)).toEqual({ direction: "envio" });
+  });
 });
 
 describe("hasMissingRequiredFields", () => {
@@ -246,5 +284,390 @@ describe("hasMissingRequiredFields", () => {
     expect(hasMissingRequiredFields(schema, { name: "Ada", age: "" })).toBe(
       false,
     );
+  });
+
+  // JSON Schema `required` constrains presence, not content — so an explicit
+  // `null` satisfies a required field whose schema admits null. Since #1928 the
+  // user can produce exactly that by clearing a nullable enum, and treating it
+  // as missing would disable submit on a value the schema calls valid.
+  it("accepts an explicit null for a required field that admits null", () => {
+    const nullable: InspectorFormSchema = {
+      type: "object",
+      properties: {
+        direction: {
+          anyOf: [{ type: "string", enum: ["envio"] }, { type: "null" }],
+        },
+      },
+      required: ["direction"],
+    };
+    expect(hasMissingRequiredFields(nullable, { direction: null })).toBe(false);
+    expect(hasMissingRequiredFields(nullable, {})).toBe(true);
+  });
+
+  it("accepts an explicit null for a required type: [T, null] field", () => {
+    const nullable: InspectorFormSchema = {
+      type: "object",
+      properties: { note: { type: ["string", "null"] } },
+      required: ["note"],
+    };
+    expect(hasMissingRequiredFields(nullable, { note: null })).toBe(false);
+  });
+
+  it("still rejects null for a required field whose schema is not nullable", () => {
+    expect(hasMissingRequiredFields(schema, { name: null })).toBe(true);
+  });
+
+  // The renderer's collapse only handles a two-member union, but null admission
+  // has no such limit — this one renders through the JSON fallback, where the
+  // user can still type `null`, and the schema plainly accepts it.
+  it("accepts an explicit null for a required three-member union", () => {
+    const wide: InspectorFormSchema = {
+      type: "object",
+      properties: {
+        mixed: {
+          anyOf: [{ type: "string" }, { type: "number" }, { type: "null" }],
+        },
+      },
+      required: ["mixed"],
+    };
+    expect(hasMissingRequiredFields(wide, { mixed: null })).toBe(false);
+  });
+
+  it("rejects null for a required field the schema does not describe", () => {
+    const undescribed: InspectorFormSchema = {
+      type: "object",
+      properties: {},
+      required: ["ghost"],
+    };
+    expect(hasMissingRequiredFields(undescribed, { ghost: null })).toBe(true);
+  });
+});
+
+describe("root composition (#2123)", () => {
+  const UNION: InspectorFormSchema = {
+    type: "object",
+    properties: { note: { type: "string" } },
+    anyOf: [
+      {
+        type: "object",
+        properties: {
+          kind: { type: "string", const: "email" },
+          address: { type: "string" },
+        },
+        required: ["kind", "address"],
+      },
+      {
+        type: "object",
+        properties: {
+          kind: { type: "string", const: "sms" },
+          phone: { type: "string" },
+        },
+        required: ["kind", "phone"],
+      },
+    ],
+  };
+
+  it("seeds the first branch's defaults, including its const", () => {
+    expect(collectSchemaDefaults(UNION)).toEqual({ kind: "email" });
+  });
+
+  it("does not seed fields of branches the form is not showing", () => {
+    expect(collectSchemaDefaults(UNION)).not.toHaveProperty("phone");
+  });
+
+  it("seeds a required const property on an ordinary schema too", () => {
+    expect(
+      collectSchemaDefaults({
+        type: "object",
+        properties: { version: { type: "string", const: "1" } },
+        required: ["version"],
+      }),
+    ).toEqual({ version: "1" });
+  });
+
+  it("leaves an optional const out", () => {
+    // `const` constrains a present value; it does not require the property or
+    // act as a default, so seeding it would turn a valid `{}` call into one
+    // that asks the server to do something.
+    const optional: InspectorFormSchema = {
+      type: "object",
+      properties: { dryRun: { type: "boolean", const: true } },
+    };
+    expect(collectSchemaDefaults(optional)).toEqual({});
+    expect(applySchemaConstants(optional, {})).toEqual({});
+    // …but a value that IS present must be the one the schema fixes.
+    expect(applySchemaConstants(optional, { dryRun: false })).toEqual({
+      dryRun: true,
+    });
+  });
+
+  it("prefers a const over a conflicting default", () => {
+    // `default` is an annotation, not a constraint, so a schema may advertise
+    // one its own `const` rejects — seeding it would submit an invalid value
+    // through a read-only field.
+    expect(
+      collectSchemaDefaults({
+        type: "object",
+        properties: {
+          v: { type: "string", const: "a", default: "b" },
+        },
+        required: ["v"],
+      }),
+    ).toEqual({ v: "a" });
+  });
+
+  it("collects defaults from a root allOf", () => {
+    expect(
+      collectSchemaDefaults({
+        type: "object",
+        allOf: [
+          {
+            type: "object",
+            properties: { merged: { type: "string", default: "m" } },
+          },
+        ],
+      }),
+    ).toEqual({ merged: "m" });
+  });
+
+  it("seeds the branch the known values identify, not the first", () => {
+    // What the App deep link does: seed defaults, then overlay its `appArgs`.
+    // Seeding branch 0 underneath branch 1's args would leave `address` in the
+    // submitted arguments, invisible to a form showing the SMS branch.
+    expect(collectSchemaDefaults(UNION, { kind: "sms" })).toEqual({
+      kind: "sms",
+    });
+  });
+
+  it("accepts a required field pinned to null", () => {
+    // `const: null` admits null and nothing else, so seeding it must not leave
+    // submit disabled on a value the user cannot change.
+    const schema: InspectorFormSchema = {
+      type: "object",
+      properties: { nothing: { const: null } },
+      required: ["nothing"],
+    };
+    const values = collectSchemaDefaults(schema);
+    expect(values).toEqual({ nothing: null });
+    expect(hasMissingRequiredFields(schema, values)).toBe(false);
+  });
+
+  it("re-applies a branch's constants over conflicting supplied values", () => {
+    // A read-only field cannot be corrected by the user, so a deep link
+    // disagreeing with a `const` must not survive into the submitted arguments.
+    expect(applySchemaConstants(UNION, { kind: "sms", note: "hi" })).toEqual({
+      kind: "sms",
+      note: "hi",
+    });
+    expect(applySchemaConstants(UNION, { kind: "nonsense" })).toEqual({
+      kind: "email",
+    });
+  });
+
+  it("seeds a field named __proto__", () => {
+    // A plain assignment would invoke the legacy prototype setter, leaving a
+    // required pinned field displayed read-only and seeded with nothing.
+    const seeded = collectSchemaDefaults({
+      type: "object",
+      properties: Object.fromEntries([
+        ["__proto__", { type: "string", const: "kept" }],
+      ]),
+      required: ["__proto__"],
+    });
+    expect(Object.hasOwn(seeded, "__proto__")).toBe(true);
+  });
+
+  it("seeds defaults from a nested object's own union branch", () => {
+    // The nested form renders that branch, so its read-only discriminator has
+    // to reach the submitted values too.
+    expect(
+      collectSchemaDefaults({
+        type: "object",
+        properties: {
+          config: {
+            type: "object",
+            anyOf: [
+              {
+                type: "object",
+                properties: {
+                  kind: { type: "string", const: "email" },
+                  address: { type: "string" },
+                },
+                required: ["kind"],
+              },
+              {
+                type: "object",
+                properties: {
+                  kind: { type: "string", const: "sms" },
+                  phone: { type: "string" },
+                },
+                required: ["kind"],
+              },
+            ],
+          },
+        },
+      }),
+    ).toEqual({ config: { kind: "email" } });
+  });
+
+  describe("seedSchemaValues", () => {
+    const NESTED: InspectorFormSchema = {
+      type: "object",
+      properties: {
+        config: {
+          type: "object",
+          anyOf: [
+            {
+              type: "object",
+              properties: {
+                kind: { type: "string", const: "email" },
+                retries: { type: "number", default: 1 },
+              },
+            },
+            {
+              type: "object",
+              properties: {
+                kind: { type: "string", const: "sms" },
+                retries: { type: "number", default: 3 },
+              },
+            },
+          ],
+        },
+      },
+    };
+
+    it("keeps a nested branch's defaults beside the supplied values", () => {
+      // A shallow spread would replace the whole `config` object, so the SMS
+      // branch's `retries` would be displayed by the form and never submitted.
+      expect(seedSchemaValues(NESTED, { config: { kind: "sms" } })).toEqual({
+        config: { kind: "sms", retries: 3 },
+      });
+    });
+
+    it("lets the supplied value win where the two meet", () => {
+      expect(
+        seedSchemaValues(NESTED, { config: { kind: "sms", retries: 9 } }),
+      ).toEqual({ config: { kind: "sms", retries: 9 } });
+    });
+
+    it("does not treat an array as a nested object", () => {
+      const withArray: InspectorFormSchema = {
+        type: "object",
+        properties: { items: { type: "array" } },
+      };
+      expect(seedSchemaValues(withArray, { items: [1, 2] })).toEqual({
+        items: [1, 2],
+      });
+    });
+
+    it("keeps a supplied argument named __proto__", () => {
+      const seeded = seedSchemaValues(
+        { type: "object", properties: {} },
+        Object.fromEntries([["__proto__", "kept"]]),
+      );
+      expect(Object.hasOwn(seeded, "__proto__")).toBe(true);
+    });
+  });
+
+  it("re-applies a nested object's constants", () => {
+    // The overlay replaces the whole nested object rather than merging into it,
+    // so a link naming `{ config: { kind: "sms" } }` would otherwise slip past
+    // the pinned `kind` the nested form displays.
+    const schema: InspectorFormSchema = {
+      type: "object",
+      properties: {
+        config: {
+          type: "object",
+          properties: {
+            kind: { type: "string", const: "email" },
+            to: { type: "string" },
+          },
+        },
+      },
+    };
+    expect(
+      applySchemaConstants(schema, { config: { kind: "sms", to: "a@b.c" } }),
+    ).toEqual({ config: { kind: "email", to: "a@b.c" } });
+  });
+
+  it("leaves values alone when nothing is pinned", () => {
+    const values = { a: 1 };
+    expect(
+      applySchemaConstants(
+        { type: "object", properties: { a: { type: "number" } } },
+        values,
+      ),
+    ).toBe(values);
+  });
+
+  it("accepts an empty string a const pins the field to", () => {
+    // Rendered read-only, so treating the seeded value as missing would
+    // disable submit on a value the user cannot change.
+    const pinnedEmpty: InspectorFormSchema = {
+      type: "object",
+      properties: { kind: { type: "string", const: "" } },
+      required: ["kind"],
+    };
+    expect(hasMissingRequiredFields(pinnedEmpty, { kind: "" })).toBe(false);
+    // An ordinary required string is still missing when left blank.
+    expect(
+      hasMissingRequiredFields(
+        {
+          type: "object",
+          properties: { kind: { type: "string" } },
+          required: ["kind"],
+        },
+        { kind: "" },
+      ),
+    ).toBe(true);
+  });
+
+  it("does not read an inherited property as a supplied answer", () => {
+    // `constructor` is a legal argument name; reading it off the prototype
+    // would enable a submit the schema rejects.
+    const schema: InspectorFormSchema = {
+      type: "object",
+      // Built through `fromEntries`: in an object literal, `constructor` is
+      // TypeScript's own inherited member rather than a plain key.
+      properties: Object.fromEntries([["constructor", { type: "string" }]]),
+      required: ["constructor"],
+    };
+    expect(hasMissingRequiredFields(schema, {})).toBe(true);
+    expect(hasMissingRequiredFields(schema, { constructor: "x" })).toBe(false);
+  });
+
+  it("blocks submission while no branch is satisfied", () => {
+    expect(hasMissingRequiredFields(UNION, {})).toBe(true);
+    expect(hasMissingRequiredFields(UNION, { kind: "email" })).toBe(true);
+  });
+
+  it("does not count a branch whose discriminator the values contradict", () => {
+    // `{ kind: "sms", address: … }` supplies everything the EMAIL branch
+    // requires while carrying a `kind` that branch rejects — and the SMS
+    // branch it does name is still missing `phone`.
+    expect(
+      hasMissingRequiredFields(UNION, { kind: "sms", address: "a@b.c" }),
+    ).toBe(true);
+  });
+
+  it("allows submission once one branch is satisfied", () => {
+    expect(hasMissingRequiredFields(UNION, { kind: "sms", phone: "555" })).toBe(
+      false,
+    );
+  });
+
+  it("gates on required fields declared only in a root allOf", () => {
+    const schema: InspectorFormSchema = {
+      type: "object",
+      allOf: [
+        {
+          type: "object",
+          properties: { a: { type: "string" } },
+          required: ["a"],
+        },
+      ],
+    };
+    expect(hasMissingRequiredFields(schema, {})).toBe(true);
+    expect(hasMissingRequiredFields(schema, { a: "x" })).toBe(false);
   });
 });

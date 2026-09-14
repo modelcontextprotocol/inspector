@@ -83,7 +83,7 @@ export const MultipleServers: Story = {
   // The server grid scroll region reserves a scrollbar gutter and hides the
   // bar when idle, matching the Protocol/Network/Logging list panels (#1474).
   play: async ({ canvasElement }) => {
-    expectScrollbarGutterIdleHidden(canvasElement);
+    await expectScrollbarGutterIdleHidden(canvasElement);
   },
 };
 
@@ -148,7 +148,7 @@ export const KeyboardReorder: Story = {
 
     await waitFor(() => expect(args.onReorder).toHaveBeenCalled());
     // The first card swapped places with the second; the third is unmoved.
-    expect(args.onReorder).toHaveBeenCalledWith([
+    await expect(args.onReorder).toHaveBeenCalledWith([
       disconnectedStdioServer.id,
       connectedStdioServer.id,
       failedHttpServer.id,

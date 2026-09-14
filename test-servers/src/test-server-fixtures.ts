@@ -163,6 +163,39 @@ export function createEchoTool(): ToolDefinition {
 }
 
 /**
+ * Create a "record_shipment" tool whose arguments are all **nullable** — the
+ * shape Zod's `.nullish()` / `.nullable()` compiles to, where the real type
+ * sits inside `anyOf: [<branch>, { type: "null" }]` rather than at the top
+ * level.
+ *
+ * `direction` is the case from #1928: a nullable *enum*, whose `enum` keyword
+ * lives on the surviving branch. Before the fix nothing in the tool-call form
+ * matched such a field, so it fell through to the raw-JSON textarea and
+ * re-escaped its own value on every keystroke. The other three cover the
+ * remaining scalar branches so a regression in one is visible next to a
+ * working sibling.
+ */
+export function createNullableFieldsTool(): ToolDefinition {
+  return {
+    name: "record_shipment",
+    description:
+      "Record a shipment. Every argument is optional AND explicitly nullable (Zod .nullish()), so each compiles to an anyOf union with a null branch.",
+    inputSchema: {
+      direction: z
+        .enum(["envio", "recebimento"])
+        .nullish()
+        .describe("Direction of the shipment (nullable enum — #1928)"),
+      reference: z.string().nullish().describe("Free-text reference"),
+      quantity: z.number().int().nullish().describe("Number of packages"),
+      express: z.boolean().nullish().describe("Ship express"),
+    },
+    handler: async (params: Record<string, unknown>) => {
+      return toToolResult(JSON.stringify(params, null, 2));
+    },
+  };
+}
+
+/**
  * Create a "get-env" tool matching @modelcontextprotocol/server-everything.
  * Returns the server process environment as pretty-printed JSON text.
  */
@@ -235,6 +268,35 @@ export function createGetWeatherTool(): ToolDefinition {
     },
     handler: async (params: Record<string, unknown>) => {
       return toToolResult(`Weather in ${params.city as string}: sunny, 24°C`);
+    },
+  };
+}
+
+/**
+ * Create a tool whose advertised arguments are a root `oneOf` **no branch of
+ * which can be offered**, for #2224. Each branch requires a name it never
+ * declares, so a form builder that enumerates `properties` alone renders no
+ * control for it while the submit gate reports it missing forever.
+ *
+ * The Zod `inputSchema` here is a placeholder: the shape that matters is the
+ * raw JSON Schema `root-union-schemas-http.json` substitutes through
+ * `rawToolSchemas`, since Zod cannot emit a root composition. The handler is
+ * what a real server would do with the arguments — echo them back, so what the
+ * form actually sent is visible in the result.
+ */
+export function createDeadEndUnionTool(): ToolDefinition {
+  return {
+    name: "record_shipment_by",
+    description:
+      "Record a shipment, by address or by tracking number. Its advertised schema is a root oneOf whose branches each require a name they never declare, so no branch is renderable.",
+    inputSchema: {
+      by: z
+        .string()
+        .optional()
+        .describe("Which alternative the call is making"),
+    },
+    handler: async (params: Record<string, unknown>) => {
+      return toToolResult(`Recorded shipment: ${JSON.stringify(params)}`);
     },
   };
 }
@@ -428,6 +490,242 @@ export function createCollectFormElicitationTool(): ToolDefinition {
         );
         throw error;
       }
+    },
+  };
+}
+
+/** Canonical URI for {@link createAppElicitationResource}, referenced by {@link createAppElicitationTool}'s `_meta.ui.resourceUri`. */
+export const APP_ELICITATION_URI = "ui://demo/choose-option.html";
+
+/**
+ * Minimal MCP App that renders and resolves a form elicitation (#1854).
+ *
+ * Deliberately generic — "Choose option A or B" — because its purpose is to
+ * verify the protocol and renderer lifecycle, not to be a product example. It
+ * covers all three outcomes an `ElicitResult` can carry: `accept` with content,
+ * `decline`, and `cancel`.
+ *
+ * Like the `mcp_app_demo` widget it speaks the raw View↔Host protocol with no
+ * SDK, so the sandbox CSP's locked-down defaults suffice and there is nothing
+ * to bundle. The two differences from that widget are the whole point of the
+ * fixture: it advertises `appCapabilities.elicitation` in `ui/initialize`, and
+ * it answers the host's inbound `elicitation/create` REQUEST (every other
+ * host→view message in that widget is a notification).
+ *
+ * The lone `rgba(0,0,0,0.06)` is the same deliberate exception to the
+ * AGENTS.md color-token rule noted on `MCP_APP_DEMO_HTML`: a static fixture
+ * served into the sandbox is not a Mantine component.
+ */
+const APP_ELICITATION_HTML = `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>choose-option elicitation app</title>
+    <style>
+      body { margin: 0; font-family: system-ui, sans-serif; padding: 16px; }
+      button { font: inherit; padding: 8px 14px; margin-right: 8px; border-radius: 6px; }
+      #prompt { background: rgba(0,0,0,0.06); padding: 8px; border-radius: 6px; }
+    </style>
+  </head>
+  <body>
+    <h3 id="prompt">waiting for an elicitation…</h3>
+    <div id="choices" hidden>
+      <button id="a" data-testid="choose-a">Option A</button>
+      <button id="b" data-testid="choose-b">Option B</button>
+      <button id="decline" data-testid="decline">Decline</button>
+      <button id="cancel" data-testid="cancel">Cancel</button>
+    </div>
+    <script type="module">
+      const INIT_ID = 1;
+      let HOST_ORIGIN = null;
+      const send = (msg) =>
+        window.parent.postMessage(
+          { jsonrpc: "2.0", ...msg },
+          HOST_ORIGIN ?? "*",
+        );
+      // The id of the host's in-flight elicitation/create request. A response
+      // MUST echo it, and answering a request we were never sent would be a
+      // protocol violation — so the buttons do nothing until one arrives.
+      let pendingId = null;
+      const answer = (result) => {
+        if (pendingId === null) return;
+        send({ id: pendingId, result });
+        pendingId = null;
+        document.getElementById("choices").hidden = true;
+        document.getElementById("prompt").textContent = "answered";
+      };
+      document.getElementById("a").addEventListener("click", () =>
+        answer({ action: "accept", content: { choice: "option-a" } }),
+      );
+      document.getElementById("b").addEventListener("click", () =>
+        answer({ action: "accept", content: { choice: "option-b" } }),
+      );
+      document
+        .getElementById("decline")
+        .addEventListener("click", () => answer({ action: "decline" }));
+      document
+        .getElementById("cancel")
+        .addEventListener("click", () => answer({ action: "cancel" }));
+      window.addEventListener("message", (ev) => {
+        if (HOST_ORIGIN !== null && ev.origin !== HOST_ORIGIN) return;
+        const m = ev.data;
+        if (!m || m.jsonrpc !== "2.0") return;
+        if (m.id === INIT_ID && m.result) {
+          HOST_ORIGIN = ev.origin;
+          send({ method: "ui/notifications/initialized" });
+          send({
+            method: "ui/notifications/size-changed",
+            params: {
+              width: document.body.clientWidth,
+              height: document.body.scrollHeight,
+            },
+          });
+        } else if (m.method === "elicitation/create" && m.id !== undefined) {
+          pendingId = m.id;
+          document.getElementById("prompt").textContent =
+            m.params?.message ?? "Choose an option";
+          document.getElementById("choices").hidden = false;
+        }
+      });
+      send({
+        id: INIT_ID,
+        method: "ui/initialize",
+        params: {
+          protocolVersion: "2026-01-26",
+          appInfo: { name: "choose-option", version: "1.0.0" },
+          // The nested app-side half of the #1854 negotiation: without this the
+          // host fails closed and uses its native elicitation form instead.
+          appCapabilities: { elicitation: {} },
+        },
+      });
+    </script>
+  </body>
+</html>`;
+
+/** UI resource serving {@link APP_ELICITATION_HTML}. */
+export function createAppElicitationResource(): ResourceDefinition {
+  return {
+    name: "choose_option_app",
+    uri: APP_ELICITATION_URI,
+    description: "MCP App that renders and resolves a form elicitation",
+    mimeType: "text/html",
+    text: APP_ELICITATION_HTML,
+    _meta: {
+      ui: {
+        csp: { connectDomains: [], resourceDomains: [] },
+        prefersBorder: true,
+      },
+    },
+  };
+}
+
+/**
+ * Tool that asks the client to render {@link createAppElicitationResource} for a
+ * one-field choice, by attaching `_meta.ui.resourceUri` to an otherwise
+ * completely ordinary form `elicitation/create` (#1854).
+ *
+ * Nothing else about the request is special, which is the contract being
+ * demonstrated: a client that did not negotiate app-rendered elicitation simply
+ * ignores the `_meta` and shows its own form, and either way the server gets
+ * back the same standard `ElicitResult` — echoed into the tool result here so
+ * the round-trip is visible without reading the Protocol tab.
+ */
+export function createAppElicitationTool(): ToolDefinition {
+  return {
+    name: "app_choose_option",
+    description:
+      "Ask the client to choose an option, offering an MCP App to render the form",
+    inputSchema: {
+      prompt: z.string().optional().describe("Message shown above the choice"),
+    },
+    _meta: { ui: { visibility: ["model"] } },
+    handler: async (
+      params: Record<string, unknown>,
+      context?: TestServerContext,
+    ): Promise<CallToolResult> => {
+      if (!context) {
+        throw new Error("Server context not available");
+      }
+      const elicitationParams: ElicitRequestFormParams = {
+        message:
+          typeof params.prompt === "string"
+            ? params.prompt
+            : "Choose option A or B.",
+        requestedSchema: {
+          type: "object",
+          properties: {
+            choice: {
+              type: "string",
+              enum: ["option-a", "option-b"],
+              title: "Choice",
+            },
+          },
+          required: ["choice"],
+        },
+        _meta: { ui: { resourceUri: APP_ELICITATION_URI } },
+      };
+      const result = await context.server.server.elicitInput(elicitationParams);
+      return toToolResult(`Elicitation response: ${JSON.stringify(result)}`);
+    },
+  };
+}
+
+/**
+ * The modern (2026-07-28) counterpart of {@link createAppElicitationTool}: an
+ * MRTR tool whose EMBEDDED elicitation carries `_meta.ui.resourceUri` (#1854).
+ *
+ * The two paths reach the Inspector completely differently — a server→client
+ * `elicitation/create` request on the legacy leg, an `input_required` result
+ * the client unpacks and retries on the modern one — and the routing decision
+ * has to be identical on both. It is, because both funnel through the same
+ * `enqueuePendingElicitation`; this fixture is what lets a test prove that
+ * rather than assert it.
+ *
+ * Completes on the retry by echoing the `ElicitResult` the app produced, so a
+ * caller can see the app's answer round-trip through `inputResponses`.
+ */
+export function createMrtrAppElicitationTool(): ToolDefinition {
+  return {
+    name: "mrtr_app_choose_option",
+    description:
+      "Modern MRTR tool whose embedded elicitation offers an MCP App to render the form",
+    inputSchema: {
+      prompt: z.string().optional().describe("Message shown above the choice"),
+    },
+    handler: async (
+      params: Record<string, unknown>,
+      _context?: TestServerContext,
+      extra?: HandlerExtra,
+    ) => {
+      const responses = extra?.inputResponses;
+      if (!responses || responses.choice === undefined) {
+        return inputRequired({
+          inputRequests: {
+            choice: inputRequired.elicit({
+              message:
+                typeof params.prompt === "string"
+                  ? params.prompt
+                  : "Choose option A or B.",
+              requestedSchema: {
+                type: "object",
+                properties: {
+                  choice: {
+                    type: "string",
+                    enum: ["option-a", "option-b"],
+                    title: "Choice",
+                  },
+                },
+                required: ["choice"],
+              },
+              _meta: { ui: { resourceUri: APP_ELICITATION_URI } },
+            }),
+          },
+          requestState: `mrtr-app:${++mrtrMintCount}`,
+        });
+      }
+      return toToolResult(
+        `Elicitation response: ${JSON.stringify(responses.choice)}`,
+      );
     },
   };
 }
@@ -723,6 +1021,50 @@ export function createMrtrEdgeCaseTool(): ToolDefinition {
 }
 
 /**
+ * An MRTR tool whose FINAL (complete) result carries an empty `content` array
+ * and no `structuredContent` — a legal `CallToolResult` that renders nothing.
+ *
+ * This is the shape behind #1860: the sequence completes (the Protocol tab shows
+ * the conversation COMPLETE), a real result is stored, and the Results panel had
+ * no way to say so — it fell through to the same "No results yet" placeholder it
+ * shows before anything has run, so a successful call read as a call that never
+ * happened. Kept as an MRTR tool rather than a plain one because the multi-round
+ * case is where the ambiguity actually misleads: the user has answered prompts
+ * and watched rounds complete, so "no results yet" is flatly contradicted by
+ * what they just did.
+ */
+export function createMrtrEmptyResultTool(): ToolDefinition {
+  return {
+    name: "mrtr_empty",
+    description:
+      "MRTR tool that completes with an empty result (no content, no structuredContent).",
+    inputSchema: {},
+    handler: async (
+      _params: Record<string, unknown>,
+      _context?: TestServerContext,
+      extra?: HandlerExtra,
+    ) => {
+      if (extra?.inputResponses?.ack === undefined) {
+        return inputRequired({
+          inputRequests: {
+            ack: inputRequired.elicit({
+              message: "Acknowledge to finish (the result will be empty)",
+              requestedSchema: {
+                type: "object",
+                properties: { ack: { type: "boolean", title: "Acknowledge" } },
+                required: ["ack"],
+              },
+            }),
+          },
+          requestState: `mrtr-empty:${++mrtrMintCount}`,
+        });
+      }
+      return { content: [] } satisfies CallToolResult;
+    },
+  };
+}
+
+/**
  * Create a "url_elicitation_form" tool that spins up a simple HTTP server on a dynamic
  * port with a form page, sends that URL via URL elicitation, and on form submit collects
  * the text input, includes it in the tool response, and closes the server.
@@ -907,6 +1249,98 @@ export function createCollectUrlElicitationTool(): ToolDefinition {
 }
 
 /**
+ * Sleep `ms`, resolving `false` the moment `signal` aborts instead.
+ *
+ * Both listeners are removed on whichever outcome wins. A caller that sleeps in
+ * a loop would otherwise leave one attached per iteration — `{ once: true }`
+ * detaches a listener when the event *fires*, not when the waiter loses
+ * interest — and enough of them trip Node's `MaxListenersExceededWarning`.
+ */
+function sleepUnlessAborted(
+  ms: number,
+  signal?: AbortSignal,
+): Promise<boolean> {
+  return new Promise<boolean>((resolve) => {
+    if (signal?.aborted) {
+      resolve(false);
+      return;
+    }
+    const onAbort = (): void => {
+      clearTimeout(timer);
+      resolve(false);
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve(true);
+    }, ms);
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+/**
+ * Create a "slow_task" tool that runs until the client cancels it (#2140).
+ *
+ * It emits a progress notification every second up to `seconds` (default 60)
+ * and completes only if it is never cancelled, so there is a long, visible
+ * window in which to click Cancel.
+ *
+ * The point is what it does on the way out. On the 2026-07-28 era a client
+ * cancels a Streamable HTTP request by closing that request's response stream,
+ * and the SDK surfaces the disconnect to this handler as `extra.signal`. So the
+ * tool stops the moment the stream closes; cancelled by a
+ * `notifications/cancelled` the server is free to ignore, it keeps emitting
+ * progress until it completes on its own — the exact symptom reported.
+ *
+ * Both outcomes are written to **stderr**, because that is the only channel
+ * they can reach. A cancellation closes the very stream this handler's result
+ * would travel on, so its return value is undeliverable by construction: the
+ * server's terminal is where you watch this, not the Inspector's result panel.
+ */
+export function createSlowTaskTool(): ToolDefinition {
+  return {
+    name: "slow_task",
+    description:
+      "Run for up to `seconds`, reporting progress each second, until cancelled",
+    inputSchema: {
+      seconds: z
+        .number()
+        .int()
+        .min(1)
+        .max(600)
+        .optional()
+        .describe("How long to run before completing on its own (default 60)"),
+    },
+    handler: async (
+      params: Record<string, unknown>,
+      _context?: TestServerContext,
+      extra?: HandlerExtra,
+    ) => {
+      const total = typeof params.seconds === "number" ? params.seconds : 60;
+      const progressToken = extra?._meta?.progressToken;
+      const signal = extra?.signal;
+      for (let step = 1; step <= total; step++) {
+        if (!(await sleepUnlessAborted(1000, signal))) {
+          // Cancelled. Return rather than keep working — the whole point of
+          // the demo is that the work actually stops.
+          const message = `[slow_task] cancelled after ${step - 1}s`;
+          console.error(message);
+          return toToolResult(message);
+        }
+        if (progressToken !== undefined) {
+          await extra?.sendNotification?.({
+            method: "notifications/progress",
+            params: { progressToken, progress: step, total },
+          });
+        }
+      }
+      const message = `[slow_task] completed all ${total}s without being cancelled`;
+      console.error(message);
+      return toToolResult(message);
+    },
+  };
+}
+
+/**
  * Create a "send_notification" tool that sends a notification message from the server
  */
 export function createSendNotificationTool(): ToolDefinition {
@@ -1043,6 +1477,48 @@ export function createGetTempTool(): ToolDefinition {
       return {
         content: [{ type: "text" as const, text }],
         structuredContent: { temperature, unit, city },
+      };
+    },
+  };
+}
+
+/** Output schema for list_items: a nested list of items plus a total. */
+const ListItemsOutputSchema = z.object({
+  items: z
+    .array(
+      z.object({
+        id: z.number().describe("Item id"),
+        name: z.string().describe("Item name"),
+        tags: z.array(z.string()).describe("Item tags"),
+      }),
+    )
+    .describe("The items"),
+  total: z.number().describe("Number of items"),
+});
+
+/**
+ * Create a "list_items" tool returning a short `content` summary alongside a
+ * DEEPLY NESTED `structuredContent` (objects inside arrays inside an object) —
+ * the shape from #1908, where the structured payload carries everything the
+ * text block only summarizes. Exercises the Structured Output section of the
+ * Tools screen result panel, which `get_temp`'s flat three-key object does not.
+ */
+export function createListItemsTool(): ToolDefinition {
+  return {
+    name: "list_items",
+    description: "Returns a list of items with nested structured output",
+    inputSchema: {},
+    outputSchema: ListItemsOutputSchema,
+    handler: async () => {
+      const items = [
+        { id: 1, name: "Item A", tags: ["foo", "bar"] },
+        { id: 2, name: "Item B", tags: ["baz"] },
+      ];
+      return {
+        content: [
+          { type: "text" as const, text: `Found ${items.length} items.` },
+        ],
+        structuredContent: { items, total: items.length },
       };
     },
   };
@@ -1262,8 +1738,15 @@ export function createMcpAppDemoTool(): ToolDefinition {
  * `_meta.ui.csp` (no external connect/resource domains) and a sample
  * `permissions` block so `--app-info` and the host's CSP enforcement both have
  * something to read.
+ *
+ * `domain` is the spec field by which a server asks its host for a stable,
+ * dedicated origin (#2056). Omitted by default so the default opaque-origin
+ * render stays the thing this fixture exercises; pass one to drive the
+ * dedicated-origin path instead. Its *value* is not an address the Inspector
+ * serves — the spec makes the format host-dependent, and the Inspector reads
+ * any non-empty string as "give me a real origin".
  */
-export function createMcpAppDemoResource(): ResourceDefinition {
+export function createMcpAppDemoResource(domain?: string): ResourceDefinition {
   return {
     name: "mcp_app_demo_widget",
     uri: MCP_APP_DEMO_URI,
@@ -1275,6 +1758,7 @@ export function createMcpAppDemoResource(): ResourceDefinition {
         csp: { connectDomains: [], resourceDomains: [] },
         permissions: { clipboard: false },
         prefersBorder: true,
+        ...(domain ? { domain } : {}),
       },
     },
   };
@@ -1397,6 +1881,92 @@ export function createFileResourceTemplate(
     complete: completionCallback,
     list: listCallback,
   };
+}
+
+/**
+ * Resource templates that exercise RFC 6570 expansion (#1919).
+ *
+ * `events_by_topic` is the simple `{topic}` expression from the issue: a `/`,
+ * `?`, `#` or space in the value MUST be percent-encoded, or the URI gains a
+ * path segment and a conforming matcher rejects it. `events_by_query` is the
+ * `{?topic}` form, which the web client could not even render an input for.
+ *
+ * Both handlers echo the URI they were matched against plus the variables the
+ * server decoded, so the round-trip is visible in the read result.
+ */
+/**
+ * The plain `foobar://events` resource that a blank `{?topic}` read lands on.
+ *
+ * Registering it is not decoration. RFC 6570 omits a query expression whose
+ * variable is undefined, so leaving `topic` blank legitimately requests the
+ * unfiltered collection -- but the SDK's own matcher cannot serve that from the
+ * template: `UriTemplate.partToRegExp` compiles `{?topic}` to a **required**
+ * `\?topic=([^&]+)`, so `match("foobar://events")` returns null and the read
+ * would 404. A real server would expose the collection as its own resource;
+ * this fixture does the same so the showcase's "read it blank" step works.
+ */
+export function createRfc6570BaseResource(): ResourceDefinition {
+  return {
+    uri: "foobar://events",
+    name: "events",
+    description: "All events - what a blank `{?topic}` read resolves to",
+    mimeType: "application/json",
+    text: JSON.stringify({ collection: "events", filtered: false }, null, 2),
+  };
+}
+
+export function createRfc6570ResourceTemplates(): ResourceTemplateDefinition[] {
+  const echo =
+    (label: string) => async (uri: URL, params: Record<string, unknown>) => ({
+      contents: [
+        {
+          uri: uri.toString(),
+          mimeType: "application/json",
+          text: JSON.stringify(
+            { template: label, matchedUri: uri.toString(), variables: params },
+            null,
+            2,
+          ),
+        },
+      ],
+    });
+
+  return [
+    {
+      name: "events_by_topic",
+      uriTemplate: "foobar://events/{topic}",
+      description:
+        "Simple expression - a reserved character in `topic` must be percent-encoded",
+      inputSchema: { topic: z.string().describe("Topic name") },
+      handler: echo("foobar://events/{topic}"),
+    },
+    {
+      name: "events_by_query",
+      uriTemplate: "foobar://events{?topic}",
+      description:
+        "Query expression - optional, and omitted entirely when `topic` is blank",
+      inputSchema: { topic: z.string().describe("Topic name") },
+      handler: echo("foobar://events{?topic}"),
+    },
+    {
+      // A template no client can honor: `abc` is not RFC 6570's `max-length`
+      // production (`%x31-39 0*3DIGIT`), so `{topic:abc}` is a malformed
+      // *template* rather than one with an ignorable modifier. The SDK's
+      // `UriTemplate` constructor accepts it, which is exactly why the
+      // Inspector checks the grammar itself and refuses the read -- guessing
+      // `{topic}` would send a URI this server never advertised.
+      //
+      // The handler is therefore unreachable through the Inspector by design.
+      // It is registered anyway so the template appears in
+      // `resources/templates/list`, which is what puts the refusal on screen.
+      name: "events_malformed",
+      uriTemplate: "foobar://events/{topic:abc}",
+      description:
+        "Malformed template - an out-of-grammar prefix modifier; the read is withheld",
+      inputSchema: { topic: z.string().describe("Topic name") },
+      handler: echo("foobar://events/{topic:abc}"),
+    },
+  ];
 }
 
 /**
@@ -2461,6 +3031,20 @@ export function createOAuthTestServerConfig(options: {
   supportCIMD?: boolean;
   tokenExpirationSeconds?: number;
   supportRefreshTokens?: boolean;
+  /** RFC 7009 revocation endpoint; default true (#2144). */
+  supportRevocation?: boolean;
+  /**
+   * Move the RFC 9728 metadata document off the well-known path and advertise
+   * it via `WWW-Authenticate: Bearer resource_metadata="…"` (#2071).
+   */
+  resourceMetadataPath?: string;
+  /**
+   * Move the RFC 8414 authorization-server metadata document off the
+   * well-known path — set it to `/.well-known/openid-configuration` to serve
+   * plain OAuth 2.0 metadata where the SDK expects an OpenID provider
+   * document (#2172).
+   */
+  asMetadataPath?: string;
 }): Partial<ServerConfig> {
   return {
     oauth: {
@@ -2468,11 +3052,23 @@ export function createOAuthTestServerConfig(options: {
       mode: "combined",
       requireAuth: options.requireAuth ?? false,
       scopesSupported: options.scopesSupported ?? ["mcp"],
+      // `!== undefined`, not truthiness: an explicitly supplied `""` is
+      // invalid, and dropping it here would silently fall back to the
+      // well-known route instead of reporting the bad fixture (Copilot).
+      ...(options.resourceMetadataPath !== undefined
+        ? { resourceMetadataPath: options.resourceMetadataPath }
+        : {}),
+      // Same `!== undefined` reasoning as above: an explicit `""` is invalid
+      // and must reach the server so it reports the bad fixture.
+      ...(options.asMetadataPath !== undefined
+        ? { asMetadataPath: options.asMetadataPath }
+        : {}),
       staticClients: options.staticClients,
       supportDCR: options.supportDCR ?? false,
       supportCIMD: options.supportCIMD ?? false,
       tokenExpirationSeconds: options.tokenExpirationSeconds ?? 3600,
       supportRefreshTokens: options.supportRefreshTokens ?? true,
+      supportRevocation: options.supportRevocation ?? true,
     },
   };
 }

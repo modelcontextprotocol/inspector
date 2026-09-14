@@ -3,7 +3,7 @@ import type {
   InitializeResult,
 } from "@modelcontextprotocol/client";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { expect, within } from "storybook/test";
+import { expect, userEvent, within } from "storybook/test";
 import {
   ConnectionInfoContent,
   SERVER_INFO_NOT_REPORTED_LABEL,
@@ -77,6 +77,14 @@ export const ModernEra: Story = {
       },
     },
   },
+  // SEP-2663 moved task support to the extension map, so the Tasks capability
+  // row must read it there on a modern connection — otherwise a tasks-capable
+  // server shows ✗ while listing the extension below (#1887).
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const tasksRow = canvas.getByText("Tasks");
+    await expect(tasksRow.previousElementSibling).toHaveTextContent("✓");
+  },
 };
 
 // A modern server that omitted the optional `_meta` serverInfo stamp (#1772).
@@ -106,8 +114,10 @@ export const ServerInfoNotReported: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    expect(canvas.queryByText("my-catalog-name")).not.toBeInTheDocument();
-    expect(canvas.getAllByText(SERVER_INFO_NOT_REPORTED_LABEL)).toHaveLength(2);
+    await expect(canvas.queryByText("my-catalog-name")).not.toBeInTheDocument();
+    await expect(
+      canvas.getAllByText(SERVER_INFO_NOT_REPORTED_LABEL),
+    ).toHaveLength(2);
   },
 };
 
@@ -159,5 +169,39 @@ export const WithOAuth: Story = {
       scopes: ["read", "write", "admin"],
       accessToken: "eyJhbGciOiJSUzI1NiIs...truncated",
     },
+  },
+};
+
+// An authorization server that also returned an `id_token` (#2019). Shown for
+// inspection only — decoding it is display-only, and it is never used as a
+// credential.
+export const WithOAuthIdToken: Story = {
+  args: {
+    initializeResult: {
+      protocolVersion: "2025-03-26",
+      serverInfo: { name: "OIDC-fronted Server", version: "3.0.0" },
+      capabilities: { tools: { listChanged: true } },
+    },
+    clientCapabilities: { roots: { listChanged: true } },
+    transport: "streamable-http",
+    oauth: {
+      protocol: "standard",
+      authorized: true,
+      authUrl: "https://auth.example.com/oauth2/authorize",
+      scopes: ["openid", "email", "read"],
+      accessToken: "opaque-access-token",
+      // header {"alg":"none"} / payload {"sub":"user-42","email":"a@b.test"}
+      idToken:
+        "eyJhbGciOiJub25lIn0.eyJzdWIiOiJ1c2VyLTQyIiwiZW1haWwiOiJhQGIudGVzdCJ9.",
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByText("ID Token")).toBeInTheDocument();
+    // Only the ID token is a JWT here, so exactly one decode toggle is offered.
+    await userEvent.click(
+      canvas.getByRole("button", { name: "Decode JWT for ID Token" }),
+    );
+    await expect(canvas.getByText(/"sub": "user-42"/)).toBeInTheDocument();
   },
 };

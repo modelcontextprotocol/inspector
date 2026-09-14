@@ -15,7 +15,9 @@ import { listServerEntries, showServerEntry } from "./handlers/servers-list.js";
 import { writeFormattedResult } from "./handlers/format-output.js";
 import { clearStoredAuthForRelogin } from "./clear-stored-auth-for-relogin.js";
 import { InspectorClient } from "@inspector/core/mcp/index.js";
+import { cleanRoots } from "@inspector/core/mcp/serverList.js";
 import {
+  createProxyFetch,
   createTransportNode,
   loadServerEntries,
   selectServerEntry,
@@ -23,12 +25,17 @@ import {
   parseHeaderPair,
 } from "@inspector/core/mcp/node/index.js";
 import type { JsonValue } from "@inspector/core/mcp/index.js";
+import type { StrictJsonValue } from "@inspector/core/json/jsonUtils.js";
+import { isSerializableJson } from "@inspector/core/json/jsonUtils.js";
+import {
+  canonicalUrlHost,
+  isAllInterfacesHost,
+} from "@inspector/core/node/hostUrl.js";
 import { getStateFilePath } from "@inspector/core/auth/node/storage-node.js";
 import { consumeMethodOutcome } from "./handlers/consume-outcome.js";
 import { runMethod } from "./handlers/run-method.js";
 import {
   isOneShotMethod,
-  metaValueToString,
   ONE_SHOT_METHODS,
   type MethodArgs,
 } from "./handlers/method-types.js";
@@ -40,7 +47,13 @@ import {
   serializeOAuthPersistBlob,
   type OAuthPersistSnapshot,
 } from "@inspector/core/auth/oauth-persist.js";
-import { getAuthorizationServerUrl } from "@inspector/core/auth/discovery.js";
+import {
+  discoverAuthorizationServerMetadataFromCandidates,
+  getAuthorizationServerUrl,
+  getAuthorizationServerUrlCandidates,
+} from "@inspector/core/auth/discovery.js";
+import { withRfc8414OidcCompat } from "@inspector/core/auth/oidcDiscoveryCompat.js";
+import { withOAuthRequestTimeout } from "@inspector/core/auth/requestTimeout.js";
 import { writeStoreFile } from "@inspector/core/storage/store-io.js";
 import {
   refreshAuthorization,
@@ -96,6 +109,7 @@ async function callMethod(
   callbackUrlConfig: RunnerOAuthCallbackConfig,
   storedAuthOnly: boolean,
   relogin: boolean,
+  revoke: boolean,
 ): Promise<void> {
   // Clear after parse-time validation so a bad flag combo never deletes store
   // entries. Deletes the shared URL-keyed OAuth entry (not "ignore for this run").
@@ -105,7 +119,18 @@ async function callMethod(
         "--relogin requires an HTTP/SSE server URL (no OAuth store entry for stdio)",
       );
     }
-    await clearStoredAuthForRelogin(serverConfig.url);
+    // RFC 7009 (#2144). The flag and the per-server setting are both opt-outs,
+    // so either one turns the revocation off; neither can turn it on for the
+    // other. Reported rather than thrown — `--relogin` is a local delete and
+    // must not start failing because an authorization server is unreachable.
+    const revocation = await clearStoredAuthForRelogin(serverConfig.url, {
+      revoke: revoke && serverSettings?.oauthRevokeOnClear !== false,
+    });
+    if (revocation?.status === "failed") {
+      process.stderr.write(
+        `Warning: could not revoke the OAuth grant at the authorization server (${revocation.detail}); it may still be valid there.\n`,
+      );
+    }
   }
 
   // Version comes from the single source of truth — the root package.json —
@@ -117,6 +142,11 @@ async function callMethod(
 
   const environment: InspectorClientEnvironment = {
     transport: createTransportNode,
+    // Proxy support sits at the bottom of the fetch stack so InspectorClient's
+    // wrappers compose over it — and so OAuth discovery/token requests, which
+    // also run through `environment.fetch`, are proxied too (#2067). Undefined
+    // when no proxy env var is set, which leaves the built-in fetch in place.
+    fetch: createProxyFetch(),
   };
   const redirectUrlProvider = new MutableRedirectUrlProvider();
   // Disarmed until the CLI-owned interactive OAuth flow runs — SDK `auth()`
@@ -148,6 +178,26 @@ async function callMethod(
     progress: false,
     sample: false,
     elicit: false,
+    // Advertise the roots configured for this server in mcp.json, exactly as
+    // web does (`App.tsx`) so both answer `roots/list` with the same content.
+    // Passing the option (even empty) is what negotiates `capabilities.roots`
+    // at `initialize` and registers the `roots/list` handler. Omitting it meant
+    // a server that asks for roots on its own — `server-filesystem` does, at
+    // `initialize` — got -32601, and `--method roots/set` could not announce
+    // the change at all: the SDK refuses `roots/list_changed` from a client
+    // that never declared it, which `setRoots` logged as a send failure (#1797).
+    roots: cleanRoots(serverSettings?.roots ?? []),
+    // Per-server default `_meta` from mcp.json, exactly as web (`App.tsx`) and
+    // the TUI pass it — the setting belongs to the server, not to the client
+    // that happens to read it, and `InspectorClient` only reads the option
+    // rather than falling back to `serverSettings.metadata` (#2093). Already a
+    // JSON object (#1910), so there is no pair-array flattening left to do;
+    // `{}` means "no defaults". `--metadata` stays per-invocation and wins on a
+    // key collision, since call-time keys override defaults in `mergeMeta`.
+    ...(serverSettings?.metadata &&
+      Object.keys(serverSettings.metadata).length > 0 && {
+        defaultMetadata: serverSettings.metadata,
+      }),
     serverSettings,
     // Per-server protocol era (SEP §7.8) from mcp.json → SDK versionNegotiation.
     // Absent era defaults to legacy in the InspectorClient constructor (#1626).
@@ -293,7 +343,34 @@ export async function refreshStoredAuthToken(
   deps: RefreshStoredAuthDeps = {},
 ): Promise<string> {
   const refresh = deps.refresh ?? refreshAuthorization;
-  const discover = deps.discover ?? discoverAuthorizationServerMetadata;
+  // #2172: this path calls SDK discovery directly rather than through
+  // `InspectorClient.effectiveAuthFetch`, so it needs the same compatibility
+  // wrapper — otherwise a stored refresh token with no persisted
+  // `serverMetadata` still cannot refresh against an authorization server that
+  // publishes RFC 8414 metadata at the OIDC well-known path (Copilot).
+  //
+  // Built over `createProxyFetch()` for the same reason `environment.fetch` is
+  // (#2067): this whole function runs outside `InspectorClient`, so nothing
+  // else puts a proxy under it, and a server reachable only through
+  // `HTTPS_PROXY` would otherwise be probed directly. The same fetch is handed
+  // to the token request below, so neither leg bypasses the proxy (Copilot).
+  // #2319: this path runs outside `InspectorClient`, so nothing else bounds it
+  // — the discovery and the token request below would otherwise hang forever
+  // against an authorization server that accepts the connection and never
+  // answers. Innermost, so the compat wrapper's own probe requests inherit the
+  // deadline too.
+  const storedAuthFetch = withRfc8414OidcCompat(
+    withOAuthRequestTimeout(createProxyFetch() ?? fetch),
+  );
+  const discover: typeof discoverAuthorizationServerMetadata =
+    deps.discover ??
+    ((authorizationServerUrl, options) =>
+      discoverAuthorizationServerMetadata(authorizationServerUrl, {
+        ...options,
+        // A caller-supplied fetch is left alone — it is theirs to compose. The
+        // walker below passes no options, so in practice this is ours.
+        fetchFn: options?.fetchFn ?? storedAuthFetch,
+      }));
 
   const snapshot = await readOAuthSnapshot(statePath);
   const servers = snapshot.servers as StoredServers;
@@ -315,11 +392,27 @@ export async function refreshStoredAuthToken(
     );
   }
 
-  const authServerUrl = found.state.serverMetadata?.issuer
-    ? new URL(found.state.serverMetadata.issuer)
-    : getAuthorizationServerUrl(serverUrl);
-  const metadata =
-    found.state.serverMetadata ?? (await discover(authServerUrl)) ?? undefined;
+  // With stored metadata the issuer settles it. Without, the MCP server URL
+  // stands in as the authorization server — and a path-hosted server has two
+  // plausible answers, so walk them rather than committing to the path-scoped
+  // one: a server that merely lives under a path while publishing its metadata
+  // at the domain root must keep working (#2110). The candidate that *answered*
+  // becomes `authServerUrl`, since it is also the base the token request below
+  // is made against.
+  let authServerUrl: URL;
+  let metadata = found.state.serverMetadata ?? undefined;
+  if (found.state.serverMetadata?.issuer) {
+    authServerUrl = new URL(found.state.serverMetadata.issuer);
+  } else {
+    const discovered = await discoverAuthorizationServerMetadataFromCandidates(
+      getAuthorizationServerUrlCandidates(serverUrl),
+      discover,
+    );
+    authServerUrl =
+      discovered?.authorizationServerUrl ??
+      getAuthorizationServerUrl(serverUrl);
+    metadata = discovered?.metadata;
+  }
 
   let tokens: OAuthTokens;
   try {
@@ -328,6 +421,7 @@ export async function refreshStoredAuthToken(
       clientInformation,
       refreshToken,
       resource: new URL(serverUrl),
+      fetchFn: storedAuthFetch,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -422,8 +516,20 @@ function buildHandoff(
   transport: "sse" | "http" | "stdio" | undefined,
 ): McpResponse {
   const host = process.env.HOST || "127.0.0.1";
+  // The deep link is a URL handed to a human, so advertise localhost for a
+  // wildcard bind (like the web banner/sandbox URL) rather than the awkward
+  // http://0.0.0.0 / http://[::] — both are allow-listed, but neither is a nice
+  // URL to click; otherwise use the canonical host so it matches the allow-list.
+  const linkHost = isAllInterfacesHost(host)
+    ? "localhost"
+    : canonicalUrlHost(host);
   const clientPort = process.env.CLIENT_PORT || "6274";
   const sandboxPort = process.env.MCP_SANDBOX_PORT || "6275";
+  // The dedicated app origin (#2056). Forwarded alongside the other two: an App
+  // whose UI resource declares `_meta.ui.domain` is served from this port and
+  // the browser reaches it DIRECTLY, so a handoff that forwards only 6274/6275
+  // renders that app from an unreachable origin.
+  const appOriginPort = process.env.MCP_APP_ORIGIN_PORT || "6278";
   // Treat an empty MCP_INSPECTOR_API_TOKEN the same as unset — an empty token
   // can't satisfy the deep-link autoConnect gate.
   const apiToken = process.env.MCP_INSPECTOR_API_TOKEN || undefined;
@@ -440,8 +546,8 @@ function buildHandoff(
   if (apiToken) params.set("autoConnect", apiToken);
   return {
     serverUrl: normalizedUrl,
-    deepLink: `http://${host}:${clientPort}/?${params.toString()}`,
-    portForwardCmd: `coder port-forward <workspace> --tcp ${clientPort}:${clientPort} --tcp ${sandboxPort}:${sandboxPort}`,
+    deepLink: `http://${linkHost}:${clientPort}/?${params.toString()}`,
+    portForwardCmd: `coder port-forward <workspace> --tcp ${clientPort}:${clientPort} --tcp ${sandboxPort}:${sandboxPort} --tcp ${appOriginPort}:${appOriginPort}`,
     oauthStatePath: statePath,
     apiToken: apiToken ?? null,
     note:
@@ -453,8 +559,8 @@ function buildHandoff(
 
 function parseKeyValuePair(
   value: string,
-  previous: Record<string, JsonValue> = {},
-): Record<string, JsonValue> {
+  previous: Record<string, StrictJsonValue> = {},
+): Record<string, StrictJsonValue> {
   const parts = value.split("=");
   const key = parts[0];
   const val = parts.slice(1).join("=");
@@ -465,11 +571,29 @@ function parseKeyValuePair(
     );
   }
 
-  let parsedValue: JsonValue;
+  // `StrictJsonValue`: `JSON.parse` cannot produce `undefined`, and these values
+  // become `_meta`, which must reach the wire exactly as written (#1910).
+  let parsedValue: StrictJsonValue;
   try {
-    parsedValue = JSON.parse(val) as JsonValue;
+    parsedValue = JSON.parse(val) as StrictJsonValue;
   } catch {
+    // Not JSON at all — a bare word or an unquoted string. Sent as a string,
+    // which is what the user plainly meant.
     parsedValue = val;
+  }
+
+  // Valid JSON syntax is not the same as sendable JSON: `1e400` parses to
+  // `Infinity`, which `JSON.stringify` writes as `null`. Rejecting is better
+  // than accepting the flag and silently transmitting a different value —
+  // and better than falling back to the literal string, which would also not
+  // be what was asked for.
+  if (!isSerializableJson(parsedValue)) {
+    // Names the key, never the value: the pair can carry a credential
+    // (`credentials={"accessToken":"…","n":1e400}`) and this message lands in
+    // stderr and CI logs.
+    throw new Error(
+      `Invalid value for "${key}": numbers must be finite (a literal like 1e400 overflows to Infinity and cannot be sent).`,
+    );
   }
 
   return { ...previous, [key as string]: parsedValue };
@@ -488,6 +612,7 @@ type ParseResult =
       callbackUrl?: string;
       storedAuthOnly?: boolean;
       relogin?: boolean;
+      revoke?: boolean;
     }
   // Short-circuit modes (`--list-stored-auth`, `--print-handoff`) do their own
   // output and need no server connection; runCli returns immediately.
@@ -514,7 +639,7 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
   const scriptArgs = rawArgs.slice(2);
   const dashDashIndex = scriptArgs.indexOf("--");
   let targetArgs: string[] = [];
-  let optionArgs: string[] = [];
+  let optionArgs: string[];
   if (dashDashIndex >= 0) {
     targetArgs = scriptArgs.slice(0, dashDashIndex);
     optionArgs = scriptArgs.slice(dashDashIndex + 1);
@@ -562,7 +687,14 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
       parseKeyValuePair,
       {},
     )
-    .option("--uri <uri>", "URI of the resource (for resources/read method)")
+    .option(
+      "--uri <uri>",
+      "URI of the resource (resources/read, resources/directory/read) or of the skill (skills/get)",
+    )
+    .option(
+      "--cursor <cursor>",
+      "Opaque pagination cursor (for resources/directory/read; pass back the nextCursor from the previous page).",
+    )
     .option(
       "--prompt-name <promptName>",
       "Name of the prompt (for prompts/get method)",
@@ -623,6 +755,14 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
       "Probe the tool's MCP App UI metadata (resourceUri, csp, permissions, domain) and emit it as one JSON line; exit 2 when the tool has no app. Use with --method tools/call --tool-name <name> (the tool itself is not invoked) or --method tools/list (one NDJSON line per tool).",
     )
     .option(
+      "--strict",
+      "Report tool-schema portability problems in full (path, issue, suggested fix) on stderr, and exit 6 if any is error-severity. Use with --method tools/list. Without it, a one-line count is printed instead.",
+    )
+    .option(
+      "--verify",
+      "Run the SEP-2640 conformance and digest checks over the skills returned, emit one JSON report per skill on stdout, and exit 7 if any fails or 8 if any could not be fully checked within the read bounds. Use with --method skills/list or --method skills/get.",
+    )
+    .option(
       "--connect-timeout <ms>",
       `Connection timeout in ms (default ${DEFAULT_CONNECT_TIMEOUT_MS} for ad-hoc --server-url / target invocations; 0 = no timeout).`,
       (v: string) => {
@@ -665,7 +805,7 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     )
     .option(
       "--callback-url <url>",
-      `OAuth redirect/callback listener URL (default: ${DEFAULT_RUNNER_OAUTH_CALLBACK_URL}, or MCP_OAUTH_CALLBACK_URL)`,
+      `OAuth redirect/callback listener URL; must be loopback (default: ${DEFAULT_RUNNER_OAUTH_CALLBACK_URL}, or MCP_OAUTH_CALLBACK_URL)`,
     )
     .option(
       "--use-stored-auth",
@@ -678,6 +818,10 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     .option(
       "--relogin",
       "Delete stored OAuth for this server URL from the shared store before connect (HTTP/SSE URL keys only); interactive login runs only if the server requires auth. Rejected for stdio (no URL-keyed store entry)",
+    )
+    .option(
+      "--no-revoke",
+      "Requires --relogin. Skips the RFC 7009 revocation request that would otherwise end the grant at the authorization server when the local state is deleted. Also skipped when the server entry sets oauth.revokeOnClear to false.",
     )
     .option(
       "--wait-for-auth <sec>",
@@ -715,13 +859,16 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     promptName?: string;
     promptArgs?: Record<string, JsonValue>;
     logLevel?: LoggingLevel;
-    metadata?: Record<string, JsonValue>;
-    toolMetadata?: Record<string, JsonValue>;
+    metadata?: Record<string, StrictJsonValue>;
+    toolMetadata?: Record<string, StrictJsonValue>;
     cwd?: string;
     transport?: "sse" | "http" | "stdio";
     serverUrl?: string;
     header?: Record<string, string>;
     appInfo?: boolean;
+    strict?: boolean;
+    verify?: boolean;
+    cursor?: string;
     connectTimeout?: number;
     format?: OutputFormat;
     toolArgsJson?: string;
@@ -733,6 +880,7 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     useStoredAuth?: boolean;
     storedAuthOnly?: boolean;
     relogin?: boolean;
+    revoke?: boolean;
     waitForAuth?: number;
     listStoredAuth?: boolean;
     printHandoff?: boolean;
@@ -758,6 +906,48 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     ) {
       throw new Error(
         "--relogin cannot be combined with --method servers/list or servers/show (no OAuth connect)",
+      );
+    }
+  }
+
+  // `--no-revoke` only means anything alongside `--relogin` — it suppresses the
+  // RFC 7009 request that clear makes. Accepted on its own it is inert, and
+  // worse than inert: it reads as "this run will not revoke anything", which is
+  // true only because nothing was going to be cleared. Rejected here, ahead of
+  // the short-circuit returns, for the same reason `--strict` is (#2144).
+  if (options.revoke === false && !options.relogin) {
+    throw new Error("--no-revoke requires --relogin (it has no other effect).");
+  }
+
+  // `--strict` is checked HERE, ahead of every short-circuit return below
+  // (`--list-stored-auth`, `--print-handoff`, `servers/list`, `servers/show`),
+  // rather than beside the other method-shaped validations further down. Those
+  // returns never reach the lint, so a later check would let
+  // `--strict --method servers/list` succeed while silently ignoring a flag
+  // documented as tools/list-only — the same "accepted but inert" failure the
+  // `--app-info` pairing rejection exists to prevent.
+  if (options.strict) {
+    if (options.method !== "tools/list") {
+      throw new Error("--strict requires --method tools/list.");
+    }
+    // `tools/list --app-info` returns NDJSON straight from `runMethod` and
+    // never reaches `emitResult`, where the lint runs. Accepting the pair
+    // would hand a CI caller a gate that can never fail.
+    if (options.appInfo) {
+      throw new Error(
+        "--strict cannot be combined with --app-info; run tools/list twice, once for each.",
+      );
+    }
+  }
+
+  // `--verify` is checked here for exactly the reason `--strict` is: the
+  // short-circuit returns below never reach `runMethod`, so validating further
+  // down would let `--verify --method servers/list` succeed while silently
+  // ignoring a flag documented as skills-only.
+  if (options.verify) {
+    if (options.method !== "skills/list" && options.method !== "skills/get") {
+      throw new Error(
+        "--verify requires --method skills/list or --method skills/get.",
       );
     }
   }
@@ -942,6 +1132,10 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     );
   }
 
+  // NOTE: `--strict`'s validations are deliberately NOT here — they run before
+  // the short-circuit returns further up, so a `servers/*` invocation cannot
+  // accept the flag and ignore it.
+
   // --tool-args-json passes arguments verbatim with no key=value coercion (so
   // `"012"` stays a string and nested objects work without shell escaping).
   let toolArg = options.toolArg;
@@ -956,7 +1150,8 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
       parsed = JSON.parse(options.toolArgsJson);
     } catch (e) {
       throw new Error(
-        `--tool-args-json is not valid JSON: ${(e as Error).message}`,
+        `--tool-args-json is not valid JSON: ${e instanceof Error ? e.message : String(e)}`,
+        { cause: e },
       );
     }
     if (
@@ -977,23 +1172,16 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     promptName: options.promptName,
     promptArgs: options.promptArgs,
     logLevel: options.logLevel,
-    metadata: options.metadata
-      ? Object.fromEntries(
-          Object.entries(options.metadata).map(([key, value]) => [
-            key,
-            metaValueToString(value),
-          ]),
-        )
-      : undefined,
-    toolMeta: options.toolMetadata
-      ? Object.fromEntries(
-          Object.entries(options.toolMetadata).map(([key, value]) => [
-            key,
-            metaValueToString(value),
-          ]),
-        )
-      : undefined,
+    // `--metadata`/`--tool-metadata` values are parsed as JSON, and `_meta`
+    // takes any JSON — so they go through unflattened (#1910). They used to be
+    // squeezed through `metaValueToString`, which sent `{"a":1}` as the
+    // *string* `'{"a":1}'`.
+    metadata: options.metadata,
+    toolMeta: options.toolMetadata,
     appInfo: options.appInfo === true,
+    strict: options.strict === true,
+    verify: options.verify === true,
+    cursor: options.cursor,
     format: options.format,
   };
 
@@ -1008,6 +1196,9 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     callbackUrl: options.callbackUrl,
     storedAuthOnly: options.storedAuthOnly === true,
     relogin: options.relogin === true,
+    // Commander's `--no-revoke` defaults this to true; only an explicit
+    // `--no-revoke` makes it false.
+    revoke: options.revoke !== false,
   };
 }
 
@@ -1026,9 +1217,23 @@ export async function runCli(argv?: string[]): Promise<void> {
     callbackUrl,
     storedAuthOnly,
     relogin,
+    revoke,
   } = parsed;
   const clientConfig = await loadRunnerClientConfig({ clientConfigPath });
-  const callbackUrlConfig = parseRunnerOAuthCallbackUrl(callbackUrl);
+  // A bad --callback-url / MCP_OAUTH_CALLBACK_URL is a *usage* error, but its
+  // messages contain "OAuth", which the exit-code heuristic (error-handler.ts)
+  // would otherwise classify as AUTH_REQUIRED (exit 3) — telling an automated
+  // caller to kick the auth flow instead of fixing the flag. `core/` can't
+  // import CliExitCodeError, so pin the class here.
+  let callbackUrlConfig: RunnerOAuthCallbackConfig;
+  try {
+    callbackUrlConfig = parseRunnerOAuthCallbackUrl(callbackUrl);
+  } catch (err) {
+    throw new CliExitCodeError(
+      EXIT_CODES.USAGE,
+      err instanceof Error ? err.message : String(err),
+    );
+  }
   await callMethod(
     serverConfig,
     serverSettings,
@@ -1042,5 +1247,6 @@ export async function runCli(argv?: string[]): Promise<void> {
     callbackUrlConfig,
     storedAuthOnly === true,
     relogin === true,
+    revoke !== false,
   );
 }

@@ -1,10 +1,16 @@
-import { useState, useEffect } from "react";
 import type { StderrLogEntry } from "../mcp/types.js";
-import type {
-  StderrLogState,
-  StderrLogStateEventMap,
-} from "../mcp/state/stderrLogState.js";
-import type { TypedEventGeneric } from "../mcp/typedEventTarget.js";
+import type { StderrLogState } from "../mcp/state/stderrLogState.js";
+import { useStoreSnapshot } from "./useStoreSnapshot.js";
+
+/**
+ * Shared stable empty list for the no-server case. Module scope so the
+ * snapshot doesn't change identity every render — see `useStoreSnapshot`.
+ * Read-only by contract: nothing mutates a list this hook returns.
+ */
+const NO_STDERR_LOGS: StderrLogEntry[] = [];
+
+const readStderrLogs = (state: StderrLogState): StderrLogEntry[] =>
+  state.getStderrLogs();
 
 export interface UseStderrLogResult {
   stderrLogs: StderrLogEntry[];
@@ -16,29 +22,12 @@ export interface UseStderrLogResult {
 export function useStderrLog(
   stderrLogState: StderrLogState | null,
 ): UseStderrLogResult {
-  const [stderrLogs, setStderrLogs] = useState<StderrLogEntry[]>(
-    stderrLogState?.getStderrLogs() ?? [],
+  const stderrLogs = useStoreSnapshot(
+    stderrLogState,
+    "stderrLogsChange",
+    readStderrLogs,
+    NO_STDERR_LOGS,
   );
-
-  useEffect(() => {
-    if (!stderrLogState) {
-      setStderrLogs([]);
-      return;
-    }
-    setStderrLogs(stderrLogState.getStderrLogs());
-    const onStderrLogsChange = (
-      event: TypedEventGeneric<StderrLogStateEventMap, "stderrLogsChange">,
-    ) => {
-      setStderrLogs(event.detail);
-    };
-    stderrLogState.addEventListener("stderrLogsChange", onStderrLogsChange);
-    return () => {
-      stderrLogState.removeEventListener(
-        "stderrLogsChange",
-        onStderrLogsChange,
-      );
-    };
-  }, [stderrLogState]);
 
   return { stderrLogs };
 }

@@ -15,6 +15,7 @@ import {
   Title,
 } from "@mantine/core";
 import { ClearButton } from "../../elements/ClearButton/ClearButton";
+import { JsonEditor } from "../../elements/JsonEditor/JsonEditor";
 import type {
   ClientCapabilities,
   JSONRPCErrorResponse,
@@ -104,14 +105,6 @@ const HeaderNameInput = TextInput.withProps({
 
 const HeaderValueInput = TextInput.withProps({
   placeholder: "Header value",
-  rightSectionPointerEvents: "auto",
-});
-
-const RequestTextarea = Textarea.withProps({
-  label: "Request",
-  ff: "monospace",
-  autosize: true,
-  minRows: 6,
   rightSectionPointerEvents: "auto",
 });
 
@@ -311,17 +304,25 @@ export function ExperimentalFeaturesPanel({
         <CompactButton onClick={onAddHeader}>+ Add Header</CompactButton>
       </Group>
 
-      <RequestTextarea
+      <JsonEditor
+        label="Request"
+        ariaLabel="Request"
         value={requestDraft}
-        onChange={(e) => onRequestChange(e.currentTarget.value)}
-        rightSection={
-          requestDraft ? (
-            <ClearButton onClick={() => onRequestChange("")} />
-          ) : null
-        }
+        onChange={onRequestChange}
+        minLines={6}
+        maxLines={20}
       />
 
-      <Button onClick={onSendRequest}>Send Request</Button>
+      <Group>
+        <Button onClick={onSendRequest}>Send Request</Button>
+        {/* Beside Send rather than inside the editor: Ace renders its own
+            DOM and has no `rightSection` to hang a control in. */}
+        {requestDraft ? (
+          <Button variant="default" onClick={() => onRequestChange("")}>
+            Clear
+          </Button>
+        ) : null}
+      </Group>
 
       {response && (
         <>

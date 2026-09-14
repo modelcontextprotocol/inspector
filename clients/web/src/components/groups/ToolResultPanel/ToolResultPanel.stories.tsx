@@ -173,6 +173,24 @@ export const ResourceLinksWithLongText: Story = {
   decorators: fillHeightDecorators,
 };
 
+// A tool declaring an `outputSchema` returns its real payload in
+// `structuredContent`, which the text block only summarizes (#1908). It gets
+// its own collapsible "Structured Output" section below the content blocks.
+export const StructuredOutput: Story = {
+  args: {
+    result: {
+      content: [{ type: "text", text: "Found 2 items." }],
+      structuredContent: {
+        items: [
+          { id: 1, name: "Item A", tags: ["foo", "bar"] },
+          { id: 2, name: "Item B", tags: ["baz"] },
+        ],
+        total: 2,
+      },
+    },
+  },
+};
+
 export const ErrorResult: Story = {
   args: {
     result: {

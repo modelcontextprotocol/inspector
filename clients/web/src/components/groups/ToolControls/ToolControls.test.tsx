@@ -83,7 +83,7 @@ describe("ToolControls", () => {
       <ToolControls {...baseProps} onSelectTool={onSelectTool} />,
     );
     await user.click(screen.getByText("git_status"));
-    expect(onSelectTool).toHaveBeenCalledWith("git_status");
+    expect(onSelectTool).toHaveBeenCalledWith("2:git_status");
   });
 
   it("does not invoke onSelectTool when the already-selected tool is clicked", async () => {
@@ -92,12 +92,46 @@ describe("ToolControls", () => {
     renderWithMantine(
       <ToolControls
         {...baseProps}
-        selectedName="git_status"
+        selectedKey="2:git_status"
         onSelectTool={onSelectTool}
       />,
     );
     await user.click(screen.getByText("git_status"));
     expect(onSelectTool).not.toHaveBeenCalled();
+  });
+
+  it("selects each copy of a duplicated tool name independently", async () => {
+    // A `tools/list` may repeat a name. Selection is keyed by row identity, so
+    // selecting the first copy must leave the second clickable and unhighlighted
+    // (#2001 — with a name-keyed selection both highlighted and neither of the
+    // later copies could be opened).
+    const user = userEvent.setup();
+    const onSelectTool = vi.fn();
+    const duplicated: Tool[] = [
+      { name: "get_weather", inputSchema: { type: "object" } },
+      { name: "echo", inputSchema: { type: "object" } },
+      { name: "get_weather", inputSchema: { type: "object" } },
+    ];
+    renderWithMantine(
+      <ToolControls
+        {...baseProps}
+        tools={duplicated}
+        selectedKey="0:get_weather"
+        onSelectTool={onSelectTool}
+      />,
+    );
+    const rows = screen.getAllByText("get_weather");
+    expect(rows).toHaveLength(2);
+    // Only the selected row carries the highlight background.
+    const highlighted = rows
+      .map((row) => row.closest("button"))
+      .filter((button) => button?.style.background !== "");
+    expect(highlighted).toHaveLength(1);
+    expect(highlighted[0]).toBe(rows[0]?.closest("button"));
+
+    // The second copy is still clickable, and reports its own row key.
+    await user.click(rows[1] as HTMLElement);
+    expect(onSelectTool).toHaveBeenCalledWith("2:get_weather");
   });
 
   it("does not show the list-changed indicator when listChanged is false", () => {
@@ -182,5 +216,153 @@ describe("ToolControls", () => {
       />,
     );
     expect(screen.getByText("invalid_header_tool")).toBeInTheDocument();
+  });
+
+  // A failed load is rendered above the list instead of leaving the panel
+  // empty, which is indistinguishable from a server that has none (#1953).
+  it("renders a failed load above the list and retries via onRefreshList", async () => {
+    const user = userEvent.setup();
+    const onRefreshList = vi.fn();
+    renderWithMantine(
+      <ToolControls
+        {...baseProps}
+        loadError={new Error("codec said no")}
+        onRefreshList={onRefreshList}
+      />,
+    );
+
+    expect(screen.getByText("Couldn't load tools")).toBeInTheDocument();
+    expect(screen.getByText("codec said no")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    expect(onRefreshList).toHaveBeenCalledTimes(1);
+  });
+
+  // A server may legitimately return the same tool name twice; keying rows by
+  // name alone collides, and React then reuses the stale row instead of
+  // unmounting it when the filter narrows (#1957).
+  const duplicateNameTools: Tool[] = [
+    {
+      name: "get_record",
+      title: "Get Record First",
+      inputSchema: { type: "object" },
+    },
+    {
+      name: "duplicate_tool",
+      title: "First Duplicate",
+      inputSchema: { type: "object" },
+    },
+    {
+      name: "unrelated_tool",
+      title: "Unrelated Tool First",
+      inputSchema: { type: "object" },
+    },
+    {
+      name: "duplicate_tool",
+      title: "Second Duplicate",
+      inputSchema: { type: "object" },
+    },
+    {
+      name: "get_record",
+      title: "Get Record Second",
+      inputSchema: { type: "object" },
+    },
+    {
+      name: "unrelated_tool",
+      title: "Unrelated Tool Second",
+      inputSchema: { type: "object" },
+    },
+  ];
+
+  it("removes every non-matching row when tool names repeat (#1957)", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(<ControlledToolControls tools={duplicateNameTools} />);
+
+    await user.type(screen.getByPlaceholderText("Search tools..."), "get");
+
+    expect(screen.getByText("Get Record First")).toBeInTheDocument();
+    expect(screen.getByText("Get Record Second")).toBeInTheDocument();
+    for (const stale of [
+      "First Duplicate",
+      "Second Duplicate",
+      "Unrelated Tool First",
+      "Unrelated Tool Second",
+    ]) {
+      expect(screen.queryByText(stale)).not.toBeInTheDocument();
+    }
+  });
+
+  // The shape `test-servers/configs/duplicate-tool-names-http.json` serves: the
+  // repeats are appended after the whole list rather than sitting beside their
+  // twin. Distinct from the fixture above and worth its own case — React
+  // matches a leading run of same-key children first, so where the duplicates
+  // sit decides which row gets orphaned (#1957).
+  const appendedDuplicateTools: Tool[] = [
+    { name: "get_weather", inputSchema: { type: "object" } },
+    { name: "get_temp", inputSchema: { type: "object" } },
+    { name: "echo", inputSchema: { type: "object" } },
+    { name: "add", inputSchema: { type: "object" } },
+    {
+      name: "get_weather",
+      title: "get_weather (duplicate)",
+      inputSchema: { type: "object" },
+    },
+    {
+      name: "echo",
+      title: "echo (duplicate)",
+      inputSchema: { type: "object" },
+    },
+  ];
+
+  it("removes every non-matching row when repeats are appended (#1957)", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(
+      <ControlledToolControls tools={appendedDuplicateTools} />,
+    );
+
+    await user.type(screen.getByPlaceholderText("Search tools..."), "get");
+
+    expect(screen.getByText("get_temp")).toBeInTheDocument();
+    expect(screen.getByText("get_weather (duplicate)")).toBeInTheDocument();
+    expect(screen.queryByText("add")).not.toBeInTheDocument();
+    // The row the collision orphaned on the broken build.
+    expect(screen.queryByText("echo")).not.toBeInTheDocument();
+    expect(screen.queryByText("echo (duplicate)")).not.toBeInTheDocument();
+  });
+
+  it("removes every non-matching excluded row when names repeat (#1957)", async () => {
+    const user = userEvent.setup();
+    const duplicateExcluded = [
+      {
+        tool: { name: "get_thing", inputSchema: { type: "object" as const } },
+        reason: "a",
+      },
+      {
+        tool: { name: "dupe", inputSchema: { type: "object" as const } },
+        reason: "b",
+      },
+      {
+        tool: { name: "dupe", inputSchema: { type: "object" as const } },
+        reason: "c",
+      },
+      {
+        tool: { name: "get_other", inputSchema: { type: "object" as const } },
+        reason: "d",
+      },
+    ];
+    renderWithMantine(
+      <ControlledToolControls tools={[]} excludedTools={duplicateExcluded} />,
+    );
+
+    await user.type(screen.getByPlaceholderText("Search tools..."), "get");
+
+    expect(screen.getByText("get_thing")).toBeInTheDocument();
+    expect(screen.getByText("get_other")).toBeInTheDocument();
+    expect(screen.queryByText("dupe")).not.toBeInTheDocument();
+  });
+
+  it("renders no load error by default", () => {
+    renderWithMantine(<ToolControls {...baseProps} />);
+    expect(screen.queryByText(/Couldn't load/)).not.toBeInTheDocument();
   });
 });

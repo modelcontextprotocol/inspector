@@ -1,13 +1,28 @@
-import { useState, useEffect, useCallback } from "react";
+import { useCallback } from "react";
 import type { InspectorClientProtocol } from "../mcp/inspectorClientProtocol.js";
-import type {
-  ManagedResourceTemplatesState,
-  ManagedResourceTemplatesStateEventMap,
-} from "../mcp/state/managedResourceTemplatesState.js";
+import type { ManagedResourceTemplatesState } from "../mcp/state/managedResourceTemplatesState.js";
 import type { ResourceTemplateType as ResourceTemplate } from "@modelcontextprotocol/client";
-import type { TypedEventGeneric } from "../mcp/typedEventTarget.js";
+import { useListError } from "./useListError.js";
+import { useStoreSnapshot } from "./useStoreSnapshot.js";
+
+/**
+ * Shared stable empty list for the no-server case. Module scope so the
+ * snapshot doesn't change identity every render — see `useStoreSnapshot`.
+ * Read-only by contract: nothing mutates a list this hook returns.
+ */
+const NO_RESOURCE_TEMPLATES: ResourceTemplate[] = [];
+
+const readResourceTemplates = (
+  state: ManagedResourceTemplatesState,
+): ResourceTemplate[] => state.getResourceTemplates();
 
 export interface UseManagedResourceTemplatesResult {
+  /**
+   * The last fetch's failure (transport error, or a result the SDK codec
+   * rejected), or `null` when it succeeded. Includes the connect-time load,
+   * whose failure has no caller to surface it (#1953).
+   */
+  error: Error | null;
   resourceTemplates: ResourceTemplate[];
   refresh: () => Promise<ResourceTemplate[]>;
 }
@@ -20,48 +35,26 @@ export function useManagedResourceTemplates(
   client: InspectorClientProtocol | null,
   managedResourceTemplatesState: ManagedResourceTemplatesState | null,
 ): UseManagedResourceTemplatesResult {
-  const [resourceTemplates, setResourceTemplates] = useState<
-    ResourceTemplate[]
-  >(managedResourceTemplatesState?.getResourceTemplates() ?? []);
+  const resourceTemplates = useStoreSnapshot(
+    managedResourceTemplatesState,
+    "resourceTemplatesChange",
+    readResourceTemplates,
+    NO_RESOURCE_TEMPLATES,
+  );
 
-  useEffect(() => {
-    if (!managedResourceTemplatesState) {
-      setResourceTemplates([]);
-      return;
-    }
-    setResourceTemplates(managedResourceTemplatesState.getResourceTemplates());
-    const onResourceTemplatesChange = (
-      event: TypedEventGeneric<
-        ManagedResourceTemplatesStateEventMap,
-        "resourceTemplatesChange"
-      >,
-    ) => {
-      setResourceTemplates(event.detail);
-    };
-    managedResourceTemplatesState.addEventListener(
-      "resourceTemplatesChange",
-      onResourceTemplatesChange,
-    );
-    return () => {
-      managedResourceTemplatesState.removeEventListener(
-        "resourceTemplatesChange",
-        onResourceTemplatesChange,
-      );
-    };
-  }, [managedResourceTemplatesState]);
+  const error = useListError(managedResourceTemplatesState);
 
   const refresh = useCallback(async (): Promise<ResourceTemplate[]> => {
-    if (!managedResourceTemplatesState || !client) return [];
+    if (!managedResourceTemplatesState || !client) {
+      return NO_RESOURCE_TEMPLATES;
+    }
     // A user-initiated refresh forces a cache-bypassing round trip
     // (`cacheMode: "refresh"`) so a modern server's `ttlMs`-cached list can't
-    // return stale — and re-stores the fresh aggregate.
-    const next = await managedResourceTemplatesState.refresh(
-      undefined,
-      "refresh",
-    );
-    setResourceTemplates(next);
-    return next;
+    // return stale — and re-stores the fresh aggregate. The store dispatches
+    // `resourceTemplatesChange` as it commits, so the snapshot updates on its
+    // own.
+    return managedResourceTemplatesState.refresh(undefined, "refresh");
   }, [client, managedResourceTemplatesState]);
 
-  return { resourceTemplates, refresh };
+  return { resourceTemplates, error, refresh };
 }

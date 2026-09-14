@@ -1,6 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { resolve } from "node:path";
+import type { Transport } from "@modelcontextprotocol/client";
 import * as z from "zod/v4";
-import { InspectorClient } from "@inspector/core/mcp/inspectorClient.js";
+import {
+  InspectorClient,
+  connectionTimeoutMessage,
+} from "@inspector/core/mcp/inspectorClient.js";
+import { DEFAULT_CONNECTION_TIMEOUT_MS } from "@inspector/core/mcp/types.js";
 import {
   MessageLogState,
   FetchRequestLogState,
@@ -45,12 +51,16 @@ import {
   createAddResourceTool,
   createAddToolTool,
   createAddPromptTool,
+  loadConfig,
+  resolveConfig,
 } from "@modelcontextprotocol/inspector-test-server";
 import type {
   MessageEntry,
   ConnectionStatus,
   FetchRequestEntryBase,
+  RequestMetadata,
 } from "@inspector/core/mcp/types.js";
+import type { InspectorLogger } from "@inspector/core/logging/logger.js";
 import type { JsonValue } from "@inspector/core/json/jsonUtils.js";
 import type {
   TypedEvent,
@@ -69,6 +79,7 @@ import type {
   ContentBlock,
 } from "@modelcontextprotocol/client";
 import {
+  Client,
   LOG_LEVEL_META_KEY,
   RELATED_TASK_META_KEY,
   SdkError,
@@ -95,10 +106,73 @@ async function getTool(client: InspectorClient, name: string): Promise<Tool> {
   throw new Error(`Tool ${name} not found`);
 }
 
+/**
+ * Hold a deliberately un-awaited in-flight call so its rejection is handled.
+ *
+ * A few tests start a tool call, assert on the notifications it streams, and
+ * then tear the connection down while the call is still in flight. That is a
+ * legitimate thing to exercise, but `disconnect()` closes the SDK client, which
+ * rejects every pending request with "Connection closed" — and a floating
+ * promise makes that an *unhandled* rejection, which vitest counts as a run
+ * error and fails `npm run local:gate` even though every test passes (#1947).
+ *
+ * Attach the handler at call time (not after the assertions) so there is no
+ * window in which the rejection can escape, then finish through
+ * `disconnectAndSettle()`, which tears down and awaits the call in one step.
+ *
+ * Only a `CONNECTION_CLOSED` raised *by that teardown* is absorbed. Plain
+ * fulfillment is fine too — whether the call beats the teardown is a race, so
+ * asserting either outcome would turn this straight back into a flake. Every
+ * other rejection is re-thrown, including a `CONNECTION_CLOSED` that arrives
+ * before teardown begins: a transport that drops on its own after emitting the
+ * progress notifications is a real regression, and absorbing it would let these
+ * tests pass on the strength of the notifications alone.
+ *
+ * The teardown flag is owned by the helper and set inside `disconnectAndSettle`
+ * rather than by the caller, so the flag cannot be raised too early (which would
+ * reopen the hole) and the await cannot be forgotten.
+ */
+interface InFlightCall {
+  /** Disconnect, then await the call — absorbing only this teardown's close. */
+  disconnectAndSettle(client: InspectorClient): Promise<void>;
+}
+
+function settleInFlight(call: Promise<unknown>): InFlightCall {
+  let tearingDown = false;
+  const settled = call.then(
+    () => undefined,
+    (error: unknown) => {
+      if (
+        tearingDown &&
+        error instanceof SdkError &&
+        error.code === SdkErrorCode.ConnectionClosed
+      ) {
+        return;
+      }
+      throw error;
+    },
+  );
+  // `then` returns a *derived* promise, and the re-throw above rejects that one
+  // — not `call`. The caller does not await it until after `disconnect()`, so an
+  // unexpected rejection arriving while the test is still waiting on progress
+  // notifications would sit unobserved for seconds and be reported as an
+  // unhandled rejection: precisely the failure this helper exists to prevent.
+  // Observe it the moment it exists. This does not swallow anything — `settled`
+  // stays rejected, so the caller's `await` below still fails the test.
+  settled.catch(() => undefined);
+  return {
+    async disconnectAndSettle(client: InspectorClient): Promise<void> {
+      tearingDown = true;
+      await client.disconnect();
+      await settled;
+    },
+  };
+}
+
 /** Get all resources from the client via listResources() (paginates if needed). */
 async function getAllResources(
   client: InspectorClient,
-  metadata?: Record<string, string>,
+  metadata?: RequestMetadata,
 ): Promise<Resource[]> {
   const collected: Resource[] = [];
   let cursor: string | undefined;
@@ -114,7 +188,7 @@ async function getAllResources(
 /** Get all resource templates via listResourceTemplates() (paginates if needed). */
 async function getAllResourceTemplates(
   client: InspectorClient,
-  metadata?: Record<string, string>,
+  metadata?: RequestMetadata,
 ): Promise<ResourceTemplate[]> {
   const collected: ResourceTemplate[] = [];
   let cursor: string | undefined;
@@ -130,7 +204,7 @@ async function getAllResourceTemplates(
 /** Get all prompts via listPrompts() (paginates if needed). */
 async function getAllPrompts(
   client: InspectorClient,
-  metadata?: Record<string, string>,
+  metadata?: RequestMetadata,
 ): Promise<Prompt[]> {
   const collected: Prompt[] = [];
   let cursor: string | undefined;
@@ -294,25 +368,40 @@ describe("InspectorClient", () => {
       messageLogState.destroy();
     });
 
+    /**
+     * A transport whose `start()` never resolves: the "server that accepts
+     * the TCP connection and never answers" from the #2320 measurement.
+     * Typed as the SDK's `Transport` rather than cast to it, so an interface
+     * change upstream is caught here instead of at runtime.
+     */
+    function hangingTransport(): Transport {
+      return {
+        start: () => new Promise<void>(() => {}),
+        send: async () => {},
+        close: async () => {},
+      };
+    }
+
+    /** A transport whose `start()` rejects with a recoverable 401. */
+    function unauthorizedTransport(): Transport {
+      return {
+        start: async () => {
+          const err = new Error("Unauthorized") as Error & { status?: number };
+          err.status = 401;
+          throw err;
+        },
+        send: async () => {},
+        close: async () => {},
+      };
+    }
+
     it("rejects connect() with a timeout error when serverSettings.connectionTimeout fires", async () => {
       // Stub transport whose start() never resolves — simulates a slow /
       // unreachable upstream. InspectorClient.connect() should race against
       // serverSettings.connectionTimeout and reject with a descriptive error;
       // status should end up in "error", and the client should have
       // internally torn down the transport (next connect() must rebuild).
-      const hangingTransport = {
-        start: () => new Promise<void>(() => {}),
-        send: async () => {},
-        close: async () => {},
-        onclose: undefined,
-        onerror: undefined,
-        onmessage: undefined,
-        sessionId: undefined,
-      };
-      const fakeFactory = () => ({
-        transport:
-          hangingTransport as unknown as import("@modelcontextprotocol/client").Transport,
-      });
+      const fakeFactory = () => ({ transport: hangingTransport() });
       client = new InspectorClient(
         { type: "streamable-http", url: "http://localhost:1/never" },
         {
@@ -320,7 +409,7 @@ describe("InspectorClient", () => {
           serverSettings: {
             headers: [],
             env: [],
-            metadata: [],
+            metadata: {},
             connectionTimeout: 50,
             requestTimeout: 0,
             taskTtl: 0,
@@ -343,27 +432,138 @@ describe("InspectorClient", () => {
       expect(client.getStatus()).toBe("error");
     });
 
-    it("holds status at connecting when connect fails with a recoverable 401", async () => {
-      const unauthorizedTransport = {
-        start: async () => {
-          const err = new Error("Unauthorized") as Error & { status?: number };
-          err.status = 401;
-          throw err;
+    it("names the bound that fired and where to raise it in the timeout message (#2320)", async () => {
+      const fakeFactory = () => ({ transport: hangingTransport() });
+      client = new InspectorClient(
+        { type: "streamable-http", url: "http://localhost:1/never" },
+        {
+          environment: { transport: fakeFactory },
+          serverSettings: {
+            headers: [],
+            env: [],
+            metadata: {},
+            connectionTimeout: 50,
+            requestTimeout: 0,
+            taskTtl: 0,
+            maxFetchRequests: 1000,
+            roots: [],
+          },
         },
-        send: async () => {},
-        close: async () => {},
-        onclose: undefined,
-        onerror: undefined,
-        onmessage: undefined,
-        sessionId: undefined,
-      };
-      const fakeFactory = () => ({
-        transport:
-          unauthorizedTransport as unknown as import("@modelcontextprotocol/client").Transport,
-      });
+      );
+      await expect(client.connect()).rejects.toThrow(
+        connectionTimeoutMessage(50),
+      );
+      // The sentence a user reads on the toast: the bound, then the remedy.
+      expect(connectionTimeoutMessage(50)).toBe(
+        "Connection timed out after 50 ms. To accommodate a slower server, " +
+          "you may increase the timeout value in Server Settings.",
+      );
+    });
+
+    it("bounds connect() with DEFAULT_CONNECTION_TIMEOUT_MS when the settings carry no timeout (#2320)", async () => {
+      // No serverSettings at all — the shape every consumer that never opened
+      // Server Settings hands the client. Before #2320 that meant "no bound",
+      // and the only thing ending a hung handshake was the SDK's 60 s
+      // per-request timeout on `initialize`, reporting `Request timed out`.
+      // Fake timers so the 30 s default can fire without waiting it out.
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      try {
+        const fakeFactory = () => ({ transport: hangingTransport() });
+        client = new InspectorClient(
+          { type: "streamable-http", url: "http://localhost:1/never" },
+          { environment: { transport: fakeFactory } },
+        );
+        const pending = client.connect();
+        // Hold the rejection so it cannot surface as unhandled while the clock
+        // is advanced; the assertion below re-awaits the same promise.
+        pending.catch(() => {});
+        // One ms short of the default: still connecting, nothing has fired.
+        await vi.advanceTimersByTimeAsync(DEFAULT_CONNECTION_TIMEOUT_MS - 1);
+        expect(client.getStatus()).toBe("connecting");
+        await vi.advanceTimersByTimeAsync(1);
+        await expect(pending).rejects.toThrow(
+          connectionTimeoutMessage(DEFAULT_CONNECTION_TIMEOUT_MS),
+        );
+        expect(client.getStatus()).toBe("error");
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("leaves connect() unbounded when connectionTimeout is an explicit 0 (#2320)", async () => {
+      // 0 is the documented opt-out (`--connect-timeout 0`, a cleared field),
+      // so it must not be read as "absent" and replaced with the default.
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      try {
+        let settled = false;
+        const fakeFactory = () => ({ transport: hangingTransport() });
+        client = new InspectorClient(
+          { type: "streamable-http", url: "http://localhost:1/never" },
+          {
+            environment: { transport: fakeFactory },
+            serverSettings: {
+              headers: [],
+              env: [],
+              metadata: {},
+              connectionTimeout: 0,
+              requestTimeout: 0,
+              taskTtl: 0,
+              maxFetchRequests: 1000,
+              roots: [],
+            },
+          },
+        );
+        const pending = client.connect().finally(() => {
+          settled = true;
+        });
+        pending.catch(() => {});
+        await vi.advanceTimersByTimeAsync(DEFAULT_CONNECTION_TIMEOUT_MS * 2);
+        expect(settled).toBe(false);
+        expect(client.getStatus()).toBe("connecting");
+        // Tear down by hand so the hung attempt does not outlive the test;
+        // disconnect() rejects the pending connect, which `pending.catch`
+        // above already absorbs.
+        await client.disconnect();
+        client = null;
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("holds status at connecting when connect fails with a recoverable 401", async () => {
+      const fakeFactory = () => ({ transport: unauthorizedTransport() });
       client = new InspectorClient(
         { type: "streamable-http", url: "http://localhost:8081/mcp" },
         { environment: { transport: fakeFactory } },
+      );
+
+      await expect(client.connect()).rejects.toMatchObject({ status: 401 });
+      expect(client.getStatus()).toBe("connecting");
+    });
+
+    it("holds status at connecting on a recoverable 401 even with a connect timeout armed (#2320)", async () => {
+      // The timeout teardown used to be gated on `connectionTimeout > 0`, so
+      // it ran for *every* failed connect once a timeout was set — including
+      // this 401, whose status must stay at "connecting" for the auth
+      // recovery. With a non-zero default that gate would have fired for
+      // every user, so the teardown is now keyed to the timer actually
+      // winning the race, and this is the case that proves it.
+      const fakeFactory = () => ({ transport: unauthorizedTransport() });
+      client = new InspectorClient(
+        { type: "streamable-http", url: "http://localhost:8081/mcp" },
+        {
+          environment: { transport: fakeFactory },
+          serverSettings: {
+            headers: [],
+            env: [],
+            metadata: {},
+            connectionTimeout: 5000,
+            requestTimeout: 0,
+            taskTtl: 0,
+            maxFetchRequests: 1000,
+            roots: [],
+          },
+        },
       );
 
       await expect(client.connect()).rejects.toMatchObject({ status: 401 });
@@ -690,7 +890,7 @@ describe("InspectorClient", () => {
       const initial = {
         headers: [],
         env: [],
-        metadata: [],
+        metadata: {},
         connectionTimeout: 0,
         requestTimeout: 0,
         taskTtl: 0,
@@ -1214,6 +1414,52 @@ describe("InspectorClient", () => {
     });
   });
 
+  describe("Structured output showcase config (#1908)", () => {
+    // Drives the shipped `structured-output-http.json` end to end — the file
+    // itself, the `list_items` preset registration, and the fixture's nested
+    // payload. A typo in any of the three fails here rather than leaving the
+    // documented showcase quietly broken.
+    const showcaseConfigPath = resolve(
+      import.meta.dirname,
+      "../../../../../../test-servers/configs/structured-output-http.json",
+    );
+
+    it("serves list_items with a summary block and a nested structuredContent", async () => {
+      server = createTestServerHttp(
+        resolveConfig(loadConfig(showcaseConfigPath)),
+      );
+      await server.start();
+
+      client = new InspectorClient(
+        { type: "streamable-http", url: server.url },
+        { environment: { transport: createTransportNode } },
+      );
+      await client.connect();
+
+      const tool = await getTool(client, "list_items");
+      expect(tool.outputSchema).toBeDefined();
+
+      const result = await client.callTool(tool, {});
+      expect(result.success).toBe(true);
+
+      // The text block only summarizes — the payload is the structured half.
+      const content = result.result!.content as Array<{
+        type: string;
+        text?: string;
+      }>;
+      expect(content[0].type).toBe("text");
+      expect(content[0].text).toBe("Found 2 items.");
+
+      expect(result.result!.structuredContent).toEqual({
+        items: [
+          { id: 1, name: "Item A", tags: ["foo", "bar"] },
+          { id: 2, name: "Item B", tags: ["baz"] },
+        ],
+        total: 2,
+      });
+    });
+  });
+
   describe("Default metadata (server-wide _meta)", () => {
     function metaOf(req: { message: unknown }): Record<string, unknown> {
       const params = (req.message as { params?: { _meta?: unknown } }).params;
@@ -1257,6 +1503,256 @@ describe("InspectorClient", () => {
         tenant: "acme",
         env: "prod",
       });
+      messageLogState.destroy();
+    });
+
+    it("sends a structured default _meta value as JSON, not as a string (#1910)", async () => {
+      // The whole point of #1910: a `_meta` value may be an object, an array,
+      // a number, a boolean or `null`. The Inspector used to type this map as
+      // `Record<string, string>`, so a nested payload could only be sent by
+      // stringifying it — which is a different wire message than the one the
+      // user configured.
+      const structured = {
+        trace: { id: "abc123", sampled: true, hops: [1, 2] },
+        retries: 3,
+        beta: false,
+        unset: null,
+      };
+      client = new InspectorClient(
+        {
+          type: "stdio",
+          command: serverCommand.command,
+          args: serverCommand.args,
+        },
+        {
+          environment: { transport: createTransportNode },
+          defaultMetadata: structured,
+        },
+      );
+      const messageLogState = new MessageLogState(client);
+      await client.connect();
+      await client.listTools();
+
+      const listToolsReq = messageLogState
+        .getMessages()
+        .find(
+          (m) =>
+            m.direction === "request" &&
+            (m.message as { method?: string }).method === "tools/list",
+        );
+      expect(listToolsReq).toBeDefined();
+      expect(metaOf(listToolsReq!)).toMatchObject(structured);
+      messageLogState.destroy();
+    });
+
+    it.each([
+      ["a float", 3.5],
+      ["an object", { id: 1 }],
+      ["an array", [1]],
+      ["null", null],
+      ["a boolean", true],
+      // Past `Number.MAX_SAFE_INTEGER` the float64 value is no longer the
+      // integer it was written as, and zod 4's `.int()` rejects it — so
+      // `Number.isInteger` is too loose a check here.
+      ["an unsafe integer", Number.MAX_SAFE_INTEGER + 1],
+    ])(
+      "drops a reserved progressToken that is %s rather than sending it",
+      async (_label, badToken) => {
+        // Every other `_meta` value may be any JSON (#1910), but the spec
+        // constrains `progressToken` to `string | integer`
+        // (`ProgressTokenSchema`). Sending a bad one would make a conforming
+        // server reject the whole request, so the member is dropped — the key
+        // is optional, so what goes out is still well-formed.
+        //
+        // `progress: false` is what makes this observable. With progress on
+        // (the default) the SDK sets `onprogress` and stamps its own message
+        // id over `_meta.progressToken`, so a caller's value never reaches the
+        // wire either way; with it off nothing overwrites the member and a bad
+        // one would ship.
+        client = new InspectorClient(
+          {
+            type: "stdio",
+            command: serverCommand.command,
+            args: serverCommand.args,
+          },
+          {
+            environment: { transport: createTransportNode },
+            progress: false,
+            defaultMetadata: { progressToken: badToken, keep: "me" },
+          },
+        );
+        const messageLogState = new MessageLogState(client);
+        await client.connect();
+        await client.listTools();
+
+        const listToolsReq = messageLogState
+          .getMessages()
+          .find(
+            (m) =>
+              m.direction === "request" &&
+              (m.message as { method?: string }).method === "tools/list",
+          );
+        expect(listToolsReq).toBeDefined();
+        const meta = metaOf(listToolsReq!);
+        expect(meta).not.toHaveProperty("progressToken");
+        // Only the offending member is dropped, not the whole payload.
+        expect(meta.keep).toBe("me");
+        messageLogState.destroy();
+      },
+    );
+
+    it.each([
+      ["an array", [1]],
+      ["a string", "t1"],
+      ["an object with a non-string taskId", { taskId: 5 }],
+    ])(
+      "drops a related-task member that is %s, keeping its siblings",
+      async (_label, badRelatedTask) => {
+        // `progressToken` is not the only reserved member: the pinned SDK also
+        // constrains `io.modelcontextprotocol/related-task` to
+        // `{ taskId: string }`. A bad one makes a conforming server reject the
+        // whole request, so it is dropped the same way.
+        client = new InspectorClient(
+          {
+            type: "stdio",
+            command: serverCommand.command,
+            args: serverCommand.args,
+          },
+          {
+            environment: { transport: createTransportNode },
+            progress: false,
+            defaultMetadata: {
+              "io.modelcontextprotocol/related-task": badRelatedTask,
+              keep: "me",
+            },
+          },
+        );
+        const messageLogState = new MessageLogState(client);
+        await client.connect();
+        await client.listTools();
+
+        const req = messageLogState
+          .getMessages()
+          .find(
+            (m) =>
+              m.direction === "request" &&
+              (m.message as { method?: string }).method === "tools/list",
+          );
+        const meta = metaOf(req!);
+        expect(meta).not.toHaveProperty("io.modelcontextprotocol/related-task");
+        expect(meta.keep).toBe("me");
+        messageLogState.destroy();
+      },
+    );
+
+    it("keeps a well-formed related-task member", async () => {
+      client = new InspectorClient(
+        {
+          type: "stdio",
+          command: serverCommand.command,
+          args: serverCommand.args,
+        },
+        {
+          environment: { transport: createTransportNode },
+          progress: false,
+          defaultMetadata: {
+            "io.modelcontextprotocol/related-task": { taskId: "task-1" },
+          },
+        },
+      );
+      const messageLogState = new MessageLogState(client);
+      await client.connect();
+      await client.listTools();
+
+      const req = messageLogState
+        .getMessages()
+        .find(
+          (m) =>
+            m.direction === "request" &&
+            (m.message as { method?: string }).method === "tools/list",
+        );
+      expect(metaOf(req!)["io.modelcontextprotocol/related-task"]).toEqual({
+        taskId: "task-1",
+      });
+      messageLogState.destroy();
+    });
+
+    it("warns with the rejected progressToken's type, never its value", async () => {
+      // This logger is persisted by real clients (the TUI writes it to
+      // `~/.mcp-inspector/auth.log`), and an invalid `progressToken` can now be
+      // an object holding credentials — so the warning must not echo it.
+      const warn = vi.fn();
+      const noop = () => {};
+      const logger: InspectorLogger = {
+        level: "warn",
+        fatal: noop,
+        error: noop,
+        warn,
+        info: noop,
+        debug: noop,
+        trace: noop,
+        silent: noop,
+        child: () => logger,
+      };
+      client = new InspectorClient(
+        {
+          type: "stdio",
+          command: serverCommand.command,
+          args: serverCommand.args,
+        },
+        {
+          environment: { transport: createTransportNode, logger },
+          progress: false,
+          defaultMetadata: {
+            progressToken: { accessToken: "sk-live-should-not-appear" },
+          },
+        },
+      );
+      await client.connect();
+      await client.listTools();
+
+      // The offending key travels in the log's bindings, not in the message —
+      // the message is shared by every reserved member the sanitizer drops.
+      const call = warn.mock.calls.find(
+        (c) => (c[0] as { key?: string })?.key === "progressToken",
+      );
+      expect(call).toBeDefined();
+      expect(call![0]).toEqual({ key: "progressToken", received: "object" });
+      // Belt and braces: the secret must not appear anywhere in the record.
+      expect(JSON.stringify(warn.mock.calls)).not.toContain("sk-live");
+    });
+
+    it.each([
+      ["a string", "tok-1"],
+      ["an integer", 7],
+      // The boundary itself is still valid.
+      ["the largest safe integer", Number.MAX_SAFE_INTEGER],
+    ])("keeps a valid progressToken that is %s", async (_label, token) => {
+      client = new InspectorClient(
+        {
+          type: "stdio",
+          command: serverCommand.command,
+          args: serverCommand.args,
+        },
+        {
+          environment: { transport: createTransportNode },
+          // See the note above: with progress on, the SDK overwrites this.
+          progress: false,
+          defaultMetadata: { progressToken: token },
+        },
+      );
+      const messageLogState = new MessageLogState(client);
+      await client.connect();
+      await client.listTools();
+
+      const listToolsReq = messageLogState
+        .getMessages()
+        .find(
+          (m) =>
+            m.direction === "request" &&
+            (m.message as { method?: string }).method === "tools/list",
+        );
+      expect(metaOf(listToolsReq!).progressToken).toBe(token);
       messageLogState.destroy();
     });
 
@@ -2221,16 +2717,18 @@ describe("InspectorClient", () => {
       const progressToken = 12345;
 
       const sendProgressTool = await getTool(client, "send_progress");
-      client.callTool(
-        sendProgressTool,
-        {
-          units: 3,
-          delayMs: 50,
-          total: 3,
-          message: "Test progress",
-        },
-        undefined, // generalMetadata
-        { progressToken: progressToken.toString() }, // toolSpecificMetadata
+      const inFlight = settleInFlight(
+        client.callTool(
+          sendProgressTool,
+          {
+            units: 3,
+            delayMs: 50,
+            total: 3,
+            message: "Test progress",
+          },
+          undefined, // generalMetadata
+          { progressToken: progressToken.toString() }, // toolSpecificMetadata
+        ),
       );
 
       const progressEvents = await waitForProgressCount(client, 3, {
@@ -2261,7 +2759,7 @@ describe("InspectorClient", () => {
         progressToken: progressToken.toString(),
       });
 
-      await client!.disconnect();
+      await inFlight.disconnectAndSettle(client!);
       await server.stop();
     });
 
@@ -2349,15 +2847,17 @@ describe("InspectorClient", () => {
       const progressToken = 67890;
 
       const sendProgressTool2 = await getTool(client, "send_progress");
-      client.callTool(
-        sendProgressTool2,
-        {
-          units: 2,
-          delayMs: 50,
-          message: "Indeterminate progress",
-        },
-        undefined, // generalMetadata
-        { progressToken: progressToken.toString() }, // toolSpecificMetadata
+      const inFlight = settleInFlight(
+        client.callTool(
+          sendProgressTool2,
+          {
+            units: 2,
+            delayMs: 50,
+            message: "Indeterminate progress",
+          },
+          undefined, // generalMetadata
+          { progressToken: progressToken.toString() }, // toolSpecificMetadata
+        ),
       );
 
       const progressEvents = await waitForProgressCount(client, 2, {
@@ -2379,7 +2879,7 @@ describe("InspectorClient", () => {
       });
       expect((progressEvents[1] as { total?: number }).total).toBeUndefined();
 
-      await client!.disconnect();
+      await inFlight.disconnectAndSettle(client!);
       await server.stop();
     });
 
@@ -4125,7 +4625,7 @@ describe("InspectorClient", () => {
         timestamp: Date;
         success: boolean;
         error?: string;
-        metadata?: Record<string, string>;
+        metadata?: RequestMetadata;
       }> = [];
 
       client!.addEventListener(
@@ -5079,8 +5579,12 @@ describe("InspectorClient", () => {
         expect(c.getOAuthFlowStep()).toBeUndefined();
         expect(c.getOAuthFlowState()).toBeUndefined();
         await expect(c.getOAuthState()).resolves.toBeUndefined();
-        // clearOAuthTokens is a no-op when there is no manager
-        await expect(c.clearOAuthTokens()).resolves.toBeUndefined();
+        // clearOAuthTokens is a no-op when there is no manager; it still
+        // reports an outcome so callers have one shape to read (#2144).
+        await expect(c.clearOAuthTokens()).resolves.toEqual({
+          status: "skipped",
+          reason: "no_tokens",
+        });
       });
 
       it("setOAuthConfig throws when oauthManager is unset", () => {
@@ -5289,7 +5793,7 @@ describe("InspectorClient", () => {
     });
 
     describe("getAppRendererClient", () => {
-      it("returns null before connect, and a cached proxy after connect", async () => {
+      it("returns null before connect, and the SDK client itself after connect", async () => {
         server = createTestServerHttp({
           serverInfo: createTestServerInfo(),
           tools: [createEchoTool()],
@@ -5305,79 +5809,26 @@ describe("InspectorClient", () => {
         client = c;
         await c.connect();
 
-        const proxy1 = c.getAppRendererClient();
-        expect(proxy1).not.toBeNull();
-        // Second call returns the cached proxy
-        expect(c.getAppRendererClient()).toBe(proxy1);
-        expect(
-          typeof (proxy1 as unknown as { setNotificationHandler?: unknown })
-            .setNotificationHandler,
-        ).toBe("function");
-      });
-
-      it("translates the ext-apps v1 schema-first setNotificationHandler call to v2's method-string form", async () => {
-        // Regression: `@modelcontextprotocol/ext-apps` (SDK v1 peer) subscribes
-        // with `setNotificationHandler(NotificationSchema, handler)`. On SDK v2
-        // that throws "'[object Object]' is not a spec notification method",
-        // breaking App rendering at connect. The proxy must translate the
-        // schema (whose `.shape.method.value` is the method literal) to the
-        // method string so the handler still fires on the real notification.
-        server = createTestServerHttp({
-          serverInfo: createTestServerInfo(),
-          tools: [createAddToolTool()],
-          listChanged: { tools: true },
-        });
-        await server.start();
-        const c = new InspectorClient(
-          { type: "streamable-http", url: server.url },
-          { environment: { transport: createTransportNode } },
-        );
-        client = c;
-        await c.connect();
-
-        const proxy = c.getAppRendererClient() as unknown as {
-          setNotificationHandler: (
-            schema: unknown,
-            handler: () => void,
-          ) => void;
-        };
-        // A v1-style Zod notification schema, as ext-apps passes it (NOT a
-        // string): its `.shape.method.value` carries the method literal.
-        const v1StyleSchema = {
-          shape: { method: { value: "notifications/tools/list_changed" } },
-        };
-        let handlerFired = false;
+        const appClient = c.getAppRendererClient();
+        expect(appClient).not.toBeNull();
+        // The same instance on every call — no per-call wrapper. ext-apps 2.x
+        // peers on SDK v2 and its `AppBridge` registers list-changed forwarding
+        // with `setNotificationHandler("notifications/…", handler)`, so the
+        // v1-peer translation proxy is gone (#1745).
+        expect(c.getAppRendererClient()).toBe(appClient);
+        expect(appClient).toBeInstanceOf(Client);
+        // The string-first registration the bridge performs must land on it
+        // directly and fire on the real notification.
         expect(() =>
-          proxy.setNotificationHandler(v1StyleSchema, () => {
-            handlerFired = true;
-          }),
-        ).not.toThrow();
-
-        // The registration must land under the extracted method string: trigger
-        // a real tools/list_changed and confirm the schema-first handler runs.
-        const addToolTool = await getTool(c, "add_tool");
-        await c.callTool(addToolTool, {
-          name: "added_via_schema_first",
-          description: "added at runtime",
-        });
-        await vi.waitFor(() => expect(handlerFired).toBe(true), {
-          timeout: 5000,
-        });
-
-        // A native string-first call (ours) passes through unchanged.
-        expect(() =>
-          proxy.setNotificationHandler(
+          appClient?.setNotificationHandler(
             "notifications/prompts/list_changed",
             () => {},
           ),
         ).not.toThrow();
 
-        // An unrecognized first arg (no `.shape.method.value`) can't be
-        // translated and falls through to the SDK, which rejects it clearly —
-        // we don't silently swallow a genuinely-malformed registration.
-        expect(() =>
-          proxy.setNotificationHandler({} as unknown, () => {}),
-        ).toThrow(/not a spec notification method/);
+        // Disconnecting withdraws it again.
+        await c.disconnect();
+        expect(c.getAppRendererClient()).toBeNull();
       });
     });
 
@@ -5560,7 +6011,9 @@ describe("InspectorClient", () => {
           initialStatus: "working",
           statusMessage: "running",
         });
-        // Pre-attach a catch so cancel's reject doesn't surface as unhandled
+        // Capture the rejection's message for the assertion below. (Not for
+        // unhandled-rejection suppression — `createReceiverTask` marks the
+        // promise handled at the source.)
         const payloadResult = record.payloadPromise.catch(
           (e) => (e as Error).message,
         );

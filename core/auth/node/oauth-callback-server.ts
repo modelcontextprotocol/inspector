@@ -1,4 +1,5 @@
 import { createServer, type Server } from "node:http";
+import { formatHostForUrl } from "../../node/hostUrl.js";
 import { parseOAuthCallbackParams } from "../utils.js";
 import { generateOAuthErrorDescription } from "../utils.js";
 
@@ -220,7 +221,5 @@ export function createOAuthCallbackServer(): OAuthCallbackServer {
 }
 
 function buildRedirectUrl(host: string, port: number, path: string): string {
-  const needsBrackets = host.includes(":") && !host.startsWith("[");
-  const formattedHost = needsBrackets ? `[${host}]` : host;
-  return `http://${formattedHost}:${port}${path}`;
+  return `http://${formatHostForUrl(host)}:${port}${path}`;
 }

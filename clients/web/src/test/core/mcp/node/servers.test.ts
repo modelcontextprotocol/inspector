@@ -18,6 +18,7 @@ import {
   selectServerEntry,
   type ResolvedServer,
 } from "@inspector/core/mcp/node/servers.js";
+import { DEFAULT_CONNECTION_TIMEOUT_MS } from "@inspector/core/mcp/types.js";
 
 describe("headersToServerSettings", () => {
   it("returns undefined when no headers are given", () => {
@@ -30,8 +31,12 @@ describe("headersToServerSettings", () => {
     expect(settings?.headers).toEqual([
       { key: "Authorization", value: "Bearer t" },
     ]);
-    expect(settings?.metadata).toEqual([]);
+    expect(settings?.metadata).toEqual({});
     expect(settings?.roots).toEqual([]);
+    // The header-only shell is what the CLI/TUI hand the client when a file
+    // sets no timeout, so it must carry the product default — a regression
+    // back to 0 here would silently unbound every such connect (#2320).
+    expect(settings?.connectionTimeout).toBe(DEFAULT_CONNECTION_TIMEOUT_MS);
   });
 });
 
@@ -276,5 +281,35 @@ describe("selectServerEntry", () => {
     expect(() => selectServerEntry({ a, b })).toThrow(
       /Multiple servers found.*--server.*Available servers: a, b/,
     );
+  });
+});
+
+describe("rehydrateMcpConfigFromKeychain bulk seam", () => {
+  it("tolerates a store whose bulk read omits a server", async () => {
+    // `getMany` is an optional seam, so an implementation — a test double, a
+    // future store — may answer only for the servers it knows. The merge must
+    // treat a missing entry as "no secrets" rather than reading `undefined`
+    // into the config, which is what the `?? {}` guard is for.
+    const { rehydrateMcpConfigFromKeychain } =
+      await import("@inspector/core/mcp/node/server-secrets.js");
+    const partial = {
+      async get() {
+        return null;
+      },
+      async set() {},
+      async delete() {},
+      async deleteAllForServer() {},
+      async getMany() {
+        // Deliberately answers for nobody.
+        return {};
+      },
+    };
+    const config = {
+      mcpServers: {
+        alpha: { type: "streamable-http" as const, url: "https://a.example" },
+      },
+    };
+    const out = await rehydrateMcpConfigFromKeychain(config, partial);
+    expect(out.mcpServers.alpha).toEqual(config.mcpServers.alpha);
   });
 });

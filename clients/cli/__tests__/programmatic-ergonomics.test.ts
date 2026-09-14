@@ -12,7 +12,7 @@ import {
 describe("withConnectTimeout", () => {
   const baseSettings: InspectorServerSettings = {
     headers: [{ key: "X-Test", value: "1" }],
-    metadata: [],
+    metadata: {},
     env: [],
     connectionTimeout: 42,
     requestTimeout: 0,

@@ -46,7 +46,7 @@ _Audited June 2026 against the [EMA extension spec](https://modelcontextprotocol
 
 ### TypeScript SDK (implemented)
 
-Inspector depends on **`@modelcontextprotocol/sdk` v1.x** only (`^1.29.0` in root `package.json`). Standard OAuth and EMA both build on that package — there is **no** `@modelcontextprotocol/client` v2 dependency in the tree today.
+Inspector depends on the **v2 SDK packages** — `@modelcontextprotocol/client` / `core` / `server` / `server-legacy` at **2.0.0**, declared in the root `package.json` only. Standard OAuth and EMA both build on `@modelcontextprotocol/client`; every module in the table below imports it. The v1 `@modelcontextprotocol/sdk` is **not** a dependency of this repo and must not become one — it appears in the lock files solely as a `peer` pulled in by `ext-apps`.
 
 | Concern                                | Package / module                                                                                                                                                                                                                                                                                        |
 | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -334,7 +334,7 @@ When the user connects to a server with `oauth.enterpriseManaged: true` but inst
 - **IdP session** (EMA only) — `none` / `logged_in` / `expired` from `idpSessions[issuer]`
 - **Auth URL** — cached from an in-flight or completed OAuth flow (`OAuthFlowState`), when present
 - **Scopes** — configured vs granted
-- **Access token** — `OAuthAccessTokenField`: copy (raw), decode JWT in place (`core/auth/ema/jwt.ts` helpers); multi-line wrap with segment-aware breaking for JWTs
+- **Access token** (and **ID token**, when the authorization server returned an `id_token`) — `OAuthTokenField`: copy (raw), decode JWT in place (`core/auth/ema/jwt.ts` helpers); multi-line wrap with segment-aware breaking for JWTs. Display only — the `id_token` is never treated as a credential (#2019)
 
 In-flight OAuth flow state uses `OAuthFlowState` / `getOAuthFlowState()` / `getOAuthFlowStep()`. `getOAuthState()` is the persisted connection snapshot; flow state is separate and ephemeral.
 

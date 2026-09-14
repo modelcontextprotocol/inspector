@@ -8,7 +8,7 @@ import {
   OAuthClientInformationSchema,
   OAuthTokensSchema,
 } from "@modelcontextprotocol/core";
-import type { OAuthStorage } from "./storage.js";
+import type { OAuthStorage, RevocationSnapshot } from "./storage.js";
 import {
   type OAuthMemoryStore,
   type ServerOAuthState,
@@ -422,6 +422,29 @@ export class OAuthStorageBase implements OAuthStorage {
       .getState()
       .setServerState(serverUrl, { discoveryState: undefined });
     await this.persist();
+  }
+
+  async takeRevocationSnapshot(serverUrl: string): Promise<RevocationSnapshot> {
+    await this.ensureLoaded();
+    // Everything below is synchronous on purpose: read and clear against one
+    // view of the in-memory state, so nothing can land between them. The
+    // persist is the only await, and it happens after the mutation.
+    const state = this.memory.getState().getServerState(serverUrl);
+    const snapshot: RevocationSnapshot = {
+      byIssuer: Object.fromEntries(
+        Object.entries(state.byIssuer ?? {}).map(([issuer, slot]) => [
+          issuer,
+          { tokens: slot?.tokens, clientInformation: slot?.clientInformation },
+        ]),
+      ),
+      legacyTokens: state.tokens,
+      legacyClientInformation: state.clientInformation,
+      preregisteredClientInformation: state.preregisteredClientInformation,
+      serverMetadata: state.serverMetadata,
+    };
+    this.memory.getState().clearServerState(serverUrl);
+    await this.persist();
+    return snapshot;
   }
 
   async clear(serverUrl: string): Promise<void> {

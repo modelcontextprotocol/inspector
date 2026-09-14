@@ -22,6 +22,11 @@ export function oauthDetailsFromConnectionState(
     ...(state.tokens?.access_token && {
       accessToken: state.tokens.access_token,
     }),
+    // Surfaced for inspection when the AS returned one; omitted entirely
+    // otherwise so Connection Info renders no empty row (#2019).
+    ...(state.tokens?.id_token && {
+      idToken: state.tokens.id_token,
+    }),
     ...(state.protocol === "ema" &&
       state.ema?.idpSession && { idpSession: state.ema.idpSession }),
   };

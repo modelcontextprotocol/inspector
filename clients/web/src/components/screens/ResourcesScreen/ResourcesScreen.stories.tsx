@@ -235,7 +235,7 @@ export const SubscriptionsUnsupported: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    expect(canvas.queryByText(/Subscriptions/)).not.toBeInTheDocument();
+    await expect(canvas.queryByText(/Subscriptions/)).not.toBeInTheDocument();
   },
 };
 
@@ -256,7 +256,7 @@ export const ModernSubscriptionStream: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    expect(await canvas.findByText("Listening")).toBeInTheDocument();
+    await expect(await canvas.findByText("Listening")).toBeInTheDocument();
   },
 };
 
@@ -281,18 +281,22 @@ export const ManyResources: Story = {
     const sidebar = sidebarCard.getBoundingClientRect();
     const detail = detailCard.getBoundingClientRect();
     // The sidebar matches the detail panel's height (same bottom baseline).
-    expect(Math.abs(sidebar.bottom - detail.bottom)).toBeLessThanOrEqual(1);
-    expect(Math.abs(sidebar.height - detail.height)).toBeLessThanOrEqual(1);
+    await expect(Math.abs(sidebar.bottom - detail.bottom)).toBeLessThanOrEqual(
+      1,
+    );
+    await expect(Math.abs(sidebar.height - detail.height)).toBeLessThanOrEqual(
+      1,
+    );
 
     // The section headers stay pinned (visible, in document order), so the
     // whole accordion doesn't scroll as one block.
     const controls = canvasElement.querySelectorAll(
       ".disclosure-sections .mantine-Accordion-control",
     );
-    expect(controls).toHaveLength(3);
+    await expect(controls).toHaveLength(3);
     const tops = [...controls].map((c) => c.getBoundingClientRect().top);
-    expect(tops[0]).toBeLessThan(tops[1]);
-    expect(tops[1]).toBeLessThan(tops[2]);
+    await expect(tops[0]).toBeLessThan(tops[1]);
+    await expect(tops[1]).toBeLessThan(tops[2]);
 
     // The long URIs section scrolls within its own panel, with a thin styled
     // scrollbar matching the Mantine ScrollArea look (#1466).
@@ -302,13 +306,15 @@ export const ManyResources: Story = {
     if (!(urisPanel instanceof HTMLElement)) {
       throw new Error("URIs panel not found");
     }
-    expect(urisPanel.scrollHeight).toBeGreaterThan(urisPanel.clientHeight);
+    await expect(urisPanel.scrollHeight).toBeGreaterThan(
+      urisPanel.clientHeight,
+    );
     const panelStyle = getComputedStyle(urisPanel);
-    expect(panelStyle.scrollbarWidth).toBe("thin");
+    await expect(panelStyle.scrollbarWidth).toBe("thin");
     // The themed translucent thumb resolves (the `--inspector-scrollbar-thumb`
     // token, an rgba value, vs. a transparent track). WebKit pseudo-element
     // styles aren't queryable, so `scrollbar-color` is the assertable proxy.
-    expect(panelStyle.scrollbarColor).toContain("rgba");
+    await expect(panelStyle.scrollbarColor).toContain("rgba");
   },
 };
 

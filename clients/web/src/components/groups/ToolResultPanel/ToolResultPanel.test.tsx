@@ -6,6 +6,7 @@ import {
   screen,
   waitFor,
 } from "../../../test/renderWithMantine";
+import { getAceText } from "../../../test/aceEditor";
 import { ToolResultPanel } from "./ToolResultPanel";
 import { resultHasResourceLinks } from "./toolResultUtils";
 
@@ -35,11 +36,20 @@ describe("ToolResultPanel", () => {
     expect(screen.getByText("boom")).toBeInTheDocument();
   });
 
-  it("renders the empty state when content is empty", () => {
+  // #1860: this panel only mounts once a result exists, so an empty result must
+  // read as "the call completed and returned nothing" — never as the pre-run
+  // "No results yet" placeholder, which denies a call the user watched succeed.
+  it("names the outcome when a completed result has no content", () => {
     renderWithMantine(
       <ToolResultPanel result={emptyResult} onClear={() => {}} />,
     );
-    expect(screen.getByText("No results yet")).toBeInTheDocument();
+    expect(screen.getByText("Empty result")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "The tool call completed successfully and returned no content.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("No results yet")).not.toBeInTheDocument();
   });
 
   it("groups resource_link blocks in a scrollable Resource Links box", async () => {
@@ -69,9 +79,9 @@ describe("ToolResultPanel", () => {
       screen.getByRole("button", { name: "Expand resource demo://r/1" }),
     );
     expect(onReadResource).toHaveBeenCalledWith("demo://r/1");
-    await waitFor(() =>
-      expect(screen.getByText(/"linked body"/)).toBeInTheDocument(),
-    );
+    // The body lands in the read-only JSON editor, whose lines are
+    // virtualized — so it is read through the editor, not the DOM.
+    await waitFor(() => expect(getAceText()).toContain('"linked body"'));
   });
 
   it("collapses consecutive resource_link blocks into a single box", () => {
@@ -107,6 +117,78 @@ describe("ToolResultPanel", () => {
       screen.getAllByRole("heading", { name: "Resource Links" }),
     ).toHaveLength(2);
     expect(screen.getByText("divider")).toBeInTheDocument();
+  });
+
+  describe("structuredContent (#1908)", () => {
+    const structured = { items: [{ id: 1, name: "Item A" }], total: 1 };
+
+    it("renders a Structured Output section alongside the content blocks", () => {
+      renderWithMantine(
+        <ToolResultPanel
+          result={{ ...okResult, structuredContent: structured }}
+          onClear={() => {}}
+        />,
+      );
+      expect(screen.getByText("ok")).toBeInTheDocument();
+      expect(
+        screen.getByRole("heading", { name: "Structured Output" }),
+      ).toBeInTheDocument();
+    });
+
+    it("omits the section when the result has no structuredContent", () => {
+      renderWithMantine(
+        <ToolResultPanel result={okResult} onClear={() => {}} />,
+      );
+      expect(
+        screen.queryByRole("heading", { name: "Structured Output" }),
+      ).not.toBeInTheDocument();
+    });
+
+    it("renders the section instead of the empty state when content is empty", () => {
+      renderWithMantine(
+        <ToolResultPanel
+          result={{ content: [], structuredContent: structured }}
+          onClear={() => {}}
+        />,
+      );
+      expect(screen.queryByText("Empty result")).not.toBeInTheDocument();
+      expect(
+        screen.getByRole("heading", { name: "Structured Output" }),
+      ).toBeInTheDocument();
+    });
+
+    it("renders the section below the alert on an error result", () => {
+      renderWithMantine(
+        <ToolResultPanel
+          result={{ ...errorResult, structuredContent: structured }}
+          onClear={() => {}}
+        />,
+      );
+      expect(screen.getByText("Tool Error")).toBeInTheDocument();
+      expect(
+        screen.getByRole("heading", { name: "Structured Output" }),
+      ).toBeInTheDocument();
+    });
+
+    it("renders the section alongside a Resource Links box", () => {
+      renderWithMantine(
+        <ToolResultPanel
+          result={{
+            content: [
+              { type: "resource_link", uri: "demo://r/1", name: "One" },
+            ],
+            structuredContent: structured,
+          }}
+          onClear={() => {}}
+        />,
+      );
+      expect(
+        screen.getByRole("heading", { name: "Resource Links" }),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole("heading", { name: "Structured Output" }),
+      ).toBeInTheDocument();
+    });
   });
 
   it("invokes onClear when the close button is clicked", async () => {

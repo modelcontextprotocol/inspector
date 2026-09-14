@@ -2,12 +2,13 @@ import { describe, it, expect, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import type { InspectorServerSettings } from "@inspector/core/mcp/types.js";
 import { renderWithMantine, screen } from "../../../test/renderWithMantine";
+import { setAceText } from "../../../test/aceEditor";
 import { ServerSettingsModal } from "./ServerSettingsModal";
 
 const initialSettings: InspectorServerSettings = {
   headers: [{ key: "Authorization", value: "Bearer abc" }],
   env: [],
-  metadata: [{ key: "userId", value: "u-1" }],
+  metadata: { userId: "u-1" },
   connectionTimeout: 30000,
   requestTimeout: 60000,
   taskTtl: 60000,
@@ -21,7 +22,7 @@ const initialSettings: InspectorServerSettings = {
 const emptySettings: InspectorServerSettings = {
   headers: [],
   env: [],
-  metadata: [],
+  metadata: {},
   connectionTimeout: 30000,
   requestTimeout: 60000,
   taskTtl: 60000,
@@ -115,6 +116,79 @@ describe("ServerSettingsModal", () => {
     await user.click(screen.getByText("Throw (surface the error)"));
     expect(onSettingsChange).toHaveBeenCalledWith(
       expect.objectContaining({ oauthOnInsufficientScope: "throw" }),
+    );
+  });
+
+  // #2068 — only the opt-out is persisted; re-checking the box clears the field
+  // rather than writing `true`, so a default-on server keeps a minimal entry.
+  it("maps the refresh-token opt-out into settings, and back to unset", async () => {
+    const user = userEvent.setup();
+    const onSettingsChange = vi.fn();
+    const { rerender } = renderWithMantine(
+      <ServerSettingsModal
+        opened
+        settings={initialSettings}
+        serverType="streamable-http"
+        isStdio={false}
+        onClose={vi.fn()}
+        onSettingsChange={onSettingsChange}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: /OAuth Settings/i }));
+    await user.click(screen.getByLabelText("Request refresh token"));
+    expect(onSettingsChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ oauthRequestRefreshToken: false }),
+    );
+
+    rerender(
+      <ServerSettingsModal
+        opened
+        settings={{ ...initialSettings, oauthRequestRefreshToken: false }}
+        serverType="streamable-http"
+        isStdio={false}
+        onClose={vi.fn()}
+        onSettingsChange={onSettingsChange}
+      />,
+    );
+    await user.click(screen.getByLabelText("Request refresh token"));
+    expect(onSettingsChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ oauthRequestRefreshToken: undefined }),
+    );
+  });
+
+  // #2144 — same omit-the-default shape as the refresh-token pair above.
+  it("maps the revoke-on-clear opt-out into settings, and back to unset", async () => {
+    const user = userEvent.setup();
+    const onSettingsChange = vi.fn();
+    const { rerender } = renderWithMantine(
+      <ServerSettingsModal
+        opened
+        settings={initialSettings}
+        serverType="streamable-http"
+        isStdio={false}
+        onClose={vi.fn()}
+        onSettingsChange={onSettingsChange}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: /OAuth Settings/i }));
+    await user.click(screen.getByLabelText("Revoke tokens on clear"));
+    expect(onSettingsChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ oauthRevokeOnClear: false }),
+    );
+
+    rerender(
+      <ServerSettingsModal
+        opened
+        settings={{ ...initialSettings, oauthRevokeOnClear: false }}
+        serverType="streamable-http"
+        isStdio={false}
+        onClose={vi.fn()}
+        onSettingsChange={onSettingsChange}
+      />,
+    );
+    await user.click(screen.getByLabelText("Revoke tokens on clear"));
+    expect(onSettingsChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ oauthRevokeOnClear: undefined }),
     );
   });
 
@@ -276,8 +350,11 @@ describe("ServerSettingsModal", () => {
       />,
     );
     await user.click(screen.getByRole("button", { name: "Custom Headers" }));
-    const removeButtons = screen.getAllByRole("button", { name: "X" });
-    await user.click(removeButtons[0]);
+    await user.click(
+      screen.getByRole("button", {
+        name: "Remove header, Authorization, row 1",
+      }),
+    );
     expect(onSettingsChange).toHaveBeenCalledWith({
       ...initialSettings,
       headers: [],
@@ -305,73 +382,6 @@ describe("ServerSettingsModal", () => {
       onSettingsChange.mock.calls[onSettingsChange.mock.calls.length - 1][0];
     expect(lastCall.headers[0].key).toBe("Authorization");
     expect(lastCall.headers[0].value).toContain("Bearer abc");
-  });
-
-  it("calls onSettingsChange when adding metadata after expanding the section", async () => {
-    const user = userEvent.setup();
-    const onSettingsChange = vi.fn();
-    renderWithMantine(
-      <ServerSettingsModal
-        opened
-        settings={emptySettings}
-        serverType="streamable-http"
-        isStdio={false}
-        onClose={vi.fn()}
-        onSettingsChange={onSettingsChange}
-      />,
-    );
-    await user.click(screen.getByRole("button", { name: "Request Metadata" }));
-    await user.click(screen.getByRole("button", { name: "+ Add Metadata" }));
-    expect(onSettingsChange).toHaveBeenCalledWith({
-      ...emptySettings,
-      metadata: [{ key: "", value: "" }],
-    });
-  });
-
-  it("calls onSettingsChange when removing metadata", async () => {
-    const user = userEvent.setup();
-    const onSettingsChange = vi.fn();
-    renderWithMantine(
-      <ServerSettingsModal
-        opened
-        settings={initialSettings}
-        serverType="streamable-http"
-        isStdio={false}
-        onClose={vi.fn()}
-        onSettingsChange={onSettingsChange}
-      />,
-    );
-    await user.click(screen.getByRole("button", { name: "Request Metadata" }));
-    const removeButtons = screen.getAllByRole("button", { name: "X" });
-    // After expanding metadata, both header and metadata X buttons exist;
-    // the metadata X is the last one.
-    await user.click(removeButtons[removeButtons.length - 1]);
-    expect(onSettingsChange).toHaveBeenCalledWith({
-      ...initialSettings,
-      metadata: [],
-    });
-  });
-
-  it("calls onSettingsChange when typing in metadata key/value", async () => {
-    const user = userEvent.setup();
-    const onSettingsChange = vi.fn();
-    renderWithMantine(
-      <ServerSettingsModal
-        opened
-        settings={initialSettings}
-        serverType="streamable-http"
-        isStdio={false}
-        onClose={vi.fn()}
-        onSettingsChange={onSettingsChange}
-      />,
-    );
-    await user.click(screen.getByRole("button", { name: "Request Metadata" }));
-    const valueInput = screen.getByDisplayValue("u-1");
-    await user.type(valueInput, "9");
-    expect(onSettingsChange).toHaveBeenCalled();
-    const lastCall =
-      onSettingsChange.mock.calls[onSettingsChange.mock.calls.length - 1][0];
-    expect(lastCall.metadata[0].key).toBe("userId");
   });
 
   it("calls onSettingsChange when changing timeouts", async () => {
@@ -440,8 +450,79 @@ describe("ServerSettingsModal", () => {
       oauthClientId: "",
       oauthClientSecret: "",
       oauthScopes: "",
+      oauthAuthorizationParams: [],
       enterpriseManaged: true,
     });
+  });
+
+  // #1906 — a typed endpoint override lands on the settings; clearing it
+  // persists `undefined` rather than an empty string, so "cleared" and "never
+  // set" are the same state on disk.
+  it("persists a typed endpoint override, and clears it back to undefined", async () => {
+    const user = userEvent.setup();
+    const onSettingsChange = vi.fn();
+    const { rerender } = renderWithMantine(
+      <ServerSettingsModal
+        opened
+        settings={emptySettings}
+        serverType="streamable-http"
+        isStdio={false}
+        onClose={vi.fn()}
+        onSettingsChange={onSettingsChange}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: "OAuth Settings" }));
+    await user.type(
+      screen.getByRole("textbox", { name: /Token URL override/i }),
+      "h",
+    );
+    expect(onSettingsChange).toHaveBeenCalledWith(
+      expect.objectContaining({ oauthTokenUrl: "h" }),
+    );
+
+    onSettingsChange.mockClear();
+    rerender(
+      <ServerSettingsModal
+        opened
+        settings={{
+          ...emptySettings,
+          oauthTokenUrl: "https://staging.test/token",
+        }}
+        serverType="streamable-http"
+        isStdio={false}
+        onClose={vi.fn()}
+        onSettingsChange={onSettingsChange}
+      />,
+    );
+    const clearButtons = screen.getAllByRole("button", { name: /clear/i });
+    await user.click(clearButtons[clearButtons.length - 1]);
+    expect(onSettingsChange).toHaveBeenCalledWith(
+      expect.objectContaining({ oauthTokenUrl: undefined }),
+    );
+  });
+
+  // #2018 — the authorization-parameter rows ride the same onOAuthChange
+  // callback, so the modal folds them onto the settings object.
+  it("persists an added authorization-parameter row onto the settings", async () => {
+    const user = userEvent.setup();
+    const onSettingsChange = vi.fn();
+    renderWithMantine(
+      <ServerSettingsModal
+        opened
+        settings={emptySettings}
+        serverType="streamable-http"
+        isStdio={false}
+        onClose={vi.fn()}
+        onSettingsChange={onSettingsChange}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: "OAuth Settings" }));
+    await user.click(screen.getByRole("button", { name: "+ Add Parameter" }));
+    expect(onSettingsChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        oauthAuthorizationParams: [{ key: "", value: "" }],
+      }),
+    );
   });
 
   it("calls onSettingsChange with a blank row when adding a root", async () => {
@@ -626,20 +707,13 @@ describe("ServerSettingsModal", () => {
     expect(lastCall.headers[1]).toEqual({ key: "B", value: "2" });
   });
 
-  it("preserves sibling rows when editing one of several metadata entries", async () => {
+  it("replaces the whole metadata object when the JSON editor changes", async () => {
     const user = userEvent.setup();
     const onSettingsChange = vi.fn();
-    const twoMeta: InspectorServerSettings = {
-      ...emptySettings,
-      metadata: [
-        { key: "m1", value: "v1" },
-        { key: "m2", value: "v2" },
-      ],
-    };
     renderWithMantine(
       <ServerSettingsModal
         opened
-        settings={twoMeta}
+        settings={emptySettings}
         serverType="streamable-http"
         isStdio={false}
         onClose={vi.fn()}
@@ -647,9 +721,13 @@ describe("ServerSettingsModal", () => {
       />,
     );
     await user.click(screen.getByRole("button", { name: "Request Metadata" }));
-    await user.type(screen.getByDisplayValue("v1"), "x");
+    await setAceText('{"trace":{"id":"abc"}}');
     const lastCall = onSettingsChange.mock.calls.at(-1)?.[0];
-    expect(lastCall.metadata[1]).toEqual({ key: "m2", value: "v2" });
+    // The nested object arrives as an object, not a stringified one — the
+    // whole point of #1910.
+    expect(lastCall.metadata).toEqual({ trace: { id: "abc" } });
+    // Every other setting is carried through untouched.
+    expect(lastCall.headers).toEqual(emptySettings.headers);
   });
 
   it("preserves sibling rows when editing one of several roots", async () => {
@@ -739,8 +817,11 @@ describe("ServerSettingsModal", () => {
       await user.click(
         screen.getByRole("button", { name: "Environment Variables" }),
       );
-      const removeButtons = screen.getAllByRole("button", { name: "X" });
-      await user.click(removeButtons[removeButtons.length - 1]);
+      await user.click(
+        screen.getByRole("button", {
+          name: "Remove environment variable, A, row 1",
+        }),
+      );
       expect(onSettingsChange).toHaveBeenCalledWith({
         ...emptySettings,
         env: [],
@@ -817,6 +898,48 @@ describe("ServerSettingsModal", () => {
         ...emptySettings,
         cwd: "/srvX",
       });
+    });
+  });
+
+  describe("secret-storage footer (#1950)", () => {
+    // The dialog holds the OAuth client secret and every stdio `env:` value, so
+    // the destination of what is typed here is stated permanently rather than
+    // in a toast that has long since gone.
+    it("names the active store", () => {
+      renderWithMantine(
+        <ServerSettingsModal
+          opened
+          settings={emptySettings}
+          serverType="streamable-http"
+          isStdio={false}
+          onClose={vi.fn()}
+          onSettingsChange={vi.fn()}
+          secretStorage={{
+            kind: "memory",
+            reason: "fallback",
+            durable: false,
+          }}
+        />,
+      );
+      // Full-text assertion: the "Secrets:" prefix is its own `<span>`, which
+      // `getByText`'s direct-text-node matching would not see as one string.
+      expect(screen.getByTestId("secret-storage-footer")).toHaveTextContent(
+        "Secrets: Memory (this session only)",
+      );
+    });
+
+    it("renders no footer when the backend didn't report a store", () => {
+      renderWithMantine(
+        <ServerSettingsModal
+          opened
+          settings={emptySettings}
+          serverType="streamable-http"
+          isStdio={false}
+          onClose={vi.fn()}
+          onSettingsChange={vi.fn()}
+        />,
+      );
+      expect(screen.queryByTestId("secret-storage-footer")).toBeNull();
     });
   });
 });

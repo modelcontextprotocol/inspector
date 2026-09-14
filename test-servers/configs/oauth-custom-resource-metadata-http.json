@@ -1,0 +1,19 @@
+{
+  "serverInfo": {
+    "name": "oauth-custom-resource-metadata",
+    "version": "1.0.0"
+  },
+  "tools": [{ "preset": "echo" }],
+  "oauth": {
+    "enabled": true,
+    "mode": "combined",
+    "requireAuth": true,
+    "resourceMetadataPath": "/custom/protected-resource",
+    "scopesSupported": ["mcp"],
+    "supportDCR": true
+  },
+  "transport": {
+    "type": "streamable-http",
+    "port": 8082
+  }
+}

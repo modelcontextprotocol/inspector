@@ -1,10 +1,16 @@
-import { useState, useEffect } from "react";
 import type { FetchRequestEntry } from "../mcp/types.js";
-import type {
-  FetchRequestLogState,
-  FetchRequestLogStateEventMap,
-} from "../mcp/state/fetchRequestLogState.js";
-import type { TypedEventGeneric } from "../mcp/typedEventTarget.js";
+import type { FetchRequestLogState } from "../mcp/state/fetchRequestLogState.js";
+import { useStoreSnapshot } from "./useStoreSnapshot.js";
+
+/**
+ * Shared stable empty list for the no-server case. Module scope so the
+ * snapshot doesn't change identity every render — see `useStoreSnapshot`.
+ * Read-only by contract: nothing mutates a list this hook returns.
+ */
+const NO_FETCH_REQUESTS: FetchRequestEntry[] = [];
+
+const readFetchRequests = (state: FetchRequestLogState): FetchRequestEntry[] =>
+  state.getFetchRequests();
 
 export interface UseFetchRequestLogResult {
   fetchRequests: FetchRequestEntry[];
@@ -17,35 +23,12 @@ export interface UseFetchRequestLogResult {
 export function useFetchRequestLog(
   fetchRequestLogState: FetchRequestLogState | null,
 ): UseFetchRequestLogResult {
-  const [fetchRequests, setFetchRequests] = useState<FetchRequestEntry[]>(
-    fetchRequestLogState?.getFetchRequests() ?? [],
+  const fetchRequests = useStoreSnapshot(
+    fetchRequestLogState,
+    "fetchRequestsChange",
+    readFetchRequests,
+    NO_FETCH_REQUESTS,
   );
-
-  useEffect(() => {
-    if (!fetchRequestLogState) {
-      setFetchRequests([]);
-      return;
-    }
-    setFetchRequests(fetchRequestLogState.getFetchRequests());
-    const onFetchRequestsChange = (
-      event: TypedEventGeneric<
-        FetchRequestLogStateEventMap,
-        "fetchRequestsChange"
-      >,
-    ) => {
-      setFetchRequests(event.detail);
-    };
-    fetchRequestLogState.addEventListener(
-      "fetchRequestsChange",
-      onFetchRequestsChange,
-    );
-    return () => {
-      fetchRequestLogState.removeEventListener(
-        "fetchRequestsChange",
-        onFetchRequestsChange,
-      );
-    };
-  }, [fetchRequestLogState]);
 
   return { fetchRequests };
 }

@@ -47,7 +47,7 @@ type Story = StoryObj<typeof MonitoringScreen>;
 export const Logs: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    expect(canvas.getByText("Log stream")).toBeInTheDocument();
+    await expect(canvas.getByText("Log stream")).toBeInTheDocument();
   },
 };
 
@@ -55,6 +55,6 @@ export const Protocol: Story = {
   args: { value: "Protocol" },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    expect(canvas.getByText("Request history")).toBeInTheDocument();
+    await expect(canvas.getByText("Request history")).toBeInTheDocument();
   },
 };

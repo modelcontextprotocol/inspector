@@ -30,6 +30,16 @@
      * imports type-check; Vite's `dedupe` handles the runtime resolution —
      * see vite.config.ts.
      *
+     * Two prefixes, and the difference is ownership rather than style. A
+     * `./node_modules/...` mapping names a package this client declares — the
+     * `@types/*` packages, `vitest`, `yaml`. A `../../node_modules/...` one
+     * names a package declared only in the root manifest (#2195), which is
+     * every runtime dependency `core/` imports. Those must be spelled out:
+     * `chokidar` in particular is still present under `clients/web` as a
+     * transitive copy of Vite's, so a `./node_modules` mapping resolves the
+     * client's copy at compile time while Vitest and the shipped bundle both
+     * resolve the root's. Same version today, and a silent skew tomorrow.
+     *
      * Paths are relative to this config file (no `baseUrl` — deprecated in
      * TypeScript 6 / removed in 7).
      */
@@ -38,15 +48,18 @@
       "react": ["./node_modules/@types/react"],
       "react-dom": ["./node_modules/@types/react-dom"],
       "react/jsx-runtime": ["./node_modules/@types/react/jsx-runtime"],
-      "pino": ["./node_modules/pino"],
-      "hono": ["./node_modules/hono"],
+      "pino": ["../../node_modules/pino"],
+      "hono": ["../../node_modules/hono"],
       "hono/streaming": [
-        "./node_modules/hono/dist/types/helper/streaming/index"
+        "../../node_modules/hono/dist/types/helper/streaming/index"
       ],
-      "@hono/node-server": ["./node_modules/@hono/node-server"],
-      "atomically": ["./node_modules/atomically"],
-      "chokidar": ["./node_modules/chokidar"],
-      "@napi-rs/keyring": ["./node_modules/@napi-rs/keyring"],
+      "@hono/node-server": ["../../node_modules/@hono/node-server"],
+      "atomically": ["../../node_modules/atomically"],
+      "chokidar": ["../../node_modules/chokidar"],
+      "@napi-rs/keyring": ["../../node_modules/@napi-rs/keyring"],
+      "zod": ["../../node_modules/zod"],
+      "zod/v4": ["../../node_modules/zod/v4"],
+      "open": ["../../node_modules/open"],
       "react-syntax-highlighter/dist/esm/prism-light": [
         "./src/types/react-syntax-highlighter-prism-light"
       ],

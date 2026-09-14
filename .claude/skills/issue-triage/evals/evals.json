@@ -1,0 +1,30 @@
+[
+  {
+    "prompt": "Triage the new issues.",
+    "expect": "issue-triage"
+  },
+  {
+    "prompt": "How do I decide what Priority an incoming issue deserves?",
+    "expect": "issue-triage"
+  },
+  {
+    "prompt": "Audit the project board for anything that has drifted.",
+    "expect": "issue-triage"
+  },
+  {
+    "prompt": "How do I find the issues that aren't on either board yet?",
+    "expect": "issue-triage"
+  },
+  {
+    "prompt": "After scoring an issue against the rubric, what do I do with the score?",
+    "expect": "issue-triage"
+  },
+  {
+    "prompt": "Who wrote the novel Moby-Dick?",
+    "expect": null
+  },
+  {
+    "prompt": "Convert 45 degrees Celsius to Fahrenheit.",
+    "expect": null
+  }
+]

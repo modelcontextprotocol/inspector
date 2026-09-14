@@ -10,9 +10,18 @@ import {
 } from "@mantine/core";
 import { accessibleTextColor } from "../../elements/accessibleTextColor";
 import { ClearButton } from "../../elements/ClearButton/ClearButton";
+import { useValueChange } from "../../../hooks/useValueChange";
 import type { ResourceTemplateType as ResourceTemplate } from "@modelcontextprotocol/client";
 import { AnnotationBadge } from "../../elements/AnnotationBadge/AnnotationBadge";
 import { CopyButton } from "../../elements/CopyButton/CopyButton";
+import {
+  definedValues,
+  previewUriTemplate,
+  requiredGroups,
+  templateVariables,
+  tryExpandUriTemplate,
+  unmetRequiredGroups,
+} from "../../../utils/uriTemplate";
 
 export interface ResourceTemplatePanelProps {
   template: ResourceTemplate;
@@ -38,32 +47,22 @@ export interface ResourceTemplatePanelProps {
 
 const COMPLETION_DEBOUNCE_MS = 300;
 
-function parseVariableNames(uriTemplate: string): string[] {
-  const names: string[] = [];
-  const regex = /\{(\w+)\}/g;
-  let match: RegExpExecArray | null;
-
-  while ((match = regex.exec(uriTemplate)) !== null) {
-    names.push(match[1]);
-  }
-
-  return names;
-}
-
-function resolveUri(
-  uriTemplate: string,
-  variables: Record<string, string>,
-): string {
-  return uriTemplate.replace(/\{(\w+)\}/g, (_, key: string) => variables[key]);
-}
-
-function previewUri(
-  uriTemplate: string,
-  variables: Record<string, string>,
-): string {
-  return uriTemplate.replace(/\{(\w+)\}/g, (match, key: string) =>
-    variables[key]?.length > 0 ? variables[key] : match,
-  );
+/**
+ * The completions fetched for one variable, ignoring anything inherited from
+ * `Object.prototype`.
+ *
+ * `toString`, `constructor` and `__proto__` are valid RFC 6570 variable names,
+ * and this map starts empty — so a bare `completions[varName] ?? []` returned
+ * the prototype's *function* for such a name (`??` only catches null and
+ * undefined) and handed it to Mantine as its `data` array, crashing the field
+ * on first render. Same hazard the expansion path fixed for values; this is
+ * the one place the component reads a name-keyed map it did not seed.
+ */
+function completionsFor(
+  completions: Record<string, string[]>,
+  varName: string,
+): string[] {
+  return Object.hasOwn(completions, varName) ? completions[varName] : [];
 }
 
 const HeaderRow = Group.withProps({
@@ -89,6 +88,26 @@ const DescriptionText = Text.withProps({
   c: "dimmed",
 });
 
+// Why Read Resource is disabled when the template itself cannot be expanded.
+// Without it the button is inert with nothing on screen explaining the refusal.
+//
+// `role="alert"` because the message can appear *while typing* -- a pasted
+// value that cannot be encoded -- so a screen-reader user would otherwise meet
+// a silently disabled action. An alert is an assertive live region, which is
+// what announces text that arrives after first render.
+// What is still missing before Read Resource can fire. Dimmed rather than red:
+// an incomplete form is the expected starting state, not an error.
+const RequirementText = Text.withProps({
+  size: "sm",
+  c: "dimmed",
+});
+
+const ExpansionErrorText = Text.withProps({
+  size: "sm",
+  c: "red",
+  role: "alert",
+});
+
 // Left-aligned so the action sits closest to the sidebar controls / the form
 // fields above; annotation badges trail it.
 const FooterRow = Group.withProps({
@@ -107,21 +126,33 @@ export function ResourceTemplatePanel({
 }: ResourceTemplatePanelProps) {
   const { name, title, uriTemplate, description, annotations } = template;
 
-  const variableNames = useMemo(
-    () => parseVariableNames(uriTemplate),
+  // Every variable the template declares, with the operator it appears under
+  // and whether omitting it would change the URI's shape (see `utils/uriTemplate`).
+  const declaredVariables = useMemo(
+    () => templateVariables(uriTemplate),
     [uriTemplate],
   );
+  const variableNames = useMemo(
+    () => declaredVariables.map((v) => v.name),
+    [declaredVariables],
+  );
+  // The names of each expression that cannot be omitted. Kept separate from
+  // `declaredVariables` (which is deduplicated for rendering) because each
+  // required expression has to be satisfied on its own — see `requiredGroups`.
+  const groups = useMemo(() => requiredGroups(uriTemplate), [uriTemplate]);
 
   const [variables, setVariables] = useState<Record<string, string>>(() =>
     Object.fromEntries(variableNames.map((n) => [n, ""])),
   );
   const [completions, setCompletions] = useState<Record<string, string[]>>({});
 
-  // Reset state when the user switches to a different template.
-  useEffect(() => {
+  // Reset state when the user switches to a different template. Keyed on
+  // `uriTemplate` alone because `variableNames` is memoized from it, so the two
+  // can never change independently.
+  useValueChange(uriTemplate, () => {
     setVariables(Object.fromEntries(variableNames.map((n) => [n, ""])));
     setCompletions({});
-  }, [uriTemplate, variableNames]);
+  });
 
   // Latest in-flight controller per argument, so a faster keystroke can
   // abort an outstanding completion request and the late response can't
@@ -193,7 +224,8 @@ export function ResourceTemplatePanel({
     // show ghost suggestions from the old keystroke while the new
     // request is in flight (300ms debounce + network latency).
     setCompletions((prev) => {
-      if (prev[varName] === undefined) return prev;
+      // Own-property, as above: an inherited member is not a stale dropdown.
+      if (!Object.hasOwn(prev, varName)) return prev;
       const next = { ...prev };
       delete next[varName];
       return next;
@@ -229,13 +261,40 @@ export function ResourceTemplatePanel({
     void runCompletion(varName, value, buildContext(varName));
   }
 
-  const canSubmit = variableNames.every((n) => variables[n]?.length > 0);
+  // Two independent gates on the read.
+  //
+  // First, whether the values cover what expansion structurally needs. Only the
+  // expressions whose absence would change the URI's shape count; an unfilled
+  // `{?topic}` is a legitimate request for the unfiltered resource, and RFC 6570
+  // drops the whole expression for it. The rule is per-expression rather than
+  // per-variable -- `{a,b}` with only `a` filled expands to `a`'s value -- so it
+  // lives in core beside the expander.
+  //
+  // Second, whether the template expands at all. A template the server
+  // advertised can be malformed (`{id:abc}`, `{a,}`) and a pasted value can be
+  // unencodable, and in neither case is there a URI to send -- so withhold the
+  // request and say why, rather than reading the raw template with its braces
+  // intact and letting the server answer with a confusing "not found".
+  // `definedValues` is applied here rather than inside the expander: a key
+  // present with `""` is a *defined* RFC 6570 value and legitimately expands to
+  // `?topic=`, but this form seeds every declared variable with `""`, so an
+  // untouched field is indistinguishable from a deliberately empty one. That is
+  // a fact about the form, so the form is what resolves it.
+  const expansion = tryExpandUriTemplate(uriTemplate, definedValues(variables));
+  // Named rather than merely counted, so a disabled Read Resource always has a
+  // reason on screen. Per-field hints cannot carry this: a variable shared
+  // across several groups looks satisfied once any one of them is met.
+  const unmet = unmetRequiredGroups(groups, variables);
+  const canSubmit = expansion.error === undefined && unmet.length === 0;
 
   function handleSubmit() {
-    onReadResource(resolveUri(uriTemplate, variables));
+    /* v8 ignore next -- unreachable: the button is disabled whenever the
+       expansion failed, which is the only way `uri` is undefined. */
+    if (expansion.uri === undefined) return;
+    onReadResource(expansion.uri);
   }
 
-  const preview = previewUri(uriTemplate, variables);
+  const preview = previewUriTemplate(uriTemplate, variables);
 
   return (
     <Stack gap="md">
@@ -248,16 +307,47 @@ export function ResourceTemplatePanel({
       </HeaderRow>
       {description && <DescriptionText>{description}</DescriptionText>}
       <Stack gap="sm">
-        {variableNames.map((varName) => {
+        {declaredVariables.map(({ name: varName, required }) => {
           /* v8 ignore next -- `?? ""` fallback unreachable: `variables` is seeded with every declared variable, so the key is always present. */
           const fieldValue = variables[varName] ?? "";
+          // RFC 6570 omits an undefined variable under a query/path-segment
+          // operator entirely, so those fields are genuinely optional. In a
+          // required multi-name expression no single field is mandatory either
+          // -- any one of them satisfies it -- so say which, rather than
+          // marking each one required and blocking valid input.
+          // A name can sit in a singleton required group *and* a shared one
+          // (`x://{a}/{a,b}`). The singleton demands this exact field, so the
+          // "any one of" hint would contradict the disabled submit button --
+          // suppress it and let the field read as plainly required.
+          const individuallyRequired = groups.some(
+            (names) => names.length === 1 && names[0] === varName,
+          );
+          // EVERY shared group this variable sits in, not the first. With
+          // `{a,b}{b,c}{a,c}`, showing only the first left `b` looking like it
+          // satisfied everything while Read Resource stayed disabled on the
+          // unmet `{a,c}` -- a hidden requirement is worse than a wordy hint.
+          // The form-level "Still needed" line below names what is actually
+          // outstanding, which is the part a per-field hint cannot express.
+          const sharedGroups = individuallyRequired
+            ? []
+            : groups.filter(
+                (names) => names.length > 1 && names.includes(varName),
+              );
+          const description = !required
+            ? "Optional"
+            : sharedGroups.length > 0
+              ? `Any one of${sharedGroups.length > 1 ? " each" : ""}: ${sharedGroups
+                  .map((names) => names.join(", "))
+                  .join("; ")}`
+              : undefined;
           return useAutocomplete ? (
             <Autocomplete
               key={varName}
               label={varName}
+              description={description}
               placeholder={`Enter ${varName}`}
               value={fieldValue}
-              data={completions[varName] ?? []}
+              data={completionsFor(completions, varName)}
               // The server already filtered the values for the typed
               // prefix; passing options through verbatim avoids hiding
               // valid suggestions when the input is empty or doesn't
@@ -270,6 +360,7 @@ export function ResourceTemplatePanel({
             <TextInput
               key={varName}
               label={varName}
+              description={description}
               placeholder={`Enter ${varName}`}
               value={fieldValue}
               onChange={(e) =>
@@ -287,6 +378,14 @@ export function ResourceTemplatePanel({
           );
         })}
       </Stack>
+      {expansion.error !== undefined && (
+        <ExpansionErrorText>{expansion.error}</ExpansionErrorText>
+      )}
+      {expansion.error === undefined && unmet.length > 0 && (
+        <RequirementText>
+          Still needed: {unmet.map((names) => names.join(" or ")).join("; ")}
+        </RequirementText>
+      )}
       <FooterRow>
         <Button size="sm" disabled={!canSubmit} onClick={handleSubmit}>
           Read Resource

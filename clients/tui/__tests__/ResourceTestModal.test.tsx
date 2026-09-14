@@ -1,6 +1,6 @@
 import React from "react";
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { render } from "ink-testing-library";
+import { render } from "./helpers/renderTui";
 import type { InspectorClient } from "@inspector/core/mcp/index.js";
 import { AuthRecoveryRequiredError } from "@inspector/core/auth/challenge.js";
 
@@ -77,6 +77,73 @@ const renderAndSubmit = async (
 };
 
 describe("ResourceTestModal", () => {
+  // RFC 6570 keeps a required expression satisfied by any ONE of its names, so
+  // `{a,b}` cannot be expressed with ink-form's per-field `required` flag and
+  // its members are left optional there. Without the modal's own group check
+  // the TUI would submit blank -- dropping the expression and reading a
+  // different resource -- while the web panel blocks the same request (#1919).
+  describe("required-group validation", () => {
+    it("refuses to submit when no name in a required group has a value", async () => {
+      const read = vi.fn();
+      const { onClose, unmount } = await renderAndSubmit(
+        fakeClient(read),
+        makeTemplate({ uriTemplate: "x://{a,b}" }),
+        { a: "", b: "" },
+      );
+      expect(read).not.toHaveBeenCalled();
+      expect(onClose).not.toHaveBeenCalled();
+      unmount();
+    });
+
+    it("blocks a required variable whose name collides with Object.prototype", async () => {
+      // `constructor` is a valid RFC 6570 varname, and the modal's own filter
+      // used to read `Object` (length 1) as a filled value. The *message* built
+      // from that filter came out naming no field; since frames render empty
+      // here (see the header note), that half is asserted on
+      // `unmetRequiredGroups` in the core suite. This asserts the gate.
+      const read = vi.fn();
+      const { onClose, unmount } = await renderAndSubmit(
+        fakeClient(read),
+        makeTemplate({ uriTemplate: "x://{constructor}" }),
+        { constructor: "" },
+      );
+      expect(read).not.toHaveBeenCalled();
+      expect(onClose).not.toHaveBeenCalled();
+      unmount();
+    });
+
+    it("submits once any one name in the group has a value", async () => {
+      const read = vi.fn().mockResolvedValue({
+        result: { contents: [] },
+        expandedUri: "x://only-a",
+      });
+      const { unmount } = await renderAndSubmit(
+        fakeClient(read),
+        makeTemplate({ uriTemplate: "x://{a,b}" }),
+        { a: "only-a", b: "" },
+      );
+      // The untouched field is dropped before the read: `""` is a *defined*
+      // RFC 6570 value that would expand to a valueless pair, and ink-form
+      // cannot distinguish "never touched" from "deliberately empty".
+      expect(read).toHaveBeenCalledWith("x://{a,b}", { a: "only-a" });
+      unmount();
+    });
+
+    it("does not block a template whose only expression is omittable", async () => {
+      const read = vi.fn().mockResolvedValue({
+        result: { contents: [] },
+        expandedUri: "x://events",
+      });
+      const { unmount } = await renderAndSubmit(
+        fakeClient(read),
+        makeTemplate({ uriTemplate: "x://events{?topic}" }),
+        { topic: "" },
+      );
+      expect(read).toHaveBeenCalled();
+      unmount();
+    });
+  });
+
   it("renders the form initially without invoking the client", async () => {
     const read = vi.fn();
     const api = render(

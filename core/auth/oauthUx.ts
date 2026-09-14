@@ -1,4 +1,5 @@
 import type { AuthChallenge } from "./challenge.js";
+import type { IssuerBindingFailure } from "./issuerBinding.js";
 
 export type OAuthInteractiveAuthKind = "step_up" | "reauth";
 
@@ -43,6 +44,34 @@ export function authRecoveryRestoredMessage(options?: {
   return retry
     ? "Session credentials were updated. Retry your action."
     : "Session credentials were updated.";
+}
+
+/**
+ * Toast when a *deferred* authorization recovery (#2165) fails partway
+ * through — the tab-visible / reconnect resume, not a user-initiated one.
+ *
+ * Phrased as "will try again" rather than as a final failure because the
+ * pending recovery is restored when this fires: the slot was cleared only to
+ * keep two triggers from racing, and it is still owed.
+ */
+export function authRecoveryRetryFailedMessage(detail?: string): string {
+  const base =
+    "Could not continue the pending authorization. The Inspector will try again the next time this tab becomes active or the session reconnects.";
+  return detail?.trim() ? `${base} (${detail.trim()})` : base;
+}
+
+/**
+ * Toast when a deferred authorization recovery fails *and* the session it
+ * belonged to has ended, so nothing was left pending to retry (#2165).
+ *
+ * Distinct from {@link authRecoveryRetryFailedMessage} because promising a
+ * retry the code has explicitly declined to make is worse than saying nothing:
+ * the user waits for something that will never happen.
+ */
+export function authRecoveryAbandonedMessage(detail?: string): string {
+  const base =
+    "Could not continue the pending authorization, and the session it belonged to has ended. Reconnect to authorize again.";
+  return detail?.trim() ? `${base} (${detail.trim()})` : base;
 }
 
 export function oauthResumeAbandonedMessage(
@@ -224,6 +253,106 @@ export function isReAuthBannerReason(
   );
 }
 
+/** Banner/alert heading when the recorded authorization state was lost. */
+export function lostAuthorizationStateTitle(): string {
+  return "Authorization state was lost";
+}
+
+/**
+ * Plain-language explanation for a callback that arrived with no recorded
+ * discovery state (SEP-2352). Deliberately does not surface the SDK's
+ * `AuthorizationServerMismatchError` text — that wording reads like a security
+ * failure, and this case is ordinary bookkeeping loss.
+ */
+export function lostAuthorizationStateMessage(options?: {
+  serverName?: string;
+}): string {
+  const target = options?.serverName
+    ? `"${options.serverName}"`
+    : "this server";
+  return (
+    `The stored authorization state for ${target} was lost before the ` +
+    "authorization server sent you back, so the sign-in could not be " +
+    "completed. This usually means a new browser session, a different tab, or " +
+    "authorization state that was cleared while the flow was in progress. " +
+    "Authorize again to reconnect."
+  );
+}
+
+/** Action label for the lost-authorization-state recovery affordance. */
+export function lostAuthorizationStateActionLabel(): string {
+  return "Authorize again";
+}
+
+/** Heading for a genuine cross-authorization-server mismatch (a security signal). */
+export function issuerMismatchTitle(): string {
+  return "Authorization server mismatch";
+}
+
+/**
+ * Longest issuer we will echo back into user-facing copy.
+ *
+ * `currentIssuer` is remote-supplied (it comes from the configured server's AS
+ * metadata), so an overlong value could be used to abuse the notification
+ * layout. Rendering is escaped, so this is a presentation bound, not an
+ * injection defence.
+ */
+const MAX_DISPLAYED_ISSUER_LENGTH = 120;
+
+/** Bound a remote-supplied URL for display, marking any truncation. */
+export function truncateUrlForDisplay(url: string): string {
+  return url.length > MAX_DISPLAYED_ISSUER_LENGTH
+    ? `${url.slice(0, MAX_DISPLAYED_ISSUER_LENGTH)}…`
+    : url;
+}
+
+/** Bound an issuer for display, marking any truncation. */
+export function truncateIssuerForDisplay(issuer: string): string {
+  return truncateUrlForDisplay(issuer);
+}
+
+/**
+ * Copy for a genuine SEP-2352 issuer mismatch. This is *not* offered a
+ * one-click recovery: the authorization code and PKCE verifier are bound to the
+ * server that minted them, and a different server answering the callback is a
+ * credential-exfiltration signal the user must investigate.
+ */
+export function issuerMismatchMessage(options: {
+  recordedIssuer: string;
+  currentIssuer: string;
+  serverName?: string;
+}): string {
+  const target = options.serverName ? `"${options.serverName}"` : "this server";
+  return (
+    `Authorization for ${target} was stopped: the flow started at ` +
+    `${truncateIssuerForDisplay(options.recordedIssuer)} but the callback ` +
+    `resolved ${truncateIssuerForDisplay(options.currentIssuer)}. ` +
+    "The authorization code was not exchanged. " +
+    "Verify the server's authorization configuration before trying again."
+  );
+}
+
+/** Title + message for a callback-leg issuer-binding failure. */
+export function issuerBindingFailureCopy(
+  failure: IssuerBindingFailure,
+  options?: { serverName?: string },
+): { title: string; message: string } {
+  if (failure.kind === "lost_authorization_state") {
+    return {
+      title: lostAuthorizationStateTitle(),
+      message: lostAuthorizationStateMessage(options),
+    };
+  }
+  return {
+    title: issuerMismatchTitle(),
+    message: issuerMismatchMessage({
+      recordedIssuer: failure.recordedIssuer,
+      currentIssuer: failure.currentIssuer,
+      serverName: options?.serverName,
+    }),
+  };
+}
+
 export function reAuthBannerMessage(options: {
   serverName?: string;
   detail?: string;
@@ -232,4 +361,72 @@ export function reAuthBannerMessage(options: {
     ? `Authentication for "${options.serverName}" needs attention.`
     : "Authentication needs attention.";
   return options.detail ? `${prefix} ${options.detail}` : prefix;
+}
+
+/**
+ * Heading for the SDK's terminal token-endpoint refusal to post credentials to a non-TLS token
+ * endpoint (#2280).
+ *
+ * Deliberately not phrased as an authentication failure. Like
+ * {@link issuerMismatchTitle}, this is offered **no** one-click recovery: the
+ * SDK rethrows `InsecureTokenEndpointError` rather than retrying, so a
+ * "Re-authenticate" affordance here could only fail the same way, and a button
+ * that cannot work is worse than no button.
+ */
+export function insecureTokenEndpointTitle(): string {
+  return "Token endpoint is not secure";
+}
+
+/**
+ * Plain-language explanation and the two things that actually resolve it.
+ *
+ * Does not echo the SDK's own message, which reads as a flat refusal and tells
+ * the user nothing about which lever to reach for.
+ *
+ * The opening says "without sending **this** request" rather than "before any
+ * credentials were sent". The absolute form was wrong: this same notice serves
+ * the mid-session refresh and re-authentication paths, where credentials were
+ * legitimately sent earlier in the session, and a user who had been connected
+ * for an hour would rightly read it as describing a different failure.
+ *
+ * The exemption is listed as `::1` (that is the host the SDK compares) but the
+ * remedy says `[::1]`, because that is what a user must actually type: a bare
+ * IPv6 literal is not a legal URL host and `new URL("http://::1/token")`
+ * throws. The two spellings are deliberately different — do not "fix" either
+ * into the other.
+ *
+ * The section name is the one the UI actually renders — **OAuth Settings**,
+ * with a **Token URL override** field — not "Authorization". Sending someone to
+ * a settings section that does not exist is the worst possible error in the one
+ * message whose entire job is telling them where to go.
+ *
+ * The scheme half says "not HTTPS" rather than "plain HTTP": the SDK's check is
+ * `protocol !== "https:"`, so anything else an authorization server advertises
+ * — including a mistyped `ftp:` or `ws:` endpoint — lands here too, and naming
+ * the wrong scheme would send the reader looking for a problem they do not have.
+ *
+ * The host half is "outside the SDK's loopback exemption", never "not loopback".
+ * The motivating hosts — `tenant.app.localhost` (#1944), the `localhost.`
+ * fixture — *are* loopback by RFC 6761 and by every resolver on the machine;
+ * what they are outside is a three-literal allow-list. Calling them non-loopback
+ * would send a reader to debug their networking instead of their configuration. The endpoint is
+ * remote-supplied (it comes from the server's authorization-server metadata),
+ * so it is bounded for display by {@link truncateUrlForDisplay}; rendering is
+ * escaped, so that is a layout bound rather than an injection defence.
+ */
+export function insecureTokenEndpointMessage(options: {
+  tokenEndpoint: string;
+  serverName?: string;
+}): string {
+  const target = options.serverName ? `"${options.serverName}"` : "this server";
+  return (
+    `Authorization for ${target} was stopped without sending this request: ` +
+    `its token endpoint ${truncateUrlForDisplay(options.tokenEndpoint)} is ` +
+    "not HTTPS, and its host is outside the MCP SDK's loopback exemption, " +
+    "which covers only localhost, 127.0.0.1 and ::1. Re-authenticating cannot " +
+    "change this. Serve the token endpoint over HTTPS, or move it to " +
+    "localhost, 127.0.0.1 or [::1] — Server Settings → OAuth Settings has a " +
+    '"Token URL override" if the authorization server advertises a different ' +
+    "one."
+  );
 }

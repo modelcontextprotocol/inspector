@@ -1,0 +1,30 @@
+[
+  {
+    "prompt": "npm run local:gate just failed at the coverage stage. What do I do?",
+    "expect": "pre-push-gate"
+  },
+  {
+    "prompt": "The gate's Storybook stage is failing for me. How do I diagnose it?",
+    "expect": "pre-push-gate"
+  },
+  {
+    "prompt": "Everything in the gate started timing out at once. What causes that?",
+    "expect": "pre-push-gate"
+  },
+  {
+    "prompt": "How do I check whether a stage of the gate really passed?",
+    "expect": "pre-push-gate"
+  },
+  {
+    "prompt": "The gate failed at the lint stage. How do I work out what is wrong?",
+    "expect": "pre-push-gate"
+  },
+  {
+    "prompt": "What is 17 multiplied by 23?",
+    "expect": null
+  },
+  {
+    "prompt": "Write a limerick about a cat.",
+    "expect": null
+  }
+]

@@ -44,7 +44,7 @@ export const Default: Story = {
   render: () => <ResizeDemo />,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    expect(
+    await expect(
       canvas.getByRole("separator", { name: "Resize demo panel" }),
     ).toBeInTheDocument();
   },

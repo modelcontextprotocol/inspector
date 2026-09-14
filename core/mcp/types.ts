@@ -23,7 +23,12 @@ import type { Client } from "@modelcontextprotocol/client";
 import type { OAuthClientProvider } from "@modelcontextprotocol/client";
 import type { Transport } from "@modelcontextprotocol/client";
 import type { InspectorLogger } from "../logging/logger.js";
-import type { JsonValue } from "../json/jsonUtils.js";
+import type { AppElicitationRenderer } from "./appElicitation.js";
+import type {
+  JsonValue,
+  StrictJsonObject,
+  StrictJsonValue,
+} from "../json/jsonUtils.js";
 import type {
   ClientConfig,
   EnterpriseManagedAuthIdpConfig,
@@ -33,6 +38,7 @@ import type {
   RedirectUrlProvider,
 } from "../auth/providers.js";
 import type { OAuthStorage } from "../auth/storage.js";
+import type { AuthChallenge } from "../auth/challenge.js";
 
 // Stdio transport config
 export interface StdioServerConfig {
@@ -98,11 +104,20 @@ export type StoredMCPServer = MCPServerConfig & {
    */
   headers?: Record<string, string>;
   /**
-   * Default `_meta` keys merged into every outgoing MCP request. Inspector-
-   * specific (no analog in the broader mcp.json ecosystem), so the pair-array
-   * shape is preserved on disk and in memory.
+   * Default `_meta` payload merged into every outgoing MCP request. Inspector-
+   * specific (no analog in the broader mcp.json ecosystem).
+   *
+   * A JSON object, so a value may be any JSON — object, array, number, boolean,
+   * `null` — not just a string (#1910). Nothing in the MCP spec restricts
+   * `_meta` to string values, and the SDK models it as a passthrough object;
+   * the string-pair restriction was the Inspector's own.
+   *
+   * The pre-#1910 on-disk shape was a `{ key, value }[]` pair array. It is
+   * still **read** (see `normalizeStoredMetadata` in `serverList.ts`) so an
+   * existing `mcp.json` keeps working, but it is never written back — a
+   * round-trip through the Inspector rewrites the field as an object.
    */
-  metadata?: { key: string; value: string }[];
+  metadata?: StrictJsonObject;
   /**
    * Protocol era to negotiate with this server (`"legacy" | "auto" | "modern"`),
    * orthogonal to the transport `type`. Inspector-specific (no analog in the
@@ -117,7 +132,11 @@ export type StoredMCPServer = MCPServerConfig & {
    * (#1629)
    */
   modernLogLevel?: ModernLogLevel;
-  /** Inspector-specific connect-time timeout (ms). */
+  /**
+   * Inspector-specific connect-time timeout (ms). Absent reads back as
+   * `DEFAULT_CONNECTION_TIMEOUT_MS`; an explicit `0` disables the timeout and
+   * is persisted so it round-trips (#2320).
+   */
   connectionTimeout?: number;
   /** Inspector-specific request timeout (ms). */
   requestTimeout?: number;
@@ -166,6 +185,49 @@ export type StoredMCPServer = MCPServerConfig & {
     enterpriseManaged?: boolean;
     /** SEP-2350 step-up policy for `403 insufficient_scope` (default `reauthorize`). */
     onInsufficientScope?: OnInsufficientScopePolicy;
+    /**
+     * Whether the Inspector declares the `refresh_token` grant when it
+     * registers. Defaults to `true`; only `false` is written to disk, so an
+     * entry that never touched the setting keeps a minimal diff. Turning it off
+     * stops the SDK's *automatic* `offline_access` augmentation, and so the
+     * `prompt=consent` that scope forces — but only that one: an
+     * `offline_access` from `scopes` here, or from the resource's advertised
+     * scopes when `scopes` is unset, still reaches the authorization request.
+     * See {@link InspectorServerSettings.oauthRequestRefreshToken}.
+     * Inspector-specific. (#2068)
+     */
+    requestRefreshToken?: boolean;
+    /**
+     * Whether clearing this server's OAuth state also revokes the grant at the
+     * authorization server (RFC 7009). Defaults to `true`; only `false` is
+     * written to disk, so an entry that never touched the setting keeps a
+     * minimal diff. See {@link InspectorServerSettings.oauthRevokeOnClear}.
+     * Inspector-specific. (#2144)
+     */
+    revokeOnClear?: boolean;
+    /**
+     * Custom query parameters appended to the OAuth **authorization request**
+     * (never the token request) — e.g. Keycloak's `kc_idp_hint`, OIDC's
+     * `login_hint` / `prompt` / `acr_values`, Auth0's `audience`. Reserved,
+     * protocol-critical keys (`client_id`, `state`, `code_challenge`, …) are
+     * rejected by the form and dropped with a warning at merge time. Omitted on
+     * disk when empty, keeping the file diff minimal. Inspector-specific.
+     * (#2018)
+     */
+    authorizationParams?: Record<string, string>;
+    /**
+     * Overrides the `authorization_endpoint` the authorization server's
+     * metadata document advertises — for pointing a server at a development or
+     * staging authorization server without changing what it publishes.
+     * Inspector-specific. (#1906)
+     */
+    authorizationUrl?: string;
+    /**
+     * Overrides the `token_endpoint` the authorization server's metadata
+     * document advertises. Independent of {@link authorizationUrl}.
+     * Inspector-specific. (#1906)
+     */
+    tokenUrl?: string;
   };
   /**
    * Filesystem/URI roots advertised to the server via the `roots` client
@@ -285,6 +347,14 @@ export interface MessageEntry {
     | JSONRPCErrorResponse;
   response?: JSONRPCResultResponse | JSONRPCErrorResponse;
   duration?: number; // Time between request and response in ms
+  /**
+   * Why the CLIENT rejected an otherwise well-formed response — e.g. the SDK's
+   * era codec refusing a 2026-07-28 `tools/list` result that omits
+   * `ttlMs`/`cacheScope`. Distinct from a JSON-RPC `error` response: the server
+   * answered successfully and the wire frame is valid, so without this the
+   * entry renders as a clean success even though the call failed (#1953).
+   */
+  clientError?: string;
 }
 
 /** Method name for any MessageEntry traffic, plus synthetic "response" for result/error entries. */
@@ -330,6 +400,24 @@ export interface ServerState {
 }
 
 /**
+ * A `_meta` payload: a JSON object whose values may be any JSON, not just
+ * strings (#1910).
+ *
+ * {@link StrictJsonValue}, not `JsonValue`: the latter admits `undefined`,
+ * which `JSON.stringify` drops from an object and turns into `null` inside an
+ * array — so a value the type accepted would not be the value that reaches the
+ * server, contradicting the one promise this payload makes.
+ *
+ * The MCP spec places no restriction on `_meta` value types and the SDK models
+ * the field as a passthrough object, so the Inspector must be able to send —
+ * and to record — nested objects, arrays, numbers, booleans and `null`. Used
+ * for both the per-server default payload (`InspectorServerSettings.metadata`,
+ * `InspectorClientOptions.defaultMetadata`) and the per-call metadata every
+ * request verb accepts.
+ */
+export type RequestMetadata = Record<string, StrictJsonValue>;
+
+/**
  * Represents a complete resource read invocation, including request parameters,
  * response, and metadata.
  */
@@ -337,7 +425,7 @@ export interface ResourceReadInvocation {
   result: ReadResourceResult;
   timestamp: Date;
   uri: string;
-  metadata?: Record<string, string>;
+  metadata?: RequestMetadata;
 }
 
 /**
@@ -350,7 +438,7 @@ export interface ResourceTemplateReadInvocation {
   result: ReadResourceResult;
   timestamp: Date;
   params: Record<string, string>;
-  metadata?: Record<string, string>;
+  metadata?: RequestMetadata;
 }
 
 /**
@@ -362,7 +450,7 @@ export interface PromptGetInvocation {
   timestamp: Date;
   name: string;
   params?: Record<string, string>;
-  metadata?: Record<string, string>;
+  metadata?: RequestMetadata;
 }
 
 /**
@@ -376,7 +464,7 @@ export interface ToolCallInvocation {
   timestamp: Date;
   success: boolean;
   error?: string;
-  metadata?: Record<string, string>;
+  metadata?: RequestMetadata;
   /**
    * Set only on the `skipOutputValidation` path: present when the (delivered)
    * result's structuredContent does NOT match the tool's declared outputSchema.
@@ -414,12 +502,19 @@ export interface InspectorResourceSubscription {
  * - `"ended"` — the server tore the stream down deliberately (`closed` resolved
  *   `"graceful"`, e.g. on shutdown) or reconnection was abandoned; no automatic
  *   re-listen.
+ * - `"never-acknowledged"` — the server answered the `listen()` request itself
+ *   with a JSON-RPC `result` (the spec's graceful-closure marker) without ever
+ *   sending `notifications/subscriptions/acknowledged`, so the stream was closed
+ *   in the same breath it was opened (#2097). Distinct from `"ended"` because
+ *   the condition is deterministic rather than a shutdown of an established
+ *   stream: the Inspector does not retry it, and the UI says why.
  */
 export type ResourceSubscriptionStreamStatus =
   | "connecting"
   | "acknowledged"
   | "reconnecting"
-  | "ended";
+  | "ended"
+  | "never-acknowledged";
 
 /**
  * State of the modern-era resource-subscription listen stream (#1630).
@@ -428,9 +523,14 @@ export type ResourceSubscriptionStreamStatus =
  * persistent stream, so `active` is `false` and the UI surfaces no stream chrome.
  * On the modern era all subscriptions are a filter over one long-lived
  * `subscriptions/listen` stream; `active` is `true` whenever that stream is being
- * managed (i.e. at least one URI is subscribed), and `honoredUris` is the subset
- * of requested URIs the server acknowledged in its `honoredFilter` (may be a
- * strict subset — a server is allowed to decline some).
+ * managed *for resource subscriptions* (i.e. at least one URI is subscribed), and
+ * `honoredUris` is the subset of requested URIs the server acknowledged in its
+ * `honoredFilter` (may be a strict subset — a server is allowed to decline some).
+ *
+ * `active: false` does not imply no stream: the same stream also carries the
+ * list-change opt-ins, so it can be open with no subscribed URI at all (#1920).
+ * This state describes the Subscriptions section, which has nothing to show for
+ * such a stream.
  */
 export interface ResourceSubscriptionStreamState {
   active: boolean;
@@ -503,8 +603,34 @@ export interface OAuthSettings {
   clientId: string;
   clientSecret: string;
   scopes: string;
+  /**
+   * Custom authorization-request parameters as controlled key/value rows.
+   * Optional so callers constructing an `OAuthSettings` for the other fields
+   * don't have to supply an empty array; the form always passes the current
+   * rows (blank ones included, so a half-typed row survives a re-render).
+   * (#2018)
+   */
+  authorizationParams?: { key: string; value: string }[];
+  /**
+   * Endpoint overrides applied to the discovered authorization-server metadata
+   * (#1906). Optional for the same reason as `authorizationParams` — callers
+   * building an `OAuthSettings` for the other fields need not supply them.
+   */
+  authorizationUrl?: string;
+  tokenUrl?: string;
   enterpriseManaged?: boolean;
   onInsufficientScope?: OnInsufficientScopePolicy;
+  /**
+   * Whether to declare the `refresh_token` grant (#2068). Optional for the same
+   * reason as `authorizationParams`; `undefined` means the default, on.
+   */
+  requestRefreshToken?: boolean;
+  /**
+   * Whether clearing the stored OAuth state revokes the grant at the
+   * authorization server (#2144). Optional for the same reason as
+   * `authorizationParams`; `undefined` means the default, on.
+   */
+  revokeOnClear?: boolean;
 }
 
 /**
@@ -520,6 +646,18 @@ export type OnInsufficientScopePolicy = "reauthorize" | "throw";
  * `MCP_TASK_TTL` config default. Used when a server has no explicit `taskTtl`.
  */
 export const DEFAULT_TASK_TTL_MS = 60000;
+
+/**
+ * Default connect-time timeout (ms) applied when a server has no explicit
+ * `connectionTimeout` — on disk, in the form, or on the client. The SDK has no
+ * connect-time timeout of its own; without this, the only thing bounding a
+ * connect attempt was the SDK's per-request timeout on `initialize`, which
+ * fires after 60 s with a message that describes a JSON-RPC request rather
+ * than a connection (#2320). `0` remains the explicit opt-out ("no timeout"),
+ * so a stored `connectionTimeout: 0` and the CLI's `--connect-timeout 0` keep
+ * their documented meaning; only an *absent* value resolves to this.
+ */
+export const DEFAULT_CONNECTION_TIMEOUT_MS = 30000;
 
 /**
  * Default maximum number of HTTP fetch requests retained in the Network log
@@ -566,6 +704,24 @@ export type ModernLogLevel = LoggingLevel | "off";
  * opt back out.
  */
 export const DEFAULT_MODERN_LOG_LEVEL: ModernLogLevel = "debug";
+
+/**
+ * The live modern per-request log level a server's settings imply: the
+ * configured value, or {@link DEFAULT_MODERN_LOG_LEVEL} when unset, with
+ * `"off"` meaning not opted in.
+ *
+ * One derivation, because the client stamps `_meta` from it while the web Logs
+ * control displays it — computing it separately on each side is how the two
+ * come to disagree, which is a bad failure for a tool whose job is showing what
+ * it sent (#1629, #1797). The web maps `undefined` to `null` at its own
+ * boundary; that is display, not a second derivation.
+ */
+export function resolveModernLogLevel(
+  settings?: Pick<InspectorServerSettings, "modernLogLevel">,
+): LoggingLevel | undefined {
+  const level = settings?.modernLogLevel ?? DEFAULT_MODERN_LOG_LEVEL;
+  return level === "off" ? undefined : level;
+}
 
 /** All modern-log-level values, for form options and the runtime guard. */
 export const MODERN_LOG_LEVELS: ModernLogLevel[] = [
@@ -619,7 +775,12 @@ export function eraToVersionNegotiation(
  */
 export interface InspectorServerSettings {
   headers: { key: string; value: string }[];
-  metadata: { key: string; value: string }[];
+  /**
+   * Default `_meta` payload for this server, edited as a JSON object rather
+   * than key/value rows so a value can be any JSON (#1910). Always present;
+   * `{}` means "send no default metadata".
+   */
+  metadata: RequestMetadata;
   /**
    * Environment variables for stdio servers, edited as controlled key/value
    * rows (mirrors `headers`). Only meaningful for stdio transports; non-stdio
@@ -636,6 +797,10 @@ export interface InspectorServerSettings {
    * empty/unset means "inherit". Only meaningful for stdio transports.
    */
   cwd?: string;
+  /**
+   * Connect-time timeout (ms). Defaults to `DEFAULT_CONNECTION_TIMEOUT_MS`
+   * (30000) when the server has no explicit value; `0` means no timeout.
+   */
   connectionTimeout: number;
   requestTimeout: number;
   /** TTL (ms) for tasks created via "Run as task". Defaults to 60000. */
@@ -644,10 +809,71 @@ export interface InspectorServerSettings {
   oauthClientSecret?: string;
   oauthScopes?: string;
   /**
+   * Custom authorization-request parameters, edited as controlled key/value
+   * rows (mirrors `headers` / `metadata`). Persisted as the
+   * `oauth.authorizationParams` record on disk; blank-key rows are dropped on
+   * the way there. Applied to the authorization request only. (#2018)
+   */
+  oauthAuthorizationParams?: { key: string; value: string }[];
+  /**
+   * Overrides the authorization endpoint discovery resolved, so a server can be
+   * pointed at a development or staging authorization server without changing
+   * what it advertises. Empty/absent means "use what discovery returned".
+   * Persisted as `oauth.authorizationUrl`. (#1906)
+   */
+  oauthAuthorizationUrl?: string;
+  /**
+   * Overrides the token endpoint discovery resolved. Independent of
+   * {@link oauthAuthorizationUrl}; persisted as `oauth.tokenUrl`. (#1906)
+   */
+  oauthTokenUrl?: string;
+  /**
    * SEP-2350 step-up policy for a `403 insufficient_scope` challenge on this
    * server's HTTP transport. Defaults to `reauthorize` when unset.
    */
   oauthOnInsufficientScope?: OnInsufficientScopePolicy;
+  /**
+   * Whether the Inspector declares the `refresh_token` grant in its OAuth
+   * client metadata for this server. `undefined` (the default) means on;
+   * persisted as `oauth.requestRefreshToken` only when explicitly off. Turning
+   * it off drops the SDK's *automatic* `offline_access` scope and so the
+   * `prompt=consent` it forces — the Entra admin-consent failure in #2068.
+   *
+   * Only the automatic one: `startAuthorization` adds `prompt=consent` for any
+   * `offline_access` in the effective scope without consulting `grant_types`,
+   * so a scope the user configured (or one the resource advertises when the
+   * scope field is blank) still forces the prompt.
+   *
+   * Read at connect time like the rest of the OAuth block, so a live client
+   * keeps the metadata it was built with. It changes what the Inspector
+   * declares, not state the authorization server already holds: an existing
+   * registration still lists the grant, and a refresh token issued earlier
+   * stays usable (the SDK's refresh path never consults `grant_types`) until
+   * the stored OAuth state is cleared.
+   */
+  oauthRequestRefreshToken?: boolean;
+  /**
+   * Whether clearing this server's stored OAuth state also revokes the grant
+   * at the authorization server, per RFC 7009 (#2144). `undefined` (the
+   * default) means on; persisted as `oauth.revokeOnClear` only when explicitly
+   * off.
+   *
+   * The request is built from the stored state *before* the clear and sent
+   * *after* it, so the local delete never waits on the network — see
+   * `core/auth/revocation.ts`.
+   *
+   * On is the right default because the alternative is silent: the Inspector
+   * deletes its local copy and the access token — and the refresh token, which
+   * is long-lived by design — stay valid at the authorization server until they
+   * expire on their own, leaving it holding grants for sessions that ended
+   * hours ago.
+   *
+   * Turning it off is a testing affordance rather than only an escape hatch: a
+   * client that walks away still holding live tokens is a case a server author
+   * may want to reproduce on purpose. It is read at clear time, not at connect
+   * time, so toggling it takes effect on the next clear without reconnecting.
+   */
+  oauthRevokeOnClear?: boolean;
   /**
    * When true, connect via the configured enterprise IdP (EMA) instead of
    * interactive OAuth to the MCP authorization server. Per-server OAuth
@@ -778,6 +1004,15 @@ export interface CreateTransportOptions {
    * become {@link AuthChallengeError} before the SDK calls `auth()` on a frozen provider.
    */
   interceptAuthChallenges?: boolean;
+
+  /**
+   * Called for every HTTP 401/403 the transport sees, without altering control
+   * flow. Unlike {@link interceptAuthChallenges} this never throws, so it also
+   * covers the legacy first-time-authorization path where interception is
+   * deliberately off and the SDK's headerless `UnauthorizedError` would
+   * otherwise lose the challenge's `resource_metadata` (#2071).
+   */
+  onAuthChallengeObserved?: (challenge: AuthChallenge) => void;
 }
 
 export interface CreateTransportResult {
@@ -808,9 +1043,13 @@ export type CreateTransport = (
 ) => CreateTransportResult;
 
 /**
- * Type for the client-like object passed to AppRenderer / @mcp-ui.
- * Structurally compatible with the MCP SDK Client but denotes the app-renderer
- * proxy, not the raw client. Use this type when passing the client to the Apps tab.
+ * The SDK `Client` handed to the MCP Apps host bridge (`AppBridge` in
+ * `@modelcontextprotocol/ext-apps`), obtained through
+ * `InspectorClient.getAppRendererClient()`, which returns it only while the
+ * connection status is `connected` and `null` otherwise. It is the real client,
+ * not a wrapper: since ext-apps 2.0.0 peers on SDK v2 the bridge registers on
+ * it directly, and the v1-peer translation proxy this alias used to denote is
+ * gone (#1745). Use this type when passing the client to the Apps tab.
  */
 export type AppRendererClient = Client;
 
@@ -830,7 +1069,12 @@ export interface InspectorClientEnvironment {
   /**
    * Optional fetch function for HTTP requests (OAuth discovery/token exchange and
    * MCP transport). When provided, used for both auth and transport to bypass CORS.
-   * - Node: undefined (uses global fetch)
+   * - Node: `createProxyFetch()` (core/mcp/node/proxyFetch.ts) — a proxy-aware
+   *   fetch when `HTTPS_PROXY`/`HTTP_PROXY` is set, and `undefined` otherwise,
+   *   which leaves the built-in global fetch in place. This is the BOTTOM of the
+   *   fetch stack: `InspectorClient` wraps whatever it finds here, so proxying
+   *   composes with request tracking and the OAuth endpoint overrides instead of
+   *   being discarded by them (#2067).
    * - Browser: createRemoteFetch
    */
   fetch?: typeof fetch;
@@ -888,8 +1132,16 @@ export interface InspectorClientOptions {
   pipeStderr?: boolean;
 
   /**
-   * Initial logging level to set after connection (if server supports logging)
-   * If not provided, logging level will not be set automatically
+   * Initial logging level to set after connection, via `logging/setLevel`.
+   * If not provided, the logging level will not be set automatically.
+   *
+   * **Legacy era only (#1990).** `logging/setLevel` is a legacy-era method, and
+   * the modern (2026-07-28) era rejects it — so this option is ignored on a
+   * modern connection even when the server advertises `logging`. Modern has no
+   * session-scoped level at all: the equivalent is the per-request
+   * `io.modelcontextprotocol/logLevel` `_meta` opt-in, configured through the
+   * `modernLogLevel` server setting and applied via
+   * `InspectorClient.setModernLogLevel()`.
    */
   initialLoggingLevel?: LoggingLevel;
 
@@ -930,6 +1182,21 @@ export interface InspectorClientOptions {
   advertisedExtensions?: Record<string, boolean>;
 
   /**
+   * Renders an app-rendered form elicitation (#1854) and resolves with the
+   * app's standard `ElicitResult`.
+   *
+   * Supplying this is what opts a client into advertising the nested MCP Apps
+   * `elicitation` capability — so only a client that can actually host an MCP
+   * App and drive its bridge should pass one (today: the web client, when the
+   * sandbox renderer is available). CLI and TUI pass nothing and therefore
+   * never claim the capability, even though they share this client.
+   *
+   * A rejection means "fall back to the native elicitation UI"; a resolved
+   * `decline`/`cancel` is a completed elicitation and is returned to the server.
+   */
+  appElicitation?: AppElicitationRenderer;
+
+  /**
    * Whether to enable listChanged notification handlers (default: true)
    * If enabled, InspectorClient will subscribe to list_changed notifications and fire
    * corresponding events (toolsListChanged, resourcesListChanged, promptsListChanged).
@@ -963,7 +1230,7 @@ export interface InspectorClientOptions {
    * site metadata wins on key collision. Set this from `InspectorServerSettings.metadata`
    * so persisted server-wide metadata reaches the wire on the first request.
    */
-  defaultMetadata?: Record<string, string>;
+  defaultMetadata?: RequestMetadata;
 
   /**
    * Optional per-server runtime settings forwarded to the transport factory
@@ -995,6 +1262,23 @@ export interface InspectorClientOptions {
     scope?: string;
     /** Route to EMA flow when true (resource AS creds in clientId/clientSecret). */
     enterpriseManaged?: boolean;
+    /**
+     * Custom query parameters merged into the authorization request URL only
+     * (#2018). Reserved, protocol-critical keys are dropped with a warning.
+     */
+    authorizationParams?: Record<string, string>;
+    /**
+     * Overrides for the endpoints the authorization server's metadata document
+     * advertises (#1906). Applied to the discovered document, so they reach both
+     * the authorization request and the token request.
+     */
+    authorizationUrl?: string;
+    tokenUrl?: string;
+    /**
+     * Declare the `refresh_token` grant in the registered client metadata
+     * (#2068). Defaults to `true` when omitted.
+     */
+    requestRefreshToken?: boolean;
   };
 
   /**

@@ -1,7 +1,9 @@
 import type { OAuthClientProvider } from "@modelcontextprotocol/client";
 import type {
+  OAuthClientInformationContext,
   OAuthClientInformationMixed,
   OAuthClientMetadata,
+  OAuthDiscoveryState,
   OAuthTokens,
 } from "@modelcontextprotocol/client";
 import type { BaseOAuthClientProvider } from "../providers.js";
@@ -50,17 +52,40 @@ export class EmaTransportOAuthProvider implements OAuthClientProvider {
     return this.inner.state();
   }
 
-  clientInformation():
+  // SEP-2352: `ctx` carries the authorization-server `issuer` the SDK resolved,
+  // and the inner provider keys registrations by it. Dropping it here made every
+  // EMA read and write land on the unkeyed slot — and, since #2242, left
+  // `resolveSdkRegistrationKind` with no issuer to check, so a CIMD registration
+  // made over an EMA connection was recorded as DCR (Copilot).
+  clientInformation(
+    ctx?: OAuthClientInformationContext,
+  ):
     | OAuthClientInformationMixed
     | undefined
     | Promise<OAuthClientInformationMixed | undefined> {
-    return this.inner.clientInformation();
+    return this.inner.clientInformation(ctx);
   }
 
   saveClientInformation(
     clientInformation: OAuthClientInformationMixed,
+    ctx?: OAuthClientInformationContext,
   ): void | Promise<void> {
-    return this.inner.saveClientInformation(clientInformation);
+    return this.inner.saveClientInformation(clientInformation, ctx);
+  }
+
+  // Without these the SDK persists no discovery state for an EMA connection, so
+  // it re-discovers on every call, cannot perform its SEP-2352 callback-leg
+  // authorization-server binding check (it warns as much), and — since #2242 —
+  // leaves the registration-kind resolver nothing to read back.
+  saveDiscoveryState(state: OAuthDiscoveryState): void | Promise<void> {
+    return this.inner.saveDiscoveryState(state);
+  }
+
+  discoveryState():
+    | OAuthDiscoveryState
+    | undefined
+    | Promise<OAuthDiscoveryState | undefined> {
+    return this.inner.discoveryState();
   }
 
   async tokens(): Promise<OAuthTokens | undefined> {
@@ -84,7 +109,11 @@ export class EmaTransportOAuthProvider implements OAuthClientProvider {
   async redirectToAuthorization(_authorizationUrl: URL): Promise<void> {
     const idpAuthorizationUrl = await startEmaIdpAuthorization(this.emaConfig);
     this.inner.clearCapturedAuthUrl();
-    this.inner.redirectToAuthorization(idpAuthorizationUrl);
+    // The IdP is a different authorization server than the one the inner
+    // provider was configured for, so the per-server custom authorization
+    // parameters (#2018) must not be appended here — hence the "external"
+    // entry point rather than `redirectToAuthorization`.
+    this.inner.redirectToExternalAuthorization(idpAuthorizationUrl);
   }
 
   saveCodeVerifier(codeVerifier: string): void | Promise<void> {

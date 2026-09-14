@@ -8,6 +8,7 @@ import {
   Stack,
   Text,
 } from "@mantine/core";
+import type { MalformedListItem } from "@inspector/core/mcp";
 import type {
   ProtocolEra,
   ReadResourceResult,
@@ -57,6 +58,13 @@ export interface ResourcesScreenProps {
   subscriptionsSupported?: boolean;
   onUiChange: (next: ResourcesUiState) => void;
   onRefreshList: () => void;
+  /** A failed list load, rendered above the sidebar list (#1953). */
+  /**
+   * Entries dropped from this screen's list result(s) as malformed; the list
+   * panel warns about them above the list (#1909).
+   */
+  malformedListItems?: MalformedListItem[];
+  loadError?: Error | null;
   /** Pagination controls rendered in the sidebar (#1721). */
   pagination: ListPaginationControlsProps;
   onReadResource: (uri: string) => void;
@@ -170,6 +178,8 @@ export function ResourcesScreen({
   subscriptionsSupported = true,
   onUiChange,
   onRefreshList,
+  malformedListItems,
+  loadError,
   pagination,
   onReadResource,
   onSubscribeResource,
@@ -309,7 +319,14 @@ export function ResourcesScreen({
   }
 
   return (
-    <ScreenLayout>
+    // `data-*` readiness contract for the headless tab smoke (#2148); see
+    // clients/web/README.md#core-tab-automation-contract.
+    <ScreenLayout
+      data-testid="resources-screen"
+      data-resource-count={resources.length}
+      data-template-count={templates.length}
+      data-read-status={readState?.status ?? "idle"}
+    >
       <Sidebar>
         <SidebarCard>
           <ResourceControls
@@ -325,6 +342,8 @@ export function ResourcesScreen({
             openSections={openSections}
             listChanged={listChanged}
             onRefreshList={onRefreshList}
+            loadError={loadError}
+            malformedListItems={malformedListItems}
             pagination={pagination}
             onSearchChange={(value) => onUiChange({ ...ui, search: value })}
             onOpenSectionsChange={(value) =>

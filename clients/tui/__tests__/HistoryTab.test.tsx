@@ -1,6 +1,6 @@
 import React from "react";
 import { describe, it, expect, vi } from "vitest";
-import { render } from "ink-testing-library";
+import { render } from "./helpers/renderTui";
 import type { MessageEntry } from "@inspector/core/mcp/index.js";
 
 // MUST mock ink-scroll-view: the real ScrollView renders a placeholder minimap
@@ -28,14 +28,27 @@ const PAGE_DOWN = `${ESC}[6~`;
 
 const ts = new Date("2024-01-01T12:34:56Z");
 
-const entry = (over: Partial<MessageEntry>): MessageEntry =>
-  ({
-    id: "id",
-    timestamp: ts,
-    direction: "request",
-    message: { jsonrpc: "2.0", id: 1, method: "ping" },
-    ...over,
-  }) as unknown as MessageEntry;
+// `message` stays fully typed so a malformed field in a well-formed fixture is
+// caught. The two intentionally-malformed messages below (a response with
+// neither result nor error; a notification with no method) exercise HistoryTab's
+// defensive branches and cannot be represented by the strict JSONRPCMessage
+// union, so they carry a local `MALFORMED` cast at their own call sites rather
+// than loosening the whole helper.
+const entry = (over: Partial<MessageEntry>): MessageEntry => ({
+  id: "id",
+  timestamp: ts,
+  direction: "request",
+  message: { jsonrpc: "2.0", id: 1, method: "ping" },
+  ...over,
+});
+
+// Cast for the two intentionally-malformed wire messages only, scoped to a named
+// helper so `entry()`'s `message` stays gate-checked for every well-formed
+// fixture. See the comment on `entry` above.
+const MALFORMED = (m: {
+  jsonrpc: "2.0";
+  id?: number;
+}): MessageEntry["message"] => m as MessageEntry["message"];
 
 // One entry exercising each label / direction / detail branch.
 const reqWithResponse = entry({
@@ -63,7 +76,7 @@ const respError = entry({
 const respPlain = entry({
   id: "m4",
   direction: "response",
-  message: { jsonrpc: "2.0", id: 5 },
+  message: MALFORMED({ jsonrpc: "2.0", id: 5 }),
 });
 const notification = entry({
   id: "m5",
@@ -73,7 +86,7 @@ const notification = entry({
 const unknownEntry = entry({
   id: "m6",
   direction: "notification",
-  message: { jsonrpc: "2.0" },
+  message: MALFORMED({ jsonrpc: "2.0" }),
 });
 
 const allMessages: MessageEntry[] = [

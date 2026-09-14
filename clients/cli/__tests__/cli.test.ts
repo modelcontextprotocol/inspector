@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { afterAll, beforeAll, describe, it, expect, vi } from "vitest";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -20,11 +20,48 @@ import {
   getTestMcpServerCommand,
   createTestServerHttp,
   createEchoTool,
+  createListRootsTool,
   createTestServerInfo,
 } from "@modelcontextprotocol/inspector-test-server";
-import type { MCPServerConfig } from "@modelcontextprotocol/inspector-core/mcp/index.js";
+import type { MCPServerConfig } from "@inspector/core/mcp/index.js";
+import { createServer, request } from "node:http";
 
 describe("CLI Tests", () => {
+  /**
+   * Proxy variables are cleared for the WHOLE file, not just the proxy tests.
+   *
+   * `createProxyFetch`'s `EnvHttpProxyAgent` is memoized process-wide and captures
+   * its proxy URLs when it is constructed (only `NO_PROXY` is re-read per
+   * request). So on a machine with an ambient `HTTP_PROXY`, any earlier test that
+   * makes a real connection would build that agent against the ambient proxy, and
+   * a later test setting `HTTP_PROXY` to its own server would be talking to an
+   * agent that is not listening. Clearing up front means nothing can build the
+   * singleton before the proxy tests do.
+   */
+  const AMBIENT_PROXY_VARS = [
+    "HTTP_PROXY",
+    "http_proxy",
+    "HTTPS_PROXY",
+    "https_proxy",
+    "NO_PROXY",
+    "no_proxy",
+  ] as const;
+  const ambientProxyEnv: Record<string, string | undefined> = {};
+
+  beforeAll(() => {
+    for (const name of AMBIENT_PROXY_VARS) {
+      ambientProxyEnv[name] = process.env[name];
+      delete process.env[name];
+    }
+  });
+
+  afterAll(() => {
+    for (const name of AMBIENT_PROXY_VARS) {
+      const previous = ambientProxyEnv[name];
+      if (previous === undefined) delete process.env[name];
+      else process.env[name] = previous;
+    }
+  });
   describe("Basic CLI Mode", () => {
     it("should execute tools/list successfully", async () => {
       const { command, args } = getTestMcpServerCommand();
@@ -325,6 +362,158 @@ describe("CLI Tests", () => {
     });
   });
 
+  describe("HTTP proxy (#2067)", () => {
+    it("routes the MCP connection through HTTP_PROXY (#2067)", async () => {
+      // Proxy support is one line in cli.ts — `fetch: createProxyFetch()` on the
+      // environment — and it is what puts the proxy at the BOTTOM of the fetch
+      // stack, where InspectorClient's own wrappers compose over it rather than
+      // discarding it. `InspectorClient` sets `fetchFn` unconditionally, so the
+      // transport-level fallback never fires for this client; delete that line
+      // and CLI proxy support disappears with every core test still green.
+      //
+      // Asserted behaviorally, through a real forwarding proxy, rather than by
+      // inspecting the environment object: the bug this replaces was a runtime
+      // dispatch failure that no structural assertion would have caught.
+      const server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        tools: [createEchoTool()],
+      });
+      const seen: string[] = [];
+      const proxy = createServer((req, res) => {
+        seen.push(req.url ?? "");
+        const target = new URL(req.url ?? "");
+        const upstream = request(
+          {
+            host: target.hostname,
+            port: target.port,
+            path: target.pathname + target.search,
+            method: req.method,
+            headers: req.headers,
+          },
+          (up) => {
+            res.writeHead(up.statusCode ?? 502, up.headers);
+            up.pipe(res);
+          },
+        );
+        upstream.on("error", () => {
+          res.writeHead(502);
+          res.end();
+        });
+        req.pipe(upstream);
+      });
+      try {
+        await server.start();
+        await new Promise<void>((r) => proxy.listen(0, "127.0.0.1", () => r()));
+        const addr = proxy.address();
+        const port = typeof addr === "object" && addr !== null ? addr.port : 0;
+        process.env.HTTP_PROXY = `http://127.0.0.1:${port}`;
+
+        const result = await runCli([
+          server.url,
+          "--cli",
+          "--method",
+          "tools/list",
+        ]);
+
+        expectCliSuccess(result);
+        expect(JSON.stringify(expectValidJson(result))).toContain("echo");
+        // The point of the test: it did not go direct.
+        expect(seen.length).toBeGreaterThan(0);
+        expect(seen.every((u) => u.startsWith(server.url))).toBe(true);
+      } finally {
+        // Only this test's own variable is cleared here. The ambient ones are
+        // restored by the file-level afterAll, so the memoized agent can never
+        // be left bound to this now-closed proxy for a later test.
+        delete process.env.HTTP_PROXY;
+        await new Promise<void>((r) => proxy.close(() => r()));
+        await server.stop();
+      }
+    });
+  });
+
+  describe("Roots capability (#1797)", () => {
+    it("answers a server's roots/list instead of -32601", async () => {
+      // The CLI used to omit `roots` when constructing its InspectorClient, so
+      // the capability was never advertised and no `roots/list` handler was
+      // registered — a server that asked got -32601 Method not found. (And
+      // `--method roots/set` could not announce the change: the SDK refuses
+      // `roots/list_changed` from a client that never declared it, so nothing
+      // reached the wire.) `cli.ts` now always passes the `roots` option —
+      // empty on this ad-hoc path, since there is no config file.
+      const server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        tools: [createListRootsTool()],
+      });
+      try {
+        await server.start();
+
+        const result = await runCli([
+          server.url,
+          "--cli",
+          "--method",
+          "tools/call",
+          "--tool-name",
+          "list_roots",
+        ]);
+
+        expectCliSuccess(result);
+        const json = expectValidJson(result);
+        // The tool asks the client for roots and renders what it got. An
+        // unregistered handler surfaces as an isError result quoting -32601.
+        expect(json.isError).toBeFalsy();
+        expect(JSON.stringify(json)).toContain("Roots:");
+        expect(JSON.stringify(json)).not.toContain("-32601");
+      } finally {
+        await server.stop();
+      }
+    });
+
+    it("answers with the roots configured for the server in the config file", async () => {
+      // Answering `roots/list` is only half the fix: the roots a user
+      // configured in mcp.json have to be the answer. They ride in on
+      // `serverSettings.roots` (lifted by `mcpConfigToServerEntries`), which is
+      // what web passes too — a CLI that seeded `[]` would let a server fall
+      // back to its own defaults, the outcome #1797 is about.
+      const server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        tools: [createListRootsTool()],
+      });
+      let configPath: string | undefined;
+      try {
+        await server.start();
+        configPath = createTestConfig({
+          mcpServers: {
+            web: {
+              type: "streamable-http",
+              url: server.url,
+              roots: [{ uri: "file:///configured", name: "Configured" }],
+            } as unknown as MCPServerConfig,
+          },
+        });
+
+        const result = await runCli([
+          "--config",
+          configPath,
+          "--server",
+          "web",
+          "--cli",
+          "--method",
+          "tools/call",
+          "--tool-name",
+          "list_roots",
+        ]);
+
+        expectCliSuccess(result);
+        const json = expectValidJson(result);
+        expect(json.isError).toBeFalsy();
+        expect(JSON.stringify(json)).toContain("file:///configured");
+      } finally {
+        await server.stop();
+        if (configPath) deleteConfigFile(configPath);
+      }
+    });
+  });
+
   describe("Config-file settings lifting (#1482)", () => {
     it("applies a config file's custom header on a tools/call over HTTP", async () => {
       const server = createTestServerHttp({
@@ -368,7 +557,7 @@ describe("CLI Tests", () => {
         // the config file into the connection's settings.
         const sawHeader = server
           .getRecordedRequests()
-          .some((r) => r.headers["x-custom-token"] === "secret-123");
+          .some((r) => r.headers?.["x-custom-token"] === "secret-123");
         expect(sawHeader).toBe(true);
       } finally {
         await server.stop();
@@ -409,7 +598,7 @@ describe("CLI Tests", () => {
         expectCliSuccess(result);
         const tokens = server
           .getRecordedRequests()
-          .map((r) => r.headers["x-custom-token"]);
+          .map((r) => r.headers?.["x-custom-token"]);
         expect(tokens).toContain("from-cli");
         expect(tokens).not.toContain("from-disk");
       } finally {

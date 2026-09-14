@@ -45,14 +45,14 @@ export const Default: Story = {
     // Mantine renders the modal in a portal at document.body.
     const body = within(canvasElement.ownerDocument.body);
     await body.findByText("Output schema validation");
-    expect(body.getByText(/open_pattern_editor/)).toBeInTheDocument();
+    await expect(body.getByText(/open_pattern_editor/)).toBeInTheDocument();
     const details = body.getByLabelText(
       "Validation details",
     ) as HTMLTextAreaElement;
-    expect(details.value).toContain(
+    await expect(details.value).toContain(
       "data/samples/0 must NOT have additional properties",
     );
-    expect(details.readOnly).toBe(true);
+    await expect(details.readOnly).toBe(true);
   },
 };
 

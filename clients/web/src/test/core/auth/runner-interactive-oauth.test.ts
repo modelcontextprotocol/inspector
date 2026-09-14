@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
+import { AuthorizationServerMismatchError } from "@modelcontextprotocol/client";
 import {
   runRunnerInteractiveOAuth,
   type RunnerInteractiveOAuthClient,
@@ -247,6 +248,76 @@ describe("runRunnerInteractiveOAuth", () => {
         createCallbackServer: () => createMockCallbackServer(handlers),
       }),
     ).rejects.toThrow("token exchange failed");
+  });
+
+  it("rewrites a lost-authorization-state callback failure into actionable copy (#1808)", async () => {
+    const redirectUrlProvider = { redirectUrl: "" };
+    // Real SDK error — its `mcpBrand` is static, so a fabricated
+    // instance-branded look-alike would not exercise the real shape.
+    const sdkError = new AuthorizationServerMismatchError(
+      "discoveryState was not available on the callback leg; ensure your provider persists discoveryState alongside codeVerifier",
+      "https://as.example",
+    );
+    const client = mockClient({
+      authenticate: vi.fn(async () => {
+        await simulateCallback(handlers.current);
+        return new URL("https://as.example/authorize");
+      }),
+      completeOAuthFlow: vi.fn(async () => {
+        throw sdkError;
+      }),
+    });
+
+    const failure = await runRunnerInteractiveOAuth({
+      client,
+      redirectUrlProvider,
+      callbackListen: {
+        hostname: "127.0.0.1",
+        port: 6276,
+        pathname: "/oauth/callback",
+      },
+      createCallbackServer: () => createMockCallbackServer(handlers),
+    }).catch((err: unknown) => err);
+
+    expect(failure).toBeInstanceOf(Error);
+    const message = (failure as Error).message;
+    expect(message).toContain("Authorization state was lost");
+    expect(message).toContain("Authorize again");
+    expect(message).not.toContain("discoveryState");
+    expect((failure as Error).cause).toBe(sdkError);
+  });
+
+  it("keeps the security wording for a genuine issuer mismatch (#1808)", async () => {
+    const redirectUrlProvider = { redirectUrl: "" };
+    const sdkError = new AuthorizationServerMismatchError(
+      "https://old.example",
+      "https://evil.example",
+    );
+    const client = mockClient({
+      authenticate: vi.fn(async () => {
+        await simulateCallback(handlers.current);
+        return new URL("https://as.example/authorize");
+      }),
+      completeOAuthFlow: vi.fn(async () => {
+        throw sdkError;
+      }),
+    });
+
+    const failure = await runRunnerInteractiveOAuth({
+      client,
+      redirectUrlProvider,
+      callbackListen: {
+        hostname: "127.0.0.1",
+        port: 6276,
+        pathname: "/oauth/callback",
+      },
+      createCallbackServer: () => createMockCallbackServer(handlers),
+    }).catch((err: unknown) => err);
+
+    const message = (failure as Error).message;
+    expect(message).toContain("Authorization server mismatch");
+    expect(message).toContain("https://evil.example");
+    expect(message).not.toContain("Authorize again");
   });
 
   it("propagates OAuth callback errors from the authorization server", async () => {

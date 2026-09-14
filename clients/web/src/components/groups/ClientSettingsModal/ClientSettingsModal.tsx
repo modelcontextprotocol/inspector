@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { CloseButton, Group, Modal, ScrollArea } from "@mantine/core";
 import { ListToggle } from "../../elements/ListToggle/ListToggle";
+import { SecretStorageFooter } from "../../elements/SecretStorageFooter/SecretStorageFooter";
+import type { SecretStorageInfo } from "@inspector/core/auth/secret-storage-info.js";
 import {
   ClientSettingsForm,
   type ClientSettingsSection,
@@ -41,6 +43,13 @@ export interface ClientSettingsModalProps {
   ) => void;
   emaIdpLoginState?: EmaIdpLoginState;
   onEmaIdpLogout?: () => void;
+  /**
+   * Where secrets typed here end up (#1950). This dialog holds the
+   * enterprise IdP client secret, so the footer is not decoration — it is
+   * the answer to the question the field raises. Absent on a backend that
+   * doesn't report a store; the footer then renders nothing.
+   */
+  secretStorage?: SecretStorageInfo;
 }
 
 export function ClientSettingsModal({
@@ -50,6 +59,7 @@ export function ClientSettingsModal({
   onSettingsChange,
   emaIdpLoginState,
   onEmaIdpLogout,
+  secretStorage,
 }: ClientSettingsModalProps) {
   const [expandedSections, setExpandedSections] = useState<
     ClientSettingsSection[]
@@ -109,6 +119,7 @@ export function ClientSettingsModal({
             revealErrors={revealErrors}
           />
         </Modal.Body>
+        <SecretStorageFooter info={secretStorage} />
       </Modal.Content>
     </AppModalLg>
   );

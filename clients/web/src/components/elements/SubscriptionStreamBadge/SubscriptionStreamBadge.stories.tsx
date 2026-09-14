@@ -24,3 +24,12 @@ export const Reconnecting: Story = {
 export const Ended: Story = {
   args: { status: "ended" },
 };
+
+/**
+ * The server answered `subscriptions/listen` with a bare JSON-RPC result — the
+ * graceful-closure marker — without ever acknowledging it (#2097). Distinct from
+ * `Ended` because the Inspector does not retry it.
+ */
+export const NeverAcknowledged: Story = {
+  args: { status: "never-acknowledged" },
+};

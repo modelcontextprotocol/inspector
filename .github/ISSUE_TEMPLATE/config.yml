@@ -1,0 +1,57 @@
+# Issue chooser configuration.
+#
+# Blank issues are disabled so every report lands in a form. The bug form
+# requires the facts triage needs first (client, version line, transport); the
+# feature form requires the client and a problem statement, and is v2-only.
+#
+# Security reports are deliberately a *contact link* rather than a template:
+# a template would still open a public issue, which is exactly what a
+# vulnerability report must not do. These links leave GitHub's issue flow and
+# go straight to the private advisory form. See SECURITY.md.
+blank_issues_enabled: false
+contact_links:
+  - name: 🔒 Security vulnerability (v1 or v2) — report privately
+    url: https://github.com/modelcontextprotocol/inspector/security/advisories/new
+    about: >
+      Never report a vulnerability in a public issue. Private vulnerability
+      reporting is enabled on this repository — this link opens the advisory
+      form, which is the fastest route to a maintainer. v1 is deprecated and
+      takes security fixes only, so this is the channel for a v1 security
+      issue.
+
+  - name: 📜 Security policy (supported versions, what to include)
+    url: https://github.com/modelcontextprotocol/inspector/blob/main/SECURITY.md
+    about: >
+      Which versions are supported, how reports are handled, and what to
+      include in one.
+
+  - name: 🤝 Contribution policy — why there is no "New pull request"
+    url: https://github.com/modelcontextprotocol/inspector/blob/main/CONTRIBUTING.md
+    about: >
+      This repository accepts issues, not pull requests — maintainers do the
+      implementation. If you already built a change locally, open an issue and
+      share the prompt you used rather than a diff.
+
+  - name: 📖 MCP documentation
+    url: https://modelcontextprotocol.io
+    about: >
+      Guides and reference for the Model Context Protocol itself. Start here
+      for "how does MCP work" questions.
+
+  - name: 📐 MCP specification — protocol questions and proposals
+    url: https://github.com/modelcontextprotocol/modelcontextprotocol/issues
+    about: >
+      If the behavior you're reporting is defined by the protocol rather than
+      by this tool, file it against the specification repository instead.
+
+  - name: 🧰 MCP TypeScript SDK
+    url: https://github.com/modelcontextprotocol/typescript-sdk/issues
+    about: >
+      The Inspector is built on the TypeScript SDK. If the bug reproduces
+      against the SDK directly (outside the Inspector), file it there.
+
+  - name: 💬 MCP Contributor Discord (#inspector-dev)
+    url: https://discord.gg/6CSzBmMkjX
+    about: >
+      Questions, usage help, and day-to-day Inspector development discussion.
+      Also where to say hello if you'd like to work on the Inspector with us.

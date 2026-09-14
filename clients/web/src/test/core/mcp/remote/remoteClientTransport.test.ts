@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { RemoteClientTransport } from "@inspector/core/mcp/remote/remoteClientTransport.js";
 import type { MCPServerConfig } from "@inspector/core/mcp/types.js";
 
@@ -361,7 +361,7 @@ describe("RemoteClientTransport", () => {
     const settings = {
       headers: [{ key: "X-Tenant", value: "acme" }],
       env: [],
-      metadata: [],
+      metadata: {},
       connectionTimeout: 0,
       requestTimeout: 0,
       taskTtl: 0,
@@ -513,6 +513,300 @@ describe("RemoteClientTransport", () => {
     });
     expect(onAuthChallenge.mock.calls[0]?.[0]).toEqual({
       reason: "token_expired",
+    });
+  });
+
+  // #1935: the SDK Client calls setProtocolVersion() on this transport, but the
+  // real HTTP transport lives on the backend — so the version has to ride the
+  // send envelope or the backend drops `Mcp-Protocol-Version` upstream.
+  it("forwards the negotiated protocol version on every send after setProtocolVersion", async () => {
+    const seenBodies: string[] = [];
+    let sse = createPushableSseStream();
+    const fetchFn = vi
+      .fn<typeof fetch>()
+      .mockImplementation(async (input, init) => {
+        const url = String(input);
+        if (url.endsWith("/api/mcp/connect")) {
+          return new Response(JSON.stringify({ sessionId: "abc" }), {
+            status: 200,
+          });
+        }
+        if (url.includes("/api/mcp/events")) {
+          sse = createPushableSseStream();
+          return sse.response;
+        }
+        if (url.endsWith("/api/mcp/send")) {
+          seenBodies.push(String(init?.body));
+          return new Response(JSON.stringify({ ok: true }), { status: 200 });
+        }
+        return new Response("not found", { status: 404 });
+      });
+
+    const transport = new RemoteClientTransport({ baseUrl, fetchFn }, config);
+    await transport.start();
+
+    // Pre-initialize sends carry no version (none negotiated yet).
+    await transport.send({ jsonrpc: "2.0", method: "notifications/cancelled" });
+    expect(JSON.parse(seenBodies[0]!)).not.toHaveProperty("protocolVersion");
+
+    transport.setProtocolVersion("2025-11-25");
+
+    // The first post-initialize send is `notifications/initialized` — the one
+    // the reporting server rejected for a missing header.
+    await transport.send({
+      jsonrpc: "2.0",
+      method: "notifications/initialized",
+    });
+    await transport.send({ jsonrpc: "2.0", method: "notifications/cancelled" });
+
+    expect(JSON.parse(seenBodies[1]!)).toMatchObject({
+      protocolVersion: "2025-11-25",
+      message: { method: "notifications/initialized" },
+    });
+    expect(JSON.parse(seenBodies[2]!)).toMatchObject({
+      protocolVersion: "2025-11-25",
+    });
+
+    await transport.close();
+  });
+
+  // #2140: the Cancel button's wire signal is chosen by the SDK from the
+  // transport's `hasPerRequestStream`. The real upstream transport lives on the
+  // backend, so this transport answers for it — and must answer per server
+  // type, since only Streamable HTTP gives a request a stream of its own to
+  // close.
+  describe("per-request-stream cancellation (#2140)", () => {
+    it("advertises hasPerRequestStream only for streamable-http", () => {
+      const forType = (c: MCPServerConfig) =>
+        new RemoteClientTransport(
+          { baseUrl, fetchFn: vi.fn<typeof fetch>() },
+          c,
+        ).hasPerRequestStream;
+
+      expect(
+        forType({ type: "streamable-http", url: "http://server.example/mcp" }),
+      ).toBe(true);
+      // stdio and SSE multiplex every request over one shared channel, so
+      // aborting anything would cancel the whole session rather than the call.
+      // The SDK must keep sending `notifications/cancelled` for them.
+      expect(forType(config)).toBe(false);
+      expect(forType({ type: "sse", url: "http://server.example/sse" })).toBe(
+        false,
+      );
+    });
+
+    it("applies the SDK's requestSignal to the browser-to-backend send fetch", async () => {
+      const seenInits: (RequestInit | undefined)[] = [];
+      let sse = createPushableSseStream();
+      const fetchFn = vi
+        .fn<typeof fetch>()
+        .mockImplementation(async (input, init) => {
+          const url = String(input);
+          if (url.endsWith("/api/mcp/connect")) {
+            return new Response(JSON.stringify({ sessionId: "abc" }), {
+              status: 200,
+            });
+          }
+          if (url.includes("/api/mcp/events")) {
+            sse = createPushableSseStream();
+            return sse.response;
+          }
+          if (url.endsWith("/api/mcp/send")) {
+            seenInits.push(init);
+            return new Response(JSON.stringify({ ok: true }), { status: 200 });
+          }
+          return new Response("not found", { status: 404 });
+        });
+
+      const transport = new RemoteClientTransport({ baseUrl, fetchFn }, config);
+      await transport.start();
+
+      const controller = new AbortController();
+      await transport.send(
+        { jsonrpc: "2.0", method: "notifications/initialized" },
+        { requestSignal: controller.signal },
+      );
+      expect(seenInits[0]?.signal).toBe(controller.signal);
+
+      // No signal supplied (stdio/SSE, where the SDK never creates one) must
+      // leave the fetch unaborted rather than passing `undefined` through as a
+      // deliberate value.
+      await transport.send({
+        jsonrpc: "2.0",
+        method: "notifications/roots/list_changed",
+      });
+      expect(seenInits[1]).not.toHaveProperty("signal");
+
+      await transport.close();
+    });
+
+    it("aborting the requestSignal rejects the in-flight send", async () => {
+      let sse = createPushableSseStream();
+      const fetchFn = vi
+        .fn<typeof fetch>()
+        .mockImplementation(async (input, init) => {
+          const url = String(input);
+          if (url.endsWith("/api/mcp/connect")) {
+            return new Response(JSON.stringify({ sessionId: "abc" }), {
+              status: 200,
+            });
+          }
+          if (url.includes("/api/mcp/events")) {
+            sse = createPushableSseStream();
+            return sse.response;
+          }
+          if (url.endsWith("/api/mcp/send")) {
+            // The backend holds this route open for the whole call, so model it
+            // as a fetch that only settles when the caller aborts.
+            return new Promise<Response>((_resolve, reject) => {
+              init?.signal?.addEventListener("abort", () =>
+                reject(new DOMException("Aborted", "AbortError")),
+              );
+            });
+          }
+          return new Response("not found", { status: 404 });
+        });
+
+      const transport = new RemoteClientTransport({ baseUrl, fetchFn }, config);
+      await transport.start();
+
+      const controller = new AbortController();
+      const sent = transport.send(
+        { jsonrpc: "2.0", id: 7, method: "tools/call" },
+        { requestSignal: controller.signal },
+      );
+
+      controller.abort();
+      // The backend never answers an aborted send, so the rejection has to come
+      // from the fetch itself. `postSend` already cancels the SSE response wait
+      // it registered for this id on that path (its catch does, unchanged by
+      // #2140) — so the send surfaces the abort rather than the wait's timeout.
+      await expect(sent).rejects.toThrow(/Aborted/);
+
+      await transport.close();
+    });
+  });
+
+  describe("progress notifications keep the SSE response wait alive (#2028)", () => {
+    // A remote backend holds POST /api/mcp/send open until the JSON-RPC
+    // response, and the browser bounds that wait with `sseResponseTimeoutMs`.
+    // For a long tool that reports progress, that wait must re-arm on each
+    // `notifications/progress` — mirroring the SDK client's
+    // `resetTimeoutOnProgress` — or the web client alone times out a call that
+    // every other transport rides out. Log messages must NOT re-arm it.
+    function backendHoldingSend(): {
+      fetchFn: typeof fetch;
+      getSse: () => ReturnType<typeof createPushableSseStream>;
+      getSentId: () => string | number | undefined;
+    } {
+      let sse!: ReturnType<typeof createPushableSseStream>;
+      let sentId: string | number | undefined;
+      const fetchFn = vi
+        .fn<typeof fetch>()
+        .mockImplementation(async (input, init) => {
+          const url = String(input);
+          if (url.endsWith("/api/mcp/connect") && init?.method === "POST") {
+            return new Response(JSON.stringify({ sessionId: "s-progress" }), {
+              status: 200,
+            });
+          }
+          if (url.includes("/api/mcp/events")) {
+            sse = createPushableSseStream();
+            return sse.response;
+          }
+          if (url.endsWith("/api/mcp/send") && init?.method === "POST") {
+            const body = JSON.parse(String(init.body)) as {
+              message: { id?: string | number };
+            };
+            sentId = body.message.id;
+            // Backend accepted the request; the response arrives later over SSE.
+            return new Response(JSON.stringify({ ok: true }), { status: 200 });
+          }
+          return new Response("not found", { status: 404 });
+        });
+      return { fetchFn, getSse: () => sse, getSentId: () => sentId };
+    }
+
+    // Fake timers so the deadline is driven deterministically rather than
+    // raced against a real `setTimeout` — a real-sleep test can let the timeout
+    // fire before a loaded runner processes the enqueued SSE frame (#1596: a
+    // race is fixed with fake timers, never with headroom). Each push is
+    // followed by a 0ms async advance to flush the SSE consumer's stream read
+    // so the frame is parsed before time moves.
+    const TIMEOUT_MS = 1000;
+    const flushSse = () => vi.advanceTimersByTimeAsync(0);
+
+    beforeEach(() => vi.useFakeTimers());
+    afterEach(() => vi.useRealTimers());
+
+    it("re-arms the wait on each progress note, so a call outliving the timeout still resolves", async () => {
+      const { fetchFn, getSse, getSentId } = backendHoldingSend();
+      const transport = new RemoteClientTransport(
+        { baseUrl, fetchFn, sseResponseTimeoutMs: TIMEOUT_MS },
+        config,
+      );
+      await transport.start();
+
+      const sent = transport.send({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+      });
+      await flushSse();
+
+      // Three progress notes, each after 900ms (< the 1000ms window): without
+      // the re-arm the wait dies at 1000ms, well before the third lands.
+      for (let i = 0; i < 3; i++) {
+        getSse().pushMessage({
+          jsonrpc: "2.0",
+          method: "notifications/progress",
+          params: { progressToken: getSentId(), progress: i, total: 3 },
+        });
+        await flushSse();
+        await vi.advanceTimersByTimeAsync(900);
+      }
+      getSse().pushMessage({
+        jsonrpc: "2.0",
+        id: getSentId(),
+        result: { ok: true },
+      });
+      await flushSse();
+
+      await expect(sent).resolves.toBeUndefined();
+      await transport.close();
+    });
+
+    it("does not re-arm on notifications/message, so a log-only call still times out", async () => {
+      const { fetchFn, getSse, getSentId } = backendHoldingSend();
+      const transport = new RemoteClientTransport(
+        { baseUrl, fetchFn, sseResponseTimeoutMs: TIMEOUT_MS },
+        config,
+      );
+      await transport.start();
+
+      const sent = transport.send({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+      });
+      // Hold the expected rejection now (as the RemoteSession timeout tests do)
+      // so it is asserted rather than suppressed by an empty catch.
+      const rejection = expect(sent).rejects.toThrow(
+        /Timed out waiting for MCP response on SSE/,
+      );
+      await flushSse();
+
+      // A log message before the deadline must not extend it.
+      getSse().pushMessage({
+        jsonrpc: "2.0",
+        method: "notifications/message",
+        params: { level: "info", data: { msg: "tick", token: getSentId() } },
+      });
+      await flushSse();
+      await vi.advanceTimersByTimeAsync(TIMEOUT_MS);
+
+      await rejection;
+      await transport.close();
     });
   });
 });

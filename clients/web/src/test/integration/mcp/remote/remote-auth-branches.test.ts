@@ -76,8 +76,79 @@ async function startUnauthorizedUpstream(): Promise<{
   return { url: `http://127.0.0.1:${port}/mcp`, server };
 }
 
-/** Connect a stdio session whose process crashes almost immediately, then
- * give the onclose handler time to mark the session's transport dead. */
+/**
+ * Poll until the server reports the session's transport as dead (#1985).
+ *
+ * The probe is `/api/mcp/auth-state`, chosen because for a session connected
+ * *without* an authState it answers `kind: "transport_error"` from exactly one
+ * place — the `isTransportDead()` short-circuit. Every other outcome is a 400
+ * from `setAuthState` ("Session has no OAuth auth provider"), so a
+ * `transport_error` here is proof that `onclose` has already run
+ * `markTransportDead()`, not merely that some write failed.
+ *
+ * That single source is the point. `/api/mcp/send` looks like the obvious probe
+ * but answers `transport_error` from *two* branches: the dead-transport
+ * short-circuit, and the `catch` around a `send()` that rejected. Only the first
+ * implies the transport is marked dead, so a stop condition keyed on the
+ * response cannot tell them apart. It happens to be safe today —
+ * `StdioClientTransport.send` rejects only when `_process` is undefined, and the
+ * transport clears `_process` and calls `onclose` in one synchronous block, so
+ * the `catch` branch cannot be observed before `markTransportDead()` has run —
+ * but that is an SDK-internal ordering detail, not something this test states or
+ * controls. If it ever changed, an early return here would hand each call site a
+ * live session: the send test would quietly exercise the `catch` branch instead
+ * of the short-circuit it names, and the auth-state test would fall through to
+ * `setAuthState` and fail on a 400. Probing a single-source route costs nothing
+ * and does not depend on the ordering holding.
+ *
+ * The route also cannot hang: it never awaits a response from the transport, so
+ * unlike a *request* through `/api/mcp/send` there is nothing here to wait
+ * forever on a reply the dead child will never send.
+ *
+ * Deliberately not `/api/mcp/events`: opening that stream on a dead transport
+ * calls `sessions.delete(sessionId)`, so the send under test would then answer
+ * 404 instead of the `transport_error` it is asserting.
+ */
+async function waitForDeadTransport(
+  h: Harness,
+  sessionId: string,
+  timeoutMs = 10_000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  let last = "(no response)";
+  while (Date.now() < deadline) {
+    const res = await fetch(`${h.baseUrl}/api/mcp/auth-state`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sessionId,
+        authState: {
+          oauthTokens: { access_token: "probe", token_type: "Bearer" },
+        },
+      }),
+    });
+    const body = (await res.json()) as { kind?: string };
+    if (body.kind === "transport_error") return;
+    last = `HTTP ${res.status} ${JSON.stringify(body)}`;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error(
+    `transport was never reported dead within ${timeoutMs}ms; last probe: ${last}`,
+  );
+}
+
+/**
+ * Connect a stdio session whose process crashes almost immediately, then wait
+ * until the transport is actually marked dead.
+ *
+ * This used to sleep a flat 300ms, which had to cover a cold `spawn()`, node's
+ * startup, its exit, the parent observing the close, and `onclose` marking the
+ * session dead. Comfortable on an idle machine; not under CI contention. When
+ * the budget was missed the session was still live, so the send under test was
+ * dispatched to a transport whose child was gone and hung for the project's full
+ * 30s timeout (#1985). Waiting on the observable condition costs latency on a
+ * slow machine instead of a false failure.
+ */
 async function connectDeadSession(h: Harness): Promise<string> {
   const config: MCPServerConfig = {
     type: "stdio",
@@ -87,9 +158,7 @@ async function connectDeadSession(h: Harness): Promise<string> {
   const res = await connect(h, config);
   expect(res.status).toBe(200);
   const { sessionId } = (await res.json()) as { sessionId: string };
-  // Give the subprocess time to exit and the transport's onclose handler
-  // to mark the session dead (mirrors connect-crash.test.ts's technique).
-  await new Promise((resolve) => setTimeout(resolve, 300));
+  await waitForDeadTransport(h, sessionId);
   return sessionId;
 }
 

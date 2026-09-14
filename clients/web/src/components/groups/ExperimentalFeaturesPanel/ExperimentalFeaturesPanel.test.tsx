@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import { renderWithMantine, screen } from "../../../test/renderWithMantine";
+import { setAceText } from "../../../test/aceEditor";
 import { ExperimentalFeaturesPanel } from "./ExperimentalFeaturesPanel";
 import type { RequestHistoryItem } from "./ExperimentalFeaturesPanel";
 
@@ -273,8 +274,7 @@ describe("ExperimentalFeaturesPanel", () => {
     expect(onRemoveHeader).toHaveBeenCalledWith(1);
   });
 
-  it("invokes onRequestChange when the request textarea changes", async () => {
-    const user = userEvent.setup();
+  it("invokes onRequestChange when the request editor changes", async () => {
     const onRequestChange = vi.fn();
     renderWithMantine(
       <ExperimentalFeaturesPanel
@@ -283,8 +283,7 @@ describe("ExperimentalFeaturesPanel", () => {
         onRequestChange={onRequestChange}
       />,
     );
-    const textarea = screen.getByLabelText("Request");
-    await user.type(textarea, "x");
+    await setAceText("x");
     expect(onRequestChange).toHaveBeenCalledWith("x");
   });
 

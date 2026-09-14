@@ -1,0 +1,14 @@
+{
+  "serverInfo": {
+    "name": "web-tabs-showcase",
+    "version": "1.0.0"
+  },
+  "tools": [{ "preset": "list_items" }, { "preset": "echo" }],
+  "resources": [{ "preset": "rfc6570_base" }],
+  "resourceTemplates": [{ "preset": "rfc6570_templates" }],
+  "prompts": [{ "preset": "simple_prompt" }, { "preset": "args_prompt" }],
+  "transport": {
+    "type": "streamable-http",
+    "port": 6605
+  }
+}

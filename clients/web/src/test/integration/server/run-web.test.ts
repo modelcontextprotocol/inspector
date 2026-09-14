@@ -42,6 +42,7 @@ describe("runWeb", () => {
   let exitSpy: ReturnType<typeof vi.spyOn>;
   let exitCode: number | undefined;
   let catalogEnvSnapshot: string | undefined;
+  let hostEnvSnapshot: string | undefined;
   const signalHandlers = new Map<string, () => void>();
 
   beforeEach(() => {
@@ -54,6 +55,8 @@ describe("runWeb", () => {
     exitCode = undefined;
     catalogEnvSnapshot = process.env.MCP_CATALOG_PATH;
     delete process.env.MCP_CATALOG_PATH;
+    hostEnvSnapshot = process.env.HOST;
+    delete process.env.HOST;
 
     logLines = [];
     warnLines = [];
@@ -97,6 +100,11 @@ describe("runWeb", () => {
       delete process.env.MCP_CATALOG_PATH;
     } else {
       process.env.MCP_CATALOG_PATH = catalogEnvSnapshot;
+    }
+    if (hostEnvSnapshot === undefined) {
+      delete process.env.HOST;
+    } else {
+      process.env.HOST = hostEnvSnapshot;
     }
   });
 
@@ -160,6 +168,19 @@ describe("runWeb", () => {
       errorLines.some((l) => l.includes("Could not build the web UI")),
     ).toBe(true);
     expect(startHonoServer).not.toHaveBeenCalled();
+  });
+
+  it("surfaces the bind-guard error as an actionable message, not a stack trace", async () => {
+    // HOST=0.0.0.0 without the opt-in makes buildWebServerConfig throw; run-web
+    // must catch it and print "Error: …" rather than let it bubble as a raw
+    // stack trace from the launcher's top-level handler.
+    process.env.HOST = "0.0.0.0";
+    await expect(runWeb(["node", "run-web"])).rejects.toThrow("process.exit:1");
+    expect(
+      errorLines.some((l) => l.includes("DANGEROUSLY_BIND_ALL_INTERFACES")),
+    ).toBe(true);
+    expect(startHonoServer).not.toHaveBeenCalled();
+    expect(startViteDevServer).not.toHaveBeenCalled();
   });
 
   it("starts Vite when --dev is set", async () => {

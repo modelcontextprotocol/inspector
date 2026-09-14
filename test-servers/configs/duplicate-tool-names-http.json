@@ -1,0 +1,17 @@
+{
+  "serverInfo": {
+    "name": "duplicate-tool-names",
+    "version": "1.0.0"
+  },
+  "tools": [
+    { "preset": "get_weather" },
+    { "preset": "get_temp" },
+    { "preset": "echo" },
+    { "preset": "add" }
+  ],
+  "duplicateToolNames": ["get_weather", "echo"],
+  "transport": {
+    "type": "streamable-http",
+    "port": 3142
+  }
+}

@@ -23,12 +23,21 @@
  *   8. Over an HTTP transport (in-process test server), a config-file `headers`
  *      object is lifted onto the wire, and a CLI `--header` overrides it — the
  *      headline lift→transport path of #1482, verified end to end.
+ *   9. A usage error through the launcher `--cli` path emits the JSON `{"error":…}`
+ *      envelope and exits 1 (a bad `--callback-url`, whose message contains
+ *      "OAuth", must NOT misclassify as auth_required — #1795 AK1/AJ1).
+ *  10. A non-1 exit code survives the launcher too: `--use-stored-auth` with no
+ *      stored token exits 3 with envelope code `no_stored_token`, pinning that the
+ *      whole EXIT_CODES map — not just exit 1 — reaches an automated caller
+ *      through `mcp-inspector --cli`. (Steps 9–10 are the ONLY guard on that
+ *      contract: `clients/{launcher,cli}/src/index.ts` are coverage-excluded.)
  *
  * Exits non-zero (failing CI / `npm run validate`) on any mismatch.
  *
  * Expects `clients/launcher/build` and `clients/cli/build` to be built first
- * (the validate / CI ordering guarantees this). The bundled stdio test server
- * (`test-servers/build`) is built on demand here if missing.
+ * (the validate / CI ordering guarantees this). The bundled test servers
+ * (`test-servers/build`) are rebuilt on every run — see
+ * `scripts/lib/ensure-test-servers.mjs` for why presence isn't freshness.
  */
 
 import { spawn, spawnSync } from "node:child_process";
@@ -36,52 +45,27 @@ import { mkdtempSync, rmSync, existsSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { ensureTestServers } from "./lib/ensure-test-servers.mjs";
 
 const repoRoot = resolve(import.meta.dirname, "..");
 const launcher = join(repoRoot, "clients", "launcher", "build", "index.js");
-const testServer = join(
-  repoRoot,
-  "test-servers",
-  "build",
-  "test-server-stdio.js",
-);
-const httpTestServerModule = join(
-  repoRoot,
-  "test-servers",
-  "build",
-  "test-server-http.js",
-);
-
 function fail(message) {
   console.error(`smoke:cli FAILED — ${message}`);
   process.exit(1);
 }
 
-/** Build the bundled test servers (stdio + http) if they aren't present yet. */
-function ensureTestServer() {
-  if (existsSync(testServer) && existsSync(httpTestServerModule)) return;
-  console.log("smoke:cli — building test-servers (missing build output)...");
-  const r = spawnSync("npx", ["tsc", "-p", "test-servers", "--noCheck"], {
-    cwd: repoRoot,
-    stdio: "inherit",
-  });
-  if (
-    r.status !== 0 ||
-    !existsSync(testServer) ||
-    !existsSync(httpTestServerModule)
-  ) {
-    fail(
-      "could not build the test servers (test-servers/build/test-server-stdio.js, " +
-        "test-server-http.js). Run `npm run test-servers:build` from clients/cli.",
-    );
-  }
-}
+// Neutralize env that would make an unrelated step fail: parseRunnerOAuthCallbackUrl
+// runs on every --cli invocation, so an ambient MCP_OAUTH_CALLBACK_URL pointing at
+// a non-loopback host would fail steps 1–8. Empty reads as unset in the parser
+// (default 127.0.0.1:6276 applies); per-call extraEnv is spread after, so step 9
+// can still pass --callback-url explicitly. Mirrors prod-web-server.mjs's HOST pin.
+const SMOKE_BASE_ENV = { MCP_OAUTH_CALLBACK_URL: "" };
 
 /** Run the launcher in --cli mode. Returns { status, stdout, stderr }. */
 function runCli(args, extraEnv = {}) {
   const r = spawnSync(process.execPath, [launcher, "--cli", ...args], {
     cwd: repoRoot,
-    env: { ...process.env, ...extraEnv },
+    env: { ...process.env, ...SMOKE_BASE_ENV, ...extraEnv },
     encoding: "utf-8",
   });
   return { status: r.status, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
@@ -97,7 +81,7 @@ function runCliAsync(args, extraEnv = {}) {
   return new Promise((resolveRun) => {
     const child = spawn(process.execPath, [launcher, "--cli", ...args], {
       cwd: repoRoot,
-      env: { ...process.env, ...extraEnv },
+      env: { ...process.env, ...SMOKE_BASE_ENV, ...extraEnv },
     });
     let stdout = "";
     let stderr = "";
@@ -112,7 +96,17 @@ function runCliAsync(args, extraEnv = {}) {
 if (!existsSync(launcher)) {
   fail(`launcher build not found at ${launcher} — run \`npm run build\` first`);
 }
-ensureTestServer();
+// Rebuilt on every run — presence is not freshness (#2111).
+let testServer, httpTestServerModule, fixturesModule;
+try {
+  [testServer, httpTestServerModule, fixturesModule] = ensureTestServers({
+    repoRoot,
+    label: "smoke:cli",
+    requires: ["stdio", "http", "fixtures"],
+  });
+} catch (e) {
+  fail(e.message);
+}
 
 const work = mkdtempSync(join(tmpdir(), "smoke-cli-"));
 try {
@@ -317,9 +311,7 @@ try {
     pathToFileURL(httpTestServerModule).href
   );
   const { createEchoTool, createTestServerInfo } = await import(
-    pathToFileURL(
-      join(repoRoot, "test-servers", "build", "test-server-fixtures.js"),
-    ).href
+    pathToFileURL(fixturesModule).href
   );
   const httpServer = createTestServerHttp({
     serverInfo: createTestServerInfo(),
@@ -404,11 +396,81 @@ try {
     await httpServer.stop();
   }
 
+  // 9) A usage error through the launcher --cli path still emits the JSON
+  //    envelope and the right exit code (#1795 AK1): the launcher imports runCli
+  //    as a module, so the CLI's own error sink must be routed through, or the
+  //    documented EXIT_CODES/envelope contract is lost. A bad --callback-url is
+  //    a usage error whose message contains "OAuth" (would otherwise misclassify
+  //    as auth_required/exit 3).
+  const badCallback = runCli([
+    "--catalog",
+    catalogPath,
+    "--server",
+    "test",
+    "--method",
+    "tools/list",
+    "--callback-url",
+    "http://0.0.0.0:6276/oauth/callback",
+  ]);
+  if (badCallback.status !== 1) {
+    fail(
+      `bad --callback-url should exit 1 (usage) through the launcher, got ${badCallback.status}\n${badCallback.stderr}`,
+    );
+  }
+  let envelope;
+  try {
+    envelope = JSON.parse(badCallback.stderr.trim());
+  } catch {
+    fail(
+      `bad --callback-url should emit a JSON {"error":…} envelope through the launcher; got:\n${badCallback.stderr}`,
+    );
+  }
+  if (envelope?.error?.code !== "error") {
+    fail(
+      `bad --callback-url envelope should be code "error", got ${JSON.stringify(envelope)}`,
+    );
+  }
+
+  // 10) A NON-1 exit code survives the launcher too (the actual AK1 claim — the
+  //     whole EXIT_CODES map, not just the exit-1 the old catch-all produced).
+  //     --use-stored-auth with no stored token throws AUTH_REQUIRED (3) with
+  //     envelope code "no_stored_token" *before* any connect, so it's offline.
+  const noStoredAuth = runCli(
+    [
+      "--server-url",
+      "http://example.invalid/mcp",
+      "--method",
+      "tools/list",
+      "--use-stored-auth",
+    ],
+    { HOME: fakeHome, USERPROFILE: fakeHome },
+  );
+  if (noStoredAuth.status !== 3) {
+    fail(
+      `--use-stored-auth with no token should exit 3 (auth_required) through the launcher, got ${noStoredAuth.status}\n${noStoredAuth.stderr}`,
+    );
+  }
+  let authEnvelope;
+  try {
+    authEnvelope = JSON.parse(noStoredAuth.stderr.trim());
+  } catch {
+    fail(
+      `--use-stored-auth should emit a JSON envelope through the launcher; got:\n${noStoredAuth.stderr}`,
+    );
+  }
+  if (authEnvelope?.error?.code !== "no_stored_token") {
+    fail(
+      `--use-stored-auth envelope should be code "no_stored_token", got ${JSON.stringify(authEnvelope)}`,
+    );
+  }
+
   console.log(
     "smoke:cli OK — tools/list over stdio via --catalog; default-catalog seed; " +
       "read-only --config error (no seed); --catalog/--config conflict; " +
       "unknown --server error; multi-server --server selection; --header merge; " +
-      "HTTP config-header lift + --header override on the wire",
+      "HTTP config-header lift + --header override on the wire; " +
+      "launcher --cli usage error → JSON envelope + exit 1; " +
+      "launcher --cli auth error → JSON envelope + exit 3",
   );
 } finally {
   rmSync(work, { recursive: true, force: true });

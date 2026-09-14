@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
+import { SdkError, SdkErrorCode } from "@modelcontextprotocol/client";
 import type { Prompt } from "@modelcontextprotocol/client";
 import type { InspectorServerSettings } from "@inspector/core/mcp/types.js";
 import { ManagedPromptsState } from "@inspector/core/mcp/state/managedPromptsState";
@@ -12,7 +13,7 @@ function prompt(name: string): Prompt {
 const AUTO_REFRESH_SETTINGS: InspectorServerSettings = {
   headers: [],
   env: [],
-  metadata: [],
+  metadata: {},
   connectionTimeout: 0,
   requestTimeout: 0,
   taskTtl: 60000,
@@ -283,6 +284,22 @@ describe("ManagedPromptsState", () => {
       expect(await changed).toBe(false);
       expect(state.getListChanged()).toBe(false);
     });
+  });
+
+  // The base class owns the error plumbing (covered in managedToolsState); this
+  // pins THIS list's method string, which is what attributes a failure to the
+  // right Protocol entry (#1953).
+  it("records a failed load and attributes it to prompts/list", async () => {
+    const boom = new SdkError(SdkErrorCode.InvalidResult, "nope");
+    client.setStatus("connected");
+    client.listAllPrompts.mockRejectedValueOnce(boom);
+
+    await expect(state.refresh()).rejects.toThrow(boom);
+    expect(state.getError()).toBe(boom);
+    expect(client.markResponseRejected).toHaveBeenCalledWith(
+      "prompts/list",
+      "nope",
+    );
   });
 
   it("destroy is idempotent", () => {

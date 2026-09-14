@@ -36,8 +36,12 @@ import type {
   ResourceSubscriptionStreamState,
   ToolCallInvocation,
   ExcludedTool,
+  RequestMetadata,
 } from "../types.js";
 import { INACTIVE_SUBSCRIPTION_STREAM_STATE } from "../types.js";
+import type { MalformedListItem } from "../listSalvage.js";
+import type { SkillEntry, SkillResource } from "../skillsSchemas.js";
+import type { SkillsExtensionSupport } from "../skills.js";
 import type { JsonValue } from "../../json/jsonUtils.js";
 
 type ListResult<TKey extends string, TItem> = {
@@ -102,6 +106,7 @@ export class FakeInspectorClient
     ListResult<"resourceTemplates", ResourceTemplate>
   > = [];
   taskPages: Array<ListResult<"tasks", Task>> = [];
+  skillPages: Array<ListResult<"skills", SkillEntry>> = [];
 
   listTools = vi.fn(async () => this.toolPages.shift() ?? { tools: [] });
   listPrompts = vi.fn(async () => this.promptPages.shift() ?? { prompts: [] });
@@ -111,9 +116,19 @@ export class FakeInspectorClient
   listResourceTemplates = vi.fn(
     async () => this.resourceTemplatePages.shift() ?? { resourceTemplates: [] },
   );
-  listRequestorTasks = vi.fn(
-    async () => this.taskPages.shift() ?? { tasks: [] },
-  );
+  // Typed by its signature rather than inferred, so `mock.calls` carries the
+  // cursor a test asserts on — the empty-string pagination case (#2220) turns
+  // on *which* cursor each call received, not just how many there were.
+  listRequestorTasks = vi.fn<
+    (cursor?: string) => Promise<ListResult<"tasks", Task>>
+  >(async () => this.taskPages.shift() ?? { tasks: [] });
+  listSkills = vi.fn(async () => this.skillPages.shift() ?? { skills: [] });
+  // `skills/get` echoes a minimal entry; tests that care override the mock.
+  getSkill = vi.fn(async (uri: string) => ({
+    uri,
+    frontmatter: {},
+    resources: [] as SkillResource[],
+  }));
   // Modern task poll (#1631): defaults to echoing back a minimal task; tests
   // override the mock to drive status transitions. Dispatches nothing by
   // default — tests that exercise the merge path dispatch requestorTaskUpdated
@@ -133,6 +148,18 @@ export class FakeInspectorClient
     return this.tasksExtensionNegotiated;
   }
 
+  // The Skills extension (SEP-2640) this fake presents. `undefined` means the
+  // server declared none, which is what `getSkillsExtension` returns then —
+  // tests assign a support object to exercise the skills paths.
+  skillsExtension: SkillsExtensionSupport | undefined = undefined;
+  getSkillsExtension(): SkillsExtensionSupport | undefined {
+    return this.skillsExtension;
+  }
+
+  // Attributes a failed load back to its Protocol entry (#1953). A `vi.fn` so
+  // tests can assert the method name and reason a failing refresh reported.
+  markResponseRejected = vi.fn((_method: string, _reason: string) => {});
+
   // Aggregate variants used by the managed state stores on refresh: drain ALL
   // queued pages (mimicking the SDK's all-page walk) and return the flattened
   // list. The `options` (incl. `cacheMode`) is recorded by the `vi.fn` so tests
@@ -140,25 +167,25 @@ export class FakeInspectorClient
   listAllTools = vi.fn(
     async (_options?: {
       cacheMode?: CacheMode;
-      metadata?: Record<string, string>;
+      metadata?: RequestMetadata;
     }) => ({ tools: drainPages(this.toolPages, "tools") }),
   );
   listAllPrompts = vi.fn(
     async (_options?: {
       cacheMode?: CacheMode;
-      metadata?: Record<string, string>;
+      metadata?: RequestMetadata;
     }) => ({ prompts: drainPages(this.promptPages, "prompts") }),
   );
   listAllResources = vi.fn(
     async (_options?: {
       cacheMode?: CacheMode;
-      metadata?: Record<string, string>;
+      metadata?: RequestMetadata;
     }) => ({ resources: drainPages(this.resourcePages, "resources") }),
   );
   listAllResourceTemplates = vi.fn(
     async (_options?: {
       cacheMode?: CacheMode;
-      metadata?: Record<string, string>;
+      metadata?: RequestMetadata;
     }) => ({
       resourceTemplates: drainPages(
         this.resourceTemplatePages,
@@ -219,7 +246,7 @@ export class FakeInspectorClient
       _argumentName: string,
       _argumentValue: string,
       _context?: Record<string, string>,
-      _metadata?: Record<string, string>,
+      _metadata?: RequestMetadata,
     ): Promise<{ values: string[]; total?: number; hasMore?: boolean }> => ({
       values: [],
     }),
@@ -276,6 +303,18 @@ export class FakeInspectorClient
   setExcludedTools(excluded: ExcludedTool[]): void {
     this.excludedTools = excluded;
     this.dispatchTypedEvent("excludedToolsChange", excluded);
+  }
+
+  private malformedListItems: MalformedListItem[] = [];
+
+  getMalformedListItems(): MalformedListItem[] {
+    return this.malformedListItems;
+  }
+
+  /** Test helper: set the malformed-entry set and emit the change (#1909). */
+  setMalformedListItems(malformed: MalformedListItem[]): void {
+    this.malformedListItems = malformed;
+    this.dispatchTypedEvent("malformedListItemsChange", malformed);
   }
 
   getDiscoverResult(): DiscoverResult | undefined {

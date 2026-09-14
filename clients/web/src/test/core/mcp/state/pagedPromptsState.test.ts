@@ -11,7 +11,7 @@ function prompt(name: string): Prompt {
 const PAGINATED_SETTINGS: InspectorServerSettings = {
   headers: [],
   env: [],
-  metadata: [],
+  metadata: {},
   connectionTimeout: 0,
   requestTimeout: 0,
   taskTtl: 60000,
@@ -23,6 +23,14 @@ const PAGINATED_SETTINGS: InspectorServerSettings = {
 function waitForChange(state: PagedPromptsState): Promise<Prompt[]> {
   return new Promise((resolve) => {
     state.addEventListener("promptsChange", (e) => resolve(e.detail), {
+      once: true,
+    });
+  });
+}
+
+function waitForError(state: PagedPromptsState): Promise<Error | null> {
+  return new Promise((resolve) => {
+    state.addEventListener("errorChange", (e) => resolve(e.detail), {
       once: true,
     });
   });
@@ -199,6 +207,63 @@ describe("PagedPromptsState", () => {
       client.dispatchTypedEvent("connect");
       await Promise.resolve();
       expect(client.listPrompts).not.toHaveBeenCalled();
+    });
+  });
+
+  // #1998: in paginated mode this store — not the managed one — drives the
+  // sidebar, so a failed page must surface here or the panel renders empty
+  // with no alert and no Retry.
+  describe("load errors (#1998)", () => {
+    it("records the failure, dispatches errorChange, and re-throws", async () => {
+      client.setStatus("connected");
+      const boom = new Error("list failed");
+      client.listPrompts.mockRejectedValueOnce(boom);
+      const errorPromise = waitForError(state);
+      await expect(state.loadPage()).rejects.toThrow("list failed");
+      expect(await errorPromise).toBe(boom);
+      expect(state.getError()).toBe(boom);
+    });
+
+    it("wraps a non-Error rejection", async () => {
+      client.setStatus("connected");
+      client.listPrompts.mockRejectedValueOnce("plain string");
+      await expect(state.loadPage()).rejects.toBe("plain string");
+      expect(state.getError()?.message).toBe("plain string");
+    });
+
+    it("clears the error on the next successful load", async () => {
+      client.setStatus("connected");
+      client.listPrompts.mockRejectedValueOnce(new Error("list failed"));
+      await expect(state.loadPage()).rejects.toThrow();
+      client.queuePromptPages({ prompts: [prompt("a")] });
+      const cleared = waitForError(state);
+      await state.loadPage();
+      expect(await cleared).toBeNull();
+      expect(state.getError()).toBeNull();
+    });
+
+    it("clears the error on disconnect", async () => {
+      client.setStatus("connected");
+      client.listPrompts.mockRejectedValueOnce(new Error("list failed"));
+      await expect(state.loadPage()).rejects.toThrow();
+      const cleared = waitForError(state);
+      client.setStatus("disconnected");
+      expect(await cleared).toBeNull();
+    });
+
+    it("records a connect-time auto-load failure instead of floating it", async () => {
+      const spClient = new FakeInspectorClient({
+        serverSettings: PAGINATED_SETTINGS,
+      });
+      spClient.setStatus("connected");
+      const spState = new PagedPromptsState(spClient);
+      const boom = new Error("connect-time list failed");
+      spClient.listPrompts.mockRejectedValueOnce(boom);
+      const errored = waitForError(spState);
+      spClient.dispatchTypedEvent("connect");
+      expect(await errored).toBe(boom);
+      expect(spState.getError()).toBe(boom);
+      spState.destroy();
     });
   });
 });

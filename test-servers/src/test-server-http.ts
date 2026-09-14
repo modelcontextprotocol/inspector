@@ -38,9 +38,21 @@ import {
  * SDK v2's {@link WebStandardStreamableHTTPServerTransport} speaks the Fetch API
  * (`Request`/`Response`) rather than Node `req`/`res`. The JSON body is passed
  * to `handleRequest` via `parsedBody` (Express already parsed it), so the Web
- * request carries only method, URL, and headers.
+ * request carries only method, URL, headers — and a `signal`.
+ *
+ * The signal is load-bearing, not decoration (#2140). On the 2026-07-28 era a
+ * client cancels a request by closing that request's response stream, and the
+ * SDK server surfaces the disconnect to a tool handler as `ctx.mcpReq.signal`
+ * — reading it off this Request. Building one without a signal therefore makes
+ * every fixture server deaf to cancellation, which is indistinguishable from a
+ * client that never sent the signal: a test asserting that a cancel reaches the
+ * server passes only if this is wired.
+ *
+ * `res`'s `close` is the disconnect, but only when the response had not already
+ * finished — Express emits it on every completed response too, and aborting
+ * then would cancel handlers that had already succeeded.
  */
-function toWebRequest(req: Request): globalThis.Request {
+function toWebRequest(req: Request, res: Response): globalThis.Request {
   const headers = new Headers();
   for (const [key, value] of Object.entries(req.headers)) {
     if (Array.isArray(value)) {
@@ -50,7 +62,17 @@ function toWebRequest(req: Request): globalThis.Request {
     }
   }
   const url = `http://localhost${req.originalUrl || req.url}`;
-  return new globalThis.Request(url, { method: req.method, headers });
+  const controller = new AbortController();
+  res.on("close", () => {
+    if (!res.writableEnded) {
+      controller.abort();
+    }
+  });
+  return new globalThis.Request(url, {
+    method: req.method,
+    headers,
+    signal: controller.signal,
+  });
 }
 
 /**
@@ -83,7 +105,18 @@ export interface RecordedRequest {
   method: string;
   params?: Record<string, unknown>;
   headers?: Record<string, string>;
-  metadata?: Record<string, string>;
+  /**
+   * The request's `_meta`, recorded verbatim. Values are arbitrary JSON —
+   * objects, arrays, numbers, booleans, `null` — not just strings (#1910), so
+   * a test asserting on a structured value gets a contract that matches what
+   * the recorder actually holds.
+   *
+   * Typed as `unknown` values rather than `@inspector/core`'s
+   * `RequestMetadata`: this package compiles standalone (`tsc -p test-servers`,
+   * NodeNext, no `paths`), so it has no `@inspector/core` alias to import
+   * through.
+   */
+  metadata?: Record<string, unknown>;
   response: unknown;
   timestamp: number;
 }
@@ -177,6 +210,73 @@ interface JsonRpcCallBody {
   id?: string | number | null;
   method?: string;
   params?: { name?: string };
+}
+
+/** The slice of a `subscriptions/listen` body the never-ack injector reads. */
+interface JsonRpcListenBody {
+  id?: string | number | null;
+  method?: string;
+  params?: { notifications?: { resourceSubscriptions?: unknown } };
+}
+
+/**
+ * Answer every opening `subscriptions/listen` with a bare JSON-RPC `result`
+ * instead of a `notifications/subscriptions/acknowledged` (#2097).
+ *
+ * On the 2026-07-28 era a listen request is long-lived: the acknowledgement is
+ * the first message on its stream, and the `result` for the listen id is
+ * reserved as the *graceful-closure* marker. Answering with the result up front
+ * is therefore the "acknowledged and closed in the same breath" shape the
+ * Inspector used to re-list against eight times in silence. The result is
+ * deliberately bare — no `resultType` discriminator — matching the payload in
+ * the original report rather than the spec's example.
+ *
+ * A conformant server never does this, which is the point: there is no way to
+ * reach the Inspector's never-acknowledged path from one.
+ *
+ * `"after-first"` acknowledges the first listen that actually **subscribes to a
+ * resource** and refuses every one after it. That is the *reconnect* shape — a
+ * stream that was acknowledged, then re-listed against a server that has since
+ * started refusing — and it is the only way to reach the never-acknowledged
+ * badge by hand: the badge is gated on a live subscription, which a server
+ * refusing from the outset never lets you hold.
+ *
+ * Counting *resource-subscription* listens rather than listens is what makes
+ * that reproducible. The Inspector already opens a listen at connect time when a
+ * list-change opt-in is live (#1920), so a plain "let the first one through"
+ * rule spends its allowance before the user has clicked anything, and the very
+ * first Subscribe is refused. Such list-change-only listens are always
+ * acknowledged here, so they neither consume the allowance nor break the
+ * unrelated notifications riding that stream.
+ */
+function createNeverAcknowledgeSubscriptionsInjector(
+  mode: true | "after-first",
+): express.RequestHandler {
+  let subscribingListens = 0;
+  return (req, res, next) => {
+    const body = req.body as JsonRpcListenBody | undefined;
+    if (body?.method !== "subscriptions/listen") {
+      next();
+      return;
+    }
+    if (mode === "after-first") {
+      const uris = body.params?.notifications?.resourceSubscriptions;
+      if (!Array.isArray(uris) || uris.length === 0) {
+        next();
+        return;
+      }
+      subscribingListens += 1;
+      if (subscribingListens === 1) {
+        next();
+        return;
+      }
+    }
+    res.status(200).json({
+      jsonrpc: "2.0",
+      id: body.id ?? null,
+      result: {},
+    });
+  };
 }
 
 const specErrorInjector: express.RequestHandler = (req, res, next) => {
@@ -358,7 +458,7 @@ export class TestServerHttp {
       }
       this.currentRequestHeaders = extractHeaders(req);
       try {
-        const webResponse = await handler.fetch(toWebRequest(req), {
+        const webResponse = await handler.fetch(toWebRequest(req, res), {
           parsedBody: req.body,
         });
         await writeWebResponse(res, webResponse);
@@ -378,6 +478,16 @@ export class TestServerHttp {
       ?.injectSpecErrors
       ? [specErrorInjector]
       : [];
+
+    // Optional never-acknowledge injector (#2097): answers `subscriptions/listen`
+    // with the graceful-closure result up front, so the Inspector's
+    // never-acknowledged path has a server to reproduce it against.
+    const neverAck = this.config.modern?.neverAcknowledgeSubscriptions;
+    if (neverAck) {
+      extraMiddleware.push(
+        createNeverAcknowledgeSubscriptionsInjector(neverAck),
+      );
+    }
 
     // Modern tasks extension (SEP-2663): the SDK's modern leg era-gates inbound
     // `tasks/*` spec methods, so serve them from a middleware ahead of the SDK
@@ -452,9 +562,12 @@ export class TestServerHttp {
         }
 
         try {
-          const webResponse = await transport.handleRequest(toWebRequest(req), {
-            parsedBody: req.body,
-          });
+          const webResponse = await transport.handleRequest(
+            toWebRequest(req, res),
+            {
+              parsedBody: req.body,
+            },
+          );
           await writeWebResponse(res, webResponse);
         } catch (error) {
           // If response already sent (e.g., by OAuth middleware), don't send another
@@ -489,7 +602,7 @@ export class TestServerHttp {
 
         try {
           const webResponse = await newTransport.handleRequest(
-            toWebRequest(req),
+            toWebRequest(req, res),
             { parsedBody: req.body },
           );
           await writeWebResponse(res, webResponse);
@@ -527,7 +640,9 @@ export class TestServerHttp {
       // Let the transport handle the GET request
       this.currentRequestHeaders = extractHeaders(req);
       try {
-        const webResponse = await transport.handleRequest(toWebRequest(req));
+        const webResponse = await transport.handleRequest(
+          toWebRequest(req, res),
+        );
         await writeWebResponse(res, webResponse);
       } catch (error) {
         if (!res.headersSent) {

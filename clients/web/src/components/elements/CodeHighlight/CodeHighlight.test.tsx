@@ -22,9 +22,6 @@ vi.mock("react-syntax-highlighter/dist/esm/prism-light", () => ({
 vi.mock("react-syntax-highlighter/dist/esm/styles/prism/tomorrow", () => ({
   default: {},
 }));
-vi.mock("react-syntax-highlighter/dist/esm/languages/prism/json", () => ({
-  default: { __grammar: "json" },
-}));
 vi.mock("react-syntax-highlighter/dist/esm/languages/prism/markup", () => ({
   default: { __grammar: "markup" },
 }));
@@ -53,15 +50,15 @@ beforeEach(() => {
 describe("CodeHighlight", () => {
   it("renders plain code initially, then upgrades to the highlighter", async () => {
     const CodeHighlight = await loadComponent();
-    renderWithMantine(<CodeHighlight language="json" code='{"a":1}' />);
+    renderWithMantine(<CodeHighlight language="yaml" code="a: 1" />);
     // Plain Mantine Code before the grammar resolves.
     expect(screen.queryByTestId("prism")).not.toBeInTheDocument();
-    expect(screen.getByText('{"a":1}')).toBeInTheDocument();
+    expect(screen.getByText("a: 1")).toBeInTheDocument();
     // After the lazy grammar loads, the prism runtime takes over.
     const prism = await screen.findByTestId("prism");
-    expect(prism).toHaveAttribute("data-language", "json");
-    expect(registerLanguage).toHaveBeenCalledWith("json", {
-      __grammar: "json",
+    expect(prism).toHaveAttribute("data-language", "yaml");
+    expect(registerLanguage).toHaveBeenCalledWith("yaml", {
+      __grammar: "yaml",
     });
   });
 
@@ -113,14 +110,14 @@ describe("CodeHighlight", () => {
   it("reuses an already-registered grammar without re-importing", async () => {
     const CodeHighlight = await loadComponent();
     const { unmount } = renderWithMantine(
-      <CodeHighlight language="json" code='{"a":1}' />,
+      <CodeHighlight language="yaml" code="a: 1" />,
     );
     await screen.findByTestId("prism");
     expect(registerLanguage).toHaveBeenCalledTimes(1);
     unmount();
-    // A second mount finds json already registered: ready synchronously, no
+    // A second mount finds yaml already registered: ready synchronously, no
     // second registerLanguage call.
-    renderWithMantine(<CodeHighlight language="json" code='{"b":2}' />);
+    renderWithMantine(<CodeHighlight language="yaml" code="b: 2" />);
     expect(await screen.findByTestId("prism")).toBeInTheDocument();
     expect(registerLanguage).toHaveBeenCalledTimes(1);
   });
@@ -128,7 +125,7 @@ describe("CodeHighlight", () => {
   it("loads a second language reusing the already-loaded runtime", async () => {
     const CodeHighlight = await loadComponent();
     const { unmount } = renderWithMantine(
-      <CodeHighlight language="json" code='{"a":1}' />,
+      <CodeHighlight language="yaml" code="a: 1" />,
     );
     await screen.findByTestId("prism");
     unmount();
@@ -146,7 +143,7 @@ describe("CodeHighlight", () => {
     const CodeHighlight = await loadComponent();
     renderWithMantine(
       <>
-        <CodeHighlight language="json" code='{"a":1}' />
+        <CodeHighlight language="yaml" code="a: 1" />
         <CodeHighlight language="css" code=".a{}" />
       </>,
     );

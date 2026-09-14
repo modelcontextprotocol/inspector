@@ -1,0 +1,155 @@
+import { describe, it, expect } from "vitest";
+import {
+  InsecureTokenEndpointError,
+  OAuthError,
+} from "@modelcontextprotocol/client";
+import { findInsecureTokenEndpoint } from "@inspector/core/auth/insecureTokenEndpoint.js";
+
+const ENDPOINT = "http://tenant.example.localhost:3300/api/oauth/token";
+
+/**
+ * Documents the assumption the classifier is built on, the same way
+ * `issuerBinding.test.ts` does for its sibling: the SDK declares `mcpBrand` in
+ * a `static {}` block, so it lives on the constructor and instances never carry
+ * it. A classifier that read `err.mcpBrand` would match no real thrown error.
+ */
+describe("SDK brand placement", () => {
+  it("keeps `mcpBrand` on the class, not the instance", () => {
+    expect("mcpBrand" in new InsecureTokenEndpointError(ENDPOINT)).toBe(false);
+  });
+
+  it("is not an OAuthError, which is why the retry path must not claim it", () => {
+    const err = new InsecureTokenEndpointError(ENDPOINT);
+    // The SDK deliberately keeps this off the `OAuthError` hierarchy so hosts
+    // do not treat it as a transient authorization failure. If a future SDK
+    // changes that, the #2280 handling should be revisited rather than silently
+    // keeping a now-wrong justification.
+    //
+    // Asserted against the hierarchy itself, both ways. Checking only `name`
+    // and `tokenEndpoint` would leave this passing unchanged if the class were
+    // reparented — the test would keep its title while having stopped testing
+    // it, which is worse than not having it.
+    expect(OAuthError.isInstance(err)).toBe(false);
+    expect(err instanceof OAuthError).toBe(false);
+    expect(err.name).toBe("InsecureTokenEndpointError");
+    expect(typeof err.tokenEndpoint).toBe("string");
+  });
+});
+
+describe("findInsecureTokenEndpoint", () => {
+  it("recognizes a real SDK error and returns its endpoint", () => {
+    expect(
+      findInsecureTokenEndpoint(new InsecureTokenEndpointError(ENDPOINT)),
+    ).toMatchObject({ tokenEndpoint: ENDPOINT });
+  });
+
+  it("recognizes a JSON round trip, where the prototype is gone", () => {
+    // An ACTUAL round trip, not a hand-built look-alike: constructing the
+    // object by hand asserts what I believed the boundary does rather than what
+    // it does. A JSON hop drops the prototype and the brand set while keeping
+    // `name` and `tokenEndpoint`, which is the case this fallback exists for.
+    const err = new InsecureTokenEndpointError(ENDPOINT);
+    const hopped: unknown = JSON.parse(
+      JSON.stringify({
+        name: err.name,
+        message: err.message,
+        tokenEndpoint: err.tokenEndpoint,
+      }),
+    );
+    expect(Object.getPrototypeOf(hopped)).toBe(Object.prototype);
+    expect(findInsecureTokenEndpoint(hopped)).toMatchObject({
+      tokenEndpoint: ENDPOINT,
+    });
+  });
+
+  it("does NOT survive structuredClone, and this pins that limit", () => {
+    // Verified, not assumed: structuredClone normalizes a custom Error subclass
+    // back to `Error`, so `name` becomes "Error" and `tokenEndpoint` is dropped
+    // — nothing is left for either arm to match. An earlier revision of the doc
+    // comment claimed this boundary worked; it does not, and a caller relying on
+    // it would silently get the generic retryable handling back.
+    const cloned = structuredClone(new InsecureTokenEndpointError(ENDPOINT));
+    expect(cloned.name).toBe("Error");
+    expect(
+      (cloned as { tokenEndpoint?: unknown }).tokenEndpoint,
+    ).toBeUndefined();
+    expect(findInsecureTokenEndpoint(cloned)).toBeUndefined();
+  });
+
+  it("rejects a look-alike carrying the endpoint but not the identity", () => {
+    // Neither the brand nor the name: some other error that happens to have a
+    // `tokenEndpoint` field must not be swallowed by the terminal arm.
+    expect(
+      findInsecureTokenEndpoint({ tokenEndpoint: ENDPOINT, name: "Error" }),
+    ).toBeUndefined();
+  });
+
+  it("rejects the right identity with no endpoint to report", () => {
+    // The copy names the endpoint, so a value that cannot supply one is not
+    // usable by this path and falls through to the generic handling.
+    expect(
+      findInsecureTokenEndpoint({ name: "InsecureTokenEndpointError" }),
+    ).toBeUndefined();
+    expect(
+      findInsecureTokenEndpoint({
+        name: "InsecureTokenEndpointError",
+        tokenEndpoint: 42,
+      }),
+    ).toBeUndefined();
+  });
+
+  it.each([null, undefined, "InsecureTokenEndpointError", 0, new Error("x")])(
+    "rejects %j",
+    (value) => {
+      expect(findInsecureTokenEndpoint(value)).toBeUndefined();
+    },
+  );
+
+  describe("cause chains", () => {
+    // Era negotiation and the transport wrappers bury the rejection, so a
+    // top-level-only check would miss the connect and refresh paths outright
+    // and let the retryable UI render anyway.
+    it("finds it under `cause`", () => {
+      const wrapped = new Error("connect failed", {
+        cause: new InsecureTokenEndpointError(ENDPOINT),
+      });
+      expect(findInsecureTokenEndpoint(wrapped)).toMatchObject({
+        tokenEndpoint: ENDPOINT,
+      });
+    });
+
+    it("finds it under `data.cause`", () => {
+      const wrapped = Object.assign(new Error("negotiation failed"), {
+        data: { cause: new InsecureTokenEndpointError(ENDPOINT) },
+      });
+      expect(findInsecureTokenEndpoint(wrapped)).toMatchObject({
+        tokenEndpoint: ENDPOINT,
+      });
+    });
+
+    it("finds it several links down", () => {
+      const wrapped = new Error("outer", {
+        cause: new Error("middle", {
+          cause: new InsecureTokenEndpointError(ENDPOINT),
+        }),
+      });
+      expect(findInsecureTokenEndpoint(wrapped)).toMatchObject({
+        tokenEndpoint: ENDPOINT,
+      });
+    });
+
+    it("terminates on a self-referential cause instead of looping", () => {
+      const loop: { cause?: unknown; name: string } = { name: "Loop" };
+      loop.cause = loop;
+      expect(findInsecureTokenEndpoint(loop)).toBeUndefined();
+    });
+
+    it("returns undefined for a chain that never contains one", () => {
+      expect(
+        findInsecureTokenEndpoint(
+          new Error("outer", { cause: new Error("inner") }),
+        ),
+      ).toBeUndefined();
+    });
+  });
+});

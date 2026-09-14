@@ -120,6 +120,28 @@ describe("excluded tools (SEP-2243 x-mcp-header)", () => {
     expect(excluded.map((x) => x.tool.name)).toEqual(["invalid_header_tool"]);
   });
 
+  it("does not carry an excluded set into the next connection (#1909)", async () => {
+    // `resetSessionState()` is the start-clean path, and it is the ONLY one the
+    // route out that tears down nothing (`onerror` with no `onclose`) reaches.
+    // A set left behind names tools of the PREVIOUS server — and would persist
+    // indefinitely against a server that never lists tools again.
+    const started = await start({});
+    const connected = await connect(started.url, "modern");
+    await connected.listAllTools();
+    expect(connected.getExcludedTools()).toHaveLength(1);
+
+    const events: number[] = [];
+    connected.addEventListener("excludedToolsChange", (e) => {
+      events.push(e.detail.length);
+    });
+    // Reconnecting runs the start-clean reset; assert before anything re-lists.
+    await connected.disconnect();
+    await connected.connect();
+
+    expect(connected.getExcludedTools()).toEqual([]);
+    expect(events).toContain(0);
+  });
+
   it("reports no excluded tools on a legacy connection (no exclusion there)", async () => {
     const started = await start(undefined);
     const connected = await connect(started.url, "legacy");

@@ -20,22 +20,28 @@ import type {
   GetPromptResult,
 } from "@modelcontextprotocol/client";
 import { InspectorClient } from "@inspector/core/mcp/index.js";
+import { cleanRoots } from "@inspector/core/mcp/serverList.js";
 import { eraToVersionNegotiation } from "@inspector/core/mcp/types.js";
 import {
   ManagedToolsState,
   ManagedResourcesState,
   ManagedResourceTemplatesState,
   ManagedPromptsState,
+  ManagedSkillsState,
   MessageLogState,
   FetchRequestLogState,
   StderrLogState,
 } from "@inspector/core/mcp/state/index.js";
-import { createTransportNode } from "@inspector/core/mcp/node/index.js";
+import {
+  createProxyFetch,
+  createTransportNode,
+} from "@inspector/core/mcp/node/index.js";
 import { useInspectorClient } from "@inspector/core/react/useInspectorClient.js";
 import { useManagedTools } from "@inspector/core/react/useManagedTools.js";
 import { useManagedResources } from "@inspector/core/react/useManagedResources.js";
 import { useManagedResourceTemplates } from "@inspector/core/react/useManagedResourceTemplates.js";
 import { useManagedPrompts } from "@inspector/core/react/useManagedPrompts.js";
+import { useManagedSkills } from "@inspector/core/react/useManagedSkills.js";
 import { useMessageLog } from "@inspector/core/react/useMessageLog.js";
 import { useFetchRequestLog } from "@inspector/core/react/useFetchRequestLog.js";
 import { useStderrLog } from "@inspector/core/react/useStderrLog.js";
@@ -61,6 +67,7 @@ import {
   NodeOAuthStorage,
   runRunnerInteractiveOAuth,
 } from "@inspector/core/auth/node/index.js";
+import { oauthMessageToneFor } from "./oauthMessageTone.js";
 import { getTuiLogger } from "./logger.js";
 import { openUrl } from "./utils/openUrl.js";
 import {
@@ -74,6 +81,8 @@ import { InfoTab } from "./components/InfoTab.js";
 import { AuthTab } from "./components/AuthTab.js";
 import { ResourcesTab } from "./components/ResourcesTab.js";
 import { PromptsTab } from "./components/PromptsTab.js";
+import { tabBarRows, visibleTabs } from "./components/tabsConfig.js";
+import { SkillsTab } from "./components/SkillsTab.js";
 import { ToolsTab } from "./components/ToolsTab.js";
 import { NotificationsTab } from "./components/NotificationsTab.js";
 import { HistoryTab } from "./components/HistoryTab.js";
@@ -148,6 +157,7 @@ function App({
     info?: number;
     resources?: number;
     prompts?: number;
+    skills?: number;
     tools?: number;
     messages?: number;
     requests?: number;
@@ -157,6 +167,13 @@ function App({
     "idle" | "authenticating" | "error"
   >("idle");
   const [oauthMessage, setOauthMessage] = useState<string | null>(null);
+  // The tone is derived from the message rather than stored beside it, so it
+  // cannot go stale — see `oauthMessageToneFor` for why that matters here.
+  // Both stay plain `useState` setters on purpose: wrapping `setOauthMessage`
+  // in a `useCallback` would make it a value `react-hooks/exhaustive-deps`
+  // demands in seven dependency arrays, for an identity that never changes.
+  const [oauthWarningText, setOauthWarningText] = useState<string | null>(null);
+  const oauthMessageTone = oauthMessageToneFor(oauthMessage, oauthWarningText);
   const [oauthRevision, setOauthRevision] = useState(0);
   const [pendingStepUp, setPendingStepUp] = useState<{
     serverName: string;
@@ -169,6 +186,19 @@ function App({
     pendingStepUpRef.current = pendingStepUp;
   }, [pendingStepUp]);
   const [connectError, setConnectError] = useState<string | null>(null);
+  // Monotonic token for in-flight disconnects — see handleDisconnect.
+  const disconnectAttemptRef = useRef(0);
+  /** Retires a superseded "clear OAuth state" the way disconnects are (#2144). */
+  const clearOAuthAttemptRef = useRef(0);
+  // A failed disconnect is deliberately NOT folded into `connectError`. That
+  // one is only rendered by InfoTab when the status is "error", which a
+  // rejected disconnect leaves untouched (the status stays "connected"), so
+  // the message would never be seen — and it feeds
+  // `connectError ?? inspectorLastError`, where a stale value would go on
+  // masking a later, real connection error. This renders in the header
+  // regardless of status and is cleared on the next connect/disconnect
+  // attempt and on a server switch.
+  const [disconnectError, setDisconnectError] = useState<string | null>(null);
   const oauthInProgressRef = useRef(false);
   const callbackServerRef = useRef<OAuthCallbackServer | null>(null);
   const selectedServerRef = useRef<string | null>(null);
@@ -219,6 +249,9 @@ function App({
   const [managedPromptsStates, setManagedPromptsStates] = useState<
     Record<string, ManagedPromptsState>
   >({});
+  const [managedSkillsStates, setManagedSkillsStates] = useState<
+    Record<string, ManagedSkillsState>
+  >({});
   const [messageLogStates, setMessageLogStates] = useState<
     Record<string, MessageLogState>
   >({});
@@ -268,6 +301,7 @@ function App({
       ManagedResourceTemplatesState
     > = {};
     const newManagedPromptsStates: Record<string, ManagedPromptsState> = {};
+    const newManagedSkillsStates: Record<string, ManagedSkillsState> = {};
     const newMessageLogStates: Record<string, MessageLogState> = {};
     const newFetchRequestLogStates: Record<string, FetchRequestLogState> = {};
     const newStderrLogStates: Record<string, StderrLogState> = {};
@@ -278,14 +312,14 @@ function App({
         const environment: InspectorClientEnvironment = {
           transport: createTransportNode,
           logger: getTuiLogger(),
+          // Bottom of the fetch stack, so InspectorClient's wrappers compose
+          // over it and OAuth requests are proxied too (#2067). Undefined when
+          // no proxy env var is set.
+          fetch: createProxyFetch(),
         };
-        const defaultMetadata = savedSettings?.metadata
-          ? Object.fromEntries(
-              savedSettings.metadata
-                .filter((m) => m.key.trim() !== "")
-                .map((m) => [m.key, m.value]),
-            )
-          : undefined;
+        // Per-server default `_meta` is already a JSON object (#1910) — no
+        // pair-array flattening left to do; `{}` means "no defaults".
+        const defaultMetadata = savedSettings?.metadata;
         const clientAuthOptions = buildRunnerClientAuthOptions(
           clientConfig,
           savedSettings,
@@ -304,6 +338,11 @@ function App({
               defaultMetadata,
             }),
           ...(savedSettings && { serverSettings: savedSettings }),
+          // Advertise the roots configured for this server in mcp.json, as web
+          // and the CLI do. The TUI has no roots editor, but a user who set
+          // roots in the web UI expects them to apply to the same server here
+          // (#1797).
+          roots: cleanRoots(savedSettings?.roots ?? []),
           // Per-server protocol era (SEP §7.8) from mcp.json → SDK
           // versionNegotiation; absent era defaults to legacy (#1626).
           ...(savedSettings?.protocolEra && {
@@ -337,6 +376,7 @@ function App({
         newManagedResourceTemplatesStates[serverName] =
           new ManagedResourceTemplatesState(client);
         newManagedPromptsStates[serverName] = new ManagedPromptsState(client);
+        newManagedSkillsStates[serverName] = new ManagedSkillsState(client);
         newMessageLogStates[serverName] = new MessageLogState(client);
         newFetchRequestLogStates[serverName] = new FetchRequestLogState(client);
         newStderrLogStates[serverName] = new StderrLogState(client);
@@ -356,6 +396,10 @@ function App({
       setManagedPromptsStates((prev) => ({
         ...prev,
         ...newManagedPromptsStates,
+      }));
+      setManagedSkillsStates((prev) => ({
+        ...prev,
+        ...newManagedSkillsStates,
       }));
       setMessageLogStates((prev) => ({ ...prev, ...newMessageLogStates }));
       setFetchRequestLogStates((prev) => ({
@@ -390,6 +434,9 @@ function App({
       Object.values(managedPromptsStates).forEach((manager) => {
         manager.destroy();
       });
+      Object.values(managedSkillsStates).forEach((manager) => {
+        manager.destroy();
+      });
       Object.values(messageLogStates).forEach((manager) => {
         manager.destroy();
       });
@@ -411,6 +458,7 @@ function App({
     managedResourcesStates,
     managedResourceTemplatesStates,
     managedPromptsStates,
+    managedSkillsStates,
     messageLogStates,
     fetchRequestLogStates,
     stderrLogStates,
@@ -428,6 +476,18 @@ function App({
   useEffect(() => {
     setOauthStatus("idle");
     setOauthMessage(null);
+    // The header banner is server-scoped, so a failure from the server we just
+    // left must not be read as this one's. Clearing is not enough: a switch
+    // away and back (A → B → A) would leave both the attempt token and the
+    // server name matching again, so the stale rejection would land on the
+    // re-selected A. Retiring the token on every switch is what closes that.
+    disconnectAttemptRef.current++;
+    // Same reasoning for the clear (#2144): the A → B → A round trip would
+    // otherwise leave both its attempt token and the captured server name
+    // matching again, so a clear started on the first A could publish into the
+    // re-selected one.
+    clearOAuthAttemptRef.current++;
+    setDisconnectError(null);
     const stepUp = pendingStepUpRef.current;
     if (stepUp && selectedServer && stepUp.serverName !== selectedServer) {
       setPendingStepUp(null);
@@ -544,10 +604,50 @@ function App({
       selectedInspectorClient,
       selectedManagedResourceTemplatesState,
     );
+  const selectedManagedSkillsState = useMemo(
+    () =>
+      selectedServer && managedSkillsStates[selectedServer]
+        ? managedSkillsStates[selectedServer]
+        : null,
+    [selectedServer, managedSkillsStates],
+  );
   const { prompts: managedPrompts } = useManagedPrompts(
     selectedInspectorClient,
     selectedManagedPromptsState,
   );
+  const {
+    skills: managedSkills,
+    pageCount: managedSkillsPageCount,
+    error: managedSkillsError,
+  } = useManagedSkills(selectedInspectorClient, selectedManagedSkillsState);
+  // A *server-declared* extension, so it is only knowable after connecting —
+  // unlike the transport-derived `showLoggingTab` / `showRequestsTab` above.
+  const showSkillsTab =
+    !!selectedServer &&
+    !!selectedInspectorClient?.getSkillsExtension() &&
+    inspectorStatus === "connected";
+
+  // Switch away from the Skills tab when the selected server does not serve it.
+  //
+  // The same handling the Auth tab gets above, and needed for the same reason:
+  // the tab disappears from the bar when the gate goes false, but `activeTab`
+  // is independent of the bar, so the render branch would keep showing the pane
+  // for a server that never declared the extension — content the user can see
+  // but can no longer navigate back to (Copilot).
+  //
+  // Gated on `connected` rather than on the extension alone: the declaration is
+  // only knowable after the handshake, so resetting while a reconnect is in
+  // flight would bounce the user off the tab they were reading and not return
+  // them to it.
+  useEffect(() => {
+    if (
+      activeTab === "skills" &&
+      inspectorStatus === "connected" &&
+      !showSkillsTab
+    ) {
+      setActiveTab("info");
+    }
+  }, [activeTab, inspectorStatus, showSkillsTab]);
 
   // Connect — on 401 or mid-session auth recovery, run OAuth then retry.
   type TuiOAuthRunResult =
@@ -751,6 +851,15 @@ function App({
     if (!selectedServer || !selectedInspectorClient || !selectedServerConfig) {
       return;
     }
+    // A connect attempt supersedes whatever the last disconnect reported —
+    // including one still in flight, which is what the counter bump retires.
+    disconnectAttemptRef.current++;
+    // And whatever a pending clear was going to do (#2144). The server-name
+    // check alone does not cover disconnect/reconnect to the SAME server: the
+    // name still matches on the other side of it, so a clear still in flight
+    // would tear down the session this connect just established.
+    clearOAuthAttemptRef.current++;
+    setDisconnectError(null);
 
     const finishConnect = async () => {
       await connectInspector();
@@ -881,21 +990,92 @@ function App({
   // Disconnect handler
   const handleDisconnect = useCallback(async () => {
     if (!selectedServer) return;
-    await disconnectInspector();
-    // InspectorClient will update status automatically, and data is preserved
+    // Claim this attempt before awaiting. A disconnect can still be in flight
+    // when the user switches servers or presses 'd' again, and it is the
+    // *stale* one that usually rejects — so the catch below must be able to
+    // tell "my failure" from "one that has since been superseded", or server
+    // A's error lands in server B's header. `handleConnect` bumps the same
+    // counter for the same reason.
+    const attempt = ++disconnectAttemptRef.current;
+    const attemptServer = selectedServer;
+    // Clear first, so a retry that succeeds leaves no stale message behind.
+    setDisconnectError(null);
+    try {
+      await disconnectInspector();
+      // InspectorClient will update status automatically, and data is preserved
+    } catch (err) {
+      // Nothing above this catches: the only caller is the key handler, which
+      // cannot await, so without this the rejection escapes unhandled. A
+      // superseded one is still owned here — just not published.
+      if (
+        disconnectAttemptRef.current !== attempt ||
+        selectedServerRef.current !== attemptServer
+      ) {
+        return;
+      }
+      setDisconnectError(err instanceof Error ? err.message : String(err));
+    }
   }, [selectedServer, disconnectInspector]);
 
   const handleClearOAuth = useCallback(async () => {
     if (!selectedInspectorClient) return;
-    await selectedInspectorClient.clearOAuthTokens();
+    // Claim this attempt before awaiting, exactly as `handleDisconnect` does.
+    // The RFC 7009 leg is a bounded network request, so this callback can now
+    // stay suspended for seconds — long enough for the user to switch servers,
+    // at which point publishing this result would put server A's outcome on
+    // server B (and would race a second clear over the same state). (#2144)
+    const attempt = ++clearOAuthAttemptRef.current;
+    const attemptServer = selectedServer;
+    // RFC 7009. Best-effort: the outcome is reported in the status line, never
+    // thrown, so clearing always completes. The per-server `oauthRevokeOnClear`
+    // opt-out is honored here the same way the web client honors it.
+    const revocation = await selectedInspectorClient.clearOAuthTokens({
+      revoke: selectedServerEntry?.settings?.oauthRevokeOnClear !== false,
+    });
+    // The local clear has happened either way — only the *reporting* is
+    // retired, so a superseded attempt leaves no trace on the new selection.
+    if (
+      clearOAuthAttemptRef.current !== attempt ||
+      selectedServerRef.current !== attemptServer
+    ) {
+      return;
+    }
     setOauthStatus("idle");
-    setOauthMessage(null);
+    if (revocation.status === "failed") {
+      const warning = `Cleared locally, but revoking the grant at the authorization server failed: ${revocation.detail}. It may still be valid there.`;
+      setOauthWarningText(warning);
+      setOauthMessage(warning);
+    } else {
+      setOauthMessage(null);
+    }
     setConnectError(null);
     if (inspectorStatus === "connected" || inspectorStatus === "connecting") {
-      await disconnectInspector();
+      // The clear has already succeeded by here, so a disconnect failure must
+      // not propagate as one: `AuthTab` would report "Could not clear OAuth
+      // state", which is false. It goes to the disconnect error line instead,
+      // where the same failure from the `d` key already lands.
+      try {
+        await disconnectInspector();
+      } catch (err) {
+        setDisconnectError(err instanceof Error ? err.message : String(err));
+      }
+      // Revalidate: the disconnect is a second await, and a switch during it
+      // would make the revision bump below land on the new selection.
+      if (
+        clearOAuthAttemptRef.current !== attempt ||
+        selectedServerRef.current !== attemptServer
+      ) {
+        return;
+      }
     }
     setOauthRevision((n) => n + 1);
-  }, [selectedInspectorClient, inspectorStatus, disconnectInspector]);
+  }, [
+    selectedInspectorClient,
+    selectedServer,
+    selectedServerEntry,
+    inspectorStatus,
+    disconnectInspector,
+  ]);
 
   // Build current server state from InspectorClient data (tools from ManagedToolsState)
   const currentServerState = useMemo(() => {
@@ -1225,6 +1405,7 @@ function App({
     setTabCounts({
       resources: managedResources.length || 0,
       prompts: managedPrompts.length || 0,
+      skills: managedSkills.length || 0,
       tools: managedTools.length || 0,
       messages: inspectorMessages.length || 0,
       requests: inspectorFetchRequests.length || 0,
@@ -1234,6 +1415,7 @@ function App({
     selectedServer,
     managedResources,
     managedPrompts,
+    managedSkills,
     managedTools,
     inspectorMessages,
     inspectorFetchRequests,
@@ -1308,6 +1490,7 @@ function App({
           if (tab.id === "auth" && !showAuthTab) return false;
           if (tab.id === "logging" && !showLoggingTab) return false;
           if (tab.id === "requests" && !showRequestsTab) return false;
+          if (tab.id === "skills" && !showSkillsTab) return false;
           return true;
         })
         .map((tab: { id: TabType; label: string; accelerator: string }) => [
@@ -1395,6 +1578,7 @@ function App({
         "auth",
         "resources",
         "prompts",
+        "skills",
         "tools",
         "messages",
         "requests",
@@ -1404,6 +1588,7 @@ function App({
         if (t === "auth" && !showAuthTab) return false;
         if (t === "logging" && !showLoggingTab) return false;
         if (t === "requests" && !showRequestsTab) return false;
+        if (t === "skills" && !showSkillsTab) return false;
         return true;
       });
       const currentIndex = tabs.indexOf(activeTab);
@@ -1422,26 +1607,52 @@ function App({
         input.toLowerCase() === "c" &&
         (inspectorStatus === "disconnected" || inspectorStatus === "error")
       ) {
-        handleConnect();
+        // Both handlers own their failures internally (each ends in a catch
+        // that surfaces the message), so there is nothing left for a key
+        // handler — which cannot await — to do with the promise.
+        void handleConnect();
       } else if (
         input.toLowerCase() === "d" &&
         (inspectorStatus === "connected" || inspectorStatus === "connecting")
       ) {
-        handleDisconnect();
+        void handleDisconnect();
       }
     }
   });
 
   // Calculate layout dimensions
   const headerHeight = 1;
-  const tabsHeight = 1;
+  const serverListWidth = Math.floor(dimensions.width * 0.3);
+  const contentWidth = dimensions.width - serverListWidth;
+  // Derived, not assumed. The bar wraps once the visible tabs exceed the
+  // terminal width — which a stdio server with Skills does at any ordinary
+  // width — and a hard-coded 1 sized every pane below it one row too tall,
+  // clipping the bottom of the TUI (Copilot).
+  const tabsHeight = tabBarRows(
+    visibleTabs({
+      showAuth: !!(
+        selectedServer &&
+        selectedServerConfig &&
+        isOAuthCapableServerConfig(selectedServerConfig)
+      ),
+      showLogging:
+        !!selectedServer &&
+        inspectorClients[selectedServer]?.getServerType() === "stdio",
+      showRequests:
+        !!selectedServer &&
+        (inspectorClients[selectedServer]?.getServerType() === "sse" ||
+          inspectorClients[selectedServer]?.getServerType() ===
+            "streamable-http"),
+      showSkills: showSkillsTab,
+    }),
+    tabCounts,
+    contentWidth,
+  );
   // Server details will be flexible - calculate remaining space for content
   const availableHeight = dimensions.height - headerHeight - tabsHeight;
   // Reserve space for server details (will grow as needed, but we'll use flexGrow)
   const serverDetailsMinHeight = 3;
   const contentHeight = availableHeight - serverDetailsMinHeight;
-  const serverListWidth = Math.floor(dimensions.width * 0.3);
-  const contentWidth = dimensions.width - serverListWidth;
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -1611,6 +1822,11 @@ function App({
                   <Text color="red">OAuth: {oauthMessage}</Text>
                 </Box>
               )}
+              {disconnectError && (
+                <Box marginTop={1}>
+                  <Text color="red">Disconnect failed: {disconnectError}</Text>
+                </Box>
+              )}
             </Box>
           </Box>
 
@@ -1633,6 +1849,7 @@ function App({
                 ? inspectorClients[selectedServer].getServerType() === "stdio"
                 : false
             }
+            showSkills={showSkillsTab}
             showRequests={
               selectedServer && inspectorClients[selectedServer]
                 ? (() => {
@@ -1679,6 +1896,7 @@ function App({
                 inspectorClient={selectedInspectorClient}
                 oauthStatus={oauthStatus}
                 oauthMessage={oauthMessage}
+                oauthMessageTone={oauthMessageTone}
                 oauthRevision={oauthRevision}
                 pendingStepUp={
                   pendingStepUp?.serverName === selectedServer
@@ -1781,9 +1999,12 @@ function App({
                 focused={
                   focus === "tabContentList" || focus === "tabContentDetails"
                 }
-                onClearOAuth={() => {
-                  void handleClearOAuth();
-                }}
+                // Passed directly, NOT wrapped in a `void`-ing arrow: AuthTab
+                // awaits this to hold its pending state, keep its repeat lock,
+                // and route a rejection to the failure line. Dropping the
+                // promise here would resolve it instantly and make all three
+                // inert while revocation was still running (#2144).
+                onClearOAuth={handleClearOAuth}
                 connectionStatus={inspectorStatus}
               />
             ) : null}
@@ -1823,6 +2044,34 @@ function App({
                     inspectorClient: selectedInspectorClient,
                   });
                 }}
+                onAuthRecoveryRequired={onAuthRecoveryRequired}
+                modalOpen={
+                  !!(
+                    toolTestModal ||
+                    resourceTestModal ||
+                    promptTestModal ||
+                    detailsModal
+                  )
+                }
+              />
+            ) : activeTab === "skills" &&
+              currentServerState?.status === "connected" &&
+              selectedInspectorClient ? (
+              <SkillsTab
+                key={`skills-${selectedServer}`}
+                skills={managedSkills}
+                pageCount={managedSkillsPageCount}
+                loadError={managedSkillsError}
+                inspectorClient={selectedInspectorClient}
+                width={contentWidth}
+                height={contentHeight}
+                focusedPane={
+                  focus === "tabContentDetails"
+                    ? "details"
+                    : focus === "tabContentList"
+                      ? "list"
+                      : null
+                }
                 onAuthRecoveryRequired={onAuthRecoveryRequired}
                 modalOpen={
                   !!(

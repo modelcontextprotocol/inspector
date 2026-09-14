@@ -1,14 +1,11 @@
 import type { Preview } from "@storybook/react-vite";
-import {
-  MantineProvider,
-  useMantineColorScheme,
-  type CSSVariablesResolver,
-} from "@mantine/core";
+import { MantineProvider, useMantineColorScheme } from "@mantine/core";
 import { Notifications } from "@mantine/notifications";
 import "@mantine/core/styles.css";
 import "@mantine/notifications/styles.css";
 import "../src/App.css";
 import { theme } from "../src/theme/theme";
+import { cssVariablesResolver } from "../src/theme/cssVariables";
 import { useEffect } from "react";
 
 // eslint-disable-next-line react-refresh/only-export-components
@@ -27,14 +24,6 @@ function ColorSchemeWrapper({
 
   return <>{children}</>;
 }
-
-const resolver: CSSVariablesResolver = () => ({
-  variables: {},
-  light: {},
-  dark: {
-    "--mantine-color-body": "var(--mantine-color-dark-9)",
-  },
-});
 
 const preview: Preview = {
   globalTypes: {
@@ -61,7 +50,7 @@ const preview: Preview = {
         <MantineProvider
           theme={theme}
           defaultColorScheme="light"
-          cssVariablesResolver={resolver}
+          cssVariablesResolver={cssVariablesResolver}
         >
           <ColorSchemeWrapper
             colorScheme={context.globals.colorScheme ?? "light"}
@@ -87,7 +76,7 @@ const preview: Preview = {
       },
     },
     a11y: {
-      // `'error'` fails the Storybook play-function tests (part of `npm run ci`)
+      // `'error'` fails the Storybook play-function tests (part of `npm run local:gate`)
       // on any axe violation, so the zero-violation state this PR reached is
       // enforced going forward rather than being a point-in-time result.
       test: "error",

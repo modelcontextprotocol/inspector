@@ -8,8 +8,20 @@
  */
 
 import { describe, it, expect, vi } from "vitest";
-import { renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { useInitialConfig } from "@inspector/core/react/useInitialConfig";
+
+function payloadWithPlaintext(plaintext: boolean): Response {
+  return jsonResponse({
+    secretStorage: {
+      kind: "file",
+      reason: "fallback",
+      durable: true,
+      plaintext,
+      path: "/tmp/secrets.json",
+    },
+  });
+}
 
 function jsonResponse(body: unknown, ok = true): Response {
   return {
@@ -248,5 +260,337 @@ describe("useInitialConfig", () => {
     await Promise.resolve();
     expect(result.current.version).toBeUndefined();
     expect(result.current.writable).toBe(true);
+  });
+
+  describe("secretStorage (#1950)", () => {
+    // The footer under a secret field reads this, so the hook's job is to hand
+    // back only a descriptor it can vouch for. Every rejected shape must land
+    // on `undefined` — which the footer renders as nothing — rather than on a
+    // half-populated object that would render a confident wrong answer.
+    it("passes through a well-formed descriptor", async () => {
+      const info = {
+        kind: "file",
+        reason: "fallback",
+        durable: true,
+        plaintext: true,
+        path: "/home/node/.mcp-inspector/secrets.json",
+      };
+      const fetchFn = vi
+        .fn()
+        .mockResolvedValue(jsonResponse({ secretStorage: info }));
+
+      const { result } = renderHook(() =>
+        useInitialConfig({ baseUrl: "http://test.local", fetchFn }),
+      );
+
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      expect(result.current.secretStorage).toEqual(info);
+    });
+
+    it("passes through the optional file fields when they are well-typed", async () => {
+      const info = {
+        kind: "file",
+        reason: "fallback",
+        durable: true,
+        plaintext: true,
+        path: "/home/node/.mcp-inspector/secrets.json",
+        pendingEncryption: true,
+        looseMode: 0o644,
+        permissionsUnknown: "EACCES",
+      };
+      const fetchFn = vi
+        .fn()
+        .mockResolvedValue(jsonResponse({ secretStorage: info }));
+      const { result } = renderHook(() =>
+        useInitialConfig({ baseUrl: "http://test.local", fetchFn }),
+      );
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      expect(result.current.secretStorage).toEqual(info);
+    });
+
+    it("passes through a descriptor that reports an unreadable file", async () => {
+      // `plaintext` is legitimately absent here; the guard must accept that
+      // shape rather than requiring a field the backend cannot honestly set.
+      const info = {
+        kind: "file",
+        reason: "fallback",
+        durable: true,
+        path: "/home/node/.mcp-inspector/secrets.json",
+        encryptionUnknown: "not valid JSON",
+      };
+      const fetchFn = vi
+        .fn()
+        .mockResolvedValue(jsonResponse({ secretStorage: info }));
+      const { result } = renderHook(() =>
+        useInitialConfig({ baseUrl: "http://test.local", fetchFn }),
+      );
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      expect(result.current.secretStorage).toEqual(info);
+    });
+
+    it("is undefined on a backend that omits the field", async () => {
+      const fetchFn = vi.fn().mockResolvedValue(jsonResponse({}));
+      const { result } = renderHook(() =>
+        useInitialConfig({ baseUrl: "http://test.local", fetchFn }),
+      );
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      expect(result.current.secretStorage).toBeUndefined();
+    });
+
+    it.each([
+      ["a non-object", "keyring"],
+      ["null", null],
+      ["an unknown kind", { kind: "vault", durable: true }],
+      ["a missing kind", { durable: true, path: "/x" }],
+      // The dangerous one: `kind` alone passed the old check, and a missing
+      // `plaintext` is falsy, so it rendered as the quiet *encrypted* file —
+      // the most misleading thing this footer can say, produced by the absence
+      // of information rather than by anything the backend claimed.
+      ["a file descriptor with nothing but a kind", { kind: "file" }],
+      [
+        "a file descriptor missing its path",
+        { kind: "file", reason: "fallback", durable: true, plaintext: false },
+      ],
+      [
+        "a file descriptor missing plaintext",
+        { kind: "file", reason: "fallback", durable: true, path: "/x" },
+      ],
+      [
+        "a descriptor with an unknown reason",
+        { kind: "keyring", reason: "vibes", durable: true },
+      ],
+      [
+        "a descriptor with a non-boolean durable",
+        { kind: "memory", reason: "fallback", durable: "no" },
+      ],
+      [
+        // The truthy-string trap: the footer would read this as "already
+        // re-encrypting" and print advice that is the opposite of the truth.
+        "a stringly-typed pendingEncryption",
+        {
+          kind: "file",
+          reason: "fallback",
+          durable: true,
+          plaintext: true,
+          path: "/x",
+          pendingEncryption: "false",
+        },
+      ],
+      [
+        "a non-numeric looseMode",
+        {
+          kind: "file",
+          reason: "fallback",
+          durable: true,
+          plaintext: true,
+          path: "/x",
+          looseMode: "644",
+        },
+      ],
+      [
+        // Neither half of the encryption question answered.
+        "a file descriptor with neither plaintext nor encryptionUnknown",
+        { kind: "file", reason: "fallback", durable: true, path: "/x" },
+      ],
+      [
+        // Both answered, which is contradictory — the state was either read
+        // or it wasn't.
+        "a file descriptor with both plaintext and encryptionUnknown",
+        {
+          kind: "file",
+          reason: "fallback",
+          durable: true,
+          path: "/x",
+          plaintext: true,
+          encryptionUnknown: "not valid JSON",
+        },
+      ],
+      [
+        "encryptionUnknown on a memory descriptor",
+        {
+          kind: "memory",
+          reason: "fallback",
+          durable: false,
+          encryptionUnknown: "not valid JSON",
+        },
+      ],
+      [
+        "a non-string permissionsUnknown",
+        {
+          kind: "file",
+          reason: "fallback",
+          durable: true,
+          plaintext: true,
+          path: "/x",
+          permissionsUnknown: true,
+        },
+      ],
+      [
+        // Each file-only field is rejected on its own, so no single one can
+        // slip through on the back of the others being absent.
+        "permissionsUnknown on a keyring descriptor",
+        {
+          kind: "keyring",
+          reason: "default",
+          durable: true,
+          permissionsUnknown: "EACCES",
+        },
+      ],
+      [
+        "looseMode on a keyring descriptor",
+        { kind: "keyring", reason: "default", durable: true, looseMode: 0o644 },
+      ],
+      [
+        "pendingEncryption on a memory descriptor",
+        {
+          kind: "memory",
+          reason: "fallback",
+          durable: false,
+          pendingEncryption: true,
+        },
+      ],
+      [
+        "a path on a memory descriptor",
+        {
+          kind: "memory",
+          reason: "fallback",
+          durable: false,
+          path: "/x/secrets.json",
+        },
+      ],
+      [
+        // File-only fields on a non-file kind mean the payload was not built
+        // by a backend we understand; rendering a mixture of two stores'
+        // answers is worse than rendering nothing.
+        "file fields on a memory descriptor",
+        {
+          kind: "memory",
+          reason: "fallback",
+          durable: false,
+          plaintext: true,
+        },
+      ],
+    ])("rejects %s", async (_label, value) => {
+      const fetchFn = vi
+        .fn()
+        .mockResolvedValue(jsonResponse({ secretStorage: value }));
+      const { result } = renderHook(() =>
+        useInitialConfig({ baseUrl: "http://test.local", fetchFn }),
+      );
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      expect(result.current.secretStorage).toBeUndefined();
+    });
+  });
+
+  describe("refresh (#1950 review r14)", () => {
+    it("re-fetches on demand so a descriptor this app changed is not stale", async () => {
+      // The lazy encryption upgrade: the first save under a newly-set
+      // passphrase re-encrypts a pre-existing plaintext file. `/api/config`
+      // re-derives per request, but without a refresh the page keeps the
+      // descriptor it fetched at mount and the footer says "Plaintext file"
+      // for the rest of the session about a file that no longer is.
+      let plaintext = true;
+      const fetchFn = vi.fn().mockImplementation(() =>
+        Promise.resolve(
+          jsonResponse({
+            secretStorage: {
+              kind: "file",
+              reason: "fallback",
+              durable: true,
+              plaintext,
+              path: "/tmp/secrets.json",
+            },
+          }),
+        ),
+      );
+
+      const { result } = renderHook(() =>
+        useInitialConfig({ baseUrl: "http://test.local", fetchFn }),
+      );
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      expect(result.current.secretStorage?.plaintext).toBe(true);
+
+      plaintext = false; // the upgrading write happens
+      act(() => result.current.refresh());
+      await waitFor(() =>
+        expect(result.current.secretStorage?.plaintext).toBe(false),
+      );
+      expect(fetchFn).toHaveBeenCalledTimes(2);
+    });
+
+    it("commits only the newest load when refreshes overlap", async () => {
+      // Two debounced settings saves landing close together fire two
+      // refreshes, and nothing orders the responses. Before the request
+      // token, an earlier request resolving last put the footer back to the
+      // descriptor it had *before* the write — reverting a security
+      // statement to a stale value, which is the worst direction for this
+      // particular field to be wrong in.
+      const resolvers: Array<(v: Response) => void> = [];
+      const fetchFn = vi
+        .fn()
+        .mockImplementation(
+          () => new Promise<Response>((resolve) => resolvers.push(resolve)),
+        );
+
+      const { result } = renderHook(() =>
+        useInitialConfig({ baseUrl: "http://test.local", fetchFn }),
+      );
+      // Mount fetch is resolvers[0]; settle it so `loading` clears.
+      await act(async () => {
+        resolvers[0]?.(payloadWithPlaintext(true));
+      });
+      await waitFor(() => expect(result.current.loading).toBe(false));
+
+      // Two overlapping refreshes: the first reports the pre-write state,
+      // the second the post-write state.
+      act(() => result.current.refresh()); // resolvers[1] — older
+      act(() => result.current.refresh()); // resolvers[2] — newer
+
+      // Resolve the NEWER one first, then the older one.
+      await act(async () => {
+        resolvers[2]?.(payloadWithPlaintext(false));
+      });
+      await act(async () => {
+        resolvers[1]?.(payloadWithPlaintext(true));
+      });
+
+      // The late-arriving older response must not win.
+      expect(result.current.secretStorage?.plaintext).toBe(false);
+    });
+
+    it("drops a refresh that resolves after unmount", async () => {
+      // Round 16: the previous version of this test called `refresh()` after
+      // unmount but never settled the fetch, so it could not observe the
+      // commit it was supposed to prevent — and the implementation was in
+      // fact committing, because the token bump on teardown only invalidates
+      // loads already in flight. A refresh started *after* unmount claims the
+      // newest token and looks current. The fetch is settled here.
+      const resolvers: Array<(v: Response) => void> = [];
+      const fetchFn = vi
+        .fn()
+        .mockImplementation(
+          () => new Promise<Response>((resolve) => resolvers.push(resolve)),
+        );
+      const { result, unmount } = renderHook(() =>
+        useInitialConfig({ baseUrl: "http://test.local", fetchFn }),
+      );
+      await act(async () => {
+        resolvers[0]?.(payloadWithPlaintext(true));
+      });
+      await waitFor(() => expect(result.current.loading).toBe(false));
+
+      const refresh = result.current.refresh;
+      unmount();
+      expect(() => refresh()).not.toThrow();
+
+      // Settling it must be a no-op. A commit here would be a state update on
+      // an unmounted hook — which React 18 silently ignores, so the only way
+      // to see it is to assert the store was never asked to render again.
+      const renders = fetchFn.mock.calls.length;
+      await act(async () => {
+        resolvers[1]?.(payloadWithPlaintext(false));
+      });
+      expect(fetchFn.mock.calls.length).toBe(renders);
+    });
   });
 });

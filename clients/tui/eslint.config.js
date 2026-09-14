@@ -27,7 +27,23 @@ export default defineConfig([
     },
     rules: {
       "react-hooks/rules-of-hooks": "error",
-      "react-hooks/exhaustive-deps": "warn",
+      // `error`, not `warn` — see the web config (#2085).
+      "react-hooks/exhaustive-deps": "error",
+    },
+  },
+  {
+    // Type-aware pass for `no-floating-promises` (#1959) — see the CLI config
+    // for the reasoning. Both tsconfig projects are listed because `src` and
+    // `__tests__` live in different ones.
+    files: ["**/*.{ts,tsx}"],
+    languageOptions: {
+      parserOptions: {
+        project: ["./tsconfig.json", "./tsconfig.test.json"],
+        tsconfigRootDir: import.meta.dirname,
+      },
+    },
+    rules: {
+      "@typescript-eslint/no-floating-promises": "error",
     },
   },
 ]);

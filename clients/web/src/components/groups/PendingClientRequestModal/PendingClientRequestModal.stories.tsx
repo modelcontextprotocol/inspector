@@ -122,11 +122,11 @@ export const Sampling: Story = {
   play: async ({ canvasElement, args }) => {
     const body = within(canvasElement.ownerDocument.body);
     await body.findByText("Sampling Request");
-    expect(
+    await expect(
       body.getByText("The server is requesting an LLM completion."),
     ).toBeInTheDocument();
     await userEvent.click(body.getByRole("button", { name: "Send Response" }));
-    expect(args.onSamplingRespond).toHaveBeenCalled();
+    await expect(args.onSamplingRespond).toHaveBeenCalled();
   },
 };
 
@@ -144,8 +144,8 @@ export const SamplingInputRequired: Story = {
   play: async ({ canvasElement }) => {
     const body = within(canvasElement.ownerDocument.body);
     await body.findByText("Sampling Request");
-    expect(body.getByText("input_required")).toBeInTheDocument();
-    expect(body.getByText(/sent back as a retry/i)).toBeInTheDocument();
+    await expect(body.getByText("input_required")).toBeInTheDocument();
+    await expect(body.getByText(/sent back as a retry/i)).toBeInTheDocument();
   },
 };
 
@@ -172,11 +172,11 @@ export const ElicitationForm: Story = {
   play: async ({ canvasElement, args }) => {
     const body = within(canvasElement.ownerDocument.body);
     await body.findByText("Elicitation Request");
-    expect(
+    await expect(
       body.getByText(/Please provide your database connection details/),
     ).toBeInTheDocument();
     await userEvent.click(body.getByRole("button", { name: "Submit" }));
-    expect(args.onElicitationRespond).toHaveBeenCalledWith({
+    await expect(args.onElicitationRespond).toHaveBeenCalledWith({
       action: "accept",
       content: {},
     });
@@ -207,7 +207,7 @@ export const ElicitationUrl: Story = {
   play: async ({ canvasElement }) => {
     const body = within(canvasElement.ownerDocument.body);
     await body.findByText("Elicitation Request");
-    expect(
+    await expect(
       body.getByText("https://example.com/authorize?token=abc123"),
     ).toBeInTheDocument();
   },

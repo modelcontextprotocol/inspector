@@ -45,10 +45,12 @@ export const Static: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    expect(canvas.getByText(URI)).toBeInTheDocument();
+    await expect(canvas.getByText(URI)).toBeInTheDocument();
     // Copy button is present; there's no expand control in the static card.
-    expect(canvas.getByRole("button", { name: "Copy" })).toBeInTheDocument();
-    expect(
+    await expect(
+      canvas.getByRole("button", { name: "Copy" }),
+    ).toBeInTheDocument();
+    await expect(
       canvas.queryByRole("button", { name: /^Expand resource/ }),
     ).not.toBeInTheDocument();
   },
@@ -88,8 +90,15 @@ export const LargeResult: Story = {
     );
     // The `"blob"` key appears only in the expanded read result's JSON (not in
     // the metadata badge), so it confirms the inline result rendered.
-    await waitFor(() =>
-      expect(canvas.getByText(/"blob":/)).toBeInTheDocument(),
-    );
+    //
+    // Read through the editor rather than with `getByText`: the JSON renders in
+    // Ace (#2151), which puts every token in its own element — so a matcher
+    // spanning the `"blob"`/`:` boundary can never match a single node.
+    await waitFor(async () => {
+      const editor = canvasElement.querySelector(".ace_editor") as
+        | (HTMLElement & { env?: { editor?: { getValue(): string } } })
+        | null;
+      await expect(editor?.env?.editor?.getValue() ?? "").toContain('"blob":');
+    });
   },
 };

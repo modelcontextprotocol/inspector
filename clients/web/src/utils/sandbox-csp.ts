@@ -1,4 +1,7 @@
-import type { McpUiResourceCsp } from "@modelcontextprotocol/ext-apps/app-bridge";
+import type {
+  McpUiResourceCsp,
+  McpUiResourcePermissions,
+} from "@modelcontextprotocol/ext-apps/app-bridge";
 
 /**
  * Allowed shapes for a CSP source-expression supplied by an app's
@@ -38,11 +41,15 @@ const CSP_KEYS = exhaustiveCspKeys([
 
 /**
  * Filter an app-supplied {@link McpUiResourceCsp} down to the entries the host
- * will actually enforce. Unsafe values are dropped (and warned), and the
- * resulting object contains only keys with at least one accepted source. The
- * return value is what the host echoes back to the view via
- * `hostCapabilities.sandbox.csp` so the app sees what was granted, not what it
- * asked for.
+ * will actually enforce. The accepted subset is the origin forms
+ * {@link SAFE_CSP_SOURCE} matches — `scheme://host[:port][/path]`, a bare or
+ * wildcard host, a scheme such as `data:`, and `*`. Anything outside it is
+ * dropped (and warned) — including a CSP keyword like `'unsafe-eval'`, which
+ * is a perfectly valid source expression in CSP but not something these
+ * origin-list fields can express. The resulting object contains only keys with
+ * at least one accepted source, and is what the host echoes back to the view
+ * via `hostCapabilities.sandbox.csp` so the app sees what was granted, not what
+ * it asked for.
  *
  * NOTE: this screens each source for *injection safety* only — it does NOT
  * bound the *breadth* of a grant. A bare `*` (and a scheme-wildcard host) is a
@@ -53,6 +60,12 @@ const CSP_KEYS = exhaustiveCspKeys([
  * ambient credentials and nothing to exfiltrate beyond what the app already
  * received; "approved" therefore means "cannot break out of the meta
  * attribute," not "restrictive."
+ *
+ * The drop warning is worded accordingly: it names the field the entry came
+ * from and states the shape expected, and makes no claim about the *safety* of
+ * the value. Saying "unsafe" instead read as a security verdict this check
+ * never makes, and sent #2012 chasing an XSS regression that wasn't one, when
+ * the entry had merely been the wrong kind of thing for the field (#2064).
  */
 export function approveCspSources(
   csp: McpUiResourceCsp | undefined,
@@ -67,12 +80,92 @@ export function approveCspSources(
       if (typeof entry === "string" && SAFE_CSP_SOURCE.test(entry)) {
         accepted.push(entry);
       } else {
-        console.warn("[mcp-app sandbox] dropping unsafe CSP source:", entry);
+        console.warn(
+          `[mcp-app sandbox] dropping "${key}" entry (expected an origin such ` +
+            `as https://example.com or https://*.example.com, a scheme such as ` +
+            `data:, or *):`,
+          entry,
+        );
       }
     }
     if (accepted.length > 0) approved[key] = accepted;
   }
   return approved;
+}
+
+/** The permission-key analog of {@link exhaustiveCspKeys}; same compile-time completeness proof. */
+function exhaustivePermissionKeys<
+  const T extends readonly (keyof McpUiResourcePermissions)[],
+>(
+  keys: T &
+    (keyof McpUiResourcePermissions extends T[number] ? unknown : never),
+): T {
+  return keys;
+}
+
+const PERMISSION_KEYS = exhaustivePermissionKeys([
+  "camera",
+  "microphone",
+  "geolocation",
+  "clipboardWrite",
+]);
+
+/**
+ * Filter an app-supplied permissions bag down to the keys the host will forward
+ * to the sandbox proxy, keeping only those the app actually *requested*.
+ *
+ * The proxy's `buildAllowAttribute()` tests each key for **truthiness**, so an
+ * unvalidated bag lets a non-marker stand in for a grant: `{ camera: "false" }`
+ * — a plausible way for a server to mean "off" — is truthy and would switch the
+ * `allow` attribute on. `_meta` is untrusted input of no declared type, hence
+ * the `unknown` parameter: this is the boundary that decides what the shape is,
+ * not a consumer of an already-validated one.
+ *
+ * A key counts as requested only when its value is an **object** — the marker
+ * {@link McpUiResourcePermissions} defines for every permission is `{}`, and
+ * presence of that object is the request. Everything else fails closed:
+ * `true`, `false`, any string, `null`, a number, an array, and any key outside
+ * the four the proxy knows. `true` in particular looks like a harmless
+ * shorthand, but honoring an undocumented one means a server typo turns an
+ * iframe permission ON, which is the wrong direction to guess in.
+ *
+ * The object is not required to be *empty*. `{}` is a type with no fields yet,
+ * not a promise there will never be any — it is precisely the spec's extension
+ * point, so rejecting `{ camera: { … } }` would fail closed the day a
+ * permission gains an option, silently dropping grants from servers written
+ * against the newer spec. The value is normalized to `{}` on the way out
+ * either way, so an unrecognized field can't reach the proxy; what it cannot
+ * do is *narrow* a grant the key's presence already asked for.
+ *
+ * Returns undefined when nothing survives, so the notification and the
+ * `hostCapabilities.sandbox` echo carry no permissions at all rather than an
+ * empty object.
+ */
+export function approveSandboxPermissions(
+  permissions: unknown,
+): McpUiResourcePermissions | undefined {
+  if (typeof permissions !== "object" || permissions === null) return undefined;
+  const bag: Record<string, unknown> = { ...permissions };
+  const approved: McpUiResourcePermissions = {};
+  let granted = false;
+  for (const key of PERMISSION_KEYS) {
+    const requested = bag[key];
+    if (requested === undefined || requested === false) continue;
+    if (
+      typeof requested === "object" &&
+      requested !== null &&
+      !Array.isArray(requested)
+    ) {
+      approved[key] = {};
+      granted = true;
+    } else {
+      console.warn(
+        `[mcp-app sandbox] dropping unrecognized "${key}" permission value:`,
+        requested,
+      );
+    }
+  }
+  return granted ? approved : undefined;
 }
 
 function joinSources(list: string[] | undefined, fallback: string): string {

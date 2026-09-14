@@ -14,6 +14,8 @@ type Story = StoryObj<typeof ReplayButton>;
 export const Default: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    expect(canvas.getByRole("button", { name: "Replay" })).toBeInTheDocument();
+    await expect(
+      canvas.getByRole("button", { name: "Replay" }),
+    ).toBeInTheDocument();
   },
 };

@@ -21,6 +21,8 @@ import type {
   ToolCallInvocation,
   ResourceSubscriptionStreamState,
   ExcludedTool,
+  RequestMetadata,
+  AppRendererClient,
 } from "./types.js";
 import type {
   CacheMode,
@@ -37,16 +39,20 @@ import type {
   Tool,
 } from "@modelcontextprotocol/client";
 import type { JsonValue } from "../json/jsonUtils.js";
+import type { MalformedListItem } from "./listSalvage.js";
 import type { InspectorClientEventTarget } from "./inspectorClientEventTarget.js";
+import type { SkillEntry } from "./skillsSchemas.js";
+import type { SkillsExtensionSupport } from "./skills.js";
+import type { DirectoryReadResult } from "./skillsSchemas.js";
 import type { SamplingCreateMessage } from "./samplingCreateMessage.js";
 import type { ElicitationCreateMessage } from "./elicitationCreateMessage.js";
 
 /**
- * Opaque type representing the AppRendererClient surface used by @mcp-ui.
- * v1.5 aliases this to the SDK `Client` type; v2 leaves it opaque until the
- * real InspectorClient (or a focused App-renderer port) lands.
+ * Re-exported from `./types.js`, where it is defined and documented, so hook
+ * code that types against this protocol (`core/react/useInspectorClient.ts`)
+ * can import it here without a second, drift-prone definition (#1745).
  */
-export type AppRendererClient = unknown;
+export type { AppRendererClient } from "./types.js";
 
 /**
  * The contract every state manager and hook depends on. Anything that holds
@@ -65,6 +71,9 @@ export interface InspectorClientProtocol extends InspectorClientEventTarget {
   /** Tools excluded from `tools/list` for invalid `x-mcp-header` annotations
    * (SEP-2243); empty on legacy/stdio connections (#1632). */
   getExcludedTools(): ExcludedTool[];
+  /** Entries dropped from a list result as malformed, across every list method;
+   * empty against a conforming server (#1909). */
+  getMalformedListItems(): MalformedListItem[];
   getResourceSubscriptionStreamState(): ResourceSubscriptionStreamState;
   getDiscoverResult(): DiscoverResult | undefined;
   getServerSettings(): InspectorServerSettings | undefined;
@@ -78,19 +87,19 @@ export interface InspectorClientProtocol extends InspectorClientEventTarget {
   // Paginated list methods used by managed/paged state stores
   listTools(
     cursor?: string,
-    metadata?: Record<string, string>,
+    metadata?: RequestMetadata,
   ): Promise<{ tools: Tool[]; nextCursor?: string }>;
   listPrompts(
     cursor?: string,
-    metadata?: Record<string, string>,
+    metadata?: RequestMetadata,
   ): Promise<{ prompts: Prompt[]; nextCursor?: string }>;
   listResources(
     cursor?: string,
-    metadata?: Record<string, string>,
+    metadata?: RequestMetadata,
   ): Promise<{ resources: Resource[]; nextCursor?: string }>;
   listResourceTemplates(
     cursor?: string,
-    metadata?: Record<string, string>,
+    metadata?: RequestMetadata,
   ): Promise<{ resourceTemplates: ResourceTemplate[]; nextCursor?: string }>;
   listRequestorTasks(
     cursor?: string,
@@ -105,6 +114,39 @@ export interface InspectorClientProtocol extends InspectorClientEventTarget {
    * and the modern task store's poll-based refresh. */
   isTasksExtensionNegotiated(): boolean;
 
+  /** The Skills extension (SEP-2640) the server declared, or `undefined`.
+   * Gates the Skills tab and the managed skills store (#2234). */
+  getSkillsExtension(): SkillsExtensionSupport | undefined;
+  /** One page of `skills/list`; the managed skills store walks the cursor. */
+  listSkills(
+    cursor?: string,
+    metadata?: RequestMetadata,
+  ): Promise<{ skills: SkillEntry[]; nextCursor?: string }>;
+  /** One skill entry by URI (`skills/get`). */
+  getSkill(uri: string, metadata?: RequestMetadata): Promise<SkillEntry>;
+  /**
+   * One page of `resources/directory/read` — the direct children of a directory
+   * resource (#2248). Optional on this interface, unlike the two methods above:
+   * declaring the extension commits a server to `skills/list` and `skills/get`,
+   * while this one is separately gated on `directoryRead`, so a caller has to
+   * check for it anyway and the many test doubles that satisfy this interface
+   * should not all have to grow a method most of them never reach.
+   */
+  readResourceDirectory?(
+    uri: string,
+    cursor?: string,
+    metadata?: RequestMetadata,
+  ): Promise<DirectoryReadResult>;
+
+  /**
+   * Mark the response that most recently answered `method` as rejected by the
+   * client, so its Protocol entry shows the reason instead of rendering as a
+   * clean success (#1953). Optional so existing test doubles satisfy the
+   * interface without implementing it; see `InspectorClient` for how the id is
+   * correlated and why that correlation is exact.
+   */
+  markResponseRejected?(method: string, reason: string): void;
+
   // Aggregate (all-page) list methods used by the managed state stores on
   // refresh. Unlike the single-page methods above, these route through the
   // SDK's cache-aware high-level verbs so `cacheMode` ('use' | 'refresh' |
@@ -113,41 +155,41 @@ export interface InspectorClientProtocol extends InspectorClientEventTarget {
   // `cacheMode` uses the SDK default ('use').
   listAllTools(options?: {
     cacheMode?: CacheMode;
-    metadata?: Record<string, string>;
+    metadata?: RequestMetadata;
   }): Promise<{ tools: Tool[] }>;
   listAllPrompts(options?: {
     cacheMode?: CacheMode;
-    metadata?: Record<string, string>;
+    metadata?: RequestMetadata;
   }): Promise<{ prompts: Prompt[] }>;
   listAllResources(options?: {
     cacheMode?: CacheMode;
-    metadata?: Record<string, string>;
+    metadata?: RequestMetadata;
   }): Promise<{ resources: Resource[] }>;
   listAllResourceTemplates(options?: {
     cacheMode?: CacheMode;
-    metadata?: Record<string, string>;
+    metadata?: RequestMetadata;
   }): Promise<{ resourceTemplates: ResourceTemplate[] }>;
 
   // Invocation methods used by paged result panels
   callTool(
     tool: Tool,
     args: Record<string, JsonValue>,
-    generalMetadata?: Record<string, string>,
-    toolSpecificMetadata?: Record<string, string>,
+    generalMetadata?: RequestMetadata,
+    toolSpecificMetadata?: RequestMetadata,
   ): Promise<ToolCallInvocation>;
   readResource(
     uri: string,
-    metadata?: Record<string, string>,
+    metadata?: RequestMetadata,
   ): Promise<ResourceReadInvocation>;
   readResourceFromTemplate(
     uriTemplate: string,
     params: Record<string, string>,
-    metadata?: Record<string, string>,
+    metadata?: RequestMetadata,
   ): Promise<ResourceTemplateReadInvocation>;
   getPrompt(
     name: string,
     params?: Record<string, string>,
-    metadata?: Record<string, string>,
+    metadata?: RequestMetadata,
   ): Promise<PromptGetInvocation>;
 
   // Misc surface required by hooks/state
@@ -169,6 +211,6 @@ export interface InspectorClientProtocol extends InspectorClientEventTarget {
     argumentName: string,
     argumentValue: string,
     context?: Record<string, string>,
-    metadata?: Record<string, string>,
+    metadata?: RequestMetadata,
   ): Promise<{ values: string[]; total?: number; hasMore?: boolean }>;
 }

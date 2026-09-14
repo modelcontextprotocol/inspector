@@ -1,6 +1,6 @@
 import React from "react";
 import { describe, it, expect } from "vitest";
-import { render } from "ink-testing-library";
+import { render } from "./helpers/renderTui";
 import { Text, useInput } from "ink";
 import {
   useSelectableList,

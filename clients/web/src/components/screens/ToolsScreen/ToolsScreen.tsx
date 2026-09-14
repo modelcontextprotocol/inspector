@@ -1,4 +1,5 @@
 import { Card, Flex, Stack, Text } from "@mantine/core";
+import type { MalformedListItem } from "@inspector/core/mcp";
 import type {
   CallToolResult,
   ReadResourceResult,
@@ -15,6 +16,7 @@ import { ToolResultPanel } from "../../groups/ToolResultPanel/ToolResultPanel";
 import { ToolCallErrorPanel } from "../../groups/ToolResultPanel/ToolCallErrorPanel";
 import { resultHasResourceLinks } from "../../groups/ToolResultPanel/toolResultUtils";
 import { collectSchemaDefaults, toFormSchema } from "../../../utils/jsonUtils";
+import { findToolByRowKey } from "../../../utils/toolUtils";
 
 export interface ToolCallState {
   status: "idle" | "pending" | "ok" | "error";
@@ -34,7 +36,14 @@ export interface ToolCallState {
 // as one object so they persist across tab navigation within a live session;
 // the screen unmounts on tab switch, so local state would be lost (#1414/#1417).
 export interface ToolsUiState {
-  selectedToolName?: string;
+  /**
+   * The selected row's `toolRowKey` — its position in the list plus its name,
+   * not the name alone. A `tools/list` may repeat a name, and identifying the
+   * selection by name highlighted every copy while the detail panel always
+   * resolved the first, so the later copies could not be inspected (#2001).
+   * The protocol name a `tools/call` sends still comes from the resolved tool.
+   */
+  selectedToolKey?: string;
   formValues: Record<string, unknown>;
   search: string;
   // Screen-level "Run as task" toggle, shared across tools (not per-tool):
@@ -50,6 +59,11 @@ export interface ToolsScreenProps {
   /** Tools the SDK excluded from `tools/list` for invalid `x-mcp-header`
    * annotations (SEP-2243), shown in the sidebar with the reason (#1632). */
   excludedTools?: ExcludedTool[];
+  /**
+   * Entries dropped from a list result as malformed, across every list method.
+   * Each list panel filters for its own and warns about them (#1909).
+   */
+  malformedListItems?: MalformedListItem[];
   callState?: ToolCallState;
   ui: ToolsUiState;
   listChanged: boolean;
@@ -60,6 +74,8 @@ export interface ToolsScreenProps {
   modernTasks?: boolean;
   onUiChange: (next: ToolsUiState) => void;
   onRefreshList: () => void;
+  /** A failed list load, rendered above the sidebar list (#1953). */
+  loadError?: Error | null;
   /** Pagination controls rendered in the sidebar (#1721). */
   pagination: ListPaginationControlsProps;
   onCallTool: (
@@ -145,6 +161,7 @@ const EmptyState = Text.withProps({
 export function ToolsScreen({
   tools,
   excludedTools,
+  malformedListItems,
   callState,
   ui,
   listChanged,
@@ -152,46 +169,55 @@ export function ToolsScreen({
   modernTasks = false,
   onUiChange,
   onRefreshList,
+  loadError,
   pagination,
   onCallTool,
   onCancelCall,
   onClearResult,
   onReadResource,
 }: ToolsScreenProps) {
-  const { selectedToolName, formValues, search } = ui;
-  const selectedTool = selectedToolName
-    ? tools.find((t) => t.name === selectedToolName)
-    : undefined;
+  const { selectedToolKey, formValues, search } = ui;
+  const selectedTool = findToolByRowKey(tools, selectedToolKey);
   const isExecuting = callState?.status === "pending";
 
-  const handleSelectTool = (name: string) => {
+  const handleSelectTool = (key: string) => {
     // Seed the form with the tool's schema defaults so default-only fields the
     // user never edits are still sent on execute (the form shows defaults via
     // resolveValue, but onChange only writes edited fields).
-    const tool = tools.find((t) => t.name === name);
-    // `name` always comes from the rendered tools list (ToolControls only emits
-    // names it was given), so the lookup never misses; the empty-object fallback
-    // is an unreachable defensive default.
+    const tool = findToolByRowKey(tools, key);
+    // `key` always comes from the rendered tools list (ToolControls only emits
+    // keys it computed from the tools it was given), so the lookup never misses;
+    // the empty-object fallback is an unreachable defensive default.
     let nextFormValues: Record<string, unknown> = {};
-    /* v8 ignore next -- unreachable: onSelectTool always names a tool in the list */
+    /* v8 ignore next -- unreachable: onSelectTool always keys a tool in the list */
     if (tool)
       nextFormValues = collectSchemaDefaults(
         toFormSchema(tool.inputSchema) ?? {},
       );
-    onUiChange({ ...ui, selectedToolName: name, formValues: nextFormValues });
+    onUiChange({ ...ui, selectedToolKey: key, formValues: nextFormValues });
   };
 
   return (
-    <ScreenLayout>
+    // `data-*` readiness contract for the headless tab smoke (#2148); see
+    // clients/web/README.md#core-tab-automation-contract. Attributes are not
+    // part of a component's typed props, so they are passed here rather than
+    // baked into the `ScreenLayout` constant.
+    <ScreenLayout
+      data-testid="tools-screen"
+      data-tool-count={tools.length}
+      data-call-status={callState?.status ?? "idle"}
+    >
       <Sidebar>
         <SidebarCard>
           <ToolControls
             tools={tools}
             excludedTools={excludedTools}
-            selectedName={selectedToolName}
+            malformedListItems={malformedListItems}
+            selectedKey={selectedToolKey}
             searchText={search}
             listChanged={listChanged}
             onRefreshList={onRefreshList}
+            loadError={loadError}
             pagination={pagination}
             onSearchChange={(value) => onUiChange({ ...ui, search: value })}
             onSelectTool={handleSelectTool}
@@ -240,6 +266,9 @@ export function ToolsScreen({
           <ContentCard>
             <ToolDetailPanel
               tool={selectedTool}
+              // The row key, not the name — a server may list the same tool
+              // name twice (#1957), and the panel is reused across selections.
+              resetKey={selectedToolKey}
               formValues={formValues}
               isExecuting={isExecuting}
               progress={callState?.progress}

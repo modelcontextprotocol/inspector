@@ -2,6 +2,8 @@ import { describe, it, expect, vi } from "vitest";
 import {
   buildOAuthConnectionState,
   hasPersistedOAuthServerState,
+  isAccessTokenProvablyUnexpired,
+  isAccessTokenUsable,
   isServerOAuthConfigured,
   protocolFromOAuthConfig,
 } from "@inspector/core/auth/connection-state.js";
@@ -55,6 +57,7 @@ function createStorage(
     clearServerMetadata: vi.fn(),
     clearIdpSession: vi.fn(),
     clearEnterpriseManagedResourceServers: vi.fn(),
+    takeRevocationSnapshot: vi.fn().mockResolvedValue({ byIssuer: {} }),
     getCodeVerifier: vi.fn(),
     getDiscoveryState: vi.fn().mockResolvedValue(undefined),
     saveDiscoveryState: vi.fn(),
@@ -255,5 +258,104 @@ describe("buildOAuthConnectionState", () => {
       }),
     });
     expect(state.ema).not.toHaveProperty("idToken");
+  });
+});
+
+/** Minimal unsigned JWT carrying only `exp` (epoch seconds). */
+function jwtWithExp(expSec: number): string {
+  const payload = btoa(JSON.stringify({ exp: expSec }))
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+  return `header.${payload}.sig`;
+}
+
+const nowSec = () => Math.floor(Date.now() / 1000);
+
+describe("isAccessTokenProvablyUnexpired", () => {
+  it("is true for a JWT whose exp is in the future", () => {
+    expect(
+      isAccessTokenProvablyUnexpired({
+        access_token: jwtWithExp(nowSec() + 3600),
+        token_type: "Bearer",
+      }),
+    ).toBe(true);
+  });
+
+  it("is false for a JWT whose exp has passed", () => {
+    expect(
+      isAccessTokenProvablyUnexpired({
+        access_token: jwtWithExp(nowSec() - 60),
+        token_type: "Bearer",
+      }),
+    ).toBe(false);
+  });
+
+  it("is false inside the 60s expiry skew window", () => {
+    expect(
+      isAccessTokenProvablyUnexpired({
+        access_token: jwtWithExp(nowSec() + 30),
+        token_type: "Bearer",
+      }),
+    ).toBe(false);
+  });
+
+  it("is false for an opaque token, where isAccessTokenUsable is true", () => {
+    // The #2051 regression: no local expiry evidence must not read as "valid".
+    const tokens = { access_token: "opaque-tok", token_type: "Bearer" };
+    expect(isAccessTokenProvablyUnexpired(tokens)).toBe(false);
+    expect(isAccessTokenUsable(tokens)).toBe(true);
+  });
+
+  it("is false for a JWT carrying no exp claim", () => {
+    const payload = btoa(JSON.stringify({ sub: "user" }))
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/, "");
+    expect(
+      isAccessTokenProvablyUnexpired({
+        access_token: `header.${payload}.sig`,
+        token_type: "Bearer",
+      }),
+    ).toBe(false);
+  });
+
+  it("is false for a two-segment token whose payload decodes to an exp", () => {
+    // jwtExpiresAtMs only requires two dot-separated segments, so a structured
+    // opaque token carrying a decodable `{"exp":...}` would otherwise read as
+    // proof of validity. isJwtFormat is what rejects it.
+    const payload = btoa(JSON.stringify({ exp: nowSec() + 3600 }))
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/, "");
+    expect(
+      isAccessTokenProvablyUnexpired({
+        access_token: `opaque.${payload}`,
+        token_type: "Bearer",
+      }),
+    ).toBe(false);
+  });
+
+  it("is false for a four-segment token carrying a decodable exp", () => {
+    const payload = btoa(JSON.stringify({ exp: nowSec() + 3600 }))
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/, "");
+    expect(
+      isAccessTokenProvablyUnexpired({
+        access_token: `header.${payload}.sig.extra`,
+        token_type: "Bearer",
+      }),
+    ).toBe(false);
+  });
+
+  it("is false when there is no access token", () => {
+    expect(isAccessTokenProvablyUnexpired(undefined)).toBe(false);
+    expect(
+      isAccessTokenProvablyUnexpired({
+        access_token: "",
+        token_type: "Bearer",
+      }),
+    ).toBe(false);
   });
 });

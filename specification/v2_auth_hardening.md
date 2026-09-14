@@ -6,7 +6,7 @@
 
 As-built status for aligning Inspector with the **authorization hardening** SEPs in the MCP **`2026-07-28`** release — tracked by [#1527](https://github.com/modelcontextprotocol/inspector/issues/1527).
 
-Inspector is on `@modelcontextprotocol/client` **2.0.0-beta.4**. Connect-time standard OAuth is delegated to SDK `auth()`; Inspector owns storage, callbacks, remoting, EMA host flow, and mid-session UX. See [SDK consolidation](v2_auth_sdk_consolidation.md).
+Inspector is on `@modelcontextprotocol/client` **2.0.0**. Connect-time standard OAuth is delegated to SDK `auth()`; Inspector owns storage, callbacks, remoting, EMA host flow, and mid-session UX. See [SDK consolidation](v2_auth_sdk_consolidation.md).
 
 **Policy:** SEP behavior that can be automated is covered (or should be covered) by unit/integration tests. Hosted-IdP smoke in [v2_auth_smoke_testing.md](v2_auth_smoke_testing.md) is complementary for real providers — it is **not** required for every SEP once CI covers the requirement.
 

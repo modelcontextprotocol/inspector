@@ -1,0 +1,30 @@
+[
+  {
+    "prompt": "Which test tier in this repo spawns the built binary rather than importing it?",
+    "expect": "testing"
+  },
+  {
+    "prompt": "How do I run just the TUI suite, and is there one command that runs everything?",
+    "expect": "testing"
+  },
+  {
+    "prompt": "How do I write a test for a TUI component in this repo?",
+    "expect": "testing"
+  },
+  {
+    "prompt": "How am I supposed to invoke the CLI from a new test in this repo?",
+    "expect": "testing"
+  },
+  {
+    "prompt": "How do I run the web integration tests, and do they run as part of the normal test command?",
+    "expect": "testing"
+  },
+  {
+    "prompt": "What does this regex do? /^\\d{3}-\\d{4}$/",
+    "expect": null
+  },
+  {
+    "prompt": "Rename the variable `foo` to `bar` in this snippet.",
+    "expect": null
+  }
+]

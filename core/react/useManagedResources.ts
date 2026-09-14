@@ -1,13 +1,29 @@
-import { useState, useEffect, useCallback } from "react";
+import { useCallback } from "react";
 import type { InspectorClientProtocol } from "../mcp/inspectorClientProtocol.js";
-import type {
-  ManagedResourcesState,
-  ManagedResourcesStateEventMap,
-} from "../mcp/state/managedResourcesState.js";
+import type { ManagedResourcesState } from "../mcp/state/managedResourcesState.js";
 import type { Resource } from "@modelcontextprotocol/client";
-import type { TypedEventGeneric } from "../mcp/typedEventTarget.js";
+import { useListError } from "./useListError.js";
+import { useStoreSnapshot } from "./useStoreSnapshot.js";
+
+/**
+ * Shared stable empty list for the no-server case. Module scope so the
+ * snapshot doesn't change identity every render — see `useStoreSnapshot`.
+ * Read-only by contract: nothing mutates a list this hook returns.
+ */
+const NO_RESOURCES: Resource[] = [];
+
+const readResources = (state: ManagedResourcesState): Resource[] =>
+  state.getResources();
+const readListChanged = (state: ManagedResourcesState): boolean =>
+  state.getListChanged();
 
 export interface UseManagedResourcesResult {
+  /**
+   * The last fetch's failure (transport error, or a result the SDK codec
+   * rejected), or `null` when it succeeded. Includes the connect-time load,
+   * whose failure has no caller to surface it (#1953).
+   */
+  error: Error | null;
   resources: Resource[];
   /**
    * True when a `resources/list_changed` arrived since the last user refresh.
@@ -25,59 +41,23 @@ export function useManagedResources(
   client: InspectorClientProtocol | null,
   managedResourcesState: ManagedResourcesState | null,
 ): UseManagedResourcesResult {
-  const [resources, setResources] = useState<Resource[]>(
-    managedResourcesState?.getResources() ?? [],
+  const resources = useStoreSnapshot(
+    managedResourcesState,
+    "resourcesChange",
+    readResources,
+    NO_RESOURCES,
   );
-  const [listChanged, setListChanged] = useState<boolean>(
-    managedResourcesState?.getListChanged() ?? false,
+  const listChanged = useStoreSnapshot(
+    managedResourcesState,
+    "listChangedChange",
+    readListChanged,
+    false,
   );
 
-  useEffect(() => {
-    if (!managedResourcesState) {
-      setResources([]);
-      setListChanged(false);
-      return;
-    }
-    setResources(managedResourcesState.getResources());
-    setListChanged(managedResourcesState.getListChanged());
-    const onResourcesChange = (
-      event: TypedEventGeneric<
-        ManagedResourcesStateEventMap,
-        "resourcesChange"
-      >,
-    ) => {
-      setResources(event.detail);
-    };
-    const onListChangedChange = (
-      event: TypedEventGeneric<
-        ManagedResourcesStateEventMap,
-        "listChangedChange"
-      >,
-    ) => {
-      setListChanged(event.detail);
-    };
-    managedResourcesState.addEventListener(
-      "resourcesChange",
-      onResourcesChange,
-    );
-    managedResourcesState.addEventListener(
-      "listChangedChange",
-      onListChangedChange,
-    );
-    return () => {
-      managedResourcesState.removeEventListener(
-        "resourcesChange",
-        onResourcesChange,
-      );
-      managedResourcesState.removeEventListener(
-        "listChangedChange",
-        onListChangedChange,
-      );
-    };
-  }, [managedResourcesState]);
+  const error = useListError(managedResourcesState);
 
   const refresh = useCallback(async (): Promise<Resource[]> => {
-    if (!managedResourcesState || !client) return [];
+    if (!managedResourcesState || !client) return NO_RESOURCES;
     // A user-initiated refresh acknowledges the change — clear the indicator
     // BEFORE awaiting the fetch, not after. If a `resources/list_changed`
     // arrives mid-fetch, the state re-sets the flag (and auto-refreshes);
@@ -86,15 +66,14 @@ export function useManagedResources(
     managedResourcesState.clearListChanged();
     // A user-initiated refresh forces a cache-bypassing round trip
     // (`cacheMode: "refresh"`) so a modern server's `ttlMs`-cached list can't
-    // return stale — and re-stores the fresh aggregate.
-    const next = await managedResourcesState.refresh(undefined, "refresh");
-    setResources(next);
-    return next;
+    // return stale — and re-stores the fresh aggregate. The store dispatches
+    // `resourcesChange` as it commits, so the snapshot updates on its own.
+    return managedResourcesState.refresh(undefined, "refresh");
   }, [client, managedResourcesState]);
 
   const clearListChanged = useCallback(() => {
     managedResourcesState?.clearListChanged();
   }, [managedResourcesState]);
 
-  return { resources, listChanged, refresh, clearListChanged };
+  return { resources, error, listChanged, refresh, clearListChanged };
 }

@@ -1,12 +1,4 @@
-import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-  type Ref,
-} from "react";
-import type { DeepLink, DeepLinkParseStatus } from "../../../utils/deepLink";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   AppShell,
   Flex,
@@ -16,81 +8,41 @@ import {
   type MantineTransition,
 } from "@mantine/core";
 import { useLocalStorage } from "@mantine/hooks";
-import type {
-  Implementation,
-  InitializeResult,
-  LoggingLevel,
-  Prompt,
-  ProtocolEra,
-  ReadResourceResult,
-  Resource,
-  ResourceTemplateType as ResourceTemplate,
-  Task,
-  Tool,
-} from "@modelcontextprotocol/client";
-import type {
-  ConnectionStatus,
-  ExcludedTool,
-  FetchRequestEntry,
-  InspectorResourceSubscription,
-  MessageEntry,
-  ResourceSubscriptionStreamState,
-  ServerEntry,
-  StderrLogEntry,
-} from "@inspector/core/mcp/types.js";
+import type { Implementation, Tool } from "@modelcontextprotocol/client";
+import type { ServerEntry } from "@inspector/core/mcp/types.js";
 import { isTerminalStatus } from "@inspector/core/mcp/types.js";
 import { isAppTool } from "@inspector/core/mcp/apps.js";
 import { TASKS_EXTENSION_KEY } from "@inspector/core/mcp/modernTaskSchemas.js";
+import { isSkillsExtensionSupported } from "@inspector/core/mcp/skills.js";
 import { ViewHeader } from "../../groups/ViewHeader/ViewHeader";
 import { VersionBadge } from "../../elements/VersionBadge/VersionBadge";
 import { CopyrightBadge } from "../../elements/CopyrightBadge/CopyrightBadge";
-import type { ListPaginationControlsProps } from "../../elements/ListPaginationControls/ListPaginationControls";
 import { ServerListScreen } from "../../screens/ServerListScreen/ServerListScreen";
-import {
-  ToolsScreen,
-  type ToolCallState,
-  type ToolsUiState,
-} from "../../screens/ToolsScreen/ToolsScreen";
-import {
-  AppsScreen,
-  type AppsUiState,
-} from "../../screens/AppsScreen/AppsScreen";
+import { ToolsScreen } from "../../screens/ToolsScreen/ToolsScreen";
+import { AppsScreen } from "../../screens/AppsScreen/AppsScreen";
+import { PromptsScreen } from "../../screens/PromptsScreen/PromptsScreen";
+import { ResourcesScreen } from "../../screens/ResourcesScreen/ResourcesScreen";
+import { LoggingScreen } from "../../screens/LoggingScreen/LoggingScreen";
+import { SkillsScreen } from "../../screens/SkillsScreen/SkillsScreen";
+import { TasksScreen } from "../../screens/TasksScreen/TasksScreen";
+import { ProtocolScreen } from "../../screens/ProtocolScreen/ProtocolScreen";
+import { NetworkScreen } from "../../screens/NetworkScreen/NetworkScreen";
+import { ConsoleScreen } from "../../screens/ConsoleScreen/ConsoleScreen";
 import type {
-  AppRendererHandle,
-  BridgeFactory,
-} from "../../elements/AppRenderer/AppRenderer";
-import {
-  PromptsScreen,
-  type GetPromptState,
-  type PromptsUiState,
-} from "../../screens/PromptsScreen/PromptsScreen";
-import {
-  ResourcesScreen,
-  type ReadResourceState,
-  type ResourcesUiState,
-} from "../../screens/ResourcesScreen/ResourcesScreen";
-import {
-  LoggingScreen,
-  type LogsUiState,
-} from "../../screens/LoggingScreen/LoggingScreen";
-import type { LogEntryData } from "../../elements/LogEntry/LogEntry";
-import {
-  TasksScreen,
-  type TasksUiState,
-} from "../../screens/TasksScreen/TasksScreen";
-import type { TaskProgress } from "../../groups/TaskCard/TaskCard";
-import {
-  ProtocolScreen,
-  type ProtocolUiState,
-} from "../../screens/ProtocolScreen/ProtocolScreen";
-import {
-  NetworkScreen,
-  type NetworkUiState,
-} from "../../screens/NetworkScreen/NetworkScreen";
-import {
-  ConsoleScreen,
-  type ConsoleUiState,
-} from "../../screens/ConsoleScreen/ConsoleScreen";
+  AppsPanelProps,
+  ConnectionProps,
+  ConsolePanelProps,
+  LogsPanelProps,
+  NetworkPanelProps,
+  PromptsPanelProps,
+  ProtocolPanelProps,
+  ResourcesPanelProps,
+  ServerListProps,
+  ShellProps,
+  SkillsPanelProps,
+  TasksPanelProps,
+  ToolsPanelProps,
+} from "./types";
 import type { SortDirection } from "../../elements/SortToggle/SortToggle";
 import { ScreenStage } from "../../elements/ScreenStage/ScreenStage";
 import { MonitoringScreen } from "../../groups/MonitoringScreen/MonitoringScreen";
@@ -102,7 +54,11 @@ import {
   correlatedFetchStatusById,
   revealableMessageIds,
 } from "../../../utils/correlateTransportErrors";
-import { collectSchemaDefaults, toFormSchema } from "../../../utils/jsonUtils";
+import {
+  applySchemaConstants,
+  seedSchemaValues,
+  toFormSchema,
+} from "../../../utils/jsonUtils";
 import { MONITOR_COLUMN_ANIM_MS } from "./monitorColumnAnimation";
 
 const SORT_DEFAULT: SortDirection = "newest-first";
@@ -165,6 +121,7 @@ function useListCompact(
 }
 
 const SERVERS_TAB = INSPECTOR_SERVERS_TAB;
+const SKILLS_TAB = "Skills";
 const TASKS_TAB = "Tasks";
 const LOGS_TAB = "Logs";
 const PROTOCOL_TAB = "Protocol";
@@ -198,6 +155,7 @@ const ALL_TABS: string[] = [
   "Tools",
   "Prompts",
   "Resources",
+  SKILLS_TAB,
   TASKS_TAB,
   LOGS_TAB,
   PROTOCOL_TAB,
@@ -354,375 +312,207 @@ const MonitorColumnGroup = Group.withProps({
   flex: "0 0 auto",
 });
 
+/**
+ * `InspectorView` takes one prop per domain rather than a wall of ~130 flat
+ * ones (#2130). Each bundle's shape lives in `./types`; the fields inside keep
+ * the names they had as flat props, so this is a regrouping rather than a
+ * rename.
+ *
+ * The bundles stop here: the function below destructures each one back into
+ * the same locals it already used, and the screens beneath receive the same
+ * individual props they always did.
+ */
 export interface InspectorViewProps {
-  /**
-   * Validated deep-link parameters from the page URL. When present and
-   * `openApp` is set, the parent switches to the Apps tab and pre-selects that
-   * app (with `appArgs` as the form values) once the connection is up and the
-   * app list contains it. The connect itself is driven by the parent.
-   */
-  deepLink?: DeepLink;
-  /**
-   * Outcome of parsing the initial-URL deep link, surfaced as `data-deeplink`
-   * on the `connection-status` testid. Distinguishes "no deep link" from
-   * "rejected" (token mismatch / bad serverUrl) — both leave `data-status`
-   * idle, so an automated driver otherwise cannot tell them apart.
-   */
-  deepLinkStatus?: DeepLinkParseStatus;
-
-  // Server list (static config; runtime connection state comes from the
-  // separate fields below and is merged into each card by this component).
-  servers: ServerEntry[];
-  /**
-   * Whether the server list is writable (catalog) or read-only (a `--config`
-   * session file / ad-hoc launch). When false, the Servers screen hides all
-   * catalog mutation controls. Defaults to true.
-   */
-  serverListWritable?: boolean;
-
-  // Connection state — driven by the parent via `useInspectorClient`.
-  activeServer?: string;
-  /**
-   * Id of the server whose last connection attempt failed (#1621). Its card in
-   * the Servers screen draws a red border until another server is connected or
-   * a new connection is attempted. Independent of `activeServer`, which the
-   * parent clears on the failure's `disconnect` event.
-   */
-  erroredServerId?: string;
-  /**
-   * Id of the server that just connected successfully (#1682). Its card draws
-   * the green highlight border and scrolls into view once the monitoring
-   * sidebar has opened — the success mirror of `erroredServerId`.
-   */
-  connectedServerId?: string;
-  /**
-   * The Inspector build version (root `package.json`), shown at the left of the
-   * footer row (#1682). Absent on a legacy backend that omits it — the version
-   * label then renders nothing.
-   */
-  version?: string;
-  connectionStatus: ConnectionStatus;
-  /**
-   * Last connection-level error message (handshake failure, OAuth start
-   * failure, deep-link automation failure). Surfaced as `data-error-message`
-   * on the header's `connection-status` testid so an automated driver can read
-   * *why* a connect failed without scraping a transient toast.
-   */
-  connectErrorMessage?: string;
-  initializeResult?: InitializeResult;
-  latencyMs?: number;
-
-  // Primitive lists, log streams, task state — all sourced from the
-  // per-primitive `useManaged*` / `useMessageLog` hooks in the parent.
-  tools: Tool[];
-  /** Tools excluded from `tools/list` for invalid `x-mcp-header` annotations
-   * (SEP-2243); shown in the Tools sidebar with the reason (#1632). */
-  excludedTools?: ExcludedTool[];
-  prompts: Prompt[];
-  resources: Resource[];
-  resourceTemplates: ResourceTemplate[];
-  subscriptions: InspectorResourceSubscription[];
-  /**
-   * Modern-era `subscriptions/listen` stream state (#1630). Drives the
-   * Resources screen's stream badge/dot; `active: false` (or omitted) on the
-   * legacy era.
-   */
-  subscriptionStreamState?: ResourceSubscriptionStreamState;
-
-  // "List changed since last refresh" flags, sourced from the managed-state
-  // layer (#1402). They light the per-screen list-changed indicator. Apps is a
-  // filtered view of tools, so it shares the tools flag.
-  toolsListChanged: boolean;
-  promptsListChanged: boolean;
-  resourcesListChanged: boolean;
-  logs: LogEntryData[];
-  tasks: Task[];
-  progressByTaskId?: Record<string, TaskProgress>;
-  protocol: MessageEntry[];
-  /** Negotiated protocol era (SEP §7.8), for the Protocol view's era badge. */
-  protocolEra?: ProtocolEra;
-  network: FetchRequestEntry[];
-  /** Captured stdio stderr (the Console screen). Empty for HTTP servers. (#1621) */
-  stderrLogs: StderrLogEntry[];
-
-  // Per-screen "operation in flight" states (panel-level; optional because
-  // the underlying screens accept them as optional).
-  toolCallState?: ToolCallState;
-  getPromptState?: GetPromptState;
-  readResourceState?: ReadResourceState;
-
-  // Per-screen selection / search / filter state, one object per screen. Owned
-  // by the parent (App) so it persists across tab navigation within a live
-  // session — the screens unmount on tab switch, so screen-local state would be
-  // lost (#1417). Each is paired with an `on{Screen}UiChange` setter below.
-  toolsUi: ToolsUiState;
-  promptsUi: PromptsUiState;
-  resourcesUi: ResourcesUiState;
-  appsUi: AppsUiState;
-  tasksUi: TasksUiState;
-  logsUi: LogsUiState;
-  protocolUi: ProtocolUiState;
-  networkUi: NetworkUiState;
-  consoleUi: ConsoleUiState;
-
-  /** Active inspector tab (lifted to App for OAuth resume). */
-  activeTab: string;
-  onActiveTabChange: (tab: string) => void;
-
-  // Logging level. The MCP `logging/setLevel` request has no echo
-  // notification, so the parent keeps the optimistic current value.
-  currentLogLevel: LoggingLevel;
-
-  // MCP Apps sandbox. The parent's web environment provides the sandbox iframe
-  // URL (undefined when the sandbox controller is unavailable), the per-app
-  // bridge factory, and the renderer handle the parent uses to push tool
-  // input/result into the running app and tear it down.
-  sandboxPath?: string;
-  bridgeFactory: BridgeFactory;
-  appRendererRef: Ref<AppRendererHandle>;
-
-  // Protocol pinning. Optional because pin state isn't persisted yet (#1244
-  // is single-PR; persistence is a separate concern).
-  pinnedProtocolIds?: Set<string>;
-
-  // Theme toggle (lives in the parent so the color scheme can also flow
-  // into other top-level UI later).
-  onToggleTheme: () => void;
-  /** Open install-level client settings (client.json / EMA IdP). */
-  onOpenClientSettings: () => void;
-
-  // Connection lifecycle (dispatched to `useInspectorClient.connect/disconnect`).
-  onToggleConnection: (id: string) => void;
-  onDisconnect: () => void;
-
-  // Server list actions.
-  onServerAdd: () => void;
-  onServerImportConfig: () => void;
-  onServerImportJson: () => void;
-  /** Download the current server list as a canonical `mcp.json` file. */
-  onServerExport: () => void;
-  onConnectionInfo: (id: string) => void;
-  onServerSettings: (id: string) => void;
-  onServerEdit: (id: string) => void;
-  onServerClone: (id: string) => void;
-  onServerRemove: (id: string) => void;
-  /** Persist a new server ordering (drag-and-drop / keyboard reorder). */
-  onServerReorder: (orderedIds: string[]) => void;
-  /** Ids of freshly-added servers to highlight on the list (first is scrolled to). */
-  highlightedServerIds?: string[];
-  /** Clears the freshly-added highlight for a server (on click of its card). */
-  onClearHighlight?: (id: string) => void;
-
-  // Per-primitive actions (route to `inspectorClient` methods / hook refresh).
-  // Each `on{Screen}UiChange` persists that screen's lifted UI state (#1417).
-  /** Whether the connected server advertises task-augmented tool calls. */
-  serverSupportsTaskToolCalls: boolean;
-  onToolsUiChange: (next: ToolsUiState) => void;
-  onCallTool: (
-    name: string,
-    args: Record<string, unknown>,
-    runAsTask?: boolean,
-  ) => void;
-  onCancelToolCall?: () => void;
-  onClearToolResult?: () => void;
-  onRefreshTools: () => void;
-  /** Pagination controls for the Tools list (#1721). */
-  toolsPagination: ListPaginationControlsProps;
-  /** Pagination controls for the Prompts list (#1721). */
-  promptsPagination: ListPaginationControlsProps;
-  /** Pagination controls for the Resources list (#1721). */
-  resourcesPagination: ListPaginationControlsProps;
-  /**
-   * Read-on-demand handler for `resource_link` blocks in a tool result.
-   * Returns the linked resource's contents so the result panel can inline them.
-   */
-  onReadResourceContents?: (uri: string) => Promise<ReadResourceResult>;
-
-  onPromptsUiChange: (next: PromptsUiState) => void;
-  onGetPrompt: (name: string, args: Record<string, string>) => void;
-  onCopyPromptMessages?: () => void;
-  onRefreshPrompts: () => void;
-
-  onResourcesUiChange: (next: ResourcesUiState) => void;
-  onReadResource: (uri: string) => void;
-  onSubscribeResource: (uri: string) => void;
-  onUnsubscribeResource: (uri: string) => void;
-  onRefreshResources: () => void;
-  onCompleteArgument?: (
-    ref:
-      | { type: "ref/resource"; uri: string }
-      | { type: "ref/prompt"; name: string },
-    argumentName: string,
-    argumentValue: string,
-    context: Record<string, string>,
-  ) => Promise<string[]>;
-  completionsSupported?: boolean;
-  /**
-   * Whether the connected server advertises the `resources.subscribe`
-   * capability. When false, the Resources screen hides the Subscribe/
-   * Unsubscribe button and the Subscriptions accordion section.
-   */
-  subscriptionsSupported?: boolean;
-
-  onTasksUiChange: (next: TasksUiState) => void;
-  onCancelTask: (taskId: string) => void;
-  onClearCompletedTasks: () => void;
-  onRefreshTasks: () => void;
-
-  onSetLogLevel: (level: LoggingLevel) => void;
-  /**
-   * Modern-era per-request log level currently stamped, or `null` when opted
-   * out (#1629). On modern connections the Logs sidebar shows a per-request
-   * opt-in control instead of the legacy `logging/setLevel` selector.
-   */
-  modernLogLevel?: LoggingLevel | null;
-  /** Set (or clear, with `null`) the modern per-request log level. */
-  onSetModernLogLevel?: (level: LoggingLevel | null) => void;
-  onLogsUiChange: (next: LogsUiState) => void;
-  onClearLogs: () => void;
-  onExportLogs: () => void;
-
-  onProtocolUiChange: (next: ProtocolUiState) => void;
-  onClearProtocol: () => void;
-  onExportProtocol: () => void;
-  onClearProtocolSection: (section: "pinned" | "history") => void;
-  onExportProtocolSection: (section: "pinned" | "history") => void;
-  onReplayProtocol: (id: string) => void;
-  onTogglePinProtocol: (id: string) => void;
-
-  onNetworkUiChange: (next: NetworkUiState) => void;
-  onClearNetwork: () => void;
-  onExportNetwork: () => void;
-
-  onConsoleUiChange: (next: ConsoleUiState) => void;
-  onClearConsole: () => void;
-  onExportConsole: () => void;
-
-  onAppsUiChange: (next: AppsUiState) => void;
-  onSelectApp: (name: string) => void;
-  onOpenApp: (name: string, args: Record<string, unknown>) => void;
-  onCloseApp: () => void;
-  onAppError: (err: Error) => void;
-  onRefreshApps: () => void;
+  /** App chrome: active tab, theme/settings entry points, footer, deep link. */
+  shell: ShellProps;
+  /** Live connection state plus the capability facts several screens read. */
+  connection: ConnectionProps;
+  /** The server catalog and every action on it. */
+  servers: ServerListProps;
+  tools: ToolsPanelProps;
+  prompts: PromptsPanelProps;
+  resources: ResourcesPanelProps;
+  apps: AppsPanelProps;
+  skills: SkillsPanelProps;
+  tasks: TasksPanelProps;
+  logs: LogsPanelProps;
+  protocol: ProtocolPanelProps;
+  network: NetworkPanelProps;
+  console: ConsolePanelProps;
 }
 
 export function InspectorView({
-  deepLink,
-  deepLinkStatus,
-  servers: serversInput,
-  serverListWritable = true,
-  activeServer,
-  erroredServerId,
-  connectedServerId,
-  version,
-  connectionStatus,
-  connectErrorMessage,
-  initializeResult,
-  latencyMs,
-  tools,
-  excludedTools = [],
-  prompts,
-  resources,
-  resourceTemplates,
-  toolsListChanged,
-  promptsListChanged,
-  resourcesListChanged,
-  subscriptions,
-  subscriptionStreamState,
-  logs,
-  tasks,
-  progressByTaskId,
-  protocol,
-  protocolEra,
-  network,
-  stderrLogs,
-  toolCallState,
-  getPromptState,
-  readResourceState,
-  toolsUi,
-  promptsUi,
-  resourcesUi,
-  appsUi,
-  tasksUi,
-  logsUi,
-  protocolUi,
-  networkUi,
-  consoleUi,
-  currentLogLevel,
-  sandboxPath,
-  bridgeFactory,
-  appRendererRef,
-  pinnedProtocolIds,
-  onToggleTheme,
-  onOpenClientSettings,
-  onToggleConnection,
-  onDisconnect,
-  onServerAdd,
-  onServerImportConfig,
-  onServerImportJson,
-  onServerExport,
-  onConnectionInfo,
-  onServerSettings,
-  onServerEdit,
-  onServerClone,
-  onServerRemove,
-  onServerReorder,
-  highlightedServerIds,
-  onClearHighlight,
-  serverSupportsTaskToolCalls,
-  onToolsUiChange,
-  onCallTool,
-  onCancelToolCall,
-  onClearToolResult,
-  onReadResourceContents,
-  onRefreshTools,
-  toolsPagination,
-  promptsPagination,
-  resourcesPagination,
-  onPromptsUiChange,
-  onGetPrompt,
-  onCopyPromptMessages,
-  onRefreshPrompts,
-  onResourcesUiChange,
-  onReadResource,
-  onSubscribeResource,
-  onUnsubscribeResource,
-  onRefreshResources,
-  onCompleteArgument,
-  completionsSupported,
-  subscriptionsSupported,
-  onTasksUiChange,
-  onCancelTask,
-  onClearCompletedTasks,
-  onRefreshTasks,
-  onSetLogLevel,
-  modernLogLevel = null,
-  onSetModernLogLevel,
-  onLogsUiChange,
-  onClearLogs,
-  onExportLogs,
-  onProtocolUiChange,
-  onClearProtocol,
-  onExportProtocol,
-  onClearProtocolSection,
-  onExportProtocolSection,
-  onReplayProtocol,
-  onTogglePinProtocol,
-  onNetworkUiChange,
-  onClearNetwork,
-  onExportNetwork,
-  onConsoleUiChange,
-  onClearConsole,
-  onExportConsole,
-  onAppsUiChange,
-  onSelectApp,
-  onOpenApp,
-  onCloseApp,
-  onAppError,
-  onRefreshApps,
-  activeTab: activeTabProp,
-  onActiveTabChange,
+  shell,
+  connection,
+  servers: serverList,
+  tools: toolsPanel,
+  prompts: promptsPanel,
+  resources: resourcesPanel,
+  apps: appsPanel,
+  skills: skillsPanel,
+  tasks: tasksPanel,
+  logs: logsPanel,
+  protocol: protocolPanel,
+  network: networkPanel,
+  console: consolePanel,
 }: InspectorViewProps) {
+  // Unpack the bundles back into the locals the body already uses, so the
+  // grouping is confined to the prop boundary.
+  const {
+    deepLink,
+    deepLinkStatus,
+    version,
+    malformedListItems = [],
+    activeTab: activeTabProp,
+    onActiveTabChange,
+    onToggleTheme,
+    onOpenClientSettings,
+  } = shell;
+  const {
+    activeServer,
+    erroredServerId,
+    connectedServerId,
+    connectionStatus,
+    connectErrorMessage,
+    initializeResult,
+    latencyMs,
+    protocolEra,
+    onCompleteArgument,
+    completionsSupported,
+    onToggleConnection,
+    onDisconnect,
+  } = connection;
+  const {
+    servers: serversInput,
+    serverListWritable = true,
+    highlightedServerIds,
+    onClearHighlight,
+    onServerAdd,
+    onServerImportConfig,
+    onServerImportJson,
+    onServerExport,
+    onConnectionInfo,
+    onServerSettings,
+    onServerEdit,
+    onServerClone,
+    onServerRemove,
+    onServerReorder,
+  } = serverList;
+  const {
+    tools,
+    excludedTools = [],
+    toolsListChanged,
+    toolsLoadError,
+    toolsUi,
+    toolCallState,
+    toolsPagination,
+    serverSupportsTaskToolCalls,
+    onToolsUiChange,
+    onCallTool,
+    onCancelToolCall,
+    onClearToolResult,
+    onRefreshTools,
+    onReadResourceContents,
+  } = toolsPanel;
+  const {
+    prompts,
+    promptsListChanged,
+    promptsLoadError,
+    promptsUi,
+    getPromptState,
+    promptsPagination,
+    onPromptsUiChange,
+    onGetPrompt,
+    onCopyPromptMessages,
+    onRefreshPrompts,
+  } = promptsPanel;
+  const {
+    resources,
+    resourceTemplates,
+    subscriptions,
+    subscriptionStreamState,
+    subscriptionsSupported,
+    resourcesListChanged,
+    resourcesLoadError,
+    resourcesUi,
+    readResourceState,
+    resourcesPagination,
+    onResourcesUiChange,
+    onReadResource,
+    onSubscribeResource,
+    onUnsubscribeResource,
+    onRefreshResources,
+  } = resourcesPanel;
+  const {
+    appsUi,
+    sandboxPath,
+    bridgeFactory,
+    appRendererRef,
+    onAppsUiChange,
+    onSelectApp,
+    onOpenApp,
+    onCloseApp,
+    onAppError,
+    onRefreshApps,
+  } = appsPanel;
+  const {
+    skillsSessionKey,
+    skills,
+    skillsPageCount,
+    skillsLoadError,
+    skillsUi,
+    onSkillsUiChange,
+    onRefreshSkills,
+    onReadSkillFile,
+    onGetSkill,
+    onReadResourceDirectory,
+  } = skillsPanel;
+  const {
+    tasks,
+    progressByTaskId,
+    tasksUi,
+    onTasksUiChange,
+    onCancelTask,
+    onClearCompletedTasks,
+    onRefreshTasks,
+  } = tasksPanel;
+  const {
+    logs,
+    logsUi,
+    currentLogLevel,
+    modernLogLevel = null,
+    onSetLogLevel,
+    onSetModernLogLevel,
+    onLogsUiChange,
+    onClearLogs,
+    onExportLogs,
+  } = logsPanel;
+  const {
+    protocol,
+    protocolUi,
+    pinnedProtocolIds,
+    onProtocolUiChange,
+    onClearProtocol,
+    onExportProtocol,
+    onClearProtocolSection,
+    onExportProtocolSection,
+    onReplayProtocol,
+    onTogglePinProtocol,
+  } = protocolPanel;
+  const {
+    network,
+    networkUi,
+    onNetworkUiChange,
+    onClearNetwork,
+    onExportNetwork,
+  } = networkPanel;
+  const {
+    stderrLogs,
+    consoleUi,
+    onConsoleUiChange,
+    onClearConsole,
+    onExportConsole,
+  } = consolePanel;
   // UI-only state. Connection state, primitive lists, and all action
   // dispatching live in the parent; this component only owns view-local
   // toggles (sort direction, list compact). Tab selection is lifted (#1417).
@@ -796,18 +586,33 @@ export function InspectorView({
   // connecting/disconnected → error, never connected → error. This keeps the
   // auto-open aligned with the red-border (`erroredServerId`), which the parent
   // also sets only for connect-attempt failures.
+  //
+  // A connect attempt that fails *during OAuth* (#2108) never reaches the
+  // `"error"` status at all: the auth leg is driven from the parent, which
+  // tears the client down on failure, so the session settles at
+  // `"disconnected"`. So the failure arm also fires on the parent raising
+  // `erroredServerId` — the canonical "this server's last connect attempt
+  // failed" flag, which the parent clears at the start of every new attempt.
+  // Tracked through a ref for the same reason as the status: a mount that
+  // starts already flagged must not re-open a column the user closed.
   const prevStatusRef = useRef(connectionStatus);
+  const prevErroredServerIdRef = useRef(erroredServerId);
   useEffect(() => {
     const prev = prevStatusRef.current;
     prevStatusRef.current = connectionStatus;
+    const prevErrored = prevErroredServerIdRef.current;
+    prevErroredServerIdRef.current = erroredServerId;
     const becameConnected =
       connectionStatus === "connected" && prev !== "connected";
     const becameError =
-      connectionStatus === "error" && prev !== "error" && prev !== "connected";
+      (connectionStatus === "error" &&
+        prev !== "error" &&
+        prev !== "connected") ||
+      (erroredServerId !== undefined && prevErrored !== erroredServerId);
     if (becameConnected || becameError) {
       setMonitorPinned(true);
     }
-  }, [connectionStatus, setMonitorPinned]);
+  }, [connectionStatus, erroredServerId, setMonitorPinned]);
 
   const appTools = useMemo<Tool[]>(() => {
     return tools.filter((tool) => {
@@ -868,6 +673,10 @@ export function InspectorView({
       capabilities?.tasks !== undefined ||
       capabilities?.extensions?.[TASKS_EXTENSION_KEY] !== undefined;
     const hasLogging = capabilities?.logging !== undefined;
+    // Skills (SEP-2640) is a server-declared *extension*, and unlike Tasks it
+    // is not era-gated: `skills/*` are not spec method names in either codec,
+    // so a legacy-era server that declares the extension is serving it.
+    const hasSkills = isSkillsExtensionSupported(capabilities);
     return ALL_TABS.filter((t) => {
       if (t === NETWORK_TAB && isStdio) return false;
       // Console is the stdio process's stderr stream — shown only for stdio
@@ -877,6 +686,7 @@ export function InspectorView({
       if (t === "Apps" && !hasApps) return false;
       if (t === "Prompts" && !hasPrompts) return false;
       if (t === "Resources" && !hasResources) return false;
+      if (t === SKILLS_TAB && !hasSkills) return false;
       if (t === "Tasks" && !hasTasks) return false;
       if (t === "Logs" && !hasLogging) return false;
       return true;
@@ -903,7 +713,14 @@ export function InspectorView({
   // (set by the parent only for connect-attempt failures, not mid-session
   // crashes) so a crash of a previously-connected server doesn't reorganize the
   // column into the failure tab set — matching the auto-open effect above.
-  const failed = connectionStatus === "error" && erroredServerId !== undefined;
+  //
+  // Keyed on `erroredServerId` alone rather than on the `"error"` status
+  // (#2108): an OAuth leg that fails is torn down by the parent, so the session
+  // rests at `"disconnected"` and a status gate would never see the failure —
+  // which is exactly the case a server developer needs the Network tab for.
+  // `!connected` is the only status condition left, and it holds vacuously
+  // whenever the flag is set (the parent clears it as each new attempt starts).
+  const failed = !connected && erroredServerId !== undefined;
   const monitorAvailable = useMemo<string[]>(() => {
     if (connected) return availableTabs.filter((t) => MONITOR_TABS.includes(t));
     if (failed) {
@@ -985,10 +802,23 @@ export function InspectorView({
     // value is absent from `formValues`, the schema-form's validity check
     // fails, and Open App is silently disabled — an automated driver's click
     // then no-ops and the iframe-wait spins forever.
-    const formValues = {
-      ...collectSchemaDefaults(toFormSchema(target.inputSchema) ?? {}),
-      ...deepLink.appArgs,
-    };
+    // The args are passed to the seeding too, not just overlaid on it: for a
+    // schema whose arguments are a root union they can name a branch other
+    // than the first, and defaults seeded from the wrong branch would sit in
+    // the submitted arguments where the form — showing the branch the args
+    // identify — never displays them (#2123).
+    // …and the schema's constants are re-applied *after* the overlay: a field
+    // the form renders read-only cannot be corrected by the user, so a deep
+    // link disagreeing with one would otherwise auto-open with a hidden value
+    // contradicting the shape on screen.
+    const appFormSchema = toFormSchema(target.inputSchema) ?? {};
+    const formValues = applySchemaConstants(
+      appFormSchema,
+      // Merged per level, not with one shallow spread: a nested object in the
+      // args would otherwise replace the whole seeded object, discarding the
+      // nested defaults the form goes on displaying.
+      seedSchemaValues(appFormSchema, deepLink.appArgs ?? {}),
+    );
     // Seed the selection directly rather than routing through
     // AppsScreen.handleSelect. This deliberately bypasses handleSelect's
     // no-input-app auto-launch: a deep link must never invoke a tool against
@@ -1187,6 +1017,9 @@ export function InspectorView({
     onExportSection: onExportProtocolSection,
     onReplay: onReplayProtocol,
     onTogglePin: onTogglePinProtocol,
+    // Only so an edited `tools/call` replay can tell whether an argument would
+    // be coerced by the schema on the way out (#2151).
+    tools,
     sortDirection: protocolSort,
     onSortChange: setProtocolSort,
     compact: protocolCompact,
@@ -1222,6 +1055,18 @@ export function InspectorView({
     onExport: onExportConsole,
     sortDirection: consoleSort,
     onSortChange: setConsoleSort,
+  };
+  const skillsScreenProps = {
+    sessionKey: skillsSessionKey,
+    skills,
+    pageCount: skillsPageCount,
+    loadError: skillsLoadError,
+    ui: skillsUi,
+    onUiChange: onSkillsUiChange,
+    onRefreshList: onRefreshSkills,
+    onReadSkillFile,
+    onGetSkill,
+    onReadResourceDirectory,
   };
   const tasksScreenProps = {
     tasks,
@@ -1351,9 +1196,11 @@ export function InspectorView({
               <ToolsScreen
                 tools={tools}
                 excludedTools={excludedTools}
+                malformedListItems={malformedListItems}
                 callState={toolCallState}
                 ui={toolsUi}
                 listChanged={toolsListChanged}
+                loadError={toolsLoadError}
                 serverSupportsTaskToolCalls={serverSupportsTaskToolCalls}
                 modernTasks={
                   protocolEra === "modern" &&
@@ -1390,9 +1237,11 @@ export function InspectorView({
             <ScreenStage active={activeTab === "Prompts"}>
               <PromptsScreen
                 prompts={prompts}
+                malformedListItems={malformedListItems}
                 getPromptState={getPromptState}
                 ui={promptsUi}
                 listChanged={promptsListChanged}
+                loadError={promptsLoadError}
                 completionsSupported={completionsSupported}
                 onUiChange={onPromptsUiChange}
                 onRefreshList={onRefreshPrompts}
@@ -1405,6 +1254,7 @@ export function InspectorView({
             <ScreenStage active={activeTab === "Resources"}>
               <ResourcesScreen
                 resources={resources}
+                malformedListItems={malformedListItems}
                 templates={resourceTemplates}
                 subscriptions={subscriptions}
                 subscriptionStreamState={subscriptionStreamState}
@@ -1412,6 +1262,7 @@ export function InspectorView({
                 readState={readResourceState}
                 ui={resourcesUi}
                 listChanged={resourcesListChanged}
+                loadError={resourcesLoadError}
                 completionsSupported={completionsSupported}
                 subscriptionsSupported={subscriptionsSupported}
                 onUiChange={onResourcesUiChange}
@@ -1424,6 +1275,9 @@ export function InspectorView({
                 compact={resourcesCompact}
                 onCompactChange={setResourcesCompact}
               />
+            </ScreenStage>
+            <ScreenStage active={activeTab === SKILLS_TAB}>
+              <SkillsScreen {...skillsScreenProps} />
             </ScreenStage>
             <ScreenStage active={activeTab === TASKS_TAB}>
               <TasksScreen {...tasksScreenProps} />

@@ -7,9 +7,11 @@ interface Params {
   paginated: boolean;
   managedItems: string[];
   managedRefresh: () => Promise<unknown>;
+  managedError: Error | null;
   pagedItems: string[];
   pagedNextCursor?: string;
   pagedPageCount: number;
+  pagedError: Error | null;
   loadPage: (cursor?: string) => Promise<unknown>;
 }
 
@@ -19,9 +21,11 @@ function makeParams(over: Partial<Params> = {}): Params {
     paginated: false,
     managedItems: ["m1", "m2"],
     managedRefresh: vi.fn(async () => []),
+    managedError: null,
     pagedItems: ["p1"],
     pagedNextCursor: undefined,
     pagedPageCount: 0,
+    pagedError: null,
     loadPage: vi.fn(async () => ({})),
     ...over,
   };
@@ -86,6 +90,35 @@ describe("usePaginatedList", () => {
     const { result } = renderHook(() => usePaginatedList(params));
     void result.current.onRefresh();
     expect(loadPage).toHaveBeenCalledWith(undefined);
+  });
+
+  // #1998: the managed store deliberately never fetches in paginated mode, so
+  // reading its (permanently null) error there would leave a failed page load
+  // showing an empty panel with no alert and no Retry.
+  it("reports the managed error in all-pages mode", () => {
+    const managedError = new Error("aggregate failed");
+    const pagedError = new Error("page failed");
+    const params = makeParams({ managedError, pagedError });
+    const { result } = renderHook(() => usePaginatedList(params));
+    expect(result.current.error).toBe(managedError);
+  });
+
+  it("reports the paged error in paginated mode", () => {
+    const managedError = new Error("aggregate failed");
+    const pagedError = new Error("page failed");
+    const params = makeParams({ paginated: true, managedError, pagedError });
+    const { result } = renderHook(() => usePaginatedList(params));
+    expect(result.current.error).toBe(pagedError);
+  });
+
+  it("reports no error when the active source succeeded", () => {
+    const params = makeParams({
+      paginated: true,
+      managedError: new Error("aggregate failed"),
+      pagedError: null,
+    });
+    const { result } = renderHook(() => usePaginatedList(params));
+    expect(result.current.error).toBeNull();
   });
 
   it("onRefresh re-fetches the aggregate in all-pages mode", () => {

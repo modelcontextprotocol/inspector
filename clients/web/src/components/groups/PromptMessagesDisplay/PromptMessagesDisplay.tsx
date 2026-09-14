@@ -67,7 +67,10 @@ export function PromptMessagesDisplay({
   onClose,
 }: PromptMessagesDisplayProps) {
   return (
-    <PanelStack>
+    // `data-testid` so a driver can wait on the messages having actually
+    // RENDERED, not merely on `prompts/get` having returned (#2148) — see the
+    // ResourcePreviewPanel counterpart for why the RPC status is not enough.
+    <PanelStack data-testid="prompt-messages">
       <HeaderRow>
         <HeaderLeft>
           {onClose && (

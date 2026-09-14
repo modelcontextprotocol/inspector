@@ -1,9 +1,13 @@
 import { describe, it, expect } from "vitest";
 import {
   authRecoveryRestoredMessage,
+  authRecoveryRetryFailedMessage,
+  authRecoveryAbandonedMessage,
   emaStepUpFailureMessage,
   emaStepUpInProgressMessage,
   emaStepUpSuccessMessage,
+  insecureTokenEndpointMessage,
+  insecureTokenEndpointTitle,
   isActionTriggeredOAuthRecovery,
   isEmaStepUp,
   isReAuthBannerReason,
@@ -19,6 +23,12 @@ import {
   stepUpInsufficientScopeMessage,
   stepUpModalTitle,
   stepUpAuthorizeActionLabel,
+  issuerBindingFailureCopy,
+  issuerMismatchMessage,
+  issuerMismatchTitle,
+  lostAuthorizationStateActionLabel,
+  lostAuthorizationStateMessage,
+  lostAuthorizationStateTitle,
 } from "@inspector/core/auth/oauthUx.js";
 import type { AuthChallenge } from "@inspector/core/auth/challenge.js";
 
@@ -202,6 +212,25 @@ describe("oauthUx resume/restore copy", () => {
     );
   });
 
+  it("authRecoveryRetryFailedMessage appends only a non-blank detail", () => {
+    const base =
+      "Could not continue the pending authorization. The Inspector will try again the next time this tab becomes active or the session reconnects.";
+    expect(authRecoveryRetryFailedMessage()).toBe(base);
+    expect(authRecoveryRetryFailedMessage("   ")).toBe(base);
+    expect(authRecoveryRetryFailedMessage(" token endpoint 500 ")).toBe(
+      `${base} (token endpoint 500)`,
+    );
+  });
+
+  it("authRecoveryAbandonedMessage promises no retry", () => {
+    const base =
+      "Could not continue the pending authorization, and the session it belonged to has ended. Reconnect to authorize again.";
+    expect(authRecoveryAbandonedMessage()).toBe(base);
+    expect(authRecoveryAbandonedMessage("  ")).toBe(base);
+    expect(authRecoveryAbandonedMessage(" nope ")).toBe(`${base} (nope)`);
+    expect(authRecoveryAbandonedMessage()).not.toContain("try again");
+  });
+
   it("oauthResumeAbandonedMessage reauth is retry-agnostic", () => {
     expect(
       oauthResumeAbandonedMessage("reauth", { recoverySource: "tool" }),
@@ -332,5 +361,151 @@ describe("oauthUx re-auth banner", () => {
       "Authentication needs attention. Token expired.",
     );
     expect(reAuthBannerMessage({})).toBe("Authentication needs attention.");
+  });
+});
+
+describe("oauthUx issuer-binding copy", () => {
+  it("explains lost authorization state in plain language, with the server name", () => {
+    const withName = lostAuthorizationStateMessage({ serverName: "svc" });
+    expect(withName).toContain('"svc"');
+    expect(withName).toContain("was lost");
+    expect(withName).toContain("Authorize again");
+    // Never leaks the SDK's security-flavoured wording.
+    expect(withName).not.toContain("discoveryState");
+    expect(withName).not.toContain("AuthorizationServerMismatchError");
+    expect(lostAuthorizationStateMessage()).toContain("this server");
+    expect(lostAuthorizationStateTitle()).toBe("Authorization state was lost");
+    expect(lostAuthorizationStateActionLabel()).toBe("Authorize again");
+  });
+
+  it("names both issuers for a genuine mismatch and offers no retry nudge", () => {
+    const message = issuerMismatchMessage({
+      recordedIssuer: "https://old.example.com",
+      currentIssuer: "https://evil.example.com",
+      serverName: "svc",
+    });
+    expect(message).toContain('"svc"');
+    expect(message).toContain("https://old.example.com");
+    expect(message).toContain("https://evil.example.com");
+    expect(message).toContain("was not exchanged");
+    expect(message).not.toContain("Authorize again");
+    expect(
+      issuerMismatchMessage({
+        recordedIssuer: "https://old.example.com",
+        currentIssuer: "https://evil.example.com",
+      }),
+    ).toContain("this server");
+    expect(issuerMismatchTitle()).toBe("Authorization server mismatch");
+  });
+
+  it("bounds an overlong remote-supplied issuer in the mismatch copy", () => {
+    const overlong = `https://evil.example.com/${"a".repeat(400)}`;
+    const message = issuerMismatchMessage({
+      recordedIssuer: "https://old.example.com",
+      currentIssuer: overlong,
+    });
+    expect(message).not.toContain(overlong);
+    expect(message).toContain("…");
+    // The short issuer on the same call is passed through untouched.
+    expect(message).toContain("https://old.example.com");
+  });
+
+  it("issuerBindingFailureCopy dispatches on the failure kind", () => {
+    expect(
+      issuerBindingFailureCopy(
+        {
+          kind: "lost_authorization_state",
+          currentIssuer: "https://as.example.com",
+        },
+        { serverName: "svc" },
+      ),
+    ).toEqual({
+      title: lostAuthorizationStateTitle(),
+      message: lostAuthorizationStateMessage({ serverName: "svc" }),
+    });
+
+    expect(
+      issuerBindingFailureCopy({
+        kind: "issuer_mismatch",
+        recordedIssuer: "https://old.example.com",
+        currentIssuer: "https://evil.example.com",
+      }),
+    ).toEqual({
+      title: issuerMismatchTitle(),
+      message: issuerMismatchMessage({
+        recordedIssuer: "https://old.example.com",
+        currentIssuer: "https://evil.example.com",
+      }),
+    });
+  });
+});
+
+describe("insecureTokenEndpoint copy", () => {
+  const ENDPOINT = "http://tenant.example.localhost:3300/api/oauth/token";
+
+  it("names the failure as a configuration problem, not an auth failure", () => {
+    expect(insecureTokenEndpointTitle()).toBe("Token endpoint is not secure");
+  });
+
+  it("describes the scheme as not-HTTPS rather than as plain HTTP", () => {
+    // The SDK's check is `protocol !== "https:"`, so a mistyped `ftp:` or `ws:`
+    // endpoint lands here too; naming the wrong scheme would send the reader
+    // hunting for a problem they do not have.
+    const message = insecureTokenEndpointMessage({
+      tokenEndpoint: "ftp://as.example.com/token",
+    });
+    expect(message).toContain("not HTTPS");
+    expect(message).not.toContain("plain HTTP");
+  });
+
+  it("names the endpoint, the server, and both ways out", () => {
+    const message = insecureTokenEndpointMessage({
+      tokenEndpoint: ENDPOINT,
+      serverName: "Acme",
+    });
+    expect(message).toContain('"Acme"');
+    expect(message).toContain(ENDPOINT);
+    expect(message).toContain("HTTPS");
+    expect(message).toContain("127.0.0.1");
+    // Bracketed: a bare IPv6 literal is not a legal URL host, so `::1` copied
+    // into the Token URL override would not parse.
+    expect(message).toContain("[::1]");
+    expect(message).toContain("Token URL override");
+    // The section name the UI actually renders. Sending someone to a settings
+    // section that does not exist is the worst error this message could make.
+    expect(message).toContain("OAuth Settings");
+    expect(message).not.toContain("Server Settings → Authorization");
+  });
+
+  it("does not claim no credentials were sent, which is false on a refresh", () => {
+    // The same notice serves mid-session refresh and re-auth, where credentials
+    // were legitimately sent earlier in the session. Scope the claim to the
+    // request actually refused.
+    const message = insecureTokenEndpointMessage({ tokenEndpoint: ENDPOINT });
+    expect(message).toContain("without sending this request");
+    expect(message).not.toContain("before any credentials were sent");
+  });
+
+  it("says a retry cannot help, which is the whole point of the message", () => {
+    // The bug this copy fixes (#2280) was a Re-authenticate button that could
+    // never succeed. If this sentence goes, the copy stops doing its job.
+    expect(insecureTokenEndpointMessage({ tokenEndpoint: ENDPOINT })).toContain(
+      "Re-authenticating cannot change this",
+    );
+  });
+
+  it("falls back to a generic subject with no server name", () => {
+    const message = insecureTokenEndpointMessage({ tokenEndpoint: ENDPOINT });
+    expect(message).toContain("this server");
+    expect(message).not.toContain('""');
+  });
+
+  it("bounds a hostile-length endpoint for display", () => {
+    // The endpoint is remote-supplied (it comes from the server's AS metadata),
+    // so an overlong value must not be echoed back whole into the layout.
+    const long = `https://example.com/${"a".repeat(500)}`;
+    const message = insecureTokenEndpointMessage({ tokenEndpoint: long });
+    expect(message).not.toContain(long);
+    expect(message).toContain("…");
   });
 });

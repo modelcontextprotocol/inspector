@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import type { InspectorServerJsonDraft } from "@inspector/core/mcp/types.js";
 import { renderWithMantine, screen } from "../../../test/renderWithMantine";
+import { setAceText } from "../../../test/aceEditor";
 import {
   ImportServerJsonPanel,
   type EnvVarInfo,
@@ -48,8 +49,7 @@ describe("ImportServerJsonPanel", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("invokes onJsonChange when typing in the textarea", async () => {
-    const user = userEvent.setup();
+  it("invokes onJsonChange when the JSON editor changes", async () => {
     const onJsonChange = vi.fn();
     renderWithMantine(
       <ImportServerJsonPanel
@@ -60,10 +60,7 @@ describe("ImportServerJsonPanel", () => {
         envVars={[]}
       />,
     );
-    // The first textbox is the JSON textarea
-    const allTextboxes = screen.getAllByRole("textbox");
-    // userEvent.type treats `{` as a key-descriptor delimiter; escape with `{{`
-    await user.type(allTextboxes[0], "x");
+    await setAceText("x");
     expect(onJsonChange).toHaveBeenCalledWith("x");
   });
 

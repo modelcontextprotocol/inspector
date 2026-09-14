@@ -1,11 +1,14 @@
 import { describe, it, expect, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import {
+  act,
   renderWithMantine,
   screen,
   fireEvent,
   waitFor,
 } from "../../../test/renderWithMantine";
+import { setAceText } from "../../../test/aceEditor";
+import { VALIDATE_DEBOUNCE_MS } from "../../../hooks/useServerJsonImport";
 import { ServerImportJsonModal } from "./ServerImportJsonModal";
 
 const npmJson = JSON.stringify({
@@ -31,10 +34,14 @@ const multiPackageJson = JSON.stringify({
   ],
 });
 
-/** The JSON textarea is the first textbox the panel renders. */
-function pasteJson(text: string) {
-  const textarea = screen.getAllByRole("textbox")[0];
-  fireEvent.change(textarea, { target: { value: text } });
+/**
+ * Replace the File Contents editor's document the way a paste would.
+ *
+ * Async because the panel's editor is Ace, which coalesces the paired
+ * remove/insert events a replace fires — see `test/aceEditor.ts`.
+ */
+async function pasteJson(text: string) {
+  await setAceText(text);
 }
 
 describe("ServerImportJsonModal", () => {
@@ -74,7 +81,7 @@ describe("ServerImportJsonModal", () => {
         onAddServer={vi.fn()}
       />,
     );
-    pasteJson(npmJson);
+    await pasteJson(npmJson);
     // Validation is debounced, so it appears after a short pause.
     expect(
       await screen.findByText(/Valid server.json for "io.github.me\/weather"/),
@@ -94,7 +101,7 @@ describe("ServerImportJsonModal", () => {
         onAddServer={vi.fn()}
       />,
     );
-    pasteJson("{not json");
+    await pasteJson("{not json");
     expect(await screen.findByText(/Invalid JSON/)).toBeInTheDocument();
   });
 
@@ -107,7 +114,7 @@ describe("ServerImportJsonModal", () => {
         onAddServer={vi.fn()}
       />,
     );
-    pasteJson(npmJson);
+    await pasteJson(npmJson);
     expect(
       await screen.findByText(/A server with id "weather" already exists/),
     ).toBeInTheDocument();
@@ -125,7 +132,7 @@ describe("ServerImportJsonModal", () => {
         onAddServer={onAddServer}
       />,
     );
-    pasteJson(npmJson);
+    await pasteJson(npmJson);
     // The env-var inputs appear after the debounced parse.
     await user.type(await screen.findByLabelText(/API_KEY/), "secret");
     await user.click(screen.getByRole("button", { name: "Add Server" }));
@@ -152,7 +159,7 @@ describe("ServerImportJsonModal", () => {
         onAddServer={onAddServer}
       />,
     );
-    pasteJson(npmJson);
+    await pasteJson(npmJson);
     await user.type(screen.getByLabelText("Override"), "my-weather");
     await waitFor(() =>
       expect(screen.getByRole("button", { name: "Add Server" })).toBeEnabled(),
@@ -173,7 +180,7 @@ describe("ServerImportJsonModal", () => {
         onAddServer={onAddServer}
       />,
     );
-    pasteJson(multiPackageJson);
+    await pasteJson(multiPackageJson);
     // The package radios appear after the debounced parse.
     await user.click(await screen.findByLabelText(/pypi: multi-py/));
     await user.click(screen.getByRole("button", { name: "Add Server" }));
@@ -193,7 +200,7 @@ describe("ServerImportJsonModal", () => {
         onAddServer={onAddServer}
       />,
     );
-    pasteJson(npmJson);
+    await pasteJson(npmJson);
     await waitFor(() =>
       expect(screen.getByRole("button", { name: "Add Server" })).toBeEnabled(),
     );
@@ -216,28 +223,41 @@ describe("ServerImportJsonModal", () => {
     expect(screen.getByRole("button", { name: "Add Server" })).toBeDisabled();
   });
 
+  // The window this exercises is the one between an edit and the debounce that
+  // re-disables the button, so the whole test runs on fake timers: the pending
+  // re-validation then cannot land unless this test advances it, and the window
+  // stops depending on how long the machine takes to get from the paste to the
+  // click. On real timers a loaded box could spend more than
+  // VALIDATE_DEBOUNCE_MS there, re-disable the button, and turn the click into a
+  // no-op that sets no submit error at all (#2250).
   it("guards against a live edit made before the debounce re-validates", async () => {
-    const onAddServer = vi.fn();
-    renderWithMantine(
-      <ServerImportJsonModal
-        opened
-        existingIds={[]}
-        onClose={vi.fn()}
-        onAddServer={onAddServer}
-      />,
-    );
-    pasteJson(npmJson);
-    await waitFor(() =>
-      expect(screen.getByRole("button", { name: "Add Server" })).toBeEnabled(),
-    );
-    // Replace with invalid content; the button hasn't re-disabled yet (the
-    // debounce is still pending), so clicking exercises the submit-time guard.
-    pasteJson("{not json");
-    fireEvent.click(screen.getByRole("button", { name: "Add Server" }));
-    expect(onAddServer).not.toHaveBeenCalled();
-    expect(
-      await screen.findByText(/Fix the validation errors/),
-    ).toBeInTheDocument();
+    vi.useFakeTimers();
+    try {
+      const onAddServer = vi.fn();
+      renderWithMantine(
+        <ServerImportJsonModal
+          opened
+          existingIds={[]}
+          onClose={vi.fn()}
+          onAddServer={onAddServer}
+        />,
+      );
+      await pasteJson(npmJson);
+      // Let the first validation land, so the button is enabled to click.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(VALIDATE_DEBOUNCE_MS);
+      });
+      expect(screen.getByRole("button", { name: "Add Server" })).toBeEnabled();
+      // Replace with invalid content and do *not* advance: the debounce stays
+      // pending, the button stays enabled, and clicking exercises the
+      // submit-time guard that re-parses the live text.
+      await pasteJson("{not json");
+      fireEvent.click(screen.getByRole("button", { name: "Add Server" }));
+      expect(onAddServer).not.toHaveBeenCalled();
+      expect(screen.getByText(/Fix the validation errors/)).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("loads server.json from a chosen file", async () => {
@@ -276,7 +296,7 @@ describe("ServerImportJsonModal", () => {
     );
     const disclosure = screen.getByRole("button", { name: "File Contents" });
     expect(disclosure).toHaveAttribute("aria-expanded", "true");
-    pasteJson(npmJson);
+    await pasteJson(npmJson);
     await waitFor(
       () => expect(disclosure).toHaveAttribute("aria-expanded", "false"),
       { timeout: 3000 },
@@ -293,7 +313,7 @@ describe("ServerImportJsonModal", () => {
         onAddServer={vi.fn()}
       />,
     );
-    pasteJson(npmJson);
+    await pasteJson(npmJson);
     const disclosure = screen.getByRole("button", { name: "File Contents" });
     // Clear via the textarea's Clear button while still expanded.
     await user.click(screen.getAllByRole("button", { name: "Clear" })[0]);
@@ -311,7 +331,7 @@ describe("ServerImportJsonModal", () => {
         onAddServer={onAddServer}
       />,
     );
-    pasteJson(npmJson);
+    await pasteJson(npmJson);
     await user.type(screen.getByLabelText("Override"), "bad id!");
     expect(
       await screen.findByText(/Server id must use only letters/),

@@ -1,0 +1,16 @@
+{
+  "serverInfo": {
+    "name": "subscriptions-never-acknowledged",
+    "version": "1.0.0"
+  },
+  "resources": [{ "preset": "numbered_resources", "params": { "count": 3 } }],
+  "subscriptions": true,
+  "listChanged": { "resources": true },
+  "transport": {
+    "type": "streamable-http",
+    "port": 3221,
+    "modern": {
+      "neverAcknowledgeSubscriptions": "after-first"
+    }
+  }
+}

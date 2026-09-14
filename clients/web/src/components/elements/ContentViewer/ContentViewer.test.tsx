@@ -5,6 +5,7 @@ import type {
   TextResourceContents,
 } from "@modelcontextprotocol/client";
 import { renderWithMantine, screen } from "../../../test/renderWithMantine";
+import { getAceText } from "../../../test/aceEditor";
 import { ContentViewer } from "./ContentViewer";
 
 // Stub the lazy highlighter so JSON/XML/CSS branches are assertable
@@ -28,16 +29,19 @@ describe("ContentViewer", () => {
     expect(screen.getByText("hello world")).toBeInTheDocument();
   });
 
-  it("pretty-prints JSON text", () => {
+  it("pretty-prints JSON text into the JSON editor", () => {
     const block: ContentBlock = { type: "text", text: '{"a":1}' };
     renderWithMantine(<ContentViewer block={block} />);
-    expect(screen.getByText(/"a": 1/)).toBeInTheDocument();
+    expect(getAceText()).toBe('{\n  "a": 1\n}');
   });
 
+  // Text that merely *starts* like JSON stays plain: presenting it in a JSON
+  // gutter would frame the server's prose as a malformed document (#2151).
   it("falls back to raw text when JSON is malformed", () => {
     const block: ContentBlock = { type: "text", text: "{ broken" };
     renderWithMantine(<ContentViewer block={block} />);
     expect(screen.getByText("{ broken")).toBeInTheDocument();
+    expect(document.querySelector(".ace_editor")).toBeNull();
   });
 
   it("renders a copy overlay when copyable", () => {
@@ -206,14 +210,90 @@ describe("ContentViewer", () => {
     expect(screen.getByRole("button")).toBeInTheDocument();
   });
 
-  it("highlights a JSON text block when mimeType is application/json", () => {
+  it("renders a declared JSON text block in the JSON editor", () => {
     const block: ContentBlock = { type: "text", text: '{"a":1}' };
     renderWithMantine(
       <ContentViewer block={block} mimeType="application/json" />,
     );
-    const probe = screen.getByTestId("code-highlight");
-    expect(probe).toHaveAttribute("data-language", "json");
-    expect(probe.textContent).toContain('"a": 1');
+    expect(getAceText()).toBe('{\n  "a": 1\n}');
+    // The Prism path is no longer taken for JSON — one highlighter per
+    // language, and Ace is the one that folds (#2151).
+    expect(screen.queryByTestId("code-highlight")).not.toBeInTheDocument();
+  });
+
+  // The server card's fixed-height, single-line box (`wrap={false}`) must not
+  // become a multi-line editor, whatever MIME it declares.
+  it("keeps a non-wrapping JSON block on the plain renderer", () => {
+    const block: ContentBlock = { type: "text", text: '{"a":1}' };
+    renderWithMantine(
+      <ContentViewer block={block} mimeType="application/json" wrap={false} />,
+    );
+    expect(document.querySelector(".ace_editor")).toBeNull();
+    expect(screen.getByText(/"a": 1/)).toBeInTheDocument();
+  });
+
+  // An expanded Protocol entry holds two of these and a list holds many pairs,
+  // so an unnamed editor leaves a screen reader tabbing through textboxes that
+  // all announce the same thing.
+  it("names the JSON editor from jsonLabel", () => {
+    const block: ContentBlock = { type: "text", text: '{"a":1}' };
+    renderWithMantine(
+      <ContentViewer
+        block={block}
+        mimeType="application/json"
+        jsonLabel="tools/call response JSON"
+      />,
+    );
+    expect(
+      screen.getByLabelText(/tools\/call response JSON/),
+    ).toBeInTheDocument();
+  });
+
+  it("falls back to a generic name when no label is given", () => {
+    const block: ContentBlock = { type: "text", text: '{"a":1}' };
+    renderWithMantine(<ContentViewer block={block} />);
+    expect(screen.getByLabelText(/JSON content/)).toBeInTheDocument();
+  });
+
+  it("keeps the copy overlay above the JSON editor", () => {
+    const block: ContentBlock = { type: "text", text: '{"a":1}' };
+    renderWithMantine(
+      <ContentViewer block={block} mimeType="application/json" copyable />,
+    );
+    expect(screen.getByRole("button", { name: "Copy" })).toBeInTheDocument();
+  });
+
+  // The `resource` block branch used to render every embedded resource in a
+  // plain code block, so a prompt message carrying JSON did not inherit this
+  // migration even though the text-block branch did.
+  it("renders an embedded JSON resource in the JSON editor", () => {
+    const block: ContentBlock = {
+      type: "resource",
+      resource: {
+        uri: "file:///a.json",
+        mimeType: "application/json",
+        text: '{"a":1}',
+      },
+    };
+    renderWithMantine(<ContentViewer block={block} />);
+    expect(getAceText()).toBe('{\n  "a": 1\n}');
+  });
+
+  // Narrowed to JSON on purpose: routing every declared type through would put
+  // an embedded `text/html` resource into the sandboxed frame, which is a
+  // change to what a tool result is.
+  it("leaves a non-JSON embedded resource on the plain renderer", () => {
+    const block: ContentBlock = {
+      type: "resource",
+      resource: {
+        uri: "file:///a.html",
+        mimeType: "text/html",
+        text: "<p>hi</p>",
+      },
+    };
+    renderWithMantine(<ContentViewer block={block} />);
+    expect(screen.getByText("<p>hi</p>")).toBeInTheDocument();
+    expect(document.querySelector("iframe")).toBeNull();
   });
 
   it("renders nothing when neither block nor contents is provided", () => {
@@ -274,15 +354,13 @@ describe("ContentViewer (resource contents)", () => {
     ).toBeInTheDocument();
   });
 
-  it("highlights JSON contents", () => {
+  it("renders JSON contents in the JSON editor", () => {
     renderWithMantine(
       <ContentViewer
         contents={text({ text: '{"a":1}', mimeType: "application/json" })}
       />,
     );
-    const probe = screen.getByTestId("code-highlight");
-    expect(probe).toHaveAttribute("data-language", "json");
-    expect(probe.textContent).toContain('"a": 1');
+    expect(getAceText()).toBe('{\n  "a": 1\n}');
   });
 
   it("indents and highlights XML contents", () => {

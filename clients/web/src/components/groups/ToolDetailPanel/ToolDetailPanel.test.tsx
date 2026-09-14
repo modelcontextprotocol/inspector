@@ -1,7 +1,8 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import userEvent from "@testing-library/user-event";
 import type { Tool } from "@modelcontextprotocol/client";
 import { renderWithMantine, screen } from "../../../test/renderWithMantine";
+import { setAceTextByLabel } from "../../../test/aceEditor";
 import { ToolDetailPanel } from "./ToolDetailPanel";
 
 const simpleTool: Tool = {
@@ -218,7 +219,13 @@ describe("ToolDetailPanel", () => {
   });
 
   it("renders the Execute Tool button enabled when not executing", () => {
-    renderWithMantine(<ToolDetailPanel {...baseProps} tool={simpleTool} />);
+    renderWithMantine(
+      <ToolDetailPanel
+        {...baseProps}
+        tool={simpleTool}
+        formValues={{ message: "hi" }}
+      />,
+    );
     const button = screen.getByRole("button", { name: "Execute Tool" });
     expect(button).toBeInTheDocument();
     expect(button).not.toBeDisabled();
@@ -231,11 +238,36 @@ describe("ToolDetailPanel", () => {
       <ToolDetailPanel
         {...baseProps}
         tool={simpleTool}
+        formValues={{ message: "hi" }}
         onExecute={onExecute}
       />,
     );
     await user.click(screen.getByRole("button", { name: "Execute Tool" }));
     expect(onExecute).toHaveBeenCalledTimes(1);
+  });
+
+  // #2171: the panel opts its form into tool-argument type enforcement, so a
+  // raw-JSON draft the client would retype is refused here rather than sent as
+  // something other than what the editor showed.
+  it("refuses a raw-JSON argument the schema would retype", async () => {
+    const user = userEvent.setup();
+    const numericTool: Tool = {
+      name: "add",
+      inputSchema: {
+        type: "object",
+        properties: { count: { type: "number" } },
+      },
+    };
+    renderWithMantine(
+      <ToolDetailPanel {...baseProps} tool={numericTool} formValues={{}} />,
+    );
+    await user.click(screen.getByLabelText("Edit as JSON"));
+    await setAceTextByLabel(/Arguments JSON/, '{"count":"01"}');
+
+    expect(
+      screen.getByText(/`count` would be converted to the type/),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Execute Tool" })).toBeDisabled();
   });
 
   it("disables the Execute Tool button while executing and renders Cancel", () => {
@@ -500,6 +532,130 @@ describe("ToolDetailPanel", () => {
       expect(
         screen.queryByText("Mirrored request headers (SEP-2243)"),
       ).not.toBeInTheDocument();
+    });
+  });
+
+  describe("schema portability findings (#1005)", () => {
+    const unportableTool: Tool = {
+      name: "info",
+      inputSchema: { type: "object", properties: {} },
+      outputSchema: { type: "object", properties: { data: true } },
+    };
+
+    // The findings address the server author but render above the argument
+    // form the caller fills in, so they open collapsed behind their counts
+    // (#2205). The preference is global, hence the cleared localStorage.
+    beforeEach(() => {
+      window.localStorage.clear();
+    });
+
+    it("summarizes the findings without unfurling them", () => {
+      renderWithMantine(
+        <ToolDetailPanel {...baseProps} tool={unportableTool} />,
+      );
+      expect(screen.getByText("Schema portability")).toBeVisible();
+      expect(screen.getByText("1 error(s), 0 warning(s)")).toBeVisible();
+      expect(
+        screen.getByText("outputSchema.properties.data"),
+      ).not.toBeVisible();
+    });
+
+    it("lists a finding with its path once expanded", async () => {
+      const user = userEvent.setup();
+      renderWithMantine(
+        <ToolDetailPanel {...baseProps} tool={unportableTool} />,
+      );
+
+      await user.click(
+        screen.getByRole("button", { name: /Schema portability/ }),
+      );
+
+      expect(screen.getByText("outputSchema.properties.data")).toBeVisible();
+    });
+
+    // Global rather than per tool: the panel is reused across selections, so a
+    // per-tool disclosure would re-collapse on every click — the scrolling
+    // #2205 is about, by another route.
+    it("keeps the expanded choice across a tool switch", async () => {
+      const user = userEvent.setup();
+      const { rerender } = renderWithMantine(
+        <ToolDetailPanel {...baseProps} tool={unportableTool} />,
+      );
+
+      await user.click(
+        screen.getByRole("button", { name: /Schema portability/ }),
+      );
+
+      rerender(
+        <ToolDetailPanel
+          {...baseProps}
+          tool={{ ...unportableTool, name: "other" }}
+        />,
+      );
+
+      expect(
+        screen.getByRole("button", { name: /Schema portability/ }),
+      ).toHaveAttribute("aria-expanded", "true");
+    });
+
+    it("omits the section for a portable tool", () => {
+      renderWithMantine(<ToolDetailPanel {...baseProps} tool={simpleTool} />);
+      expect(screen.queryByTestId("schema-findings")).not.toBeInTheDocument();
+    });
+  });
+
+  // #2020: Execute used to be gated on `isExecuting` alone — this panel never
+  // called `hasMissingRequiredFields`, unlike the App and elicitation panels —
+  // so arguments that could not be sent were executed anyway and simply arrived
+  // absent at the server.
+  describe("submit gating (#2020)", () => {
+    const optionalJsonTool: Tool = {
+      name: "record_shipment",
+      inputSchema: {
+        type: "object",
+        // An array of no declared item type renders through the JSON editor,
+        // which is where a draft can fail to parse.
+        properties: { payload: { type: "array", title: "Payload" } },
+      },
+    };
+
+    it("disables Execute while a required argument has no value", () => {
+      renderWithMantine(
+        <ToolDetailPanel {...baseProps} tool={simpleTool} formValues={{}} />,
+      );
+      expect(
+        screen.getByRole("button", { name: "Execute Tool" }),
+      ).toBeDisabled();
+    });
+
+    it("enables Execute once the required argument is filled", () => {
+      renderWithMantine(
+        <ToolDetailPanel
+          {...baseProps}
+          tool={simpleTool}
+          formValues={{ message: "hi" }}
+        />,
+      );
+      expect(
+        screen.getByRole("button", { name: "Execute Tool" }),
+      ).not.toBeDisabled();
+    });
+
+    it("disables Execute while an optional field holds text it cannot send", async () => {
+      renderWithMantine(
+        <ToolDetailPanel {...baseProps} tool={optionalJsonTool} />,
+      );
+      const execute = screen.getByRole("button", { name: "Execute Tool" });
+      expect(execute).not.toBeDisabled();
+
+      // The draft never reaches `formValues` — the field reports `undefined`
+      // for text it cannot parse — so only the form's validity channel makes
+      // this visible to the gate.
+      await setAceTextByLabel(/Payload/, "x");
+      expect(execute).toBeDisabled();
+
+      await setAceTextByLabel(/Payload/, "");
+      expect(execute).not.toBeDisabled();
     });
   });
 });

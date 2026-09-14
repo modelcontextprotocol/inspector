@@ -157,10 +157,10 @@ export function sanitizeServerSettings(
       key: h.key,
       value: isSensitiveHeader(h.key) ? REDACTED : h.value,
     })),
-    metadata: (settings.metadata ?? []).map((m) => ({
-      key: m.key,
-      value: isSensitiveHeader(m.key) ? REDACTED : m.value,
-    })),
+    // Metadata values may be any JSON (#1910), so the redaction has to descend:
+    // a top-level key that is not itself sensitive can hold a nested one that
+    // is. See `redactMetadataValue`.
+    metadata: redactMetadataValue(settings.metadata ?? {}),
     env: (settings.env ?? []).map((e) => ({
       key: e.key,
       value: REDACTED,
@@ -210,6 +210,39 @@ function sanitizeInitRecord(
     });
   }
   return out;
+}
+
+/**
+ * Redact secret-bearing entries anywhere inside a `_meta` payload.
+ *
+ * The pre-#1910 version only had to check the top level, because a value was
+ * always a string — a secret could not hide below one. Now that a value may be
+ * an object or an array, `{ trace: { accessToken: "…" } }` would sail through a
+ * top-level-only check: `trace` is not sensitive, so the whole subtree,
+ * `accessToken` included, would print. `servers/show` output is meant to be
+ * safe to paste into an issue, so the walk has to reach every key.
+ *
+ * A key matching {@link isSensitiveHeader} replaces its **entire** value rather
+ * than being descended into, so a sensitive key holding an object cannot leak
+ * through its members either. Arrays are mapped elementwise: their indices are
+ * not names anyone can mark sensitive, but objects inside them can be.
+ *
+ * Recursion is bounded by the payload, which came from `JSON.parse` and so is a
+ * finite tree with no cycles.
+ */
+function redactMetadataValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(redactMetadataValue);
+  }
+  if (value !== null && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, member]) => [
+        key,
+        isSensitiveHeader(key) ? REDACTED : redactMetadataValue(member),
+      ]),
+    );
+  }
+  return value;
 }
 
 function isSensitiveHeader(key: string): boolean {

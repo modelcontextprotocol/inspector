@@ -34,6 +34,39 @@ describe("oauthDetailsFromConnectionState", () => {
     });
   });
 
+  it("surfaces an id_token when the token set carries one", () => {
+    const state: OAuthConnectionState = {
+      authorized: true,
+      protocol: "standard",
+      serverUrl: "https://mcp.example.com/mcp",
+      tokens: {
+        access_token: "tok",
+        token_type: "Bearer",
+        id_token: "header.payload.signature",
+      },
+    };
+
+    expect(oauthDetailsFromConnectionState(state)).toEqual({
+      protocol: "standard",
+      authorized: true,
+      accessToken: "tok",
+      idToken: "header.payload.signature",
+    });
+  });
+
+  it("omits idToken when the token set carries none", () => {
+    const state: OAuthConnectionState = {
+      authorized: true,
+      protocol: "standard",
+      serverUrl: "https://mcp.example.com/mcp",
+      tokens: { access_token: "tok", token_type: "Bearer" },
+    };
+
+    expect(oauthDetailsFromConnectionState(state)).not.toHaveProperty(
+      "idToken",
+    );
+  });
+
   it("includes EMA idp session when present", () => {
     const state: OAuthConnectionState = {
       authorized: false,

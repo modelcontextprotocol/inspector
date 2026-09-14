@@ -312,6 +312,60 @@ describe("ClientSettingsForm EMA IdP session", () => {
     expect(screen.getByText(CIMD_METADATA_URL_HTTPS_ERROR)).toBeInTheDocument();
   });
 
+  it("tells the reader the loopback exemption exists, in both pieces of CIMD copy", () => {
+    renderWithMantine(
+      <ClientSettingsForm
+        settings={{
+          ...EMPTY_CLIENT_SETTINGS,
+          cimdEnabled: true,
+          clientMetadataUrl: "",
+        }}
+        expandedSections={["cimd"]}
+        onExpandedSectionsChange={vi.fn()}
+        onSettingsChange={vi.fn()}
+        emaIdpLoginState="none"
+      />,
+    );
+
+    // The copy is part of this feature's contract, not decoration: the whole
+    // point of #2305 is that a local fixture URL is enterable, and an
+    // HTTPS-only instruction here puts that back out of reach for a reader
+    // even while the validator stays permissive. Both places that state the
+    // requirement are asserted, since either one alone would still mislead.
+    const hint = screen.getByText(/must be served over HTTPS/);
+    expect(hint).toHaveTextContent("localhost, 127.0.0.1 or [::1]");
+
+    expect(
+      screen.getByText(/HTTPS URL of your OAuth client metadata JSON document/),
+    ).toHaveTextContent(
+      "http:// is accepted only on localhost, 127.0.0.1 or [::1]",
+    );
+  });
+
+  it("shows no CIMD URL error for a loopback http URL", () => {
+    renderWithMantine(
+      <ClientSettingsForm
+        settings={{
+          ...EMPTY_CLIENT_SETTINGS,
+          cimdEnabled: true,
+          clientMetadataUrl: "http://localhost:8092/client-metadata.json",
+        }}
+        expandedSections={["cimd"]}
+        onExpandedSectionsChange={vi.fn()}
+        onSettingsChange={vi.fn()}
+        emaIdpLoginState="none"
+        revealErrors
+      />,
+    );
+
+    expect(
+      screen.queryByText(CIMD_METADATA_URL_HTTPS_ERROR),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(CIMD_METADATA_URL_INVALID_ERROR),
+    ).not.toBeInTheDocument();
+  });
+
   it("shows no CIMD URL error for a valid URL", () => {
     renderWithMantine(
       <ClientSettingsForm

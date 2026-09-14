@@ -5,19 +5,20 @@ import {
   stepUpConfirmMessage,
   stepUpInsufficientScopeMessage,
 } from "../src/utils/tuiOAuth.js";
+import { makeFakeServerSettings } from "./helpers/oauth-test-fakes.js";
 
 describe("tuiOAuth", () => {
   it("detects standard OAuth step-up", () => {
     expect(
       isStandardOAuthStepUp(
         { reason: "insufficient_scope", requiredScopes: ["weather:read"] },
-        { enterpriseManaged: false },
+        makeFakeServerSettings({ enterpriseManaged: false }),
       ),
     ).toBe(true);
     expect(
       isStandardOAuthStepUp(
         { reason: "insufficient_scope", requiredScopes: ["weather:read"] },
-        { enterpriseManaged: true },
+        makeFakeServerSettings({ enterpriseManaged: true }),
       ),
     ).toBe(false);
   });
@@ -26,13 +27,13 @@ describe("tuiOAuth", () => {
     expect(
       isStepUpConfirmation(
         { reason: "insufficient_scope", requiredScopes: ["env:read"] },
-        { enterpriseManaged: true },
+        makeFakeServerSettings({ enterpriseManaged: true }),
       ),
     ).toBe(true);
     expect(
       isStepUpConfirmation(
         { reason: "insufficient_scope", requiredScopes: ["weather:read"] },
-        { enterpriseManaged: false },
+        makeFakeServerSettings({ enterpriseManaged: false }),
       ),
     ).toBe(true);
   });

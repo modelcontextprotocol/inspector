@@ -1,0 +1,11 @@
+{
+  "serverInfo": {
+    "name": "nullable-fields-showcase",
+    "version": "1.0.0"
+  },
+  "tools": [{ "preset": "record_shipment" }, { "preset": "get_temp" }],
+  "transport": {
+    "type": "streamable-http",
+    "port": 6602
+  }
+}

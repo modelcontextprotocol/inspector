@@ -203,6 +203,30 @@ export class MessageTrackingTransport implements Transport {
     return this.baseTransport.sessionId;
   }
 
+  /**
+   * Forward the base transport's per-request-stream capability (#2140).
+   *
+   * The SDK's `Protocol.request` reads this off the transport it was handed —
+   * which is always this wrapper — to decide how a cancelled request is
+   * signalled: abort that request's own stream (the 2026-07-28 signal for
+   * Streamable HTTP) or POST a `notifications/cancelled` (the stdio one).
+   *
+   * Not forwarding it made the wrapper *answer* the question, `undefined`, for
+   * every client. So the Cancel button POSTed a notification even on a modern
+   * Streamable HTTP connection, where a spec-compliant server acknowledges it
+   * `202` and drops it — the tool kept running and only a disconnect really
+   * cancelled anything. That hit the CLI and TUI as much as the web client:
+   * their real `StreamableHTTPClientTransport` advertises the flag correctly
+   * and this wrapper hid it.
+   *
+   * A base transport that says nothing stays `undefined` rather than becoming
+   * `false`, since the SDK's check is `=== true` either way and inventing a
+   * value here would misreport what the transport claimed.
+   */
+  get hasPerRequestStream(): boolean | undefined {
+    return this.baseTransport.hasPerRequestStream;
+  }
+
   // Implemented as a concrete method (rather than delegating the base
   // transport's optional `setProtocolVersion`) so the SDK Client always
   // invokes it after the initialize handshake — including for stdio, whose

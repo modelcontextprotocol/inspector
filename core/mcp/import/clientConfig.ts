@@ -22,7 +22,7 @@ function parseJsonObject(raw: string): Record<string, unknown> {
     data = JSON.parse(raw);
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
-    throw new Error(`Invalid JSON: ${detail}`);
+    throw new Error(`Invalid JSON: ${detail}`, { cause: err });
   }
   if (!data || typeof data !== "object" || Array.isArray(data)) {
     throw new Error("Expected a JSON object at the top level");

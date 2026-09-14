@@ -81,3 +81,87 @@ describe("createRemoteApp GET /api/config", () => {
     ).toBe(false);
   });
 });
+
+describe("GET /api/config re-resolves secretStorage per request (#1950)", () => {
+  it("serves the resolver's current answer, not the startup snapshot", async () => {
+    // The descriptor states where a secret lands, and it changes while the
+    // process runs — the first write under a newly-set passphrase encrypts a
+    // pre-existing plaintext file. A value captured at boot would keep
+    // telling every page load "still unencrypted" until a restart.
+    let plaintext = true;
+    const { app } = createRemoteApp({
+      dangerouslyOmitAuth: true,
+      initialConfig: {
+        defaultEnvironment: {},
+        secretStorage: {
+          kind: "file",
+          reason: "fallback",
+          durable: true,
+          plaintext: true,
+          path: "/tmp/secrets.json",
+        },
+      },
+      secretStorageResolver: async () => ({
+        kind: "file",
+        reason: "fallback",
+        durable: true,
+        plaintext,
+        path: "/tmp/secrets.json",
+      }),
+    });
+
+    const first = (await (
+      await app.request(new Request("http://test/api/config"))
+    ).json()) as { secretStorage?: { plaintext?: boolean } };
+    expect(first.secretStorage?.plaintext).toBe(true);
+
+    plaintext = false; // the upgrading write happens
+    const second = (await (
+      await app.request(new Request("http://test/api/config"))
+    ).json()) as { secretStorage?: { plaintext?: boolean } };
+    expect(second.secretStorage?.plaintext).toBe(false);
+  });
+
+  it("clears the field when the resolver says it is not known (round 9)", async () => {
+    // The resolver's contract is that `undefined` means "not known right
+    // now". Spreading it in conditionally left the *startup* descriptor
+    // standing in its place, so a store that became undescribable kept
+    // serving a stale, confident answer — the one thing this surface must
+    // never do.
+    const { app } = createRemoteApp({
+      dangerouslyOmitAuth: true,
+      initialConfig: {
+        defaultEnvironment: {},
+        secretStorage: {
+          kind: "file",
+          reason: "fallback",
+          durable: true,
+          plaintext: true,
+          path: "/tmp/secrets.json",
+        },
+      },
+      secretStorageResolver: async () => undefined,
+    });
+
+    const body = (await (
+      await app.request(new Request("http://test/api/config"))
+    ).json()) as { secretStorage?: unknown };
+    expect(body.secretStorage).toBeUndefined();
+  });
+
+  it("falls back to the startup payload when no resolver is supplied", async () => {
+    // Embedders and the test suite pass no resolver; they must keep the
+    // previous behaviour rather than losing the field.
+    const { app } = createRemoteApp({
+      dangerouslyOmitAuth: true,
+      initialConfig: {
+        defaultEnvironment: {},
+        secretStorage: { kind: "keyring", reason: "default", durable: true },
+      },
+    });
+    const body = (await (
+      await app.request(new Request("http://test/api/config"))
+    ).json()) as { secretStorage?: { kind?: string } };
+    expect(body.secretStorage?.kind).toBe("keyring");
+  });
+});

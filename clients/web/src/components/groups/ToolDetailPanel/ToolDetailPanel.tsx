@@ -11,7 +11,7 @@ import {
   Switch,
   Text,
 } from "@mantine/core";
-import { useId, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import { RiArrowDownSLine, RiArrowRightSLine } from "react-icons/ri";
 import type {
   ProgressNotification,
@@ -19,9 +19,15 @@ import type {
   ToolAnnotations,
 } from "@modelcontextprotocol/client";
 import { resolveDisplayLabel } from "../../../utils/toolUtils";
-import { toFormSchema } from "../../../utils/jsonUtils";
+import {
+  hasMissingRequiredFields,
+  toFormSchema,
+} from "../../../utils/jsonUtils";
 import { getMirroredHeaderParams } from "@inspector/core/json/xMcpHeader.js";
+import { lintToolSchemas } from "@inspector/core/json/schemaLint.js";
 import { AnnotationBadge } from "../../elements/AnnotationBadge/AnnotationBadge";
+import { SchemaFindingsList } from "../../elements/SchemaFindingsList/SchemaFindingsList";
+import { useSchemaFindingsExpanded } from "../../../hooks/useSchemaFindingsExpanded";
 import { ProgressDisplay } from "../../elements/ProgressDisplay/ProgressDisplay";
 import { SchemaForm } from "../SchemaForm/SchemaForm";
 
@@ -52,6 +58,15 @@ export interface ToolDetailPanelProps {
   /** Receives the effective run-as-task decision for this execution. */
   onExecute: (runAsTask: boolean) => void;
   onCancel: () => void;
+  /**
+   * Identity of the selected *row*, which is not the tool name: a server may
+   * repeat a name, and `ToolsScreen` disambiguates those rows with a key of its
+   * own (#1957). Passed straight to `SchemaFormProps.resetKey`, so switching
+   * between two same-named tools drops the first one's in-progress field text
+   * and enlarged fields. Falls back to the name, which is the right answer for
+   * any caller whose list cannot repeat one.
+   */
+  resetKey?: string;
 }
 
 // Outer column: title/annotations pin at top, the Execute footer pins at the
@@ -74,7 +89,13 @@ const BodyScroll = ScrollArea.withProps({
   flex: "0 1 auto",
   miw: 0,
   mih: 0,
-  type: "auto",
+  // No `type` override: the app-wide default is `type="scroll"` (see
+  // `src/theme/ScrollArea.ts`), which shows the bar only while the user is
+  // actually scrolling. `type="auto"` parked a permanent bar down the side of
+  // every tool whose form is taller than the panel — which, now that the
+  // schema-portability section opens collapsed, is the ordinary case rather
+  // than the exception. `offsetScrollbars` stays: it reserves the gutter, so
+  // the form does not shift sideways when the bar fades in.
   scrollbars: "y",
   offsetScrollbars: true,
 });
@@ -198,6 +219,7 @@ export function ToolDetailPanel({
   onFormChange,
   onExecute,
   onCancel,
+  resetKey,
 }: ToolDetailPanelProps) {
   const { name, title, description, icons, annotations, inputSchema } = tool;
   // Narrow the SDK protocol schema to the form renderer's schema type.
@@ -206,6 +228,14 @@ export function ToolDetailPanel({
   // SEP-2243: args this tool declares as `x-mcp-header` — their values mirror
   // into `Mcp-Param-{Name}` headers on a `tools/call` (#1632).
   const mirroredParams = getMirroredHeaderParams(tool);
+  // Memoized on the tool: this panel re-renders on every keystroke in the
+  // argument form, and the walk depends on nothing that changes in between.
+  const schemaFindings = useMemo(() => lintToolSchemas(tool), [tool]);
+  // Global rather than per tool, so the choice survives a tool switch — see
+  // the hook. This panel is reused across selections, so per-tool state here
+  // would re-open the wall on every click anyway.
+  const [schemaFindingsExpanded, setSchemaFindingsExpanded] =
+    useSchemaFindingsExpanded();
 
   // Descriptions are shown by default (most are short); the chevron lets the
   // user hide a long one to keep the form and Execute footer in view. Reset to
@@ -213,6 +243,10 @@ export function ToolDetailPanel({
   // a prior tool's hidden state doesn't carry over — mirrors how ToolsScreen
   // clears formValues on change.
   const [descriptionOpen, setDescriptionOpen] = useState(true);
+  // Text a field is holding that it could not turn into a value — unparseable
+  // JSON, or a number this client cannot send exactly. Reported by the form
+  // because the draft lives inside the field and never reaches `formValues`.
+  const [hasInvalidDraft, setHasInvalidDraft] = useState(false);
   const [prevToolName, setPrevToolName] = useState(name);
   if (name !== prevToolName) {
     setPrevToolName(name);
@@ -244,6 +278,15 @@ export function ToolDetailPanel({
     showRunAsTask &&
     (taskSupport === "required" ||
       ((taskSupport === "optional" || modernTasks) && runAsTask));
+
+  // Two distinct reasons the arguments aren't sendable, and this panel used to
+  // check neither — Execute was gated on `isExecuting` alone, so a required
+  // argument left empty and a field full of unparseable text were both
+  // executable, and simply arrived at the server absent (#2020).
+  const executeDisabled =
+    isExecuting ||
+    hasMissingRequiredFields(formSchema, formValues) ||
+    hasInvalidDraft;
 
   return (
     <PanelStack>
@@ -306,17 +349,32 @@ export function ToolDetailPanel({
               ))}
               <HeaderParamsNote>
                 These argument values are mirrored into HTTP headers on the
-                call. The SDK sends them only on a Node/proxy transport — the
-                browser omits <Code>Mcp-Param-*</Code> headers.
+                call. In the web client the <Code>Mcp-Param-*</Code> headers are
+                applied by the Node backend that issues the upstream request.
               </HeaderParamsNote>
             </HeaderParamsSection>
           )}
+
+          <SchemaFindingsList
+            findings={schemaFindings}
+            expanded={schemaFindingsExpanded}
+            onExpandedChange={setSchemaFindingsExpanded}
+          />
 
           <SchemaForm
             schema={formSchema}
             values={formValues}
             onChange={onFormChange}
             disabled={isExecuting}
+            // This panel is reused across tool selections rather than
+            // remounted, so the form needs a per-selection key to drop another
+            // tool's in-progress field text. See SchemaFormProps.resetKey.
+            resetKey={resetKey ?? name}
+            onValidityChange={setHasInvalidDraft}
+            // These values become `tools/call` arguments, so a raw-JSON draft the
+            // client would retype is refused rather than sent as something other
+            // than what the editor shows (#2171).
+            enforceToolArgumentTypes
           />
 
           {progress && <ProgressDisplay params={progress} />}
@@ -337,7 +395,7 @@ export function ToolDetailPanel({
         <Button
           size="md"
           onClick={() => onExecute(effectiveRunAsTask)}
-          disabled={isExecuting}
+          disabled={executeDisabled}
           loading={isExecuting}
         >
           Execute Tool

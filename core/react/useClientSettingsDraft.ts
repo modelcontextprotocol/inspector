@@ -33,25 +33,33 @@ export function useClientSettingsDraft<T>({
   const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const latestValuesRef = useRef<T | null>(null);
 
-  const resolveInitialRef = useRef(resolveInitial);
+  // Seeded during render rather than in an effect, for the reason spelled
+  // out on {@link useSettingsDraft}: an effect would paint the previous
+  // session's draft for one frame before correcting itself. `seeded` is
+  // tracked separately from `draft` so a `resolveInitial` that legitimately
+  // returns `null` is not re-seeded on every render.
+  const [seeded, setSeeded] = useState(false);
+  if (seeded !== opened) {
+    setSeeded(opened);
+    setDraft(opened ? resolveInitial() : null);
+  }
+
   const onPersistRef = useRef(onPersist);
   const onErrorRef = useRef(onError);
   const openedRef = useRef(opened);
-  resolveInitialRef.current = resolveInitial;
-  onPersistRef.current = onPersist;
-  onErrorRef.current = onError;
-  openedRef.current = opened;
-
+  // Written in an effect rather than during render (`react-hooks/refs`).
+  // Every reader — the debounce timer, `flush`, and `onChange` — runs after
+  // a commit, so a post-commit write is what they need. `latestValuesRef`
+  // mirrors `draft` here so it is re-seeded (and cleared on close) without a
+  // second copy of the seeding rule; `onChange` still writes it
+  // synchronously, because a functional update in the same tick has to see
+  // the value the previous call produced.
   useEffect(() => {
-    if (!opened) {
-      setDraft(null);
-      latestValuesRef.current = null;
-      return;
-    }
-    const initial = resolveInitialRef.current();
-    setDraft(initial);
-    latestValuesRef.current = initial;
-  }, [opened]);
+    onPersistRef.current = onPersist;
+    onErrorRef.current = onError;
+    openedRef.current = opened;
+    latestValuesRef.current = draft;
+  });
 
   useEffect(() => {
     return () => {

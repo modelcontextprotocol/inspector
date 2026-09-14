@@ -1,0 +1,297 @@
+---
+name: testing
+description: Run, place and fix tests in this repo. Use when choosing which npm command runs a given suite (web unit, web integration, Storybook, cli, tui, launcher, scripts); when deciding where a new test file belongs — beside its source, under src/test/, or in a client's __tests__/; when a per-file coverage check fails or a v8 ignore is in question; when asking which test tier spawns the built binary rather than importing it; or when rendering, mounting or asserting on Mantine components and their transitions in a test.
+disable-model-invocation: false
+---
+
+# Testing
+
+**Every change needs tests, and every file must clear ≥90% on lines,
+statements, functions, and branches.** That rule and the React/Mantine
+conventions live in [`AGENTS.md`](../../../AGENTS.md); this skill is where a
+test goes, how to run it, and how to clear the gate.
+
+## Before you write it: does the test use a `test-servers/` fixture?
+
+**If it does, load the `test-servers` skill now — that is step one, before
+choosing a location or writing a line.**
+
+The condition is **"does this test depend on a fixture from `test-servers/`?"**
+— not which tier it lands in, and not which directory it lands in. There are two
+ways to depend on one, and they need different halves of that skill:
+
+- **It connects to a fixture.** An integration test that connects; an
+  end-to-end test that connects; a smoke that drives a connected flow; a
+  coverage gap only reachable over a real connection; reproducing a reported bug
+  against a server. These need the whole procedure — the staleness hazard, and
+  then whichever half matches how the server is stood up.
+  ⚠️ **Which shape you need depends on what is driving, and there are three.**
+  All three are the **"Three ways to use a fixture"** section of `test-servers`,
+  which names the entry point and a reference for each — read the right third:
+  - **An integration or CLI test → in-process HTTP.**
+    `createTestServerHttp(...)` / `.start()` / `.stop()`, with the test owning
+    the lifecycle. Use it when the case needs HTTP or SSE, a specific tool set,
+    or the modern handler (`modern: {}` is a constructor option). **No showcase
+    config and no era table apply.**
+  - **An integration or CLI test where stdio is the point → spawned stdio.**
+    `getTestMcpServerCommand()` handed to a stdio transport or to the built CLI,
+    which spawns it. A subprocess *is* started, but it runs the stdio fixture's
+    **default** config, so there is still nothing to pick — and nothing to
+    override, so if the case needs a specific tool set it is an in-process HTTP
+    test instead.
+  - **A config-driven web smoke, or `pack:verify` → spawned composable HTTP.**
+    `smoke:web:elicitation`, `smoke:web:app`, `smoke:web:tabs` and `pack:verify`
+    all spawn `server-composable.js --config <name>.json`. **The showcase-config
+    and protocol-era guidance applies to you in full** — being automated does
+    not exempt a smoke from it.
+
+  ⚠️ **"A smoke" is not a shape, so do not route by that word.** `smoke:cli`
+  uses the first two — an in-process `createTestServerHttp` for the header
+  round-trip, and the built stdio entry in a `--catalog` for the connect checks
+  — and `smoke:tui` uses the stdio entry alone. Only the web smokes above are
+  config-driven. Pick by what the caller actually stands up.
+
+  What applies to all three is that section's build warning.
+  ⚠️ **Connecting is a strong hint, not the rule.** A few integration tests
+  deliberately hand-roll a JSON-RPC server because the composable fixture
+  *cannot* produce what they assert on — `inspectorClient-malformed-list.test.ts`
+  and `listSalvage-era.test.ts` need wire shapes the SDK's own server refuses to
+  emit. Real transport, real client, no `test-servers/` dependency. Check
+  whether a fixture can express the case before reaching for one.
+- **It names or runs the built fixture without connecting.** `smoke:tui` boots
+  the TUI against a catalog whose stdio command *is* the built fixture, then
+  asserts it survives. No transport is driven and no protocol era applies, but
+  the **build and staleness** half lands on it in full.
+
+⚠️ **"A build ran" is not the dependency — using the artefact is.**
+`clients/web`'s `pretest` runs `test-servers:build` before *every* unit run, so
+the fixture is on disk for tests that never reference it. What counts is whether
+the test **starts, spawns, configures, or hands a built entry to the subject
+under test**. That last clause is what covers `smoke:tui`, which drives no
+transport at all and still depends on the fixture — see the build-only bullet
+above.
+
+⚠️ **And *importing* the package is not the dependency either.** The barrel
+exports plain functions as well as server factories, so a test can import from
+it and never stand a server up — `src/test/core/mcp/test-server-scope.test.ts`
+imports `createScopeCheckMiddleware` and friends to unit-test the scope
+middleware as a pure function, with no `start()` anywhere in the file. None of
+the procedure applies to it — no config, no era, no lifecycle — it is an
+ordinary unit test that happens to import its subject from that package. Ask
+whether a *server* runs, not whether the import line is present.
+
+So the condition does **not** hold when the test renders a component from
+fixture props, exercises a pure function or a parser, or is a smoke that touches
+no fixture — `smoke:launcher` checks `--help`, and `smoke:web` /
+`smoke:web:browser` only assert the SPA is served and paints.
+
+⚠️ **Neither the tier nor the folder decides this.** `src/test/integration/`
+holds `storage/store-id.test.ts`, which validates a string, and `mcp/import/*`,
+which parses config files, right beside the tests that drive a live connection.
+They sit there for the node env and the 30s timeout, not because they connect —
+placement is the project manifest, so it cannot also be the fixture trigger.
+Ask what the test *does*, not where it lives.
+
+**In the connecting case**, the test drives a **real server over a real
+transport, never a mock**, and picking the fixture, building it, and connecting
+with the right protocol era is a procedure this skill does not carry. Writing
+one without `test-servers` means hand-rolling a fixture that already exists, or
+mocking the thing the tier exists to avoid mocking. **In the build-only case**,
+none of the transport or protocol-era guidance applies — what you need from
+`test-servers` is how to build the fixture and why a stale build keeps serving
+old code.
+
+## Where the test file goes
+
+**Side-by-side by default; `src/test/` only for what can't be co-located; and
+the Node clients are different.**
+
+### `clients/web` — side-by-side
+
+`<Name>.test.tsx` (or `.test.ts` for non-React modules) **next to the source**.
+Components, hooks, `lib/`, `utils/`. This is the overwhelming majority; a
+web-owned test living under `src/test/` instead is a bug.
+
+`clients/web/src/test/` is for the three things that *cannot* be co-located:
+
+1. **Tests of the repo-root `core/` package** → `src/test/core/…`, mirroring the
+   `core/` folder layout. `core/` physically lives outside `clients/web/`, is
+   consumed via the `@inspector/core` alias, and has no test harness of its own.
+   This includes `core/json/*` and `core/client/*`.
+2. **The `integration` project** → `src/test/integration/…`, mirroring the
+   `core/` source layout (`mcp/`, `mcp/node/`, `mcp/remote/`, `auth/`,
+   `auth/node/`, `storage/`). **Placement is the manifest** — any file under that
+   folder is picked up by the integration project (node env, 30s timeouts) via a
+   folder glob; there is no enumeration to keep in sync. ⚠️ Placement is *not*
+   the fixture trigger, though — this folder holds pure parser and storage tests
+   alongside the connecting ones. If the test you are adding here **needs a
+   fixture from `test-servers/`, load that skill first**; the fixture is half of
+   that test. Connecting is a strong hint but not the rule — see the
+   hand-rolled-server exception above.
+3. **Shared test infrastructure** — `renderWithMantine.tsx`, `setup.ts`,
+   `fixtures/`, `scrollAreaStoryAssertions.ts`.
+
+### `clients/cli`, `clients/tui`, `clients/launcher` — a top-level `__tests__/`
+
+**All** their tests, not beside their source. Their `tsconfig.json` excludes
+`**/*.test.*` and their `tsconfig.test.json` includes `__tests__/**/*`, so a
+co-located `src/**/*.test.*` lands in **no** tsconfig project and fails
+`npm run verify:typecheck-coverage` (#1791).
+
+### Root tooling — `scripts/*.test.mjs`
+
+A new `scripts/*.mjs` helper with pure logic gets a sibling `*.test.mjs`, run by
+`npm run test:scripts` (node's built-in runner; the root has no vitest harness by
+design). ⚠️ Keep the filename `*.test.mjs` — `node --test` silently **skips** a
+file its glob misses and still exits 0.
+
+## Running them
+
+| Scope | From | Command |
+| --- | --- | --- |
+| Web unit | `clients/web` | `npm run test` (`test:watch` while iterating) |
+| Web integration | `clients/web` | `npm run test:integration` |
+| Web Storybook play fns | `clients/web` | `npm run test:storybook` |
+| CLI | `clients/cli` | `npm run test` (`pretest` builds test-servers + the bin) |
+| TUI | `clients/tui` | `npm run test` |
+| Launcher | `clients/launcher` | `npm run test` |
+| Root tooling | repo root | `npm run test:scripts` |
+| Everything, fast | repo root | `npm run validate` |
+| The coverage gate | repo root | `npm run coverage` |
+
+There is **no aggregate root `test` script** — each client self-validates.
+
+In unit tests that expect error output, **suppress it from the console**.
+
+## The tiers, shallowest first
+
+unit (`test`, per client) → web integration (`test:integration`, real
+transports/servers) → out-of-process (`clients/cli/__tests__/e2e.test.ts`,
+spawns the built binary) → smokes through the built launcher (`npm run smoke`) →
+Storybook play functions (`test:storybook`) → the published-tarball check
+(`npm run pack:verify`, local/release only — needs network).
+
+⚠️ **Depth in that list is not the fixture boundary, and the boundary cuts
+across the tiers rather than along them.** Needing `test-servers/`: the web
+integration tests **that drive one**, the out-of-process CLI tests, the smokes
+that connect (`smoke:cli`, `smoke:web:app`, `smoke:web:elicit`,
+`smoke:web:tabs`), `pack:verify`, and **`smoke:tui`** — which never asserts a
+round trip but calls `ensureTestServers({ requires: ["stdio"] })` and hands the
+built fixture to the TUI as its catalog's stdio command. Not needing it: the
+pure tests inside the same integration project, the connecting tests that
+deliberately hand-roll a server, `smoke:launcher`, `smoke:web` and
+`smoke:web:browser` (all three stop at boot without a fixture), and every
+Storybook play function (fixture props). **Load the `test-servers` skill as soon
+as a task puts you on the fixture side of that line** — whichever tier it sits
+in.
+
+`validate` runs the per-client `test` scripts — so web **unit** plus cli's
+out-of-process `e2e.test.ts`, but **not** web's integration project, which runs
+inside the `coverage` gate. CI therefore has no separate `test:integration` step.
+
+## The coverage gate
+
+**Per-file ≥90 on all four dimensions**, CI-enforced, across web, cli, tui and
+launcher. New code must clear 90 on every dimension.
+
+Scope notes:
+
+- The **web** coverage `include` (in `clients/web/vite.config.ts`) also covers
+  the shared `core/` runtime the browser consumes — `core/mcp`, `core/react`,
+  `core/auth`, `core/storage`, `core/logging`, `core/node`, `core/json`,
+  `core/client`.
+- ⚠️ That `include` is a **whitelist** naming `components`/`hooks`/`theme`/
+  `lib`/`utils`/`server`. A module placed **outside** those directories falls out
+  of the gate entirely, silently. The documented exceptions are `src/App.tsx`
+  (a composition root at ~42% branch coverage — gating it is a dedicated
+  decomposition effort) and the `src/main.tsx` / `src/index.ts` bootstraps.
+- **CLI** tests run **in-process** by importing `runCli()`
+  (`__tests__/helpers/cli-runner.ts`) so `src` is measured; `src/index.ts` is the
+  only exclusion. `commander` uses `.exitOverride()` so a parse error throws
+  instead of tearing down the test worker.
+- **TUI** covers **all of `src/**`, React surface included**. Components mount
+  through `__tests__/helpers/renderTui.tsx` — `ink-testing-library`'s `render`
+  with every frame ANSI-stripped — alongside the passthrough doubles in the same
+  directory; keypresses are driven through stdin. The only exclusion is
+  `src/tui-servers.ts` (a pure re-export, excluded so it doesn't surface as a
+  misleading 0/0 row).
+  ⚠️ **Import `render` from that helper, not from `ink-testing-library`.** Ink
+  writes styling *inside* the styled run, so `<Text underline>I</Text>nfo`
+  reaches the frame buffer with escapes between `I` and `nfo` and a plain
+  `toContain("Info")` fails against a component that is rendering correctly. It
+  only shows up where chalk emits color — a developer whose shell exports
+  `FORCE_COLOR` — so CI, which has no TTY, stays green on a suite that is red
+  for them (#2207). If a frame assertion fails on a string you can plainly see
+  in the printed diff, that is the tell. Reach `stdout.lastFrame()` on the
+  returned instance for the raw bytes.
+
+### When a `v8 ignore` is justified
+
+A genuinely-unreachable branch is annotated at the source rather than waved
+through by lowering the gate. The acceptable reasons are enumerated in
+[`AGENTS.md`](../../../AGENTS.md) — do not reach for one that is not on that
+list.
+
+## React tests: `renderWithMantine`
+
+**Always render through `renderWithMantine`** (`src/test/renderWithMantine.tsx`)
+— it wraps in `MantineProvider` with the project theme. Do not hand-roll a bare
+`MantineProvider`; it skips the project theme and the helper's options and drifts
+from every other test.
+
+Note the justification has changed and the old one is wrong: it sets
+`env="test"`, which makes Mantine skip the animated **render** — but it does
+**not** stop the timers. `env` is read only at `Transition.mjs`'s render branch,
+while `useTransition()` runs before that check and still schedules real
+`window.setTimeout`s (opening a `<Modal>` schedules three 200ms timers). What
+prevents a timer outliving its file — and throwing an uncaught
+`ReferenceError: window is not defined` that fails the **whole run**, attributed
+to an innocent file (#1760) — is the **leaked-timer safety net in
+`src/test/setup.ts`**, which is global and covers every unit test however it
+renders. The rule stands on consistency, not on timer safety.
+
+- **Forced color scheme:** pass the option —
+  `renderWithMantine(ui, { colorScheme: "dark" })` — rather than hand-rolling
+  `defaultColorScheme="dark"`.
+- **Mid-flight transition state** (e.g. asserting a `data-anim="out"` cell during
+  an exit crossfade) is the only reason to use `renderWithMantineTransitions`.
+  Pass `settleMs` derived from the component's real animation duration **plus
+  the helper's shared slack** — `HEADER_ANIM_MS + RAF_SLACK_MS`, both imported,
+  never a literal: the first term tracks the component and the second tracks how
+  busy the machine is, and only the second should move when the machine gets
+  busier (#2323). Do **not** also use `vi.useFakeTimers()` in that test:
+  the auto-settle awaits a real `setTimeout`, so under fake timers it **throws**
+  with a message telling you to call `vi.useRealTimers()` first — it does not
+  silently skip. That is deliberate (a deadlock would otherwise hang until the
+  project's `hookTimeout`), but it means the combination fails the test rather
+  than degrading. If the test unmounts the tree
+  itself use the `unmount()` the helper returns. The mechanism is documented at
+  length on the helper — read there before changing it.
+
+## Storybook play functions
+
+Every screen and element component has a `*.stories.tsx`; play functions double
+as interaction tests, run headless in CI and in the local gate.
+
+⚠️ **`expect(...)` from `storybook/test` returns a promise.** Storybook
+instruments it, so every `expect` in a play function is awaited — as is any
+shared helper that wraps one.
+
+## Test servers, not mocks
+
+The tests that drive MCP behaviour over a transport use a real server rather
+than a mock, and **for the ones that get that server from `test-servers/`, load
+the skill and use all of it**: which showcase config covers the feature, which
+protocol era to connect with, how to add a combination that does not exist yet,
+and why a fixture can keep serving stale code after an edit.
+
+**A test that only *names* the built fixture needs that skill too, for a
+narrower reason.** `smoke:tui` boots the TUI against a catalog whose stdio
+command is the build output and asserts it survives — it opens no transport, so
+config choice and protocol era do not apply to it, but **building the fixture
+and the staleness hazard do.** Load the skill and take that half.
+
+A pure test that happens to live in the integration project, and a smoke that
+references no fixture, need neither (see the tier list above) — and note that
+`clients/web`'s `pretest` builds `test-servers/` before every unit run, so its
+presence on disk says nothing about whether your test depends on it.

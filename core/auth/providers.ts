@@ -11,6 +11,8 @@ import type {
 } from "@modelcontextprotocol/client";
 import type { OAuthStorage, SaveClientInformationOptions } from "./storage.js";
 import { generateOAuthState } from "./utils.js";
+import { applyAuthorizationParams } from "./authorizationParams.js";
+import { scopeForDeclinedRefreshGrant } from "./scopes.js";
 
 /**
  * Redirect URL provider. Returns the redirect URL for OAuth flows.
@@ -96,6 +98,44 @@ export type OAuthProviderConfig = {
   redirectUrlProvider: RedirectUrlProvider;
   navigation: OAuthNavigation;
   clientMetadataUrl?: string;
+  /**
+   * Per-server custom authorization-request parameters (#2018), merged into the
+   * finished authorize URL in {@link BaseOAuthClientProvider.redirectToAuthorization}.
+   * Reserved (protocol-critical) keys are dropped with a warning — see
+   * `authorizationParams.ts`. Authorization request only; the token request is
+   * unaffected.
+   */
+  authorizationParams?: Record<string, string>;
+  /**
+   * Whether to declare the `refresh_token` grant in the registered client
+   * metadata (#2068). Defaults to `true`; set `false` to register (and
+   * authorize) as an authorization-code-only client.
+   *
+   * This is not merely cosmetic. The SDK's `determineScope()` appends
+   * `offline_access` to the effective scope whenever the authorization server
+   * advertises it **and** the client metadata declares `refresh_token`, and
+   * `startAuthorization()` then appends `prompt=consent` whenever
+   * `offline_access` is in scope. Against Microsoft Entra ID, that forced
+   * consent prompt routes a non-admin user into the admin-consent workflow and
+   * fails with `AADSTS90094` even after a tenant admin has consented.
+   *
+   * It removes that *automatic* augmentation only. `startAuthorization()` reads
+   * the scope, never `grant_types`, so an `offline_access` the caller passed in
+   * `scope` — or one the resource advertises when `scope` is unset, which
+   * `determineScope` falls back to — still produces the prompt. This is not on
+   * its own a guarantee that `prompt=consent` is absent.
+   */
+  requestRefreshToken?: boolean;
+  /**
+   * The scope configured for this server (mcp.json / Server Settings), as
+   * distinct from the scope carried in OAuth storage after a previous grant.
+   *
+   * Used only to decide whether an `offline_access` in the effective scope was
+   * *asked for* or merely inherited — see {@link scopeForDeclinedRefreshGrant}.
+   * An explicitly configured one is honored; an inherited one is dropped from
+   * the request when {@link requestRefreshToken} is false. (#2068)
+   */
+  configuredScope?: string;
 };
 
 /**
@@ -115,6 +155,12 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
   protected redirectUrlProvider: RedirectUrlProvider;
   protected navigation: OAuthNavigation;
   public clientMetadataUrl?: string;
+  /** Custom authorization-request parameters (#2018). Authorize URL only. */
+  protected authorizationParams?: Record<string, string>;
+  /** Declare the `refresh_token` grant in {@link clientMetadata} (#2068). */
+  protected requestRefreshToken: boolean;
+  /** Server-configured scope, for the #2068 `offline_access` distinction. */
+  protected configuredScope?: string;
 
   constructor(serverUrl: string, oauthConfig: OAuthProviderConfig) {
     this.serverUrl = serverUrl;
@@ -122,6 +168,9 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
     this.redirectUrlProvider = oauthConfig.redirectUrlProvider;
     this.navigation = oauthConfig.navigation;
     this.clientMetadataUrl = oauthConfig.clientMetadataUrl;
+    this.authorizationParams = oauthConfig.authorizationParams;
+    this.requestRefreshToken = oauthConfig.requestRefreshToken ?? true;
+    this.configuredScope = oauthConfig.configuredScope;
   }
 
   /**
@@ -159,6 +208,21 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
   }
 
   get scope(): string | undefined {
+    // #2068: filter at the point of *request*, not in storage. Covers the two
+    // readers that go through this getter — `clientMetadata.scope` below, and
+    // the `scope:` argument `OAuthManager.authenticate` hands to the SDK.
+    //
+    // It is NOT the only request path: mid-session `insufficient_scope` step-up
+    // builds its union from raw storage and passes it to `mcpAuth` directly,
+    // never reading this getter. `OAuthManager.handleAuthChallenge` applies the
+    // same filter there. Both call `scopeForDeclinedRefreshGrant`, so the rule
+    // lives in one place even though it has to be applied twice.
+    if (!this.requestRefreshToken) {
+      return scopeForDeclinedRefreshGrant(
+        this.cachedScope,
+        this.configuredScope,
+      );
+    }
     return this.cachedScope;
   }
 
@@ -174,7 +238,14 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
     const metadata: OAuthClientMetadata = {
       redirect_uris: this.redirect_uris,
       token_endpoint_auth_method: "none",
-      grant_types: ["authorization_code", "refresh_token"],
+      // #2068: `refresh_token` is declared by default, and dropped when the
+      // server's "Request refresh token" setting is off — which stops the SDK
+      // *adding* `offline_access` (and so the `prompt=consent` it forces). It
+      // does not remove an `offline_access` that reaches the scope another way.
+      // See `OAuthProviderConfig.requestRefreshToken`.
+      grant_types: this.requestRefreshToken
+        ? ["authorization_code", "refresh_token"]
+        : ["authorization_code"],
       response_types: ["code"],
       client_name: "MCP Inspector",
       client_uri: "https://github.com/modelcontextprotocol/inspector",
@@ -222,16 +293,19 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
     // SDK v2's `OAuthClientProvider.saveClientInformation` passes an
     // `OAuthClientInformationContext` ({ issuer }); our own DCR/CIMD callers
     // pass `SaveClientInformationOptions` ({ registrationKind }). Accept either
-    // and read whichever keys are present: the SDK supplies `issuer` (SEP-2352
-    // per-AS keying) and defaults registration kind to DCR; our callers supply
-    // the registration kind and no issuer yet.
+    // and read whichever keys are present. The SDK supplies `issuer` (SEP-2352
+    // per-AS keying) and never a kind, so `resolveSdkRegistrationKind` recovers
+    // one. Our own callers always supply the kind, and supply the `issuer` too
+    // when they know it — `ensureCimdClientRegistration` does, having just
+    // discovered it; the unkeyed slot is only for the case where AS metadata
+    // carried no `issuer` at all.
     options?: SaveClientInformationOptions | OAuthClientInformationContext,
   ): Promise<void> {
+    const issuer = options && "issuer" in options ? options.issuer : undefined;
     const registrationKind =
       options && "registrationKind" in options
         ? options.registrationKind
-        : "dcr";
-    const issuer = options && "issuer" in options ? options.issuer : undefined;
+        : await this.resolveSdkRegistrationKind(clientInformation, issuer);
     await this.storage.saveClientInformation(
       this.serverUrl,
       clientInformation,
@@ -240,6 +314,87 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
         issuer,
       },
     );
+  }
+
+  /**
+   * Resolve the registration kind for a save that carries no explicit one — that
+   * is, one the SDK made. SDK v2's `saveClientInformation` contract passes only
+   * `{ issuer }`, so the mechanism cannot be handed to us; treating every such
+   * save as DCR is what relabeled a CIMD registration `Dynamic (DCR)` in
+   * Connection Info the moment the SDK bound it to an issuer (#2242).
+   *
+   * Two cases reach here, and they are told apart by whether a registration
+   * already exists for this issuer:
+   *
+   * - **A back-stamp.** A registration is already stored for this issuer under
+   *   this `client_id`, and the SDK is only adding the `issuer` to it. Its
+   *   recorded kind is the answer — kind and credential are written and cleared
+   *   together, so a stored registration always has one.
+   * - **A new registration.** Nothing is stored for this issuer, so this save
+   *   creates it. SDK v2 `auth()` reaches its URL-based-client-ID branch — rather
+   *   than `registerClient` — exactly when the AS advertises
+   *   `client_id_metadata_document_supported` and a `clientMetadataUrl` is
+   *   configured, and it persists the AS metadata via `saveDiscoveryState`
+   *   *before* it reads or writes client information. So the branch it took is
+   *   not inferred here, it is read back from the state it just wrote.
+   *
+   * This is why the check is not "the `client_id` looks like our metadata URL".
+   * RFC 7591 §3.2 makes a dynamically issued `client_id` opaque, so an AS may
+   * mint that very URL from `POST /register`; the URL comparison only decides
+   * whether CIMD is *in play* for this connection, and the two cases above decide
+   * what actually happened (#2242, Copilot).
+   *
+   * Consequences worth stating, since each was a defect on the way here:
+   *
+   * - An existing DCR whose `client_id` happens to be the metadata URL stays
+   *   `dcr` — it takes the back-stamp path and its recorded kind says so.
+   * - `invalidateCredentials("client")`, which SDK `auth()` calls on
+   *   `invalid_client` before retrying, clears the registration and its kind. The
+   *   retry therefore takes the new-registration path and is answered from
+   *   discovery state, which that clear does not touch.
+   * - A second AS behind one resource gets its own answer, since discovery state
+   *   describes the issuer the SDK actually resolved. One that does not advertise
+   *   CIMD is `dcr` even when it mints the metadata URL as its `client_id`.
+   * - A transient failure in our own CIMD preflight costs nothing: the SDK's own
+   *   discovery is what this reads.
+   */
+  private async resolveSdkRegistrationKind(
+    clientInformation: OAuthClientInformation,
+    issuer: string | undefined,
+  ): Promise<SaveClientInformationOptions["registrationKind"]> {
+    const clientMetadataUrl = this.clientMetadataUrl?.trim();
+    if (
+      !clientMetadataUrl ||
+      clientInformation.client_id !== clientMetadataUrl
+    ) {
+      return "dcr";
+    }
+
+    // Issuer-keyed, with `getClientInformation`'s own fallback to the unkeyed
+    // slot covering a registration written before an issuer was known.
+    const stored = await this.storage.getClientInformation(
+      this.serverUrl,
+      false,
+      issuer,
+    );
+    if (stored?.client_id === clientMetadataUrl) {
+      const storedKind = await this.storage.getClientRegistrationKind(
+        this.serverUrl,
+        issuer,
+      );
+      // `"static"` lives in the preregistered slot, never this one.
+      return storedKind === "cimd" ? "cimd" : "dcr";
+    }
+
+    // A new registration: read back the branch the SDK took.
+    const discovery = await this.storage.getDiscoveryState(this.serverUrl);
+    const metadata = discovery?.authorizationServerMetadata;
+    // Require the metadata to describe *this* issuer, so a state left over from
+    // a previously resolved AS cannot answer for a different one.
+    if (issuer !== undefined && metadata?.issuer !== issuer) return "dcr";
+    return metadata?.client_id_metadata_document_supported === true
+      ? "cimd"
+      : "dcr";
   }
 
   async saveScope(scope: string | undefined): Promise<void> {
@@ -272,6 +427,34 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
   }
 
   redirectToAuthorization(authorizationUrl: URL): void {
+    // #2018: the SDK builds the authorize URL and offers no hook for extra
+    // parameters, so the per-server ones are merged here — the one seam that
+    // sees the finished URL before navigation. Everything downstream (the
+    // captured URL used by the step-up modal, the event, the navigation) uses
+    // the merged URL so all three agree on what was actually requested.
+    this.performAuthorizationRedirect(
+      applyAuthorizationParams(authorizationUrl, this.authorizationParams),
+    );
+  }
+
+  /**
+   * Redirect to an authorize URL belonging to a **different** authorization
+   * server than the one this provider was configured for, so the per-server
+   * custom parameters (#2018) MUST NOT be applied.
+   *
+   * The only caller is the enterprise-managed (EMA) transport provider, which
+   * discards the resource AS URL and sends the user to the enterprise IdP
+   * instead. Parameters a user configured for their MCP server's authorization
+   * server — a `kc_idp_hint`, an `audience` — are meaningless and potentially
+   * flow-breaking on the IdP's, and appending them there would leak per-server
+   * config across an authorization-server boundary.
+   */
+  redirectToExternalAuthorization(authorizationUrl: URL): void {
+    this.performAuthorizationRedirect(authorizationUrl);
+  }
+
+  /** Capture, announce, and navigate to a finished authorize URL. */
+  private performAuthorizationRedirect(authorizationUrl: URL): void {
     // Capture URL for return value
     this.capturedAuthUrl = authorizationUrl;
 

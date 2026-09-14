@@ -2,6 +2,7 @@ import { InspectorClient } from "@inspector/core/mcp/index.js";
 import { extractAppInfo } from "@inspector/core/mcp/apps.js";
 import type { AppInfo } from "@inspector/core/mcp/apps.js";
 import type { CliAppInfo } from "./method-types.js";
+import type { RequestMetadata } from "@inspector/core/mcp/types.js";
 
 /**
  * Build the CLI's app-info for a tool. Never throws — failures fold into
@@ -10,7 +11,7 @@ import type { CliAppInfo } from "./method-types.js";
 export async function collectAppInfo(
   client: Pick<InspectorClient, "readResource">,
   tool: Parameters<typeof extractAppInfo>[0],
-  metadata: Record<string, string> | undefined,
+  metadata: RequestMetadata | undefined,
 ): Promise<CliAppInfo> {
   let base: AppInfo;
   try {

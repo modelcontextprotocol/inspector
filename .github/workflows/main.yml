@@ -1,4 +1,4 @@
-name: Run install, format, lint, build, and test on every push
+name: CI
 
 on:
   push:
@@ -8,16 +8,38 @@ on:
   release:
     types: [published]
 
+# Default least-privilege scope for GITHUB_TOKEN. Without this, jobs inherit the
+# repository's default token permissions, which are broader than any job here
+# needs (CodeQL `actions/missing-workflow-permissions`). The `publish` and
+# `publish-github-container-registry` jobs declare their own blocks below, which
+# override this one entirely rather than adding to it — so each publish job must
+# continue to list every scope it needs, including `contents: read`.
+permissions:
+  contents: read
+
+# Every job below declares `timeout-minutes` (#2333). It is a HUNG-JOB GUARD,
+# not a flake remedy: GitHub runners are not the contended machine the local
+# gate runs on, and nothing measured implicates them — so no value here is
+# sized for load. The rule, for every job in this file, is roughly TWICE the
+# slowest run observed, rounded up to the next five minutes: real headroom for
+# a slow runner, and a hang cut off in minutes instead of at GitHub's
+# 360-minute default. Each job states the range it was read from; when one
+# legitimately outgrows its number, raise it here with the new range.
 jobs:
   build:
     runs-on: ubuntu-latest
+    # Observed 7.6–11.8 min across the 40 push runs before this landed
+    # (2026-09-11 → 09-13), all since the coverage split (#2159). A release run
+    # before that split reached 15.6 min, with the coverage gate still inside
+    # this job — that shape no longer exists.
+    timeout-minutes: 25
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: '22.x'
           cache: 'npm'
@@ -28,30 +50,42 @@ jobs:
         # clients/launcher, so this single step sets up every client.
         run: npm install
 
-      - name: Validate (format, lint, build, fast tests)
-        # Each client self-validates: format:check + lint + build + test (no
+      - name: Validate (coverage guards, format, lint, typecheck, build, fast tests)
+        # Runs the five durable guards first (verify:format-coverage,
+        # verify:skills, verify:typecheck-coverage, verify:dep-lockstep,
+        # verify:test-timeouts), then
+        # test:scripts, then validate:core, then each client's
+        # self-validation: format:check + lint + typecheck + build + test (no
         # coverage instrumentation — fast). This also builds every client bundle
         # (web dist, cli/tui/launcher) that the smokes below need. The heavier
-        # per-file coverage gate runs in its own step below. Unit tests run in
-        # both steps (fast here, instrumented under coverage); the double unit
-        # run is an accepted trade-off for keeping this fast build step intact.
-        # A future optimization could split coverage into per-client parallel
+        # per-file coverage gate runs in the parallel `coverage` job below
+        # (#2159), which consumes nothing this job produces — every client's
+        # `test:coverage` builds whatever it needs itself. Unit tests run in
+        # both jobs (fast here, instrumented there); now that the two run in
+        # parallel that duplication costs no wall clock at all. (The local gate,
+        # which runs serially, calls `local:validate` instead and runs them once
+        # — #2341. Keep `validate` here: this job IS the fast inner loop.)
+        # A future optimization could split `coverage` into per-client parallel
         # jobs, but that's a larger restructure and deliberately out of scope.
         run: npm run validate
 
-      - name: Enforce per-file coverage gate (≥90% on all four dimensions)
-        # CI-ENFORCED coverage gate (#1550): runs `npm run coverage`, which
-        # chains every client's `test:coverage` (v8-instrumented) and fails the
-        # job if ANY file drops below 90% on lines, statements, functions, or
-        # branches. This is the whole point of the step — a PR that regresses
-        # coverage below the threshold now blocks merge instead of relying on a
-        # contributor remembering to run the gate locally.
+      - name: Validate the skills with the authoritative CLI (#2163)
+        # `npm run validate` above already ran `verify:skills`, whose own parser
+        # reads each SKILL.md the way Claude Code does. This is the second
+        # opinion: `claude plugin validate` is the authoritative schema, and the
+        # guard skips it whenever the CLI is absent — which, without this step,
+        # would mean always, in CI. Installing it here is what makes the
+        # acceptance criterion true rather than aspirational.
         #
-        # This also covers the web integration project: web's `test:coverage`
-        # runs `--project=unit --project=integration --coverage`, so the former
-        # standalone `Run web integration tests` step was removed to avoid
-        # running the integration suite twice.
-        run: npm run coverage
+        # The script resolves the CLI itself — an installed one ONLY when it
+        # matches the pin exactly, otherwise the pinned package via `npx -y` —
+        # so this is the same command `npm run local:gate` runs, and the two
+        # cannot drift. Exact rather than a floor: a newer local CLI is a
+        # DIFFERENT schema, which is how a "reproducible" gate starts disagreeing
+        # across machines. Pinned
+        # rather than @latest: an unpinned validator can start failing a PR that
+        # changed nothing. It needs no authentication — verified with a clean HOME.
+        run: npm run verify:skills:cli
 
       - name: Verify the browser-externalized-builtin build gate (#1769)
         # Runs a real `vite build` with a Node built-in forced into the browser
@@ -62,13 +96,24 @@ jobs:
         # gate. It restores the mutated entry afterward (see the script).
         run: npm run verify:build-gate
 
+      - name: Verify no externalized dependency was inlined (#2067)
+        # The mirror of the "must be bundled" rule. `undici` was declared only in
+        # the root and `clients/cli` manifests, so tsup — which auto-externalizes
+        # what the NEAREST manifest declares — inlined 1.05MB of it into the web
+        # and TUI bundles. Inlined CommonJS in an ESM bundle throws
+        # `Dynamic require of "assert" is not supported` on first use, and the
+        # rewritten relative specifier meant no user-side install could fix it.
+        # This reads the built output rather than the config, because those two
+        # disagreed for four releases.
+        run: npm run verify:bundle-externals
+
       # Playwright chromium is installed BEFORE the smokes because
       # `smoke:web:browser` (the headless-browser boot smoke, #1615) drives the
       # prod web bundle in chromium — restoring/installing it here lets that
       # smoke reuse the cache instead of downloading its own copy. The Storybook
       # step below reuses the same install.
       - name: Cache Playwright browsers
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('clients/web/package-lock.json') }}
@@ -78,18 +123,74 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - name: Run cross-client smokes
+        # NOTE: this workflow runs GitHub CI's tier only. The LOCAL pre-push
+        # gate is `npm run local:gate`, and it runs every check here plus the
+        # local-only ones — do not add it, a `local:*` script,
+        # `smoke:web:firefox`/`smoke:web:webkit`, `smoke:web:engine`, or a
+        # non-Chromium `SMOKE_BROWSER` to any workflow.
+        # `npm run test:scripts` fails if you do (scripts/lib/workflow-gate.mjs,
+        # #2146). `npm run smoke` and `smoke:web:chromium` belong here and are
+        # not affected. The canonical CI-vs-local split is docs/quality-gate.md.
+        #
         # End-to-end smokes through the built launcher (--help dispatch + prod
         # CLI/web). Not part of any client's `validate`: it needs the
         # cli/tui/launcher bundles, which `validate` above already built
         # (smoke:web builds clients/web/dist on demand — #1486). smoke:web:browser
-        # boots the prod web bundle in headless chromium (#1615). smoke:tui
-        # self-skips here — the Ink TUI needs a real TTY (raw mode) that headless
-        # CI lacks, so its boot/render check is local-only.
+        # boots the prod web bundle in headless chromium (#1615); smoke:web:app
+        # goes further and drives connect → open app → widget ready against a
+        # composable MCP App server (#1859). Both reuse the chromium installed
+        # above. smoke:tui self-skips here — the Ink TUI needs a real TTY (raw
+        # mode) that headless CI lacks, so its boot/render check is local-only.
         run: npm run smoke
 
       - name: Run Storybook play-function tests
         working-directory: ./clients/web
         run: npm run test:storybook
+
+  # The per-file coverage gate, in its own job so it runs in PARALLEL with
+  # `build` rather than serially after it (#2159). The two together were 84% of
+  # a ~17m wall clock; split, the workflow finishes in roughly the length of
+  # `build` alone.
+  #
+  # This is safe because `coverage` consumes nothing `build` produces: every
+  # client's `test:coverage` is self-sufficient (web and cli build the test
+  # servers — and cli its own bin — themselves; tui and launcher run from
+  # source). The only consumers of `clients/*/build` are the smokes, which stay
+  # in `build` alongside the `validate` that produces them.
+  #
+  # Do NOT "optimize" this back into one job by backgrounding the two commands:
+  # that puts two vitest fleets on one 4-core runner, which is already known to
+  # time tests out at the 5s default. Separate jobs get separate runners.
+  coverage:
+    runs-on: ubuntu-latest
+    # Observed 5.9–8.5 min across the same 40 push runs as `build`.
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22.x'
+          cache: 'npm'
+
+      - name: Install dependencies (root + all clients)
+        run: npm install
+
+      - name: Enforce per-file coverage gate (≥90% on all four dimensions)
+        # CI-ENFORCED coverage gate (#1550): runs `npm run coverage`, which
+        # chains every client's `test:coverage` (v8-instrumented) and fails the
+        # job if ANY file drops below 90% on lines, statements, functions, or
+        # branches. This is the whole point of the job — a PR that regresses
+        # coverage below the threshold blocks merge instead of relying on a
+        # contributor remembering to run the gate locally.
+        #
+        # This also covers the web integration project: web's `test:coverage`
+        # runs `--project=unit --project=integration --coverage`, so there is no
+        # separate integration step anywhere in this workflow.
+        run: npm run coverage
 
   # Publish the single `@modelcontextprotocol/inspector` package to npm on a
   # published GitHub release. v2 is not an npm workspace, so there is no
@@ -103,12 +204,17 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'release'
     environment: release
-    needs: build
+    needs: [build, coverage]
     # Serialize publishes so two releases cut in quick succession can't run
     # overlapping `npm publish`es. Never cancel an in-flight publish.
     concurrency:
       group: publish-npm
       cancel-in-progress: false
+    # Observed 2.3–2.8 min across the last three releases (2.4.0–2.6.0), of
+    # which `pack:verify` is about half and the only step that reaches the
+    # registry. The publish itself is atomic on npm's side, so a cut-off here
+    # leaves nothing half-published.
+    timeout-minutes: 10
     permissions:
       contents: read
       # Required for npm provenance (`--provenance` mints a signed attestation
@@ -116,10 +222,10 @@ jobs:
       id-token: write
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: '22.x'
           cache: 'npm'
@@ -143,6 +249,11 @@ jobs:
             exit 1
           fi
 
+      # OIDC trusted publishing requires npm >= 11.5.1; Node 22's bundled npm is
+      # 10.x, which fails with ENEEDAUTH before OIDC is ever attempted.
+      - name: Ensure npm CLI supports OIDC trusted publishing
+        run: npm install -g npm@^11.5.1
+
       - name: Install dependencies (root + all clients)
         run: npm install
 
@@ -158,9 +269,30 @@ jobs:
         # prepack); the redundancy is intentional — each is a clean-tree rebuild
         # and the `prepack` one is what actually populates the published tarball,
         # so don't "optimize" it away.
-        run: npm publish --access public --provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        #
+        # The dist-tag is derived from the version, and passing it explicitly is
+        # NOT optional: `npm publish` defaults to `--tag latest` regardless of
+        # semver prerelease status, so publishing `2.0.0-rc.1` without this would
+        # point every `npx @modelcontextprotocol/inspector` at a release
+        # candidate. A prerelease is a hyphen after the patch component
+        # (`2.0.0-rc.1`); build metadata uses `+` and is not a prerelease. Done
+        # in shell rather than with `semver` because that package is only a
+        # transitive dependency here and must not be relied on in CI.
+        #
+        # There is deliberately NO `NODE_AUTH_TOKEN` here. Publishing uses npm
+        # OIDC trusted publishing (`id-token: write` + `environment: release`),
+        # which needs no token — and the repo has no `NPM_TOKEN` secret. Setting
+        # it from a non-existent secret writes an EMPTY `_authToken` into the
+        # `.npmrc` that `setup-node` generates, and npm then fails `ENEEDAUTH`
+        # before OIDC is ever attempted. Do not "restore" it.
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+          case "$VERSION" in
+            *-*) NPM_TAG=next ;;
+            *)   NPM_TAG=latest ;;
+          esac
+          echo "Publishing $VERSION under dist-tag '$NPM_TAG'"
+          npm publish --access public --provenance --tag "$NPM_TAG"
 
   # Build and push the multi-arch container image to GHCR on a published
   # release. The image installs the packed tarball (`Dockerfile`) so it ships
@@ -170,15 +302,23 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'release'
     environment: release
-    needs: build
+    needs: [build, coverage]
+    # Observed 14.5–15.4 min across the last three releases (2.4.0–2.6.0);
+    # the linux/arm64 half of the build runs under QEMU and is most of it.
+    timeout-minutes: 35
     permissions:
       contents: read
       packages: write
       attestations: write
+      # Lets `attest-build-provenance` write the artifact metadata storage
+      # record alongside the provenance itself (#2228). See the long comment on
+      # the "Generate artifact attestation" step for why this is separate from
+      # `attestations: write` and what to check after the next release.
+      artifact-metadata: write
       id-token: write
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Log in to the Container registry
         uses: docker/login-action@v4
@@ -202,14 +342,14 @@ jobs:
             latest=true
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@v4
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
       - name: Build and push Docker image
         id: push
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           push: true
@@ -218,6 +358,38 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
 
       - name: Generate artifact attestation
+        # Two scopes, two different things, and only the first is the
+        # attestation (#2228). `attestations: write` persists the signed SLSA
+        # provenance — that half has always worked, and
+        # `gh attestation verify oci://ghcr.io/modelcontextprotocol/inspector:<version>
+        # --repo modelcontextprotocol/inspector` passed on 2.5.0 without the
+        # second scope. `artifact-metadata: write` persists the separate
+        # *storage record*: GitHub's org-level index of where a published
+        # artifact lives (registry, active/eol status), surfaced at
+        # https://github.com/orgs/modelcontextprotocol/artifacts. The action
+        # emits one automatically when `push-to-registry` is true AND the
+        # workflow carries this scope; with only the first condition met, every
+        # release logged two warning annotations on an otherwise-green job:
+        #
+        #   Failed to create storage record: Error: Failed to persist storage
+        #   record: no artifacts found
+        #   Please check that the "artifact-metadata:write" permission has been
+        #   included
+        #
+        # `no artifacts found` reads like it is about this job uploading no
+        # *workflow* artifact, and is not: it is the generic 404 body of the org
+        # artifact-metadata API that @actions/attest POSTs to. The same message
+        # comes back from the sibling read endpoint for 2.5.0's real digest, and
+        # from an all-zeros digest that cannot exist — so it carries no
+        # information beyond "nothing resolved", and the documented precondition
+        # we were failing is this permission.
+        #
+        # ⚠️ Confirm at the next release rather than assuming: the job should be
+        # annotation-free, and
+        # `gh api /orgs/modelcontextprotocol/artifacts/<digest>/metadata/storage-records`
+        # should return a record instead of 404. If the warning persists, the
+        # honest fix is `create-storage-record: false` plus a note here saying
+        # the record is unavailable to us — not carrying an unexplained warning.
         uses: actions/attest-build-provenance@v4
         with:
           subject-name: ghcr.io/${{ github.repository }}

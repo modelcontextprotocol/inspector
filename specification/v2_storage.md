@@ -304,7 +304,9 @@ interface LogsDisplayActions {
 ```typescript
 interface ExecutionFormState {
   // Tools
-  selectedToolName: string | null;
+  // The selected row's `toolRowKey` (`index:name`), not the tool's name — a
+  // `tools/list` may repeat a name (#2001).
+  selectedToolKey: string | null;
   toolFormValues: Record<string, unknown>;
   lastToolResult: ToolResult | null;
 

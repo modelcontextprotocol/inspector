@@ -1,8 +1,42 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { Box, Text, useInput, type Key } from "ink";
 import { ScrollView, type ScrollViewRef } from "ink-scroll-view";
 import type { Tool } from "@modelcontextprotocol/client";
+import {
+  describeSchemaPath,
+  lintToolSchemas,
+  type SchemaFinding,
+} from "@inspector/core/json/schemaLint.js";
 import { useSelectableList } from "../hooks/useSelectableList.js";
+
+/**
+ * How each severity renders in the terminal (#1005). One table, read by both
+ * the list row's flag and the detail block's heading, so the two can never
+ * disagree about what a severity looks like.
+ */
+const SEVERITY_MARKER = {
+  error: { glyph: "!", color: "red" },
+  warning: { glyph: "?", color: "yellow" },
+} as const satisfies Record<
+  SchemaFinding["severity"],
+  { glyph: string; color: string }
+>;
+
+/**
+ * The one-glyph flag a tool row carries when its schemas have portability
+ * findings: `!` in red when something is refused outright by a real client,
+ * `?` in yellow when it is merely handled unevenly. `undefined` — no glyph at
+ * all — for a clean tool, which is the overwhelming majority, so the list
+ * stays quiet unless there is something to say.
+ */
+export function schemaMarker(
+  findings: readonly SchemaFinding[] | undefined,
+): { glyph: string; color: string } | undefined {
+  if (!findings || findings.length === 0) return undefined;
+  return findings.some((f) => f.severity === "error")
+    ? SEVERITY_MARKER.error
+    : SEVERITY_MARKER.warning;
+}
 
 interface ToolsTabProps {
   tools: Tool[];
@@ -33,6 +67,13 @@ export function ToolsTab({
     { resetWhen: tools },
   );
   const [error] = useState<string | null>(null);
+  // Tool-schema portability findings, one entry per tool, same order (#1005).
+  // Pure walk over data already in memory, so it is recomputed only when the
+  // list itself changes rather than on every keypress.
+  const findingsByTool = useMemo(
+    () => tools.map((tool) => lintToolSchemas(tool)),
+    [tools],
+  );
   const scrollViewRef = useRef<ScrollViewRef>(null);
   const listWidth = Math.floor(width * 0.4);
   const detailWidth = width - listWidth;
@@ -90,6 +131,7 @@ export function ToolsTab({
   }, [selectedIndex]);
 
   const selectedTool = tools[selectedIndex] || null;
+  const selectedFindings = findingsByTool[selectedIndex] ?? [];
 
   return (
     <Box flexDirection="row" width={width} height={height}>
@@ -133,11 +175,15 @@ export function ToolsTab({
               .map((tool, i) => {
                 const index = firstVisible + i;
                 const isSelected = index === selectedIndex;
+                const marker = schemaMarker(findingsByTool[index]);
                 return (
                   <Box key={tool.name || index} paddingY={0} flexShrink={0}>
                     <Text>
                       {isSelected ? "▶ " : "  "}
                       {tool.name || `Tool ${index + 1}`}
+                      {marker && (
+                        <Text color={marker.color}> {marker.glyph}</Text>
+                      )}
                     </Text>
                   </Box>
                 );
@@ -197,6 +243,36 @@ export function ToolsTab({
                         <Text dimColor>{line}</Text>
                       </Box>
                     ))}
+                </>
+              )}
+
+              {/* Schema portability findings (#1005) */}
+              {selectedFindings.length > 0 && (
+                <>
+                  <Box marginTop={1} flexShrink={0}>
+                    <Text bold color="yellow">
+                      Schema Portability ({selectedFindings.length}):
+                    </Text>
+                  </Box>
+                  {selectedFindings.map((finding, idx) => {
+                    const marker = SEVERITY_MARKER[finding.severity];
+                    return (
+                      <Box
+                        key={`finding-${finding.schema}-${finding.path}-${finding.rule}-${idx}`}
+                        flexDirection="column"
+                        paddingLeft={2}
+                        marginTop={1}
+                        flexShrink={0}
+                      >
+                        <Text color={marker.color}>
+                          {marker.glyph}{" "}
+                          {describeSchemaPath(finding.schema, finding.path)}
+                        </Text>
+                        <Text dimColor>{finding.issue}</Text>
+                        <Text dimColor>Fix: {finding.suggestion}</Text>
+                      </Box>
+                    );
+                  })}
                 </>
               )}
 

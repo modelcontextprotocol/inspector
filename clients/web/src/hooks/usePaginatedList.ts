@@ -20,6 +20,13 @@ export interface PaginatedListModel<T> {
    */
   onLoadMore: () => Promise<unknown>;
   /**
+   * The active source's last load failure, or `null`. Selected by mode for the
+   * same reason `items` is: in paginated mode the managed store never fetches,
+   * so its error is permanently `null` and reading it would leave a failed page
+   * showing an empty panel with no alert and no Retry (#1998).
+   */
+  error: Error | null;
+  /**
    * Refresh the list: reload page 1 in paginated mode, or re-fetch the whole
    * aggregate in all-pages mode. This is what the list-changed indicator's
    * Refresh button calls. Returns the underlying promise so the caller can wrap
@@ -37,12 +44,16 @@ export interface UsePaginatedListParams<T> {
   managedItems: T[];
   /** Re-fetch the whole aggregate (all-pages mode Refresh). */
   managedRefresh: () => Promise<unknown>;
+  /** The aggregate store's last-fetch error (all-pages mode). */
+  managedError: Error | null;
   /** The accumulated paged list (paginated mode display source). */
   pagedItems: T[];
   /** The paged store's current `nextCursor` (undefined = at the end). */
   pagedNextCursor?: string;
   /** The paged store's page count (page 1 = 1). */
   pagedPageCount: number;
+  /** The paged store's last page-load error (paginated mode). */
+  pagedError: Error | null;
   /** Fetch one page; `undefined` cursor = page 1 (replaces the paged list). */
   loadPage: (cursor?: string) => Promise<unknown>;
 }
@@ -64,9 +75,11 @@ export function usePaginatedList<T>({
   paginated,
   managedItems,
   managedRefresh,
+  managedError,
   pagedItems,
   pagedNextCursor,
   pagedPageCount,
+  pagedError,
   loadPage,
 }: UsePaginatedListParams<T>): PaginatedListModel<T> {
   const onLoadMore = useCallback((): Promise<unknown> => {
@@ -80,6 +93,7 @@ export function usePaginatedList<T>({
 
   return {
     items: paginated ? pagedItems : managedItems,
+    error: paginated ? pagedError : managedError,
     paginated,
     // Masked by `connected`: while disconnected there is no page to load and no
     // meaningful page count (the store resets on disconnect).

@@ -5,7 +5,11 @@ import { InspectorClient } from "@inspector/core/mcp/index.js";
 import { AuthRecoveryRequiredError } from "@inspector/core/auth/challenge.js";
 import type { Tool, CallToolResult } from "@modelcontextprotocol/client";
 import type { JsonValue } from "@inspector/core/mcp/index.js";
-import { schemaToForm } from "../utils/schemaToForm.js";
+import {
+  decodeFormValues,
+  missingRequiredFields,
+  schemaToForm,
+} from "../utils/schemaToForm.js";
 import { ScrollView, type ScrollViewRef } from "ink-scroll-view";
 
 interface ToolTestModalProps {
@@ -114,8 +118,31 @@ export function ToolTestModal({
     { isActive: true },
   );
 
-  const handleFormSubmit = async (values: Record<string, JsonValue>) => {
+  const handleFormSubmit = async (rawValues: Record<string, JsonValue>) => {
     if (!inspectorClient || !tool) return;
+
+    // A root union renders every alternative as its own section, under prefixed
+    // field names, because ink-form scopes values by name across the whole form
+    // (#2123). This turns them back into the arguments the server declared:
+    // the base fields plus the chosen branch's, and nothing from the others.
+    const values = decodeFormValues(tool.inputSchema, rawValues);
+
+    // A branch's fields are rendered optional — only one alternative applies to
+    // a call, and requiring every branch's would deadlock a static form — so
+    // the chosen shape's own requirements are checked here instead. Reported
+    // rather than sent: a call known to violate the schema teaches the user
+    // nothing about the server (#2123).
+    const missing = missingRequiredFields(tool.inputSchema, values, rawValues);
+    if (missing.length > 0) {
+      setResult({
+        input: values,
+        output: null,
+        error: `Missing required argument${missing.length > 1 ? "s" : ""}: ${missing.join(", ")}`,
+        duration: 0,
+      });
+      setState("results");
+      return;
+    }
 
     setState("loading");
     const startTime = Date.now();

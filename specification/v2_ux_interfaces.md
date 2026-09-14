@@ -646,7 +646,8 @@ will close out as part of that work.
 - **Purpose**: Searchable tool list sidebar with list-changed indicator.
 - **Current props**: `tools: ToolListItemProps[]`, `listChanged`, `onRefreshList`, `onSelectTool`.
 - **MCP schema touch points**: `Tool`, `ListToolsResult`, `ToolListChangedNotification`.
-- **Target props**: `tools: Tool[]`, `selectedName?`, `listChanged`, `onRefreshList`, `onSelectTool`.
+- **Target props**: `tools: Tool[]`, `selectedKey?`, `listChanged`, `onRefreshList`, `onSelectTool`.
+- **Row identity**: a `tools/list` may repeat a name, so rows are keyed — for React reconciliation *and* for selection — by `toolRowKey(name, sourceIndex)` (`utils/toolUtils.ts`), not by `tool.name`. `selectedKey` and `onSelectTool` both carry that key (#1957/#2001).
 - **Callbacks → core hook**: `useManagedTools`.
 - **Internal refactors**: Consume schema `Tool[]` directly.
 
@@ -716,14 +717,14 @@ themselves — every callback passed down must originate in a core hook.
 - **MCP schema touch points**: `Tool`, `ListToolsResult`, `CallToolRequest.params`, `CallToolResult`, `ToolListChangedNotification`.
 - **Target props**:
   - `tools: Tool[]` — raw MCP `Tool[]` from `ListToolsResult.tools`.
-  - `selectedToolName?: string` — selection is screen-local; detail derived from `tools`.
+  - `selectedToolKey?: string` — selection is screen-local; detail derived from `tools`. This is the row's `toolRowKey`, not its name: duplicate names would otherwise select every copy at once and resolve only the first (#2001).
   - `callState?: { status: 'idle' | 'pending' | 'ok' | 'error'; request?: CallToolRequest['params']; result?: CallToolResult; error?: string }`.
   - `listChanged: boolean` — driven by `notifications/tools/list_changed`.
-  - `onRefreshList: () => void`, `onSelectTool: (name: string) => void`, `onCallTool: (name: string, args: Record<string, unknown>) => void`.
+  - `onRefreshList: () => void`, `onSelectTool: (key: string) => void`, `onCallTool: (name: string, args: Record<string, unknown>) => void` — note `onSelectTool` carries the row key (UI identity) while `onCallTool` carries the protocol name (wire identity).
 - **Callbacks → core hook**: `useManagedTools` provides `tools`, `listChanged`, `refreshTools`, `callTool`, `lastCallResult`; backed by `useInspectorClient` for the underlying `client.request`.
 - **Internal refactors**:
   - Stop flattening `Tool` into `ToolListItemProps` at the screen boundary — pass `Tool` down and let `ToolListItem` project fields.
-  - Derive the selected tool from `tools.find(t => t.name === selectedToolName)` instead of receiving a pre-built `ToolDetailPanelProps`.
+  - Derive the selected tool from `findToolByRowKey(tools, selectedToolKey)` instead of receiving a pre-built `ToolDetailPanelProps`.
   - Replace the separate `result` prop with a unified `callState` so pending/error UI can be rendered by `ToolResultPanel`.
 
 ### PromptsScreen

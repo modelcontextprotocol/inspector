@@ -1,0 +1,12 @@
+{
+  "serverInfo": {
+    "name": "cancellation-showcase",
+    "version": "1.0.0"
+  },
+  "tools": [{ "preset": "slow_task" }, { "preset": "echo" }],
+  "transport": {
+    "type": "streamable-http",
+    "port": 6606,
+    "modern": true
+  }
+}

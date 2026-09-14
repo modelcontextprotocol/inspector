@@ -45,7 +45,8 @@ export const Default: Story = {
 export const WithSelection: Story = {
   args: {
     tools: longToolList,
-    selectedName: "query_database",
+    // Row identity is `index:name`, so the selection names the position too.
+    selectedKey: "1:query_database",
   },
 };
 

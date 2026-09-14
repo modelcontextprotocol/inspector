@@ -6,7 +6,8 @@
  * appear to eat keystrokes. The PUT itself debounces.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { act, renderHook } from "@testing-library/react";
+import { act, render, renderHook } from "@testing-library/react";
+import { useEffect } from "react";
 import { useSettingsDraft } from "@inspector/core/react/useSettingsDraft";
 
 interface SettingsShape {
@@ -374,5 +375,47 @@ describe("useSettingsDraft", () => {
       result.current.onChange({ text: "abc", rows: [] });
     });
     expect(result.current.flush).toBe(flushAfterMount);
+  });
+
+  it("never commits the previous target's draft for a new target", () => {
+    // The regression this pins is a *frame*, not an end state, so it cannot
+    // be observed through `result.current`: RTL's `act` flushes passive
+    // effects before the assertion runs, so an effect-seeded implementation
+    // reaches the same final value and passes any check made after the
+    // rerender settles. What distinguishes them is what was *committed* on
+    // the way there — an effect renders once with the previous target's draft
+    // and paints it before correcting itself.
+    //
+    // So record every commit from inside the tree and assert no committed
+    // frame ever paired "beta" with alpha's draft.
+    const commits: Array<{ targetId: string; text: string | null }> = [];
+    const SETTINGS: Record<string, SettingsShape> = {
+      alpha: { text: "alpha-value", rows: [] },
+      beta: { text: "beta-value", rows: [] },
+    };
+
+    function Harness({ targetId }: { targetId: string }) {
+      const { draft } = useSettingsDraft<SettingsShape>({
+        targetId,
+        resolveInitial: (id) => SETTINGS[id] ?? EMPTY,
+        onPersist: vi.fn(),
+        onError: vi.fn(),
+      });
+      useEffect(() => {
+        commits.push({ targetId, text: draft?.text ?? null });
+      });
+      return null;
+    }
+
+    const { rerender } = render(<Harness targetId="alpha" />);
+    expect(commits).toContainEqual({ targetId: "alpha", text: "alpha-value" });
+
+    commits.length = 0;
+    rerender(<Harness targetId="beta" />);
+
+    expect(commits.length).toBeGreaterThan(0);
+    for (const commit of commits) {
+      expect(commit).toEqual({ targetId: "beta", text: "beta-value" });
+    }
   });
 });

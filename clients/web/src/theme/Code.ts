@@ -10,9 +10,19 @@ export const ThemeCode = Code.extend({
       backgroundColor:
         "var(--inspector-code-surface, var(--inspector-surface-code))",
     };
-    if (props.variant === "wrapping") {
+    if (props.variant === "wrapping" || props.variant === "wrapping-plain") {
       root.wordBreak = "break-all";
       root.whiteSpace = "pre-wrap";
+    }
+    if (props.variant === "wrapping-plain") {
+      // Wraps like `wrapping`, but with no inset surface behind it. Used for
+      // label/value rows that read as *values* rather than as quoted blobs —
+      // Connection Info's Client ID and Auth URL. A separate variant rather
+      // than a tweak to `wrapping`, because that one is shared with panels
+      // (elicitation URLs, load errors, CSV fallback) where the grey inset is
+      // doing real work separating a raw value from the prose around it.
+      root.backgroundColor = "transparent";
+      root.padding = "0";
     }
     if (props.block) {
       root.margin = "0";

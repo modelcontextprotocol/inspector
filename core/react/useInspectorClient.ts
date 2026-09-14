@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { InspectorClientProtocol } from "../mcp/inspectorClientProtocol.js";
 import type { AppRendererClient } from "../mcp/inspectorClientProtocol.js";
 import type { TypedEvent } from "../mcp/inspectorClientEventTarget.js";
@@ -11,12 +11,48 @@ import type {
   DiscoverResult,
 } from "@modelcontextprotocol/client";
 import type { ExcludedTool } from "../mcp/types.js";
+import type { MalformedListItem } from "../mcp/listSalvage.js";
+import { useStoreSnapshot } from "./useStoreSnapshot.js";
 
 // Module-scope frozen object so the `?? EMPTY_CLIENT_CAPABILITIES`
 // fallback below doesn't return a fresh literal on every render —
 // downstream `useMemo`/`useEffect` deps that key on `clientCapabilities`
 // would otherwise invalidate every tick when no client is attached.
 const EMPTY_CLIENT_CAPABILITIES: ClientCapabilities = Object.freeze({});
+
+/**
+ * Stable fallbacks for the no-client case, module scope for the same reason as
+ * the constant above — a `useStoreSnapshot` fallback built in the component
+ * body would look like a new value on every read.
+ */
+const NO_EXCLUDED_TOOLS: ExcludedTool[] = [];
+const NO_MALFORMED_LIST_ITEMS: MalformedListItem[] = [];
+
+const readStatus = (client: InspectorClientProtocol): ConnectionStatus =>
+  client.getStatus();
+const readCapabilities = (
+  client: InspectorClientProtocol,
+): ServerCapabilities | undefined => client.getCapabilities();
+const readServerInfo = (
+  client: InspectorClientProtocol,
+): Implementation | undefined => client.getServerInfo();
+const readInstructions = (
+  client: InspectorClientProtocol,
+): string | undefined => client.getInstructions();
+const readProtocolVersion = (
+  client: InspectorClientProtocol,
+): string | undefined => client.getProtocolVersion();
+const readProtocolEra = (
+  client: InspectorClientProtocol,
+): ProtocolEra | undefined => client.getProtocolEra();
+const readDiscoverResult = (
+  client: InspectorClientProtocol,
+): DiscoverResult | undefined => client.getDiscoverResult();
+const readExcludedTools = (client: InspectorClientProtocol): ExcludedTool[] =>
+  client.getExcludedTools();
+const readMalformedListItems = (
+  client: InspectorClientProtocol,
+): MalformedListItem[] => client.getMalformedListItems();
 
 export interface UseInspectorClientResult {
   status: ConnectionStatus;
@@ -45,6 +81,12 @@ export interface UseInspectorClientResult {
    */
   excludedTools: ExcludedTool[];
   /**
+   * Entries the Inspector dropped from a list result because they failed the
+   * spec schema for their primitive. Empty against a conforming server; a
+   * non-empty set means that list rendered without them (#1909).
+   */
+  malformedListItems: MalformedListItem[];
+  /**
    * Message from the most recent mid-session transport failure (the client's
    * `error` event — stdio crash, SSE drop, HTTP 5xx). Stays set until the next
    * connection attempt (`status` → `"connecting"`) clears it, so consumers can
@@ -62,6 +104,11 @@ export interface UseInspectorClientResult {
  * connection state. Log lists (message / stderr / fetch) live in dedicated
  * state managers consumed via useMessageLog / useStderrLog / useFetchRequestLog.
  *
+ * Every value the client can be *asked* for is read through `useStoreSnapshot`
+ * rather than mirrored into local state by an effect (#1955): the effect ran
+ * after the commit, so swapping servers painted one frame of the previous
+ * client's status and capabilities before correcting itself.
+ *
  * Note: `appRendererClient` is read lazily from the client on every render
  * and is NOT subscribed. It changes once at connect time and is not expected
  * to change again during a session, so callers will see the current value
@@ -73,151 +120,99 @@ export interface UseInspectorClientResult {
 export function useInspectorClient(
   inspectorClient: InspectorClientProtocol | null,
 ): UseInspectorClientResult {
-  const [status, setStatus] = useState<ConnectionStatus>(
-    inspectorClient?.getStatus() ?? "disconnected",
+  const status = useStoreSnapshot(
+    inspectorClient,
+    "statusChange",
+    readStatus,
+    "disconnected" as ConnectionStatus,
   );
-  const [capabilities, setCapabilities] = useState<
-    ServerCapabilities | undefined
-  >(inspectorClient?.getCapabilities());
-  const [serverInfo, setServerInfo] = useState<Implementation | undefined>(
-    inspectorClient?.getServerInfo(),
+  const capabilities = useStoreSnapshot(
+    inspectorClient,
+    "capabilitiesChange",
+    readCapabilities,
+    undefined,
   );
-  const [instructions, setInstructions] = useState<string | undefined>(
-    inspectorClient?.getInstructions(),
+  const serverInfo = useStoreSnapshot(
+    inspectorClient,
+    "serverInfoChange",
+    readServerInfo,
+    undefined,
   );
-  const [protocolVersion, setProtocolVersion] = useState<string | undefined>(
-    inspectorClient?.getProtocolVersion(),
+  const instructions = useStoreSnapshot(
+    inspectorClient,
+    "instructionsChange",
+    readInstructions,
+    undefined,
   );
-  const [protocolEra, setProtocolEra] = useState<ProtocolEra | undefined>(
-    inspectorClient?.getProtocolEra(),
+  const protocolVersion = useStoreSnapshot(
+    inspectorClient,
+    "protocolVersionChange",
+    readProtocolVersion,
+    undefined,
   );
-  const [discoverResult, setDiscoverResult] = useState<
-    DiscoverResult | undefined
-  >(inspectorClient?.getDiscoverResult());
-  const [excludedTools, setExcludedTools] = useState<ExcludedTool[]>(
-    inspectorClient?.getExcludedTools() ?? [],
+  const protocolEra = useStoreSnapshot(
+    inspectorClient,
+    "protocolEraChange",
+    readProtocolEra,
+    undefined,
   );
-  const [lastError, setLastError] = useState<string | undefined>(undefined);
+  const discoverResult = useStoreSnapshot(
+    inspectorClient,
+    "discoverResultChange",
+    readDiscoverResult,
+    undefined,
+  );
+  const excludedTools = useStoreSnapshot(
+    inspectorClient,
+    "excludedToolsChange",
+    readExcludedTools,
+    NO_EXCLUDED_TOOLS,
+  );
+  const malformedListItems = useStoreSnapshot(
+    inspectorClient,
+    "malformedListItemsChange",
+    readMalformedListItems,
+    NO_MALFORMED_LIST_ITEMS,
+  );
+
+  // `lastError` is the one value here that is NOT a snapshot of something the
+  // client stores: there is no `getLastError()`, because the client emits the
+  // failure and moves on. It is accumulated from the event stream instead, so
+  // it stays local state — but it is still tied to one client, and must reset
+  // when a different one is passed in.
+  //
+  // That reset is done during render (React's documented "adjusting state
+  // when a prop changes" pattern, the same one `useValueChange` implements for
+  // the web client) rather than in an effect. An effect would paint one frame
+  // carrying the previous client's error, which is precisely the defect this
+  // hook was converted to fix.
+  const [errorState, setErrorState] = useState<{
+    client: InspectorClientProtocol | null;
+    message?: string;
+  }>({ client: inspectorClient });
+  if (errorState.client !== inspectorClient) {
+    setErrorState({ client: inspectorClient });
+  }
+  const lastError =
+    errorState.client === inspectorClient ? errorState.message : undefined;
 
   useEffect(() => {
-    if (!inspectorClient) {
-      setStatus("disconnected");
-      setCapabilities(undefined);
-      setServerInfo(undefined);
-      setInstructions(undefined);
-      setProtocolVersion(undefined);
-      setProtocolEra(undefined);
-      setDiscoverResult(undefined);
-      setExcludedTools([]);
-      setLastError(undefined);
-      return;
-    }
-
-    setStatus(inspectorClient.getStatus());
-    setCapabilities(inspectorClient.getCapabilities());
-    setServerInfo(inspectorClient.getServerInfo());
-    setInstructions(inspectorClient.getInstructions());
-    setProtocolVersion(inspectorClient.getProtocolVersion());
-    setProtocolEra(inspectorClient.getProtocolEra());
-    setDiscoverResult(inspectorClient.getDiscoverResult());
-    setExcludedTools(inspectorClient.getExcludedTools());
-    setLastError(undefined);
-
+    if (!inspectorClient) return;
     const onStatusChange = (event: TypedEvent<"statusChange">) => {
-      setStatus(event.detail);
       // A fresh connection attempt clears any stale error from the prior
       // session so the UI doesn't keep showing why the last transport died.
       if (event.detail === "connecting") {
-        setLastError(undefined);
+        setErrorState({ client: inspectorClient });
       }
     };
     const onError = (event: TypedEvent<"error">) => {
-      setLastError(event.detail.message);
+      setErrorState({ client: inspectorClient, message: event.detail.message });
     };
-    const onCapabilitiesChange = (event: TypedEvent<"capabilitiesChange">) => {
-      setCapabilities(event.detail);
-    };
-    const onServerInfoChange = (event: TypedEvent<"serverInfoChange">) => {
-      setServerInfo(event.detail);
-    };
-    const onInstructionsChange = (event: TypedEvent<"instructionsChange">) => {
-      setInstructions(event.detail);
-    };
-    const onProtocolVersionChange = (
-      event: TypedEvent<"protocolVersionChange">,
-    ) => {
-      setProtocolVersion(event.detail);
-    };
-    const onProtocolEraChange = (event: TypedEvent<"protocolEraChange">) => {
-      setProtocolEra(event.detail);
-    };
-    const onDiscoverResultChange = (
-      event: TypedEvent<"discoverResultChange">,
-    ) => {
-      setDiscoverResult(event.detail);
-    };
-    const onExcludedToolsChange = (
-      event: TypedEvent<"excludedToolsChange">,
-    ) => {
-      setExcludedTools(event.detail);
-    };
-
     inspectorClient.addEventListener("statusChange", onStatusChange);
     inspectorClient.addEventListener("error", onError);
-    inspectorClient.addEventListener(
-      "capabilitiesChange",
-      onCapabilitiesChange,
-    );
-    inspectorClient.addEventListener("serverInfoChange", onServerInfoChange);
-    inspectorClient.addEventListener(
-      "instructionsChange",
-      onInstructionsChange,
-    );
-    inspectorClient.addEventListener(
-      "protocolVersionChange",
-      onProtocolVersionChange,
-    );
-    inspectorClient.addEventListener("protocolEraChange", onProtocolEraChange);
-    inspectorClient.addEventListener(
-      "discoverResultChange",
-      onDiscoverResultChange,
-    );
-    inspectorClient.addEventListener(
-      "excludedToolsChange",
-      onExcludedToolsChange,
-    );
-
     return () => {
       inspectorClient.removeEventListener("statusChange", onStatusChange);
       inspectorClient.removeEventListener("error", onError);
-      inspectorClient.removeEventListener(
-        "capabilitiesChange",
-        onCapabilitiesChange,
-      );
-      inspectorClient.removeEventListener(
-        "serverInfoChange",
-        onServerInfoChange,
-      );
-      inspectorClient.removeEventListener(
-        "instructionsChange",
-        onInstructionsChange,
-      );
-      inspectorClient.removeEventListener(
-        "protocolVersionChange",
-        onProtocolVersionChange,
-      );
-      inspectorClient.removeEventListener(
-        "protocolEraChange",
-        onProtocolEraChange,
-      );
-      inspectorClient.removeEventListener(
-        "discoverResultChange",
-        onDiscoverResultChange,
-      );
-      inspectorClient.removeEventListener(
-        "excludedToolsChange",
-        onExcludedToolsChange,
-      );
     };
   }, [inspectorClient]);
 
@@ -247,6 +242,7 @@ export function useInspectorClient(
     protocolEra,
     discoverResult,
     excludedTools,
+    malformedListItems,
     lastError,
     appRendererClient: inspectorClient?.getAppRendererClient() ?? null,
     connect,

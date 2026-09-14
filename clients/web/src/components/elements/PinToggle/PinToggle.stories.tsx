@@ -15,7 +15,9 @@ export const Unpinned: Story = {
   args: { pinned: false },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    expect(canvas.getByRole("button", { name: "Pin" })).toBeInTheDocument();
+    await expect(
+      canvas.getByRole("button", { name: "Pin" }),
+    ).toBeInTheDocument();
   },
 };
 
@@ -23,6 +25,8 @@ export const Pinned: Story = {
   args: { pinned: true },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    expect(canvas.getByRole("button", { name: "Unpin" })).toBeInTheDocument();
+    await expect(
+      canvas.getByRole("button", { name: "Unpin" }),
+    ).toBeInTheDocument();
   },
 };

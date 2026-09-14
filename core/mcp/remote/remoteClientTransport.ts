@@ -31,6 +31,7 @@ import type {
   RemoteSendResponse,
 } from "./types.js";
 import { oauthTokensToRemoteAuthState } from "./types.js";
+import { progressTokenOf } from "./progressToken.js";
 
 export interface AuthRecoveryHandlers {
   handleAuthChallenge(
@@ -85,6 +86,12 @@ const DEFAULT_SSE_RESPONSE_TIMEOUT_MS = 60_000;
 type SseResponseWait = {
   resolve: () => void;
   reject: (error: Error) => void;
+  /**
+   * Re-arm this wait's timeout for another full window when a
+   * `notifications/progress` for the request arrives, mirroring the SDK
+   * client's `resetTimeoutOnProgress` (#2028).
+   */
+  resetTimeout: () => void;
 };
 
 function requestIdForMessage(
@@ -165,14 +172,55 @@ function legacySessionId(json: RemoteConnectResponse): string | undefined {
 }
 
 /**
- * Parse SSE stream from a ReadableStream.
- * Yields { event, data } for each SSE message.
+ * Parse an SSE stream from a ReadableStream.
+ * Yields `{ event, data }` for each complete SSE message.
+ *
+ * ⚠️ **The in-progress event must live OUTSIDE the read loop.** A `read()`
+ * returns an arbitrary slice of bytes, not a whole frame, so a frame's `data:`
+ * line can arrive in one chunk and the blank line terminating it in the next.
+ * Declaring `currentEvent` / `currentData` inside the loop — which this did
+ * until #2134 — discards the accumulated payload at that boundary: the frame is
+ * never yielded, the JSON-RPC response it carried never settles, and the caller
+ * hangs forever with no error on any channel. `buffer` already carries a partial
+ * *line* across reads; these carry the partial *frame*.
+ *
+ * It survived because Chromium and Firefox happen to deliver whole frames at the
+ * payload sizes this transport sees. That is luck rather than a guarantee —
+ * chunk boundaries are a function of payload size, TCP segmentation and any
+ * intermediary — and the exposure grows with payload size, so a large
+ * `resources/read` is the most likely first victim.
+ *
+ * Exported for `clients/web/src/test/core/mcp/remote/parseSSE.test.ts`, which is
+ * the only way to reach the defect deterministically: driving a real transport
+ * cannot steer where the chunk boundary lands, but a test that supplies the
+ * reader can put it exactly on the terminator.
  */
-async function* parseSSE(
+export async function* parseSSE(
   reader: ReadableStreamDefaultReader<Uint8Array>,
 ): AsyncGenerator<{ event: string; data: string }> {
   const decoder = new TextDecoder();
   let buffer = "";
+  // Carried ACROSS reads, not per chunk — see the header.
+  let currentEvent = "message";
+  let currentData: string[] = [];
+
+  const consume = (line: string): { event: string; data: string } | null => {
+    if (line.startsWith("event:")) {
+      currentEvent = line.slice(6).trim();
+    } else if (line.startsWith("data:")) {
+      currentData.push(line.slice(5).trimStart());
+    } else if (line === "") {
+      const complete =
+        currentData.length > 0
+          ? { event: currentEvent, data: currentData.join("\n") }
+          : null;
+      currentEvent = "message";
+      currentData = [];
+      return complete;
+    }
+    // Anything else (a `:` keep-alive comment, `id:`, `retry:`) is ignored.
+    return null;
+  };
 
   while (true) {
     const { done, value } = await reader.read();
@@ -183,36 +231,21 @@ async function* parseSSE(
     /* v8 ignore next -- String.split always returns a non-empty array, so pop() is never undefined; the ?? "" fallback is unreachable. */
     buffer = lines.pop() ?? "";
 
-    let currentEvent = "message";
-    let currentData: string[] = [];
-
     for (const line of lines) {
-      if (line.startsWith("event:")) {
-        currentEvent = line.slice(6).trim();
-      } else if (line.startsWith("data:")) {
-        currentData.push(line.slice(5).trimStart());
-      } else if (line === "") {
-        if (currentData.length > 0) {
-          yield { event: currentEvent, data: currentData.join("\n") };
-        }
-        currentEvent = "message";
-        currentData = [];
-      }
+      const complete = consume(line);
+      if (complete) yield complete;
     }
   }
 
-  if (buffer.trim()) {
-    const lines = buffer.split("\n");
-    let currentEvent = "message";
-    const currentData: string[] = [];
-    for (const line of lines) {
-      if (line.startsWith("event:")) currentEvent = line.slice(6).trim();
-      else if (line.startsWith("data:"))
-        currentData.push(line.slice(5).trimStart());
-    }
-    if (currentData.length > 0) {
-      yield { event: currentEvent, data: currentData.join("\n") };
-    }
+  // Stream ended: flush the trailing partial line, then anything still held. A
+  // server that closes without a final blank line has still delivered a complete
+  // frame, and dropping it would lose the last message of every such stream.
+  if (buffer) {
+    const complete = consume(buffer);
+    if (complete) yield complete;
+  }
+  if (currentData.length > 0) {
+    yield { event: currentEvent, data: currentData.join("\n") };
   }
 }
 
@@ -221,6 +254,7 @@ async function* parseSSE(
  */
 export class RemoteClientTransport implements Transport {
   private _sessionId: string | undefined = undefined;
+  private _protocolVersion: string | undefined = undefined;
   private eventStreamReader: ReadableStreamDefaultReader<Uint8Array> | null =
     null;
   private eventStreamAbort: AbortController | null = null;
@@ -233,6 +267,25 @@ export class RemoteClientTransport implements Transport {
   >();
   private readonly options: RemoteTransportOptions;
   private readonly config: import("../types.js").MCPServerConfig;
+
+  /**
+   * Whether the upstream connection gives each request its own response stream
+   * (#2140). The SDK's `Protocol.request` reads this: on a 2026-era connection
+   * a transport advertising it has its per-request stream **aborted** as the
+   * spec's cancellation signal, and no `notifications/cancelled` is sent; a
+   * transport that does not gets the stdio mechanism instead.
+   *
+   * The real upstream transport lives on the backend, so this transport has to
+   * answer for it. Streamable HTTP opens one POST — and one SSE response
+   * stream — per request, so it qualifies; stdio and SSE multiplex every
+   * request over one shared channel and must keep sending the notification.
+   *
+   * Advertising it is only half the fix: `requestSend` applies the SDK's
+   * `requestSignal` to the browser-to-backend fetch, and `/api/mcp/send`
+   * forwards that disconnect to the upstream `transport.send`, which is what
+   * actually closes the stream the server is watching.
+   */
+  readonly hasPerRequestStream: boolean;
 
   /**
    * Intentionally returns undefined. The MCP Client checks transport.sessionId to detect
@@ -248,6 +301,22 @@ export class RemoteClientTransport implements Transport {
   /** Remote Hono session id (distinct from MCP protocol session). */
   getRemoteBackendSessionId(): string | undefined {
     return this._sessionId;
+  }
+
+  /**
+   * The SDK Client calls this with the negotiated protocol version as soon as
+   * `initialize` resolves — before it sends `notifications/initialized` — so an
+   * HTTP transport can stamp `Mcp-Protocol-Version` on every later request.
+   *
+   * Here the real upstream transport lives on the backend, so we can only
+   * record the version and forward it on the next `/api/mcp/send`, which
+   * applies it to the upstream transport *before* sending. Because
+   * `notifications/initialized` is that next send, it and everything after it
+   * (including the standalone SSE GET and the session DELETE, both issued by
+   * the upstream transport itself) carry the header (#1935).
+   */
+  setProtocolVersion(version: string): void {
+    this._protocolVersion = version;
   }
 
   /**
@@ -269,6 +338,7 @@ export class RemoteClientTransport implements Transport {
   ) {
     this.options = options;
     this.config = config;
+    this.hasPerRequestStream = config.type === "streamable-http";
   }
 
   setAuthRecovery(handlers: AuthRecoveryHandlers | undefined): void {
@@ -461,6 +531,13 @@ export class RemoteClientTransport implements Transport {
           if (parsed.type === "message") {
             const msg = parsed.data as JSONRPCMessage;
             this.settleSseResponseWait(msg);
+            // Keep the SSE wait alive while progress flows for a long call
+            // (#2028) — the settle above never matches a notification, so this
+            // is the only place a progress note touches the wait.
+            const progressToken = progressTokenOf(msg);
+            if (progressToken !== undefined) {
+              this.resetSseResponseWait(progressToken);
+            }
             this.onmessage?.(msg, undefined);
           } else if (
             parsed.type === "fetch_request" &&
@@ -612,14 +689,18 @@ export class RemoteClientTransport implements Transport {
 
   private waitForSseResponse(requestId: string | number): Promise<void> {
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.sseResponseWaits.delete(requestId);
-        reject(
-          new Error(
-            `Timed out waiting for MCP response on SSE (${this.sseResponseTimeoutMs}ms)`,
-          ),
-        );
-      }, this.sseResponseTimeoutMs);
+      let timer: ReturnType<typeof setTimeout>;
+      const arm = () => {
+        timer = setTimeout(() => {
+          this.sseResponseWaits.delete(requestId);
+          reject(
+            new Error(
+              `Timed out waiting for MCP response on SSE (${this.sseResponseTimeoutMs}ms)`,
+            ),
+          );
+        }, this.sseResponseTimeoutMs);
+      };
+      arm();
       this.sseResponseWaits.set(requestId, {
         resolve: () => {
           clearTimeout(timer);
@@ -629,8 +710,20 @@ export class RemoteClientTransport implements Transport {
           clearTimeout(timer);
           reject(error);
         },
+        // A progress notification for this request re-arms the full window so
+        // the browser-side deadline tracks the SDK client's progress-aware one
+        // rather than firing at a flat 60s (#2028).
+        resetTimeout: () => {
+          clearTimeout(timer);
+          arm();
+        },
       });
     });
+  }
+
+  /** Re-arm a pending request's SSE wait timeout on a matching progress note. */
+  private resetSseResponseWait(requestId: string | number): void {
+    this.sseResponseWaits.get(requestId)?.resetTimeout();
   }
 
   private async postSend(
@@ -704,12 +797,27 @@ export class RemoteClientTransport implements Transport {
       ...(options?.relatedRequestId != null && {
         relatedRequestId: options.relatedRequestId,
       }),
+      // Forward per-send `Mcp-Param-*` headers (SEP-2243) for the backend to
+      // apply to the upstream send; the browser can't set them cross-origin.
+      ...(options?.headers != null && { headers: options.headers }),
+      // Forward the negotiated protocol version so the backend's transport can
+      // stamp `Mcp-Protocol-Version` on this and every later request (#1935).
+      ...(this._protocolVersion !== undefined && {
+        protocolVersion: this._protocolVersion,
+      }),
     };
 
+    // #2140: aborting this fetch is the cancellation signal for a
+    // per-request-stream upstream. The backend holds `/api/mcp/send` open for
+    // the whole call (it awaits the JSON-RPC response), so the disconnect
+    // reaches it mid-flight and it aborts the upstream request's SSE stream.
+    // For stdio/SSE `hasPerRequestStream` is false, so the SDK never supplies
+    // a `requestSignal` and this is undefined.
     const res = await this.fetchFn(`${this.baseUrl}/api/mcp/send`, {
       method: "POST",
       headers: this.headers,
       body: JSON.stringify(body),
+      ...(options?.requestSignal && { signal: options.requestSignal }),
     });
 
     if (!res.ok) {

@@ -10,6 +10,8 @@ The launcher is the package that provides the global `mcp-inspector` binary (e.g
 
 All configuration parsing, config-file loading, and server setup are handled by the app runners and by **core**; the launcher does not interpret config or env vars.
 
+**Error reporting.** A `--cli` failure is routed through the CLI's own error sink, so `mcp-inspector --cli` preserves the CLI exit-code map (`1` usage, `2` no-app, `3` auth-required, `4` unreachable, `5` tool-error) and its machine-readable `{"error":{…}}` stderr envelope — the same as invoking the CLI bin directly. `--web` / `--tui` failures print a human-readable `Error: <message>` and exit `1` (append `MCP_DEBUG=1` for the stack).
+
 ## Web server-list flags (`--web`)
 
 `mcp-inspector --web` chooses which server list the UI shows and whether it is
@@ -17,14 +19,23 @@ editable (see [specification/v2_catalog_launch_config.md](../../specification/v2
 
 | Invocation                                                                                                 | Server list                                                                                                     | Editable in UI? |
 | ---------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- | --------------- |
-| `mcp-inspector --web`                                                                                      | Default catalog `~/.mcp-inspector/mcp.json`                                                                     | Yes             |
-| `mcp-inspector --web --catalog <path>` (or `MCP_CATALOG_PATH=<path>`)                                      | That file as the active catalog (created/seeded if missing)                                                     | Yes             |
+| `mcp-inspector --web`                                                                                      | Default catalog `~/.mcp-inspector/mcp.json` (seeded with the three sample servers if missing)                     | Yes             |
+| `mcp-inspector --web --catalog <path>` (or `MCP_CATALOG_PATH=<path>`)                                      | That file as the active catalog (same seed-if-missing behavior)                                                 | Yes             |
 | `mcp-inspector --web --config <path>`                                                                      | That file as a **read-only session** — shown but never written, seeded, or migrated (safe for a foreign config) | No              |
 | `mcp-inspector --web --server-url <url> --transport http --header "Name: Value"` (or a positional command) | One ad-hoc server held in memory, connectable with the given `--header`s                                        | No              |
 
 Rules: `--catalog` and `--config` are mutually exclusive; neither combines with
 an ad-hoc target or `--header`; `--header` requires an ad-hoc HTTP/SSE server
 and is applied to that connection (it is no longer a warn-only no-op).
+
+**Seed contents are web-specific.** When the web backend creates a missing
+writable catalog it seeds `DEFAULT_SEED_CONFIG` (`core/mcp/serverList.ts`) — a
+`filesystem-server-default` scoped to `/tmp`, the canonical
+`everything-server-default`, and `example-server-default`, the MCP org's
+remote feature-reference server (Streamable HTTP, no local process and no API
+key needed) — so a first launch has something to connect to.
+The CLI and TUI seed an **empty** catalog instead; see the next section. A
+read-only `--config` is never seeded on any surface.
 
 ## CLI and TUI server-list flags (`--cli` / `--tui`)
 
@@ -37,6 +48,11 @@ resolved by the shared `core/mcp/node/config.ts` helpers:
 | `--catalog <path>` (or `MCP_CATALOG_PATH=<path>`)                  | That file as a **writable catalog** — seeded empty if missing                                      |
 | `--config <path>`                                                  | That file as a **read-only session** — served as-is, never written or seeded; **errors if absent** |
 | positional command / `--server-url <url>`                          | One ad-hoc server                                                                                  |
+
+Note the seed contrast with `--web` above: the CLI and TUI write an **empty**
+`{ "mcpServers": {} }` (`seedEmptyCatalog` in `core/mcp/node/config.ts`), not
+the web client's three sample servers — they are non-interactive or list-driven,
+so sample entries would be noise rather than a starting point.
 
 Rules (shared `serverSourceConflict`): `--catalog` and `--config` are mutually
 exclusive, and neither combines with an ad-hoc command/URL target. The CLI/TUI
@@ -73,18 +89,29 @@ through the built launcher artifact (beyond the `--help` checks in
   resolution paths (default-catalog seed-on-missing, read-only `--config`
   error-without-seed, `--catalog`/`--config` conflict).
 - `npm run smoke:tui` (`scripts/smoke-tui.mjs`) — launches
-  `mcp-inspector --tui --catalog <temp>` and asserts the Ink app renders its
-  first frame within a timeout, then shuts it down (a shallow boot/render
+  `mcp-inspector --tui --catalog <temp>` **under a pseudoterminal**, asserts the
+  Ink app renders its first frame within a timeout, then waits and asserts it is
+  **still running** before shutting it down (a shallow boot/render/survival
   check, not full interaction).
 
-Both build `test-servers/build` on demand if it is missing.
+  The second half is the assertion (#2147). Spawned with its stdin on
+  `/dev/null`, Ink cannot enter raw mode for `useInput`, so the TUI painted one
+  frame and exited 1 about 40ms later — and this smoke, which settled OK on the
+  first frame, won that race and reported success on every machine. It is
+  local-only (self-skips under `CI`), which is precisely where a false green
+  goes unnoticed.
+
+Both rebuild `test-servers/build` on **every run** — once per process, whether
+or not it already exists (#2111). Presence is not freshness: a smoke driving a
+stale fixture reports a product failure rather than a staleness one.
 
 ## Development
 
 Like the web client, the launcher self-validates from its own folder:
 
 ```bash
-npm run validate  # format:check && lint && build && test:coverage
+npm run check     # format:check && lint && typecheck && build  (no tests)
+npm run validate  # check && test
 ```
 
 This has **no** dependency on the other clients being built — it only checks the
@@ -92,11 +119,13 @@ launcher's own source. `eslint.config.js` is a Node-only flat config (the web
 client's React/Storybook plugins stripped out), and the per-file coverage gate
 covers `parse-launcher-argv.ts` (the pure arg-parsing logic); `src/index.ts` is
 excluded as binary bootstrap and is instead exercised by the smokes above. The
-repo-root `validate:launcher` simply delegates here (`cd clients/launcher && npm run validate`).
+repo-root `validate:launcher` simply delegates here (`cd clients/launcher && npm run validate`),
+and the root `local:validate` — the first stage of `npm run local:gate` — runs
+`check` instead, so the gate runs the suite once, under `coverage:launcher` (#2341).
 
 ## Publishing
 
-The launcher provides the `mcp-inspector` bin for the single `@modelcontextprotocol/inspector` tarball. Packaging is a whole-repo concern — how the one-package/single-version tarball is assembled, the `"files"` allowlist invariants (no source maps, why `clients/web/build` needs `.npmignore`, why the cli/tui `package.json`s ship), and the `npm run pack:verify` publish smoke — is documented in the [root README](../../README.md#publishing).
+The launcher provides the `mcp-inspector` bin for the single `@modelcontextprotocol/inspector` tarball. Packaging is a whole-repo concern — how the one-package/single-version tarball is assembled, the `"files"` allowlist invariants (no source maps, why `clients/web/build` needs `.npmignore`, why `clients/web/static` must ship at that exact path), and the `npm run pack:verify` publish smoke — is documented in [Publishing](../../docs/publishing.md).
 
 ## Architecture
 

@@ -13,30 +13,6 @@ export function extractMethod(entry: MessageEntry): MessageMethod {
   return "response";
 }
 
-/**
- * Request methods the Protocol Replay action can re-issue (client→server reads
- * and calls). Server→client requests (roots/list, sampling, elicitation) and
- * side-effectful methods (logging/setLevel, subscribe) are intentionally
- * excluded. Single source of truth: `ProtocolEntry` hides the Replay button for
- * anything not listed here, and App's `replayProtocolRequest` gates dispatch on
- * the same set.
- */
-export const REPLAYABLE_PROTOCOL_METHODS: ReadonlySet<string> = new Set([
-  "tools/call",
-  "prompts/get",
-  "resources/read",
-  "tools/list",
-  "prompts/list",
-  "resources/list",
-  "resources/templates/list",
-  "tasks/list",
-  "ping",
-]);
-
-export function isReplayableProtocolMethod(method: string): boolean {
-  return REPLAYABLE_PROTOCOL_METHODS.has(method);
-}
-
 // --- Modern-era (2026-07-28) message vocabulary -----------------------------
 //
 // The modern era changes the over-the-wire conversation (spec §7.2–7.4): every

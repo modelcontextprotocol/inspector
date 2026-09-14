@@ -5,12 +5,15 @@ import type {
   InspectorServerSettings,
   ModernLogLevel,
   OAuthSettings,
+  RequestMetadata,
   ServerProtocolEra,
   ServerType,
 } from "@inspector/core/mcp/types.js";
 import { isOAuthCapableServerType } from "@inspector/core/mcp/config.js";
 import { ADVERTISABLE_EXTENSIONS } from "@inspector/core/mcp/extensions.js";
 import { ListToggle } from "../../elements/ListToggle/ListToggle";
+import { SecretStorageFooter } from "../../elements/SecretStorageFooter/SecretStorageFooter";
+import type { SecretStorageInfo } from "@inspector/core/auth/secret-storage-info.js";
 import {
   ServerSettingsForm,
   type ServerSettingsSection,
@@ -73,6 +76,13 @@ export interface ServerSettingsModalProps {
   onClose: () => void;
   onSettingsChange: (settings: InspectorServerSettings) => void;
   onClearStoredOAuth?: () => void;
+  /**
+   * Where secrets typed here end up (#1950). This dialog holds the OAuth
+   * client secret and every stdio `env:` value, so the footer states the
+   * destination of what the user is about to type. Absent on a backend
+   * that doesn't report a store; the footer then renders nothing.
+   */
+  secretStorage?: SecretStorageInfo;
 }
 
 export function ServerSettingsModal({
@@ -84,6 +94,7 @@ export function ServerSettingsModal({
   onClose,
   onSettingsChange,
   onClearStoredOAuth,
+  secretStorage,
 }: ServerSettingsModalProps) {
   const sections = allSectionsFor(serverType, isStdio);
   // Initial expansion is the first ("options") section — where Network Log
@@ -145,24 +156,7 @@ export function ServerSettingsModal({
     onSettingsChange({ ...settings, cwd: value });
   }
 
-  function handleAddMetadata() {
-    onSettingsChange({
-      ...settings,
-      metadata: [...settings.metadata, { key: "", value: "" }],
-    });
-  }
-
-  function handleRemoveMetadata(index: number) {
-    onSettingsChange({
-      ...settings,
-      metadata: settings.metadata.filter((_, i) => i !== index),
-    });
-  }
-
-  function handleMetadataChange(index: number, key: string, value: string) {
-    const metadata = settings.metadata.map((m, i) =>
-      i === index ? { key, value } : m,
-    );
+  function handleMetadataChange(metadata: RequestMetadata) {
     onSettingsChange({ ...settings, metadata });
   }
 
@@ -179,11 +173,26 @@ export function ServerSettingsModal({
       oauthClientId: oauth.clientId,
       oauthClientSecret: oauth.clientSecret,
       oauthScopes: oauth.scopes,
+      // #2018: kept as rows (blank ones included) so a half-typed parameter
+      // survives a re-render; the drop-blank/omit-empty filtering happens on the
+      // way to disk. An emptied list persists as `[]`, which writes nothing.
+      oauthAuthorizationParams: oauth.authorizationParams,
+      // #1906: an emptied field persists as undefined rather than `""` — the
+      // read side treats a blank override as "not configured", and keeping the
+      // two in step means clearing the input really clears the setting.
+      oauthAuthorizationUrl: oauth.authorizationUrl || undefined,
+      oauthTokenUrl: oauth.tokenUrl || undefined,
       enterpriseManaged: oauth.enterpriseManaged ? true : undefined,
       // SEP-2350: persist only the non-default ('throw') so unset servers keep
       // the SDK's `reauthorize` behavior without writing a spurious field.
       oauthOnInsufficientScope:
         oauth.onInsufficientScope === "throw" ? "throw" : undefined,
+      // #2068: persist only the non-default (off). `undefined` means on, so a
+      // server that never touched the switch writes no field at all.
+      oauthRequestRefreshToken:
+        oauth.requestRefreshToken === false ? false : undefined,
+      // #2144: same shape — `undefined` means on, so only the opt-out persists.
+      oauthRevokeOnClear: oauth.revokeOnClear === false ? false : undefined,
     });
   }
 
@@ -284,8 +293,6 @@ export function ServerSettingsModal({
             onRemoveEnv={handleRemoveEnv}
             onEnvChange={handleEnvChange}
             onCwdChange={handleCwdChange}
-            onAddMetadata={handleAddMetadata}
-            onRemoveMetadata={handleRemoveMetadata}
             onMetadataChange={handleMetadataChange}
             onTimeoutChange={handleTimeoutChange}
             onAutoRefreshChange={handleAutoRefreshChange}
@@ -302,6 +309,7 @@ export function ServerSettingsModal({
             onRootChange={handleRootChange}
           />
         </Modal.Body>
+        <SecretStorageFooter info={secretStorage} />
       </Modal.Content>
     </AppModalLg>
   );

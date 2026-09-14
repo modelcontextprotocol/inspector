@@ -125,4 +125,31 @@ describe("usePagedResources", () => {
     await state.loadPage();
     expect(result.current.resources).toEqual([]);
   });
+
+  // #1998: paginated mode renders this store, so its load failure is what the
+  // panel's alert + Retry key off.
+  it("exposes the state's last load error and clears it on success", async () => {
+    const { result } = renderHook(() => usePagedResources(client, state));
+    expect(result.current.error).toBeNull();
+    const boom = new Error("list failed");
+    client.listResources.mockRejectedValueOnce(boom);
+    await act(async () => {
+      await expect(result.current.loadPage()).rejects.toThrow("list failed");
+    });
+    await waitFor(() => {
+      expect(result.current.error).toBe(boom);
+    });
+    client.queueResourcePages({ resources: [resource("a://1")] });
+    await act(async () => {
+      await result.current.loadPage();
+    });
+    await waitFor(() => {
+      expect(result.current.error).toBeNull();
+    });
+  });
+
+  it("reports no error when state is null", () => {
+    const { result } = renderHook(() => usePagedResources(client, null));
+    expect(result.current.error).toBeNull();
+  });
 });

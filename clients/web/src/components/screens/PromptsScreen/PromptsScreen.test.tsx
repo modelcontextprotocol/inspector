@@ -391,3 +391,34 @@ describe("PromptsScreen", () => {
     });
   });
 });
+
+// See the ToolsScreen counterpart: the `data-*` readiness contract the headless
+// tab smoke drives (#2148), pinned here so a rename fails loudly.
+describe("automation contract (#2148)", () => {
+  it("reports the prompt count and an idle get status", () => {
+    renderWithMantine(<PromptsScreen {...baseProps} />);
+    const root = screen.getByTestId("prompts-screen");
+    expect(root).toHaveAttribute(
+      "data-prompt-count",
+      String(promptsWithArgs.length),
+    );
+    expect(root).toHaveAttribute("data-get-status", "idle");
+  });
+
+  it("tracks the get status through to a result", () => {
+    renderWithMantine(
+      <PromptsScreen
+        {...baseProps}
+        getPromptState={{
+          status: "ok",
+          promptName: promptsWithArgs[0].name,
+          result: { messages: [] },
+        }}
+      />,
+    );
+    expect(screen.getByTestId("prompts-screen")).toHaveAttribute(
+      "data-get-status",
+      "ok",
+    );
+  });
+});

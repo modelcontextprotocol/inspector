@@ -18,12 +18,28 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
 import { expect, fn } from "storybook/test";
 import { InspectorView } from "./InspectorView";
+import type {
+  AppsPanelProps,
+  ConnectionProps,
+  ConsolePanelProps,
+  LogsPanelProps,
+  NetworkPanelProps,
+  PromptsPanelProps,
+  ProtocolPanelProps,
+  ResourcesPanelProps,
+  ServerListProps,
+  ShellProps,
+  SkillsPanelProps,
+  TasksPanelProps,
+  ToolsPanelProps,
+} from "./types";
 import { noopPagination } from "../../../test/fixtures/pagination";
 import {
   EMPTY_TOOLS_UI,
   EMPTY_APPS_UI,
   EMPTY_PROMPTS_UI,
   EMPTY_RESOURCES_UI,
+  EMPTY_SKILLS_UI,
   EMPTY_TASKS_UI,
   EMPTY_LOGS_UI,
   EMPTY_PROTOCOL_UI,
@@ -324,116 +340,180 @@ const demoInitializeResult: InitializeResult = {
   serverInfo: { name: "Local Dev Server", version: "1.2.0" },
 };
 
+// One constant per domain bundle, so a story can override a single field
+// without replacing its whole bundle — Storybook merges args only at the top
+// level, and each of these IS one top-level arg now (#2130).
+const shellArgs: ShellProps = {
+  activeTab: "Servers",
+  onActiveTabChange: fn(),
+  onToggleTheme: fn(),
+  onOpenClientSettings: fn(),
+};
+
+// Stories default to "disconnected"; per-story overrides drive the connected /
+// error narratives.
+const connectionArgs: ConnectionProps = {
+  activeServer: undefined,
+  connectionStatus: "disconnected",
+  initializeResult: undefined,
+  latencyMs: undefined,
+  onToggleConnection: fn(),
+  onDisconnect: fn(),
+};
+
+// Callbacks are wired to storybook spies so play functions can assert on
+// dispatch. Real wiring routes these to InspectorClient methods (the app shell
+// at clients/web/src/App.tsx).
+const serversArgs: ServerListProps = {
+  servers: demoServers,
+  onServerAdd: fn(),
+  onServerImportConfig: fn(),
+  onServerImportJson: fn(),
+  onServerExport: fn(),
+  onConnectionInfo: fn(),
+  onServerSettings: fn(),
+  onServerEdit: fn(),
+  onServerClone: fn(),
+  onServerRemove: fn(),
+  onServerReorder: fn(),
+};
+
+const toolsArgs: ToolsPanelProps = {
+  tools: demoTools,
+  toolsListChanged: false,
+  toolsUi: EMPTY_TOOLS_UI,
+  toolsPagination: noopPagination,
+  serverSupportsTaskToolCalls: false,
+  onToolsUiChange: fn(),
+  onCallTool: fn(),
+  onRefreshTools: fn(),
+};
+
+const promptsArgs: PromptsPanelProps = {
+  prompts: demoPrompts,
+  promptsListChanged: false,
+  promptsUi: EMPTY_PROMPTS_UI,
+  promptsPagination: noopPagination,
+  onPromptsUiChange: fn(),
+  onGetPrompt: fn(),
+  onRefreshPrompts: fn(),
+};
+
+const resourcesArgs: ResourcesPanelProps = {
+  resources: demoResources,
+  resourceTemplates: demoResourceTemplates,
+  subscriptions: demoSubscriptions,
+  resourcesListChanged: false,
+  resourcesUi: EMPTY_RESOURCES_UI,
+  resourcesPagination: noopPagination,
+  onResourcesUiChange: fn(),
+  onReadResource: fn(),
+  onSubscribeResource: fn(),
+  onUnsubscribeResource: fn(),
+  onRefreshResources: fn(),
+};
+
+const appsArgs: AppsPanelProps = {
+  appsUi: EMPTY_APPS_UI,
+  sandboxPath: "about:blank",
+  bridgeFactory: noopBridgeFactory,
+  appRendererRef: { current: null },
+  onAppsUiChange: fn(),
+  onSelectApp: fn(),
+  onOpenApp: fn(),
+  onCloseApp: fn(),
+  onAppError: fn(),
+  onRefreshApps: fn(),
+};
+
+const skillsArgs: SkillsPanelProps = {
+  skillsSessionKey: "story-session",
+  skills: [],
+  skillsPageCount: 0,
+  skillsUi: EMPTY_SKILLS_UI,
+  onSkillsUiChange: fn(),
+  onRefreshSkills: fn(),
+  onReadSkillFile: fn(async () => ({ text: "" })),
+  onGetSkill: fn(async (uri: string) => ({
+    uri,
+    frontmatter: {},
+    resources: [],
+  })),
+};
+
+const tasksArgs: TasksPanelProps = {
+  tasks: demoTasks,
+  progressByTaskId: demoProgressByTaskId,
+  tasksUi: EMPTY_TASKS_UI,
+  onTasksUiChange: fn(),
+  onCancelTask: fn(),
+  onClearCompletedTasks: fn(),
+  onRefreshTasks: fn(),
+};
+
+const logsArgs: LogsPanelProps = {
+  logs: demoLogs,
+  logsUi: EMPTY_LOGS_UI,
+  currentLogLevel: "info",
+  onSetLogLevel: fn(),
+  onLogsUiChange: fn(),
+  onClearLogs: fn(),
+  onExportLogs: fn(),
+};
+
+const protocolArgs: ProtocolPanelProps = {
+  protocol: demoHistory,
+  protocolUi: EMPTY_PROTOCOL_UI,
+  onProtocolUiChange: fn(),
+  onClearProtocol: fn(),
+  onExportProtocol: fn(),
+  onClearProtocolSection: fn(),
+  onExportProtocolSection: fn(),
+  onReplayProtocol: fn(),
+  onTogglePinProtocol: fn(),
+};
+
+const networkArgs: NetworkPanelProps = {
+  network: demoNetwork,
+  networkUi: EMPTY_NETWORK_UI,
+  onNetworkUiChange: fn(),
+  onClearNetwork: fn(),
+  onExportNetwork: fn(),
+};
+
+const consoleArgs: ConsolePanelProps = {
+  stderrLogs: demoStderr,
+  consoleUi: EMPTY_CONSOLE_UI,
+  onConsoleUiChange: fn(),
+  onClearConsole: fn(),
+  onExportConsole: fn(),
+};
+
 const meta: Meta<typeof InspectorView> = {
   title: "Views/InspectorView",
   component: InspectorView,
   parameters: { layout: "fullscreen" },
   args: {
-    // Data
-    servers: demoServers,
-    tools: demoTools,
-    prompts: demoPrompts,
-    resources: demoResources,
-    resourceTemplates: demoResourceTemplates,
-    subscriptions: demoSubscriptions,
-    logs: demoLogs,
-    tasks: demoTasks,
-    progressByTaskId: demoProgressByTaskId,
-    protocol: demoHistory,
-    network: demoNetwork,
-    stderrLogs: demoStderr,
-
-    // Connection state — stories default to "disconnected"; per-story
-    // overrides drive the connected / error narratives.
-    activeServer: undefined,
-    connectionStatus: "disconnected",
-    initializeResult: undefined,
-    latencyMs: undefined,
-
-    // Misc state
-    currentLogLevel: "info",
-    sandboxPath: "about:blank",
-    bridgeFactory: noopBridgeFactory,
-    appRendererRef: { current: null },
-
-    // Per-screen UI state (search / filter / selection), one object per screen.
-    toolsUi: EMPTY_TOOLS_UI,
-    promptsUi: EMPTY_PROMPTS_UI,
-    resourcesUi: EMPTY_RESOURCES_UI,
-    appsUi: EMPTY_APPS_UI,
-    tasksUi: EMPTY_TASKS_UI,
-    logsUi: EMPTY_LOGS_UI,
-    protocolUi: EMPTY_PROTOCOL_UI,
-    networkUi: EMPTY_NETWORK_UI,
-    consoleUi: EMPTY_CONSOLE_UI,
-
-    // Callbacks — all wired to storybook spies so play functions can assert
-    // on dispatch. Real wiring routes these to InspectorClient methods (the
-    // app shell at clients/web/src/App.tsx).
-    onToggleTheme: fn(),
-    onOpenClientSettings: fn(),
-    onToggleConnection: fn(),
-    onDisconnect: fn(),
-    onServerAdd: fn(),
-    onServerImportConfig: fn(),
-    onServerImportJson: fn(),
-    onServerExport: fn(),
-    onConnectionInfo: fn(),
-    onServerSettings: fn(),
-    onServerEdit: fn(),
-    onServerClone: fn(),
-    onServerRemove: fn(),
-    onServerReorder: fn(),
-    serverSupportsTaskToolCalls: false,
-    onToolsUiChange: fn(),
-    onCallTool: fn(),
-    onRefreshTools: fn(),
-    toolsPagination: noopPagination,
-    promptsPagination: noopPagination,
-    resourcesPagination: noopPagination,
-    onPromptsUiChange: fn(),
-    onGetPrompt: fn(),
-    onRefreshPrompts: fn(),
-    onResourcesUiChange: fn(),
-    onReadResource: fn(),
-    onSubscribeResource: fn(),
-    onUnsubscribeResource: fn(),
-    onRefreshResources: fn(),
-    onTasksUiChange: fn(),
-    onCancelTask: fn(),
-    onClearCompletedTasks: fn(),
-    onRefreshTasks: fn(),
-    onSetLogLevel: fn(),
-    onLogsUiChange: fn(),
-    onClearLogs: fn(),
-    onExportLogs: fn(),
-    onProtocolUiChange: fn(),
-    onClearProtocol: fn(),
-    onExportProtocol: fn(),
-    onReplayProtocol: fn(),
-    onTogglePinProtocol: fn(),
-    onNetworkUiChange: fn(),
-    onClearNetwork: fn(),
-    onExportNetwork: fn(),
-    onConsoleUiChange: fn(),
-    onClearConsole: fn(),
-    onExportConsole: fn(),
-    onAppsUiChange: fn(),
-    onSelectApp: fn(),
-    onOpenApp: fn(),
-    onCloseApp: fn(),
-    onAppError: fn(),
-    onRefreshApps: fn(),
-    activeTab: "Servers",
-    onActiveTabChange: fn(),
+    shell: shellArgs,
+    connection: connectionArgs,
+    servers: serversArgs,
+    tools: toolsArgs,
+    prompts: promptsArgs,
+    resources: resourcesArgs,
+    apps: appsArgs,
+    skills: skillsArgs,
+    tasks: tasksArgs,
+    logs: logsArgs,
+    protocol: protocolArgs,
+    network: networkArgs,
+    console: consoleArgs,
   },
   render: (args) => {
-    const [activeTab, setActiveTab] = useState(args.activeTab ?? "Servers");
+    const [activeTab, setActiveTab] = useState(args.shell.activeTab);
     return (
       <InspectorView
         {...args}
-        activeTab={activeTab}
-        onActiveTabChange={setActiveTab}
+        shell={{ ...args.shell, activeTab, onActiveTabChange: setActiveTab }}
       />
     );
   },
@@ -452,10 +532,10 @@ export const Default: Story = {
     if (!(main instanceof HTMLElement)) {
       throw new Error("AppShell main not found");
     }
-    expect(getComputedStyle(main).overflowY).toBe("hidden");
+    await expect(getComputedStyle(main).overflowY).toBe("hidden");
     // Clamped to the viewport (within a pixel of rounding), so the shell can't
     // grow past it and push the page into scrolling.
-    expect(main.getBoundingClientRect().height).toBeLessThanOrEqual(
+    await expect(main.getBoundingClientRect().height).toBeLessThanOrEqual(
       window.innerHeight + 1,
     );
   },
@@ -463,7 +543,7 @@ export const Default: Story = {
 
 export const NoServers: Story = {
   args: {
-    servers: [],
+    servers: { ...serversArgs, servers: [] },
   },
 };
 
@@ -480,7 +560,7 @@ const manyServers: ServerEntry[] = Array.from({ length: 24 }, (_, i) => ({
 
 export const ManyServers: Story = {
   args: {
-    servers: manyServers,
+    servers: { ...serversArgs, servers: manyServers },
   },
   play: async ({ canvasElement }) => {
     // Even under enough content to overflow, the shell stays viewport-clamped
@@ -489,8 +569,8 @@ export const ManyServers: Story = {
     if (!(main instanceof HTMLElement)) {
       throw new Error("AppShell main not found");
     }
-    expect(getComputedStyle(main).overflowY).toBe("hidden");
-    expect(main.getBoundingClientRect().bottom).toBeLessThanOrEqual(
+    await expect(getComputedStyle(main).overflowY).toBe("hidden");
+    await expect(main.getBoundingClientRect().bottom).toBeLessThanOrEqual(
       window.innerHeight + 1,
     );
     // The overflow lives in the inner server-grid ScrollArea, which is actually
@@ -499,7 +579,7 @@ export const ManyServers: Story = {
     if (!(viewport instanceof HTMLElement)) {
       throw new Error("server-grid scroll viewport not found");
     }
-    expect(viewport.scrollHeight).toBeGreaterThan(viewport.clientHeight);
+    await expect(viewport.scrollHeight).toBeGreaterThan(viewport.clientHeight);
   },
 };
 
@@ -509,10 +589,13 @@ export const ManyServers: Story = {
 // regression / storybook play function coverage.
 export const Connected: Story = {
   args: {
-    activeServer: demoServers[0]!.id,
-    connectionStatus: "connected",
-    initializeResult: demoInitializeResult,
-    latencyMs: 142,
+    connection: {
+      ...connectionArgs,
+      activeServer: demoServers[0]!.id,
+      connectionStatus: "connected",
+      initializeResult: demoInitializeResult,
+      latencyMs: 142,
+    },
   },
 };
 
@@ -524,10 +607,13 @@ export const ConnectionError: Story = {
   // connect-attempt-failure signal that gates the failure column; `network: []`
   // (and empty Protocol) keep it a pure stdio failure so only Console is offered.
   args: {
-    activeServer: demoServers[0]!.id,
-    erroredServerId: demoServers[0]!.id,
-    connectionStatus: "error",
-    network: [],
-    stderrLogs: demoStderr,
+    connection: {
+      ...connectionArgs,
+      activeServer: demoServers[0]!.id,
+      erroredServerId: demoServers[0]!.id,
+      connectionStatus: "error",
+    },
+    network: { ...networkArgs, network: [] },
+    console: { ...consoleArgs, stderrLogs: demoStderr },
   },
 };

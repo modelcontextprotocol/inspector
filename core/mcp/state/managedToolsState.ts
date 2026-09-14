@@ -8,17 +8,11 @@ import type { Tool } from "@modelcontextprotocol/client";
 import {
   ManagedListState,
   DEFAULT_LIST_CHANGED_DEBOUNCE_MS,
+  type ManagedListEventMap,
 } from "./managedListState.js";
 
-export interface ManagedToolsStateEventMap {
+export interface ManagedToolsStateEventMap extends ManagedListEventMap {
   toolsChange: Tool[];
-  /**
-   * Fires when the "list changed since last refresh" flag flips. True when a
-   * `tools/list_changed` arrives (auto-refresh off), false once the user
-   * refreshes or the connection drops. Drives the sidebar list-changed
-   * indicator (#1402).
-   */
-  listChangedChange: boolean;
 }
 
 export class ManagedToolsState extends ManagedListState<
@@ -30,6 +24,7 @@ export class ManagedToolsState extends ManagedListState<
     debounceMs = DEFAULT_LIST_CHANGED_DEBOUNCE_MS,
   ) {
     super(client, {
+      listMethod: "tools/list",
       changeEvent: "toolsChange",
       listChangedEvent: "toolsListChanged",
       capabilityKey: "tools",

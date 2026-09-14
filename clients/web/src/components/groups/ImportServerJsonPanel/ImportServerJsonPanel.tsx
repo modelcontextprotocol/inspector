@@ -8,10 +8,10 @@ import {
   Stack,
   Text,
   TextInput,
-  Textarea,
   Title,
 } from "@mantine/core";
 import { ClearButton } from "../../elements/ClearButton/ClearButton";
+import { JsonEditor } from "../../elements/JsonEditor/JsonEditor";
 import type { InspectorServerJsonDraft } from "@inspector/core/mcp/types.js";
 
 export interface ValidationResult {
@@ -89,18 +89,23 @@ const HeaderRow = Group.withProps({
   wrap: "nowrap",
 });
 
+// The header's trailing controls. `nowrap` keeps Clear beside Choose file…
+// rather than wrapping one under the other in a narrow modal.
+const HeaderActions = Group.withProps({ gap: "xs", wrap: "nowrap" });
+
 const ChooseFileButton = Button.withProps({
   variant: "default",
   size: "xs",
 });
 
-const FileContentsTextarea = Textarea.withProps({
-  "aria-label": "File Contents",
-  ff: "monospace",
-  autosize: true,
-  minRows: 8,
-  maxRows: 15,
-  rightSectionPointerEvents: "auto",
+// Clears the pasted document. It sits in the header row rather than inside the
+// editor: Ace renders its own DOM and has no `rightSection` to hang a control
+// in, and an absolutely-positioned button over a scrolling editor would sit on
+// top of the text it is meant to help with.
+const ClearContentsButton = Button.withProps({
+  variant: "subtle",
+  size: "xs",
+  color: "gray",
 });
 
 const DefaultNameInput = TextInput.withProps({
@@ -143,13 +148,20 @@ export function ImportServerJsonPanel({
     <Stack gap="md">
       <HeaderRow>
         <HintText>Paste server.json content, or load it from a file:</HintText>
-        {onPickFile ? (
-          <FileButton accept="application/json,.json" onChange={onPickFile}>
-            {(props) => (
-              <ChooseFileButton {...props}>Choose file…</ChooseFileButton>
-            )}
-          </FileButton>
-        ) : null}
+        <HeaderActions>
+          {hasContent && (
+            <ClearContentsButton onClick={() => onJsonChange("")}>
+              Clear
+            </ClearContentsButton>
+          )}
+          {onPickFile ? (
+            <FileButton accept="application/json,.json" onChange={onPickFile}>
+              {(props) => (
+                <ChooseFileButton {...props}>Choose file…</ChooseFileButton>
+              )}
+            </FileButton>
+          ) : null}
+        </HeaderActions>
       </HeaderRow>
 
       {/* Accordions here stay inline: Accordion is a compound,
@@ -177,14 +189,12 @@ export function ImportServerJsonPanel({
             File Contents
           </Accordion.Control>
           <Accordion.Panel>
-            <FileContentsTextarea
+            <JsonEditor
+              ariaLabel="File Contents"
               value={draft.rawText}
-              onChange={(e) => onJsonChange(e.currentTarget.value)}
-              rightSection={
-                draft.rawText ? (
-                  <ClearButton onClick={() => onJsonChange("")} />
-                ) : null
-              }
+              onChange={onJsonChange}
+              minLines={8}
+              maxLines={20}
             />
           </Accordion.Panel>
         </Accordion.Item>

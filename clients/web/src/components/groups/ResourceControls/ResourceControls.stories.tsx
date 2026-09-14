@@ -86,8 +86,8 @@ export const Default: Story = {
   // chevron points down.
   play: async ({ canvasElement }) => {
     const transforms = chevronTransforms(canvasElement);
-    expect(transforms).toHaveLength(3);
-    for (const t of transforms) expect(t).toBe(ROTATED_DOWN);
+    await expect(transforms).toHaveLength(3);
+    for (const t of transforms) await expect(t).toBe(ROTATED_DOWN);
   },
 };
 
@@ -122,9 +122,9 @@ export const Collapsed: Story = {
   },
   play: async ({ canvasElement }) => {
     const transforms = chevronTransforms(canvasElement);
-    expect(transforms).toHaveLength(3);
+    await expect(transforms).toHaveLength(3);
     // Identity matrix = the right-pointing arrow's natural 0° (not rotated).
-    for (const t of transforms) expect(t).toBe(NOT_ROTATED);
+    for (const t of transforms) await expect(t).toBe(NOT_ROTATED);
   },
 };
 
@@ -140,10 +140,10 @@ export const EmptySectionCollapsed: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    expect(canvas.getByText("Subscriptions (0)")).toBeInTheDocument();
+    await expect(canvas.getByText("Subscriptions (0)")).toBeInTheDocument();
     const transforms = chevronTransforms(canvasElement);
     const downCount = transforms.filter((t) => t === ROTATED_DOWN).length;
-    expect(downCount).toBe(2); // URIs + Templates down, Subscriptions right
+    await expect(downCount).toBe(2); // URIs + Templates down, Subscriptions right
   },
 };
 
@@ -158,11 +158,11 @@ export const SubscriptionsUnsupported: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    expect(canvas.queryByText(/Subscriptions/)).not.toBeInTheDocument();
+    await expect(canvas.queryByText(/Subscriptions/)).not.toBeInTheDocument();
     // Only the two remaining sections render, both open → both chevrons down.
     const transforms = chevronTransforms(canvasElement);
-    expect(transforms).toHaveLength(2);
-    for (const t of transforms) expect(t).toBe(ROTATED_DOWN);
+    await expect(transforms).toHaveLength(2);
+    for (const t of transforms) await expect(t).toBe(ROTATED_DOWN);
   },
 };
 

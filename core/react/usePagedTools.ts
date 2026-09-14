@@ -1,12 +1,25 @@
-import { useState, useEffect, useCallback } from "react";
+import { useCallback } from "react";
 import type { InspectorClientProtocol } from "../mcp/inspectorClientProtocol.js";
 import type {
   PagedToolsState,
-  PagedToolsStateEventMap,
+  PagePaginationState,
   LoadPageResult,
 } from "../mcp/state/pagedToolsState.js";
 import type { Tool } from "@modelcontextprotocol/client";
-import type { TypedEventGeneric } from "../mcp/typedEventTarget.js";
+import { useListError } from "./useListError.js";
+import { useStoreSnapshot } from "./useStoreSnapshot.js";
+import { NO_PAGINATION } from "./pagination.js";
+
+/**
+ * Shared stable empty list for the no-server case. Module scope so the
+ * snapshot doesn't change identity every render — see `useStoreSnapshot`.
+ * Read-only by contract: nothing mutates a list this hook returns.
+ */
+const NO_TOOLS: Tool[] = [];
+
+const readTools = (state: PagedToolsState): Tool[] => state.getTools();
+const readPagination = (state: PagedToolsState): PagePaginationState =>
+  state.getPagination();
 
 export interface UsePagedToolsResult {
   tools: Tool[];
@@ -14,6 +27,12 @@ export interface UsePagedToolsResult {
   nextCursor?: string;
   /** Pages loaded since the last reset (page 1 = 1). */
   pageCount: number;
+  /**
+   * The last page load's failure, or `null` when it succeeded. In paginated
+   * mode this store is the display source, so this — not the managed
+   * store's error — is what the panel renders (#1998).
+   */
+  error: Error | null;
   loadPage: (cursor?: string) => Promise<LoadPageResult>;
   clear: () => void;
 }
@@ -28,50 +47,25 @@ export function usePagedTools(
   client: InspectorClientProtocol | null,
   pagedToolsState: PagedToolsState | null,
 ): UsePagedToolsResult {
-  const [tools, setTools] = useState<Tool[]>(pagedToolsState?.getTools() ?? []);
-  const [nextCursor, setNextCursor] = useState<string | undefined>(
-    pagedToolsState?.getPagination().nextCursor,
+  const tools = useStoreSnapshot(
+    pagedToolsState,
+    "toolsChange",
+    readTools,
+    NO_TOOLS,
   );
-  const [pageCount, setPageCount] = useState<number>(
-    pagedToolsState?.getPagination().pageCount ?? 0,
+  const { nextCursor, pageCount } = useStoreSnapshot(
+    pagedToolsState,
+    "paginationChange",
+    readPagination,
+    NO_PAGINATION,
   );
 
-  useEffect(() => {
-    if (!pagedToolsState) {
-      setTools([]);
-      setNextCursor(undefined);
-      setPageCount(0);
-      return;
-    }
-    setTools(pagedToolsState.getTools());
-    setNextCursor(pagedToolsState.getPagination().nextCursor);
-    setPageCount(pagedToolsState.getPagination().pageCount);
-    const onToolsChange = (
-      event: TypedEventGeneric<PagedToolsStateEventMap, "toolsChange">,
-    ) => {
-      setTools(event.detail);
-    };
-    const onPaginationChange = (
-      event: TypedEventGeneric<PagedToolsStateEventMap, "paginationChange">,
-    ) => {
-      setNextCursor(event.detail.nextCursor);
-      setPageCount(event.detail.pageCount);
-    };
-    pagedToolsState.addEventListener("toolsChange", onToolsChange);
-    pagedToolsState.addEventListener("paginationChange", onPaginationChange);
-    return () => {
-      pagedToolsState.removeEventListener("toolsChange", onToolsChange);
-      pagedToolsState.removeEventListener(
-        "paginationChange",
-        onPaginationChange,
-      );
-    };
-  }, [pagedToolsState]);
+  const error = useListError(pagedToolsState);
 
   const loadPage = useCallback(
     async (cursor?: string): Promise<LoadPageResult> => {
       if (!pagedToolsState || !client) {
-        return { tools: [], nextCursor: undefined };
+        return { tools: NO_TOOLS, nextCursor: undefined };
       }
       return pagedToolsState.loadPage(cursor);
     },
@@ -82,5 +76,5 @@ export function usePagedTools(
     pagedToolsState?.clear();
   }, [pagedToolsState]);
 
-  return { tools, nextCursor, pageCount, loadPage, clear };
+  return { tools, nextCursor, pageCount, error, loadPage, clear };
 }

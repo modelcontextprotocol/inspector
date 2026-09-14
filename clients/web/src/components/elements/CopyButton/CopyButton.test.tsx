@@ -10,6 +10,17 @@ describe("CopyButton", () => {
     expect(screen.getByText("⎘")).toBeInTheDocument();
   });
 
+  it("names itself 'Copy' with no label, and qualifies the name when given one", () => {
+    const { unmount } = renderWithMantine(<CopyButton value="hello" />);
+    expect(screen.getByRole("button", { name: "Copy" })).toBeInTheDocument();
+    unmount();
+
+    renderWithMantine(<CopyButton value="hello" label="ID Token" />);
+    expect(
+      screen.getByRole("button", { name: "Copy ID Token" }),
+    ).toBeInTheDocument();
+  });
+
   it("triggers a click without throwing when clipboard is unavailable", async () => {
     const user = userEvent.setup();
     renderWithMantine(<CopyButton value="hello" />);

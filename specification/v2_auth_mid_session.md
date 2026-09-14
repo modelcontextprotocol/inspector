@@ -206,7 +206,8 @@ export type AuthChallengeOutcome =
 
 Read-only check against **current storage** (and token expiry helpers). Used before starting visible OAuth — especially when a background browser tab regains focus and another tab may have already re-authenticated. Does **not** call the authorization server.
 
-- **`token_expired` / `unauthorized`:** valid non-expired access token in storage.
+- **`token_expired`:** a **provably** unexpired access token in storage — a JWT whose `exp` is still in the future (60s skew). Storage records no absolute expiry for an opaque token (`expires_in` is relative to an issuance instant that is never persisted), so "expiry unknown" returns **false**: the resource server has said the credential is dead, and no local evidence contradicts it. Otherwise an opaque token would be replayed forever ([#2051](https://github.com/modelcontextprotocol/inspector/issues/2051)).
+- **`invalid_token` / `unauthorized`:** always **false** — the resource server explicitly rejected the credential.
 - **`insufficient_scope`:** stored/token scope is a superset of required / union scopes. Empty scope on an `insufficient_scope` challenge returns **false** (do not short-circuit).
 
 ### Strategy by protocol

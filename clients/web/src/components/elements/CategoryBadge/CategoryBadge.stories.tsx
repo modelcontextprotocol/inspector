@@ -14,7 +14,7 @@ export const Transport: Story = {
   args: { category: "transport" },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    expect(canvas.getByText("transport")).toBeInTheDocument();
+    await expect(canvas.getByText("transport")).toBeInTheDocument();
   },
 };
 
@@ -22,6 +22,6 @@ export const Auth: Story = {
   args: { category: "auth" },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    expect(canvas.getByText("auth")).toBeInTheDocument();
+    await expect(canvas.getByText("auth")).toBeInTheDocument();
   },
 };

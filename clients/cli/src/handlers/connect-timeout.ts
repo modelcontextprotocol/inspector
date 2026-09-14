@@ -22,7 +22,7 @@ export function withConnectTimeout(
   if (settings) return { ...settings, connectionTimeout };
   return {
     headers: [],
-    metadata: [],
+    metadata: {},
     env: [],
     connectionTimeout,
     requestTimeout: 0,

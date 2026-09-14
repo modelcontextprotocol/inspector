@@ -1,0 +1,35 @@
+<!--
+  ⚠️ Before you open this pull request, please read our contribution policy.
+
+  We accept ISSUES, NOT PULL REQUESTS from external contributors.
+
+  Design and implementation are done by the maintainers through a
+  prompt-driven workflow (see AGENTS.md). External source PRs will not be
+  merged — they have to be reverse-engineered to fit our component/theme
+  conventions and coverage gates, so it's faster for us to re-derive the
+  change from your intent.
+
+  If you've found a bug or want a feature:
+    → Open an issue instead, labeled for the version you're targeting
+      (`v1` for `v1/main`, `v2` for `v2/main`).
+
+  If you've already built the change locally:
+    → Open an issue and share the PROMPT(S) you used to generate it, not a
+      diff. We'll reproduce it through our own workflow.
+
+  Full policy: ../CONTRIBUTING.md (relative to this template — the file lives
+  at the repository root, on whatever branch you're reading).
+
+  Maintainers: delete this template body and describe your change normally.
+-->
+
+> **Heads up:** this repository accepts **issues, not pull requests** from
+> external contributors. Please read [`CONTRIBUTING.md`](../CONTRIBUTING.md)
+> before continuing. If you're an external contributor, open an issue (and
+> share the prompt you used, if you've already built the change) rather than
+> this PR.
+>
+> Want to work on the Inspector with us directly? Come say hello in
+> **`#inspector-dev`** on the
+> [MCP Contributor Discord](https://discord.gg/6CSzBmMkjX) — we're happy to
+> scope work with you.

@@ -35,7 +35,11 @@ type PrismRuntime = ComponentType<{
  * below if the canonical Prism name differs) as the type matrix grows.
  */
 const LANGUAGE_LOADERS: Record<string, () => Promise<{ default: Grammar }>> = {
-  json: () => import("react-syntax-highlighter/dist/esm/languages/prism/json"),
+  // No `json` entry, deliberately (#2151). JSON is rendered by the Ace-backed
+  // `JsonEditor` in read-only mode, which folds and numbers a large payload —
+  // things a Prism block cannot do. Registering the grammar here as well would
+  // leave two highlighters for one language, differing in appearance and
+  // drifting apart; there is no caller left that asks for it.
   markup: () =>
     import("react-syntax-highlighter/dist/esm/languages/prism/markup"),
   css: () => import("react-syntax-highlighter/dist/esm/languages/prism/css"),

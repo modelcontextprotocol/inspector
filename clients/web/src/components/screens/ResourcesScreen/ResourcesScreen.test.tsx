@@ -403,3 +403,36 @@ describe("ResourcesScreen", () => {
     ).not.toBeInTheDocument();
   });
 });
+
+// See the ToolsScreen counterpart: the `data-*` readiness contract the headless
+// tab smoke drives (#2148), pinned here so a rename fails loudly.
+describe("automation contract (#2148)", () => {
+  it("reports the resource and template counts separately", () => {
+    renderWithMantine(<ResourcesScreen {...baseProps} />);
+    const root = screen.getByTestId("resources-screen");
+    // Two attributes rather than one: `resources/list` and
+    // `resources/templates/list` are separate calls and either can fail alone.
+    expect(root).toHaveAttribute(
+      "data-resource-count",
+      String(resources.length),
+    );
+    expect(root).toHaveAttribute(
+      "data-template-count",
+      String(templates.length),
+    );
+    expect(root).toHaveAttribute("data-read-status", "idle");
+  });
+
+  it("tracks the read status through to a result", () => {
+    renderWithMantine(
+      <ResourcesScreen
+        {...baseProps}
+        readState={{ status: "ok", uri: "file:///x", result: okResult }}
+      />,
+    );
+    expect(screen.getByTestId("resources-screen")).toHaveAttribute(
+      "data-read-status",
+      "ok",
+    );
+  });
+});

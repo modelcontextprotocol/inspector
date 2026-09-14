@@ -1,0 +1,20 @@
+{
+  "serverInfo": {
+    "name": "oauth-no-revocation",
+    "version": "1.0.0"
+  },
+  "tools": [{ "preset": "echo" }],
+  "oauth": {
+    "enabled": true,
+    "mode": "combined",
+    "requireAuth": true,
+    "scopesSupported": ["mcp"],
+    "supportDCR": true,
+    "supportRefreshTokens": true,
+    "supportRevocation": false
+  },
+  "transport": {
+    "type": "streamable-http",
+    "port": 8084
+  }
+}

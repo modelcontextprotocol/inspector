@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { expect, userEvent, within } from "storybook/test";
+import { expect, userEvent, waitFor, within } from "storybook/test";
 import type { FetchRequestEntry } from "../../../../../../core/mcp/types.js";
 import { NetworkEntry } from "./NetworkEntry";
 
@@ -104,6 +104,26 @@ export const TransportSuccessExpanded: Story = {
   args: { entry: transportEntry, isListExpanded: true },
 };
 
+/**
+ * Every rendered body, as text, however each one is rendered.
+ *
+ * A JSON body renders in Ace (#2151), which repaints its rows on an animation
+ * frame — so reading `canvasElement.textContent` straight after a state change
+ * can still return the previous rows, and does under load. It also virtualizes,
+ * so only what its viewport covers is in the DOM at all. Reading the editors'
+ * documents alongside the DOM text is immediate and complete; the DOM half is
+ * kept because a body that renders as plain text is not in any editor.
+ */
+function renderedBodyText(canvasElement: HTMLElement): string {
+  const editors = Array.from(canvasElement.querySelectorAll(".ace_editor")).map(
+    (node) =>
+      (
+        node as HTMLElement & { env?: { editor?: { getValue(): string } } }
+      ).env?.editor?.getValue() ?? "",
+  );
+  return [canvasElement.textContent ?? "", ...editors].join("\n");
+}
+
 export const AuthSuccess: Story = {
   args: { entry: authEntry, isListExpanded: true },
   play: async ({ canvasElement }) => {
@@ -113,10 +133,12 @@ export const AuthSuccess: Story = {
     // must not be visible until explicitly revealed.
     const hidden = canvas.getAllByText("Secrets hidden");
     await expect(hidden.length).toBeGreaterThanOrEqual(2);
-    await expect(canvasElement.textContent).not.toContain("eyJhbGciOiJSUzI1");
-    await expect(canvasElement.textContent).toContain("••••••••");
+    await expect(renderedBodyText(canvasElement)).not.toContain(
+      "eyJhbGciOiJSUzI1",
+    );
+    await expect(renderedBodyText(canvasElement)).toContain("••••••••");
     // Non-secret fields stay visible.
-    await expect(canvasElement.textContent).toContain("Bearer");
+    await expect(renderedBodyText(canvasElement)).toContain("Bearer");
 
     // Reveal every masked body and confirm the raw response token appears.
     const revealButtons = canvas.getAllByRole("button", {
@@ -128,7 +150,11 @@ export const AuthSuccess: Story = {
     await expect(
       canvas.getAllByText("Secrets revealed").length,
     ).toBeGreaterThanOrEqual(revealButtons.length);
-    await expect(canvasElement.textContent).toContain("eyJhbGciOiJSUzI1");
+    await waitFor(async () => {
+      await expect(renderedBodyText(canvasElement)).toContain(
+        "eyJhbGciOiJSUzI1",
+      );
+    });
   },
 };
 

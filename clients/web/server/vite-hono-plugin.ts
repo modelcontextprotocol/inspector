@@ -9,7 +9,6 @@
 
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Plugin } from "vite";
-import open from "open";
 // Direct leaf import — the `core/mcp/remote/node/index.ts` barrel re-exports
 // from `../constants.js`, which would otherwise drag the broader
 // `core/mcp/remote/index.ts` barrel (including `createRemoteLogger`, with its
@@ -17,11 +16,17 @@ import open from "open";
 // spurious "could not resolve" warnings during build.
 import { createRemoteApp } from "../../../core/mcp/remote/node/server.ts";
 import { createSandboxController } from "./sandbox-controller.js";
+import {
+  createAppOriginController,
+  appDocumentEmbedders,
+} from "./app-origin-controller.js";
 import { injectAuthToken } from "./inject-auth-token.js";
 import type { WebServerConfig } from "./web-server-config.js";
+import { getSecretStorageInfo } from "../../../core/auth/node/secret-store-selection.ts";
 import {
   webServerConfigToInitialPayload,
   printServerBanner,
+  openBrowser,
 } from "./web-server-config.js";
 
 export function honoMiddlewarePlugin(config: WebServerConfig): Plugin {
@@ -63,8 +68,24 @@ export function honoMiddlewarePlugin(config: WebServerConfig): Plugin {
       const sandboxController = createSandboxController({
         port: config.sandboxPort,
         host: config.sandboxHost,
+        allowedOrigins: config.allowedOrigins,
       });
       await sandboxController.start();
+      // The dedicated origin apps declaring `_meta.ui.domain` are served from
+      // (#2056). Started after the sandbox because its `frame-ancestors` names
+      // the sandbox proxy's origin — the proxy is what embeds the app frame.
+      const appOriginController = createAppOriginController({
+        port: config.appOriginPort,
+        host: config.sandboxHost,
+        embedderOrigins: appDocumentEmbedders(
+          sandboxController.getUrl(),
+          config.allowedOrigins,
+        ),
+      });
+      await appOriginController.start();
+      // Resolved before the API is built so `/api/config` and the banner
+      // report the same store (the selection itself is cached process-wide).
+      const secretStorage = await getSecretStorageInfo();
 
       const {
         app: honoApp,
@@ -79,8 +100,14 @@ export function honoMiddlewarePlugin(config: WebServerConfig): Plugin {
         initialServers: config.initialServers ?? undefined,
         allowedOrigins: config.allowedOrigins,
         sandboxUrl: sandboxController.getUrl() ?? undefined,
+        publishAppDocument: (doc) => appOriginController.publish(doc),
         logger: config.logger,
-        initialConfig: webServerConfigToInitialPayload(config),
+        initialConfig: webServerConfigToInitialPayload(config, secretStorage),
+        // The startup value above is what the banner printed; the route
+        // re-resolves per request, because the first write under a newly-set
+        // passphrase encrypts a pre-existing plaintext file and a captured
+        // descriptor would keep reporting the old state until a restart.
+        secretStorageResolver: getSecretStorageInfo,
       });
 
       // Expose the resolved token to `transformIndexHtml`. Left empty when
@@ -93,6 +120,7 @@ export function honoMiddlewarePlugin(config: WebServerConfig): Plugin {
       server.close = async () => {
         await closeApi();
         await sandboxController.close();
+        await appOriginController.close();
         return originalClose();
       };
 
@@ -110,10 +138,13 @@ export function honoMiddlewarePlugin(config: WebServerConfig): Plugin {
           actualPort,
           resolvedToken,
           sandboxUrl ?? undefined,
+          secretStorage,
         );
 
         if (config.autoOpen) {
-          open(url);
+          // Never a bare `open(url)`: `logBanner` is synchronous, so a
+          // rejection would escape it. See openBrowser.
+          openBrowser(url);
         }
       };
 

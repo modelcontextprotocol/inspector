@@ -125,4 +125,31 @@ describe("usePagedTools", () => {
     await state.loadPage();
     expect(result.current.tools).toEqual([]);
   });
+
+  // #1998: paginated mode renders this store, so its load failure is what the
+  // panel's alert + Retry key off.
+  it("exposes the state's last load error and clears it on success", async () => {
+    const { result } = renderHook(() => usePagedTools(client, state));
+    expect(result.current.error).toBeNull();
+    const boom = new Error("list failed");
+    client.listTools.mockRejectedValueOnce(boom);
+    await act(async () => {
+      await expect(result.current.loadPage()).rejects.toThrow("list failed");
+    });
+    await waitFor(() => {
+      expect(result.current.error).toBe(boom);
+    });
+    client.queueToolPages({ tools: [tool("a")] });
+    await act(async () => {
+      await result.current.loadPage();
+    });
+    await waitFor(() => {
+      expect(result.current.error).toBeNull();
+    });
+  });
+
+  it("reports no error when state is null", () => {
+    const { result } = renderHook(() => usePagedTools(client, null));
+    expect(result.current.error).toBeNull();
+  });
 });

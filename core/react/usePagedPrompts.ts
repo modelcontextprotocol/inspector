@@ -1,12 +1,26 @@
-import { useState, useEffect, useCallback } from "react";
+import { useCallback } from "react";
 import type { InspectorClientProtocol } from "../mcp/inspectorClientProtocol.js";
+import type { RequestMetadata } from "../mcp/types.js";
 import type {
   PagedPromptsState,
-  PagedPromptsStateEventMap,
   LoadPageResult,
 } from "../mcp/state/pagedPromptsState.js";
+import type { PagePaginationState } from "../mcp/state/pagedToolsState.js";
 import type { Prompt } from "@modelcontextprotocol/client";
-import type { TypedEventGeneric } from "../mcp/typedEventTarget.js";
+import { useListError } from "./useListError.js";
+import { useStoreSnapshot } from "./useStoreSnapshot.js";
+import { NO_PAGINATION } from "./pagination.js";
+
+/**
+ * Shared stable empty list for the no-server case. Module scope so the
+ * snapshot doesn't change identity every render — see `useStoreSnapshot`.
+ * Read-only by contract: nothing mutates a list this hook returns.
+ */
+const NO_PROMPTS: Prompt[] = [];
+
+const readPrompts = (state: PagedPromptsState): Prompt[] => state.getPrompts();
+const readPagination = (state: PagedPromptsState): PagePaginationState =>
+  state.getPagination();
 
 export interface UsePagedPromptsResult {
   prompts: Prompt[];
@@ -14,9 +28,15 @@ export interface UsePagedPromptsResult {
   nextCursor?: string;
   /** Pages loaded since the last reset (page 1 = 1). */
   pageCount: number;
+  /**
+   * The last page load's failure, or `null` when it succeeded. In paginated
+   * mode this store is the display source, so this — not the managed
+   * store's error — is what the panel renders (#1998).
+   */
+  error: Error | null;
   loadPage: (
     cursor?: string,
-    metadata?: Record<string, string>,
+    metadata?: RequestMetadata,
   ) => Promise<LoadPageResult>;
   clear: () => void;
 }
@@ -30,55 +50,28 @@ export function usePagedPrompts(
   client: InspectorClientProtocol | null,
   pagedPromptsState: PagedPromptsState | null,
 ): UsePagedPromptsResult {
-  const [prompts, setPrompts] = useState<Prompt[]>(
-    pagedPromptsState?.getPrompts() ?? [],
+  const prompts = useStoreSnapshot(
+    pagedPromptsState,
+    "promptsChange",
+    readPrompts,
+    NO_PROMPTS,
   );
-  const [nextCursor, setNextCursor] = useState<string | undefined>(
-    pagedPromptsState?.getPagination().nextCursor,
-  );
-  const [pageCount, setPageCount] = useState<number>(
-    pagedPromptsState?.getPagination().pageCount ?? 0,
+  const { nextCursor, pageCount } = useStoreSnapshot(
+    pagedPromptsState,
+    "paginationChange",
+    readPagination,
+    NO_PAGINATION,
   );
 
-  useEffect(() => {
-    if (!pagedPromptsState) {
-      setPrompts([]);
-      setNextCursor(undefined);
-      setPageCount(0);
-      return;
-    }
-    setPrompts(pagedPromptsState.getPrompts());
-    setNextCursor(pagedPromptsState.getPagination().nextCursor);
-    setPageCount(pagedPromptsState.getPagination().pageCount);
-    const onPromptsChange = (
-      event: TypedEventGeneric<PagedPromptsStateEventMap, "promptsChange">,
-    ) => {
-      setPrompts(event.detail);
-    };
-    const onPaginationChange = (
-      event: TypedEventGeneric<PagedPromptsStateEventMap, "paginationChange">,
-    ) => {
-      setNextCursor(event.detail.nextCursor);
-      setPageCount(event.detail.pageCount);
-    };
-    pagedPromptsState.addEventListener("promptsChange", onPromptsChange);
-    pagedPromptsState.addEventListener("paginationChange", onPaginationChange);
-    return () => {
-      pagedPromptsState.removeEventListener("promptsChange", onPromptsChange);
-      pagedPromptsState.removeEventListener(
-        "paginationChange",
-        onPaginationChange,
-      );
-    };
-  }, [pagedPromptsState]);
+  const error = useListError(pagedPromptsState);
 
   const loadPage = useCallback(
     async (
       cursor?: string,
-      metadata?: Record<string, string>,
+      metadata?: RequestMetadata,
     ): Promise<LoadPageResult> => {
       if (!pagedPromptsState || !client) {
-        return { prompts: [], nextCursor: undefined };
+        return { prompts: NO_PROMPTS, nextCursor: undefined };
       }
       return pagedPromptsState.loadPage(cursor, metadata);
     },
@@ -89,5 +82,5 @@ export function usePagedPrompts(
     pagedPromptsState?.clear();
   }, [pagedPromptsState]);
 
-  return { prompts, nextCursor, pageCount, loadPage, clear };
+  return { prompts, nextCursor, pageCount, error, loadPage, clear };
 }

@@ -9,8 +9,19 @@ import { join } from "node:path";
  * file (and any parent dir) appears a tick later. Awaiting this before cleanup
  * also guarantees the background mkdir/open has finished, so `afterEach`'s
  * rmSync can't race it into an ENOENT.
+ *
+ * The budget is a ceiling, not a wait: the loop exits on the first `existsSync`
+ * that succeeds, so a passing run pays only the 20ms poll interval and the
+ * headroom is spent only when a real filesystem write is genuinely slow — which
+ * is what an oversubscribed machine produces (#2323). 2000ms was Vitest-era
+ * guesswork against an idle one.
  */
-async function waitForFile(filePath: string, timeoutMs = 2000): Promise<void> {
+const FILE_APPEAR_TIMEOUT_MS = 10_000;
+
+async function waitForFile(
+  filePath: string,
+  timeoutMs = FILE_APPEAR_TIMEOUT_MS,
+): Promise<void> {
   const start = Date.now();
   while (!existsSync(filePath)) {
     if (Date.now() - start > timeoutMs) {

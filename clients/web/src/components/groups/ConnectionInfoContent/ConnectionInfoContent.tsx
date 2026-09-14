@@ -3,6 +3,7 @@ import {
   Button,
   Code,
   Flex,
+  Group,
   ScrollArea,
   SimpleGrid,
   Stack,
@@ -14,8 +15,11 @@ import type {
   DiscoverResult,
   InitializeResult,
   ProtocolEra,
+  ServerCapabilities,
 } from "@modelcontextprotocol/client";
 import type { ServerType } from "@inspector/core/mcp/types.js";
+import { TASKS_EXTENSION_KEY } from "@inspector/core/mcp/modernTaskSchemas.js";
+import { getSkillsExtension } from "@inspector/core/mcp/skills.js";
 import type { OAuthClientRegistrationKind } from "@inspector/core/auth/types.js";
 import {
   CapabilityItem,
@@ -24,7 +28,7 @@ import {
 import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";
 import { EraBadge } from "../../elements/EraBadge/EraBadge";
 import { isModernEra } from "../../elements/EraBadge/eraUtils";
-import { OAuthAccessTokenField } from "./OAuthAccessTokenField";
+import { OAuthTokenField } from "./OAuthTokenField";
 
 export interface OAuthDetails {
   protocol: "standard" | "ema";
@@ -34,6 +38,13 @@ export interface OAuthDetails {
   authUrl?: string;
   scopes?: string[];
   accessToken?: string;
+  /**
+   * OIDC `id_token` from the stored token set, when the authorization server
+   * returned one. Shown for inspection only — the MCP authorization spec is
+   * plain OAuth 2.1 and the Inspector never treats this as a credential
+   * (#2019). Absent when the token set carries none, so no empty row renders.
+   */
+  idToken?: string;
   /** EMA only — install-level IdP session for legs 1–2. */
   idpSession?: "none" | "logged_in" | "expired";
 }
@@ -68,10 +79,25 @@ export interface ConnectionInfoContentProps {
   onClearOAuth?: () => void;
 }
 
-const ValueText = Text.withProps({
+// Label/value pairs in this modal read label-bold, value-normal: the label is
+// the fixed scaffolding a reader scans down, and the value is the thing that
+// differs per connection. The reverse (which this was until #2328) bolded every
+// answer, so nothing stood out and the two columns fought each other.
+const FieldLabel = Text.withProps({
   size: "sm",
   fw: 600,
 });
+
+const ValueText = Text.withProps({
+  size: "sm",
+});
+
+// A badge standing in as the *value* half of a label/value row. The app-wide
+// `ThemeBadge` defaults to `fw: 600`, which is right for a standalone chip but
+// makes these rows read bold-label/bold-value — the one convention this modal
+// is not supposed to have. The chip still reads as a chip: its emphasis comes
+// from the outline and colour, not the font weight (#2328).
+const ValueBadge = Badge.withProps({ variant: "outline", fw: 400 });
 
 // Shown for Name/Version when the server didn't report `serverInfo` — an em dash
 // plus an explicit note so the client-side catalog fallback is never mistaken
@@ -93,7 +119,23 @@ const SectionHeading = Title.withProps({
 // `Code` block — that keeps the whole value visible and removes a scroll region
 // that would otherwise need its own keyboard access (axe
 // `scrollable-region-focusable`).
-const ValueCode = Code.withProps({ variant: "wrapping" });
+const ValueCode = Code.withProps({ variant: "wrapping-plain" });
+
+// A long OAuth value (client id, auth URL) gets its label on its own line and
+// the value across the full modal width beneath it, the way `OAuthTokenField`
+// already lays out a token. In the two-column grid these values had roughly
+// half the width and wrapped mid-token — `…/client-metadata.` / `json` — which
+// reads as a rendering fault rather than as one URL (#2328).
+const FullWidthField = Stack.withProps({ gap: 4 });
+
+// One declared sub-option of an extension. Mirrors `CapabilityItem`'s ✓/✗ row
+// rather than reusing it: that element's `capability` prop is the closed union
+// of spec capability keys, and widening it to accept an arbitrary extension
+// sub-option name would collapse it to `string` and lose the typo protection
+// the union buys every other caller.
+const SubOptionRow = Group.withProps({ gap: "xs", wrap: "nowrap" });
+
+const SubOptionMark = Text.withProps({ fw: 600 });
 
 const ClearOAuthButton = Button.withProps({
   variant: "subtle",
@@ -150,16 +192,20 @@ function formatSession(
   return isModernEra(era) ? "Sessionless" : "Session-based";
 }
 
-// Render an `extensions` capability map (SEP-2133) as a comma-separated list of
-// its extension identifiers, or an em dash when none are present. Works for
-// either side's map: the server's negotiated `capabilities.extensions` (present
-// on both eras via `getServerCapabilities()`) or the Inspector's own advertised
+// The extension identifiers in an `extensions` capability map (SEP-2133), one
+// per rendered row, or a single em dash when none are present. Works for either
+// side's map: the server's negotiated `capabilities.extensions` (present on both
+// eras via `getServerCapabilities()`) or the Inspector's own advertised
 // `clientCapabilities.extensions`. (#1740)
+//
+// A list rather than a comma-joined string (#2234): an identifier is ~30
+// characters and two of them wrap mid-name in a half-width column, which is
+// what made the joined form hard to read at a glance.
 function formatExtensions(
   extensions: Record<string, unknown> | undefined,
-): string {
+): string[] {
   const keys = extensions ? Object.keys(extensions) : [];
-  return keys.length > 0 ? keys.join(", ") : "—";
+  return keys.length > 0 ? keys : ["\u2014"];
 }
 
 const SERVER_CAPABILITY_KEYS: CapabilityKey[] = [
@@ -182,14 +228,60 @@ const CLIENT_CAPABILITY_KEYS: CapabilityKey[] = [
 export const CLEAR_OAUTH_STATE_AND_DISCONNECT_LABEL =
   "Clear OAuth state and disconnect";
 
+/**
+ * Server capabilities the modern (2026-07-28) era expresses as a negotiated
+ * *extension* rather than a top-level `capabilities` key. `tasks` is the only
+ * one today: SEP-2663 moved task support to
+ * `capabilities.extensions["io.modelcontextprotocol/tasks"]`, so a modern
+ * tasks-capable server left the Tasks row showing a red ✗ while the very same
+ * extension id was listed under "Server Extensions" two sections below
+ * (#1887). Keyed the same way `InspectorClient.isTasksExtensionNegotiated()`
+ * gates the Tasks tab, so the checkmark and the tab agree.
+ */
+const MODERN_EXTENSION_BACKED_CAPABILITIES: Partial<
+  Record<CapabilityKey, string>
+> = {
+  tasks: TASKS_EXTENSION_KEY,
+};
+
+function isCapabilityPresent(
+  capabilities: Record<string, unknown>,
+  key: CapabilityKey,
+): boolean {
+  return key in capabilities && capabilities[key] != null;
+}
+
 function getCapabilityEntries(
   capabilities: Record<string, unknown>,
   knownKeys: CapabilityKey[],
 ): { capability: CapabilityKey; supported: boolean }[] {
   return knownKeys.map((key) => ({
     capability: key,
-    supported: key in capabilities && capabilities[key] != null,
+    supported: isCapabilityPresent(capabilities, key),
   }));
+}
+
+/**
+ * Server-side capability entries. Same presence rule as the client column,
+ * plus the modern extension fallback above — gated on the negotiated era so a
+ * legacy connection is still judged purely on its `initialize` capabilities.
+ */
+function getServerCapabilityEntries(
+  capabilities: ServerCapabilities,
+  era: ProtocolEra | undefined,
+): { capability: CapabilityKey; supported: boolean }[] {
+  const modern = isModernEra(era);
+  return SERVER_CAPABILITY_KEYS.map((key) => {
+    const extensionKey = MODERN_EXTENSION_BACKED_CAPABILITIES[key];
+    const viaExtension =
+      modern &&
+      extensionKey !== undefined &&
+      capabilities.extensions?.[extensionKey] != null;
+    return {
+      capability: key,
+      supported: isCapabilityPresent(capabilities, key) || viaExtension,
+    };
+  });
 }
 
 export function ConnectionInfoContent({
@@ -204,6 +296,9 @@ export function ConnectionInfoContent({
 }: ConnectionInfoContentProps) {
   const { serverInfo, protocolVersion, capabilities, instructions } =
     initializeResult;
+  // `undefined` when the server declared no Skills extension, which is what
+  // hides the section below — an absent extension has no sub-flags to report.
+  const skillsExtension = getSkillsExtension(capabilities);
 
   // Only trust `serverInfo` when the server actually reported it; otherwise the
   // name is a catalog fallback. Both rows `?.trim()` before the `||` (not `??`)
@@ -222,7 +317,7 @@ export function ConnectionInfoContent({
     ? serverInfo.version?.trim() || "—"
     : SERVER_INFO_NOT_REPORTED_LABEL;
 
-  const serverCaps = getCapabilityEntries(capabilities, SERVER_CAPABILITY_KEYS);
+  const serverCaps = getServerCapabilityEntries(capabilities, protocolEra);
   const clientCaps = getCapabilityEntries(
     clientCapabilities,
     CLIENT_CAPABILITY_KEYS,
@@ -233,22 +328,22 @@ export function ConnectionInfoContent({
       <Stack gap="xs">
         <SectionHeading>Server Implementation</SectionHeading>
         <SimpleGrid cols={2}>
-          <Text size="sm">Name</Text>
+          <FieldLabel>Name</FieldLabel>
           <ValueText>{displayName}</ValueText>
 
-          <Text size="sm">Version</Text>
+          <FieldLabel>Version</FieldLabel>
           <ValueText>{displayVersion}</ValueText>
 
-          <Text size="sm">Protocol</Text>
+          <FieldLabel>Protocol</FieldLabel>
           <ValueText>{protocolVersion || "—"}</ValueText>
 
-          <Text size="sm">Transport</Text>
-          <Badge variant="outline">{transport}</Badge>
+          <FieldLabel>Transport</FieldLabel>
+          <ValueBadge>{transport}</ValueBadge>
 
-          <Text size="sm">Era</Text>
-          <EraBadge era={protocolEra} />
+          <FieldLabel>Era</FieldLabel>
+          <EraBadge era={protocolEra} fw={400} />
 
-          <Text size="sm">Session</Text>
+          <FieldLabel>Session</FieldLabel>
           <ValueText>{formatSession(protocolEra, transport)}</ValueText>
         </SimpleGrid>
       </Stack>
@@ -257,7 +352,7 @@ export function ConnectionInfoContent({
         <Stack gap="xs">
           <SectionHeading>Discovery</SectionHeading>
           <SimpleGrid cols={2}>
-            <Text size="sm">Supported versions</Text>
+            <FieldLabel>Supported versions</FieldLabel>
             <ValueText>
               {discoverResult.supportedVersions.length > 0
                 ? discoverResult.supportedVersions.join(", ")
@@ -297,15 +392,48 @@ export function ConnectionInfoContent({
       <SimpleGrid cols={2}>
         <Stack gap="xs">
           <SectionHeading>Server Extensions</SectionHeading>
-          <ValueText>{formatExtensions(capabilities.extensions)}</ValueText>
+          {/* A plain `Text`, not the bold `ValueText`: these sections list
+              *items*, the way the capability columns above do, rather than
+              giving the value half of a label/value pair. Bolding them made
+              them read as emphasized answers to a question the section never
+              asks, and set them in a different font from the checklist rows
+              they sit directly beneath. */}
+          {formatExtensions(capabilities.extensions).map((extension) => (
+            <Text key={extension}>{extension}</Text>
+          ))}
         </Stack>
         <Stack gap="xs">
           <SectionHeading>Client Advertised Extensions</SectionHeading>
-          <ValueText>
-            {formatExtensions(clientCapabilities.extensions)}
-          </ValueText>
+          {formatExtensions(clientCapabilities.extensions).map((extension) => (
+            <Text key={extension}>{extension}</Text>
+          ))}
         </Stack>
       </SimpleGrid>
+
+      {/* Skills (SEP-2640). The "Server Extensions" row above already names the
+          identifier, so repeating it here would say nothing: what this section
+          adds is the extension's SUB-OPTIONS, which a flat list of keys cannot
+          show. `directoryRead` is the only one SEP-2640 defines, and whether a
+          server declared it is the fact a server author opens this modal to
+          check — it gates `resources/directory/read` (#2234). Rendered with the
+          same ✓/✗ vocabulary as the capability columns above so it reads as the
+          same kind of claim. */}
+      {skillsExtension && (
+        <Stack gap="xs">
+          <SectionHeading>Skills Extension Options</SectionHeading>
+          <SubOptionRow
+            data-testid="skills-directory-read"
+            data-supported={skillsExtension.directoryRead}
+          >
+            <SubOptionMark c={skillsExtension.directoryRead ? "green" : "red"}>
+              {skillsExtension.directoryRead ? "\u2713" : "\u2717"}
+            </SubOptionMark>
+            <Text>
+              Directory read — <Code>resources/directory/read</Code>
+            </Text>
+          </SubOptionRow>
+        </Stack>
+      )}
 
       {instructions && (
         <Stack gap="xs">
@@ -327,26 +455,17 @@ export function ConnectionInfoContent({
           <SectionHeading>OAuth Details</SectionHeading>
           <Stack gap="xs">
             <SimpleGrid cols={2}>
-              <Text size="sm">Protocol</Text>
+              <FieldLabel>Protocol</FieldLabel>
               <ValueText>{formatProtocol(oauth.protocol)}</ValueText>
 
-              <Text size="sm">Status</Text>
-              <Badge
-                variant="outline"
-                color={oauth.authorized ? "green" : "gray"}
-              >
+              <FieldLabel>Status</FieldLabel>
+              <ValueBadge color={oauth.authorized ? "green" : "gray"}>
                 {oauth.authorized ? "Authorized" : "Not authorized"}
-              </Badge>
+              </ValueBadge>
             </SimpleGrid>
-            {oauth.clientId && (
-              <SimpleGrid cols={2}>
-                <Text size="sm">Client ID</Text>
-                <ValueCode>{oauth.clientId}</ValueCode>
-              </SimpleGrid>
-            )}
             {oauth.clientRegistrationKind && (
               <SimpleGrid cols={2}>
-                <Text size="sm">Client registration</Text>
+                <FieldLabel>Client registration</FieldLabel>
                 <ValueText>
                   {formatClientRegistrationKind(oauth.clientRegistrationKind)}
                 </ValueText>
@@ -354,36 +473,55 @@ export function ConnectionInfoContent({
             )}
             {oauth.protocol === "ema" && oauth.idpSession && (
               <SimpleGrid cols={2}>
-                <Text size="sm">IdP session</Text>
+                <FieldLabel>IdP session</FieldLabel>
                 <ValueText>{formatIdpSession(oauth.idpSession)}</ValueText>
-              </SimpleGrid>
-            )}
-            {oauth.authUrl && (
-              <SimpleGrid cols={2}>
-                <Text size="sm">Auth URL</Text>
-                <ValueCode>{oauth.authUrl}</ValueCode>
               </SimpleGrid>
             )}
             {oauth.scopes && oauth.scopes.length > 0 && (
               <SimpleGrid cols={2}>
-                <Text size="sm">Scopes</Text>
+                <FieldLabel>Scopes</FieldLabel>
                 <ValueText>{formatScopes(oauth.scopes)}</ValueText>
               </SimpleGrid>
             )}
-            {oauth.accessToken ? (
-              <OAuthAccessTokenField
-                accessToken={oauth.accessToken}
+            {/* The full-width fields are kept together at the end of the
+                section, directly above the token rows, which use the same
+                label-over-value layout. Interleaved with the inline two-column
+                rows they broke the scan down the label column for every row
+                after them, and Client ID — the one most likely to be long —
+                was the worst offender (#2328). */}
+            {oauth.authUrl && (
+              <FullWidthField>
+                <FieldLabel>Auth URL</FieldLabel>
+                <ValueCode>{oauth.authUrl}</ValueCode>
+              </FullWidthField>
+            )}
+            {oauth.clientId && (
+              <FullWidthField>
+                <FieldLabel>Client ID</FieldLabel>
+                <ValueCode>{oauth.clientId}</ValueCode>
+              </FullWidthField>
+            )}
+            {oauth.accessToken && (
+              <OAuthTokenField
+                label="Access Token"
+                token={oauth.accessToken}
                 onClear={onClearOAuth}
                 clearLabel={CLEAR_OAUTH_STATE_AND_DISCONNECT_LABEL}
               />
-            ) : (
-              onClearOAuth && (
-                <Flex justify="flex-end">
-                  <ClearOAuthButton onClick={onClearOAuth}>
-                    {CLEAR_OAUTH_STATE_AND_DISCONNECT_LABEL}
-                  </ClearOAuthButton>
-                </Flex>
-              )
+            )}
+            {/* Viewer only — an `id_token` the AS happened to return, decoded
+                on request. It carries no clear action: clearing OAuth state is
+                one action for the whole token set, owned by the access-token
+                row (or the standalone button below when there is none). */}
+            {oauth.idToken && (
+              <OAuthTokenField label="ID Token" token={oauth.idToken} />
+            )}
+            {!oauth.accessToken && onClearOAuth && (
+              <Flex justify="flex-end">
+                <ClearOAuthButton onClick={onClearOAuth}>
+                  {CLEAR_OAUTH_STATE_AND_DISCONNECT_LABEL}
+                </ClearOAuthButton>
+              </Flex>
             )}
           </Stack>
         </Stack>

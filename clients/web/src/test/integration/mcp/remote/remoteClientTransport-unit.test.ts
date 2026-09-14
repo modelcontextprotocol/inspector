@@ -642,6 +642,58 @@ describe("RemoteClientTransport (focused branch coverage)", () => {
       await t.close();
     });
 
+    it("forwards per-send headers (SEP-2243 Mcp-Param-*) in the send body", async () => {
+      let sentBody: { headers?: Record<string, string> } | undefined;
+      const encoder = new TextEncoder();
+      let sseController: ReadableStreamDefaultController<Uint8Array> | null =
+        null;
+      const pushSseMessage = (message: JSONRPCMessage) => {
+        const payload = JSON.stringify({ type: "message", data: message });
+        sseController?.enqueue(encoder.encode(`data: ${payload}\n\n`));
+      };
+      const fetchFn = vi.fn(
+        async (input: RequestInfo | URL, init?: RequestInit) => {
+          const url = typeof input === "string" ? input : input.toString();
+          if (url.includes("/connect")) return jsonResponse({ sessionId: "s" });
+          if (url.includes("/events")) {
+            return new Response(
+              new ReadableStream<Uint8Array>({
+                start(controller) {
+                  sseController = controller;
+                  controller.enqueue(encoder.encode(": keepalive\n\n"));
+                },
+              }),
+              { status: 200 },
+            );
+          }
+          if (url.includes("/send")) {
+            sentBody = JSON.parse(init!.body as string);
+            const requestId = (
+              sentBody as { message: { id?: string | number } }
+            ).message.id;
+            pushSseMessage({ jsonrpc: "2.0", id: requestId!, result: {} });
+            return jsonResponse({ ok: true });
+          }
+          return jsonResponse({ ok: true });
+        },
+      );
+      const t = new RemoteClientTransport(
+        {
+          baseUrl: "http://remote.test",
+          fetchFn: fetchFn as unknown as typeof fetch,
+          sseResponseTimeoutMs: 2000,
+        },
+        CONFIG,
+      );
+      await t.start();
+      await t.send(
+        { jsonrpc: "2.0", id: 7, method: "tools/call" },
+        { headers: { "Mcp-Param-City": "London" } },
+      );
+      expect(sentBody?.headers).toEqual({ "Mcp-Param-City": "London" });
+      await t.close();
+    });
+
     it("throws Remote send failed with status on non-OK send", async () => {
       const t = makeTransport({
         events: () =>

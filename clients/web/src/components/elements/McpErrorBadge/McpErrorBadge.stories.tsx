@@ -14,7 +14,7 @@ export const HeaderMismatch: Story = {
   args: { code: -32020, name: "HeaderMismatch" },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    expect(canvas.getByText("-32020 HeaderMismatch")).toBeInTheDocument();
+    await expect(canvas.getByText("-32020 HeaderMismatch")).toBeInTheDocument();
   },
 };
 
@@ -22,7 +22,7 @@ export const MissingCapability: Story = {
   args: { code: -32021, name: "MissingRequiredClientCapability" },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    expect(
+    await expect(
       canvas.getByText("-32021 MissingRequiredClientCapability"),
     ).toBeInTheDocument();
   },
@@ -32,7 +32,7 @@ export const UnsupportedVersion: Story = {
   args: { code: -32022, name: "UnsupportedProtocolVersion" },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    expect(
+    await expect(
       canvas.getByText("-32022 UnsupportedProtocolVersion"),
     ).toBeInTheDocument();
   },
@@ -47,6 +47,6 @@ export const MethodNotFound: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    expect(canvas.getByText("-32601 MethodNotFound")).toBeInTheDocument();
+    await expect(canvas.getByText("-32601 MethodNotFound")).toBeInTheDocument();
   },
 };

@@ -1,6 +1,6 @@
 import React from "react";
 import { describe, it, expect, vi } from "vitest";
-import { render } from "ink-testing-library";
+import { render } from "./helpers/renderTui";
 import type { Tool } from "@modelcontextprotocol/client";
 
 // MUST mock ink-scroll-view: the real ScrollView renders a placeholder minimap
@@ -8,7 +8,7 @@ import type { Tool } from "@modelcontextprotocol/client";
 // renders children directly and stubs scrollBy/scrollTo/getViewportHeight.
 vi.mock("ink-scroll-view", () => import("./helpers/inkScrollViewMock.js"));
 
-import { ToolsTab } from "../src/components/ToolsTab.js";
+import { ToolsTab, schemaMarker } from "../src/components/ToolsTab.js";
 
 // Ink processes stdin keypresses asynchronously — await this after stdin.write
 // and after rerender() before asserting.
@@ -204,5 +204,85 @@ describe("ToolsTab", () => {
     stdin.write("+");
     await tick();
     expect(onViewDetails).toHaveBeenCalledWith(tools[0]);
+  });
+
+  describe("schema portability (#1005)", () => {
+    it("marks nothing when every tool's schema is portable", () => {
+      const { lastFrame } = render(
+        <ToolsTab tools={tools} isConnected={true} width={120} height={30} />,
+      );
+      const frame = lastFrame() ?? "";
+      expect(frame).not.toContain("Schema Portability");
+    });
+
+    it("flags an offending tool in the list and details it in the pane", () => {
+      const dirty = makeTool({
+        name: "info",
+        description: undefined,
+        outputSchema: { type: "object", properties: { data: true } },
+      } as Partial<Tool>);
+      const { lastFrame } = render(
+        <ToolsTab tools={[dirty]} isConnected={true} width={140} height={30} />,
+      );
+      const frame = lastFrame() ?? "";
+      // List row carries the error glyph…
+      expect(frame).toContain("info !");
+      // …and the detail pane names the path, issue and fix.
+      expect(frame).toContain("Schema Portability (1)");
+      expect(frame).toContain("outputSchema.properties.data");
+      expect(frame).toContain("Fix:");
+    });
+
+    it("uses the warning glyph when nothing is error-severity", () => {
+      const warned = makeTool({
+        name: "warned",
+        description: undefined,
+        inputSchema: {
+          type: "object",
+          properties: { a: { type: ["null", "boolean"] } },
+        },
+      } as Partial<Tool>);
+      const { lastFrame } = render(
+        <ToolsTab
+          tools={[warned]}
+          isConnected={true}
+          width={140}
+          height={30}
+        />,
+      );
+      const frame = lastFrame() ?? "";
+      expect(frame).toContain("warned ?");
+      expect(frame).toContain("Schema Portability (1)");
+    });
+  });
+});
+
+describe("schemaMarker", () => {
+  it("returns no glyph for undefined or empty findings", () => {
+    expect(schemaMarker(undefined)).toBeUndefined();
+    expect(schemaMarker([])).toBeUndefined();
+  });
+
+  it("prefers the error glyph when both severities are present", () => {
+    expect(
+      schemaMarker([
+        {
+          rule: "type-union",
+          severity: "warning",
+          schema: "inputSchema",
+          path: "",
+          issue: "i",
+          suggestion: "s",
+        },
+        {
+          rule: "boolean-schema",
+          severity: "error",
+          schema: "inputSchema",
+          path: "",
+          issue: "i",
+          suggestion: "s",
+        },
+      ]),
+    ).toEqual({ glyph: "!", color: "red" });
   });
 });

@@ -10,6 +10,7 @@ import {
   screen,
   within,
 } from "../../../test/renderWithMantine";
+import { setAceTextByLabel } from "../../../test/aceEditor";
 import {
   AppsScreen,
   type AppsScreenProps,
@@ -318,6 +319,35 @@ describe("AppsScreen", () => {
     await user.click(screen.getByRole("button", { name: /Open App/ }));
     expect(onOpenApp).toHaveBeenCalledWith("weather", { city: "Reykjavik" });
     expect(screen.getByTitle("Weather Widget")).toBeInTheDocument();
+  });
+
+  // The Apps counterpart of the same wire claim (#2171): an App's arguments are
+  // a `tools/call` like any other, so a refused draft must not open the app.
+  it("dispatches nothing for a draft the schema would retype", async () => {
+    const user = userEvent.setup();
+    const onOpenApp = vi.fn();
+    const numericApp: Tool = {
+      name: "chart",
+      title: "Chart Widget",
+      inputSchema: {
+        type: "object",
+        properties: { count: { type: "number" } },
+      },
+      _meta: { ui: { resourceUri: "ui://apps/chart" } },
+    };
+    renderWithMantine(
+      <ControlledAppsScreen tools={[numericApp]} onOpenApp={onOpenApp} />,
+    );
+    await user.click(screen.getByText("Chart Widget"));
+    await user.click(screen.getByLabelText("Edit as JSON"));
+    await setAceTextByLabel(/Arguments JSON/, '{"count":"01"}');
+    await user.click(screen.getByRole("button", { name: /Open App/ }));
+
+    expect(onOpenApp).not.toHaveBeenCalled();
+
+    await setAceTextByLabel(/Arguments JSON/, '{"count":1}');
+    await user.click(screen.getByRole("button", { name: /Open App/ }));
+    expect(onOpenApp).toHaveBeenCalledWith("chart", { count: 1 });
   });
 
   it("seeds schema defaults so untouched fields are sent on Open App", async () => {

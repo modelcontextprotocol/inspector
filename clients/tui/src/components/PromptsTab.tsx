@@ -53,8 +53,10 @@ export function PromptsTab({
         if (selectedPrompt.arguments && selectedPrompt.arguments.length > 0) {
           onFetchPrompt(selectedPrompt);
         } else {
-          // No arguments, fetch directly
-          (async () => {
+          // No arguments, fetch directly. The IIFE catches everything it can
+          // throw, so there is no rejection for this key handler — which
+          // cannot await — to own.
+          void (async () => {
             try {
               const invocation = await inspectorClient.getPrompt(
                 selectedPrompt.name,

@@ -27,6 +27,11 @@ const noVarTemplate: ResourceTemplate = {
   uriTemplate: "file:///static.txt",
 };
 
+const queryTemplate: ResourceTemplate = {
+  name: "Events",
+  uriTemplate: "foobar://events{?topic}",
+};
+
 describe("ResourceTemplatePanel", () => {
   it("renders the template title (or name) and description", () => {
     renderWithMantine(
@@ -152,6 +157,200 @@ describe("ResourceTemplatePanel", () => {
     expect(
       screen.getByRole("button", { name: "Read Resource" }),
     ).not.toBeDisabled();
+  });
+
+  describe("RFC 6570 expansion (#1919)", () => {
+    it("renders an input for a query expression the old regex could not see", () => {
+      renderWithMantine(
+        <ResourceTemplatePanel
+          template={queryTemplate}
+          onReadResource={vi.fn()}
+        />,
+      );
+      expect(screen.getByLabelText("topic")).toBeInTheDocument();
+    });
+
+    it("percent-encodes a reserved character in a simple variable", async () => {
+      const user = userEvent.setup();
+      const onReadResource = vi.fn();
+      renderWithMantine(
+        <ResourceTemplatePanel
+          template={singleVarTemplate}
+          onReadResource={onReadResource}
+        />,
+      );
+      await user.type(screen.getByLabelText("userId"), "foo/bar");
+      await user.click(screen.getByRole("button", { name: "Read Resource" }));
+      expect(onReadResource).toHaveBeenCalledWith(
+        "file:///users/foo%2Fbar/profile",
+      );
+    });
+
+    it("builds an encoded query expression for {?topic}", async () => {
+      const user = userEvent.setup();
+      const onReadResource = vi.fn();
+      renderWithMantine(
+        <ResourceTemplatePanel
+          template={queryTemplate}
+          onReadResource={onReadResource}
+        />,
+      );
+      await user.type(screen.getByLabelText("topic"), "foo/bar");
+      await user.click(screen.getByRole("button", { name: "Read Resource" }));
+      expect(onReadResource).toHaveBeenCalledWith(
+        "foobar://events?topic=foo%2Fbar",
+      );
+    });
+
+    it("marks a query variable Optional and does not gate the read on it", async () => {
+      const user = userEvent.setup();
+      const onReadResource = vi.fn();
+      renderWithMantine(
+        <ResourceTemplatePanel
+          template={queryTemplate}
+          onReadResource={onReadResource}
+        />,
+      );
+      expect(screen.getByText("Optional")).toBeInTheDocument();
+      const button = screen.getByRole("button", { name: "Read Resource" });
+      expect(button).not.toBeDisabled();
+      // Left blank, the whole expression drops out per RFC 6570.
+      await user.click(button);
+      expect(onReadResource).toHaveBeenCalledWith("foobar://events");
+    });
+
+    it("does not mark a required simple variable Optional", () => {
+      renderWithMantine(
+        <ResourceTemplatePanel
+          template={singleVarTemplate}
+          onReadResource={vi.fn()}
+        />,
+      );
+      expect(screen.queryByText("Optional")).not.toBeInTheDocument();
+    });
+
+    it("previews the query expression verbatim until it is filled", async () => {
+      const user = userEvent.setup();
+      renderWithMantine(
+        <ResourceTemplatePanel
+          template={queryTemplate}
+          onReadResource={vi.fn()}
+        />,
+      );
+      expect(screen.getByText("foobar://events{?topic}")).toBeInTheDocument();
+      await user.type(screen.getByLabelText("topic"), "news");
+      expect(
+        screen.getByText("foobar://events?topic=news"),
+      ).toBeInTheDocument();
+    });
+
+    // A template the server advertised can be malformed. There is no URI to
+    // send for one, so the read is withheld and the reason shown -- reading the
+    // raw template with its braces intact would draw a confusing "not found"
+    // from the server for a defect that is not the user's.
+    it.each([
+      ["an out-of-grammar prefix modifier", "x://items/{id:abc}"],
+      ["an expression declaring no variable", "x://items/{}"],
+    ])("refuses to read a template with %s", (_label, uriTemplate) => {
+      const onReadResource = vi.fn();
+      renderWithMantine(
+        <ResourceTemplatePanel
+          template={{ name: "Broken", uriTemplate }}
+          onReadResource={onReadResource}
+        />,
+      );
+      expect(
+        screen.getByRole("button", { name: "Read Resource" }),
+      ).toBeDisabled();
+      expect(screen.getByText(/Invalid RFC 6570 varspec/)).toBeInTheDocument();
+      expect(onReadResource).not.toHaveBeenCalled();
+    });
+
+    it("names every unmet group, so a disabled button always has a reason", async () => {
+      // With `{a,b}{b,c}{a,c}`, filling `b` satisfies the first two groups. A
+      // per-field hint then looks satisfied while Read Resource stays disabled
+      // on the third -- so the outstanding requirement is stated form-level.
+      const user = userEvent.setup();
+      renderWithMantine(
+        <ResourceTemplatePanel
+          template={{ name: "Shared", uriTemplate: "x://{a,b}{b,c}{a,c}" }}
+          onReadResource={vi.fn()}
+        />,
+      );
+      expect(screen.getByText(/Still needed:/)).toHaveTextContent(
+        "Still needed: a or b; b or c; a or c",
+      );
+      await user.type(screen.getByLabelText("b"), "1");
+      expect(screen.getByText(/Still needed:/)).toHaveTextContent(
+        "Still needed: a or c",
+      );
+      expect(
+        screen.getByRole("button", { name: "Read Resource" }),
+      ).toBeDisabled();
+      await user.type(screen.getByLabelText("a"), "2");
+      expect(screen.queryByText(/Still needed:/)).not.toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: "Read Resource" }),
+      ).toBeEnabled();
+    });
+
+    it("hints every shared group a variable sits in, not just the first", () => {
+      renderWithMantine(
+        <ResourceTemplatePanel
+          template={{ name: "Shared", uriTemplate: "x://{a,b}{a,c}" }}
+          onReadResource={vi.fn()}
+        />,
+      );
+      expect(
+        screen.getByText("Any one of each: a, b; a, c"),
+      ).toBeInTheDocument();
+    });
+
+    it("treats a name repeated in one expression as a plain requirement", () => {
+      renderWithMantine(
+        <ResourceTemplatePanel
+          template={{ name: "Twice", uriTemplate: "x://{a,a}" }}
+          onReadResource={vi.fn()}
+        />,
+      );
+      // Not "Any one of: a, a" -- it is one field, required.
+      expect(screen.queryByText(/Any one of/)).not.toBeInTheDocument();
+      expect(screen.getByText("Still needed: a")).toBeInTheDocument();
+    });
+
+    it("renders an autocomplete field for a name that collides with Object.prototype", async () => {
+      // `toString` is a valid RFC 6570 varname and `completions` starts empty,
+      // so a bare `completions[varName] ?? []` handed Mantine the prototype's
+      // *function* as its options array (`??` catches only null/undefined) and
+      // the field crashed on first render.
+      const user = userEvent.setup();
+      const onCompleteArgument = vi.fn().mockResolvedValue(["a", "b"]);
+      const onReadResource = vi.fn();
+      renderWithMantine(
+        <ResourceTemplatePanel
+          template={{ name: "Proto", uriTemplate: "x://{toString}" }}
+          onReadResource={onReadResource}
+          onCompleteArgument={onCompleteArgument}
+          completionsSupported
+        />,
+      );
+      // By role, not label: "toString" also appears in the "Still needed" line.
+      const input = screen.getByRole("textbox", { name: "toString" });
+      expect(input).toBeInTheDocument();
+      await user.type(input, "v");
+      await user.click(screen.getByRole("button", { name: "Read Resource" }));
+      expect(onReadResource).toHaveBeenCalledWith("x://v");
+    });
+
+    it("shows the malformed template unexpanded in the preview", () => {
+      renderWithMantine(
+        <ResourceTemplatePanel
+          template={{ name: "Broken", uriTemplate: "x://items/{}" }}
+          onReadResource={vi.fn()}
+        />,
+      );
+      expect(screen.getByText("x://items/{}")).toBeInTheDocument();
+    });
   });
 
   describe("completions", () => {

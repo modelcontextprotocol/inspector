@@ -5,7 +5,7 @@ import type {
 import type { EnterpriseManagedAuthIdpConfig } from "../client/types.js";
 import { getEmaIdpLoginState, normalizeIdpIssuer } from "./ema/idpSession.js";
 import { idpOAuthStorageKey } from "./ema/storage.js";
-import { isJwtExpired } from "./ema/jwt.js";
+import { isJwtExpired, isJwtFormat, jwtExpiresAtMs } from "./ema/jwt.js";
 import type { OAuthStorage } from "./storage.js";
 import type {
   AuthProtocol,
@@ -24,9 +24,45 @@ export interface BuildOAuthConnectionStateParams {
   flowState?: OAuthFlowState;
 }
 
-/** True when persisted tokens include a non-expired access token (JWT exp when parseable). */
+/**
+ * True when persisted tokens include a non-expired access token (JWT exp when parseable).
+ *
+ * Optimistic: an access token whose expiry cannot be determined locally — an
+ * opaque token, or a JWT with no `exp` — counts as usable. Storage keeps no
+ * absolute expiry for those, because `expires_in` is relative to an issuance
+ * instant that is never recorded. That is the right default for *displaying*
+ * authorization state (an opaque-token server would otherwise always read as
+ * unauthorized), and the wrong one once a resource server has actually rejected
+ * the credential — see {@link isAccessTokenProvablyUnexpired}.
+ */
 export function isAccessTokenUsable(tokens: OAuthTokens | undefined): boolean {
   if (!tokens?.access_token) return false;
+  return !isJwtExpired(tokens.access_token);
+}
+
+/**
+ * Pessimistic counterpart to {@link isAccessTokenUsable}: true only when the
+ * access token is a JWT carrying an `exp` that is still in the future (same 60s
+ * skew as {@link isJwtExpired}).
+ *
+ * Absence of local expiry evidence returns `false` rather than `true`, so it
+ * cannot outvote a resource server that has explicitly said the token is
+ * expired. Use this — not `isAccessTokenUsable` — to decide whether a
+ * `token_expired` challenge is already satisfied.
+ *
+ * The shape is checked with {@link isJwtFormat} before the `exp` is trusted.
+ * {@link jwtExpiresAtMs} is deliberately lenient — it parses the second of any
+ * two-or-more dot-separated segments — so a structured opaque token that merely
+ * happens to carry a decodable `{"exp":…}` segment would otherwise be read as
+ * proof, which is exactly the "guess beats the server" failure this predicate
+ * exists to remove.
+ */
+export function isAccessTokenProvablyUnexpired(
+  tokens: OAuthTokens | undefined,
+): boolean {
+  if (!tokens?.access_token) return false;
+  if (!isJwtFormat(tokens.access_token)) return false;
+  if (jwtExpiresAtMs(tokens.access_token) === undefined) return false;
   return !isJwtExpired(tokens.access_token);
 }
 

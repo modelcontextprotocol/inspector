@@ -1,4 +1,11 @@
 import { getToolUiResourceUri } from "@modelcontextprotocol/ext-apps/app-bridge";
+import type {
+  McpUiResourceCsp,
+  McpUiResourceMeta,
+  McpUiResourcePermissions,
+  McpUiToolMeta,
+  McpUiToolVisibility,
+} from "@modelcontextprotocol/ext-apps/app-bridge";
 import type { ReadResourceResult, Tool } from "@modelcontextprotocol/client";
 
 /**
@@ -19,13 +26,7 @@ import type { ReadResourceResult, Tool } from "@modelcontextprotocol/client";
  * `@inspector/core`.
  */
 export function getAppResourceUri(tool: Tool): string | undefined {
-  // `@modelcontextprotocol/ext-apps` still peers on SDK v1, so its
-  // `getToolUiResourceUri` param is typed as the v1 `Tool`. The runtime shape
-  // this reads (`_meta.ui.resourceUri`) is identical under v2, so cast at this
-  // single boundary. TODO: drop the cast when ext-apps#702 ships a v2 peer.
-  return getToolUiResourceUri(
-    tool as Parameters<typeof getToolUiResourceUri>[0],
-  );
+  return getToolUiResourceUri(tool);
 }
 
 /**
@@ -53,10 +54,10 @@ export interface AppInfo {
   hasApp: boolean;
   toolName: string;
   resourceUri?: string;
-  visibility?: readonly string[];
+  visibility?: readonly McpUiToolVisibility[];
   /** From the UI resource's `_meta.ui` (per spec, csp/permissions/domain live on the resource, not the tool). Absent when the resource was not read. */
-  csp?: Readonly<Record<string, unknown>>;
-  permissions?: Readonly<Record<string, unknown>>;
+  csp?: Readonly<McpUiResourceCsp>;
+  permissions?: Readonly<McpUiResourcePermissions>;
   domain?: string;
   prefersBorder?: boolean;
   resourceMimeType?: string;
@@ -65,37 +66,26 @@ export interface AppInfo {
 type WithUiMeta = { _meta?: { ui?: unknown } };
 
 /**
- * Structural shape for `_meta.ui` carriers — the ext-apps package's named
- * types (`McpUiToolMeta`, `McpUiResourceMeta`) are not importable under
- * NodeNext module resolution because of an extensionless re-export in the
- * package's `.d.ts`, so we read the fields structurally instead. The values
- * pass through verbatim into {@link AppInfo}; callers can narrow them against
- * the published Zod schemas if they need strict typing.
+ * Reads a carrier's `_meta.ui` as one of ext-apps' named `_meta.ui` shapes —
+ * `McpUiToolMeta` for a tool, `McpUiResourceMeta` for a UI resource — narrowing
+ * from `unknown` so call sites don't need their own casts. Returns `undefined`
+ * unless both the carrier and its `_meta.ui` are non-null objects.
  *
- * TODO: switch to the named `McpUiToolMeta` / `McpUiResourceMeta` types once
- * upstream fixes the extensionless re-export so they resolve under NodeNext.
+ * The narrowing is structural, not validated: the fields pass through verbatim
+ * into {@link AppInfo}, and a caller that needs strict typing can parse them
+ * against the published Zod schemas (`McpUiToolMetaSchema` /
+ * `McpUiResourceMetaSchema`). Typed with the package's own names since ext-apps
+ * 2.0.0, whose declarations resolve under NodeNext (ext-apps#705) — the
+ * structural stand-in that preceded it is gone (#1745).
  */
-interface UiMetaShape {
-  visibility?: readonly string[];
-  csp?: Record<string, unknown>;
-  permissions?: Record<string, unknown>;
-  domain?: string;
-  prefersBorder?: boolean;
-}
-
-/**
- * Reads a carrier's `_meta.ui` structurally, narrowing from `unknown` so call
- * sites don't need their own casts. Returns `undefined` unless both the carrier
- * and its `_meta.ui` are non-null objects.
- */
-function readUiMeta(carrier: unknown): UiMetaShape | undefined {
+function readUiMeta<T extends McpUiToolMeta | McpUiResourceMeta>(
+  carrier: unknown,
+): T | undefined {
   const ui =
     carrier !== null && typeof carrier === "object"
       ? (carrier as WithUiMeta)._meta?.ui
       : undefined;
-  return ui !== null && typeof ui === "object"
-    ? (ui as UiMetaShape)
-    : undefined;
+  return ui !== null && typeof ui === "object" ? (ui as T) : undefined;
 }
 
 /**
@@ -149,14 +139,16 @@ export function extractAppInfo(
   if (resourceUri === undefined) {
     return { hasApp: false, toolName: tool.name };
   }
-  const toolUi = readUiMeta(tool);
+  const toolUi = readUiMeta<McpUiToolMeta>(tool);
   const content = resource && findResourceContent(resource, resourceUri);
   // Precedence is intentional: prefer the matched content block's `_meta.ui`,
   // falling back to the result-level `_meta.ui`. Per the current spec the
   // security posture (csp/permissions/domain) lives on the content block, so we
   // don't shallow-merge the two carriers — a content block that declares any
   // `ui` is treated as authoritative for all of its fields.
-  const resourceUi = readUiMeta(content) ?? readUiMeta(resource);
+  const resourceUi =
+    readUiMeta<McpUiResourceMeta>(content) ??
+    readUiMeta<McpUiResourceMeta>(resource);
   return {
     hasApp: true,
     toolName: tool.name,

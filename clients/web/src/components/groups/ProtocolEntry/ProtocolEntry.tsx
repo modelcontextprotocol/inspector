@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   Alert,
   Anchor,
@@ -12,6 +12,7 @@ import {
   Text,
 } from "@mantine/core";
 import { RiErrorWarningLine } from "react-icons/ri";
+import type { Tool } from "@modelcontextprotocol/client";
 import type { MessageEntry } from "@inspector/core/mcp/types.js";
 import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";
 import { CopyButton } from "../../elements/CopyButton/CopyButton";
@@ -21,6 +22,9 @@ import { McpErrorBadge } from "../../elements/McpErrorBadge/McpErrorBadge";
 import { ExpandToggle } from "../../elements/ExpandToggle/ExpandToggle";
 import { PinToggle } from "../../elements/PinToggle/PinToggle";
 import { ReplayButton } from "../../elements/ReplayButton/ReplayButton";
+import { EditReplayButton } from "../../elements/EditReplayButton/EditReplayButton";
+import { EditReplayModal } from "../EditReplayModal/EditReplayModal";
+import { useValueChange } from "../../../hooks/useValueChange";
 import {
   classifyProtocolSpecError,
   type McpSpecError,
@@ -29,14 +33,24 @@ import {
   extractMethod,
   extractResultType,
   extractSubscriptionId,
-  isReplayableProtocolMethod,
 } from "../protocolUtils.js";
+import { isReplayableProtocolMethod } from "../../../utils/replayableProtocolMethods";
+import {
+  replayableParams,
+  type ReplayParamsOverride,
+} from "../../../lib/protocolReplay";
 
 export interface ProtocolEntryProps {
   entry: MessageEntry;
   isPinned: boolean;
   isListExpanded: boolean;
-  onReplay: () => void;
+  /**
+   * Re-issue this entry's request. Called with no argument by the Replay
+   * button (the entry's own params, verbatim), and with an edited params object
+   * by the Edit-and-replay modal — one dispatch path, two ways to supply the
+   * params (#2151).
+   */
+  onReplay: (overrideParams?: ReplayParamsOverride) => void;
   onTogglePin: () => void;
   /**
    * Compact two-line header for the narrow monitoring sidebar (#1616): line 1 is
@@ -57,6 +71,13 @@ export interface ProtocolEntryProps {
    * correlated HTTP record.
    */
   correlatedHttpStatus?: number;
+  /**
+   * The connected server's tools, used only to tell whether an edited
+   * `tools/call` argument would be coerced by the schema on the way out
+   * (#2151). Optional: without it that one check is skipped, which is the right
+   * answer when the tool list is not known rather than a reason to block.
+   */
+  tools?: Tool[];
 }
 
 const EntryContainer = Card.withProps({
@@ -134,6 +155,16 @@ const SpecErrorAlert = Alert.withProps({
   icon: <RiErrorWarningLine />,
 });
 
+// The client rejected an otherwise well-formed response (#1953). Distinct from
+// SpecErrorAlert: nothing is wrong with the server's JSON-RPC frame — the
+// Inspector's own decoding refused the result — so the title says who rejected it.
+const ClientErrorAlert = Alert.withProps({
+  variant: "light",
+  color: "red",
+  icon: <RiErrorWarningLine />,
+  title: "Rejected by the Inspector",
+});
+
 // Link (button-styled) that jumps to the correlated HTTP entry in the Network tab.
 const RevealLink = Anchor.withProps({
   component: "button",
@@ -183,6 +214,17 @@ function formatTimestampCompact(date: Date): string {
   return date.toISOString().slice(11, 19);
 }
 
+// The request's `params` object, which the Edit-and-replay editor is seeded
+// from and the expanded detail renders. `undefined` for a frame that carries
+// none — a bare `tools/list`, or a response.
+function extractParams(
+  entry: MessageEntry,
+): Record<string, unknown> | undefined {
+  const msg = entry.message;
+  if (!("params" in msg) || !msg.params) return undefined;
+  return msg.params as Record<string, unknown>;
+}
+
 function extractTarget(entry: MessageEntry): string | undefined {
   const msg = entry.message;
   if (!("params" in msg) || !msg.params) return undefined;
@@ -209,6 +251,13 @@ function extractResourceUri(entry: MessageEntry): string | undefined {
 function extractStatus(
   entry: MessageEntry,
 ): "success" | "error" | "pending" | "none" {
+  // A response the CLIENT refused is an error whichever entry carries it, so
+  // this is checked BEFORE the request-only lifecycle below (#1953).
+  // messageLogState annotates the request entry when the response was folded
+  // into one, but falls back to the standalone response frame when there was
+  // no matching request (a trimmed log, or a reconnect boundary) — and that
+  // entry would otherwise fall straight through to "none" and render no badge.
+  if (entry.clientError) return "error";
   if (entry.direction !== "request") return "none";
   if (!entry.response) return "pending";
   if ("error" in entry.response) return "error";
@@ -286,19 +335,24 @@ export function ProtocolEntry({
   embedded = false,
   onRevealInNetwork,
   correlatedHttpStatus,
+  tools,
 }: ProtocolEntryProps) {
   const [isExpanded, setIsExpanded] = useState(isListExpanded);
+  const [isEditingReplay, setIsEditingReplay] = useState(false);
   const method = extractMethod(entry);
   const target = extractTarget(entry);
   const resourceUri = extractResourceUri(entry);
   const status = extractStatus(entry);
+  const requestParams = extractParams(entry);
   const canReplay = isReplayableProtocolMethod(method);
+  const editableParams = replayableParams(method, requestParams);
   const resultType = extractResultType(entry);
   const subscriptionId = extractSubscriptionId(entry);
 
-  useEffect(() => {
-    setIsExpanded(isListExpanded);
-  }, [isListExpanded]);
+  // The list-level Expand/Collapse toggle is authoritative: any per-entry
+  // override is discarded whenever the parent changes `isListExpanded`.
+  // Mirrors NetworkEntry; do not change without aligning both.
+  useValueChange(isListExpanded, setIsExpanded);
 
   const directionBadge = entry.origin && (
     <MessageDirectionBadge
@@ -328,11 +382,12 @@ export function ProtocolEntry({
   // Suppress the redundant green "OK" when a `resultType` badge already conveys
   // the outcome (a modern success is `complete`/`input required`); errors and
   // pending have no `resultType`, so their status badge still shows.
-  const statusBadge = status !== "none" && !resultType && (
-    <Badge color={statusColor(status)} variant="status">
-      {statusLabel(status)}
-    </Badge>
-  );
+  const statusBadge = status !== "none" &&
+    (!resultType || entry.clientError) && (
+      <Badge color={statusColor(status)} variant="status">
+        {statusLabel(status)}
+      </Badge>
+    );
   const subscriptionBadge = subscriptionId && (
     <SubscriptionCluster>
       <SubscriptionLabel>sub</SubscriptionLabel>
@@ -342,6 +397,14 @@ export function ProtocolEntry({
   );
   const durationText = entry.duration != null && (
     <DurationText>{formatDuration(entry.duration)}</DurationText>
+  );
+  // Both replay affordances are gated on the same predicate, so a method that
+  // cannot be replayed does not offer an editor that would fail on Send.
+  const replayControls = canReplay && (
+    <>
+      <ReplayButton onReplay={() => onReplay()} />
+      <EditReplayButton onClick={() => setIsEditingReplay(true)} />
+    </>
   );
 
   return (
@@ -381,7 +444,7 @@ export function ProtocolEntry({
                 )}
               </HeaderCluster>
               <ControlsCluster>
-                {canReplay && <ReplayButton onReplay={onReplay} />}
+                {replayControls}
                 <PinToggle pinned={isPinned} onToggle={onTogglePin} />
                 <ExpandToggle
                   expanded={isExpanded}
@@ -416,7 +479,7 @@ export function ProtocolEntry({
             </HeaderRow>
 
             <ToggleRow>
-              {canReplay && <ReplayButton onReplay={onReplay} />}
+              {replayControls}
               <PinToggle pinned={isPinned} onToggle={onTogglePin} />
               <ExpandToggle
                 expanded={isExpanded}
@@ -426,9 +489,30 @@ export function ProtocolEntry({
           </>
         )}
 
+        {canReplay && (
+          <EditReplayModal
+            opened={isEditingReplay}
+            method={method}
+            // Seeded with what replay will actually read, not the whole frame:
+            // the editor must not offer a field that Send would drop.
+            params={editableParams.params}
+            droppedParamKeys={editableParams.dropped}
+            // The whole list, not this entry's tool: `name` is editable, so the
+            // schema to validate against is whichever the draft now names.
+            tools={tools}
+            onSend={onReplay}
+            onClose={() => setIsEditingReplay(false)}
+          />
+        )}
+
         <Collapse in={isExpanded}>
           <Stack gap="sm">
             <Divider />
+            {entry.clientError && (
+              <ClientErrorAlert>
+                <Text size="xs">{entry.clientError}</Text>
+              </ClientErrorAlert>
+            )}
             {specError && (
               <McpSpecErrorAlert
                 error={specError}
@@ -439,15 +523,19 @@ export function ProtocolEntry({
                 }
               />
             )}
-            {"params" in entry.message && entry.message.params && (
+            {requestParams && (
               <Stack gap="xs">
                 <Text size="sm">Parameters:</Text>
                 <ContentViewer
                   block={{
                     type: "text",
-                    text: serializeMessage(entry.message.params),
+                    text: serializeMessage(requestParams),
                   }}
                   copyable
+                  // Named, because an expanded entry holds two of these and a
+                  // list holds many pairs — unnamed they all announce the same
+                  // thing, leaving only the visible headings to tell them apart.
+                  jsonLabel={`${method} request parameters JSON`}
                 />
               </Stack>
             )}
@@ -460,6 +548,7 @@ export function ProtocolEntry({
                     text: serializeMessage(entry.response),
                   }}
                   copyable
+                  jsonLabel={`${method} response JSON`}
                 />
               </Stack>
             )}

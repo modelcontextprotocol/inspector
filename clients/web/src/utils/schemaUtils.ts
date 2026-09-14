@@ -3,6 +3,7 @@ import Ajv from "ajv";
 import type { ValidateFunction } from "ajv";
 import type { Tool, JSONRPCMessage } from "@modelcontextprotocol/client";
 import { isJSONRPCRequest } from "@modelcontextprotocol/client";
+import { normalizeNullableUnion } from "@inspector/core/json/nullableUnion.js";
 
 const ajv = new Ajv();
 
@@ -201,107 +202,6 @@ export function resolveRef(
 }
 
 /**
- * Normalizes union types (like string|null from FastMCP) to simple types for form rendering
- * @param schema The JSON schema to normalize
- * @returns A normalized schema or the original schema
- */
-export function normalizeUnionType(
-  schema: InspectorFormSchema,
-): InspectorFormSchema {
-  // Handle anyOf with exactly string and null (FastMCP pattern)
-  if (
-    schema.anyOf &&
-    schema.anyOf.length === 2 &&
-    schema.anyOf.some((t) => (t as InspectorFormSchema).type === "string") &&
-    schema.anyOf.some((t) => (t as InspectorFormSchema).type === "null")
-  ) {
-    return { ...schema, type: "string", anyOf: undefined, nullable: true };
-  }
-
-  // Handle anyOf with exactly boolean and null (FastMCP pattern)
-  if (
-    schema.anyOf &&
-    schema.anyOf.length === 2 &&
-    schema.anyOf.some((t) => (t as InspectorFormSchema).type === "boolean") &&
-    schema.anyOf.some((t) => (t as InspectorFormSchema).type === "null")
-  ) {
-    return { ...schema, type: "boolean", anyOf: undefined, nullable: true };
-  }
-
-  // Handle anyOf with exactly number and null (FastMCP pattern)
-  if (
-    schema.anyOf &&
-    schema.anyOf.length === 2 &&
-    schema.anyOf.some((t) => (t as InspectorFormSchema).type === "number") &&
-    schema.anyOf.some((t) => (t as InspectorFormSchema).type === "null")
-  ) {
-    return { ...schema, type: "number", anyOf: undefined, nullable: true };
-  }
-
-  // Handle anyOf with exactly integer and null (FastMCP pattern)
-  if (
-    schema.anyOf &&
-    schema.anyOf.length === 2 &&
-    schema.anyOf.some((t) => (t as InspectorFormSchema).type === "integer") &&
-    schema.anyOf.some((t) => (t as InspectorFormSchema).type === "null")
-  ) {
-    return { ...schema, type: "integer", anyOf: undefined, nullable: true };
-  }
-
-  // Handle anyOf with exactly array and null (FastMCP pattern)
-  if (
-    schema.anyOf &&
-    schema.anyOf.length === 2 &&
-    schema.anyOf.some((t) => (t as InspectorFormSchema).type === "array") &&
-    schema.anyOf.some((t) => (t as InspectorFormSchema).type === "null")
-  ) {
-    return { ...schema, type: "array", anyOf: undefined, nullable: true };
-  }
-
-  // Handle array type with exactly string and null
-  if (
-    Array.isArray(schema.type) &&
-    schema.type.length === 2 &&
-    schema.type.includes("string") &&
-    schema.type.includes("null")
-  ) {
-    return { ...schema, type: "string", nullable: true };
-  }
-
-  // Handle array type with exactly boolean and null
-  if (
-    Array.isArray(schema.type) &&
-    schema.type.length === 2 &&
-    schema.type.includes("boolean") &&
-    schema.type.includes("null")
-  ) {
-    return { ...schema, type: "boolean", nullable: true };
-  }
-
-  // Handle array type with exactly number and null
-  if (
-    Array.isArray(schema.type) &&
-    schema.type.length === 2 &&
-    schema.type.includes("number") &&
-    schema.type.includes("null")
-  ) {
-    return { ...schema, type: "number", nullable: true };
-  }
-
-  // Handle array type with exactly integer and null
-  if (
-    Array.isArray(schema.type) &&
-    schema.type.length === 2 &&
-    schema.type.includes("integer") &&
-    schema.type.includes("null")
-  ) {
-    return { ...schema, type: "integer", nullable: true };
-  }
-
-  return schema;
-}
-
-/**
  * Formats a field key into a human-readable label
  * @param key The field key to format
  * @returns A formatted label string
@@ -339,7 +239,7 @@ export function resolveRefsInMessage(message: JSONRPCMessage): JSONRPCMessage {
           Object.entries(requestedSchema.properties).map(
             ([key, propSchema]) => {
               const resolved = resolveRef(propSchema, requestedSchema);
-              const normalized = normalizeUnionType(resolved);
+              const normalized = normalizeNullableUnion(resolved);
               return [key, normalized];
             },
           ),

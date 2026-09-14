@@ -3,7 +3,7 @@ import * as path from "path";
 import * as os from "os";
 import * as crypto from "crypto";
 import { getTestMcpServerCommand } from "@modelcontextprotocol/inspector-test-server";
-import type { MCPServerConfig } from "@modelcontextprotocol/inspector-core/mcp/index.js";
+import type { StoredMCPServer } from "@inspector/core/mcp/types.js";
 
 /**
  * Sentinel value for tests that don't need a real server
@@ -61,10 +61,16 @@ function cleanupTempDir(dir: string) {
 }
 
 /**
- * Create a test config file
+ * Create a test config file.
+ *
+ * Entries are `StoredMCPServer`, not bare `MCPServerConfig` — the on-disk
+ * `mcp.json` shape carries the Inspector-specific per-server keys (`metadata`,
+ * `headers`, `roots`, `protocolEra`, …) directly alongside `type`/`url`, and a
+ * fixture that cannot express them cannot cover the settings that reach the
+ * client from the catalog (#2093).
  */
 export function createTestConfig(config: {
-  mcpServers: Record<string, MCPServerConfig>;
+  mcpServers: Record<string, StoredMCPServer>;
 }): string {
   const tempDir = createTempDir("mcp-inspector-config-");
   const configPath = path.join(tempDir, "config.json");

@@ -27,6 +27,118 @@ export function getOAuthMode(
   return config.mode ?? "combined";
 }
 
+const PATH_VALIDATION_BASE = "http://config.invalid";
+
+/**
+ * True for a path that resolves under its own origin — the only shape safe to
+ * use as both an Express route and a `resource_metadata` value.
+ *
+ * A leading-slash check is not enough: `//other-host/doc` and `/\other-host/doc`
+ * both re-point the origin when resolved against the request base (the URL
+ * parser folds a backslash into a slash for special schemes), while Express
+ * still registers the route locally — so the server would advertise a document
+ * it does not serve (Copilot). Comparing the resolved href against the literal
+ * also rejects anything the parser would rewrite (spaces, unescaped
+ * characters), which an Express route would not match either.
+ *
+ * A query or fragment is rejected for the same reason from the other
+ * direction: `href` preserves both, so `/doc?v=1` and `/doc#s` would pass the
+ * comparison above, yet Express matches on the path alone (and treats `?` as a
+ * pattern character) and a fragment is never sent on the wire at all — so the
+ * advertised URL could not reach the registered route (Copilot).
+ */
+export function isOriginRelativePath(value: unknown): value is string {
+  if (typeof value !== "string" || !value.startsWith("/")) {
+    return false;
+  }
+  try {
+    const resolved = new URL(value, PATH_VALIDATION_BASE);
+    return (
+      resolved.origin === PATH_VALIDATION_BASE &&
+      resolved.search === "" &&
+      resolved.hash === "" &&
+      resolved.href === `${PATH_VALIDATION_BASE}${value}`
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The configured metadata path, validated. Throws at server-setup time rather
+ * than serving a route that contradicts the challenge — the JSON-config path
+ * is validated earlier by `load-config`, so this covers a `ServerConfig`
+ * built programmatically.
+ */
+function resourceMetadataPath(config: OAuthConfig): string | undefined {
+  const path = config.resourceMetadataPath;
+  if (path === undefined) {
+    return undefined;
+  }
+  if (!isOriginRelativePath(path)) {
+    throw new Error(
+      `oauth.resourceMetadataPath must be an origin-relative path (got ${JSON.stringify(path)})`,
+    );
+  }
+  return path;
+}
+
+/**
+ * The path the RFC 8414 authorization-server metadata document is served from,
+ * validated the same way `resourceMetadataPath` is. Defaults to the well-known
+ * location; `asMetadataPath` moves it (see the field's doc comment).
+ */
+function asMetadataPath(config: OAuthConfig): string {
+  const path = config.asMetadataPath;
+  if (path === undefined) {
+    return "/.well-known/oauth-authorization-server";
+  }
+  if (!isOriginRelativePath(path)) {
+    throw new Error(
+      `oauth.asMetadataPath must be an origin-relative path (got ${JSON.stringify(path)})`,
+    );
+  }
+  return path;
+}
+
+/**
+ * Where the CIMD client metadata document is served from, validated the same
+ * way the two metadata paths above are — and for a sharper reason than either.
+ * This path is not merely advertised: it becomes the document's own
+ * `client_id`, so a value such as `//other-host/doc` would publish a client id
+ * naming a host this server does not control, and `/doc?version=1` would
+ * publish one that cannot reach the route Express registered (Copilot).
+ */
+function clientMetadataPath(config: OAuthConfig): string {
+  const path = config.clientMetadataPath;
+  if (path === undefined) {
+    return "/client-metadata.json";
+  }
+  if (!isOriginRelativePath(path)) {
+    throw new Error(
+      `oauth.clientMetadataPath must be an origin-relative path (got ${JSON.stringify(path)})`,
+    );
+  }
+  return path;
+}
+
+/**
+ * The `WWW-Authenticate` challenge sent with every 401.
+ *
+ * RFC 9728 §5.1: a resource server advertises where its protected-resource
+ * metadata lives via the `resource_metadata` parameter. Only emitted when the
+ * config moves that document off the well-known path — otherwise the bare
+ * `Bearer` challenge keeps the existing fixtures byte-identical.
+ */
+function bearerChallenge(config: OAuthConfig, req: Request): string {
+  const path = resourceMetadataPath(config);
+  if (!path) {
+    return "Bearer";
+  }
+  const requestBaseUrl = `${req.protocol}://${req.get("host")}`;
+  return `Bearer resource_metadata="${new URL(path, requestBaseUrl).href}"`;
+}
+
 /**
  * Set up OAuth routes on an Express application
  * This adds all OAuth endpoints (authorization, token, metadata, etc.)
@@ -43,6 +155,9 @@ export function setupOAuthRoutes(
   if (getOAuthMode(config) === "combined") {
     setupAuthorizationEndpoint(app, config);
     setupTokenEndpoint(app, config);
+    if (config.supportRevocation !== false) {
+      setupRevocationEndpoint(app, config);
+    }
     if (config.supportDCR) {
       setupDCREndpoint(app);
     }
@@ -76,7 +191,7 @@ export function createBearerTokenMiddleware(
       // For streamable-http, the SDK checks response status and throws StreamableHTTPError with code 401
       res.status(401);
       res.setHeader("Content-Type", "application/json");
-      res.setHeader("WWW-Authenticate", "Bearer");
+      res.setHeader("WWW-Authenticate", bearerChallenge(config, req));
       // Return a JSON-RPC error response format that the SDK will recognize
       res.json({
         jsonrpc: "2.0",
@@ -91,7 +206,7 @@ export function createBearerTokenMiddleware(
 
     const token = authHeader.substring(7); // Remove "Bearer " prefix
 
-    let valid = false;
+    let valid: boolean;
     let grantedScopes: string[] = [];
     if (mode === "protected-resource") {
       try {
@@ -113,7 +228,7 @@ export function createBearerTokenMiddleware(
       // Return 401 - the SDK's transport should detect this and throw an error
       res.status(401);
       res.setHeader("Content-Type", "application/json");
-      res.setHeader("WWW-Authenticate", "Bearer");
+      res.setHeader("WWW-Authenticate", bearerChallenge(config, req));
       // Return a JSON-RPC error response format that the SDK will recognize
       res.json({
         jsonrpc: "2.0",
@@ -146,47 +261,93 @@ function setupMetadataEndpoints(
 
   if (mode === "combined") {
     // OAuth Authorization Server Metadata (local AS)
-    app.get(
-      "/.well-known/oauth-authorization-server",
-      (req: Request, res: Response) => {
-        const requestBaseUrl = `${req.protocol}://${req.get("host")}`;
-        const actualIssuerUrl = config.issuerUrl ?? new URL(requestBaseUrl);
-        const metadata = {
-          // RFC 8414 §3.3: the issuer MUST be identical to the base URL the
-          // well-known path was appended to — i.e. no trailing slash. SDK v2's
-          // client enforces this exactly (IssuerMismatchError otherwise).
-          issuer: actualIssuerUrl.href.replace(/\/$/, ""),
-          authorization_endpoint: new URL("/oauth/authorize", actualIssuerUrl)
-            .href,
-          token_endpoint: new URL("/oauth/token", actualIssuerUrl).href,
-          scopes_supported: scopes,
-          response_types_supported: ["code"],
-          grant_types_supported: ["authorization_code", "refresh_token"],
-          code_challenge_methods_supported: ["S256"],
-          token_endpoint_auth_methods_supported: [
+    app.get(asMetadataPath(config), (req: Request, res: Response) => {
+      const requestBaseUrl = `${req.protocol}://${req.get("host")}`;
+      const actualIssuerUrl = config.issuerUrl ?? new URL(requestBaseUrl);
+      const metadata = {
+        // RFC 8414 §3.3: the issuer MUST be identical to the base URL the
+        // well-known path was appended to — i.e. no trailing slash. SDK v2's
+        // client enforces this exactly (IssuerMismatchError otherwise).
+        issuer: actualIssuerUrl.href.replace(/\/$/, ""),
+        authorization_endpoint: new URL("/oauth/authorize", actualIssuerUrl)
+          .href,
+        token_endpoint: new URL("/oauth/token", actualIssuerUrl).href,
+        scopes_supported: scopes,
+        response_types_supported: ["code"],
+        grant_types_supported: ["authorization_code", "refresh_token"],
+        code_challenge_methods_supported: ["S256"],
+        token_endpoint_auth_methods_supported: ["client_secret_basic", "none"],
+        // RFC 9207 / SEP-2468: advertise iss on authorization responses so
+        // clients must validate (and our e2e can exercise reject paths).
+        authorization_response_iss_parameter_supported: true,
+        ...(config.supportRevocation !== false && {
+          // RFC 7009 (#2144). Advertised by default so the in-repo servers
+          // exercise the Inspector's revocation leg; set
+          // `oauth.supportRevocation: false` to reproduce an authorization
+          // server that offers none, where the Inspector must do nothing.
+          revocation_endpoint: new URL("/oauth/revoke", actualIssuerUrl).href,
+          revocation_endpoint_auth_methods_supported: [
             "client_secret_basic",
             "none",
           ],
-          // RFC 9207 / SEP-2468: advertise iss on authorization responses so
-          // clients must validate (and our e2e can exercise reject paths).
-          authorization_response_iss_parameter_supported: true,
-          ...(config.supportDCR && {
-            registration_endpoint: new URL("/oauth/register", actualIssuerUrl)
-              .href,
-          }),
-          ...(config.supportCIMD && {
-            client_id_metadata_document_supported: true,
-          }),
-        };
+        }),
+        ...(config.supportDCR && {
+          registration_endpoint: new URL("/oauth/register", actualIssuerUrl)
+            .href,
+        }),
+        ...(config.supportCIMD && {
+          client_id_metadata_document_supported: true,
+        }),
+      };
 
-        res.json(metadata);
-      },
-    );
+      res.json(metadata);
+    });
   }
 
-  // OAuth Protected Resource Metadata
+  // CIMD client metadata document (SEP-991). The `client_id` in a CIMD flow is
+  // a URL the authorization server dereferences, so a fixture that advertises
+  // `client_id_metadata_document_supported` without hosting a document
+  // anywhere is only half a fixture — it needs a second host to be usable at
+  // all. Serving it here makes a CIMD run self-contained.
+  //
+  // Gated on `supportCIMD` as well as on the document's presence: advertising
+  // a client this server would then refuse to honour is worse than serving
+  // nothing.
+  if (config.supportCIMD && config.clientMetadata) {
+    const doc = config.clientMetadata;
+    const metadataPath = clientMetadataPath(config);
+    app.get(metadataPath, (req: Request, res: Response) => {
+      // Derived from the request rather than from `issuerUrl`, so the
+      // document's own `client_id` always equals the URL it was fetched from
+      // — which is what CIMD requires, and what stays true if the server
+      // walked to another port on EADDRINUSE.
+      //
+      // `originalUrl` rather than the registered route, so a client id that
+      // carries a query string (`/client-metadata.json?profile=a`) still gets
+      // a document whose `client_id` is byte-identical to the URL that was
+      // fetched. Answering with the bare route instead would hand back a
+      // document that fails the very equality CIMD turns on (Copilot).
+      const requestBaseUrl = `${req.protocol}://${req.get("host")}`;
+      res.json({
+        client_id: new URL(req.originalUrl, requestBaseUrl).href,
+        client_name: doc.clientName ?? "MCP Inspector (CIMD test fixture)",
+        redirect_uris: doc.redirectUris,
+        // CIMD clients are public and authenticate with nothing; the server's
+        // own CIMD branch assumes exactly this (no client_secret is issued).
+        token_endpoint_auth_method: "none",
+        grant_types: ["authorization_code", "refresh_token"],
+        response_types: ["code"],
+        ...(doc.scope ? { scope: doc.scope } : {}),
+      });
+    });
+  }
+
+  // OAuth Protected Resource Metadata. `resourceMetadataPath` moves the
+  // document off the well-known path entirely (rather than serving both), so
+  // a client that ignores the advertised `resource_metadata` URL gets a 404
+  // — see the field's doc comment.
   app.get(
-    "/.well-known/oauth-protected-resource",
+    resourceMetadataPath(config) ?? "/.well-known/oauth-protected-resource",
     (req: Request, res: Response) => {
       const requestBaseUrl = `${req.protocol}://${req.get("host")}`;
       const resourceUrl = config.resource ?? new URL("/", requestBaseUrl).href;
@@ -546,7 +707,7 @@ function setupTokenEndpoint(
         // Generate access token
         const tokenScope =
           authCodeData.scope || config.scopesSupported?.[0] || "mcp";
-        const accessToken = generateAccessToken(tokenScope);
+        const accessToken = generateAccessToken(tokenScope, client_id);
         const tokenExpiration = config.tokenExpirationSeconds || 3600;
 
         const response: {
@@ -569,6 +730,7 @@ function setupTokenEndpoint(
           storeRefreshToken(refreshToken, {
             clientId: client_id,
             scope: authCodeData.scope,
+            accessTokens: new Set([accessToken]),
           });
         }
 
@@ -588,7 +750,10 @@ function setupTokenEndpoint(
 
         const tokenScope =
           refreshTokenData.scope || config.scopesSupported?.[0] || "mcp";
-        const accessToken = generateAccessToken(tokenScope);
+        const accessToken = generateAccessToken(tokenScope, client_id);
+        // Keep the grant linkage current so a later revocation of this refresh
+        // token also kills the access token it just minted.
+        refreshTokenData.accessTokens.add(accessToken);
         const tokenExpiration = config.tokenExpirationSeconds || 3600;
 
         res.json({
@@ -602,6 +767,166 @@ function setupTokenEndpoint(
       }
     },
   );
+}
+
+/**
+ * RFC 7009 token revocation (#2144).
+ *
+ * Deliberately faithful on the two points the Inspector depends on, both of
+ * which are easy to get wrong in a fixture:
+ *
+ * - **§2.2 — an unknown token is a success.** A client revoking a token the
+ *   server has already expired must not be told it failed, so the only 400 here
+ *   is a structurally invalid request (no `token` at all).
+ * - **§2.1 — revoking a refresh token also invalidates its access tokens.**
+ *   That is why the Inspector sends one request naming the refresh token, and a
+ *   fixture that ignored the linkage would let a regression through silently.
+ *
+ * Client authentication is **enforced**, not merely accepted. RFC 7009 §2.1
+ * requires it of a confidential client, and a fixture that skipped the check
+ * would answer 200 to a request carrying no `Authorization` header at all — at
+ * which point the end-to-end test claiming to prove the Inspector authenticates
+ * correctly proves nothing. Both RFC 6749 §2.3.1 forms are accepted (Basic and
+ * the request body), as is a public client identifying itself by `client_id`.
+ */
+function setupRevocationEndpoint(
+  app: express.Application,
+  config: OAuthConfig,
+): void {
+  app.post(
+    "/oauth/revoke",
+    express.urlencoded({ extended: true }),
+    async (req: Request, res: Response) => {
+      const token: unknown = req.body?.token;
+      if (typeof token !== "string" || token === "") {
+        res.status(400).json({ error: "invalid_request" });
+        return;
+      }
+
+      const clientId = await authenticateRevocationClient(req, config);
+      if (clientId === null) {
+        res
+          .status(401)
+          .set("WWW-Authenticate", 'Basic realm="revoke"')
+          .json({ error: "invalid_client" });
+        return;
+      }
+
+      // §2.1: only the client the token was issued to may revoke it. A token
+      // belonging to someone else is left alone — and still answered 200, per
+      // §2.2, since the response must not tell one client whether another's
+      // token exists.
+      const refreshTokenData = refreshTokens.get(token);
+      if (refreshTokenData) {
+        if (refreshTokenData.clientId === clientId) {
+          for (const accessToken of refreshTokenData.accessTokens) {
+            forgetAccessToken(accessToken);
+          }
+          refreshTokens.delete(token);
+        }
+      } else if (accessTokenClients.get(token) === clientId) {
+        forgetAccessToken(token);
+      }
+
+      // §2.2: 200 whether or not the token was known to us.
+      res.status(200).end();
+    },
+  );
+}
+
+/** Drop an access token and everything recorded about it. */
+function forgetAccessToken(token: string): void {
+  accessTokens.delete(token);
+  accessTokenScopes.delete(token);
+  accessTokenClients.delete(token);
+}
+
+/**
+ * Authenticate the caller of `/oauth/revoke` (RFC 7009 §2.1) and return the
+ * `client_id` it authenticated as, or `null` when it did not authenticate.
+ *
+ * Credentials may arrive either way RFC 6749 §2.3.1 allows — an `Authorization:
+ * Basic` header or `client_id`/`client_secret` in the form body — because the
+ * Inspector picks between them from the metadata, and a fixture that only read
+ * one would silently pass a request whose credentials went to the other place.
+ *
+ * A request naming no client at all is rejected: the Inspector always sends at
+ * least `client_id` once it holds any client information, so an unidentified
+ * request means it lost track of its credentials.
+ */
+async function authenticateRevocationClient(
+  req: Request,
+  config: OAuthConfig,
+): Promise<string | null> {
+  let clientId: string | undefined;
+  let clientSecret: string | undefined;
+
+  const authorization = req.get("authorization");
+  if (authorization?.startsWith("Basic ")) {
+    const decoded = Buffer.from(
+      authorization.slice("Basic ".length),
+      "base64",
+    ).toString("utf8");
+    const separator = decoded.indexOf(":");
+    if (separator === -1) return null;
+    // RFC 6749 §2.3.1: each half is form-urlencoded before the colon, so the
+    // server decodes each half after splitting on it. Decoding is what makes a
+    // credential containing a reserved character (`:` in the id, `%` or `/` in
+    // the secret) survive the round trip.
+    //
+    // A malformed escape makes `decodeURIComponent` throw, which Express would
+    // turn into a 500 — so a bad credential would be reported as a server
+    // fault rather than as the `invalid_client` 401 this endpoint means.
+    try {
+      clientId = formUrlDecode(decoded.slice(0, separator));
+      clientSecret = formUrlDecode(decoded.slice(separator + 1));
+    } catch {
+      return null;
+    }
+  } else {
+    const bodyId: unknown = req.body?.client_id;
+    const bodySecret: unknown = req.body?.client_secret;
+    if (typeof bodyId === "string") clientId = bodyId;
+    if (typeof bodySecret === "string") clientSecret = bodySecret;
+  }
+
+  if (!clientId) return null;
+  const client = await findClient(clientId, config);
+  if (!client) return null;
+  // A client registered with a secret must present it; a public one must not be
+  // asked for one it never had.
+  const ok =
+    client.clientSecret === undefined || clientSecret === client.clientSecret;
+  return ok ? clientId : null;
+}
+
+/**
+ * Decode one half of a Basic credential the way a compliant authorization
+ * server does — the `application/x-www-form-urlencoded` algorithm RFC 6749
+ * §2.3.1 names, not `decodeURIComponent`.
+ *
+ * The distinction is the whole point of this helper, and #2222 is what it cost
+ * to learn: this fixture used to decode with `decodeURIComponent`, the exact
+ * inverse of the encoder it was testing. The round trip then succeeded for
+ * **every** input — so no test here could have failed on an encoding mistake,
+ * and the suite's apparent coverage of client authentication was really a
+ * statement that the encoder is self-consistent. (The encoder was in fact
+ * fine; that was established by reasoning and a sweep over the code-point
+ * space, not by anything this fixture asserted, which is the gap being
+ * closed.)
+ *
+ * A form-urldecoder reads a bare `+` as a space, so that substitution happens
+ * **before** percent-decoding; doing it after would turn a legitimate escaped
+ * `%2B` into a space too. `%20` still decodes to a space, which is why the
+ * Inspector's `encodeURIComponent` output — which escapes `+` and spaces both,
+ * and never emits a bare `+` — round-trips through this decoder unchanged.
+ *
+ * `decodeURIComponent` remains the right primitive for the percent half, and it
+ * still throws on a malformed escape — which the caller catches, keeping a bad
+ * credential a 401 rather than an Express 500.
+ */
+function formUrlDecode(value: string): string {
+  return decodeURIComponent(value.replace(/\+/g, "%20"));
 }
 
 /**
@@ -656,6 +981,15 @@ interface AuthorizationCodeData {
 interface RefreshTokenData {
   clientId: string;
   scope?: string;
+  /**
+   * Access tokens minted under the same grant. RFC 7009 §2.1 says an
+   * authorization server asked to revoke a refresh token SHOULD also invalidate
+   * the access tokens issued from it, and the Inspector relies on exactly that
+   * — it sends one request naming the refresh token and expects both halves to
+   * die. A fixture that dropped only the refresh token would let a client that
+   * leaves live access tokens behind pass. (#2144)
+   */
+  accessTokens: Set<string>;
 }
 
 interface RegisteredClient {
@@ -669,6 +1003,13 @@ const authorizationCodes = new Map<string, AuthorizationCodeData>();
 const accessTokens = new Set<string>();
 /** Granted OAuth scope string per access token (space-separated). */
 const accessTokenScopes = new Map<string, string>();
+/**
+ * Owning `client_id` per access token. RFC 7009 §2.1 requires an authorization
+ * server to verify that a token being revoked was issued to the requesting
+ * client, and without this the fixture had no way to tell — so any registered
+ * client could revoke another's access token. (#2144)
+ */
+const accessTokenClients = new Map<string, string>();
 const refreshTokens = new Map<string, RefreshTokenData>();
 const registeredClients = new Map<string, RegisteredClient>();
 
@@ -795,10 +1136,11 @@ function getAuthorizationCode(code: string): AuthorizationCodeData | null {
   return data;
 }
 
-function generateAccessToken(scope?: string): string {
+function generateAccessToken(scope?: string, clientId?: string): string {
   const token = `test_access_token_${Date.now()}_${Math.random().toString(36).substring(7)}`;
   accessTokens.add(token);
   accessTokenScopes.set(token, scope?.trim() || "mcp");
+  if (clientId !== undefined) accessTokenClients.set(token, clientId);
   return token;
 }
 

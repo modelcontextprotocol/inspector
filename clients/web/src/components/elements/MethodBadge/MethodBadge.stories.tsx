@@ -14,7 +14,7 @@ export const ToolsList: Story = {
   args: { method: "tools/list" },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    expect(canvas.getByText("tools/list")).toBeInTheDocument();
+    await expect(canvas.getByText("tools/list")).toBeInTheDocument();
   },
 };
 
@@ -22,6 +22,6 @@ export const TasksList: Story = {
   args: { method: "tasks/list" },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    expect(canvas.getByText("tasks/list")).toBeInTheDocument();
+    await expect(canvas.getByText("tasks/list")).toBeInTheDocument();
   },
 };

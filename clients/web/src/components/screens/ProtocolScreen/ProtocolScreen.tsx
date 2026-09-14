@@ -1,5 +1,7 @@
 import { useCallback, useMemo } from "react";
+import type { Tool } from "@modelcontextprotocol/client";
 import { Card, Flex, Stack } from "@mantine/core";
+import type { ReplayParamsOverride } from "../../../lib/protocolReplay";
 import type { ProtocolEra } from "@modelcontextprotocol/client";
 import type {
   MessageEntry,
@@ -22,7 +24,13 @@ export interface ProtocolScreenProps {
   onExport: () => void;
   onClearSection: (section: "pinned" | "history") => void;
   onExportSection: (section: "pinned" | "history") => void;
-  onReplay: (id: string) => void;
+  onReplay: (id: string, overrideParams?: ReplayParamsOverride) => void;
+  /**
+   * The connected server's tools. Forwarded to each entry only so an edited
+   * `tools/call` replay can tell whether an argument would be coerced by the
+   * schema on the way out (#2151).
+   */
+  tools?: Tool[];
   onTogglePin: (id: string) => void;
   sortDirection: SortDirection;
   onSortChange: (next: SortDirection) => void;
@@ -69,6 +77,7 @@ const SidebarCard = Card.withProps({
 });
 
 export function ProtocolScreen({
+  tools,
   entries,
   pinnedIds,
   protocolEra,
@@ -154,6 +163,7 @@ export function ProtocolScreen({
         onClearSection={onClearSection}
         onExportSection={onExportSection}
         onReplay={onReplay}
+        tools={tools}
         onTogglePin={onTogglePin}
         sortDirection={sortDirection}
         onSortChange={onSortChange}

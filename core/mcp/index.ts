@@ -42,6 +42,9 @@ export type {
   ToolCallInvocation,
 } from "./types.js";
 
+// Per-item list salvage (#1909)
+export type { MalformedListItem } from "./listSalvage.js";
+
 // Re-export JSON utilities
 export type { JsonValue } from "../json/jsonUtils.js";
 export {

@@ -358,6 +358,67 @@ describe("BrowserOAuthStorage", () => {
     });
   });
 
+  // #2144 — the atomic take-and-clear. Split reads followed by a separate clear
+  // are a check-then-act: each await yields, and an OAuth completion landing in
+  // one of those gaps saves a grant the clear then destroys.
+  describe("takeRevocationSnapshot", () => {
+    it("returns every slot and clears the server in one step", async () => {
+      await storage.saveTokens(
+        testServerUrl,
+        { access_token: "a", token_type: "Bearer" },
+        { issuer: "https://as-a.example.com" },
+      );
+      await storage.savePreregisteredClientInformation(testServerUrl, {
+        client_id: "static-cid",
+      });
+      await storage.saveServerMetadata(testServerUrl, {
+        issuer: "https://as-a.example.com",
+        authorization_endpoint: "https://as-a.example.com/authorize",
+        token_endpoint: "https://as-a.example.com/token",
+        response_types_supported: ["code"],
+      });
+
+      const snapshot = await storage.takeRevocationSnapshot(testServerUrl);
+
+      expect(
+        snapshot.byIssuer["https://as-a.example.com"]?.tokens,
+      ).toMatchObject({ access_token: "a" });
+      expect(snapshot.preregisteredClientInformation).toMatchObject({
+        client_id: "static-cid",
+      });
+      expect(snapshot.serverMetadata).toMatchObject({
+        issuer: "https://as-a.example.com",
+      });
+      // Cleared in the same step.
+      expect(await storage.getTokens(testServerUrl)).toBeUndefined();
+      expect(await storage.getServerMetadata(testServerUrl)).toBeNull();
+      expect(
+        (await storage.takeRevocationSnapshot(testServerUrl)).byIssuer,
+      ).toEqual({});
+    });
+
+    it("returns the legacy unkeyed slot too", async () => {
+      await storage.saveTokens(testServerUrl, {
+        access_token: "legacy",
+        token_type: "Bearer",
+      });
+
+      const snapshot = await storage.takeRevocationSnapshot(testServerUrl);
+
+      expect(snapshot.legacyTokens).toMatchObject({ access_token: "legacy" });
+      expect(snapshot.byIssuer).toEqual({});
+    });
+
+    it("is empty for a server with no state", async () => {
+      const snapshot = await storage.takeRevocationSnapshot(
+        "https://unknown.example/mcp",
+      );
+      expect(snapshot.byIssuer).toEqual({});
+      expect(snapshot.legacyTokens).toBeUndefined();
+      expect(snapshot.serverMetadata).toBeUndefined();
+    });
+  });
+
   describe("clearServerState", () => {
     it("should clear all state for a server", async () => {
       const clientInfo: OAuthClientInformation = {

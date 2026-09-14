@@ -20,6 +20,7 @@ import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";
 import { getMimeKind } from "../../elements/ContentViewer/contentViewerUtils";
 import { CopyButton } from "../../elements/CopyButton/CopyButton";
 import { SubscribeButton } from "../../elements/SubscribeButton/SubscribeButton";
+import { inferMimeFromUri } from "../../../utils/inferMimeFromUri";
 
 export interface ResourcePreviewPanelProps {
   resource: Resource;
@@ -155,35 +156,6 @@ const ContentStack = Stack.withProps({
   gap: "md",
 });
 
-// Map a file extension to the MIME type that drives ContentViewer's per-MIME
-// renderer dispatch. MCP servers commonly omit `mimeType` (or return a generic
-// `text/plain` / `application/octet-stream`), so the URI suffix is the most
-// reliable signal for engaging the markdown / PDF / CSV / XML / HTML / CSS
-// renderers. Order doesn't matter — suffixes are unique.
-const URI_SUFFIX_MIME: ReadonlyArray<readonly [string, string]> = [
-  [".md", "text/markdown"],
-  [".markdown", "text/markdown"],
-  [".csv", "text/csv"],
-  [".json", "application/json"],
-  [".xml", "application/xml"],
-  [".html", "text/html"],
-  [".htm", "text/html"],
-  [".css", "text/css"],
-  [".pdf", "application/pdf"],
-];
-
-// Infer a MIME type from the URI's file extension when the server didn't supply
-// one. Returns undefined for unrecognized suffixes so callers fall through to
-// the octet-stream default.
-function inferMimeFromUri(uri: string): string | undefined {
-  const path = uri.split("?")[0].split("#")[0];
-  const lower = path.toLowerCase();
-  for (const [suffix, mime] of URI_SUFFIX_MIME) {
-    if (lower.endsWith(suffix)) return mime;
-  }
-  return undefined;
-}
-
 function effectiveMime(
   itemMime: string | undefined,
   resource: Resource,
@@ -222,7 +194,12 @@ export function ResourcePreviewPanel({
   const sourceToggleable = isSourceToggleable(mimeType);
 
   return (
-    <PanelStack>
+    // `data-testid` so a driver can wait on the preview having actually
+    // RENDERED, not merely on `resources/read` having returned (#2148). The
+    // read status flips as soon as the RPC resolves, so a smoke stopping there
+    // would stay green with this panel removed. A `data-*` attribute is not
+    // part of a component's typed props, so it is passed at the call site.
+    <PanelStack data-testid="resource-preview">
       <HeaderRow>
         <HeaderLeft>
           {onClose && (

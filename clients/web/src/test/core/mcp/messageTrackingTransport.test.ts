@@ -12,6 +12,8 @@ class FakeTransport implements Transport {
   sessionId?: string;
   // Optional on the SDK Transport interface; stdio omits it, HTTP defines it.
   setProtocolVersion?: (version: string) => void;
+  // Optional too: Streamable HTTP advertises it, stdio and SSE say nothing.
+  hasPerRequestStream?: boolean;
   async start(): Promise<void> {}
   async send(message: JSONRPCMessage): Promise<void> {
     this.sent.push(message);
@@ -271,5 +273,20 @@ describe("MessageTrackingTransport.setProtocolVersion", () => {
     expect(base.setProtocolVersion).toBeUndefined();
     expect(() => tracked.setProtocolVersion("2025-06-18")).not.toThrow();
     expect(tracked.protocolVersion).toBe("2025-06-18");
+  });
+
+  // #2140: the SDK reads `hasPerRequestStream` off the transport it was handed
+  // — always this wrapper — to choose between aborting a request's own stream
+  // and POSTing `notifications/cancelled`. A wrapper that answers for the base
+  // transport instead of forwarding its answer breaks Cancel on every client.
+  it("forwards the base transport's per-request-stream capability", () => {
+    const { tracked, base } = makeTracked();
+    expect(tracked.hasPerRequestStream).toBeUndefined();
+
+    base.hasPerRequestStream = true;
+    expect(tracked.hasPerRequestStream).toBe(true);
+
+    base.hasPerRequestStream = false;
+    expect(tracked.hasPerRequestStream).toBe(false);
   });
 });

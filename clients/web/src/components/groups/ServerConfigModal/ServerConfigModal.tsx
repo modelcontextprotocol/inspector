@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ChangeEvent } from "react";
+import { useMemo, useState, type ChangeEvent } from "react";
 import {
   Button,
   Group,
@@ -10,6 +10,9 @@ import {
   Textarea,
 } from "@mantine/core";
 import { ClearButton } from "../../elements/ClearButton/ClearButton";
+import { SecretStorageFooter } from "../../elements/SecretStorageFooter/SecretStorageFooter";
+import type { SecretStorageInfo } from "@inspector/core/auth/secret-storage-info.js";
+import { useValueChange } from "../../../hooks/useValueChange";
 import type {
   MCPServerConfig,
   StdioServerConfig,
@@ -32,6 +35,14 @@ export interface ServerConfigModalProps {
   existingIds: string[];
   onClose: () => void;
   onSubmit: (id: string, config: MCPServerConfig) => Promise<void> | void;
+  /**
+   * Where secrets typed here end up (#1950 review r20). This dialog takes
+   * stdio `env` values, which are extracted into the secret store exactly as
+   * the ones in Server Settings are — so it is a secret-entry surface and
+   * needs the same permanent disclosure. It had none, which meant a user
+   * could type a value into the one dialog that never said where it goes.
+   */
+  secretStorage?: SecretStorageInfo;
 }
 
 type TransportChoice = "stdio" | "sse" | "streamable-http";
@@ -187,6 +198,7 @@ export function ServerConfigModal({
   existingIds,
   onClose,
   onSubmit,
+  secretStorage,
 }: ServerConfigModalProps) {
   const initial = useMemo(
     () => configToFormState(initialId, initialConfig, mode),
@@ -209,14 +221,17 @@ export function ServerConfigModal({
   const clearTextField = (field: TextField) => () =>
     setForm((f) => ({ ...f, [field]: "" }));
 
-  // Reset form whenever the modal opens with new inputs.
-  useEffect(() => {
-    if (opened) {
-      setForm(initial);
-      setSubmitError(undefined);
-      setSubmitting(false);
-    }
-  }, [opened, initial]);
+  // Reset the form whenever the modal opens, or whenever `initial` changes
+  // while it is open. Keying on `opened ? initial : undefined` collapses both
+  // triggers into one value: it flips to `initial` on open, tracks `initial`
+  // while open, and flips to `undefined` on close (where the guard below makes
+  // the reset a no-op, matching the previous effect's `if (opened)`).
+  useValueChange(opened ? initial : undefined, () => {
+    if (!opened) return;
+    setForm(initial);
+    setSubmitError(undefined);
+    setSubmitting(false);
+  });
 
   const trimmedId = form.id.trim();
   const idIsValid = ID_PATTERN.test(trimmedId);
@@ -442,6 +457,7 @@ export function ServerConfigModal({
           </Button>
         </Actions>
       </SectionStack>
+      <SecretStorageFooter info={secretStorage} />
     </AppModalLg>
   );
 }

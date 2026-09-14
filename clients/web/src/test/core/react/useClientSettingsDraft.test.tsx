@@ -6,7 +6,8 @@
  * persist, synchronous flush-on-close, and reset-on-close behaviors.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { act, renderHook } from "@testing-library/react";
+import { act, render, renderHook } from "@testing-library/react";
+import { useEffect } from "react";
 import { useClientSettingsDraft } from "@inspector/core/react/useClientSettingsDraft";
 
 interface SettingsShape {
@@ -421,5 +422,44 @@ describe("useClientSettingsDraft", () => {
       result.current.onChange({ text: "ab", rows: [] });
     });
     expect(result.current.flush).toBe(flushAfterMount);
+  });
+  it("never commits the previous session's draft after reopening", () => {
+    // Same reasoning as the `useSettingsDraft` counterpart: the regression is
+    // a committed frame, not an end state. `rerender()` flushes the old
+    // seeding effect before any assertion on `result.current`, so an
+    // effect-seeded implementation passes those too. Record every commit from
+    // inside the tree instead, and assert the previous session's draft is
+    // never committed while the new one is open.
+    const commits: Array<{ opened: boolean; text: string | null }> = [];
+    let nextInitial: SettingsShape = { text: "first-session", rows: [] };
+
+    function Harness({ opened }: { opened: boolean }) {
+      const { draft } = useClientSettingsDraft<SettingsShape>({
+        opened,
+        resolveInitial: () => nextInitial,
+        onPersist: vi.fn(),
+        onError: vi.fn(),
+      });
+      useEffect(() => {
+        commits.push({ opened, text: draft?.text ?? null });
+      });
+      return null;
+    }
+
+    const { rerender } = render(<Harness opened={true} />);
+    expect(commits).toContainEqual({ opened: true, text: "first-session" });
+
+    rerender(<Harness opened={false} />);
+
+    // Reopen against different saved config — the modal must never paint the
+    // values from the session that just closed.
+    nextInitial = { text: "second-session", rows: [] };
+    commits.length = 0;
+    rerender(<Harness opened={true} />);
+
+    expect(commits.length).toBeGreaterThan(0);
+    for (const commit of commits) {
+      expect(commit).toEqual({ opened: true, text: "second-session" });
+    }
   });
 });

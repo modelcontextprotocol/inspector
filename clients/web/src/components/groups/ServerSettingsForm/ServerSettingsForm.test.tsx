@@ -3,23 +3,27 @@ import userEvent from "@testing-library/user-event";
 import { within } from "@testing-library/react";
 import type { InspectorServerSettings } from "@inspector/core/mcp/types.js";
 import { renderWithMantine, screen } from "../../../test/renderWithMantine";
+import { getAceText, setAceText } from "../../../test/aceEditor";
 import {
   ServerSettingsForm,
   type ServerSettingsSection,
 } from "./ServerSettingsForm";
 
-/** Find the "Clear" button living in the rightSection of `input`'s field. */
+/** Find the clear button living in the rightSection of `input`'s field. The
+ *  name is a prefix match because a KeyValueRows field names its clear button
+ *  for the row it belongs to ("Clear header name, Cookie, row 1"), while a standalone
+ *  field keeps the bare "Clear". */
 function clearButtonFor(input: HTMLElement): HTMLElement {
   const root =
     input.closest('[class*="mantine-TextInput-root"]') ??
     input.closest('[class*="Input-wrapper"]');
-  return within(root as HTMLElement).getByRole("button", { name: "Clear" });
+  return within(root as HTMLElement).getByRole("button", { name: /^Clear/ });
 }
 
 const emptySettings: InspectorServerSettings = {
   headers: [],
   env: [],
-  metadata: [],
+  metadata: {},
   connectionTimeout: 30000,
   requestTimeout: 60000,
   taskTtl: 60000,
@@ -30,7 +34,7 @@ const emptySettings: InspectorServerSettings = {
 const populatedSettings: InspectorServerSettings = {
   headers: [{ key: "Authorization", value: "Bearer abc" }],
   env: [],
-  metadata: [{ key: "userId", value: "u-1" }],
+  metadata: { userId: "u-1", tenant: { id: 7, tags: ["a"] } },
   connectionTimeout: 30000,
   requestTimeout: 60000,
   taskTtl: 60000,
@@ -60,8 +64,6 @@ const baseHandlers = {
   onRemoveEnv: vi.fn(),
   onEnvChange: vi.fn(),
   onCwdChange: vi.fn(),
-  onAddMetadata: vi.fn(),
-  onRemoveMetadata: vi.fn(),
   onMetadataChange: vi.fn(),
   onTimeoutChange: vi.fn(),
   onAutoRefreshChange: vi.fn(),
@@ -236,7 +238,7 @@ describe("ServerSettingsForm", () => {
     expect(screen.getByText("Log Level per Request")).toBeInTheDocument();
   });
 
-  it("shows empty hints for headers and metadata when no entries exist", () => {
+  it("shows the empty hint for headers, and an empty JSON object for metadata", () => {
     renderWithMantine(
       <ServerSettingsForm
         {...baseHandlers}
@@ -247,9 +249,9 @@ describe("ServerSettingsForm", () => {
     expect(
       screen.getByText("No custom headers configured"),
     ).toBeInTheDocument();
-    expect(
-      screen.getByText("No request metadata configured"),
-    ).toBeInTheDocument();
+    // Metadata has no rows to be absent — the editor is always present, and
+    // "none configured" is spelled `{}` in it.
+    expect(getAceText()).toBe("{}");
   });
 
   it("invokes onAddHeader when + Add Header is clicked", async () => {
@@ -265,21 +267,6 @@ describe("ServerSettingsForm", () => {
     );
     await user.click(screen.getByRole("button", { name: "+ Add Header" }));
     expect(onAddHeader).toHaveBeenCalledTimes(1);
-  });
-
-  it("invokes onAddMetadata when + Add Metadata is clicked", async () => {
-    const user = userEvent.setup();
-    const onAddMetadata = vi.fn();
-    renderWithMantine(
-      <ServerSettingsForm
-        {...baseHandlers}
-        onAddMetadata={onAddMetadata}
-        settings={emptySettings}
-        expandedSections={["metadata"]}
-      />,
-    );
-    await user.click(screen.getByRole("button", { name: "+ Add Metadata" }));
-    expect(onAddMetadata).toHaveBeenCalledTimes(1);
   });
 
   it("invokes onHeaderChange when typing in header value input", async () => {
@@ -329,31 +316,42 @@ describe("ServerSettingsForm", () => {
         expandedSections={["headers"]}
       />,
     );
-    const removeButtons = screen.getAllByRole("button", { name: "X" });
-    await user.click(removeButtons[0]);
+    await user.click(
+      screen.getByRole("button", {
+        name: "Remove header, Authorization, row 1",
+      }),
+    );
     expect(onRemoveHeader).toHaveBeenCalledWith(0);
   });
 
-  it("invokes onMetadataChange and onRemoveMetadata for metadata rows", async () => {
-    const user = userEvent.setup();
-    const onMetadataChange = vi.fn();
-    const onRemoveMetadata = vi.fn();
+  it("renders the configured metadata as formatted JSON, nested values included", () => {
     renderWithMantine(
       <ServerSettingsForm
         {...baseHandlers}
-        onMetadataChange={onMetadataChange}
-        onRemoveMetadata={onRemoveMetadata}
         settings={populatedSettings}
         expandedSections={["metadata"]}
       />,
     );
-    const valueInput = screen.getByDisplayValue("u-1");
-    await user.type(valueInput, "Z");
-    expect(onMetadataChange).toHaveBeenCalled();
+    // The point of #1910: a nested object survives into the editor instead of
+    // being flattened into a `{ key, value }` string row.
+    expect(JSON.parse(getAceText())).toEqual({
+      userId: "u-1",
+      tenant: { id: 7, tags: ["a"] },
+    });
+  });
 
-    const removeButtons = screen.getAllByRole("button", { name: "X" });
-    await user.click(removeButtons[0]);
-    expect(onRemoveMetadata).toHaveBeenCalledWith(0);
+  it("reports the whole edited object through onMetadataChange", async () => {
+    const onMetadataChange = vi.fn();
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        onMetadataChange={onMetadataChange}
+        settings={emptySettings}
+        expandedSections={["metadata"]}
+      />,
+    );
+    await setAceText('{"n":[1,2]}');
+    expect(onMetadataChange).toHaveBeenLastCalledWith({ n: [1, 2] });
   });
 
   it("invokes onTimeoutChange when typing in connection timeout", async () => {
@@ -676,9 +674,13 @@ describe("ServerSettingsForm", () => {
       await user.type(keyInput, "2");
       expect(onEnvChange).toHaveBeenLastCalledWith(0, "API_KEY2", "secret");
 
-      // The remove ("X") button sits alongside the row's key/value inputs.
-      const removeButtons = screen.getAllByRole("button", { name: "X" });
-      await user.click(removeButtons[removeButtons.length - 1]!);
+      // The remove button sits alongside the row's key/value inputs; its
+      // accessible name identifies which row it belongs to.
+      await user.click(
+        screen.getByRole("button", {
+          name: "Remove environment variable, API_KEY, row 1",
+        }),
+      );
       expect(onRemoveEnv).toHaveBeenCalledWith(0);
     });
   });
@@ -700,8 +702,554 @@ describe("ServerSettingsForm", () => {
       clientId: "a",
       clientSecret: "",
       scopes: "",
+      authorizationParams: [],
+      authorizationUrl: "",
+      tokenUrl: "",
       enterpriseManaged: false,
+      requestRefreshToken: true,
+      revokeOnClear: true,
     });
+  });
+
+  // #2068 — the refresh-token opt-out. On by default; unchecking it is what
+  // stops the SDK adding `offline_access` and then `prompt=consent`.
+  it("renders Request refresh token checked by default", () => {
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        settings={emptySettings}
+        expandedSections={["oauth"]}
+      />,
+    );
+    expect(screen.getByLabelText("Request refresh token")).toBeChecked();
+  });
+
+  it("renders Request refresh token unchecked when the server opted out", () => {
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        settings={{ ...emptySettings, oauthRequestRefreshToken: false }}
+        expandedSections={["oauth"]}
+      />,
+    );
+    expect(screen.getByLabelText("Request refresh token")).not.toBeChecked();
+  });
+
+  it("toggles Request refresh token through onOAuthChange", async () => {
+    const user = userEvent.setup();
+    const onOAuthChange = vi.fn();
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        onOAuthChange={onOAuthChange}
+        settings={emptySettings}
+        expandedSections={["oauth"]}
+      />,
+    );
+    await user.click(screen.getByLabelText("Request refresh token"));
+    expect(onOAuthChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ requestRefreshToken: false }),
+    );
+  });
+
+  // #2144 — the RFC 7009 opt-out. On by default: leaving it off silently is
+  // what leaves the authorization server holding a live grant.
+  it("renders Revoke tokens on clear checked by default", () => {
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        settings={emptySettings}
+        expandedSections={["oauth"]}
+      />,
+    );
+    expect(screen.getByLabelText("Revoke tokens on clear")).toBeChecked();
+  });
+
+  it("renders Revoke tokens on clear unchecked when the server opted out", () => {
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        settings={{ ...emptySettings, oauthRevokeOnClear: false }}
+        expandedSections={["oauth"]}
+      />,
+    );
+    expect(screen.getByLabelText("Revoke tokens on clear")).not.toBeChecked();
+  });
+
+  it("toggles Revoke tokens on clear through onOAuthChange", async () => {
+    const user = userEvent.setup();
+    const onOAuthChange = vi.fn();
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        onOAuthChange={onOAuthChange}
+        settings={emptySettings}
+        expandedSections={["oauth"]}
+      />,
+    );
+    await user.click(screen.getByLabelText("Revoke tokens on clear"));
+    expect(onOAuthChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ revokeOnClear: false }),
+    );
+  });
+
+  it("warns when opting out while offline_access is still in Scopes", () => {
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        settings={{
+          ...emptySettings,
+          oauthRequestRefreshToken: false,
+          oauthScopes: "openid offline_access",
+        }}
+        expandedSections={["oauth"]}
+      />,
+    );
+    expect(
+      screen.getByText("offline_access is still requested"),
+    ).toBeInTheDocument();
+  });
+
+  it("does not warn when opted out and Scopes omits offline_access", () => {
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        settings={{
+          ...emptySettings,
+          oauthRequestRefreshToken: false,
+          oauthScopes: "openid",
+        }}
+        expandedSections={["oauth"]}
+      />,
+    );
+    expect(
+      screen.queryByText("offline_access is still requested"),
+    ).not.toBeInTheDocument();
+  });
+
+  // The scope alone is not a problem — with the grant declared, requesting
+  // offline_access is exactly what the default configuration does.
+  it("does not warn when offline_access is in Scopes but the grant is on", () => {
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        settings={{ ...emptySettings, oauthScopes: "openid offline_access" }}
+        expandedSections={["oauth"]}
+      />,
+    );
+    expect(
+      screen.queryByText("offline_access is still requested"),
+    ).not.toBeInTheDocument();
+  });
+
+  // A substring must not trip it — `offline_access_extra` is a different scope.
+  it("matches offline_access as a whole scope token, not a substring", () => {
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        settings={{
+          ...emptySettings,
+          oauthRequestRefreshToken: false,
+          oauthScopes: "openid offline_access_extra",
+        }}
+        expandedSections={["oauth"]}
+      />,
+    );
+    expect(
+      screen.queryByText("offline_access is still requested"),
+    ).not.toBeInTheDocument();
+  });
+
+  // #2068 — EMA wraps this provider and forwards its `clientMetadata`, so the
+  // setting is not ignored outright; what it cannot change is the IdP
+  // authorization leg's fixed `openid offline_access` scope. That leg is the
+  // one the user signs in through, so the checkbox cannot affect EMA's consent
+  // behavior and must say so.
+  it("says the refresh-token setting is not applied under EMA", () => {
+    const { rerender } = renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        settings={{ ...emptySettings, enterpriseManaged: true }}
+        expandedSections={["oauth"]}
+      />,
+    );
+    expect(
+      screen.getByText(/which this setting cannot change/),
+    ).toBeInTheDocument();
+
+    rerender(
+      <ServerSettingsForm
+        {...baseHandlers}
+        settings={{ ...emptySettings, enterpriseManaged: false }}
+        expandedSections={["oauth"]}
+      />,
+    );
+    expect(
+      screen.queryByText(/which this setting cannot change/),
+    ).not.toBeInTheDocument();
+  });
+
+  // #2018 — custom authorization-request parameters.
+  it("shows the empty hint for authorization parameters when none are set", () => {
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        settings={emptySettings}
+        expandedSections={["oauth"]}
+      />,
+    );
+    expect(
+      screen.getByText("Additional authorization parameters"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("No additional parameters configured"),
+    ).toBeInTheDocument();
+  });
+
+  it("adds an authorization-parameter row through onOAuthChange", async () => {
+    const user = userEvent.setup();
+    const onOAuthChange = vi.fn();
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        onOAuthChange={onOAuthChange}
+        settings={emptySettings}
+        expandedSections={["oauth"]}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: "+ Add Parameter" }));
+    expect(onOAuthChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        authorizationParams: [{ key: "", value: "" }],
+      }),
+    );
+  });
+
+  it("edits and removes an authorization-parameter row", async () => {
+    const user = userEvent.setup();
+    const onOAuthChange = vi.fn();
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        onOAuthChange={onOAuthChange}
+        settings={{
+          ...emptySettings,
+          oauthAuthorizationParams: [{ key: "kc_idp_hint", value: "corp" }],
+        }}
+        expandedSections={["oauth"]}
+      />,
+    );
+    const valueInput = screen.getByDisplayValue("corp");
+    await user.type(valueInput, "x");
+    expect(onOAuthChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        authorizationParams: [{ key: "kc_idp_hint", value: "corpx" }],
+      }),
+    );
+
+    onOAuthChange.mockClear();
+    const removeButton = screen
+      .getAllByRole("button")
+      .find((b) => b.textContent === "X");
+    await user.click(removeButton as HTMLElement);
+    expect(onOAuthChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ authorizationParams: [] }),
+    );
+  });
+
+  it("clears an authorization-parameter key via its Clear button", async () => {
+    const user = userEvent.setup();
+    const onOAuthChange = vi.fn();
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        onOAuthChange={onOAuthChange}
+        settings={{
+          ...emptySettings,
+          oauthAuthorizationParams: [{ key: "kc_idp_hint", value: "corp" }],
+        }}
+        expandedSections={["oauth"]}
+      />,
+    );
+    await user.click(clearButtonFor(screen.getByDisplayValue("kc_idp_hint")));
+    expect(onOAuthChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        authorizationParams: [{ key: "", value: "corp" }],
+      }),
+    );
+
+    onOAuthChange.mockClear();
+    await user.click(clearButtonFor(screen.getByDisplayValue("corp")));
+    expect(onOAuthChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        authorizationParams: [{ key: "kc_idp_hint", value: "" }],
+      }),
+    );
+  });
+
+  it("rejects a reserved authorization-parameter key inline and with a warning", () => {
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        settings={{
+          ...emptySettings,
+          oauthAuthorizationParams: [{ key: "state", value: "spoofed" }],
+        }}
+        expandedSections={["oauth"]}
+      />,
+    );
+    expect(
+      screen.getByText(
+        '"state" is set by the authorization flow and cannot be overridden.',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Reserved parameters ignored")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("state")).toHaveAttribute(
+      "aria-invalid",
+      "true",
+    );
+  });
+
+  // #2018 — the section heading and the placeholders are not programmatically
+  // associated with these inputs, so each control carries its own aria-label and
+  // the reserved-key reason is the input's `error` string (which Mantine wires
+  // to the input via aria-describedby) rather than free-standing text.
+  it("gives each authorization-parameter control an accessible name", () => {
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        settings={{
+          ...emptySettings,
+          oauthAuthorizationParams: [{ key: "kc_idp_hint", value: "corp" }],
+        }}
+        expandedSections={["oauth"]}
+      />,
+    );
+    expect(
+      screen.getByRole("textbox", {
+        name: "Authorization parameter name, kc_idp_hint",
+      }),
+    ).toHaveValue("kc_idp_hint");
+    expect(
+      screen.getByRole("textbox", {
+        name: "Authorization parameter value, kc_idp_hint",
+      }),
+    ).toHaveValue("corp");
+    expect(
+      screen.getByRole("button", {
+        name: "Remove authorization parameter kc_idp_hint",
+      }),
+    ).toBeInTheDocument();
+  });
+
+  it("falls back to a row number in the accessible name when the key is blank", () => {
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        settings={{
+          ...emptySettings,
+          oauthAuthorizationParams: [{ key: "", value: "" }],
+        }}
+        expandedSections={["oauth"]}
+      />,
+    );
+    expect(
+      screen.getByRole("textbox", {
+        name: "Authorization parameter name, row 1",
+      }),
+    ).toBeInTheDocument();
+  });
+
+  // The reason must reach assistive tech through the input, not just as text on
+  // the page: Mantine emits the `error` string with an id the input references.
+  it("associates the reserved-key reason with the key input", () => {
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        settings={{
+          ...emptySettings,
+          oauthAuthorizationParams: [{ key: "state", value: "spoofed" }],
+        }}
+        expandedSections={["oauth"]}
+      />,
+    );
+    const keyInput = screen.getByRole("textbox", {
+      name: "Authorization parameter name, state",
+    });
+    const describedBy = keyInput.getAttribute("aria-describedby");
+    expect(describedBy).toBeTruthy();
+    const reason = describedBy
+      ?.split(" ")
+      .map((id) => document.getElementById(id)?.textContent ?? "")
+      .join(" ");
+    expect(reason).toContain(
+      '"state" is set by the authorization flow and cannot be overridden.',
+    );
+  });
+
+  // #2018 — the EMA leg authorizes against the enterprise IdP, a different
+  // authorization server, and deliberately sends none of these parameters. The
+  // description has to say so, or the form shows a configured value as active
+  // when it will not be sent.
+  it("warns that authorization parameters are unused under enterprise-managed auth", () => {
+    const { rerender } = renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        settings={{ ...emptySettings, enterpriseManaged: true }}
+        expandedSections={["oauth"]}
+      />,
+    );
+    expect(
+      screen.getByText(/Not sent while Enterprise-managed authorization is on/),
+    ).toBeInTheDocument();
+
+    rerender(
+      <ServerSettingsForm
+        {...baseHandlers}
+        settings={{ ...emptySettings, enterpriseManaged: false }}
+        expandedSections={["oauth"]}
+      />,
+    );
+    expect(
+      screen.queryByText(
+        /Not sent while Enterprise-managed authorization is on/,
+      ),
+    ).not.toBeInTheDocument();
+  });
+
+  it("does not flag a blank authorization-parameter row as reserved", () => {
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        settings={{
+          ...emptySettings,
+          oauthAuthorizationParams: [{ key: "", value: "" }],
+        }}
+        expandedSections={["oauth"]}
+      />,
+    );
+    expect(
+      screen.queryByText("Reserved parameters ignored"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("pluralizes the reserved-parameter warning for multiple keys", () => {
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        settings={{
+          ...emptySettings,
+          oauthAuthorizationParams: [
+            { key: "state", value: "x" },
+            { key: "scope", value: "y" },
+          ],
+        }}
+        expandedSections={["oauth"]}
+      />,
+    );
+    expect(screen.getByText(/state, scope are set/)).toBeInTheDocument();
+  });
+
+  // #1906 — the endpoint overrides ride the same `onOAuthChange` callback as
+  // the rest of the Authorization section.
+  it("invokes onOAuthChange when an endpoint override is typed", async () => {
+    const user = userEvent.setup();
+    const onOAuthChange = vi.fn();
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        onOAuthChange={onOAuthChange}
+        settings={emptySettings}
+        expandedSections={["oauth"]}
+      />,
+    );
+    await user.type(
+      screen.getByRole("textbox", { name: /Authorization URL override/i }),
+      "h",
+    );
+    expect(onOAuthChange).toHaveBeenCalledWith(
+      expect.objectContaining({ authorizationUrl: "h" }),
+    );
+
+    onOAuthChange.mockClear();
+    await user.type(
+      screen.getByRole("textbox", { name: /Token URL override/i }),
+      "h",
+    );
+    expect(onOAuthChange).toHaveBeenCalledWith(
+      expect.objectContaining({ tokenUrl: "h" }),
+    );
+  });
+
+  it("says the EMA-suppressed controls are unused under enterprise-managed auth", () => {
+    const { rerender } = renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        settings={{ ...emptySettings, enterpriseManaged: true }}
+        expandedSections={["oauth"]}
+      />,
+    );
+    // Three controls carry this notice: the two endpoint overrides (#1906) and
+    // the refresh-token checkbox (#2068). The count is asserted rather than
+    // merely "present" so a control that stops annotating itself — or a new one
+    // that never starts — is caught here.
+    expect(
+      screen.getAllByText(
+        /Not applied while Enterprise-managed authorization is on/,
+      ),
+    ).toHaveLength(3);
+
+    rerender(
+      <ServerSettingsForm
+        {...baseHandlers}
+        settings={{ ...emptySettings, enterpriseManaged: false }}
+        expandedSections={["oauth"]}
+      />,
+    );
+    expect(
+      screen.queryByText(
+        /Not applied while Enterprise-managed authorization is on/,
+      ),
+    ).not.toBeInTheDocument();
+  });
+
+  it("flags an endpoint override that is not an absolute http(s) URL", () => {
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        settings={{
+          ...emptySettings,
+          oauthAuthorizationUrl: "/authorize",
+          oauthTokenUrl: "https://staging.test/token",
+        }}
+        expandedSections={["oauth"]}
+      />,
+    );
+    expect(
+      screen.getByText('"/authorize" is not an absolute URL.'),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/is not an http\(s\) URL/)).toBeNull();
+  });
+
+  it("clears an endpoint override through its clear button", async () => {
+    const user = userEvent.setup();
+    const onOAuthChange = vi.fn();
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        onOAuthChange={onOAuthChange}
+        settings={{
+          ...emptySettings,
+          oauthTokenUrl: "https://staging.test/token",
+        }}
+        expandedSections={["oauth"]}
+      />,
+    );
+    const clearButtons = screen.getAllByRole("button", { name: /clear/i });
+    await user.click(clearButtons[clearButtons.length - 1]);
+    expect(onOAuthChange).toHaveBeenCalledWith(
+      expect.objectContaining({ tokenUrl: "" }),
+    );
   });
 
   it("invokes onOAuthChange with the chosen insufficient-scope policy (SEP-2350)", async () => {
@@ -744,7 +1292,12 @@ describe("ServerSettingsForm", () => {
       clientId: "",
       clientSecret: "",
       scopes: "",
+      authorizationParams: [],
+      authorizationUrl: "",
+      tokenUrl: "",
       enterpriseManaged: true,
+      requestRefreshToken: true,
+      revokeOnClear: true,
     });
   });
 
@@ -848,7 +1401,12 @@ describe("ServerSettingsForm", () => {
       clientId: "",
       clientSecret: "z",
       scopes: "",
+      authorizationParams: [],
+      authorizationUrl: "",
+      tokenUrl: "",
       enterpriseManaged: false,
+      requestRefreshToken: true,
+      revokeOnClear: true,
     });
   });
 
@@ -1089,23 +1647,6 @@ describe("ServerSettingsForm", () => {
     expect(onClearStoredOAuth).toHaveBeenCalledTimes(1);
   });
 
-  it("clears a metadata value via its Clear button (onMetadataChange with empty value)", async () => {
-    const user = userEvent.setup();
-    const onMetadataChange = vi.fn();
-    renderWithMantine(
-      <ServerSettingsForm
-        {...baseHandlers}
-        onMetadataChange={onMetadataChange}
-        settings={populatedSettings}
-        expandedSections={["metadata"]}
-      />,
-    );
-    // populatedSettings has one metadata { key: "userId", value: "u-1" }
-    const valueInput = screen.getByDisplayValue("u-1");
-    await user.click(clearButtonFor(valueInput));
-    expect(onMetadataChange).toHaveBeenCalledWith(0, "userId", "");
-  });
-
   it("omits the Clear buttons for an empty header key/value row", () => {
     // A row whose key and value are both empty renders no Clear button in
     // either field (the null branch of `item.key ?` / `item.value ?`).
@@ -1121,12 +1662,12 @@ describe("ServerSettingsForm", () => {
     expect(
       within(
         keyInput.closest('[class*="Input-wrapper"]') as HTMLElement,
-      ).queryByRole("button", { name: "Clear" }),
+      ).queryByRole("button", { name: /^Clear/ }),
     ).toBeNull();
     expect(
       within(
         valueInput.closest('[class*="Input-wrapper"]') as HTMLElement,
-      ).queryByRole("button", { name: "Clear" }),
+      ).queryByRole("button", { name: /^Clear/ }),
     ).toBeNull();
   });
 
@@ -1149,12 +1690,12 @@ describe("ServerSettingsForm", () => {
     expect(
       within(
         uriInput.closest('[class*="Input-wrapper"]') as HTMLElement,
-      ).queryByRole("button", { name: "Clear" }),
+      ).queryByRole("button", { name: /^Clear/ }),
     ).toBeNull();
     expect(
       within(
         nameInput.closest('[class*="Input-wrapper"]') as HTMLElement,
-      ).queryByRole("button", { name: "Clear" }),
+      ).queryByRole("button", { name: /^Clear/ }),
     ).toBeNull();
     // Typing into the URI threads the empty name through (`root.name ?? ""`).
     await user.type(uriInput, "f");

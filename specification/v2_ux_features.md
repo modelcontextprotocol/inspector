@@ -110,7 +110,11 @@ When a tool execution triggers sampling or elicitation requests, they appear inl
   - Step description if provided
   - Elapsed time display
 - Execute button with loading state
-- **Cancel button** sends `notifications/cancelled`
+- **Cancel button** sends the transport-appropriate cancellation signal (#2140):
+  on a 2026-07-28 Streamable HTTP connection it aborts the request's own SSE
+  response stream, which the spec makes the cancellation signal; on stdio (and
+  on any pre-2026 connection, where the per-stream mechanism does not exist) it
+  sends `notifications/cancelled`
 - **Inline Client Request Queue** - When tool triggers sampling/elicitation:
   - Pending requests shown inline (not as separate modal)
   - Queue counter shows total pending requests

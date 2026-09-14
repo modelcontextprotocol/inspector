@@ -1,0 +1,36 @@
+{
+  // Parser project for the ROOT eslint config's type-aware rules (#1959), and
+  // nothing else — it emits nothing and gates nothing.
+  //
+  // `@typescript-eslint/no-floating-promises` needs a program containing the
+  // file being linted, and the root scope (`core/**`, `test-servers/src/**`,
+  // `vitest.shared.mts`) has no tsconfig of its own: `core/` is typechecked
+  // through `clients/web`'s `tsc -b` and `test-servers/src` through
+  // `clients/cli`'s test project, neither of which is rooted here. Type
+  // *checking* stays where it is; this file only gives the parser a program.
+  //
+  // `moduleResolution: bundler` because `core/` is written for a bundler
+  // (extensionless relative imports) — under NodeNext those fail to resolve,
+  // every import degrades to `any`, and the rule silently stops seeing
+  // promises at all.
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    "types": ["node"],
+    "typeRoots": ["./clients/web/node_modules/@types", "./node_modules/@types"]
+  },
+  "include": [
+    "core/**/*.ts",
+    "core/**/*.tsx",
+    "test-servers/src/**/*.ts",
+    "test-servers/src/**/*.tsx",
+    "test-servers/src/**/*.mts",
+    "test-servers/src/**/*.cts",
+    "vitest.shared.mts",
+    "vitest.setup.shared.mts"
+  ]
+}

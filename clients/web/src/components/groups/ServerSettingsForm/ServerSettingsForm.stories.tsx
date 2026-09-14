@@ -10,7 +10,7 @@ import {
 const defaultSettings: InspectorServerSettings = {
   headers: [],
   env: [],
-  metadata: [],
+  metadata: {},
   connectionTimeout: 30000,
   requestTimeout: 60000,
   taskTtl: 60000,
@@ -57,34 +57,9 @@ function InteractiveRender(args: ServerSettingsFormProps) {
           },
         });
       }}
-      onAddMetadata={() => {
-        args.onAddMetadata();
-        updateArgs({
-          settings: {
-            ...args.settings,
-            metadata: [...args.settings.metadata, { key: "", value: "" }],
-          },
-        });
-      }}
-      onRemoveMetadata={(index) => {
-        args.onRemoveMetadata(index);
-        updateArgs({
-          settings: {
-            ...args.settings,
-            metadata: args.settings.metadata.filter((_, i) => i !== index),
-          },
-        });
-      }}
-      onMetadataChange={(index, key, value) => {
-        args.onMetadataChange(index, key, value);
-        updateArgs({
-          settings: {
-            ...args.settings,
-            metadata: args.settings.metadata.map((m, i) =>
-              i === index ? { key, value } : m,
-            ),
-          },
-        });
+      onMetadataChange={(metadata) => {
+        args.onMetadataChange(metadata);
+        updateArgs({ settings: { ...args.settings, metadata } });
       }}
       onAddEnv={() => {
         args.onAddEnv();
@@ -197,8 +172,6 @@ const meta: Meta<typeof ServerSettingsForm> = {
     onRemoveEnv: fn(),
     onEnvChange: fn(),
     onCwdChange: fn(),
-    onAddMetadata: fn(),
-    onRemoveMetadata: fn(),
     onMetadataChange: fn(),
     onTimeoutChange: fn(),
     onAutoRefreshChange: fn(),
@@ -278,10 +251,13 @@ export const AllConfigured: Story = {
         { key: "X-Request-Id", value: "req-456" },
       ],
       env: [],
-      metadata: [
-        { key: "userId", value: "user-789" },
-        { key: "sessionId", value: "session-012" },
-      ],
+      metadata: {
+        userId: "user-789",
+        sessionId: "session-012",
+        // A structured value — the case a `{ key, value }` row editor could
+        // not express (#1910).
+        client: { name: "inspector", features: ["apps", "tasks"], retries: 3 },
+      },
       connectionTimeout: 15000,
       requestTimeout: 45000,
       taskTtl: 45000,

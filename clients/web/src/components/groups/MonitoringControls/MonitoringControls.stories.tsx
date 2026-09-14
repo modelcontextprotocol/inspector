@@ -20,7 +20,7 @@ type Story = StoryObj<typeof MonitoringControls>;
 export const AllTabs: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    expect(canvas.getByRole("radio", { name: "Logs" })).toBeChecked();
+    await expect(canvas.getByRole("radio", { name: "Logs" })).toBeChecked();
   },
 };
 
@@ -28,6 +28,6 @@ export const StdioServer: Story = {
   args: { tabs: ["Logs", "Protocol"], value: "Protocol" },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    expect(canvas.queryByRole("radio", { name: "Network" })).toBeNull();
+    await expect(canvas.queryByRole("radio", { name: "Network" })).toBeNull();
   },
 };

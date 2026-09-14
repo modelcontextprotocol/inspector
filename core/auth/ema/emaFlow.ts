@@ -11,6 +11,7 @@ import {
   type EmaResourceContext,
 } from "./resourceContext.js";
 import { exchangeIdJag, redeemIdJagForAccessToken } from "./wire.js";
+import { resolvePersistedScopeAfterGrant } from "../scopes.js";
 
 export interface EmaFlowConfig {
   serverUrl: string;
@@ -35,10 +36,24 @@ function wrapEmaMintError(err: unknown): Error {
   });
 }
 
+/**
+ * A completed EMA mint, and the scope it actually asked for.
+ *
+ * The request is not always `config.scope`: with neither a configured nor a
+ * stored scope, {@link discoverEmaResourceContext} resolves it from the
+ * protected resource metadata's `scopes_supported`, and that is what both
+ * exchanges send. Callers need the resolved value to apply RFC 6749 §5.1 — a
+ * token response that omits `scope` granted exactly what was requested.
+ */
+export interface EmaMintResult {
+  tokens: OAuthTokens;
+  requestedScope?: string;
+}
+
 export async function mintEmaResourceTokens(
   config: EmaFlowConfig,
   resourceContext?: EmaResourceContext,
-): Promise<OAuthTokens> {
+): Promise<EmaMintResult> {
   const ctx =
     resourceContext ??
     (await discoverEmaResourceContext(
@@ -78,7 +93,7 @@ export async function mintEmaResourceTokens(
     fetchFn: config.fetchFn,
   });
 
-  return redeemIdJagForAccessToken({
+  const tokens = await redeemIdJagForAccessToken({
     resourceAsUrl: ctx.resourceAsUrl,
     idJag,
     resourceClientId: config.resourceClientId,
@@ -87,6 +102,31 @@ export async function mintEmaResourceTokens(
     scope: ctx.scope,
     fetchFn: config.fetchFn,
   });
+  return { tokens, requestedScope: ctx.scope };
+}
+
+/**
+ * Save a mint's tokens and the scope they carry, together.
+ *
+ * Every EMA mint ends here — silent, refresh, and interactive alike — because
+ * all three can be the moment a newly configured or metadata-derived scope
+ * first takes effect. Persisting tokens without the scope leaves the previous
+ * stored value standing as though it described the new token (#2117).
+ */
+async function saveMintedTokens(
+  config: EmaFlowConfig,
+  { tokens, requestedScope }: EmaMintResult,
+): Promise<void> {
+  await config.storage.saveTokens(config.serverUrl, tokens, {
+    enterpriseManaged: true,
+  });
+  const scopeToPersist = resolvePersistedScopeAfterGrant(
+    tokens.scope,
+    requestedScope,
+  );
+  if (scopeToPersist) {
+    await config.storage.saveScope(config.serverUrl, scopeToPersist);
+  }
 }
 
 /** Silent path: cached IdP session + legs 2–3. */
@@ -102,10 +142,7 @@ export async function trySilentEmaAuth(
     return { status: "no_idp_session" };
   }
   try {
-    const tokens = await mintEmaResourceTokens(config);
-    await config.storage.saveTokens(config.serverUrl, tokens, {
-      enterpriseManaged: true,
-    });
+    await saveMintedTokens(config, await mintEmaResourceTokens(config));
     return { status: "success" };
   } catch (err) {
     return { status: "mint_failed", error: wrapEmaMintError(err) };
@@ -128,7 +165,7 @@ export async function completeEmaIdpAuthorizationAndMint(
   config: EmaFlowConfig,
   authorizationCode: string,
   iss?: string,
-): Promise<OAuthTokens> {
+): Promise<EmaMintResult> {
   try {
     await completeIdpOidcAuthorization({
       idp: config.idp,
@@ -145,17 +182,15 @@ export async function completeEmaIdpAuthorizationAndMint(
     });
   }
 
-  let tokens: OAuthTokens;
+  let minted: EmaMintResult;
   try {
-    tokens = await mintEmaResourceTokens(config);
+    minted = await mintEmaResourceTokens(config);
   } catch (err) {
     throw wrapEmaMintError(err);
   }
 
-  await config.storage.saveTokens(config.serverUrl, tokens, {
-    enterpriseManaged: true,
-  });
-  return tokens;
+  await saveMintedTokens(config, minted);
+  return minted;
 }
 
 /** Re-run legs 2–3 on 401 when IdP session is still valid. */
@@ -170,9 +205,7 @@ export async function refreshEmaResourceTokens(
   if (!idToken) {
     return undefined;
   }
-  const tokens = await mintEmaResourceTokens(config);
-  await config.storage.saveTokens(config.serverUrl, tokens, {
-    enterpriseManaged: true,
-  });
-  return tokens;
+  const minted = await mintEmaResourceTokens(config);
+  await saveMintedTokens(config, minted);
+  return minted.tokens;
 }

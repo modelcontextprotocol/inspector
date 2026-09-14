@@ -6,6 +6,7 @@ import {
 } from "./useImportClientConfig";
 import type { ImportSourceResult } from "@inspector/core/mcp/import/index.js";
 import type { MCPConfig } from "@inspector/core/mcp/types.js";
+import { ServerListReloadError } from "@inspector/core/react/useServers.js";
 
 function config(...ids: string[]): MCPConfig {
   const mcpServers: MCPConfig["mcpServers"] = {};
@@ -205,6 +206,31 @@ describe("useImportClientConfig", () => {
     const outcome = result.current.outcomes[0];
     expect(outcome.status).toBe("failed");
     expect(outcome.detail).toBe("add failed");
+  });
+
+  it("reports a reload failure as imported-with-a-warning, not failed (#1914)", async () => {
+    // A `ServerListReloadError` rejects *after* the write landed, so the entry
+    // really was added. A red "Failed" badge would contradict the error's own
+    // message and invite a retry that then collides with the row it claims
+    // wasn't created. The reason still shows, as `detail`.
+    const onAddServer = vi.fn(async () => {
+      throw new ServerListReloadError(
+        "The server was added, but the server list could not be reloaded: disk full",
+      );
+    });
+    const { result } = setup({
+      onFetchSource: vi.fn(async () => foundSource(config("alpha"))),
+      onAddServer,
+    });
+    await act(async () => {
+      await result.current.pickSource("claude");
+    });
+    await act(async () => {
+      await result.current.runImport();
+    });
+    const outcome = result.current.outcomes[0];
+    expect(outcome.status).toBe("added");
+    expect(outcome.detail).toMatch(/could not be reloaded: disk full/);
   });
 
   it("resolves conflicts by overwrite, skip, and rename", async () => {

@@ -6,6 +6,7 @@ import {
   screen,
   waitFor,
 } from "../../../test/renderWithMantine";
+import { getAceText } from "../../../test/aceEditor";
 import { ResourceLink } from "./ResourceLink";
 
 const URI = "file:///docs/readme.md";
@@ -46,9 +47,9 @@ describe("ResourceLink", () => {
 
     expect(onReadResource).toHaveBeenCalledWith(URI);
     // The full read result is rendered inline as formatted JSON.
-    await waitFor(() =>
-      expect(screen.getByText(/"hello body"/)).toBeInTheDocument(),
-    );
+    // The body lands in the read-only JSON editor, whose lines are
+    // virtualized — so it is read through the editor, not the DOM.
+    await waitFor(() => expect(getAceText()).toContain('"hello body"'));
     // The toggle flips to the collapse control once expanded.
     expect(
       screen.getByRole("button", { name: `Collapse resource ${URI}` }),
@@ -65,9 +66,9 @@ describe("ResourceLink", () => {
     await user.click(
       screen.getByRole("button", { name: `Expand resource ${URI}` }),
     );
-    await waitFor(() =>
-      expect(screen.getByText(/"cached body"/)).toBeInTheDocument(),
-    );
+    // The body lands in the read-only JSON editor, whose lines are
+    // virtualized — so it is read through the editor, not the DOM.
+    await waitFor(() => expect(getAceText()).toContain('"cached body"'));
 
     // Collapse — the toggle flips back to the expand control. (The read result
     // stays mounted inside the animated Collapse, so it isn't re-read.)
@@ -82,7 +83,7 @@ describe("ResourceLink", () => {
     await user.click(
       screen.getByRole("button", { name: `Expand resource ${URI}` }),
     );
-    expect(screen.getByText(/"cached body"/)).toBeInTheDocument();
+    expect(getAceText()).toContain('"cached body"');
     expect(onReadResource).toHaveBeenCalledTimes(1);
   });
 
@@ -146,9 +147,9 @@ describe("ResourceLink", () => {
       screen.getByRole("button", { name: `Expand resource ${URI}` }),
     );
 
-    await waitFor(() =>
-      expect(screen.getByText(/"recovered body"/)).toBeInTheDocument(),
-    );
+    // The body lands in the read-only JSON editor, whose lines are
+    // virtualized — so it is read through the editor, not the DOM.
+    await waitFor(() => expect(getAceText()).toContain('"recovered body"'));
     expect(
       screen.queryByText("Failed to read resource"),
     ).not.toBeInTheDocument();
@@ -183,8 +184,8 @@ describe("ResourceLink", () => {
     expect(onReadResource).toHaveBeenCalledTimes(1);
 
     resolveRead(readResult("in flight body"));
-    await waitFor(() =>
-      expect(screen.getByText(/"in flight body"/)).toBeInTheDocument(),
-    );
+    // The body lands in the read-only JSON editor, whose lines are
+    // virtualized — so it is read through the editor, not the DOM.
+    await waitFor(() => expect(getAceText()).toContain('"in flight body"'));
   });
 });

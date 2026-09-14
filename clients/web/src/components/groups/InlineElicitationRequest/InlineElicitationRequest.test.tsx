@@ -161,4 +161,70 @@ describe("InlineElicitationRequest", () => {
     );
     expect(screen.getByText("Host")).toBeInTheDocument();
   });
+
+  // #2020: this inline form had no submit gate at all — neither the missing
+  // required answer that `ElicitationFormPanel` already checked, nor text a
+  // field could not turn into a value (which never reaches `values`).
+  describe("submit gating (#2020)", () => {
+    const requiredRequest = {
+      message: "Please provide your name.",
+      requestedSchema: {
+        type: "object" as const,
+        properties: { name: { type: "string" as const, title: "Name" } },
+        required: ["name"],
+      },
+    } satisfies ElicitRequest["params"];
+
+    const numberRequest = {
+      message: "Please provide the port.",
+      requestedSchema: {
+        type: "object" as const,
+        properties: { port: { type: "number" as const, title: "Port number" } },
+      },
+    } satisfies ElicitRequest["params"];
+
+    it("disables Submit while a required answer is missing", () => {
+      renderWithMantine(
+        <InlineElicitationRequest
+          {...baseProps}
+          request={requiredRequest}
+          values={{}}
+        />,
+      );
+      expect(screen.getByRole("button", { name: "Submit" })).toBeDisabled();
+    });
+
+    it("enables Submit once the required answer is given", () => {
+      renderWithMantine(
+        <InlineElicitationRequest
+          {...baseProps}
+          request={requiredRequest}
+          values={{ name: "Ada" }}
+        />,
+      );
+      expect(screen.getByRole("button", { name: "Submit" })).toBeEnabled();
+    });
+
+    it("disables Submit while a field holds text it cannot send", async () => {
+      const user = userEvent.setup();
+      renderWithMantine(
+        <InlineElicitationRequest
+          {...baseProps}
+          request={numberRequest}
+          values={{}}
+        />,
+      );
+      const submit = screen.getByRole("button", { name: "Submit" });
+      expect(submit).toBeEnabled();
+
+      // Past MAX_SAFE_INTEGER the field reports no value rather than a rounded
+      // one, so the answer would go out without the property.
+      const input = screen.getByLabelText(/Port number/);
+      await user.type(input, "90071992547409910");
+      expect(submit).toBeDisabled();
+
+      await user.clear(input);
+      expect(submit).toBeEnabled();
+    });
+  });
 });

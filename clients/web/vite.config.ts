@@ -9,12 +9,18 @@ import { storybookTest } from "@storybook/addon-vitest/vitest-plugin";
 import { playwright } from "@vitest/browser-playwright";
 import { honoMiddlewarePlugin } from "./server/vite-hono-plugin";
 import {
+  getStorybookOptimizeDeps,
   getViteBaseConfig,
   getViteDevOptimizeDeps,
 } from "./server/vite-base-config";
 import { buildWebServerConfigFromEnv } from "./server/web-server-config";
 import { createBrowserExternalizedBuiltinGate } from "./server/browser-externalized-builtin-gate";
-import { vitestSharedPaths } from "../../vitest.shared.mts";
+import {
+  INTEGRATION_TIMEOUTS,
+  NO_RETRY_SETUP,
+  TIMEOUTS,
+  vitestSharedPaths,
+} from "../../vitest.shared.mts";
 const dirname =
   typeof __dirname !== "undefined"
     ? __dirname
@@ -93,10 +99,22 @@ function browserExternalizedBuiltinGate(): Plugin {
 // More info at: https://storybook.js.org/docs/next/writing-tests/integrations/vitest-addon
 export default defineConfig(({ command }) => {
   const isDevServer = command === "serve" && !process.env.VITEST;
+  // Build the validated dev backend config ONCE (when serving) and reuse it for
+  // both the Hono plugin and the `server` block below, so the dev server's
+  // `port`/`host` come from the same guard-checked source (`resolveBindHostname`
+  // + the CLIENT_PORT validation) rather than a second raw parse. This also
+  // removes the implicit "plugins must be evaluated before server" ordering the
+  // guard previously relied on to throw first.
+  const devConfig = isDevServer ? buildWebServerConfigFromEnv() : undefined;
   return {
-    // `honoMiddlewarePlugin` is gated by `apply: 'serve'` so it only attaches
-    // during `vite dev` / `vite preview` — vitest projects share this config
-    // but never invoke `configureServer`, so the plugin stays inert there.
+    // `honoMiddlewarePlugin` only attaches during `vite dev` / `vite preview`.
+    // It's included conditionally on `isDevServer` (not merely `apply: 'serve'`)
+    // because `devConfig` (from `buildWebServerConfigFromEnv()`, which calls
+    // `resolveBindHostname()`) is built eagerly above. Left unconditional, an
+    // ambient `HOST=0.0.0.0` would make the guard throw at config load for
+    // `vite build` and every vitest project too, not just when serving. Gating
+    // the whole plugin also skips that wasted config build for non-serve
+    // commands.
     //
     // The plugin statically imports the node-only dev backend
     // (`core/mcp/remote/node/server.ts`), so Vite's config bundler (Rolldown)
@@ -113,7 +131,7 @@ export default defineConfig(({ command }) => {
     // reaches the browser bundle (#1769) — see its definition above.
     plugins: [
       react(),
-      honoMiddlewarePlugin(buildWebServerConfigFromEnv()),
+      ...(devConfig ? [honoMiddlewarePlugin(devConfig)] : []),
       browserExternalizedBuiltinGate(),
     ],
     // Shared optimizeDeps exclusions so node-only packages
@@ -131,8 +149,12 @@ export default defineConfig(({ command }) => {
       // (#1244), the browser dep graph reached bare-module subpaths in core/
       // that Rolldown couldn't resolve against `core/`'s parent (it has no
       // node_modules of its own). Promote the same bare-module aliases the
-      // vitest projects use so `vite dev` / `vite build` can resolve them
-      // from `clients/web/node_modules`.
+      // vitest projects use so `vite dev` / `vite build` can resolve them.
+      //
+      // Which install each alias points at is `vitest.shared.mts`'s decision,
+      // not this file's, and since #2195 it is no longer one answer: `react`
+      // and `react-dom` resolve from `clients/web/node_modules`, everything
+      // root-declared resolves from the repo root.
       alias: [
         ...Object.entries(sharedAliases).map(([find, replacement]) => ({
           find,
@@ -141,23 +163,31 @@ export default defineConfig(({ command }) => {
         ...nodeModulesAliases,
       ],
       // Source files in core/ import bare modules (react, @testing-library/react,
-      // etc.) that only exist in clients/web/node_modules. Dedupe ensures Vite
-      // resolves them from this package rather than walking up from core/'s
-      // location (which has no node_modules of its own yet).
+      // etc.) that core/ cannot resolve for itself, having no node_modules of
+      // its own. Dedupe collapses each of these to a single copy per install,
+      // whichever install the alias above selected.
       dedupe: sharedDedupe,
     },
-    // Pin the Vite dev server to the same port (and host) the Hono plugin
-    // configures from env, so `allowedOrigins` actually matches the browser
-    // origin. Without this, `vite dev` falls back to Vite's default 5173
-    // while the dev backend's `buildWebServerConfigFromEnv()` defaults to
-    // CLIENT_PORT=6274 — origin check rejects every `/api/*` request from
-    // the browser. CLIENT_PORT / HOST overrides flow through here too.
-    // `strictPort: true` so a port collision fails loudly instead of
-    // silently picking a different port (which would leave `allowedOrigins`
-    // pointing at the wrong host and break browser fetches).
+    // Pin the Vite dev server to the same port and host the Hono plugin
+    // configures, so `allowedOrigins` actually matches the browser origin.
+    // Without this, `vite dev` falls back to Vite's default 5173 while the dev
+    // backend defaults to CLIENT_PORT=6274 — origin check rejects every `/api/*`
+    // request. When serving, both come from the already-validated `devConfig`
+    // (guard-checked host + CLIENT_PORT); `vite build` and the vitest projects
+    // evaluate this config but never bind, so they fall back to the raw env
+    // (an ambient HOST=0.0.0.0 must not fail them at config load).
+    // `strictPort: true` so a port collision fails loudly instead of silently
+    // picking a different port (which would leave `allowedOrigins` wrong).
     server: {
-      port: parseInt(process.env.CLIENT_PORT ?? "6274", 10),
-      host: process.env.HOST ?? "localhost",
+      // The `|| "6274"` (empty ⇒ unset) mirrors buildWebServerConfig, so the
+      // non-serve fallback agrees with the validated dev path on a blank
+      // CLIENT_PORT rather than parsing it to NaN.
+      port:
+        devConfig?.port ??
+        parseInt(process.env.CLIENT_PORT?.trim() || "6274", 10),
+      // `|| "localhost"` (empty ⇒ unset) like the port above — an ambient
+      // HOST="" is Node's all-interfaces address, the one value this guards.
+      host: devConfig?.hostname ?? (process.env.HOST?.trim() || "localhost"),
       strictPort: true,
       fs: {
         allow: [path.resolve(dirname, "../..")],
@@ -169,7 +199,7 @@ export default defineConfig(({ command }) => {
         reporter: ["text", "html", "json-summary"],
         // Whitelist of gated directories. Deliberate top-level-file omissions
         // (every src *directory* below is gated):
-        //   • `src/App.tsx` — a ~4.5k-line composition root at ~42% branch
+        //   • `src/App.tsx` — a ~3.2k-line composition root at ~42% branch
         //     coverage; gating it is a dedicated testing/decomposition effort,
         //     not a whitelist tweak.
         //   • `src/main.tsx` / `src/index.ts` — the browser and bin bootstraps
@@ -254,10 +284,11 @@ export default defineConfig(({ command }) => {
         {
           extends: true,
           // Vitest projects don't inherit `resolve` from the parent. The unit
-          // project runs from repoRoot (so vitest's coverage transformer can
-          // reach core/), but repoRoot has no node_modules of its own — the
-          // shared regex aliases redirect bare `react`/`pino`/etc. imports
-          // from core/ back into clients/web/node_modules.
+          // project runs from repoRoot so vitest's coverage transformer can
+          // reach core/, which leaves core/'s own bare imports with nothing to
+          // resolve against — the shared regex aliases are what answer them,
+          // sending `react` to clients/web/node_modules and the root-declared
+          // packages (`pino`, `hono`, …) to the repo root (#2195).
           resolve: projectResolve,
           test: {
             name: "unit",
@@ -289,7 +320,10 @@ export default defineConfig(({ command }) => {
             include: ["clients/web/src/**/*.test.{ts,tsx}"],
             // Integration tests run in the integration project below (node env).
             exclude: [integrationGlob],
-            setupFiles: [path.join(dirname, "src/test/setup.ts")],
+            setupFiles: [
+              path.join(dirname, "src/test/setup.ts"),
+              NO_RETRY_SETUP,
+            ],
             // Pin after-hooks to LIFO (reverse registration). This is Vitest 4's
             // own default (`resolved.sequence.hooks ??= "stack"` — the CLI
             // help-text's "parallel" is stale), so this line documents intent and
@@ -305,14 +339,21 @@ export default defineConfig(({ command }) => {
             // `container.isConnected` self-checks are the real guard against a
             // future regression.
             sequence: { hooks: "stack" },
+            // Shared budgets (#2323). This is the largest test surface in the
+            // repo — 342 files — and every one of them ran on Vitest's own
+            // 5000ms until now. The single site that had been patched by hand
+            // (`App.test.tsx`'s three-modal sequence) named that default as its
+            // reason for existing.
+            ...TIMEOUTS,
           },
         },
         {
           extends: true,
           // See note on the unit project: integration tests also run from
           // repoRoot and import core/ modules, so they need the same alias
-          // setup. The shared bare-module aliases keep `pino`, `hono`, etc.
-          // resolving against clients/web/node_modules.
+          // setup, with the same split — `react` from this client's install,
+          // `pino` / `hono` and the rest of the root-declared set from the
+          // repo root.
           resolve: projectResolve,
           test: {
             name: "integration",
@@ -321,11 +362,15 @@ export default defineConfig(({ command }) => {
             // can transform core/ modules and run tests against the source.
             root: repoRoot,
             include: [integrationGlob],
+            setupFiles: [NO_RETRY_SETUP],
             // Integration tests spawn real HTTP/stdio servers via test-servers/,
             // bind sockets, run e2e OAuth flows, and exercise filesystem-backed
-            // storage. 30s matches the v1.5 core/vitest.config.ts.
-            testTimeout: 30000,
-            hookTimeout: 30000,
+            // storage. 30s matches the v1.5 core/vitest.config.ts. Now stated
+            // once in `vitest.shared.mts` (#2323) rather than here, together
+            // with the `teardownTimeout` that was left on the 10000ms default —
+            // teardown is where these suites unlink that filesystem-backed
+            // storage and reap the servers they spawned.
+            ...INTEGRATION_TIMEOUTS,
             // Inline the MCP SDK so vi.mock("@modelcontextprotocol/client")
             // hooks the same transformed copy that source files import.
             // Externalized node_modules are loaded via Node's loader and bypass
@@ -347,8 +392,33 @@ export default defineConfig(({ command }) => {
               configDir: path.join(dirname, ".storybook"),
             }),
           ],
+          // Re-bundled on every run rather than read from the cache — the
+          // stale-cache failure it prevents, and why `force` is the lever, are
+          // on the helper (#2340).
+          optimizeDeps: getStorybookOptimizeDeps(),
           test: {
             name: "storybook",
+            // Vitest's default is 5000ms, which is the whole budget a play
+            // function gets — including work that is genuinely slow rather than
+            // racy. `JsonObjectInput`'s "Annotates The Offending Line" waits on
+            // Ace's JSON worker, which starts out of process and debounces its
+            // result; its own `waitFor` asked for 5000ms and so could never win
+            // against the per-test ceiling, and it lost on a loaded machine
+            // (#2292). A larger ceiling does not hide a defect here: a story
+            // that blows 15s has genuinely failed, and every assertion stays as
+            // strict as it was.
+            // …which is the shared `TIMEOUTS.testTimeout` today (#2323): this
+            // project is where the value was first chosen, and the other five
+            // now follow it rather than restate it. The hook and teardown
+            // budgets come along with it, having been left on the defaults.
+            ...TIMEOUTS,
+            // Carries the shared no-retry assertion and nothing else.
+            // ⚠️ It is deliberately NOT in `.storybook/` and declares no
+            // annotations: `@storybook/addon-vitest` skips its automatic
+            // preview-annotation provisioning only for a setup file that is
+            // both inside `configDir` and calls `setProjectAnnotations`, and
+            // this one is neither (#1898).
+            setupFiles: [NO_RETRY_SETUP],
             browser: {
               enabled: true,
               headless: true,
@@ -359,7 +429,18 @@ export default defineConfig(({ command }) => {
                 },
               ],
             },
-            setupFiles: [".storybook/vitest.setup.ts"],
+            // The `setupFiles` above is the project's only one, and it
+            // carries no preview annotations: since Storybook 10.3
+            // `@storybook/addon-vitest`
+            // provisions the preview annotations (`.storybook/preview.tsx` plus
+            // `@storybook/addon-a11y/preview`) itself, and *skips* doing so when
+            // it finds a setup file that is both inside `configDir` and calls
+            // `setProjectAnnotations` — so the old `.storybook/vitest.setup.ts`
+            // was both redundant and actively opting out of the automatic path
+            // (#1898). A green suite doesn't
+            // prove the automatic provisioning works (stories rendered without
+            // the Mantine decorator would very likely still pass), so
+            // `src/test/PreviewAnnotations.stories.tsx` asserts it directly.
           },
         },
       ],

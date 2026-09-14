@@ -24,8 +24,12 @@ import type { LogEvent } from "pino";
 import { Hono } from "hono";
 import type { Context, Env, Next } from "hono";
 import { streamSSE } from "hono/streaming";
+import { bodyLimit } from "hono/body-limit";
 import { watch as chokidarWatch, type FSWatcher } from "chokidar";
 import { createTransportNode } from "../../node/transport.js";
+import { createProxyFetch } from "../../node/proxyFetch.js";
+import { OAUTH_TIMEOUT_WIRE_CODE } from "../../../auth/requestTimeout.js";
+import { redactUrlQuery } from "../../fetchTracking.js";
 import type {
   RemoteConnectRequest,
   RemoteSendRequest,
@@ -33,6 +37,7 @@ import type {
 } from "../types.js";
 import type { JSONRPCMessage } from "@modelcontextprotocol/client";
 import { AuthChallengeError } from "../../../auth/challenge.js";
+import { MCP_PARAM_HEADER_PREFIX } from "../../../json/xMcpHeader.js";
 import {
   DEFAULT_MAX_FETCH_REQUESTS,
   DEFAULT_TASK_TTL_MS,
@@ -40,6 +45,7 @@ import {
 } from "../../types.js";
 import type {
   InspectorServerSettings,
+  RequestMetadata,
   MCPConfig,
   MCPServerConfig,
   StdioServerConfig,
@@ -47,7 +53,6 @@ import type {
 } from "../../types.js";
 import {
   DEFAULT_SEED_CONFIG,
-  envPairsToRecord,
   expectedSecretFields,
   extractSecretsFromStored,
   INSPECTOR_FIELD_KEYS,
@@ -55,6 +60,7 @@ import {
   isProtocolEra,
   mergeSecretsIntoStored,
   normalizeServerType,
+  stdioConfigFieldsFromSettings,
   storedFieldsToInspectorSettings,
   stripInspectorFields,
 } from "../../serverList.js";
@@ -64,18 +70,114 @@ import { RemoteSession } from "./remote-session.js";
 import { createRemoteAuthProvider } from "./tokenAuthProvider.js";
 import { API_SERVER_ENV_VARS } from "../constants.js";
 import {
-  KeychainUnavailableError,
-  KeyringSecretStore,
+  secretStoreGetMany,
+  secretStoreSetMany,
+  secretStoreGetStrict,
+  secretStoreIsDurable,
+  SecretStoreUnavailableError,
   type SecretStore,
 } from "../../../auth/node/secret-store.js";
+import { defaultSecretStore } from "../../../auth/node/secret-store-selection.js";
 import {
   deleteClientConfigStore,
   readClientConfigStore,
   writeClientConfigStore,
 } from "../../../client/node-persistence.js";
 import { formatClientConfigLoadError } from "../../../client/config-parse.js";
-import { envSecretField } from "../../../auth/secret-fields.js";
+import {
+  envSecretField,
+  SECRET_FIELD_OAUTH_CLIENT_SECRET,
+} from "../../../auth/secret-fields.js";
+import type { SecretStorageInfo } from "../../../auth/secret-storage-info.js";
 import { ZodError } from "zod";
+
+/**
+ * Written to every SSE stream the instant it opens, before anything else.
+ *
+ * Firefox does not hand a streaming `fetch()` response to JS until the first
+ * *body* byte arrives; Chromium resolves the promise as soon as the headers
+ * do. Both SSE endpoints here flush headers immediately and then stay silent
+ * until there is something to report, which deadlocks Firefox on
+ * `/api/mcp/events`: `RemoteClientTransport.openEventStream()` awaits that
+ * fetch *before* the MCP client sends `initialize`, so no `initialize` → no
+ * event to report → no body byte → the fetch never resolves → the web UI
+ * hangs on "Connecting…" forever with no error anywhere (#1858).
+ *
+ * A `:` comment line is inert per the SSE spec — conforming parsers ignore it
+ * — so priming with one unblocks the read without inventing a wire event.
+ *
+ * `X-Content-Type-Options: nosniff` does **not** fix this. Verified against
+ * Firefox 153: with the header and no body byte, the fetch still never
+ * resolves. The delay is not MIME sniffing.
+ */
+const SSE_PRIMING_COMMENT = ":\n\n";
+
+/**
+ * Close an SSE stream from inside an `onAbort` listener, discarding the
+ * rejection.
+ *
+ * `close()` is async and the peer is, by definition, already gone here — a
+ * write that loses the race rejects with nothing left to recover. The listener
+ * itself cannot own the promise either: Hono's `abort()` invokes subscribers
+ * with a bare `subscriber()` (`hono/utils/stream`), so a promise *returned*
+ * from the listener is floated by Hono rather than awaited, turning an
+ * `async` listener into the same unhandled rejection one layer up. Swallowing
+ * it here is the only place the rejection has an owner.
+ */
+export function closeAbortedStream(stream: { close(): Promise<void> }): void {
+  stream.close().catch(() => {});
+}
+
+/** The slice of Hono's `StreamingApi` the SSE prime-and-hold helper needs. */
+export interface PrimableSseStream {
+  write(input: string): Promise<unknown>;
+  onAbort(listener: () => void): void;
+  close(): Promise<void>;
+}
+
+/**
+ * Prime an SSE stream, then hold the handler open until the client aborts,
+ * running `cleanup` exactly once when it does.
+ *
+ * The registration order is the whole point (#1999). Hono's `onAbort` is a
+ * plain push onto a subscriber array with **no already-aborted replay**, and
+ * `abort()` fires only the subscribers registered at that moment
+ * (`hono/utils/stream`). Priming is an `await`, so a listener registered
+ * *after* it never runs if the client disconnects while that write is in
+ * flight — leaving the caller's subscriber/consumer installed forever and the
+ * handler parked on a promise nothing will resolve.
+ *
+ * So the listener goes in before the first `await`, and the same one both
+ * cleans up and releases the hold. Note this must not be inlined back into a
+ * caller in a way that reintroduces an `await` ahead of the registration —
+ * priming itself cannot move earlier, because callers deliberately install
+ * their subscriber before the first bytes go out (see GET /api/servers/events).
+ *
+ * `cleanup` runs inside Hono's bare `subscriber()` call, so it must be
+ * synchronous and must not throw — a rejection there has no owner.
+ */
+export async function primeAndHoldSseStream(
+  stream: PrimableSseStream,
+  cleanup: () => void,
+): Promise<void> {
+  let done = false;
+  const aborted = new Promise<void>((resolve) => {
+    stream.onAbort(() => {
+      // Hono's `abort()` guards its own re-entry, but the guard belongs here
+      // too: this helper's contract is exactly-once teardown, and running a
+      // caller's cleanup twice would double-delete a subscriber that has
+      // since been re-added by a reconnect.
+      if (done) return;
+      done = true;
+      cleanup();
+      closeAbortedStream(stream);
+      resolve();
+    });
+  });
+
+  await stream.write(SSE_PRIMING_COMMENT);
+  await aborted;
+}
 
 /**
  * Shape of the initial config returned by GET /api/config (defaults for client).
@@ -100,6 +202,15 @@ export interface InitialConfigPayload {
    * a legacy backend that predates the field; the UI just shows nothing then.
    */
   version?: string;
+  /**
+   * Where secrets typed into this session end up (#1950): the OS keychain,
+   * a file, or memory. The browser cannot work this out for itself — the
+   * store lives entirely on the Node side — and it is what the permanent
+   * footer in the Client/Server Settings modals reports. Absent on a
+   * legacy backend, in which case the footer renders nothing rather than
+   * guessing "keychain", since a wrong answer here is worse than none.
+   */
+  secretStorage?: SecretStorageInfo;
 }
 
 export interface RemoteServerOptions {
@@ -148,17 +259,89 @@ export interface RemoteServerOptions {
   /** Optional sandbox URL for MCP Apps tab. When set, GET /api/config includes sandboxUrl. */
   sandboxUrl?: string;
 
+  /**
+   * Publish a fully-wrapped MCP App document to the backend's dedicated
+   * app-origin listener and return the URL to load it from (#2056). When set,
+   * `POST /api/app-document` is served; when absent — or when it returns
+   * `null`, meaning the listener never bound — the route answers 503 and the
+   * browser falls back to the default opaque-origin `srcdoc` render.
+   *
+   * Supplied by the web backends only. It is an option rather than a route
+   * built here because the listener is a `clients/web/server` concern; this
+   * module owns nothing but the authenticated seam the browser reaches it
+   * through.
+   */
+  publishAppDocument?: (doc: {
+    html: string;
+    csp?: string;
+  }) => { url: string } | null;
+
   /** Initial config for GET /api/config. Caller must pass this (e.g. from webServerConfigToInitialPayload(config)). */
   initialConfig: InitialConfigPayload;
 
   /**
    * Backend for per-server secret values that we keep out of mcp.json
    * (OAuth client secret, stdio env values). Defaults to a
-   * `KeyringSecretStore` that talks to the OS keychain via
-   * `@napi-rs/keyring`. Tests inject `InMemorySecretStore` so the suite
-   * doesn't need libsecret on Linux CI runners.
+   * store selected for this host — the OS keychain where one is
+   * reachable, otherwise the file or in-memory fallback chosen by
+   * `secret-store-selection.ts` (#1950). Tests inject
+   * `InMemorySecretStore` so the suite doesn't need libsecret on Linux CI
+   * runners.
    */
   secretStore?: SecretStore;
+  /**
+   * Re-resolve the secret-storage descriptor for each `GET /api/config`.
+   *
+   * A function rather than a value because the answer changes while the
+   * process runs (see the route). Optional: a backend that doesn't supply
+   * one falls back to whatever `initialConfig` carried, which is what the
+   * tests and any embedder that doesn't care get.
+   */
+  secretStorageResolver?: () => Promise<SecretStorageInfo | undefined>;
+}
+
+/**
+ * Upper bound on a single MCP App document accepted by `POST /api/app-document`
+ * (#2056). Counted in UTF-16 code units, which is what `String.length` gives —
+ * a loose but cheap proxy for bytes, and it only has to keep a runaway or
+ * hostile payload from being pinned in the backend's memory. Generous: a real
+ * app inlines its own scripts and styles into this one document.
+ */
+const MAX_APP_DOCUMENT_CHARS = 8 * 1024 * 1024;
+
+/**
+ * Upper bound on the request BODY, in bytes, enforced by `bodyLimit` *before*
+ * anything is parsed. {@link MAX_APP_DOCUMENT_CHARS} alone is not enough: it is
+ * checked after `c.req.json()` has already buffered and parsed the whole
+ * request, so an unbounded body — or one whose bulk sits in `csp` or in keys
+ * the route never reads — is fully materialized in memory before being
+ * rejected. Generous relative to the document bound because JSON escaping
+ * inflates the payload (`<` stays one byte, but a `"` or a newline becomes
+ * two, and non-BMP text more), so this must not reject a document the char
+ * check would accept.
+ */
+const MAX_APP_DOCUMENT_BODY_BYTES = 24 * 1024 * 1024;
+
+/**
+ * Upper bound on the per-app CSP policy string. Unlike the document, this is
+ * retained for the life of the published entry, and a real policy is a few
+ * hundred characters — an app pushing more is not describing sources.
+ */
+const MAX_APP_CSP_CHARS = 8 * 1024;
+
+/**
+ * Whether a string is safe to emit as an HTTP header VALUE.
+ *
+ * The published `csp` is handed to `res.writeHead()` verbatim by the app-origin
+ * controller. Node validates header values there and throws
+ * `ERR_INVALID_CHAR` **synchronously inside the request handler** — outside
+ * this route's error handling, on a request this route is not even part of —
+ * so a CR/LF or NUL accepted here surfaces later as a thrown listener rather
+ * than a 400. Restrict to tab plus printable ASCII, which is stricter than RFC
+ * 9110 field-value grammar and is all a CSP policy needs.
+ */
+function isHeaderSafeValue(value: string): boolean {
+  return !/[^\t\x20-\x7e]/.test(value);
 }
 
 export interface CreateRemoteAppResult {
@@ -362,6 +545,28 @@ export function requestIdForSendWait(
   return undefined;
 }
 
+/**
+ * Restrict client-supplied per-send headers to SEP-2243 `Mcp-Param-*` mirroring
+ * with string values. The sanctioned channel for arbitrary upstream headers is
+ * the server's configured `settings.headers`; this per-send channel must not let
+ * a client inject other headers (e.g. `Authorization`) onto the upstream fetch.
+ */
+export function mcpParamHeadersOnly(
+  headers: unknown,
+): Record<string, string> | undefined {
+  if (headers === null || typeof headers !== "object") return undefined;
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(headers)) {
+    if (
+      typeof value === "string" &&
+      key.toLowerCase().startsWith(MCP_PARAM_HEADER_PREFIX.toLowerCase())
+    ) {
+      out[key] = value;
+    }
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
 export function createRemoteApp(
   options: RemoteServerOptions,
 ): CreateRemoteAppResult {
@@ -379,8 +584,7 @@ export function createRemoteApp(
   const { logger: fileLogger, allowedOrigins } = options;
   const storageDir = options.storageDir ?? getDefaultStorageDir();
   const mcpConfigPath = options.mcpConfigPath ?? getDefaultMcpConfigPath();
-  const secretStore: SecretStore =
-    options.secretStore ?? new KeyringSecretStore();
+  const secretStore: SecretStore = options.secretStore ?? defaultSecretStore();
 
   // Read-only session support (#1481/#1483). `writable: false` rejects every
   // /api/servers mutation and suppresses the seed/migrate writes on read.
@@ -540,14 +744,99 @@ export function createRemoteApp(
     app.use("*", createAuthMiddleware(authToken));
   }
 
-  app.get("/api/config", (c) => {
+  app.get("/api/config", async (c) => {
+    // `secretStorage` is re-resolved per request, not taken from the
+    // startup payload. It describes bytes on disk that this very process
+    // changes — the first `set` under a newly-set passphrase encrypts a
+    // pre-existing plaintext file — so a value captured at boot would keep
+    // telling every page load "still unencrypted" until a restart. That is
+    // stale in the safe direction, but stale about the single fact this
+    // field exists to state, which makes re-reading a small file per config
+    // fetch (once per page load) the obviously right trade.
+    const secretStorage = options.secretStorageResolver
+      ? await options.secretStorageResolver()
+      : options.initialConfig?.secretStorage;
     const payload = {
       ...options.initialConfig,
       writable,
+      // Assigned unconditionally, not spread-when-truthy. The resolver's
+      // contract is that `undefined` means "not known right now", and a
+      // conditional spread leaves the *startup* descriptor from
+      // `initialConfig` standing in its place — so a store that became
+      // undescribable would keep serving a stale, confident answer. Setting
+      // it to `undefined` is what clears it; `c.json` omits the key.
+      secretStorage,
       ...(options.sandboxUrl ? { sandboxUrl: options.sandboxUrl } : {}),
     };
     return c.json(payload);
   });
+
+  /**
+   * Hand the backend a wrapped MCP App document and get back the URL its
+   * dedicated origin serves it from (#2056).
+   *
+   * The browser is what holds the document — it read the `ui://` resource over
+   * the MCP connection and wrapped it — so the only way it can reach a real
+   * HTTP origin is to hand the bytes back. This route is the authenticated
+   * seam for that; the returned URL is unguessable and is served by a separate
+   * listener on its own port, which is what makes the app's origin real
+   * instead of opaque.
+   */
+  app.post(
+    "/api/app-document",
+    // Before the parse, not after: see MAX_APP_DOCUMENT_BODY_BYTES.
+    bodyLimit({
+      maxSize: MAX_APP_DOCUMENT_BODY_BYTES,
+      onError: (c) => c.json({ error: "Document too large" }, 413),
+    }),
+    async (c) => {
+      const publish = options.publishAppDocument;
+      if (!publish) {
+        return c.json({ error: "App-origin hosting is not available" }, 503);
+      }
+      let parsed: unknown;
+      try {
+        parsed = await c.req.json();
+      } catch {
+        return c.json({ error: "Invalid JSON body" }, 400);
+      }
+      // `null` and `[1,2]` are both valid JSON, so `c.req.json()` resolving is
+      // not proof there is an object to destructure — and destructuring `null`
+      // here would throw OUTSIDE the try above, turning a malformed body into a
+      // 500 instead of the 400 every other bad shape gets.
+      if (
+        parsed === null ||
+        typeof parsed !== "object" ||
+        Array.isArray(parsed)
+      ) {
+        return c.json({ error: "Invalid JSON body" }, 400);
+      }
+      const { html, csp } = parsed as { html?: unknown; csp?: unknown };
+      if (typeof html !== "string" || html === "") {
+        return c.json({ error: "Missing html" }, 400);
+      }
+      if (csp !== undefined && typeof csp !== "string") {
+        return c.json({ error: "csp must be a string" }, 400);
+      }
+      if (csp !== undefined && !isHeaderSafeValue(csp)) {
+        // Rejected here rather than sanitized: a policy carrying a control
+        // character is not a policy with a stray byte in it, it is a caller
+        // doing something this route has no honest interpretation of.
+        return c.json({ error: "csp is not a valid header value" }, 400);
+      }
+      if (html.length > MAX_APP_DOCUMENT_CHARS) {
+        return c.json({ error: "Document too large" }, 413);
+      }
+      if (csp !== undefined && csp.length > MAX_APP_CSP_CHARS) {
+        return c.json({ error: "csp too large" }, 413);
+      }
+      const published = publish({ html, csp });
+      if (!published) {
+        return c.json({ error: "App-origin hosting is not available" }, 503);
+      }
+      return c.json(published);
+    },
+  );
 
   app.post("/api/mcp/connect", async (c) => {
     let body: RemoteConnectRequest;
@@ -705,7 +994,8 @@ export function createRemoteApp(
       return c.json({ error: "Invalid JSON body" }, 400);
     }
 
-    const { sessionId, message, relatedRequestId } = body;
+    const { sessionId, message, relatedRequestId, headers, protocolVersion } =
+      body;
     if (!sessionId || !message) {
       return c.json({ error: "Missing sessionId or message" }, 400);
     }
@@ -721,6 +1011,11 @@ export function createRemoteApp(
       return c.json({ ok: false, kind: "transport_error", error: errorMsg });
     }
 
+    // The browser's SDK Client negotiated the version; hand it to the real
+    // upstream transport before the send so `Mcp-Protocol-Version` is stamped
+    // on this request and everything after it (#1935).
+    session.applyProtocolVersion(protocolVersion);
+
     session.beginSend();
     const requestId = requestIdForSendWait(message);
     let responseWait: Promise<void> | undefined;
@@ -729,9 +1024,46 @@ export function createRemoteApp(
       // Auth errors may reject the wait via onerror while send() also throws.
       void responseWait.catch(() => {});
     }
+
+    // #2140: this route is held open for the whole call, so the browser
+    // aborting its `POST /api/mcp/send` mid-flight *is* the client's
+    // cancellation signal on a per-request-stream upstream. Forward it as
+    // `requestSignal` so the upstream StreamableHTTP transport closes that
+    // request's SSE response stream, which is what the 2026-07-28 spec makes
+    // the cancellation signal. A transport with no per-request stream (stdio,
+    // SSE) ignores the option, and a *cancel* never reaches it as an abort
+    // anyway: `RemoteClientTransport` withholds `hasPerRequestStream` there, so
+    // the SDK keeps sending `notifications/cancelled`. Forwarding the
+    // disconnect unconditionally is still right — a browser that went away
+    // mid-call is not waiting for the answer whatever the transport is.
+    const upstreamAbort = new AbortController();
+    const clientSignal = c.req.raw.signal;
+    const onClientDisconnect = () => {
+      upstreamAbort.abort(clientSignal.reason);
+      // The response will never arrive now; release the wait so this handler
+      // unwinds instead of sitting on a promise nothing can settle.
+      if (requestId !== undefined) {
+        session.cancelRequestWait(requestId);
+      }
+    };
+    if (clientSignal.aborted) {
+      onClientDisconnect();
+    } else {
+      clientSignal.addEventListener("abort", onClientDisconnect, {
+        once: true,
+      });
+    }
+
     try {
+      // SEP-2243: apply the client's mirrored headers to the upstream request,
+      // restricted to the `Mcp-Param-` prefix so a client can't inject other
+      // upstream headers. The StreamableHTTP transport merges these onto the
+      // outbound fetch; other transports ignore unknown send options.
+      const paramHeaders = mcpParamHeadersOnly(headers);
       await session.transport.send(message, {
         relatedRequestId: relatedRequestId as string | number | undefined,
+        ...(paramHeaders && { headers: paramHeaders }),
+        requestSignal: upstreamAbort.signal,
       });
       if (responseWait) {
         await responseWait;
@@ -752,10 +1084,12 @@ export function createRemoteApp(
       const msg = err instanceof Error ? err.message : String(err);
       return c.json({ ok: false, kind: "transport_error", error: msg });
     } finally {
+      clientSignal.removeEventListener("abort", onClientDisconnect);
       session.endSend();
     }
   });
 
+  // Prime every SSE stream the instant it opens — see SSE_PRIMING_COMMENT.
   app.get("/api/mcp/events", async (c) => {
     const sessionId = c.req.query("sessionId");
     if (!sessionId) {
@@ -782,6 +1116,10 @@ export function createRemoteApp(
       // drained the queued stderr + the transport_error event. Yield once
       // so the writeSSE writes flush, then return — closing the stream and
       // surfacing the real error instead of a bare 404 / silent hang.
+      //
+      // This branch needs no abort listener despite its `await`: it performs
+      // the same teardown unconditionally on the way out, so a disconnect
+      // during the yield changes nothing.
       if (session.isTransportDead()) {
         await new Promise((resolve) => setTimeout(resolve, 0));
         session.clearEventConsumer();
@@ -789,25 +1127,19 @@ export function createRemoteApp(
         return;
       }
 
-      stream.onAbort(() => {
+      // Prime only after the consumer is registered, so nothing observable
+      // to the client happens before this stream can actually report
+      // events. See SSE_PRIMING_COMMENT. The disconnect cleanup is
+      // registered ahead of that priming write and the stream is then held
+      // open until the client aborts — see primeAndHoldSseStream (#1999).
+      await primeAndHoldSseStream(stream, () => {
         // Client disconnected - clear event consumer
         const shouldCleanup = session.clearEventConsumer();
-        stream.close();
 
         // If transport is dead and no client connected, cleanup session
         if (shouldCleanup || session.isTransportDead()) {
           sessions.delete(sessionId);
         }
-      });
-
-      // Keep the stream open until the client disconnects. Hono's streamSSE
-      // closes the stream when this callback returns, so we must not return
-      // until the connection is aborted.
-      await new Promise<void>((resolve) => {
-        stream.onAbort(() => {
-          // Cleanup happens in onAbort handler above
-          resolve();
-        });
       });
     });
   });
@@ -874,6 +1206,8 @@ export function createRemoteApp(
       method?: string;
       headers?: Record<string, string>;
       body?: string;
+      /** Per-request deadline, set only by a bounded OAuth call (#2319). */
+      timeoutMs?: number;
     };
     try {
       body = (await c.req.json()) as typeof body;
@@ -881,16 +1215,88 @@ export function createRemoteApp(
       return c.json({ error: "Invalid JSON body" }, 400);
     }
 
-    const { url, method = "GET", headers = {}, body: reqBody } = body;
+    const {
+      url,
+      method = "GET",
+      headers = {},
+      body: reqBody,
+      timeoutMs: requestedTimeoutMs,
+    } = body;
     if (!url) {
       return c.json({ error: "Missing url" }, 400);
     }
 
+    // #2319: bound the outbound call, and release it when the browser gives up.
+    // This hop is where a client-side deadline used to stop being enforceable:
+    // the browser abandons its promise, but the request it made is served here,
+    // and an outbound fetch with neither a signal nor a timeout holds a handler
+    // and an authorization-server socket open indefinitely — once per timed-out
+    // retry (Copilot). `c.req.raw.signal` is the propagated cancellation, now
+    // that `createRemoteFetch` forwards it; the timer is the backstop for a
+    // client that vanishes without aborting, and it matches the client-side
+    // budget so the two agree on when this is hopeless.
+    const controller = new AbortController();
+    // Set by the timer below and read in the `catch`. The fetch rejects with
+    // the signal's abort reason, but which of several aborts won is not worth
+    // inferring from the error — the flag says it directly, the same
+    // normalization `withOAuthRequestTimeout` uses.
+    let deadlineFired = false;
+    const clientSignal: AbortSignal | undefined = c.req.raw.signal;
+    const signal = clientSignal
+      ? AbortSignal.any([controller.signal, clientSignal])
+      : controller.signal;
+    // Cleared in `finally`, before the handler returns. Safe because by then
+    // the body has been either read or explicitly cancelled — this route never
+    // hands a live stream to its caller, so there is nothing left for the timer
+    // to protect and nothing it could sever.
+    // ⚠️ Only the caller decides whether this request is bounded, and by how
+    // much. This route is the browser's way out to the network for MCP traffic
+    // as well as OAuth work, so an unconditional timer here would abort a
+    // Streamable HTTP tool call that legitimately withholds its response
+    // headers for longer than the budget — reintroducing on the backend exactly
+    // the regression `exemptMcpEndpoint` exists to prevent on the client, and
+    // reporting it as an OAuth timeout besides (Copilot). No deadline in the
+    // envelope means no timer at all.
+    // Clamped to what `setTimeout` can schedule: past 2**31-1 the delay
+    // overflows and Node falls back to 1ms, turning an over-large budget into
+    // an immediate timeout. Non-finite is ignored outright rather than
+    // defaulted — an envelope carrying `NaN` is a malformed request, and the
+    // safe reading of a malformed deadline is "no deadline".
+    const deadlineMs =
+      typeof requestedTimeoutMs === "number" &&
+      Number.isFinite(requestedTimeoutMs)
+        ? Math.min(2_147_483_647, Math.max(0, Math.round(requestedTimeoutMs)))
+        : undefined;
+    // Redacted for the same reason `OAuthRequestTimeoutError` redacts: this
+    // message and this URL are handed back to the browser, recorded in the
+    // Network log and persisted, and an OAuth endpoint's query string can carry
+    // a `code`, an `access_token` or a `client_secret` (Copilot).
+    const safeUrl = redactUrlQuery(url);
+    const timer =
+      deadlineMs === undefined
+        ? undefined
+        : setTimeout(() => {
+            deadlineFired = true;
+            controller.abort(
+              new Error(
+                `proxied request to ${safeUrl} timed out after ${deadlineMs}ms`,
+              ),
+            );
+          }, deadlineMs);
+
     try {
-      const res = await fetch(url, {
+      // Proxy-aware, not the bare global. This route is the browser's ONLY way
+      // out to the network: the web client's `environment.fetch` is
+      // `createRemoteFetch()`, which forwards OAuth discovery and token
+      // requests here. Left on the global `fetch`, a corporate-proxy user could
+      // connect to a server but never authorize against it — and Node's native
+      // `NODE_USE_ENV_PROXY` does not cover them either, being unsupported at
+      // our 22.19 engine floor (#2067).
+      const res = await (createProxyFetch() ?? fetch)(url, {
         method,
         headers: new Headers(headers),
         body: reqBody,
+        signal,
       });
 
       const resHeaders: Record<string, string> = {};
@@ -905,6 +1311,26 @@ export function createRemoteApp(
       let resBody: string | undefined;
       if (!isStream && res.body) {
         resBody = await res.text();
+      } else if (isStream) {
+        // This route does not return the stream — it answers with JSON and no
+        // body — so nobody downstream owns it and nothing will ever read it.
+        // Left un-cancelled, an OAuth endpoint that sends event-stream or
+        // NDJSON headers and never closes would hold the upstream socket open
+        // for good, since the `finally` below clears the only deadline once
+        // this handler returns (Copilot). Best-effort, like `releaseBody` in
+        // `oidcDiscoveryCompat`: a body already consumed, locked or absent is
+        // not an error here. Measured, undici does reclaim an unread body on
+        // its own in this configuration — so this is belt and braces rather
+        // than a demonstrated leak, and it is kept because relying on that is
+        // an implementation detail of the fetch beneath us, not a contract.
+        //
+        // ⚠️ Started, not awaited. `ReadableStream.cancel()` adopts the
+        // underlying source's cancel promise, which is permitted never to
+        // settle — awaiting it would keep this handler pending forever, and on
+        // an unbounded request there is no timer to release it either
+        // (Copilot). The `void` is the documented case where the callee owns
+        // its failures, via the `catch` below, and the caller cannot await.
+        void res.body?.cancel().catch(() => {});
       }
 
       return c.json({
@@ -916,7 +1342,24 @@ export function createRemoteApp(
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
+      if (deadlineFired) {
+        // Stamped so the browser can rebuild an `OAuthRequestTimeoutError`
+        // rather than receiving a plain `Error` that no `instanceof` check
+        // downstream can recognize (Copilot). 504 because that is what this
+        // is — the gateway gave up on the upstream, not a fault in the route.
+        return c.json(
+          {
+            error: msg,
+            code: OAUTH_TIMEOUT_WIRE_CODE,
+            url: safeUrl,
+            timeoutMs: deadlineMs,
+          },
+          504,
+        );
+      }
       return c.json({ error: msg }, 500);
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
     }
   });
 
@@ -1045,6 +1488,20 @@ export function createRemoteApp(
   // credentials are intentionally lost on first read (hard cutover per
   // #1358 decision 4). Users re-enter via the form or hand-edit into the
   // flat shape.
+  // The *container* `_meta` requires — a plain JSON object.
+  //
+  // Value-level validity is deliberately not checked here. Values are
+  // arbitrary JSON (#1910), and the one class that survives `JSON.parse` yet
+  // cannot be sent — a non-finite number, from a literal like `1e400` in a
+  // hand-edited catalog — is filtered **per key** by
+  // `normalizeStoredMetadata`, which every read routes through. Rejecting the
+  // whole field here instead would cost a user every other key they had
+  // configured, for one bad value.
+  //
+  // Note the wire cannot carry the bad case at all: a client's own
+  // `JSON.stringify` turns `Infinity` into `null` before the request is sent.
+  const isJsonObject = (v: unknown): v is RequestMetadata =>
+    v !== null && typeof v === "object" && !Array.isArray(v);
   const isStringRecord = (v: unknown): v is Record<string, string> => {
     if (v === null || typeof v !== "object" || Array.isArray(v)) return false;
     for (const val of Object.values(v as Record<string, unknown>)) {
@@ -1068,17 +1525,50 @@ export function createRemoteApp(
     clientId?: string;
     clientSecret?: string;
     scopes?: string;
+    authorizationParams?: Record<string, string>;
+    authorizationUrl?: string;
+    tokenUrl?: string;
     enterpriseManaged?: boolean;
+    requestRefreshToken?: boolean;
+    revokeOnClear?: boolean;
   } => {
     if (v === null || typeof v !== "object" || Array.isArray(v)) return false;
     const o = v as Record<string, unknown>;
-    for (const k of ["clientId", "clientSecret", "scopes"] as const) {
+    for (const k of [
+      "clientId",
+      "clientSecret",
+      "scopes",
+      // #1906 — shape only; the values are validated as absolute http(s) URLs
+      // where they're applied (core/auth/endpointOverrides.ts), so a typo drops
+      // one field with a warning instead of dropping the whole `oauth` block.
+      "authorizationUrl",
+      "tokenUrl",
+    ] as const) {
       if (o[k] !== undefined && typeof o[k] !== "string") return false;
+    }
+    if (
+      o.authorizationParams !== undefined &&
+      !isStringRecord(o.authorizationParams)
+    ) {
+      return false;
     }
     if (
       o.enterpriseManaged !== undefined &&
       typeof o.enterpriseManaged !== "boolean"
     ) {
+      return false;
+    }
+    // #2068 — shape only; the read side keeps just an explicit `false`, so a
+    // stray `true` from a hand-edited file reads back as the default anyway.
+    if (
+      o.requestRefreshToken !== undefined &&
+      typeof o.requestRefreshToken !== "boolean"
+    ) {
+      return false;
+    }
+    // #2144 — shape only, same as the flag above: the read side keeps just an
+    // explicit `false`, so a stray `true` reads back as the default anyway.
+    if (o.revokeOnClear !== undefined && typeof o.revokeOnClear !== "boolean") {
       return false;
     }
     return true;
@@ -1139,10 +1629,18 @@ export function createRemoteApp(
         );
         delete valObj.headers;
       }
-      if ("metadata" in valObj && !isKvArray(valObj.metadata)) {
+      // A JSON object post-#1910; the pre-#1910 `{ key, value }[]` pair array
+      // is still accepted so an existing file keeps working (it is normalized
+      // by `normalizeStoredMetadata` on the way into the settings shape, and
+      // rewritten as an object on the next save).
+      if (
+        "metadata" in valObj &&
+        !isJsonObject(valObj.metadata) &&
+        !isKvArray(valObj.metadata)
+      ) {
         logWarn(
           { route: "/api/servers", id, droppedKey: "metadata" },
-          "Dropping malformed `metadata` field — expected `Array<{ key: string, value: string }>`.",
+          "Dropping malformed `metadata` field — expected a JSON object.",
         );
         delete valObj.metadata;
       }
@@ -1186,7 +1684,7 @@ export function createRemoteApp(
       if ("oauth" in valObj && !isOauthObject(valObj.oauth)) {
         logWarn(
           { route: "/api/servers", id, droppedKey: "oauth" },
-          "Dropping malformed `oauth` field — expected `{ clientId?, clientSecret?, scopes?, enterpriseManaged? }`.",
+          "Dropping malformed `oauth` field — expected `{ clientId?, clientSecret?, scopes?, authorizationParams?, authorizationUrl?, tokenUrl?, enterpriseManaged?, onInsufficientScope?, requestRefreshToken?, revokeOnClear? }`.",
         );
         delete valObj.oauth;
       }
@@ -1308,16 +1806,18 @@ export function createRemoteApp(
   ): void => {
     if (!(entry.type === "stdio" || entry.type === undefined)) return;
     const stdio = entry as StdioServerConfig & StoredMCPServer;
+    // Shared with the web client's connect-time application of the same
+    // mapping (#2096), so the environment a save persists and the one the
+    // child process is spawned with cannot be derived differently.
+    const { env, cwd } = stdioConfigFieldsFromSettings(settings);
     if (provided.env) {
-      const env = envPairsToRecord(settings.env);
-      if (Object.keys(env).length > 0) {
+      if (env) {
         stdio.env = env;
       } else {
         delete stdio.env;
       }
     }
     if (provided.cwd) {
-      const cwd = settings.cwd?.trim();
       if (cwd) {
         stdio.cwd = cwd;
       } else {
@@ -1371,10 +1871,14 @@ export function createRemoteApp(
         error: "settings.headers must be an array of { key, value }",
       };
     }
-    if (!isKvArray(obj.metadata)) {
+    // `_meta` takes any JSON, so metadata crosses the wire as a plain JSON
+    // object rather than the `{ key, value }` rows headers/env still use
+    // (#1910). Only the container is checked — the values are arbitrary JSON
+    // by design, and anything that survived `c.req.json()` already is.
+    if (!isJsonObject(obj.metadata)) {
       return {
         ok: false,
-        error: "settings.metadata must be an array of { key, value }",
+        error: "settings.metadata must be a JSON object",
       };
     }
     // env is optional on the wire (older clients / non-stdio servers won't send
@@ -1453,10 +1957,26 @@ export function createRemoteApp(
       "oauthClientId",
       "oauthClientSecret",
       "oauthScopes",
+      // #1906 — string-shaped on the wire; URL validity is checked where the
+      // override is applied, not here.
+      "oauthAuthorizationUrl",
+      "oauthTokenUrl",
     ] as const) {
       if (obj[optional] !== undefined && typeof obj[optional] !== "string") {
         return { ok: false, error: `settings.${optional} must be a string` };
       }
+    }
+    // Optional on the wire (older clients won't send it); when present it must
+    // be the same `{ key, value }` row shape the headers/metadata lists use.
+    if (
+      obj.oauthAuthorizationParams !== undefined &&
+      !isKvArray(obj.oauthAuthorizationParams)
+    ) {
+      return {
+        ok: false,
+        error:
+          "settings.oauthAuthorizationParams must be an array of { key, value }",
+      };
     }
     if (
       obj.enterpriseManaged !== undefined &&
@@ -1465,6 +1985,24 @@ export function createRemoteApp(
       return {
         ok: false,
         error: "settings.enterpriseManaged must be a boolean",
+      };
+    }
+    if (
+      obj.oauthRequestRefreshToken !== undefined &&
+      typeof obj.oauthRequestRefreshToken !== "boolean"
+    ) {
+      return {
+        ok: false,
+        error: "settings.oauthRequestRefreshToken must be a boolean",
+      };
+    }
+    if (
+      obj.oauthRevokeOnClear !== undefined &&
+      typeof obj.oauthRevokeOnClear !== "boolean"
+    ) {
+      return {
+        ok: false,
+        error: "settings.oauthRevokeOnClear must be a boolean",
       };
     }
     if (
@@ -1534,7 +2072,7 @@ export function createRemoteApp(
       // Absent → empty list, matching the read side. The write-through drops
       // empty-key rows and clears `config.env` when the list is empty.
       env: isKvArray(obj.env) ? obj.env : [],
-      metadata: obj.metadata as { key: string; value: string }[],
+      metadata: obj.metadata as RequestMetadata,
       connectionTimeout: obj.connectionTimeout as number,
       requestTimeout: obj.requestTimeout as number,
       // Absent → product default, matching the read side
@@ -1573,8 +2111,35 @@ export function createRemoteApp(
     if (typeof obj.oauthScopes === "string" && obj.oauthScopes !== "") {
       value.oauthScopes = obj.oauthScopes;
     }
+    // Carried through with its blank rows intact — the omit-on-empty filtering
+    // happens on the way to disk (inspectorSettingsToStoredFields), matching
+    // how the headers/metadata rows are handled. (#2018)
+    if (isKvArray(obj.oauthAuthorizationParams)) {
+      value.oauthAuthorizationParams = obj.oauthAuthorizationParams;
+    }
+    // Empty-string coerces to absent like the credential fields above: the form
+    // emits `""` when a user clears the input, and an empty override on disk
+    // would read back as a configured-but-blank endpoint. (#1906)
+    if (
+      typeof obj.oauthAuthorizationUrl === "string" &&
+      obj.oauthAuthorizationUrl !== ""
+    ) {
+      value.oauthAuthorizationUrl = obj.oauthAuthorizationUrl;
+    }
+    if (typeof obj.oauthTokenUrl === "string" && obj.oauthTokenUrl !== "") {
+      value.oauthTokenUrl = obj.oauthTokenUrl;
+    }
     if (obj.enterpriseManaged === true) {
       value.enterpriseManaged = true;
+    }
+    // #2068: the default is on, so only the explicit opt-out is carried; a
+    // `true` on the wire reads back as unset, which means the same thing.
+    if (obj.oauthRequestRefreshToken === false) {
+      value.oauthRequestRefreshToken = false;
+    }
+    // #2144: same shape — the default is on, so only the opt-out travels.
+    if (obj.oauthRevokeOnClear === false) {
+      value.oauthRevokeOnClear = false;
     }
     if (
       obj.oauthOnInsufficientScope === "reauthorize" ||
@@ -1656,9 +2221,11 @@ export function createRemoteApp(
   // Centralizes the "write the secrets in this entry to the keychain" and
   // "fetch all secrets for this entry from the keychain" steps so the
   // POST/PUT/DELETE/GET handlers stay readable. Each operation translates a
-  // `KeychainUnavailableError` from the underlying store into a Hono 503
-  // — the only realistic trigger is Linux without libsecret, and the user
-  // can install it without restarting.
+  // `SecretStoreUnavailableError` from the underlying store into a Hono
+  // 503 — a keychain the user can install without restarting (Linux
+  // without libsecret), or a secrets file we refuse to overwrite because
+  // the passphrase changed (#1950). Both are fixable outside the process,
+  // which is what makes 503 the right code rather than 500.
 
   // Same Promise.all reasoning as `readKeychainEntriesFor`: each set
   // is a native round-trip and there's no ordering requirement among
@@ -1669,11 +2236,11 @@ export function createRemoteApp(
     id: string,
     secrets: Record<string, string>,
   ): Promise<void> => {
-    await Promise.all(
-      Object.entries(secrets).map(([field, value]) =>
-        secretStore.set(id, field, value),
-      ),
-    );
+    // One pass for the entry's whole secret set. The settings form resends a
+    // server's full `env` map on any edit, and for the file store each `set`
+    // is a read-decrypt-encrypt-write-verify cycle — so this is the
+    // difference between one of those and one per variable.
+    await secretStoreSetMany(secretStore, id, secrets);
   };
 
   // Fetch every keychain value an entry could need into a flat record
@@ -1690,16 +2257,13 @@ export function createRemoteApp(
     id: string,
     fields: string[],
   ): Promise<Record<string, string>> => {
-    const values = await Promise.all(
-      fields.map(
-        async (field) => [field, await secretStore.get(id, field)] as const,
-      ),
-    );
-    const out: Record<string, string> = {};
-    for (const [field, v] of values) {
-      if (v !== null) out[field] = v;
-    }
-    return out;
+    // Single-server callers (rename, POST/PUT) go through the same batch
+    // seam with a one-element request. `rehydrateConfig` below batches the
+    // whole catalog instead — see `secretStoreGetMany`.
+    const many = await secretStoreGetMany(secretStore, [
+      { serverId: id, fields },
+    ]);
+    return many[id] ?? {};
   };
 
   // Cheap structural check used by the GET handler to decide whether
@@ -1722,15 +2286,32 @@ export function createRemoteApp(
   // knows whether to persist the cleanup.
   //
   // When the keychain is unavailable (Linux without libsecret), the
-  // first `secretStore.set` throws `KeychainUnavailableError`. We catch
+  // first `secretStore.set` throws `SecretStoreUnavailableError`. We catch
   // it and abandon the migration for this GET — the on-disk file stays
   // as-is so the user's secret isn't lost, and the next GET retries
   // (e.g. after the user installs libsecret).
+  // Warned lazily, at most once per server instance, and only when there is
+  // actually something being preserved. Announcing it up front meant every
+  // `/api/servers` read on a session-scoped store logged that plaintext
+  // values were left on disk — including for the default empty catalog,
+  // where the statement is simply false, repeated on every list refresh.
+  // Hoisted out of the function so it is once per process rather than once
+  // per read.
+  let warnedSessionPreserved = false;
+
   const migratePlaintextSecrets = async (
     config: MCPConfig,
   ): Promise<{ migrated: MCPConfig; changed: boolean }> => {
     let changed = false;
     const next: MCPConfig = { mcpServers: {} };
+    const durable = await secretStoreIsDurable(secretStore);
+    const warnSessionPreserved = () => {
+      if (warnedSessionPreserved || durable || !fileLogger) return;
+      warnedSessionPreserved = true;
+      fileLogger.warn(
+        "Secrets are kept in memory for this session, so plaintext values in mcp.json are left on disk rather than migrated away. They would otherwise be lost when the Inspector exits.",
+      );
+    };
     try {
       for (const [id, stored] of Object.entries(config.mcpServers)) {
         const { stripped, secrets } = extractSecretsFromStored(stored);
@@ -1739,7 +2320,13 @@ export function createRemoteApp(
           continue;
         }
         for (const [field, value] of Object.entries(secrets)) {
-          const existing = await secretStore.get(id, field);
+          // Strict: `get` maps an unreadable store to `null`, and this
+          // branch *writes* on `null` — so a transient keychain read
+          // failure would let the older plaintext value overwrite a newer
+          // keychain one, and the disk copy would then be stripped. A throw
+          // is a `SecretStoreUnavailableError`, which the catch below turns
+          // into "abandon the migration and keep mcp.json as it is".
+          const existing = await secretStoreGetStrict(secretStore, id, field);
           if (existing === null) {
             await secretStore.set(id, field, value);
           }
@@ -1748,15 +2335,27 @@ export function createRemoteApp(
           // plaintext from disk. This handles the case where a user has
           // edited mcp.json by hand after the original migration.
         }
+        // Only strip the plaintext once it is somewhere that outlives us.
+        // Against a session-scoped store (the container fallback added in
+        // #1950) this would trade a secret that survives restarts for one
+        // that dies with the process — and it runs on an ordinary GET, so
+        // merely opening the app would destroy it. The values are still
+        // loaded into the store above, so this session behaves normally;
+        // only the disk delete is withheld.
+        if (!durable) {
+          warnSessionPreserved();
+          next.mcpServers[id] = stored;
+          continue;
+        }
         next.mcpServers[id] = stripped;
         changed = true;
       }
     } catch (err) {
-      if (err instanceof KeychainUnavailableError) {
+      if (err instanceof SecretStoreUnavailableError) {
         if (fileLogger) {
           fileLogger.warn(
             { err: err.message },
-            "Keychain unavailable; skipping plaintext-secret migration on this read. Existing mcp.json plaintext values are preserved.",
+            "Secret store unavailable; skipping plaintext-secret migration on this read. Existing mcp.json plaintext values are preserved.",
           );
         }
         // Partial-migration semantics: if `set` threw partway through
@@ -1779,11 +2378,22 @@ export function createRemoteApp(
   // the browser saw before the keychain split. Runs after migration in
   // the GET handler.
   const rehydrateConfig = async (config: MCPConfig): Promise<MCPConfig> => {
+    const entries = Object.entries(config.mcpServers);
+    // One batch for the whole catalog. The per-server loop this replaced
+    // was serial, so an encrypted file store paid one scrypt derivation per
+    // *server* on every `GET /api/servers` — a 20-server catalog spent the
+    // same ~450ms the bulk seam was introduced to remove, reached one
+    // server at a time instead of one field at a time.
+    const secrets = await secretStoreGetMany(
+      secretStore,
+      entries.map(([serverId, stored]) => ({
+        serverId,
+        fields: expectedSecretFields(stored),
+      })),
+    );
     const out: MCPConfig = { mcpServers: {} };
-    for (const [id, stored] of Object.entries(config.mcpServers)) {
-      const fields = expectedSecretFields(stored);
-      const secrets = await readKeychainEntriesFor(id, fields);
-      out.mcpServers[id] = mergeSecretsIntoStored(stored, secrets);
+    for (const [id, stored] of entries) {
+      out.mcpServers[id] = mergeSecretsIntoStored(stored, secrets[id] ?? {});
     }
     return out;
   };
@@ -1794,17 +2404,6 @@ export function createRemoteApp(
   // to perform the destructive operation (we want it after the disk
   // write so a failed disk write doesn't leave the user with their
   // old config on disk but missing keychain entries).
-  const computeObsoleteFields = (
-    previousFields: Set<string>,
-    nextSecrets: Record<string, string>,
-  ): string[] => {
-    const nextFieldSet = new Set(Object.keys(nextSecrets));
-    const obsolete: string[] = [];
-    for (const field of previousFields) {
-      if (!nextFieldSet.has(field)) obsolete.push(field);
-    }
-    return obsolete;
-  };
 
   /**
    * Merge keychain secrets for a server-id rename. PUT payload values win
@@ -1838,11 +2437,53 @@ export function createRemoteApp(
     await Promise.all(fields.map((field) => secretStore.delete(id, field)));
   };
 
+  /**
+   * The entry that actually goes to disk.
+   *
+   * `stripped` while the store outlives the process, `built` (secrets and
+   * all) while it does not. The GET migration already withheld its strip for
+   * a session-scoped store; the POST/PUT paths did not, so saving any
+   * unrelated setting round-tripped the rehydrated secret through the form
+   * and then wrote the stripped shape — moving the only durable copy into
+   * RAM, where exiting loses it. The user changed a timeout and lost a
+   * client secret, with every operation reporting success.
+   *
+   * The two paths have to agree: while the store cannot outlive the process,
+   * `mcp.json` stays the durable copy.
+   */
+  const entryForDisk = async (
+    built: StoredMCPServer,
+    stripped: StoredMCPServer,
+    previous?: StoredMCPServer,
+  ): Promise<StoredMCPServer> => {
+    if (await secretStoreIsDurable(secretStore)) return stripped;
+    // Non-durable, and the distinction is the whole of it: **legacy plaintext
+    // that was already on disk** is preserved, because stripping it would
+    // move the only durable copy into RAM. A **newly entered** secret is not,
+    // because the footer promises that a session store writes secrets
+    // nowhere — and the first version of this used the whole submitted entry
+    // as a proxy for provenance, which turned `MCP_INSPECTOR_SECRET_STORE=
+    // memory` into "write every new secret to mcp.json in the clear" while
+    // the UI said the opposite.
+    //
+    // A changed value is new: the old plaintext goes, the new value lives in
+    // the session store, and the footer's promise holds for it.
+    const prior = previous ? extractSecretsFromStored(previous).secrets : {};
+    const submitted = extractSecretsFromStored(built).secrets;
+    const carry: Record<string, string> = {};
+    for (const [field, value] of Object.entries(submitted)) {
+      if (prior[field] === value) carry[field] = value;
+    }
+    return Object.keys(carry).length > 0
+      ? mergeSecretsIntoStored(stripped, carry)
+      : stripped;
+  };
+
   const keychainErrorResponse = (
     c: Context,
     err: unknown,
   ): Response | undefined => {
-    if (err instanceof KeychainUnavailableError) {
+    if (err instanceof SecretStoreUnavailableError) {
       return c.json({ error: err.message }, 503);
     }
     return undefined;
@@ -2008,7 +2649,7 @@ export function createRemoteApp(
         // goes to disk, the values go to the keychain.
         const { stripped, secrets } = extractSecretsFromStored(built);
         // Order: sweep → keychain → disk. The keychain write is the
-        // only step that can hard-fail (KeychainUnavailableError on
+        // only step that can hard-fail (SecretStoreUnavailableError on
         // `set`); doing it before the disk write means a 503 leaves no
         // disk entry behind, so a retry POST isn't trapped at 409. The
         // initial sweep handles the case where a previous DELETE failed
@@ -2016,7 +2657,7 @@ export function createRemoteApp(
         // reusing; it's a silent no-op when the keychain is unavailable.
         await secretStore.deleteAllForServer(id);
         await writeKeychainEntriesFor(id, secrets);
-        current.mcpServers[id] = stripped;
+        current.mcpServers[id] = await entryForDisk(built, stripped);
         await writeMcpAndTrackMtime(serializeStore(current));
         return c.json({ ok: true });
       });
@@ -2253,10 +2894,11 @@ export function createRemoteApp(
           }
         }
         const { stripped, secrets } = extractSecretsFromStored(built);
+        const onDisk = await entryForDisk(built, stripped, existing);
         const next: MCPConfig = { mcpServers: {} };
         for (const [key, val] of Object.entries(current.mcpServers)) {
           if (key === originalId) {
-            next.mcpServers[newId] = stripped;
+            next.mcpServers[newId] = onDisk;
           } else {
             next.mcpServers[key] = val;
           }
@@ -2265,7 +2907,7 @@ export function createRemoteApp(
         // disk file, then clean up obsolete keychain entries.
         //
         // - Keychain set is the only hard-fail step (it raises 503 on
-        //   `KeychainUnavailableError`). Doing it first means a failed
+        //   `SecretStoreUnavailableError`). Doing it first means a failed
         //   set leaves both disk and keychain in their pre-PUT state;
         //   the user retries and nothing is half-applied.
         // - The disk write happens after the keychain is fully primed,
@@ -2295,8 +2937,42 @@ export function createRemoteApp(
           // In-place update: same id, possibly different fields. Set
           // the new values first, then write disk, then drop obsolete
           // fields (env keys the user removed, OAuth secret cleared).
+          //
+          // **Only when the caller said something about settings.** On a
+          // `preserve` intent the body carried no `settings` at all — the
+          // config-only PUT that `useServers.updateServer` sends for the
+          // Add/Edit modal — so the settings are re-derived from the *disk*
+          // entry, which by #1356's design no longer holds the secrets. They
+          // were therefore absent from `secrets`, `expectedSecretFields`
+          // always lists the OAuth slot, and the reconcile deleted a value
+          // the user never touched: editing a server's URL destroyed its
+          // stored OAuth client secret, on the keychain as much as on a
+          // session store. Saying nothing about settings has to mean
+          // "leave the secrets alone", not "the user cleared them".
+          // Two kinds of field, retired on different evidence — a single
+          // "absent from the submitted secrets" test cannot serve both.
+          //
+          // A stdio `env:` field is implied by the entry's *shape*: `env` is
+          // part of `config`, so a config-only PUT that drops a key really
+          // has retired that secret, and the new entry no longer expecting it
+          // is the proof.
+          //
+          // The OAuth slot is not implied by anything —
+          // `expectedSecretFields` always lists it — so its absence from the
+          // submitted set means "the caller cleared it" only when the caller
+          // spoke about settings at all. On a `preserve` intent (the
+          // config-only PUT the Add/Edit modal sends) the settings were
+          // re-derived from the disk entry, which by #1356's design no longer
+          // holds the secret; treating that absence as a clear deleted a
+          // value the user never touched, on the keychain as much as on a
+          // session store.
           const previousFields = new Set(expectedSecretFields(existing));
-          const obsolete = computeObsoleteFields(previousFields, secrets);
+          const stillExpected = new Set(expectedSecretFields(built));
+          const obsolete = [...previousFields].filter((field) =>
+            field === SECRET_FIELD_OAUTH_CLIENT_SECRET
+              ? settingsIntent.kind !== "preserve" && !(field in secrets)
+              : !stillExpected.has(field),
+          );
           await writeKeychainEntriesFor(newId, secrets);
           await writeMcpAndTrackMtime(serializeStore(next));
           await deleteKeychainFields(newId, obsolete);
@@ -2360,17 +3036,22 @@ export function createRemoteApp(
         ensureWatcher();
       }
 
-      stream.onAbort(() => {
+      // Prime the stream so the client's fetch() actually resolves — on
+      // Firefox it otherwise stays pending until the first real change
+      // event, which for an unedited `mcp.json` is never. See
+      // SSE_PRIMING_COMMENT. Deliberately *after* the subscriber is
+      // registered and the watcher started: callers treat the arrival of
+      // this stream's first bytes as proof they are subscribed, so priming
+      // first would hand out that proof across an `await`, before the
+      // watcher exists, and drop an edit made in the gap. The unsubscribe is
+      // nonetheless registered *before* that write, and the stream is held
+      // open until the client aborts — see primeAndHoldSseStream (#1999).
+      await primeAndHoldSseStream(stream, () => {
         serverEventSubscribers.delete(send);
+        // Voided rather than awaited: this runs inside Hono's synchronous
+        // abort subscriber, which cannot await. maybeStopWatcher owns its
+        // own failures (it swallows a close() that throws).
         void maybeStopWatcher();
-        stream.close();
-      });
-
-      // Hono closes the stream the moment this callback returns, so hold the
-      // promise open until the client aborts. Cleanup happens in the
-      // onAbort handler registered above.
-      await new Promise<void>((resolve) => {
-        stream.onAbort(() => resolve());
       });
     });
   });

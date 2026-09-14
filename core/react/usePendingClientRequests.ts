@@ -1,8 +1,25 @@
-import { useState, useEffect } from "react";
 import type { InspectorClientProtocol } from "../mcp/inspectorClientProtocol.js";
 import type { SamplingCreateMessage } from "../mcp/samplingCreateMessage.js";
 import type { ElicitationCreateMessage } from "../mcp/elicitationCreateMessage.js";
-import type { TypedEvent } from "../mcp/inspectorClientEventTarget.js";
+import { useStoreSnapshot } from "./useStoreSnapshot.js";
+
+/**
+ * Shared stable empty lists for the no-client case. Module scope so the
+ * snapshot doesn't change identity every render — see `useStoreSnapshot`.
+ * Read-only by contract: nothing mutates a list this hook returns.
+ */
+const NO_SAMPLES: SamplingCreateMessage[] = [];
+const NO_ELICITATIONS: ElicitationCreateMessage[] = [];
+
+// Both getters already hand back a defensive copy of a queue the client
+// mutates in place (`push`/`splice`), which is what makes them safe to read as
+// a snapshot: the returned array can't change underneath React afterwards.
+const readPendingSamples = (
+  client: InspectorClientProtocol,
+): SamplingCreateMessage[] => client.getPendingSamples();
+const readPendingElicitations = (
+  client: InspectorClientProtocol,
+): ElicitationCreateMessage[] => client.getPendingElicitations();
 
 export interface UsePendingClientRequestsResult {
   pendingSamples: SamplingCreateMessage[];
@@ -21,47 +38,18 @@ export interface UsePendingClientRequestsResult {
 export function usePendingClientRequests(
   inspectorClient: InspectorClientProtocol | null,
 ): UsePendingClientRequestsResult {
-  const [pendingSamples, setPendingSamples] = useState<SamplingCreateMessage[]>(
-    inspectorClient?.getPendingSamples() ?? [],
+  const pendingSamples = useStoreSnapshot(
+    inspectorClient,
+    "pendingSamplesChange",
+    readPendingSamples,
+    NO_SAMPLES,
   );
-  const [pendingElicitations, setPendingElicitations] = useState<
-    ElicitationCreateMessage[]
-  >(inspectorClient?.getPendingElicitations() ?? []);
-
-  useEffect(() => {
-    if (!inspectorClient) {
-      setPendingSamples([]);
-      setPendingElicitations([]);
-      return;
-    }
-    setPendingSamples(inspectorClient.getPendingSamples());
-    setPendingElicitations(inspectorClient.getPendingElicitations());
-
-    const onSamplesChange = (event: TypedEvent<"pendingSamplesChange">) => {
-      setPendingSamples([...event.detail]);
-    };
-    const onElicitationsChange = (
-      event: TypedEvent<"pendingElicitationsChange">,
-    ) => {
-      setPendingElicitations([...event.detail]);
-    };
-
-    inspectorClient.addEventListener("pendingSamplesChange", onSamplesChange);
-    inspectorClient.addEventListener(
-      "pendingElicitationsChange",
-      onElicitationsChange,
-    );
-    return () => {
-      inspectorClient.removeEventListener(
-        "pendingSamplesChange",
-        onSamplesChange,
-      );
-      inspectorClient.removeEventListener(
-        "pendingElicitationsChange",
-        onElicitationsChange,
-      );
-    };
-  }, [inspectorClient]);
+  const pendingElicitations = useStoreSnapshot(
+    inspectorClient,
+    "pendingElicitationsChange",
+    readPendingElicitations,
+    NO_ELICITATIONS,
+  );
 
   return { pendingSamples, pendingElicitations };
 }

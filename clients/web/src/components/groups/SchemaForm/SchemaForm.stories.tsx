@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { fn } from "storybook/test";
+import { expect, fn, within } from "storybook/test";
 import { SchemaForm } from "./SchemaForm";
 
 const meta: Meta<typeof SchemaForm> = {
@@ -178,5 +178,84 @@ export const Disabled: Story = {
       color: "green",
     },
     disabled: true,
+  },
+};
+
+/**
+ * Arguments declared as a composition at the root of the schema (#2123): a
+ * picker chooses the alternative, and its fields render beneath. Before this,
+ * such a schema produced a form with no controls at all.
+ */
+export const RootUnion: Story = {
+  args: {
+    schema: {
+      type: "object",
+      properties: {
+        message: { type: "string", title: "Message" },
+      },
+      required: ["message"],
+      anyOf: [
+        {
+          type: "object",
+          title: "By email",
+          properties: {
+            kind: { type: "string", const: "email" },
+            address: { type: "string", title: "Address" },
+          },
+          required: ["kind", "address"],
+        },
+        {
+          type: "object",
+          title: "By SMS",
+          properties: {
+            kind: { type: "string", const: "sms" },
+            phone: { type: "string", title: "Phone" },
+          },
+          required: ["kind", "phone"],
+        },
+      ],
+    },
+    values: { kind: "email" },
+  },
+};
+
+/**
+ * The v1 escape hatch, restored (#2151): flip the form over and edit the whole
+ * arguments object as JSON.
+ *
+ * The play function is where the real behavior lives, because Ace's keyboard
+ * path only works in a real browser — the unit suite drives the editor through
+ * its API instead.
+ */
+export const RawJsonToggle: Story = {
+  args: {
+    schema: {
+      type: "object",
+      properties: {
+        name: { type: "string", title: "Name" },
+        count: { type: "integer", title: "Count" },
+      },
+    },
+    values: { name: "Example", count: 3 },
+  },
+  play: async ({ canvasElement, userEvent }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(canvas.getByLabelText("Edit as JSON"));
+
+    // The widgets are gone, replaced by one editor holding the same values.
+    await expect(canvas.queryByLabelText(/^Name$/)).toBeNull();
+    const editor = canvasElement.querySelector(".ace_editor") as HTMLElement & {
+      env: { editor: { getValue(): string } };
+    };
+    await expect(JSON.parse(editor.env.editor.getValue())).toEqual({
+      name: "Example",
+      count: 3,
+    });
+
+    // And back: the switch is the only way out, and it leaves the widgets on
+    // screen. (This story's `onChange` is a spy, so the values it renders are
+    // the ones it was given.)
+    await userEvent.click(canvas.getByLabelText("Edit as JSON"));
+    await expect(canvas.getByLabelText(/^Name$/)).toBeVisible();
   },
 };

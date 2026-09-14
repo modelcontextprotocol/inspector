@@ -39,6 +39,7 @@ import {
   EMPTY_APPS_UI,
   EMPTY_PROMPTS_UI,
   EMPTY_RESOURCES_UI,
+  EMPTY_SKILLS_UI,
   EMPTY_TASKS_UI,
   EMPTY_LOGS_UI,
   EMPTY_PROTOCOL_UI,
@@ -59,117 +60,186 @@ const noopBridgeFactory: BridgeFactory = () =>
     close: async () => {},
   }) as unknown as AppBridge;
 
+/**
+ * Per-bundle overrides. Each key takes a `Partial` of that bundle, so a test
+ * names only the field it cares about — `makeProps({ tools: { tools: [t] } })`
+ * — and inherits the rest of the bundle's defaults.
+ */
+type PropOverrides = {
+  [K in keyof InspectorViewProps]?: Partial<InspectorViewProps[K]>;
+};
+
+// Merges one bundle across every supplied override layer, later layers
+// winning. Kept generic (rather than a spread over `Object.assign`) so each
+// bundle stays typed to its own shape.
+function mergeBundle<K extends keyof InspectorViewProps>(
+  key: K,
+  layers: PropOverrides[],
+): Partial<InspectorViewProps[K]> {
+  let merged: Partial<InspectorViewProps[K]> = {};
+  for (const layer of layers) {
+    const part = layer[key];
+    if (part) merged = { ...merged, ...part };
+  }
+  return merged;
+}
+
 // Returns a fresh fixture each call so per-test spies can be asserted on
 // in isolation. The view is purely prop-driven; every callback is
 // dispatched up to the parent — these spies stand in for App.tsx's
 // hook-routed handlers in the real wiring.
-function makeProps(
-  overrides: Partial<InspectorViewProps> = {},
-): InspectorViewProps {
+//
+// Takes any number of override layers so a scenario helper can supply its own
+// base (see `connectedHttp` below) and still let the caller override on top.
+function makeProps(...overrides: PropOverrides[]): InspectorViewProps {
   return {
-    servers: [],
-    activeServer: undefined,
-    connectionStatus: "disconnected",
-    initializeResult: undefined,
-    latencyMs: undefined,
-    tools: [],
-    prompts: [],
-    resources: [],
-    resourceTemplates: [],
-    toolsListChanged: false,
-    promptsListChanged: false,
-    resourcesListChanged: false,
-    subscriptions: [],
-    logs: [],
-    tasks: [],
-    protocol: [],
-    network: [],
-    stderrLogs: [],
-    currentLogLevel: "info",
-    sandboxPath: "about:blank",
-    bridgeFactory: noopBridgeFactory,
-    appRendererRef: { current: null },
-    toolsUi: EMPTY_TOOLS_UI,
-    promptsUi: EMPTY_PROMPTS_UI,
-    resourcesUi: EMPTY_RESOURCES_UI,
-    appsUi: EMPTY_APPS_UI,
-    tasksUi: EMPTY_TASKS_UI,
-    logsUi: EMPTY_LOGS_UI,
-    protocolUi: EMPTY_PROTOCOL_UI,
-    networkUi: EMPTY_NETWORK_UI,
-    consoleUi: EMPTY_CONSOLE_UI,
-    onToggleTheme: vi.fn(),
-    onOpenClientSettings: vi.fn(),
-    onToggleConnection: vi.fn(),
-    onDisconnect: vi.fn(),
-    onServerAdd: vi.fn(),
-    onServerImportConfig: vi.fn(),
-    onServerImportJson: vi.fn(),
-    onServerExport: vi.fn(),
-    onConnectionInfo: vi.fn(),
-    onServerSettings: vi.fn(),
-    onServerEdit: vi.fn(),
-    onServerClone: vi.fn(),
-    onServerRemove: vi.fn(),
-    onServerReorder: vi.fn(),
-    serverSupportsTaskToolCalls: false,
-    onToolsUiChange: vi.fn(),
-    onCallTool: vi.fn(),
-    onRefreshTools: vi.fn(),
-    toolsPagination: noopPagination,
-    promptsPagination: noopPagination,
-    resourcesPagination: noopPagination,
-    onPromptsUiChange: vi.fn(),
-    onGetPrompt: vi.fn(),
-    onRefreshPrompts: vi.fn(),
-    onResourcesUiChange: vi.fn(),
-    onReadResource: vi.fn(),
-    onSubscribeResource: vi.fn(),
-    onUnsubscribeResource: vi.fn(),
-    onRefreshResources: vi.fn(),
-    onTasksUiChange: vi.fn(),
-    onCancelTask: vi.fn(),
-    onClearCompletedTasks: vi.fn(),
-    onRefreshTasks: vi.fn(),
-    onSetLogLevel: vi.fn(),
-    onLogsUiChange: vi.fn(),
-    onClearLogs: vi.fn(),
-    onExportLogs: vi.fn(),
-    onProtocolUiChange: vi.fn(),
-    onClearProtocol: vi.fn(),
-    onExportProtocol: vi.fn(),
-    onClearProtocolSection: vi.fn(),
-    onExportProtocolSection: vi.fn(),
-    onReplayProtocol: vi.fn(),
-    onTogglePinProtocol: vi.fn(),
-    onNetworkUiChange: vi.fn(),
-    onClearNetwork: vi.fn(),
-    onExportNetwork: vi.fn(),
-    onConsoleUiChange: vi.fn(),
-    onClearConsole: vi.fn(),
-    onExportConsole: vi.fn(),
-    onAppsUiChange: vi.fn(),
-    onSelectApp: vi.fn(),
-    onOpenApp: vi.fn(),
-    onCloseApp: vi.fn(),
-    onAppError: vi.fn(),
-    onRefreshApps: vi.fn(),
-    activeTab: "Servers",
-    onActiveTabChange: vi.fn(),
-    ...overrides,
+    shell: {
+      activeTab: "Servers",
+      onActiveTabChange: vi.fn(),
+      onToggleTheme: vi.fn(),
+      onOpenClientSettings: vi.fn(),
+      ...mergeBundle("shell", overrides),
+    },
+    connection: {
+      activeServer: undefined,
+      connectionStatus: "disconnected",
+      initializeResult: undefined,
+      latencyMs: undefined,
+      onToggleConnection: vi.fn(),
+      onDisconnect: vi.fn(),
+      ...mergeBundle("connection", overrides),
+    },
+    servers: {
+      servers: [],
+      onServerAdd: vi.fn(),
+      onServerImportConfig: vi.fn(),
+      onServerImportJson: vi.fn(),
+      onServerExport: vi.fn(),
+      onConnectionInfo: vi.fn(),
+      onServerSettings: vi.fn(),
+      onServerEdit: vi.fn(),
+      onServerClone: vi.fn(),
+      onServerRemove: vi.fn(),
+      onServerReorder: vi.fn(),
+      ...mergeBundle("servers", overrides),
+    },
+    tools: {
+      tools: [],
+      toolsListChanged: false,
+      toolsUi: EMPTY_TOOLS_UI,
+      toolsPagination: noopPagination,
+      serverSupportsTaskToolCalls: false,
+      onToolsUiChange: vi.fn(),
+      onCallTool: vi.fn(),
+      onRefreshTools: vi.fn(),
+      ...mergeBundle("tools", overrides),
+    },
+    prompts: {
+      prompts: [],
+      promptsListChanged: false,
+      promptsUi: EMPTY_PROMPTS_UI,
+      promptsPagination: noopPagination,
+      onPromptsUiChange: vi.fn(),
+      onGetPrompt: vi.fn(),
+      onRefreshPrompts: vi.fn(),
+      ...mergeBundle("prompts", overrides),
+    },
+    resources: {
+      resources: [],
+      resourceTemplates: [],
+      subscriptions: [],
+      resourcesListChanged: false,
+      resourcesUi: EMPTY_RESOURCES_UI,
+      resourcesPagination: noopPagination,
+      onResourcesUiChange: vi.fn(),
+      onReadResource: vi.fn(),
+      onSubscribeResource: vi.fn(),
+      onUnsubscribeResource: vi.fn(),
+      onRefreshResources: vi.fn(),
+      ...mergeBundle("resources", overrides),
+    },
+    apps: {
+      appsUi: EMPTY_APPS_UI,
+      sandboxPath: "about:blank",
+      bridgeFactory: noopBridgeFactory,
+      appRendererRef: { current: null },
+      onAppsUiChange: vi.fn(),
+      onSelectApp: vi.fn(),
+      onOpenApp: vi.fn(),
+      onCloseApp: vi.fn(),
+      onAppError: vi.fn(),
+      onRefreshApps: vi.fn(),
+      ...mergeBundle("apps", overrides),
+    },
+    skills: {
+      skillsSessionKey: "test-session",
+      skills: [],
+      skillsPageCount: 0,
+      skillsUi: EMPTY_SKILLS_UI,
+      onSkillsUiChange: vi.fn(),
+      onRefreshSkills: vi.fn(),
+      onReadSkillFile: vi.fn().mockResolvedValue({ text: "" }),
+      onGetSkill: vi.fn(),
+      ...mergeBundle("skills", overrides),
+    },
+    tasks: {
+      tasks: [],
+      tasksUi: EMPTY_TASKS_UI,
+      onTasksUiChange: vi.fn(),
+      onCancelTask: vi.fn(),
+      onClearCompletedTasks: vi.fn(),
+      onRefreshTasks: vi.fn(),
+      ...mergeBundle("tasks", overrides),
+    },
+    logs: {
+      logs: [],
+      logsUi: EMPTY_LOGS_UI,
+      currentLogLevel: "info",
+      onSetLogLevel: vi.fn(),
+      onLogsUiChange: vi.fn(),
+      onClearLogs: vi.fn(),
+      onExportLogs: vi.fn(),
+      ...mergeBundle("logs", overrides),
+    },
+    protocol: {
+      protocol: [],
+      protocolUi: EMPTY_PROTOCOL_UI,
+      onProtocolUiChange: vi.fn(),
+      onClearProtocol: vi.fn(),
+      onExportProtocol: vi.fn(),
+      onClearProtocolSection: vi.fn(),
+      onExportProtocolSection: vi.fn(),
+      onReplayProtocol: vi.fn(),
+      onTogglePinProtocol: vi.fn(),
+      ...mergeBundle("protocol", overrides),
+    },
+    network: {
+      network: [],
+      networkUi: EMPTY_NETWORK_UI,
+      onNetworkUiChange: vi.fn(),
+      onClearNetwork: vi.fn(),
+      onExportNetwork: vi.fn(),
+      ...mergeBundle("network", overrides),
+    },
+    console: {
+      stderrLogs: [],
+      consoleUi: EMPTY_CONSOLE_UI,
+      onConsoleUiChange: vi.fn(),
+      onClearConsole: vi.fn(),
+      onExportConsole: vi.fn(),
+      ...mergeBundle("console", overrides),
+    },
   };
 }
 
 function StatefulInspectorViewHost(props: InspectorViewProps) {
-  const [activeTab, setActiveTab] = useState(props.activeTab ?? "Servers");
-  const [appsUi, setAppsUi] = useState(props.appsUi ?? EMPTY_APPS_UI);
+  const [activeTab, setActiveTab] = useState(props.shell.activeTab);
+  const [appsUi, setAppsUi] = useState(props.apps.appsUi);
   return (
     <InspectorView
       {...props}
-      activeTab={activeTab}
-      onActiveTabChange={setActiveTab}
-      appsUi={appsUi}
-      onAppsUiChange={setAppsUi}
+      shell={{ ...props.shell, activeTab, onActiveTabChange: setActiveTab }}
+      apps={{ ...props.apps, appsUi, onAppsUiChange: setAppsUi }}
     />
   );
 }
@@ -244,14 +314,26 @@ describe("InspectorView", () => {
 
   it("renders the server card from the input list", () => {
     renderWithMantine(
-      <StatefulInspectorViewHost {...makeProps({ servers: [sampleServer] })} />,
+      <StatefulInspectorViewHost
+        {...makeProps({
+          servers: {
+            servers: [sampleServer],
+          },
+        })}
+      />,
     );
     expect(screen.getByText("Alpha")).toBeInTheDocument();
   });
 
   it("renders the footer row with the version and copyright (#1682)", () => {
     renderWithMantine(
-      <StatefulInspectorViewHost {...makeProps({ version: "9.9.9" })} />,
+      <StatefulInspectorViewHost
+        {...makeProps({
+          shell: {
+            version: "9.9.9",
+          },
+        })}
+      />,
     );
     expect(screen.getByText("v9.9.9")).toBeInTheDocument();
     expect(
@@ -264,7 +346,14 @@ describe("InspectorView", () => {
     const user = userEvent.setup({ delay: null });
     renderWithMantine(
       <StatefulInspectorViewHost
-        {...makeProps({ servers: [sampleServer], onToggleConnection })}
+        {...makeProps({
+          connection: {
+            onToggleConnection,
+          },
+          servers: {
+            servers: [sampleServer],
+          },
+        })}
       />,
     );
     await user.click(screen.getByRole("switch"));
@@ -275,10 +364,16 @@ describe("InspectorView", () => {
     renderWithMantine(
       <StatefulInspectorViewHost
         {...makeProps({
-          servers: [sampleServer],
-          connectionStatus: "error",
-          connectErrorMessage: "handshake failed: 500",
-          deepLinkStatus: "rejected",
+          shell: {
+            deepLinkStatus: "rejected",
+          },
+          connection: {
+            connectionStatus: "error",
+            connectErrorMessage: "handshake failed: 500",
+          },
+          servers: {
+            servers: [sampleServer],
+          },
         })}
       />,
     );
@@ -295,9 +390,15 @@ describe("InspectorView", () => {
     renderWithMantine(
       <StatefulInspectorViewHost
         {...makeProps({
-          servers: [sampleServer],
-          connectionStatus: "disconnected",
-          deepLinkStatus: "none",
+          shell: {
+            deepLinkStatus: "none",
+          },
+          connection: {
+            connectionStatus: "disconnected",
+          },
+          servers: {
+            servers: [sampleServer],
+          },
         })}
       />,
     );
@@ -311,11 +412,15 @@ describe("InspectorView", () => {
     renderWithMantine(
       <StatefulInspectorViewHost
         {...makeProps({
-          servers: [sampleServer],
-          activeServer: "alpha",
-          connectionStatus: "connected",
-          initializeResult: connectedInit,
-          latencyMs: 50,
+          connection: {
+            activeServer: "alpha",
+            connectionStatus: "connected",
+            initializeResult: connectedInit,
+            latencyMs: 50,
+          },
+          servers: {
+            servers: [sampleServer],
+          },
         })}
       />,
     );
@@ -336,12 +441,16 @@ describe("InspectorView", () => {
     renderWithMantine(
       <StatefulInspectorViewHost
         {...makeProps({
-          servers: [sampleServer],
-          activeServer: "alpha",
-          connectionStatus: "connected",
-          initializeResult: {
-            ...connectedInit,
-            serverInfo: { name: "", version: "1.0.0" },
+          connection: {
+            activeServer: "alpha",
+            connectionStatus: "connected",
+            initializeResult: {
+              ...connectedInit,
+              serverInfo: { name: "", version: "1.0.0" },
+            },
+          },
+          servers: {
+            servers: [sampleServer],
           },
         })}
       />,
@@ -358,12 +467,16 @@ describe("InspectorView", () => {
     renderWithMantine(
       <StatefulInspectorViewHost
         {...makeProps({
-          servers: [sampleServer],
-          activeServer: "alpha",
-          connectionStatus: "connected",
-          initializeResult: {
-            ...connectedInit,
-            serverInfo: { version: "1.0.0" } as never,
+          connection: {
+            activeServer: "alpha",
+            connectionStatus: "connected",
+            initializeResult: {
+              ...connectedInit,
+              serverInfo: { version: "1.0.0" } as never,
+            },
+          },
+          servers: {
+            servers: [sampleServer],
           },
         })}
       />,
@@ -381,12 +494,16 @@ describe("InspectorView", () => {
     renderWithMantine(
       <StatefulInspectorViewHost
         {...makeProps({
-          servers: [sampleServer],
-          activeServer: "alpha",
-          connectionStatus: "connected",
-          initializeResult: {
-            ...connectedInit,
-            serverInfo: { name: "   ", version: "1.0.0" },
+          connection: {
+            activeServer: "alpha",
+            connectionStatus: "connected",
+            initializeResult: {
+              ...connectedInit,
+              serverInfo: { name: "   ", version: "1.0.0" },
+            },
+          },
+          servers: {
+            servers: [sampleServer],
           },
         })}
       />,
@@ -405,12 +522,16 @@ describe("InspectorView", () => {
     renderWithMantine(
       <StatefulInspectorViewHost
         {...makeProps({
-          servers: [],
-          activeServer: "ghost",
-          connectionStatus: "connected",
-          initializeResult: {
-            ...connectedInit,
-            serverInfo: { name: "", version: "1.0.0" },
+          connection: {
+            activeServer: "ghost",
+            connectionStatus: "connected",
+            initializeResult: {
+              ...connectedInit,
+              serverInfo: { name: "", version: "1.0.0" },
+            },
+          },
+          servers: {
+            servers: [],
           },
         })}
       />,
@@ -427,10 +548,14 @@ describe("InspectorView", () => {
     renderWithMantine(
       <StatefulInspectorViewHost
         {...makeProps({
-          servers: [sampleServer],
-          activeServer: "alpha",
-          connectionStatus: "connected",
-          initializeResult: connectedInit,
+          connection: {
+            activeServer: "alpha",
+            connectionStatus: "connected",
+            initializeResult: connectedInit,
+          },
+          servers: {
+            servers: [sampleServer],
+          },
         })}
       />,
     );
@@ -443,10 +568,14 @@ describe("InspectorView", () => {
     renderWithMantine(
       <StatefulInspectorViewHost
         {...makeProps({
-          servers: [sampleServer],
-          activeServer: "alpha",
-          connectionStatus: "disconnected",
-          initializeResult: undefined,
+          connection: {
+            activeServer: "alpha",
+            connectionStatus: "disconnected",
+            initializeResult: undefined,
+          },
+          servers: {
+            servers: [sampleServer],
+          },
         })}
       />,
     );
@@ -462,10 +591,14 @@ describe("InspectorView", () => {
     renderWithMantine(
       <StatefulInspectorViewHost
         {...makeProps({
-          servers: [sampleServer],
-          activeServer: "alpha",
-          connectionStatus: "connected",
-          initializeResult: { ...connectedInit, protocolVersion: "" },
+          connection: {
+            activeServer: "alpha",
+            connectionStatus: "connected",
+            initializeResult: { ...connectedInit, protocolVersion: "" },
+          },
+          servers: {
+            servers: [sampleServer],
+          },
         })}
       />,
     );
@@ -482,11 +615,15 @@ describe("InspectorView", () => {
     const { rerender } = renderWithMantine(
       <StatefulInspectorViewHost
         {...makeProps({
-          servers: [sampleServer],
-          activeServer: "alpha",
-          connectionStatus: "connected",
-          initializeResult: connectedInit,
-          latencyMs: 50,
+          connection: {
+            activeServer: "alpha",
+            connectionStatus: "connected",
+            initializeResult: connectedInit,
+            latencyMs: 50,
+          },
+          servers: {
+            servers: [sampleServer],
+          },
         })}
       />,
     );
@@ -501,9 +638,13 @@ describe("InspectorView", () => {
     rerender(
       <StatefulInspectorViewHost
         {...makeProps({
-          servers: [sampleServer],
-          activeServer: undefined,
-          connectionStatus: "disconnected",
+          connection: {
+            activeServer: undefined,
+            connectionStatus: "disconnected",
+          },
+          servers: {
+            servers: [sampleServer],
+          },
         })}
       />,
     );
@@ -530,10 +671,14 @@ describe("InspectorView", () => {
     renderWithMantine(
       <StatefulInspectorViewHost
         {...makeProps({
-          servers: [sampleServer],
-          activeServer: "alpha",
-          connectionStatus: "connected",
-          initializeResult: connectedInit,
+          connection: {
+            activeServer: "alpha",
+            connectionStatus: "connected",
+            initializeResult: connectedInit,
+          },
+          servers: {
+            servers: [sampleServer],
+          },
         })}
       />,
     );
@@ -560,10 +705,14 @@ describe("InspectorView", () => {
     renderWithMantine(
       <StatefulInspectorViewHost
         {...makeProps({
-          servers: [httpServer],
-          activeServer: "beta",
-          connectionStatus: "connected",
-          initializeResult: httpInit,
+          connection: {
+            activeServer: "beta",
+            connectionStatus: "connected",
+            initializeResult: httpInit,
+          },
+          servers: {
+            servers: [httpServer],
+          },
         })}
       />,
     );
@@ -576,13 +725,19 @@ describe("InspectorView", () => {
     renderWithMantine(
       <StatefulInspectorViewHost
         {...makeProps({
-          servers: [sampleServer],
-          activeServer: "alpha",
-          connectionStatus: "connected",
-          // No `tools` capability — only logging is advertised.
-          initializeResult: initWithCapabilities({ logging: {} }),
-          // A non-empty tool list must not override the missing capability.
-          tools: [{ name: "echo", inputSchema: { type: "object" } }],
+          connection: {
+            activeServer: "alpha",
+            connectionStatus: "connected",
+            // No `tools` capability — only logging is advertised.
+            initializeResult: initWithCapabilities({ logging: {} }),
+          },
+          servers: {
+            servers: [sampleServer],
+          },
+          tools: {
+            // A non-empty tool list must not override the missing capability.
+            tools: [{ name: "echo", inputSchema: { type: "object" } }],
+          },
         })}
       />,
     );
@@ -599,11 +754,17 @@ describe("InspectorView", () => {
     renderWithMantine(
       <StatefulInspectorViewHost
         {...makeProps({
-          servers: [sampleServer],
-          activeServer: "alpha",
-          connectionStatus: "connected",
-          initializeResult: initWithCapabilities({ tools: {} }),
-          tools: [],
+          connection: {
+            activeServer: "alpha",
+            connectionStatus: "connected",
+            initializeResult: initWithCapabilities({ tools: {} }),
+          },
+          servers: {
+            servers: [sampleServer],
+          },
+          tools: {
+            tools: [],
+          },
         })}
       />,
     );
@@ -615,10 +776,14 @@ describe("InspectorView", () => {
     renderWithMantine(
       <StatefulInspectorViewHost
         {...makeProps({
-          servers: [sampleServer],
-          activeServer: "alpha",
-          connectionStatus: "connected",
-          initializeResult: initWithCapabilities({ tools: {} }),
+          connection: {
+            activeServer: "alpha",
+            connectionStatus: "connected",
+            initializeResult: initWithCapabilities({ tools: {} }),
+          },
+          servers: {
+            servers: [sampleServer],
+          },
         })}
       />,
     );
@@ -632,10 +797,14 @@ describe("InspectorView", () => {
     renderWithMantine(
       <StatefulInspectorViewHost
         {...makeProps({
-          servers: [sampleServer],
-          activeServer: "alpha",
-          connectionStatus: "connected",
-          initializeResult: initWithCapabilities({ logging: {} }),
+          connection: {
+            activeServer: "alpha",
+            connectionStatus: "connected",
+            initializeResult: initWithCapabilities({ logging: {} }),
+          },
+          servers: {
+            servers: [sampleServer],
+          },
         })}
       />,
     );
@@ -648,11 +817,15 @@ describe("InspectorView", () => {
     renderWithMantine(
       <StatefulInspectorViewHost
         {...makeProps({
-          servers: [sampleServer],
-          activeServer: "alpha",
-          connectionStatus: "connected",
-          // Empty capability set: every server-capability tab is hidden.
-          initializeResult: initWithCapabilities({}),
+          connection: {
+            activeServer: "alpha",
+            connectionStatus: "connected",
+            // Empty capability set: every server-capability tab is hidden.
+            initializeResult: initWithCapabilities({}),
+          },
+          servers: {
+            servers: [sampleServer],
+          },
         })}
       />,
     );
@@ -668,13 +841,19 @@ describe("InspectorView", () => {
     renderWithMantine(
       <StatefulInspectorViewHost
         {...makeProps({
-          servers: [sampleServer],
-          activeServer: "alpha",
-          connectionStatus: "connected",
-          // Logging only — no tools capability, even though an app tool is
-          // present in the (stale/optimistic) list.
-          initializeResult: initWithCapabilities({ logging: {} }),
-          tools: [sampleAppTool],
+          connection: {
+            activeServer: "alpha",
+            connectionStatus: "connected",
+            // Logging only — no tools capability, even though an app tool is
+            // present in the (stale/optimistic) list.
+            initializeResult: initWithCapabilities({ logging: {} }),
+          },
+          servers: {
+            servers: [sampleServer],
+          },
+          tools: {
+            tools: [sampleAppTool],
+          },
         })}
       />,
     );
@@ -701,12 +880,18 @@ describe("InspectorView", () => {
     renderWithMantine(
       <StatefulInspectorViewHost
         {...makeProps({
-          servers: [sampleServer],
-          activeServer: "alpha",
-          connectionStatus: "connected",
-          initializeResult: connectedInit,
-          latencyMs: 50,
-          tools: [sampleAppTool, plainTool, malformedAppTool],
+          connection: {
+            activeServer: "alpha",
+            connectionStatus: "connected",
+            initializeResult: connectedInit,
+            latencyMs: 50,
+          },
+          servers: {
+            servers: [sampleServer],
+          },
+          tools: {
+            tools: [sampleAppTool, plainTool, malformedAppTool],
+          },
         })}
       />,
     );
@@ -727,12 +912,18 @@ describe("InspectorView", () => {
     renderWithMantine(
       <StatefulInspectorViewHost
         {...makeProps({
-          servers: [sampleServer],
-          activeServer: "alpha",
-          connectionStatus: "connected",
-          initializeResult: connectedInit,
-          // Only a non-app tool — no `_meta.ui.resourceUri`, so appTools is empty.
-          tools: [plainTool],
+          connection: {
+            activeServer: "alpha",
+            connectionStatus: "connected",
+            initializeResult: connectedInit,
+          },
+          servers: {
+            servers: [sampleServer],
+          },
+          tools: {
+            // Only a non-app tool — no `_meta.ui.resourceUri`, so appTools is empty.
+            tools: [plainTool],
+          },
         })}
       />,
     );
@@ -746,11 +937,17 @@ describe("InspectorView", () => {
     renderWithMantine(
       <StatefulInspectorViewHost
         {...makeProps({
-          servers: [sampleServer],
-          activeServer: "alpha",
-          connectionStatus: "connected",
-          initializeResult: connectedInit,
-          tools: [sampleAppTool],
+          connection: {
+            activeServer: "alpha",
+            connectionStatus: "connected",
+            initializeResult: connectedInit,
+          },
+          servers: {
+            servers: [sampleServer],
+          },
+          tools: {
+            tools: [sampleAppTool],
+          },
         })}
       />,
     );
@@ -768,11 +965,17 @@ describe("InspectorView", () => {
     const { rerender } = renderWithMantine(
       <StatefulInspectorViewHost
         {...makeProps({
-          servers: [sampleServer],
-          activeServer: "alpha",
-          connectionStatus: "connected",
-          initializeResult: connectedInit,
-          tools: [plainTool],
+          connection: {
+            activeServer: "alpha",
+            connectionStatus: "connected",
+            initializeResult: connectedInit,
+          },
+          servers: {
+            servers: [sampleServer],
+          },
+          tools: {
+            tools: [plainTool],
+          },
         })}
       />,
     );
@@ -784,11 +987,17 @@ describe("InspectorView", () => {
     rerender(
       <StatefulInspectorViewHost
         {...makeProps({
-          servers: [sampleServer],
-          activeServer: "alpha",
-          connectionStatus: "connected",
-          initializeResult: connectedInit,
-          tools: [plainTool, sampleAppTool],
+          connection: {
+            activeServer: "alpha",
+            connectionStatus: "connected",
+            initializeResult: connectedInit,
+          },
+          servers: {
+            servers: [sampleServer],
+          },
+          tools: {
+            tools: [plainTool, sampleAppTool],
+          },
         })}
       />,
     );
@@ -803,21 +1012,31 @@ describe("InspectorView", () => {
     renderWithMantine(
       <StatefulInspectorViewHost
         {...makeProps({
-          servers: [sampleServer],
-          activeServer: "alpha",
-          connectionStatus: "connected",
-          initializeResult: connectedInit,
-          tools: [sampleAppTool],
-          onSelectApp,
-          deepLink: {
-            serverId: "deep-link",
-            serverConfig: {
-              type: "streamable-http",
-              url: "https://example.com/mcp",
+          shell: {
+            deepLink: {
+              serverId: "deep-link",
+              serverConfig: {
+                type: "streamable-http",
+                url: "https://example.com/mcp",
+              },
+              openApp: "ops",
+              appArgs: {},
+              autoOpen: false,
             },
-            openApp: "ops",
-            appArgs: {},
-            autoOpen: false,
+          },
+          connection: {
+            activeServer: "alpha",
+            connectionStatus: "connected",
+            initializeResult: connectedInit,
+          },
+          servers: {
+            servers: [sampleServer],
+          },
+          tools: {
+            tools: [sampleAppTool],
+          },
+          apps: {
+            onSelectApp,
           },
         })}
       />,
@@ -843,21 +1062,29 @@ describe("InspectorView", () => {
     renderWithMantine(
       <StatefulInspectorViewHost
         {...makeProps({
-          servers: [sampleServer],
-          activeServer: "alpha",
-          connectionStatus: "connected",
-          initializeResult: connectedInit,
-          tools: [fieldedAppTool],
-          deepLink: {
-            serverId: "deep-link",
-            serverConfig: {
-              type: "streamable-http",
-              url: "https://example.com/mcp",
+          shell: {
+            deepLink: {
+              serverId: "deep-link",
+              serverConfig: {
+                type: "streamable-http",
+                url: "https://example.com/mcp",
+              },
+              openApp: "cohorts",
+              // Overrides no default (zip), leaving `metric`'s schema default intact.
+              appArgs: { zip: "10001" },
+              autoOpen: false,
             },
-            openApp: "cohorts",
-            // Overrides no default (zip), leaving `metric`'s schema default intact.
-            appArgs: { zip: "10001" },
-            autoOpen: false,
+          },
+          connection: {
+            activeServer: "alpha",
+            connectionStatus: "connected",
+            initializeResult: connectedInit,
+          },
+          servers: {
+            servers: [sampleServer],
+          },
+          tools: {
+            tools: [fieldedAppTool],
           },
         })}
       />,
@@ -867,24 +1094,104 @@ describe("InspectorView", () => {
     expect(screen.getByDisplayValue("retention")).toBeInTheDocument();
   });
 
+  it("deep-link appArgs select their root-union branch and keep its defaults (#2123)", async () => {
+    const unionAppTool: Tool = {
+      name: "notify",
+      title: "Notify",
+      inputSchema: {
+        type: "object",
+        properties: { note: { type: "string" } },
+        anyOf: [
+          {
+            type: "object",
+            properties: {
+              kind: { type: "string", const: "email" },
+              address: { type: "string" },
+              retries: { type: "number", default: 1 },
+            },
+            required: ["kind", "address"],
+          },
+          {
+            type: "object",
+            properties: {
+              kind: { type: "string", const: "sms" },
+              phone: { type: "string" },
+              retries: { type: "number", default: 3 },
+            },
+            required: ["kind", "phone"],
+          },
+        ],
+      },
+      _meta: { ui: { resourceUri: "ui://apps/notify" } },
+    };
+    renderWithMantine(
+      <StatefulInspectorViewHost
+        {...makeProps({
+          shell: {
+            deepLink: {
+              serverId: "deep-link",
+              serverConfig: {
+                type: "streamable-http",
+                url: "https://example.com/mcp",
+              },
+              openApp: "notify",
+              // Names the SECOND branch. A shallow default-then-overlay would
+              // seed the first branch's fields underneath these values.
+              appArgs: { kind: "sms", phone: "555-0100" },
+              autoOpen: false,
+            },
+          },
+          connection: {
+            activeServer: "alpha",
+            connectionStatus: "connected",
+            initializeResult: connectedInit,
+          },
+          servers: {
+            servers: [sampleServer],
+          },
+          tools: {
+            tools: [unionAppTool],
+          },
+        })}
+      />,
+    );
+    // The picker opens on the branch the args describe…
+    expect(await screen.findByDisplayValue("555-0100")).toBeInTheDocument();
+    // Twice over: the Variant picker names the branch, and the read-only
+    // discriminator carries the value that will be submitted.
+    expect(screen.getAllByDisplayValue("sms")).toHaveLength(2);
+    // …with THAT branch's default, not the first branch's `1`.
+    expect(screen.getByDisplayValue("3")).toBeInTheDocument();
+    // …and nothing from the branch this call is not making.
+    expect(screen.queryByRole("textbox", { name: /address/i })).toBeNull();
+  });
+
   it("ignores a deep-link openApp whose tool is not an app (no tab switch)", async () => {
     renderWithMantine(
       <StatefulInspectorViewHost
         {...makeProps({
-          servers: [sampleServer],
-          activeServer: "alpha",
-          connectionStatus: "connected",
-          initializeResult: connectedInit,
-          tools: [sampleAppTool],
-          deepLink: {
-            serverId: "deep-link",
-            serverConfig: {
-              type: "streamable-http",
-              url: "https://example.com/mcp",
+          shell: {
+            deepLink: {
+              serverId: "deep-link",
+              serverConfig: {
+                type: "streamable-http",
+                url: "https://example.com/mcp",
+              },
+              openApp: "does-not-exist",
+              appArgs: {},
+              autoOpen: false,
             },
-            openApp: "does-not-exist",
-            appArgs: {},
-            autoOpen: false,
+          },
+          connection: {
+            activeServer: "alpha",
+            connectionStatus: "connected",
+            initializeResult: connectedInit,
+          },
+          servers: {
+            servers: [sampleServer],
+          },
+          tools: {
+            tools: [sampleAppTool],
           },
         })}
       />,
@@ -901,11 +1208,17 @@ describe("InspectorView", () => {
     const { rerender } = renderWithMantine(
       <StatefulInspectorViewHost
         {...makeProps({
-          servers: [sampleServer],
-          activeServer: "alpha",
-          connectionStatus: "connected",
-          initializeResult: connectedInit,
-          tools: [sampleAppTool],
+          connection: {
+            activeServer: "alpha",
+            connectionStatus: "connected",
+            initializeResult: connectedInit,
+          },
+          servers: {
+            servers: [sampleServer],
+          },
+          tools: {
+            tools: [sampleAppTool],
+          },
         })}
       />,
     );
@@ -921,11 +1234,17 @@ describe("InspectorView", () => {
     rerender(
       <StatefulInspectorViewHost
         {...makeProps({
-          servers: [sampleServer],
-          activeServer: "alpha",
-          connectionStatus: "connected",
-          initializeResult: connectedInit,
-          tools: [],
+          connection: {
+            activeServer: "alpha",
+            connectionStatus: "connected",
+            initializeResult: connectedInit,
+          },
+          servers: {
+            servers: [sampleServer],
+          },
+          tools: {
+            tools: [],
+          },
         })}
       />,
     );
@@ -939,14 +1258,20 @@ describe("InspectorView", () => {
     renderWithMantine(
       <StatefulInspectorViewHost
         {...makeProps({
-          servers: [sampleServer],
-          activeServer: "alpha",
-          connectionStatus: "connected",
-          // Advertise tools but not prompts.
-          initializeResult: initWithCapabilities({ tools: {} }),
-          // Content is irrelevant to gating now — even a populated list stays
-          // hidden when the capability is absent.
-          prompts: [samplePrompt],
+          connection: {
+            activeServer: "alpha",
+            connectionStatus: "connected",
+            // Advertise tools but not prompts.
+            initializeResult: initWithCapabilities({ tools: {} }),
+          },
+          servers: {
+            servers: [sampleServer],
+          },
+          prompts: {
+            // Content is irrelevant to gating now — even a populated list stays
+            // hidden when the capability is absent.
+            prompts: [samplePrompt],
+          },
         })}
       />,
     );
@@ -960,13 +1285,19 @@ describe("InspectorView", () => {
     renderWithMantine(
       <StatefulInspectorViewHost
         {...makeProps({
-          servers: [sampleServer],
-          activeServer: "alpha",
-          connectionStatus: "connected",
-          initializeResult: initWithCapabilities({ prompts: {} }),
-          // No prompts yet — the tab is still available because the server
-          // advertises the capability (#1516).
-          prompts: [],
+          connection: {
+            activeServer: "alpha",
+            connectionStatus: "connected",
+            initializeResult: initWithCapabilities({ prompts: {} }),
+          },
+          servers: {
+            servers: [sampleServer],
+          },
+          prompts: {
+            // No prompts yet — the tab is still available because the server
+            // advertises the capability (#1516).
+            prompts: [],
+          },
         })}
       />,
     );
@@ -978,13 +1309,21 @@ describe("InspectorView", () => {
     renderWithMantine(
       <StatefulInspectorViewHost
         {...makeProps({
-          servers: [sampleServer],
-          activeServer: "alpha",
-          connectionStatus: "connected",
-          initializeResult: initWithCapabilities({ tools: {} }),
-          // Populated lists are ignored when the capability is absent.
-          resources: [sampleResource],
-          resourceTemplates: [{ uriTemplate: "file:///{path}", name: "Files" }],
+          connection: {
+            activeServer: "alpha",
+            connectionStatus: "connected",
+            initializeResult: initWithCapabilities({ tools: {} }),
+          },
+          servers: {
+            servers: [sampleServer],
+          },
+          resources: {
+            // Populated lists are ignored when the capability is absent.
+            resources: [sampleResource],
+            resourceTemplates: [
+              { uriTemplate: "file:///{path}", name: "Files" },
+            ],
+          },
         })}
       />,
     );
@@ -998,12 +1337,18 @@ describe("InspectorView", () => {
     renderWithMantine(
       <StatefulInspectorViewHost
         {...makeProps({
-          servers: [sampleServer],
-          activeServer: "alpha",
-          connectionStatus: "connected",
-          initializeResult: initWithCapabilities({ resources: {} }),
-          resources: [],
-          resourceTemplates: [],
+          connection: {
+            activeServer: "alpha",
+            connectionStatus: "connected",
+            initializeResult: initWithCapabilities({ resources: {} }),
+          },
+          servers: {
+            servers: [sampleServer],
+          },
+          resources: {
+            resources: [],
+            resourceTemplates: [],
+          },
         })}
       />,
     );
@@ -1015,12 +1360,18 @@ describe("InspectorView", () => {
     renderWithMantine(
       <StatefulInspectorViewHost
         {...makeProps({
-          servers: [sampleServer],
-          activeServer: "alpha",
-          connectionStatus: "connected",
-          initializeResult: initWithCapabilities({ tools: {} }),
-          // An existing task is ignored when the capability is absent.
-          tasks: [sampleTask],
+          connection: {
+            activeServer: "alpha",
+            connectionStatus: "connected",
+            initializeResult: initWithCapabilities({ tools: {} }),
+          },
+          servers: {
+            servers: [sampleServer],
+          },
+          tasks: {
+            // An existing task is ignored when the capability is absent.
+            tasks: [sampleTask],
+          },
         })}
       />,
     );
@@ -1030,15 +1381,65 @@ describe("InspectorView", () => {
     expect(labels).not.toContain("Tasks");
   });
 
+  it("hides the Skills tab when the server declares no skills extension (#2234)", async () => {
+    renderWithMantine(
+      <StatefulInspectorViewHost
+        {...makeProps({
+          connection: {
+            activeServer: "alpha",
+            connectionStatus: "connected",
+            initializeResult: initWithCapabilities({ tools: {} }),
+          },
+          servers: { servers: [sampleServer] },
+        })}
+      />,
+    );
+    const radios = await screen.findAllByRole("radio");
+    const labels = radios.map((r) => r.getAttribute("value"));
+    expect(labels).toContain("Tools");
+    expect(labels).not.toContain("Skills");
+  });
+
+  it("shows the Skills tab on a LEGACY connection that declares the extension (#2234)", async () => {
+    // Unlike Tasks, Skills is not era-gated: `skills/*` are not spec method
+    // names in either codec, so a legacy-era server that declares the
+    // extension is serving it and must get the tab.
+    renderWithMantine(
+      <StatefulInspectorViewHost
+        {...makeProps({
+          connection: {
+            activeServer: "alpha",
+            connectionStatus: "connected",
+            protocolEra: "legacy",
+            initializeResult: initWithCapabilities({
+              tools: {},
+              extensions: { "io.modelcontextprotocol/skills": {} },
+            }),
+          },
+          servers: { servers: [sampleServer] },
+        })}
+      />,
+    );
+    const radios = await screen.findAllByRole("radio");
+    const labels = radios.map((r) => r.getAttribute("value"));
+    expect(labels).toContain("Skills");
+  });
+
   it("shows the Tasks tab when the server advertises tasks even with no tasks yet", async () => {
     renderWithMantine(
       <StatefulInspectorViewHost
         {...makeProps({
-          servers: [sampleServer],
-          activeServer: "alpha",
-          connectionStatus: "connected",
-          initializeResult: initWithCapabilities({ tasks: {} }),
-          tasks: [],
+          connection: {
+            activeServer: "alpha",
+            connectionStatus: "connected",
+            initializeResult: initWithCapabilities({ tasks: {} }),
+          },
+          servers: {
+            servers: [sampleServer],
+          },
+          tasks: {
+            tasks: [],
+          },
         })}
       />,
     );
@@ -1051,10 +1452,14 @@ describe("InspectorView", () => {
     const { rerender } = renderWithMantine(
       <StatefulInspectorViewHost
         {...makeProps({
-          servers: [sampleServer],
-          activeServer: "alpha",
-          connectionStatus: "connected",
-          initializeResult: initWithCapabilities({ tools: {}, tasks: {} }),
+          connection: {
+            activeServer: "alpha",
+            connectionStatus: "connected",
+            initializeResult: initWithCapabilities({ tools: {}, tasks: {} }),
+          },
+          servers: {
+            servers: [sampleServer],
+          },
         })}
       />,
     );
@@ -1068,10 +1473,14 @@ describe("InspectorView", () => {
     rerender(
       <StatefulInspectorViewHost
         {...makeProps({
-          servers: [sampleServer],
-          activeServer: "alpha",
-          connectionStatus: "connected",
-          initializeResult: initWithCapabilities({ tools: {}, logging: {} }),
+          connection: {
+            activeServer: "alpha",
+            connectionStatus: "connected",
+            initializeResult: initWithCapabilities({ tools: {}, logging: {} }),
+          },
+          servers: {
+            servers: [sampleServer],
+          },
         })}
       />,
     );
@@ -1089,12 +1498,18 @@ describe("InspectorView", () => {
     renderWithMantine(
       <StatefulInspectorViewHost
         {...makeProps({
-          servers: [sampleServer],
-          activeServer: "alpha",
-          connectionStatus: "connected",
-          initializeResult: connectedInit,
-          latencyMs: 50,
-          onSetLogLevel,
+          connection: {
+            activeServer: "alpha",
+            connectionStatus: "connected",
+            initializeResult: connectedInit,
+            latencyMs: 50,
+          },
+          servers: {
+            servers: [sampleServer],
+          },
+          logs: {
+            onSetLogLevel,
+          },
         })}
       />,
     );
@@ -1120,11 +1535,15 @@ describe("InspectorView", () => {
     const { unmount } = renderWithMantine(
       <StatefulInspectorViewHost
         {...makeProps({
-          servers: [sampleServer],
-          activeServer: "alpha",
-          connectionStatus: "connected",
-          initializeResult: connectedInit,
-          latencyMs: 50,
+          connection: {
+            activeServer: "alpha",
+            connectionStatus: "connected",
+            initializeResult: connectedInit,
+            latencyMs: 50,
+          },
+          servers: {
+            servers: [sampleServer],
+          },
         })}
       />,
     );
@@ -1149,11 +1568,15 @@ describe("InspectorView", () => {
     renderWithMantine(
       <StatefulInspectorViewHost
         {...makeProps({
-          servers: [sampleServer],
-          activeServer: "alpha",
-          connectionStatus: "connected",
-          initializeResult: connectedInit,
-          latencyMs: 50,
+          connection: {
+            activeServer: "alpha",
+            connectionStatus: "connected",
+            initializeResult: connectedInit,
+            latencyMs: 50,
+          },
+          servers: {
+            servers: [sampleServer],
+          },
         })}
       />,
     );
@@ -1172,11 +1595,15 @@ describe("InspectorView", () => {
     renderWithMantine(
       <StatefulInspectorViewHost
         {...makeProps({
-          servers: [sampleServer],
-          activeServer: "alpha",
-          connectionStatus: "connected",
-          initializeResult: connectedInit,
-          latencyMs: 50,
+          connection: {
+            activeServer: "alpha",
+            connectionStatus: "connected",
+            initializeResult: connectedInit,
+            latencyMs: 50,
+          },
+          servers: {
+            servers: [sampleServer],
+          },
         })}
       />,
     );
@@ -1204,12 +1631,18 @@ describe("InspectorView", () => {
     const { unmount } = renderWithMantine(
       <StatefulInspectorViewHost
         {...makeProps({
-          servers: [sampleServer],
-          activeServer: "alpha",
-          connectionStatus: "connected",
-          initializeResult: connectedInit,
-          latencyMs: 50,
-          protocol: [historyEntry],
+          connection: {
+            activeServer: "alpha",
+            connectionStatus: "connected",
+            initializeResult: connectedInit,
+            latencyMs: 50,
+          },
+          servers: {
+            servers: [sampleServer],
+          },
+          protocol: {
+            protocol: [historyEntry],
+          },
         })}
       />,
     );
@@ -1229,12 +1662,18 @@ describe("InspectorView", () => {
     renderWithMantine(
       <StatefulInspectorViewHost
         {...makeProps({
-          servers: [sampleServer],
-          activeServer: "alpha",
-          connectionStatus: "connected",
-          initializeResult: connectedInit,
-          latencyMs: 50,
-          protocol: [historyEntry],
+          connection: {
+            activeServer: "alpha",
+            connectionStatus: "connected",
+            initializeResult: connectedInit,
+            latencyMs: 50,
+          },
+          servers: {
+            servers: [sampleServer],
+          },
+          protocol: {
+            protocol: [historyEntry],
+          },
         })}
       />,
     );
@@ -1263,12 +1702,18 @@ describe("InspectorView", () => {
     renderWithMantine(
       <StatefulInspectorViewHost
         {...makeProps({
-          servers: [sampleServer],
-          activeServer: "alpha",
-          connectionStatus: "connected",
-          initializeResult: connectedInit,
-          latencyMs: 50,
-          protocol: [historyEntry],
+          connection: {
+            activeServer: "alpha",
+            connectionStatus: "connected",
+            initializeResult: connectedInit,
+            latencyMs: 50,
+          },
+          servers: {
+            servers: [sampleServer],
+          },
+          protocol: {
+            protocol: [historyEntry],
+          },
         })}
       />,
     );
@@ -1290,10 +1735,14 @@ describe("InspectorView", () => {
     renderWithMantine(
       <StatefulInspectorViewHost
         {...makeProps({
-          servers: [sampleServer, betaServer],
-          activeServer: "alpha",
-          connectionStatus: "connected",
-          initializeResult: connectedInit,
+          connection: {
+            activeServer: "alpha",
+            connectionStatus: "connected",
+            initializeResult: connectedInit,
+          },
+          servers: {
+            servers: [sampleServer, betaServer],
+          },
         })}
       />,
     );
@@ -1314,10 +1763,14 @@ describe("InspectorView", () => {
     const { rerender } = renderWithMantine(
       <StatefulInspectorViewHost
         {...makeProps({
-          servers: [sampleServer, betaServer],
-          activeServer: "alpha",
-          connectionStatus: "connected",
-          initializeResult: connectedInit,
+          connection: {
+            activeServer: "alpha",
+            connectionStatus: "connected",
+            initializeResult: connectedInit,
+          },
+          servers: {
+            servers: [sampleServer, betaServer],
+          },
         })}
       />,
     );
@@ -1335,10 +1788,14 @@ describe("InspectorView", () => {
     rerender(
       <StatefulInspectorViewHost
         {...makeProps({
-          servers: [sampleServer, betaServer],
-          activeServer: "alpha",
-          connectionStatus: "error",
-          initializeResult: undefined,
+          connection: {
+            activeServer: "alpha",
+            connectionStatus: "error",
+            initializeResult: undefined,
+          },
+          servers: {
+            servers: [sampleServer, betaServer],
+          },
         })}
       />,
     );
@@ -1353,7 +1810,13 @@ describe("InspectorView", () => {
   it("toggles the Servers list compact state from the list toggle", async () => {
     const user = userEvent.setup({ delay: null });
     renderWithMantine(
-      <StatefulInspectorViewHost {...makeProps({ servers: [sampleServer] })} />,
+      <StatefulInspectorViewHost
+        {...makeProps({
+          servers: {
+            servers: [sampleServer],
+          },
+        })}
+      />,
     );
     // Servers default to expanded (compact=false), so the toggle reads
     // "Collapse all"; clicking it flips serversCompact via the inline callback.
@@ -1375,23 +1838,29 @@ describe("InspectorView", () => {
     renderWithMantine(
       <StatefulInspectorViewHost
         {...makeProps({
-          servers: [httpServer],
-          activeServer: "beta",
-          connectionStatus: "connected",
-          initializeResult: initWithCapabilities({}),
-          // The Network list toggle only renders when there's at least one
-          // request to show.
-          network: [
-            {
-              id: "n-1",
-              timestamp: new Date("2026-03-17T10:00:00Z"),
-              method: "POST",
-              url: "http://localhost:3000/mcp",
-              requestHeaders: {},
-              responseStatus: 200,
-              category: "transport",
-            },
-          ],
+          connection: {
+            activeServer: "beta",
+            connectionStatus: "connected",
+            initializeResult: initWithCapabilities({}),
+          },
+          servers: {
+            servers: [httpServer],
+          },
+          network: {
+            // The Network list toggle only renders when there's at least one
+            // request to show.
+            network: [
+              {
+                id: "n-1",
+                timestamp: new Date("2026-03-17T10:00:00Z"),
+                method: "POST",
+                url: "http://localhost:3000/mcp",
+                requestHeaders: {},
+                responseStatus: 200,
+                category: "transport",
+              },
+            ],
+          },
         })}
       />,
     );
@@ -1419,10 +1888,14 @@ describe("InspectorView", () => {
     renderWithMantine(
       <StatefulInspectorViewHost
         {...makeProps({
-          servers: [httpServer],
-          activeServer: "ghost",
-          connectionStatus: "connected",
-          initializeResult: initWithCapabilities({}),
+          connection: {
+            activeServer: "ghost",
+            connectionStatus: "connected",
+            initializeResult: initWithCapabilities({}),
+          },
+          servers: {
+            servers: [httpServer],
+          },
         })}
       />,
     );
@@ -1445,11 +1918,17 @@ describe("InspectorView", () => {
       renderWithMantine(
         <StatefulInspectorViewHost
           {...makeProps({
-            servers: [sampleServer],
-            activeServer: "alpha",
-            connectionStatus: "connected",
-            initializeResult: connectedInit,
-            toolsListChanged: true,
+            connection: {
+              activeServer: "alpha",
+              connectionStatus: "connected",
+              initializeResult: connectedInit,
+            },
+            servers: {
+              servers: [sampleServer],
+            },
+            tools: {
+              toolsListChanged: true,
+            },
           })}
         />,
       );
@@ -1461,14 +1940,20 @@ describe("InspectorView", () => {
       renderWithMantine(
         <StatefulInspectorViewHost
           {...makeProps({
-            servers: [sampleServer],
-            activeServer: "alpha",
-            connectionStatus: "connected",
-            initializeResult: connectedInit,
-            // An app tool is required for the Apps tab to be available — Apps
-            // keeps a content check on top of the tools capability (#1516).
-            tools: [sampleAppTool],
-            toolsListChanged: true,
+            connection: {
+              activeServer: "alpha",
+              connectionStatus: "connected",
+              initializeResult: connectedInit,
+            },
+            servers: {
+              servers: [sampleServer],
+            },
+            tools: {
+              // An app tool is required for the Apps tab to be available — Apps
+              // keeps a content check on top of the tools capability (#1516).
+              tools: [sampleAppTool],
+              toolsListChanged: true,
+            },
           })}
         />,
       );
@@ -1480,14 +1965,20 @@ describe("InspectorView", () => {
       renderWithMantine(
         <StatefulInspectorViewHost
           {...makeProps({
-            servers: [sampleServer],
-            activeServer: "alpha",
-            connectionStatus: "connected",
-            initializeResult: connectedInit,
-            // connectedInit advertises prompts, so the tab is available; the
-            // prompt populates the screen so the indicator has a list to mark.
-            prompts: [samplePrompt],
-            promptsListChanged: true,
+            connection: {
+              activeServer: "alpha",
+              connectionStatus: "connected",
+              initializeResult: connectedInit,
+            },
+            servers: {
+              servers: [sampleServer],
+            },
+            prompts: {
+              // connectedInit advertises prompts, so the tab is available; the
+              // prompt populates the screen so the indicator has a list to mark.
+              prompts: [samplePrompt],
+              promptsListChanged: true,
+            },
           })}
         />,
       );
@@ -1499,14 +1990,20 @@ describe("InspectorView", () => {
       renderWithMantine(
         <StatefulInspectorViewHost
           {...makeProps({
-            servers: [sampleServer],
-            activeServer: "alpha",
-            connectionStatus: "connected",
-            initializeResult: connectedInit,
-            // connectedInit advertises resources, so the tab is available; the
-            // resource populates the screen so the indicator has a list to mark.
-            resources: [sampleResource],
-            resourcesListChanged: true,
+            connection: {
+              activeServer: "alpha",
+              connectionStatus: "connected",
+              initializeResult: connectedInit,
+            },
+            servers: {
+              servers: [sampleServer],
+            },
+            resources: {
+              // connectedInit advertises resources, so the tab is available; the
+              // resource populates the screen so the indicator has a list to mark.
+              resources: [sampleResource],
+              resourcesListChanged: true,
+            },
           })}
         />,
       );
@@ -1518,16 +2015,24 @@ describe("InspectorView", () => {
       renderWithMantine(
         <StatefulInspectorViewHost
           {...makeProps({
-            servers: [sampleServer],
-            activeServer: "alpha",
-            connectionStatus: "connected",
-            initializeResult: connectedInit,
-            // connectedInit advertises prompts, so the Prompts tab is available.
-            prompts: [samplePrompt],
-            // Tools changed, but Prompts did not — the Prompts screen must
-            // stay quiet.
-            toolsListChanged: true,
-            promptsListChanged: false,
+            connection: {
+              activeServer: "alpha",
+              connectionStatus: "connected",
+              initializeResult: connectedInit,
+            },
+            servers: {
+              servers: [sampleServer],
+            },
+            tools: {
+              // Tools changed, but Prompts did not — the Prompts screen must
+              // stay quiet.
+              toolsListChanged: true,
+            },
+            prompts: {
+              // connectedInit advertises prompts, so the Prompts tab is available.
+              prompts: [samplePrompt],
+              promptsListChanged: false,
+            },
           })}
         />,
       );
@@ -1550,14 +2055,20 @@ describe("InspectorView", () => {
     };
     const httpInit = initWithCapabilities(allCapabilities);
 
-    function connectedHttp(overrides: Partial<InspectorViewProps> = {}) {
-      return makeProps({
-        servers: [httpServer],
-        activeServer: "beta",
-        connectionStatus: "connected",
-        initializeResult: httpInit,
-        ...overrides,
-      });
+    function connectedHttp(overrides: PropOverrides = {}) {
+      return makeProps(
+        {
+          connection: {
+            activeServer: "beta",
+            connectionStatus: "connected",
+            initializeResult: httpInit,
+          },
+          servers: {
+            servers: [httpServer],
+          },
+        },
+        overrides,
+      );
     }
 
     async function gotoTab(tab: string) {
@@ -1580,9 +2091,13 @@ describe("InspectorView", () => {
       renderWithMantine(
         <StatefulInspectorViewHost
           {...makeProps({
-            servers: [httpServer],
-            activeServer: undefined,
-            connectionStatus: "disconnected",
+            connection: {
+              activeServer: undefined,
+              connectionStatus: "disconnected",
+            },
+            servers: {
+              servers: [httpServer],
+            },
           })}
         />,
       );
@@ -1598,9 +2113,13 @@ describe("InspectorView", () => {
       const { rerender } = renderWithMantine(
         <StatefulInspectorViewHost
           {...makeProps({
-            servers: [httpServer],
-            activeServer: undefined,
-            connectionStatus: "disconnected",
+            connection: {
+              activeServer: undefined,
+              connectionStatus: "disconnected",
+            },
+            servers: {
+              servers: [httpServer],
+            },
           })}
         />,
       );
@@ -1629,24 +2148,34 @@ describe("InspectorView", () => {
     // initializeResult (capabilities were never negotiated). `erroredServerId`
     // is the parent's connect-attempt-failure signal (it survives the failure's
     // `disconnect` clearing `activeServer`), which gates the failure column.
-    function failedHttp(overrides: Partial<InspectorViewProps> = {}) {
-      return makeProps({
-        servers: [httpServer],
-        activeServer: "beta",
-        erroredServerId: "beta",
-        connectionStatus: "error",
-        initializeResult: undefined,
-        ...overrides,
-      });
+    function failedHttp(overrides: PropOverrides = {}) {
+      return makeProps(
+        {
+          connection: {
+            activeServer: "beta",
+            erroredServerId: "beta",
+            connectionStatus: "error",
+            initializeResult: undefined,
+          },
+          servers: {
+            servers: [httpServer],
+          },
+        },
+        overrides,
+      );
     }
 
     it("opens the monitoring sidebar on a failed connection attempt (#1621)", async () => {
       const { rerender } = renderWithMantine(
         <StatefulInspectorViewHost
           {...makeProps({
-            servers: [httpServer],
-            activeServer: undefined,
-            connectionStatus: "disconnected",
+            connection: {
+              activeServer: undefined,
+              connectionStatus: "disconnected",
+            },
+            servers: {
+              servers: [httpServer],
+            },
           })}
         />,
       );
@@ -1660,17 +2189,19 @@ describe("InspectorView", () => {
       rerender(
         <StatefulInspectorViewHost
           {...failedHttp({
-            network: [
-              {
-                id: "f1",
-                timestamp: new Date(),
-                method: "POST",
-                url: "http://localhost:3000/mcp",
-                requestHeaders: {},
-                error: "fetch failed: ECONNREFUSED",
-                category: "transport",
-              },
-            ],
+            network: {
+              network: [
+                {
+                  id: "f1",
+                  timestamp: new Date(),
+                  method: "POST",
+                  url: "http://localhost:3000/mcp",
+                  requestHeaders: {},
+                  error: "fetch failed: ECONNREFUSED",
+                  category: "transport",
+                },
+              ],
+            },
           })}
         />,
       );
@@ -1689,6 +2220,103 @@ describe("InspectorView", () => {
       expect(screen.queryByRole("radio", { name: "Console" })).toBeNull();
     });
 
+    // An OAuth failure is torn down by the parent, so the session rests at
+    // "disconnected" rather than "error" — the status gate the failure column
+    // used to carry never saw it, and the requests explaining the failure were
+    // unreachable (#2108). The parent's `erroredServerId` is the signal instead.
+    it("opens the monitoring sidebar to Network when OAuth fails without an error status (#2108)", async () => {
+      const { rerender } = renderWithMantine(
+        <StatefulInspectorViewHost
+          {...makeProps({
+            connection: {
+              activeServer: "beta",
+              connectionStatus: "connecting",
+            },
+            servers: {
+              servers: [httpServer],
+            },
+          })}
+        />,
+      );
+      expect(
+        screen.queryByRole("button", { name: "Close monitoring sidebar" }),
+      ).toBeNull();
+
+      rerender(
+        <StatefulInspectorViewHost
+          {...makeProps({
+            connection: {
+              // The failure's teardown clears the active server and settles the
+              // session at "disconnected" — never "error".
+              activeServer: undefined,
+              erroredServerId: "beta",
+              connectionStatus: "disconnected",
+              initializeResult: undefined,
+            },
+            servers: {
+              servers: [httpServer],
+            },
+            network: {
+              network: [
+                {
+                  id: "a1",
+                  timestamp: new Date(),
+                  method: "GET",
+                  url: "https://as.example.com/.well-known/oauth-authorization-server",
+                  requestHeaders: {},
+                  responseStatus: 404,
+                  responseStatusText: "Not Found",
+                  category: "auth",
+                },
+              ],
+            },
+          })}
+        />,
+      );
+
+      expect(
+        await screen.findByRole("button", { name: "Close monitoring sidebar" }),
+      ).toBeInTheDocument();
+      expect(screen.getByRole("radio", { name: "Network" })).toBeChecked();
+    });
+
+    it("does not re-open the sidebar on a mount that starts already flagged (#2108)", () => {
+      // Same props as the failure above, but as the *initial* render: there is
+      // no transition, so a user who closed the column isn't fought on remount.
+      renderWithMantine(
+        <StatefulInspectorViewHost
+          {...makeProps({
+            connection: {
+              activeServer: undefined,
+              erroredServerId: "beta",
+              connectionStatus: "disconnected",
+              initializeResult: undefined,
+            },
+            servers: {
+              servers: [httpServer],
+            },
+            network: {
+              network: [
+                {
+                  id: "a1",
+                  timestamp: new Date(),
+                  method: "GET",
+                  url: "https://as.example.com/.well-known/oauth-authorization-server",
+                  requestHeaders: {},
+                  responseStatus: 404,
+                  responseStatusText: "Not Found",
+                  category: "auth",
+                },
+              ],
+            },
+          })}
+        />,
+      );
+      expect(
+        screen.queryByRole("button", { name: "Close monitoring sidebar" }),
+      ).toBeNull();
+    });
+
     it("surfaces Console (stderr), not Network, in the failure column for a stdio server (#1621)", async () => {
       const stdioErr: ServerEntry = {
         id: "beta",
@@ -1699,23 +2327,33 @@ describe("InspectorView", () => {
       const { rerender } = renderWithMantine(
         <StatefulInspectorViewHost
           {...makeProps({
-            servers: [stdioErr],
-            activeServer: undefined,
-            connectionStatus: "disconnected",
+            connection: {
+              activeServer: undefined,
+              connectionStatus: "disconnected",
+            },
+            servers: {
+              servers: [stdioErr],
+            },
           })}
         />,
       );
       rerender(
         <StatefulInspectorViewHost
           {...failedHttp({
-            servers: [stdioErr],
-            // A connect failure fires the client `disconnect` event, which
-            // clears activeServer — so the failure column must key off captured
-            // stderr, NOT the (now-undefined) active server's transport.
-            activeServer: undefined,
-            stderrLogs: [
-              { timestamp: new Date(), message: "ModuleNotFoundError: boom" },
-            ],
+            connection: {
+              // A connect failure fires the client `disconnect` event, which
+              // clears activeServer — so the failure column must key off captured
+              // stderr, NOT the (now-undefined) active server's transport.
+              activeServer: undefined,
+            },
+            servers: {
+              servers: [stdioErr],
+            },
+            console: {
+              stderrLogs: [
+                { timestamp: new Date(), message: "ModuleNotFoundError: boom" },
+              ],
+            },
           })}
         />,
       );
@@ -1745,20 +2383,30 @@ describe("InspectorView", () => {
       const { rerender } = renderWithMantine(
         <StatefulInspectorViewHost
           {...makeProps({
-            servers: [stdioErr],
-            activeServer: undefined,
-            connectionStatus: "disconnected",
+            connection: {
+              activeServer: undefined,
+              connectionStatus: "disconnected",
+            },
+            servers: {
+              servers: [stdioErr],
+            },
           })}
         />,
       );
       rerender(
         <StatefulInspectorViewHost
           {...failedHttp({
-            servers: [stdioErr],
-            activeServer: undefined,
-            stderrLogs: [
-              { timestamp: new Date(), message: "ModuleNotFoundError: boom" },
-            ],
+            connection: {
+              activeServer: undefined,
+            },
+            servers: {
+              servers: [stdioErr],
+            },
+            console: {
+              stderrLogs: [
+                { timestamp: new Date(), message: "ModuleNotFoundError: boom" },
+              ],
+            },
           })}
         />,
       );
@@ -1775,15 +2423,29 @@ describe("InspectorView", () => {
       const { rerender } = renderWithMantine(
         <StatefulInspectorViewHost
           {...makeProps({
-            servers: [httpServer],
-            activeServer: undefined,
-            connectionStatus: "disconnected",
+            connection: {
+              activeServer: undefined,
+              connectionStatus: "disconnected",
+            },
+            servers: {
+              servers: [httpServer],
+            },
           })}
         />,
       );
       rerender(
         <StatefulInspectorViewHost
-          {...failedHttp({ network: [], protocol: [], stderrLogs: [] })}
+          {...failedHttp({
+            protocol: {
+              protocol: [],
+            },
+            network: {
+              network: [],
+            },
+            console: {
+              stderrLogs: [],
+            },
+          })}
         />,
       );
       expect(
@@ -1797,34 +2459,42 @@ describe("InspectorView", () => {
       const { rerender } = renderWithMantine(
         <StatefulInspectorViewHost
           {...makeProps({
-            servers: [httpServer],
-            activeServer: undefined,
-            connectionStatus: "disconnected",
+            connection: {
+              activeServer: undefined,
+              connectionStatus: "disconnected",
+            },
+            servers: {
+              servers: [httpServer],
+            },
           })}
         />,
       );
       rerender(
         <StatefulInspectorViewHost
           {...failedHttp({
-            network: [
-              {
-                id: "f1",
-                timestamp: new Date(),
-                method: "POST",
-                url: "http://localhost:3000/mcp",
-                requestHeaders: {},
-                error: "boom",
-                category: "transport",
-              },
-            ],
-            protocol: [
-              {
-                id: "h1",
-                timestamp: new Date(),
-                direction: "request",
-                message: { jsonrpc: "2.0", id: 1, method: "initialize" },
-              },
-            ],
+            protocol: {
+              protocol: [
+                {
+                  id: "h1",
+                  timestamp: new Date(),
+                  direction: "request",
+                  message: { jsonrpc: "2.0", id: 1, method: "initialize" },
+                },
+              ],
+            },
+            network: {
+              network: [
+                {
+                  id: "f1",
+                  timestamp: new Date(),
+                  method: "POST",
+                  url: "http://localhost:3000/mcp",
+                  requestHeaders: {},
+                  error: "boom",
+                  category: "transport",
+                },
+              ],
+            },
           })}
         />,
       );
@@ -1864,9 +2534,13 @@ describe("InspectorView", () => {
       rerender(
         <StatefulInspectorViewHost
           {...makeProps({
-            servers: [httpServer],
-            activeServer: undefined,
-            connectionStatus: "error",
+            connection: {
+              activeServer: undefined,
+              connectionStatus: "error",
+            },
+            servers: {
+              servers: [httpServer],
+            },
           })}
         />,
       );
@@ -1891,11 +2565,19 @@ describe("InspectorView", () => {
       renderWithMantine(
         <StatefulInspectorViewHost
           {...makeProps({
-            servers: [stdioServer],
-            activeServer: "gamma",
-            connectionStatus: "connected",
-            initializeResult: httpInit,
-            stderrLogs: [{ timestamp: new Date(), message: "server booting" }],
+            connection: {
+              activeServer: "gamma",
+              connectionStatus: "connected",
+              initializeResult: httpInit,
+            },
+            servers: {
+              servers: [stdioServer],
+            },
+            console: {
+              stderrLogs: [
+                { timestamp: new Date(), message: "server booting" },
+              ],
+            },
           })}
         />,
       );
@@ -1917,10 +2599,14 @@ describe("InspectorView", () => {
       renderWithMantine(
         <StatefulInspectorViewHost
           {...makeProps({
-            servers: [stdioServer],
-            activeServer: "gamma",
-            connectionStatus: "connected",
-            initializeResult: httpInit,
+            connection: {
+              activeServer: "gamma",
+              connectionStatus: "connected",
+              initializeResult: httpInit,
+            },
+            servers: {
+              servers: [stdioServer],
+            },
           })}
         />,
       );
@@ -2059,9 +2745,13 @@ describe("InspectorView", () => {
       rerender(
         <StatefulInspectorViewHost
           {...makeProps({
-            servers: [httpServer],
-            activeServer: undefined,
-            connectionStatus: "disconnected",
+            connection: {
+              activeServer: undefined,
+              connectionStatus: "disconnected",
+            },
+            servers: {
+              servers: [httpServer],
+            },
           })}
         />,
       );
@@ -2082,10 +2772,14 @@ describe("InspectorView", () => {
       renderWithMantine(
         <StatefulInspectorViewHost
           {...makeProps({
-            servers: [sampleServer],
-            activeServer: "alpha",
-            connectionStatus: "connected",
-            initializeResult: initWithCapabilities(allCapabilities),
+            connection: {
+              activeServer: "alpha",
+              connectionStatus: "connected",
+              initializeResult: initWithCapabilities(allCapabilities),
+            },
+            servers: {
+              servers: [sampleServer],
+            },
           })}
         />,
       );
@@ -2104,10 +2798,14 @@ describe("InspectorView", () => {
       renderWithMantine(
         <StatefulInspectorViewHost
           {...makeProps({
-            servers: [sampleServer],
-            activeServer: "alpha",
-            connectionStatus: "connected",
-            initializeResult: initWithCapabilities({ logging: {} }),
+            connection: {
+              activeServer: "alpha",
+              connectionStatus: "connected",
+              initializeResult: initWithCapabilities({ logging: {} }),
+            },
+            servers: {
+              servers: [sampleServer],
+            },
           })}
         />,
       );
@@ -2123,10 +2821,14 @@ describe("InspectorView", () => {
       renderWithMantine(
         <StatefulInspectorViewHost
           {...makeProps({
-            servers: [sampleServer],
-            activeServer: "alpha",
-            connectionStatus: "connected",
-            initializeResult: initWithCapabilities({ logging: {} }),
+            connection: {
+              activeServer: "alpha",
+              connectionStatus: "connected",
+              initializeResult: initWithCapabilities({ logging: {} }),
+            },
+            servers: {
+              servers: [sampleServer],
+            },
           })}
         />,
       );
@@ -2159,20 +2861,24 @@ describe("InspectorView", () => {
       renderWithMantine(
         <StatefulInspectorViewHost
           {...connectedHttp({
-            logs: [
-              {
-                receivedAt: new Date(),
-                params: { level: "info", data: "loghello" },
-              },
-            ],
-            protocol: [
-              {
-                id: "h1",
-                timestamp: new Date(),
-                direction: "request",
-                message: { jsonrpc: "2.0", id: 1, method: "tools/list" },
-              },
-            ],
+            logs: {
+              logs: [
+                {
+                  receivedAt: new Date(),
+                  params: { level: "info", data: "loghello" },
+                },
+              ],
+            },
+            protocol: {
+              protocol: [
+                {
+                  id: "h1",
+                  timestamp: new Date(),
+                  direction: "request",
+                  message: { jsonrpc: "2.0", id: 1, method: "tools/list" },
+                },
+              ],
+            },
           })}
         />,
       );

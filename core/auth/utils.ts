@@ -76,7 +76,9 @@ export function parseHttpUrl(value: string, label: string): URL {
     return new URL(trimmed);
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
-    throw new Error(`Invalid ${label}: "${trimmed}" (${detail})`);
+    throw new Error(`Invalid ${label}: "${trimmed}" (${detail})`, {
+      cause: err,
+    });
   }
 }
 

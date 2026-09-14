@@ -27,4 +27,27 @@ describe("ReAuthBanner", () => {
     await user.click(closeButton);
     expect(onDismiss).toHaveBeenCalledOnce();
   });
+
+  it("renders a custom title and action label (lost-state recovery, #1808)", async () => {
+    const user = userEvent.setup();
+    const onReauthenticate = vi.fn();
+
+    renderWithMantine(
+      <ReAuthBanner
+        message="The stored authorization state was lost."
+        title="Authorization state was lost"
+        actionLabel="Authorize again"
+        onReauthenticate={onReauthenticate}
+        onDismiss={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen.getByText("Authorization state was lost"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Re-authentication required")).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Authorize again" }));
+    expect(onReauthenticate).toHaveBeenCalledOnce();
+  });
 });

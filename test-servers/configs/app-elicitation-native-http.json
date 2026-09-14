@@ -1,0 +1,12 @@
+{
+  "serverInfo": {
+    "name": "app-elicitation-not-negotiated",
+    "version": "1.0.0"
+  },
+  "tools": [{ "preset": "echo" }, { "preset": "app_choose_option" }],
+  "resources": [{ "preset": "choose_option_app" }],
+  "transport": {
+    "type": "streamable-http",
+    "port": 3132
+  }
+}

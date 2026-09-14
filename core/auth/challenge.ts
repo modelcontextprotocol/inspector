@@ -26,6 +26,17 @@ export interface AuthChallenge {
   /** Resource authorization server audience when known. */
   audience?: string;
 
+  /**
+   * RFC 9728 `resource_metadata` advertised by the `WWW-Authenticate` challenge.
+   *
+   * Kept as a string so the challenge stays serializable — it crosses the web
+   * client's remote-backend boundary as JSON. Converted to a `URL` (and
+   * discarded if malformed) at the OAuth boundary, where it is handed to the
+   * SDK as `resourceMetadataUrl` so protected-resource discovery targets the
+   * advertised document instead of a location derived from the MCP server URL.
+   */
+  resourceMetadataUrl?: string;
+
   /** Optional human-readable detail from server or SDK (for UI, not parsing). */
   message?: string;
 
@@ -103,6 +114,62 @@ export function isConnectAuthRecoveryError(err: unknown): boolean {
   return isUnauthorizedError(err);
 }
 
+/**
+ * Recover a typed auth error that another error is carrying in its cause chain.
+ *
+ * Under `protocolEra: auto|modern` the SDK sends a `server/discover` negotiation
+ * probe before anything else, and its classifier reports whatever the transport
+ * threw as `SdkError(ERA_NEGOTIATION_FAILED)` with the original error moved to
+ * `data.cause`. That buries the two connect-time auth signals recovery keys off
+ * — {@link AuthRecoveryRequiredError} on the remote path (it carries the
+ * authorization URL and is matched with `instanceof`), and
+ * {@link AuthChallengeError} on a direct transport — so a modern-era connect
+ * against an OAuth server reported "Version negotiation probe failed" instead of
+ * starting authorization (#1805).
+ *
+ * Walks `cause` and `data.cause` (the same two links {@link isUnauthorizedError}
+ * follows for a nested 401) and returns the first such error. Deliberately not
+ * gated on the SDK's error code or message: any wrapper that keeps the cause
+ * chain intact should surface the same signal, so this survives SDK rewording.
+ */
+export function findNestedAuthError(
+  err: unknown,
+): AuthRecoveryRequiredError | AuthChallengeError | undefined {
+  return findNestedAuthErrorDeep(err, new Set());
+}
+
+function findNestedAuthErrorDeep(
+  err: unknown,
+  seen: Set<unknown>,
+): AuthRecoveryRequiredError | AuthChallengeError | undefined {
+  if (err === null || typeof err !== "object" || seen.has(err)) {
+    return undefined;
+  }
+  seen.add(err);
+
+  if (
+    err instanceof AuthRecoveryRequiredError ||
+    err instanceof AuthChallengeError
+  ) {
+    return err;
+  }
+
+  const nested = findNestedAuthErrorDeep(
+    (err as { cause?: unknown }).cause,
+    seen,
+  );
+  if (nested) {
+    return nested;
+  }
+
+  const data = (err as { data?: unknown }).data;
+  if (data !== null && typeof data === "object") {
+    return findNestedAuthErrorDeep((data as { cause?: unknown }).cause, seen);
+  }
+
+  return undefined;
+}
+
 export interface WwwAuthenticateBearerParams {
   error?: string;
   scope?: string;
@@ -135,6 +202,30 @@ export function parseWwwAuthenticateBearer(
     resourceMetadata: params.resource_metadata,
     errorDescription: params.error_description,
   };
+}
+
+/**
+ * Convert a challenge's advertised RFC 9728 `resource_metadata` value into the
+ * `URL` the SDK's `auth()` takes as `resourceMetadataUrl`.
+ *
+ * A malformed value is ignored rather than surfaced, matching the SDK's own
+ * `WWW-Authenticate` parser (`extractWWWAuthenticateParams`), which drops a
+ * value `new URL()` rejects. Discovery then falls back to the default
+ * RFC 9728 locations derived from the MCP server URL — the pre-existing
+ * behavior — instead of failing the whole authorization on a bad header.
+ */
+export function challengeResourceMetadataUrl(
+  challenge: Pick<AuthChallenge, "resourceMetadataUrl">,
+): URL | undefined {
+  const value = challenge.resourceMetadataUrl?.trim();
+  if (!value) {
+    return undefined;
+  }
+  try {
+    return new URL(value);
+  } catch {
+    return undefined;
+  }
 }
 
 /** Split an OAuth scope string into individual scopes (space-separated). */
@@ -219,6 +310,9 @@ export function parseAuthChallengeFromResponse(
   return {
     reason: reasonFromHttpResponse(status, bearer),
     ...(requiredScopes.length > 0 ? { requiredScopes } : {}),
+    ...(bearer.resourceMetadata
+      ? { resourceMetadataUrl: bearer.resourceMetadata }
+      : {}),
     ...(bearer.errorDescription ? { message: bearer.errorDescription } : {}),
     ...(context ? { context } : {}),
     raw: {
@@ -281,6 +375,9 @@ export function parseAuthChallengeFromError(
   return {
     reason: reasonFromHttpResponse(status, bearer),
     ...(requiredScopes.length > 0 ? { requiredScopes } : {}),
+    ...(bearer.resourceMetadata
+      ? { resourceMetadataUrl: bearer.resourceMetadata }
+      : {}),
     ...(context ? { context } : {}),
     raw: {
       httpStatus: status,

@@ -5,6 +5,11 @@ import { InspectorClient } from "@inspector/core/mcp/index.js";
 import { AuthRecoveryRequiredError } from "@inspector/core/auth/challenge.js";
 import type { ReadResourceResult } from "@modelcontextprotocol/client";
 import { uriTemplateToForm } from "../utils/uriTemplateToForm.js";
+import {
+  definedValues,
+  requiredGroups,
+  unmetRequiredGroups,
+} from "@inspector/core/mcp/uriTemplate.js";
 import { ScrollView, type ScrollViewRef } from "ink-scroll-view";
 
 // Helper to extract error message from various error types
@@ -133,14 +138,45 @@ export function ResourceTestModal({
   const handleFormSubmit = async (values: Record<string, string>) => {
     if (!inspectorClient || !template) return;
 
+    // RFC 6570 keeps a required expression satisfied by any ONE of its names,
+    // so `{a,b}` cannot be expressed with ink-form's per-field `required` flag
+    // and its members are left optional there. Without this check the TUI would
+    // submit `{a,b}` completely blank -- dropping the expression and reading a
+    // different resource -- while the web panel blocks the same request (#1919).
+    // The message and the gate come from the SAME pass. Filtering the groups
+    // again here with a bare `values[name]` disagreed with the gate for a
+    // variable named `constructor` or `toString`: the inherited member read as
+    // filled, so the list came out empty and the error named no field at all.
+    const unmetGroups = unmetRequiredGroups(
+      requiredGroups(template.uriTemplate),
+      values,
+    );
+    if (unmetGroups.length > 0) {
+      const unmet = unmetGroups.map((names) => names.join(" or "));
+      setResult({
+        input: values,
+        output: null,
+        error: `Missing required template variable(s): ${unmet.join(", ")}`,
+        duration: 0,
+        uri: template.uriTemplate,
+      });
+      setState("results");
+      return;
+    }
+
     setState("loading");
     const startTime = Date.now();
 
     try {
       // Use InspectorClient's readResourceFromTemplate method which encapsulates template expansion and resource reading
+      // Blanks are dropped HERE, not in the expander: a key present with `""`
+      // is a defined RFC 6570 value that legitimately expands to `?topic=`,
+      // but ink-form hands back `""` for every field the user never touched,
+      // so this form cannot tell the two apart. The web panel does the same at
+      // its own boundary.
       const invocation = await inspectorClient.readResourceFromTemplate(
         template.uriTemplate,
-        values,
+        definedValues(values),
       );
 
       const duration = Date.now() - startTime;

@@ -158,6 +158,97 @@ describe("refreshStoredAuthToken", () => {
     }
   });
 
+  // #2110: with no stored metadata the MCP server URL stands in as the
+  // authorization server. A path-hosted server has two plausible answers, and
+  // both must keep working — the path-scoped URL for a server that publishes
+  // its metadata under its own path, the bare origin for one that merely lives
+  // under a path. The candidate that answers is also the base the token request
+  // is made against, so the walk has to report *which* one it was.
+  it("prefers the path-scoped authorization server for a path-hosted MCP server", async () => {
+    const path = writeOAuthFixture({
+      [SERVER]: {
+        tokens: { refresh_token: "old-refresh", token_type: "Bearer" },
+        clientInformation: { client_id: "cid" },
+      },
+    });
+    try {
+      const refresh = vi.fn().mockResolvedValue(freshTokens);
+      const pathMetadata = {
+        issuer: "https://api.example/mcp",
+        token_endpoint: "https://api.example/mcp/token",
+      };
+      const discover = vi.fn().mockResolvedValue(pathMetadata);
+
+      await refreshStoredAuthToken(SERVER, path, { refresh, discover });
+
+      expect(discover).toHaveBeenCalledTimes(1);
+      expect(discover).toHaveBeenCalledWith(new URL("https://api.example/mcp"));
+      const [authServerUrl, opts] = refresh.mock.calls[0]!;
+      expect(authServerUrl).toEqual(new URL("https://api.example/mcp"));
+      expect(opts.metadata).toEqual(pathMetadata);
+    } finally {
+      rmSync(path, { force: true });
+    }
+  });
+
+  it("falls back to the origin when a path-hosted server publishes metadata at the root", async () => {
+    const path = writeOAuthFixture({
+      [SERVER]: {
+        tokens: { refresh_token: "old-refresh", token_type: "Bearer" },
+        clientInformation: { client_id: "cid" },
+      },
+    });
+    try {
+      const refresh = vi.fn().mockResolvedValue(freshTokens);
+      const rootMetadata = {
+        issuer: "https://api.example",
+        token_endpoint: "https://api.example/token",
+      };
+      const discover = vi
+        .fn()
+        .mockResolvedValueOnce(undefined)
+        .mockResolvedValueOnce(rootMetadata);
+
+      const token = await refreshStoredAuthToken(SERVER, path, {
+        refresh,
+        discover,
+      });
+
+      expect(token).toBe("refreshed-access-token");
+      expect(discover).toHaveBeenNthCalledWith(
+        2,
+        new URL("https://api.example/"),
+      );
+      // The candidate that answered is the one the token request targets.
+      const [authServerUrl, opts] = refresh.mock.calls[0]!;
+      expect(authServerUrl).toEqual(new URL("https://api.example/"));
+      expect(opts.metadata).toEqual(rootMetadata);
+    } finally {
+      rmSync(path, { force: true });
+    }
+  });
+
+  it("keeps the path-scoped candidate as the token-request base when no candidate answers", async () => {
+    const path = writeOAuthFixture({
+      [SERVER]: {
+        tokens: { refresh_token: "old-refresh", token_type: "Bearer" },
+        clientInformation: { client_id: "cid" },
+      },
+    });
+    try {
+      const refresh = vi.fn().mockResolvedValue(freshTokens);
+      const discover = vi.fn().mockResolvedValue(undefined);
+
+      await refreshStoredAuthToken(SERVER, path, { refresh, discover });
+
+      expect(discover).toHaveBeenCalledTimes(2);
+      const [authServerUrl] = refresh.mock.calls[0]!;
+      expect(authServerUrl).toEqual(new URL("https://api.example/mcp"));
+    } finally {
+      rmSync(path, { force: true });
+    }
+  });
+
   it("uses the distinct no_client_information code when client info is missing", async () => {
     const path = writeOAuthFixture({
       [SERVER]: {
@@ -554,6 +645,7 @@ describe("--print-handoff", () => {
           MCP_INSPECTOR_API_TOKEN: "tok123",
           CLIENT_PORT: "16274",
           MCP_SANDBOX_PORT: "16275",
+          MCP_APP_ORIGIN_PORT: "16278",
           MCP_STORAGE_DIR: "/tmp/inspector-storage",
           MCP_INSPECTOR_OAUTH_STATE_PATH: "",
         },
@@ -574,10 +666,72 @@ describe("--print-handoff", () => {
     expect(out.deepLink).toContain("transport=http");
     expect(out.portForwardCmd).toContain("--tcp 16274:16274");
     expect(out.portForwardCmd).toContain("--tcp 16275:16275");
+    // The dedicated app origin (#2056) forwards with the other two — an app
+    // declaring `_meta.ui.domain` is unreachable without it.
+    expect(out.portForwardCmd).toContain("--tcp 16278:16278");
     expect(out.oauthStatePath).toBe(
       join("/tmp/inspector-storage", "oauth.json"),
     );
     expect(out.apiToken).toBe("tok123");
+  });
+
+  it("canonicalizes the deep-link host so it matches the web allow-list (mapped IPv4)", async () => {
+    // HOST=::ffff:127.0.0.1 binds/serves 127.0.0.1; the deep link must advertise
+    // that canonical host, not [::ffff:127.0.0.1], or the web autoConnect POST
+    // 403s (the web allow-list emits the loopback trio for this HOST).
+    const result = await runCli(
+      ["--print-handoff", "--server-url", "https://x.example/mcp"],
+      {
+        env: {
+          MCP_INSPECTOR_API_TOKEN: "tok123",
+          HOST: "::ffff:127.0.0.1",
+          CLIENT_PORT: "16274",
+        },
+      },
+    );
+    expectCliSuccess(result);
+    const out = JSON.parse(result.stdout) as { deepLink: string };
+    expect(out.deepLink.startsWith("http://127.0.0.1:16274/?")).toBe(true);
+  });
+
+  it("advertises localhost in the deep link for a wildcard HOST", async () => {
+    // 0.0.0.0 is allow-listed so it connects, but the deep link is handed to a
+    // human — advertise localhost like the web banner does.
+    const result = await runCli(
+      ["--print-handoff", "--server-url", "https://x.example/mcp"],
+      {
+        env: {
+          MCP_INSPECTOR_API_TOKEN: "tok123",
+          HOST: "0.0.0.0",
+          DANGEROUSLY_BIND_ALL_INTERFACES: "true",
+          CLIENT_PORT: "16274",
+        },
+      },
+    );
+    expectCliSuccess(result);
+    const out = JSON.parse(result.stdout) as { deepLink: string };
+    expect(out.deepLink.startsWith("http://localhost:16274/?")).toBe(true);
+  });
+
+  it("classifies a bad --callback-url as a usage error, not auth_required", async () => {
+    // The guard's message contains "OAuth"; without the explicit exit-code pin
+    // the heuristic would map it to auth_required (exit 3) and tell an automated
+    // caller to re-auth on a config error. Fires before connect, so any server.
+    const result = await runCli([
+      "--server-url",
+      "https://x.example/mcp",
+      "--method",
+      "tools/list",
+      "--callback-url",
+      "http://0.0.0.0:6276/oauth/callback",
+    ]);
+    expect(result.exitCode).toBe(1);
+    const envelope = JSON.parse(result.stderr.trim()) as {
+      error: { code: string; message: string };
+    };
+    // "error" (USAGE), not "auth_required" — the point of pinning the exit code.
+    expect(envelope.error.code).toBe("error");
+    expect(envelope.error.message).toContain("must bind a loopback host");
   });
 
   it("derives transport=sse for an SSE server (auto-detected from the /sse path)", async () => {
@@ -717,5 +871,88 @@ describe("--wait-for-auth", () => {
     ]);
     expectCliFailure(result);
     expect(result.stderr).toContain("positive number of seconds");
+  });
+});
+
+/**
+ * The stored-token refresh path calls SDK discovery directly rather than
+ * through `InspectorClient.effectiveAuthFetch`, so it carries its own copy of
+ * the #2172 compatibility wrapper. This test injects no `discover`, because
+ * the wrapper lives in the *default* — injecting one would bypass exactly what
+ * is under test.
+ */
+describe("refreshStoredAuthToken discovery compatibility (#2172)", () => {
+  const REFRESHED = {
+    access_token: "refreshed-access-token",
+    token_type: "Bearer",
+    refresh_token: "rotated-refresh-token",
+    expires_in: 3600,
+  };
+
+  it("refreshes against an AS publishing RFC 8414 metadata at the OIDC path", async () => {
+    let base = "";
+    let rfc8414Probes = 0;
+    const server: Server = createServer((req, res) => {
+      const path = req.url ?? "";
+      if (path.startsWith("/.well-known/oauth-authorization-server")) {
+        rfc8414Probes += 1;
+        res.writeHead(404).end();
+        return;
+      }
+      // Plain OAuth 2.0: no jwks_uri, no subject_types_supported, no
+      // id_token_signing_alg_values_supported — the shape the SDK rejects when
+      // it finds it under this filename.
+      if (path === "/mcp/.well-known/openid-configuration") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            issuer: `${base}/mcp`,
+            authorization_endpoint: `${base}/oauth/authorize`,
+            token_endpoint: `${base}/oauth/token`,
+            response_types_supported: ["code"],
+            grant_types_supported: ["authorization_code", "refresh_token"],
+            token_endpoint_auth_methods_supported: ["client_secret_post"],
+          }),
+        );
+        return;
+      }
+      if (path === "/oauth/token") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify(REFRESHED));
+        return;
+      }
+      res.writeHead(404).end();
+    });
+    await new Promise<void>((resolve) => {
+      server.listen(0, "127.0.0.1", resolve);
+    });
+    const addr = server.address();
+    base =
+      typeof addr === "object" && addr ? `http://127.0.0.1:${addr.port}` : "";
+    const serverUrl = `${base}/mcp`;
+    const fixture = writeOAuthFixture({
+      [serverUrl]: {
+        tokens: { refresh_token: "old-refresh", token_type: "Bearer" },
+        clientInformation: { client_id: "cid", client_secret: "sec" },
+      },
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await expect(refreshStoredAuthToken(serverUrl, fixture)).resolves.toBe(
+        "refreshed-access-token",
+      );
+      // The RFC 8414 location really was tried and really did 404, so the
+      // document could only have come from the OIDC path.
+      expect(rfc8414Probes).toBeGreaterThan(0);
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining("/mcp/.well-known/openid-configuration"),
+      );
+    } finally {
+      warn.mockRestore();
+      rmSync(dirname(fixture), { recursive: true, force: true });
+      await new Promise<void>((resolve) => {
+        server.close(() => resolve());
+      });
+    }
   });
 });

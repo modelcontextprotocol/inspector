@@ -14,7 +14,7 @@ export const Outgoing: Story = {
   args: { direction: "outgoing" },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    expect(canvas.getByText("client → server")).toBeInTheDocument();
+    await expect(canvas.getByText("client → server")).toBeInTheDocument();
   },
 };
 
@@ -22,6 +22,6 @@ export const Incoming: Story = {
   args: { direction: "incoming" },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    expect(canvas.getByText("server → client")).toBeInTheDocument();
+    await expect(canvas.getByText("server → client")).toBeInTheDocument();
   },
 };

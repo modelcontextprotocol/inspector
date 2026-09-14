@@ -1,6 +1,6 @@
 import React from "react";
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { render } from "ink-testing-library";
+import { render } from "./helpers/renderTui";
 import type { InspectorClient } from "@inspector/core/mcp/index.js";
 import type { Tool } from "@modelcontextprotocol/client";
 
@@ -74,6 +74,81 @@ const renderAndSubmit = async (
 };
 
 describe("ToolTestModal", () => {
+  it("reports a missing required argument instead of calling the tool (#2123)", async () => {
+    // A union branch's fields render optional — a static form cannot demand
+    // every branch's — so the chosen shape's own requirements are checked here.
+    const callTool = vi.fn();
+    const tool = makeTool({
+      inputSchema: {
+        type: "object",
+        oneOf: [
+          {
+            type: "object",
+            properties: {
+              kind: { type: "string", const: "email" },
+              address: { type: "string" },
+            },
+            required: ["kind", "address"],
+          },
+          {
+            type: "object",
+            properties: {
+              kind: { type: "string", const: "sms" },
+              phone: { type: "string" },
+            },
+            required: ["kind", "phone"],
+          },
+        ],
+      },
+    });
+    const api = render(
+      <ToolTestModal
+        tool={tool}
+        inspectorClient={fakeClient(callTool)}
+        width={80}
+        height={24}
+        onClose={vi.fn()}
+      />,
+    );
+    await tick();
+    setSubmitValue({ __variant: "0", __b0__kind: "email" });
+    api.stdin.write("\r");
+    await tick();
+    await tick();
+    // The assertion is the transition, not the frame — this suite drives state,
+    // not rendered text (see the note at the top of the file).
+    expect(callTool).not.toHaveBeenCalled();
+    api.unmount();
+  });
+
+  it("names every missing required argument (#2123)", async () => {
+    const callTool = vi.fn();
+    const tool = makeTool({
+      inputSchema: {
+        type: "object",
+        properties: { a: { type: "string" }, b: { type: "string" } },
+        required: ["a", "b"],
+      },
+    });
+    const api = render(
+      <ToolTestModal
+        tool={tool}
+        inspectorClient={fakeClient(callTool)}
+        width={80}
+        height={24}
+        onClose={vi.fn()}
+      />,
+    );
+    await tick();
+    setSubmitValue({});
+    api.stdin.write("\r");
+    await tick();
+    await tick();
+    // Two missing names, which is also the plural branch of the message.
+    expect(callTool).not.toHaveBeenCalled();
+    api.unmount();
+  });
+
   it("renders the form initially without invoking the client", async () => {
     const callTool = vi.fn();
     const api = render(

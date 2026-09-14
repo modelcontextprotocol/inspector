@@ -8,7 +8,6 @@ import {
   generateDefaultValue,
   isPropertyRequired,
   resolveRef,
-  normalizeUnionType,
   formatFieldLabel,
   resolveRefsInMessage,
 } from "./schemaUtils";
@@ -240,112 +239,6 @@ describe("resolveRef", () => {
     expect(resolveRef(ref, root)).toBe(ref);
     expect(warnSpy).toHaveBeenCalled();
     warnSpy.mockRestore();
-  });
-});
-
-describe("normalizeUnionType", () => {
-  it("normalizes anyOf string|null", () => {
-    expect(
-      normalizeUnionType({
-        anyOf: [{ type: "string" }, { type: "null" }],
-      }),
-    ).toEqual({
-      type: "string",
-      anyOf: undefined,
-      nullable: true,
-    });
-  });
-
-  it("normalizes anyOf boolean|null", () => {
-    expect(
-      normalizeUnionType({
-        anyOf: [{ type: "boolean" }, { type: "null" }],
-      }),
-    ).toEqual({
-      type: "boolean",
-      anyOf: undefined,
-      nullable: true,
-    });
-  });
-
-  it("normalizes anyOf number|null", () => {
-    expect(
-      normalizeUnionType({
-        anyOf: [{ type: "number" }, { type: "null" }],
-      }),
-    ).toEqual({
-      type: "number",
-      anyOf: undefined,
-      nullable: true,
-    });
-  });
-
-  it("normalizes anyOf integer|null", () => {
-    expect(
-      normalizeUnionType({
-        anyOf: [{ type: "integer" }, { type: "null" }],
-      }),
-    ).toEqual({
-      type: "integer",
-      anyOf: undefined,
-      nullable: true,
-    });
-  });
-
-  it("normalizes anyOf array|null", () => {
-    expect(
-      normalizeUnionType({
-        anyOf: [{ type: "array" }, { type: "null" }],
-      }),
-    ).toEqual({
-      type: "array",
-      anyOf: undefined,
-      nullable: true,
-    });
-  });
-
-  it("normalizes type array string|null", () => {
-    expect(normalizeUnionType({ type: ["string", "null"] })).toEqual({
-      type: "string",
-      nullable: true,
-    });
-  });
-
-  it("normalizes type array boolean|null", () => {
-    expect(normalizeUnionType({ type: ["boolean", "null"] })).toEqual({
-      type: "boolean",
-      nullable: true,
-    });
-  });
-
-  it("normalizes type array number|null", () => {
-    expect(normalizeUnionType({ type: ["number", "null"] })).toEqual({
-      type: "number",
-      nullable: true,
-    });
-  });
-
-  it("normalizes type array integer|null", () => {
-    expect(normalizeUnionType({ type: ["integer", "null"] })).toEqual({
-      type: "integer",
-      nullable: true,
-    });
-  });
-
-  it("returns schema unchanged when no union pattern matches", () => {
-    const schema = { type: "string" as const };
-    expect(normalizeUnionType(schema)).toBe(schema);
-  });
-
-  it("ignores anyOf with more than two members", () => {
-    const schema = {
-      anyOf: [
-        { type: "string" as const },
-        { type: "null" as const },
-        { type: "number" as const },
-      ],
-    };
-    expect(normalizeUnionType(schema)).toBe(schema);
   });
 });
 

@@ -21,3 +21,4 @@ export {
 } from "./servers.js";
 export { rehydrateMcpConfigFromKeychain } from "./server-secrets.js";
 export { createTransportNode } from "./transport.js";
+export { createProxyFetch, readProxyEnv } from "./proxyFetch.js";

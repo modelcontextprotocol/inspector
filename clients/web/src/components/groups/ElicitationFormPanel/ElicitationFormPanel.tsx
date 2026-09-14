@@ -7,6 +7,7 @@ import {
   Stack,
   Text,
 } from "@mantine/core";
+import { useState } from "react";
 import type { ElicitRequestFormParams } from "@modelcontextprotocol/client";
 import type { PendingRequestOrigin } from "@inspector/core/mcp/types.js";
 import {
@@ -88,8 +89,13 @@ export function ElicitationFormPanel({
   busy = false,
 }: ElicitationFormPanelProps) {
   const requestedSchema = request.requestedSchema as InspectorFormSchema;
+  // Text a field could not turn into a value never reaches `values`, so the
+  // form has to report it for Submit to see it at all (#2020).
+  const [hasInvalidDraft, setHasInvalidDraft] = useState(false);
   const submitDisabled =
-    busy || hasMissingRequiredFields(requestedSchema, values);
+    busy ||
+    hasMissingRequiredFields(requestedSchema, values) ||
+    hasInvalidDraft;
   return (
     <Stack gap="md">
       <QuotedMessage>{formatQuoted(request.message)}</QuotedMessage>
@@ -101,6 +107,7 @@ export function ElicitationFormPanel({
           values={values}
           onChange={onChange}
           disabled={busy}
+          onValidityChange={setHasInvalidDraft}
         />
       </FieldScroll>
       <WarningAlert>{formatWarning(serverName)}</WarningAlert>

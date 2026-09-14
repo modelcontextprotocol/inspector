@@ -107,7 +107,7 @@ export const WithEntries: Story = {
   // bar never overlays the cards, and uses type="scroll" so it stays hidden
   // when idle rather than appearing on hover (#1474).
   play: async ({ canvasElement }) => {
-    expectScrollbarGutterIdleHidden(canvasElement);
+    await expectScrollbarGutterIdleHidden(canvasElement);
   },
 };
 

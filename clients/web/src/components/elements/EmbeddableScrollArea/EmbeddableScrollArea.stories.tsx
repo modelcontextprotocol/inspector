@@ -24,7 +24,7 @@ export const FullSize: Story = {
   ),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    expect(canvas.getByText("Row 1")).toBeInTheDocument();
+    await expect(canvas.getByText("Row 1")).toBeInTheDocument();
   },
 };
 
@@ -38,6 +38,6 @@ export const Embedded: Story = {
   ),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    expect(canvas.getByText("Row 1")).toBeInTheDocument();
+    await expect(canvas.getByText("Row 1")).toBeInTheDocument();
   },
 };

@@ -186,7 +186,9 @@ export function ResourcesTab({
       }
     };
 
-    fetchContent();
+    // An effect body is synchronous, and fetchContent already catches
+    // everything it can throw, so there is no rejection left to own.
+    void fetchContent();
   }, [shouldFetchResource, inspectorClient, onAuthRecoveryRequired]);
 
   const listWidth = Math.floor(width * 0.4);

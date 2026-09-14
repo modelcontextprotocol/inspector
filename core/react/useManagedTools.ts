@@ -1,11 +1,28 @@
-import { useState, useEffect, useCallback } from "react";
+import { useCallback } from "react";
 import type { InspectorClientProtocol } from "../mcp/inspectorClientProtocol.js";
 import type { ManagedToolsState } from "../mcp/state/managedToolsState.js";
-import type { ManagedToolsStateEventMap } from "../mcp/state/managedToolsState.js";
 import type { Tool } from "@modelcontextprotocol/client";
-import type { TypedEventGeneric } from "../mcp/typedEventTarget.js";
+import { useListError } from "./useListError.js";
+import { useStoreSnapshot } from "./useStoreSnapshot.js";
+
+/**
+ * Shared stable empty list for the no-server case. Module scope so the
+ * snapshot doesn't change identity every render — see `useStoreSnapshot`.
+ * Read-only by contract: nothing mutates a list this hook returns.
+ */
+const NO_TOOLS: Tool[] = [];
+
+const readTools = (state: ManagedToolsState): Tool[] => state.getTools();
+const readListChanged = (state: ManagedToolsState): boolean =>
+  state.getListChanged();
 
 export interface UseManagedToolsResult {
+  /**
+   * The last fetch's failure (transport error, or a result the SDK codec
+   * rejected), or `null` when it succeeded. Includes the connect-time load,
+   * whose failure has no caller to surface it (#1953).
+   */
+  error: Error | null;
   tools: Tool[];
   /** True when a `tools/list_changed` arrived since the last user refresh. */
   listChanged: boolean;
@@ -26,47 +43,23 @@ export function useManagedTools(
   client: InspectorClientProtocol | null,
   managedToolsState: ManagedToolsState | null,
 ): UseManagedToolsResult {
-  const [tools, setTools] = useState<Tool[]>(
-    managedToolsState?.getTools() ?? [],
+  const tools = useStoreSnapshot(
+    managedToolsState,
+    "toolsChange",
+    readTools,
+    NO_TOOLS,
   );
-  const [listChanged, setListChanged] = useState<boolean>(
-    managedToolsState?.getListChanged() ?? false,
+  const listChanged = useStoreSnapshot(
+    managedToolsState,
+    "listChangedChange",
+    readListChanged,
+    false,
   );
 
-  useEffect(() => {
-    if (!managedToolsState) {
-      setTools([]);
-      setListChanged(false);
-      return;
-    }
-    setTools(managedToolsState.getTools());
-    setListChanged(managedToolsState.getListChanged());
-    const onToolsChange = (
-      event: TypedEventGeneric<ManagedToolsStateEventMap, "toolsChange">,
-    ) => {
-      setTools(event.detail);
-    };
-    const onListChangedChange = (
-      event: TypedEventGeneric<ManagedToolsStateEventMap, "listChangedChange">,
-    ) => {
-      setListChanged(event.detail);
-    };
-    managedToolsState.addEventListener("toolsChange", onToolsChange);
-    managedToolsState.addEventListener(
-      "listChangedChange",
-      onListChangedChange,
-    );
-    return () => {
-      managedToolsState.removeEventListener("toolsChange", onToolsChange);
-      managedToolsState.removeEventListener(
-        "listChangedChange",
-        onListChangedChange,
-      );
-    };
-  }, [managedToolsState]);
+  const error = useListError(managedToolsState);
 
   const refresh = useCallback(async (): Promise<Tool[]> => {
-    if (!managedToolsState || !client) return [];
+    if (!managedToolsState || !client) return NO_TOOLS;
     // A user-initiated refresh acknowledges the change — clear the indicator
     // BEFORE awaiting the fetch, not after. If a `tools/list_changed` arrives
     // mid-fetch, the state re-sets the flag (and auto-refreshes); clearing
@@ -75,15 +68,15 @@ export function useManagedTools(
     managedToolsState.clearListChanged();
     // A user-initiated refresh forces a cache-bypassing round trip
     // (`cacheMode: "refresh"`) so a modern server's `ttlMs`-cached list can't
-    // return stale — and re-stores the fresh aggregate.
-    const next = await managedToolsState.refresh(undefined, "refresh");
-    setTools(next);
-    return next;
+    // return stale — and re-stores the fresh aggregate. The store dispatches
+    // `toolsChange` as it commits, so the snapshot above updates on its own;
+    // there is no local state left to push the result into.
+    return managedToolsState.refresh(undefined, "refresh");
   }, [client, managedToolsState]);
 
   const clearListChanged = useCallback(() => {
     managedToolsState?.clearListChanged();
   }, [managedToolsState]);
 
-  return { tools, listChanged, refresh, clearListChanged };
+  return { tools, error, listChanged, refresh, clearListChanged };
 }

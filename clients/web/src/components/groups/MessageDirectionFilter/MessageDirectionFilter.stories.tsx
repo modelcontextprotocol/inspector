@@ -31,10 +31,10 @@ export const AllVisible: Story = {
   args: { visibleDirections: { client: true, server: true } },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    expect(
+    await expect(
       canvas.getByRole("button", { name: "client → server" }),
     ).toBeInTheDocument();
-    expect(
+    await expect(
       canvas.getByRole("button", { name: "Deselect All" }),
     ).toBeInTheDocument();
   },

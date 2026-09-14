@@ -1,5 +1,5 @@
 import { createRef, StrictMode } from "react";
-import { act } from "@testing-library/react";
+import { act, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { AppBridge } from "@modelcontextprotocol/ext-apps/app-bridge";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/client";
@@ -85,7 +85,7 @@ describe("AppRenderer", () => {
     renderWithMantine(
       <AppRenderer
         sandboxPath="/sandbox.html"
-        tool={tool}
+        source={{ kind: "tool", tool }}
         bridgeFactory={() => asBridge(bridge)}
       />,
     );
@@ -99,7 +99,10 @@ describe("AppRenderer", () => {
     renderWithMantine(
       <AppRenderer
         sandboxPath="/sandbox.html"
-        tool={{ name: "no_title", inputSchema: { type: "object" } }}
+        source={{
+          kind: "tool",
+          tool: { name: "no_title", inputSchema: { type: "object" } },
+        }}
         bridgeFactory={() => asBridge(bridge)}
       />,
     );
@@ -112,14 +115,14 @@ describe("AppRenderer", () => {
     renderWithMantine(
       <AppRenderer
         sandboxPath="/sandbox.html"
-        tool={tool}
+        source={{ kind: "tool", tool }}
         bridgeFactory={factory}
       />,
     );
     await flushAsync();
     expect(factory).toHaveBeenCalledTimes(1);
     expect(factory.mock.calls[0]?.[0]).toBeInstanceOf(HTMLIFrameElement);
-    expect(factory.mock.calls[0]?.[1]).toBe(tool);
+    expect(factory.mock.calls[0]?.[1]).toEqual({ kind: "tool", tool });
   });
 
   it("forwards sendToolInput through the bridge once initialized", async () => {
@@ -129,7 +132,7 @@ describe("AppRenderer", () => {
       <AppRenderer
         ref={ref}
         sandboxPath="/sandbox.html"
-        tool={tool}
+        source={{ kind: "tool", tool }}
         bridgeFactory={() => asBridge(bridge)}
       />,
     );
@@ -153,7 +156,7 @@ describe("AppRenderer", () => {
       <AppRenderer
         ref={ref}
         sandboxPath="/sandbox.html"
-        tool={tool}
+        source={{ kind: "tool", tool }}
         bridgeFactory={() => asBridge(bridge)}
       />,
     );
@@ -173,7 +176,7 @@ describe("AppRenderer", () => {
       <AppRenderer
         ref={ref}
         sandboxPath="/sandbox.html"
-        tool={tool}
+        source={{ kind: "tool", tool }}
         bridgeFactory={() => asBridge(bridge)}
       />,
     );
@@ -205,7 +208,7 @@ describe("AppRenderer", () => {
       <AppRenderer
         ref={ref}
         sandboxPath="/sandbox.html"
-        tool={tool}
+        source={{ kind: "tool", tool }}
         bridgeFactory={() => asBridge(bridge)}
       />,
     );
@@ -228,7 +231,7 @@ describe("AppRenderer", () => {
       <AppRenderer
         ref={ref}
         sandboxPath="/sandbox.html"
-        tool={tool}
+        source={{ kind: "tool", tool }}
         bridgeFactory={() => asBridge(bridge)}
       />,
     );
@@ -247,7 +250,7 @@ describe("AppRenderer", () => {
     renderWithMantine(
       <AppRenderer
         sandboxPath="/sandbox.html"
-        tool={tool}
+        source={{ kind: "tool", tool }}
         bridgeFactory={() => asBridge(bridge)}
         onSizeChange={onSizeChange}
       />,
@@ -264,7 +267,7 @@ describe("AppRenderer", () => {
     renderWithMantine(
       <AppRenderer
         sandboxPath="/sandbox.html"
-        tool={tool}
+        source={{ kind: "tool", tool }}
         bridgeFactory={() => asBridge(bridge)}
       />,
     );
@@ -283,7 +286,7 @@ describe("AppRenderer", () => {
     renderWithMantine(
       <AppRenderer
         sandboxPath="/sandbox.html"
-        tool={tool}
+        source={{ kind: "tool", tool }}
         bridgeFactory={() => asBridge(bridge)}
         displayMode="inline"
         onRequestDisplayMode={onRequestDisplayMode}
@@ -301,7 +304,7 @@ describe("AppRenderer", () => {
     renderWithMantine(
       <AppRenderer
         sandboxPath="/sandbox.html"
-        tool={tool}
+        source={{ kind: "tool", tool }}
         bridgeFactory={() => asBridge(bridge)}
         displayMode="fullscreen"
       />,
@@ -317,7 +320,7 @@ describe("AppRenderer", () => {
     renderWithMantine(
       <AppRenderer
         sandboxPath="/sandbox.html"
-        tool={tool}
+        source={{ kind: "tool", tool }}
         bridgeFactory={() => asBridge(bridge)}
       />,
     );
@@ -334,7 +337,7 @@ describe("AppRenderer", () => {
       <AppRenderer
         ref={ref}
         sandboxPath="/sandbox.html"
-        tool={tool}
+        source={{ kind: "tool", tool }}
         bridgeFactory={() => asBridge(bridge)}
         partialInputs={[{ city: "N" }, { city: "New" }]}
       />,
@@ -363,7 +366,7 @@ describe("AppRenderer", () => {
       <AppRenderer
         ref={ref}
         sandboxPath="/sandbox.html"
-        tool={tool}
+        source={{ kind: "tool", tool }}
         bridgeFactory={() => asBridge(bridge)}
       />,
     );
@@ -381,7 +384,7 @@ describe("AppRenderer", () => {
     renderWithMantine(
       <AppRenderer
         sandboxPath="/sandbox.html"
-        tool={tool}
+        source={{ kind: "tool", tool }}
         bridgeFactory={() => asBridge(bridge)}
         onLog={onLog}
       />,
@@ -398,7 +401,7 @@ describe("AppRenderer", () => {
     renderWithMantine(
       <AppRenderer
         sandboxPath="/sandbox.html"
-        tool={tool}
+        source={{ kind: "tool", tool }}
         bridgeFactory={() => asBridge(bridge)}
       />,
     );
@@ -415,7 +418,7 @@ describe("AppRenderer", () => {
     renderWithMantine(
       <AppRenderer
         sandboxPath="/sandbox.html"
-        tool={tool}
+        source={{ kind: "tool", tool }}
         bridgeFactory={() => asBridge(bridge)}
         onMessage={onMessage}
       />,
@@ -434,7 +437,7 @@ describe("AppRenderer", () => {
     renderWithMantine(
       <AppRenderer
         sandboxPath="/sandbox.html"
-        tool={tool}
+        source={{ kind: "tool", tool }}
         bridgeFactory={() => asBridge(bridge)}
       />,
     );
@@ -452,7 +455,7 @@ describe("AppRenderer", () => {
     const { rerender } = renderWithMantine(
       <AppRenderer
         sandboxPath="/sandbox.html"
-        tool={tool}
+        source={{ kind: "tool", tool }}
         bridgeFactory={factory}
         displayMode="inline"
       />,
@@ -463,7 +466,7 @@ describe("AppRenderer", () => {
     rerender(
       <AppRenderer
         sandboxPath="/sandbox.html"
-        tool={tool}
+        source={{ kind: "tool", tool }}
         bridgeFactory={factory}
         displayMode="fullscreen"
       />,
@@ -480,7 +483,7 @@ describe("AppRenderer", () => {
     const { rerender } = renderWithMantine(
       <AppRenderer
         sandboxPath="/sandbox.html"
-        tool={tool}
+        source={{ kind: "tool", tool }}
         bridgeFactory={factory}
         displayMode="inline"
       />,
@@ -491,7 +494,7 @@ describe("AppRenderer", () => {
     rerender(
       <AppRenderer
         sandboxPath="/sandbox.html"
-        tool={tool}
+        source={{ kind: "tool", tool }}
         bridgeFactory={factory}
         displayMode="fullscreen"
       />,
@@ -523,7 +526,7 @@ describe("AppRenderer", () => {
       renderWithMantine(
         <AppRenderer
           sandboxPath="/sandbox.html"
-          tool={tool}
+          source={{ kind: "tool", tool }}
           bridgeFactory={() => asBridge(bridge)}
         />,
       );
@@ -543,15 +546,39 @@ describe("AppRenderer", () => {
         // MutationObserver callbacks are delivered on a microtask.
         await Promise.resolve();
       });
-      expect(bridge.sendHostContextChange).toHaveBeenCalledWith(
-        expect.objectContaining({
-          theme: "dark",
-          styles: expect.objectContaining({
-            variables: expect.objectContaining({
-              "--color-background-primary": "#101113",
+      // `waitFor`, not a bare assertion after the single microtask above: how
+      // many ticks happy-dom takes to deliver the MutationObserver callback is
+      // load-dependent, so under a full parallel run the observer can still be
+      // pending here. Observed failing exactly once that way, with 0 calls.
+      //
+      // The default 1000ms then turned out not to be enough either — it failed
+      // twice in a row in `npm run local:gate` (at ~1021ms, still 0 calls) while
+      // passing every time this file runs alone, which is the signature of a
+      // budget that is too tight rather than of a broken observer. Raised
+      // rather than retried: a `waitFor` that is generous costs nothing on the
+      // passing path, since it returns as soon as the assertion holds.
+      //
+      // #2323 briefly deleted this argument as one of its "a budget inside an
+      // equal budget can never be observed" cases, which it was: 5000 inside a
+      // 5000ms test could never win. That is fixed from the other end now — the
+      // enclosing budget is 15000 — so the raise is observable again and has to
+      // stay, because the value it beats is a measured failure rather than a
+      // default. It does NOT ride on `asyncUtilTimeout`, which is pinned at
+      // 1000 precisely because raising it globally was measured worse
+      // (Copilot).
+      await waitFor(
+        () =>
+          expect(bridge.sendHostContextChange).toHaveBeenCalledWith(
+            expect.objectContaining({
+              theme: "dark",
+              styles: expect.objectContaining({
+                variables: expect.objectContaining({
+                  "--color-background-primary": "#101113",
+                }),
+              }),
             }),
-          }),
-        }),
+          ),
+        { timeout: 5000 },
       );
     } finally {
       getComputedStyleSpy.mockRestore();
@@ -564,7 +591,7 @@ describe("AppRenderer", () => {
     renderWithMantine(
       <AppRenderer
         sandboxPath="/sandbox.html"
-        tool={tool}
+        source={{ kind: "tool", tool }}
         bridgeFactory={() => asBridge(bridge)}
       />,
     );
@@ -588,7 +615,7 @@ describe("AppRenderer", () => {
     const { unmount } = renderWithMantine(
       <AppRenderer
         sandboxPath="/sandbox.html"
-        tool={tool}
+        source={{ kind: "tool", tool }}
         bridgeFactory={() => asBridge(bridge)}
       />,
     );
@@ -665,7 +692,7 @@ describe("AppRenderer", () => {
       renderWithMantine(
         <AppRenderer
           sandboxPath="/sandbox.html"
-          tool={tool}
+          source={{ kind: "tool", tool }}
           bridgeFactory={() => asBridge(bridge)}
           containerRef={{ current: container }}
         />,
@@ -684,7 +711,7 @@ describe("AppRenderer", () => {
       renderWithMantine(
         <AppRenderer
           sandboxPath="/sandbox.html"
-          tool={tool}
+          source={{ kind: "tool", tool }}
           bridgeFactory={() => asBridge(bridge)}
           containerRef={{ current: container }}
         />,
@@ -703,7 +730,7 @@ describe("AppRenderer", () => {
       renderWithMantine(
         <AppRenderer
           sandboxPath="/sandbox.html"
-          tool={tool}
+          source={{ kind: "tool", tool }}
           bridgeFactory={() => asBridge(bridge)}
           containerRef={{ current: container }}
         />,
@@ -721,7 +748,7 @@ describe("AppRenderer", () => {
       renderWithMantine(
         <AppRenderer
           sandboxPath="/sandbox.html"
-          tool={tool}
+          source={{ kind: "tool", tool }}
           bridgeFactory={() => asBridge(bridge)}
           containerRef={{ current: container }}
         />,
@@ -752,7 +779,7 @@ describe("AppRenderer", () => {
       renderWithMantine(
         <AppRenderer
           sandboxPath="/sandbox.html"
-          tool={tool}
+          source={{ kind: "tool", tool }}
           bridgeFactory={() => asBridge(bridge)}
           containerRef={{ current: container }}
         />,
@@ -766,7 +793,7 @@ describe("AppRenderer", () => {
       renderWithMantine(
         <AppRenderer
           sandboxPath="/sandbox.html"
-          tool={tool}
+          source={{ kind: "tool", tool }}
           bridgeFactory={() => asBridge(bridge)}
         />,
       );
@@ -779,7 +806,7 @@ describe("AppRenderer", () => {
       const { unmount } = renderWithMantine(
         <AppRenderer
           sandboxPath="/sandbox.html"
-          tool={tool}
+          source={{ kind: "tool", tool }}
           bridgeFactory={() => asBridge(bridge)}
         />,
       );
@@ -807,7 +834,7 @@ describe("AppRenderer", () => {
         <AppRenderer
           ref={ref}
           sandboxPath="/sandbox.html"
-          tool={tool}
+          source={{ kind: "tool", tool }}
           bridgeFactory={factory}
         />
       </StrictMode>,
@@ -837,7 +864,7 @@ describe("AppRenderer", () => {
       <AppRenderer
         ref={ref}
         sandboxPath="/sandbox.html"
-        tool={tool}
+        source={{ kind: "tool", tool }}
         bridgeFactory={() => asBridge(bridge)}
       />,
     );
@@ -864,7 +891,7 @@ describe("AppRenderer", () => {
       <AppRenderer
         ref={ref}
         sandboxPath="/sandbox.html"
-        tool={tool}
+        source={{ kind: "tool", tool }}
         bridgeFactory={() => asBridge(bridge)}
       />,
     );
@@ -901,7 +928,7 @@ describe("AppRenderer", () => {
       <AppRenderer
         ref={ref}
         sandboxPath="/sandbox.html"
-        tool={tool}
+        source={{ kind: "tool", tool }}
         bridgeFactory={factory}
       />,
     );
@@ -925,7 +952,7 @@ describe("AppRenderer", () => {
     const { unmount } = renderWithMantine(
       <AppRenderer
         sandboxPath="/sandbox.html"
-        tool={tool}
+        source={{ kind: "tool", tool }}
         bridgeFactory={() => asBridge(bridge)}
       />,
     );
@@ -949,7 +976,7 @@ describe("AppRenderer", () => {
     const { unmount } = renderWithMantine(
       <AppRenderer
         sandboxPath="/sandbox.html"
-        tool={tool}
+        source={{ kind: "tool", tool }}
         bridgeFactory={factory}
       />,
     );
@@ -972,7 +999,7 @@ describe("AppRenderer", () => {
     renderWithMantine(
       <AppRenderer
         sandboxPath="/sandbox.html"
-        tool={tool}
+        source={{ kind: "tool", tool }}
         bridgeFactory={() => asBridge(bridge)}
         onAppStatusChange={onAppStatusChange}
       />,
@@ -993,7 +1020,7 @@ describe("AppRenderer", () => {
     renderWithMantine(
       <AppRenderer
         sandboxPath="/sandbox.html"
-        tool={tool}
+        source={{ kind: "tool", tool }}
         bridgeFactory={factory}
         onAppStatusChange={onAppStatusChange}
       />,
@@ -1010,7 +1037,7 @@ describe("AppRenderer", () => {
     renderWithMantine(
       <AppRenderer
         sandboxPath="/sandbox.html"
-        tool={tool}
+        source={{ kind: "tool", tool }}
         bridgeFactory={factory}
         onAppStatusChange={onAppStatusChange}
       />,
@@ -1027,7 +1054,7 @@ describe("AppRenderer", () => {
     renderWithMantine(
       <AppRenderer
         sandboxPath="/sandbox.html"
-        tool={tool}
+        source={{ kind: "tool", tool }}
         bridgeFactory={factory}
         onError={onError}
       />,
@@ -1044,7 +1071,7 @@ describe("AppRenderer", () => {
     renderWithMantine(
       <AppRenderer
         sandboxPath="/sandbox.html"
-        tool={tool}
+        source={{ kind: "tool", tool }}
         bridgeFactory={factory}
         onError={onError}
       />,
@@ -1059,7 +1086,7 @@ describe("AppRenderer", () => {
     renderWithMantine(
       <AppRenderer
         sandboxPath="/sandbox.html"
-        tool={tool}
+        source={{ kind: "tool", tool }}
         bridgeFactory={factory}
       />,
     );
@@ -1078,7 +1105,7 @@ describe("AppRenderer", () => {
     const { rerender } = renderWithMantine(
       <AppRenderer
         sandboxPath="/sandbox-a.html"
-        tool={tool}
+        source={{ kind: "tool", tool }}
         bridgeFactory={factory}
       />,
     );
@@ -1087,7 +1114,7 @@ describe("AppRenderer", () => {
     rerender(
       <AppRenderer
         sandboxPath="/sandbox-b.html"
-        tool={tool}
+        source={{ kind: "tool", tool }}
         bridgeFactory={factory}
       />,
     );
@@ -1117,7 +1144,7 @@ describe("AppRenderer", () => {
     const { rerender } = renderWithMantine(
       <AppRenderer
         sandboxPath="/sandbox.html"
-        tool={tool}
+        source={{ kind: "tool", tool }}
         bridgeFactory={factory}
       />,
     );
@@ -1126,14 +1153,17 @@ describe("AppRenderer", () => {
     rerender(
       <AppRenderer
         sandboxPath="/sandbox.html"
-        tool={otherTool}
+        source={{ kind: "tool", tool: otherTool }}
         bridgeFactory={factory}
       />,
     );
     await flushAsync();
 
     expect(factory).toHaveBeenCalledTimes(2);
-    expect(factory.mock.calls[1]?.[1]).toBe(otherTool);
+    expect(factory.mock.calls[1]?.[1]).toEqual({
+      kind: "tool",
+      tool: otherTool,
+    });
     expect(first.teardownResource).toHaveBeenCalledTimes(1);
     expect(first.close).toHaveBeenCalledTimes(1);
   });
@@ -1144,7 +1174,7 @@ describe("AppRenderer", () => {
     const { unmount } = renderWithMantine(
       <AppRenderer
         sandboxPath="/sandbox.html"
-        tool={tool}
+        source={{ kind: "tool", tool }}
         bridgeFactory={() => asBridge(bridge)}
       />,
     );
@@ -1164,7 +1194,7 @@ describe("AppRenderer", () => {
     const { unmount } = renderWithMantine(
       <AppRenderer
         sandboxPath="/sandbox.html"
-        tool={tool}
+        source={{ kind: "tool", tool }}
         bridgeFactory={() => asBridge(bridge)}
       />,
     );
@@ -1176,5 +1206,115 @@ describe("AppRenderer", () => {
     });
     expect(bridge.teardownResource).toHaveBeenCalledTimes(1);
     expect(bridge.close).toHaveBeenCalledTimes(1);
+  });
+
+  describe("app-rendered elicitation (#1854)", () => {
+    /** A bridge that can answer an `elicitation/create` sent through it. */
+    function elicitationBridge(
+      result: unknown = { action: "accept", content: { choice: "a" } },
+    ) {
+      const bridge = createMockBridge();
+      const withElicitation = Object.assign(bridge, {
+        getAppCapabilities: () => ({ elicitation: {} }),
+        request: vi.fn().mockResolvedValue(result),
+      });
+      return withElicitation;
+    }
+
+    it("renders an app named by resource URI, using the URI as the frame title", () => {
+      const bridge = createMockBridge();
+      renderWithMantine(
+        <AppRenderer
+          sandboxPath="/sandbox.html"
+          source={{ kind: "resource", resourceUri: "ui://demo/pick.html" }}
+          bridgeFactory={() => asBridge(bridge)}
+        />,
+      );
+      expect(screen.getByTitle("ui://demo/pick.html")).toBeTruthy();
+    });
+
+    it("prefers an explicit title over the URI", () => {
+      const bridge = createMockBridge();
+      renderWithMantine(
+        <AppRenderer
+          sandboxPath="/sandbox.html"
+          source={{
+            kind: "resource",
+            resourceUri: "ui://demo/pick.html",
+            title: "Choose an option",
+          }}
+          bridgeFactory={() => asBridge(bridge)}
+        />,
+      );
+      expect(screen.getByTitle("Choose an option")).toBeTruthy();
+    });
+
+    it("sends the request through the live bridge once the view is initialized", async () => {
+      const bridge = elicitationBridge();
+      const ref = createRef<AppRendererHandle>();
+      renderWithMantine(
+        <AppRenderer
+          ref={ref}
+          sandboxPath="/sandbox.html"
+          source={{ kind: "resource", resourceUri: "ui://demo/pick.html" }}
+          bridgeFactory={() => asBridge(bridge)}
+        />,
+      );
+      await flushAsync();
+      act(() => bridge.emit("initialized"));
+      await expect(
+        ref.current!.requestElicitation({
+          message: "Choose",
+          requestedSchema: { type: "object", properties: {} },
+        }),
+      ).resolves.toEqual({ action: "accept", content: { choice: "a" } });
+    });
+
+    it("rejects rather than buffering when the view is not ready", async () => {
+      // Unlike tool input/result there is a server waiting on this, so a
+      // caller that arrives early must learn now and fall back.
+      const bridge = elicitationBridge();
+      const ref = createRef<AppRendererHandle>();
+      renderWithMantine(
+        <AppRenderer
+          ref={ref}
+          sandboxPath="/sandbox.html"
+          source={{ kind: "resource", resourceUri: "ui://demo/pick.html" }}
+          bridgeFactory={() => asBridge(bridge)}
+        />,
+      );
+      await flushAsync();
+      await expect(
+        ref.current!.requestElicitation({
+          message: "Choose",
+          requestedSchema: { type: "object", properties: {} },
+        }),
+      ).rejects.toThrow(/not ready/);
+      expect(bridge.request).not.toHaveBeenCalled();
+    });
+
+    it("keeps a live bridge when the source object is recreated with the same tool", async () => {
+      // A caller writing the source inline produces a fresh object every
+      // render; rebuilding on that double-loads the sandbox.
+      const bridge = createMockBridge();
+      const factory = vi.fn(() => asBridge(bridge));
+      const { rerender } = renderWithMantine(
+        <AppRenderer
+          sandboxPath="/sandbox.html"
+          source={{ kind: "tool", tool }}
+          bridgeFactory={factory}
+        />,
+      );
+      await flushAsync();
+      rerender(
+        <AppRenderer
+          sandboxPath="/sandbox.html"
+          source={{ kind: "tool", tool }}
+          bridgeFactory={factory}
+        />,
+      );
+      await flushAsync();
+      expect(factory).toHaveBeenCalledTimes(1);
+    });
   });
 });

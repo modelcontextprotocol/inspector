@@ -16,4 +16,19 @@ export default defineConfig([
       globals: globals.node,
     },
   },
+  {
+    // Type-aware pass for `no-floating-promises` (#1959) — see the CLI config
+    // for the reasoning. Both tsconfig projects are listed because `src` and
+    // `__tests__` live in different ones.
+    files: ["**/*.{ts,mts}"],
+    languageOptions: {
+      parserOptions: {
+        project: ["./tsconfig.json", "./tsconfig.test.json"],
+        tsconfigRootDir: import.meta.dirname,
+      },
+    },
+    rules: {
+      "@typescript-eslint/no-floating-promises": "error",
+    },
+  },
 ]);

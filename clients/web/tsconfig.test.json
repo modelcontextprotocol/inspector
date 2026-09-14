@@ -10,17 +10,20 @@
       "react-dom": ["./node_modules/@types/react-dom"],
       "react/jsx-runtime": ["./node_modules/@types/react/jsx-runtime"],
       "vitest": ["./node_modules/vitest"],
-      "pino": ["./node_modules/pino"],
-      "hono": ["./node_modules/hono"],
+      "pino": ["../../node_modules/pino"],
+      "hono": ["../../node_modules/hono"],
       "hono/streaming": [
-        "./node_modules/hono/dist/types/helper/streaming/index"
+        "../../node_modules/hono/dist/types/helper/streaming/index"
       ],
-      "@hono/node-server": ["./node_modules/@hono/node-server"],
-      "atomically": ["./node_modules/atomically"],
-      "chokidar": ["./node_modules/chokidar"],
+      "@hono/node-server": ["../../node_modules/@hono/node-server"],
+      "atomically": ["../../node_modules/atomically"],
+      "chokidar": ["../../node_modules/chokidar"],
       "express": ["./node_modules/@types/express"],
       "yaml": ["./node_modules/yaml"],
-      "@napi-rs/keyring": ["./node_modules/@napi-rs/keyring"],
+      "@napi-rs/keyring": ["../../node_modules/@napi-rs/keyring"],
+      "zod": ["../../node_modules/zod"],
+      "zod/v4": ["../../node_modules/zod/v4"],
+      "open": ["../../node_modules/open"],
       "react-syntax-highlighter/dist/esm/prism-light": [
         "./src/types/react-syntax-highlighter-prism-light"
       ],
@@ -38,7 +41,13 @@
     "src/test/**/*.ts",
     "src/test/**/*.tsx",
     "../../core/**/__tests__/**/*.ts",
-    "../../core/**/__tests__/**/*.tsx"
+    "../../core/**/__tests__/**/*.tsx",
+    // The shared no-retry setup every Vitest project loads (#2323). It is
+    // referenced by the configs as a resolved PATH rather than imported, so no
+    // project's tsconfig picks it up transitively the way `vitest.shared.mts`
+    // is picked up through `vitest.config.ts` — it needs naming, or it lands in
+    // no tsconfig project at all and `verify:typecheck-coverage` fails.
+    "../../vitest.setup.shared.mts"
   ],
   "exclude": []
 }

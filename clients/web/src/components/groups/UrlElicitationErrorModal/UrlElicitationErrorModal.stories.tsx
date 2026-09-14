@@ -47,10 +47,10 @@ export const Default: Story = {
     // Mantine renders the modal in a portal at document.body.
     const body = within(canvasElement.ownerDocument.body);
     await body.findByText("URL elicitation required");
-    expect(body.getByText(/trigger-url-elicitation/)).toBeInTheDocument();
+    await expect(body.getByText(/trigger-url-elicitation/)).toBeInTheDocument();
     const details = body.getByLabelText("Error details") as HTMLTextAreaElement;
-    expect(details.value).toContain("-32042");
-    expect(details.readOnly).toBe(true);
+    await expect(details.value).toContain("-32042");
+    await expect(details.readOnly).toBe(true);
   },
 };
 

@@ -24,6 +24,13 @@
      light surfaces; a lighter red on the dark card/header (see dark override) —
      `red-6` fell just under WCAG AA on both. */
   --inspector-danger-text: var(--mantine-color-red-7);
+  /* Caution text (the secret-storage footer when secrets are unencrypted or
+     session-only, #1950). Yellow is the right *meaning* — this is "know what
+     you are doing", not "this failed" — but yellow is also the hardest hue to
+     make readable: `yellow-6`, the tone the log-level badges use on a filled
+     chip, is far under AA as body text on a light surface. `yellow-8` clears it
+     here, and the dark override lifts to `yellow-4` the same way danger does. */
+  --inspector-warning-text: var(--mantine-color-yellow-8);
 
   /* ── Surfaces ──────────────────────────────────────────── */
   /* Light-grey app background so the white cards read as raised. Drives
@@ -65,6 +72,16 @@
   /* Matches Mantine ScrollArea's thumb so native scrollbars (used where a
      ScrollArea would break flex sizing, e.g. the Resources accordion) blend in. */
   --inspector-scrollbar-thumb: rgba(0, 0, 0, 0.4);
+
+  /* ── Code editor (Ace) ─────────────────────────────────── */
+  /* Ace's own `github` themes fail WCAG AA on the gutter: `#AAA` on the light
+     gutter's `#e8e8e8` is 1.89:1, and `#7388b5` on the dark gutter's `#24292e`
+     is 4.13:1 — both under 4.5:1 at the 12px the line numbers render. The
+     numbers are `aria-hidden`, which exempts nothing here: contrast is a
+     concern for sighted users, and axe flags them accordingly.
+     `gray-7` is 5.82:1 on the light gutter; the dark block lifts it to
+     `gray-5`, 4.88:1 on the dark one. */
+  --inspector-code-gutter-text: var(--mantine-color-gray-7);
 
   /* ── Connection status ─────────────────────────────────── */
   --inspector-status-connected: var(--mantine-color-green-6);
@@ -154,6 +171,9 @@
      schemes, which sits too dark on charcoal — lift them one to two steps so
      they stay legible in dark mode. Light-mode `:root` keeps the `*-6` values. */
 
+  /* Code editor (Ace) — see the note in `:root`. */
+  --inspector-code-gutter-text: var(--mantine-color-gray-5);
+
   /* Status */
   --inspector-status-connected: var(--mantine-color-green-4);
   --inspector-status-connecting: var(--mantine-color-yellow-4);
@@ -204,6 +224,9 @@
   --mantine-color-dimmed: var(--mantine-color-dark-1) !important;
   /* Lighter danger red for the dark card/header (deep red would fail AA). */
   --inspector-danger-text: var(--mantine-color-red-4);
+  /* Same inversion for caution text: the deep `yellow-8` is unreadable on a
+     dark surface. */
+  --inspector-warning-text: var(--mantine-color-yellow-4);
 }
 
 /* A11y contrast (light): Mantine sets these per-scheme on a selector more
@@ -582,4 +605,20 @@ body {
 body.resizing-col {
   user-select: none;
   cursor: col-resize;
+}
+
+/* Ace renders its own DOM, so its gutter can only be reached by selector — it
+   is not a Mantine component with a theme entry. The doubled class raises
+   specificity above Ace's own `.ace-github .ace_gutter`, which is injected into
+   <head> at runtime and therefore wins on source order otherwise. */
+.ace_editor.ace-github .ace_gutter,
+.ace_editor.ace-github-dark .ace_gutter {
+  color: var(--inspector-code-gutter-text);
+}
+
+/* A read-only Ace editor still paints a caret, which reads as an editable field
+   whose keystrokes are being swallowed. `readOnly` has no option that removes
+   it, so — like the gutter above — it can only be reached by selector. */
+.ace_editor.json-editor-readonly .ace_cursor {
+  display: none;
 }

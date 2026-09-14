@@ -1,0 +1,44 @@
+[
+  {
+    "prompt": "I want to reproduce the OAuth token revocation behaviour by hand. Which test server do I run?",
+    "expect": "test-servers"
+  },
+  {
+    "prompt": "How do I start one of the composable MCP test servers with a config file?",
+    "expect": "test-servers"
+  },
+  {
+    "prompt": "I need to run a real MCP server locally to exercise this change by hand. Which one do I run, and how do I start it?",
+    "expect": "test-servers"
+  },
+  {
+    "prompt": "Which protocol era should I connect with when I run one of these fixtures by hand?",
+    "expect": "test-servers"
+  },
+  {
+    "prompt": "I need a fixture combination that doesn't exist yet. How do I add one?",
+    "expect": "test-servers"
+  },
+  {
+    "prompt": "Write an integration test that exercises tool listing end to end.",
+    "chain": [
+      "testing",
+      "test-servers"
+    ]
+  },
+  {
+    "prompt": "Add end-to-end coverage for the tool-list pagination path.",
+    "chain": [
+      "testing",
+      "test-servers"
+    ]
+  },
+  {
+    "prompt": "Sort this list alphabetically: banana, apple, cherry.",
+    "expect": null
+  },
+  {
+    "prompt": "What is the boiling point of water in Fahrenheit?",
+    "expect": null
+  }
+]

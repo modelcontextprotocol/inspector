@@ -48,7 +48,7 @@ export const FillsHostWidth: Story = {
     // sharper discriminator: a row flex leaves the layer full-width while
     // collapsing the child to the single "x").
     const layer = child.parentElement as HTMLElement;
-    expect(child.getBoundingClientRect().width).toBeCloseTo(
+    await expect(child.getBoundingClientRect().width).toBeCloseTo(
       layer.getBoundingClientRect().width,
       0,
     );
@@ -77,11 +77,11 @@ export const FillVariant: Story = {
     // Width still stretches onto the child (relative to the layer, as above);
     // the `fill` height comes from `bottom: 0` making the layer span the host.
     const layer = child.parentElement as HTMLElement;
-    expect(child.getBoundingClientRect().width).toBeCloseTo(
+    await expect(child.getBoundingClientRect().width).toBeCloseTo(
       layer.getBoundingClientRect().width,
       0,
     );
-    expect(layer.getBoundingClientRect().height).toBeGreaterThan(160 - 4);
+    await expect(layer.getBoundingClientRect().height).toBeGreaterThan(160 - 4);
   },
 };
 
@@ -97,6 +97,6 @@ export const Inactive: Story = {
   ),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    expect(canvas.queryByTestId("stage-child")).not.toBeInTheDocument();
+    await expect(canvas.queryByTestId("stage-child")).not.toBeInTheDocument();
   },
 };

@@ -64,4 +64,69 @@ describe("ToolListItem", () => {
     );
     expect(screen.queryByRole("presentation")).not.toBeInTheDocument();
   });
+
+  it("shows no schema flag for a clean tool", () => {
+    renderWithMantine(
+      <ToolListItem tool={tool} selected={false} onClick={() => {}} />,
+    );
+    expect(
+      screen.queryByLabelText(/Schema portability/),
+    ).not.toBeInTheDocument();
+  });
+
+  it("flags a tool whose schema carries an error-severity finding", () => {
+    renderWithMantine(
+      <ToolListItem
+        tool={{
+          ...tool,
+          outputSchema: { type: "object", properties: { data: true } },
+        }}
+        selected={false}
+        onClick={() => {}}
+      />,
+    );
+    expect(
+      screen.getByLabelText("Schema portability: 1 error"),
+    ).toBeInTheDocument();
+  });
+
+  it("breaks a mixed tool down rather than labelling the total", () => {
+    // One error plus one warning must not announce as "2 errors".
+    renderWithMantine(
+      <ToolListItem
+        tool={{
+          ...tool,
+          inputSchema: {
+            type: "object",
+            properties: { a: { type: ["null", "boolean"] } },
+          },
+          outputSchema: { type: "object", properties: { data: true } },
+        }}
+        selected={false}
+        onClick={() => {}}
+      />,
+    );
+    expect(
+      screen.getByLabelText("Schema portability: 1 error, 1 warning"),
+    ).toBeInTheDocument();
+  });
+
+  it("flags a warning-only tool distinctly", () => {
+    renderWithMantine(
+      <ToolListItem
+        tool={{
+          ...tool,
+          inputSchema: {
+            type: "object",
+            properties: { a: { type: ["null", "boolean"] } },
+          },
+        }}
+        selected={false}
+        onClick={() => {}}
+      />,
+    );
+    expect(
+      screen.getByLabelText("Schema portability: 1 warning"),
+    ).toBeInTheDocument();
+  });
 });

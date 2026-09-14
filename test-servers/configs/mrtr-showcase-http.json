@@ -10,6 +10,7 @@
     { "preset": "mrtr_sample" },
     { "preset": "mrtr_roots" },
     { "preset": "mrtr_edge" },
+    { "preset": "mrtr_empty" },
     { "preset": "mrtr_loop" }
   ],
   "transport": {

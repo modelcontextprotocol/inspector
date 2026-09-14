@@ -1,0 +1,12 @@
+{
+  "serverInfo": {
+    "name": "mcp-app-showcase",
+    "version": "1.0.0"
+  },
+  "tools": [{ "preset": "echo" }, { "preset": "mcp_app_demo" }],
+  "resources": [{ "preset": "mcp_app_demo_widget" }],
+  "transport": {
+    "type": "streamable-http",
+    "port": 3130
+  }
+}

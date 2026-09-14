@@ -1,0 +1,19 @@
+{
+  "serverInfo": {
+    "name": "oauth-rfc8414-at-oidc-path",
+    "version": "1.0.0"
+  },
+  "tools": [{ "preset": "echo" }],
+  "oauth": {
+    "enabled": true,
+    "mode": "combined",
+    "requireAuth": true,
+    "asMetadataPath": "/.well-known/openid-configuration",
+    "scopesSupported": ["mcp"],
+    "supportDCR": true
+  },
+  "transport": {
+    "type": "streamable-http",
+    "port": 8083
+  }
+}

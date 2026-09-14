@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
+import { SdkError, SdkErrorCode } from "@modelcontextprotocol/client";
 import type { Resource } from "@modelcontextprotocol/client";
 import type { InspectorServerSettings } from "@inspector/core/mcp/types.js";
 import { ManagedResourcesState } from "@inspector/core/mcp/state/managedResourcesState";
@@ -12,7 +13,7 @@ function resource(uri: string): Resource {
 const AUTO_REFRESH_SETTINGS: InspectorServerSettings = {
   headers: [],
   env: [],
-  metadata: [],
+  metadata: {},
   connectionTimeout: 0,
   requestTimeout: 0,
   taskTtl: 60000,
@@ -290,6 +291,22 @@ describe("ManagedResourcesState", () => {
       expect(await changed).toBe(false);
       expect(state.getListChanged()).toBe(false);
     });
+  });
+
+  // The base class owns the error plumbing (covered in managedToolsState); this
+  // pins THIS list's method string, which is what attributes a failure to the
+  // right Protocol entry (#1953).
+  it("records a failed load and attributes it to resources/list", async () => {
+    const boom = new SdkError(SdkErrorCode.InvalidResult, "nope");
+    client.setStatus("connected");
+    client.listAllResources.mockRejectedValueOnce(boom);
+
+    await expect(state.refresh()).rejects.toThrow(boom);
+    expect(state.getError()).toBe(boom);
+    expect(client.markResponseRejected).toHaveBeenCalledWith(
+      "resources/list",
+      "nope",
+    );
   });
 
   it("destroy is idempotent", () => {

@@ -11,7 +11,7 @@ function tool(name: string): Tool {
 const PAGINATED_SETTINGS: InspectorServerSettings = {
   headers: [],
   env: [],
-  metadata: [],
+  metadata: {},
   connectionTimeout: 0,
   requestTimeout: 0,
   taskTtl: 60000,
@@ -23,6 +23,14 @@ const PAGINATED_SETTINGS: InspectorServerSettings = {
 function waitForChange(state: PagedToolsState): Promise<Tool[]> {
   return new Promise((resolve) => {
     state.addEventListener("toolsChange", (e) => resolve(e.detail), {
+      once: true,
+    });
+  });
+}
+
+function waitForError(state: PagedToolsState): Promise<Error | null> {
+  return new Promise((resolve) => {
+    state.addEventListener("errorChange", (e) => resolve(e.detail), {
       once: true,
     });
   });
@@ -236,6 +244,63 @@ describe("PagedToolsState", () => {
       await Promise.resolve();
       expect(client.listTools).not.toHaveBeenCalled();
       expect(state.getTools()).toEqual([]);
+    });
+  });
+
+  // #1998: in paginated mode this store — not the managed one — drives the
+  // sidebar, so a failed page must surface here or the panel renders empty
+  // with no alert and no Retry.
+  describe("load errors (#1998)", () => {
+    it("records the failure, dispatches errorChange, and re-throws", async () => {
+      client.setStatus("connected");
+      const boom = new Error("list failed");
+      client.listTools.mockRejectedValueOnce(boom);
+      const errorPromise = waitForError(state);
+      await expect(state.loadPage()).rejects.toThrow("list failed");
+      expect(await errorPromise).toBe(boom);
+      expect(state.getError()).toBe(boom);
+    });
+
+    it("wraps a non-Error rejection", async () => {
+      client.setStatus("connected");
+      client.listTools.mockRejectedValueOnce("plain string");
+      await expect(state.loadPage()).rejects.toBe("plain string");
+      expect(state.getError()?.message).toBe("plain string");
+    });
+
+    it("clears the error on the next successful load", async () => {
+      client.setStatus("connected");
+      client.listTools.mockRejectedValueOnce(new Error("list failed"));
+      await expect(state.loadPage()).rejects.toThrow();
+      client.queueToolPages({ tools: [tool("a")] });
+      const cleared = waitForError(state);
+      await state.loadPage();
+      expect(await cleared).toBeNull();
+      expect(state.getError()).toBeNull();
+    });
+
+    it("clears the error on disconnect", async () => {
+      client.setStatus("connected");
+      client.listTools.mockRejectedValueOnce(new Error("list failed"));
+      await expect(state.loadPage()).rejects.toThrow();
+      const cleared = waitForError(state);
+      client.setStatus("disconnected");
+      expect(await cleared).toBeNull();
+    });
+
+    it("records a connect-time auto-load failure instead of floating it", async () => {
+      const spClient = new FakeInspectorClient({
+        serverSettings: PAGINATED_SETTINGS,
+      });
+      spClient.setStatus("connected");
+      const spState = new PagedToolsState(spClient);
+      const boom = new Error("connect-time list failed");
+      spClient.listTools.mockRejectedValueOnce(boom);
+      const errored = waitForError(spState);
+      spClient.dispatchTypedEvent("connect");
+      expect(await errored).toBe(boom);
+      expect(spState.getError()).toBe(boom);
+      spState.destroy();
     });
   });
 });

@@ -7,6 +7,7 @@ import type {
   McpUiDisplayMode,
   McpUiHostCapabilities,
   McpUiResourceMeta,
+  McpUiSandboxResourceReadyNotification,
 } from "@modelcontextprotocol/ext-apps/app-bridge";
 import type { Client } from "@modelcontextprotocol/client";
 import type {
@@ -17,6 +18,7 @@ import type {
 } from "@modelcontextprotocol/client";
 import {
   approveCspSources,
+  approveSandboxPermissions,
   buildSandboxCspPolicy,
   wrapSandboxedHtml,
 } from "../../../utils/sandbox-csp";
@@ -26,7 +28,19 @@ import {
   isHttpUrl,
 } from "../../../lib/downloadFile";
 import { snapshotHostContext } from "./hostContext";
-import type { BridgeFactory } from "./AppRenderer";
+import { observeAppCapabilities } from "./appCapabilities";
+import type { AppRenderSource, BridgeFactory } from "./AppRenderer";
+
+/**
+ * The `ui://` resource a render source loads, or `undefined` for an App tool
+ * whose `_meta` names none (in which case there is nothing to push into the
+ * sandbox and the frame stays empty).
+ */
+function resolveSourceUri(source: AppRenderSource): string | undefined {
+  return source.kind === "resource"
+    ? source.resourceUri
+    : getToolUiResourceUri(source.tool);
+}
 
 /**
  * Host identity advertised to MCP Apps during the bridge handshake. Static —
@@ -74,23 +88,118 @@ export interface AppBridgeFactoryDeps {
    * frame; the error is also always console.error'd.
    */
   onResourceError?: (err: Error) => void;
+  /**
+   * The `_meta` of the `resources/list` entry for `uri`, when the host has that
+   * listing. ext-apps treats the listing-level `_meta.ui` as the static default
+   * for a UI resource, so an app that declares its CSP only there must still
+   * get it honored; a read content item's own `_meta.ui` wins over it. Omitted
+   * (or returning undefined) simply means no default — the host that has no
+   * resource listing, or whose listing does not include this URI, is unaffected.
+   */
+  getListedResourceMeta?: (uri: string) => object | undefined;
+  /**
+   * Advertise `hostCapabilities.elicitation` — "this host can forward a
+   * form-mode `elicitation/create` to the app and return its result to the
+   * server" (#1854).
+   *
+   * Off by default, and deliberately per-factory rather than global: an App
+   * *tool* frame is never handed an elicitation, so claiming the capability
+   * there would tell the app something untrue about what its host will do.
+   */
+  advertiseElicitation?: boolean;
+  /**
+   * Publish a wrapped app document to the backend's dedicated app-origin
+   * listener and resolve with the URL to load it from, or `null` when the
+   * backend can't host one (#2056).
+   *
+   * Only consulted for a UI resource that declares `_meta.ui.domain` — the
+   * spec field by which a server asks its host for a stable, dedicated origin
+   * so its requests carry a real `Origin` instead of `null`. Optional: a
+   * factory without it (and a `null` result from one with it) renders every
+   * app the default way, under an opaque origin.
+   */
+  publishAppDocument?: (doc: {
+    html: string;
+    csp?: string;
+  }) => Promise<string | null>;
 }
 
-/** First text content block of a UI resource, plus its `_meta` (sandbox hints). */
-function extractHtmlAndMeta(result: ReadResourceResult): {
+/**
+ * The MCP Apps sandbox hints (`csp`, `permissions`, …) a single `_meta` bag
+ * declares under its `ui` key, or undefined when that bag declares none.
+ *
+ * The two "no hints" cases are deliberately distinguished by the return type:
+ * a bag with no `ui` key at all returns undefined (this carrier is silent —
+ * keep looking), while a bag whose `ui` is malformed returns `{ meta:
+ * undefined }` (this carrier spoke, and what it said is unusable — stop). Were
+ * they conflated, a content item declaring `ui: null` would fall through to a
+ * broader carrier and be granted whatever *that* one asked for, which is both
+ * the wrong precedence and the wrong direction to fail in.
+ *
+ * `McpUiResourceMeta` describes the value of `_meta.ui`, NOT `_meta` itself —
+ * reading `_meta` directly leaves every field undefined, so a spec-conforming
+ * app's declared `connectDomains` never reach the generated CSP and it renders
+ * under `connect-src 'none'` (#2055). This mirrors the tool side, where
+ * `getToolUiResourceUri` already reads `_meta.ui.resourceUri`.
+ */
+function uiMeta(
+  bag: object | undefined,
+): { meta: McpUiResourceMeta | undefined } | undefined {
+  if (bag === undefined || !("ui" in bag)) return undefined;
+  const ui: unknown = (bag as { ui: unknown }).ui;
+  const wellFormed =
+    ui !== null && typeof ui === "object" && !Array.isArray(ui);
+  return { meta: wellFormed ? (ui as McpUiResourceMeta) : undefined };
+}
+
+/**
+ * First text content block of a UI resource, plus its `_meta.ui` sandbox hints.
+ *
+ * ext-apps exposes three carriers, and they are consulted most-specific first:
+ *
+ * 1. the **read content item**'s own `_meta.ui`;
+ * 2. the **read result envelope**'s — `McpUiReadResourceResult` (what a
+ *    `registerAppResource` callback returns) types `_meta.ui` at that level;
+ * 3. the matching **`resources/list` entry**'s, which `McpUiAppResourceConfig`
+ *    documents as the static default a host reviews at connection time, and
+ *    which a read content item explicitly takes precedence over.
+ *
+ * The first carrier that *declares* a `ui` key decides, and its value is used
+ * outright — the levels are not merged, since a server that restates only
+ * `csp` at the more specific level means that to be the whole grant, not a
+ * patch over the broader one. A carrier declaring a malformed `ui` decides
+ * too, for "no hints"; see {@link uiMeta}.
+ */
+function extractHtmlAndMeta(
+  result: ReadResourceResult,
+  listedMeta?: object,
+): {
   html: string;
   meta: McpUiResourceMeta | undefined;
 } {
   for (const content of result.contents) {
     const text = (content as { text?: unknown }).text;
     if (typeof text === "string") {
-      return {
-        html: text,
-        meta: content._meta as McpUiResourceMeta | undefined,
-      };
+      const carried =
+        uiMeta(content._meta) ?? uiMeta(result._meta) ?? uiMeta(listedMeta);
+      return { html: text, meta: carried?.meta };
     }
   }
   throw new Error("UI resource has no text (HTML) content");
+}
+
+/**
+ * Whether a UI resource asked for a dedicated origin (#2056).
+ *
+ * Any non-empty `domain` string counts. The spec is explicit that the field's
+ * format is host-dependent — hosts publish their own rules, and the examples it
+ * gives (`{hash}.claudemcpcontent.com`, `www-example-com.oaiusercontent.com`)
+ * are each one host's convention. The Inspector's convention is that the value
+ * is a *request*, not an address: it grants a real loopback origin and does not
+ * try to honor the specific name, which it could not serve anyway.
+ */
+function wantsDedicatedOrigin(meta: McpUiResourceMeta | undefined): boolean {
+  return typeof meta?.domain === "string" && meta.domain.trim() !== "";
 }
 
 /**
@@ -198,7 +307,7 @@ function downloadResourceItem(item: EmbeddedResource | ResourceLink): boolean {
 export function createAppBridgeFactory(
   deps: AppBridgeFactoryDeps,
 ): BridgeFactory {
-  return async (iframe, tool) => {
+  return async (iframe, source) => {
     const client = deps.getClient();
     if (!client) {
       throw new Error("Cannot render MCP App: no connected MCP client.");
@@ -211,18 +320,20 @@ export function createAppBridgeFactory(
     // Per-app copy so the approved-sandbox echo (set on sandboxready below)
     // never mutates the shared HOST_CAPABILITIES constant — each app may
     // declare its own csp/permissions.
-    const hostCapabilities: McpUiHostCapabilities = { ...HOST_CAPABILITIES };
-    // ext-apps' `AppBridge` peers on SDK v1's `Client`/`Implementation`; both
-    // are runtime-compatible with v2's. Cast at this single construction
-    // boundary. TODO: drop when ext-apps#702 ships a v2 peer release.
-    const bridge = new AppBridge(
-      client as unknown as ConstructorParameters<typeof AppBridge>[0],
-      HOST_INFO as unknown as ConstructorParameters<typeof AppBridge>[1],
-      hostCapabilities,
-      {
-        hostContext: snapshotHostContext(iframe, HOST_AVAILABLE_DISPLAY_MODES),
-      },
-    );
+    const hostCapabilities: McpUiHostCapabilities = {
+      ...HOST_CAPABILITIES,
+      // `elicitation` is not part of ext-apps 2.0.0's `McpUiHostCapabilities`
+      // (ext-apps#733 adds it), so it is spread in as an extra key. The bridge
+      // forwards the capabilities object verbatim in its `ui/initialize`
+      // response, which is exactly what the app reads. TODO: drop the cast when
+      // a release containing #733 ships.
+      ...(deps.advertiseElicitation
+        ? ({ elicitation: {} } as Partial<McpUiHostCapabilities>)
+        : {}),
+    };
+    const bridge = new AppBridge(client, HOST_INFO, hostCapabilities, {
+      hostContext: snapshotHostContext(iframe, HOST_AVAILABLE_DISPLAY_MODES),
+    });
 
     // The double-iframe proxy posts `sandboxready` once it can receive content.
     // Read the tool's UI resource and hand its HTML (plus any sandbox/permission
@@ -234,12 +345,13 @@ export function createAppBridgeFactory(
     bridge.addEventListener("sandboxready", () => {
       void (async () => {
         try {
-          const uri = getToolUiResourceUri(
-            tool as Parameters<typeof getToolUiResourceUri>[0],
-          );
+          const uri = resolveSourceUri(source);
           if (!uri) return;
           const result = await deps.readResource(uri);
-          const { html, meta } = extractHtmlAndMeta(result);
+          const { html, meta } = extractHtmlAndMeta(
+            result,
+            deps.getListedResourceMeta?.(uri),
+          );
           // Build the per-app CSP host-side: filter the requested sources to
           // ones the host accepts, render the policy string, and wrap the
           // app's HTML in a fixed shell whose first <head> child is the CSP
@@ -251,24 +363,59 @@ export function createAppBridgeFactory(
           // sendSandboxResourceReady: the view only sends ui/initialize once it
           // has the HTML, so the bridge reflects this in the initialize result.
           const approvedCsp = approveCspSources(meta?.csp);
-          // NOTE on the CSP-vs-permissions asymmetry: `csp` is injection-filtered
-          // by approveCspSources because its sources are interpolated into the
-          // CSP <meta> content string. `permissions` is NOT filtered here — it is
-          // a structured object (camera/microphone/geolocation/clipboardWrite
-          // booleans), and its only consumer is the sandbox proxy's
-          // buildAllowAttribute(), which maps each known key to a fixed
-          // Permissions-Policy token and ignores anything else. Untrusted values
-          // therefore can't reach the iframe `sandbox`/`allow` attribute as raw
-          // text (that layer, and the allow-same-origin strip, is owned by the
-          // sandbox-hardening work in #1565), so no source-style allowlist applies.
+          // Both halves of the app-supplied sandbox config are screened, for
+          // different reasons. `csp` is injection-filtered by approveCspSources
+          // because its sources are interpolated into the CSP <meta> content
+          // string. `permissions` can't reach the `sandbox`/`allow` attribute as
+          // raw text — the proxy maps each known key to a fixed Permissions-Policy
+          // token — but it tests those keys for TRUTHINESS, so a non-boolean
+          // (`camera: "false"`) would read as a grant; approveSandboxPermissions
+          // reduces the bag to the keys actually requested. The `allow-same-origin`
+          // strip and the rest of that layer stay owned by #1565.
+          const approvedPermissions = approveSandboxPermissions(
+            meta?.permissions,
+          );
           hostCapabilities.sandbox = {
-            permissions: meta?.permissions,
+            permissions: approvedPermissions,
             csp: approvedCsp,
           };
-          await bridge.sendSandboxResourceReady({
-            html: wrapSandboxedHtml(html, buildSandboxCspPolicy(approvedCsp)),
-            permissions: meta?.permissions,
-          });
+          const policy = buildSandboxCspPolicy(approvedCsp);
+          const wrapped = wrapSandboxedHtml(html, policy);
+          // `_meta.ui.domain` (#2056): the resource is asking to be served
+          // from a stable, dedicated origin rather than rendered into the
+          // default opaque-origin srcdoc frame, because an opaque origin sends
+          // `Origin: null` and no CORS / OAuth-callback / API-key allowlist can
+          // admit that. The spec makes the field's format host-dependent and
+          // the Inspector owns no domain infrastructure, so what it honors the
+          // request WITH is a real loopback origin — any non-empty domain opts
+          // in, and the string itself is not interpreted (see the app-origin
+          // controller for the host-specific contract).
+          //
+          // A `null` back means the backend has no such listener (an older
+          // backend, or one whose port never bound). Fall back to srcdoc: the
+          // app loses its real origin, which is a degradation the developer
+          // can see and act on — losing the app entirely is not.
+          const dedicated = wantsDedicatedOrigin(meta);
+          const src = dedicated
+            ? await deps.publishAppDocument?.({ html: wrapped, csp: policy })
+            : undefined;
+          if (dedicated && !src) {
+            console.warn(
+              "[mcp-app] resource declares _meta.ui.domain but no dedicated app origin is available; rendering under an opaque origin (requests will send `Origin: null`).",
+            );
+          }
+          // `src` is an Inspector-specific extension to the (internal)
+          // sandbox-resource-ready params, which ext-apps types but does not
+          // validate — the bridge forwards the params object verbatim. Declared
+          // as an intersection rather than cast so the extra key stays typed.
+          const readyParams: McpUiSandboxResourceReadyNotification["params"] & {
+            src?: string;
+          } = {
+            html: wrapped,
+            permissions: approvedPermissions,
+            ...(src ? { src } : {}),
+          };
+          await bridge.sendSandboxResourceReady(readyParams);
         } catch (err) {
           const error = err instanceof Error ? err : new Error(String(err));
           console.error(
@@ -338,6 +485,10 @@ export function createAppBridgeFactory(
 
     const transport = new PostMessageTransport(targetWindow, targetWindow);
     await bridge.connect(transport);
+    // Record the view's raw `ui/initialize` capabilities before the bridge's
+    // own schema strips the keys it predates (#1854). Must follow `connect`,
+    // which is what installs the handler this wraps.
+    observeAppCapabilities(bridge, transport);
     return bridge;
   };
 }

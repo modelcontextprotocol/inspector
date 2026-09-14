@@ -4,6 +4,15 @@
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "outDir": "./build",
+    // The script consumers rebuild this project on every run (#2111), so the
+    // up-to-date case has to be cheap.
+    "incremental": true,
+    // Pinned INSIDE the output dir. The default derives from `rootDir`, landing
+    // it at `test-servers/tsconfig.tsbuildinfo` — beside the config, outside
+    // `build/`. That would survive the `rm -rf test-servers/build` this project
+    // documents as the remedy for a deleted source file, leaving tsc convinced
+    // its outputs are up to date and emitting nothing.
+    "tsBuildInfoFile": "./build/tsconfig.tsbuildinfo",
     "rootDir": "./src",
     "declaration": false,
     "sourceMap": true,

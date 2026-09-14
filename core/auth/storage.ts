@@ -32,6 +32,26 @@ export interface SaveClientInformationOptions {
   issuer?: string;
 }
 
+/**
+ * A server's revocation-relevant state, taken and deleted in one step by
+ * {@link OAuthStorage.takeRevocationSnapshot}. Values are as stored — unparsed
+ * — so validation can happen after the mutation rather than inside it.
+ */
+export interface RevocationSnapshot {
+  /** Credentials per authorization-server issuer (SEP-2352). */
+  byIssuer: Record<
+    string,
+    { tokens?: unknown; clientInformation?: unknown } | undefined
+  >;
+  /** The legacy unkeyed slot, for entries predating issuer binding. */
+  legacyTokens?: unknown;
+  legacyClientInformation?: unknown;
+  /** The static/preconfigured registration, if any. */
+  preregisteredClientInformation?: unknown;
+  /** Cached authorization-server metadata, if discovery ever ran. */
+  serverMetadata?: unknown;
+}
+
 export interface OAuthStorage {
   /**
    * Optional preload of persisted state into memory. Getters and setters load
@@ -181,6 +201,27 @@ export interface OAuthStorage {
    * Clear the cached discovery state (SDK `invalidateCredentials('discovery')`).
    */
   clearDiscoveryState(serverUrl: string): Promise<void>;
+
+  /**
+   * Atomically read everything RFC 7009 revocation needs, and clear the
+   * server's state in the same step (#2144).
+   *
+   * Split reads followed by a separate `clear` are a check-then-act: each
+   * `await` yields, and an OAuth completion landing in one of those gaps saves
+   * a fresh grant that the clear then deletes. Doing both against one
+   * synchronous view of the in-memory state closes that window, and the network
+   * requests are sent afterwards from the returned snapshot.
+   *
+   * The values are returned **unparsed**, exactly as stored. Schema validation
+   * is pure and belongs after the mutation — running it in between would
+   * reintroduce the `await` this exists to remove.
+   *
+   * ⚠️ In-process only. Nothing in this store takes a cross-process lock —
+   * every mutation here is a read-modify-write over a loaded snapshot — so a
+   * second Inspector writing concurrently can still lose an update. That is a
+   * property of the store, not of this method; `clear` alone has always had it.
+   */
+  takeRevocationSnapshot(serverUrl: string): Promise<RevocationSnapshot>;
 
   /**
    * Clear all OAuth data for a server

@@ -14,6 +14,7 @@
 import type { InspectorClientProtocol } from "../inspectorClientProtocol.js";
 import type { ResourceTemplateType as ResourceTemplate } from "@modelcontextprotocol/client";
 import { isTerminalStatus } from "../types.js";
+import type { RequestMetadata } from "../types.js";
 import { TypedEventTarget } from "../typedEventTarget.js";
 
 export interface PagedResourceTemplatesStateEventMap {
@@ -59,7 +60,7 @@ export class PagedResourceTemplatesState extends TypedEventTarget<PagedResourceT
 
   async loadPage(
     cursor?: string,
-    metadata?: Record<string, string>,
+    metadata?: RequestMetadata,
   ): Promise<LoadPageResult> {
     const c = this.client;
     if (!c || c.getStatus() !== "connected") {

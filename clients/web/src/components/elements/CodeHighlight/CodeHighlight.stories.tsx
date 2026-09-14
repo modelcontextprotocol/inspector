@@ -9,14 +9,11 @@ const meta: Meta<typeof CodeHighlight> = {
 export default meta;
 type Story = StoryObj<typeof CodeHighlight>;
 
-export const Json: Story = {
+// No JSON story: JSON is rendered by `JsonEditor` (read-only), not here (#2151).
+export const Yaml: Story = {
   args: {
-    language: "json",
-    code: JSON.stringify(
-      { name: "my-app", version: "1.0.0", tags: ["a", "b"] },
-      null,
-      2,
-    ),
+    language: "yaml",
+    code: "name: my-app\nversion: 1.0.0\ntags:\n  - a\n  - b",
   },
 };
 

@@ -1,6 +1,6 @@
 import React from "react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render } from "ink-testing-library";
+import { render } from "./helpers/renderTui";
 
 type RenderResult = ReturnType<typeof render>;
 
@@ -24,6 +24,8 @@ const h = vi.hoisted(() => {
     resources: unknown[];
     resourceTemplates: unknown[];
     prompts: unknown[];
+    skills: unknown[];
+    skillsExtension: { directoryRead: boolean } | undefined;
     messages: unknown[];
     fetchRequests: unknown[];
     stderrLogs: unknown[];
@@ -39,6 +41,8 @@ const h = vi.hoisted(() => {
     resources: [],
     resourceTemplates: [],
     prompts: [],
+    skills: [],
+    skillsExtension: undefined as { directoryRead: boolean } | undefined,
     messages: [],
     fetchRequests: [],
     stderrLogs: [],
@@ -48,21 +52,39 @@ const h = vi.hoisted(() => {
   const openUrl = vi.fn().mockResolvedValue(undefined);
   // Shared OAuth-related spies so a test can configure resolve/reject and
   // assert calls regardless of which per-server FakeClient instance App built.
+  // Each spy is typed against the real InspectorClient method signature so its
+  // implementation and `mockResolvedValue` / return payloads stay in sync with
+  // the client (this is what keeps a stale `{ kind: "satisfied" }` literal from
+  // narrowing `handleAuthChallenge`'s return). Note vitest does NOT type-check
+  // `toHaveBeenCalledWith(...)` arguments against the mock's signature, so those
+  // assertions stay runtime-only. The FakeClient wrappers below forward the same
+  // `Parameters<…>` tuple, which spreads cleanly (a tuple, not `unknown[]`).
   const clientSpies = {
-    authenticate: vi.fn(
-      async (): Promise<string | undefined> => "https://auth.example/start",
+    authenticate: vi.fn<InspectorClient["authenticate"]>(
+      async () => new URL("https://auth.example/start"),
     ),
-    clearOAuthTokens: vi.fn(),
-    completeOAuthFlow: vi.fn(async (): Promise<void> => {}),
-    getOAuthState: vi.fn(async () => undefined),
-    callTool: vi.fn(),
-    checkAuthChallengeSatisfied: vi.fn(async () => false),
-    handleAuthChallenge: vi.fn(async () => ({ kind: "satisfied" as const })),
+    clearOAuthTokens: vi.fn<InspectorClient["clearOAuthTokens"]>(async () => ({
+      status: "skipped" as const,
+      reason: "no_endpoint" as const,
+    })),
+    completeOAuthFlow: vi.fn<InspectorClient["completeOAuthFlow"]>(
+      async () => {},
+    ),
+    getOAuthState: vi.fn<InspectorClient["getOAuthState"]>(
+      async () => undefined,
+    ),
+    callTool: vi.fn<InspectorClient["callTool"]>(),
+    checkAuthChallengeSatisfied: vi.fn<
+      InspectorClient["checkAuthChallengeSatisfied"]
+    >(async () => false),
+    handleAuthChallenge: vi.fn<InspectorClient["handleAuthChallenge"]>(
+      async () => ({ kind: "satisfied" }),
+    ),
   };
   // Captured options from the most recent callbackServer.start(), so a test can
   // drive the onCallback / onError handlers the OAuth flows register.
   interface CallbackOpts {
-    onCallback: (p: { code: string }) => Promise<void> | void;
+    onCallback: (p: { code: string; iss?: string }) => Promise<void> | void;
     onError: (p: { error?: string; error_description?: string }) => void;
   }
   const cb: { opts: CallbackOpts | null } = { opts: null };
@@ -85,7 +107,18 @@ const h = vi.hoisted(() => {
   // handler for the event (the common single-server case).
   type EventEntry = { client: unknown; fn: (event: unknown) => void };
   const clientEvents = new Map<string, Set<EventEntry>>();
-  const clientInstances: Array<{ cfg?: { type?: string; url?: string } }> = [];
+  const clientInstances: Array<{
+    cfg?: { type?: string; url?: string };
+    // The options the mount effect built for this server. Captured so a test
+    // can assert what was actually handed to the client — `defaultMetadata`
+    // and the `environment.fetch` proxy wiring (#2067), both of which are
+    // invisible to a render-only assertion.
+    opts?: { defaultMetadata?: unknown; environment?: { fetch?: unknown } };
+  }> = [];
+  // What the mocked `createProxyFetch` returns. `undefined` is the real
+  // behavior with no proxy env var set; a test points this at a sentinel to
+  // exercise the proxy-configured branch (#2067).
+  const proxyFetchState: { current: unknown } = { current: undefined };
   const fireClientEvent = (event: string, detail?: unknown) => {
     clientEvents.get(event)?.forEach((e) => e.fn({ detail }));
   };
@@ -110,8 +143,15 @@ const h = vi.hoisted(() => {
   }
   class FakeClient {
     cfg: { type?: string; url?: string } | undefined;
-    constructor(config?: { type?: string; url?: string }) {
+    opts:
+      | { defaultMetadata?: unknown; environment?: { fetch?: unknown } }
+      | undefined;
+    constructor(
+      config?: { type?: string; url?: string },
+      opts?: { defaultMetadata?: unknown; environment?: { fetch?: unknown } },
+    ) {
       this.cfg = config;
+      this.opts = opts;
       clientInstances.push(this);
     }
     // Derive the transport type from the server config the client was built
@@ -124,16 +164,28 @@ const h = vi.hoisted(() => {
           | "sse"
           | "streamable-http",
     );
-    authenticate = (...a: unknown[]) => clientSpies.authenticate(...a);
-    clearOAuthTokens = (...a: unknown[]) => clientSpies.clearOAuthTokens(...a);
-    completeOAuthFlow = (...a: unknown[]) =>
-      clientSpies.completeOAuthFlow(...a);
-    getOAuthState = (...a: unknown[]) => clientSpies.getOAuthState(...a);
-    callTool = (...a: unknown[]) => clientSpies.callTool(...a);
-    checkAuthChallengeSatisfied = (...a: unknown[]) =>
-      clientSpies.checkAuthChallengeSatisfied(...a);
-    handleAuthChallenge = (...a: unknown[]) =>
-      clientSpies.handleAuthChallenge(...a);
+    // The Skills tab is gated on a SERVER declaration, so the default here is
+    // "not declared" — the tab is hidden unless a test opts in by pointing
+    // `ctrl.skillsExtension` at a declaration.
+    getSkillsExtension = vi.fn(() => ctrl.skillsExtension);
+    authenticate = (...a: Parameters<InspectorClient["authenticate"]>) =>
+      clientSpies.authenticate(...a);
+    clearOAuthTokens = (
+      ...a: Parameters<InspectorClient["clearOAuthTokens"]>
+    ) => clientSpies.clearOAuthTokens(...a);
+    completeOAuthFlow = (
+      ...a: Parameters<InspectorClient["completeOAuthFlow"]>
+    ) => clientSpies.completeOAuthFlow(...a);
+    getOAuthState = (...a: Parameters<InspectorClient["getOAuthState"]>) =>
+      clientSpies.getOAuthState(...a);
+    callTool = (...a: Parameters<InspectorClient["callTool"]>) =>
+      clientSpies.callTool(...a);
+    checkAuthChallengeSatisfied = (
+      ...a: Parameters<InspectorClient["checkAuthChallengeSatisfied"]>
+    ) => clientSpies.checkAuthChallengeSatisfied(...a);
+    handleAuthChallenge = (
+      ...a: Parameters<InspectorClient["handleAuthChallenge"]>
+    ) => clientSpies.handleAuthChallenge(...a);
     readResource = vi.fn(async () => ({
       result: { contents: [{ uri: "file://x", text: "hello" }] },
     }));
@@ -158,6 +210,7 @@ const h = vi.hoisted(() => {
   }
   return {
     ctrl,
+    proxyFetchState,
     connect,
     disconnect,
     openUrl,
@@ -187,6 +240,11 @@ const h = vi.hoisted(() => {
       resourceTemplates: ctrl.resourceTemplates,
     })),
     useManagedPrompts: vi.fn(() => ({ prompts: ctrl.prompts })),
+    useManagedSkills: vi.fn(() => ({
+      skills: ctrl.skills,
+      pageCount: ctrl.skills.length > 0 ? 1 : 0,
+      error: null,
+    })),
     useMessageLog: vi.fn(() => ({ messages: ctrl.messages })),
     useFetchRequestLog: vi.fn(() => ({ fetchRequests: ctrl.fetchRequests })),
     useStderrLog: vi.fn(() => ({ stderrLogs: ctrl.stderrLogs })),
@@ -201,12 +259,19 @@ vi.mock("@inspector/core/mcp/state/index.js", () => ({
   ManagedResourcesState: h.FakeManager,
   ManagedResourceTemplatesState: h.FakeManager,
   ManagedPromptsState: h.FakeManager,
+  ManagedSkillsState: h.FakeManager,
   MessageLogState: h.FakeManager,
   FetchRequestLogState: h.FakeManager,
   StderrLogState: h.FakeManager,
 }));
 vi.mock("@inspector/core/mcp/node/index.js", () => ({
   createTransportNode: vi.fn(),
+  // Defaults to undefined — "no proxy configured", which is what the real one
+  // returns with no proxy env var set, so `environment.fetch` stays unset and
+  // the client falls back to the built-in fetch, exactly as before #2067. A
+  // test can point `h.proxyFetchState.current` at a sentinel to exercise the
+  // other branch.
+  createProxyFetch: vi.fn(() => h.proxyFetchState.current),
 }));
 vi.mock("@inspector/core/react/useInspectorClient.js", () => ({
   useInspectorClient: h.useInspectorClient,
@@ -219,6 +284,9 @@ vi.mock("@inspector/core/react/useManagedResources.js", () => ({
 }));
 vi.mock("@inspector/core/react/useManagedResourceTemplates.js", () => ({
   useManagedResourceTemplates: h.useManagedResourceTemplates,
+}));
+vi.mock("@inspector/core/react/useManagedSkills.js", () => ({
+  useManagedSkills: h.useManagedSkills,
 }));
 vi.mock("@inspector/core/react/useManagedPrompts.js", () => ({
   useManagedPrompts: h.useManagedPrompts,
@@ -263,6 +331,7 @@ vi.mock("../src/utils/openUrl.js", () => ({
 }));
 
 import App from "../src/App.js";
+import type { InspectorClient } from "@inspector/core/mcp/index.js";
 import type { TuiServer } from "../src/tui-servers.js";
 import {
   AuthRecoveryRequiredError,
@@ -308,13 +377,33 @@ function oneHttp(): Record<string, TuiServer> {
   };
 }
 
+/** An HTTP server that opted out of RFC 7009 revocation on clear (#2144). */
+function oneHttpNoRevoke(): Record<string, TuiServer> {
+  return {
+    web: {
+      config: { type: "streamable-http", url: "http://x" },
+      settings: {
+        requestTimeout: 0,
+        metadata: {},
+        headers: [],
+        env: [],
+        roots: [],
+        maxFetchRequests: 1000,
+        taskTtl: 0,
+        connectionTimeout: 0,
+        oauthRevokeOnClear: false,
+      },
+    } as never,
+  };
+}
+
 function oneEmaHttp(): Record<string, TuiServer> {
   return {
     ema: {
       config: { type: "streamable-http", url: "http://localhost:8080/mcp" },
       settings: {
         requestTimeout: 0,
-        metadata: [],
+        metadata: {},
         headers: [],
         env: [],
         roots: [],
@@ -367,10 +456,10 @@ function httpWithSettings(): Record<string, TuiServer> {
       config: { type: "streamable-http", url: "http://x" },
       settings: {
         requestTimeout: 5000,
-        metadata: [
-          { key: "team", value: "alpha" },
-          { key: "  ", value: "ignored" },
-        ],
+        // Object-shaped with a nested value (#1910) — the shape the TUI now
+        // forwards verbatim. As a pair array this would have reached the wire
+        // as numeric `_meta` keys.
+        metadata: { team: "alpha", trace: { id: "abc", hops: [1, 2] } },
         oauthClientId: "cid",
         oauthClientSecret: "secret",
         oauthScopes: "read write",
@@ -481,6 +570,9 @@ function renderApp(servers: Record<string, TuiServer>) {
 async function mount(servers: Record<string, TuiServer>) {
   const r = renderApp(servers);
   await tick();
+  // The mount commit's effect flush can still be queued behind this tick, and
+  // this write is the one that absorbs the dropped first keypress.
+  await settleInputHandlers();
   r.stdin.write("x");
   await tick();
   return r;
@@ -506,6 +598,11 @@ const ENTER = "\r";
  */
 async function press(r: RenderResult, keys: string[]) {
   for (const k of keys) {
+    // Same hazard `waitUntil` guards against, at the other end: a caller can
+    // reach here on a turn that still has React's passive-effect flush queued
+    // (e.g. straight after a plain `tick`, or after an earlier key committed a
+    // render), so settle before every write rather than only after a poll.
+    await settleInputHandlers();
     r.stdin.write(k);
     await tick();
     await tick();
@@ -526,9 +623,29 @@ async function press(r: RenderResult, keys: string[]) {
  */
 const POLL_TRIES = 100;
 
+/**
+ * One check-phase turn, queued BEHIND React's already-scheduled passive-effect
+ * flush. A frame observed by a poll predicate is written during React's
+ * COMMIT, but ink re-arms its useInput listeners in the passive-effect flush
+ * React schedules (via setImmediate in Node) during that same commit. Node's
+ * event loop runs the timers phase before the check phase, so a 25ms poll
+ * tick can observe the new frame and let the test write the next keypress
+ * BEFORE that flush has run — the key is then dispatched to the previous
+ * commit's stale useInput closures (where e.g. pendingStepUp is still null)
+ * and silently swallowed (#1942). Yielding one setImmediate turn after the
+ * predicate passes sequences the next stdin write after the flush (FIFO
+ * within the check queue), so "frame visible" once again implies "input
+ * handlers armed".
+ */
+const settleInputHandlers = () =>
+  new Promise((resolve) => setImmediate(resolve));
+
 async function waitUntil(predicate: () => boolean, tries = POLL_TRIES) {
   for (let i = 0; i < tries; i++) {
-    if (predicate()) return;
+    if (predicate()) {
+      await settleInputHandlers();
+      return;
+    }
     await tick();
   }
 }
@@ -564,6 +681,8 @@ beforeEach(() => {
     resources: [],
     resourceTemplates: [],
     prompts: [],
+    skills: [],
+    skillsExtension: undefined as { directoryRead: boolean } | undefined,
     messages: [],
     fetchRequests: [],
     stderrLogs: [],
@@ -579,10 +698,19 @@ beforeEach(() => {
   h.callbackStop.mockClear();
   h.clientEvents.clear();
   h.clientInstances.length = 0;
+  h.proxyFetchState.current = undefined;
   h.runner.override = null;
   h.clientSpies.authenticate.mockReset();
-  h.clientSpies.authenticate.mockResolvedValue("https://auth.example/start");
+  h.clientSpies.authenticate.mockResolvedValue(
+    new URL("https://auth.example/start"),
+  );
   h.clientSpies.clearOAuthTokens.mockReset();
+  // #2144: the clear now reads the returned revocation outcome, so the reset
+  // default has to be an outcome rather than `undefined`.
+  h.clientSpies.clearOAuthTokens.mockResolvedValue({
+    status: "skipped",
+    reason: "no_endpoint",
+  });
   h.clientSpies.completeOAuthFlow.mockReset();
   h.clientSpies.completeOAuthFlow.mockResolvedValue(undefined);
   h.clientSpies.getOAuthState.mockReset();
@@ -596,6 +724,23 @@ beforeEach(() => {
 
 afterEach(() => {
   while (mounted.length) mounted.pop()?.unmount();
+});
+
+// Pins the synchronization contract the OAuth step-up assertions depend on
+// (#1942). The `setImmediate` sentinel below stands in for React's pending
+// passive-effect flush — the turn where ink re-arms `useInput`. If `waitUntil`
+// ever returns without yielding a check-phase turn, the sentinel has not run
+// and this fails, instead of the regression resurfacing as a differently-named
+// flaky OAuth test under coverage instrumentation.
+describe("test helpers", () => {
+  it("waitUntil settles input handlers before resolving", async () => {
+    let flushed = false;
+    setImmediate(() => {
+      flushed = true;
+    });
+    await waitUntil(() => true);
+    expect(flushed).toBe(true);
+  });
 });
 
 describe("App (foundation)", () => {
@@ -625,12 +770,160 @@ describe("App (foundation)", () => {
     expect(h.connect).toHaveBeenCalled();
   });
 
+  it("hides the Skills tab until the server declares the extension", async () => {
+    // A *server*-declared extension (SEP-2640), so unlike the transport-derived
+    // tabs it is only knowable after connecting — and showing it against a
+    // server that never declared it would send `skills/list` to a server that
+    // answers -32601 (#2248).
+    h.ctrl.status = "connected";
+    const r = await mount(oneStdio());
+    await expectFrame(r, "Tools");
+    expect(r.lastFrame() ?? "").not.toContain("Skills");
+  });
+
+  it("shows the Skills tab, with its count, once the extension is declared", async () => {
+    h.ctrl.status = "connected";
+    h.ctrl.skillsExtension = { directoryRead: false };
+    h.ctrl.skills = [
+      {
+        uri: "skill://demo/SKILL.md",
+        frontmatter: { name: "demo", description: "d" },
+        resources: [],
+      },
+    ];
+    const r = await mount(oneStdio());
+    await expectFrame(r, "Skills (1)");
+  });
+
+  it("opens the Skills tab with its 'k' accelerator", async () => {
+    // `k`, not `s` — the accelerator has to appear in the label and stay
+    // unique; see `tabsConfig.ts`.
+    h.ctrl.status = "connected";
+    h.ctrl.skillsExtension = { directoryRead: true };
+    const r = await mount(oneStdio());
+    await expectFrame(r, "Skills");
+    r.stdin.write("k");
+    await expectFrame(r, "Select a skill to view details");
+  });
+
+  it("leaves the Skills tab when the selected server does not serve it", async () => {
+    // The tab disappears from the bar when the gate goes false, but `activeTab`
+    // is independent of the bar — so without this the render branch keeps
+    // showing the pane for a server that never declared the extension, and the
+    // user is stranded on content they cannot navigate back to (Copilot).
+    h.ctrl.status = "connected";
+    h.ctrl.skillsExtension = { directoryRead: false };
+    const r = await mount(oneStdio());
+    await expectFrame(r, "Skills");
+    r.stdin.write("k");
+    await expectFrame(r, "Select a skill to view details");
+
+    // The server stops declaring it — the shape of switching to one without
+    // the extension, since the declaration is read off the live client.
+    h.ctrl.skillsExtension = undefined;
+    r.rerender(
+      <App
+        mcpServers={oneStdio()}
+        clientConfig={emptyClientConfig}
+        callbackUrlConfig={callbackUrlConfig}
+      />,
+    );
+    await tick();
+    await expectFrame(r, "Server Configuration");
+    expect(r.lastFrame() ?? "").not.toContain("Select a skill to view details");
+  });
+
   it("disconnects with 'd' when connected", async () => {
     h.ctrl.status = "connected";
     const { stdin } = await mount(oneStdio());
     stdin.write("d");
     await tick();
     expect(h.disconnect).toHaveBeenCalled();
+  });
+
+  it("surfaces a disconnect failure instead of floating the rejection", async () => {
+    // 'd' is a key handler, so it cannot await handleDisconnect — the handler
+    // has to own the failure itself or it escapes as an unhandled rejection
+    // and fails the whole run from somewhere else (#1959).
+    // The banner is deliberately independent of connection status: a rejected
+    // disconnect leaves the status "connected", so anything gated on
+    // `status === "error"` would never be seen.
+    h.ctrl.status = "connected";
+    h.disconnect.mockRejectedValue(new Error("discfail"));
+    const r = await mount(oneStdio());
+    r.stdin.write("d");
+    await expectFrame(r, "Disconnect failed: discfail");
+  });
+
+  it("owns a non-Error disconnect rejection too", async () => {
+    // The catch stringifies a non-Error rejection rather than reading
+    // `.message` off it; a throw here would escape the same way.
+    h.ctrl.status = "connected";
+    h.disconnect.mockRejectedValue("plainstring");
+    const r = await mount(oneStdio());
+    r.stdin.write("d");
+    await expectFrame(r, "Disconnect failed: plainstring");
+  });
+
+  it("clears a disconnect failure once a retry succeeds", async () => {
+    // A stale banner would keep reporting a failure the user has since fixed.
+    h.ctrl.status = "connected";
+    h.disconnect.mockRejectedValueOnce(new Error("discfail"));
+    const r = await mount(oneStdio());
+    r.stdin.write("d");
+    await expectFrame(r, "Disconnect failed: discfail");
+    r.stdin.write("d");
+    await waitUntil(() => !(r.lastFrame() ?? "").includes("Disconnect failed"));
+    expect(r.lastFrame() ?? "").not.toContain("Disconnect failed");
+  });
+
+  it("drops a disconnect rejection that lands after the user switched servers", async () => {
+    // The stale attempt is the one that usually rejects, so without an
+    // attempt token server alpha's failure would surface in beta's header.
+    h.ctrl.status = "connected";
+    let rejectDisconnect: (err: Error) => void = () => {};
+    h.disconnect.mockImplementationOnce(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          rejectDisconnect = reject;
+        }),
+    );
+    const r = await mount(stdioServer());
+    r.stdin.write("d"); // alpha's disconnect starts, and hangs
+    await tick();
+    await press(r, [DOWN]); // switch to beta
+    await expectFrame(r, "beta");
+    rejectDisconnect(new Error("stale-alpha-failure"));
+    // Give the rejection every chance to be published before asserting it
+    // wasn't — a bare tick would pass even with the guard removed.
+    await waitUntil(() =>
+      (r.lastFrame() ?? "").includes("stale-alpha-failure"),
+    );
+    expect(r.lastFrame() ?? "").not.toContain("stale-alpha-failure");
+  });
+
+  it("drops a stale disconnect rejection across an A → B → A round trip", async () => {
+    // The server-name check alone passes here: by the time the rejection
+    // lands, alpha is selected again. Only retiring the attempt token on
+    // every switch catches it.
+    h.ctrl.status = "connected";
+    let rejectDisconnect: (err: Error) => void = () => {};
+    h.disconnect.mockImplementationOnce(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          rejectDisconnect = reject;
+        }),
+    );
+    const r = await mount(stdioServer());
+    r.stdin.write("d"); // alpha's disconnect starts, and hangs
+    await tick();
+    await press(r, [DOWN]); // alpha -> beta
+    await expectFrame(r, "b.js");
+    await press(r, [UP]); // beta -> alpha again
+    await expectFrame(r, "s.js");
+    rejectDisconnect(new Error("round-trip-failure"));
+    await waitUntil(() => (r.lastFrame() ?? "").includes("round-trip-failure"));
+    expect(r.lastFrame() ?? "").not.toContain("round-trip-failure");
   });
 
   it("switches tabs via accelerator keys", async () => {
@@ -956,6 +1249,13 @@ describe("App (input handling, focus, effects)", () => {
   it("builds a client with saved settings (metadata, oauth, timeout)", async () => {
     const r = await mount(httpWithSettings());
     await expectFrame(r, "MCP Servers");
+    // Not just "it mounted": the saved metadata must reach the client as the
+    // same object, nesting intact (#1910).
+    const web = h.clientInstances.find((c) => c.cfg?.url === "http://x");
+    expect(web?.opts?.defaultMetadata).toEqual({
+      team: "alpha",
+      trace: { id: "abc", hops: [1, 2] },
+    });
   });
 
   it("passes top-level oauth client credentials into an http client", async () => {
@@ -1157,6 +1457,116 @@ describe("App (mid-session auth lifecycle events)", () => {
     await waitUntil(() => h.clientSpies.clearOAuthTokens.mock.calls.length > 0);
     expect(h.clientSpies.clearOAuthTokens).toHaveBeenCalled();
     expect(h.disconnect).toHaveBeenCalled();
+  });
+
+  // #2144 — revocation is on unless the entry opted out, and the opt-out has to
+  // reach the client, since that is where the RFC 7009 request is made.
+  it("asks for revocation by default when clearing", async () => {
+    const r = await mount(oneHttp());
+    await press(r, ["a", "s"]);
+    await waitUntil(() => h.clientSpies.clearOAuthTokens.mock.calls.length > 0);
+    expect(h.clientSpies.clearOAuthTokens).toHaveBeenCalledWith({
+      revoke: true,
+    });
+  });
+
+  it("forwards the per-server revocation opt-out", async () => {
+    const r = await mount(oneHttpNoRevoke());
+    await press(r, ["a", "s"]);
+    await waitUntil(() => h.clientSpies.clearOAuthTokens.mock.calls.length > 0);
+    expect(h.clientSpies.clearOAuthTokens).toHaveBeenCalledWith({
+      revoke: false,
+    });
+  });
+
+  // A failed revocation leaves the grant live at the authorization server, so
+  // it has to be visible rather than swallowed — the local clear succeeded and
+  // would otherwise look like the whole operation did.
+  it("reports a failed revocation without failing the clear", async () => {
+    h.clientSpies.clearOAuthTokens.mockResolvedValue({
+      status: "failed",
+      detail: "unreachable",
+    });
+    const r = await mount(oneHttp());
+    await press(r, ["a", "s"]);
+    // The detail is what identifies the failure; the tone the message renders
+    // in is asserted against `AuthTab` directly, where the branch lives.
+    await expectFrame(r, "unreachable");
+  });
+
+  // The wiring is the contract here, not just `AuthTab`'s own behavior: a
+  // `void`-ing arrow between them resolves instantly, which makes the pending
+  // state, the repeat lock and the rejection path all inert while revocation
+  // is still running. Driven through the real App so the arrow cannot come
+  // back (#2144).
+  it("holds the pending state until the clear actually settles", async () => {
+    let settle: () => void = () => {};
+    h.clientSpies.clearOAuthTokens.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          settle = () =>
+            resolve({ status: "skipped", reason: "no_endpoint" as const });
+        }),
+    );
+    const r = await mount(oneHttp());
+    await press(r, ["a", "s"]);
+    await waitUntil(() => h.clientSpies.clearOAuthTokens.mock.calls.length > 0);
+    await tick();
+
+    // Still running: the pending line is up and the confirmation is not.
+    expect(r.lastFrame() ?? "").toContain("Clearing OAuth state");
+    expect(r.lastFrame() ?? "").not.toContain("OAuth state cleared");
+
+    // And the repeat lock is live, so a second press does not start another.
+    await press(r, ["s"]);
+    expect(h.clientSpies.clearOAuthTokens).toHaveBeenCalledTimes(1);
+
+    settle();
+    await waitUntil(() =>
+      (r.lastFrame() ?? "").includes("OAuth state cleared"),
+    );
+  });
+
+  // The clear has already succeeded when the disconnect runs, so its failure
+  // must not propagate: `AuthTab` would report "Could not clear OAuth state",
+  // which is false. It goes to the disconnect error line, where the same
+  // failure from the `d` key already lands.
+  it("reports a post-clear disconnect failure as a disconnect failure", async () => {
+    h.ctrl.status = "connected";
+    h.disconnect.mockRejectedValue(new Error("disconnect-blew-up"));
+    const r = await mount(oneHttp());
+    await press(r, ["a", "s"]);
+
+    await expectFrame(r, "disconnect-blew-up");
+    expect(r.lastFrame() ?? "").not.toContain("Could not clear OAuth state");
+  });
+
+  // A transport can reject with something that is not an `Error`; the message
+  // line must still be readable rather than "[object Object]".
+  it("reports a non-Error disconnect failure from a clear", async () => {
+    h.ctrl.status = "connected";
+    h.disconnect.mockRejectedValue("plain-disconnect-string");
+    const r = await mount(oneHttp());
+    await press(r, ["a", "s"]);
+    await expectFrame(r, "plain-disconnect-string");
+  });
+
+  // A clear while still CONNECTING tears the attempt down too — the session is
+  // half-built, and leaving it up with its OAuth state gone is worse than not
+  // having it.
+  it("disconnects a connecting session when clearing", async () => {
+    h.ctrl.status = "connecting";
+    const r = await mount(oneHttp());
+    await press(r, ["a", "s"]);
+    await waitUntil(() => h.disconnect.mock.calls.length > 0);
+    expect(h.disconnect).toHaveBeenCalled();
+  });
+
+  it("says nothing when there was nothing to revoke", async () => {
+    const r = await mount(oneHttp());
+    await press(r, ["a", "s"]);
+    await waitUntil(() => h.clientSpies.clearOAuthTokens.mock.calls.length > 0);
+    expect(r.lastFrame() ?? "").not.toContain("authorization server failed");
   });
 
   const stepUpChallenge = {
@@ -1448,6 +1858,27 @@ describe("App (OAuth result branches)", () => {
       challenge: { reason: "unauthorized" },
     });
     await expectFrame(r, "Authorization updated. Retry your action");
+  });
+
+  it("installs the proxy fetch as environment.fetch when a proxy is configured", async () => {
+    // The bottom-of-stack wiring for #2067. It is one line in App.tsx and it is
+    // what makes InspectorClient's own wrappers compose OVER the proxy instead
+    // of discarding it — delete it and TUI proxy support silently disappears
+    // while every other test stays green.
+    const sentinel: typeof fetch = async () => new Response("");
+    h.proxyFetchState.current = sentinel;
+    await mount(oneHttp());
+    expect(h.clientInstances.length).toBeGreaterThan(0);
+    expect(h.clientInstances[0]!.opts?.environment?.fetch).toBe(sentinel);
+  });
+
+  it("leaves environment.fetch unset when no proxy is configured", async () => {
+    // The default path must stay on the built-in fetch — a wrapper installed
+    // unconditionally would put every TUI user behind an undici fetch.
+    h.proxyFetchState.current = undefined;
+    await mount(oneHttp());
+    expect(h.clientInstances.length).toBeGreaterThan(0);
+    expect(h.clientInstances[0]!.opts?.environment?.fetch).toBeUndefined();
   });
 
   it("ignores auth lifecycle events from a non-selected server", async () => {

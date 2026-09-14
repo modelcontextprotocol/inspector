@@ -1,6 +1,6 @@
 import React from "react";
 import { describe, it, expect, vi } from "vitest";
-import { render } from "ink-testing-library";
+import { render } from "./helpers/renderTui";
 import { Text } from "ink";
 
 // ScrollView: passthrough so `content` mounts and the imperative ref API

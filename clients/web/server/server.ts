@@ -9,18 +9,24 @@ import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
-import open from "open";
 import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { createRemoteApp } from "../../../core/mcp/remote/node/server.ts";
+import { formatHostForUrl } from "../../../core/node/hostUrl.ts";
 import { createSandboxController } from "./sandbox-controller.js";
+import {
+  createAppOriginController,
+  appDocumentEmbedders,
+} from "./app-origin-controller.js";
 import { injectAuthToken } from "./inject-auth-token.js";
 import type { WebServerConfig } from "./web-server-config.js";
+import { getSecretStorageInfo } from "../../../core/auth/node/secret-store-selection.ts";
 import {
   webServerConfigToInitialPayload,
   printServerBanner,
+  openBrowser,
 } from "./web-server-config.js";
 import type { WebServerHandle } from "./types.js";
 
@@ -39,14 +45,32 @@ export async function startHonoServer(
   const sandboxController = createSandboxController({
     port: config.sandboxPort,
     host: config.sandboxHost,
+    allowedOrigins: config.allowedOrigins,
   });
   await sandboxController.start();
+  // The dedicated origin apps declaring `_meta.ui.domain` are served from
+  // (#2056). Started after the sandbox because its `frame-ancestors` names the
+  // sandbox proxy's origin — the proxy is what embeds the app frame.
+  const appOriginController = createAppOriginController({
+    port: config.appOriginPort,
+    host: config.sandboxHost,
+    embedderOrigins: appDocumentEmbedders(
+      sandboxController.getUrl(),
+      config.allowedOrigins,
+    ),
+  });
+  await appOriginController.start();
 
   const resolvedAuthToken =
     config.authToken ||
     (config.dangerouslyOmitAuth ? "" : randomBytes(32).toString("hex"));
 
   const rootPath = config.staticRoot ?? __dirname;
+  // Resolve the secret store before the API is built so the descriptor the
+  // browser reads (`/api/config`) and the one the banner prints come from the
+  // same resolution — the selection is cached, so this is also the only place
+  // the keychain probe actually runs.
+  const secretStorage = await getSecretStorageInfo();
 
   const { app: apiApp, close: closeApi } = createRemoteApp({
     authToken: config.dangerouslyOmitAuth ? undefined : resolvedAuthToken,
@@ -57,8 +81,14 @@ export async function startHonoServer(
     initialServers: config.initialServers ?? undefined,
     allowedOrigins: config.allowedOrigins,
     sandboxUrl: sandboxController.getUrl() ?? undefined,
+    publishAppDocument: (doc) => appOriginController.publish(doc),
     logger: config.logger,
-    initialConfig: webServerConfigToInitialPayload(config),
+    initialConfig: webServerConfigToInitialPayload(config, secretStorage),
+    // The startup value above is what the banner printed; the route
+    // re-resolves per request, because the first write under a newly-set
+    // passphrase encrypts a pre-existing plaintext file and a captured
+    // descriptor would keep reporting the old state until a restart.
+    secretStorageResolver: getSecretStorageInfo,
   });
 
   const app = new Hono();
@@ -121,9 +151,12 @@ export async function startHonoServer(
         info.port,
         resolvedAuthToken,
         sandboxUrl ?? undefined,
+        secretStorage,
       );
       if (config.autoOpen) {
-        open(url);
+        // Never a bare `open(url)`: this callback is synchronous, so a
+        // rejection would escape it. See openBrowser.
+        openBrowser(url);
       }
     },
   );
@@ -131,7 +164,7 @@ export async function startHonoServer(
   httpServer.on("error", (err: Error) => {
     if (err.message.includes("EADDRINUSE")) {
       console.error(
-        `MCP Inspector PORT IS IN USE at http://${config.hostname}:${config.port}`,
+        `MCP Inspector PORT IS IN USE at http://${formatHostForUrl(config.hostname)}:${config.port}`,
       );
       process.exit(1);
     } else {
@@ -143,6 +176,7 @@ export async function startHonoServer(
     async close(): Promise<void> {
       await closeApi();
       await sandboxController.close();
+      await appOriginController.close();
       if ("closeAllConnections" in httpServer) {
         httpServer.closeAllConnections();
       }

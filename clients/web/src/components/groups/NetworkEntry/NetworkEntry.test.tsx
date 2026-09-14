@@ -7,6 +7,7 @@ import {
   screen,
   waitFor,
 } from "../../../test/renderWithMantine";
+import { getAceText, getAceTextByLabel } from "../../../test/aceEditor";
 import { NetworkEntry } from "./NetworkEntry";
 
 const baseEntry: FetchRequestEntry = {
@@ -208,6 +209,35 @@ describe("NetworkEntry", () => {
     expect(screen.queryByText("Response Body")).not.toBeInTheDocument();
   });
 
+  // The declared content type reaches `ContentViewer`, so a body the server
+  // *said* was JSON renders as JSON even when it does not parse. Without it
+  // the Network tab could only ever reach the parse-it-first heuristic, and a
+  // malformed JSON response read as plain text with no sign it was meant to be
+  // JSON.
+  it("renders a malformed but declared JSON body as JSON", () => {
+    const malformed: FetchRequestEntry = {
+      ...baseEntry,
+      responseHeaders: { "content-type": "application/json" },
+      responseBody: '{"ok":',
+    };
+    renderWithMantine(<NetworkEntry entry={malformed} isListExpanded={true} />);
+    expect(getAceTextByLabel(/Response body JSON/)).toBe('{"ok":');
+  });
+
+  // Narrowed to JSON on purpose: forwarding the content type wholesale would
+  // route an HTML body into the sandboxed frame and a CSV one into a table,
+  // which is a change to what the Network tab is.
+  it("does not route a non-JSON declared body to another renderer", () => {
+    const html: FetchRequestEntry = {
+      ...baseEntry,
+      responseHeaders: { "content-type": "text/html" },
+      responseBody: "<p>hi</p>",
+    };
+    renderWithMantine(<NetworkEntry entry={html} isListExpanded={true} />);
+    expect(screen.getByText("<p>hi</p>")).toBeInTheDocument();
+    expect(document.querySelector("iframe")).toBeNull();
+  });
+
   it("shows a 'too large' notice when a body exceeds the inline preview limit", async () => {
     const user = userEvent.setup();
     const huge = "x".repeat(150_000);
@@ -232,28 +262,29 @@ describe("NetworkEntry", () => {
         token_type: "Bearer",
       }),
     };
-    const { container } = renderWithMantine(
-      <NetworkEntry entry={authEntry} isListExpanded={true} />,
-    );
-    // Masked by default: the reveal affordance is present and the raw secret
-    // is nowhere in the DOM, but non-secret fields still render.
+    renderWithMantine(<NetworkEntry entry={authEntry} isListExpanded={true} />);
+    // Masked by default: the reveal affordance is present and the raw secret is
+    // nowhere in the rendered body, but non-secret fields still render. Read
+    // through the JSON editor rather than the DOM — Ace virtualizes its lines,
+    // so what the document holds is a function of a viewport happy-dom has no
+    // layout to give it.
     expect(screen.getByText("Secrets hidden")).toBeInTheDocument();
-    expect(container.textContent).not.toContain("super-secret-token");
-    expect(container.textContent).toContain("••••••••");
-    expect(container.textContent).toContain("Bearer");
+    expect(getAceText()).not.toContain("super-secret-token");
+    expect(getAceText()).toContain("••••••••");
+    expect(getAceText()).toContain("Bearer");
 
     await user.click(
       screen.getByRole("button", { name: "Reveal secrets in body" }),
     );
 
     expect(screen.getByText("Secrets revealed")).toBeInTheDocument();
-    expect(container.textContent).toContain("super-secret-token");
+    expect(getAceText()).toContain("super-secret-token");
 
     // Toggling back re-masks.
     await user.click(
       screen.getByRole("button", { name: "Hide secrets in body" }),
     );
-    expect(container.textContent).not.toContain("super-secret-token");
+    expect(getAceText()).not.toContain("super-secret-token");
   });
 
   it("masks a form-encoded request body (code/verifier) until revealed", async () => {

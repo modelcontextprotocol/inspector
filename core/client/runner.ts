@@ -3,14 +3,16 @@
  * for Node runners (TUI, CLI).
  */
 
-import {
-  KeyringSecretStore,
-  type SecretStore,
-} from "../auth/node/secret-store.js";
+import type { SecretStore } from "../auth/node/secret-store.js";
+import { defaultSecretStore } from "../auth/node/secret-store-selection.js";
 import type {
   InspectorClientOptions,
   InspectorServerSettings,
 } from "../mcp/types.js";
+import {
+  oauthAuthorizationParamsFromSettings,
+  oauthEndpointOverridesFromSettings,
+} from "../mcp/serverList.js";
 import { loadClientConfig } from "./config.js";
 import type { ClientConfig } from "./types.js";
 import {
@@ -21,8 +23,9 @@ import {
 export interface LoadRunnerClientConfigOptions {
   /** Explicit path from `--client-config` (or MCP_CLIENT_CONFIG_PATH when unset). */
   clientConfigPath?: string;
-  /** Secret store for the IdP clientSecret; defaults to the OS keychain. Tests
-   * inject an in-memory store for determinism. */
+  /** Secret store for the IdP clientSecret; defaults to the store selected for
+   * this host (OS keychain, or its file/memory fallback). Tests inject an
+   * in-memory store for determinism. */
   secretStore?: SecretStore;
 }
 
@@ -34,7 +37,7 @@ export async function loadRunnerClientConfig(
     options?.clientConfigPath?.trim() ||
     process.env.MCP_CLIENT_CONFIG_PATH?.trim() ||
     undefined;
-  const secretStore = options?.secretStore ?? new KeyringSecretStore();
+  const secretStore = options?.secretStore ?? defaultSecretStore();
   return loadClientConfig({ filePath: customPath, secretStore });
 }
 
@@ -70,12 +73,22 @@ export function buildRunnerClientAuthOptions(
   const activeIdp = getActiveEnterpriseManagedAuthIdp(clientConfig);
   const activeCimdUrl = getActiveCimdClientMetadataUrl(clientConfig);
 
+  const serverAuthorizationParams = savedSettings
+    ? oauthAuthorizationParamsFromSettings(savedSettings)
+    : undefined;
+  const serverEndpointOverrides = savedSettings
+    ? oauthEndpointOverridesFromSettings(savedSettings)
+    : undefined;
+
   const oauthFromServer =
     savedSettings &&
     (savedSettings.oauthClientId ||
       savedSettings.oauthClientSecret ||
       savedSettings.oauthScopes ||
-      savedSettings.enterpriseManaged)
+      serverAuthorizationParams ||
+      serverEndpointOverrides ||
+      savedSettings.enterpriseManaged ||
+      savedSettings.oauthRequestRefreshToken === false)
       ? {
           ...(savedSettings.oauthClientId && {
             clientId: savedSettings.oauthClientId,
@@ -86,8 +99,17 @@ export function buildRunnerClientAuthOptions(
           ...(savedSettings.oauthScopes && {
             scope: savedSettings.oauthScopes,
           }),
+          ...(serverAuthorizationParams && {
+            authorizationParams: serverAuthorizationParams,
+          }),
+          ...serverEndpointOverrides,
           ...(savedSettings.enterpriseManaged && {
             enterpriseManaged: true,
+          }),
+          // #2068: only the explicit opt-out is forwarded; omitting the key
+          // leaves the provider's default (declare `refresh_token`) in place.
+          ...(savedSettings.oauthRequestRefreshToken === false && {
+            requestRefreshToken: false,
           }),
         }
       : undefined;

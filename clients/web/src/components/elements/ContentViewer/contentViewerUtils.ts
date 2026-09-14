@@ -1,8 +1,16 @@
 /**
- * Pure helpers backing the per-MIME dispatch in {@link ContentViewer}. Kept in
- * a dependency-free module so they can be unit-tested in isolation and reused by
- * the blob renderers (PDF / CSV / HTML) without dragging in React.
+ * Pure helpers backing the per-MIME dispatch in {@link ContentViewer}. Kept
+ * free of component dependencies so they can be unit-tested in isolation and
+ * reused by the blob renderers (PDF / CSV / HTML) without dragging in React.
+ * The predicates imported below are the exception that proves it: plain
+ * functions over a string, shared so the viewer and the JSON editors cannot
+ * disagree about which payloads survive a round trip.
  */
+import { isSerializableJson } from "@inspector/core/json/jsonUtils.js";
+import {
+  findDuplicateObjectKey,
+  findUnsendableNumberLiteral,
+} from "../../../utils/jsonObjectDraft";
 
 /**
  * The renderer family a MIME type maps to. `ContentViewer` switches on this to
@@ -130,16 +138,80 @@ export function tryDecodeBase64ToBytes(
 /** Pretty-print JSON text; returns the input unchanged when it doesn't parse. */
 export function formatJson(content: string): string {
   try {
-    return JSON.stringify(JSON.parse(content), null, 2);
+    const parsed: unknown = JSON.parse(content);
+    return reformatsFaithfully(content, parsed)
+      ? JSON.stringify(parsed, null, 2)
+      : content;
   } catch {
     return content;
   }
+}
+
+/**
+ * Whether pretty-printing this payload would show the reader the same values
+ * the sender put on the wire.
+ *
+ * Pretty-printing here is `JSON.parse` then `JSON.stringify`, which is a
+ * *round trip through JavaScript's number type* — and that is not lossless.
+ * A server sending `{"id":9007199254740993}` would be shown `…992`, and one
+ * sending `{"limit":1e400}` would be shown `null`, because `JSON.parse` yields
+ * `Infinity` and `JSON.stringify` writes that as null. Neither is a formatting
+ * difference; both are the viewer telling the reader something untrue about
+ * the payload it received, which for an inspector is the worst kind of bug.
+ *
+ * So when the round trip would alter a value, the payload is displayed exactly
+ * as it arrived — unindented, but honest. The copy button already copied the
+ * original text either way; this makes what is on screen agree with it.
+ *
+ * The same checks the draft parsers use, which is why they live in
+ * `utils/jsonObjectDraft` rather than beside either caller.
+ */
+function reformatsFaithfully(text: string, parsed: unknown): boolean {
+  return (
+    isSerializableJson(parsed) &&
+    findUnsendableNumberLiteral(text) === null &&
+    // A duplicate member name is the same class and the starkest instance:
+    // `{"role":"user","role":"admin"}` would be *shown* as only the second,
+    // which is the viewer hiding what the server sent.
+    findDuplicateObjectKey(text) === null
+  );
 }
 
 /** Heuristic: does this plain text (no MIME) look like a JSON document? */
 export function looksLikeJson(text: string): boolean {
   const trimmed = text.trimStart();
   return trimmed.startsWith("{") || trimmed.startsWith("[");
+}
+
+/**
+ * Pretty-print untyped text if it really is a JSON document, or report that it
+ * is not.
+ *
+ * {@link looksLikeJson} only tests the first character, which is enough to
+ * decide whether to *try* pretty-printing — a failed parse falls back to the
+ * original text and nothing is lost. It is not enough to decide to hand the
+ * text to the JSON editor: a note beginning `{` would then be presented as a
+ * JSON document, in a JSON gutter, with the server's plain text framed as
+ * malformed. A declared `application/json` is different — there the server said
+ * what it sent, so its own broken payload is shown as JSON on purpose.
+ *
+ * Returns the formatted text rather than a boolean so the caller does not parse
+ * a second time to render what this already parsed to decide. Protocol and
+ * Network entries hand their serialized bodies over as untyped text and are not
+ * virtualized, so a long history pays for every parse on every render.
+ */
+export function formatJsonDocument(text: string): string | null {
+  if (!looksLikeJson(text)) return null;
+  try {
+    const parsed: unknown = JSON.parse(text);
+    // Still a JSON document either way — it just does not get reindented when
+    // reindenting would change what it says. See `reformatsFaithfully`.
+    return reformatsFaithfully(text, parsed)
+      ? JSON.stringify(parsed, null, 2)
+      : text;
+  } catch {
+    return null;
+  }
 }
 
 /**

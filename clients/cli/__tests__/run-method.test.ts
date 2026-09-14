@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import { getTestMcpServerCommand } from "@modelcontextprotocol/inspector-test-server";
 import { InspectorClient } from "@inspector/core/mcp/index.js";
 import { createTransportNode } from "@inspector/core/mcp/node/index.js";
@@ -25,6 +25,9 @@ describe("runMethod", () => {
         progress: false,
         sample: false,
         elicit: false,
+        // Mirrors `cli.ts`, which always passes the option so the capability is
+        // negotiated and the `roots/list` handler registered (#1797).
+        roots: [],
       },
     );
     await client.connect();
@@ -89,6 +92,33 @@ describe("runMethod", () => {
     expect(set.kind).toBe("result");
     if (set.kind === "result") {
       expect(set.result.roots).toEqual([{ uri: "file:///tmp", name: "tmp" }]);
+    }
+  });
+
+  it("roots/set drops a malformed root rather than advertising it", async () => {
+    // `--roots-json` only checks that the payload parses to an array, so a
+    // root with no `uri` used to be stored and then handed to the server in
+    // the `roots/list` reply — an invalid Root on the wire, echoed back to the
+    // user as success. `setRoots` normalizes through `cleanRoots` now (#1797).
+    const c = await connectStdio();
+    // cleanRoots reports the drop; suppress it here and assert it happened, so
+    // the test also covers that a dropped root is not dropped silently.
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const set = await runMethod(c, {
+        method: "roots/set",
+        rootsJson: JSON.stringify([
+          { name: "no uri" },
+          { uri: "file:///keep" },
+        ]),
+      });
+      expect(set.kind).toBe("result");
+      if (set.kind === "result") {
+        expect(set.result.roots).toEqual([{ uri: "file:///keep" }]);
+      }
+      expect(warn).toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
     }
   });
 
@@ -228,18 +258,29 @@ describe("runMethod", () => {
       );
       expect(stdout.trim().split("\n")).toHaveLength(2);
 
+      // Invoke only the SIGINT handler consumeMethodOutcome registers, rather
+      // than broadcasting `process.emit("SIGINT")` process-wide: `atomically`
+      // (loaded via core's store-io) pulls in `when-exit`, whose module-level
+      // `process.once("SIGINT")` handler re-raises the signal with
+      // `process.kill(process.pid, "SIGINT")` — on Windows an unconditional
+      // TerminateProcess that kills the vitest worker fork mid-run (#1941).
+      const listenersBefore = new Set(process.listeners("SIGINT"));
       const streamPromise = consumeMethodOutcome(
         {
           kind: "stream",
           label: "t",
           start: (write) => {
             write({ hi: true });
-            queueMicrotask(() => process.emit("SIGINT"));
             return () => {};
           },
         },
         {},
       );
+      const added = process
+        .listeners("SIGINT")
+        .filter((listener) => !listenersBefore.has(listener));
+      expect(added).toHaveLength(1);
+      for (const listener of added) listener("SIGINT");
       await streamPromise;
       expect(stdout).toContain('"hi":true');
     } finally {

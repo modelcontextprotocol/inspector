@@ -11,15 +11,19 @@ import {
 } from "@inspector/core/mcp/extensions.js";
 
 /**
- * Drift guard for the MCP Apps UI advertisement (#1740). `MCP_APP_MIME_TYPE` is
- * hardcoded in core (ext-apps' constant lives on a `/server` subpath / an
- * extensionless re-export that doesn't resolve cleanly under NodeNext in the
- * browser build). A conforming server checks the client's advertised `mimeTypes`
- * before serving an App, so if the hardcoded string ever drifts from ext-apps'
- * real `RESOURCE_MIME_TYPE`, Apps silently stop working against strict servers.
+ * Drift guard for the MCP Apps UI advertisement (#1740). `UI_EXTENSION_KEY` is
+ * hardcoded in core (ext-apps' `EXTENSION_ID` still lives only on the `/server`
+ * subpath as of 2.0.0, which the browser build must not import). A conforming
+ * server keys its Apps lookup on the extension id and checks the client's
+ * advertised `mimeTypes` before serving an App, so a drifted string silently
+ * stops Apps working against strict servers.
  *
- * This runs in the node integration project, where importing the real ext-apps
- * value resolves — the one place the two can actually be compared.
+ * `MCP_APP_MIME_TYPE` is no longer a copy — since ext-apps 2.0.0 core re-exports
+ * `RESOURCE_MIME_TYPE` (#1745) — so its case here is a re-export check rather
+ * than a drift check; it stays so the advertisement is asserted end to end.
+ *
+ * This runs in the node integration project, where importing the `/server`
+ * value resolves — the one place the extension id can actually be compared.
  */
 describe("MCP Apps UI extension constants (#1740)", () => {
   it("MCP_APP_MIME_TYPE matches ext-apps' RESOURCE_MIME_TYPE exactly", () => {
