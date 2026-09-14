@@ -818,6 +818,25 @@ function registerRpcCommands(program: CommandType): void {
           });
         });
         break;
+      case "tasks/update":
+        // Modern-only (SEP-2663): resumes a task paused on `input_required`.
+        // `--input-responses` mirrors `roots/set`'s JSON-blob convention
+        // rather than trying to model arbitrary per-request shapes as flags.
+        cmd
+          .argument("[taskId]", "Task id")
+          .option("--task-id <id>", "Task id")
+          .option(
+            "--input-responses <json>",
+            "JSON object keyed by the server's inputRequests id",
+          );
+        cmd.action(async (taskPos: string | undefined, o) => {
+          await runRpc(program, method, {
+            taskId: (o.taskId as string | undefined) ?? taskPos,
+            inputResponsesJson: o.inputResponses as string | undefined,
+            metadata: o.metadata,
+          });
+        });
+        break;
       case "roots/set":
         cmd.option("--roots-json <json>", "JSON array of {uri, name?}");
         cmd.action(async (o) => {

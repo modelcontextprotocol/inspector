@@ -30,7 +30,7 @@ export type MethodArgs = {
    */
   strict?: boolean;
   format?: OutputFormat;
-  /** Task id for tasks/get, tasks/cancel, tasks/result. */
+  /** Task id for tasks/get, tasks/cancel, tasks/result, tasks/update. */
   taskId?: string;
   /** When true, tools/call uses callToolStream (task-augmented). */
   task?: boolean;
@@ -48,6 +48,12 @@ export type MethodArgs = {
   cursor?: string;
   /** roots/set payload (JSON array of {uri, name?}). */
   rootsJson?: string;
+  /**
+   * tasks/update payload (JSON object keyed by the server's `inputRequests`
+   * ids). Resumes a modern (SEP-2663) task paused on `input_required` —
+   * modern-only, symmetric with `roots/set`'s JSON-blob convention.
+   */
+  inputResponsesJson?: string;
   /** prompts/complete: argument name / value / ref. */
   completeRefType?: "ref/prompt" | "ref/resource";
   completeRef?: string;
@@ -117,6 +123,7 @@ export const SESSION_RPC_METHODS = [
   "tasks/get",
   "tasks/cancel",
   "tasks/result",
+  "tasks/update",
   "roots/list",
   "roots/set",
   "skills/list",

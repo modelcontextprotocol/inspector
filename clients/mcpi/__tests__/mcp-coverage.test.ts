@@ -185,6 +185,40 @@ describe("mcp.ts coverage", () => {
     );
     expectCliFailure(taskResult);
 
+    const taskUpdateNoBody = await runMcp(
+      ["tasks/update", "missing-task", "--format", "json"],
+      { env: e, timeout: 20000 },
+    );
+    expectCliFailure(taskUpdateNoBody);
+    expect(taskUpdateNoBody.stderr).toMatch(/--input-responses/);
+
+    const taskUpdateBadJson = await runMcp(
+      [
+        "tasks/update",
+        "missing-task",
+        "--input-responses",
+        "not-json",
+        "--format",
+        "json",
+      ],
+      { env: e, timeout: 20000 },
+    );
+    expectCliFailure(taskUpdateBadJson);
+    expect(taskUpdateBadJson.stderr).toMatch(/--input-responses is invalid/);
+
+    const taskUpdate = await runMcp(
+      [
+        "tasks/update",
+        "missing-task",
+        "--input-responses",
+        '{"req-1":"answer"}',
+        "--format",
+        "json",
+      ],
+      { env: e, timeout: 20000 },
+    );
+    expectCliFailure(taskUpdate);
+
     const roots = await runMcp(
       ["roots/set", "--roots-json", "[]", "--format", "json"],
       { env: e, timeout: 20000 },
