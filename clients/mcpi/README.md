@@ -21,6 +21,23 @@ mcpi --help
 
 Rebuild after pulling source changes (`npm run build` in `clients/mcpi`). You usually do **not** need to re-link unless the package `bin` entry changes.
 
+### Development loop
+
+`mcpi` itself is a short-lived process re-executed on every invocation, so a
+plain rebuild is enough for its changes to take effect on the next command.
+The **session daemon** (`build/daemon.js`) is different: `ensureDaemon` (see
+`src/daemon/ensure.ts`) reuses an already-running daemon without checking its
+code version, so a daemon started before your rebuild keeps running stale
+code indefinitely.
+
+Use `npm run build:dev` instead of `npm run build` while iterating: it runs
+`mcpi daemon stop` first (harmless/no-op if no daemon is running — it treats
+"daemon not running" as success) and then `tsup`, so the next daemon-backed
+command (`connect`, `tools/list`, …) spawns a fresh daemon from the code you
+just built. Commands that never touch the daemon (`servers/list`,
+`servers/show`, `--help`) don't need this — a plain `npm run build` is enough
+for those.
+
 Without linking, run the built file directly:
 
 ```bash

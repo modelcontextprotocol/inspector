@@ -14,6 +14,7 @@
   ],
   "scripts": {
     "build": "tsup",
+    "build:dev": "node build/mcp-bin.js daemon stop >/dev/null 2>&1; tsup",
     "validate": "npm run format:check && npm run lint && npm run test",
     "test": "vitest run",
     "test:watch": "vitest",
