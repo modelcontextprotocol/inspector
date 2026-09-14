@@ -1,5 +1,13 @@
 import { Command, type Command as CommandType } from "commander";
 import type { JsonValue } from "@inspector/core/mcp/index.js";
+import type {
+  InspectorServerSettings,
+  ServerProtocolEra,
+} from "@inspector/core/mcp/types.js";
+import {
+  DEFAULT_MAX_FETCH_REQUESTS,
+  DEFAULT_TASK_TTL_MS,
+} from "@inspector/core/mcp/types.js";
 import {
   loadServerEntries,
   parseHeaderPair,
@@ -255,6 +263,21 @@ function registerConnect(program: CommandType): void {
       },
     )
     .option(
+      "--era <era>",
+      "Protocol era to negotiate: legacy (default), auto, or modern. " +
+        "Overrides the catalog/config entry's protocolEra; the only way to " +
+        "set it for an ad-hoc target, which has no config entry of its own.",
+      (value: string) => {
+        const valid: ServerProtocolEra[] = ["legacy", "auto", "modern"];
+        if (!valid.includes(value as ServerProtocolEra)) {
+          throw new Error(
+            `Invalid --era: ${value}. Use legacy, auto, or modern.`,
+          );
+        }
+        return value as ServerProtocolEra;
+      },
+    )
+    .option(
       "--relogin",
       "Ignore stored OAuth for this connect (HTTP/SSE URL keys only); interactive login runs only if the server requires auth. No-op for stdio / servers with no stored entry",
     )
@@ -309,10 +332,13 @@ function registerConnect(program: CommandType): void {
       const entries = await loadServerEntries(serverOptions);
       const selected = selectServerEntry(entries, selectName);
       const serverConfig = selected.config;
-      const serverSettings = withConnectTimeout(
-        selected.settings,
-        (cmdOpts.connectTimeout as number | undefined) ??
-          (adHoc ? DEFAULT_CONNECT_TIMEOUT_MS : undefined),
+      const serverSettings = withEraOverride(
+        withConnectTimeout(
+          selected.settings,
+          (cmdOpts.connectTimeout as number | undefined) ??
+            (adHoc ? DEFAULT_CONNECT_TIMEOUT_MS : undefined),
+        ),
+        cmdOpts.era as ServerProtocolEra | undefined,
       );
       const { detail } = summarizeServerConfig(serverConfig);
       const name = stripAt(sessionName)!;
@@ -775,6 +801,33 @@ async function runRpc(
     session: opts.session,
     requireExplicit: requireExplicitSession(),
   });
+}
+
+/**
+ * Overlay `--era` onto the settings lifted from the file/ad-hoc target.
+ * Mirrors `withConnectTimeout`'s shape: only `protocolEra` is overridden, and a
+ * bare-defaults settings object is synthesized when the target had none (the
+ * common ad-hoc case, which otherwise has no way to request `auto`/`modern`).
+ */
+function withEraOverride(
+  settings: InspectorServerSettings | undefined,
+  era: ServerProtocolEra | undefined,
+): InspectorServerSettings | undefined {
+  if (era === undefined) return settings;
+  if (settings) return { ...settings, protocolEra: era };
+  return {
+    headers: [],
+    metadata: {},
+    env: [],
+    connectionTimeout: DEFAULT_CONNECT_TIMEOUT_MS,
+    requestTimeout: 0,
+    taskTtl: DEFAULT_TASK_TTL_MS,
+    maxFetchRequests: DEFAULT_MAX_FETCH_REQUESTS,
+    autoRefreshOnListChanged: false,
+    paginatedLists: false,
+    roots: [],
+    protocolEra: era,
+  };
 }
 
 function parseKeyValue(
