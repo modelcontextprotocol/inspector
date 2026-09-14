@@ -337,6 +337,19 @@ describe("format-human", () => {
         { name: "a", isMru: true, serverIdentity: "id" },
       ]),
     ).toContain("(MRU)");
+    // protocolEra is on every SessionInfo now (#2298 follow-up), not just
+    // sessions/show — sessions/list renders it inline; its absence (an older
+    // daemon reply, hypothetically) must not print a bare "[undefined]".
+    expect(
+      formatSessionsListHuman([
+        { name: "a", isMru: true, serverIdentity: "id", protocolEra: "modern" },
+      ]),
+    ).toContain("— id [modern]");
+    expect(
+      formatSessionsListHuman([
+        { name: "a", isMru: false, serverIdentity: "id" },
+      ]),
+    ).not.toContain("[");
     expect(
       formatSessionInfoHuman({ name: "a", isMru: true, serverIdentity: "id" }),
     ).toContain("Session `@a`");

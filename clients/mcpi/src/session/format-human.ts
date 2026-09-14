@@ -544,8 +544,12 @@ export function formatSessionsListHuman(
   for (const raw of sessions) {
     const s = raw as JsonObject;
     const mru = s.isMru === true ? style.green(" (MRU)") : "";
+    const era =
+      s.protocolEra !== undefined
+        ? style.dim(` [${String(s.protocolEra)}]`)
+        : "";
     lines.push(
-      `* ${code(style, `@${String(s.name)}`)}${mru}${style.dim(` — ${String(s.serverIdentity ?? "")}`)}`,
+      `* ${code(style, `@${String(s.name)}`)}${mru}${style.dim(` — ${String(s.serverIdentity ?? "")}`)}${era}`,
     );
   }
   if (sessions.length === 0) lines.push(style.dim("(none — connect first)"));
@@ -563,8 +567,9 @@ export function formatSessionInfoHuman(
     `Server: ${style.dim(String(session.serverIdentity ?? ""))}`,
   ];
 
-  // Connection details (`sessions/show` only — plain `use`/`connect`
-  // results don't carry these).
+  // Connection details. `protocolEra` is now on every `SessionInfo` (#2298
+  // follow-up), so it renders for plain `connect`/`sessions/use` results too;
+  // `protocolVersion` and everything below it are `sessions/show`-only.
   const era = session.protocolEra;
   const protocolVersion = session.protocolVersion;
   if (era !== undefined || protocolVersion !== undefined) {

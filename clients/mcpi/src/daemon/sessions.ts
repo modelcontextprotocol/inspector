@@ -83,6 +83,7 @@ export class SessionRegistry {
         connectedAt: s.connectedAt,
         lastAccessedAt: s.lastAccessedAt,
         isMru: s.name === this.mruName,
+        protocolEra: s.client.getProtocolEra(),
       }))
       .sort((a, b) => b.lastAccessedAt - a.lastAccessedAt);
   }
@@ -171,6 +172,7 @@ export class SessionRegistry {
       connectedAt: session.connectedAt,
       lastAccessedAt: session.lastAccessedAt,
       isMru: true,
+      protocolEra: session.client.getProtocolEra(),
     };
   }
 
@@ -227,6 +229,7 @@ export class SessionRegistry {
         connectedAt: now,
         lastAccessedAt: now,
         isMru: true,
+        protocolEra: client.getProtocolEra(),
       };
     } catch (error) {
       // Any failure after clearIdleTimer (createSessionClient, reconnect

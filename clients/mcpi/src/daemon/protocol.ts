@@ -87,20 +87,31 @@ export type SessionInfo = {
   connectedAt: number;
   lastAccessedAt: number;
   isMru: boolean;
+  /**
+   * Negotiated era for this session's connection — legacy `initialize` vs.
+   * modern `server/discover` (#2298 follow-up). Present everywhere a live
+   * session is reported (`connect`, `sessions/list`, `sessions/use`), not
+   * just `sessions/show`, so a user with several open sessions can see which
+   * era each negotiated without querying them one at a time. Absent only if
+   * the client hasn't connected (never observed in practice — every code
+   * path constructing a `SessionInfo` does so from an already-connected
+   * session).
+   */
+  protocolEra?: ProtocolEra;
 };
 
 /**
- * `sessions/show` result: daemon bookkeeping ({@link SessionInfo}) plus the
- * live MCP connection state — era-agnostic (`serverInfo`/`capabilities`/
- * `instructions`/`protocolVersion` are populated the same way whether they
- * came from a legacy `initialize` response or a modern `server/discover`)
- * and era-specific (`protocolEra`, `supportedVersions` — the latter only set
- * when the connect actually probed `server/discover`, i.e. `auto`/`modern`).
+ * `sessions/show` result: daemon bookkeeping ({@link SessionInfo}, which as of
+ * #2298 already carries `protocolEra`) plus the live MCP connection state —
+ * era-agnostic (`serverInfo`/`capabilities`/`instructions`/`protocolVersion`
+ * are populated the same way whether they came from a legacy `initialize`
+ * response or a modern `server/discover`) and era-specific (`supportedVersions`,
+ * only set when the connect actually probed `server/discover`, i.e.
+ * `auto`/`modern`).
  */
 export type SessionShowResult = SessionInfo & {
   serverInfo?: Implementation;
   protocolVersion?: string;
-  protocolEra?: ProtocolEra;
   capabilities?: ServerCapabilities;
   instructions?: string;
   supportedVersions?: string[];
