@@ -8,6 +8,7 @@ import { callDaemon } from "../src/daemon/client.js";
 import { parseRequestLine, encodeResponse } from "../src/daemon/framing.js";
 import {
   DEFAULT_IDLE_MS,
+  elicitCapabilityToClientOption,
   isSessionAuthRequiredError,
   SessionRegistry,
 } from "../src/daemon/sessions.js";
@@ -27,6 +28,25 @@ describe("daemon framing", () => {
     expect(encodeResponse({ id: "1", ok: true, result: { pong: true } })).toBe(
       '{"id":"1","ok":true,"result":{"pong":true}}\n',
     );
+  });
+});
+
+describe("elicitCapabilityToClientOption", () => {
+  it("maps each elicitCapability mode to the InspectorClient elicit shape", () => {
+    expect(elicitCapabilityToClientOption("off")).toBe(false);
+    expect(elicitCapabilityToClientOption("url")).toEqual({ url: true });
+    expect(elicitCapabilityToClientOption("form")).toEqual({ form: true });
+    expect(elicitCapabilityToClientOption("both")).toEqual({
+      url: true,
+      form: true,
+    });
+  });
+
+  it("defaults to both (url+form) when unset, matching the pre-#1783 hardcoded default", () => {
+    expect(elicitCapabilityToClientOption(undefined)).toEqual({
+      url: true,
+      form: true,
+    });
   });
 });
 

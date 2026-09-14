@@ -179,7 +179,7 @@ Both are wired into root `validate` / `coverage`.
 | **Session `connect` OAuth flag parity** | One-shot has `--client-id` / `--callback-url` / handoff; session authorize uses defaults / env only. |
 | **Peer-cred / stronger private IPC** | Private mode uses bearer token; optional OS peer checks beyond that. |
 | **Stream fan-out / `mcpi attach`** | One consumer per stream invocation today. |
-| **Sampling / elicitation CLI** | Still TUI/web. |
+| **Sampling CLI** | Still TUI/web. mcpi handles server-driven *elicitation* (URL + form modes, `--elicit` capability override) since #1783; sampling remains unimplemented. |
 | **Ephemeral no-`connect` shortcuts on `mcpi`** | Out of scope (keep two mental models). |
 | **`MCP_SESSION` env** | Superseded by require-explicit-on-non-TTY + `MCP_ALLOW_DEFAULT_SESSION=1`. |
 | **Human `--full` schema dumps** | Optional formatter polish. |

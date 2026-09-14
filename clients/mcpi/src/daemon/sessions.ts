@@ -1,7 +1,10 @@
 import { InspectorClient } from "@inspector/core/mcp/index.js";
 import type { InspectorClientEnvironment } from "@inspector/core/mcp/types.js";
 import {
+  DEFAULT_ELICIT_CAPABILITY,
   eraToVersionNegotiation,
+  type ElicitCapabilityMode,
+  type InspectorClientOptions,
   type InspectorServerSettings,
   type MCPServerConfig,
 } from "@inspector/core/mcp/types.js";
@@ -320,6 +323,29 @@ export function isSessionAuthRequiredError(error: unknown): boolean {
   );
 }
 
+/**
+ * Maps a persisted/overridden `elicitCapability` mode onto the `elicit` shape
+ * `InspectorClient` expects. Absence reads back as {@link
+ * DEFAULT_ELICIT_CAPABILITY} (`"both"`), matching the pre-#1783 hardcoded
+ * default so existing sessions keep behaving the same until a caller opts
+ * into something narrower via `--elicit` or a catalog entry's
+ * `elicitCapability` field.
+ */
+export function elicitCapabilityToClientOption(
+  mode: ElicitCapabilityMode | undefined,
+): InspectorClientOptions["elicit"] {
+  switch (mode ?? DEFAULT_ELICIT_CAPABILITY) {
+    case "off":
+      return false;
+    case "url":
+      return { url: true };
+    case "form":
+      return { form: true };
+    case "both":
+      return { url: true, form: true };
+  }
+}
+
 async function createSessionClient(
   serverConfig: MCPServerConfig,
   serverSettings: InspectorServerSettings | undefined,
@@ -361,12 +387,12 @@ async function createSessionClient(
     initialLoggingLevel: "debug",
     progress: false,
     sample: false,
-    // Phase 1 of dual-era elicitation support: advertise URL-mode only. Form
-    // mode isn't rendered yet (that's a follow-up phase), so it stays
-    // unadvertised here — a form-mode elicitation arriving anyway (a server
-    // ignoring our capabilities) is defensively auto-declined by the daemon's
-    // elicitation prompt.
-    elicit: { url: true, form: true },
+    // Elicitation capability advertised to the server: derived from
+    // `serverSettings.elicitCapability` (settable via a catalog entry or the
+    // `--elicit` connect flag), defaulting to url+form when unset. A server
+    // that ignores our (possibly empty) capabilities and elicits anyway is
+    // defensively auto-declined by the daemon's elicitation prompt.
+    elicit: elicitCapabilityToClientOption(serverSettings?.elicitCapability),
     serverSettings,
     ...(serverSettings?.protocolEra && {
       versionNegotiation: eraToVersionNegotiation(serverSettings.protocolEra),

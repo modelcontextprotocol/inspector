@@ -296,6 +296,8 @@ describe("mcp.ts coverage", () => {
         "15000",
         "--era",
         "auto",
+        "--elicit",
+        "url",
         "--format",
         "json",
         command,
@@ -312,6 +314,14 @@ describe("mcp.ts coverage", () => {
     );
     expectCliFailure(badEra);
     expect(badEra.stderr).toMatch(/Invalid --era/);
+
+    // Invalid --elicit is rejected before any connection is attempted.
+    const badElicit = await runMcp(
+      ["connect", "--elicit", "bogus", "--format", "json", command, ...args],
+      { env: e, timeout: 20000 },
+    );
+    expectCliFailure(badElicit);
+    expect(badElicit.stderr).toMatch(/Invalid --elicit/);
 
     await runMcp(["disconnect", "--session", "opts", "--format", "json"], {
       env: e,

@@ -7,6 +7,7 @@
 
 import {
   DEFAULT_CONNECTION_TIMEOUT_MS,
+  DEFAULT_ELICIT_CAPABILITY,
   DEFAULT_MAX_FETCH_REQUESTS,
   DEFAULT_MODERN_LOG_LEVEL,
   DEFAULT_PROTOCOL_ERA,
@@ -15,6 +16,7 @@ import {
 } from "./types.js";
 import type { Root } from "@modelcontextprotocol/client";
 import type {
+  ElicitCapabilityMode,
   InspectorServerSettings,
   RequestMetadata,
   MCPConfig,
@@ -46,6 +48,28 @@ const VALID_PROTOCOL_ERAS: ReadonlySet<ServerProtocolEra> = new Set([
   "auto",
   "modern",
 ]);
+
+const VALID_ELICIT_CAPABILITIES: ReadonlySet<ElicitCapabilityMode> = new Set([
+  "off",
+  "url",
+  "form",
+  "both",
+]);
+
+/**
+ * Runtime guard for the `elicitCapability` literal, mirroring
+ * {@link isProtocolEra}: a hand-edited `mcp.json` read directly by the CLI/TUI
+ * can carry any string, and an unknown value should read back as the default
+ * rather than propagate to `createSessionClient`.
+ */
+export function isElicitCapability(
+  value: unknown,
+): value is ElicitCapabilityMode {
+  return (
+    typeof value === "string" &&
+    VALID_ELICIT_CAPABILITIES.has(value as ElicitCapabilityMode)
+  );
+}
 
 /**
  * Runtime guard for the `protocolEra` literal. `StoredMCPServer` types the
@@ -152,6 +176,7 @@ type StoredInspectorFields = Pick<
   | "headers"
   | "metadata"
   | "protocolEra"
+  | "elicitCapability"
   | "modernLogLevel"
   | "connectionTimeout"
   | "requestTimeout"
@@ -524,6 +549,7 @@ export function storedFieldsToInspectorSettings(
     stored.oauth !== undefined ||
     stored.roots !== undefined ||
     stored.protocolEra !== undefined ||
+    stored.elicitCapability !== undefined ||
     stored.modernLogLevel !== undefined ||
     stored.env !== undefined ||
     stored.cwd !== undefined;
@@ -563,6 +589,12 @@ export function storedFieldsToInspectorSettings(
   // (→ default legacy) rather than passed through to `eraToVersionNegotiation`.
   if (isProtocolEra(stored.protocolEra)) {
     settings.protocolEra = stored.protocolEra;
+  }
+  // Like `protocolEra`: absent reads back as the default elicitation
+  // capability (`"both"`), and an unknown literal from a hand-edited file is
+  // dropped rather than surfaced.
+  if (isElicitCapability(stored.elicitCapability)) {
+    settings.elicitCapability = stored.elicitCapability;
   }
   // Like `protocolEra`: absent reads back as the default modern log level (the
   // form defaults via `?? DEFAULT_MODERN_LOG_LEVEL`), and an unknown literal from
@@ -718,6 +750,17 @@ export function inspectorSettingsToStoredFields(
     out.protocolEra = settings.protocolEra;
   }
 
+  // Persist only when it differs from the default elicitation capability;
+  // absent reads back as DEFAULT_ELICIT_CAPABILITY, so writing the default
+  // would inject the field into hand-edited files that never had it and break
+  // byte-stable round-trips.
+  if (
+    settings.elicitCapability !== undefined &&
+    settings.elicitCapability !== DEFAULT_ELICIT_CAPABILITY
+  ) {
+    out.elicitCapability = settings.elicitCapability;
+  }
+
   // Persist only when it differs from the default modern log level; absent reads
   // back as DEFAULT_MODERN_LOG_LEVEL, so writing the default would inject the
   // field into files that never set it and break byte-stable round-trips.
@@ -807,6 +850,7 @@ const INSPECTOR_FIELD_KEY_MAP = {
   headers: true,
   metadata: true,
   protocolEra: true,
+  elicitCapability: true,
   modernLogLevel: true,
   connectionTimeout: true,
   requestTimeout: true,

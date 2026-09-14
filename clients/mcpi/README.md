@@ -123,6 +123,43 @@ A paused modern (SEP-2663) task — one whose `tasks/get` shows
 mcpi tasks/update <taskId> --input-responses '{"<requestId>":{"approved":true}}'
 ```
 
+## Elicitation support
+
+mcpi can prompt interactively for both elicitation delivery mechanisms —
+legacy server→client `elicitation/create` requests and modern non-task MRTR
+(multi-round tool response) rounds — and both modes a server may ask for:
+
+- **URL mode**: mcpi prints the URL and waits for you to confirm you've
+  finished out-of-band (there's no "decline", only accept-that-you-finished
+  or cancel — the actual completion can't be observed locally).
+- **Form mode**: mcpi renders one prompt per field from the schema, with a
+  review step (edit any field again, or submit) before answering.
+
+Non-interactive callers (`--format json`, no TTY, or a script) get an
+automatic decline instead of hanging on a prompt.
+
+By default mcpi advertises **both** modes to the server (`elicit: {url,
+form}`), matching pre-#1783 behavior. Override this per connection with
+`--elicit <mode>` on `connect`:
+
+- `off` — advertise no elicitation capability at all. Useful when whatever is
+  driving mcpi (a script, an agent) can't handle an interactive prompt itself
+  — omitting the capability lets a well-behaved server fall back to its own
+  alternative (e.g. proceeding with defaults) instead of the request being
+  auto-declined.
+- `url` — URL mode only.
+- `form` — form mode only.
+- `both` — the default; both modes.
+
+Like `--era`, this overrides whatever a catalog/config entry's
+`elicitCapability` says, and is the only way to set it for an ad-hoc target
+(no config entry to read one from):
+
+```bash
+mcpi connect my-server --config path/to/mcp.json --elicit off
+mcpi connect https://example.com/mcp --elicit url
+```
+
 ## Relation to one-shot CLI
 
 |               | One-shot                              | Session (`mcpi`)                |

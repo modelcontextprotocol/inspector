@@ -1,6 +1,7 @@
 import { Command, type Command as CommandType } from "commander";
 import type { JsonValue } from "@inspector/core/mcp/index.js";
 import type {
+  ElicitCapabilityMode,
   InspectorServerSettings,
   ServerProtocolEra,
 } from "@inspector/core/mcp/types.js";
@@ -281,6 +282,23 @@ function registerConnect(program: CommandType): void {
       "--relogin",
       "Ignore stored OAuth for this connect (HTTP/SSE URL keys only); interactive login runs only if the server requires auth. No-op for stdio / servers with no stored entry",
     )
+    .option(
+      "--elicit <mode>",
+      "Elicitation capability to advertise: off, url, form, or both (default). " +
+        "Overrides the catalog/config entry's elicitCapability; the only way to " +
+        "set it for an ad-hoc target, which has no config entry of its own. Use " +
+        "off when the caller of mcpi can't handle an elicitation request, so the " +
+        "server sees no elicitation capability and can fall back on its own.",
+      (value: string) => {
+        const valid: ElicitCapabilityMode[] = ["off", "url", "form", "both"];
+        if (!valid.includes(value as ElicitCapabilityMode)) {
+          throw new Error(
+            `Invalid --elicit: ${value}. Use off, url, form, or both.`,
+          );
+        }
+        return value as ElicitCapabilityMode;
+      },
+    )
     .action(async (target: string[], cmdOpts) => {
       const opts = program.opts<GlobalOpts>();
       const { name: positionalSession, rest } = splitSessionTarget(target);
@@ -332,13 +350,16 @@ function registerConnect(program: CommandType): void {
       const entries = await loadServerEntries(serverOptions);
       const selected = selectServerEntry(entries, selectName);
       const serverConfig = selected.config;
-      const serverSettings = withEraOverride(
-        withConnectTimeout(
-          selected.settings,
-          (cmdOpts.connectTimeout as number | undefined) ??
-            (adHoc ? DEFAULT_CONNECT_TIMEOUT_MS : undefined),
+      const serverSettings = withElicitOverride(
+        withEraOverride(
+          withConnectTimeout(
+            selected.settings,
+            (cmdOpts.connectTimeout as number | undefined) ??
+              (adHoc ? DEFAULT_CONNECT_TIMEOUT_MS : undefined),
+          ),
+          cmdOpts.era as ServerProtocolEra | undefined,
         ),
-        cmdOpts.era as ServerProtocolEra | undefined,
+        cmdOpts.elicit as ElicitCapabilityMode | undefined,
       );
       const { detail } = summarizeServerConfig(serverConfig);
       const name = stripAt(sessionName)!;
@@ -895,6 +916,34 @@ function withEraOverride(
     paginatedLists: false,
     roots: [],
     protocolEra: era,
+  };
+}
+
+/**
+ * Overlay `--elicit` onto the settings lifted from the file/ad-hoc target.
+ * Mirrors `withEraOverride`: only `elicitCapability` is overridden, and a
+ * bare-defaults settings object is synthesized when the target had none (the
+ * common ad-hoc case, which otherwise has no way to request anything but the
+ * default `both`).
+ */
+function withElicitOverride(
+  settings: InspectorServerSettings | undefined,
+  elicit: ElicitCapabilityMode | undefined,
+): InspectorServerSettings | undefined {
+  if (elicit === undefined) return settings;
+  if (settings) return { ...settings, elicitCapability: elicit };
+  return {
+    headers: [],
+    metadata: {},
+    env: [],
+    connectionTimeout: DEFAULT_CONNECT_TIMEOUT_MS,
+    requestTimeout: 0,
+    taskTtl: DEFAULT_TASK_TTL_MS,
+    maxFetchRequests: DEFAULT_MAX_FETCH_REQUESTS,
+    autoRefreshOnListChanged: false,
+    paginatedLists: false,
+    roots: [],
+    elicitCapability: elicit,
   };
 }
 
