@@ -61,6 +61,12 @@ describe("daemon coverage", () => {
     });
     expect(badUse.ok).toBe(false);
 
+    // sessions/show with no `params` at all exercises the `request.params ??
+    // {}` fallback; with no active session it still fails, same shape as
+    // sessions/use above.
+    const badShow = await server.handle({ id: "2b", op: "sessions/show" });
+    expect(badShow.ok).toBe(false);
+
     const unknown = await server.handle({
       id: "3",
       op: "nope" as never,
@@ -581,6 +587,20 @@ describe("daemon coverage", () => {
     });
     expect(used.ok).toBe(true);
     expect(server.registry.idleRemainingMs()).toBeNull();
+
+    // sessions/show over the same live session — exercises the full case
+    // body (serverInfo/protocolVersion/protocolEra/capabilities lookups)
+    // in-process, where coverage instrumentation can see it.
+    const shown = await server.handle({
+      id: "s2",
+      op: "sessions/show",
+      params: { name: "s" },
+    });
+    expect(shown.ok).toBe(true);
+    if (shown.ok) {
+      const result = shown.result as { protocolVersion?: string };
+      expect(result.protocolVersion).toBeTruthy();
+    }
 
     await new Promise<void>((resolve, reject) => {
       const socket = new net.Socket();

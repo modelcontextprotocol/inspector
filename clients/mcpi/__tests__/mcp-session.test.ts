@@ -199,6 +199,14 @@ describe("mcp session CLI", () => {
     expect(shownBody.protocolVersion).toBeTruthy();
     expect(shownBody.protocolEra).toBeTruthy();
 
+    // `sessions/show <name>` (positional, no `@name`/--session) exercises
+    // the opts.session-absent fallback to the command's own argument.
+    const shownByArg = await runMcp(
+      ["sessions/show", "test-stdio", "--format", "json"],
+      { env: e, timeout: 20000 },
+    );
+    expectCliSuccess(shownByArg);
+
     await runMcp(
       ["disconnect", "--session", "test-stdio", "--format", "json"],
       {

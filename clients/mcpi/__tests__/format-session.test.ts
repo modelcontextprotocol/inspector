@@ -339,6 +339,32 @@ describe("format-human", () => {
     expect(
       formatSessionInfoHuman({ name: "a", isMru: true, serverIdentity: "id" }),
     ).toContain("Session `@a`");
+    // sessions/show enrichment: era without a protocolVersion, serverInfo
+    // without a version, empty capabilities, an empty/non-array
+    // supportedVersions, and blank instructions each take the "nothing to
+    // append" branch rather than the populated one exercised elsewhere.
+    expect(
+      formatSessionInfoHuman({
+        name: "a",
+        protocolEra: "legacy",
+        serverInfo: { name: "demo" },
+        capabilities: {},
+        supportedVersions: [],
+        instructions: "",
+      }),
+    ).toMatch(/Era: legacy\nServer info: demo\nCapabilities: \(none\)/);
+    expect(
+      formatSessionInfoHuman({
+        name: "a",
+        protocolEra: undefined,
+        protocolVersion: "2025-11-25",
+        serverInfo: { name: "demo", version: "1.2.3" },
+        supportedVersions: ["2025-11-25", "2025-06-18"],
+        instructions: "Say hi.",
+      }),
+    ).toMatch(
+      /Era: unknown \(2025-11-25\)[\s\S]*demo v1\.2\.3[\s\S]*Supported versions: 2025-11-25, 2025-06-18[\s\S]*Instructions: Say hi\./,
+    );
 
     expect(
       formatAppInfoListHuman([

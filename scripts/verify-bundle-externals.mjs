@@ -34,8 +34,12 @@ const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 /**
  * Clients that ship a tsup bundle, with the config to read `external` from and
- * the build directory to inspect. `clients/launcher` is plain `tsc` — it emits
- * no bundle and inlines nothing — so it has nothing to check.
+ * the build directory to inspect. `entry` names the file whose presence
+ * proves a build actually ran; it defaults to `index.js` (what web/cli/tui
+ * each name their single tsup entry) and is overridden only when a client's
+ * tsup config uses a different entry name, like mcpi's multi-entry `mcp-bin`.
+ * `clients/launcher` is plain `tsc` — it emits no bundle and inlines nothing —
+ * so it has nothing to check.
  */
 export const BUNDLED_CLIENTS = [
   {
@@ -57,6 +61,7 @@ export const BUNDLED_CLIENTS = [
     name: "mcpi",
     config: "clients/mcpi/tsup.config.ts",
     build: "clients/mcpi/build",
+    entry: "mcp-bin.js",
   },
 ];
 
@@ -210,10 +215,11 @@ function main() {
   );
   for (const client of BUNDLED_CLIENTS) {
     const buildDir = join(repoRoot, client.build);
-    const entry = join(buildDir, "index.js");
+    const entryName = client.entry ?? "index.js";
+    const entry = join(buildDir, entryName);
     if (!existsSync(entry)) {
       failures.push(
-        `${client.name}: ${client.build}/index.js is missing — run \`npm run build\` first.`,
+        `${client.name}: ${client.build}/${entryName} is missing — run \`npm run build\` first.`,
       );
       continue;
     }

@@ -260,6 +260,8 @@ describe("mcp.ts coverage", () => {
         "COV_FLAG=1",
         "--connect-timeout",
         "15000",
+        "--era",
+        "auto",
         "--format",
         "json",
         command,
@@ -268,6 +270,14 @@ describe("mcp.ts coverage", () => {
       { env: e, timeout: 20000 },
     );
     expectCliSuccess(adHoc);
+
+    // Invalid --era is rejected before any connection is attempted.
+    const badEra = await runMcp(
+      ["connect", "--era", "bogus", "--format", "json", command, ...args],
+      { env: e, timeout: 20000 },
+    );
+    expectCliFailure(badEra);
+    expect(badEra.stderr).toMatch(/Invalid --era/);
 
     await runMcp(["disconnect", "--session", "opts", "--format", "json"], {
       env: e,

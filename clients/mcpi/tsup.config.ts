@@ -26,6 +26,7 @@ export default defineConfig({
     "@napi-rs/keyring",
     "@modelcontextprotocol/client",
     "@modelcontextprotocol/core",
+    "@modelcontextprotocol/ext-apps",
     "commander",
     "pino",
     "open",
