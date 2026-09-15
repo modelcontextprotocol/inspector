@@ -267,6 +267,45 @@ describe("mcp.ts coverage", () => {
     expectCliSuccess(rootsList);
     expect(JSON.parse(rootsList.stdout)).toHaveProperty("roots");
 
+    const show = await runMcp(
+      [
+        "servers/show",
+        "test-stdio",
+        "--config",
+        configPath,
+        "--format",
+        "json",
+      ],
+      { env: e, timeout: 20000 },
+    );
+    expectCliSuccess(show);
+
+    // Skills support is optional; the default test server may not advertise
+    // it. Either way, the RPC action itself should run (not a usage error).
+    const skillsList = await runMcp(["skills/list", "--format", "json"], {
+      env: e,
+      timeout: 20000,
+    });
+    expect([0, 1]).toContain(skillsList.exitCode);
+
+    const skillsListVerify = await runMcp(
+      ["skills/list", "--verify", "--format", "json"],
+      { env: e, timeout: 20000 },
+    );
+    expect([0, 1]).toContain(skillsListVerify.exitCode);
+
+    const skillsGet = await runMcp(
+      ["skills/get", "test://skill", "--verify", "--format", "json"],
+      { env: e, timeout: 20000 },
+    );
+    expect([0, 1]).toContain(skillsGet.exitCode);
+
+    const skillsGetFlagUri = await runMcp(
+      ["skills/get", "--uri", "test://skill", "--format", "json"],
+      { env: e, timeout: 20000 },
+    );
+    expect([0, 1]).toContain(skillsGetFlagUri.exitCode);
+
     await runMcp(
       ["disconnect", "--session", "test-stdio", "--format", "json"],
       {
