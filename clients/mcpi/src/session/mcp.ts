@@ -1,4 +1,7 @@
 import { Command, type Command as CommandType } from "commander";
+import { existsSync, readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import type { JsonValue } from "@inspector/core/mcp/index.js";
 import type {
   ElicitCapabilityMode,
@@ -116,7 +119,8 @@ export async function runMcp(argv?: string[]): Promise<void> {
   program
     .name("mcpi")
     .description(
-      "MCP Inspector session CLI — connect once, run many commands against a named session.",
+      "MCP Inspector session CLI — connect once, run many commands against a named session.\n\n" +
+        "Agent skill for mcpi: install with `npx skills add modelcontextprotocol/inspector --skill mcpi`, or see `agent-help` below.",
     )
     .helpOption("-h, --help", "Display help for command")
     .helpCommand("help [command]", "Display help for command")
@@ -209,6 +213,7 @@ export async function runMcp(argv?: string[]): Promise<void> {
   // Keep infra commands last in --help (just before Commander's built-in help).
   registerDaemonCommands(program);
   registerPrivateCommand(program);
+  registerAgentHelpCommand(program);
 
   try {
     await program.parseAsync(rewritten);
@@ -652,6 +657,47 @@ function registerPrivateCommand(program: CommandType): void {
     .action(async () => {
       const binding = createPrivateBinding();
       await awaitableLog(formatPrivateEnvExports(binding));
+    });
+}
+
+/**
+ * Locates the repo-root `skills/mcpi/SKILL.md` relative to this module.
+ * Tries both the built (bundled single-file, `clients/mcpi/build/`) and
+ * source (`clients/mcpi/src/session/`) layouts, since the two sit at
+ * different depths from the repo root.
+ */
+function resolveAgentSkillPath(): string | undefined {
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const candidates = [
+    path.resolve(here, "../../../skills/mcpi/SKILL.md"),
+    path.resolve(here, "../../../../skills/mcpi/SKILL.md"),
+  ];
+  return candidates.find((candidate) => existsSync(candidate));
+}
+
+function registerAgentHelpCommand(program: CommandType): void {
+  program
+    .command("agent-help")
+    .description(
+      "Print mcpi's SKILL.md content — a concise, agent-oriented guide for " +
+        "coding agents/LLMs (also the file `npx skills` installs). Use " +
+        "--path to print its file location instead of its contents.",
+    )
+    .option("--path", "Print the resolved file path instead of its contents")
+    .action(async (o: { path?: boolean }) => {
+      const skillPath = resolveAgentSkillPath();
+      if (!skillPath) {
+        throw new CliExitCodeError(
+          EXIT_CODES.USAGE,
+          "Could not locate skills/mcpi/SKILL.md relative to this install.",
+          { code: "agent_help_not_found" },
+        );
+      }
+      if (o.path === true) {
+        await awaitableLog(skillPath + "\n");
+        return;
+      }
+      await awaitableLog(readFileSync(skillPath, "utf8"));
     });
 }
 

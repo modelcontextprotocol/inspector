@@ -28,6 +28,7 @@
     "clients/web/static",
     "clients/cli/build",
     "clients/mcpi/build",
+    "skills/mcpi",
     "clients/tui/build",
     "scripts/install-clients.mjs"
   ],
