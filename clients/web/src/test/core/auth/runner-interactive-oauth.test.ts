@@ -522,4 +522,66 @@ describe("runRunnerInteractiveOAuth", () => {
     ).rejects.toThrow("bind failed");
     expect(mockServer.stop).toHaveBeenCalled();
   });
+
+  it("rejects cleanly on SIGINT while waiting on the callback, instead of hanging or killing the process", async () => {
+    const redirectUrlProvider = { redirectUrl: "" };
+    const mockServer = createMockCallbackServer(handlers);
+    const client = mockClient({
+      authenticate: vi.fn(async () => new URL("https://as.example/authorize")),
+    });
+
+    const promise = runRunnerInteractiveOAuth({
+      client,
+      redirectUrlProvider,
+      callbackListen: {
+        hostname: "127.0.0.1",
+        port: 6276,
+        pathname: "/oauth/callback",
+      },
+      createCallbackServer: () => mockServer,
+    });
+
+    // Give beginInteractiveAuthorization/authenticate a tick to register the
+    // listener before the signal fires.
+    await Promise.resolve();
+    await Promise.resolve();
+    process.emit("SIGINT", "SIGINT");
+
+    await expect(promise).rejects.toThrow(
+      "OAuth authorization cancelled (SIGINT).",
+    );
+    expect(mockServer.stop).toHaveBeenCalled();
+    // The handler must be removed once the wait settles, so a later SIGINT
+    // elsewhere in the process isn't accidentally swallowed by a stale
+    // listener from this call.
+    expect(process.listenerCount("SIGINT")).toBe(0);
+  });
+
+  it("rejects cleanly on SIGTERM the same way", async () => {
+    const redirectUrlProvider = { redirectUrl: "" };
+    const mockServer = createMockCallbackServer(handlers);
+    const client = mockClient({
+      authenticate: vi.fn(async () => new URL("https://as.example/authorize")),
+    });
+
+    const promise = runRunnerInteractiveOAuth({
+      client,
+      redirectUrlProvider,
+      callbackListen: {
+        hostname: "127.0.0.1",
+        port: 6276,
+        pathname: "/oauth/callback",
+      },
+      createCallbackServer: () => mockServer,
+    });
+
+    await Promise.resolve();
+    await Promise.resolve();
+    process.emit("SIGTERM", "SIGTERM");
+
+    await expect(promise).rejects.toThrow(
+      "OAuth authorization cancelled (SIGTERM).",
+    );
+    expect(process.listenerCount("SIGTERM")).toBe(0);
+  });
 });

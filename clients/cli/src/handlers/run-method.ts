@@ -314,6 +314,38 @@ export async function runMethod(
       result = (await inspectorClient.getRequestorTaskResult(
         args.taskId,
       )) as McpResponse;
+    } else if (args.method === "tasks/update") {
+      if (!args.taskId) {
+        throw new Error("Task id is required for tasks/update. Use --task-id.");
+      }
+      if (!args.inputResponsesJson) {
+        throw new Error(
+          "tasks/update requires --input-responses '<json object keyed by inputRequests id>'.",
+        );
+      }
+      let inputResponses: Record<string, unknown>;
+      try {
+        const parsed: unknown = JSON.parse(args.inputResponsesJson);
+        if (
+          typeof parsed !== "object" ||
+          parsed === null ||
+          Array.isArray(parsed)
+        ) {
+          throw new Error("must be a JSON object");
+        }
+        inputResponses = parsed as Record<string, unknown>;
+      } catch (e) {
+        throw new Error(
+          `--input-responses is invalid: ${e instanceof Error ? e.message : String(e)}`,
+          { cause: e },
+        );
+      }
+      await inspectorClient.updateRequestorTask(args.taskId, inputResponses);
+      // The server acks with an empty result and the task's status advances
+      // only on a subsequent tasks/get poll (updateRequestorTask says so) —
+      // so echo back what was actually sent rather than imply a fresher
+      // status is available here.
+      result = { updated: true, taskId: args.taskId };
     } else if (args.method === "skills/list") {
       // The store's cursor walk is reused rather than re-implemented — it
       // carries the repeated-cursor and page-cap guards, and a second copy of

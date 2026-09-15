@@ -1,0 +1,249 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+
+const callDaemon = vi.fn();
+const ensureDaemon = vi.fn();
+const streamDaemon = vi.fn();
+const promptElicitation = vi.fn();
+
+vi.mock("../src/daemon/index.js", () => ({
+  callDaemon: (...args: unknown[]) => callDaemon(...args),
+  ensureDaemon: (...args: unknown[]) => ensureDaemon(...args),
+  streamDaemon: (...args: unknown[]) => streamDaemon(...args),
+}));
+
+vi.mock("../src/session/elicitation-prompt.js", () => ({
+  promptElicitation: (...args: unknown[]) => promptElicitation(...args),
+}));
+
+describe("dispatchSessionRpc", () => {
+  let stdout: string;
+  let originalWrite: typeof process.stdout.write;
+
+  beforeEach(() => {
+    stdout = "";
+    originalWrite = process.stdout.write;
+    process.stdout.write = ((chunk: unknown, ...rest: unknown[]) => {
+      stdout += typeof chunk === "string" ? chunk : String(chunk);
+      const cb = rest.find((r) => typeof r === "function") as
+        | (() => void)
+        | undefined;
+      cb?.();
+      return true;
+    }) as typeof process.stdout.write;
+    ensureDaemon.mockResolvedValue({ socketPath: "/tmp/t.sock" });
+    callDaemon.mockReset();
+    streamDaemon.mockReset();
+    promptElicitation.mockReset();
+  });
+
+  afterEach(() => {
+    process.stdout.write = originalWrite;
+  });
+
+  it("writes pretty JSON for --format json", async () => {
+    callDaemon.mockResolvedValue({
+      kind: "result",
+      result: { tools: [] },
+    });
+    const { dispatchSessionRpc } = await import("../src/session/dispatch.js");
+    await dispatchSessionRpc(
+      "tools/list",
+      {},
+      { format: "json", requireExplicit: false },
+    );
+    expect(JSON.parse(stdout.trim())).toEqual({ tools: [] });
+    expect(stdout).toContain("\n");
+  });
+
+  it("writes human text for tools/list by default", async () => {
+    callDaemon.mockResolvedValue({
+      kind: "result",
+      result: {
+        tools: [{ name: "echo", description: "Echo", inputSchema: {} }],
+      },
+    });
+    const { dispatchSessionRpc } = await import("../src/session/dispatch.js");
+    await dispatchSessionRpc("tools/list", {}, { requireExplicit: false });
+    expect(stdout).toContain("Tools (1):");
+    expect(stdout).toContain("`echo");
+  });
+
+  it("writes human app-info list for ndjson outcomes", async () => {
+    callDaemon.mockResolvedValue({
+      kind: "ndjson",
+      lines: [{ hasApp: false, toolName: "a" }],
+    });
+    const { dispatchSessionRpc } = await import("../src/session/dispatch.js");
+    await dispatchSessionRpc(
+      "tools/list",
+      { appInfo: true },
+      { requireExplicit: false },
+    );
+    expect(stdout).toContain("App info");
+    expect(stdout).toContain("`a`");
+  });
+
+  it("opens a stream for logging/tail and wires SIGINT abort", async () => {
+    streamDaemon.mockImplementation(
+      async (
+        _params: unknown,
+        opts: { onData: (d: unknown) => void; signal?: AbortSignal },
+      ) => {
+        opts.onData({
+          type: "subscribed",
+          uri: "test://x",
+        });
+        process.emit("SIGINT");
+        expect(opts.signal?.aborted).toBe(true);
+      },
+    );
+    const { dispatchSessionRpc } = await import("../src/session/dispatch.js");
+    await dispatchSessionRpc(
+      "logging/tail",
+      {},
+      { requireExplicit: false, session: "@s" },
+    );
+    expect(stdout).toContain("Subscribed:");
+    expect(streamDaemon).toHaveBeenCalled();
+  });
+
+  it("wires SIGINT/SIGTERM abort for the general rpc path (not just streams)", async () => {
+    callDaemon.mockImplementation(
+      async (_op: string, _params: unknown, opts: { signal?: AbortSignal }) => {
+        process.emit("SIGTERM");
+        expect(opts.signal?.aborted).toBe(true);
+        return { kind: "result", result: {} };
+      },
+    );
+    const { dispatchSessionRpc } = await import("../src/session/dispatch.js");
+    await dispatchSessionRpc(
+      "tools/call",
+      {},
+      { format: "json", requireExplicit: false },
+    );
+    expect(callDaemon).toHaveBeenCalled();
+  });
+
+  it("removes the SIGINT/SIGTERM listeners after the rpc call settles", async () => {
+    callDaemon.mockResolvedValue({ kind: "result", result: {} });
+    const before = process.listenerCount("SIGINT");
+    const { dispatchSessionRpc } = await import("../src/session/dispatch.js");
+    await dispatchSessionRpc(
+      "tools/call",
+      {},
+      { format: "json", requireExplicit: false },
+    );
+    expect(process.listenerCount("SIGINT")).toBe(before);
+  });
+
+  it("wires onElicitation as interactive when text format + TTY stdin/stdout", async () => {
+    callDaemon.mockResolvedValue({ kind: "result", result: {} });
+    const stdinDesc = Object.getOwnPropertyDescriptor(process.stdin, "isTTY");
+    const stdoutDesc = Object.getOwnPropertyDescriptor(process.stdout, "isTTY");
+    Object.defineProperty(process.stdin, "isTTY", {
+      configurable: true,
+      value: true,
+    });
+    Object.defineProperty(process.stdout, "isTTY", {
+      configurable: true,
+      value: true,
+    });
+    try {
+      const { dispatchSessionRpc } = await import("../src/session/dispatch.js");
+      await dispatchSessionRpc(
+        "tools/call",
+        {},
+        { format: "text", requireExplicit: false },
+      );
+      const opts = callDaemon.mock.calls[0][2] as {
+        onElicitation: (frame: unknown) => unknown;
+      };
+      expect(opts.onElicitation).toBeInstanceOf(Function);
+      promptElicitation.mockResolvedValue({ action: "cancel" });
+      await opts.onElicitation({ id: "x" });
+      expect(promptElicitation).toHaveBeenCalledWith(
+        { id: "x" },
+        expect.objectContaining({ interactive: true }),
+      );
+    } finally {
+      if (stdinDesc) Object.defineProperty(process.stdin, "isTTY", stdinDesc);
+      if (stdoutDesc)
+        Object.defineProperty(process.stdout, "isTTY", stdoutDesc);
+    }
+  });
+
+  it("wires onElicitation as non-interactive for --format json", async () => {
+    callDaemon.mockResolvedValue({ kind: "result", result: {} });
+    const { dispatchSessionRpc } = await import("../src/session/dispatch.js");
+    await dispatchSessionRpc(
+      "tools/call",
+      {},
+      { format: "json", requireExplicit: false },
+    );
+    const opts = callDaemon.mock.calls[0][2] as {
+      onElicitation: (frame: unknown) => unknown;
+    };
+    promptElicitation.mockResolvedValue({ action: "cancel" });
+    await opts.onElicitation({ id: "x" });
+    expect(promptElicitation).toHaveBeenCalledWith(
+      { id: "x" },
+      expect.objectContaining({ interactive: false }),
+    );
+  });
+});
+
+describe("hoistAtSession / stripAt / requireExplicitSession", () => {
+  it("stripAt removes leading @", async () => {
+    const { stripAt, requireExplicitSession } =
+      await import("../src/session/dispatch.js");
+    expect(stripAt("@x")).toBe("x");
+    expect(stripAt(undefined)).toBeUndefined();
+    const prev = process.env.MCP_ALLOW_DEFAULT_SESSION;
+    process.env.MCP_ALLOW_DEFAULT_SESSION = "1";
+    expect(requireExplicitSession()).toBe(false);
+    if (prev === undefined) delete process.env.MCP_ALLOW_DEFAULT_SESSION;
+    else process.env.MCP_ALLOW_DEFAULT_SESSION = prev;
+  });
+
+  it("requireExplicitSession keys off stdin TTY (piping stdout still OK)", async () => {
+    const { requireExplicitSession } =
+      await import("../src/session/dispatch.js");
+    const prevEnv = process.env.MCP_ALLOW_DEFAULT_SESSION;
+    delete process.env.MCP_ALLOW_DEFAULT_SESSION;
+    const stdinDesc = Object.getOwnPropertyDescriptor(process.stdin, "isTTY");
+    const stdoutDesc = Object.getOwnPropertyDescriptor(process.stdout, "isTTY");
+    try {
+      Object.defineProperty(process.stdin, "isTTY", {
+        configurable: true,
+        value: true,
+      });
+      Object.defineProperty(process.stdout, "isTTY", {
+        configurable: true,
+        value: false,
+      });
+      expect(requireExplicitSession()).toBe(false);
+
+      Object.defineProperty(process.stdin, "isTTY", {
+        configurable: true,
+        value: false,
+      });
+      expect(requireExplicitSession()).toBe(true);
+    } finally {
+      if (stdinDesc) Object.defineProperty(process.stdin, "isTTY", stdinDesc);
+      else
+        Object.defineProperty(process.stdin, "isTTY", {
+          configurable: true,
+          value: undefined,
+        });
+      if (stdoutDesc)
+        Object.defineProperty(process.stdout, "isTTY", stdoutDesc);
+      else
+        Object.defineProperty(process.stdout, "isTTY", {
+          configurable: true,
+          value: undefined,
+        });
+      if (prevEnv === undefined) delete process.env.MCP_ALLOW_DEFAULT_SESSION;
+      else process.env.MCP_ALLOW_DEFAULT_SESSION = prevEnv;
+    }
+  });
+});

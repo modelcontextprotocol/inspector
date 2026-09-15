@@ -1,7 +1,8 @@
 # Inspector V2
 
-This is an application for inspecting MCP servers. It has three incarnations —
-Web, TUI, and CLI — over a shared `core/`.
+This is an application for inspecting MCP servers. It has four client
+surfaces — Web, TUI, one-shot CLI, and the experimental session CLI (`mcpi`) —
+over a shared `core/`.
 
 **This file holds the _rules_: the conventions a reviewer cites against a diff.**
 It is loaded in full on every turn, so it stays resident and must stay complete
@@ -40,6 +41,9 @@ inspector/
 │   │   ├── server/      Node-only dev/prod backend wiring
 │   │   └── static/      sandbox_proxy.html — served for the MCP Apps tab
 │   ├── cli/          Scriptable CLI (tsup bundle, @inspector/core alias)
+│   ├── mcpi/         Experimental session CLI (`mcpi` bin — connect once, many
+│   │                 commands; implicit Unix-socket session daemon). Bundled
+│   │                 into the published package — see clients/mcpi/README.md
 │   ├── tui/          Ink + React terminal UI (tsup bundle)
 │   └── launcher/     The `mcp-inspector` bin; dispatches to web/cli/tui in-process
 ├── core/             Shared code, consumed via the `@inspector/core` alias (no package.json)
@@ -385,12 +389,12 @@ When asked to respond to a code review of a PR:
 The _procedure_ — where a given test file goes, which command runs it, how to
 diagnose a failing gate — is the `testing` skill. These are the rules.
 
-- **Ensure all code has corresponding tests.** New code must clear **≥ 90 on all four dimensions** — lines, statements, functions, and branches — per file. This gate is enforced by each client's `test:coverage` across `clients/web`, `clients/cli`, `clients/tui` and `clients/launcher`, and **CI enforces it**: a PR that drops any file below 90 on any dimension fails.
+- **Ensure all code has corresponding tests.** New code must clear **≥ 90 on all four dimensions** — lines, statements, functions, and branches — per file. This gate is enforced by each client's `test:coverage` across `clients/web`, `clients/cli`, `clients/tui`, `clients/launcher`, and (experimentally) `clients/mcpi`, and **CI enforces it**: a PR that drops any file below 90 on any dimension fails. **mcpi** excludes bootstraps + hard-to-stabilize accept/stream races from the gate (`src/mcp-bin.ts`, `src/daemon/run.ts`, `src/daemon/ipc-glue.ts`, `src/daemon/stream-client.ts` — see `clients/mcpi/vitest.config.ts`); its build-time `@inspector/cli` alias reaches into `clients/cli/src` for shared handlers/error-handler/OAuth helpers (temporary, not a published API).
 - **A genuinely-unreachable branch is annotated at the source, never waved through by lowering the gate.** Use a justified `/* v8 ignore … -- <reason> */`. Acceptable reasons: happy-dom-inherent paths (Mantine portal mount points, `useMediaQuery` fallbacks, `typeof window` SSR guards); React StrictMode effect-replay blocks; and provably-dead defensive guards (a `?? fallback` for a value the types guarantee non-null, a `Select.onChange` receiving a value outside the allowed list). Reach for it only when the branch is genuinely impossible to exercise.
 - **In unit tests that expect error output, suppress it from the console.**
 - **Test placement — side-by-side by default, `src/test/` only for what can't be co-located, and the Node clients are different.**
   - **`clients/web`**: `<Name>.test.tsx` **next to the source** — components, hooks, `lib/`, `utils/`. A web-owned test living under `src/test/` instead is a bug. `src/test/` is for the three things that cannot be co-located: tests of the repo-root **`core/`** package (`src/test/core/…`, mirroring the `core/` layout — it lives outside `clients/web/` and has no harness of its own); the **`integration`** project (`src/test/integration/…` — _placement is the manifest_, picked up by a folder glob, with no enumeration to keep in sync); and **shared test infrastructure** (`renderWithMantine.tsx`, `setup.ts`, `fixtures/`).
-  - **`clients/cli`, `clients/tui`, `clients/launcher`**: **all** tests in a top-level **`__tests__/`**, not beside their source. Their `tsconfig.json` excludes `**/*.test.*`, so a co-located test lands in **no** tsconfig project and fails `npm run verify:typecheck-coverage`.
+  - **`clients/cli`, `clients/mcpi`, `clients/tui`, `clients/launcher`**: **all** tests in a top-level **`__tests__/`**, not beside their source. Their `tsconfig.json` excludes `**/*.test.*`, so a co-located test lands in **no** tsconfig project and fails `npm run verify:typecheck-coverage`.
   - **Root tooling**: a `scripts/*.mjs` helper with pure logic gets a sibling `*.test.mjs`. Keep that exact filename — `node --test` silently _skips_ a file its glob misses and still exits 0.
 - **Render Ink components through the TUI's own `render`** (`clients/tui/__tests__/helpers/renderTui.tsx`), never `ink-testing-library`'s directly. It is the same function with every frame ANSI-stripped, which is what keeps an assertion on styled text from depending on the ambient environment: Ink writes styling *inside* the styled run, so `<Text underline>I</Text>nfo` reaches the frame buffer with escapes between `I` and `nfo` and `toContain("Info")` fails. It only bites where chalk emits color — a developer whose shell exports `FORCE_COLOR` — so CI is green on a suite that is broken for them (#2207). A test that genuinely needs the raw bytes reads `stdout.lastFrame()` off the returned instance.
 - **Render React components through `renderWithMantine`** (`src/test/renderWithMantine.tsx`); do not hand-roll a bare `MantineProvider`, which skips the project theme and the helper's options and drifts from every other test. Pass the `colorScheme` option to exercise a forced scheme rather than hand-rolling `defaultColorScheme`. Use `renderWithMantineTransitions` **only** when a test must assert mid-flight transition state, and read the long comment on the helper before changing anything about it.

@@ -51,6 +51,7 @@ const MANIFESTS = [
   ".",
   "clients/web",
   "clients/cli",
+  "clients/mcpi",
   "clients/tui",
   "clients/launcher",
 ];
