@@ -107,6 +107,35 @@ describe("dispatchSessionRpc", () => {
     expect(streamDaemon).toHaveBeenCalled();
   });
 
+  it("wires SIGINT/SIGTERM abort for the general rpc path (not just streams)", async () => {
+    callDaemon.mockImplementation(
+      async (_op: string, _params: unknown, opts: { signal?: AbortSignal }) => {
+        process.emit("SIGTERM");
+        expect(opts.signal?.aborted).toBe(true);
+        return { kind: "result", result: {} };
+      },
+    );
+    const { dispatchSessionRpc } = await import("../src/session/dispatch.js");
+    await dispatchSessionRpc(
+      "tools/call",
+      {},
+      { format: "json", requireExplicit: false },
+    );
+    expect(callDaemon).toHaveBeenCalled();
+  });
+
+  it("removes the SIGINT/SIGTERM listeners after the rpc call settles", async () => {
+    callDaemon.mockResolvedValue({ kind: "result", result: {} });
+    const before = process.listenerCount("SIGINT");
+    const { dispatchSessionRpc } = await import("../src/session/dispatch.js");
+    await dispatchSessionRpc(
+      "tools/call",
+      {},
+      { format: "json", requireExplicit: false },
+    );
+    expect(process.listenerCount("SIGINT")).toBe(before);
+  });
+
   it("wires onElicitation as interactive when text format + TTY stdin/stdout", async () => {
     callDaemon.mockResolvedValue({ kind: "result", result: {} });
     const stdinDesc = Object.getOwnPropertyDescriptor(process.stdin, "isTTY");

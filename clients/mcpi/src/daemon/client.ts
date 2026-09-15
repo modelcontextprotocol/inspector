@@ -29,6 +29,12 @@ export type DaemonClientOptions = {
   onElicitation?: (
     frame: ElicitationRequestFrame,
   ) => Promise<ElicitationResponseFrame>;
+  /**
+   * Abort the in-flight request (e.g. on SIGINT/SIGTERM), failing it with a
+   * clear cancellation error instead of leaving the caller to kill the
+   * process abruptly mid-call (mid-`tools/call`, mid-elicitation-wait, etc).
+   */
+  signal?: AbortSignal;
 };
 
 /**
@@ -60,9 +66,18 @@ export async function callDaemon<T = unknown>(
       if (settled) return;
       settled = true;
       if (timer !== undefined) clearTimeout(timer);
+      options.signal?.removeEventListener("abort", onAbort);
       socket.removeAllListeners();
       socket.on("error", () => {});
       fn();
+    }
+
+    function onAbort() {
+      fail(
+        new CliExitCodeError(EXIT_CODES.USAGE, `'${op}' cancelled.`, {
+          code: "cancelled",
+        }),
+      );
     }
 
     function fail(error: unknown) {
@@ -175,6 +190,8 @@ export async function callDaemon<T = unknown>(
         ),
       );
     }, timeoutMs);
+
+    options.signal?.addEventListener("abort", onAbort, { once: true });
 
     socket.once("connect", () => {
       socket.write(encodeRequest(request));

@@ -39,7 +39,10 @@ export type SessionNameParams = {
   name?: string;
   /**
    * When true (non-TTY / CI), omit is an error — require an explicit session.
-   * Front-end sets this from `!process.stdout.isTTY` unless opted out.
+   * Front-end sets this from `!process.stdin.isTTY` (not stdout — keying off
+   * stdin lets piping output, e.g. `mcpi tools/list | jq`, still use MRU when
+   * a human is at the keyboard) unless opted out via
+   * `MCP_ALLOW_DEFAULT_SESSION=1`.
    */
   requireExplicit?: boolean;
 };

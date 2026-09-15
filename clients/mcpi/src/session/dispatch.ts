@@ -72,22 +72,33 @@ export async function dispatchSessionRpc(
     return;
   }
 
-  const outcome = await callDaemon<RpcResult>("rpc", params, {
-    socketPath,
-    onElicitation: (frame) =>
-      promptElicitation(frame, {
-        style,
-        // Prompting only needs a readable stdin and a text-based reply
-        // channel, not an actual TTY — an agent relaying prompts to a human
-        // (or answering directly) over a plain pipe works the same way a
-        // human at a terminal does. `--format json` is still excluded since
-        // stdout is a single machine-readable payload there, not a place to
-        // interleave prompts. A stdin that's already closed (e.g. `</dev/null`)
-        // is handled by declining/cancelling gracefully instead of hanging,
-        // not by refusing to try.
-        interactive: format === "text",
-      }),
-  });
+  const ac = new AbortController();
+  const onSignal = () => ac.abort();
+  process.on("SIGINT", onSignal);
+  process.on("SIGTERM", onSignal);
+  let outcome: RpcResult;
+  try {
+    outcome = await callDaemon<RpcResult>("rpc", params, {
+      socketPath,
+      signal: ac.signal,
+      onElicitation: (frame) =>
+        promptElicitation(frame, {
+          style,
+          // Prompting only needs a readable stdin and a text-based reply
+          // channel, not an actual TTY — an agent relaying prompts to a human
+          // (or answering directly) over a plain pipe works the same way a
+          // human at a terminal does. `--format json` is still excluded since
+          // stdout is a single machine-readable payload there, not a place to
+          // interleave prompts. A stdin that's already closed (e.g. `</dev/null`)
+          // is handled by declining/cancelling gracefully instead of hanging,
+          // not by refusing to try.
+          interactive: format === "text",
+        }),
+    });
+  } finally {
+    process.off("SIGINT", onSignal);
+    process.off("SIGTERM", onSignal);
+  }
   if (outcome.kind === "ndjson") {
     await writeSessionOutput(
       { format, style },

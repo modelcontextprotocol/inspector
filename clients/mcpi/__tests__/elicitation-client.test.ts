@@ -251,6 +251,23 @@ describe("callDaemon elicitation duplex", () => {
     ).rejects.toThrow("prompt blew up");
   });
 
+  it("fails with a clear cancellation error when the abort signal fires mid-call", async () => {
+    const sock = freshSock();
+    await listen(sock, () => {
+      // Never respond — the call should hang until aborted, not until
+      // timeoutMs, proving the signal (not the timeout) ended it.
+    });
+
+    const ac = new AbortController();
+    const promise = callDaemon(
+      "rpc",
+      { method: "tools/call" },
+      { socketPath: sock, timeoutMs: 60_000, signal: ac.signal },
+    );
+    ac.abort();
+    await expect(promise).rejects.toThrow("cancelled");
+  });
+
   it("silently swallows a post-settle socket error (e.g. late ECONNRESET)", async () => {
     const sock = freshSock();
     let serverSocket: net.Socket | undefined;
