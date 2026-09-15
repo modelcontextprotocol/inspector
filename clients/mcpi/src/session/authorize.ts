@@ -44,9 +44,26 @@ export async function authorizeInFrontend(
   );
   redirectUrlProvider.redirectUrl =
     formatRunnerOAuthRedirectUrl(callbackUrlConfig);
+  // Disarmed until connectInspectorWithOAuth's own interactive-OAuth window
+  // runs — mirrors the one-shot CLI's autoOpenControl (clients/cli/src/cli.ts):
+  // SDK `auth()` during plain connect() must not print/open before that
+  // window (or --stored-auth-only) gates it.
+  const autoOpenControl = { armed: false };
   environment.oauth = {
     storage: new NodeOAuthStorage(),
-    navigation: createCliOAuthNavigation(),
+    // mcpi always attempts interactive OAuth (see the isTTY override below) —
+    // whoever is running it (human or agent) may not have a real TTY on
+    // stdin/stderr. Reword the printed line so an agent knows it must relay
+    // the link to a human rather than treating "Please navigate to" as
+    // addressed to itself.
+    navigation: createCliOAuthNavigation({
+      autoOpenControl,
+      disableAutoOpen: options?.storedAuthOnly,
+      promptMessage: (hrefDisplay, tty) =>
+        tty
+          ? `Please navigate to: ${hrefDisplay}`
+          : `The user needs to navigate to this link to authenticate: ${hrefDisplay}`,
+    }),
     redirectUrlProvider,
   };
 
@@ -81,7 +98,19 @@ export async function authorizeInFrontend(
       redirectUrlProvider,
       callbackUrlConfig,
       serverSettings,
-      { storedAuthOnly: options?.storedAuthOnly },
+      {
+        storedAuthOnly: options?.storedAuthOnly,
+        // mcpi runs as a front-end for whatever invoked it (human terminal or
+        // agent subprocess) — always admit interactive OAuth rather than
+        // refusing when stdin/stderr aren't a real TTY. The CI-hang concern
+        // behind that gate (see clients/cli/README.md OAuth section) doesn't
+        // apply here: an agent without a TTY is still expected to relay the
+        // printed URL to an attended human, not run unattended. --stored-auth-only
+        // (checked above assertInteractiveOAuthAllowed, so unaffected by this)
+        // remains the way to opt out of interactive OAuth entirely.
+        isTTY: true,
+        autoOpenControl,
+      },
     );
   } finally {
     try {

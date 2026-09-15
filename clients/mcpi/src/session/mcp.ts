@@ -399,8 +399,15 @@ function registerConnect(program: CommandType): void {
         await authorizeInFrontend(serverConfig, serverSettings, {
           storedAuthOnly: false,
         });
+        // Interactive OAuth can run well past the daemon's idle timeout
+        // (60s, armed while it holds zero sessions) — a slow human login
+        // (SSO, MFA) can leave the daemon we ensured above already exited.
+        // Re-ensure so the retry lands on a live daemon instead of a stale
+        // socket; ensureDaemon() is a no-op when the existing one still
+        // answers pings.
+        const { socketPath: freshSocketPath } = await ensureDaemon();
         result = await callDaemon<SessionInfo>("connect", connectParams, {
-          socketPath,
+          socketPath: freshSocketPath,
         });
       }
       await writeSessionOutput(outOpts(opts), {

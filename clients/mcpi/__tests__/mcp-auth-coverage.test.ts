@@ -45,6 +45,7 @@ describe("mcp.ts auth / daemon error paths", () => {
       return true;
     }) as typeof process.stderr.write;
 
+    ensureDaemon.mockReset();
     ensureDaemon.mockResolvedValue({ socketPath: "/tmp/mcp-auth-cov.sock" });
     callDaemon.mockReset();
     authorizeInFrontend.mockReset();
@@ -90,6 +91,49 @@ describe("mcp.ts auth / daemon error paths", () => {
     expect(authorizeInFrontend).toHaveBeenCalledOnce();
     expect(callDaemon).toHaveBeenCalledTimes(2);
     expect(JSON.parse(stdout.trim()).name).toBe("test-stdio");
+  });
+
+  it("re-ensures the daemon after authorizeInFrontend, in case interactive OAuth outlasted its idle timeout", async () => {
+    configPath = createSampleTestConfig();
+    const session = {
+      name: "test-stdio",
+      isMru: true,
+      serverIdentity: "stdio",
+    };
+    callDaemon
+      .mockRejectedValueOnce(
+        new CliExitCodeError(EXIT_CODES.AUTH_REQUIRED, "need auth", {
+          code: "auth_required",
+        }),
+      )
+      .mockResolvedValueOnce(session);
+    // Simulate the pre-auth daemon having idled out while OAuth ran: the
+    // retry's ensureDaemon() call returns a different (freshly respawned)
+    // socket than the one used for the first attempt.
+    ensureDaemon
+      .mockResolvedValueOnce({ socketPath: "/tmp/mcp-auth-cov-stale.sock" })
+      .mockResolvedValueOnce({ socketPath: "/tmp/mcp-auth-cov-fresh.sock" });
+
+    const { runMcp } = await import("../src/session/mcp.js");
+    await runMcp([
+      "node",
+      "mcpi",
+      "connect",
+      "test-stdio",
+      "--config",
+      configPath,
+      "--format",
+      "json",
+    ]);
+
+    expect(ensureDaemon).toHaveBeenCalledTimes(2);
+    expect(callDaemon).toHaveBeenCalledTimes(2);
+    expect(callDaemon.mock.calls[0][2]).toMatchObject({
+      socketPath: "/tmp/mcp-auth-cov-stale.sock",
+    });
+    expect(callDaemon.mock.calls[1][2]).toMatchObject({
+      socketPath: "/tmp/mcp-auth-cov-fresh.sock",
+    });
   });
 
   it("rejects --relogin with --stored-auth-only", async () => {

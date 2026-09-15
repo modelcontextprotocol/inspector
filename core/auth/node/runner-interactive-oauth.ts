@@ -78,6 +78,19 @@ export async function runRunnerInteractiveOAuth(
     flowReject = reject;
   });
 
+  // Ctrl-C / a caller killing the process while waiting on the loopback
+  // callback would otherwise either hang until the timeout below or (for
+  // SIGINT specifically, absent any handler) hit Node's default abrupt exit
+  // with no cleanup. Reject cleanly instead so the server is stopped and the
+  // caller gets a normal, classifiable error ("OAuth" in the message maps to
+  // AUTH_REQUIRED — see clients/cli/src/error-handler.ts) rather than a raw
+  // process death.
+  const onSignal = (signal: NodeJS.Signals) => {
+    flowReject(new Error(`OAuth authorization cancelled (${signal}).`));
+  };
+  process.on("SIGINT", onSignal);
+  process.on("SIGTERM", onSignal);
+
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
 
   try {
@@ -154,6 +167,8 @@ export async function runRunnerInteractiveOAuth(
 
     return { kind: "success" };
   } finally {
+    process.off("SIGINT", onSignal);
+    process.off("SIGTERM", onSignal);
     if (timeoutId !== undefined) {
       clearTimeout(timeoutId);
     }
