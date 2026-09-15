@@ -49,7 +49,7 @@ inspector/
 ├── clients/
 │   ├── web/          Web client (Vite + React + Mantine). src/ = browser app; server/ = Node backend
 │   ├── cli/          CLI client (tsup bundle, @inspector/core alias)
-│   ├── mcpi/         Experimental session CLI (`mcpi` bin) — not part of the
+│   ├── mcpi/         Experimental session CLI (`mcpi` bin) — bundled into the
 │   │                 published package; see clients/mcpi/README.md
 │   ├── tui/          TUI client (Ink + React, tsup bundle)
 │   └── launcher/     Shared launcher — provides the `mcp-inspector` bin, dispatches to web/cli/tui

@@ -1,10 +1,19 @@
 # MCP Inspector session CLI (`mcpi`)
 
-**Experimental** separate client — not part of the published `@modelcontextprotocol/inspector` package. Connect once, then run many MCP commands against a named session via an implicit local daemon (ssh-agent style).
+**Experimental** separate client, bundled into the published `@modelcontextprotocol/inspector` npm package alongside `mcp-inspector`. Connect once, then run many MCP commands against a named session via an implicit local daemon (ssh-agent style).
 
 > **Layout note:** Source lives in `clients/mcpi/`. At build time it bundles some modules from `clients/cli/src` (`handlers/`, `error-handler`, OAuth helpers) via the `@inspector/cli` alias. That reach-in is intentional and temporary — not a published library API — until a cleaner shared package exists.
 
-## Install / run (from this repo)
+## Install
+
+```bash
+npm install -g @modelcontextprotocol/inspector
+mcpi --help
+```
+
+This installs both bins from the same package: `mcp-inspector` (web/one-shot CLI/TUI launcher) and `mcpi` (this session CLI). `mcpi`'s own `clients/mcpi` package is `"private": true` and is never published on its own — it ships only as a bundled build inside `@modelcontextprotocol/inspector`.
+
+## Build / run from this repo (development)
 
 Build, then put `mcpi` on your PATH with `npm link` (points at this package’s `build/mcp-bin.js`):
 

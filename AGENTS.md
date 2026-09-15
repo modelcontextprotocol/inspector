@@ -42,8 +42,8 @@ inspector/
 │   │   └── static/      sandbox_proxy.html — served for the MCP Apps tab
 │   ├── cli/          Scriptable CLI (tsup bundle, @inspector/core alias)
 │   ├── mcpi/         Experimental session CLI (`mcpi` bin — connect once, many
-│   │                 commands; implicit Unix-socket session daemon). Not part
-│   │                 of the published package yet — see clients/mcpi/README.md
+│   │                 commands; implicit Unix-socket session daemon). Bundled
+│   │                 into the published package — see clients/mcpi/README.md
 │   ├── tui/          Ink + React terminal UI (tsup bundle)
 │   └── launcher/     The `mcp-inspector` bin; dispatches to web/cli/tui in-process
 ├── core/             Shared code, consumed via the `@inspector/core` alias (no package.json)
