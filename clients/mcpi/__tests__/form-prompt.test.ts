@@ -32,6 +32,7 @@ describe("promptForm", () => {
 
   function fakeRl(answers: string[]) {
     let i = 0;
+    const closeHandlers: Array<() => void> = [];
     return {
       question: vi.fn(async () => {
         const answer = answers[i];
@@ -41,7 +42,16 @@ describe("promptForm", () => {
         }
         return answer;
       }),
-    } as unknown as Parameters<typeof promptForm>[0];
+      once: vi.fn((event: string, cb: () => void) => {
+        if (event === "close") closeHandlers.push(cb);
+      }),
+      // Test-only hook: simulates the underlying stdin closing (e.g. a
+      // redirected/piped input hitting EOF) so we can exercise the
+      // watchForClose() race without a real stream.
+      __triggerClose: () => closeHandlers.forEach((cb) => cb()),
+    } as unknown as Parameters<typeof promptForm>[0] & {
+      __triggerClose: () => void;
+    };
   }
 
   const stringField: FormField = {
@@ -373,5 +383,17 @@ describe("promptForm", () => {
     const rl = fakeRl(["", ""]);
     await promptForm(rl, "msg", [field], style);
     expect(stderr).toContain("(none)");
+  });
+
+  it("rejects instead of hanging when stdin closes before an answer arrives", async () => {
+    const rl = fakeRl([]);
+    (rl.question as ReturnType<typeof vi.fn>).mockImplementation(
+      () => new Promise(() => {}), // never resolves on its own
+    );
+    const outcome = promptForm(rl, "msg", [stringField], style);
+    (rl as unknown as { __triggerClose: () => void }).__triggerClose();
+    await expect(outcome).rejects.toThrow(
+      "stdin closed before an answer was given",
+    );
   });
 });

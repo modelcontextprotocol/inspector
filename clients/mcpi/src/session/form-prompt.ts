@@ -15,6 +15,31 @@ export type FormOutcome =
   | { action: "decline" }
   | { action: "cancel" };
 
+/**
+ * A promise that rejects the first time `rl`'s underlying input stream
+ * closes (EOF on a redirected/piped stdin, or the readline interface being
+ * closed elsewhere). Racing every `rl.question()` against this means a
+ * closed-before-answered stdin (e.g. `mcpi ... </dev/null`) falls through
+ * to the caller's cancel/decline handling instead of hanging forever
+ * waiting for a line that will never arrive.
+ */
+export function watchForClose(rl: ReadlineInterface): Promise<never> {
+  return new Promise((_, reject) => {
+    rl.once("close", () =>
+      reject(new Error("stdin closed before an answer was given")),
+    );
+  });
+}
+
+/** `rl.question()`, but rejects instead of hanging if stdin closes first. */
+function ask(
+  rl: ReadlineInterface,
+  closed: Promise<never>,
+  prompt: string,
+): Promise<string> {
+  return Promise.race([rl.question(prompt), closed]);
+}
+
 function formatDefault(field: FormField): string | undefined {
   if (field.default === undefined) return undefined;
   if (field.kind === "multiselect") {
@@ -34,6 +59,7 @@ function describeField(field: FormField, style: Style): string {
 /** Prompts for one field's value; loops until a valid answer or a default/blank-when-optional. */
 async function promptField(
   rl: ReadlineInterface,
+  closed: Promise<never>,
   field: FormField,
   style: Style,
 ): Promise<unknown> {
@@ -42,7 +68,7 @@ async function promptField(
       const def = field.default;
       const hint = def === undefined ? "y/n" : def ? "Y/n" : "y/N";
       const raw = (
-        await rl.question(`${describeField(field, style)}\n  [${hint}]: `)
+        await ask(rl, closed, `${describeField(field, style)}\n  [${hint}]: `)
       )
         .trim()
         .toLowerCase();
@@ -63,7 +89,9 @@ async function promptField(
         ? "Enter one or more numbers separated by commas"
         : "Enter a number";
       const raw = (
-        await rl.question(
+        await ask(
+          rl,
+          closed,
           `${describeField(field, style)}\n${lines.join("\n")}\n  ${prompt}: `,
         )
       ).trim();
@@ -105,7 +133,9 @@ async function promptField(
     if (field.kind === "number") {
       const def = field.default;
       const raw = (
-        await rl.question(
+        await ask(
+          rl,
+          closed,
           `${describeField(field, style)}\n  ${def !== undefined ? `[${def}]` : ""}: `,
         )
       ).trim();
@@ -138,7 +168,9 @@ async function promptField(
 
     // string
     const def = field.default;
-    const raw = await rl.question(
+    const raw = await ask(
+      rl,
+      closed,
       `${describeField(field, style)}\n  ${def !== undefined ? `[${def}]` : ""}: `,
     );
     const value = raw === "" && def !== undefined ? def : raw;
@@ -174,10 +206,11 @@ export async function promptForm(
   style: Style,
 ): Promise<FormOutcome> {
   process.stderr.write(`\n${style.bold("Input requested: ")}${message}\n\n`);
+  const closed = watchForClose(rl);
 
   const values = new Map<string, unknown>();
   for (const field of fields) {
-    values.set(field.name, await promptField(rl, field, style));
+    values.set(field.name, await promptField(rl, closed, field, style));
   }
 
   for (;;) {
@@ -189,7 +222,9 @@ export async function promptForm(
       );
     }
     const answer = (
-      await rl.question(
+      await ask(
+        rl,
+        closed,
         "\nPress Enter to submit, type a field name to edit it, or 'c' to cancel: ",
       )
     ).trim();
@@ -211,6 +246,6 @@ export async function promptForm(
       );
       continue;
     }
-    values.set(field.name, await promptField(rl, field, style));
+    values.set(field.name, await promptField(rl, closed, field, style));
   }
 }

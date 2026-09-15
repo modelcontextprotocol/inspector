@@ -6,13 +6,21 @@ const question = vi.fn();
 const close = vi.fn();
 const promptFormMock = vi.fn();
 
+const once = vi.fn();
+
 vi.mock("node:readline/promises", () => ({
-  createInterface: () => ({ question, close }),
+  createInterface: () => ({ question, close, once }),
 }));
 
-vi.mock("../src/session/form-prompt.js", () => ({
-  promptForm: (...args: unknown[]) => promptFormMock(...args),
-}));
+vi.mock("../src/session/form-prompt.js", async () => {
+  const actual = await vi.importActual<
+    typeof import("../src/session/form-prompt.js")
+  >("../src/session/form-prompt.js");
+  return {
+    promptForm: (...args: unknown[]) => promptFormMock(...args),
+    watchForClose: actual.watchForClose,
+  };
+});
 
 /**
  * Covers `promptElicitation`'s terminal UI: form mode always declines
@@ -37,6 +45,7 @@ describe("promptElicitation", () => {
     }) as typeof process.stderr.write;
     question.mockReset();
     close.mockReset();
+    once.mockReset();
     promptFormMock.mockReset();
   });
 
@@ -117,10 +126,10 @@ describe("promptElicitation", () => {
       action: "decline",
     });
     expect(question).not.toHaveBeenCalled();
-    expect(stderr).toContain("requires an interactive terminal");
+    expect(stderr).toContain("--format json");
   });
 
-  it("cancels non-interactively (e.g. --format json or non-TTY) without prompting", async () => {
+  it("cancels when the caller isn't interactive (e.g. --format json) without prompting", async () => {
     const { promptElicitation } =
       await import("../src/session/elicitation-prompt.js");
     const frame = urlFrame();
@@ -135,7 +144,7 @@ describe("promptElicitation", () => {
       action: "cancel",
     });
     expect(question).not.toHaveBeenCalled();
-    expect(stderr).toContain("requires an interactive terminal");
+    expect(stderr).toContain("--format json");
   });
 
   it("cancels non-interactively without a url line when the frame has none", async () => {
@@ -178,6 +187,22 @@ describe("promptElicitation", () => {
 
   it("falls back to cancel if reading input throws", async () => {
     question.mockRejectedValue(new Error("stdin closed"));
+    const { promptElicitation } =
+      await import("../src/session/elicitation-prompt.js");
+    const frame = urlFrame();
+    const answer = await promptElicitation(frame, { interactive: true, style });
+    expect(answer.action).toBe("cancel");
+    expect(close).toHaveBeenCalled();
+  });
+
+  it("cancels URL mode if stdin closes before the user answers", async () => {
+    // Simulates a non-TTY stdin (e.g. an agent-driven pipe) hitting EOF
+    // before an answer arrives: question() hangs, but the "close" listener
+    // registered via watchForClose() fires and wins the race.
+    question.mockImplementation(() => new Promise(() => {}));
+    once.mockImplementation((event: string, cb: () => void) => {
+      if (event === "close") cb();
+    });
     const { promptElicitation } =
       await import("../src/session/elicitation-prompt.js");
     const frame = urlFrame();

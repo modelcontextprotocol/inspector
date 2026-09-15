@@ -20,10 +20,19 @@ import type {
   ElicitationResponseFrame,
 } from "../daemon/protocol.js";
 import { parseFormSchema } from "./form-schema.js";
-import { promptForm } from "./form-prompt.js";
+import { promptForm, watchForClose } from "./form-prompt.js";
 
 export type PromptElicitationOpts = {
-  /** False for non-interactive callers (e.g. `--format json`, non-TTY). */
+  /**
+   * False only for callers where a text prompt can't sensibly be shown
+   * (currently just `--format json`, whose stdout is a single
+   * machine-readable payload). A prompt works the same over a plain,
+   * non-TTY stdin/stderr as it does at a real terminal — a human at a
+   * keyboard and an agent relaying/answering on their behalf both just
+   * read a line of text and reply with one. A stdin that's already closed
+   * (e.g. `mcpi ... </dev/null`) is handled by declining/cancelling once
+   * reading fails, not by refusing to try in the first place.
+   */
   interactive: boolean;
   style: Style;
 };
@@ -79,8 +88,8 @@ export async function promptElicitation(
     if (!opts.interactive) {
       process.stderr.write(
         style.yellow(
-          "This server is asking for form input, which requires an " +
-            "interactive terminal — declining.\n",
+          "This server is asking for form input, which isn't supported " +
+            "with --format json — declining.\n",
         ) + `  ${frame.message}\n`,
       );
       return declineResponse(frame);
@@ -114,7 +123,7 @@ export async function promptElicitation(
     process.stderr.write(
       style.yellow(
         "This server is asking for input via a URL (elicitation), which " +
-          "requires an interactive terminal — cancelling.\n",
+          "isn't supported with --format json — cancelling.\n",
       ) +
         `  ${frame.message}\n` +
         (frame.url ? `  ${frame.url}\n` : ""),
@@ -137,10 +146,13 @@ export async function promptElicitation(
     output: process.stderr,
   });
   try {
-    const answer = await rl.question(
-      "Open the URL above, complete it, then press Enter to continue " +
-        "(or type 'c' to cancel): ",
-    );
+    const answer = await Promise.race([
+      rl.question(
+        "Open the URL above, complete it, then press Enter to continue " +
+          "(or type 'c' to cancel): ",
+      ),
+      watchForClose(rl),
+    ]);
     if (answer.trim().toLowerCase() === "c") {
       return cancelResponse(frame);
     }
