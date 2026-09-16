@@ -1156,6 +1156,85 @@ test("main ignores an outsider's issue carrying the current target's marker", ()
   );
 });
 
+/** Run `fn` with `console.warn` captured, restoring it whatever happens. */
+function capturingWarnings(fn) {
+  const warnings = [];
+  const original = console.warn;
+  console.warn = (...args) => warnings.push(args.join(" "));
+  try {
+    fn();
+  } finally {
+    console.warn = original;
+  }
+  return warnings;
+}
+
+test("main warns when a sweep-shaped issue's author does not normalize", () => {
+  // ⚠️ This is the PRODUCTION wiring, not the helper. Unit-testing
+  // `warnOnUnrecognizedAuthors` alone left `sweepIssues`' call to it deletable
+  // with the whole suite still green — so the guard against a silent
+  // normalization drift could itself have gone silent (#2379 review).
+  const spawn = fakeSpawn({
+    latest: latestAt(SDK, "2.1.0"),
+    issues: [
+      {
+        ...existingIssue(400, "2.1.0"),
+        // Labels an outsider cannot set, our own marker, and a spelling
+        // `normalizeLogin` has never seen: the #2377 signature exactly.
+        author: { login: "apps/github-actions", is_bot: true },
+      },
+    ],
+  });
+
+  const warnings = capturingWarnings(() =>
+    main("o/r", spawn, noAmbientOutput()),
+  );
+
+  const drift = warnings.filter((w) => w.includes("apps/github-actions"));
+  assert.equal(
+    drift.length > 0,
+    true,
+    `expected a drift warning naming the unreadable author; got ${JSON.stringify(warnings)}`,
+  );
+  assert.match(drift[0], /#2377/);
+  // And the consequence is real: unable to read its own issue, the sweep
+  // refiles. The warning is what makes that visible instead of silent.
+  assert.ok(
+    spawn.calls.some((c) => c.args[0] === "issue" && c.args[1] === "create"),
+  );
+});
+
+test("main stays silent when every sweep issue's author is readable", () => {
+  // The other side of the guard: a warning that fires on the ordinary path is
+  // noise, and a channel nobody trusts is one people learn to skim.
+  for (const login of [
+    "github-actions",
+    "github-actions[bot]",
+    "app/github-actions",
+  ]) {
+    const spawn = fakeSpawn({
+      latest: latestAt(SDK, "2.1.0"),
+      issues: [
+        { ...existingIssue(400, "2.1.0"), author: { login, is_bot: true } },
+      ],
+    });
+    const warnings = capturingWarnings(() =>
+      main("o/r", spawn, noAmbientOutput()),
+    );
+    assert.deepEqual(
+      warnings.filter((w) => w.includes("normalize")),
+      [],
+      `login ${JSON.stringify(login)} must not be reported as a drift`,
+    );
+    // Readable author ⇒ the marker is trusted ⇒ no refile.
+    assert.equal(
+      spawn.calls.some((c) => c.args[0] === "issue" && c.args[1] === "create"),
+      false,
+      `login ${JSON.stringify(login)} must suppress the refile`,
+    );
+  }
+});
+
 test("main ignores an issue that lacks the labels only write access can set", () => {
   const spawn = fakeSpawn({
     latest: latestAt(SDK, "2.1.0"),
