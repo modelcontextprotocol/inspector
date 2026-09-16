@@ -750,9 +750,6 @@ export class TestServerHttp {
   }
 
   /**
-   * Stop the server. Set closing before closing transport so in-flight tools can skip sending.
-   */
-  /**
    * How many requests this server is currently holding in an OAuth stall.
    *
    * On the instance rather than a module export: Vitest can load the fixture
@@ -763,6 +760,9 @@ export class TestServerHttp {
     return this.stallRegistry.parked;
   }
 
+  /**
+   * Stop the server. Set closing before closing transport so in-flight tools can skip sending.
+   */
   async stop(): Promise<void> {
     this._closing = true;
     // Tear down the modern leg (aborts in-flight modern exchanges and closes

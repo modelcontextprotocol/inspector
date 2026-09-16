@@ -159,6 +159,15 @@ export const STALLABLE_OAUTH_ENDPOINTS = [
 
 export type StallableOAuthEndpoint = (typeof STALLABLE_OAUTH_ENDPOINTS)[number];
 
+/**
+ * The largest delay `setTimeout` can actually schedule. Past `2 ** 31 - 1` the
+ * delay overflows a 32-bit signed integer and Node falls back to **1ms**, so an
+ * over-large `stallMs` would produce an *immediate* answer — the opposite of
+ * what the fixture author asked for. Mirrors `MAX_TIMER_DELAY_MS` in
+ * `core/auth/requestTimeout.ts`, which exists for the same reason.
+ */
+export const MAX_STALL_MS = 2_147_483_647;
+
 export function isStallableOAuthEndpoint(
   value: unknown,
 ): value is StallableOAuthEndpoint {
@@ -272,6 +281,25 @@ export function createOAuthStallMiddleware(
     );
   }
 
+  // ⚠️ `stallMs` needs validating for the same reason `stallEndpoints` does, and
+  // more urgently: a JSON/YAML config is only *cast* to its interface, so
+  // anything can arrive here. Unchecked, a negative or non-numeric value makes
+  // `stallMs > 0` false and silently becomes a PERMANENT stall, and a value past
+  // the 32-bit timer range overflows and fires almost immediately — both of
+  // which read as "the timeout behaved strangely" rather than "the config is
+  // wrong" (Copilot).
+  const rawStallMs = config.stallMs ?? 0;
+  if (
+    typeof rawStallMs !== "number" ||
+    !Number.isFinite(rawStallMs) ||
+    rawStallMs < 0 ||
+    rawStallMs > MAX_STALL_MS
+  ) {
+    throw new Error(
+      `oauth.stallMs must be a finite number between 0 and ${MAX_STALL_MS} (got ${JSON.stringify(config.stallMs)}).`,
+    );
+  }
+
   const targets = stallTargetsFor(config);
   // `${METHOD} ${path}` rather than a path set — see `stallTargetsFor`.
   const stalled = new Set(
@@ -280,7 +308,7 @@ export function createOAuthStallMiddleware(
       return methods.map((method) => `${method} ${path}`);
     }),
   );
-  const stallMs = config.stallMs ?? 0;
+  const stallMs = rawStallMs;
 
   return (req: Request, res: Response, next: express.NextFunction) => {
     // `req.path`, never `req.url`: the latter carries the query string, which

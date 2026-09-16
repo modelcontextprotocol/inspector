@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -14,6 +14,9 @@ import {
   resolveConfig,
   STALLABLE_OAUTH_ENDPOINTS,
   type StallableOAuthEndpoint,
+  createOAuthStallMiddleware,
+  createStallRegistry,
+  MAX_STALL_MS,
 } from "@modelcontextprotocol/inspector-test-server";
 
 /**
@@ -248,9 +251,11 @@ describe("OAuth request timeouts against a stalled endpoint (#2382)", () => {
     ).rejects.toThrow(OAuthRequestTimeoutError);
   });
 
-  it("releases the delay timer when the client aborts first", async () => {
-    // The timer cleanup on the `stallMs` path. Left armed, a stalled fixture
-    // would keep the event loop alive past the test that used it (Copilot).
+  it("stops holding the request when the client aborts a delayed stall", async () => {
+    // End-to-end: the fixture lets go. This observes the REGISTRY, which is
+    // decremented by the `close` listener — so it does NOT prove the timer was
+    // cleared. That claim belongs to the focused test below, which can actually
+    // see the timer (Copilot).
     const started = await startStalling(["token"], { stallMs: 10_000 });
     const controller = new AbortController();
 
@@ -266,7 +271,6 @@ describe("OAuth request timeouts against a stalled endpoint (#2382)", () => {
     controller.abort();
 
     await expect(pending).resolves.toBe("aborted");
-    // The release ran, so the fixture is not still holding it.
     await until(
       () => started.stalledRequestCount() === 0,
       "the stall to be released",
@@ -335,6 +339,86 @@ describe("OAuth request timeouts against a stalled endpoint (#2382)", () => {
     await expect(pending).resolves.toBe("socket destroyed");
   });
 
+  it("stalls the authorize POST, not only its GET", async () => {
+    // ⚠️ `authorize` is the only endpoint mapped to two methods, and the table
+    // above drives it as a GET. Without this, deleting `"POST"` from its method
+    // list passes the whole suite while a consent submission stops stalling
+    // (Copilot).
+    const started = await startStalling(["authorize"]);
+    const url = new URL("/oauth/authorize", started.url).href;
+    const timedFetch = withOAuthRequestTimeout(fetch, BUDGET_MS);
+
+    await expect(
+      timedFetch(url, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: "client_id=test-client&response_type=code&redirect_uri=http%3A%2F%2F127.0.0.1%3A6274%2Foauth%2Fcallback",
+      }),
+    ).rejects.toThrow(OAuthRequestTimeoutError);
+  });
+
+  it("follows resourceMetadataPath when the document is moved", async () => {
+    // ⚠️ Both metadata paths are configurable, and the table above only ever
+    // requests the DEFAULTS. A regression replacing either lookup in
+    // `stallTargetsFor` with its default literal would leave every other test
+    // green while `stallEndpoints` silently stopped working for any config that
+    // moves the document (Copilot).
+    const moved = "/custom/protected-resource.json";
+    const started = createTestServerHttp({
+      serverInfo: createTestServerInfo("oauth-stall-moved-prm", "1.0.0"),
+      tools: [createEchoTool()],
+      oauth: {
+        enabled: true,
+        mode: "combined",
+        requireAuth: true,
+        scopesSupported: ["mcp"],
+        resourceMetadataPath: moved,
+        stallEndpoints: ["protected-resource-metadata"],
+      },
+    });
+    await started.start();
+    server = started;
+
+    await expect(
+      withOAuthRequestTimeout(
+        fetch,
+        BUDGET_MS,
+      )(new URL(moved, started.url).href),
+    ).rejects.toThrow(OAuthRequestTimeoutError);
+
+    // And the DEFAULT path is no longer the stalled one — it is not served at
+    // all once the document moves, so it answers (404) instead of hanging.
+    const atDefault = await fetch(
+      new URL("/.well-known/oauth-protected-resource", started.url).href,
+    );
+    expect(typeof atDefault.status).toBe("number");
+  });
+
+  it("follows asMetadataPath when the AS document is moved", async () => {
+    const moved = "/custom/as-metadata.json";
+    const started = createTestServerHttp({
+      serverInfo: createTestServerInfo("oauth-stall-moved-as", "1.0.0"),
+      tools: [createEchoTool()],
+      oauth: {
+        enabled: true,
+        mode: "combined",
+        requireAuth: true,
+        scopesSupported: ["mcp"],
+        asMetadataPath: moved,
+        stallEndpoints: ["as-metadata"],
+      },
+    });
+    await started.start();
+    server = started;
+
+    await expect(
+      withOAuthRequestTimeout(
+        fetch,
+        BUDGET_MS,
+      )(new URL(moved, started.url).href),
+    ).rejects.toThrow(OAuthRequestTimeoutError);
+  });
+
   it("drives the two checked-in showcase configs, not just inline ones", async () => {
     // The JSON-to-ServerConfig mapping is its own failure surface: a misspelled
     // key in either file, or a `resolveConfig` that stopped threading
@@ -360,6 +444,130 @@ describe("OAuth request timeouts against a stalled endpoint (#2382)", () => {
 
       await started.stop();
       server = null;
+    }
+  });
+});
+
+/**
+ * The middleware on its own, with no server, so the timer itself is observable.
+ *
+ * The end-to-end abort test can only watch the registry, which a separate
+ * `close` listener decrements — so it passes with the timer still armed and
+ * cannot support a claim about `clearTimeout` (Copilot). Here `next` is a spy
+ * and time is fake, so "the delayed answer never fires after a close" is
+ * directly checkable.
+ */
+describe("createOAuthStallMiddleware timer cleanup (#2382)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /** A response stub that records its `close` listeners so a test can fire them. */
+  function fakeRes() {
+    const listeners: Array<() => void> = [];
+    return {
+      res: {
+        on(event: string, fn: () => void) {
+          if (event === "close") listeners.push(fn);
+        },
+      },
+      close: () => listeners.forEach((fn) => fn()),
+    };
+  }
+
+  const tokenReq = { method: "POST", path: "/oauth/token" };
+
+  it("does not answer a delayed stall after the client closed", () => {
+    const middleware = createOAuthStallMiddleware(
+      {
+        enabled: true,
+        mode: "combined",
+        stallEndpoints: ["token"],
+        stallMs: 10_000,
+      },
+      createStallRegistry(),
+    );
+    expect(middleware).not.toBeNull();
+
+    const next = vi.fn();
+    const { res, close } = fakeRes();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- request/response stubs, not Express instances
+    middleware!(tokenReq as any, res as any, next);
+
+    expect(next).not.toHaveBeenCalled();
+    close();
+
+    // Past the delay, with the timer cleared: nothing should fire. Without
+    // `clearTimeout` this advances into `next()` and the spy is called.
+    vi.advanceTimersByTime(20_000);
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it("still answers a delayed stall that is not closed", () => {
+    // The complement — otherwise a middleware that never calls `next` at all
+    // would satisfy the test above.
+    const middleware = createOAuthStallMiddleware(
+      {
+        enabled: true,
+        mode: "combined",
+        stallEndpoints: ["token"],
+        stallMs: 10_000,
+      },
+      createStallRegistry(),
+    );
+    const next = vi.fn();
+    const { res } = fakeRes();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- request/response stubs, not Express instances
+    middleware!(tokenReq as any, res as any, next);
+
+    vi.advanceTimersByTime(9_999);
+    expect(next).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(2);
+    expect(next).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects a stallMs that is negative, non-finite or past the timer range", () => {
+    // ⚠️ A JSON/YAML config is only CAST to its interface, so anything can
+    // arrive here. Unvalidated, a negative value makes `stallMs > 0` false and
+    // silently becomes a PERMANENT stall, and a value past the 32-bit timer
+    // range overflows to ~1ms and answers almost immediately — both read as
+    // "the timeout behaved strangely" rather than "the config is wrong"
+    // (Copilot).
+    for (const stallMs of [-1, Number.NaN, Infinity, MAX_STALL_MS + 1]) {
+      expect(() =>
+        createOAuthStallMiddleware({
+          enabled: true,
+          mode: "combined",
+          stallEndpoints: ["token"],
+          stallMs,
+        }),
+      ).toThrow(/oauth\.stallMs must be a finite number/);
+    }
+    // A non-numeric value from an unvalidated config file.
+    expect(() =>
+      createOAuthStallMiddleware({
+        enabled: true,
+        mode: "combined",
+        stallEndpoints: ["token"],
+        // @ts-expect-error - a JSON config is cast, so this really can arrive
+        stallMs: "600",
+      }),
+    ).toThrow(/oauth\.stallMs must be a finite number/);
+
+    // The boundaries themselves are valid.
+    for (const stallMs of [0, MAX_STALL_MS]) {
+      expect(() =>
+        createOAuthStallMiddleware({
+          enabled: true,
+          mode: "combined",
+          stallEndpoints: ["token"],
+          stallMs,
+        }),
+      ).not.toThrow();
     }
   });
 });
