@@ -1,0 +1,26 @@
+{
+  "serverInfo": {
+    "name": "oauth-stalled-token",
+    "version": "1.0.0"
+  },
+  "tools": [
+    {
+      "preset": "echo"
+    }
+  ],
+  "resources": [],
+  "oauth": {
+    "enabled": true,
+    "mode": "combined",
+    "requireAuth": true,
+    "scopesSupported": ["mcp"],
+    "supportDCR": true,
+    "supportRefreshTokens": true,
+    "stallEndpoints": ["token"],
+    "stallMs": 0
+  },
+  "transport": {
+    "type": "streamable-http",
+    "port": 8093
+  }
+}

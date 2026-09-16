@@ -56,6 +56,7 @@ as a missing capability rather than an error.
 | `oauth-rfc8414-at-oidc-path-http.json` **(legacy era)** | Plain OAuth 2.0 AS metadata served at the OIDC well-known path | [#2172](https://github.com/modelcontextprotocol/inspector/issues/2172) |
 | `oauth-insecure-token-endpoint-http.json` **(legacy era)** | A token endpoint the SDK refuses to post credentials to | [#2280](https://github.com/modelcontextprotocol/inspector/issues/2280) |
 | `oauth-cimd-http.json` **(legacy era)** | URL-based client IDs (CIMD / SEP-991), DCR deliberately off | [#2242](https://github.com/modelcontextprotocol/inspector/issues/2242) |
+| `oauth-stalled-{token,discovery}-http.json` **(legacy era)** | An OAuth endpoint that accepts the request and never answers, so the OAuth-path request timeouts fire against a real idle socket | [#2382](https://github.com/modelcontextprotocol/inspector/issues/2382) |
 | `logging-{legacy,modern}-http.json` **(era per file)** | Logging, both eras                                  | [#1629](https://github.com/modelcontextprotocol/inspector/issues/1629) |
 | `subscriptions-{legacy,modern}-http.json` **(era per file)** | Resource subscriptions, both eras                   | [#1630](https://github.com/modelcontextprotocol/inspector/issues/1630) |
 | `subscriptions-never-acknowledged-http.json` **(modern era)** | A `subscriptions/listen` answered with a bare result  | [#2097](https://github.com/modelcontextprotocol/inspector/issues/2097) |
@@ -649,6 +650,21 @@ string included — so a server that walked to another port on `EADDRINUSE` stil
 for exactly that reason. The fixed-port dependency that *does* bite is `redirect_uris`, above.
 
 ## Revoking tokens on clear (RFC 7009)
+
+### `oauth-stalled-token-http.json` / `oauth-stalled-discovery-http.json`
+
+Two OAuth-protected servers (combined AS + resource, DCR, refresh tokens) that are ordinary in every respect but one: a single endpoint **accepts the request and withholds the response forever**. Plain streamable-HTTP — connect with the **default (legacy)** protocol era.
+
+- `oauth-stalled-token-http.json` stalls `POST /oauth/token`, so the token exchange and the refresh — which share that endpoint — both hang.
+- `oauth-stalled-discovery-http.json` stalls `GET /.well-known/oauth-protected-resource`, so the stall happens before a client has any authorization server to talk to.
+
+**What to do.** Connect to either from the Inspector and start an OAuth flow. Each should fail with an `OAuthRequestTimeoutError` naming the endpoint it gave up on and the budget it used, after roughly `DEFAULT_OAUTH_REQUEST_TIMEOUT_MS` (30s) unless a shorter one is configured. Every *other* endpoint on the same server answers normally, so the failure points at one call rather than at the server.
+
+**What the broken build did.** Before [#2319](https://github.com/modelcontextprotocol/inspector/issues/2319), every OAuth-path call went out with no `AbortSignal` at all and these fixtures produced an unbounded spinner rather than an error — and a silent one, because a connect-time auth error deliberately holds the connection status at `connecting` on the theory that a redirect is about to end the attempt. The stall is server-side, in the Inspector's own Node process, so browser devtools showed no pending request while a socket sat established and idle.
+
+**Why the fixture exists at all.** #2319's own tests inject a `fetch` stub, which settles on the client side and cannot produce an established idle socket — the precise state the issue is about. Until [#2382](https://github.com/modelcontextprotocol/inspector/issues/2382) added `oauth.stallEndpoints`, nothing in the repo could make those five timeouts fire.
+
+**Configuring your own.** Any config's `oauth` block takes `stallEndpoints` — any of `protected-resource-metadata`, `as-metadata`, `authorize`, `token`, `revoke`, `register` — plus an optional `stallMs` to answer *late* instead of never. Endpoints are named by the **call**, not the path, because the token exchange and the refresh share `/oauth/token` and two of the documents sit at configurable paths. An unrecognized name throws when the server starts rather than being ignored, so a typo cannot quietly produce a fixture that answers normally.
 
 `oauth-revocation-http.json` and `oauth-no-revocation-http.json` are the same OAuth-protected server (combined AS + resource, DCR, refresh tokens) differing in one thing: the first advertises a `revocation_endpoint`, the second advertises none. Plain streamable-HTTP — connect with the **default (legacy)** protocol era.
 

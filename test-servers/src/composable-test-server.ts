@@ -50,6 +50,7 @@ import {
   wireModernTaskHandlers,
 } from "./modern-tasks.js";
 import { SKILLS_EXTENSION_KEY, wireSkillsHandlers } from "./skills.js";
+import type { StallableOAuthEndpoint } from "./test-server-oauth.js";
 
 /**
  * MCP Apps extension id. Hardcoded for the same reason the Inspector's
@@ -791,6 +792,29 @@ export interface ServerConfig {
      * Whether to support refresh tokens (default: true)
      */
     supportRefreshTokens?: boolean;
+
+    /**
+     * Endpoints that accept the request and then withhold the response, so the
+     * `AbortSignal.timeout` #2319 put on the OAuth path can be driven against a
+     * real, established, idle socket (#2382).
+     *
+     * A `fetch` stub cannot reproduce that state — it settles on the client
+     * side — which is why the five timeouts shipped covered only by unit tests.
+     * Name the *call*, not the path: exchange and refresh share `/oauth/token`,
+     * and two of the documents sit at configurable paths.
+     *
+     * Per endpoint rather than global, so a test can tell "discovery timed out"
+     * from "token exchange timed out" — the distinction the five separate
+     * timeouts exist to make.
+     */
+    stallEndpoints?: StallableOAuthEndpoint[];
+
+    /**
+     * Answer a stalled endpoint after this many ms instead of never
+     * (default: 0, never). Lets one fixture cover both "slower than the
+     * client's budget" and "no answer at all".
+     */
+    stallMs?: number;
 
     /**
      * Whether to advertise and serve the RFC 7009 `revocation_endpoint`

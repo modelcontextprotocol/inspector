@@ -6,7 +6,10 @@
 import { readFileSync } from "fs";
 import path from "path";
 import YAML from "yaml";
-import { isOriginRelativePath } from "./test-server-oauth.js";
+import {
+  isOriginRelativePath,
+  type StallableOAuthEndpoint,
+} from "./test-server-oauth.js";
 
 export interface PresetRef {
   preset: string;
@@ -58,6 +61,18 @@ export interface ConfigFileOAuth {
   supportRefreshTokens?: boolean;
   /** RFC 7009 revocation endpoint; default true (#2144). */
   supportRevocation?: boolean;
+  /**
+   * Endpoints that accept the request and withhold the response, to drive the
+   * OAuth-path request timeouts against a real socket (#2382). One of
+   * `protected-resource-metadata`, `as-metadata`, `authorize`, `token`,
+   * `revoke`, `register`. An unrecognized name throws at setup.
+   */
+  stallEndpoints?: StallableOAuthEndpoint[];
+  /**
+   * Answer a stalled endpoint after this many ms instead of never (default 0 =
+   * never). Use it for "slower than the budget"; leave it out for "no answer".
+   */
+  stallMs?: number;
 }
 
 export interface ConfigFile {

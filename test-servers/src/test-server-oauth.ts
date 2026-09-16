@@ -140,6 +140,116 @@ function bearerChallenge(config: OAuthConfig, req: Request): string {
 }
 
 /**
+ * The OAuth endpoints a fixture can be told to stall.
+ *
+ * One name per call that #2319 put an `AbortSignal.timeout` on, plus
+ * `authorize` for completeness. They are named for the *call* rather than the
+ * path because two of them share `/oauth/token` (exchange and refresh are the
+ * same endpoint with a different `grant_type`), and because the path of the
+ * protected-resource document is itself configurable.
+ */
+export const STALLABLE_OAUTH_ENDPOINTS = [
+  "protected-resource-metadata",
+  "as-metadata",
+  "authorize",
+  "token",
+  "revoke",
+  "register",
+] as const;
+
+export type StallableOAuthEndpoint = (typeof STALLABLE_OAUTH_ENDPOINTS)[number];
+
+export function isStallableOAuthEndpoint(
+  value: unknown,
+): value is StallableOAuthEndpoint {
+  return (STALLABLE_OAUTH_ENDPOINTS as readonly unknown[]).includes(value);
+}
+
+/**
+ * The request path each stallable endpoint is served at, for this config.
+ *
+ * Two of these are configurable, so the map is built per config rather than
+ * hardcoded: the protected-resource document moves with `resourceMetadataPath`
+ * and the AS metadata with `asMetadataPath`. Getting either wrong would make
+ * the stall silently never match, which is the one failure this fixture must
+ * not have — a test would then read as "the timeout did not fire".
+ */
+export function stallPathsFor(
+  config: OAuthConfig,
+): Record<StallableOAuthEndpoint, string> {
+  return {
+    "protected-resource-metadata":
+      resourceMetadataPath(config) ?? "/.well-known/oauth-protected-resource",
+    "as-metadata": asMetadataPath(config),
+    authorize: "/oauth/authorize",
+    token: "/oauth/token",
+    revoke: "/oauth/revoke",
+    register: "/oauth/register",
+  };
+}
+
+/**
+ * Accept a request on a configured endpoint and withhold its response.
+ *
+ * ⚠️ **This deliberately calls neither `next()` nor any `res` method.** That is
+ * the whole point: the socket is accepted and established, the client's fetch
+ * is pending, and nothing ever answers — which is the state #2319 describes and
+ * the one a `fetch` stub cannot reproduce. A stub rejects or resolves on the
+ * client side; only a real server holding a real socket exercises the
+ * `AbortSignal.timeout` that #2319 added.
+ *
+ * With `stallMs > 0` it answers late instead of never, by handing control back
+ * to the real route after the delay — so one fixture covers both "slower than
+ * the budget" and "never".
+ *
+ * **Teardown is already safe and this relies on it rather than re-implementing
+ * it.** `TestServerHttp.stop()` calls `httpServer.closeAllConnections?.()`,
+ * which destroys an established socket whether or not a response was ever
+ * written. A withheld response therefore cannot hang a suite at teardown —
+ * `stalls the token endpoint and still stops cleanly` pins that, because it is
+ * the property most likely to be broken by a future change to the stop path.
+ */
+export function createOAuthStallMiddleware(
+  config: OAuthConfig,
+): express.RequestHandler | null {
+  const requested = config.stallEndpoints ?? [];
+  if (requested.length === 0) return null;
+
+  const unknown = requested.filter((e) => !isStallableOAuthEndpoint(e));
+  if (unknown.length > 0) {
+    // Loud, not ignored: a typo would otherwise produce a fixture that answers
+    // normally, and a test asserting a timeout would fail pointing at the
+    // timeout rather than at the config.
+    throw new Error(
+      `Unknown oauth.stallEndpoints entry: ${unknown.map((e) => JSON.stringify(e)).join(", ")}. ` +
+        `Expected one of: ${STALLABLE_OAUTH_ENDPOINTS.join(", ")}.`,
+    );
+  }
+
+  const paths = stallPathsFor(config);
+  const stalled = new Set(requested.map((endpoint) => paths[endpoint]));
+  const stallMs = config.stallMs ?? 0;
+
+  return (req: Request, res: Response, next: express.NextFunction) => {
+    // Compare the PATH only. `req.url` carries the query string, which every
+    // authorize request has, so matching on it would never hit `authorize`.
+    if (!stalled.has(req.path)) {
+      next();
+      return;
+    }
+    if (stallMs > 0) {
+      const timer = setTimeout(() => next(), stallMs);
+      // Release the timer if the client gives up first, so a stalled fixture
+      // cannot keep the event loop alive past the test that used it.
+      res.on("close", () => clearTimeout(timer));
+      return;
+    }
+    // Answer never. The socket stays established and idle until the client's
+    // own timeout fires or the server destroys it on stop.
+  };
+}
+
+/**
  * Set up OAuth routes on an Express application
  * This adds all OAuth endpoints (authorization, token, metadata, etc.)
  *
@@ -150,6 +260,12 @@ export function setupOAuthRoutes(
   app: express.Application,
   config: OAuthConfig,
 ): void {
+  // Ahead of every OAuth route, so a stalled endpoint is withheld before any
+  // handler can answer it — including the metadata documents, which are
+  // registered first.
+  const stall = createOAuthStallMiddleware(config);
+  if (stall) app.use(stall);
+
   setupMetadataEndpoints(app, config);
 
   if (getOAuthMode(config) === "combined") {
