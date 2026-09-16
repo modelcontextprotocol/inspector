@@ -12,6 +12,8 @@ import {
   createEchoTool,
   loadConfig,
   resolveConfig,
+  STALLABLE_OAUTH_ENDPOINTS,
+  type StallableOAuthEndpoint,
 } from "@modelcontextprotocol/inspector-test-server";
 
 /**
@@ -39,25 +41,70 @@ const configsDir = path.resolve(
 /** Comfortably under the suite budget, comfortably over a LAN round trip. */
 const BUDGET_MS = 1_500;
 
-const CONFIGS = [
-  {
-    file: "oauth-stalled-token-http.json",
-    endpoint: "token",
-    /** Built from the server's own bound URL — never an assumed port. */
+/** How each endpoint is requested, so every advertised name is really driven. */
+const ENDPOINTS: Record<
+  StallableOAuthEndpoint,
+  { pathname: string; init: RequestInit; query?: Record<string, string> }
+> = {
+  "protected-resource-metadata": {
+    pathname: "/.well-known/oauth-protected-resource",
+    init: { method: "GET" },
+  },
+  "as-metadata": {
+    pathname: "/.well-known/oauth-authorization-server",
+    init: { method: "GET" },
+  },
+  authorize: {
+    pathname: "/oauth/authorize",
+    init: { method: "GET" },
+    // The one endpoint always called WITH a query string — which is what makes
+    // the middleware's `req.path` match load-bearing. Matching `req.url`
+    // instead passes every other case in this file and fails only here.
+    query: {
+      client_id: "test-client",
+      response_type: "code",
+      redirect_uri: "http://127.0.0.1:6274/oauth/callback",
+    },
+  },
+  token: {
     pathname: "/oauth/token",
     init: {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },
       body: "grant_type=authorization_code&code=irrelevant",
-    } satisfies RequestInit,
+    },
   },
-  {
-    file: "oauth-stalled-discovery-http.json",
-    endpoint: "protected-resource-metadata",
-    pathname: "/.well-known/oauth-protected-resource",
-    init: { method: "GET" } satisfies RequestInit,
+  revoke: {
+    pathname: "/oauth/revoke",
+    init: {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: "token=irrelevant",
+    },
   },
-];
+  register: {
+    pathname: "/oauth/register",
+    init: {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ redirect_uris: ["http://127.0.0.1:6274/cb"] }),
+    },
+  },
+};
+
+/** Wait for `predicate`, rather than sleeping and hoping. */
+async function until(
+  predicate: () => boolean,
+  what: string,
+  timeoutMs = 5_000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`timed out waiting for ${what}`);
+}
 
 describe("OAuth request timeouts against a stalled endpoint (#2382)", () => {
   let server: TestServerHttp | null = null;
@@ -73,54 +120,78 @@ describe("OAuth request timeouts against a stalled endpoint (#2382)", () => {
     }
   });
 
-  async function startFromConfig(file: string): Promise<TestServerHttp> {
-    const resolved = resolveConfig(loadConfig(path.join(configsDir, file)));
-    const started = createTestServerHttp(resolved);
+  function urlFor(base: string, endpoint: StallableOAuthEndpoint): string {
+    const { pathname, query } = ENDPOINTS[endpoint];
+    const url = new URL(pathname, base);
+    for (const [key, value] of Object.entries(query ?? {})) {
+      url.searchParams.set(key, value);
+    }
+    return url.href;
+  }
+
+  async function startStalling(
+    endpoints: StallableOAuthEndpoint[],
+    extra: { stallMs?: number } = {},
+  ): Promise<TestServerHttp> {
+    const started = createTestServerHttp({
+      serverInfo: createTestServerInfo("oauth-stall", "1.0.0"),
+      tools: [createEchoTool()],
+      oauth: {
+        enabled: true,
+        mode: "combined",
+        requireAuth: true,
+        scopesSupported: ["mcp"],
+        supportDCR: true,
+        stallEndpoints: endpoints,
+        ...extra,
+      },
+    });
     await started.start();
     server = started;
     return started;
   }
 
-  for (const { file, endpoint, pathname, init } of CONFIGS) {
-    it(`times out on the stalled ${endpoint} endpoint rather than hanging`, async () => {
-      const started = await startFromConfig(file);
-      const url = new URL(pathname, started.url).href;
-
+  // ⚠️ Every advertised endpoint, not a sample. `stallTargetsFor` hardcodes a
+  // path and a method set per endpoint, so a typo in any entry produces a
+  // fixture that quietly answers normally — the precise failure this option
+  // exists to prevent, and one no other test would catch (Copilot).
+  for (const endpoint of STALLABLE_OAUTH_ENDPOINTS) {
+    it(`stalls the ${endpoint} endpoint until the deadline fires`, async () => {
+      const started = await startStalling([endpoint]);
+      const url = urlFor(started.url, endpoint);
       const timedFetch = withOAuthRequestTimeout(fetch, BUDGET_MS);
-      const started_at = Date.now();
+      const startedAt = Date.now();
 
-      await expect(timedFetch(url, init)).rejects.toThrow(
+      await expect(timedFetch(url, ENDPOINTS[endpoint].init)).rejects.toThrow(
         OAuthRequestTimeoutError,
       );
 
-      // The deadline is what ended it, not an instant connection failure: a
-      // refused port would reject in single-digit milliseconds and would pass a
-      // bare `rejects.toThrow` while proving nothing about the timer.
-      const elapsed = Date.now() - started_at;
-      expect(elapsed).toBeGreaterThanOrEqual(BUDGET_MS - 100);
+      // The deadline ended it, not an instant connection failure: a refused
+      // port rejects in single-digit ms and would satisfy a bare
+      // `rejects.toThrow` while proving nothing about the timer.
+      expect(Date.now() - startedAt).toBeGreaterThanOrEqual(BUDGET_MS - 100);
     });
 
-    it(`reports the budget and the endpoint it gave up on for ${endpoint}`, async () => {
-      const started = await startFromConfig(file);
-      const url = new URL(pathname, started.url).href;
+    it(`names the ${endpoint} endpoint and the budget it gave up on`, async () => {
+      const started = await startStalling([endpoint]);
+      const url = urlFor(started.url, endpoint);
       const timedFetch = withOAuthRequestTimeout(fetch, BUDGET_MS);
 
-      // The error has to name *which* call gave up — that is the distinction
-      // the five separate timeouts exist to make, and the reason the fixture
-      // stalls per endpoint rather than globally.
-      await expect(timedFetch(url, init)).rejects.toMatchObject({
+      await expect(
+        timedFetch(url, ENDPOINTS[endpoint].init),
+      ).rejects.toMatchObject({
         timeoutMs: BUDGET_MS,
-        url: expect.stringContaining(pathname),
+        url: expect.stringContaining(ENDPOINTS[endpoint].pathname),
       });
     });
   }
 
-  it("leaves every other endpoint answering promptly", async () => {
-    // The control. A fixture that stalled everything would make the tests above
-    // pass while telling us nothing about which call the deadline bounded.
-    const started = await startFromConfig("oauth-stalled-token-http.json");
+  it("stalls only the selected endpoint, leaving the others answering", async () => {
+    // The control. A fixture that stalled everything would make every test
+    // above pass while telling us nothing about which call was bounded.
+    const started = await startStalling(["token"]);
     const metadata = await fetch(
-      new URL("/.well-known/oauth-protected-resource", started.url).href,
+      urlFor(started.url, "protected-resource-metadata"),
     );
 
     expect(metadata.ok).toBe(true);
@@ -129,37 +200,76 @@ describe("OAuth request timeouts against a stalled endpoint (#2382)", () => {
     });
   });
 
-  it("stalls an endpoint that is always called WITH a query string", async () => {
-    // ⚠️ This is what makes the `req.path` match load-bearing. Every other
-    // stallable endpoint is requested at a bare path, so a middleware matching
-    // on `req.url` — which carries `?client_id=…` — passes all of them and
-    // silently stops matching only here. Without this case that substitution is
-    // invisible: measured, it kept the whole file green.
-    const started = createTestServerHttp({
-      serverInfo: createTestServerInfo("oauth-stalled-authorize", "1.0.0"),
-      tools: [createEchoTool()],
-      oauth: {
-        enabled: true,
-        mode: "combined",
-        requireAuth: true,
-        scopesSupported: ["mcp"],
-        stallEndpoints: ["authorize"],
-      },
+  it("distinguishes two calls that share a path by their method", async () => {
+    // ⚠️ Both configurable document paths are caller-supplied, so a config may
+    // point one at a path another endpoint already serves. Keyed on path alone,
+    // stalling `token` would also stall this GET (Copilot).
+    const started = await startStalling(["token"]);
+    const collided = new URL("/oauth/token", started.url).href;
+
+    // The token POST is stalled…
+    await expect(
+      withOAuthRequestTimeout(fetch, BUDGET_MS)(collided, ENDPOINTS.token.init),
+    ).rejects.toThrow(OAuthRequestTimeoutError);
+
+    // …while a GET to the very same path is not held by the stall middleware.
+    // Which status it gets does not matter; that a response arrives at all does.
+    const samePathGet = await fetch(collided, { method: "GET" });
+    expect(typeof samePathGet.status).toBe("number");
+  });
+
+  it("answers late rather than never when stallMs is positive", async () => {
+    // `stallMs` is advertised and was previously untested: every fixture used
+    // 0, so the `setTimeout(() => next())` branch could regress unseen
+    // (Copilot).
+    const delayMs = 600;
+    const started = await startStalling(["protected-resource-metadata"], {
+      stallMs: delayMs,
     });
-    await started.start();
-    server = started;
+    const startedAt = Date.now();
 
-    const url = new URL("/oauth/authorize", started.url);
-    url.searchParams.set("client_id", "test-client");
-    url.searchParams.set("response_type", "code");
-    url.searchParams.set(
-      "redirect_uri",
-      "http://127.0.0.1:6274/oauth/callback",
+    const res = await fetch(urlFor(started.url, "protected-resource-metadata"));
+    const elapsed = Date.now() - startedAt;
+
+    expect(res.ok).toBe(true);
+    // Late, but it did arrive — both halves matter.
+    expect(elapsed).toBeGreaterThanOrEqual(delayMs - 50);
+    await expect(res.json()).resolves.toMatchObject({
+      authorization_servers: expect.any(Array),
+    });
+  });
+
+  it("times out when the caller's budget is shorter than stallMs", async () => {
+    const started = await startStalling(["token"], { stallMs: 5_000 });
+    const timedFetch = withOAuthRequestTimeout(fetch, 400);
+
+    await expect(
+      timedFetch(urlFor(started.url, "token"), ENDPOINTS.token.init),
+    ).rejects.toThrow(OAuthRequestTimeoutError);
+  });
+
+  it("releases the delay timer when the client aborts first", async () => {
+    // The timer cleanup on the `stallMs` path. Left armed, a stalled fixture
+    // would keep the event loop alive past the test that used it (Copilot).
+    const started = await startStalling(["token"], { stallMs: 10_000 });
+    const controller = new AbortController();
+
+    const pending = fetch(urlFor(started.url, "token"), {
+      ...ENDPOINTS.token.init,
+      signal: controller.signal,
+    }).catch(() => "aborted");
+
+    await until(
+      () => started.stalledRequestCount() >= 1,
+      "the request to be parked",
     );
+    controller.abort();
 
-    const timedFetch = withOAuthRequestTimeout(fetch, BUDGET_MS);
-    await expect(timedFetch(url.href)).rejects.toThrow(
-      OAuthRequestTimeoutError,
+    await expect(pending).resolves.toBe("aborted");
+    // The release ran, so the fixture is not still holding it.
+    await until(
+      () => started.stalledRequestCount() === 0,
+      "the stall to be released",
     );
   });
 
@@ -170,8 +280,7 @@ describe("OAuth request timeouts against a stalled endpoint (#2382)", () => {
     //
     // The throw lands on `start()`, not on the constructor: routes — and so the
     // middleware — are built when the server is started. Asserting on the
-    // constructor would pass for the wrong reason, since it never validates
-    // anything.
+    // constructor would pass for the wrong reason, since it validates nothing.
     const typo = createTestServerHttp({
       serverInfo: createTestServerInfo("oauth-stall-typo", "1.0.0"),
       tools: [createEchoTool()],
@@ -186,7 +295,6 @@ describe("OAuth request timeouts against a stalled endpoint (#2382)", () => {
     await expect(typo.start()).rejects.toThrow(
       /Unknown oauth\.stallEndpoints entry.*"tokens"/s,
     );
-
     // It must also name what WAS valid, or the fixture author is left guessing.
     await expect(typo.start()).rejects.toThrow(/Expected one of:.*token/s);
 
@@ -203,23 +311,55 @@ describe("OAuth request timeouts against a stalled endpoint (#2382)", () => {
     // `httpServer.closeAllConnections?.()` to destroy it. Without that, every
     // suite touching this fixture would hang at teardown instead of failing —
     // and it would hang in `afterEach`, pointing at the wrong test.
-    const started = await startFromConfig("oauth-stalled-token-http.json");
-    const url = new URL("/oauth/token", started.url).href;
+    const started = await startStalling(["token"]);
 
     // Deliberately unawaited and unbounded: the point is that a request with no
     // deadline of its own is in flight when the server goes down.
-    const pending = fetch(url, {
-      method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded" },
-      body: "grant_type=authorization_code&code=irrelevant",
+    const pending = fetch(urlFor(started.url, "token"), {
+      ...ENDPOINTS.token.init,
     }).catch(() => "socket destroyed");
 
-    // Give the request time to be accepted and parked before stopping.
-    await new Promise((resolve) => setTimeout(resolve, 250));
+    // ⚠️ Wait for the request to be ACCEPTED AND PARKED, never a fixed sleep.
+    // A sleep that lost the race would stop the server before the request
+    // arrived; the fetch would then reject because the server closed, and this
+    // test would pass without ever exercising `closeAllConnections()` on an
+    // established request (Copilot).
+    await until(
+      () => started.stalledRequestCount() >= 1,
+      "the request to be parked",
+    );
 
     await expect(started.stop()).resolves.toBeUndefined();
     server = null;
 
     await expect(pending).resolves.toBe("socket destroyed");
+  });
+
+  it("drives the two checked-in showcase configs, not just inline ones", async () => {
+    // The JSON-to-ServerConfig mapping is its own failure surface: a misspelled
+    // key in either file, or a `resolveConfig` that stopped threading
+    // `stallEndpoints`, would leave the documented manual fixtures quietly
+    // permissive while every inline test above stayed green.
+    for (const file of [
+      "oauth-stalled-token-http.json",
+      "oauth-stalled-discovery-http.json",
+    ]) {
+      const resolved = resolveConfig(loadConfig(path.join(configsDir, file)));
+      const started = createTestServerHttp(resolved);
+      await started.start();
+      server = started;
+
+      const endpoint: StallableOAuthEndpoint = file.includes("token")
+        ? "token"
+        : "protected-resource-metadata";
+      const timedFetch = withOAuthRequestTimeout(fetch, BUDGET_MS);
+
+      await expect(
+        timedFetch(urlFor(started.url, endpoint), ENDPOINTS[endpoint].init),
+      ).rejects.toThrow(OAuthRequestTimeoutError);
+
+      await started.stop();
+      server = null;
+    }
   });
 });

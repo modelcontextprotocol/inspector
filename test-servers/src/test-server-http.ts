@@ -22,6 +22,8 @@ import * as crypto from "node:crypto";
 import type { ServerConfig } from "./test-server-fixtures.js";
 import {
   setupOAuthRoutes,
+  createStallRegistry,
+  type StallRegistry,
   createBearerTokenMiddleware,
   buildScopeRequirementRegistry,
   scopeRequirementRegistryHasEntries,
@@ -307,6 +309,13 @@ export class TestServerHttp {
   private readonly configWithCallback: ServerConfig;
   private readonly serverControl: ServerControl;
   private _closing = false;
+  /**
+   * Requests currently parked by the OAuth stall middleware (#2382).
+   *
+   * Read through `stalledRequestCount()` so a test can wait for a request to be
+   * accepted and parked rather than sleeping — see `StallRegistry`.
+   */
+  private readonly stallRegistry: StallRegistry = createStallRegistry();
   private recordedRequests: RecordedRequest[] = [];
   private httpServer?: HttpServer;
   private transport?:
@@ -519,7 +528,7 @@ export class TestServerHttp {
     // Set up OAuth if enabled (BEFORE MCP routes)
     if (this.config.oauth?.enabled) {
       // We need baseUrl, but it's not set yet - we'll set it after server starts
-      setupOAuthRoutes(app, this.config.oauth);
+      setupOAuthRoutes(app, this.config.oauth, this.stallRegistry);
     }
 
     // Bearer token middleware for MCP routes if requireAuth
@@ -668,7 +677,7 @@ export class TestServerHttp {
     // But the routes use relative paths, so they should work regardless
     if (this.config.oauth?.enabled) {
       // Use placeholder URL - actual baseUrl will be set after server starts
-      setupOAuthRoutes(app, this.config.oauth);
+      setupOAuthRoutes(app, this.config.oauth, this.stallRegistry);
     }
 
     // Bearer token middleware for SSE routes if requireAuth
@@ -743,6 +752,17 @@ export class TestServerHttp {
   /**
    * Stop the server. Set closing before closing transport so in-flight tools can skip sending.
    */
+  /**
+   * How many requests this server is currently holding in an OAuth stall.
+   *
+   * On the instance rather than a module export: Vitest can load the fixture
+   * module more than once, and a module-level counter left the middleware
+   * incrementing one copy while the test polled another (#2382).
+   */
+  stalledRequestCount(): number {
+    return this.stallRegistry.parked;
+  }
+
   async stop(): Promise<void> {
     this._closing = true;
     // Tear down the modern leg (aborts in-flight modern exchanges and closes

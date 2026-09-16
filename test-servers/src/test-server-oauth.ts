@@ -165,27 +165,72 @@ export function isStallableOAuthEndpoint(
   return (STALLABLE_OAUTH_ENDPOINTS as readonly unknown[]).includes(value);
 }
 
+/** How a stallable endpoint is addressed: its path, and the methods it serves. */
+export interface StallTarget {
+  path: string;
+  methods: readonly string[];
+}
+
 /**
- * The request path each stallable endpoint is served at, for this config.
+ * Where each stallable endpoint lives, for this config.
  *
  * Two of these are configurable, so the map is built per config rather than
  * hardcoded: the protected-resource document moves with `resourceMetadataPath`
  * and the AS metadata with `asMetadataPath`. Getting either wrong would make
  * the stall silently never match, which is the one failure this fixture must
- * not have — a test would then read as "the timeout did not fire".
+ * not have — a test would then read as "the timeout did not fire". Every entry
+ * is covered by a real-request test for exactly that reason.
+ *
+ * ⚠️ **The method is part of the identity, not decoration.** Both configurable
+ * paths are caller-supplied, so a config may legitimately point one of them at
+ * a path another endpoint already uses — `asMetadataPath: "/oauth/token"` is
+ * valid. Keyed on path alone, selecting `token` would then also stall the
+ * metadata GET and selecting `as-metadata` would stall the token POST, which
+ * breaks the per-call contract this option exists to provide (Copilot).
+ *
+ * `authorize` serves both GET (the consent page) and POST (the submission), so
+ * it carries both: stalling "the authorize call" means either direction.
  */
-export function stallPathsFor(
+export function stallTargetsFor(
   config: OAuthConfig,
-): Record<StallableOAuthEndpoint, string> {
+): Record<StallableOAuthEndpoint, StallTarget> {
   return {
-    "protected-resource-metadata":
-      resourceMetadataPath(config) ?? "/.well-known/oauth-protected-resource",
-    "as-metadata": asMetadataPath(config),
-    authorize: "/oauth/authorize",
-    token: "/oauth/token",
-    revoke: "/oauth/revoke",
-    register: "/oauth/register",
+    "protected-resource-metadata": {
+      path:
+        resourceMetadataPath(config) ?? "/.well-known/oauth-protected-resource",
+      methods: ["GET"],
+    },
+    "as-metadata": { path: asMetadataPath(config), methods: ["GET"] },
+    authorize: { path: "/oauth/authorize", methods: ["GET", "POST"] },
+    token: { path: "/oauth/token", methods: ["POST"] },
+    revoke: { path: "/oauth/revoke", methods: ["POST"] },
+    register: { path: "/oauth/register", methods: ["POST"] },
   };
+}
+
+/**
+ * How many requests are currently parked in a stall on one server.
+ *
+ * A test waits on this to know a request was actually **accepted and parked**,
+ * instead of sleeping and hoping. That distinction is the whole point of the
+ * teardown test: a fixed sleep that lost the race would stop the server before
+ * the request arrived, the fetch would then reject because the server closed,
+ * and the test would pass without ever exercising `closeAllConnections()` on an
+ * established request (Copilot).
+ *
+ * ⚠️ **Per server, deliberately not a module-level counter.** A module global
+ * was tried first and failed under Vitest, which can load this module more than
+ * once: the middleware incremented one copy while the test polled another, and
+ * the wait timed out with the fixture working perfectly. Hanging the state off
+ * the server instance the test already holds makes module identity irrelevant —
+ * and scopes the count to one fixture, which is what a caller means anyway.
+ */
+export interface StallRegistry {
+  parked: number;
+}
+
+export function createStallRegistry(): StallRegistry {
+  return { parked: 0 };
 }
 
 /**
@@ -211,6 +256,7 @@ export function stallPathsFor(
  */
 export function createOAuthStallMiddleware(
   config: OAuthConfig,
+  registry?: StallRegistry,
 ): express.RequestHandler | null {
   const requested = config.stallEndpoints ?? [];
   if (requested.length === 0) return null;
@@ -226,19 +272,42 @@ export function createOAuthStallMiddleware(
     );
   }
 
-  const paths = stallPathsFor(config);
-  const stalled = new Set(requested.map((endpoint) => paths[endpoint]));
+  const targets = stallTargetsFor(config);
+  // `${METHOD} ${path}` rather than a path set — see `stallTargetsFor`.
+  const stalled = new Set(
+    requested.flatMap((endpoint) => {
+      const { path, methods } = targets[endpoint];
+      return methods.map((method) => `${method} ${path}`);
+    }),
+  );
   const stallMs = config.stallMs ?? 0;
 
   return (req: Request, res: Response, next: express.NextFunction) => {
-    // Compare the PATH only. `req.url` carries the query string, which every
-    // authorize request has, so matching on it would never hit `authorize`.
-    if (!stalled.has(req.path)) {
+    // `req.path`, never `req.url`: the latter carries the query string, which
+    // every authorize request has, so matching on it would silently stop
+    // hitting `authorize` while every bare-path endpoint kept working.
+    if (!stalled.has(`${req.method} ${req.path}`)) {
       next();
       return;
     }
+
+    if (registry) registry.parked += 1;
+    // One decrement per request, whichever way it ends: answered late, or the
+    // socket destroyed under it. Without this the counter only ever rises and
+    // a later "wait until parked" would pass instantly on a stale count.
+    let released = false;
+    const release = () => {
+      if (released) return;
+      released = true;
+      if (registry) registry.parked -= 1;
+    };
+    res.on("close", release);
+
     if (stallMs > 0) {
-      const timer = setTimeout(() => next(), stallMs);
+      const timer = setTimeout(() => {
+        release();
+        next();
+      }, stallMs);
       // Release the timer if the client gives up first, so a stalled fixture
       // cannot keep the event loop alive past the test that used it.
       res.on("close", () => clearTimeout(timer));
@@ -259,11 +328,12 @@ export function createOAuthStallMiddleware(
 export function setupOAuthRoutes(
   app: express.Application,
   config: OAuthConfig,
+  stallRegistry?: StallRegistry,
 ): void {
   // Ahead of every OAuth route, so a stalled endpoint is withheld before any
   // handler can answer it — including the metadata documents, which are
   // registered first.
-  const stall = createOAuthStallMiddleware(config);
+  const stall = createOAuthStallMiddleware(config, stallRegistry);
   if (stall) app.use(stall);
 
   setupMetadataEndpoints(app, config);

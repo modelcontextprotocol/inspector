@@ -649,9 +649,7 @@ string included — so a server that walked to another port on `EADDRINUSE` stil
 `client_id` equal to the URL you fetched, and the integration test drives it on a harness-chosen port
 for exactly that reason. The fixed-port dependency that *does* bite is `redirect_uris`, above.
 
-## Revoking tokens on clear (RFC 7009)
-
-### `oauth-stalled-token-http.json` / `oauth-stalled-discovery-http.json`
+## An OAuth endpoint that never answers
 
 Two OAuth-protected servers (combined AS + resource, DCR, refresh tokens) that are ordinary in every respect but one: a single endpoint **accepts the request and withholds the response forever**. Plain streamable-HTTP — connect with the **default (legacy)** protocol era.
 
@@ -665,6 +663,8 @@ Two OAuth-protected servers (combined AS + resource, DCR, refresh tokens) that a
 **Why the fixture exists at all.** #2319's own tests inject a `fetch` stub, which settles on the client side and cannot produce an established idle socket — the precise state the issue is about. Until [#2382](https://github.com/modelcontextprotocol/inspector/issues/2382) added `oauth.stallEndpoints`, nothing in the repo could make those five timeouts fire.
 
 **Configuring your own.** Any config's `oauth` block takes `stallEndpoints` — any of `protected-resource-metadata`, `as-metadata`, `authorize`, `token`, `revoke`, `register` — plus an optional `stallMs` to answer *late* instead of never. Endpoints are named by the **call**, not the path, because the token exchange and the refresh share `/oauth/token` and two of the documents sit at configurable paths. An unrecognized name throws when the server starts rather than being ignored, so a typo cannot quietly produce a fixture that answers normally.
+
+## Revoking tokens on clear (RFC 7009)
 
 `oauth-revocation-http.json` and `oauth-no-revocation-http.json` are the same OAuth-protected server (combined AS + resource, DCR, refresh tokens) differing in one thing: the first advertises a `revocation_endpoint`, the second advertises none. Plain streamable-HTTP — connect with the **default (legacy)** protocol era.
 
