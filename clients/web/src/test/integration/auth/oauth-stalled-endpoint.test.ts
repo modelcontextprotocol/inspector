@@ -582,6 +582,102 @@ describe("createOAuthStallMiddleware timer cleanup (#2382)", () => {
     ).toBeNull();
   });
 
+  it("refuses to stall a route this config does not serve", () => {
+    // ⚠️ The middleware runs BEFORE Express routing, so without this it will
+    // hold a request for an endpoint that would otherwise 404 — turning a
+    // contradictory fixture into a hang that reads as a timeout, and inviting a
+    // test that passes for entirely the wrong reason (Copilot).
+    const cases: Array<[Record<string, unknown>, StallableOAuthEndpoint]> = [
+      // DCR off, but asked to stall the registration endpoint.
+      [{ mode: "combined", supportDCR: false }, "register"],
+      // Revocation explicitly disabled.
+      [{ mode: "combined", supportRevocation: false }, "revoke"],
+      // protected-resource mode serves no local AS routes at all.
+      [
+        {
+          mode: "protected-resource",
+          authorizationServers: ["https://as.example"],
+        },
+        "token",
+      ],
+      [
+        {
+          mode: "protected-resource",
+          authorizationServers: ["https://as.example"],
+        },
+        "authorize",
+      ],
+      [
+        {
+          mode: "protected-resource",
+          authorizationServers: ["https://as.example"],
+        },
+        "as-metadata",
+      ],
+    ];
+
+    for (const [oauth, endpoint] of cases) {
+      expect(() =>
+        createOAuthStallMiddleware({
+          enabled: true,
+          ...oauth,
+          stallEndpoints: [endpoint],
+        }),
+      ).toThrow(/does not serve/);
+    }
+
+    // The protected-resource document is served in every mode, so stalling it
+    // is always legitimate — the check must not over-reject.
+    expect(
+      createOAuthStallMiddleware({
+        enabled: true,
+        mode: "protected-resource",
+        authorizationServers: ["https://as.example"],
+        stallEndpoints: ["protected-resource-metadata"],
+      }),
+    ).not.toBeNull();
+    // And the enabled forms are accepted.
+    expect(
+      createOAuthStallMiddleware({
+        enabled: true,
+        mode: "combined",
+        supportDCR: true,
+        stallEndpoints: ["register", "revoke", "token"],
+      }),
+    ).not.toBeNull();
+  });
+
+  it("names the offending value honestly, including NaN and Infinity", () => {
+    // ⚠️ `JSON.stringify(NaN)` is the string "null", so an error built with it
+    // reports a value the author never wrote (Copilot).
+    expect(() =>
+      createOAuthStallMiddleware({
+        enabled: true,
+        mode: "combined",
+        stallEndpoints: ["token"],
+        stallMs: Number.NaN,
+      }),
+    ).toThrow(/got NaN/);
+    expect(() =>
+      createOAuthStallMiddleware({
+        enabled: true,
+        mode: "combined",
+        stallEndpoints: ["token"],
+        stallMs: Infinity,
+      }),
+    ).toThrow(/got Infinity/);
+    // A string keeps its quotes, so "600" stays distinguishable from 600.
+    expect(() =>
+      createOAuthStallMiddleware({
+        enabled: true,
+        mode: "combined",
+        stallEndpoints: ["token"],
+        // @ts-expect-error - a JSON config is cast, so this really can arrive
+        stallMs: "600",
+      }),
+    ).toThrow(/got "600"/);
+  });
+
   it("rejects an explicit stallMs: null rather than defaulting it to 0", () => {
     // ⚠️ `?? 0` would turn `null` into a valid 0 and skip every check, silently
     // producing a permanent stall. Only an OMITTED value gets the default

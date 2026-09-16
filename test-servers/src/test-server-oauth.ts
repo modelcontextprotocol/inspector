@@ -168,6 +168,21 @@ export type StallableOAuthEndpoint = (typeof STALLABLE_OAUTH_ENDPOINTS)[number];
  */
 export const MAX_STALL_MS = 2_147_483_647;
 
+/**
+ * Render a rejected config value for an error message.
+ *
+ * ⚠️ `JSON.stringify` returns the string `"null"` for `NaN` and `Infinity` — the
+ * two values most likely to reach the `stallMs` check — so an error built with
+ * it names the wrong offending value and sends the reader looking for a `null`
+ * they did not write (Copilot). Strings keep their quotes, which is what makes
+ * `"600"` distinguishable from `600` in the message.
+ */
+function describeValue(value: unknown): string {
+  if (typeof value === "number" && !Number.isFinite(value))
+    return String(value);
+  return JSON.stringify(value) ?? String(value);
+}
+
 export function isStallableOAuthEndpoint(
   value: unknown,
 ): value is StallableOAuthEndpoint {
@@ -200,6 +215,34 @@ export interface StallTarget {
  * `authorize` serves both GET (the consent page) and POST (the submission), so
  * it carries both: stalling "the authorize call" means either direction.
  */
+/**
+ * Does this config actually serve `endpoint`?
+ *
+ * Mirrors the route registration in `setupOAuthRoutes` / `setupMetadataEndpoints`
+ * exactly — the protected-resource document is always served, everything else
+ * on the local AS exists only in `combined` mode, and two routes carry their own
+ * feature flags. Kept adjacent to `stallTargetsFor` so the two stay in step: a
+ * new OAuth route needs an entry in both.
+ */
+export function servesEndpoint(
+  config: OAuthConfig,
+  endpoint: StallableOAuthEndpoint,
+): boolean {
+  const combined = getOAuthMode(config) === "combined";
+  switch (endpoint) {
+    case "protected-resource-metadata":
+      return true;
+    case "as-metadata":
+    case "authorize":
+    case "token":
+      return combined;
+    case "revoke":
+      return combined && config.supportRevocation !== false;
+    case "register":
+      return combined && config.supportDCR === true;
+  }
+}
+
 export function stallTargetsFor(
   config: OAuthConfig,
 ): Record<StallableOAuthEndpoint, StallTarget> {
@@ -314,7 +357,26 @@ export function createOAuthStallMiddleware(
     rawStallMs > MAX_STALL_MS
   ) {
     throw new Error(
-      `oauth.stallMs must be a finite number between 0 and ${MAX_STALL_MS} (got ${JSON.stringify(config.stallMs)}).`,
+      `oauth.stallMs must be a finite number between 0 and ${MAX_STALL_MS} (got ${describeValue(config.stallMs)}).`,
+    );
+  }
+
+  // ⚠️ Refuse to stall a route this config does not actually serve. The stall
+  // middleware runs BEFORE Express routing, so it will happily hold a request
+  // for an endpoint that would otherwise 404 — turning a contradictory fixture
+  // (`supportDCR: false` with `stallEndpoints: ["register"]`) into a hanging
+  // registration endpoint rather than a configuration error, and inviting a
+  // timeout test that passes for entirely the wrong reason (Copilot).
+  const unavailable = requested.filter(
+    (endpoint) => !servesEndpoint(config, endpoint),
+  );
+  if (unavailable.length > 0) {
+    throw new Error(
+      `oauth.stallEndpoints names ${unavailable.map((e) => JSON.stringify(e)).join(", ")}, ` +
+        `which this config does not serve (mode=${getOAuthMode(config)}, ` +
+        `supportDCR=${String(config.supportDCR ?? false)}, ` +
+        `supportRevocation=${String(config.supportRevocation !== false)}). ` +
+        "Stalling a route that would otherwise 404 produces a hang that reads as a timeout.",
     );
   }
 
