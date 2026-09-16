@@ -267,6 +267,20 @@ export function createOAuthStallMiddleware(
   config: OAuthConfig,
   registry?: StallRegistry,
 ): express.RequestHandler | null {
+  // ⚠️ Validate the CONTAINER before its contents. A JSON/YAML config is only
+  // cast, so `stallEndpoints` can arrive as a string, `null`, or an object with
+  // a `length`. A bare `.length === 0` check accepts `""` and `{ length: 0 }`
+  // and silently returns "no stalling configured" — the precise misconfiguration
+  // this startup validation exists to catch — while a non-empty string fails
+  // later with an incidental `.filter is not a function` (Copilot).
+  if (
+    config.stallEndpoints !== undefined &&
+    !Array.isArray(config.stallEndpoints)
+  ) {
+    throw new Error(
+      `oauth.stallEndpoints must be an array (got ${JSON.stringify(config.stallEndpoints)}).`,
+    );
+  }
   const requested = config.stallEndpoints ?? [];
   if (requested.length === 0) return null;
 
@@ -288,7 +302,11 @@ export function createOAuthStallMiddleware(
   // the 32-bit timer range overflows and fires almost immediately — both of
   // which read as "the timeout behaved strangely" rather than "the config is
   // wrong" (Copilot).
-  const rawStallMs = config.stallMs ?? 0;
+  // ⚠️ `?? 0` would turn an explicit `stallMs: null` from a config file into a
+  // valid 0 and skip every check below, silently producing a permanent stall.
+  // Only an OMITTED value gets the default; `null` falls through to the
+  // finite-number check and is rejected (Copilot).
+  const rawStallMs = config.stallMs === undefined ? 0 : config.stallMs;
   if (
     typeof rawStallMs !== "number" ||
     !Number.isFinite(rawStallMs) ||

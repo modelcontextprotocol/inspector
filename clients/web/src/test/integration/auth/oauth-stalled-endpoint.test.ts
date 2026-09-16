@@ -1,5 +1,6 @@
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import path from "node:path";
+import type { Request, Response } from "express";
 import { fileURLToPath } from "node:url";
 import {
   withOAuthRequestTimeout,
@@ -466,20 +467,42 @@ describe("createOAuthStallMiddleware timer cleanup (#2382)", () => {
     vi.useRealTimers();
   });
 
-  /** A response stub that records its `close` listeners so a test can fire them. */
-  function fakeRes() {
+  /**
+   * Minimal Express doubles, bridged to the real types.
+   *
+   * The middleware touches exactly three things — `req.method`, `req.path` and
+   * `res.on("close", …)` — so a full `Request`/`Response` is unnecessary and a
+   * real server would defeat the purpose (the whole point here is to control
+   * time and observe `next`).
+   *
+   * ⚠️ The bridge is a justified double cast, NOT an `any`: this repo forbids
+   * `any` outright and forbids disabling the rule to satisfy the linter
+   * (`AGENTS.md`, Typescript instructions). A single `as Request` cannot work —
+   * the literal is missing ~50 properties, so TS rejects the conversion — and
+   * these doubles are structurally correct for every field the code under test
+   * reads. If the middleware ever reads more, the double will be wrong at
+   * runtime rather than silently absorbing it, which is what an `any` would do
+   * (Copilot).
+   */
+  function fakeRes(): { res: Response; close: () => void } {
     const listeners: Array<() => void> = [];
-    return {
-      res: {
-        on(event: string, fn: () => void) {
-          if (event === "close") listeners.push(fn);
-        },
+    const double = {
+      on(event: string, fn: () => void) {
+        if (event === "close") listeners.push(fn);
+        return double;
       },
+    };
+    return {
+      res: double as unknown as Response,
       close: () => listeners.forEach((fn) => fn()),
     };
   }
 
-  const tokenReq = { method: "POST", path: "/oauth/token" };
+  function fakeReq(method: string, path: string): Request {
+    return { method, path } as unknown as Request;
+  }
+
+  const tokenReq = fakeReq("POST", "/oauth/token");
 
   it("does not answer a delayed stall after the client closed", () => {
     const middleware = createOAuthStallMiddleware(
@@ -495,8 +518,7 @@ describe("createOAuthStallMiddleware timer cleanup (#2382)", () => {
 
     const next = vi.fn();
     const { res, close } = fakeRes();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- request/response stubs, not Express instances
-    middleware!(tokenReq as any, res as any, next);
+    middleware!(tokenReq, res, next);
 
     expect(next).not.toHaveBeenCalled();
     close();
@@ -521,13 +543,67 @@ describe("createOAuthStallMiddleware timer cleanup (#2382)", () => {
     );
     const next = vi.fn();
     const { res } = fakeRes();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- request/response stubs, not Express instances
-    middleware!(tokenReq as any, res as any, next);
+    middleware!(tokenReq, res, next);
 
     vi.advanceTimersByTime(9_999);
     expect(next).not.toHaveBeenCalled();
     vi.advanceTimersByTime(2);
     expect(next).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects a malformed stallEndpoints container instead of disabling silently", () => {
+    // ⚠️ The container, not just its entries. A config file is cast, so
+    // `stallEndpoints` can arrive as a string or an object with a `length`. A
+    // bare `.length === 0` check accepts `""` and `{ length: 0 }` and returns
+    // "no stalling configured" — silently disabling the very capability this
+    // validation exists to protect (Copilot).
+    for (const stallEndpoints of ["", "token", null, { length: 0 }, 3]) {
+      expect(() =>
+        createOAuthStallMiddleware({
+          enabled: true,
+          mode: "combined",
+          // @ts-expect-error - a JSON config is cast, so this really can arrive
+          stallEndpoints,
+        }),
+      ).toThrow(/oauth\.stallEndpoints must be an array/);
+    }
+
+    // An omitted value is not malformed — it means "no stalling".
+    expect(
+      createOAuthStallMiddleware({ enabled: true, mode: "combined" }),
+    ).toBeNull();
+    // Nor is an explicitly empty array.
+    expect(
+      createOAuthStallMiddleware({
+        enabled: true,
+        mode: "combined",
+        stallEndpoints: [],
+      }),
+    ).toBeNull();
+  });
+
+  it("rejects an explicit stallMs: null rather than defaulting it to 0", () => {
+    // ⚠️ `?? 0` would turn `null` into a valid 0 and skip every check, silently
+    // producing a permanent stall. Only an OMITTED value gets the default
+    // (Copilot).
+    expect(() =>
+      createOAuthStallMiddleware({
+        enabled: true,
+        mode: "combined",
+        stallEndpoints: ["token"],
+        // @ts-expect-error - a JSON config is cast, so this really can arrive
+        stallMs: null,
+      }),
+    ).toThrow(/oauth\.stallMs must be a finite number/);
+
+    // Omitted still means 0 (stall forever), which is the documented default.
+    expect(
+      createOAuthStallMiddleware({
+        enabled: true,
+        mode: "combined",
+        stallEndpoints: ["token"],
+      }),
+    ).not.toBeNull();
   });
 
   it("rejects a stallMs that is negative, non-finite or past the timer range", () => {
