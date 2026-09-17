@@ -93,6 +93,7 @@ export const EXPECTED_PROJECTS = Object.freeze({
   cli: EXPECTED_TIMEOUTS,
   tui: EXPECTED_TIMEOUTS,
   launcher: EXPECTED_TIMEOUTS,
+  mcpi: EXPECTED_TIMEOUTS,
 });
 
 /**
@@ -108,6 +109,7 @@ export const CONFIG_ROOTS = Object.freeze([
   { root: "clients/cli", projects: ["cli"] },
   { root: "clients/tui", projects: ["tui"] },
   { root: "clients/launcher", projects: ["launcher"] },
+  { root: "clients/mcpi", projects: ["mcpi"] },
 ]);
 
 /**

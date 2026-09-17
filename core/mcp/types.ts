@@ -126,6 +126,13 @@ export type StoredMCPServer = MCPServerConfig & {
    */
   protocolEra?: ServerProtocolEra;
   /**
+   * Elicitation capability this client advertises to this server
+   * (`"off" | "url" | "form" | "both"`). Inspector-specific (no analog in the
+   * broader mcp.json ecosystem). Omitted on disk when it equals the default
+   * (`"both"`). Currently consumed by mcpi only. (#1783)
+   */
+  elicitCapability?: ElicitCapabilityMode;
+  /**
    * Modern-era per-request log level stamped by default (`"off"` or one of the
    * eight logging levels). Inspector-specific. Omitted on disk when it equals
    * `DEFAULT_MODERN_LOG_LEVEL` (`"debug"`). Only affects modern connections.
@@ -731,6 +738,15 @@ export type ServerProtocolEra = "legacy" | "auto" | "modern";
 export const DEFAULT_PROTOCOL_ERA: ServerProtocolEra = "legacy";
 
 /**
+ * Elicitation capability mode a client advertises to a server for one
+ * connection — see {@link InspectorServerSettings.elicitCapability}.
+ */
+export type ElicitCapabilityMode = "off" | "url" | "form" | "both";
+
+/** The default elicitation capability mode when none is configured. */
+export const DEFAULT_ELICIT_CAPABILITY: ElicitCapabilityMode = "both";
+
+/**
  * Per-server modern (2026-07-28) per-request log level (#1629). `logging/setLevel`
  * is gone on the modern era; instead the client opts into logs by stamping
  * `_meta["io.modelcontextprotocol/logLevel"]` on each request. This setting is
@@ -988,6 +1004,22 @@ export interface InspectorServerSettings {
    * omitted when it equals the default, keeping the file diff minimal.
    */
   protocolEra?: ServerProtocolEra;
+  /**
+   * Elicitation capability this client advertises to the server for this
+   * connection: `"off"` (no `capabilities.elicitation` at all — the server
+   * sees a client that can't do elicitation and can fall back to whatever
+   * it does when the capability is absent, e.g. proceeding with defaults or
+   * failing its own way, rather than getting a guaranteed decline/cancel),
+   * `"url"` (URL-mode only), `"form"` (form-mode only), or `"both"`. Optional
+   * so a bare settings node reads back without one; absence means {@link
+   * DEFAULT_ELICIT_CAPABILITY} (`"both"`). Persisted on disk as
+   * `elicitCapability` and omitted when it equals the default. Currently
+   * consumed by mcpi only (#1783) — a connect-time, sticky-per-session
+   * choice rather than a per-call one, since a daemon-managed session can be
+   * reused by several later callers (interactive and scripted) over its
+   * lifetime.
+   */
+  elicitCapability?: ElicitCapabilityMode;
   /**
    * Modern-era per-request log level stamped by default on this server's
    * connections (#1629). One of the eight logging levels, or `"off"` to not opt
