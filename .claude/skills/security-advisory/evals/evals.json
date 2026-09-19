@@ -1,0 +1,34 @@
+[
+  {
+    "prompt": "Someone just reported a vulnerability against this repo privately. What do I do with it?",
+    "expect": "security-advisory"
+  },
+  {
+    "prompt": "How do I fix a privately reported vulnerability without the patch being visible before the release goes out?",
+    "expect": "security-advisory"
+  },
+  {
+    "prompt": "How do I reply to a reporter who filed a vulnerability privately?",
+    "expect": "security-advisory"
+  },
+  {
+    "prompt": "A privately reported vulnerability turns out to be in an upstream package rather than our own code. How do I close it out?",
+    "expect": "security-advisory"
+  },
+  {
+    "prompt": "When is it safe to make a privately reported vulnerability public, and who makes that call here?",
+    "expect": "security-advisory"
+  },
+  {
+    "prompt": "Walk me through taking an accepted vulnerability report all the way to a shipped, disclosed fix.",
+    "expect": "security-advisory"
+  },
+  {
+    "prompt": "What is the capital of Portugal?",
+    "expect": null
+  },
+  {
+    "prompt": "Rename the local variable `tmp` to `buffer` in this snippet: `const tmp = 1; return tmp + 1;`",
+    "expect": null
+  }
+]

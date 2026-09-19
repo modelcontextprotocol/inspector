@@ -29,7 +29,10 @@ query, and an unmilestoned one drops out of release planning silently.
 
 **Never create a duplicate.** Check the board for a matching item first.
 **Never create a draft card** (a board card with no issue number) — every board
-item is a real GitHub issue.
+item is a real GitHub issue. The single exception is a **GitHub security
+advisory**, which is private until it is published and so cannot be tracked by
+an issue at all; see `/security-advisory`. Nothing you reach through *this*
+flow is that case.
 
 ## 0. Check the board first
 

@@ -25,6 +25,7 @@ users invoke them by name.
 | [`pr-flow`](.claude/skills/pr-flow/SKILL.md)                     | Branch naming, DCO signoff, screenshots, opening the PR, requesting a Copilot review, responding, closing out                                                                                                        | Model-invoked, or `/pr-flow`       |
 | [`pre-push-gate`](.claude/skills/pre-push-gate/SKILL.md)         | Running `npm run local:gate` and diagnosing a failing stage                                                                                                                                                          | Model-invoked, or `/pre-push-gate` |
 | [`release`](.claude/skills/release/SKILL.md)                     | Cutting a release: bump on `v2/main`, milestone merge, tag `origin/main`, publish                                                                                                                                    | `/release`                         |
+| [`security-advisory`](.claude/skills/security-advisory/SKILL.md) | A privately reported vulnerability end to end: the draft card, who owns the code path, which release lines are affected, accepting, the private fork, publishing, converting the card                                | Model-invoked, or `/security-advisory` |
 | [`test-servers`](.claude/skills/test-servers/SKILL.md)           | Picking and running a showcase test server; the stale-build hazard                                                                                                                                                   | Model-invoked, or `/test-servers`  |
 
 Longer-form human documentation lives in [`docs/`](./docs) — see the table in the
@@ -255,7 +256,7 @@ node/field/option IDs, and the option-deletion hazard` was cut at `#28`, so 90
    skill at all: it is absent from the listing and the Skill tool refuses it. The
    costs are asymmetric — a spurious load costs ~250 characters, a missed one
    costs a wrong base branch or an unsigned commit — and the budget is not tight
-   (nine of the ten are model-invoked today and total ~3.2k of 4k). Reserve
+   (ten of the eleven are model-invoked today and total ~3.7k of 4k). Reserve
    `true` for a procedure that is genuinely only ever started deliberately —
    `release` is the only one left, because nobody cuts a release by implication.
    ⚠️ **A `true` skill cannot be reached by another skill either.** If a
@@ -267,7 +268,7 @@ node/field/option IDs, and the option-deletion hazard` was cut at `#28`, so 90
    cases (n=4) and `testing` from 3/5 to 2/5, while the six new skills all
    measured 100% and every negative case stayed clean. So the ceiling is
    attention, not characters — we were at 2.8k of a 4k budget throughout _that
-   experiment_ (it is ~3.2k now; the point is that nothing was near the cap). Adding
+   experiment_ (it is ~3.7k now; the point is that nothing was near the cap). Adding
    a skill therefore has a cost paid by the _existing_ ones, which only
    `skills:eval` can see. **Re-run the full eval after any flip _or description
    edit_**, not just the changed skill's own cases.
@@ -341,7 +342,7 @@ node/field/option IDs, and the option-deletion hazard` was cut at `#28`, so 90
    overflows, and drops the least-invoked entries **first** — which are exactly the
    model-invoked skills that must fire on their own. `verify:skills` prints the
    current cost against the budget recorded in `scripts/lib/skill-manifest.mjs`
-   (3,234/4,000 characters as of this writing) and fails when it is exceeded. Raise
+   (3,729/4,000 characters as of this writing) and fails when it is exceeded. Raise
    the budget deliberately, or tighten a description; each entry is capped at 1,536
    characters regardless, so **put the key use case first**.
 
@@ -364,6 +365,7 @@ skills; the rules are here.
 
 - **Before starting work, check the board for the relevant item.**
 - **Every board item is a real GitHub issue.** No draft cards. Before creating a new issue, check the board for a matching item — **never create a duplicate**.
+  - **The one exception is a GitHub security advisory**, which is tracked by a **draft card** titled `[GHSA-xxxx-yyyy-zzzz] - <summary>`. An advisory is private until it is published, so a real issue would disclose the vulnerability before a fix exists — the thing the whole advisory flow is for. The card is made by hand (no `PROJECT_TOKEN` exists in this org, and `GITHUB_TOKEN` cannot hold `organization projects: write`), and it becomes public tracking **once the advisory is published** — never merely once the fix ships, since the release can precede publication. How depends on the line: a `v2` issue is **converted** from the draft on #28, while a `v1` issue is **filed** on #11 and the #28 draft is deleted, because a draft cannot convert onto another board and a `v1` issue on #28 is a wrong-board card. An advisory affecting both lines produces one issue per line. The `[GHSA-` prefix is load-bearing: it is what the board audit's draft carve-out keys on, so **any other draft card is still a defect to delete**. The flow itself — verifying who owns the code path, accepting, the private fork, publishing — is the `security-advisory` skill. **Accepting and publishing an advisory are outward-facing and stay human-gated; never automate or bulk-apply either.**
 - **Only issues go on a board — never PRs.** A PR gets the `v2` label but is tracked through its linked issue's card (via `Closes #N`), not its own board item.
 - **Label by version — every issue and every PR, no exceptions.** Exactly one of `v1` (work targeting `v1/main`, the deprecated security-fix-only line) or `v2` (active development; the default for anything new). There is no unlabeled state and no "decide later": an issue with neither label belongs to no version line and is invisible to every version-filtered query. Set it at **create time** (`gh issue create --label v2 …`), never by backfilling. **If the target version isn't obvious, it's `v2`.**
 - **Label by type — exactly one of `bug` / `enhancement` / `documentation` / `chore` / `question`** on every issue you create or triage. The version label says which line the work belongs to; the type label says what kind of work it is, and the two are independent. Don't force the binary: pressing a docs task or a dependency pin into `enhancement` degrades it to "not a bug", at which point filtering by it stops telling you anything. A **PR** needs no type label — it is classified through the issue it closes.

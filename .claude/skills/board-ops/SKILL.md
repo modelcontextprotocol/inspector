@@ -29,6 +29,26 @@ belong to the field", so the mistake is at least loud.
 **Only issues go on a board — never PRs, never draft cards.** A PR is tracked
 through the card of the issue it closes.
 
+**The one exception is a GitHub security advisory**, tracked by a draft card
+titled `[GHSA-xxxx-yyyy-zzzz] - …` because a real issue would disclose it before
+a fix exists. The flow is `/security-advisory`.
+
+⚠️ **A draft card has no repository and no issue number, so the lookups below
+cannot find one.** Every `select(.content.repository==… and .content.number==…)`
+matches nothing against a draft, and `item-add --url` has no URL to be given.
+Look it up by **title** instead, then feed that item id to `item-edit` or
+`item-delete` exactly as usual:
+
+```sh
+ITEM_ID=$(gh project item-list 28 --owner modelcontextprotocol --format json --limit 500 \
+  --jq '.items[] | select(.content.type=="DraftIssue")
+        | select(.content.title | startswith("[GHSA-xxxx-yyyy-zzzz]")) | .id')
+```
+
+Match on the **bracketed GHSA id**, not on words from the summary — a summary is
+free text and two advisories can share one. Advisory drafts live on #28 only;
+`/issue-triage`'s audit reports one found anywhere else.
+
 ## V2 board (#28) IDs
 
 The project node id and the field ids are stable. The **option** ids are **not** —
