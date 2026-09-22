@@ -38,6 +38,7 @@ describe("InspectorClient raw-wire channel (#1631)", () => {
           requestSignal?: AbortSignal;
         },
       ) => Promise<void>;
+      hasPerRequestStream?: boolean;
     } | null;
     requestTimeout?: number;
     resetTimeoutOnProgress?: boolean;
@@ -543,6 +544,54 @@ describe("InspectorClient raw-wire channel (#1631)", () => {
     expect(
       internals(client).consumeRawWireResponse({ id: sentId, result: {} }),
     ).toBe(false);
+  });
+
+  it("forks cancellation by transport: notifications/cancelled without a per-request stream, requestSignal with one (#2140)", async () => {
+    // stdio/SSE (no per-request stream): the abort must POST the correlated
+    // cancellation frame, because these transports ignore requestSignal and
+    // this path bypasses Client.request, which would otherwise send it.
+    const client = makeClient();
+    const sent: unknown[] = [];
+    internals(client).transport = {
+      send: vi.fn(async (message) => {
+        sent.push(message);
+      }),
+    };
+    const controller = new AbortController();
+    const promise = internals(client).dispatchTaskRequest(
+      { method: "tasks/get", params: { taskId: "x" } },
+      { signal: controller.signal },
+    );
+    await Promise.resolve();
+    controller.abort("user cancelled");
+    await expect(promise).rejects.toThrow();
+    const requestId = (sent[0] as { id: string }).id;
+    expect(sent[1]).toEqual({
+      jsonrpc: "2.0",
+      method: "notifications/cancelled",
+      params: { requestId, reason: "user cancelled" },
+    });
+
+    // A per-request-stream transport (2026-era Streamable HTTP) already
+    // treats the forwarded requestSignal abort as the wire cancellation, so
+    // no notification is sent.
+    const streaming = makeClient();
+    const streamingSent: unknown[] = [];
+    internals(streaming).transport = {
+      send: vi.fn(async (message) => {
+        streamingSent.push(message);
+      }),
+      hasPerRequestStream: true,
+    };
+    const streamingController = new AbortController();
+    const streamingPromise = internals(streaming).dispatchTaskRequest(
+      { method: "tasks/get", params: { taskId: "x" } },
+      { signal: streamingController.signal },
+    );
+    await Promise.resolve();
+    streamingController.abort(new Error("stop"));
+    await expect(streamingPromise).rejects.toThrow("stop");
+    expect(streamingSent).toHaveLength(1);
   });
 
   it("ignores a transport rejection after abort already settled the dispatch", async () => {

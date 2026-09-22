@@ -2425,6 +2425,26 @@ export class InspectorClient extends InspectorClientEventTarget {
           const pending = this.pendingRawWireRequests.get(id);
           if (!pending) return;
           pending.cleanup();
+          // Mirror the SDK's cancellation fork (#2140): a per-request-stream
+          // transport (2026-era Streamable HTTP) treats the forwarded
+          // requestSignal abort as the wire cancellation, but stdio/SSE
+          // ignore requestSignal — and this path bypasses Client.request, so
+          // nothing else sends the notifications/cancelled frame they need.
+          if (transport.hasPerRequestStream !== true) {
+            const reason = signal.reason;
+            void transport
+              .send({
+                jsonrpc: "2.0",
+                method: "notifications/cancelled",
+                params: {
+                  requestId: id,
+                  ...(typeof reason === "string" ? { reason } : {}),
+                },
+              })
+              .catch(() => {
+                // Best effort: the local rejection below is authoritative.
+              });
+          }
           reject(abortError(signal));
         };
         signal.addEventListener("abort", onAbort, { once: true });
