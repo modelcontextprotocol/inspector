@@ -144,21 +144,20 @@ export class ManagedRequestorTasksState extends TypedEventTarget<ManagedRequesto
     if (!client || client.getStatus() !== "connected") {
       return this.getTasks();
     }
-    // Modern era (SEP-2663): the `io.modelcontextprotocol/tasks` extension has
-    // NO `tasks/list` — task handles are durable and client-held, arriving via
-    // task-augmented tool calls (server-directed `CreateTaskResult`) or
-    // unsolicited handles. "Refresh" therefore re-polls the tasks already known
-    // to this store via `tasks/get`; a task the server has since dropped (TTL)
-    // simply keeps its last-seen state. Gate on the extension being negotiated.
-    if (client.isTasksExtensionNegotiated()) {
+    // Routing is gated on the task session's authoritative `inventory`
+    // capability rather than era/extension predicates: a legacy Tasks session
+    // without `tasks/list` (inventory "known-handles") must re-poll known
+    // handles like a modern one — sending it through `listRequestorTasks()`
+    // would be rejected by ext-tasks as unsupported server inventory.
+    const inventory =
+      client.getTaskSessionCapabilities()?.inventory ?? "unsupported";
+    if (inventory === "known-handles") {
       return this.refreshModern(client);
     }
-    // Legacy era: gate on the server's `tasks` capability — calling tasks/list
-    // against a server that doesn't advertise it returns -32601 "Method not
-    // found", which then surfaces in the console for every connect against any
-    // server that doesn't implement task tracking. Empty list is the right
-    // semantics for "this server doesn't support tasks."
-    if (!client.getCapabilities()?.tasks) {
+    // No task support at all: empty list is the right semantics for "this
+    // server doesn't support tasks", and calling tasks/list against it
+    // returns -32601 "Method not found" in the console on every connect.
+    if (inventory !== "server-list") {
       this.tasks = [];
       this.dispatchTypedEvent("tasksChange", this.tasks);
       return this.getTasks();

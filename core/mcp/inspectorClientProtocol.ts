@@ -106,8 +106,13 @@ export interface InspectorClientProtocol extends InspectorClientEventTarget {
   ): Promise<{ tasks: InspectorTask[]; nextCursor?: string }>;
   /** Poll one requestor task's current status through the neutral task façade. */
   getRequestorTask(taskId: string): Promise<InspectorTask>;
-  /** Authoritative generation-neutral capabilities for requester task behavior. */
-  getTaskSessionCapabilities?(): TaskCapabilities | undefined;
+  /**
+   * Authoritative generation-neutral capabilities for requester task
+   * behavior. Required (not optional) because the managed task store gates
+   * refresh routing on `inventory` — an unimplemented method would silently
+   * fall back to `tasks/list` against sessions that reject it.
+   */
+  getTaskSessionCapabilities(): TaskCapabilities | undefined;
   /** Compatibility predicate for consumers that distinguish known-handle tasks. */
   isTasksExtensionNegotiated(): boolean;
 

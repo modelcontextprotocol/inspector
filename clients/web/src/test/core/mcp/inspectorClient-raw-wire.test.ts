@@ -281,13 +281,16 @@ describe("InspectorClient raw-wire channel (#1631)", () => {
       });
 
       // With a per-request stream the SDK-mirrored fork stays silent: the
-      // transport's own stream teardown is the cancellation signal.
+      // transport's own stream teardown is the cancellation signal: the
+      // timeout aborts the forwarded per-request wire signal instead.
       const streaming = makeClient();
       internals(streaming).requestTimeout = 10;
       const streamingSent: unknown[] = [];
+      let wireSignal: AbortSignal | undefined;
       internals(streaming).transport = {
-        send: vi.fn(async (message) => {
+        send: vi.fn(async (message, options) => {
           streamingSent.push(message);
+          wireSignal ??= options?.requestSignal;
         }),
         hasPerRequestStream: true,
       };
@@ -301,6 +304,7 @@ describe("InspectorClient raw-wire channel (#1631)", () => {
       await vi.advanceTimersByTimeAsync(20);
       await streamingAssertion;
       expect(streamingSent).toHaveLength(1);
+      expect(wireSignal?.aborted).toBe(true);
     } finally {
       vi.useRealTimers();
     }
@@ -575,8 +579,13 @@ describe("InspectorClient raw-wire channel (#1631)", () => {
     });
     expect(sendOptions).toEqual({
       headers: { "x-route": "blue" },
-      requestSignal: controller.signal,
+      // The wire signal is a per-request controller linked to the caller's,
+      // not the caller's own: a timeout must also be able to abort the
+      // per-request stream (round-12). Forwarding and the timeout abort are
+      // asserted in the transport-fork tests.
+      requestSignal: expect.any(AbortSignal),
     });
+    expect(sendOptions?.requestSignal).not.toBe(controller.signal);
     internals(client).consumeRawWireResponse({ id: sent!.id, result: {} });
     await expect(promise).resolves.toEqual({ kind: "result", result: {} });
   });

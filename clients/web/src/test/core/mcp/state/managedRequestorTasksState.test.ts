@@ -23,10 +23,19 @@ describe("ManagedRequestorTasksState", () => {
   let state: ManagedRequestorTasksState;
 
   beforeEach(() => {
-    // Default to a server that advertises `tasks` so the existing flow tests
-    // exercise the live `listRequestorTasks` path; capability-absent tests
-    // below override this.
+    // Default to a session whose inventory is server-list so the existing
+    // flow tests exercise the live `listRequestorTasks` path; the refresh
+    // gate reads the authoritative task-session capabilities (round-12
+    // finding), so the fake presents those rather than the legacy
+    // `capabilities.tasks` shape. Capability-absent tests below override it.
     client = new FakeInspectorClient({ capabilities: { tasks: {} } });
+    client.taskSessionCapabilities = {
+      inventory: "server-list",
+      execution: true,
+      cancellation: true,
+      inputResponses: false,
+      requestedRetention: true,
+    };
     state = new ManagedRequestorTasksState(client);
   });
 
@@ -75,6 +84,28 @@ describe("ManagedRequestorTasksState", () => {
     await changePromise;
     expect(taskless.listRequestorTasks).not.toHaveBeenCalled();
     expect(tasklessState.getTasks()).toEqual([]);
+  });
+
+  it("routes a known-handles legacy session to re-polling, never tasks/list", async () => {
+    // A legacy Tasks session without `list` capability has inventory
+    // "known-handles": ext-tasks rejects listTasks() there, so refresh must
+    // re-poll known handles like a modern session (round-12 finding).
+    const knownHandles = new FakeInspectorClient({
+      capabilities: { tasks: { cancel: {} } },
+    });
+    knownHandles.taskSessionCapabilities = {
+      inventory: "known-handles",
+      execution: true,
+      cancellation: true,
+      inputResponses: false,
+      requestedRetention: true,
+    };
+    knownHandles.setStatus("connected");
+    const knownHandlesState = new ManagedRequestorTasksState(knownHandles);
+
+    const result = await knownHandlesState.refresh();
+    expect(result).toEqual([]);
+    expect(knownHandles.listRequestorTasks).not.toHaveBeenCalled();
   });
 
   it("refresh fetches a single page and dispatches tasksChange", async () => {

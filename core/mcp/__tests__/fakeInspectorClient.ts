@@ -38,6 +38,7 @@ import type {
   ExcludedTool,
   RequestMetadata,
 } from "../types.js";
+import type { TaskCapabilities } from "@modelcontextprotocol/ext-tasks/client";
 import { INACTIVE_SUBSCRIPTION_STREAM_STATE } from "../types.js";
 import type { MalformedListItem } from "../listSalvage.js";
 import type { SkillEntry, SkillResource } from "../skillsSchemas.js";
@@ -146,6 +147,14 @@ export class FakeInspectorClient
   tasksExtensionNegotiated = false;
   isTasksExtensionNegotiated(): boolean {
     return this.tasksExtensionNegotiated;
+  }
+
+  // Authoritative task-session capabilities this fake presents. Tests assign
+  // a TaskCapabilities object to exercise inventory-gated refresh routing;
+  // undefined means "no task session" (inventory treated as unsupported).
+  taskSessionCapabilities: TaskCapabilities | undefined = undefined;
+  getTaskSessionCapabilities(): TaskCapabilities | undefined {
+    return this.taskSessionCapabilities;
   }
 
   // The Skills extension (SEP-2640) this fake presents. `undefined` means the

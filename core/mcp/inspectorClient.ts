@@ -2391,9 +2391,19 @@ export class InspectorClient extends InspectorClientEventTarget {
 
     return await new Promise<JsonRpcResponse>((resolve, reject) => {
       let onAbort: (() => void) | undefined;
+      // The transport sees this controller's signal, not the caller's,
+      // because a timeout must also reach the wire: aborting it tears down a
+      // per-request stream (the 2026-era cancellation signal), which the
+      // caller's untouched signal cannot do. Caller aborts forward into it.
+      const wireController = new AbortController();
+      const forwardAbort = () => {
+        wireController.abort(signal?.reason);
+      };
+      signal?.addEventListener("abort", forwardAbort, { once: true });
       const cleanup = () => {
         clearTimeout(timer);
         if (signal && onAbort) signal.removeEventListener("abort", onAbort);
+        signal?.removeEventListener("abort", forwardAbort);
         this.pendingRawWireRequests.delete(id);
       };
       // Mirror the SDK's cancellation fork (#2140) for both local endings of
@@ -2421,7 +2431,11 @@ export class InspectorClient extends InspectorClientEventTarget {
       };
       const onTimeout = () => {
         cleanup();
-        sendWireCancellation(`Request timed out after ${String(timeoutMs)} ms`);
+        const timeoutReason = `Request timed out after ${String(timeoutMs)} ms`;
+        // Both wire paths, matching the abort fork: stream teardown for
+        // per-request-stream transports, notifications/cancelled otherwise.
+        wireController.abort(new DispatchError(timeoutReason));
+        sendWireCancellation(timeoutReason);
         reject(
           new DispatchError(
             `Raw MCP request "${message.method}" timed out after ${timeoutMs} ms`,
@@ -2460,7 +2474,7 @@ export class InspectorClient extends InspectorClientEventTarget {
           ...(options.context?.headers === undefined
             ? {}
             : { headers: options.context.headers }),
-          ...(signal === undefined ? {} : { requestSignal: signal }),
+          requestSignal: wireController.signal,
         })
         .catch((error: unknown) => {
           const pending = this.pendingRawWireRequests.get(id);
