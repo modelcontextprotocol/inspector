@@ -249,6 +249,63 @@ describe("InspectorClient raw-wire channel (#1631)", () => {
     }
   });
 
+  it("sends notifications/cancelled on timeout for transports without a per-request stream", async () => {
+    vi.useFakeTimers();
+    try {
+      // A timed-out raw request must reach the server-side cancellation
+      // path too, or the orphaned call keeps running (round-11 finding).
+      const client = makeClient();
+      internals(client).requestTimeout = 10;
+      const sent: unknown[] = [];
+      internals(client).transport = {
+        send: vi.fn(async (message) => {
+          sent.push(message);
+        }),
+      };
+      const promise = internals(client).rawWireRequest(
+        "tasks/get",
+        {},
+        ModernGetTaskResultSchema,
+      );
+      const assertion = expect(promise).rejects.toThrow(/timed out/);
+      await vi.advanceTimersByTimeAsync(20);
+      await assertion;
+      const requestId = (sent[0] as { id: string }).id;
+      expect(sent[1]).toEqual({
+        jsonrpc: "2.0",
+        method: "notifications/cancelled",
+        params: {
+          requestId,
+          reason: "Request timed out after 10 ms",
+        },
+      });
+
+      // With a per-request stream the SDK-mirrored fork stays silent: the
+      // transport's own stream teardown is the cancellation signal.
+      const streaming = makeClient();
+      internals(streaming).requestTimeout = 10;
+      const streamingSent: unknown[] = [];
+      internals(streaming).transport = {
+        send: vi.fn(async (message) => {
+          streamingSent.push(message);
+        }),
+        hasPerRequestStream: true,
+      };
+      const streamingPromise = internals(streaming).rawWireRequest(
+        "tasks/get",
+        {},
+        ModernGetTaskResultSchema,
+      );
+      const streamingAssertion =
+        expect(streamingPromise).rejects.toThrow(/timed out/);
+      await vi.advanceTimersByTimeAsync(20);
+      await streamingAssertion;
+      expect(streamingSent).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("honors the ext-tasks operation timeout context", async () => {
     vi.useFakeTimers();
     try {

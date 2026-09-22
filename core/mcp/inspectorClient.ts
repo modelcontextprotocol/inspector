@@ -2396,8 +2396,32 @@ export class InspectorClient extends InspectorClientEventTarget {
         if (signal && onAbort) signal.removeEventListener("abort", onAbort);
         this.pendingRawWireRequests.delete(id);
       };
+      // Mirror the SDK's cancellation fork (#2140) for both local endings of
+      // a raw request: a per-request-stream transport (2026-era Streamable
+      // HTTP) treats the forwarded requestSignal abort as the wire
+      // cancellation, but stdio/SSE ignore requestSignal — and this path
+      // bypasses Client.request, so nothing else sends the
+      // notifications/cancelled frame they need. Without it a timed-out or
+      // aborted tools/call keeps running server-side (orphaning any task) and
+      // its late response is no longer consumed by this raw channel.
+      const sendWireCancellation = (reason?: string) => {
+        if (transport.hasPerRequestStream === true) return;
+        void transport
+          .send({
+            jsonrpc: "2.0",
+            method: "notifications/cancelled",
+            params: {
+              requestId: id,
+              ...(reason === undefined ? {} : { reason }),
+            },
+          })
+          .catch(() => {
+            // Best effort: the local rejection is authoritative.
+          });
+      };
       const onTimeout = () => {
         cleanup();
+        sendWireCancellation(`Request timed out after ${String(timeoutMs)} ms`);
         reject(
           new DispatchError(
             `Raw MCP request "${message.method}" timed out after ${timeoutMs} ms`,
@@ -2425,26 +2449,8 @@ export class InspectorClient extends InspectorClientEventTarget {
           const pending = this.pendingRawWireRequests.get(id);
           if (!pending) return;
           pending.cleanup();
-          // Mirror the SDK's cancellation fork (#2140): a per-request-stream
-          // transport (2026-era Streamable HTTP) treats the forwarded
-          // requestSignal abort as the wire cancellation, but stdio/SSE
-          // ignore requestSignal — and this path bypasses Client.request, so
-          // nothing else sends the notifications/cancelled frame they need.
-          if (transport.hasPerRequestStream !== true) {
-            const reason = signal.reason;
-            void transport
-              .send({
-                jsonrpc: "2.0",
-                method: "notifications/cancelled",
-                params: {
-                  requestId: id,
-                  ...(typeof reason === "string" ? { reason } : {}),
-                },
-              })
-              .catch(() => {
-                // Best effort: the local rejection below is authoritative.
-              });
-          }
+          const reason = signal.reason;
+          sendWireCancellation(typeof reason === "string" ? reason : undefined);
           reject(abortError(signal));
         };
         signal.addEventListener("abort", onAbort, { once: true });
@@ -4322,6 +4328,9 @@ export class InspectorClient extends InspectorClientEventTarget {
       return;
     this.taskSession = createTaskSessionFromClient(client, {
       endpointId,
+      // ext-tasks is unbounded by default; the Inspector opts into the same
+      // runaway budget its own raw MRTR path enforces (MRTR_MAX_ROUNDS).
+      maxInputRounds: InspectorClient.MRTR_MAX_ROUNDS,
       rawDispatch: this.dispatchTaskRequest,
       v2RequestFraming: {
         protocolVersion: this.protocolVersion!,
