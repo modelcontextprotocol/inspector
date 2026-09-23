@@ -223,6 +223,63 @@ describe("streamDaemon + ipc-glue", () => {
     );
   });
 
+  it("uses env-derived defaults and sends an explicit token", async () => {
+    const sock = freshSock();
+    const prevDir = process.env.MCP_INSPECTOR_DAEMON_DIR;
+    const prevToken = process.env.MCP_INSPECTOR_DAEMON_TOKEN;
+    process.env.MCP_INSPECTOR_DAEMON_DIR = path.dirname(sock);
+    delete process.env.MCP_INSPECTOR_DAEMON_TOKEN;
+    try {
+      let seenToken: string | undefined;
+      await listen(sock, (socket) => {
+        socket.once("data", (buf) => {
+          const req = JSON.parse(String(buf).trim()) as {
+            id: string;
+            token?: string;
+          };
+          seenToken = req.token;
+          socket.write(
+            JSON.stringify({ id: req.id, ok: true, result: {} }) + "\n",
+          );
+          socket.write(JSON.stringify({ id: req.id, stream: "end" }) + "\n");
+        });
+      });
+      // No socketPath / timeoutMs: both fall back to defaults (the daemon
+      // dir env pins the socket path; the 60s default timer is cleared by
+      // the ok frame).
+      await streamDaemon({}, { token: "tok-1", onData: () => {} });
+      expect(seenToken).toBe("tok-1");
+    } finally {
+      if (prevDir === undefined) delete process.env.MCP_INSPECTOR_DAEMON_DIR;
+      else process.env.MCP_INSPECTOR_DAEMON_DIR = prevDir;
+      if (prevToken !== undefined)
+        process.env.MCP_INSPECTOR_DAEMON_TOKEN = prevToken;
+    }
+  });
+
+  it("ignores frames after the stream has already ended", async () => {
+    const sock = freshSock();
+    await listen(sock, (socket) => {
+      socket.once("data", (buf) => {
+        const req = JSON.parse(String(buf).trim()) as { id: string };
+        // ok + two end frames in one chunk: the second is handled by the
+        // same buffered-line loop after the promise has settled.
+        socket.write(
+          JSON.stringify({ id: req.id, ok: true, result: {} }) +
+            "\n" +
+            JSON.stringify({ id: req.id, stream: "end" }) +
+            "\n" +
+            JSON.stringify({ id: req.id, stream: "end" }) +
+            "\n",
+        );
+      });
+    });
+    await streamDaemon(
+      {},
+      { socketPath: sock, timeoutMs: 2000, onData: () => {} },
+    );
+  });
+
   it("removeStaleDaemonSocket handles absent, dead, and live sockets", async () => {
     const sock = freshSock();
     await removeStaleDaemonSocket(sock);

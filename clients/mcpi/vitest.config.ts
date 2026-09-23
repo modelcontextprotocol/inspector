@@ -32,12 +32,7 @@ export default defineConfig({
       provider: "v8",
       reporter: ["text", "html", "json-summary"],
       include: ["src/**/*.ts"],
-      exclude: [
-        "src/mcp-bin.ts",
-        "src/daemon/run.ts",
-        "src/daemon/ipc-glue.ts",
-        "src/daemon/stream-client.ts",
-      ],
+      exclude: ["src/mcp-bin.ts", "src/daemon/run.ts"],
       thresholds: {
         perFile: true,
         lines: 90,

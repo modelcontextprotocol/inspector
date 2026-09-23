@@ -1,8 +1,5 @@
 /**
  * Long-lived daemon stream client.
- *
- * Outside the per-file coverage gate (see vitest.config.ts); behavior is
- * covered by `__tests__/daemon-stream.test.ts`.
  */
 import { randomUUID } from "node:crypto";
 import * as net from "node:net";

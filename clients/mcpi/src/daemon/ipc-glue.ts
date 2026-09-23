@@ -1,8 +1,5 @@
 /**
  * Low-level Unix-socket accept / stale-socket helpers for {@link DaemonServer}.
- *
- * Outside the per-file coverage gate (see vitest.config.ts); behavior is
- * covered by `__tests__/daemon-stream.test.ts`.
  */
 import * as fs from "node:fs";
 import * as net from "node:net";
@@ -127,6 +124,10 @@ export function acceptDaemonConnection(
     }
   });
   const rl = createInterface({ input: socket, crlfDelay: Infinity });
+  // readline re-emits input errors on the interface; without a listener a
+  // client RST would crash the daemon with an unhandled 'error' event. The
+  // socket's own error handler below owns the teardown.
+  rl.on("error", () => {});
   const elicitationChannel = new ConnectionElicitationChannel(socket);
   rl.on("line", (line) => {
     void (async () => {
