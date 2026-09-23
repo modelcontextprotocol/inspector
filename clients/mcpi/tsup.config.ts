@@ -22,16 +22,31 @@ export default defineConfig({
   // Bundle core + one-shot CLI internals (handlers, error-handler, OAuth helpers).
   // Temporary reach-in until a dedicated shared package exists — see README.
   noExternal: [/^@inspector\/core/, /^@inspector\/cli/],
+  // Mirrors clients/cli/tsup.config.ts (which documents each entry's story):
+  // this client declares NO runtime dependencies (AGENTS.md dependency-
+  // placement rule), so tsup's nearest-manifest auto-externalization sees
+  // nothing — every root-declared runtime package `core/` (or the bundled
+  // one-shot CLI source) imports must be named here or esbuild inlines it,
+  // and inlining a CJS module into this ESM bundle leaves esbuild's
+  // `Dynamic require of "..." is not supported` shim (#2067).
+  // `npm run verify:bundle-externals` enforces this against the built output.
   external: [
+    "undici",
     "@napi-rs/keyring",
+    "proper-lockfile",
     "@modelcontextprotocol/client",
     "@modelcontextprotocol/core",
     "@modelcontextprotocol/ext-apps",
     "commander",
     "pino",
+    "ajv",
+    "atomically",
     "open",
+    "zod",
     "yaml",
-    "proper-lockfile",
+    "chokidar",
+    "hono",
+    "react",
   ],
   esbuildOptions(options) {
     options.alias = {

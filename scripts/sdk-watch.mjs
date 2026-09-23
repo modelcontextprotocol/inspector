@@ -529,7 +529,7 @@ export function buildIssueBody(state) {
     "### Upgrade checklist",
     "",
     ...manifestChecklist(rows, target),
-    "- [ ] Re-check the bundler `external` lists (`clients/{cli,tui}/tsup.config.ts`, `clients/web/tsup.runner.config.ts`) if the release adds or renames an entry point; `npm run verify:bundle-externals` enforces this against the built output.",
+    "- [ ] Re-check the bundler `external` lists (`clients/{cli,mcpi,tui}/tsup.config.ts`, `clients/web/tsup.runner.config.ts`) if the release adds or renames an entry point; `npm run verify:bundle-externals` enforces this against the built output.",
     "- [ ] `npm run format`, then `npm run local:gate`.",
     "",
     "An automated review of what actually changed upstream — and which parts of this app it touches — is posted as a comment below.",
