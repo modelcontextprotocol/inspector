@@ -62,6 +62,9 @@ inspector/
 │                     and repo automation run from CI (the dependency, Dependabot-alert and SDK sweeps)
 ├── docs/             Task-oriented guides — see below
 ├── specification/    Design/build specifications
+├── skills/           End-user agent skills (e.g. skills/mcpi teaches an agent to
+│                     drive the `mcpi` CLI) — distinct from .claude/skills/,
+│                     which holds this repo's own procedures
 ├── .claude/skills/   Agent skills: the repo's procedures, invokable by name
 ├── AGENTS.md         Contribution rules for agents AND humans
 └── README.md         You are here

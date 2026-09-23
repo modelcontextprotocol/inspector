@@ -2,7 +2,7 @@
 
 **Experimental** separate client — not part of the published `@modelcontextprotocol/inspector` package. Connect once, then run many MCP commands against a named session via an implicit local daemon (ssh-agent style).
 
-> **Layout note:** Source lives in `clients/mcpi/`. At build time it bundles some modules from `clients/cli/src` (`handlers/`, `error-handler`, OAuth helpers) via the `@inspector/cli` alias. That reach-in is intentional and temporary — not a published library API — until a cleaner shared package exists.
+> **Layout note:** Source lives in `clients/mcpi/`. At build time it bundles some modules from `clients/cli/src` (`handlers/`, `error-handler`, OAuth helpers) via the `@inspector/cli` alias. That reach-in is intentional and temporary — not a published library API — until a cleaner shared package exists (tracked by [#2461](https://github.com/modelcontextprotocol/inspector/issues/2461)).
 
 ## Install / run (from this repo)
 

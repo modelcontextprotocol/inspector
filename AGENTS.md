@@ -61,6 +61,10 @@ inspector/
 │                     plus repo automation run from CI (the dependency, alert + SDK sweeps)
 ├── docs/             Task-oriented guides
 ├── specification/    Design/build specifications
+├── skills/           End-user agent skills (skills/mcpi teaches an agent to drive
+│                     the `mcpi` CLI; tarball inclusion lands with the packaging
+│                     follow-up). Distinct from .claude/skills/ (repo procedures):
+│                     not indexed above and not checked by verify:skills
 └── .claude/skills/   The procedures (see the index above)
 ```
 
@@ -397,7 +401,7 @@ When asked to respond to a code review of a PR:
 The _procedure_ — where a given test file goes, which command runs it, how to
 diagnose a failing gate — is the `testing` skill. These are the rules.
 
-- **Ensure all code has corresponding tests.** New code must clear **≥ 90 on all four dimensions** — lines, statements, functions, and branches — per file. This gate is enforced by each client's `test:coverage` across `clients/web`, `clients/cli`, `clients/tui`, `clients/launcher`, and (experimentally) `clients/mcpi`, and **CI enforces it**: a PR that drops any file below 90 on any dimension fails. **mcpi** excludes only true bootstraps from the gate (`src/mcp-bin.ts`, `src/daemon/run.ts` — see `clients/mcpi/vitest.config.ts`); its build-time `@inspector/cli` alias reaches into `clients/cli/src` for shared handlers/error-handler/OAuth helpers (temporary, not a published API).
+- **Ensure all code has corresponding tests.** New code must clear **≥ 90 on all four dimensions** — lines, statements, functions, and branches — per file. This gate is enforced by each client's `test:coverage` across `clients/web`, `clients/cli`, `clients/tui`, `clients/launcher`, and (experimentally) `clients/mcpi`, and **CI enforces it**: a PR that drops any file below 90 on any dimension fails. **mcpi** excludes only true bootstraps from the gate (`src/mcp-bin.ts`, `src/daemon/run.ts` — see `clients/mcpi/vitest.config.ts`); its build-time `@inspector/cli` alias reaches into `clients/cli/src` for shared handlers/error-handler/OAuth helpers (temporary, not a published API — #2461 tracks promoting that surface to a shared area).
 - **A genuinely-unreachable branch is annotated at the source, never waved through by lowering the gate.** Use a justified `/* v8 ignore … -- <reason> */`. Acceptable reasons: happy-dom-inherent paths (Mantine portal mount points, `useMediaQuery` fallbacks, `typeof window` SSR guards); React StrictMode effect-replay blocks; and provably-dead defensive guards (a `?? fallback` for a value the types guarantee non-null, a `Select.onChange` receiving a value outside the allowed list). Reach for it only when the branch is genuinely impossible to exercise.
 - **In unit tests that expect error output, suppress it from the console.**
 - **Test placement — side-by-side by default, `src/test/` only for what can't be co-located, and the Node clients are different.**

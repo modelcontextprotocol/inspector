@@ -20,7 +20,8 @@ export default defineConfig({
   target: "node22",
   platform: "node",
   // Bundle core + one-shot CLI internals (handlers, error-handler, OAuth helpers).
-  // Temporary reach-in until a dedicated shared package exists — see README.
+  // Temporary reach-in until a dedicated shared package exists — tracked by
+  // https://github.com/modelcontextprotocol/inspector/issues/2461 (see README).
   noExternal: [/^@inspector\/core/, /^@inspector\/cli/],
   // Mirrors clients/cli/tsup.config.ts (which documents each entry's story):
   // this client declares NO runtime dependencies (AGENTS.md dependency-
