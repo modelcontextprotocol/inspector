@@ -1,0 +1,515 @@
+import * as fs from "node:fs";
+import * as net from "node:net";
+import {
+  classifyError,
+  CliExitCodeError,
+  EXIT_CODES,
+} from "@inspector/cli/error-handler.js";
+import { runMethod } from "@inspector/cli/handlers/run-method.js";
+import type { MethodArgs } from "@inspector/cli/handlers/method-types.js";
+import {
+  acceptDaemonConnection,
+  removeStaleDaemonSocket,
+  type ElicitationChannel,
+  type HandleOutcome,
+} from "./ipc-glue.js";
+import { wireElicitationBridge } from "./elicitation-bridge.js";
+import { assertDaemonToken, getDaemonTokenFromEnv } from "./auth.js";
+import {
+  assertSocketPathWithinLimit,
+  ensureDaemonDir,
+  getDaemonDir,
+  getDaemonLockPath,
+  getDaemonSocketPath,
+  getDaemonTokenPath,
+} from "./paths.js";
+import type {
+  ConnectParams,
+  DaemonRequest,
+  DaemonResponse,
+  DaemonStatus,
+  RpcParams,
+  RpcResult,
+  ConnectionNameParams,
+  ConnectionShowResult,
+} from "./protocol.js";
+import {
+  DEFAULT_IDLE_MS,
+  getLiveConnectionAuthInfo,
+  ConnectionRegistry,
+} from "./connections.js";
+
+/**
+ * Default channel used when a caller doesn't wire a real one (in-process
+ * `handle`/`handleOutcome` test call sites that predate elicitation support).
+ * Immediately cancels any elicitation, matching `elicit: false` behavior —
+ * these callers never advertise elicitation support to the server anyway.
+ */
+const autoCancelElicitationChannel: ElicitationChannel = {
+  request(frame) {
+    return Promise.resolve({
+      id: frame.id,
+      kind: "elicitation-response",
+      elicitationId: frame.elicitationId,
+      action: "cancel",
+    });
+  },
+};
+
+export type DaemonServerOptions = {
+  dir?: string;
+  idleMs?: number;
+  /**
+   * When set, every IPC request must present this token. Defaults to
+   * `MCP_INSPECTOR_DAEMON_TOKEN` from the environment (private mode).
+   */
+  requiredToken?: string;
+  /** Called when the daemon should exit (idle timeout or daemon/stop). */
+  onShutdown?: () => void;
+};
+
+/**
+ * Unix-socket NDJSON daemon that owns {@link ConnectionRegistry}.
+ */
+export class DaemonServer {
+  readonly registry: ConnectionRegistry;
+  readonly socketPath: string;
+  readonly lockPath: string;
+  readonly dir: string;
+  private readonly requiredToken: string | undefined;
+  private server: net.Server | null = null;
+  private readonly onShutdown: (() => void) | null;
+  private stopping = false;
+
+  constructor(options: DaemonServerOptions = {}) {
+    this.dir = options.dir ?? getDaemonDir();
+    this.socketPath = getDaemonSocketPath(this.dir);
+    this.lockPath = getDaemonLockPath(this.dir);
+    this.requiredToken = options.requiredToken ?? getDaemonTokenFromEnv();
+    this.registry = new ConnectionRegistry(options.idleMs ?? DEFAULT_IDLE_MS);
+    this.onShutdown = options.onShutdown ?? null;
+    this.registry.setIdleHandler(() => {
+      void this.stop("idle");
+    });
+  }
+
+  async start(): Promise<void> {
+    ensureDaemonDir(this.dir);
+    assertSocketPathWithinLimit(this.socketPath);
+    this.acquireLock();
+    try {
+      await removeStaleDaemonSocket(this.socketPath);
+
+      // Publish the IPC token (0600, inside the 0700 daemon dir) before the
+      // socket exists, so a client can never connect without being able to
+      // read the token it needs. See getDaemonTokenPath.
+      if (this.requiredToken !== undefined) {
+        const tokenPath = getDaemonTokenPath(this.dir);
+        fs.writeFileSync(tokenPath, this.requiredToken + "\n", {
+          mode: 0o600,
+        });
+        try {
+          fs.chmodSync(tokenPath, 0o600);
+        } catch {
+          // Unsupported on some platforms.
+        }
+      }
+
+      this.server = net.createServer((socket) => {
+        acceptDaemonConnection(socket, (req, elicitation) =>
+          this.handleOutcome(req, elicitation),
+        );
+      });
+
+      await new Promise<void>((resolve, reject) => {
+        this.server!.once("error", reject);
+        this.server!.listen(this.socketPath, () => {
+          this.server!.off("error", reject);
+          resolve();
+        });
+      });
+
+      // Restrict socket + lock to the creating user. Private mode also requires
+      // an IPC token (see specification/v2_cli_v2.md §5.3).
+      try {
+        fs.chmodSync(this.socketPath, 0o600);
+        fs.chmodSync(this.lockPath, 0o600);
+      } catch {
+        // Unsupported on some platforms (e.g. Windows named pipes).
+      }
+
+      // Connection-less spawn (e.g. ensureDaemon from tools/list with no connections)
+      // must still self-reap — idle was previously only armed after disconnect.
+      this.registry.armIdleTimerIfEmpty();
+    } catch (error) {
+      // Never leave a lock we own but no daemon behind it. The socket is only
+      // unlinked by removeStaleDaemonSocket after a dead connect probe, so a
+      // live daemon's socket is never touched here.
+      this.releaseLock();
+      throw error;
+    }
+  }
+
+  async stop(reason: "idle" | "stop" | "signal" = "stop"): Promise<void> {
+    void reason;
+    if (this.stopping) return;
+    this.stopping = true;
+    await this.registry.disconnectAll();
+    await new Promise<void>((resolve) => {
+      if (!this.server) {
+        resolve();
+        return;
+      }
+      this.server.close(() => resolve());
+    });
+    this.server = null;
+    this.removeLockAndSocket();
+    this.onShutdown?.();
+  }
+
+  status(): DaemonStatus {
+    return {
+      pid: process.pid,
+      socketPath: this.socketPath,
+      connections: this.registry.list(),
+      idleMs: this.registry.idleRemainingMs(),
+    };
+  }
+
+  /** Handle one request; returns the response body (used by in-process tests). */
+  async handle(
+    request: DaemonRequest,
+    elicitation: ElicitationChannel = autoCancelElicitationChannel,
+  ): Promise<DaemonResponse> {
+    return (await this.handleOutcome(request, elicitation)).response;
+  }
+
+  /** Full handle including optional stream starter (socket accept path). */
+  async handleOutcome(
+    request: DaemonRequest,
+    elicitation: ElicitationChannel = autoCancelElicitationChannel,
+  ): Promise<HandleOutcome> {
+    try {
+      assertDaemonToken(this.requiredToken, request.token);
+      return await this.dispatch(request, elicitation);
+    } catch (error) {
+      if (error instanceof CliExitCodeError) {
+        return {
+          response: {
+            id: request.id,
+            ok: false,
+            error: {
+              code: error.envelope?.code ?? "cli_error",
+              message: error.message,
+              exitCode: error.exitCode,
+            },
+          },
+        };
+      }
+      // Match one-shot CLI exit codes (e.g. unreachable → 4, not always 1).
+      const { exitCode, envelope } = classifyError(error);
+      return {
+        response: {
+          id: request.id,
+          ok: false,
+          error: {
+            code: envelope.code,
+            message: envelope.message,
+            exitCode,
+          },
+        },
+      };
+    }
+  }
+
+  private async dispatch(
+    request: DaemonRequest,
+    elicitation: ElicitationChannel,
+  ): Promise<HandleOutcome> {
+    switch (request.op) {
+      case "ping":
+        return {
+          response: {
+            id: request.id,
+            ok: true,
+            result: { pong: true, pid: process.pid },
+          },
+        };
+      case "connect": {
+        const params = request.params as ConnectParams;
+        if (!params?.name || !params.serverConfig || !params.serverIdentity) {
+          throw new CliExitCodeError(
+            EXIT_CODES.USAGE,
+            "connect requires name, serverConfig, and serverIdentity",
+            { code: "invalid_params" },
+          );
+        }
+        return {
+          response: {
+            id: request.id,
+            ok: true,
+            result: await this.registry.connect(params),
+          },
+        };
+      }
+      case "disconnect": {
+        const params = (request.params ?? {}) as ConnectionNameParams;
+        return {
+          response: {
+            id: request.id,
+            ok: true,
+            result: await this.registry.disconnect(
+              params.name,
+              params.requireExplicit,
+            ),
+          },
+        };
+      }
+      case "connections/list":
+        return {
+          response: {
+            id: request.id,
+            ok: true,
+            result: { connections: this.registry.list() },
+          },
+        };
+      case "connections/use": {
+        const params = (request.params ?? {}) as ConnectionNameParams;
+        if (!params.name) {
+          throw new CliExitCodeError(
+            EXIT_CODES.USAGE,
+            "connections/use requires a connection name",
+            { code: "invalid_params" },
+          );
+        }
+        return {
+          response: {
+            id: request.id,
+            ok: true,
+            result: this.registry.use(params.name),
+          },
+        };
+      }
+      case "connections/show": {
+        const params = (request.params ?? {}) as ConnectionNameParams;
+        const connection = this.registry.connectionFor(
+          params.name,
+          params.requireExplicit,
+        );
+        const client = connection.client;
+        // Recomputed live from disk (not the connect-time cache and not the
+        // client's memory-cached storage): `show` reports the *current*
+        // persisted auth state, so an auth/clear, auth/ema-logout, or a
+        // web-client re-auth since connect is reflected here.
+        const auth = await getLiveConnectionAuthInfo(connection);
+        const result: ConnectionShowResult = {
+          name: connection.name,
+          serverIdentity: connection.serverIdentity,
+          connectedAt: connection.connectedAt,
+          lastAccessedAt: connection.lastAccessedAt,
+          isMru: true,
+          serverInfo: client.getServerInfo(),
+          protocolVersion: client.getProtocolVersion(),
+          protocolEra: client.getProtocolEra(),
+          ...(auth && { auth }),
+          capabilities: client.getCapabilities(),
+          instructions: client.getInstructions(),
+          supportedVersions: client.getDiscoverResult()?.supportedVersions,
+        };
+        return {
+          response: { id: request.id, ok: true, result },
+        };
+      }
+      case "daemon/status":
+        return {
+          response: { id: request.id, ok: true, result: this.status() },
+        };
+      case "daemon/stop":
+        queueMicrotask(() => {
+          void this.stop("stop");
+        });
+        return {
+          response: { id: request.id, ok: true, result: { stopping: true } },
+        };
+      case "rpc":
+        return {
+          response: {
+            id: request.id,
+            ok: true,
+            result: await this.runRpc(
+              request.id,
+              request.params as RpcParams,
+              elicitation,
+            ),
+          },
+        };
+      case "stream":
+        return this.openStream(request.id, request.params as RpcParams);
+      default:
+        throw new CliExitCodeError(
+          EXIT_CODES.USAGE,
+          `Unknown daemon op: ${(request as DaemonRequest).op}`,
+          { code: "unknown_op" },
+        );
+    }
+  }
+
+  private async runRpc(
+    requestId: string,
+    params: RpcParams,
+    elicitation: ElicitationChannel,
+  ): Promise<RpcResult> {
+    if (!params?.method) {
+      throw new CliExitCodeError(EXIT_CODES.USAGE, "rpc requires a method", {
+        code: "invalid_params",
+      });
+    }
+    const client = this.registry.clientFor(params.name, params.requireExplicit);
+    const methodArgs = stripConnectionFields(params);
+    const unwire = wireElicitationBridge(client, elicitation, requestId);
+    let outcome;
+    try {
+      outcome = await runMethod(client, methodArgs);
+    } finally {
+      unwire();
+    }
+    if (outcome.kind === "stream") {
+      throw new CliExitCodeError(
+        EXIT_CODES.USAGE,
+        `Method '${params.method}' is a stream; use the stream op.`,
+        { code: "use_stream_op" },
+      );
+    }
+    if (outcome.kind === "ndjson") {
+      return {
+        kind: "ndjson",
+        lines: outcome.lines,
+        summary: outcome.summary,
+        exitCode: outcome.exitCode,
+      };
+    }
+    return {
+      kind: "result",
+      result: outcome.result,
+      appInfo: outcome.appInfo,
+    };
+  }
+
+  private async openStream(
+    id: string,
+    params: RpcParams,
+  ): Promise<HandleOutcome> {
+    if (!params?.method) {
+      throw new CliExitCodeError(EXIT_CODES.USAGE, "stream requires a method", {
+        code: "invalid_params",
+      });
+    }
+    const client = this.registry.clientFor(params.name, params.requireExplicit);
+    const methodArgs = stripConnectionFields(params);
+    const outcome = await runMethod(client, methodArgs);
+    if (outcome.kind !== "stream") {
+      throw new CliExitCodeError(
+        EXIT_CODES.USAGE,
+        `Method '${params.method}' is not a stream; use the rpc op.`,
+        { code: "use_rpc_op" },
+      );
+    }
+    return {
+      response: {
+        id,
+        ok: true,
+        result: { streaming: true, label: outcome.label },
+      },
+      startStream: outcome.start,
+    };
+  }
+
+  /**
+   * `daemon.lock` is a real lock, not bookkeeping: `O_EXCL`-create it with
+   * our pid, and refuse to start while another *live* daemon holds it. A
+   * lock left by a dead pid is reclaimed (one retry). This closes the race
+   * where two starting daemons both probe a dead socket, both unlink, and
+   * the loser's unlink removes the winner's freshly-bound socket.
+   */
+  private acquireLock(): void {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const fd = fs.openSync(this.lockPath, "wx", 0o600);
+        fs.writeSync(fd, `${process.pid}\n`);
+        fs.closeSync(fd);
+        return;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+        const holder = this.readLockPid();
+        if (holder !== undefined && isPidAlive(holder)) {
+          throw new Error(
+            `Connection daemon lock ${this.lockPath} is held by running pid ${holder}. ` +
+              `Use \`mcpdo daemon/stop\`, or remove the file if that pid is not an mcpdo daemon.`,
+            { cause: error },
+          );
+        }
+        try {
+          fs.unlinkSync(this.lockPath);
+        } catch {
+          // lost a removal race; the retry's O_EXCL create decides
+        }
+      }
+    }
+    throw new Error(
+      `Could not acquire connection daemon lock ${this.lockPath}`,
+    );
+  }
+
+  private readLockPid(): number | undefined {
+    try {
+      const pid = Number.parseInt(
+        fs.readFileSync(this.lockPath, "utf8").trim(),
+        10,
+      );
+      return Number.isInteger(pid) && pid > 0 ? pid : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  private releaseLock(): void {
+    try {
+      fs.unlinkSync(this.lockPath);
+    } catch {
+      // absent is fine
+    }
+  }
+
+  private removeLockAndSocket(): void {
+    try {
+      fs.unlinkSync(this.socketPath);
+    } catch {
+      // absent is fine
+    }
+    try {
+      fs.unlinkSync(getDaemonTokenPath(this.dir));
+    } catch {
+      // absent is fine
+    }
+    this.releaseLock();
+  }
+}
+
+/** `kill(pid, 0)` liveness probe; EPERM means alive but not ours. */
+function isPidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+function stripConnectionFields(
+  params: RpcParams,
+): MethodArgs & { method: string } {
+  const { name, requireExplicit, method, ...rest } = params;
+  void name;
+  void requireExplicit;
+  return { method, ...rest };
+}

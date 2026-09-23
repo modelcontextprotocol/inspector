@@ -2,16 +2,18 @@ import { describe, it, expect } from "vitest";
 import {
   isOneShotMethod,
   ONE_SHOT_METHODS,
-  SESSION_RPC_METHODS,
+  CONNECTION_RPC_METHODS,
 } from "../src/handlers/method-types.js";
 
-describe("SESSION_RPC_METHODS", () => {
+describe("CONNECTION_RPC_METHODS", () => {
   it("lists the full RPC method set supported by runMethod", () => {
-    expect(SESSION_RPC_METHODS).toContain("tools/list");
-    expect(SESSION_RPC_METHODS).toContain("tools/call");
-    expect(SESSION_RPC_METHODS).toContain("logging/tail");
-    expect(SESSION_RPC_METHODS).toContain("roots/set");
-    expect(new Set(SESSION_RPC_METHODS).size).toBe(SESSION_RPC_METHODS.length);
+    expect(CONNECTION_RPC_METHODS).toContain("tools/list");
+    expect(CONNECTION_RPC_METHODS).toContain("tools/call");
+    expect(CONNECTION_RPC_METHODS).toContain("logging/tail");
+    expect(CONNECTION_RPC_METHODS).toContain("roots/set");
+    expect(new Set(CONNECTION_RPC_METHODS).size).toBe(
+      CONNECTION_RPC_METHODS.length,
+    );
   });
 });
 

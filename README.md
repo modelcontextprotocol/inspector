@@ -52,8 +52,8 @@ inspector/
 ├── clients/
 │   ├── web/          Web client (Vite + React + Mantine). src/ = browser app; server/ = Node backend
 │   ├── cli/          CLI client (tsup bundle, @inspector/core alias)
-│   ├── mcpi/         Experimental session CLI (`mcpi` bin) — not part of the
-│   │                 published package; see clients/mcpi/README.md
+│   ├── daemon-cli/   Experimental connection CLI (`mcpdo` bin) — bundled into the
+│   │                 published package; see clients/daemon-cli/README.md
 │   ├── tui/          TUI client (Ink + React, tsup bundle)
 │   └── launcher/     Shared launcher — provides the `mcp-inspector` bin, dispatches to web/cli/tui
 ├── core/             Shared code consumed via the `@inspector/core` alias (no package.json)
@@ -62,8 +62,8 @@ inspector/
 │                     and repo automation run from CI (the dependency, Dependabot-alert and SDK sweeps)
 ├── docs/             Task-oriented guides — see below
 ├── specification/    Design/build specifications
-├── skills/           End-user agent skills (e.g. skills/mcpi teaches an agent to
-│                     drive the `mcpi` CLI) — distinct from .claude/skills/,
+├── skills/           End-user agent skills (e.g. skills/mcpdo teaches an agent to
+│                     drive the `mcpdo` CLI) — distinct from .claude/skills/,
 │                     which holds this repo's own procedures
 ├── .claude/skills/   Agent skills: the repo's procedures, invokable by name
 ├── AGENTS.md         Contribution rules for agents AND humans
@@ -71,7 +71,7 @@ inspector/
 ```
 
 Each client has its own README with client-specific detail:
-[web](./clients/web/README.md) · [cli](./clients/cli/README.md) · [mcpi](./clients/mcpi/README.md) · [tui](./clients/tui/README.md) · [launcher](./clients/launcher/README.md).
+[web](./clients/web/README.md) · [cli](./clients/cli/README.md) · [mcpdo](./clients/daemon-cli/README.md) · [tui](./clients/tui/README.md) · [launcher](./clients/launcher/README.md).
 
 ## Documentation
 

@@ -45,7 +45,7 @@ export interface RunRunnerInteractiveOAuthOptions {
    * so Ctrl-C rejects the flow cleanly (server stopped, classifiable error)
    * instead of hanging or hitting Node's default abrupt exit. Opt-in
    * because it is process-global state: the TUI owns Ctrl-C through Ink and
-   * must not have it intercepted here. CLI/mcpi callers pass `true`.
+   * must not have it intercepted here. CLI/mcpdo callers pass `true`.
    */
   handleSignals?: boolean;
 }

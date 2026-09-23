@@ -123,7 +123,7 @@ test("a Vitest config this guard does not check is an error", () => {
     "clients/cli",
     "clients/tui",
     "clients/launcher",
-    "clients/mcpi",
+    "clients/daemon-cli",
     "clients/desktop",
   ]);
   assert.equal(failures.length, 1);

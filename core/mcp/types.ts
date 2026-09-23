@@ -129,7 +129,7 @@ export type StoredMCPServer = MCPServerConfig & {
    * Elicitation capability this client advertises to this server
    * (`"off" | "url" | "form" | "both"`). Inspector-specific (no analog in the
    * broader mcp.json ecosystem). Omitted on disk when it equals the default
-   * (`"both"`). Currently consumed by mcpi only. (#1783)
+   * (`"both"`). Currently consumed by mcpdo only. (#1783)
    */
   elicitCapability?: ElicitCapabilityMode;
   /**
@@ -1014,7 +1014,7 @@ export interface InspectorServerSettings {
    * so a bare settings node reads back without one; absence means {@link
    * DEFAULT_ELICIT_CAPABILITY} (`"both"`). Persisted on disk as
    * `elicitCapability` and omitted when it equals the default. Currently
-   * consumed by mcpi only (#1783) — a connect-time, sticky-per-session
+   * consumed by mcpdo only (#1783) — a connect-time, sticky-per-connection
    * choice rather than a per-call one, since a daemon-managed session can be
    * reused by several later callers (interactive and scripted) over its
    * lifetime.
