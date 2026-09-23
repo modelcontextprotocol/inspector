@@ -245,7 +245,7 @@ export function parseSupersededMarker(body) {
 /**
  * Fail loudly when the root manifest declares an SDK package no group watches.
  *
- * The group table is hardcoded, so an added fifth package would be checked by
+ * The group table is hardcoded, so a newly added package would be checked by
  * nobody and the sweep would still print a clean result — a silent blind spot
  * in the one mechanism that exists to remove a silent blind spot. Throwing
  * turns "we forgot to add it here" into a red run on the next night.
