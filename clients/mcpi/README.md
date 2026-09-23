@@ -84,6 +84,22 @@ mcpi tools/list
 
 See [`specification/v2_cli_v2.md`](../../specification/v2_cli_v2.md) for the as-built design and to-do list.
 
+## Isolating untrusted stdio servers
+
+The daemon's token controls **who can command the daemon**, not **what a
+spawned server can do**: a stdio MCP server runs with your full user
+privileges, like in any MCP host. To isolate a server you don't fully trust,
+wrap the stdio command in a container — this works today with no mcpi
+support:
+
+```bash
+mcpi connect docker run -i --rm --network none -v "$PWD:/work:ro" <server-image>
+```
+
+Tighten or loosen the flags per server (drop `--network none` if it needs
+egress; adjust the mount to what it should see). HTTP/SSE targets run no
+local code, so they need no process isolation.
+
 ## Protocol era support
 
 mcpi shares `core`'s `InspectorClient`, so it negotiates whichever era
