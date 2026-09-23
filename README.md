@@ -52,6 +52,8 @@ inspector/
 ├── clients/
 │   ├── web/          Web client (Vite + React + Mantine). src/ = browser app; server/ = Node backend
 │   ├── cli/          CLI client (tsup bundle, @inspector/core alias)
+│   ├── mcpi/         Experimental session CLI (`mcpi` bin) — not part of the
+│   │                 published package; see clients/mcpi/README.md
 │   ├── tui/          TUI client (Ink + React, tsup bundle)
 │   └── launcher/     Shared launcher — provides the `mcp-inspector` bin, dispatches to web/cli/tui
 ├── core/             Shared code consumed via the `@inspector/core` alias (no package.json)
@@ -66,7 +68,7 @@ inspector/
 ```
 
 Each client has its own README with client-specific detail:
-[web](./clients/web/README.md) · [cli](./clients/cli/README.md) · [tui](./clients/tui/README.md) · [launcher](./clients/launcher/README.md).
+[web](./clients/web/README.md) · [cli](./clients/cli/README.md) · [mcpi](./clients/mcpi/README.md) · [tui](./clients/tui/README.md) · [launcher](./clients/launcher/README.md).
 
 ## Documentation
 
