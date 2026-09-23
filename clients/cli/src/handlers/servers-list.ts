@@ -16,40 +16,40 @@ export type ServerListEntry = {
   /** Command line, URL, or other short identity for display. */
   detail: string;
   /**
-   * Optional live-session name when a caller annotates catalog entries
-   * with connected sessions (omitted for plain catalog listing).
+   * Optional live-connection name when a caller annotates catalog entries
+   * with live connections (omitted for plain catalog listing).
    */
-  session?: string;
-  /** True when that session is the most-recently-used connected session. */
+  connection?: string;
+  /** True when that connection is the most-recently-used connection. */
   isMru?: boolean;
 };
 
-/** Minimal session shape needed to annotate catalog entries. */
-export type SessionListRef = {
+/** Minimal connection shape needed to annotate catalog entries. */
+export type ConnectionListRef = {
   name: string;
   isMru?: boolean;
 };
 
 /**
- * Mark catalog entries that have a live session with the same name.
+ * Mark catalog entries that have a live connection with the same name.
  * Does not mutate `entries`.
  *
- * TODO(#1432): consumed by the experimental session CLI (`mcpi`); kept here so
+ * TODO(#1432): consumed by the experimental connection CLI (`mcpdo`); kept here so
  * that client can reuse catalog listing without duplicating this helper.
  */
-export function annotateServerEntriesWithSessions(
+export function annotateServerEntriesWithConnections(
   entries: ServerListEntry[],
-  sessions: SessionListRef[],
+  connections: ConnectionListRef[],
 ): ServerListEntry[] {
-  if (sessions.length === 0) return entries;
-  const byName = new Map(sessions.map((s) => [s.name, s] as const));
+  if (connections.length === 0) return entries;
+  const byName = new Map(connections.map((s) => [s.name, s] as const));
   return entries.map((entry) => {
-    const session = byName.get(entry.name);
-    if (!session) return entry;
+    const connection = byName.get(entry.name);
+    if (!connection) return entry;
     return {
       ...entry,
-      session: session.name,
-      ...(session.isMru === true ? { isMru: true } : {}),
+      connection: connection.name,
+      ...(connection.isMru === true ? { isMru: true } : {}),
     };
   });
 }

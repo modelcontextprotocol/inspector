@@ -40,6 +40,14 @@ export interface RunRunnerInteractiveOAuthOptions {
   onCallbackServer?: (server: OAuthCallbackServer) => void;
   /** Max wait for browser callback; defaults to {@link DEFAULT_RUNNER_INTERACTIVE_OAUTH_TIMEOUT_MS}. */
   callbackTimeoutMs?: number;
+  /**
+   * Install process-wide SIGINT/SIGTERM handlers for the length of the wait
+   * so Ctrl-C rejects the flow cleanly (server stopped, classifiable error)
+   * instead of hanging or hitting Node's default abrupt exit. Opt-in
+   * because it is process-global state: the TUI owns Ctrl-C through Ink and
+   * must not have it intercepted here. CLI/mcpdo callers pass `true`.
+   */
+  handleSignals?: boolean;
 }
 
 /**
@@ -77,6 +85,22 @@ export async function runRunnerInteractiveOAuth(
     flowResolve = resolve;
     flowReject = reject;
   });
+
+  // Ctrl-C / a caller killing the process while waiting on the loopback
+  // callback would otherwise either hang until the timeout below or (for
+  // SIGINT specifically, absent any handler) hit Node's default abrupt exit
+  // with no cleanup. Reject cleanly instead so the server is stopped and the
+  // caller gets a normal, classifiable error ("OAuth" in the message maps to
+  // AUTH_REQUIRED — see clients/cli/src/error-handler.ts) rather than a raw
+  // process death. Opt-in (see handleSignals) — never installed under the
+  // TUI, which owns Ctrl-C through Ink.
+  const onSignal = (signal: NodeJS.Signals) => {
+    flowReject(new Error(`OAuth authorization cancelled (${signal}).`));
+  };
+  if (options.handleSignals) {
+    process.on("SIGINT", onSignal);
+    process.on("SIGTERM", onSignal);
+  }
 
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
 
@@ -154,6 +178,10 @@ export async function runRunnerInteractiveOAuth(
 
     return { kind: "success" };
   } finally {
+    if (options.handleSignals) {
+      process.off("SIGINT", onSignal);
+      process.off("SIGTERM", onSignal);
+    }
     if (timeoutId !== undefined) {
       clearTimeout(timeoutId);
     }

@@ -7,7 +7,7 @@ import {
 } from "./helpers/fixtures.js";
 import { expectCliSuccess } from "./helpers/assertions.js";
 import {
-  annotateServerEntriesWithSessions,
+  annotateServerEntriesWithConnections,
   listServerEntries,
   sanitizeServerConfig,
   sanitizeServerSettings,
@@ -60,33 +60,41 @@ describe("summarizeServerConfig", () => {
   });
 });
 
-describe("annotateServerEntriesWithSessions", () => {
+describe("annotateServerEntriesWithConnections", () => {
   const entries = [
     { name: "a", type: "stdio", detail: "node a" },
     { name: "b", type: "stdio", detail: "node b" },
   ];
 
-  it("returns entries unchanged when there are no sessions", () => {
-    expect(annotateServerEntriesWithSessions(entries, [])).toBe(entries);
+  it("returns entries unchanged when there are no connections", () => {
+    expect(annotateServerEntriesWithConnections(entries, [])).toBe(entries);
   });
 
   it("marks matching entry names and MRU", () => {
     expect(
-      annotateServerEntriesWithSessions(entries, [
+      annotateServerEntriesWithConnections(entries, [
         { name: "b", isMru: true },
         { name: "other" },
       ]),
     ).toEqual([
       { name: "a", type: "stdio", detail: "node a" },
-      { name: "b", type: "stdio", detail: "node b", session: "b", isMru: true },
+      {
+        name: "b",
+        type: "stdio",
+        detail: "node b",
+        connection: "b",
+        isMru: true,
+      },
     ]);
   });
 
-  it("omits isMru when the session is not MRU", () => {
+  it("omits isMru when the connection is not MRU", () => {
     expect(
-      annotateServerEntriesWithSessions(entries, [{ name: "a", isMru: false }]),
+      annotateServerEntriesWithConnections(entries, [
+        { name: "a", isMru: false },
+      ]),
     ).toEqual([
-      { name: "a", type: "stdio", detail: "node a", session: "a" },
+      { name: "a", type: "stdio", detail: "node a", connection: "a" },
       { name: "b", type: "stdio", detail: "node b" },
     ]);
   });

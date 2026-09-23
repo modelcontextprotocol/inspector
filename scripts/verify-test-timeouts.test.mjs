@@ -123,6 +123,7 @@ test("a Vitest config this guard does not check is an error", () => {
     "clients/cli",
     "clients/tui",
     "clients/launcher",
+    "clients/daemon-cli",
     "clients/desktop",
   ]);
   assert.equal(failures.length, 1);
@@ -131,7 +132,7 @@ test("a Vitest config this guard does not check is an error", () => {
 
 test("a stale row naming a config that no longer exists is an error", () => {
   const failures = checkConfigRootCoverage(["clients/web", "clients/cli"]);
-  assert.equal(failures.length, 2);
+  assert.equal(failures.length, 3);
   for (const f of failures) assert.match(f, /has no Vitest config on disk/);
 });
 

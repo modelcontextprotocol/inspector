@@ -1,0 +1,901 @@
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import {
+  formatCallToolResultHuman,
+  formatToolsHuman,
+  formatResourcesHuman,
+  formatResourceTemplatesHuman,
+  formatPromptsHuman,
+  formatResourceReadHuman,
+  formatPromptResultHuman,
+  formatCompletionsHuman,
+  formatTasksHuman,
+  formatTaskHuman,
+  formatInitializeHuman,
+  formatRootsHuman,
+  formatAuthListHuman,
+  formatServersListHuman,
+  formatServerShowHuman,
+  formatConnectionsListHuman,
+  formatConnectionInfoHuman,
+  formatAppInfoListHuman,
+  formatAppInfoHuman,
+  formatSkillVerifyListHuman,
+  formatStreamEventHuman,
+  formatRpcResultHuman,
+} from "../src/connection/format-human.js";
+import { writeConnectionOutput } from "../src/connection/format-connection.js";
+import { CliExitCodeError, EXIT_CODES } from "@inspector/cli/error-handler.js";
+import { createStyle } from "@inspector/cli/style.js";
+
+describe("format-human", () => {
+  it("formats tools with schema variants and empty list", () => {
+    expect(formatToolsHuman([])).toContain("(none)");
+    const text = formatToolsHuman([
+      {
+        name: "echo",
+        description: "Echo back\nmore",
+        inputSchema: {
+          type: "object",
+          properties: {
+            message: { type: "string" },
+            n: { type: "number" },
+            tags: { type: "array", items: { type: "string" } },
+            extra: { type: "boolean" },
+          },
+          required: ["message"],
+        },
+        annotations: {
+          readOnlyHint: true,
+          destructiveHint: true,
+          idempotentHint: true,
+          openWorldHint: true,
+        },
+      },
+      {
+        name: "types",
+        inputSchema: {
+          type: "object",
+          properties: {
+            emptyArr: { type: "array" },
+            multi: { type: ["string", "number"] },
+            bare: {},
+          },
+        },
+      },
+      {
+        name: "more",
+        inputSchema: {
+          type: "object",
+          properties: {
+            flag: { type: ["boolean", "null"] },
+            choice: { enum: ["a", "b"] },
+            obj: { type: "object" },
+          },
+        },
+      },
+      {
+        name: "ints",
+        inputSchema: {
+          type: "object",
+          properties: {
+            i: { type: "integer" },
+            unknownType: { type: "custom" },
+            nonObjProp: "x",
+          },
+        },
+        annotations: {},
+      },
+      { name: "plain", inputSchema: null },
+      { name: "emptyProps", inputSchema: { type: "object", properties: {} } },
+      { name: "noProps", inputSchema: { type: "object" } },
+      {},
+    ]);
+    expect(text).toContain("Tools (8):");
+    expect(text).toContain("`echo(message:str, n?:num, tags?:[str], …)`");
+    expect(text).toContain("[read-only, destructive, idempotent, open-world]");
+    expect(text).toContain("emptyArr?:[any]");
+    expect(text).toContain("multi?:str | num");
+    expect(text).toContain("bare?:any");
+    expect(text).toContain("flag?:bool");
+    expect(text).toContain("choice?:enum");
+    expect(text).toContain("`plain()`");
+    expect(text).toContain("`?()`");
+  });
+
+  it("formats list helpers for resources, templates, prompts, roots, tasks", () => {
+    expect(
+      formatResourcesHuman([
+        { name: "r", uri: "u://x", description: "d\n2" },
+        { uri: "u://only" },
+        { name: "n", uri: 1, description: "   " },
+        { name: "no-uri" },
+      ]),
+    ).toContain("`r` (u://x)");
+    expect(formatResourcesHuman([])).toContain("(none)");
+
+    expect(
+      formatResourceTemplatesHuman([
+        { name: "t", uriTemplate: "u://{id}", description: "tpl" },
+        { description: "   " },
+        { name: "x", uriTemplate: 1 },
+      ]),
+    ).toContain("u://{id}");
+    expect(formatResourceTemplatesHuman([])).toContain("(none)");
+
+    expect(
+      formatPromptsHuman([
+        { name: "p", description: "hi\nmore" },
+        { description: "   " },
+        {},
+      ]),
+    ).toContain("`p`");
+    expect(formatPromptsHuman([])).toContain("(none)");
+
+    expect(
+      formatRootsHuman([{ uri: "file:///a", name: "a" }, { uri: "file:///b" }]),
+    ).toContain("file:///a (a)");
+    expect(formatRootsHuman([])).toContain("(none)");
+
+    expect(
+      formatTasksHuman([
+        { taskId: "1", status: "running", statusMessage: "go" },
+        { id: "2", status: "done" },
+        {},
+      ]),
+    ).toContain("`1` running");
+    expect(formatTasksHuman([])).toContain("(none)");
+
+    expect(
+      formatTaskHuman({
+        taskId: "t1",
+        status: "ok",
+        statusMessage: "fine",
+        createdAt: "c",
+        lastUpdatedAt: "u",
+      }),
+    ).toContain("Created: c");
+    expect(formatTaskHuman(null)).toContain("Task: `?`");
+    expect(formatTaskHuman({})).toContain("Status: ?");
+  });
+
+  it("formats call tool results across content block types", () => {
+    const structured = { ok: true };
+    const withDupe = formatCallToolResultHuman({
+      isError: true,
+      content: [
+        { type: "text", text: JSON.stringify(structured) },
+        { type: "text", text: "hello" },
+        { type: "text", text: "{not-json" },
+        {
+          type: "resource_link",
+          uri: "u://r",
+          name: "n",
+          description: "d",
+          mimeType: "text/plain",
+        },
+        { type: "image", mimeType: "image/png", data: "abc" },
+        { type: "audio", mimeType: "audio/wav" },
+        {
+          type: "resource",
+          resource: { uri: "u://e", mimeType: "text/plain", text: "body" },
+        },
+        { type: "custom", x: 1 },
+      ],
+      structuredContent: structured,
+      _meta: { a: 1 },
+    });
+    expect(withDupe).toContain("Tool error:");
+    expect(withDupe).toContain("hello");
+    expect(withDupe).toContain("Resource link");
+    expect(withDupe).toContain("[Image:");
+    expect(withDupe).toContain("[Audio:");
+    expect(withDupe).toContain("Embedded resource");
+    expect(withDupe).toContain('"x": 1');
+    expect(withDupe).not.toContain("Structured content:");
+
+    expect(
+      formatCallToolResultHuman({
+        isError: true,
+        structuredContent: { only: true },
+        content: [],
+      }),
+    ).toContain("Structured content:");
+
+    expect(
+      formatCallToolResultHuman({
+        content: [{ type: "image" }, { type: "audio", data: "x" }],
+      }),
+    ).toContain("[Image: unknown");
+
+    expect(
+      formatCallToolResultHuman({
+        content: [{ type: "resource" }],
+      }),
+    ).toContain("Embedded resource");
+
+    expect(
+      formatCallToolResultHuman({
+        content: [
+          {
+            type: "resource",
+            resource: { uri: "u://e" },
+          },
+        ],
+      }),
+    ).toContain("URI: u://e");
+
+    expect(
+      formatCallToolResultHuman({
+        content: [{ type: "resource_link", uri: "u" }],
+      }),
+    ).toContain("Resource link");
+
+    expect(
+      formatCallToolResultHuman({
+        content: [{ type: "text" }],
+        structuredContent: {},
+        _meta: {},
+      }),
+    ).toContain("Content:");
+
+    expect(formatCallToolResultHuman({})).toBe("(no content)");
+  });
+
+  it("formats resource read, prompt get, completions, initialize", () => {
+    expect(formatResourceReadHuman({ contents: [] })).toBe("(empty resource)");
+    expect(
+      formatResourceReadHuman({
+        contents: [
+          { uri: "u://a", mimeType: "text/plain", text: "hi" },
+          { uri: "u://b", blob: "zzzz" },
+        ],
+      }),
+    ).toContain("[Blob:");
+
+    expect(formatPromptResultHuman({})).toBe("(empty prompt)");
+    expect(
+      formatPromptResultHuman({
+        description: "desc",
+        messages: [
+          { role: "user", content: "plain" },
+          {
+            role: "assistant",
+            content: [{ type: "text", text: "block" }],
+          },
+          { role: "user", content: { type: "text", text: "obj" } },
+        ],
+      }),
+    ).toContain("[assistant]");
+
+    expect(formatCompletionsHuman({ values: ["a"], hasMore: true })).toContain(
+      "(more available)",
+    );
+    expect(formatCompletionsHuman({ values: [] })).toContain("(none)");
+
+    expect(
+      formatInitializeHuman({
+        serverInfo: { name: "s", version: "1" },
+        protocolVersion: "2025-01-01",
+        instructions: " use me ",
+        capabilities: { tools: {} },
+      }),
+    ).toContain("Capabilities: tools");
+    expect(formatInitializeHuman({})).toContain("(unknown)");
+    expect(
+      formatInitializeHuman({
+        serverInfo: { name: "s" },
+        instructions: "   ",
+        capabilities: {},
+      }),
+    ).toContain("Server: s");
+  });
+
+  it("formats admin and app-info helpers", () => {
+    expect(
+      formatAuthListHuman({
+        oauthStatePath: "/tmp/oauth.json",
+        servers: [
+          {
+            url: "https://example.com/mcp",
+            hasTokens: true,
+            hasRefreshToken: true,
+          },
+          { url: "https://empty.example/mcp" },
+        ],
+      }),
+    ).toMatch(/Stored auth[\s\S]*example\.com[\s\S]*tokens[\s\S]*no tokens/);
+    expect(
+      formatAuthListHuman({ oauthStatePath: "/tmp/x", servers: [] }),
+    ).toContain("(none)");
+    expect(formatServersListHuman([])).toContain("(none)");
+    expect(
+      formatServersListHuman([{ name: "s", type: "stdio", detail: "x" }]),
+    ).toContain("`s`");
+    expect(
+      formatServersListHuman([
+        {
+          name: "s",
+          type: "stdio",
+          detail: "x",
+          connection: "s",
+          isMru: true,
+        },
+      ]),
+    ).toMatch(/@s \(MRU\)/);
+    expect(
+      formatServerShowHuman({
+        name: "s",
+        type: "stdio",
+        detail: "node x",
+        config: { type: "stdio", command: "node" },
+      }),
+    ).toMatch(/Server[\s\S]*`s`[\s\S]*node x/);
+
+    expect(formatConnectionsListHuman([])).toContain("connect first");
+    expect(
+      formatConnectionsListHuman([
+        { name: "a", isMru: true, serverIdentity: "id" },
+      ]),
+    ).toContain("(MRU)");
+    // protocolEra is on every ConnectionInfo now (#2298 follow-up), not just
+    // connections/show — connections/list renders it inline; its absence (an older
+    // daemon reply, hypothetically) must not print a bare "[undefined]".
+    expect(
+      formatConnectionsListHuman([
+        { name: "a", isMru: true, serverIdentity: "id", protocolEra: "modern" },
+      ]),
+    ).toContain("— id [modern]");
+    expect(
+      formatConnectionsListHuman([
+        { name: "a", isMru: false, serverIdentity: "id" },
+      ]),
+    ).not.toContain("[");
+    expect(
+      formatConnectionInfoHuman({
+        name: "a",
+        isMru: true,
+        serverIdentity: "id",
+      }),
+    ).toContain("Connection `@a`");
+    // connections/show enrichment: era without a protocolVersion, serverInfo
+    // without a version, empty capabilities, an empty/non-array
+    // supportedVersions, and blank instructions each take the "nothing to
+    // append" branch rather than the populated one exercised elsewhere.
+    expect(
+      formatConnectionInfoHuman({
+        name: "a",
+        protocolEra: "legacy",
+        serverInfo: { name: "demo" },
+        capabilities: {},
+        supportedVersions: [],
+        instructions: "",
+      }),
+    ).toMatch(/Era: legacy\nServer info: demo\nCapabilities: \(none\)/);
+    expect(
+      formatConnectionInfoHuman({
+        name: "a",
+        protocolEra: undefined,
+        protocolVersion: "2025-11-25",
+        serverInfo: { name: "demo", version: "1.2.3" },
+        supportedVersions: ["2025-11-25", "2025-06-18"],
+        instructions: "Say hi.",
+      }),
+    ).toMatch(
+      /Era: unknown \(2025-11-25\)[\s\S]*demo v1\.2\.3[\s\S]*Supported versions: 2025-11-25, 2025-06-18[\s\S]*Instructions: Say hi\./,
+    );
+
+    // Auth snapshot line: OAuth with full detail, EMA with IdP session state,
+    // and a bare not-authorized snapshot (no scope/clientId branches).
+    expect(
+      formatConnectionInfoHuman({
+        name: "a",
+        auth: {
+          method: "oauth",
+          authorized: true,
+          scope: "mcp:tools",
+          clientId: "client-123",
+        },
+      }),
+    ).toContain(
+      "Auth: OAuth (authorized; scope: mcp:tools; client: client-123)",
+    );
+    expect(
+      formatConnectionInfoHuman({
+        name: "a",
+        auth: { method: "ema", authorized: true, idpSession: "logged_in" },
+      }),
+    ).toContain("Auth: EMA (authorized; IdP session: logged_in)");
+    expect(
+      formatConnectionInfoHuman({
+        name: "a",
+        auth: { method: "oauth", authorized: false },
+      }),
+    ).toContain("Auth: OAuth (not authorized)");
+
+    expect(
+      formatAppInfoListHuman([
+        { toolName: "with", hasApp: true, resourceUri: "ui://x" },
+        { toolName: "err", hasApp: false, resourceError: "boom" },
+        { toolName: "no", hasApp: false },
+      ]),
+    ).toContain("no app");
+
+    const verifyText = formatSkillVerifyListHuman([
+      { name: "ok-skill", uri: "skill://ok/SKILL.md", outcome: "verified" },
+      {
+        name: "bad-skill",
+        uri: "skill://bad/SKILL.md",
+        outcome: "failed",
+        conformance: [{ severity: "error" }],
+        files: [{ status: "mismatch" }],
+      },
+      {
+        name: "cut-short",
+        uri: "skill://cut/SKILL.md",
+        outcome: "incomplete",
+        incomplete: "read bounds hit",
+      },
+    ]);
+    expect(verifyText).toContain("Skill verification (3):");
+    expect(verifyText).toContain("`ok-skill`");
+    expect(verifyText).toContain("verified");
+    expect(verifyText).toContain(
+      "`bad-skill` (skill://bad/SKILL.md) — failed — 1 issue(s), 1 file mismatch(es)",
+    );
+    expect(verifyText).toContain("`cut-short`");
+    expect(verifyText).toContain("read bounds hit");
+
+    expect(
+      formatAppInfoHuman({
+        toolName: "t",
+        hasApp: true,
+        resourceUri: "ui://x",
+        csp: { a: 1 },
+      }),
+    ).toContain("CSP:");
+    expect(
+      formatAppInfoHuman({ toolName: "t", hasApp: false, resourceError: "e" }),
+    ).toContain("e");
+    expect(formatAppInfoHuman({ toolName: "t", hasApp: false })).toContain(
+      "No MCP App",
+    );
+  });
+
+  it("formats stream events and rpc dispatch", () => {
+    expect(formatStreamEventHuman(null)).toBe("null");
+    expect(formatStreamEventHuman({ type: "subscribed", uri: "u" })).toBe(
+      "Subscribed: u",
+    );
+    expect(
+      formatStreamEventHuman({ type: "resources/updated", uri: "u" }),
+    ).toBe("Resource updated: u");
+    expect(
+      formatStreamEventHuman({
+        direction: "notification",
+        message: {
+          method: "notifications/message",
+          params: { level: "warn", logger: "L", data: "hi" },
+        },
+      }),
+    ).toBe("[warn] L: hi");
+    expect(
+      formatStreamEventHuman({
+        direction: "notification",
+        message: { params: { message: "m" } },
+      }),
+    ).toBe("[info] m");
+    expect(
+      formatStreamEventHuman({
+        direction: "notification",
+        message: { params: { nested: true } },
+      }),
+    ).toContain("nested");
+    expect(
+      formatStreamEventHuman({
+        direction: "notification",
+        message: {},
+      }),
+    ).toContain("[info]");
+    expect(formatStreamEventHuman({ other: 1 })).toContain('"other": 1');
+    expect(formatStreamEventHuman("raw")).toBe("raw");
+
+    expect(formatRpcResultHuman("tools/list", { tools: [] })).toContain(
+      "Tools",
+    );
+    expect(formatRpcResultHuman("tools/call", { content: [] })).toBe(
+      "(no content)",
+    );
+    expect(formatRpcResultHuman("resources/list", { resources: [] })).toContain(
+      "Resources",
+    );
+    expect(formatRpcResultHuman("resources/read", { contents: [] })).toBe(
+      "(empty resource)",
+    );
+    expect(
+      formatRpcResultHuman("resources/templates/list", {
+        resourceTemplates: [],
+      }),
+    ).toContain("templates");
+    expect(formatRpcResultHuman("resources/unsubscribe", { uri: "u" })).toBe(
+      "Unsubscribed: u",
+    );
+    expect(formatRpcResultHuman("prompts/list", { prompts: [] })).toContain(
+      "Prompts",
+    );
+    expect(formatRpcResultHuman("prompts/get", {})).toBe("(empty prompt)");
+    expect(formatRpcResultHuman("prompts/complete", { values: [] })).toContain(
+      "Completions",
+    );
+    expect(
+      formatRpcResultHuman("initialize", { serverInfo: { name: "s" } }),
+    ).toContain("Server: s");
+    expect(formatRpcResultHuman("logging/setLevel", {})).toBe(
+      "Logging level updated.",
+    );
+    expect(formatRpcResultHuman("tasks/list", { tasks: [] })).toContain(
+      "Tasks",
+    );
+    expect(
+      formatRpcResultHuman("tasks/get", { task: { taskId: "1", status: "x" } }),
+    ).toContain("Task: `1`");
+    expect(formatRpcResultHuman("tasks/cancel", { taskId: "1" })).toBe(
+      "Cancelled task: 1",
+    );
+    expect(formatRpcResultHuman("tasks/result", { content: [] })).toBe(
+      "(no content)",
+    );
+    expect(formatRpcResultHuman("roots/list", { roots: [] })).toContain(
+      "Roots",
+    );
+    expect(formatRpcResultHuman("roots/set", { roots: [] })).toContain("Roots");
+    expect(formatRpcResultHuman("unknown/op", { x: 1 })).toBeNull();
+  });
+});
+
+describe("writeConnectionOutput", () => {
+  let stdout: string;
+  let stderr: string;
+  let original: typeof process.stdout.write;
+  let originalErr: typeof process.stderr.write;
+
+  beforeEach(() => {
+    stdout = "";
+    stderr = "";
+    original = process.stdout.write;
+    originalErr = process.stderr.write;
+    process.stdout.write = ((chunk: unknown, ...rest: unknown[]) => {
+      stdout += typeof chunk === "string" ? chunk : String(chunk);
+      const cb = rest.find((r) => typeof r === "function") as
+        | (() => void)
+        | undefined;
+      cb?.();
+      return true;
+    }) as typeof process.stdout.write;
+    process.stderr.write = ((chunk: unknown, ...rest: unknown[]) => {
+      stderr += typeof chunk === "string" ? chunk : String(chunk);
+      const cb = rest.find((r) => typeof r === "function") as
+        | (() => void)
+        | undefined;
+      cb?.();
+      return true;
+    }) as typeof process.stderr.write;
+  });
+
+  afterEach(() => {
+    process.stdout.write = original;
+    process.stderr.write = originalErr;
+  });
+
+  it("pretty-prints json without a result envelope", async () => {
+    await writeConnectionOutput(
+      { format: "json" },
+      {
+        kind: "rpc",
+        method: "tools/list",
+        result: { tools: [] },
+      },
+    );
+    expect(stdout).toBe('{\n  "tools": []\n}\n');
+  });
+
+  it("sanitizes server-supplied terminal escapes in text mode", async () => {
+    await writeConnectionOutput(
+      { format: "text" },
+      {
+        kind: "rpc",
+        method: "tools/call",
+        result: {
+          content: [{ type: "text", text: "\u001b]52;c;c3RvbGVu\u0007hi" }],
+        },
+      },
+    );
+    expect(stdout).not.toContain("\u001b");
+    expect(stdout).not.toContain("\u0007");
+    expect(stdout).toContain("\u241b]52;c;c3RvbGVu\u2407hi");
+  });
+
+  it("leaves json output verbatim (JSON escaping already protects it)", async () => {
+    await writeConnectionOutput(
+      { format: "json" },
+      {
+        kind: "rpc",
+        method: "tools/call",
+        result: { content: [{ type: "text", text: "\u001bhi" }] },
+      },
+    );
+    expect(JSON.parse(stdout)).toEqual({
+      content: [{ type: "text", text: "\u001bhi" }],
+    });
+    expect(stdout).toContain("\\u001bhi");
+  });
+
+  it("sanitizes the ndjson stderr summary line", async () => {
+    await writeConnectionOutput(
+      { format: "text" },
+      {
+        kind: "ndjson",
+        variant: "skill-verify",
+        lines: [],
+        summary: "done \u001b[2J",
+      },
+    );
+    expect(stderr).toContain("done \u241b[2J");
+    expect(stderr).not.toContain("\u001b");
+  });
+
+  it("ignores auto-collected appInfo on tools/call json", async () => {
+    await writeConnectionOutput(
+      { format: "json" },
+      {
+        kind: "rpc",
+        method: "tools/call",
+        result: { content: [{ type: "text", text: "ok" }] },
+        appInfo: { hasApp: false, toolName: "echo" },
+      },
+    );
+    expect(JSON.parse(stdout)).toEqual({
+      content: [{ type: "text", text: "ok" }],
+    });
+  });
+
+  it("throws NO_APP after printing app-info text", async () => {
+    await expect(
+      writeConnectionOutput(
+        { format: "text" },
+        {
+          kind: "rpc",
+          method: "tools/call",
+          result: { hasApp: false, toolName: "x" },
+        },
+      ),
+    ).rejects.toMatchObject({ exitCode: EXIT_CODES.NO_APP });
+    expect(stdout).toContain("has no MCP App");
+  });
+
+  it("allows hasApp true app-info probes", async () => {
+    await writeConnectionOutput(
+      { format: "text" },
+      {
+        kind: "rpc",
+        method: "tools/call",
+        result: { hasApp: true, toolName: "x", resourceUri: "ui://x" },
+      },
+    );
+    expect(stdout).toContain("has an MCP App");
+  });
+
+  it("throws TOOL_ERROR when isError", async () => {
+    await expect(
+      writeConnectionOutput(
+        { format: "json" },
+        {
+          kind: "rpc",
+          method: "tools/call",
+          result: { isError: true, content: [] },
+          toolName: "echo",
+        },
+      ),
+    ).rejects.toBeInstanceOf(CliExitCodeError);
+    await expect(
+      writeConnectionOutput(
+        { format: "json" },
+        {
+          kind: "rpc",
+          method: "tools/call",
+          result: { isError: true, content: [] },
+        },
+      ),
+    ).rejects.toMatchObject({ message: expect.stringContaining("tool") });
+  });
+
+  it("falls back to pretty JSON for unknown rpc methods in text mode", async () => {
+    await writeConnectionOutput(
+      { format: "text" },
+      {
+        kind: "rpc",
+        method: "custom/x",
+        result: { ok: 1 },
+      },
+    );
+    expect(stdout).toContain('"ok": 1');
+  });
+
+  it("renders skill-verify NDJSON with its own formatter, not app-info's", async () => {
+    await writeConnectionOutput(
+      { format: "text" },
+      {
+        kind: "ndjson",
+        variant: "skill-verify",
+        lines: [
+          { name: "ok-skill", uri: "skill://ok/SKILL.md", outcome: "verified" },
+        ],
+        summary: "Verified 1 skill and 0 files: no conformance errors.",
+      },
+    );
+    expect(stdout).toContain("Skill verification (1):");
+    expect(stdout).not.toContain("App info");
+    expect(stderr).toBe(
+      "Verified 1 skill and 0 files: no conformance errors.\n",
+    );
+  });
+
+  it("throws with the verify exit code after printing the report and summary", async () => {
+    await expect(
+      writeConnectionOutput(
+        { format: "json" },
+        {
+          kind: "ndjson",
+          variant: "skill-verify",
+          lines: [
+            {
+              name: "bad-skill",
+              uri: "skill://bad/SKILL.md",
+              outcome: "failed",
+            },
+          ],
+          summary: "1 of 1 skill failed verification.",
+          exitCode: EXIT_CODES.SKILL_NONCONFORMANT,
+        },
+      ),
+    ).rejects.toMatchObject({
+      exitCode: EXIT_CODES.SKILL_NONCONFORMANT,
+      envelope: { code: "skills_nonconformant" },
+    });
+    // Report already on stdout, summary on stderr — both happen before the throw.
+    expect(stdout).toContain("bad-skill");
+    expect(stderr).toBe("1 of 1 skill failed verification.\n");
+  });
+
+  it("formats every admin/stream payload kind", async () => {
+    const kinds = [
+      {
+        kind: "ndjson" as const,
+        lines: [{ toolName: "a", hasApp: false }],
+      },
+      { kind: "stream-event" as const, data: { type: "subscribed", uri: "u" } },
+      {
+        kind: "servers/list" as const,
+        servers: [{ name: "s", type: "stdio", detail: "d" }],
+      },
+      {
+        kind: "servers/show" as const,
+        server: {
+          name: "s",
+          type: "stdio",
+          detail: "d",
+          config: { type: "stdio", command: "n" },
+        },
+      },
+      {
+        kind: "connections/list" as const,
+        connections: [{ name: "a", serverIdentity: "id" }],
+      },
+      {
+        kind: "connection" as const,
+        connection: { name: "a", serverIdentity: "id" },
+      },
+      { kind: "disconnect" as const, name: "a" },
+      {
+        kind: "daemon/status" as const,
+        status: { pid: 1, socketPath: "/tmp/s", connections: [] },
+      },
+      {
+        kind: "daemon/status" as const,
+        status: { pid: 2, connections: "bad" },
+      },
+      {
+        kind: "daemon/stop" as const,
+        result: { stopping: false },
+      },
+      {
+        kind: "daemon/stop" as const,
+        result: { stopping: true },
+      },
+      {
+        kind: "daemon/stop" as const,
+        result: { stopping: false, message: "was idle" },
+      },
+      {
+        kind: "auth/list" as const,
+        list: {
+          oauthStatePath: "/tmp/oauth.json",
+          servers: [
+            {
+              url: "https://example.com/mcp",
+              hasTokens: true,
+              hasRefreshToken: false,
+            },
+          ],
+        },
+      },
+      {
+        kind: "auth/clear" as const,
+        result: { all: true, cleared: 1 },
+      },
+      {
+        kind: "auth/clear" as const,
+        result: { all: true, cleared: 2 },
+      },
+      {
+        kind: "auth/clear" as const,
+        result: { url: "https://example.com/mcp" },
+      },
+      { kind: "generic" as const, data: { x: 1 }, title: "Title" },
+      { kind: "generic" as const, data: { y: 2 } },
+    ];
+
+    for (const payload of kinds) {
+      stdout = "";
+      await writeConnectionOutput({ format: "text" }, payload);
+      expect(stdout.length).toBeGreaterThan(0);
+      stdout = "";
+      await writeConnectionOutput({ format: "json" }, payload);
+      expect(() => JSON.parse(stdout)).not.toThrow();
+    }
+  });
+
+  it("defaults undefined format to text", async () => {
+    await writeConnectionOutput(
+      {},
+      {
+        kind: "disconnect",
+        name: "z",
+      },
+    );
+    expect(stdout).toContain("Disconnected `@z`");
+  });
+});
+
+describe("format-human ANSI styling", () => {
+  it("styles human tool lists and log levels when enabled", () => {
+    const s = createStyle(true);
+    const tools = formatToolsHuman(
+      [
+        {
+          name: "echo",
+          description: "hi",
+          inputSchema: {
+            type: "object",
+            properties: { message: { type: "string" } },
+            required: ["message"],
+          },
+        },
+      ],
+      s,
+    );
+    expect(tools).toContain("\u001b[1m"); // bold name
+    expect(tools).toContain("\u001b[36m"); // cyan params
+    expect(tools).toContain("\u001b[2m"); // dim description
+    expect(tools).toContain("echo");
+
+    const log = formatStreamEventHuman(
+      {
+        direction: "notification",
+        message: { params: { level: "error", data: "boom" } },
+      },
+      s,
+    );
+    expect(log).toContain("\u001b[31m");
+    expect(log).toContain("boom");
+  });
+});

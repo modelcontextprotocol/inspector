@@ -12,6 +12,7 @@ function mockClient(overrides: Partial<InspectorClient> = {}): InspectorClient {
     getRequestorTask: vi.fn().mockResolvedValue({ taskId: "t1" }),
     cancelRequestorTask: vi.fn().mockResolvedValue(undefined),
     getRequestorTaskResult: vi.fn().mockResolvedValue({ content: [] }),
+    updateRequestorTask: vi.fn().mockResolvedValue(undefined),
     getRoots: vi.fn().mockReturnValue([]),
     setRoots: vi.fn().mockResolvedValue(undefined),
     setLoggingLevel: vi.fn().mockResolvedValue(undefined),
@@ -133,6 +134,19 @@ describe("runMethod (mocked client)", () => {
     });
     expect(result.kind).toBe("result");
 
+    const updated = await runMethod(client, {
+      method: "tasks/update",
+      taskId: "t1",
+      inputResponsesJson: '{"confirm":{"approved":true}}',
+    });
+    expect(updated.kind).toBe("result");
+    if (updated.kind === "result") {
+      expect(updated.result).toMatchObject({ updated: true, taskId: "t1" });
+    }
+    expect(client.updateRequestorTask).toHaveBeenCalledWith("t1", {
+      confirm: { approved: true },
+    });
+
     const complete = await runMethod(client, {
       method: "prompts/complete",
       completeRefType: "ref/prompt",
@@ -190,6 +204,27 @@ describe("runMethod (mocked client)", () => {
     await expect(runMethod(client, { method: "tasks/result" })).rejects.toThrow(
       /tasks\/result/,
     );
+
+    await expect(runMethod(client, { method: "tasks/update" })).rejects.toThrow(
+      /tasks\/update/,
+    );
+    await expect(
+      runMethod(client, { method: "tasks/update", taskId: "t1" }),
+    ).rejects.toThrow(/--input-responses/);
+    await expect(
+      runMethod(client, {
+        method: "tasks/update",
+        taskId: "t1",
+        inputResponsesJson: "not-json",
+      }),
+    ).rejects.toThrow(/--input-responses is invalid/);
+    await expect(
+      runMethod(client, {
+        method: "tasks/update",
+        taskId: "t1",
+        inputResponsesJson: "[1,2,3]",
+      }),
+    ).rejects.toThrow(/--input-responses is invalid/);
 
     await expect(
       runMethod(client, {
