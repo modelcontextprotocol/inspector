@@ -41,6 +41,7 @@ import {
 import { authorizeInFrontend } from "./authorize.js";
 import { emaLogin, emaLogout, getEmaStatus } from "./ema.js";
 import { resolveToolCallArgs } from "./parse-tool-args.js";
+import { resolveCommandPath } from "./resolve-command.js";
 import {
   dispatchSessionRpc,
   hoistAtSession,
@@ -375,6 +376,16 @@ function registerConnect(program: CommandType): void {
       // A cwd configured in the catalog/config entry (or --cwd) still wins.
       if (serverConfig.type === "stdio" && !serverConfig.cwd) {
         serverConfig = { ...serverConfig, cwd: process.cwd() };
+      }
+      // Same staleness problem for bare command names: the daemon would look
+      // `node` up in the PATH of whichever mcpi invocation first spawned it.
+      // Resolve against the CALLER's PATH here so the daemon spawns exactly
+      // the binary this shell would have run.
+      if (serverConfig.type === "stdio") {
+        const resolved = resolveCommandPath(serverConfig.command);
+        if (resolved !== serverConfig.command) {
+          serverConfig = { ...serverConfig, command: resolved };
+        }
       }
       const serverSettings = withEmaOverride(
         withElicitOverride(
