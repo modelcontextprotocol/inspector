@@ -18,6 +18,7 @@ import {
 } from "@modelcontextprotocol/ext-tasks/client";
 import type {
   ApplicationElicitContentValue,
+  ApplicationSamplingContentBlock,
   ApplicationRoot,
   DispatchOptions,
   JsonRpcResponse,
@@ -4395,7 +4396,12 @@ export class InspectorClient extends InspectorClientEventTarget {
             ...jsonObject(result),
             model: result.model,
             role: result.role,
-            content: toJsonValue(result.content),
+            // Narrowing cast (subset of JsonValue): the SDK sampling result
+            // carries protocol content blocks, and the ext-tasks wire schema
+            // re-validates on send — same shape as the elicitation cast above.
+            content: toJsonValue(result.content) as
+              | ApplicationSamplingContentBlock
+              | readonly ApplicationSamplingContentBlock[],
           };
         },
         roots: async () => ({ roots: this.applicationRoots() }),

@@ -103,8 +103,19 @@ describe("ManagedRequestorTasksState", () => {
     knownHandles.setStatus("connected");
     const knownHandlesState = new ManagedRequestorTasksState(knownHandles);
 
+    // Seed a known task first: with an empty store this test would pass even
+    // if the branch returned immediately, and re-polling known handles is the
+    // behavior this branch exists to protect (round-15 finding).
+    const changePromise = waitForChange(knownHandlesState);
+    knownHandles.dispatchTypedEvent("taskStatusChange", {
+      taskId: "legacy-1",
+      task: task("legacy-1", "working"),
+    });
+    await changePromise;
+
     const result = await knownHandlesState.refresh();
-    expect(result).toEqual([]);
+    expect(result.map((t) => t.taskId)).toEqual(["legacy-1"]);
+    expect(knownHandles.getRequestorTask).toHaveBeenCalledWith("legacy-1");
     expect(knownHandles.listRequestorTasks).not.toHaveBeenCalled();
   });
 
