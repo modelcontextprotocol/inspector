@@ -123,14 +123,14 @@ Anything else (e.g. `logging/tail`, `resources/subscribe`, `tasks/*`, `roots/*`)
 
 | Context | Path |
 | --- | --- |
-| Shared default | `~/.mcp-inspector/daemon.sock` (+ lock) |
+| Shared default | `~/.mcp-inspector/daemon.sock` (+ `daemon.lock`, `daemon.token`, `daemon.log`) |
 | `MCP_STORAGE_DIR` | Socket/lock under that dir (CI isolation; same family as `oauth.json`) |
 | `MCP_INSPECTOR_DAEMON_DIR` | Wins over storage dir when set (spawn pin / private) |
-| Private | `~/.mcp-inspector/private/<uuid>/` from `mcpi private` |
+| Private | `$TMPDIR/mcpi-<uid>/<id>/` (0700, short id — `sun_path` caps socket paths at 104 bytes on macOS) from `mcpi private` |
 
 | Mode | Trust |
 | --- | --- |
-| **Shared (default)** | No token. Same-UID peer that can open the socket can drive sessions (intentional cross-terminal share). |
+| **Shared (default)** | Auto-generated token, published to `daemon.token` (0600) in the daemon dir (0700). Same-UID peer that can read the dir can drive sessions (intentional cross-terminal share); there is no unauthenticated request path. |
 | **Private** | `eval "$(mcpi private)"` exports `MCP_INSPECTOR_DAEMON_DIR` + `MCP_INSPECTOR_DAEMON_TOKEN`. Daemon requires the token on every request. OAuth store remains shared unless the user also sets `MCP_STORAGE_DIR`. Daemon starts lazily on first IPC. |
 
 #### Auth (session)
@@ -166,9 +166,8 @@ Both are wired into root `validate` / `coverage`.
 | Item | Notes |
 | --- | --- |
 | **Mid-session auth over IPC** | Challenge + step-up UX on the invoking `mcpi` during `rpc`/`stream`. Connect-time only today. |
-| **Daemon singleton / exclusive lock** | `daemon.lock` writes a PID but does not enforce exclusive spawn or stale-PID reclaim. Concurrent `ensureDaemon` can race. |
 | **Windows daemon transport** | Unix-domain sockets only; named pipes on `win32` when needed. |
-| **Per-socket request serialization** | Accept handler is unbounded per NDJSON line; safe while clients use one request per connection. |
+| **Per-socket request serialization** | Requests on one connection are handled as lines arrive (single line capped at 1 MiB); safe while clients use one request per connection. |
 | **Per-session RPC mutex** | Parallel `mcpi` processes against one session can interleave on one `InspectorClient`. |
 | **`streamDaemon` post-open errors** | Socket errors after the initial ok frame are treated as soft end. |
 | **Coverage gate for `ipc-glue` / `stream-client`** | Behavioral tests exist; files excluded until the race matrix is stably ≥90. |
@@ -179,7 +178,7 @@ Both are wired into root `validate` / `coverage`.
 | **Session `connect` OAuth flag parity** | One-shot has `--client-id` / `--callback-url` / handoff; session authorize uses defaults / env only. |
 | **Peer-cred / stronger private IPC** | Private mode uses bearer token; optional OS peer checks beyond that. |
 | **Stream fan-out / `mcpi attach`** | One consumer per stream invocation today. |
-| **Sampling CLI** | Still TUI/web. mcpi handles server-driven *elicitation* (URL + form modes, `--elicit` capability override) since #1783; sampling remains unimplemented. |
+| **Sampling CLI** | Still TUI/web. mcpi handles server-driven *elicitation* (URL + form modes, `--elicit` capability override) since #1783; sampling remains unimplemented. Decision: only `--format json` auto-declines elicitation; any other caller — including a non-TTY agent — is prompted and may answer form-mode questions on the user's behalf. URL mode never auto-accepts: completion is only confirmed by an explicit answer. |
 | **Ephemeral no-`connect` shortcuts on `mcpi`** | Out of scope (keep two mental models). |
 | **`MCP_SESSION` env** | Superseded by require-explicit-on-non-TTY + `MCP_ALLOW_DEFAULT_SESSION=1`. |
 | **Human `--full` schema dumps** | Optional formatter polish. |

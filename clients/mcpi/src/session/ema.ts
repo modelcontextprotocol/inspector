@@ -224,6 +224,8 @@ export async function emaLogin(options?: {
     },
     redirectUrlProvider,
     callbackListen: callbackUrlConfig,
+    // mcpi is a plain CLI (no Ink); own Ctrl-C during the IdP wait.
+    handleSignals: true,
   });
   resetNodeOAuthStorageCache();
 

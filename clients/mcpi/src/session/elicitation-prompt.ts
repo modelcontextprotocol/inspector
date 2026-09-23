@@ -21,6 +21,7 @@ import type {
 } from "../daemon/protocol.js";
 import { parseFormSchema } from "./form-schema.js";
 import { promptForm, watchForClose } from "./form-prompt.js";
+import { sanitizeDeep, sanitizeText } from "./sanitize.js";
 
 export type PromptElicitationOpts = {
   /**
@@ -69,9 +70,14 @@ export async function promptElicitation(
   opts: PromptElicitationOpts,
 ): Promise<ElicitationResponseFrame> {
   const { style } = opts;
+  // Server-controlled display strings must not reach the terminal raw
+  // (escape injection — see sanitize.ts). Protocol ids on `frame` stay
+  // untouched so responses still correlate.
+  const message = sanitizeText(frame.message);
+  const url = frame.url === undefined ? undefined : sanitizeText(frame.url);
 
   if (frame.mode === "form") {
-    const fields = parseFormSchema(frame.requestedSchema);
+    const fields = parseFormSchema(sanitizeDeep(frame.requestedSchema));
     if (!fields) {
       // Schema outside the spec's restricted primitive-field shape —
       // shouldn't happen from a well-behaved server; decline clearly rather
@@ -80,7 +86,7 @@ export async function promptElicitation(
         style.yellow(
           "This server's form request uses a schema mcpi doesn't support " +
             "— declining.\n",
-        ) + `  ${frame.message}\n`,
+        ) + `  ${message}\n`,
       );
       return declineResponse(frame);
     }
@@ -90,7 +96,7 @@ export async function promptElicitation(
         style.yellow(
           "This server is asking for form input, which isn't supported " +
             "with --format json — declining.\n",
-        ) + `  ${frame.message}\n`,
+        ) + `  ${message}\n`,
       );
       return declineResponse(frame);
     }
@@ -100,7 +106,7 @@ export async function promptElicitation(
       output: process.stderr,
     });
     try {
-      const outcome = await promptForm(rl, frame.message, fields, style);
+      const outcome = await promptForm(rl, message, fields, style);
       if (outcome.action === "accept") {
         return {
           id: frame.id,
@@ -125,8 +131,8 @@ export async function promptElicitation(
         "This server is asking for input via a URL (elicitation), which " +
           "isn't supported with --format json — cancelling.\n",
       ) +
-        `  ${frame.message}\n` +
-        (frame.url ? `  ${frame.url}\n` : ""),
+        `  ${message}\n` +
+        (url ? `  ${url}\n` : ""),
     );
     return cancelResponse(frame);
   }
@@ -134,10 +140,10 @@ export async function promptElicitation(
   process.stderr.write(
     "\n" +
       style.bold("Action required: ") +
-      frame.message +
+      message +
       "\n" +
       "  " +
-      style.link(frame.url ?? "", frame.url) +
+      style.link(url ?? "", url) +
       "\n\n",
   );
 

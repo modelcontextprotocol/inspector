@@ -16,10 +16,12 @@ import {
 import { wireElicitationBridge } from "./elicitation-bridge.js";
 import { assertDaemonToken, getDaemonTokenFromEnv } from "./auth.js";
 import {
+  assertSocketPathWithinLimit,
   ensureDaemonDir,
   getDaemonDir,
   getDaemonLockPath,
   getDaemonSocketPath,
+  getDaemonTokenPath,
 } from "./paths.js";
 import type {
   ConnectParams,
@@ -93,35 +95,59 @@ export class DaemonServer {
 
   async start(): Promise<void> {
     ensureDaemonDir(this.dir);
-    await removeStaleDaemonSocket(this.socketPath);
-    this.writeLock();
-
-    this.server = net.createServer((socket) => {
-      acceptDaemonConnection(socket, (req, elicitation) =>
-        this.handleOutcome(req, elicitation),
-      );
-    });
-
-    await new Promise<void>((resolve, reject) => {
-      this.server!.once("error", reject);
-      this.server!.listen(this.socketPath, () => {
-        this.server!.off("error", reject);
-        resolve();
-      });
-    });
-
-    // Restrict socket + lock to the creating user. Private mode also requires
-    // an IPC token (see specification/v2_cli_v2.md §5.3).
+    assertSocketPathWithinLimit(this.socketPath);
+    this.acquireLock();
     try {
-      fs.chmodSync(this.socketPath, 0o600);
-      fs.chmodSync(this.lockPath, 0o600);
-    } catch {
-      // Unsupported on some platforms (e.g. Windows named pipes).
-    }
+      await removeStaleDaemonSocket(this.socketPath);
 
-    // Session-less spawn (e.g. ensureDaemon from tools/list with no sessions)
-    // must still self-reap — idle was previously only armed after disconnect.
-    this.registry.armIdleTimerIfEmpty();
+      // Publish the IPC token (0600, inside the 0700 daemon dir) before the
+      // socket exists, so a client can never connect without being able to
+      // read the token it needs. See getDaemonTokenPath.
+      if (this.requiredToken !== undefined) {
+        const tokenPath = getDaemonTokenPath(this.dir);
+        fs.writeFileSync(tokenPath, this.requiredToken + "\n", {
+          mode: 0o600,
+        });
+        try {
+          fs.chmodSync(tokenPath, 0o600);
+        } catch {
+          // Unsupported on some platforms.
+        }
+      }
+
+      this.server = net.createServer((socket) => {
+        acceptDaemonConnection(socket, (req, elicitation) =>
+          this.handleOutcome(req, elicitation),
+        );
+      });
+
+      await new Promise<void>((resolve, reject) => {
+        this.server!.once("error", reject);
+        this.server!.listen(this.socketPath, () => {
+          this.server!.off("error", reject);
+          resolve();
+        });
+      });
+
+      // Restrict socket + lock to the creating user. Private mode also requires
+      // an IPC token (see specification/v2_cli_v2.md §5.3).
+      try {
+        fs.chmodSync(this.socketPath, 0o600);
+        fs.chmodSync(this.lockPath, 0o600);
+      } catch {
+        // Unsupported on some platforms (e.g. Windows named pipes).
+      }
+
+      // Session-less spawn (e.g. ensureDaemon from tools/list with no sessions)
+      // must still self-reap — idle was previously only armed after disconnect.
+      this.registry.armIdleTimerIfEmpty();
+    } catch (error) {
+      // Never leave a lock we own but no daemon behind it. The socket is only
+      // unlinked by removeStaleDaemonSocket after a dead connect probe, so a
+      // live daemon's socket is never touched here.
+      this.releaseLock();
+      throw error;
+    }
   }
 
   async stop(reason: "idle" | "stop" | "signal" = "stop"): Promise<void> {
@@ -398,8 +424,58 @@ export class DaemonServer {
     };
   }
 
-  private writeLock(): void {
-    fs.writeFileSync(this.lockPath, `${process.pid}\n`, { flag: "w" });
+  /**
+   * `daemon.lock` is a real lock, not bookkeeping: `O_EXCL`-create it with
+   * our pid, and refuse to start while another *live* daemon holds it. A
+   * lock left by a dead pid is reclaimed (one retry). This closes the race
+   * where two starting daemons both probe a dead socket, both unlink, and
+   * the loser's unlink removes the winner's freshly-bound socket.
+   */
+  private acquireLock(): void {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const fd = fs.openSync(this.lockPath, "wx", 0o600);
+        fs.writeSync(fd, `${process.pid}\n`);
+        fs.closeSync(fd);
+        return;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+        const holder = this.readLockPid();
+        if (holder !== undefined && isPidAlive(holder)) {
+          throw new Error(
+            `Session daemon lock ${this.lockPath} is held by running pid ${holder}. ` +
+              `Use \`mcpi daemon/stop\`, or remove the file if that pid is not an mcpi daemon.`,
+            { cause: error },
+          );
+        }
+        try {
+          fs.unlinkSync(this.lockPath);
+        } catch {
+          // lost a removal race; the retry's O_EXCL create decides
+        }
+      }
+    }
+    throw new Error(`Could not acquire session daemon lock ${this.lockPath}`);
+  }
+
+  private readLockPid(): number | undefined {
+    try {
+      const pid = Number.parseInt(
+        fs.readFileSync(this.lockPath, "utf8").trim(),
+        10,
+      );
+      return Number.isInteger(pid) && pid > 0 ? pid : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  private releaseLock(): void {
+    try {
+      fs.unlinkSync(this.lockPath);
+    } catch {
+      // absent is fine
+    }
   }
 
   private removeLockAndSocket(): void {
@@ -409,10 +485,21 @@ export class DaemonServer {
       // absent is fine
     }
     try {
-      fs.unlinkSync(this.lockPath);
+      fs.unlinkSync(getDaemonTokenPath(this.dir));
     } catch {
       // absent is fine
     }
+    this.releaseLock();
+  }
+}
+
+/** `kill(pid, 0)` liveness probe; EPERM means alive but not ours. */
+function isPidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "EPERM";
   }
 }
 

@@ -135,8 +135,19 @@ legacy server→client `elicitation/create` requests and modern non-task MRTR
 - **Form mode**: mcpi renders one prompt per field from the schema, with a
   review step (edit any field again, or submit) before answering.
 
-Non-interactive callers (`--format json`, no TTY, or a script) get an
-automatic decline instead of hanging on a prompt.
+Only `--format json` callers get an automatic decline (URL mode: cancel)
+instead of a prompt.
+
+> **Decision — who answers a prompt.** Only `--format json` auto-declines
+> (its stdout must stay a single machine-readable payload). Everything else —
+> including a plain non-TTY stdin — gets a real prompt, which means an agent
+> driving mcpi can routinely read a form-mode question and answer on the
+> user's behalf. That is deliberate for an inspector tool. URL-mode is
+> different: there is never an auto-accept — completion is only ever
+> confirmed by an explicit answer to the prompt, because the out-of-band
+> action (typically an auth or consent step in a browser) is the user's to
+> perform. Use `--elicit off` on `connect` to keep any elicitation from
+> being asked at all.
 
 By default mcpi advertises **both** modes to the server (`elicit: {url,
 form}`), matching pre-#1783 behavior. Override this per connection with

@@ -539,6 +539,7 @@ describe("runRunnerInteractiveOAuth", () => {
         pathname: "/oauth/callback",
       },
       createCallbackServer: () => mockServer,
+      handleSignals: true,
     });
 
     // Give beginInteractiveAuthorization/authenticate a tick to register the
@@ -573,6 +574,7 @@ describe("runRunnerInteractiveOAuth", () => {
         pathname: "/oauth/callback",
       },
       createCallbackServer: () => mockServer,
+      handleSignals: true,
     });
 
     await Promise.resolve();
@@ -583,5 +585,32 @@ describe("runRunnerInteractiveOAuth", () => {
       "OAuth authorization cancelled (SIGTERM).",
     );
     expect(process.listenerCount("SIGTERM")).toBe(0);
+  });
+
+  it("installs no signal listeners unless handleSignals is set (TUI owns Ctrl-C via Ink)", async () => {
+    const redirectUrlProvider = { redirectUrl: "" };
+    const mockServer = createMockCallbackServer(handlers);
+    const client = mockClient({
+      authenticate: vi.fn(async () => new URL("https://as.example/authorize")),
+    });
+    const before = process.listenerCount("SIGINT");
+
+    const promise = runRunnerInteractiveOAuth({
+      client,
+      redirectUrlProvider,
+      callbackListen: {
+        hostname: "127.0.0.1",
+        port: 6276,
+        pathname: "/oauth/callback",
+      },
+      createCallbackServer: () => mockServer,
+    });
+
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(process.listenerCount("SIGINT")).toBe(before);
+
+    await simulateCallback(handlers.current);
+    await expect(promise).resolves.toEqual({ kind: "success" });
   });
 });

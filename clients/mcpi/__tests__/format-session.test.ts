@@ -594,6 +594,51 @@ describe("writeSessionOutput", () => {
     expect(stdout).toBe('{\n  "tools": []\n}\n');
   });
 
+  it("sanitizes server-supplied terminal escapes in text mode", async () => {
+    await writeSessionOutput(
+      { format: "text" },
+      {
+        kind: "rpc",
+        method: "tools/call",
+        result: {
+          content: [{ type: "text", text: "\u001b]52;c;c3RvbGVu\u0007hi" }],
+        },
+      },
+    );
+    expect(stdout).not.toContain("\u001b");
+    expect(stdout).not.toContain("\u0007");
+    expect(stdout).toContain("\u241b]52;c;c3RvbGVu\u2407hi");
+  });
+
+  it("leaves json output verbatim (JSON escaping already protects it)", async () => {
+    await writeSessionOutput(
+      { format: "json" },
+      {
+        kind: "rpc",
+        method: "tools/call",
+        result: { content: [{ type: "text", text: "\u001bhi" }] },
+      },
+    );
+    expect(JSON.parse(stdout)).toEqual({
+      content: [{ type: "text", text: "\u001bhi" }],
+    });
+    expect(stdout).toContain("\\u001bhi");
+  });
+
+  it("sanitizes the ndjson stderr summary line", async () => {
+    await writeSessionOutput(
+      { format: "text" },
+      {
+        kind: "ndjson",
+        variant: "skill-verify",
+        lines: [],
+        summary: "done \u001b[2J",
+      },
+    );
+    expect(stderr).toContain("done \u241b[2J");
+    expect(stderr).not.toContain("\u001b");
+  });
+
   it("ignores auto-collected appInfo on tools/call json", async () => {
     await writeSessionOutput(
       { format: "json" },

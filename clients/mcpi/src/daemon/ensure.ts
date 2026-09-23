@@ -4,13 +4,19 @@ import * as net from "node:net";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { CliExitCodeError, EXIT_CODES } from "@inspector/cli/error-handler.js";
-import { getDaemonTokenFromEnv } from "./auth.js";
+import {
+  generateDaemonToken,
+  getDaemonTokenFromEnv,
+  readDaemonTokenFile,
+} from "./auth.js";
 import { callDaemon } from "./client.js";
 import {
   DAEMON_DIR_ENV,
   DAEMON_TOKEN_ENV,
+  assertSocketPathWithinLimit,
   ensureDaemonDir,
   getDaemonDir,
+  getDaemonLogPath,
   getDaemonSocketPath,
 } from "./paths.js";
 
@@ -70,8 +76,10 @@ async function isDaemonReachable(socketPath: string): Promise<boolean> {
 async function waitForDaemon(
   socketPath: string,
   token: string | undefined,
+  logPath: string,
+  timeoutMs: number = READY_TIMEOUT_MS,
 ): Promise<void> {
-  const deadline = Date.now() + READY_TIMEOUT_MS;
+  const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (await isDaemonReachable(socketPath)) {
       try {
@@ -83,12 +91,24 @@ async function waitForDaemon(
     }
     await new Promise((r) => setTimeout(r, READY_POLL_MS));
   }
-  /* v8 ignore next 5 -- requires a stuck spawn */
+  const logTail = readLogTail(logPath);
   throw new CliExitCodeError(
     EXIT_CODES.UNREACHABLE,
-    `Timed out waiting for session daemon at ${socketPath}`,
+    `Timed out waiting for session daemon at ${socketPath}` +
+      (logTail ? `\nDaemon log (${logPath}):\n${logTail}` : ""),
     { code: "daemon_start_timeout" },
   );
+}
+
+/** Last few lines of the daemon's stderr log — the only trace of a spawn
+ * that died before binding its socket. Best-effort. Exported for tests. */
+export function readLogTail(logPath: string, maxLines = 10): string {
+  try {
+    const text = fs.readFileSync(logPath, "utf8");
+    return text.trimEnd().split("\n").slice(-maxLines).join("\n");
+  } catch {
+    return "";
+  }
 }
 
 /**
@@ -96,52 +116,74 @@ async function waitForDaemon(
  * Auto-spawns a detached Node process when the socket is not reachable.
  *
  * When `MCP_INSPECTOR_DAEMON_TOKEN` is set (private mode), the child inherits
- * that token and every IPC call must present it.
+ * that token; otherwise a fresh token is generated for the child. Either way
+ * every IPC call must present it (clients that didn't spawn the daemon read
+ * it from the published `daemon.token` file).
  */
 export async function ensureDaemon(options?: {
   dir?: string;
   daemonScript?: string;
   token?: string;
+  /** Startup wait override (tests exercise the timeout path). */
+  readyTimeoutMs?: number;
 }): Promise<{ socketPath: string; spawned: boolean }> {
   const dir = options?.dir ?? getDaemonDir();
-  const token = options?.token ?? getDaemonTokenFromEnv();
+  let token = options?.token ?? getDaemonTokenFromEnv();
   ensureDaemonDir(dir);
   const socketPath = getDaemonSocketPath(dir);
+  // Fail here with an actionable error rather than letting the daemon's
+  // listen() die over sun_path limits with only a generic start timeout.
+  assertSocketPathWithinLimit(socketPath);
 
   if (await isDaemonReachable(socketPath)) {
-    try {
-      await callDaemon("ping", {}, { socketPath, timeoutMs: 2000, token });
-      return { socketPath, spawned: false };
-    } catch {
-      // stale socket — fall through to spawn
-      try {
-        fs.unlinkSync(socketPath);
-      } catch {
-        // ignore
-      }
-    }
+    // Something accepted the connection, so a live daemon owns this socket.
+    // Any ping failure here (daemon_auth_failed, timeout, protocol error)
+    // must fail loudly: unlinking and respawning would let a caller with the
+    // wrong token (or none) silently replace a live private daemon and
+    // orphan its sessions. Only a socket nothing is listening on — the
+    // unreachable path below — is stale, and the spawned daemon itself
+    // removes it after a connect probe (removeStaleDaemonSocket).
+    token ??= readDaemonTokenFile(dir);
+    await callDaemon("ping", {}, { socketPath, timeoutMs: 2000, token });
+    return { socketPath, spawned: false };
   }
 
+  // Every daemon requires a token; generate one for the child when the
+  // caller/environment didn't supply one. The daemon republishes it to
+  // daemon.token (0600) so unrelated clients can still connect.
+  token ??= generateDaemonToken();
   const script = options?.daemonScript ?? resolveDaemonScriptPath();
   const childEnv: NodeJS.ProcessEnv = {
     ...process.env,
     // Pin the socket directory explicitly so parent and child agree even when
     // MCP_STORAGE_DIR is unset (default ~/.mcp-inspector).
     [DAEMON_DIR_ENV]: dir,
+    [DAEMON_TOKEN_ENV]: token,
   };
-  if (token !== undefined) {
-    childEnv[DAEMON_TOKEN_ENV] = token;
-  } else {
-    delete childEnv[DAEMON_TOKEN_ENV];
+
+  // Detached + stdio "ignore" made every startup failure invisible. Capture
+  // stderr in a 0600 log the start-timeout error can quote.
+  const logPath = getDaemonLogPath(dir);
+  let stderrTarget: number | "ignore" = "ignore";
+  try {
+    stderrTarget = fs.openSync(logPath, "a", 0o600);
+    /* v8 ignore next 3 -- log capture is best-effort; openSync on a freshly
+       ensured 0700 dir cannot be made to fail portably in tests. */
+  } catch {
+    // The daemon still runs without a log.
   }
 
   const child = spawn(process.execPath, [script], {
     detached: true,
-    stdio: "ignore",
+    stdio: ["ignore", "ignore", stderrTarget],
     env: childEnv,
   });
   child.unref();
+  /* v8 ignore next -- "ignore" only when the best-effort openSync failed */
+  if (typeof stderrTarget === "number") {
+    fs.closeSync(stderrTarget);
+  }
 
-  await waitForDaemon(socketPath, token);
+  await waitForDaemon(socketPath, token, logPath, options?.readyTimeoutMs);
   return { socketPath, spawned: true };
 }

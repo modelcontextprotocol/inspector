@@ -353,7 +353,10 @@ function registerConnect(program: CommandType): void {
         target: adHoc ? (rest.length > 0 ? rest : undefined) : undefined,
         transport: cmdOpts.transport as "sse" | "http" | "stdio" | undefined,
         serverUrl: cmdOpts.serverUrl as string | undefined,
-        cwd: cmdOpts.cwd as string | undefined,
+        // Resolve --cwd against the CALLER's working directory. The daemon
+        // that spawns the stdio server inherits an unrelated cwd (see
+        // daemon/run.ts), so a relative --cwd must be pinned here.
+        cwd: cmdOpts.cwd ? path.resolve(cmdOpts.cwd as string) : undefined,
         env: cmdOpts.e as Record<string, string> | undefined,
         headers: cmdOpts.header as Record<string, string> | undefined,
       };
@@ -364,7 +367,15 @@ function registerConnect(program: CommandType): void {
 
       const entries = await loadServerEntries(serverOptions);
       const selected = selectServerEntry(entries, selectName);
-      const serverConfig = selected.config;
+      let serverConfig = selected.config;
+      // A stdio config with no cwd would resolve relative commands and
+      // relative paths against the DAEMON's cwd — whichever directory the
+      // first mcpi invocation happened to run from. Pin it to the caller's
+      // cwd, which is what `mcpi connect node ./server.js` means to the user.
+      // A cwd configured in the catalog/config entry (or --cwd) still wins.
+      if (serverConfig.type === "stdio" && !serverConfig.cwd) {
+        serverConfig = { ...serverConfig, cwd: process.cwd() };
+      }
       const serverSettings = withEmaOverride(
         withElicitOverride(
           withEraOverride(

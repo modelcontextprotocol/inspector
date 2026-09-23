@@ -42,6 +42,14 @@ export type HandleRequest = (
 ) => Promise<HandleOutcome>;
 
 /**
+ * Upper bound on a single NDJSON request line. A client that streams an
+ * unterminated line would otherwise grow readline's buffer without limit —
+ * a trivial local DoS on the daemon. 1 MiB is far beyond any legitimate
+ * request (tool args included) while staying cheap to buffer.
+ */
+export const MAX_REQUEST_LINE_BYTES = 1024 * 1024;
+
+/**
  * Per-connection {@link ElicitationChannel}. Writes an elicitation-request
  * frame straight onto the socket (ahead of the eventual `DaemonResponse`) and
  * waits for the next line to answer it; `acceptDaemonConnection`'s line
@@ -105,6 +113,19 @@ export function acceptDaemonConnection(
   socket: net.Socket,
   handle: HandleRequest,
 ): void {
+  // Enforce the line cap below readline: track bytes since the last newline
+  // and drop the connection once a single line exceeds the limit.
+  let bytesSinceNewline = 0;
+  socket.on("data", (chunk: Buffer) => {
+    const idx = chunk.lastIndexOf(0x0a);
+    bytesSinceNewline =
+      idx === -1 ? bytesSinceNewline + chunk.length : chunk.length - idx - 1;
+    if (bytesSinceNewline > MAX_REQUEST_LINE_BYTES) {
+      // No error argument: nothing useful can be written back on a socket
+      // that's mid-way through an oversized line; just drop it.
+      socket.destroy();
+    }
+  });
   const rl = createInterface({ input: socket, crlfDelay: Infinity });
   const elicitationChannel = new ConnectionElicitationChannel(socket);
   rl.on("line", (line) => {

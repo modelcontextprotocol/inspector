@@ -1,9 +1,11 @@
 import { randomUUID } from "node:crypto";
 import * as net from "node:net";
+import * as path from "node:path";
 import { CliExitCodeError, EXIT_CODES } from "@inspector/cli/error-handler.js";
-import { getDaemonTokenFromEnv } from "./auth.js";
+import { getDaemonTokenFromEnv, readDaemonTokenFile } from "./auth.js";
 import { encodeRequest } from "./framing.js";
 import { getDaemonSocketPath } from "./paths.js";
+import { sanitizeText } from "../session/sanitize.js";
 import type {
   DaemonOp,
   DaemonRequest,
@@ -48,7 +50,12 @@ export async function callDaemon<T = unknown>(
   const socketPath = options.socketPath ?? getDaemonSocketPath();
   const timeoutMs = options.timeoutMs ?? 60_000;
   const id = randomUUID();
-  const token = options.token ?? getDaemonTokenFromEnv();
+  // Env token wins (private mode / spawner); otherwise read the token the
+  // daemon published next to its socket (see getDaemonTokenPath).
+  const token =
+    options.token ??
+    getDaemonTokenFromEnv() ??
+    readDaemonTokenFile(path.dirname(socketPath));
   const request: DaemonRequest = { id, op, params };
   if (token !== undefined) request.token = token;
 
@@ -148,7 +155,9 @@ export async function callDaemon<T = unknown>(
         fail(
           new CliExitCodeError(
             response.error.exitCode ?? EXIT_CODES.USAGE,
-            response.error.message,
+            // Daemon error text can embed server-supplied strings; sanitize
+            // before it reaches a terminal via the shared error handler.
+            sanitizeText(response.error.message),
             { code: response.error.code },
           ),
         );

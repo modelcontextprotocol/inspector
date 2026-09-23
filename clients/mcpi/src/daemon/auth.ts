@@ -1,6 +1,26 @@
-import { timingSafeEqual } from "node:crypto";
+import { randomBytes, timingSafeEqual } from "node:crypto";
+import * as fs from "node:fs";
 import { CliExitCodeError, EXIT_CODES } from "@inspector/cli/error-handler.js";
-import { DAEMON_TOKEN_ENV } from "./paths.js";
+import { DAEMON_TOKEN_ENV, getDaemonTokenPath } from "./paths.js";
+
+/** Fresh random IPC token for a daemon whose environment didn't supply one. */
+export function generateDaemonToken(): string {
+  return randomBytes(32).toString("hex");
+}
+
+/**
+ * Read the token a running daemon published to `daemon.token` (see
+ * {@link getDaemonTokenPath}). Undefined when missing/unreadable — the
+ * request will then fail authentication with a clear error.
+ */
+export function readDaemonTokenFile(dir?: string): string | undefined {
+  try {
+    const token = fs.readFileSync(getDaemonTokenPath(dir), "utf8").trim();
+    return token || undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 /**
  * Read the IPC token from the environment (parent client or daemon child).

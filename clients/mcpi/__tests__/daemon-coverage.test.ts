@@ -6,7 +6,11 @@ import * as path from "node:path";
 import { getTestMcpServerCommand } from "@modelcontextprotocol/inspector-test-server";
 import { DaemonServer } from "../src/daemon/server.js";
 import { callDaemon } from "../src/daemon/client.js";
-import { ensureDaemon, resolveDaemonScriptPath } from "../src/daemon/ensure.js";
+import {
+  ensureDaemon,
+  readLogTail,
+  resolveDaemonScriptPath,
+} from "../src/daemon/ensure.js";
 import { SessionRegistry } from "../src/daemon/sessions.js";
 import { CliExitCodeError } from "@inspector/cli/error-handler.js";
 import { runMcp } from "./helpers/mcp-runner.js";
@@ -122,12 +126,24 @@ describe("daemon coverage", () => {
     }
   });
 
-  it("rejects a second listen when a live daemon owns the socket", async () => {
+  it("rejects a second daemon while a live one holds the lock", async () => {
     const d = freshDir();
     server = new DaemonServer({ dir: d, idleMs: 0 });
     await server.start();
     const other = new DaemonServer({ dir: d, idleMs: 0 });
-    await expect(other.start()).rejects.toThrow(/already running/);
+    await expect(other.start()).rejects.toThrow(/held by running pid/);
+  });
+
+  it("reclaims a lock left by a dead pid", async () => {
+    const d = freshDir();
+    // No live process can have this pid-space value in practice; write a
+    // plausible-but-dead pid by spawning nothing and using an exited child.
+    fs.writeFileSync(path.join(d, "daemon.lock"), "999999999\n");
+    server = new DaemonServer({ dir: d, idleMs: 0 });
+    await server.start();
+    expect(fs.readFileSync(path.join(d, "daemon.lock"), "utf8").trim()).toBe(
+      String(process.pid),
+    );
   });
 
   it("removes a stale socket before binding", async () => {
@@ -457,26 +473,90 @@ describe("daemon coverage", () => {
     await new Promise((r) => setTimeout(r, 150));
   });
 
-  it("ensureDaemon replaces a stale accepting socket", async () => {
+  it("start-timeout error quotes the daemon's stderr log", async () => {
+    const d = freshDir();
+    // A "daemon" that logs a failure and dies without ever binding a socket
+    // — the silent-death case the 0600 log exists to explain.
+    const script = path.join(d, "dying-daemon.js");
+    fs.writeFileSync(
+      script,
+      'console.error("boom: could not start"); setTimeout(() => {}, 3000);\n',
+    );
+    await expect(
+      ensureDaemon({ dir: d, daemonScript: script, readyTimeoutMs: 700 }),
+    ).rejects.toMatchObject({
+      envelope: { code: "daemon_start_timeout" },
+      message: expect.stringContaining("boom: could not start"),
+    });
+  }, 15000);
+
+  it("start-timeout error stays clean when the daemon logged nothing", async () => {
+    const d = freshDir();
+    const script = path.join(d, "silent-daemon.js");
+    fs.writeFileSync(script, "setTimeout(() => {}, 3000);\n");
+    await expect(
+      ensureDaemon({ dir: d, daemonScript: script, readyTimeoutMs: 700 }),
+    ).rejects.toMatchObject({
+      envelope: { code: "daemon_start_timeout" },
+      message: expect.not.stringContaining("Daemon log"),
+    });
+  }, 15000);
+
+  it("readLogTail returns the last lines and empty string when unreadable", () => {
+    const d = freshDir();
+    const logPath = path.join(d, "daemon.log");
+    const lines = Array.from({ length: 15 }, (_, i) => `line-${i}`);
+    fs.writeFileSync(logPath, lines.join("\n") + "\n");
+    const tail = readLogTail(logPath);
+    expect(tail.split("\n")).toHaveLength(10);
+    expect(tail).toContain("line-14");
+    expect(tail).not.toContain("line-4\n");
+    expect(readLogTail(path.join(d, "missing.log"))).toBe("");
+  });
+
+  it("ensureDaemon fails loudly when a live listener rejects ping (no takeover)", async () => {
+    // Regression test for the daemon-takeover hole: a socket that ACCEPTS
+    // connections is owned by a live process. ensureDaemon must never unlink
+    // it and install a replacement daemon — it must surface the ping failure.
     const d = freshDir();
     const sock = path.join(d, "daemon.sock");
-    const stale = net.createServer((socket) => {
+    const occupant = net.createServer((socket) => {
       socket.on("error", () => {});
       socket.end();
     });
-    await new Promise<void>((resolve) => stale.listen(sock, resolve));
+    await new Promise<void>((resolve) => occupant.listen(sock, resolve));
     try {
-      const ensured = await ensureDaemon({
+      await expect(
+        ensureDaemon({ dir: d, daemonScript: resolveDaemonScriptPath() }),
+      ).rejects.toThrow(/closed the connection during 'ping'/);
+      // The occupant's socket must still be in place, untouched.
+      expect(fs.existsSync(sock)).toBe(true);
+    } finally {
+      occupant.close();
+    }
+  });
+
+  it("ensureDaemon fails loudly on daemon_auth_failed (wrong token is not a stale socket)", async () => {
+    const d = freshDir();
+    server = new DaemonServer({ dir: d, idleMs: 0, requiredToken: "good" });
+    await server.start();
+    await expect(
+      ensureDaemon({
         dir: d,
         daemonScript: resolveDaemonScriptPath(),
-      });
-      expect(ensured.spawned).toBe(true);
-      await callDaemon("ping", {}, { socketPath: ensured.socketPath });
-      await callDaemon("daemon/stop", {}, { socketPath: ensured.socketPath });
-      await new Promise((r) => setTimeout(r, 150));
-    } finally {
-      stale.close();
-    }
+        token: "wrong",
+      }),
+    ).rejects.toMatchObject({ envelope: { code: "daemon_auth_failed" } });
+    // The live daemon keeps its socket and still serves the right token.
+    const pong = await callDaemon(
+      "ping",
+      {},
+      {
+        socketPath: server.socketPath,
+        token: "good",
+      },
+    );
+    expect(pong).toBeDefined();
   });
 
   it("session-less start arms idle and self-reaps", async () => {

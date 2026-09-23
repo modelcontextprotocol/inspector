@@ -46,7 +46,9 @@ commands and flags.
   auth/list` / `mcpi auth/clear`); nothing extra is needed for authenticated
   HTTP servers beyond `connect` and completing the browser flow if prompted.
 - If a server asks a question mid-call (elicitation), mcpi prompts
-  interactively by default; running non-interactively (no TTY, scripted, or
-  `--format json`) auto-declines instead of hanging. Pass `--elicit off` on
+  interactively by default — including over a plain non-TTY stdin, so an
+  agent can relay the question and answer it. Only `--format json` (whose
+  stdout must stay a single machine-readable payload) auto-declines instead
+  of prompting. Pass `--elicit off` on
   `connect` if you want a well-behaved server to fall back to its own
   defaults instead.

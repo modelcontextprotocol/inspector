@@ -19,6 +19,7 @@ import {
   formatSkillVerifyListHuman,
   formatStreamEventHuman,
 } from "./format-human.js";
+import { sanitizeDeep, sanitizeText } from "./sanitize.js";
 import { PLAIN, type Style } from "@inspector/cli/style.js";
 
 type JsonObject = Record<string, unknown>;
@@ -118,7 +119,12 @@ export async function writeSessionOutput(
     return;
   }
 
-  await awaitableLog(humanPayload(payload, style) + "\n");
+  // Server-controlled strings must never reach the terminal raw (escape
+  // injection: OSC 52 clipboard writes, title spoofing, output rewriting).
+  // Sanitize the whole payload before human formatting; the formatter's own
+  // ANSI styling is applied afterwards and stays intact. JSON output above
+  // is already safe — JSON.stringify escapes control characters.
+  await awaitableLog(humanPayload(sanitizeDeep(payload), style) + "\n");
   await writeNdjsonSummary(payload);
   applyExitCodes(payload);
 }
@@ -132,7 +138,9 @@ export async function writeSessionOutput(
  */
 async function writeNdjsonSummary(payload: SessionWriteKind): Promise<void> {
   if (payload.kind === "ndjson" && payload.summary) {
-    await awaitableError(`${payload.summary}\n`);
+    // Human-facing stderr line in both formats; may embed server-derived
+    // names, so sanitize (see sanitize.ts).
+    await awaitableError(`${sanitizeText(payload.summary)}\n`);
   }
 }
 

@@ -3,12 +3,12 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import {
+  assertSocketPathWithinLimit,
   createPrivateDaemonDir,
   ensureDaemonDir,
   getDaemonDir,
   getDaemonLockPath,
   getDaemonSocketPath,
-  getInspectorHome,
 } from "../src/daemon/paths.js";
 import { writeFormattedResult } from "@inspector/cli/handlers/format-output.js";
 
@@ -16,7 +16,12 @@ describe("daemon paths", () => {
   const backup: Record<string, string | undefined> = {};
 
   afterEach(() => {
-    for (const key of ["MCP_INSPECTOR_DAEMON_DIR", "MCP_STORAGE_DIR", "HOME"]) {
+    for (const key of [
+      "MCP_INSPECTOR_DAEMON_DIR",
+      "MCP_STORAGE_DIR",
+      "HOME",
+      "TMPDIR",
+    ]) {
       if (key in backup) {
         if (backup[key] === undefined) delete process.env[key];
         else process.env[key] = backup[key];
@@ -59,18 +64,31 @@ describe("daemon paths", () => {
     fs.rmSync(dir, { recursive: true, force: true });
   });
 
-  it("createPrivateDaemonDir nests under ~/.mcp-inspector/private", () => {
-    const home = fs.mkdtempSync(path.join(os.tmpdir(), "mcp-home-"));
-    setEnv("HOME", home);
-    setEnv("MCP_INSPECTOR_DAEMON_DIR", undefined);
-    setEnv("MCP_STORAGE_DIR", undefined);
-    expect(getInspectorHome()).toBe(path.join(home, ".mcp-inspector"));
+  it("createPrivateDaemonDir nests under a short 0700 tmpdir layout", () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "mcpi-t-"));
+    setEnv("TMPDIR", tmp + path.sep);
     const dir = createPrivateDaemonDir();
-    expect(dir.startsWith(path.join(home, ".mcp-inspector", "private"))).toBe(
-      true,
-    );
+    // $TMPDIR/mcpi-<uid>/<8-hex>; short enough that daemon.sock stays inside
+    // the platform sun_path limit even for macOS /var/folders tmpdirs.
+    expect(dir.startsWith(tmp)).toBe(true);
+    expect(path.basename(dir)).toMatch(/^[0-9a-f]{8}$/);
+    expect(path.basename(path.dirname(dir))).toMatch(/^mcpi-/);
     expect(fs.statSync(dir).isDirectory()).toBe(true);
-    fs.rmSync(home, { recursive: true, force: true });
+    if (process.platform !== "win32") {
+      expect(fs.statSync(dir).mode & 0o777).toBe(0o700);
+      expect(fs.statSync(path.dirname(dir)).mode & 0o777).toBe(0o700);
+    }
+    fs.rmSync(tmp, { recursive: true, force: true });
+  });
+
+  it("assertSocketPathWithinLimit rejects paths over the sun_path limit", () => {
+    expect(() =>
+      assertSocketPathWithinLimit("/tmp/short/daemon.sock"),
+    ).not.toThrow();
+    const long = "/" + "x".repeat(150) + "/daemon.sock";
+    expect(() => assertSocketPathWithinLimit(long)).toThrow(
+      /too long for this platform/,
+    );
   });
 });
 

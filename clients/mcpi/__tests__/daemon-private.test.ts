@@ -6,10 +6,12 @@ import { getTestMcpServerCommand } from "@modelcontextprotocol/inspector-test-se
 import { assertDaemonToken, tokensEqual } from "../src/daemon/auth.js";
 import { callDaemon } from "../src/daemon/client.js";
 import { ensureDaemon } from "../src/daemon/ensure.js";
+import { MAX_REQUEST_LINE_BYTES } from "../src/daemon/ipc-glue.js";
 import {
   createPrivateDaemonDir,
   DAEMON_DIR_ENV,
   DAEMON_TOKEN_ENV,
+  getDaemonTokenPath,
 } from "../src/daemon/paths.js";
 import { DaemonServer } from "../src/daemon/server.js";
 import { CliExitCodeError } from "@inspector/cli/error-handler.js";
@@ -73,7 +75,7 @@ describe("mcpi private", () => {
     });
     expectCliSuccess(result);
     expect(result.stdout).toMatch(
-      new RegExp(`export ${DAEMON_DIR_ENV}='[^']+/private/[^']+'`),
+      new RegExp(`export ${DAEMON_DIR_ENV}='[^']+/mcpi-[^/']+/[0-9a-f]{8}'`),
     );
     expect(result.stdout).toMatch(
       new RegExp(`export ${DAEMON_TOKEN_ENV}='[^']+'`),
@@ -94,11 +96,12 @@ describe("mcpi private", () => {
     expect(text).toContain(`'t'\\''ok'`);
   });
 
-  it("createPrivateBinding allocates under private/", () => {
+  it("createPrivateBinding allocates a short 0700 dir under the tmpdir", () => {
     useTempHome();
     const binding = createPrivateBinding();
-    expect(binding.dir).toContain(`${path.sep}private${path.sep}`);
-    expect(binding.dir.startsWith(home!)).toBe(true);
+    expect(path.basename(binding.dir)).toMatch(/^[0-9a-f]{8}$/);
+    expect(path.basename(path.dirname(binding.dir))).toMatch(/^mcpi-/);
+    expect(binding.dir.startsWith(os.tmpdir())).toBe(true);
     expect(binding.token.length).toBeGreaterThan(20);
   });
 });
@@ -118,19 +121,29 @@ describe("private daemon end-to-end", () => {
     }
   });
 
-  it("rejects IPC without the required token and accepts with it", async () => {
+  it("rejects IPC with a wrong token and accepts with the right one", async () => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), "mcp-priv-"));
     const token = "test-token-value";
     server = new DaemonServer({ dir, idleMs: 0, requiredToken: token });
     await server.start();
 
+    // The daemon publishes daemon.token (0600) for same-user clients, so a
+    // tokenless call auto-discovers it; only a wrong token must fail.
     await expect(
       callDaemon(
         "ping",
         {},
-        { socketPath: server.socketPath, timeoutMs: 2000 },
+        { socketPath: server.socketPath, timeoutMs: 2000, token: "wrong" },
       ),
     ).rejects.toMatchObject({ envelope: { code: "daemon_auth_failed" } });
+
+    // Tokenless call discovers the published token file next to the socket.
+    const discovered = await callDaemon<{ pong: boolean }>(
+      "ping",
+      {},
+      { socketPath: server.socketPath, timeoutMs: 2000 },
+    );
+    expect(discovered.pong).toBe(true);
 
     const pong = await callDaemon<{ pong: boolean }>(
       "ping",
@@ -138,6 +151,45 @@ describe("private daemon end-to-end", () => {
       { socketPath: server.socketPath, timeoutMs: 2000, token },
     );
     expect(pong.pong).toBe(true);
+  });
+
+  it("publishes daemon.token (0600) on start and removes it on stop", async () => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "mcp-priv-tok-"));
+    const token = "published-token";
+    server = new DaemonServer({ dir, idleMs: 0, requiredToken: token });
+    await server.start();
+
+    const tokenPath = getDaemonTokenPath(dir);
+    expect(fs.readFileSync(tokenPath, "utf8").trim()).toBe(token);
+    if (process.platform !== "win32") {
+      expect(fs.statSync(tokenPath).mode & 0o777).toBe(0o600);
+    }
+
+    await server.stop("stop");
+    server = undefined;
+    expect(fs.existsSync(tokenPath)).toBe(false);
+  });
+
+  it("drops a connection whose request line exceeds the cap", async () => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "mcp-priv-cap-"));
+    server = new DaemonServer({ dir, idleMs: 0 });
+    await server.start();
+
+    const net = await import("node:net");
+    const closed = await new Promise<boolean>((resolve) => {
+      const socket = net.connect(server!.socketPath, () => {
+        // One oversized line, never newline-terminated.
+        socket.write(Buffer.alloc(MAX_REQUEST_LINE_BYTES + 64 * 1024, 0x61));
+      });
+      const done = () => resolve(true);
+      socket.once("close", done);
+      socket.once("error", done);
+      setTimeout(() => {
+        socket.destroy();
+        resolve(false);
+      }, 5000).unref();
+    });
+    expect(closed).toBe(true);
   });
 
   it("session front-end rethrows non-unreachable daemon errors", async () => {
