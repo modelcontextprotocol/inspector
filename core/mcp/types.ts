@@ -22,6 +22,7 @@ import type {
 import type { Client } from "@modelcontextprotocol/client";
 import type { OAuthClientProvider } from "@modelcontextprotocol/client";
 import type { Transport } from "@modelcontextprotocol/client";
+import type { TaskView } from "@modelcontextprotocol/ext-tasks/client";
 import type { InspectorLogger } from "../logging/logger.js";
 import type { AppElicitationRenderer } from "./appElicitation.js";
 import type {
@@ -40,28 +41,21 @@ import type {
 import type { OAuthStorage } from "../auth/storage.js";
 import type { AuthChallenge } from "../auth/challenge.js";
 
-/** Generation-neutral task status rendered by Inspector requester surfaces. */
-export type InspectorTaskStatus =
-  | "working"
-  | "input_required"
-  | "completed"
-  | "failed"
-  | "cancelled";
-
 /**
- * Project-owned requester task shape. Stable fields are normalized across MCP
- * task generations; generation-specific wire detail remains available as raw data.
+ * Requester task shape rendered by Inspector surfaces: a narrow normalized
+ * overlay of the ext-tasks `TaskView`. Shared fields (including the
+ * generation-neutral status union) are picked from the SDK type so the two
+ * contracts cannot drift; the overlay exists only because Inspector state
+ * stores require concrete timestamps (`TaskView` leaves them optional) and
+ * an unbranded task id.
  */
-export interface InspectorTask {
+export interface InspectorTask extends Pick<
+  TaskView,
+  "status" | "statusMessage" | "ttl" | "pollInterval"
+> {
   taskId: string;
-  status: InspectorTaskStatus;
-  statusMessage?: string;
   createdAt: string;
   lastUpdatedAt: string;
-  /** Requested/advertised retention in milliseconds; null means unspecified. */
-  ttl: number | null;
-  /** Server-suggested delay before the next poll, in milliseconds. */
-  pollInterval?: number;
   /** Original generation-specific task payload, preserved without type claims. */
   raw?: Readonly<Record<string, unknown>>;
 }

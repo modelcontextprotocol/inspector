@@ -18,12 +18,12 @@
 // Four things shape the design, each verified against this repo before it was
 // written:
 //
-//  1. **Two upstreams, not one.** `client`/`core`/`server`/`server-legacy` all
+//  1. **One issue per upstream.** `client`/`core`/`server`/`server-legacy` all
 //     ship from `modelcontextprotocol/typescript-sdk` and release in lockstep;
-//     `ext-apps` ships from its own repo on its own cadence. Treating them as
-//     one group would file an issue naming a version that only some of the
-//     packages have, so `SDK_GROUPS` keeps them separate and each gets its own
-//     issue and its own marker.
+//     `ext-apps` and `ext-tasks` each ship from their own repo on their own
+//     cadence. Treating them as one group would file an issue naming a
+//     version that only some of the packages have, so `SDK_GROUPS` keeps them
+//     separate and each gets its own issue and its own marker.
 //  2. **Compare the INSTALLED version, not the declared range.** #1063 phrases
 //     the check as "is the current version > than the one we have in our
 //     package.json", which is exact today only because the four SDK packages
@@ -33,7 +33,7 @@
 //     range is still reported — it is what says whether the fix is a manifest
 //     edit or a lockfile refresh — but the comparison is against the lockfile.
 //  3. **A new SDK package must not be watched silently by nobody.** The group
-//     table is a hardcoded list, so a fifth `@modelcontextprotocol/*` package
+//     table is a hardcoded list, so another `@modelcontextprotocol/*` package
 //     added to the root manifest would never be checked and nothing would say
 //     so. `assertEveryPackageWatched` turns that into a loud failure instead —
 //     the sweep goes red rather than reporting a clean night over a package it
@@ -75,8 +75,8 @@ export const TARGET_BRANCH = "v2/main";
  *
  * Split by REPOSITORY rather than by npm scope: the four `typescript-sdk`
  * packages are cut from one release and always share a version, so one issue
- * covers the whole bump, while `ext-apps` moves independently and would
- * otherwise drag three unrelated packages into its title.
+ * covers the whole bump, while `ext-apps` and `ext-tasks` each move
+ * independently and would otherwise drag unrelated packages into their titles.
  */
 export const SDK_GROUPS = [
   {
