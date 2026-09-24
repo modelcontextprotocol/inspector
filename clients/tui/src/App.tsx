@@ -91,6 +91,7 @@ import { ToolTestModal } from "./components/ToolTestModal.js";
 import { ResourceTestModal } from "./components/ResourceTestModal.js";
 import { PromptTestModal } from "./components/PromptTestModal.js";
 import { DetailsModal } from "./components/DetailsModal.js";
+import { BodyLines } from "./components/BodyLines.js";
 import type { TuiServer } from "./tui-servers.js";
 
 // Header branding. The version is the single source of truth — the root
@@ -1279,29 +1280,7 @@ function App({
           <Box marginTop={1} flexShrink={0}>
             <Text bold>Request Body:</Text>
           </Box>
-          {(() => {
-            try {
-              const parsed = JSON.parse(request.requestBody);
-              return JSON.stringify(parsed, null, 2)
-                .split("\n")
-                .map((line: string, idx: number) => (
-                  <Box
-                    key={`req-body-${idx}`}
-                    marginTop={idx === 0 ? 1 : 0}
-                    paddingLeft={2}
-                    flexShrink={0}
-                  >
-                    <Text dimColor>{line}</Text>
-                  </Box>
-                ));
-            } catch {
-              return (
-                <Box marginTop={1} paddingLeft={2} flexShrink={0}>
-                  <Text dimColor>{request.requestBody}</Text>
-                </Box>
-              );
-            }
-          })()}
+          <BodyLines body={request.requestBody} keyPrefix="req-body" />
         </>
       )}
       {request.responseHeaders &&
@@ -1324,29 +1303,7 @@ function App({
           <Box marginTop={1} flexShrink={0}>
             <Text bold>Response Body:</Text>
           </Box>
-          {(() => {
-            try {
-              const parsed = JSON.parse(request.responseBody);
-              return JSON.stringify(parsed, null, 2)
-                .split("\n")
-                .map((line: string, idx: number) => (
-                  <Box
-                    key={`resp-body-${idx}`}
-                    marginTop={idx === 0 ? 1 : 0}
-                    paddingLeft={2}
-                    flexShrink={0}
-                  >
-                    <Text dimColor>{line}</Text>
-                  </Box>
-                ));
-            } catch {
-              return (
-                <Box marginTop={1} paddingLeft={2} flexShrink={0}>
-                  <Text dimColor>{request.responseBody}</Text>
-                </Box>
-              );
-            }
-          })()}
+          <BodyLines body={request.responseBody} keyPrefix="resp-body" />
         </>
       )}
     </>

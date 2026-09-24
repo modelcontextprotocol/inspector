@@ -3,6 +3,7 @@ import { Box, Text, useInput, type Key } from "ink";
 import { ScrollView, type ScrollViewRef } from "ink-scroll-view";
 import type { FetchRequestEntry } from "@inspector/core/mcp/index.js";
 import { useSelectableList } from "../hooks/useSelectableList.js";
+import { BodyLines } from "./BodyLines.js";
 
 interface RequestsTabProps {
   serverName: string | null;
@@ -262,29 +263,10 @@ export function RequestsTab({
                   <Box marginTop={1} flexShrink={0}>
                     <Text bold>Request Body:</Text>
                   </Box>
-                  {(() => {
-                    try {
-                      const parsed = JSON.parse(selectedRequest.requestBody);
-                      return JSON.stringify(parsed, null, 2)
-                        .split("\n")
-                        .map((line: string, idx: number) => (
-                          <Box
-                            key={`req-body-${idx}`}
-                            marginTop={idx === 0 ? 1 : 0}
-                            paddingLeft={2}
-                            flexShrink={0}
-                          >
-                            <Text dimColor>{line}</Text>
-                          </Box>
-                        ));
-                    } catch {
-                      return (
-                        <Box marginTop={1} paddingLeft={2} flexShrink={0}>
-                          <Text dimColor>{selectedRequest.requestBody}</Text>
-                        </Box>
-                      );
-                    }
-                  })()}
+                  <BodyLines
+                    body={selectedRequest.requestBody}
+                    keyPrefix="req-body"
+                  />
                 </>
               )}
 
@@ -318,29 +300,10 @@ export function RequestsTab({
                   <Box marginTop={1} flexShrink={0}>
                     <Text bold>Response Body:</Text>
                   </Box>
-                  {(() => {
-                    try {
-                      const parsed = JSON.parse(selectedRequest.responseBody);
-                      return JSON.stringify(parsed, null, 2)
-                        .split("\n")
-                        .map((line: string, idx: number) => (
-                          <Box
-                            key={`resp-body-${idx}`}
-                            marginTop={idx === 0 ? 1 : 0}
-                            paddingLeft={2}
-                            flexShrink={0}
-                          >
-                            <Text dimColor>{line}</Text>
-                          </Box>
-                        ));
-                    } catch {
-                      return (
-                        <Box marginTop={1} paddingLeft={2} flexShrink={0}>
-                          <Text dimColor>{selectedRequest.responseBody}</Text>
-                        </Box>
-                      );
-                    }
-                  })()}
+                  <BodyLines
+                    body={selectedRequest.responseBody}
+                    keyPrefix="resp-body"
+                  />
                 </>
               )}
             </ScrollView>
