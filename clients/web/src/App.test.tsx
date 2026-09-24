@@ -2008,6 +2008,7 @@ type RootsFakeClient = EventTarget & {
   // failed-save case asserts on (#2089).
   setServerSettings: ReturnType<typeof vi.fn>;
   getTransportSettings: ReturnType<typeof vi.fn>;
+  disconnect: ReturnType<typeof vi.fn>;
 };
 
 const settingsWithRoots = (
