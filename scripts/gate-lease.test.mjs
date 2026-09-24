@@ -7,19 +7,20 @@
 
 import { after, test } from "node:test";
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import nodeFs from "node:fs";
 import {
   existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   rmSync,
   utimesSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { hostname, tmpdir } from "node:os";
+import { basename, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 
@@ -27,17 +28,25 @@ import {
   DIR_ENV,
   SKIP_ENV,
   STALE_MS,
+  countAhead,
   describeHolder,
+  describeQueue,
   exitCodeFor,
   formatDuration,
   isSkipped,
+  isTicketLive,
+  joinQueue,
   leaseDir,
+  leaveQueue,
   leaseTarget,
   lockPathOf,
   main,
+  queueDirOf,
   readHolder,
+  refreshTicket,
   runUnderLease,
   spawnSpec,
+  ticketName,
 } from "./gate-lease.mjs";
 
 const SCRIPT = fileURLToPath(new URL("./gate-lease.mjs", import.meta.url));
@@ -421,6 +430,182 @@ test("a lease directory that cannot exist degrades to an unleased run", async ()
   assert.match(
     lines.join("\n"),
     /could not create .*; running without the lease/,
+  );
+});
+
+/** The pid of a process that has already exited, for a provably dead ticket. */
+function deadPid() {
+  const { pid } = spawnSync(process.execPath, ["-e", ""]);
+  assert.ok(!isAlive(pid));
+  return pid;
+}
+
+/** Plant a ticket by hand, as a waiter that arrived at `queuedAt` would. */
+function plantTicket(dir, { queuedAt, pid, host = hostname(), mtime }) {
+  mkdirSync(queueDirOf(dir), { recursive: true });
+  const file = join(queueDirOf(dir), ticketName(queuedAt, pid, "planted"));
+  writeFileSync(file, JSON.stringify({ pid, host, cwd: "/w", queuedAt }));
+  if (mtime !== undefined) utimesSync(file, mtime, mtime);
+  return file;
+}
+
+test("ticketName: sorts by arrival time, then pid, and names only tickets", () => {
+  const names = [
+    ticketName(1_000, 99, "aa"),
+    ticketName(999, 1, "zz"),
+    ticketName(10_000, 5, "aa"),
+  ];
+  assert.deepEqual([...names].sort(), [names[1], names[0], names[2]]);
+  assert.match(names[0], /^0{12}1000-99-aa\.ticket$/);
+});
+
+test("describeQueue: nothing at the head, a count behind it", () => {
+  assert.equal(describeQueue(0), "");
+  assert.equal(describeQueue(1), ", with 1 more gate queued ahead of this one");
+  assert.equal(
+    describeQueue(3),
+    ", with 3 more gates queued ahead of this one",
+  );
+});
+
+test("isTicketLive: fresh and owned by a live process; stale or dead is not", () => {
+  const dir = freshDir();
+  const now = Date.now();
+  const old = new Date(now - STALE_MS - 1_000);
+  assert.equal(isTicketLive(join(dir, "missing.ticket")), false);
+  assert.equal(
+    isTicketLive(plantTicket(dir, { queuedAt: 1, pid: process.pid })),
+    true,
+  );
+  assert.equal(
+    isTicketLive(plantTicket(dir, { queuedAt: 2, pid: deadPid() })),
+    false,
+    "a same-host ticket whose process is gone is dead at once",
+  );
+  assert.equal(
+    isTicketLive(
+      plantTicket(dir, { queuedAt: 3, pid: process.pid, mtime: old }),
+    ),
+    false,
+    "an unrefreshed ticket is dead even if its pid was reused",
+  );
+  // Another host's pid means nothing here, so only staleness can retire it.
+  assert.equal(
+    isTicketLive(plantTicket(dir, { queuedAt: 4, pid: deadPid(), host: "x" })),
+    true,
+  );
+  const garbled = join(queueDirOf(dir), ticketName(5, 1, "garbled"));
+  writeFileSync(garbled, "not json");
+  assert.equal(isTicketLive(garbled), true);
+});
+
+test("countAhead: counts only live, earlier tickets and prunes the dead", () => {
+  const dir = freshDir();
+  const live = plantTicket(dir, { queuedAt: 1_000, pid: process.pid });
+  const dead = plantTicket(dir, { queuedAt: 2_000, pid: deadPid() });
+  const later = plantTicket(dir, { queuedAt: 9_000, pid: process.pid });
+  writeFileSync(join(queueDirOf(dir), "stray.tmp"), "");
+  const mine = joinQueue(dir, { now: 5_000 });
+  assert.equal(countAhead(dir, mine), 1);
+  assert.ok(existsSync(live));
+  assert.ok(!existsSync(dead), "the dead ticket ahead was pruned");
+  assert.ok(existsSync(later), "a ticket behind is not this waiter's business");
+  leaveQueue(mine);
+  assert.ok(!existsSync(mine.path));
+  assert.equal(countAhead(freshDir(), mine), 0, "no queue directory at all");
+});
+
+test("refreshTicket: a ticket a peer pruned comes back under the same name", () => {
+  const dir = freshDir();
+  const ticket = joinQueue(dir, { now: 1_000 });
+  rmSync(ticket.path);
+  refreshTicket(ticket);
+  assert.ok(existsSync(ticket.path), "the waiter kept its place in line");
+  const old = new Date(Date.now() - STALE_MS - 1_000);
+  utimesSync(ticket.path, old, old);
+  refreshTicket(ticket);
+  assert.equal(isTicketLive(ticket.path), true, "and a refresh keeps it fresh");
+});
+
+test("waiters take the lease in arrival order, not by who polls first (#2473)", async () => {
+  const dir = freshDir();
+  const marks = join(dir, "marks.log");
+  const body = (label, ms) =>
+    `const fs=require("fs");const f=${JSON.stringify(marks)};` +
+    `fs.appendFileSync(f,"${label} "+Date.now()+"\\n");` +
+    `setTimeout(()=>{},${ms})`;
+  const first = runNode(body("a", 400), { dir, log: () => {} });
+  await waitFor(() => existsSync(leaseTarget(dir)));
+  // `b` arrives first but polls slowly; `c` arrives second and polls fast.
+  // Without the queue `c` wins the release nearly every time.
+  const second = runNode(body("b", 0), { dir, log: () => {}, pollMs: 300 });
+  await waitFor(() => readdirSync(queueDirOf(dir)).length === 1);
+  const late = collectLog();
+  const third = runNode(body("c", 0), { dir, log: late.log, pollMs: 5 });
+  assert.deepEqual(await Promise.all([first, second, third]), [0, 0, 0]);
+
+  const order = readFileSync(marks, "utf8")
+    .trim()
+    .split("\n")
+    .map((line) => line.split(" ")[0]);
+  assert.deepEqual(order, ["a", "b", "c"]);
+  assert.match(
+    late.lines.find((l) => l.includes("holds the gate lease")),
+    /with 1 more gate queued ahead of this one/,
+  );
+  assert.deepEqual(
+    readdirSync(queueDirOf(dir)),
+    [],
+    "every ticket was taken back",
+  );
+});
+
+test("a live waiter ahead holds the line even while the lock is free", async () => {
+  const dir = freshDir();
+  const ahead = plantTicket(dir, { queuedAt: 1, pid: process.pid });
+  const { lines, log } = collectLog();
+  await assert.rejects(runNode("", { dir, log, maxWaitMs: 0 }), (err) => {
+    assert.match(err.message, /gave up after/);
+    assert.match(err.message, /with 1 more gate queued ahead of this one/);
+    return true;
+  });
+  assert.ok(!existsSync(lockPathOf(dir)), "it never asked for the lock");
+  assert.deepEqual(
+    readdirSync(queueDirOf(dir)),
+    [basename(ahead)],
+    "giving up took its own ticket back and left the other alone",
+  );
+  assert.equal(
+    lines.filter((l) => l.includes("holds the gate lease")).length,
+    1,
+  );
+});
+
+test("a dead waiter's ticket does not block the line", async () => {
+  const dir = freshDir();
+  const crashed = plantTicket(dir, { queuedAt: 1, pid: deadPid() });
+  const { lines, log } = collectLog();
+  assert.equal(await runNode("", { dir, log, maxWaitMs: 0 }), 0);
+  assert.equal(
+    lines.filter((l) => l.includes("holds the gate lease")).length,
+    0,
+    lines.join("\n"),
+  );
+  assert.ok(!existsSync(crashed));
+});
+
+test("a queue that cannot be joined still takes the lease, out of turn", async () => {
+  const dir = freshDir();
+  writeFileSync(queueDirOf(dir), "a file where the queue should be");
+  const { lines, log } = collectLog();
+  assert.equal(await runNode("", { dir, log }), 0);
+  assert.match(
+    lines.join("\n"),
+    /could not join the queue at .*; waiting for the lease out of turn/,
+  );
+  assert.ok(
+    lines.some((l) => l.startsWith("gate-lease: released after")),
+    "the run was still leased",
   );
 });
 
