@@ -130,7 +130,7 @@ export const CONNECTION_RPC_METHODS = [
   "skills/get",
 ] as const;
 
-export type SessionRpcMethod = (typeof CONNECTION_RPC_METHODS)[number];
+export type ConnectionRpcMethod = (typeof CONNECTION_RPC_METHODS)[number];
 
 /**
  * Methods accepted by `mcp-inspector --cli` (plus catalog-only

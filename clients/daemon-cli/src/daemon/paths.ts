@@ -142,7 +142,13 @@ export function assertSocketPathWithinLimit(socketPath: string): void {
 
 /** Ensure the daemon directory exists before binding the socket.
  * Created 0700: the socket lives inside, so its own mode never has to be
- * the enforcement boundary (BSDs are inconsistent about socket modes). */
+ * the enforcement boundary (BSDs are inconsistent about socket modes).
+ * `mkdirSync` never changes the mode of a pre-existing directory — and the
+ * default `~/.mcp-inspector` commonly already exists at 0755 from other
+ * inspector components — so an existing directory is re-validated and
+ * tightened with the same symlink/ownership/mode checks as the private
+ * tmp root. */
 export function ensureDaemonDir(dir: string = getDaemonDir()): void {
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  assertTrustedPrivateRoot(dir);
 }

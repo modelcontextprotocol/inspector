@@ -65,6 +65,24 @@ describe("daemon paths", () => {
     fs.rmSync(dir, { recursive: true, force: true });
   });
 
+  it("tightens a pre-existing loose daemon directory to 0700 and rejects symlinks", () => {
+    // mkdirSync never re-modes an existing dir; ~/.mcp-inspector commonly
+    // pre-exists at 0755, so ensureDaemonDir must tighten it itself.
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), "daemon-tighten-"));
+    const loose = path.join(base, "loose");
+    fs.mkdirSync(loose, { mode: 0o755 });
+    fs.chmodSync(loose, 0o755);
+    ensureDaemonDir(loose);
+    expect(fs.statSync(loose).mode & 0o077).toBe(0);
+
+    const target = path.join(base, "target");
+    fs.mkdirSync(target, { mode: 0o700 });
+    const link = path.join(base, "link");
+    fs.symlinkSync(target, link);
+    expect(() => ensureDaemonDir(link)).toThrow(/not a directory/);
+    fs.rmSync(base, { recursive: true, force: true });
+  });
+
   it("createPrivateDaemonDir nests under a short 0700 tmpdir layout", () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "mcp-conn-t-"));
     setEnv("TMPDIR", tmp + path.sep);
