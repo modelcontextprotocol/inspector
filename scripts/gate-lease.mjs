@@ -310,6 +310,25 @@ export function describeQueue(ahead) {
   return `, with ${ahead} more gate${ahead === 1 ? "" : "s"} queued ahead of this one`;
 }
 
+/**
+ * What a waiter is waiting on. The lock can be free while this waiter is not
+ * at the head of the line — the head is between polls — and then naming a
+ * holder would send someone to stop a gate that does not exist, so that case
+ * names the queue instead. `lockPath` is appended to the holder form only,
+ * for the give-up line, where it is the thing to remove by hand.
+ */
+export function describeWait(
+  dir,
+  ahead,
+  { withLockPath = false, now = Date.now() } = {},
+) {
+  if (ahead > 0 && !existsSync(lockPathOf(dir))) {
+    return `the lease is free, but ${ahead} gate${ahead === 1 ? " queued ahead of this one goes" : "s queued ahead of this one go"} first`;
+  }
+  const where = withLockPath ? ` (${lockPathOf(dir)})` : "";
+  return `${describeHolder(readHolder(dir), now)} holds the gate lease${where}${describeQueue(ahead)}`;
+}
+
 /** `INSPECTOR_SKIP_GATE_LEASE=0` and an empty value both mean "not skipped". */
 export function isSkipped(env = process.env) {
   const value = env[SKIP_ENV];
@@ -536,21 +555,20 @@ async function acquireLease({ dir, fs, log, pollMs, progressMs, maxWaitMs }) {
         }
       }
       const waited = Date.now() - startedWaiting;
-      const queue = describeQueue(ahead);
       if (!announced) {
         announced = true;
         log(
-          `gate-lease: ${describeHolder(readHolder(dir))} holds the gate lease${queue}; waiting for its turn so the gates do not contend. ${SKIP_ENV}=1 runs anyway.`,
+          `gate-lease: ${describeWait(dir, ahead)}; waiting for its turn so the gates do not contend. ${SKIP_ENV}=1 runs anyway.`,
         );
       } else if (Date.now() - lastProgress >= progressMs) {
         lastProgress = Date.now();
         log(
-          `gate-lease: still waiting (${formatDuration(waited)}) on ${describeHolder(readHolder(dir))}${queue}.`,
+          `gate-lease: still waiting (${formatDuration(waited)}): ${describeWait(dir, ahead)}.`,
         );
       }
       if (waited >= maxWaitMs) {
         throw new Error(
-          `gate-lease: gave up after ${formatDuration(waited)} — ${describeHolder(readHolder(dir))} still holds ${lockPathOf(dir)}${queue}. If that gate is hung, stop it; ${SKIP_ENV}=1 runs without the lease.`,
+          `gate-lease: gave up after ${formatDuration(waited)} — ${describeWait(dir, ahead, { withLockPath: true })}. If a gate is hung, stop it; ${SKIP_ENV}=1 runs without the lease.`,
         );
       }
       await delay(pollMs);

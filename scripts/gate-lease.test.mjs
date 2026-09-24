@@ -31,6 +31,7 @@ import {
   countAhead,
   describeHolder,
   describeQueue,
+  describeWait,
   exitCodeFor,
   formatDuration,
   isSkipped,
@@ -540,6 +541,11 @@ test("waiters take the lease in arrival order, not by who polls first (#2473)", 
   // Without the queue `c` wins the release nearly every time.
   const second = runNode(body("b", 0), { dir, log: () => {}, pollMs: 300 });
   await waitFor(() => readdirSync(queueDirOf(dir)).length === 1);
+  // Both runs share this process's pid, so a `c` ticket stamped in the same
+  // millisecond as `b`'s would be ordered by its random suffix alone. Let the
+  // clock pass `b`'s arrival first, so the order asserted is the one made.
+  const bQueuedAt = Number(readdirSync(queueDirOf(dir))[0].split("-")[0]);
+  await waitFor(() => Date.now() > bQueuedAt);
   const late = collectLog();
   const third = runNode(body("c", 0), { dir, log: late.log, pollMs: 5 });
   assert.deepEqual(await Promise.all([first, second, third]), [0, 0, 0]);
@@ -550,8 +556,8 @@ test("waiters take the lease in arrival order, not by who polls first (#2473)", 
     .map((line) => line.split(" ")[0]);
   assert.deepEqual(order, ["a", "b", "c"]);
   assert.match(
-    late.lines.find((l) => l.includes("holds the gate lease")),
-    /with 1 more gate queued ahead of this one/,
+    late.lines.find((l) => l.includes("waiting for its turn")),
+    /1 (more )?gate queued ahead of this one/,
   );
   assert.deepEqual(
     readdirSync(queueDirOf(dir)),
@@ -566,7 +572,12 @@ test("a live waiter ahead holds the line even while the lock is free", async () 
   const { lines, log } = collectLog();
   await assert.rejects(runNode("", { dir, log, maxWaitMs: 0 }), (err) => {
     assert.match(err.message, /gave up after/);
-    assert.match(err.message, /with 1 more gate queued ahead of this one/);
+    // The lock is free, so no holder may be named — only the queue.
+    assert.match(
+      err.message,
+      /the lease is free, but 1 gate queued ahead of this one goes first/,
+    );
+    assert.doesNotMatch(err.message, /holds the gate lease/);
     return true;
   });
   assert.ok(!existsSync(lockPathOf(dir)), "it never asked for the lock");
@@ -576,8 +587,30 @@ test("a live waiter ahead holds the line even while the lock is free", async () 
     "giving up took its own ticket back and left the other alone",
   );
   assert.equal(
-    lines.filter((l) => l.includes("holds the gate lease")).length,
+    lines.filter((l) => l.includes("waiting for its turn")).length,
     1,
+  );
+  assert.doesNotMatch(lines.join("\n"), /holds the gate lease/);
+});
+
+test("describeWait: names the holder while the lock is held, the queue while it is free", () => {
+  const dir = freshDir();
+  assert.equal(
+    describeWait(dir, 2),
+    "the lease is free, but 2 gates queued ahead of this one go first",
+  );
+  mkdirSync(lockPathOf(dir), { recursive: true });
+  writeFileSync(
+    leaseTarget(dir),
+    JSON.stringify({ pid: 12, cwd: "/w", startedAt: 1_000 }),
+  );
+  assert.equal(
+    describeWait(dir, 0, { now: 96_000 }),
+    "pid 12 in /w, running for 1m35s holds the gate lease",
+  );
+  assert.equal(
+    describeWait(dir, 1, { withLockPath: true, now: 96_000 }),
+    `pid 12 in /w, running for 1m35s holds the gate lease (${lockPathOf(dir)}), with 1 more gate queued ahead of this one`,
   );
 });
 
