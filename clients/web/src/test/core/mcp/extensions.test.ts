@@ -21,7 +21,7 @@ const ALL_REGISTRY_OFF = {
   [SKILLS_EXTENSION_KEY]: false,
 };
 
-describe("extensions (#1738, #1740, #2373)", () => {
+describe("extensions (#1738, #1740, #2373, #2403)", () => {
   describe("ADVERTISABLE_EXTENSIONS registry", () => {
     it("lists the Tasks extension, advertised by default", () => {
       const tasks = ADVERTISABLE_EXTENSIONS.find(
@@ -38,6 +38,8 @@ describe("extensions (#1738, #1740, #2373)", () => {
       );
       expect(ui).toBeDefined();
       expect(ui?.defaultAdvertised).toBe(true);
+      // ...but only for a client that can render Apps (#2403).
+      expect(ui?.requiresAppRenderer).toBe(true);
       expect(ui?.advertisement).toEqual(UI_ADVERTISEMENT);
       // The exact value is drift-guarded against ext-apps' real RESOURCE_MIME_TYPE
       // in src/test/integration/mcp/extensions-mimetype.test.ts (node env, where
@@ -76,7 +78,10 @@ describe("extensions (#1738, #1740, #2373)", () => {
 
   describe("buildClientExtensions", () => {
     it("advertises registry defaults with no overrides (tasks + ui + skills)", () => {
-      const map = buildClientExtensions({ enterpriseManaged: false });
+      const map = buildClientExtensions({
+        enterpriseManaged: false,
+        rendersApps: true,
+      });
       expect(map).toEqual({
         [TASKS_EXTENSION_KEY]: {},
         [UI_EXTENSION_KEY]: UI_ADVERTISEMENT,
@@ -85,23 +90,35 @@ describe("extensions (#1738, #1740, #2373)", () => {
     });
 
     it("stamps the UI extension's mimeTypes advertisement value (#1740)", () => {
-      const map = buildClientExtensions({ enterpriseManaged: false });
+      const map = buildClientExtensions({
+        enterpriseManaged: false,
+        rendersApps: true,
+      });
       expect(map[UI_EXTENSION_KEY]).toEqual(UI_ADVERTISEMENT);
     });
 
     it("does not alias the registry advertisement across builds (#1740)", () => {
       // Mutating a stamped advertisement must not corrupt the registry for the
       // next connection — the builder clones it.
-      const first = buildClientExtensions({ enterpriseManaged: false });
+      const first = buildClientExtensions({
+        enterpriseManaged: false,
+        rendersApps: true,
+      });
       (first[UI_EXTENSION_KEY] as { mimeTypes: string[] }).mimeTypes.push(
         "text/evil",
       );
-      const second = buildClientExtensions({ enterpriseManaged: false });
+      const second = buildClientExtensions({
+        enterpriseManaged: false,
+        rendersApps: true,
+      });
       expect(second[UI_EXTENSION_KEY]).toEqual(UI_ADVERTISEMENT);
     });
 
     it("adds EMA when enterpriseManaged, alongside the registry defaults", () => {
-      const map = buildClientExtensions({ enterpriseManaged: true });
+      const map = buildClientExtensions({
+        enterpriseManaged: true,
+        rendersApps: true,
+      });
       expect(map).toEqual({
         [TASKS_EXTENSION_KEY]: {},
         [UI_EXTENSION_KEY]: UI_ADVERTISEMENT,
@@ -111,13 +128,17 @@ describe("extensions (#1738, #1740, #2373)", () => {
     });
 
     it("omits EMA when not enterpriseManaged", () => {
-      const map = buildClientExtensions({ enterpriseManaged: false });
+      const map = buildClientExtensions({
+        enterpriseManaged: false,
+        rendersApps: true,
+      });
       expect(map).not.toHaveProperty(EMA_EXTENSION_KEY);
     });
 
     it("honors a user override that disables a default-on extension", () => {
       const map = buildClientExtensions({
         enterpriseManaged: false,
+        rendersApps: true,
         advertised: ALL_REGISTRY_OFF,
       });
       expect(map).toEqual({});
@@ -126,6 +147,7 @@ describe("extensions (#1738, #1740, #2373)", () => {
     it("can disable just the UI extension, keeping the others (#1740)", () => {
       const map = buildClientExtensions({
         enterpriseManaged: false,
+        rendersApps: true,
         advertised: { [UI_EXTENSION_KEY]: false },
       });
       expect(map).toEqual({
@@ -139,6 +161,7 @@ describe("extensions (#1738, #1740, #2373)", () => {
       // server refuses `skills/*` to a client that did not declare it.
       const map = buildClientExtensions({
         enterpriseManaged: false,
+        rendersApps: true,
         advertised: { [SKILLS_EXTENSION_KEY]: false },
       });
       expect(map).toEqual({
@@ -150,6 +173,7 @@ describe("extensions (#1738, #1740, #2373)", () => {
     it("honors a user override that keeps a default-on extension enabled", () => {
       const map = buildClientExtensions({
         enterpriseManaged: false,
+        rendersApps: true,
         advertised: { ...ALL_REGISTRY_OFF, [TASKS_EXTENSION_KEY]: true },
       });
       expect(map).toEqual({ [TASKS_EXTENSION_KEY]: {} });
@@ -161,6 +185,7 @@ describe("extensions (#1738, #1740, #2373)", () => {
       // against someone mistakenly adding EMA to ADVERTISABLE_EXTENSIONS.
       const map = buildClientExtensions({
         enterpriseManaged: false,
+        rendersApps: true,
         advertised: { [EMA_EXTENSION_KEY]: true },
       });
       expect(map).not.toHaveProperty(EMA_EXTENSION_KEY);
@@ -169,6 +194,7 @@ describe("extensions (#1738, #1740, #2373)", () => {
     it("ignores override keys that are not in the registry", () => {
       const map = buildClientExtensions({
         enterpriseManaged: false,
+        rendersApps: true,
         advertised: { "io.example/unknown": true },
       });
       expect(map).toEqual({
@@ -181,6 +207,7 @@ describe("extensions (#1738, #1740, #2373)", () => {
     it("layers EMA on even when all registry entries are disabled", () => {
       const map = buildClientExtensions({
         enterpriseManaged: true,
+        rendersApps: true,
         advertised: ALL_REGISTRY_OFF,
       });
       expect(map).toEqual({ [EMA_EXTENSION_KEY]: {} });
@@ -189,13 +216,17 @@ describe("extensions (#1738, #1740, #2373)", () => {
 
   describe("app-rendered elicitation opt-in (#1854)", () => {
     it("does not advertise the nested elicitation setting by default", () => {
-      const map = buildClientExtensions({ enterpriseManaged: false });
+      const map = buildClientExtensions({
+        enterpriseManaged: false,
+        rendersApps: true,
+      });
       expect(map[UI_EXTENSION_KEY]).toEqual(UI_ADVERTISEMENT);
     });
 
     it("nests `elicitation` inside the UI extension when opted in", () => {
       const map = buildClientExtensions({
         enterpriseManaged: false,
+        rendersApps: true,
         appElicitation: true,
       });
       expect(map[UI_EXTENSION_KEY]).toEqual({
@@ -214,6 +245,7 @@ describe("extensions (#1738, #1740, #2373)", () => {
     it("advertises nothing when the UI extension itself is turned off", () => {
       const map = buildClientExtensions({
         enterpriseManaged: false,
+        rendersApps: true,
         appElicitation: true,
         advertised: { [UI_EXTENSION_KEY]: false },
       });
@@ -221,11 +253,49 @@ describe("extensions (#1738, #1740, #2373)", () => {
     });
 
     it("does not mutate the shared registry advertisement", () => {
-      buildClientExtensions({ enterpriseManaged: false, appElicitation: true });
+      buildClientExtensions({
+        enterpriseManaged: false,
+        rendersApps: true,
+        appElicitation: true,
+      });
       const ui = ADVERTISABLE_EXTENSIONS.find(
         (e) => e.key === UI_EXTENSION_KEY,
       );
       expect(ui?.advertisement).toEqual(UI_ADVERTISEMENT);
+    });
+  });
+
+  describe("clients that cannot render Apps (#2403)", () => {
+    // The CLI and TUI share InspectorClient but have no App renderer, so they
+    // must not tell a server they support Apps unless explicitly asked to.
+    it("omits the UI extension by default when rendersApps is absent", () => {
+      const map = buildClientExtensions({ enterpriseManaged: false });
+      expect(map).toEqual({
+        [TASKS_EXTENSION_KEY]: {},
+        [SKILLS_EXTENSION_KEY]: {},
+      });
+    });
+
+    it("omits the UI extension by default when rendersApps is false", () => {
+      const map = buildClientExtensions({
+        enterpriseManaged: false,
+        rendersApps: false,
+      });
+      expect(map).not.toHaveProperty(UI_EXTENSION_KEY);
+    });
+
+    it("advertises the UI extension on an explicit override", () => {
+      const map = buildClientExtensions({
+        enterpriseManaged: false,
+        advertised: { [UI_EXTENSION_KEY]: true },
+      });
+      expect(map[UI_EXTENSION_KEY]).toEqual(UI_ADVERTISEMENT);
+    });
+
+    it("does not gate extensions that need no renderer", () => {
+      const map = buildClientExtensions({ enterpriseManaged: false });
+      expect(map).toHaveProperty(TASKS_EXTENSION_KEY);
+      expect(map).toHaveProperty(SKILLS_EXTENSION_KEY);
     });
   });
 });

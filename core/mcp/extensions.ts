@@ -19,8 +19,8 @@ export const EMA_EXTENSION_KEY =
  * package's `/server` subpath, which would pull server-only code (and the
  * optional `@modelcontextprotocol/server` peer) into the browser bundle. The
  * node integration test `extensions-mimetype.test.ts` pins the two together.
- * The Inspector always renders MCP Apps, so this is advertised by default
- * (#1740).
+ * Advertised by default only by a client that can render MCP Apps (the web
+ * client) — see {@link BuildClientExtensionsInput.rendersApps} (#1740, #2403).
  */
 export const UI_EXTENSION_KEY = "io.modelcontextprotocol/ui";
 
@@ -65,6 +65,15 @@ export interface AdvertisableExtension {
    * carries settings — e.g. the UI extension's `mimeTypes` — sets its own shape.
    */
   advertisement?: ExtensionAdvertisement;
+  /**
+   * True when advertising this extension claims the client can render MCP
+   * Apps. Its `defaultAdvertised` then applies only to a client that sets
+   * {@link BuildClientExtensionsInput.rendersApps}; any other client leaves it
+   * off unless the user explicitly overrides it on. A server uses the
+   * advertisement to decide whether to return an App, so a client that cannot
+   * render one must not claim it by default (#2403).
+   */
+  requiresAppRenderer?: boolean;
 }
 
 /**
@@ -86,10 +95,13 @@ export const ADVERTISABLE_EXTENSIONS: readonly AdvertisableExtension[] = [
   {
     key: UI_EXTENSION_KEY,
     label: "MCP Apps UI (io.modelcontextprotocol/ui)",
-    // The MCP Apps UI extension. The Inspector always renders App tools, so it
-    // advertises this by default with the App resource MIME type it supports —
-    // a conforming server checks the `mimeTypes` before serving a UI resource.
+    // The MCP Apps UI extension, advertised with the App resource MIME type the
+    // Inspector renders — a conforming server checks the `mimeTypes` before
+    // serving a UI resource. Default-on only where Apps can actually be
+    // rendered (the web client); the CLI and TUI cannot, so they leave it off
+    // unless explicitly overridden (#2403).
     defaultAdvertised: true,
+    requiresAppRenderer: true,
     advertisement: { mimeTypes: [MCP_APP_MIME_TYPE] },
   },
   {
@@ -116,6 +128,14 @@ export interface BuildClientExtensionsInput {
    */
   advertised?: Record<string, boolean>;
   /**
+   * True when this client can render MCP Apps. Gates the registry default of
+   * every entry marked `requiresAppRenderer` (today the UI extension): without
+   * it such an entry is advertised only on an explicit override. Defaults to
+   * false, so the CLI and TUI — which share `InspectorClient` but have no
+   * renderer — do not misrepresent themselves to servers (#2403).
+   */
+  rendersApps?: boolean;
+  /**
    * True when this client can render an MCP App and resolve an
    * `elicitation/create` request through its bridge (#1854). Adds the nested
    * `elicitation` setting to the UI extension's advertisement, which is half of
@@ -137,6 +157,9 @@ export interface BuildClientExtensionsInput {
  * a registry-default fallback; EMA is layered on top as an auth-mode-driven
  * built-in.
  *
+ * An entry marked `requiresAppRenderer` defaults to advertised only when
+ * `rendersApps` is set (#2403).
+ *
  * With the Tasks entry defaulting to advertised, the map is non-empty for a
  * default config, so `capabilities.extensions` is always attached.
  */
@@ -145,7 +168,10 @@ export function buildClientExtensions(
 ): Record<string, ExtensionAdvertisement> {
   const map: Record<string, ExtensionAdvertisement> = {};
   for (const ext of ADVERTISABLE_EXTENSIONS) {
-    const advertised = input.advertised?.[ext.key] ?? ext.defaultAdvertised;
+    const defaultAdvertised =
+      ext.defaultAdvertised &&
+      (!ext.requiresAppRenderer || input.rendersApps === true);
+    const advertised = input.advertised?.[ext.key] ?? defaultAdvertised;
     if (advertised) {
       // Clone the registry advertisement so the returned map never aliases the
       // shared `ADVERTISABLE_EXTENSIONS` entry — a later in-place mutation of a

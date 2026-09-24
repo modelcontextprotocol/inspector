@@ -17,6 +17,7 @@ import { writeFormattedResult } from "./handlers/format-output.js";
 import { clearStoredAuthForRelogin } from "./clear-stored-auth-for-relogin.js";
 import { InspectorClient } from "@inspector/core/mcp/index.js";
 import { cleanRoots } from "@inspector/core/mcp/serverList.js";
+import { UI_EXTENSION_KEY } from "@inspector/core/mcp/extensions.js";
 import {
   createProxyFetch,
   createTransportNode,
@@ -205,6 +206,13 @@ async function callMethod(
     // Absent era defaults to legacy in the InspectorClient constructor (#1626).
     ...(serverSettings?.protocolEra && {
       versionNegotiation: eraToVersionNegotiation(serverSettings.protocolEra),
+    }),
+    // The CLI cannot render an MCP App, so it does not advertise the UI
+    // extension by default (#2403). `--advertise-apps` claims it explicitly,
+    // for a server that only exposes its App tools to a client that does —
+    // which is what an `--app-info` probe against such a server needs.
+    ...(args.advertiseApps && {
+      advertisedExtensions: { [UI_EXTENSION_KEY]: true },
     }),
     ...clientAuthOptions,
   });
@@ -757,6 +765,10 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
       "Probe the tool's MCP App UI metadata (resourceUri, csp, permissions, domain) and emit it as one JSON line; exit 2 when the tool has no app. Use with --method tools/call --tool-name <name> (the tool itself is not invoked) or --method tools/list (one NDJSON line per tool).",
     )
     .option(
+      "--advertise-apps",
+      "Advertise the MCP Apps UI extension (io.modelcontextprotocol/ui) at initialize. Off by default because the CLI cannot render an App; set it when a server only exposes its App tools to a client that claims App support, e.g. for an --app-info probe.",
+    )
+    .option(
       "--strict",
       "Report tool-schema portability problems in full (path, issue, suggested fix) on stderr, and exit 6 if any is error-severity. Use with --method tools/list. Without it, a one-line count is printed instead.",
     )
@@ -873,6 +885,7 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     serverUrl?: string;
     header?: Record<string, string>;
     appInfo?: boolean;
+    advertiseApps?: boolean;
     strict?: boolean;
     verify?: boolean;
     cursor?: string;
@@ -1190,6 +1203,7 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     metadata: options.metadata,
     toolMeta: options.toolMetadata,
     appInfo: options.appInfo === true,
+    advertiseApps: options.advertiseApps === true,
     strict: options.strict === true,
     verify: options.verify === true,
     cursor: options.cursor,

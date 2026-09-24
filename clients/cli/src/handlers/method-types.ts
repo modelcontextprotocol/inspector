@@ -25,6 +25,13 @@ export type MethodArgs = {
   metadata?: RequestMetadata;
   appInfo?: boolean;
   /**
+   * `--advertise-apps`: advertise the MCP Apps UI extension
+   * (`io.modelcontextprotocol/ui`) at `initialize`. The CLI cannot render an
+   * App, so it does not claim the extension by default; this opts in for a
+   * server that only exposes its App tools to a client that does (#2403).
+   */
+  advertiseApps?: boolean;
+  /**
    * `--strict`: report tool-schema portability findings in full and exit
    * non-zero when any is error-severity (#1005). `tools/list` only.
    */
