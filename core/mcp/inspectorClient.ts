@@ -2300,7 +2300,10 @@ export class InspectorClient extends InspectorClientEventTarget {
         transportOptions,
       );
       this.baseTransport = baseTransport;
-      this.transportSettings = this.serverSettings;
+      // What the factory was handed, not the live value: `transportOptions`
+      // was built before the OAuth awaits above, and a settings save landing
+      // during them would otherwise be reported as sent when it was not.
+      this.transportSettings = transportOptions.settings;
       if (this.directAuthRecovery) {
         this.directAuthRecoveryActive = !(
           baseTransport instanceof RemoteClientTransport
