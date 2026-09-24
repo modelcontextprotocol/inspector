@@ -140,15 +140,20 @@ const UNREACHABLE_PATTERN =
   /ENOTFOUND|ECONNREFUSED|ECONNRESET|EAI_AGAIN|ETIMEDOUT|fetch failed|getaddrinfo|connect(?:ion)? timed out|aborted/i;
 
 /**
- * An `http(s)://` URL embedded in free text. Stops at whitespace and at the
- * quote/bracket characters that commonly delimit a URL inside a message.
+ * An `http(s)://` URL embedded in free text. Stops at whitespace, at the
+ * double-quote/angle-bracket characters that commonly delimit a URL inside a
+ * message, and where a second `http(s)://` begins — so two URLs joined by a
+ * comma are redacted separately rather than the second one's query being read
+ * as part of the first one's last value (Copilot). An apostrophe is kept in the
+ * match because it is legal inside a query value; a *trailing* one is peeled
+ * off as punctuation below, which still handles a `'…'`-quoted URL.
  * Case-insensitive because URI schemes are: `HTTPS://…?code=…` is the same
  * URL and must not slip past the redaction (Copilot).
  */
-const EMBEDDED_URL_PATTERN = /\bhttps?:\/\/[^\s"'<>]+/gi;
+const EMBEDDED_URL_PATTERN = /\bhttps?:\/\/(?:(?!https?:\/\/)[^\s"<>])+/gi;
 
-/** Sentence punctuation a message may put right after a URL. */
-const TRAILING_PUNCTUATION = /[.,;:!?)\]]+$/;
+/** Sentence punctuation (or a closing quote) a message may put right after a URL. */
+const TRAILING_PUNCTUATION = /[.,;:!?)\]']+$/;
 
 /**
  * Apply {@link redactUrlQuery} to every URL embedded in `text`. Trailing

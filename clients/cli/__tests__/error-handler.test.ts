@@ -340,6 +340,35 @@ describe("envelope URL redaction", () => {
     );
   });
 
+  it("redacts each of two comma-joined URLs separately", () => {
+    const { envelope } = classifyError(
+      new Error(
+        "https://one.example/cb?state=ok,https://two.example/cb?code=secret",
+      ),
+    );
+    expect(envelope.message).toBe(
+      "https://one.example/cb?state=ok,https://two.example/cb?code=%5BREDACTED%5D",
+    );
+  });
+
+  it("redacts through an apostrophe inside a query value", () => {
+    const { envelope } = classifyError(
+      new Error("at https://srv.example/cb?code=abc'def now"),
+    );
+    expect(envelope.message).toBe(
+      "at https://srv.example/cb?code=%5BREDACTED%5D now",
+    );
+  });
+
+  it("keeps the closing quote of a single-quoted URL", () => {
+    const { envelope } = classifyError(
+      new Error("at 'https://srv.example/cb?code=abc123'."),
+    );
+    expect(envelope.message).toBe(
+      "at 'https://srv.example/cb?code=%5BREDACTED%5D'.",
+    );
+  });
+
   it("redacts a URL embedded in the cause chain", () => {
     const { envelope } = classifyError(
       new Error("fetch failed", {
