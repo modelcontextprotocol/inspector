@@ -37,19 +37,35 @@ function provider(tokens: OAuthTokens | undefined): OAuthClientProvider {
 }
 
 /**
- * Send one request through a transport built the way `InspectorClient` builds
- * it, and return the `Authorization` header the underlying fetch received.
+ * The SSE endpoint event: the GET's stream must name the POST URL before
+ * `start()` resolves.
  */
-async function sentAuthorization(
+function sseStream(): Response {
+  return new Response("event: endpoint\ndata: /messages\n\n", {
+    status: 200,
+    headers: { "content-type": "text/event-stream" },
+  });
+}
+
+function jsonResult(): Response {
+  return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: {} }), {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  });
+}
+
+/**
+ * Start a transport built the way `InspectorClient` builds it, send one
+ * request, and return `METHOD authorization` for every request the underlying
+ * fetch received — for SSE that is the EventSource GET as well as the POST,
+ * which build their headers separately.
+ */
+async function sentAuthorizations(
   config: MCPServerConfig,
   tokens: OAuthTokens | undefined,
-): Promise<string | null> {
-  const fetchFn = vi.fn<typeof fetch>(
-    async () =>
-      new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: {} }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      }),
+): Promise<string[]> {
+  const fetchFn = vi.fn<typeof fetch>(async (_url, init) =>
+    (init?.method ?? "GET") === "GET" ? sseStream() : jsonResult(),
   );
   const { transport } = createTransportNode(config, {
     fetchFn,
@@ -59,26 +75,45 @@ async function sentAuthorization(
   await transport.start();
   await transport.send({ jsonrpc: "2.0", id: 1, method: "ping" });
   await transport.close();
-  expect(fetchFn).toHaveBeenCalled();
-  return new Headers(fetchFn.mock.calls[0]![1]?.headers).get("authorization");
+  return fetchFn.mock.calls.map(
+    ([, init]) =>
+      `${init?.method ?? "GET"} ${new Headers(init?.headers).get("authorization")}`,
+  );
 }
 
-const HTTP: MCPServerConfig = {
-  type: "streamable-http",
-  url: "http://127.0.0.1:9/mcp",
-};
+const TRANSPORTS: {
+  name: string;
+  config: MCPServerConfig;
+  methods: string[];
+}[] = [
+  {
+    name: "streamable-http",
+    config: { type: "streamable-http", url: "http://127.0.0.1:9/mcp" },
+    methods: ["POST"],
+  },
+  {
+    name: "sse",
+    config: { type: "sse", url: "http://127.0.0.1:9/sse" },
+    methods: ["GET", "POST"],
+  },
+];
 
-describe("custom Authorization header vs OAuth token (streamable-http)", () => {
-  it("sends the OAuth token in place of the custom header once one exists", async () => {
-    expect(
-      await sentAuthorization(HTTP, {
-        access_token: OAUTH_TOKEN,
-        token_type: "Bearer",
-      }),
-    ).toBe(`Bearer ${OAUTH_TOKEN}`);
-  });
+describe.each(TRANSPORTS)(
+  "custom Authorization header vs OAuth token ($name)",
+  ({ config, methods }) => {
+    it("sends the OAuth token in place of the custom header once one exists", async () => {
+      expect(
+        await sentAuthorizations(config, {
+          access_token: OAUTH_TOKEN,
+          token_type: "Bearer",
+        }),
+      ).toEqual(methods.map((m) => `${m} Bearer ${OAUTH_TOKEN}`));
+    });
 
-  it("sends the custom header while OAuth has no token", async () => {
-    expect(await sentAuthorization(HTTP, undefined)).toBe(CUSTOM);
-  });
-});
+    it("sends the custom header while OAuth has no token", async () => {
+      expect(await sentAuthorizations(config, undefined)).toEqual(
+        methods.map((m) => `${m} ${CUSTOM}`),
+      );
+    });
+  },
+);
