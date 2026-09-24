@@ -142,8 +142,10 @@ const UNREACHABLE_PATTERN =
 /**
  * An `http(s)://` URL embedded in free text. Stops at whitespace and at the
  * quote/bracket characters that commonly delimit a URL inside a message.
+ * Case-insensitive because URI schemes are: `HTTPS://…?code=…` is the same
+ * URL and must not slip past the redaction (Copilot).
  */
-const EMBEDDED_URL_PATTERN = /\bhttps?:\/\/[^\s"'<>]+/g;
+const EMBEDDED_URL_PATTERN = /\bhttps?:\/\/[^\s"'<>]+/gi;
 
 /** Sentence punctuation a message may put right after a URL. */
 const TRAILING_PUNCTUATION = /[.,;:!?)\]]+$/;

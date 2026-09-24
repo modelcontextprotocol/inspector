@@ -329,6 +329,17 @@ describe("envelope URL redaction", () => {
     expect(envelope.message).not.toContain("tok456");
   });
 
+  it("redacts a URL whose scheme is upper- or mixed-case", () => {
+    const { envelope } = classifyError(
+      new Error(
+        "a HTTP://srv.example/cb?access_token=tok456 b HttpS://srv.example/cb?code=abc123",
+      ),
+    );
+    expect(envelope.message).toBe(
+      "a HTTP://srv.example/cb?access_token=%5BREDACTED%5D b HttpS://srv.example/cb?code=%5BREDACTED%5D",
+    );
+  });
+
   it("redacts a URL embedded in the cause chain", () => {
     const { envelope } = classifyError(
       new Error("fetch failed", {
