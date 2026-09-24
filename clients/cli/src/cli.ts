@@ -46,9 +46,9 @@ export { emitResult } from "./handlers/emit-result.js";
 export { collectAppInfo } from "./handlers/collect-app-info.js";
 import {
   parseOAuthPersistBlob,
-  serializeOAuthPersistBlob,
   type OAuthPersistSnapshot,
 } from "@inspector/core/auth/oauth-persist.js";
+import { writeOAuthSections } from "@inspector/core/auth/node/oauth-persist-file.js";
 import {
   discoverAuthorizationServerMetadataFromCandidates,
   getAuthorizationServerUrl,
@@ -56,7 +56,6 @@ import {
 } from "@inspector/core/auth/discovery.js";
 import { withRfc8414OidcCompat } from "@inspector/core/auth/oidcDiscoveryCompat.js";
 import { withOAuthRequestTimeout } from "@inspector/core/auth/requestTimeout.js";
-import { writeStoreFile } from "@inspector/core/storage/store-io.js";
 import {
   refreshAuthorization,
   discoverAuthorizationServerMetadata,
@@ -434,13 +433,15 @@ export async function refreshStoredAuthToken(
     );
   }
 
-  // Persist the rotated tokens back under the same key, preserving every other
-  // server entry and the idpSessions block, so web and CLI stay consistent.
-  // Route through the shared `writeStoreFile` (not a raw `writeFile`) so the
-  // secrets file keeps its owner-only `0o600` mode + `mkdir -p`, identical to
-  // how the web backend's OAuth persist backend writes it.
+  // Persist the rotated tokens back under the same key via the shared
+  // sectioned write: lock → fresh read → overlay just this server's entry →
+  // atomic write. This generalizes the read-modify-write this function used
+  // to hand-roll — the merge now happens against the file as it is at write
+  // time (not the snapshot read before the network round-trip), under the
+  // same cross-process lock every other writer uses, and keeps the file's
+  // owner-only `0o600` mode + `mkdir -p` via the shared store IO.
   servers[found.key] = { ...found.state, tokens };
-  await writeStoreFile(statePath, serializeOAuthPersistBlob(snapshot));
+  await writeOAuthSections(statePath, snapshot, { servers: [found.key] });
 
   return tokens.access_token;
 }

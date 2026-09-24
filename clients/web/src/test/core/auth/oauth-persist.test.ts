@@ -2,6 +2,8 @@ import { describe, it, expect, vi } from "vitest";
 import {
   parseOAuthPersistBlob,
   serializeOAuthPersistBlob,
+  mergeOAuthSections,
+  parseOAuthPersistSections,
   createRemoteOAuthPersistBackend,
   createSessionOAuthPersistBackend,
   OAUTH_PERSIST_STORAGE_KEY,
@@ -83,6 +85,104 @@ describe("serializeOAuthPersistBlob", () => {
   });
 });
 
+describe("mergeOAuthSections", () => {
+  const disk: OAuthPersistSnapshot = {
+    servers: {
+      "http://a": { scope: "a-disk" },
+      "http://b": { scope: "b-disk" },
+    },
+    idpSessions: { "https://idp1": { idToken: "disk-1" } },
+  };
+
+  it("overlays only the named server entries, keeping the rest from disk", () => {
+    const snapshot: OAuthPersistSnapshot = {
+      // Stale memory: never saw http://b, has an outdated http://a it did not
+      // mutate — only the named entry may land.
+      servers: { "http://c": { scope: "c-mem" }, "http://a": { scope: "old" } },
+      idpSessions: {},
+    };
+    const merged = mergeOAuthSections(disk, snapshot, {
+      servers: ["http://c"],
+    });
+    expect(merged).toEqual({
+      servers: {
+        "http://a": { scope: "a-disk" },
+        "http://b": { scope: "b-disk" },
+        "http://c": { scope: "c-mem" },
+      },
+      idpSessions: { "https://idp1": { idToken: "disk-1" } },
+    });
+  });
+
+  it("treats a named key absent from the snapshot as a deletion", () => {
+    const snapshot: OAuthPersistSnapshot = { servers: {}, idpSessions: {} };
+    const merged = mergeOAuthSections(disk, snapshot, {
+      servers: ["http://a"],
+      idpSessions: ["https://idp1"],
+    });
+    expect(merged).toEqual({
+      servers: { "http://b": { scope: "b-disk" } },
+      idpSessions: {},
+    });
+  });
+
+  it("overlays named idpSessions independently of servers", () => {
+    const snapshot: OAuthPersistSnapshot = {
+      servers: {},
+      idpSessions: {
+        "https://idp1": { idToken: "mem-1" },
+        "https://idp2": { idToken: "mem-2" },
+      },
+    };
+    const merged = mergeOAuthSections(disk, snapshot, {
+      idpSessions: ["https://idp2"],
+    });
+    expect(merged.servers).toEqual(disk.servers);
+    expect(merged.idpSessions).toEqual({
+      "https://idp1": { idToken: "disk-1" },
+      "https://idp2": { idToken: "mem-2" },
+    });
+  });
+
+  it("starts from an empty store when disk is null (first write)", () => {
+    const snapshot: OAuthPersistSnapshot = {
+      servers: { "http://a": { scope: "mem" } },
+      idpSessions: {},
+    };
+    expect(
+      mergeOAuthSections(null, snapshot, { servers: ["http://a"] }),
+    ).toEqual({
+      servers: { "http://a": { scope: "mem" } },
+      idpSessions: {},
+    });
+  });
+});
+
+describe("parseOAuthPersistSections", () => {
+  it("parses servers and idpSessions string arrays", () => {
+    expect(
+      parseOAuthPersistSections(
+        JSON.stringify({ servers: ["http://a"], idpSessions: ["https://i"] }),
+      ),
+    ).toEqual({ servers: ["http://a"], idpSessions: ["https://i"] });
+  });
+
+  it("accepts either key alone or an empty object", () => {
+    expect(parseOAuthPersistSections('{"servers":[]}')).toEqual({
+      servers: [],
+    });
+    expect(parseOAuthPersistSections("{}")).toEqual({});
+  });
+
+  it("rejects malformed JSON, non-objects, and non-string-array values", () => {
+    expect(parseOAuthPersistSections("not json")).toBeNull();
+    expect(parseOAuthPersistSections('"a string"')).toBeNull();
+    expect(parseOAuthPersistSections('{"servers":"http://a"}')).toBeNull();
+    expect(parseOAuthPersistSections('{"servers":[1]}')).toBeNull();
+    expect(parseOAuthPersistSections('{"idpSessions":{}}')).toBeNull();
+  });
+});
+
 describe("createRemoteOAuthPersistBackend", () => {
   const baseUrl = "http://remote.example/";
   const storeId = "oauth";
@@ -156,6 +256,26 @@ describe("createRemoteOAuthPersistBackend", () => {
     });
     await expect(failing.write(SNAPSHOT)).rejects.toThrow(
       /Failed to write store: 500/,
+    );
+  });
+
+  it("write() with sections carries them as a query parameter", async () => {
+    let capturedUrl: string | undefined;
+    const fetchFn = vi.fn<typeof fetch>(async (input) => {
+      capturedUrl = String(input);
+      return new Response("", { status: 200 });
+    });
+    const backend = createRemoteOAuthPersistBackend({
+      baseUrl,
+      storeId,
+      fetchFn,
+    });
+    const sections = { servers: ["http://s"] };
+    await backend.write(SNAPSHOT, sections);
+    const parsed = new URL(capturedUrl ?? "");
+    expect(parsed.pathname).toBe(`/api/storage/${storeId}`);
+    expect(JSON.parse(parsed.searchParams.get("sections") ?? "")).toEqual(
+      sections,
     );
   });
 

@@ -974,6 +974,97 @@ describe("Remote transport e2e", () => {
       expect(json.error).toBe("Invalid storeId");
     });
 
+    it("sectioned POST merges named entries over the stored file", async () => {
+      tempDir = mkdtempSync(join(tmpdir(), "inspector-storage-test-"));
+      const { baseUrl, server, authToken } = await startRemoteServer(0, {
+        storageDir: tempDir,
+      });
+      remoteServer = server;
+      const headers = {
+        "Content-Type": "application/json",
+        "x-mcp-remote-auth": `Bearer ${authToken}`,
+      };
+
+      // Another writer's state lands first (a plain whole-store write).
+      await fetch(`${baseUrl}/api/storage/oauth`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          servers: { "https://other.example": { scope: "other" } },
+          idpSessions: { "https://idp.example": { idToken: "keep" } },
+        }),
+      });
+
+      // A stale-snapshot writer that never saw the entries above posts a
+      // sectioned write naming only its own server — the others must survive.
+      const sections = encodeURIComponent(
+        JSON.stringify({ servers: ["https://mine.example"] }),
+      );
+      const res = await fetch(
+        `${baseUrl}/api/storage/oauth?sections=${sections}`,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            servers: { "https://mine.example": { scope: "mine" } },
+            idpSessions: {},
+          }),
+        },
+      );
+      expect(res.status).toBe(200);
+
+      const readRes = await fetch(`${baseUrl}/api/storage/oauth`, {
+        method: "GET",
+        headers: { "x-mcp-remote-auth": `Bearer ${authToken}` },
+      });
+      const stored = await readRes.json();
+      expect(stored.servers).toEqual({
+        "https://other.example": { scope: "other" },
+        "https://mine.example": { scope: "mine" },
+      });
+      expect(stored.idpSessions).toEqual({
+        "https://idp.example": { idToken: "keep" },
+      });
+    });
+
+    it("rejects sectioned POSTs with a bad descriptor or non-OAuth body", async () => {
+      tempDir = mkdtempSync(join(tmpdir(), "inspector-storage-test-"));
+      const { baseUrl, server, authToken } = await startRemoteServer(0, {
+        storageDir: tempDir,
+      });
+      remoteServer = server;
+      const headers = {
+        "Content-Type": "application/json",
+        "x-mcp-remote-auth": `Bearer ${authToken}`,
+      };
+
+      const badSections = await fetch(
+        `${baseUrl}/api/storage/oauth?sections=${encodeURIComponent('{"servers":"nope"}')}`,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ servers: {}, idpSessions: {} }),
+        },
+      );
+      expect(badSections.status).toBe(400);
+      expect((await badSections.json()).error).toBe(
+        "Invalid sections parameter",
+      );
+
+      const badBody = await fetch(
+        `${baseUrl}/api/storage/oauth?sections=${encodeURIComponent('{"servers":[]}')}`,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ someOtherStore: true }),
+        },
+      );
+      expect(badBody.status).toBe(400);
+      expect((await badBody.json()).error).toBe(
+        "Sectioned write requires an OAuth state body",
+      );
+    });
+
     it("rejects requests without auth token", async () => {
       tempDir = mkdtempSync(join(tmpdir(), "inspector-storage-test-"));
       const { baseUrl, server } = await startRemoteServer(0, {

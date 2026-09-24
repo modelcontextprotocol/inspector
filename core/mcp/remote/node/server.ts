@@ -37,6 +37,11 @@ import type {
 } from "../types.js";
 import type { JSONRPCMessage } from "@modelcontextprotocol/client";
 import { AuthChallengeError } from "../../../auth/challenge.js";
+import {
+  parseOAuthPersistBlob,
+  parseOAuthPersistSections,
+} from "../../../auth/oauth-persist.js";
+import { writeOAuthSections } from "../../../auth/node/oauth-persist-file.js";
 import { MCP_PARAM_HEADER_PREFIX } from "../../../json/xMcpHeader.js";
 import {
   DEFAULT_MAX_FETCH_REQUESTS,
@@ -1418,6 +1423,28 @@ export function createRemoteApp(
     try {
       if (storeId === "client") {
         await writeClientConfigStore(filePath, body, secretStore);
+        return c.json({ ok: true });
+      }
+
+      // Sectioned OAuth write (the remote OAuth persist backend opts in via
+      // `?sections=`): merge only the named entries over a fresh read of the
+      // file, under the cross-process lock. Without this, a browser tab
+      // holding a stale snapshot would overwrite entries other processes
+      // (daemon, CLI) wrote since the tab loaded.
+      const sectionsRaw = c.req.query("sections");
+      if (sectionsRaw !== undefined) {
+        const sections = parseOAuthPersistSections(sectionsRaw);
+        if (!sections) {
+          return c.json({ error: "Invalid sections parameter" }, 400);
+        }
+        const snapshot = parseOAuthPersistBlob(body);
+        if (!snapshot) {
+          return c.json(
+            { error: "Sectioned write requires an OAuth state body" },
+            400,
+          );
+        }
+        await writeOAuthSections(filePath, snapshot, sections);
         return c.json({ ok: true });
       }
 

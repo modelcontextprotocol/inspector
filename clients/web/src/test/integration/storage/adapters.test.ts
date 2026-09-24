@@ -179,6 +179,115 @@ describe("OAuth persistence", () => {
       await backend.remove!();
       expect(existsSync(filePath)).toBe(false);
     });
+
+    it("write without sections replaces the whole file (legacy path)", async () => {
+      tempDir = mkdtempSync(join(tmpdir(), "inspector-storage-test-"));
+      const filePath = join(tempDir!, "oauth.json");
+      await writeStoreFile(
+        filePath,
+        JSON.stringify({
+          servers: { "https://other.example": { scope: "other" } },
+          idpSessions: {},
+        }),
+      );
+      await flushStoreFileWrites(filePath);
+
+      const backend = createFileOAuthPersistBackend({ filePath });
+      await backend.write({
+        servers: { "https://mine.example": { scope: "mine" } },
+        idpSessions: {},
+      });
+      await flushStoreFileWrites(filePath);
+
+      const parsed = JSON.parse(readFileSync(filePath, "utf-8"));
+      expect(parsed.servers).toEqual({
+        "https://mine.example": { scope: "mine" },
+      });
+    });
+
+    it("sectioned write merges only the named entries over the file", async () => {
+      tempDir = mkdtempSync(join(tmpdir(), "inspector-storage-test-"));
+      const filePath = join(tempDir!, "oauth.json");
+      // Another process's state already on disk.
+      await writeStoreFile(
+        filePath,
+        JSON.stringify({
+          servers: { "https://other.example": { scope: "other" } },
+          idpSessions: { "https://idp.example": { idToken: "other-idp" } },
+        }),
+      );
+      await flushStoreFileWrites(filePath);
+
+      const backend = createFileOAuthPersistBackend({ filePath });
+      // This process's snapshot never saw the other entries — a stale
+      // whole-file write would erase them; the sectioned write must not.
+      await backend.write(
+        {
+          servers: { "https://mine.example": { scope: "mine" } },
+          idpSessions: {},
+        },
+        { servers: ["https://mine.example"] },
+      );
+      await flushStoreFileWrites(filePath);
+
+      const parsed = JSON.parse(readFileSync(filePath, "utf-8"));
+      expect(parsed.servers).toEqual({
+        "https://other.example": { scope: "other" },
+        "https://mine.example": { scope: "mine" },
+      });
+      expect(parsed.idpSessions).toEqual({
+        "https://idp.example": { idToken: "other-idp" },
+      });
+    });
+
+    it("sectioned write propagates deletions of the named entries", async () => {
+      tempDir = mkdtempSync(join(tmpdir(), "inspector-storage-test-"));
+      const filePath = join(tempDir!, "oauth.json");
+      await writeStoreFile(
+        filePath,
+        JSON.stringify({
+          servers: {
+            "https://keep.example": { scope: "keep" },
+            "https://cleared.example": { scope: "stale" },
+          },
+          idpSessions: {},
+        }),
+      );
+      await flushStoreFileWrites(filePath);
+
+      const backend = createFileOAuthPersistBackend({ filePath });
+      // The named server is absent from the snapshot (it was cleared) — the
+      // merge must delete it rather than resurrect the disk copy.
+      await backend.write(
+        { servers: {}, idpSessions: {} },
+        { servers: ["https://cleared.example"] },
+      );
+      await flushStoreFileWrites(filePath);
+
+      const parsed = JSON.parse(readFileSync(filePath, "utf-8"));
+      expect(parsed.servers).toEqual({
+        "https://keep.example": { scope: "keep" },
+      });
+    });
+
+    it("sectioned write against a missing file writes just the named entries", async () => {
+      tempDir = mkdtempSync(join(tmpdir(), "inspector-storage-test-"));
+      const filePath = join(tempDir!, "oauth.json");
+      const backend = createFileOAuthPersistBackend({ filePath });
+      await backend.write(
+        {
+          servers: { "https://mine.example": { scope: "mine" } },
+          idpSessions: {},
+        },
+        { servers: ["https://mine.example"] },
+      );
+      await flushStoreFileWrites(filePath);
+      const parsed = JSON.parse(readFileSync(filePath, "utf-8"));
+      expect(parsed).toEqual({
+        servers: { "https://mine.example": { scope: "mine" } },
+        idpSessions: {},
+      });
+    });
   });
 
   describe("flushStoreFileWrites", () => {

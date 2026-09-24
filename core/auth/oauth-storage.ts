@@ -14,7 +14,10 @@ import {
   type ServerOAuthState,
   type IssuerBoundOAuthState,
 } from "./store.js";
-import type { OAuthPersistBackend } from "./oauth-persist.js";
+import type {
+  OAuthPersistBackend,
+  OAuthPersistSections,
+} from "./oauth-persist.js";
 import type {
   IdpSessionState,
   OAuthClientRegistrationKind,
@@ -71,12 +74,19 @@ export class OAuthStorageBase implements OAuthStorage {
     await this.load();
   }
 
-  private async persist(): Promise<void> {
-    const snapshot = this.memory.snapshot();
+  /**
+   * Flush memory to the backend, naming the sections the calling mutation
+   * touched so shared-store backends can merge just those entries over a
+   * fresh read (the clobber fix — see {@link OAuthPersistSections}). The
+   * snapshot is taken *inside* the queued closure, so a write that waited in
+   * the queue carries the state as of when it actually runs, coalescing with
+   * any mutations that landed in memory while it waited.
+   */
+  private async persist(sections: OAuthPersistSections): Promise<void> {
     const prior = this.persistQueue;
     const tracked = prior
       .catch(() => {})
-      .then(() => this.backend.write(snapshot));
+      .then(() => this.backend.write(this.memory.snapshot(), sections));
     this.persistQueue = tracked;
     await tracked;
   }
@@ -210,7 +220,7 @@ export class OAuthStorageBase implements OAuthStorage {
         clientRegistrationKind: options.registrationKind,
       });
     }
-    await this.persist();
+    await this.persist({ servers: [serverUrl] });
   }
 
   async savePreregisteredClientInformation(
@@ -222,7 +232,7 @@ export class OAuthStorageBase implements OAuthStorage {
       preregisteredClientInformation: clientInformation,
       clientRegistrationKind: "static",
     });
-    await this.persist();
+    await this.persist({ servers: [serverUrl] });
   }
 
   async clearClientInformation(
@@ -236,7 +246,7 @@ export class OAuthStorageBase implements OAuthStorage {
       this.memory.getState().setServerState(serverUrl, {
         preregisteredClientInformation: undefined,
       });
-      await this.persist();
+      await this.persist({ servers: [serverUrl] });
       return;
     }
 
@@ -261,7 +271,7 @@ export class OAuthStorageBase implements OAuthStorage {
         clientRegistrationKind: undefined,
       });
     }
-    await this.persist();
+    await this.persist({ servers: [serverUrl] });
   }
 
   async getTokens(
@@ -309,7 +319,7 @@ export class OAuthStorageBase implements OAuthStorage {
         ...(options?.enterpriseManaged === true && { enterpriseManaged: true }),
       });
     }
-    await this.persist();
+    await this.persist({ servers: [serverUrl] });
   }
 
   async clearTokens(serverUrl: string, issuer?: string): Promise<void> {
@@ -331,7 +341,7 @@ export class OAuthStorageBase implements OAuthStorage {
         .getState()
         .setServerState(serverUrl, { byIssuer, tokens: undefined });
     }
-    await this.persist();
+    await this.persist({ servers: [serverUrl] });
   }
 
   async getCodeVerifier(serverUrl: string): Promise<string | undefined> {
@@ -346,7 +356,7 @@ export class OAuthStorageBase implements OAuthStorage {
   ): Promise<void> {
     await this.ensureLoaded();
     this.memory.getState().setServerState(serverUrl, { codeVerifier });
-    await this.persist();
+    await this.persist({ servers: [serverUrl] });
   }
 
   async clearCodeVerifier(serverUrl: string): Promise<void> {
@@ -354,7 +364,7 @@ export class OAuthStorageBase implements OAuthStorage {
     this.memory
       .getState()
       .setServerState(serverUrl, { codeVerifier: undefined });
-    await this.persist();
+    await this.persist({ servers: [serverUrl] });
   }
 
   async getScope(serverUrl: string): Promise<string | undefined> {
@@ -366,13 +376,13 @@ export class OAuthStorageBase implements OAuthStorage {
   async saveScope(serverUrl: string, scope: string | undefined): Promise<void> {
     await this.ensureLoaded();
     this.memory.getState().setServerState(serverUrl, { scope });
-    await this.persist();
+    await this.persist({ servers: [serverUrl] });
   }
 
   async clearScope(serverUrl: string): Promise<void> {
     await this.ensureLoaded();
     this.memory.getState().setServerState(serverUrl, { scope: undefined });
-    await this.persist();
+    await this.persist({ servers: [serverUrl] });
   }
 
   async getServerMetadata(serverUrl: string): Promise<OAuthMetadata | null> {
@@ -389,7 +399,7 @@ export class OAuthStorageBase implements OAuthStorage {
     this.memory
       .getState()
       .setServerState(serverUrl, { serverMetadata: metadata });
-    await this.persist();
+    await this.persist({ servers: [serverUrl] });
   }
 
   async clearServerMetadata(serverUrl: string): Promise<void> {
@@ -397,7 +407,7 @@ export class OAuthStorageBase implements OAuthStorage {
     this.memory
       .getState()
       .setServerState(serverUrl, { serverMetadata: undefined });
-    await this.persist();
+    await this.persist({ servers: [serverUrl] });
   }
 
   async getDiscoveryState(
@@ -413,7 +423,7 @@ export class OAuthStorageBase implements OAuthStorage {
   ): Promise<void> {
     await this.ensureLoaded();
     this.memory.getState().setServerState(serverUrl, { discoveryState: state });
-    await this.persist();
+    await this.persist({ servers: [serverUrl] });
   }
 
   async clearDiscoveryState(serverUrl: string): Promise<void> {
@@ -421,7 +431,7 @@ export class OAuthStorageBase implements OAuthStorage {
     this.memory
       .getState()
       .setServerState(serverUrl, { discoveryState: undefined });
-    await this.persist();
+    await this.persist({ servers: [serverUrl] });
   }
 
   async takeRevocationSnapshot(serverUrl: string): Promise<RevocationSnapshot> {
@@ -443,14 +453,14 @@ export class OAuthStorageBase implements OAuthStorage {
       serverMetadata: state.serverMetadata,
     };
     this.memory.getState().clearServerState(serverUrl);
-    await this.persist();
+    await this.persist({ servers: [serverUrl] });
     return snapshot;
   }
 
   async clear(serverUrl: string): Promise<void> {
     await this.ensureLoaded();
     this.memory.getState().clearServerState(serverUrl);
-    await this.persist();
+    await this.persist({ servers: [serverUrl] });
   }
 
   async getIdpSession(issuer: string): Promise<IdpSessionState | undefined> {
@@ -472,18 +482,24 @@ export class OAuthStorageBase implements OAuthStorage {
   ): Promise<void> {
     await this.ensureLoaded();
     this.memory.getState().setIdpSession(issuer, session);
-    await this.persist();
+    await this.persist({ idpSessions: [issuer] });
   }
 
   async clearIdpSession(issuer: string): Promise<void> {
     await this.ensureLoaded();
     this.memory.getState().clearIdpSession(issuer);
-    await this.persist();
+    await this.persist({ idpSessions: [issuer] });
   }
 
   async clearEnterpriseManagedResourceServers(): Promise<void> {
     await this.ensureLoaded();
+    // Capture the affected URLs *before* the clear — afterwards the
+    // enterpriseManaged flags are gone from memory, and the persist needs to
+    // name each deleted entry so the merge propagates the deletions.
+    const servers = Object.entries(this.memory.getState().servers)
+      .filter(([, state]) => state.enterpriseManaged === true)
+      .map(([url]) => url);
     this.memory.getState().clearEnterpriseManagedResourceServers();
-    await this.persist();
+    await this.persist({ servers });
   }
 }
