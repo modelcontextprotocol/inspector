@@ -42,6 +42,7 @@ import {
   secretStoreGetStrict,
   secretStoreIsDurable,
   secretStoreSetMany,
+  settleStoreMutations,
   snapshotSecretFields,
   type SecretBulkRequest,
   type SecretFieldSnapshot,
@@ -130,7 +131,10 @@ async function persistEntrySecrets(
   } catch (error) {
     warnStoreWriteFailure(error);
   }
-  await Promise.all(
+  // Settle every delete before surfacing the first failure: the caller's
+  // rollback (restoreSecretFields) must not race deletes still in flight,
+  // which could remove a value the rollback just restored.
+  await settleStoreMutations(
     candidates
       .filter((field) => secrets[field] === undefined)
       .map((field) => store.delete(serverId, field)),

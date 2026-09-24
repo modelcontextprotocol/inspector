@@ -713,11 +713,34 @@ export async function secretStoreGetMany(
 }
 
 /**
+ * Await every parallel store mutation, then rethrow the first failure.
+ *
+ * `Promise.all` rejects as soon as one operation fails, while sibling
+ * operations are still in flight. Every caller that runs mutations in
+ * parallel also compensates on failure ({@link restoreSecretFields} or a
+ * config rewrite), and a rollback that starts while stragglers are still
+ * running can be re-broken by a late-landing set or delete — the restored
+ * value gets overwritten, or a just-restored field gets deleted. Settling
+ * everything first guarantees the store is quiescent before any
+ * compensation begins, at no cost to the success path.
+ */
+export async function settleStoreMutations(
+  mutations: Promise<unknown>[],
+): Promise<void> {
+  const results = await Promise.allSettled(mutations);
+  for (const result of results) {
+    if (result.status === "rejected") throw result.reason;
+  }
+}
+
+/**
  * Write several of one server's fields, using the store's bulk path when it
  * has one. Falls back to parallel `set`s.
  *
- * The fallback keeps `set`'s contract: `Promise.all` surfaces the first
- * rejection, which is what the routes translate into a 503.
+ * The fallback keeps `set`'s contract: the first rejection escapes (the
+ * routes translate it into a 503) — but only after every sibling set has
+ * settled, so a caller's compensation never races an in-flight write
+ * (see {@link settleStoreMutations}).
  */
 export async function secretStoreSetMany(
   store: SecretStore,
@@ -725,7 +748,7 @@ export async function secretStoreSetMany(
   values: Record<string, string>,
 ): Promise<void> {
   if (store.setMany) return store.setMany(serverId, values);
-  await Promise.all(
+  await settleStoreMutations(
     Object.entries(values).map(([field, value]) =>
       store.set(serverId, field, value),
     ),

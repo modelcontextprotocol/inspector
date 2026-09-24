@@ -3155,4 +3155,55 @@ describe("catalog mutations are all-or-nothing (file/keychain compensation)", ()
     // a retry POST must also not be trapped by leftovers.
     expect(await store.get("newsrv", envSecretField("A"))).toBe(null);
   });
+
+  it("DELETE: a failed keychain purge leaves disk and keychain untouched", async () => {
+    writeFileSync(
+      configPath,
+      JSON.stringify({
+        mcpServers: {
+          srv: { type: "stdio", command: "node", env: { A: "" } },
+        },
+      }),
+    );
+    await store.set("srv", envSecretField("A"), "value-A");
+    const before = readConfig(configPath);
+
+    // The purge now runs before the disk commit, so its failure must
+    // return a 503 with the entry still on disk and its secret intact —
+    // not a vanished entry with orphaned credentials.
+    store.failPurges = true;
+    const res = await fetch(`${baseUrl}/api/servers/srv`, {
+      method: "DELETE",
+    });
+    store.failPurges = false;
+
+    expect(res.status).toBe(503);
+    expect(readConfig(configPath)).toEqual(before);
+    expect(await store.get("srv", envSecretField("A"))).toBe("value-A");
+  });
+
+  it("DELETE: a failed disk write restores the purged secrets", async () => {
+    writeFileSync(
+      configPath,
+      JSON.stringify({
+        mcpServers: {
+          srv: { type: "stdio", command: "node", env: { A: "" } },
+        },
+      }),
+    );
+    await store.set("srv", envSecretField("A"), "value-A");
+    const before = readFileSync(configPath, "utf-8");
+
+    // The purge succeeds but the file rewrite fails: without the restore
+    // the entry would rehydrate with no credential on the next read.
+    chmodSync(tempDir, 0o555);
+    const res = await fetch(`${baseUrl}/api/servers/srv`, {
+      method: "DELETE",
+    });
+    chmodSync(tempDir, 0o755);
+
+    expect(res.status).toBe(500);
+    expect(readFileSync(configPath, "utf-8")).toBe(before);
+    expect(await store.get("srv", envSecretField("A"))).toBe("value-A");
+  });
 });

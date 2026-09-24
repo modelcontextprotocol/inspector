@@ -103,6 +103,9 @@ import {
   SECRET_FIELD_OAUTH_CLIENT_SECRET,
   envSecretField,
   parseAccount,
+  secretStoreSetMany,
+  settleStoreMutations,
+  type SecretStore,
 } from "@inspector/core/auth/node/secret-store.js";
 
 // The generic cases live in `secretStoreContract.ts` and are shared with
@@ -730,5 +733,60 @@ describe("@napi-rs/keyring loads but exposes the wrong shape", () => {
 
     await store.set("alpha", "oauth-client-secret", "shh");
     expect(await store.get("alpha", "oauth-client-secret")).toBe("shh");
+  });
+});
+
+describe("settleStoreMutations (round 8)", () => {
+  // The point of the helper: a rollback that starts while sibling
+  // mutations are still in flight can be re-broken by a late-landing
+  // set or delete. The first failure must not escape until every
+  // sibling has settled.
+  it("resolves when every mutation fulfills", async () => {
+    await expect(
+      settleStoreMutations([Promise.resolve(1), Promise.resolve(2)]),
+    ).resolves.toBeUndefined();
+  });
+
+  it("rethrows the first failure only after every sibling settles", async () => {
+    let slowSettled = false;
+    const slow = new Promise<void>((resolve) =>
+      setTimeout(() => {
+        slowSettled = true;
+        resolve();
+      }, 20),
+    );
+    const fast = Promise.reject(new Error("first failure"));
+
+    await expect(settleStoreMutations([fast, slow])).rejects.toThrow(
+      "first failure",
+    );
+    // Promise.all semantics would observe the rejection here with the
+    // slow mutation still pending.
+    expect(slowSettled).toBe(true);
+  });
+
+  it("secretStoreSetMany's fallback settles in-flight sets before rejecting", async () => {
+    const landed: string[] = [];
+    // No `setMany`, so the fallback path runs. One set fails fast, the
+    // other lands late — a compensating caller must not observe the
+    // failure while the late set is still in flight.
+    const store: SecretStore = {
+      get: async () => null,
+      set: async (_id, field) => {
+        if (field === "fails-fast") throw new Error("keychain gone");
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        landed.push(field);
+      },
+      delete: async () => {},
+      deleteAllForServer: async () => {},
+    };
+
+    await expect(
+      secretStoreSetMany(store, "srv", {
+        "fails-fast": "a",
+        "lands-late": "b",
+      }),
+    ).rejects.toThrow("keychain gone");
+    expect(landed).toEqual(["lands-late"]);
   });
 });

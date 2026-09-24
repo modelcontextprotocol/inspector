@@ -88,6 +88,7 @@ import {
   secretStoreIsDurable,
   SecretStoreUnavailableError,
   snapshotSecretFields,
+  settleStoreMutations,
   type SecretStore,
 } from "../../../auth/node/secret-store.js";
 import { defaultSecretStore } from "../../../auth/node/secret-store-selection.js";
@@ -2545,12 +2546,17 @@ export function createRemoteApp(
   // `writeKeychainEntriesFor`: distinct (id, field) deletes have no
   // ordering requirement. A delete throws on an unavailable keychain
   // (missing entries still resolve as success), and the routes translate
-  // that to the same 503 a failed `set` produces.
+  // that to the same 503 a failed `set` produces. Every delete settles
+  // before the first failure escapes, so the callers' compensation
+  // blocks never race a delete still in flight (see
+  // `settleStoreMutations`).
   const deleteKeychainFields = async (
     id: string,
     fields: string[],
   ): Promise<void> => {
-    await Promise.all(fields.map((field) => secretStore.delete(id, field)));
+    await settleStoreMutations(
+      fields.map((field) => secretStore.delete(id, field)),
+    );
   };
 
   // Restore-failure sink for the catalog mutations' compensation blocks
@@ -3213,9 +3219,33 @@ export function createRemoteApp(
           await secretStore.deleteAllForServer(id);
           return c.json({ ok: true });
         }
+        // All-or-nothing, like the other combined writers: snapshot the
+        // entry's secret fields, purge the keychain *before* the disk
+        // commit (the purge is the only step that can 503, and failing
+        // it here leaves both file and keychain untouched), then write
+        // the file. If the file write fails the purged secrets are
+        // restored, so a DELETE that returns an error has changed
+        // nothing. `deleteAllForServer` may also sweep legacy fields the
+        // snapshot does not cover — those are orphans by definition and
+        // losing them is the sweep working as intended.
+        const stored = current.mcpServers[id];
         delete current.mcpServers[id];
-        await writeMcpAndTrackMtime(serializeStore(current));
+        const prior = await snapshotSecretFields(
+          secretStore,
+          id,
+          expectedSecretFields(stored),
+        );
         await secretStore.deleteAllForServer(id);
+        try {
+          await writeMcpAndTrackMtime(serializeStore(current));
+        } catch (error) {
+          await restoreSecretFields(
+            secretStore,
+            prior,
+            warnSecretRestoreFailure,
+          );
+          throw error;
+        }
         return c.json({ ok: true });
       });
     } catch (error) {
