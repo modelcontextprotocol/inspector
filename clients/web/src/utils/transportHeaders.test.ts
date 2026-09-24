@@ -1,24 +1,38 @@
 import { describe, it, expect } from "vitest";
 import {
   customHeadersChanged,
-  effectiveCustomHeaders,
+  transportHeaderRecord,
+  wireHeaderLines,
 } from "./transportHeaders";
 
 const rows = (...pairs: [string, string][]) => ({
   headers: pairs.map(([key, value]) => ({ key, value })),
 });
 
-describe("effectiveCustomHeaders", () => {
+describe("transportHeaderRecord", () => {
   it("is empty for undefined settings", () => {
-    expect(effectiveCustomHeaders(undefined)).toEqual({});
+    expect(transportHeaderRecord(undefined)).toEqual({});
   });
 
-  it("skips blank keys, lowercases names and lets a later row win", () => {
+  it("skips blank keys, keeps case variants apart and lets a later identical name win", () => {
     expect(
-      effectiveCustomHeaders(
-        rows(["X-Tenant", "a"], ["  ", "ignored"], ["x-tenant", "b"]),
+      transportHeaderRecord(
+        rows(
+          ["X-Tenant", "a"],
+          ["  ", "ignored"],
+          ["x-tenant", "b"],
+          ["X-Tenant", "c"],
+        ),
       ),
-    ).toEqual({ "x-tenant": "b" });
+    ).toEqual({ "X-Tenant": "c", "x-tenant": "b" });
+  });
+});
+
+describe("wireHeaderLines", () => {
+  it("joins case-variant duplicates and trims values, as Headers does", () => {
+    expect(
+      wireHeaderLines(rows(["X-Tenant", "a"], ["x-tenant", " b "])),
+    ).toEqual(["x-tenant: a, b"]);
   });
 });
 
@@ -32,8 +46,23 @@ describe("customHeadersChanged", () => {
     ).toBe(false);
   });
 
+  it("is false when only a value's surrounding whitespace changed", () => {
+    expect(customHeadersChanged(rows(["X-A", "1"]), rows(["X-A", " 1 "]))).toBe(
+      false,
+    );
+  });
+
   it("is false when neither side has headers", () => {
     expect(customHeadersChanged(undefined, rows())).toBe(false);
+  });
+
+  it("is true when removing a case-variant duplicate changes the joined value", () => {
+    expect(
+      customHeadersChanged(
+        rows(["X-Tenant", "a"], ["x-tenant", "b"]),
+        rows(["X-Tenant", "a"]),
+      ),
+    ).toBe(true);
   });
 
   it("is true when a header is added", () => {
@@ -47,12 +76,6 @@ describe("customHeadersChanged", () => {
 
   it("is true when a header is removed", () => {
     expect(customHeadersChanged(rows(["X-A", "1"]), undefined)).toBe(true);
-  });
-
-  it("is true when a header is renamed with the same count", () => {
-    expect(customHeadersChanged(rows(["X-A", "1"]), rows(["X-B", "1"]))).toBe(
-      true,
-    );
   });
 
   it("is true when a value changes", () => {

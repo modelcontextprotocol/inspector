@@ -94,6 +94,12 @@ export interface LastPersistedSettings {
    * about A.
    */
   lastWriteFailed: (serverId: string) => boolean;
+  /**
+   * Whether a write for this server has been issued and has not yet landed or
+   * failed. A caller that must act on what disk holds — rather than on the
+   * edit it just flushed — waits for that write to settle first (#2460).
+   */
+  isPending: (serverId: string) => boolean;
 }
 
 export interface SettingsWrite {
@@ -232,5 +238,10 @@ export function useLastPersistedSettings(
     [servers],
   );
 
-  return { begin, resolve, lastWriteFailed };
+  const isPending = useCallback(
+    (serverId: string) => (pendingRef.current.get(serverId)?.size ?? 0) > 0,
+    [],
+  );
+
+  return { begin, resolve, lastWriteFailed, isPending };
 }

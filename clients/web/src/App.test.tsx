@@ -2139,6 +2139,56 @@ describe("App roots live-apply on settings-dialog close", () => {
     await waitFor(() => expect(clientInstances).toHaveLength(2));
   });
 
+  it("waits for an in-flight settings write to land before raising the reconnect notice (#2460)", async () => {
+    // Until the flushed write settles the saved list still holds the pre-edit
+    // headers, so a Reconnect clicked in that window would rebuild the client
+    // from them.
+    const user = userEvent.setup();
+    const draft: InspectorServerSettings = {
+      ...settingsWithRoots([]),
+      headers: [
+        { key: "X-Auth-Token", value: "tok" },
+        { key: "X-Provider-Username", value: "user" },
+      ],
+    };
+    const client = await openSettingsForConnectedServer(draft);
+    client.getTransportSettings.mockReturnValue({
+      ...settingsWithRoots([]),
+      headers: [{ key: "X-Auth-Token", value: "tok" }],
+    });
+    const draftOptions = vi.mocked(useSettingsDraft).mock.calls.at(-1)?.[0];
+    if (!draftOptions) throw new Error("useSettingsDraft was never called");
+    let finishWrite: () => void = () => {};
+    updateServerSettingsSpy.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          finishWrite = resolve;
+        }),
+    );
+    let write: Promise<void> | undefined;
+    act(() => {
+      write = draftOptions.onPersist("A", draft);
+    });
+    notificationsMock.show.mockClear();
+
+    await closeModal(user);
+    await waitFor(() =>
+      expect(screen.queryByText("Server Settings")).not.toBeInTheDocument(),
+    );
+    expect(notificationsMock.show).not.toHaveBeenCalledWith(
+      expect.objectContaining({ id: "headers-reconnect-A" }),
+    );
+
+    await act(async () => {
+      finishWrite();
+      await write;
+    });
+
+    expect(notificationsMock.show).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "headers-reconnect-A" }),
+    );
+  });
+
   it("withdraws the reconnect notice when the headers match the transport's (#2460)", async () => {
     const user = userEvent.setup();
     const headers = [{ key: "X-Auth-Token", value: "tok" }];

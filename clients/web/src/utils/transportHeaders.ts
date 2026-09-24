@@ -6,35 +6,58 @@ import type { InspectorServerSettings } from "@inspector/core/mcp/types.js";
 // open one does?", so the UI can say so instead of leaving the user to find
 // out from a server that rejects the request.
 
+type HeaderSettings = Pick<InspectorServerSettings, "headers"> | undefined;
+
 /**
- * The header set a settings object puts on the wire, resolved the way the
- * transport resolves it: rows with a blank key are skipped (as
- * `headersFromSettings` in `core/mcp/node/transport.ts` does), a later row for
- * the same name wins, and names compare case-insensitively (as `Headers` does).
+ * The record the transport is handed, built exactly as `headersFromSettings`
+ * in `core/mcp/node/transport.ts` builds it: rows with a blank key are
+ * skipped, names are kept as typed (so `X-Tenant` and `x-tenant` are two
+ * entries), and a later row for the identical name wins.
  */
-export function effectiveCustomHeaders(
-  settings: Pick<InspectorServerSettings, "headers"> | undefined,
+export function transportHeaderRecord(
+  settings: HeaderSettings,
 ): Record<string, string> {
   const out: Record<string, string> = {};
   for (const { key, value } of settings?.headers ?? []) {
     if (key.trim() === "") continue;
-    out[key.toLowerCase()] = value;
+    out[key] = value;
   }
   return out;
 }
 
+// HTTP whitespace, which the Fetch spec strips from both ends of a value.
+const HTTP_WHITESPACE = /^[\t\n\r ]+|[\t\n\r ]+$/g;
+
+/**
+ * The header set a settings object puts on the wire, as sorted `name: value`
+ * lines. The SDK hands the record to `Headers` in the Node backend, which per
+ * the Fetch spec lowercases names, strips surrounding whitespace from values
+ * and joins case-variant duplicates with `", "` in insertion order. That is
+ * restated here rather than delegated to the runtime's `Headers`: the browser
+ * is not where the transport runs, and a non-conforming implementation (the
+ * test DOM's does neither the join nor the trim) would disagree with the wire.
+ */
+export function wireHeaderLines(settings: HeaderSettings): string[] {
+  const joined = new Map<string, string>();
+  for (const [name, raw] of Object.entries(transportHeaderRecord(settings))) {
+    const key = name.toLowerCase();
+    const value = raw.replace(HTTP_WHITESPACE, "");
+    const prior = joined.get(key);
+    joined.set(key, prior === undefined ? value : `${prior}, ${value}`);
+  }
+  return [...joined].map(([name, value]) => `${name}: ${value}`).sort();
+}
+
 /**
  * Whether `next` would send a different custom-header set than `sent`. Row
- * order, blank rows and header-name case are not differences the server can
- * see, so none of them count.
+ * order, blank rows, header-name case and surrounding whitespace in a value
+ * are not differences the server can see, so none of them count.
  */
 export function customHeadersChanged(
-  sent: Pick<InspectorServerSettings, "headers"> | undefined,
-  next: Pick<InspectorServerSettings, "headers"> | undefined,
+  sent: HeaderSettings,
+  next: HeaderSettings,
 ): boolean {
-  const a = effectiveCustomHeaders(sent);
-  const b = effectiveCustomHeaders(next);
-  const keys = Object.keys(a);
-  if (keys.length !== Object.keys(b).length) return true;
-  return keys.some((key) => !(key in b) || a[key] !== b[key]);
+  const a = wireHeaderLines(sent);
+  const b = wireHeaderLines(next);
+  return a.length !== b.length || a.some((line, i) => line !== b[i]);
 }

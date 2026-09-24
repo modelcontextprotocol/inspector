@@ -636,6 +636,12 @@ function App() {
   // be withdrawn once the connection it describes is gone — at that point
   // "this connection is still sending the old headers" is no longer true.
   const headersReconnectToastRef = useRef<string | undefined>(undefined);
+  // The server whose notice is waiting on a settings write still in flight.
+  // Closing the modal flushes the draft, and until that write settles the
+  // saved list still holds the pre-edit headers, so a Reconnect clicked in the
+  // meantime would rebuild the client from them. The write's own settlement
+  // raises the notice instead (Copilot, #2493).
+  const headersToastAwaitingWriteRef = useRef<string | undefined>(undefined);
   // The toast outlives the render that raised it, and `onReconnect` resolves
   // the server's settings through that render's server list — one taken
   // before the header edit it announces had been read back. Called through
@@ -1301,6 +1307,10 @@ function App() {
         if (sessionRef.current.activeServerId === id) {
           applyLiveServerSettings(value);
         }
+        if (headersToastAwaitingWriteRef.current === id) {
+          headersToastAwaitingWriteRef.current = undefined;
+          syncHeadersReconnectToast(id, value);
+        }
       };
       try {
         await refreshingPersist(updateServerSettings, refreshInitialConfig)(
@@ -1330,6 +1340,16 @@ function App() {
           if (sessionRef.current.activeServerId === id) {
             applyLiveServerSettings(baseline);
           }
+        }
+        // The edit the notice was waiting on never reached disk, so judge the
+        // connection against what did — a reconnect now would load that.
+        if (
+          headersToastAwaitingWriteRef.current === id &&
+          !lastPersistedSettings.isPending(id)
+        ) {
+          headersToastAwaitingWriteRef.current = undefined;
+          if (baseline) syncHeadersReconnectToast(id, baseline);
+          else notifications.hide(headersReconnectToastId(id));
         }
         throw err;
       }
@@ -1529,7 +1549,13 @@ function App() {
           EMPTY_SETTINGS)
         : settingsDraft;
       applyLiveServerSettings(applied);
-      syncHeadersReconnectToast(settingsModalTargetId, applied);
+      // `flushSettingsDraft` issued any pending write synchronously, so the
+      // tracker already reports it; defer to its settlement when there is one.
+      if (lastPersistedSettings.isPending(settingsModalTargetId)) {
+        headersToastAwaitingWriteRef.current = settingsModalTargetId;
+      } else {
+        syncHeadersReconnectToast(settingsModalTargetId, applied);
+      }
     }
     setSettingsModalTargetId(undefined);
   }, [
