@@ -2189,6 +2189,48 @@ describe("App roots live-apply on settings-dialog close", () => {
     );
   });
 
+  it("raises no reconnect notice when the session ended before the deferred write landed (#2493 review)", async () => {
+    // The live client is no longer this server's session, so its transport
+    // cannot say whether this server's headers changed.
+    const user = userEvent.setup();
+    const draft: InspectorServerSettings = {
+      ...settingsWithRoots([]),
+      headers: [{ key: "X-Provider-Username", value: "user" }],
+    };
+    const client = await openSettingsForConnectedServer(draft);
+    client.getTransportSettings.mockReturnValue(settingsWithRoots([]));
+    const draftOptions = vi.mocked(useSettingsDraft).mock.calls.at(-1)?.[0];
+    if (!draftOptions) throw new Error("useSettingsDraft was never called");
+    let finishWrite: () => void = () => {};
+    updateServerSettingsSpy.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          finishWrite = resolve;
+        }),
+    );
+    let write: Promise<void> | undefined;
+    act(() => {
+      write = draftOptions.onPersist("A", draft);
+    });
+    await closeModal(user);
+    await waitFor(() =>
+      expect(screen.queryByText("Server Settings")).not.toBeInTheDocument(),
+    );
+
+    act(() => {
+      clientInstances[0].dispatchEvent(new Event("disconnect"));
+    });
+    notificationsMock.show.mockClear();
+    await act(async () => {
+      finishWrite();
+      await write;
+    });
+
+    expect(notificationsMock.show).not.toHaveBeenCalledWith(
+      expect.objectContaining({ id: "headers-reconnect-A" }),
+    );
+  });
+
   it("withdraws the reconnect notice when the headers match the transport's (#2460)", async () => {
     const user = userEvent.setup();
     const headers = [{ key: "X-Auth-Token", value: "tok" }];

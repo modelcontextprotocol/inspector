@@ -660,7 +660,11 @@ function App() {
     (serverId: string, applied: InspectorServerSettings) => {
       const client = sessionRef.current.inspectorClient;
       const id = headersReconnectToastId(serverId);
+      // A deferred call can arrive after the session moved on — the save that
+      // raised it settles whenever it settles — and the live client is then
+      // another server's, whose transport says nothing about `serverId`.
       const pending =
+        sessionRef.current.activeServerId === serverId &&
         client !== null &&
         client.getStatus() === "connected" &&
         client.getServerType() !== "stdio" &&

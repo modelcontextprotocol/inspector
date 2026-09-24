@@ -1,3 +1,7 @@
+// Pins the reconnect notice's header comparison (#2460) to what the transport
+// actually sends: rows resolved as `headersFromSettings` resolves them, then
+// normalized as the Fetch spec's `Headers` normalizes them. A difference the
+// server cannot see must not prompt a reconnect, and one it can must.
 import { describe, it, expect } from "vitest";
 import {
   customHeadersChanged,
