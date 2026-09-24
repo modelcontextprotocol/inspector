@@ -1,3 +1,4 @@
+import { redactUrlQuery } from "@inspector/core/mcp/fetchTracking.js";
 import { awaitableError } from "./utils/awaitable-log.js";
 
 /**
@@ -139,11 +140,67 @@ const UNREACHABLE_PATTERN =
   /ENOTFOUND|ECONNREFUSED|ECONNRESET|EAI_AGAIN|ETIMEDOUT|fetch failed|getaddrinfo|connect(?:ion)? timed out|aborted/i;
 
 /**
+ * An `http(s)://` URL embedded in free text. Stops at whitespace and at the
+ * quote/bracket characters that commonly delimit a URL inside a message.
+ */
+const EMBEDDED_URL_PATTERN = /\bhttps?:\/\/[^\s"'<>]+/g;
+
+/** Sentence punctuation a message may put right after a URL. */
+const TRAILING_PUNCTUATION = /[.,;:!?)\]]+$/;
+
+/**
+ * Apply {@link redactUrlQuery} to every URL embedded in `text`. Trailing
+ * sentence punctuation is split off first and re-appended, so a URL ending a
+ * sentence (`…?code=abc.`) keeps its full stop instead of having it folded into
+ * the redacted parameter value.
+ */
+function redactUrlsInText(text: string): string {
+  return text.replace(EMBEDDED_URL_PATTERN, (match) => {
+    const trailing = TRAILING_PUNCTUATION.exec(match)?.[0] ?? "";
+    const url = match.slice(0, match.length - trailing.length);
+    return redactUrlQuery(url) + trailing;
+  });
+}
+
+/**
+ * Scrub query-string secrets out of every envelope field that can carry a URL
+ * (#2423). The envelope is written verbatim to stderr — a terminal, a CI log,
+ * a pipe into another tool — so it gets the same {@link redactUrlQuery}
+ * guarantee the web client's Network log and `OAuthRequestTimeoutError`
+ * already have: an OAuth `code`, `access_token` or `client_secret` in a server
+ * URL is replaced, while the path and non-sensitive parameters stay readable.
+ *
+ * Applied to the finished envelope rather than to the inputs, so
+ * classification still reads the error's own text: redaction rewrites
+ * parameter values, and a pattern test run on the rewritten copy could land a
+ * different exit code.
+ */
+function redactEnvelope(envelope: ErrorEnvelope): ErrorEnvelope {
+  return {
+    ...envelope,
+    message: redactUrlsInText(envelope.message),
+    ...(envelope.cause !== undefined && {
+      cause: redactUrlsInText(envelope.cause),
+    }),
+    ...(envelope.url !== undefined && { url: redactUrlQuery(envelope.url) }),
+  };
+}
+
+/**
  * Classify an arbitrary error into an exit code and envelope. Used both by the
  * binary's {@link handleError} and by callers that want to throw a
- * {@link CliExitCodeError} with the right code up front.
+ * {@link CliExitCodeError} with the right code up front. Every URL in the
+ * returned envelope is query-redacted (see {@link redactEnvelope}).
  */
 export function classifyError(
+  error: unknown,
+  context?: { url?: string },
+): { exitCode: number; envelope: ErrorEnvelope } {
+  const { exitCode, envelope } = classifyUnredacted(error, context);
+  return { exitCode, envelope: redactEnvelope(envelope) };
+}
+
+function classifyUnredacted(
   error: unknown,
   context?: { url?: string },
 ): { exitCode: number; envelope: ErrorEnvelope } {
