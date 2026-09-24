@@ -21,7 +21,14 @@ PR with no linked issue has no board card, so the work is invisible to the
 project board and untracked. If there's no issue yet, create one first with
 `/issue-create` — don't open the PR and backfill.
 
-Move the issue's card to **In Progress** (`/board-ops`).
+**Assign the issue to yourself**, then move its card to **In Progress**
+(`/board-ops`). A card in progress with nobody on it can't answer "who has
+this?". `@me` resolves to whoever `gh` is authenticated as, so an agent assigns
+the maintainer it is working for:
+
+```sh
+gh issue edit <N> --repo modelcontextprotocol/inspector --add-assignee @me
+```
 
 ## 2. Branch
 
