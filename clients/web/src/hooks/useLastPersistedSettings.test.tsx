@@ -75,6 +75,7 @@ function harness(initial: ServerEntry[]): Harness {
       begin: (serverId) => current().begin(serverId),
       resolve: (serverId) => current().resolve(serverId),
       lastWriteFailed: (serverId) => current().lastWriteFailed(serverId),
+      isPending: (serverId) => current().isPending(serverId),
     },
     setServers: (next) => rerender(<Probe servers={next} />),
   };
@@ -203,6 +204,23 @@ describe("useLastPersistedSettings", () => {
     expect(api.resolve("A")).toBe(fresh);
     first.landed(settings({ paginatedLists: false }));
     expect(api.resolve("A")).toBe(fresh);
+  });
+
+  it("reports a server's write as pending from issue until it lands or fails (#2460)", () => {
+    // The reconnect notice waits on this: until the flushed write settles,
+    // `resolve` still answers with the pre-edit value.
+    const { api } = harness([entry("A", settings()), entry("B", settings())]);
+    expect(api.isPending("A")).toBe(false);
+
+    const first = api.begin("A");
+    const second = api.begin("A");
+    expect(api.isPending("A")).toBe(true);
+    expect(api.isPending("B")).toBe(false);
+
+    first.landed(settings());
+    expect(api.isPending("A")).toBe(true);
+    second.failed();
+    expect(api.isPending("A")).toBe(false);
   });
 
   it("reports a failed last write per server, ordered by issue", () => {

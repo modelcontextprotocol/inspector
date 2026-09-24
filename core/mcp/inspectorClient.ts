@@ -548,6 +548,11 @@ export class InspectorClient extends InspectorClientEventTarget {
   private requestTimeout: number | undefined;
   private defaultMetadata: RequestMetadata | undefined;
   private serverSettings: InspectorServerSettings | undefined;
+  // The settings the current transport was built from. `serverSettings` is
+  // replaced live on every settings save (#1444), but transport-level inputs
+  // such as custom headers are fixed when the transport is created, so this
+  // is what the open connection actually sends (#2460).
+  private transportSettings: InspectorServerSettings | undefined;
   private versionNegotiation: VersionNegotiationOptions;
   private status: ConnectionStatus = "disconnected";
   // True only while an explicit disconnect() owns the teardown. close() can
@@ -1620,6 +1625,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     }
     this.baseTransport = null;
     this.transport = null;
+    this.transportSettings = undefined;
     this.transportHasAuthProvider = false;
   }
 
@@ -2294,6 +2300,10 @@ export class InspectorClient extends InspectorClientEventTarget {
         transportOptions,
       );
       this.baseTransport = baseTransport;
+      // What the factory was handed, not the live value: `transportOptions`
+      // was built before the OAuth awaits above, and a settings save landing
+      // during them would otherwise be reported as sent when it was not.
+      this.transportSettings = transportOptions.settings;
       if (this.directAuthRecovery) {
         this.directAuthRecoveryActive = !(
           baseTransport instanceof RemoteClientTransport
@@ -2687,6 +2697,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     // Null out transport so next connect() creates a fresh one.
     this.baseTransport = null;
     this.transport = null;
+    this.transportSettings = undefined;
     this.transportHasAuthProvider = false;
     // Drop anything the server had queued with us before announcing the
     // teardown, so a `disconnect` consumer sees an empty queue here as it does
@@ -3663,6 +3674,17 @@ export class InspectorClient extends InspectorClientEventTarget {
    */
   getServerSettings(): InspectorServerSettings | undefined {
     return this.serverSettings;
+  }
+
+  /**
+   * The settings the current transport was built from, or `undefined` when no
+   * transport exists. Unlike {@link getServerSettings}, a live settings edit
+   * does not change this: transport-level inputs (custom headers) apply only
+   * when the next transport is created, so comparing the two tells a caller
+   * whether an edit is still waiting on a reconnect (#2460).
+   */
+  getTransportSettings(): InspectorServerSettings | undefined {
+    return this.transportSettings;
   }
 
   /**

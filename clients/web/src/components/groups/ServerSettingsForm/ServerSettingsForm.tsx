@@ -824,10 +824,10 @@ export function ServerSettingsForm({
           <Stack gap="md">
             <Group justify="space-between">
               <HintText>
-                Headers sent with every HTTP request to this server. A custom
-                `Authorization` header is sent only until OAuth has an access
-                token — once the flow obtains one, the SDK transports send the
-                token in its place.
+                Headers sent with every HTTP request to this server. Changes
+                take effect on the next connect. A custom `Authorization` header
+                is sent only until OAuth has an access token — once the flow
+                obtains one, the SDK transports send the token in its place.
               </HintText>
               <AddButton onClick={onAddHeader}>+ Add Header</AddButton>
             </Group>
