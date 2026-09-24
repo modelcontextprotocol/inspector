@@ -165,13 +165,15 @@ and a `pgrep -f "npm run local:gate"` loop matches _itself_ and never exits.
 A gate that starts with
 
 ```
-gate-lease: pid 12345 in /Users/you/Projects/mcp-inspector-wt-1, running for 2m10s holds the gate lease; waiting …
+gate-lease: pid 12345 in /Users/you/Projects/mcp-inspector-wt-1, running for 2m10s holds the gate lease, with 2 more gates queued ahead of this one; waiting …
 ```
 
-is queued behind another worktree's gate, and will start the moment it
-releases (it re-checks every 2s and prints `still waiting` once a minute). The
+is queued behind another worktree's gate. Queued gates start in the order they
+arrived (#2473), so this one starts once the holder and the gates ahead of it
+have run (it re-checks every 2s and prints `still waiting` once a minute). The
 holder's pid and worktree are in the line, so you can decide whether to wait
-or to stop that gate. A holder that was **killed** — a closed terminal, an
+or to stop that gate. A queued gate that is stopped or killed while waiting
+leaves the line at the next waiter's poll; nothing needs cleaning up. A holder that was **killed** — a closed terminal, an
 OOM'd session — stops refreshing its lock and is taken over after 30s; nothing
 needs cleaning up by hand. The one exception is a dead holder's lock directory
 that cannot be removed (a stray file inside it, or permissions): the takeover
