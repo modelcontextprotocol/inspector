@@ -192,6 +192,11 @@ export interface ConnectionLifecycle {
   onToggleConnection: (id: string) => Promise<void>;
   /** Header Disconnect: end the live session explicitly. */
   onDisconnect: () => Promise<void>;
+  /**
+   * End the live session (when `id` is it) and connect `id` again, so settings
+   * fixed at transport creation — custom headers — take effect (#2460).
+   */
+  onReconnect: (id: string) => Promise<void>;
   /** Re-auth banner action — retry, or clear stale state and reconnect. */
   onReauthenticateFromBanner: () => void;
 }
@@ -577,28 +582,10 @@ export function useConnectionLifecycle({
     setupClientForServerRef.current = setupClientForServer;
   }, [setupClientForServerRef, setupClientForServer]);
 
-  const onToggleConnection = useCallback(
+  // Build a fresh client for `id` and connect it. The caller has already
+  // waited on `initialConfigSettledRef` and torn down any session it replaces.
+  const connectServer = useCallback(
     async (id: string) => {
-      // Whether this client may advertise app-rendered elicitation is decided
-      // at construction and cannot be revised afterwards, so wait for the fact
-      // rather than guess it (see `initialConfigSettledRef`). Already resolved
-      // by the time any human clicks; this only orders a deep-link auto-connect
-      // that races the same page load.
-      await initialConfigSettledRef.current?.promise;
-      // Same server, already connected → disconnect.
-      if (
-        id === activeServerId &&
-        connectionStatus === "connected" &&
-        inspectorClient
-      ) {
-        try {
-          await inspectorClient.disconnect();
-        } finally {
-          finalizeExplicitDisconnect();
-        }
-        return;
-      }
-
       // Read from the ref so a caller that already awaited an
       // addServer/updateServer in the same async tick (e.g. the deep-link
       // auto-connect IIFE) sees the freshly-mutated list, not the stale array
@@ -818,16 +805,45 @@ export function useConnectionLifecycle({
     [
       sessionRef,
       activeServerId,
-      connectionStatus,
-      inspectorClient,
-      initialConfigSettledRef,
       connectStartRef,
       setupClientForServer,
       setActiveServerId,
       setFailedServerId,
       prepareOAuthRedirect,
-      finalizeExplicitDisconnect,
       setReAuthBanner,
+    ],
+  );
+
+  const onToggleConnection = useCallback(
+    async (id: string) => {
+      // Whether this client may advertise app-rendered elicitation is decided
+      // at construction and cannot be revised afterwards, so wait for the fact
+      // rather than guess it (see `initialConfigSettledRef`). Already resolved
+      // by the time any human clicks; this only orders a deep-link auto-connect
+      // that races the same page load.
+      await initialConfigSettledRef.current?.promise;
+      // Same server, already connected → disconnect.
+      if (
+        id === activeServerId &&
+        connectionStatus === "connected" &&
+        inspectorClient
+      ) {
+        try {
+          await inspectorClient.disconnect();
+        } finally {
+          finalizeExplicitDisconnect();
+        }
+        return;
+      }
+      await connectServer(id);
+    },
+    [
+      activeServerId,
+      connectionStatus,
+      inspectorClient,
+      initialConfigSettledRef,
+      finalizeExplicitDisconnect,
+      connectServer,
     ],
   );
 
@@ -839,6 +855,36 @@ export function useConnectionLifecycle({
       finalizeExplicitDisconnect();
     }
   }, [inspectorClient, finalizeExplicitDisconnect]);
+
+  // Not `onDisconnect` followed by `onToggleConnection`: a caller holding both
+  // from one render would hand the toggle a closure that still says
+  // "connected", and it would disconnect a second time instead of connecting.
+  // The teardown is the explicit disconnect's, finalization included.
+  const onReconnect = useCallback(
+    async (id: string) => {
+      await initialConfigSettledRef.current?.promise;
+      if (id === activeServerId && inspectorClient) {
+        try {
+          await inspectorClient.disconnect();
+        } finally {
+          finalizeExplicitDisconnect();
+        }
+        // The teardown's `disconnect` event cleared the active id, while this
+        // closure (and so `connectServer`'s) still reads it as `id` and would
+        // not set it again.
+        setActiveServerId(id);
+      }
+      await connectServer(id);
+    },
+    [
+      activeServerId,
+      inspectorClient,
+      initialConfigSettledRef,
+      finalizeExplicitDisconnect,
+      setActiveServerId,
+      connectServer,
+    ],
+  );
 
   // Deep-link auto-connect (the URL-driven case of #1183). `useServers`
   // hydrates asynchronously (initial `servers` is `[]`), so this effect runs in
@@ -1073,6 +1119,7 @@ export function useConnectionLifecycle({
     connectErrorMessage,
     onToggleConnection,
     onDisconnect,
+    onReconnect,
     onReauthenticateFromBanner,
   };
 }

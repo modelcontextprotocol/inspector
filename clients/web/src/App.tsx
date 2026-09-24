@@ -121,8 +121,11 @@ import { resolveOAuthClearIdentity } from "./utils/oauthClearKey";
 import {
   bodyDroppedToastId,
   CLIENT_CONFIG_LOAD_ERROR_NOTIFICATION_ID,
+  headersReconnectToastId,
 } from "./utils/toasts/toastIds";
+import { customHeadersChanged } from "./utils/transportHeaders";
 import { FetchBodyDroppedToastMessage } from "./components/elements/Toasts/FetchBodyDroppedToastMessage";
+import { HeadersReconnectToastMessage } from "./components/elements/Toasts/HeadersReconnectToastMessage";
 import { OutputValidationToastMessage } from "./components/elements/Toasts/OutputValidationToastMessage";
 import { ReAuthBannerBar } from "./components/groups/ReAuthBanner/ReAuthBannerBar";
 
@@ -593,6 +596,7 @@ function App() {
     connectErrorMessage,
     onToggleConnection,
     onDisconnect,
+    onReconnect,
     onReauthenticateFromBanner,
   } = useConnectionLifecycle({
     sessionRef,
@@ -625,6 +629,61 @@ function App() {
     sessionReset,
     seedModernLogLevel,
   });
+
+  // The "custom headers changed, reconnect to apply" notice (#2460). Custom
+  // headers are fixed into the transport at connect time, so an edit made
+  // while connected is saved but not sent. The notice's id is held so it can
+  // be withdrawn once the connection it describes is gone — at that point
+  // "this connection is still sending the old headers" is no longer true.
+  const headersReconnectToastRef = useRef<string | undefined>(undefined);
+  // The toast outlives the render that raised it, and `onReconnect` resolves
+  // the server's settings through that render's server list — one taken
+  // before the header edit it announces had been read back. Called through
+  // this ref, the click reconnects with the list as it stands then.
+  const onReconnectRef = useRef(onReconnect);
+  useEffect(() => {
+    onReconnectRef.current = onReconnect;
+  }, [onReconnect]);
+  useEffect(() => {
+    if (connectionStatus === "connected") return;
+    if (headersReconnectToastRef.current === undefined) return;
+    notifications.hide(headersReconnectToastRef.current);
+    headersReconnectToastRef.current = undefined;
+  }, [connectionStatus]);
+  const syncHeadersReconnectToast = useCallback(
+    (serverId: string, applied: InspectorServerSettings) => {
+      const client = sessionRef.current.inspectorClient;
+      const id = headersReconnectToastId(serverId);
+      const pending =
+        client !== null &&
+        client.getStatus() === "connected" &&
+        client.getServerType() !== "stdio" &&
+        customHeadersChanged(client.getTransportSettings(), applied);
+      if (!pending) {
+        // Also covers editing the headers back to what the connection sends.
+        notifications.hide(id);
+        return;
+      }
+      headersReconnectToastRef.current = id;
+      notifications.show({
+        id,
+        title: "Reconnect to apply header changes",
+        color: "yellow",
+        autoClose: false,
+        message: (
+          <HeadersReconnectToastMessage
+            onReconnect={() => {
+              notifications.hide(id);
+              onReconnectRef
+                .current(serverId)
+                .catch(reportDispatchFailure("Failed to reconnect"));
+            }}
+          />
+        ),
+      });
+    },
+    [sessionRef],
+  );
 
   // Fold the transport errors the SDK throws rather than delivers (e.g. -32601
   // on HTTP 404) onto their still-pending Protocol requests, by correlating with
@@ -1470,6 +1529,7 @@ function App() {
           EMPTY_SETTINGS)
         : settingsDraft;
       applyLiveServerSettings(applied);
+      syncHeadersReconnectToast(settingsModalTargetId, applied);
     }
     setSettingsModalTargetId(undefined);
   }, [
@@ -1480,6 +1540,7 @@ function App() {
     settingsDraft,
     lastPersistedSettings,
     applyLiveServerSettings,
+    syncHeadersReconnectToast,
   ]);
 
   // The Resources screen needs `isSubscribed` to flip the Subscribe button

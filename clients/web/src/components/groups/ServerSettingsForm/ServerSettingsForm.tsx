@@ -824,11 +824,11 @@ export function ServerSettingsForm({
           <Stack gap="md">
             <Group justify="space-between">
               <HintText>
-                Headers sent with every HTTP request to this server. A custom
-                `Authorization` header takes precedence over an OAuth access
-                token — the SDK transports apply these headers last — so remove
-                it once OAuth is configured, or the flow's token never gets
-                sent.
+                Headers sent with every HTTP request to this server. Changes
+                take effect on the next connect. A custom `Authorization` header
+                takes precedence over an OAuth access token — the SDK transports
+                apply these headers last — so remove it once OAuth is
+                configured, or the flow's token never gets sent.
               </HintText>
               <AddButton onClick={onAddHeader}>+ Add Header</AddButton>
             </Group>

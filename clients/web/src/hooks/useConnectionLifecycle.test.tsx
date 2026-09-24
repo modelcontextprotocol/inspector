@@ -962,6 +962,67 @@ describe("useConnectionLifecycle", () => {
     });
   });
 
+  describe("onReconnect", () => {
+    /** Connect "a" and rerender with it as the live session. */
+    const connectedHarness = async () => {
+      const h = harness({ servers: [entry("a")] });
+      await act(async () => {
+        await h.api().onToggleConnection("a");
+      });
+      const first = lastClient(h);
+      h.rerender({
+        servers: [entry("a")],
+        activeServerId: "a",
+        connectionStatus: "connected",
+        client: first,
+      });
+      vi.clearAllMocks();
+      return { h, first };
+    };
+
+    it("tears the live session down and connects a fresh client (#2460)", async () => {
+      const { h, first } = await connectedHarness();
+
+      await act(async () => {
+        await h.api().onReconnect("a");
+      });
+
+      // One disconnect, then a connect — not the second disconnect a stale
+      // toggle closure would have produced.
+      expect(disconnectSpy).toHaveBeenCalledTimes(1);
+      expect(h.spies.finalizeExplicitDisconnect).toHaveBeenCalledTimes(1);
+      expect(connectSpy).toHaveBeenCalledTimes(1);
+      expect(lastClient(h)).not.toBe(first);
+      // Restores the id the teardown's disconnect event cleared.
+      expect(h.spies.setActiveServerId).toHaveBeenCalledWith("a");
+    });
+
+    it("connects without a teardown when the target is not the live session", async () => {
+      const h = harness({ servers: [entry("a"), entry("b")] });
+
+      await act(async () => {
+        await h.api().onReconnect("b");
+      });
+
+      expect(disconnectSpy).not.toHaveBeenCalled();
+      expect(h.spies.finalizeExplicitDisconnect).not.toHaveBeenCalled();
+      expect(connectSpy).toHaveBeenCalledTimes(1);
+      expect(h.spies.setActiveServerId).toHaveBeenCalledWith("b");
+    });
+
+    it("finalizes and does not reconnect when the teardown rejects", async () => {
+      const { h } = await connectedHarness();
+      disconnectSpy.mockRejectedValueOnce(new Error("close failed"));
+
+      await act(async () => {
+        await expect(h.api().onReconnect("a")).rejects.toThrow("close failed");
+      });
+
+      expect(h.spies.finalizeExplicitDisconnect).toHaveBeenCalledTimes(1);
+      expect(connectSpy).not.toHaveBeenCalled();
+    });
+  });
+
   describe("the session-end effects", () => {
     it("tracks the connected server and clears it when the session ends", async () => {
       const h = harness({

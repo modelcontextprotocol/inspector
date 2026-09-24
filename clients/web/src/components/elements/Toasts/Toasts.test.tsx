@@ -3,6 +3,7 @@ import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderWithMantine } from "../../../test/renderWithMantine";
 import { FetchBodyDroppedToastMessage } from "./FetchBodyDroppedToastMessage";
+import { HeadersReconnectToastMessage } from "./HeadersReconnectToastMessage";
 import { OutputValidationToastMessage } from "./OutputValidationToastMessage";
 import { UrlElicitationErrorToastMessage } from "./UrlElicitationErrorToastMessage";
 import { ToastCauseList, ToastLinkButton } from "./ToastPrimitives";
@@ -53,6 +54,20 @@ describe("FetchBodyDroppedToastMessage", () => {
       }),
     );
     expect(onAdjust).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("HeadersReconnectToastMessage", () => {
+  it("says the edit is saved but unsent, and reconnects from the link", async () => {
+    const onReconnect = vi.fn();
+    renderWithMantine(
+      <HeadersReconnectToastMessage onReconnect={onReconnect} />,
+    );
+    expect(screen.getByText(/still sending the headers/)).toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Reconnect now" }),
+    );
+    expect(onReconnect).toHaveBeenCalledTimes(1);
   });
 });
 
