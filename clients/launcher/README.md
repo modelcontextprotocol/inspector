@@ -100,9 +100,9 @@ through the built launcher artifact (beyond the `--help` checks in
   The second half is the assertion (#2147). Spawned with its stdin on
   `/dev/null`, Ink cannot enter raw mode for `useInput`, so the TUI painted one
   frame and exited 1 about 40ms later — and this smoke, which settled OK on the
-  first frame, won that race and reported success on every machine. It is
-  local-only (self-skips under `CI`), which is precisely where a false green
-  goes unnoticed.
+  first frame, won that race and reported success on every machine. It runs in
+  GitHub CI as well as the local gate (#2408); it pins `CI=false` for the
+  child, since Ink suppresses interactive frames when it detects CI.
 
 Both rebuild `test-servers/build` on **every run** — once per process, whether
 or not it already exists (#2111). Presence is not freshness: a smoke driving a

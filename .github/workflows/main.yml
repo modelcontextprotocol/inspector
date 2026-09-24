@@ -139,8 +139,9 @@ jobs:
         # boots the prod web bundle in headless chromium (#1615); smoke:web:app
         # goes further and drives connect → open app → widget ready against a
         # composable MCP App server (#1859). Both reuse the chromium installed
-        # above. smoke:tui self-skips here — the Ink TUI needs a real TTY (raw
-        # mode) that headless CI lacks, so its boot/render check is local-only.
+        # above. smoke:tui runs for real here too (#2408): it gives the Ink TUI
+        # a pseudoterminal through util-linux script(1), which ubuntu-latest
+        # ships, and pins CI=false for the child so Ink renders interactively.
         run: npm run smoke
 
       - name: Run Storybook play-function tests
@@ -260,7 +261,8 @@ jobs:
       - name: Verify the publishable tarball end to end
         # Builds, `npm pack`s, installs the tarball into a clean consumer, and
         # drives the installed bin. Needs registry access to pull the tarball's
-        # runtime deps — available here. `smoke:tui` inside it self-skips on CI.
+        # runtime deps — available here. Its TUI check is `--tui --help` only;
+        # the real TUI boot is `smoke:tui`, which the `build` job runs.
         run: npm run pack:verify
 
       - name: Publish to npm (single package, with provenance)
