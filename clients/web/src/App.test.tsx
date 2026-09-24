@@ -2139,6 +2139,37 @@ describe("App roots live-apply on settings-dialog close", () => {
     await waitFor(() => expect(clientInstances).toHaveLength(2));
   });
 
+  it("withdraws a raised reconnect notice once the connection ends (#2493 review)", async () => {
+    // Its message is about "this connection"; with none left it is false.
+    const user = userEvent.setup();
+    const client = await openSettingsForConnectedServer({
+      ...settingsWithRoots([]),
+      headers: [{ key: "X-Provider-Username", value: "user" }],
+    });
+    client.getTransportSettings.mockReturnValue(settingsWithRoots([]));
+    await closeModal(user);
+    await waitFor(() =>
+      expect(notificationsMock.show).toHaveBeenCalledWith(
+        expect.objectContaining({ id: "headers-reconnect-A" }),
+      ),
+    );
+    notificationsMock.hide.mockClear();
+
+    vi.mocked(useInspectorClient).mockReturnValue({
+      ...DEFAULT_USE_INSPECTOR_CLIENT,
+      status: "disconnected",
+    });
+    act(() => {
+      clientInstances[0].dispatchEvent(new Event("disconnect"));
+    });
+
+    await waitFor(() =>
+      expect(notificationsMock.hide).toHaveBeenCalledWith(
+        "headers-reconnect-A",
+      ),
+    );
+  });
+
   it("waits for an in-flight settings write to land before raising the reconnect notice (#2460)", async () => {
     // Until the flushed write settles the saved list still holds the pre-edit
     // headers, so a Reconnect clicked in that window would rebuild the client
