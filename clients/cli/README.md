@@ -265,7 +265,7 @@ Interactive OAuth (connect-time or mid-RPC) requires a TTY on **stdin or stderr*
 
 **Step-up (standard OAuth):** when an RPC needs extra scopes, the CLI prompts on stderr: `Proceed with step-up authorization? [y/N]`. **y** continues (including piped stdin — `echo y | …` or `printf y | …`); **N** or EOF with no answer (`< /dev/null` / Ctrl-D) declines. Piped answers must be **newline-terminated, or stdin must close** — a bare `y` held open without `\n` or EOF is not flushed as a line and times out. A non-TTY stdin that never sends a line within **5 seconds** fails with `auth_required` (`timed out`, not the same as an explicit **N**). Answering **y** only confirms step-up — the following browser/loopback OAuth can still wait up to 15 minutes; for headless CI prefer **`--stored-auth-only`** with tokens already in the store. EMA step-up re-mints silently (no prompt).
 
-**Shared OAuth storage:** the CLI **reuses** tokens from `~/.mcp-inspector/storage/oauth.json` when they already exist (same file as other Inspector clients). That is passive file sharing, not launching another app.
+**Shared OAuth storage:** the CLI **reuses** tokens stored by other Inspector clients — indexed by the shared `~/.mcp-inspector/storage/oauth.json`, with the tokens themselves held in the secret store. That is passive storage sharing, not launching another app.
 
 **Shared with TUI** (config only, not interactive login):
 
@@ -307,7 +307,7 @@ See [EMA / enterprise-managed auth](../../specification/v2_auth_ema.md) and [OAu
 
 #### Stored-auth (web → CLI handoff)
 
-For the common case where OAuth was already completed in the **web inspector on the same machine**, the CLI can reuse the resulting token instead of running its own interactive flow. It reads the shared OAuth state file (the `oauth.json` the web backend writes) directly from disk and injects `Authorization: Bearer <token>` for `--server-url`.
+For the common case where OAuth was already completed in the **web inspector on the same machine**, the CLI can reuse the resulting token instead of running its own interactive flow. It reads the shared OAuth state (the `oauth.json` the web backend writes, joined with the tokens in the secret store) and injects `Authorization: Bearer <token>` for `--server-url`.
 
 | Option                  | Description                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
