@@ -43,6 +43,38 @@ describe("--verify argument validation", () => {
     },
   );
 
+  it("rejects --require-digests without --verify (#2405)", async () => {
+    await expect(
+      runCli([
+        "node",
+        "cli",
+        "--cli",
+        "--method",
+        "skills/list",
+        "--require-digests",
+        "--server-url",
+        "http://127.0.0.1:1/mcp",
+      ]),
+    ).rejects.toThrow("--require-digests requires --verify.");
+  });
+
+  it("accepts --require-digests alongside --verify", async () => {
+    // Reaches the connect and fails there, as with skills/get below.
+    await expect(
+      runCli([
+        "node",
+        "cli",
+        "--cli",
+        "--method",
+        "skills/list",
+        "--verify",
+        "--require-digests",
+        "--server-url",
+        "http://127.0.0.1:1/mcp",
+      ]),
+    ).rejects.not.toThrow(/--require-digests requires/);
+  });
+
   it("is accepted with skills/get", async () => {
     // Reaches the connect and fails there — which is the point: the flag
     // itself was not what was rejected.
@@ -159,6 +191,30 @@ describe("consumeMethodOutcome NDJSON summary and exit code (#2248)", () => {
     expect(thrown).toMatchObject({
       exitCode: EXIT_CODES.SKILL_INCOMPLETE,
       envelope: { code: "skills_incomplete" },
+    });
+  });
+
+  it("labels the envelope for an UNVERIFIABLE run (#2405)", async () => {
+    const streams = captureStreams();
+    let thrown: unknown;
+    try {
+      await consumeMethodOutcome(
+        {
+          kind: "ndjson",
+          lines: [{ outcome: "unverifiable" }],
+          summary: "no digests",
+          exitCode: EXIT_CODES.SKILL_UNVERIFIABLE,
+        },
+        {},
+      );
+    } catch (err) {
+      thrown = err;
+    } finally {
+      streams.restore();
+    }
+    expect(thrown).toMatchObject({
+      exitCode: EXIT_CODES.SKILL_UNVERIFIABLE,
+      envelope: { code: "skills_unverifiable" },
     });
   });
 

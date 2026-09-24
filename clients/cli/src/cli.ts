@@ -765,6 +765,10 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
       "Run the SEP-2640 conformance and digest checks over the skills returned, emit one JSON report per skill on stdout, and exit 7 if any fails or 8 if any could not be fully checked within the read bounds. Use with --method skills/list or --method skills/get.",
     )
     .option(
+      "--require-digests",
+      'With --verify: exit 9 when a skill advertises no digests (resources: "dynamic"), instead of reporting it as unverifiable and exiting 0.',
+    )
+    .option(
       "--connect-timeout <ms>",
       `Connection timeout in ms (default ${DEFAULT_CONNECT_TIMEOUT_MS} for ad-hoc --server-url / target invocations; 0 = no timeout).`,
       (v: string) => {
@@ -875,6 +879,7 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     appInfo?: boolean;
     strict?: boolean;
     verify?: boolean;
+    requireDigests?: boolean;
     cursor?: string;
     connectTimeout?: number;
     protocolEra?: ServerProtocolEra;
@@ -958,6 +963,11 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
         "--verify requires --method skills/list or --method skills/get.",
       );
     }
+  }
+  // Same reasoning: a policy flag with no report to apply it to would be
+  // accepted and then silently do nothing.
+  if (options.requireDigests && !options.verify) {
+    throw new Error("--require-digests requires --verify.");
   }
 
   // State-path precedence (getStateFilePath): MCP_INSPECTOR_OAUTH_STATE_PATH →
@@ -1192,6 +1202,7 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     appInfo: options.appInfo === true,
     strict: options.strict === true,
     verify: options.verify === true,
+    requireDigests: options.requireDigests === true,
     cursor: options.cursor,
     format: options.format,
   };

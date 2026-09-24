@@ -45,7 +45,9 @@ export async function consumeMethodOutcome(
         code:
           outcome.exitCode === EXIT_CODES.SKILL_INCOMPLETE
             ? "skills_incomplete"
-            : "skills_nonconformant",
+            : outcome.exitCode === EXIT_CODES.SKILL_UNVERIFIABLE
+              ? "skills_unverifiable"
+              : "skills_nonconformant",
       });
     }
     return;
