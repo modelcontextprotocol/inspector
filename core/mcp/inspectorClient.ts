@@ -149,6 +149,7 @@ import { buildClientExtensions } from "./extensions.js";
 import {
   DirectoryReadResultSchema,
   GetSkillEnvelopeSchema,
+  ModernGetSkillEnvelopeSchema,
   ListSkillsResultSchema,
   ModernListSkillsResultSchema,
   RESOURCES_DIRECTORY_READ_METHOD,
@@ -5787,10 +5788,9 @@ export class InspectorClient extends InspectorClientEventTarget {
    * removes it before the result gets here (#2373).
    *
    * Separate from {@link getSkill} because the callers differ: the UIs want the
-   * entry, while the CLI prints the result and must not reshape it. SEP-2640
-   * explicitly leaves open whether this result carries `ttlMs` / `cacheScope`,
-   * so a server may send them — and unwrapping to the entry discards exactly
-   * those (Copilot).
+   * entry, while the CLI prints the result and must not reshape it. A modern
+   * result carries `ttlMs` / `cacheScope` (#2404), and unwrapping to the entry
+   * discards exactly those (Copilot).
    */
   async getSkillResult(
     uri: string,
@@ -5804,16 +5804,21 @@ export class InspectorClient extends InspectorClientEventTarget {
       uri,
       ...(effectiveMeta ? { _meta: effectiveMeta } : {}),
     };
-    // One schema for both eras (#2373): on a modern connection the SDK codec
-    // has already enforced `resultType` and lifted it off, and the caching
-    // attributes are left open by SEP-2640, so there is nothing era-specific
-    // left to require. The envelope is returned whole; `getSkill` unwraps.
+    // Era-aware, like `listSkills` (#2404): the stable ext-skills spec makes
+    // `GetSkillResult` a `CacheableResult`, so a modern result must carry
+    // `ttlMs` / `cacheScope`. The SDK codec checks and lifts `resultType`
+    // (#2373) but, for a consumer-owned method, neither caching attribute —
+    // so this schema is the only thing that does. Legacy stays permissive.
+    // The envelope is returned whole; `getSkill` unwraps.
+    const resultSchema = this.isModernEra()
+      ? ModernGetSkillEnvelopeSchema
+      : GetSkillEnvelopeSchema;
     try {
       return await this.invokeMcpClient(
         () =>
           this.client!.request(
             { method: SKILLS_GET_METHOD, params },
-            GetSkillEnvelopeSchema,
+            resultSchema,
             this.getRequestOptions(this.progressTokenOf(metadata)),
           ),
         { method: SKILLS_GET_METHOD },

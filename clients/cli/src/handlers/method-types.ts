@@ -48,6 +48,12 @@ export type MethodArgs = {
    */
   verify?: boolean;
   /**
+   * `--require-digests` (with `--verify`): treat a skill whose `resources` is
+   * `"dynamic"` — one that advertised no digests — as a non-zero exit (`9`)
+   * rather than as `0` (#2405).
+   */
+  requireDigests?: boolean;
+  /**
    * Opaque pagination cursor. Used by `resources/directory/read`, whose result
    * pages exactly as `resources/list` does — and where the caller descends the
    * tree itself, so there is no store to walk it.
