@@ -4,6 +4,7 @@
  */
 
 import { PLAIN, type Style } from "@inspector/cli/style.js";
+import { isSafeLinkTarget } from "./sanitize.js";
 
 type JsonObject = Record<string, unknown>;
 
@@ -88,7 +89,9 @@ function descSuffix(style: Style, description: unknown): string {
 
 function formatUri(style: Style, uri: string): string {
   if (!uri) return uri;
-  if (uri.includes("://")) return style.link(uri);
+  // Only allowlisted schemes become clickable OSC 8 links (see sanitize.ts);
+  // file:/custom-handler URIs from a server render as plain colored text.
+  if (isSafeLinkTarget(uri)) return style.link(uri);
   return style.cyan(uri);
 }
 

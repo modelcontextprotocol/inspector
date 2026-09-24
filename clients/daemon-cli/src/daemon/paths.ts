@@ -46,16 +46,52 @@ export function createPrivateDaemonDir(): string {
   const uid = typeof process.getuid === "function" ? process.getuid() : "u";
   const root = path.join(os.tmpdir(), `mcp-conn-${uid}`);
   fs.mkdirSync(root, { recursive: true, mode: 0o700 });
+  // The tmpdir parent is world-writable on shared machines, and mkdir with
+  // `recursive: true` succeeds silently over a pre-existing entry — never
+  // trust a root another user could have planted (dir or symlink) before
+  // this user's first run.
+  assertTrustedPrivateRoot(root);
   const id = randomBytes(4).toString("hex");
   const dir = path.join(root, id);
+  // Non-recursive mkdir is exclusive: an existing entry (however unlikely
+  // under a now-verified 0700 root) throws instead of being adopted.
   fs.mkdirSync(dir, { mode: 0o700 });
   try {
-    fs.chmodSync(root, 0o700);
     fs.chmodSync(dir, 0o700);
   } catch {
     // best-effort on platforms that ignore mode
   }
   return dir;
+}
+
+/**
+ * Fail closed unless `dir` is a real directory (not a symlink) owned by the
+ * current user, and tighten its mode to 0700. On a shared `/tmp`, another
+ * user who pre-created the predictable `mcp-conn-<uid>` path — or planted a
+ * symlink there — would otherwise keep write control over where the daemon's
+ * socket and token land. No-op on Windows (no getuid/UNIX mode semantics).
+ * Exported for tests.
+ */
+export function assertTrustedPrivateRoot(dir: string): void {
+  /* v8 ignore next -- Windows-only: no getuid */
+  if (typeof process.getuid !== "function") return;
+  const st = fs.lstatSync(dir);
+  if (!st.isDirectory()) {
+    throw new Error(
+      `Refusing to use ${dir}: not a directory (a file or symlink was planted in its place).`,
+    );
+  }
+  /* v8 ignore next 5 -- requires a second uid to create the dir; untestable without root */
+  if (st.uid !== process.getuid()) {
+    throw new Error(
+      `Refusing to use ${dir}: owned by uid ${st.uid}, not the current user (uid ${process.getuid()}).`,
+    );
+  }
+  if ((st.mode & 0o077) !== 0) {
+    // We own it, so chmod either succeeds or throws — a failure here must
+    // stay fatal rather than leaving a group/other-accessible daemon dir.
+    fs.chmodSync(dir, 0o700);
+  }
 }
 
 export function getDaemonSocketPath(dir: string = getDaemonDir()): string {

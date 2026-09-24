@@ -49,3 +49,20 @@ export function sanitizeDeep<T>(value: T): T {
   }
   return value;
 }
+
+/**
+ * Schemes a server-supplied URI may be rendered as an OSC 8 hyperlink.
+ * A hyperlink is an invitation for the user to invoke the local handler for
+ * the scheme, so an untrusted MCP server only gets the web ones: `file:`,
+ * custom protocol handlers, `javascript:` and the rest render as plain text.
+ */
+const SAFE_LINK_SCHEMES = new Set(["https:", "http:"]);
+
+/** True when `uri` parses and its scheme is on the OSC 8 allowlist. */
+export function isSafeLinkTarget(uri: string): boolean {
+  try {
+    return SAFE_LINK_SCHEMES.has(new URL(uri).protocol);
+  } catch {
+    return false;
+  }
+}

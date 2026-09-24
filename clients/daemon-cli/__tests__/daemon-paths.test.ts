@@ -4,6 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import {
   assertSocketPathWithinLimit,
+  assertTrustedPrivateRoot,
   createPrivateDaemonDir,
   ensureDaemonDir,
   getDaemonDir,
@@ -78,6 +79,33 @@ describe("daemon paths", () => {
       expect(fs.statSync(dir).mode & 0o777).toBe(0o700);
       expect(fs.statSync(path.dirname(dir)).mode & 0o777).toBe(0o700);
     }
+    fs.rmSync(tmp, { recursive: true, force: true });
+  });
+
+  it("createPrivateDaemonDir refuses a symlinked mcp-conn root", () => {
+    if (process.platform === "win32") return;
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "mcp-conn-sym-"));
+    setEnv("TMPDIR", tmp + path.sep);
+    // Another user pre-planting the predictable root as a symlink to a dir
+    // they control must fail closed, not be adopted by recursive mkdir.
+    const target = path.join(tmp, "attacker-controlled");
+    fs.mkdirSync(target, { mode: 0o700 });
+    fs.symlinkSync(target, path.join(tmp, `mcp-conn-${process.getuid!()}`));
+    expect(() => createPrivateDaemonDir()).toThrow(/not a directory/);
+    fs.rmSync(tmp, { recursive: true, force: true });
+  });
+
+  it("assertTrustedPrivateRoot tightens a loose pre-existing root", () => {
+    if (process.platform === "win32") return;
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "mcp-conn-loose-"));
+    const root = path.join(tmp, "root");
+    fs.mkdirSync(root, { mode: 0o755 });
+    assertTrustedPrivateRoot(root);
+    expect(fs.statSync(root).mode & 0o777).toBe(0o700);
+    // A file in the root's place fails closed too.
+    const file = path.join(tmp, "not-a-dir");
+    fs.writeFileSync(file, "");
+    expect(() => assertTrustedPrivateRoot(file)).toThrow(/not a directory/);
     fs.rmSync(tmp, { recursive: true, force: true });
   });
 

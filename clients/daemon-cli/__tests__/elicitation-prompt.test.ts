@@ -176,6 +176,27 @@ describe("promptElicitation", () => {
     expect(stderr).toContain("https://example.com/confirm");
   });
 
+  it("renders only allowlisted schemes as OSC 8 links in URL mode", async () => {
+    question.mockResolvedValue("");
+    const ansi = createStyle(true);
+    const { promptElicitation } =
+      await import("../src/connection/elicitation-prompt.js");
+
+    await promptElicitation(urlFrame(), { interactive: true, style: ansi });
+    expect(stderr).toContain("\u001b]8;;https://example.com/confirm");
+
+    stderr = "";
+    const answer = await promptElicitation(
+      urlFrame({ url: "file:///etc/passwd" }),
+      { interactive: true, style: ansi },
+    );
+    // A server-supplied file:/custom-handler URL is shown as plain text —
+    // never as a clickable link inviting the local protocol handler.
+    expect(answer.action).toBe("accept");
+    expect(stderr).not.toContain("]8;;");
+    expect(stderr).toContain("file:///etc/passwd");
+  });
+
   it("cancels when the interactive user types 'c'", async () => {
     question.mockResolvedValue("c");
     const { promptElicitation } =

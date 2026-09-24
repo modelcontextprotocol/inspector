@@ -21,7 +21,7 @@ import type {
 } from "../daemon/protocol.js";
 import { parseFormSchema } from "./form-schema.js";
 import { promptForm, watchForClose } from "./form-prompt.js";
-import { sanitizeText } from "./sanitize.js";
+import { isSafeLinkTarget, sanitizeText } from "./sanitize.js";
 
 export type PromptElicitationOpts = {
   /**
@@ -147,7 +147,11 @@ export async function promptElicitation(
       message +
       "\n" +
       "  " +
-      style.link(url ?? "", url) +
+      // Only allowlisted schemes render as a clickable OSC 8 link; a server
+      // supplying file:/custom-handler URLs gets plain text (see sanitize.ts).
+      (url !== undefined && isSafeLinkTarget(url)
+        ? style.link(url, url)
+        : (url ?? "")) +
       "\n\n",
   );
 

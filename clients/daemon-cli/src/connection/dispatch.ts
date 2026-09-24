@@ -51,23 +51,34 @@ export async function dispatchConnectionRpc(
     const onSignal = () => ac.abort();
     process.on("SIGINT", onSignal);
     process.on("SIGTERM", onSignal);
+    // Stream writes are chained and awaited before returning: mcp-bin calls
+    // process.exit() right after, which truncates a still-pending stdout
+    // write when output is piped or backpressured.
+    let writeChain: Promise<void> = Promise.resolve();
     try {
       await streamDaemon(params, {
         socketPath,
         signal: ac.signal,
         onData: (data) => {
-          void writeConnectionOutput(
-            { format, style },
-            {
-              kind: "stream-event",
-              data,
-            },
+          writeChain = writeChain.then(() =>
+            writeConnectionOutput(
+              { format, style },
+              {
+                kind: "stream-event",
+                data,
+              },
+            ),
           );
+          // Detached observer: prevents an unhandled rejection while the
+          // stream is still running; write errors stay non-fatal, as they
+          // were when these writes were fire-and-forget.
+          writeChain.catch(() => {});
         },
       });
     } finally {
       process.off("SIGINT", onSignal);
       process.off("SIGTERM", onSignal);
+      await writeChain.catch(() => {});
     }
     return;
   }

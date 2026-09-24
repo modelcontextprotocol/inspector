@@ -5,7 +5,11 @@
  * rewriting, OSC 8 hyperlink breakout).
  */
 import { describe, expect, it } from "vitest";
-import { sanitizeDeep, sanitizeText } from "../src/connection/sanitize.js";
+import {
+  isSafeLinkTarget,
+  sanitizeDeep,
+  sanitizeText,
+} from "../src/connection/sanitize.js";
 
 describe("sanitizeText", () => {
   it("neutralizes an OSC 52 clipboard-write sequence", () => {
@@ -72,5 +76,22 @@ describe("sanitizeDeep", () => {
     const out = sanitizeDeep(input);
     expect(input.text).toBe("esc\u001b");
     expect(out.text).toBe("esc\u241b");
+  });
+});
+
+describe("isSafeLinkTarget", () => {
+  it("allows only http(s) URLs as OSC 8 link targets", () => {
+    expect(isSafeLinkTarget("https://example.com/x")).toBe(true);
+    expect(isSafeLinkTarget("http://localhost:3001/mcp")).toBe(true);
+    expect(isSafeLinkTarget("file:///etc/passwd")).toBe(false);
+    expect(isSafeLinkTarget("javascript:alert(1)")).toBe(false);
+    expect(isSafeLinkTarget("vscode://malicious/payload")).toBe(false);
+    expect(isSafeLinkTarget("customproto://x")).toBe(false);
+  });
+
+  it("rejects strings that don't parse as URLs", () => {
+    expect(isSafeLinkTarget("not a url")).toBe(false);
+    expect(isSafeLinkTarget("")).toBe(false);
+    expect(isSafeLinkTarget("example.com/no-scheme")).toBe(false);
   });
 });

@@ -15,6 +15,31 @@ vi.mock("../src/connection/elicitation-prompt.js", () => ({
   promptElicitation: (...args: unknown[]) => promptElicitation(...args),
 }));
 
+// Pass-through wrapper so tests can delay writes and observe completion
+// order (the stream path must flush queued writes before returning).
+const writeDelayMs = { value: 0 };
+const writeReject = { value: false };
+const writeCompletions: unknown[] = [];
+vi.mock("../src/connection/format-connection.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<
+      typeof import("../src/connection/format-connection.js")
+    >();
+  return {
+    ...actual,
+    writeConnectionOutput: async (...args: unknown[]) => {
+      if (writeReject.value) throw new Error("stdout write failed");
+      if (writeDelayMs.value > 0) {
+        await new Promise((r) => setTimeout(r, writeDelayMs.value));
+      }
+      await (
+        actual.writeConnectionOutput as (...a: unknown[]) => Promise<void>
+      )(...args);
+      writeCompletions.push(args[1]);
+    },
+  };
+});
+
 describe("dispatchConnectionRpc", () => {
   let stdout: string;
   let originalWrite: typeof process.stdout.write;
@@ -34,6 +59,9 @@ describe("dispatchConnectionRpc", () => {
     callDaemon.mockReset();
     streamDaemon.mockReset();
     promptElicitation.mockReset();
+    writeDelayMs.value = 0;
+    writeReject.value = false;
+    writeCompletions.length = 0;
   });
 
   afterEach(() => {
@@ -109,6 +137,47 @@ describe("dispatchConnectionRpc", () => {
     );
     expect(stdout).toContain("Subscribed:");
     expect(streamDaemon).toHaveBeenCalled();
+  });
+
+  it("flushes queued stream writes before returning", async () => {
+    // Regression: stream writes were fire-and-forget, so mcp-bin's
+    // process.exit() right after dispatch resolved could truncate the final
+    // event when stdout is piped or backpressured.
+    writeDelayMs.value = 10;
+    streamDaemon.mockImplementation(
+      async (_params: unknown, opts: { onData: (d: unknown) => void }) => {
+        opts.onData({ type: "subscribed", uri: "test://one" });
+        opts.onData({ type: "subscribed", uri: "test://two" });
+      },
+    );
+    const { dispatchConnectionRpc } =
+      await import("../src/connection/dispatch.js");
+    await dispatchConnectionRpc(
+      "logging/tail",
+      {},
+      { requireExplicit: false, connection: "@s" },
+    );
+    expect(writeCompletions.length).toBe(2);
+    expect(stdout).toContain("test://two");
+  });
+
+  it("keeps stream write failures non-fatal, as when they were fire-and-forget", async () => {
+    writeReject.value = true;
+    streamDaemon.mockImplementation(
+      async (_params: unknown, opts: { onData: (d: unknown) => void }) => {
+        opts.onData({ type: "subscribed", uri: "test://x" });
+        opts.onData({ type: "subscribed", uri: "test://y" });
+      },
+    );
+    const { dispatchConnectionRpc } =
+      await import("../src/connection/dispatch.js");
+    await expect(
+      dispatchConnectionRpc(
+        "logging/tail",
+        {},
+        { requireExplicit: false, connection: "@s" },
+      ),
+    ).resolves.toBeUndefined();
   });
 
   it("wires SIGINT/SIGTERM abort for the general rpc path (not just streams)", async () => {

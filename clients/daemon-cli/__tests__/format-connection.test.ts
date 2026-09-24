@@ -898,4 +898,23 @@ describe("format-human ANSI styling", () => {
     expect(log).toContain("\u001b[31m");
     expect(log).toContain("boom");
   });
+
+  it("hyperlinks only allowlisted schemes as OSC 8", () => {
+    const s = createStyle(true);
+    const out = formatResourcesHuman(
+      [
+        { uri: "https://example.com/r", name: "web" },
+        { uri: "file:///etc/passwd", name: "local" },
+        { uri: "vscode://malicious/payload", name: "custom" },
+      ],
+      s,
+    );
+    // https renders as a clickable link; file:/custom-handler URIs must not
+    // invite the terminal to invoke a local protocol handler.
+    expect(out).toContain("\u001b]8;;https://example.com/r");
+    expect(out).not.toContain("]8;;file://");
+    expect(out).not.toContain("]8;;vscode://");
+    expect(out).toContain("file:///etc/passwd");
+    expect(out).toContain("vscode://malicious/payload");
+  });
 });
