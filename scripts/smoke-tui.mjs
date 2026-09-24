@@ -74,17 +74,13 @@ function skip(message) {
   process.exit(0);
 }
 
-// Kept out of GitHub CI by decision, not by capability. The PTY above removes
-// the technical blocker this skip used to cite (a headless runner has no TTY),
-// but whether this smoke joins CI is a separate call for the maintainers, and
-// #2146 is deliberately keeping the other local-only smokes out. Making it
-// *valid* stands on its own: it is a local-only gate, which is exactly where a
-// false green is least likely to be caught by anything else.
-if (process.env.CI) {
-  skip(
-    "local-only by decision (see the header); the TUI is built and unit-tested in CI",
-  );
-}
+// Runs in GitHub CI too (#2408). It used to skip on `process.env.CI`, first
+// because a headless runner has no TTY and then, once the PTY above removed
+// that blocker, by decision — which left the TUI the one shipped surface with
+// no end-to-end CI signal. There is deliberately no CI branch here any more:
+// `ubuntu-latest` ships util-linux `script(1)`, so CI takes exactly the path a
+// Linux developer's gate takes, and a runner without one skips below for the
+// same stated reason a local machine would.
 
 if (!existsSync(launcher)) {
   fail(`launcher build not found at ${launcher} — run \`npm run build\` first`);
@@ -154,8 +150,18 @@ try {
       // so an ambient non-loopback value can't crash the TUI before render via
       // the loopback callback guard — same class smoke-cli.mjs's
       // SMOKE_BASE_ENV neutralizes.
+      //
+      // Pin CI and CONTINUOUS_INTEGRATION to "false" (#2408). Ink reads them
+      // through `is-in-ci` and, when either is set to anything else, suppresses
+      // every interactive frame and writes only the last one on unmount — so
+      // under GitHub Actions' CI=true the TUI enters the alt screen, paints
+      // nothing, and the marker never arrives. "false" rather than deleting the
+      // keys because `is-in-ci` treats exactly "0"/"false" as not-CI, which
+      // holds whatever else the runner exports.
       env: {
         ...process.env,
+        CI: "false",
+        CONTINUOUS_INTEGRATION: "false",
         MCP_OAUTH_CALLBACK_URL: "",
         HOME: work,
         USERPROFILE: work,

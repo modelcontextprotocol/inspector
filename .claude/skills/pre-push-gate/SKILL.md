@@ -31,7 +31,7 @@ prints each stage as it starts, so the running command is the other reliable
 answer.
 
 It runs **every check** GitHub CI runs (which additionally runs `npm install`,
-and runs `coverage` as a parallel job), plus two local-only steps. So the
+and runs `coverage` as a parallel job), plus one local-only step. So the
 direction that matters holds: **passing `local:gate` locally means every check
 CI applies has already passed on your machine** — the strongest predictor of a
 green CI there is here, though not a proof (a different OS, and the bare test
@@ -189,16 +189,14 @@ own.
 for a measurement that needs contention; it does not get a result sooner,
 because the queued run finishes before an overlapped one would.
 
-## Local-only steps
+## Local-only step
 
-Two stages have no GitHub CI counterpart, each deliberately:
+One stage has no GitHub CI counterpart, deliberately:
 
 - **`smoke:web:firefox`** — the three browser-driven web smokes again under
   Firefox. Trialled as a CI job and removed (#2086): across a dozen runs it never
   disagreed with Chromium, and `playwright install --with-deps` carries a real
   flake surface. Kept in front of a human about to push instead.
-- **`smoke:tui`** — needs a real TTY. It _is_ invoked in CI via `npm run smoke`
-  and self-skips there on `process.env.CI`, so it needs no guarding.
 
 A guard (`scripts/lib/workflow-gate.mjs`, run by `npm run test:scripts`) fails
 the suite if a workflow invokes a `local:*` script, a non-Chromium engine pass,
