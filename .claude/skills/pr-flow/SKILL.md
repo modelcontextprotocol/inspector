@@ -66,7 +66,7 @@ NOW=$(card | cut -d' ' -f2-)
   || echo "card is '$NOW', assigned='${ASSIGNED:-no}' — this step is NOT done" >&2
 ```
 
-An issue with no card on #28 fails the lookup; board it first with
+An issue with no card on board `$BOARD` fails the lookup; board it there first with
 `/issue-create`'s card step rather than skipping the move.
 
 ## 2. Branch
