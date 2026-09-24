@@ -21,7 +21,21 @@ PR with no linked issue has no board card, so the work is invisible to the
 project board and untracked. If there's no issue yet, create one first with
 `/issue-create` — don't open the PR and backfill.
 
-**Step 1 is two actions — assign the issue, and move its card to In Progress.
+**Read the issue first — the body _and every comment on it_.** The body is
+where the issue started, not necessarily where it stands now. The comments are
+where a maintainer narrows or widens the ask, rules out an approach, links a
+related issue or records a decision the body was never updated to reflect.
+Working from the body alone builds the wrong thing.
+
+```sh
+gh issue view <ISSUE_NUMBER> --repo modelcontextprotocol/inspector --comments
+```
+
+When a later comment contradicts the body, follow the comment. When the scope is
+still unclear after reading everything, ask before starting. A question now is
+cheaper than a PR built on a guess.
+
+**Then two actions — assign the issue, and move its card to In Progress.
 Both happen before you branch.** A card in progress with nobody on it can't
 answer "who has this?", and an assigned issue whose card still says `Todo` tells
 the board nobody has started. `@me` resolves to whoever `gh` is authenticated
