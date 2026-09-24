@@ -61,11 +61,21 @@ export function resetPersistTokensPolicyWarnings(): void {
 /**
  * SecretStore ids are namespaced so OAuth state cannot collide with catalog
  * server entries (whose ids are user-chosen names) or the client.json id.
+ *
+ * The URL/issuer is percent-encoded because the id **must not contain a
+ * colon**: store accounts are `serverId:field`, and the keyring store's
+ * `deleteAllForServer` parses an account at the *first* colon and requires
+ * the parsed id to equal the requested one — an id like `oauth:https://…`
+ * would parse as `oauth` and never match, so purges would silently leave
+ * tokens in the OS keychain. A raw URL would also make one server's id a
+ * prefix of another's (`https://a` vs `https://a:8080`), letting
+ * prefix-matching stores delete the wrong server's secrets. Encoding turns
+ * `:` and `/` into `%3A`/`%2F`, which no other id can collide with.
  */
 export const oauthSecretServerId = (serverUrl: string): string =>
-  `oauth:${serverUrl}`;
+  `oauth+${encodeURIComponent(serverUrl)}`;
 export const oauthIdpSecretServerId = (issuer: string): string =>
-  `oauth-idp:${issuer}`;
+  `oauth-idp+${encodeURIComponent(issuer)}`;
 
 /** Field for one issuer's acquired tokens (JSON-serialized `OAuthTokens`). */
 export const issuerTokensField = (issuer: string): string => `tokens:${issuer}`;

@@ -55,6 +55,7 @@ import {
   snapshotHasPlaintextSecrets,
   splitIdpSession,
   splitServerOAuthState,
+  type OAuthSecretValues,
 } from "./oauth-secrets.js";
 
 export interface FileOAuthPersistBackendOptions {
@@ -123,6 +124,26 @@ async function persistEntrySecrets(
 }
 
 /**
+ * The write-path counterpart of the migration's durable-store guard: when
+ * the store is session-scoped, a secret that is already durable as file
+ * plaintext and is being written back **unchanged** stays in the residue,
+ * so an unrelated mutation (a scope save, a verifier) cannot demote the
+ * only durable token copy to memory-only. New or changed secrets are still
+ * kept out of the file — they live for this session only, the documented
+ * memory-store contract.
+ */
+function preserveNonDurableSecrets(
+  diskSecrets: OAuthSecretValues,
+  secrets: OAuthSecretValues,
+): OAuthSecretValues {
+  const keep: OAuthSecretValues = {};
+  for (const [field, value] of Object.entries(secrets)) {
+    if (diskSecrets[field] === value) keep[field] = value;
+  }
+  return keep;
+}
+
+/**
  * Overlay the named sections of `snapshot` onto the OAuth state file under
  * the cross-process file lock — lock → fresh read → merge → split secrets to
  * the store → atomic write of the residue. Shared by the file backend, the
@@ -141,6 +162,7 @@ export async function writeOAuthSections(
   secretStore: SecretStore = defaultSecretStore(),
 ): Promise<void> {
   const policy = getPersistTokensPolicy();
+  const durable = await secretStoreIsDurable(secretStore);
   try {
     await withSecretFileLock(filePath, async () => {
       const disk = parseOAuthPersistBlob(await readStoreFile(filePath));
@@ -181,6 +203,16 @@ export async function writeOAuthSections(
         }
         const { residue, secrets } = splitServerOAuthState(next, policy);
         merged.servers[url] = residue;
+        if (!durable) {
+          const diskEntry = disk?.servers[url];
+          const keep = preserveNonDurableSecrets(
+            diskEntry ? splitServerOAuthState(diskEntry, "all").secrets : {},
+            secrets,
+          );
+          if (Object.keys(keep).length > 0) {
+            merged.servers[url] = joinServerOAuthState(residue, keep);
+          }
+        }
         await persistEntrySecrets(secretStore, serverId, candidates, secrets);
       }
 
@@ -197,6 +229,16 @@ export async function writeOAuthSections(
         }
         const { residue, secrets } = splitIdpSession(next, policy);
         merged.idpSessions[issuer] = residue;
+        if (!durable) {
+          const diskSession = disk?.idpSessions[issuer];
+          const keep = preserveNonDurableSecrets(
+            diskSession ? splitIdpSession(diskSession, "all").secrets : {},
+            secrets,
+          );
+          if (Object.keys(keep).length > 0) {
+            merged.idpSessions[issuer] = joinIdpSession(residue, keep);
+          }
+        }
         await persistEntrySecrets(
           secretStore,
           serverId,
@@ -333,27 +375,36 @@ export async function readOAuthStore(
 /**
  * Delete the OAuth state file and every secret-store entry it indexes. The
  * file is read first because the store cannot enumerate its own entries —
- * the file's keys are the index.
+ * the file's keys are the index. The read → purge → unlink sequence runs
+ * under the same file lock as writes and migration, so a concurrent
+ * sectioned write cannot interleave (which could either resurrect a
+ * just-purged entry's residue or orphan its freshly written store secrets).
  */
 export async function removeOAuthStore(
   filePath: string,
   secretStore: SecretStore = defaultSecretStore(),
 ): Promise<void> {
-  const snapshot = parseOAuthPersistBlob(await readStoreFile(filePath));
-  if (snapshot) {
-    const ids = [
-      ...Object.keys(snapshot.servers).map(oauthSecretServerId),
-      ...Object.keys(snapshot.idpSessions).map(oauthIdpSecretServerId),
-    ];
-    for (const id of ids) {
-      try {
-        await secretStore.deleteAllForServer(id);
-      } catch (error) {
-        warnStoreWriteFailure(error);
+  try {
+    await withSecretFileLock(filePath, async () => {
+      const snapshot = parseOAuthPersistBlob(await readStoreFile(filePath));
+      if (snapshot) {
+        const ids = [
+          ...Object.keys(snapshot.servers).map(oauthSecretServerId),
+          ...Object.keys(snapshot.idpSessions).map(oauthIdpSecretServerId),
+        ];
+        for (const id of ids) {
+          try {
+            await secretStore.deleteAllForServer(id);
+          } catch (error) {
+            warnStoreWriteFailure(error);
+          }
+        }
       }
-    }
+      await deleteStoreFile(filePath);
+    });
+  } catch (error) {
+    rethrowLockError(filePath, error);
   }
-  await deleteStoreFile(filePath);
 }
 
 export function createFileOAuthPersistBackend(

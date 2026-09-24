@@ -70,10 +70,10 @@ describe("getPersistTokensPolicy", () => {
 describe("id and field schemes", () => {
   it("namespaces store ids and issuer fields", () => {
     expect(oauthSecretServerId("https://s.example/mcp")).toBe(
-      "oauth:https://s.example/mcp",
+      "oauth+https%3A%2F%2Fs.example%2Fmcp",
     );
     expect(oauthIdpSecretServerId("https://idp.example")).toBe(
-      "oauth-idp:https://idp.example",
+      "oauth-idp+https%3A%2F%2Fidp.example",
     );
     expect(issuerTokensField("https://as.example")).toBe(
       "tokens:https://as.example",
@@ -81,6 +81,23 @@ describe("id and field schemes", () => {
     expect(issuerClientSecretField("https://as.example")).toBe(
       "client-secret:https://as.example",
     );
+  });
+
+  it("store ids are colon-free and prefix-unambiguous", () => {
+    // Accounts are `serverId:field` and the keyring's deleteAllForServer
+    // parses at the FIRST colon — a colon inside the id would make purges
+    // never match (tokens left in the OS keychain forever).
+    expect(oauthSecretServerId("https://s.example:8443/mcp")).not.toContain(
+      ":",
+    );
+    expect(oauthIdpSecretServerId("https://idp.example:8443")).not.toContain(
+      ":",
+    );
+    // A raw-URL id would be a prefix of its port-qualified sibling, letting
+    // prefix-matching stores purge the wrong server's secrets.
+    const plain = `${oauthSecretServerId("https://a.example")}:`;
+    const withPort = `${oauthSecretServerId("https://a.example:8080")}:tokens`;
+    expect(withPort.startsWith(plain)).toBe(false);
   });
 });
 

@@ -15,7 +15,6 @@ describe("RemoteOAuthStorage (unit, mocked fetch)", () => {
   beforeEach(() => {
     storage = new RemoteOAuthStorage({
       baseUrl: "http://remote.example",
-      storeId: `unit-${Math.random().toString(36).slice(2)}`,
       fetchFn: NOOP_FETCH,
     });
   });
@@ -112,13 +111,21 @@ describe("RemoteOAuthStorage (unit, mocked fetch)", () => {
     expect(await storage.getTokens(serverUrl)).toBeUndefined();
   });
 
-  it("default storeId is 'oauth' when omitted", () => {
+  it("always targets the shared oauth store endpoint", async () => {
+    const seen: string[] = [];
+    const recordingFetch = vi.fn<typeof fetch>(async (input) => {
+      seen.push(String(input));
+      return new Response("{}", { status: 404 });
+    });
     const s = new RemoteOAuthStorage({
       baseUrl: "http://r.example",
-      fetchFn: NOOP_FETCH,
+      fetchFn: recordingFetch,
     });
-    // No public accessor; constructing without throwing covers the default-branch.
-    expect(s).toBeInstanceOf(RemoteOAuthStorage);
+    await s.getTokens("http://server.example/mcp");
+    expect(seen.length).toBeGreaterThan(0);
+    for (const url of seen) {
+      expect(url).toContain("/api/storage/oauth");
+    }
   });
 
   it("getCodeVerifier loads remote state automatically when not preloaded", async () => {
@@ -141,7 +148,6 @@ describe("RemoteOAuthStorage (unit, mocked fetch)", () => {
 
     const delayedStorage = new RemoteOAuthStorage({
       baseUrl: "http://remote.example",
-      storeId: `delayed-${Math.random().toString(36).slice(2)}`,
       fetchFn: delayedFetch,
     });
 
@@ -158,7 +164,6 @@ describe("RemoteOAuthStorage (unit, mocked fetch)", () => {
 
     const failingStorage = new RemoteOAuthStorage({
       baseUrl: "http://remote.example",
-      storeId: `fail-${Math.random().toString(36).slice(2)}`,
       fetchFn: failingFetch,
     });
 

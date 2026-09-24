@@ -15,7 +15,10 @@ vi.mock("@inspector/core/auth/node/file-lock.js", () => ({
 }));
 
 import { withSecretFileLock } from "@inspector/core/auth/node/file-lock.js";
-import { writeOAuthSections } from "@inspector/core/auth/node/oauth-persist-file.js";
+import {
+  removeOAuthStore,
+  writeOAuthSections,
+} from "@inspector/core/auth/node/oauth-persist-file.js";
 
 const SNAPSHOT = { servers: {}, idpSessions: {} };
 
@@ -47,5 +50,29 @@ describe("writeOAuthSections lock failures", () => {
     await expect(
       writeOAuthSections("/tmp/oauth.json", SNAPSHOT, { servers: ["s"] }),
     ).rejects.toBe(original);
+  });
+});
+
+describe("removeOAuthStore lock failures", () => {
+  beforeEach(() => {
+    vi.mocked(withSecretFileLock).mockReset();
+  });
+
+  it("runs under the file lock and rethrows lock failures with OAuth wording", async () => {
+    const original = new SecretStoreUnavailableError(
+      "Could not lock the secrets file",
+    );
+    vi.mocked(withSecretFileLock).mockRejectedValue(original);
+
+    await expect(removeOAuthStore("/tmp/oauth.json")).rejects.toMatchObject({
+      message: expect.stringContaining(
+        "Could not save OAuth state: the state file at /tmp/oauth.json is locked",
+      ),
+      cause: original,
+    });
+    expect(vi.mocked(withSecretFileLock)).toHaveBeenCalledWith(
+      "/tmp/oauth.json",
+      expect.any(Function),
+    );
   });
 });

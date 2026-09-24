@@ -13,8 +13,6 @@ import {
 export interface RemoteOAuthStorageOptions {
   /** Base URL of the remote server (e.g. http://localhost:3000) */
   baseUrl: string;
-  /** Store ID (default: {@link OAUTH_PERSIST_STORE_ID}) */
-  storeId?: string;
   /** Optional auth token for x-mcp-remote-auth header */
   authToken?: string;
   /** Fetch function to use (default: globalThis.fetch) */
@@ -23,7 +21,11 @@ export interface RemoteOAuthStorageOptions {
 
 /**
  * Remote HTTP storage implementation.
- * Stores OAuth state via HTTP API (GET/POST/DELETE /api/storage/:storeId).
+ * Stores OAuth state via the HTTP API (GET/POST/DELETE
+ * /api/storage/oauth). The store id is fixed: OAuth state lives in the
+ * one shared store the server gives split-secret and sectioned-write
+ * semantics ({@link OAUTH_PERSIST_STORE_ID}) — a custom id would fail its
+ * first sectioned write, since the server rejects sections on other stores.
  * For web clients that need to share state with Node apps (TUI, CLI).
  */
 export class RemoteOAuthStorage extends OAuthStorageBase {
@@ -32,7 +34,7 @@ export class RemoteOAuthStorage extends OAuthStorageBase {
       new OAuthMemoryStore(),
       createRemoteOAuthPersistBackend({
         baseUrl: options.baseUrl,
-        storeId: options.storeId ?? OAUTH_PERSIST_STORE_ID,
+        storeId: OAUTH_PERSIST_STORE_ID,
         authToken: options.authToken,
         fetchFn: options.fetchFn,
       }),

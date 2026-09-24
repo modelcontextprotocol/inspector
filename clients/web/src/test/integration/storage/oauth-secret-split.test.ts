@@ -327,6 +327,102 @@ describe("readOAuthStore migration", () => {
     expect(readRawFile().servers[SERVER]!.tokens).toEqual(TOKENS);
   });
 
+  it("keeps unchanged plaintext secrets durable when a non-durable store writes the entry", async () => {
+    // The read-side guard alone is not enough: a mutation of an unrelated
+    // field (here: scope) flows the joined entry back through the write
+    // split, and an unconditional strip would demote the file's only
+    // durable token copy to memory-only.
+    await writeStoreFile(filePath, JSON.stringify(snapshotWith()));
+    await flushStoreFileWrites(filePath);
+    const store = new SessionSecretStore();
+
+    const joined = await readOAuthStore(filePath, store);
+    const mutated: OAuthPersistSnapshot = {
+      servers: {
+        [SERVER]: { ...joined!.servers[SERVER]!, scope: "read write" },
+      },
+      idpSessions: {},
+    };
+    await writeOAuthSections(filePath, mutated, { servers: [SERVER] }, store);
+    await flushStoreFileWrites(filePath);
+
+    const raw = readRawFile();
+    expect(raw.servers[SERVER]!.scope).toBe("read write");
+    // Unchanged secrets stay in the file — still the only durable copy.
+    expect(raw.servers[SERVER]!.tokens).toEqual(TOKENS);
+    expect(raw.servers[SERVER]!.clientInformation).toEqual({
+      client_id: "cid",
+      client_secret: "cs",
+    });
+  });
+
+  it("keeps new or changed secrets session-only under a non-durable store", async () => {
+    await writeStoreFile(filePath, JSON.stringify(snapshotWith()));
+    await flushStoreFileWrites(filePath);
+    const store = new SessionSecretStore();
+
+    const reauthed: OAuthPersistSnapshot = {
+      servers: {
+        [SERVER]: {
+          scope: "read",
+          tokens: { access_token: "at2", token_type: "Bearer" },
+          clientInformation: { client_id: "cid", client_secret: "cs" },
+        },
+      },
+      idpSessions: {},
+    };
+    await writeOAuthSections(filePath, reauthed, { servers: [SERVER] }, store);
+    await flushStoreFileWrites(filePath);
+
+    const raw = readRawFile();
+    // The changed tokens are session-only (memory-store contract) …
+    expect(raw.servers[SERVER]!.tokens).toBeUndefined();
+    // … while the unchanged client secret stays durable in the file.
+    expect(raw.servers[SERVER]!.clientInformation).toEqual({
+      client_id: "cid",
+      client_secret: "cs",
+    });
+    const joined = await readOAuthStore(filePath, store);
+    expect(joined?.servers[SERVER]!.tokens).toEqual({
+      access_token: "at2",
+      token_type: "Bearer",
+    });
+  });
+
+  it("preserves an unchanged plaintext IdP session under a non-durable store", async () => {
+    const session = { idToken: "idt", refreshToken: "idprt" };
+    await writeStoreFile(
+      filePath,
+      JSON.stringify({
+        servers: {},
+        idpSessions: { [ISSUER]: { ...session, idTokenExpiresAt: 1 } },
+      }),
+    );
+    await flushStoreFileWrites(filePath);
+    const store = new SessionSecretStore();
+
+    const joined = await readOAuthStore(filePath, store);
+    const mutated: OAuthPersistSnapshot = {
+      servers: {},
+      idpSessions: {
+        [ISSUER]: { ...joined!.idpSessions[ISSUER]!, idTokenExpiresAt: 2 },
+      },
+    };
+    await writeOAuthSections(
+      filePath,
+      mutated,
+      { idpSessions: [ISSUER] },
+      store,
+    );
+    await flushStoreFileWrites(filePath);
+
+    const raw = readRawFile();
+    expect(raw.idpSessions[ISSUER]).toMatchObject({
+      ...session,
+      idTokenExpiresAt: 2,
+    });
+  });
+
   it("aborts the strip when the store write fails, keeping the plaintext usable", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     await writeStoreFile(filePath, JSON.stringify(snapshotWith()));

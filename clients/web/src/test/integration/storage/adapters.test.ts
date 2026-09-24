@@ -417,7 +417,6 @@ describe("OAuth persistence", () => {
 
       const storage = new RemoteOAuthStorage({
         baseUrl,
-        storeId: "oauth",
         authToken,
       });
 
@@ -459,7 +458,6 @@ describe("OAuth persistence", () => {
 
       const storage1 = new RemoteOAuthStorage({
         baseUrl,
-        storeId: "oauth",
         authToken,
       });
       await storage1.saveTokens("https://example.com", {
@@ -478,7 +476,6 @@ describe("OAuth persistence", () => {
 
       const storage2 = new RemoteOAuthStorage({
         baseUrl,
-        storeId: "oauth",
         authToken,
       });
 
@@ -497,7 +494,6 @@ describe("OAuth persistence", () => {
 
       const storage = new RemoteOAuthStorage({
         baseUrl,
-        storeId: "oauth",
         authToken,
       });
 
