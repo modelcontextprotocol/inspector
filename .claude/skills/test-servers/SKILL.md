@@ -135,14 +135,15 @@ Five mechanics of this path:
   object selects the modern handler; the client side picks its own negotiation
   (`eraToVersionNegotiation`). The showcase-config era table below does not
   apply.
-- **Every showcase-config field is a constructor option too.** The argument is
-  the same `ServerConfig` a JSON config resolves to, so behavior a showcase
-  config turns on is available in-process without a file — `maxPageSize:
-  { tools: 4 }` with `createNumberedTools(12)` makes the tool list paginate
-  (`inspectorClient.test.ts`, "should paginate tools when maxPageSize is set").
-  To reuse a showcase config wholesale, spread
-  `resolveConfig(loadConfig(path))` into `createTestServerHttp` with
-  `port: undefined` so the harness picks the port —
+- **Anything a showcase config turns on is available in-process too.** The
+  constructor takes the `ServerConfig` a JSON config *resolves* to — concrete
+  definitions rather than the file's preset references, `serverType` rather
+  than its `transport` — so pass the resolved shape, not the raw JSON fields.
+  `maxPageSize: { tools: 4 }` with `createNumberedTools(12)` makes the tool list
+  paginate (`inspectorClient.test.ts`, "should paginate tools when maxPageSize
+  is set"). To reuse a showcase config wholesale, spread
+  `resolveConfig(loadConfig(path))` — which does that translation — into
+  `createTestServerHttp` with `port: undefined` so the harness picks the port —
   [`empty-cursor.test.ts`](../../../clients/web/src/test/integration/mcp/empty-cursor.test.ts)
   does exactly that with `empty-cursor-http.json`.
 
