@@ -24,8 +24,8 @@
  * digest is a finding, not a parse error to swallow. But a settled shape is
  * enforced, because silently normalizing one past the checks would defeat the
  * point: `skills/get` requires its `{ skill }` envelope, and a modern
- * `skills/list` result requires the base list envelope (see
- * `ModernListSkillsResultSchema`).
+ * `skills/list` or `skills/get` result requires the caching attributes (see
+ * `ModernListSkillsResultSchema` and `ModernGetSkillEnvelopeSchema`).
  */
 
 import { z } from "zod/v4";
@@ -151,23 +151,15 @@ export const ModernListSkillsResultSchema = ListSkillsResultSchema.extend({
 });
 
 /**
- * The `skills/get` result envelope: the entry wrapped under `skill`.
+ * The `skills/get` result envelope on a **legacy** connection: the entry
+ * wrapped under `skill`, and nothing required beyond that.
  *
- * ⚠️ **Not era-aware, and that is settled rather than pending (#2248).** The
- * obvious symmetry would be a modern variant requiring the caching attributes
- * the way {@link ModernListSkillsResultSchema} does. SEP-2640 forecloses it in
- * as many words, under `skills/get`: *"whether the result should also carry the
- * base protocol's caching attributes (`ttlMs` and `cacheScope`, per SEP-2549),
- * as `resources/read` results do, is **left open**"*.
- *
- * So there is no requirement to enforce, and inventing one would do real harm
- * rather than none: a server that reasonably reads "left open" as "not
- * required" would be reported as non-conforming by the tool whose job is to
- * tell it whether it conforms. `looseObject` means a server that *does* send
- * them still parses, which is the right handling for an attribute the spec
- * permits and does not mandate. Revisit only if a later revision closes the
- * question — and note that the same sentence is why `skills/get` carries no
- * `nextCursor` handling either: "a single entry is not a list".
+ * Its modern counterpart is {@link ModernGetSkillEnvelopeSchema}. SEP-2640 once
+ * left open whether this result carries the caching attributes; the stable
+ * ext-skills specification settles it — *"`GetSkillResult` extends
+ * `CacheableResult`, so `ttlMs` and `cacheScope` are **REQUIRED**, as they are
+ * on `resources/read`"* (#2404). Those are 2026-era attributes, so the legacy
+ * shape stays permissive, exactly as {@link ListSkillsResultSchema} does.
  *
  * Required, not one of two accepted shapes. An earlier revision of this module
  * also accepted a bare entry at the top level, on the reading that the SEP
@@ -181,17 +173,34 @@ export const GetSkillEnvelopeSchema = z.looseObject({
 });
 
 /**
+ * `skills/get` result envelope on a **modern** (2026-07-28+) connection: the
+ * `{ skill }` wrapper plus `CacheableResult`'s required `ttlMs` / `cacheScope`
+ * (#2404). Same field shapes as {@link ModernListSkillsResultSchema}, and the
+ * same reason it exists: `skills/*` is consumer-owned, so the SDK codec checks
+ * and lifts `resultType` but checks neither caching attribute, and without
+ * this a modern server omitting them would be reported as clean.
+ *
+ * ⚠️ Picked by `InspectorClient.getSkillResult` from the negotiated era.
+ */
+export const ModernGetSkillEnvelopeSchema = GetSkillEnvelopeSchema.extend({
+  ttlMs: z.int().min(0),
+  cacheScope: z.enum(["public", "private"]),
+});
+
+/**
  * The `skills/get` result envelope as the SDK decoded it: the `skill` wrapper
  * plus any caching attributes the server sent. On a modern connection
  * `resultType` is not in it — the codec checks it and removes it before this
  * schema runs (#2373).
  *
+ * Typed from the legacy schema, whose caching attributes are optional: the
+ * modern schema only narrows them to required, so either era's result fits.
+ *
  * Exported alongside the unwrapping schema below because the two callers want
  * different things: the UIs want the entry, while the CLI's job is to print
- * **the result** — and the caching attributes SEP-2640 leaves open are members
- * a `looseObject` accepts and the transform then discards, so unwrapping for
- * everyone silently dropped them from a contract that promised not to reshape
- * anything (Copilot).
+ * **the result** — and the caching attributes are members the transform
+ * discards, so unwrapping for everyone silently dropped them from a contract
+ * that promised not to reshape anything (Copilot).
  */
 export type GetSkillEnvelope = z.infer<typeof GetSkillEnvelopeSchema>;
 
@@ -253,26 +262,28 @@ export type DirectoryReadResult = z.infer<typeof DirectoryReadResultSchema>;
 
 /*
  * There is deliberately **no modern variant** of the `resources/directory/read`
- * or `skills/get` schemas, though `skills/list` has one (#2373).
+ * schema, though `skills/list` and `skills/get` each have one (#2373, #2404).
  *
  * On a modern (2026-07-28+) connection the SDK codec already enforces
  * `resultType` — the base-protocol member SEP-2322 puts on every modern result
  * — and lifts it off before any caller schema runs. What remains is the
- * caching attributes, and only `skills/list` is required to carry those:
+ * caching attributes, and only the two `skills/*` results are required to
+ * carry those:
  *
  *  - For `skills/list` the SEP states it outright — *"In protocol versions
  *    2026-07-28 and later, the result also carries … `ttlMs` and
  *    `cacheScope`"* — so {@link ModernListSkillsResultSchema} requiring them is
  *    quoting the spec.
+ *  - For `skills/get` the stable ext-skills specification states that
+ *    `GetSkillResult` extends `CacheableResult`, so
+ *    {@link ModernGetSkillEnvelopeSchema} requires them too.
  *  - For `resources/directory/read` it states **nothing of the kind**, and its
  *    one worked example carries `resultType: "complete"` and no caching
  *    attributes at all. Requiring them would fail a server that matched the
  *    SEP's own example, the failure direction this module works hardest to
  *    avoid.
- *  - For `skills/get` the SEP leaves the question open in as many words (see
- *    {@link GetSkillEnvelopeSchema}).
  *
- * So both eras parse those two results with one schema each. An earlier
- * revision required `resultType` on "modern" variants of both; since the codec
- * lifts it, they could never pass on a real modern connection.
+ * So both eras parse that result with one schema. An earlier revision required
+ * `resultType` on "modern" variants; since the codec lifts it, they could never
+ * pass on a real modern connection.
  */
