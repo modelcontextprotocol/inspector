@@ -473,9 +473,12 @@ export function useConnectionLifecycle({
         // Sampling / elicitation are on by default; keep the parameterized
         // options off until the UI grows the surface to render them.
         elicit: { form: true, url: true },
-        // The web client renders MCP Apps, so it claims the UI extension by
-        // default; the CLI and TUI share InspectorClient but cannot (#2403).
-        rendersApps: true,
+        // The web client renders MCP Apps only when the sandbox renderer is
+        // available, so only then does it claim the UI extension by default;
+        // the CLI and TUI share InspectorClient but never can (#2403). As
+        // below, `sandboxUrl` here is confirmed, not "not known yet". A Server
+        // Settings override can still force the extension on.
+        rendersApps: sandboxUrlRef.current !== undefined,
         // Web only, and only when the sandbox renderer is actually available:
         // supplying this advertises the nested MCP Apps `elicitation`
         // capability, and a client that cannot host an app must not claim it
