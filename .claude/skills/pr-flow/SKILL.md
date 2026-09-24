@@ -32,13 +32,16 @@ step is done only when the last line prints `card: In Progress`.**
 
 ```sh
 N=<ISSUE_NUMBER>; STATUS="In Progress"
-gh issue edit "$N" --repo modelcontextprotocol/inspector --add-assignee @me
+BOARD=28   # 11 for a v1 issue — board #11 has the same column names
+ASSIGNED=
+gh issue edit "$N" --repo modelcontextprotocol/inspector --add-assignee @me \
+  && ASSIGNED=1 || echo "assignment failed — this step is NOT done" >&2
 
 # Every id is resolved BY NAME at run time, so none is copied from /board-ops
 # and an option recreated after a deletion (its hazard) still resolves.
 PROJECT_ID= FIELD_ID= OPTION_ID= ITEM_ID=   # no id survives a failed lookup
-PROJECT_ID=$(gh project view 28 --owner modelcontextprotocol --format json --jq .id)
-FIELDS=$(gh project field-list 28 --owner modelcontextprotocol --format json) &&
+PROJECT_ID=$(gh project view "$BOARD" --owner modelcontextprotocol --format json --jq .id)
+FIELDS=$(gh project field-list "$BOARD" --owner modelcontextprotocol --format json) &&
   FIELD_ID=$(jq -r '.fields[] | select(.name=="Status") | .id' <<<"$FIELDS") &&
   OPTION_ID=$(jq -r --arg s "$STATUS" '.fields[] | select(.name=="Status")
     | .options[] | select(.name==$s) | .id' <<<"$FIELDS")
@@ -59,13 +62,12 @@ else
   echo "lookup failed (project='$PROJECT_ID' field='$FIELD_ID' option='$OPTION_ID' item='$ITEM_ID') — nothing edited" >&2
 fi
 NOW=$(card | cut -d' ' -f2-)
-[ "$NOW" = "$STATUS" ] && echo "card: $NOW" || echo "card is '$NOW', not '$STATUS' — this step is NOT done" >&2
+[ "$NOW" = "$STATUS" ] && [ -n "$ASSIGNED" ] && echo "card: $NOW" \
+  || echo "card is '$NOW', assigned='${ASSIGNED:-no}' — this step is NOT done" >&2
 ```
 
 An issue with no card on #28 fails the lookup; board it first with
-`/issue-create`'s card step rather than skipping the move. For a **v1** issue,
-swap `28` for `11` in both `gh project` calls — board #11 has the same column
-names.
+`/issue-create`'s card step rather than skipping the move.
 
 ## 2. Branch
 
@@ -296,10 +298,11 @@ column and no assignment. Run it in full and check that the last line prints
 
 ```sh
 N=<ISSUE_NUMBER>; STATUS="In Review"   # the ISSUE number, not the PR's
+BOARD=28   # 11 for a v1 issue — board #11 has the same column names
 
 PROJECT_ID= FIELD_ID= OPTION_ID= ITEM_ID=   # no id survives a failed lookup
-PROJECT_ID=$(gh project view 28 --owner modelcontextprotocol --format json --jq .id)
-FIELDS=$(gh project field-list 28 --owner modelcontextprotocol --format json) &&
+PROJECT_ID=$(gh project view "$BOARD" --owner modelcontextprotocol --format json --jq .id)
+FIELDS=$(gh project field-list "$BOARD" --owner modelcontextprotocol --format json) &&
   FIELD_ID=$(jq -r '.fields[] | select(.name=="Status") | .id' <<<"$FIELDS") &&
   OPTION_ID=$(jq -r --arg s "$STATUS" '.fields[] | select(.name=="Status")
     | .options[] | select(.name==$s) | .id' <<<"$FIELDS")
