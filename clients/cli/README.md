@@ -121,6 +121,7 @@ Options that specify the MCP server (catalog/config file, ad-hoc command/URL, en
 | `--tool-metadata <key=value>` | Tool-specific `_meta` entries for `tools/call`. Same JSON-parsed value handling as `--metadata`. |
 | `--connect-timeout <ms>`      | Connection timeout in ms. Defaults to `15000` for ad-hoc `--server-url`/target runs (so a black-holed host fails fast) and to the file-level `connectionTimeout` for `--catalog`/`--config` runs — `30000` when the file sets none. `0` disables the timeout.                                                                                                                                                       |
 | `--app-info`                  | Probe a tool's MCP App UI metadata without invoking it. With `--method tools/call --tool-name <name>`: prints one JSON line (`hasApp`, `resourceUri`, `csp`, `permissions`, `domain`, …) and exits `0` if the tool has an app or `2` (`no_app`) if not. With `--method tools/list`: emits NDJSON — one app-info line per tool over a single connection.                                                              |
+| `--advertise-apps`            | Advertise the MCP Apps UI extension (`io.modelcontextprotocol/ui`) at `initialize`. Off by default, because the CLI cannot render an App and a server decides whether to return one from that advertisement. Set it when a server only exposes its App tools to a client that claims App support — typically alongside `--app-info`. |
 | `--strict`                    | With `--method tools/list`: report tool-schema portability problems in full (path, issue, suggested fix) on stderr, and exit `6` if any is error-severity. Without it, a one-line count is printed instead. See [Schema portability](#schema-portability---strict). |
 | `--verify`                    | With `--method skills/list` or `--method skills/get`: run the SEP-2640 conformance, digest and frontmatter checks over the skills returned, emit one JSON report per skill on stdout, and exit `7` if any fails. See [Skill verification](#skill-verification---verify). |
 | `--require-digests`           | With `--verify`: exit `9` when a skill advertises no digests (`resources: "dynamic"`), instead of reporting it `unverifiable` and exiting `0`. See [Skill verification](#skill-verification---verify). |
@@ -159,6 +160,12 @@ mcp-inspector --cli <server> --method tools/call --tool-name my_tool --app-info
 
 # Probe every tool at once — NDJSON, one line per tool, single connection.
 mcp-inspector --cli <server> --method tools/list --app-info | jq -c 'select(.hasApp)'
+```
+
+The CLI does **not** advertise the MCP Apps UI extension by default, since it cannot render an App. A server that registers its App tools only for a client that advertises Apps support will therefore show no app to a bare probe; add `--advertise-apps` to claim that support for the probe:
+
+```bash
+mcp-inspector --cli <server> --method tools/list --app-info --advertise-apps
 ```
 
 Exit semantics: a tool that **has** an app exits `0`; one with **no** app exits `2` (`no_app`); a **missing** tool exits `5` (`tool_not_found`) — distinct so a typo isn't mistaken for "no app". A probe failure (an unreadable UI resource, or a malformed `_meta.ui.resourceUri`) is tolerated and reported in a `resourceError` field rather than aborting — so in `tools/list --app-info` one bad tool never kills the rest of the listing.

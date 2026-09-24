@@ -1013,6 +1013,12 @@ export class InspectorClient extends InspectorClientEventTarget {
     const advertisedExtensions = buildClientExtensions({
       enterpriseManaged: options.oauth?.enterpriseManaged ?? false,
       advertised: this.advertisedExtensions,
+      // Only a client that can render Apps claims the UI extension by default
+      // (#2403). An app-elicitation renderer is itself a claim to host an App,
+      // so supplying one implies it.
+      rendersApps:
+        options.rendersApps === true ||
+        this.appElicitationRenderer !== undefined,
       // Read off the built `capabilities.elicitation.form` rather than
       // re-deriving from `options.elicit`: the nested MCP Apps `elicitation`
       // setting must never be advertised without the core form capability it
