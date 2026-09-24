@@ -295,3 +295,115 @@ describe("formatErrorOutput", () => {
     expect(parsed.error.url).toBe("https://ctx.example/mcp");
   });
 });
+
+/**
+ * #2423: the envelope is written verbatim to stderr, so every field that can
+ * carry a URL gets the same query redaction the web client's Network log does.
+ */
+describe("envelope URL redaction", () => {
+  const SECRET_URL =
+    "https://srv.example/mcp?code=abc123&access_token=tok456&tenant=acme";
+  const REDACTED_URL =
+    "https://srv.example/mcp?code=%5BREDACTED%5D&access_token=%5BREDACTED%5D&tenant=acme";
+
+  it("redacts sensitive query params in the context url", () => {
+    const { envelope } = classifyError(new Error("nope"), { url: SECRET_URL });
+    expect(envelope.url).toBe(REDACTED_URL);
+  });
+
+  it("redacts sensitive query params in a CliExitCodeError's own url", () => {
+    const { envelope } = classifyError(
+      new CliExitCodeError(EXIT_CODES.AUTH_REQUIRED, "login", {
+        url: SECRET_URL,
+      }),
+    );
+    expect(envelope.url).toBe(REDACTED_URL);
+  });
+
+  it("redacts a URL embedded in the message, keeping trailing punctuation", () => {
+    const { envelope } = classifyError(
+      new Error(`Request to ${SECRET_URL}. Retry later`),
+    );
+    expect(envelope.message).toBe(`Request to ${REDACTED_URL}. Retry later`);
+    expect(envelope.message).not.toContain("abc123");
+    expect(envelope.message).not.toContain("tok456");
+  });
+
+  it("redacts a URL whose scheme is upper- or mixed-case", () => {
+    const { envelope } = classifyError(
+      new Error(
+        "a HTTP://srv.example/cb?access_token=tok456 b HttpS://srv.example/cb?code=abc123",
+      ),
+    );
+    expect(envelope.message).toBe(
+      "a HTTP://srv.example/cb?access_token=%5BREDACTED%5D b HttpS://srv.example/cb?code=%5BREDACTED%5D",
+    );
+  });
+
+  it("redacts each of two comma-joined URLs separately", () => {
+    const { envelope } = classifyError(
+      new Error(
+        "https://one.example/cb?state=ok,https://two.example/cb?code=secret",
+      ),
+    );
+    expect(envelope.message).toBe(
+      "https://one.example/cb?state=ok,https://two.example/cb?code=%5BREDACTED%5D",
+    );
+  });
+
+  it("redacts through an apostrophe inside a query value", () => {
+    const { envelope } = classifyError(
+      new Error("at https://srv.example/cb?code=abc'def now"),
+    );
+    expect(envelope.message).toBe(
+      "at https://srv.example/cb?code=%5BREDACTED%5D now",
+    );
+  });
+
+  it("keeps the closing quote of a single-quoted URL", () => {
+    const { envelope } = classifyError(
+      new Error("at 'https://srv.example/cb?code=abc123'."),
+    );
+    expect(envelope.message).toBe(
+      "at 'https://srv.example/cb?code=%5BREDACTED%5D'.",
+    );
+  });
+
+  it("redacts a URL embedded in the cause chain", () => {
+    const { envelope } = classifyError(
+      new Error("fetch failed", {
+        cause: new Error(`connect ECONNREFUSED (${SECRET_URL})`),
+      }),
+    );
+    expect(envelope.cause).toBe(`connect ECONNREFUSED (${REDACTED_URL})`);
+  });
+
+  it("classifies on the unredacted text", () => {
+    // The only auth signal is inside a parameter value that redaction
+    // replaces; classifying the redacted copy would fall through to USAGE.
+    const { exitCode, envelope } = classifyError(
+      new Error("Rejected https://srv.example/cb?token=invalid_token"),
+    );
+    expect(exitCode).toBe(EXIT_CODES.AUTH_REQUIRED);
+    expect(envelope.message).toBe(
+      "Rejected https://srv.example/cb?token=%5BREDACTED%5D",
+    );
+  });
+
+  it("leaves text and URLs without sensitive params untouched", () => {
+    const text = "Failed at https://srv.example/mcp?tenant=acme and nowhere";
+    const { envelope } = classifyError(new Error(text), {
+      url: "https://srv.example/mcp",
+    });
+    expect(envelope.message).toBe(text);
+    expect(envelope.url).toBe("https://srv.example/mcp");
+  });
+
+  it("keeps the redaction in the serialized stderr line", () => {
+    const { stderr } = formatErrorOutput(new Error(`boom ${SECRET_URL}`), {
+      url: SECRET_URL,
+    });
+    expect(stderr).not.toContain("abc123");
+    expect(stderr).not.toContain("tok456");
+  });
+});
