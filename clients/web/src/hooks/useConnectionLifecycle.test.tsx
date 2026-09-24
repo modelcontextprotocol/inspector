@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { useLayoutEffect, useRef } from "react";
 import { InspectorClient } from "@inspector/core/mcp/index.js";
+import { UI_EXTENSION_KEY } from "@inspector/core/mcp/extensions.js";
 import type {
   ConnectionStatus,
   InspectorServerSettings,
@@ -418,6 +419,10 @@ describe("useConnectionLifecycle", () => {
       // The sandbox is present, so the nested MCP Apps elicitation session is
       // opened and the capability may be advertised (#1854).
       expect(h.spies.newAppElicitationSession).toHaveBeenCalled();
+      // ...and the client claims it can render MCP Apps (#2403).
+      expect(
+        client.getClientCapabilities().extensions?.[UI_EXTENSION_KEY],
+      ).toBeDefined();
     });
 
     it("falls back to the entry's own settings and the default log size", () => {
@@ -433,6 +438,10 @@ describe("useConnectionLifecycle", () => {
       );
       // No sandbox URL — the client must not claim app-rendered elicitation.
       expect(h.spies.newAppElicitationSession).not.toHaveBeenCalled();
+      // Nor MCP Apps rendering at all — it has no renderer (#2403).
+      expect(
+        client.getClientCapabilities().extensions?.[UI_EXTENSION_KEY],
+      ).toBeUndefined();
     });
 
     it("waits for the config gate, then reads the sandbox URL as of then", async () => {

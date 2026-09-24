@@ -162,6 +162,8 @@ async function connectClient(options: {
   transport: ElicitTransport;
   appElicitation?: AppElicitationRenderer;
   elicit?: boolean | { form?: boolean; url?: boolean };
+  rendersApps?: boolean;
+  advertisedExtensions?: Record<string, boolean>;
 }) {
   const client = new InspectorClient(
     { type: "stdio", command: "noop", args: [] },
@@ -169,6 +171,12 @@ async function connectClient(options: {
       environment: { transport: () => ({ transport: options.transport }) },
       elicit: options.elicit ?? { form: true },
       ...(options.appElicitation && { appElicitation: options.appElicitation }),
+      ...(options.rendersApps !== undefined && {
+        rendersApps: options.rendersApps,
+      }),
+      ...(options.advertisedExtensions && {
+        advertisedExtensions: options.advertisedExtensions,
+      }),
     },
   );
   await client.connect();
@@ -199,10 +207,29 @@ describe("app-rendered elicitation routing (#1854)", () => {
       await client.disconnect();
     });
 
-    it("does not advertise it on a client with no renderer (CLI/TUI)", async () => {
-      // The MIME type alone is what CLI and TUI advertise, and it must stay
-      // that way: they know the type but cannot host an app.
+    it("advertises no UI extension at all on a client that cannot render Apps (CLI/TUI, #2403)", async () => {
+      // A server decides whether to return an App from this advertisement, so
+      // a client with no renderer must not claim the extension by default.
       const client = await connectClient({ transport: new ElicitTransport() });
+      expect(advertisedUi(client)).toBeUndefined();
+      await client.disconnect();
+    });
+
+    it("advertises the MIME type alone on an App-rendering client with no elicitation renderer (#2403)", async () => {
+      const client = await connectClient({
+        transport: new ElicitTransport(),
+        rendersApps: true,
+      });
+      expect(advertisedUi(client)).toEqual({ mimeTypes: [MCP_APP_MIME_TYPE] });
+      await client.disconnect();
+    });
+
+    it("advertises the UI extension on a non-rendering client only when explicitly opted in (#2403)", async () => {
+      // The CLI's `--advertise-apps` takes this path.
+      const client = await connectClient({
+        transport: new ElicitTransport(),
+        advertisedExtensions: { [UI_EXTENSION_KEY]: true },
+      });
       expect(advertisedUi(client)).toEqual({ mimeTypes: [MCP_APP_MIME_TYPE] });
       await client.disconnect();
     });

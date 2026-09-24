@@ -33,7 +33,7 @@ import type {
   RemoteSendResponse,
 } from "./types.js";
 import { oauthTokensToRemoteAuthState } from "./types.js";
-import { progressTokenOf } from "./progressToken.js";
+import { progressTokenOf, waitForProgressToken } from "./progressToken.js";
 
 export interface AuthRecoveryHandlers {
   handleAuthChallenge(
@@ -766,8 +766,8 @@ export class RemoteClientTransport implements Transport {
   }
 
   /** Re-arm a pending request's SSE wait timeout on a matching progress note. */
-  private resetSseResponseWait(requestId: string | number): void {
-    this.sseResponseWaits.get(requestId)?.resetTimeout();
+  private resetSseResponseWait(progressToken: string | number): void {
+    waitForProgressToken(this.sseResponseWaits, progressToken)?.resetTimeout();
   }
 
   private async postSend(

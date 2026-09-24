@@ -1,6 +1,9 @@
 import { describe, it, expect, vi } from "vitest";
 import { runMethod } from "../src/handlers/run-method.js";
-import { summarizeSkillVerification } from "../src/handlers/skills-verify.js";
+import {
+  skillVerificationExitCode,
+  summarizeSkillVerification,
+} from "../src/handlers/skills-verify.js";
 import { EXIT_CODES } from "../src/error-handler.js";
 import type { InspectorClient } from "@inspector/core/mcp/index.js";
 import type { SkillEntry } from "@inspector/core/mcp/skillsSchemas.js";
@@ -242,6 +245,55 @@ describe("runMethod skills dispatch (#2248)", () => {
     );
   });
 
+  describe("a dynamic skill (#2405)", () => {
+    const dynamicEntry: SkillEntry = {
+      uri: "skill://demo/SKILL.md",
+      frontmatter: { name: "demo", description: "A demo" },
+      resources: "dynamic",
+    };
+
+    it("reports unverifiable and exits 0 by default", async () => {
+      // `"dynamic"` is a conforming wire form, so the default run still
+      // succeeds — but the report and the headline no longer say "verified"
+      // for a skill nothing was hashed of.
+      const client = mockClient({
+        listSkills: vi.fn().mockResolvedValue({ skills: [dynamicEntry] }),
+      });
+      const outcome = await runMethod(client, {
+        method: "skills/list",
+        verify: true,
+      });
+      if (outcome.kind !== "ndjson") throw new Error("unreachable");
+      const report = outcome.lines[0] as SkillVerifyReport;
+      expect(report.ok).toBe(true);
+      expect(report.outcome).toBe("unverifiable");
+      expect(outcome.summary).not.toMatch(/^Verified/);
+      expect(outcome.exitCode).toBeUndefined();
+    });
+
+    it("exits 9 under --require-digests, for skills/list and skills/get", async () => {
+      const client = mockClient({
+        listSkills: vi.fn().mockResolvedValue({ skills: [dynamicEntry] }),
+        getSkillResult: vi.fn().mockResolvedValue({ skill: dynamicEntry }),
+      });
+      const listed = await runMethod(client, {
+        method: "skills/list",
+        verify: true,
+        requireDigests: true,
+      });
+      const got = await runMethod(client, {
+        method: "skills/get",
+        uri: dynamicEntry.uri,
+        verify: true,
+        requireDigests: true,
+      });
+      if (listed.kind !== "ndjson" || got.kind !== "ndjson")
+        throw new Error("unreachable");
+      expect(listed.exitCode).toBe(EXIT_CODES.SKILL_UNVERIFIABLE);
+      expect(got.exitCode).toBe(EXIT_CODES.SKILL_UNVERIFIABLE);
+    });
+  });
+
   it("--verify works on a single skills/get", async () => {
     const entry = await cleanEntry();
     const client = mockClient({
@@ -318,6 +370,18 @@ describe("summarizeSkillVerification (#2248)", () => {
     );
   });
 
+  it("does not say Verified when a skill advertised no digests (#2405)", () => {
+    const dynamic = report({ outcome: "unverifiable", files: [] });
+    expect(summarizeSkillVerification([dynamic])).toBe(
+      "Checked 1 skill and 0 files: no conformance errors." +
+        ' 1 of 1 skill advertised no digests (resources: "dynamic"), so its integrity was not checked.',
+    );
+    expect(summarizeSkillVerification([report(), dynamic, dynamic])).toBe(
+      "Checked 3 skills and 1 file: no conformance errors." +
+        ' 2 of 3 skills advertised no digests (resources: "dynamic"), so their integrity was not checked.',
+    );
+  });
+
   it("reports a mixed catalog on both counts", () => {
     // The louder verdict must not hide the quieter one: a caller told only
     // about the failure would think the rest of the catalog was cleared.
@@ -331,5 +395,59 @@ describe("summarizeSkillVerification (#2248)", () => {
       "1 of 3 skills failed verification (1 digest/size mismatch across 3 files)." +
         " 1 of 3 skills could not be fully checked: the read bounds stopped the walk.",
     );
+  });
+});
+
+describe("skillVerificationExitCode (#2405)", () => {
+  const withOutcome = (
+    outcome: SkillVerifyReport["outcome"],
+  ): SkillVerifyReport => ({
+    uri: "skill://demo/SKILL.md",
+    name: "demo",
+    conformance: [],
+    frontmatter: [],
+    files: [],
+    ok: outcome !== "failed",
+    outcome,
+  });
+
+  it.each<
+    [string, SkillVerifyReport["outcome"][], boolean, number | undefined]
+  >([
+    ["all verified", ["verified"], true, undefined],
+    ["unverifiable, default", ["verified", "unverifiable"], false, undefined],
+    [
+      "unverifiable, --require-digests",
+      ["verified", "unverifiable"],
+      true,
+      EXIT_CODES.SKILL_UNVERIFIABLE,
+    ],
+    // Precedence: a louder verdict is never masked by a quieter one.
+    [
+      "incomplete outranks unverifiable",
+      ["unverifiable", "incomplete"],
+      true,
+      EXIT_CODES.SKILL_INCOMPLETE,
+    ],
+    [
+      "failed outranks everything",
+      ["unverifiable", "incomplete", "failed"],
+      true,
+      EXIT_CODES.SKILL_NONCONFORMANT,
+    ],
+  ])("%s", (_label, outcomes, requireDigests, expected) => {
+    expect(
+      skillVerificationExitCode(outcomes.map(withOutcome), requireDigests),
+    ).toBe(expected);
+  });
+
+  it("is a code of its own", () => {
+    expect(
+      new Set([
+        EXIT_CODES.SKILL_NONCONFORMANT,
+        EXIT_CODES.SKILL_INCOMPLETE,
+        EXIT_CODES.SKILL_UNVERIFIABLE,
+      ]).size,
+    ).toBe(3);
   });
 });

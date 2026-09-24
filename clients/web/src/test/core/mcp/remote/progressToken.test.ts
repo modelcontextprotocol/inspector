@@ -7,7 +7,10 @@
  * past-`MAX_SAFE_INTEGER` values a bare `typeof` check would have let through.
  */
 import { describe, it, expect } from "vitest";
-import { progressTokenOf } from "@inspector/core/mcp/remote/progressToken.js";
+import {
+  progressTokenOf,
+  waitForProgressToken,
+} from "@inspector/core/mcp/remote/progressToken.js";
 import type { JSONRPCMessage } from "@modelcontextprotocol/client";
 
 // Cast helper: these fixtures are deliberately off-spec to exercise the guard
@@ -111,5 +114,46 @@ describe("progressTokenOf (#2028)", () => {
         params: { progressToken: Number.MAX_SAFE_INTEGER, progress: 1 },
       }),
     ).toBe(Number.MAX_SAFE_INTEGER);
+  });
+});
+
+describe("waitForProgressToken (#2458)", () => {
+  const waits = new Map<string | number, string>([
+    [4, "numeric-4"],
+    ["abc", "string-abc"],
+    ["7", "string-7"],
+  ]);
+
+  it("matches a numeric token exactly", () => {
+    expect(waitForProgressToken(waits, 4)).toBe("numeric-4");
+  });
+
+  it("matches a string token exactly", () => {
+    expect(waitForProgressToken(waits, "abc")).toBe("string-abc");
+  });
+
+  it("prefers an exact string key over the numeric coercion", () => {
+    const both = new Map<string | number, string>([
+      [7, "numeric-7"],
+      ["7", "string-7"],
+    ]);
+    expect(waitForProgressToken(both, "7")).toBe("string-7");
+  });
+
+  it("coerces a numeric string token to the numeric request id, as the SDK does", () => {
+    expect(waitForProgressToken(waits, "4")).toBe("numeric-4");
+  });
+
+  it("does not coerce a numeric token to a string key", () => {
+    expect(waitForProgressToken(waits, 7)).toBeUndefined();
+  });
+
+  it("returns undefined for a non-numeric string with no exact match", () => {
+    expect(waitForProgressToken(waits, "nope")).toBeUndefined();
+  });
+
+  it("returns undefined for a string that coerces to a non-safe-integer", () => {
+    const fractional = new Map<string | number, string>([[4.5, "x"]]);
+    expect(waitForProgressToken(fractional, "4.5")).toBeUndefined();
   });
 });

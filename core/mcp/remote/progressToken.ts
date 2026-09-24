@@ -38,3 +38,24 @@ export function progressTokenOf(
   }
   return undefined;
 }
+
+/**
+ * The pending wait a progress token belongs to, looked up in a map keyed by
+ * request id. An exact match wins; failing that, a string token is coerced
+ * with `Number()` and retried (#2458). The SDK stamps the request's numeric id
+ * as the token, but a server may echo it back as a string (`"4"`), and the
+ * SDK's own `Protocol` correlates progress with `Number(progressToken)` — so
+ * matching only the exact key silently lets the relay's flat 60s deadline fire
+ * while a direct transport keeps the call alive.
+ */
+export function waitForProgressToken<T>(
+  waits: ReadonlyMap<string | number, T>,
+  token: string | number,
+): T | undefined {
+  const exact = waits.get(token);
+  if (exact !== undefined || typeof token === "number") {
+    return exact;
+  }
+  const numeric = Number(token);
+  return Number.isSafeInteger(numeric) ? waits.get(numeric) : undefined;
+}

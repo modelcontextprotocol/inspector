@@ -37,7 +37,11 @@ import {
   isReservedAuthorizationParam,
 } from "@inspector/core/auth/authorizationParams.js";
 import { oauthEndpointUrlError } from "@inspector/core/auth/endpointOverrides.js";
-import { ADVERTISABLE_EXTENSIONS } from "@inspector/core/mcp/extensions.js";
+import {
+  ADVERTISABLE_EXTENSIONS,
+  type AdvertisableExtension,
+  isAdvertisedByDefault,
+} from "@inspector/core/mcp/extensions.js";
 import {
   isSkillCatalogLimit,
   resolveSkillCatalogBudget,
@@ -46,15 +50,19 @@ import type { Root } from "@modelcontextprotocol/client";
 
 /**
  * Resolve the advertised state of an extension for the form: the per-server
- * override wins, else the registry default. Mirrors `buildClientExtensions`'s
- * resolution so the switches show exactly what the client will advertise.
+ * override wins, else the renderer-aware registry default. Mirrors
+ * `buildClientExtensions`'s resolution so the switches show exactly what the
+ * client will advertise (#2403).
  */
 function isExtensionAdvertised(
   settings: InspectorServerSettings,
-  key: string,
-  defaultAdvertised: boolean,
+  ext: AdvertisableExtension,
+  rendersApps: boolean,
 ): boolean {
-  return settings.advertisedExtensions?.[key] ?? defaultAdvertised;
+  return (
+    settings.advertisedExtensions?.[ext.key] ??
+    isAdvertisedByDefault(ext, rendersApps)
+  );
 }
 
 export type ServerSettingsSection =
@@ -112,6 +120,13 @@ export interface ServerSettingsFormProps {
    * `settings.advertisedExtensions`. (#1739)
    */
   onAdvertisedExtensionChange: (key: string, checked: boolean) => void;
+  /**
+   * Whether this web session can render MCP Apps — true when the backend
+   * supplied a sandbox URL. Decides the default position of any extension that
+   * requires an App renderer (the MCP Apps UI extension), so the toggle shows
+   * what the client will actually declare (#2403). Defaults to true.
+   */
+  rendersApps?: boolean;
   onMaxFetchRequestsChange: (value: number) => void;
   /**
    * Set one skills verification budget limit. Only ever called with a positive
@@ -483,6 +498,7 @@ export function ServerSettingsForm({
   onPaginatedListsChange,
   onSuppressNotificationStreamChange,
   onAdvertisedExtensionChange,
+  rendersApps = true,
   onMaxFetchRequestsChange,
   onSkillCatalogLimitChange,
   onProtocolEraChange,
@@ -764,11 +780,7 @@ export function ServerSettingsForm({
               <Checkbox
                 key={ext.key}
                 label={ext.label}
-                checked={isExtensionAdvertised(
-                  settings,
-                  ext.key,
-                  ext.defaultAdvertised,
-                )}
+                checked={isExtensionAdvertised(settings, ext, rendersApps)}
                 onChange={(e) =>
                   onAdvertisedExtensionChange(ext.key, e.currentTarget.checked)
                 }
