@@ -243,6 +243,56 @@ describe("ConnectionRegistry", () => {
     expect(DEFAULT_IDLE_MS).toBe(60_000);
   });
 
+  it("serializes concurrent connects for the same name so the replaced client is torn down, not leaked", async () => {
+    const { InspectorClient } = await import("@inspector/core/mcp/index.js");
+    // Slow connect widens the check→set window that raced pre-lock.
+    const connectSpy = vi
+      .spyOn(InspectorClient.prototype, "connect")
+      .mockImplementation(
+        () => new Promise<void>((resolve) => setTimeout(resolve, 25)),
+      );
+    const disconnectSpy = vi
+      .spyOn(InspectorClient.prototype, "disconnect")
+      .mockResolvedValue(undefined);
+    const authSpy = vi
+      .spyOn(InspectorClient.prototype, "getOAuthState")
+      .mockResolvedValue(undefined as never);
+    const registry = new ConnectionRegistry(0);
+    try {
+      const params = {
+        name: "dup",
+        serverConfig: {
+          type: "streamable-http",
+          url: "https://mcp.example.com/mcp",
+        },
+        serverIdentity: "https://mcp.example.com/mcp",
+      } as const;
+      const [a, b] = await Promise.all([
+        registry.connect(params),
+        registry.connect(params),
+      ]);
+      expect(a.name).toBe("dup");
+      expect(b.name).toBe("dup");
+      // Exactly one tracked connection; the loser of the race was
+      // disconnected by the serialized reconnect path, not orphaned.
+      expect(registry.connectionCount()).toBe(1);
+      expect(connectSpy).toHaveBeenCalledTimes(2);
+      expect(disconnectSpy).toHaveBeenCalledTimes(1);
+      await registry.disconnect("dup", false);
+      expect(disconnectSpy).toHaveBeenCalledTimes(2);
+      expect(registry.connectionCount()).toBe(0);
+      // A queued duplicate disconnect fails cleanly rather than tearing
+      // down a successor's connection.
+      await expect(registry.disconnect("dup", false)).rejects.toThrow(
+        /not found/,
+      );
+    } finally {
+      connectSpy.mockRestore();
+      disconnectSpy.mockRestore();
+      authSpy.mockRestore();
+    }
+  });
+
   it("reports the connect-time auth snapshot, and connections/show recomputes from disk", async () => {
     const { InspectorClient } = await import("@inspector/core/mcp/index.js");
     const { NodeOAuthStorage, resetNodeOAuthStorageCache } =

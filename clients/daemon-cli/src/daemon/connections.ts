@@ -79,6 +79,32 @@ export class ConnectionRegistry {
   }
 
   /**
+   * Per-name serialization for connect/disconnect. Both hold `connections`
+   * state across awaits; two simultaneous connects for the same
+   * previously-unused name would otherwise both pass the reconnect check and
+   * race through `connections.set`, leaving the loser's live client
+   * untracked and undisconnectable.
+   */
+  private readonly nameLocks = new Map<string, Promise<void>>();
+
+  private async withNameLock<T>(
+    name: string,
+    fn: () => Promise<T>,
+  ): Promise<T> {
+    const prev = this.nameLocks.get(name) ?? Promise.resolve();
+    let release!: () => void;
+    const current = new Promise<void>((resolve) => (release = resolve));
+    this.nameLocks.set(name, current);
+    await prev;
+    try {
+      return await fn();
+    } finally {
+      release();
+      if (this.nameLocks.get(name) === current) this.nameLocks.delete(name);
+    }
+  }
+
+  /**
    * Arm the idle shutdown timer when there are no connections.
    * Called at daemon start so a spawn that never connects still self-reaps,
    * and after a failed connect that left the registry empty.
@@ -198,12 +224,21 @@ export class ConnectionRegistry {
     serverSettings?: InspectorServerSettings;
     serverIdentity: string;
   }): Promise<ConnectionInfo> {
+    return this.withNameLock(params.name, () => this.connectLocked(params));
+  }
+
+  private async connectLocked(params: {
+    name: string;
+    serverConfig: MCPServerConfig;
+    serverSettings?: InspectorServerSettings;
+    serverIdentity: string;
+  }): Promise<ConnectionInfo> {
     this.clearIdleTimer();
 
     try {
       if (this.connections.has(params.name)) {
         // Reconnect: tear down the previous client first.
-        await this.disconnect(params.name, false);
+        await this.disconnectLocked(params.name);
       }
 
       // Front-end authorize / auth/clear write oauth.json in another process.
@@ -265,8 +300,18 @@ export class ConnectionRegistry {
     name: string | undefined,
     requireExplicit: boolean | undefined,
   ): Promise<{ name: string }> {
-    const connection = this.resolve(name, requireExplicit);
-    const connectionName = connection.name;
+    const connectionName = this.resolve(name, requireExplicit).name;
+    return this.withNameLock(connectionName, () =>
+      this.disconnectLocked(connectionName),
+    );
+  }
+
+  private async disconnectLocked(
+    connectionName: string,
+  ): Promise<{ name: string }> {
+    // Re-resolve under the lock: a queued duplicate disconnect must fail
+    // with connection_not_found, not tear down a successor's connection.
+    const connection = this.resolve(connectionName, true);
     this.connections.delete(connectionName);
     if (this.mruName === connectionName) {
       // Promote the next most-recently-accessed connection, if any.
