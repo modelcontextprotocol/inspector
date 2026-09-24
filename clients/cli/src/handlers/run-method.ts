@@ -12,12 +12,11 @@ import {
 import { SKILLS_EXTENSION_KEY } from "@inspector/core/mcp/skillsSchemas.js";
 import { CliExitCodeError, EXIT_CODES } from "../error-handler.js";
 import { collectAppInfo } from "./collect-app-info.js";
-import { summarizeSkillVerification } from "./skills-verify.js";
 import {
-  allSkillsVerified,
-  anySkillFailed,
-  verifySkills,
-} from "@inspector/core/mcp/skillsVerification.js";
+  skillVerificationExitCode,
+  summarizeSkillVerification,
+} from "./skills-verify.js";
+import { verifySkills } from "@inspector/core/mcp/skillsVerification.js";
 import type {
   CliAppInfo,
   McpResponse,
@@ -335,17 +334,10 @@ export async function runMethod(
           kind: "ndjson",
           lines: reports,
           summary: summarizeSkillVerification(reports),
-          // Three outcomes, three exit codes: a broken MUST is 7, a walk the
-          // read bounds cut short is 8, and everything checked and passing is
-          // 0. Collapsing the middle case into either of the others reports
-          // something untrue about the server (Copilot).
-          ...(allSkillsVerified(reports)
-            ? {}
-            : {
-                exitCode: anySkillFailed(reports)
-                  ? EXIT_CODES.SKILL_NONCONFORMANT
-                  : EXIT_CODES.SKILL_INCOMPLETE,
-              }),
+          exitCode: skillVerificationExitCode(
+            reports,
+            args.requireDigests === true,
+          ),
         };
       }
       result = { skills };
@@ -380,17 +372,10 @@ export async function runMethod(
           kind: "ndjson",
           lines: reports,
           summary: summarizeSkillVerification(reports),
-          // Three outcomes, three exit codes: a broken MUST is 7, a walk the
-          // read bounds cut short is 8, and everything checked and passing is
-          // 0. Collapsing the middle case into either of the others reports
-          // something untrue about the server (Copilot).
-          ...(allSkillsVerified(reports)
-            ? {}
-            : {
-                exitCode: anySkillFailed(reports)
-                  ? EXIT_CODES.SKILL_NONCONFORMANT
-                  : EXIT_CODES.SKILL_INCOMPLETE,
-              }),
+          exitCode: skillVerificationExitCode(
+            reports,
+            args.requireDigests === true,
+          ),
         };
       }
       result = envelope;

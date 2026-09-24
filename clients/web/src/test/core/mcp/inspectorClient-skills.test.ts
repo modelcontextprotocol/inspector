@@ -398,14 +398,34 @@ describe("InspectorClient skills methods (#2234)", () => {
   it("accepts a modern skills/get as the SDK codec delivers it, without resultType (#2373)", async () => {
     // `resultType` is base-protocol (SEP-2322), so the codec enforces it and
     // lifts it off before this schema runs — requiring it here rejected every
-    // conforming modern server. The caching attributes SEP-2640 leaves open
-    // stay optional too.
+    // conforming modern server.
     const client = makeClient();
     internals(client).protocolEra = "modern";
-    stubRequest(client, { skill: ENTRY });
+    stubRequest(client, { skill: ENTRY, ttlMs: 0, cacheScope: "public" });
     await expect(client.getSkill("skill://demo/SKILL.md")).resolves.toEqual(
       ENTRY,
     );
+  });
+
+  it("requires the caching attributes on a modern skills/get (#2404)", async () => {
+    // The stable ext-skills spec makes `GetSkillResult` a `CacheableResult`.
+    // The SDK codec checks neither attribute for a consumer-owned method, so
+    // without the modern schema this server would read as conforming.
+    const client = makeClient();
+    internals(client).protocolEra = "modern";
+    stubRequest(client, { skill: ENTRY });
+    await expect(
+      client.getSkill("skill://demo/SKILL.md"),
+    ).rejects.toBeDefined();
+  });
+
+  it("returns the modern skills/get caching attributes whole from getSkillResult", async () => {
+    const client = makeClient();
+    internals(client).protocolEra = "modern";
+    stubRequest(client, { skill: ENTRY, ttlMs: 5, cacheScope: "private" });
+    await expect(
+      client.getSkillResult("skill://demo/SKILL.md"),
+    ).resolves.toEqual({ skill: ENTRY, ttlMs: 5, cacheScope: "private" });
   });
 
   it("accepts a legacy skills/get without resultType", async () => {
