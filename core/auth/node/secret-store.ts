@@ -382,11 +382,29 @@ export interface SecretStore {
    * which is what the keychain wants (independent native round-trips).
    */
   setMany?(serverId: string, values: Record<string, string>): Promise<void>;
-  /** No-op if no entry exists. */
+  /**
+   * No-op if no entry exists; throws when the store cannot confirm the
+   * entry is gone (e.g. the keychain is unavailable). Reporting success
+   * for an unconfirmed delete would let callers commit state that assumes
+   * the credential is gone, and a later read would resurrect it.
+   */
   delete(serverId: string, field: string): Promise<void>;
-  /** Remove every secret stored for this server id (called on DELETE /api/servers/:id). */
+  /**
+   * Remove every secret stored for this server id (called on DELETE
+   * /api/servers/:id). Same contract as {@link delete}: throws when the
+   * sweep cannot be confirmed.
+   */
   deleteAllForServer(serverId: string): Promise<void>;
 }
+
+/**
+ * Is this the keyring's "no matching entry" error? A missing credential is
+ * a *successful* delete, and some binding versions report it as a thrown
+ * error rather than a `false` resolution. Message-match because the error
+ * comes from the native binding, not from us.
+ */
+const isNoEntryError = (err: unknown): boolean =>
+  err instanceof Error && /no (matching )?entry/i.test(err.message);
 
 /**
  * Default implementation. Each operation constructs a fresh `AsyncEntry`;
@@ -503,20 +521,24 @@ export class KeyringSecretStore implements SecretStore {
   async delete(serverId: string, field: string): Promise<void> {
     try {
       const keyring = await loadKeyring();
-      if (!keyring.ok) return;
+      // An unloadable package is as fatal to a delete as an unreachable
+      // keychain: the entry may still exist, and reporting success would
+      // let a caller commit state that assumes the credential is gone —
+      // a later read would resurrect it.
+      if (!keyring.ok) throw new KeychainUnavailableError(keyring.err);
       const entry = new keyring.mod.AsyncEntry(
         SERVICE_NAME,
         buildAccount(serverId, field),
       );
+      // Resolves `false` for a missing credential — that is success (the
+      // entry isn't there anymore). Only an unavailable keychain throws.
       await entry.deleteCredential();
-    } catch {
-      // Every reason for a throw collapses to the same desired outcome
-      // ("the entry isn't there anymore"): `deleteCredential` raises
-      // NoEntry for a missing credential, and both the constructor and
-      // the native binding raise a runtime error when the keychain
-      // itself is unavailable. We treat all of them as success — there's
-      // no value to lose either way, and `set` is the operation that
-      // hard-fails when the keychain is actually down.
+    } catch (err) {
+      // Some binding versions raise a NoEntry error instead of resolving
+      // `false` for a missing credential; that is still success.
+      if (isNoEntryError(err)) return;
+      if (err instanceof KeychainUnavailableError) throw err;
+      throw new KeychainUnavailableError(err);
     }
   }
 
@@ -524,11 +546,13 @@ export class KeyringSecretStore implements SecretStore {
     let creds: Array<{ account: string; password: string }>;
     try {
       const keyring = await loadKeyring();
-      if (!keyring.ok) return;
+      // Same contract as `delete`: an unenumerable keychain may still
+      // hold this server's entries, so "success" here would be a lie.
+      if (!keyring.ok) throw new KeychainUnavailableError(keyring.err);
       creds = await keyring.mod.findCredentialsAsync(SERVICE_NAME);
-    } catch {
-      // Same reasoning as `delete`: nothing was written, nothing to sweep.
-      return;
+    } catch (err) {
+      if (err instanceof KeychainUnavailableError) throw err;
+      throw new KeychainUnavailableError(err);
     }
     const prefix = `${serverId}:`;
     for (const c of creds) {

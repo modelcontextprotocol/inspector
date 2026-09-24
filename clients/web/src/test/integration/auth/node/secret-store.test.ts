@@ -191,11 +191,14 @@ describe("KeyringSecretStore (mocked native bindings)", () => {
     ).resolves.toBeUndefined();
   });
 
-  it("delete silently no-ops when the keychain is unavailable", async () => {
+  it("delete rejects with the typed error when the keychain is unavailable", async () => {
+    // A missing entry is success, but an unconfirmed delete must not be:
+    // reporting success would let callers commit state that assumes the
+    // credential is gone, and a later read would resurrect it.
     keyringMocks.failures.deleteThrows = true;
     await expect(
       store.delete("alpha", SECRET_FIELD_OAUTH_CLIENT_SECRET),
-    ).resolves.toBeUndefined();
+    ).rejects.toBeInstanceOf(KeychainUnavailableError);
   });
 
   it("delete actually removes the value when the keychain is available", async () => {
@@ -206,12 +209,14 @@ describe("KeyringSecretStore (mocked native bindings)", () => {
     );
   });
 
-  it("deleteAllForServer no-ops when findCredentialsAsync throws", async () => {
-    // We don't even know what was written, so there's nothing to sweep.
-    // Critically, this must not throw — the route's defensive sweep on
-    // POST and DELETE depends on it.
+  it("deleteAllForServer rejects when findCredentialsAsync throws", async () => {
+    // An unenumerable keychain may still hold this server's entries, so
+    // "success" would be a lie; the routes translate the typed error to
+    // the same 503 a failed `set` produces.
     keyringMocks.failures.findThrows = true;
-    await expect(store.deleteAllForServer("alpha")).resolves.toBeUndefined();
+    await expect(store.deleteAllForServer("alpha")).rejects.toBeInstanceOf(
+      KeychainUnavailableError,
+    );
   });
 
   it("deleteAllForServer removes every entry under the given id", async () => {
@@ -361,20 +366,22 @@ describe("KeyringSecretStore (mocked native bindings)", () => {
       ).rejects.toThrow(/Couldn't access platform storage/);
     });
 
-    it("delete silently no-ops", async () => {
+    it("delete rejects with the typed error", async () => {
       await expect(
         store.delete("alpha", SECRET_FIELD_OAUTH_CLIENT_SECRET),
-      ).resolves.toBeUndefined();
+      ).rejects.toBeInstanceOf(KeychainUnavailableError);
     });
 
-    it("deleteAllForServer no-ops even when the credential sweep finds entries", async () => {
+    it("deleteAllForServer rejects when the credential sweep finds entries it cannot delete", async () => {
       // findCredentialsAsync can succeed while per-entry construction
-      // fails; the sweep must still resolve rather than escape.
+      // fails; an unconfirmed sweep must escape rather than resolve.
       keyringMocks.failures.constructorThrows = false;
       await store.set("alpha", SECRET_FIELD_OAUTH_CLIENT_SECRET, "a");
       keyringMocks.failures.constructorThrows = true;
 
-      await expect(store.deleteAllForServer("alpha")).resolves.toBeUndefined();
+      await expect(store.deleteAllForServer("alpha")).rejects.toBeInstanceOf(
+        KeychainUnavailableError,
+      );
     });
   });
 
@@ -535,13 +542,15 @@ describe("@napi-rs/keyring unloadable on this platform (#1905)", () => {
     }
   });
 
-  it("delete and deleteAllForServer silently no-op", async () => {
+  it("delete and deleteAllForServer reject with the typed error", async () => {
     const mod = await importWithUnloadableKeyring();
     const store = new mod.KeyringSecretStore();
     await expect(
       store.delete("alpha", "oauth-client-secret"),
-    ).resolves.toBeUndefined();
-    await expect(store.deleteAllForServer("alpha")).resolves.toBeUndefined();
+    ).rejects.toBeInstanceOf(mod.KeychainUnavailableError);
+    await expect(store.deleteAllForServer("alpha")).rejects.toBeInstanceOf(
+      mod.KeychainUnavailableError,
+    );
   });
 
   it("the availability probe reports unavailable and names the load error", async () => {
@@ -569,7 +578,7 @@ describe("@napi-rs/keyring unloadable on this platform (#1905)", () => {
 
     await store.get("alpha", "oauth-client-secret");
     await store.get("beta", "oauth-client-secret");
-    await store.delete("alpha", "oauth-client-secret");
+    await store.delete("alpha", "oauth-client-secret").catch(() => {});
 
     expect(onLoadAttempt).toHaveBeenCalledTimes(1);
   });
@@ -659,7 +668,9 @@ describe("@napi-rs/keyring loads but exposes the wrong shape", () => {
     await expect(
       store.set("alpha", "oauth-client-secret", "v"),
     ).rejects.toBeInstanceOf(mod.KeychainUnavailableError);
-    await expect(store.deleteAllForServer("alpha")).resolves.toBeUndefined();
+    await expect(store.deleteAllForServer("alpha")).rejects.toBeInstanceOf(
+      mod.KeychainUnavailableError,
+    );
   });
 
   it("treats a namespace that throws on member access as unavailable", async () => {
@@ -685,7 +696,9 @@ describe("@napi-rs/keyring loads but exposes the wrong shape", () => {
     ).rejects.not.toThrow(/libsecret/);
     // Absorbed, not escaped: a rejected cached promise would surface here
     // as the raw access error instead of the typed one.
-    await expect(store.deleteAllForServer("alpha")).resolves.toBeUndefined();
+    await expect(store.deleteAllForServer("alpha")).rejects.toBeInstanceOf(
+      mod.KeychainUnavailableError,
+    );
   });
 
   it("accepts a well-formed namespace", async () => {

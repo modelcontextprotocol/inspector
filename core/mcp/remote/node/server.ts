@@ -2532,8 +2532,9 @@ export function createRemoteApp(
 
   // Parallel for symmetry with `readKeychainEntriesFor` /
   // `writeKeychainEntriesFor`: distinct (id, field) deletes have no
-  // ordering requirement, and `secretStore.delete` is already a silent
-  // no-op on unavailability so Promise.all has no failure-mode surprise.
+  // ordering requirement. A delete throws on an unavailable keychain
+  // (missing entries still resolve as success), and the routes translate
+  // that to the same 503 a failed `set` produces.
   const deleteKeychainFields = async (
     id: string,
     fields: string[],

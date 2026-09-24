@@ -277,9 +277,87 @@ describe("writeOAuthSections secret split", () => {
       ),
     ).toHaveLength(2);
   });
+
+  it("aborts the write when a store delete fails, keeping the old residue", async () => {
+    const store = new InMemorySecretStore();
+    await writeOAuthSections(filePath, snapshotWith(), undefined, store);
+    await flushStoreFileWrites(filePath);
+
+    // Same store contents, but deletes now fail (keychain went away).
+    const failingDelete: SecretStore = {
+      get: (id, f) => store.get(id, f),
+      set: (id, f, v) => store.set(id, f, v),
+      delete: async () => {
+        throw new Error("keychain unavailable");
+      },
+      deleteAllForServer: async () => {
+        throw new Error("keychain unavailable");
+      },
+    };
+
+    // Clear the tokens: the split produces no `tokens` secret, so the
+    // write must delete the store copy — if that fails, committing the
+    // residue would let the next read resurrect the cleared tokens.
+    const cleared: OAuthPersistSnapshot = {
+      servers: {
+        [SERVER]: {
+          scope: "read",
+          clientInformation: { client_id: "cid", client_secret: "cs" },
+        },
+      },
+      idpSessions: {},
+    };
+    await expect(
+      writeOAuthSections(
+        filePath,
+        cleared,
+        { servers: [SERVER] },
+        failingDelete,
+      ),
+    ).rejects.toThrow("keychain unavailable");
+
+    // Entry removal (purge) failures abort too, for the same reason.
+    await expect(
+      writeOAuthSections(
+        filePath,
+        { servers: {}, idpSessions: {} },
+        { servers: [SERVER] },
+        failingDelete,
+      ),
+    ).rejects.toThrow("keychain unavailable");
+  });
 });
 
 describe("readOAuthStore migration", () => {
+  it("migrates with policy `all`: existing tokens are moved, not destroyed", async () => {
+    // The persist-tokens policy is write-side. Migration relocates
+    // already-persisted credentials; under `none` it must not silently
+    // destroy them on the first read (the next save applies the policy).
+    process.env[PERSIST_TOKENS_ENV] = "none";
+    await writeStoreFile(filePath, JSON.stringify(snapshotWith()));
+    await flushStoreFileWrites(filePath);
+    const store = new InMemorySecretStore();
+
+    const snapshot = await readOAuthStore(filePath, store);
+    expect(snapshot?.servers[SERVER]!.tokens).toEqual(TOKENS);
+    expect(readRawFile().servers[SERVER]!.tokens).toBeUndefined();
+    const raw = await store.get(
+      oauthSecretServerId(SERVER),
+      LEGACY_TOKENS_FIELD,
+    );
+    expect(JSON.parse(raw!)).toEqual(TOKENS);
+  });
+
+  it("migration keeps refresh tokens under policy `access`", async () => {
+    process.env[PERSIST_TOKENS_ENV] = "access";
+    await writeStoreFile(filePath, JSON.stringify(snapshotWith()));
+    await flushStoreFileWrites(filePath);
+    const store = new InMemorySecretStore();
+
+    const snapshot = await readOAuthStore(filePath, store);
+    expect(snapshot?.servers[SERVER]!.tokens).toEqual(TOKENS);
+  });
+
   it("migrates a plaintext file into a durable store on read", async () => {
     await writeStoreFile(filePath, JSON.stringify(snapshotWith()));
     await flushStoreFileWrites(filePath);
@@ -385,6 +463,33 @@ describe("readOAuthStore migration", () => {
     const joined = await readOAuthStore(filePath, store);
     expect(joined?.servers[SERVER]!.tokens).toEqual({
       access_token: "at2",
+      token_type: "Bearer",
+    });
+  });
+
+  it("compares with the active policy: `access` keeps the unchanged access token durable", async () => {
+    process.env[PERSIST_TOKENS_ENV] = "access";
+    await writeStoreFile(filePath, JSON.stringify(snapshotWith()));
+    await flushStoreFileWrites(filePath);
+    const store = new SessionSecretStore();
+
+    const joined = await readOAuthStore(filePath, store);
+    const mutated: OAuthPersistSnapshot = {
+      servers: {
+        [SERVER]: { ...joined!.servers[SERVER]!, scope: "read write" },
+      },
+      idpSessions: {},
+    };
+    await writeOAuthSections(filePath, mutated, { servers: [SERVER] }, store);
+    await flushStoreFileWrites(filePath);
+
+    // The raw disk blob still carried its refresh token while the split
+    // never does under `access` — the compare must be policy-to-policy or
+    // the unchanged access token would be wrongly treated as changed and
+    // stripped from the only durable copy.
+    const raw = readRawFile();
+    expect(raw.servers[SERVER]!.tokens).toEqual({
+      access_token: "at",
       token_type: "Bearer",
     });
   });
@@ -534,8 +639,7 @@ describe("removeOAuthStore", () => {
     ).toBeNull();
   });
 
-  it("warns but still deletes the file when the store purge fails", async () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  it("propagates a failed purge and leaves the file as the index", async () => {
     const store = new InMemorySecretStore();
     await writeOAuthSections(filePath, snapshotWith(), undefined, store);
     await flushStoreFileWrites(filePath);
@@ -548,11 +652,12 @@ describe("removeOAuthStore", () => {
         throw new Error("purge failed");
       },
     };
-    await removeOAuthStore(filePath, failingPurge);
-    expect(existsSync(filePath)).toBe(false);
-    expect(
-      warn.mock.calls.some(([msg]) => String(msg).includes("purge failed")),
-    ).toBe(true);
+    await expect(removeOAuthStore(filePath, failingPurge)).rejects.toThrow(
+      "purge failed",
+    );
+    // The file is the only index of the store entries — deleting it after
+    // a failed purge would strand credentials the next attempt can't find.
+    expect(existsSync(filePath)).toBe(true);
   });
 
   it("is a no-op purge for a missing file", async () => {

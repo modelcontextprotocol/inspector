@@ -101,7 +101,11 @@ function rethrowLockError(filePath: string, error: unknown): never {
 /**
  * Persist one entry's secrets: set every post-split value, delete every
  * candidate field the split no longer produces (clears and policy
- * downgrades propagate as deletions). Failures degrade to memory-only.
+ * downgrades propagate as deletions). A failed *set* degrades to
+ * memory-only — the residue is still safe to commit, the secret just
+ * doesn't survive the session. A failed *delete* must abort the write
+ * instead: committing residue that omits a secret while the store may
+ * still hold it lets the next read rejoin (resurrect) the cleared value.
  */
 async function persistEntrySecrets(
   store: SecretStore,
@@ -113,14 +117,14 @@ async function persistEntrySecrets(
     if (Object.keys(secrets).length > 0) {
       await secretStoreSetMany(store, serverId, secrets);
     }
-    await Promise.all(
-      candidates
-        .filter((field) => secrets[field] === undefined)
-        .map((field) => store.delete(serverId, field)),
-    );
   } catch (error) {
     warnStoreWriteFailure(error);
   }
+  await Promise.all(
+    candidates
+      .filter((field) => secrets[field] === undefined)
+      .map((field) => store.delete(serverId, field)),
+  );
 }
 
 /**
@@ -194,19 +198,24 @@ export async function writeOAuthSections(
           ]),
         ];
         if (next === undefined) {
-          try {
-            await secretStore.deleteAllForServer(serverId);
-          } catch (error) {
-            warnStoreWriteFailure(error);
-          }
+          // A failed purge propagates and aborts the write: committing a
+          // file without the entry while its secrets may linger in the
+          // store would orphan them, and re-adding the server later could
+          // resurrect the stale credentials.
+          await secretStore.deleteAllForServer(serverId);
           continue;
         }
         const { residue, secrets } = splitServerOAuthState(next, policy);
         merged.servers[url] = residue;
         if (!durable) {
           const diskEntry = disk?.servers[url];
+          // Split the disk value with the *active* policy so the compare
+          // is like-for-like: under `access` the raw disk blob still
+          // carries its refresh token while `secrets` never does, and a
+          // raw compare would wrongly treat the unchanged access token as
+          // changed and strip the only durable copy.
           const keep = preserveNonDurableSecrets(
-            diskEntry ? splitServerOAuthState(diskEntry, "all").secrets : {},
+            diskEntry ? splitServerOAuthState(diskEntry, policy).secrets : {},
             secrets,
           );
           if (Object.keys(keep).length > 0) {
@@ -220,11 +229,8 @@ export async function writeOAuthSections(
         const serverId = oauthIdpSecretServerId(issuer);
         const next = snapshot.idpSessions[issuer];
         if (next === undefined) {
-          try {
-            await secretStore.deleteAllForServer(serverId);
-          } catch (error) {
-            warnStoreWriteFailure(error);
-          }
+          // Same as the server loop: a failed purge aborts the write.
+          await secretStore.deleteAllForServer(serverId);
           continue;
         }
         const { residue, secrets } = splitIdpSession(next, policy);
@@ -232,7 +238,7 @@ export async function writeOAuthSections(
         if (!durable) {
           const diskSession = disk?.idpSessions[issuer];
           const keep = preserveNonDurableSecrets(
-            diskSession ? splitIdpSession(diskSession, "all").secrets : {},
+            diskSession ? splitIdpSession(diskSession, policy).secrets : {},
             secrets,
           );
           if (Object.keys(keep).length > 0) {
@@ -305,18 +311,24 @@ async function joinSnapshot(
  * durable — stripping a file into a session-scoped store would trade secrets
  * that survive restarts for ones that die with the process. One-way; an
  * older Inspector version simply re-auths.
+ *
+ * Migration deliberately splits with `"all"`, not the active persist-tokens
+ * policy: it *moves* existing credentials, it does not acquire new ones. The
+ * documented contract is that already-persisted tokens still load and the
+ * policy trims them on the next save — applying the policy here would make
+ * the first read under `none`/`access` silently destroy tokens instead of
+ * relocating them.
  */
 async function migratePlaintextSecrets(
   filePath: string,
   secretStore: SecretStore,
 ): Promise<void> {
-  const policy = getPersistTokensPolicy();
   await withSecretFileLock(filePath, async () => {
     const fresh = parseOAuthPersistBlob(await readStoreFile(filePath));
     if (!fresh || !snapshotHasPlaintextSecrets(fresh)) return;
     const residue: OAuthPersistSnapshot = { servers: {}, idpSessions: {} };
     for (const [url, state] of Object.entries(fresh.servers)) {
-      const split = splitServerOAuthState(state, policy);
+      const split = splitServerOAuthState(state, "all");
       residue.servers[url] = split.residue;
       if (Object.keys(split.secrets).length > 0) {
         // Unlike the write path there is no memory copy to degrade to —
@@ -329,7 +341,7 @@ async function migratePlaintextSecrets(
       }
     }
     for (const [issuer, session] of Object.entries(fresh.idpSessions)) {
-      const split = splitIdpSession(session, policy);
+      const split = splitIdpSession(session, "all");
       residue.idpSessions[issuer] = split.residue;
       if (Object.keys(split.secrets).length > 0) {
         await secretStoreSetMany(
@@ -379,6 +391,11 @@ export async function readOAuthStore(
  * under the same file lock as writes and migration, so a concurrent
  * sectioned write cannot interleave (which could either resurrect a
  * just-purged entry's residue or orphan its freshly written store secrets).
+ *
+ * A failed purge propagates and leaves the file in place: the file is the
+ * only index of the store entries, so unlinking it while they may still
+ * exist would strand credentials the next removal attempt could no longer
+ * find.
  */
 export async function removeOAuthStore(
   filePath: string,
@@ -393,11 +410,7 @@ export async function removeOAuthStore(
           ...Object.keys(snapshot.idpSessions).map(oauthIdpSecretServerId),
         ];
         for (const id of ids) {
-          try {
-            await secretStore.deleteAllForServer(id);
-          } catch (error) {
-            warnStoreWriteFailure(error);
-          }
+          await secretStore.deleteAllForServer(id);
         }
       }
       await deleteStoreFile(filePath);
