@@ -309,7 +309,8 @@ Answer the round per step 8 first, then:
 | had an in-scope finding you fixed and pushed                                | Request another round (7a), `EXPECTED` + 1.                                                   |
 | was clean — no inline comments, nothing in the body headline or `Suppressed comments` | **Stop.** One clean round is the end — never request a confirming round "just to be sure"; it spends Copilot tokens to re-review code nothing has changed. |
 | held only findings you declined as out of scope (see below)                 | **Stop.** Nothing changed, so another round only re-argues the same scope.                    |
-| `ended-without-review` or `timed-out`                                       | Request once more. Two in a row means Copilot's session on this PR has ended — stop.          |
+| `ended-without-review`                                                      | Request once more. Two in a row means Copilot's session on this PR has ended — stop.          |
+| `timed-out`                                                                 | **Stop and report the round as still pending.** The request is still open, so re-running `requestReviews` for the same bot is a no-op and starts nothing new. |
 
 "Clean" means all three channels are empty — inline comments, the body's
 headline sentence, and the `Suppressed comments` block. A zero-comment round
