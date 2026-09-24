@@ -40,8 +40,13 @@ import { AuthChallengeError } from "../../../auth/challenge.js";
 import {
   parseOAuthPersistBlob,
   parseOAuthPersistSections,
+  OAUTH_PERSIST_STORE_ID as OAUTH_STORE_ID,
 } from "../../../auth/oauth-persist.js";
-import { writeOAuthSections } from "../../../auth/node/oauth-persist-file.js";
+import {
+  readOAuthStore,
+  removeOAuthStore,
+  writeOAuthSections,
+} from "../../../auth/node/oauth-persist-file.js";
 import { MCP_PARAM_HEADER_PREFIX } from "../../../json/xMcpHeader.js";
 import {
   DEFAULT_MAX_FETCH_REQUESTS,
@@ -1393,6 +1398,14 @@ export function createRemoteApp(
         return c.json(config);
       }
 
+      // The OAuth store is split across the file (non-secret state) and the
+      // secret store (tokens, client secrets) — reads rejoin the two, and
+      // lazily migrate a pre-split plaintext file. Other stores are raw KV.
+      if (storeId === OAUTH_STORE_ID) {
+        const snapshot = await readOAuthStore(filePath, secretStore);
+        return c.json(snapshot ?? {});
+      }
+
       const raw = await readStoreFile(filePath);
       if (raw === null) {
         return c.json({}, 200);
@@ -1426,26 +1439,36 @@ export function createRemoteApp(
         return c.json({ ok: true });
       }
 
-      // Sectioned OAuth write (the remote OAuth persist backend opts in via
-      // `?sections=`): merge only the named entries over a fresh read of the
-      // file, under the cross-process lock. Without this, a browser tab
-      // holding a stale snapshot would overwrite entries other processes
-      // (daemon, CLI) wrote since the tab loaded.
+      // The OAuth store routes through the shared locked merge + secret
+      // split. Sectioned bodies overlay only the named entries (the
+      // remote OAuth persist backend opts in via `?sections=`) — without
+      // that, a browser tab holding a stale snapshot would overwrite
+      // entries other processes (daemon, CLI) wrote since the tab loaded.
+      // A plain POST is a full replacement, still split.
       const sectionsRaw = c.req.query("sections");
-      if (sectionsRaw !== undefined) {
-        const sections = parseOAuthPersistSections(sectionsRaw);
-        if (!sections) {
-          return c.json({ error: "Invalid sections parameter" }, 400);
+      if (storeId === OAUTH_STORE_ID) {
+        let sections;
+        if (sectionsRaw !== undefined) {
+          sections = parseOAuthPersistSections(sectionsRaw);
+          if (!sections) {
+            return c.json({ error: "Invalid sections parameter" }, 400);
+          }
         }
         const snapshot = parseOAuthPersistBlob(body);
         if (!snapshot) {
           return c.json(
-            { error: "Sectioned write requires an OAuth state body" },
+            { error: "OAuth store writes require an OAuth state body" },
             400,
           );
         }
-        await writeOAuthSections(filePath, snapshot, sections);
+        await writeOAuthSections(filePath, snapshot, sections, secretStore);
         return c.json({ ok: true });
+      }
+      if (sectionsRaw !== undefined) {
+        return c.json(
+          { error: "Sectioned writes are only supported for the oauth store" },
+          400,
+        );
       }
 
       const jsonData = serializeStore(body);
@@ -1478,6 +1501,11 @@ export function createRemoteApp(
     try {
       if (storeId === "client") {
         await deleteClientConfigStore(filePath, secretStore);
+        return c.json({ ok: true });
+      }
+
+      if (storeId === OAUTH_STORE_ID) {
+        await removeOAuthStore(filePath, secretStore);
         return c.json({ ok: true });
       }
 

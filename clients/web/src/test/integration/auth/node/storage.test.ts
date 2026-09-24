@@ -532,9 +532,10 @@ describe("NodeOAuthStorage with custom storagePath", () => {
         await fs.readFile(customPath, "utf-8"),
       ) as StateShape;
 
-      expect(parsed.servers[testServerUrl]?.tokens?.access_token).toBe(
-        tokens.access_token,
-      );
+      // The file keeps only the entry's residue — tokens are split into the
+      // secret store, so they must NOT appear at the custom path.
+      expect(parsed.servers[testServerUrl]).toBeDefined();
+      expect(parsed.servers[testServerUrl]?.tokens).toBeUndefined();
 
       const stored = await storage.getTokens(testServerUrl);
       expect(stored?.access_token).toBe(tokens.access_token);

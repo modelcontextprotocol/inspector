@@ -44,11 +44,11 @@ import {
 export type { CliAppInfo } from "./handlers/method-types.js";
 export { emitResult } from "./handlers/emit-result.js";
 export { collectAppInfo } from "./handlers/collect-app-info.js";
+import { type OAuthPersistSnapshot } from "@inspector/core/auth/oauth-persist.js";
 import {
-  parseOAuthPersistBlob,
-  type OAuthPersistSnapshot,
-} from "@inspector/core/auth/oauth-persist.js";
-import { writeOAuthSections } from "@inspector/core/auth/node/oauth-persist-file.js";
+  readOAuthStore,
+  writeOAuthSections,
+} from "@inspector/core/auth/node/oauth-persist-file.js";
 import {
   discoverAuthorizationServerMetadataFromCandidates,
   getAuthorizationServerUrl,
@@ -260,20 +260,17 @@ type StoredServerState = {
 type StoredServers = Record<string, StoredServerState>;
 
 /**
- * Read the OAuth state file directly (bypassing the Zustand store cache) so
- * each call sees the current on-disk state — required for `--wait-for-auth`
- * polling. Returns the full snapshot, or an empty one when the file is absent
- * or unreadable. Uses the shared {@link parseOAuthPersistBlob} so both the
- * plain `{servers,idpSessions}` and legacy `{state,version}` layouts are
- * accepted, matching whatever the web backend wrote.
+ * Read the shared OAuth state ({@link OAuthPersistSnapshot}) fresh on every
+ * call — required for `--wait-for-auth` polling. Returns the full snapshot,
+ * with tokens and client secrets rejoined from the secret store (where the
+ * backend now keeps them), or an empty one when the file is absent or
+ * unreadable.
  */
 async function readOAuthSnapshot(
   statePath: string,
 ): Promise<OAuthPersistSnapshot> {
-  const { readFile } = await import("node:fs/promises");
   try {
-    const text = await readFile(statePath, "utf8");
-    const snapshot = parseOAuthPersistBlob(text);
+    const snapshot = await readOAuthStore(statePath);
     if (snapshot) return snapshot;
   } catch {
     // Absent/unreadable/malformed → fall through to the empty snapshot below.

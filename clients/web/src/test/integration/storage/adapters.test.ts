@@ -13,6 +13,11 @@ import { NodeOAuthStorage } from "@inspector/core/auth/node/storage-node.js";
 import { RemoteOAuthStorage } from "@inspector/core/auth/remote/storage-remote.js";
 import { OAuthMemoryStore } from "@inspector/core/auth/store.js";
 import { createFileOAuthPersistBackend } from "@inspector/core/auth/node/oauth-persist-file.js";
+import { InMemorySecretStore } from "@inspector/core/auth/node/secret-store.js";
+import {
+  oauthSecretServerId,
+  LEGACY_TOKENS_FIELD,
+} from "@inspector/core/auth/node/oauth-secrets.js";
 import { createRemoteApp } from "@inspector/core/mcp/remote/node/server.js";
 import {
   writeStoreFile,
@@ -21,6 +26,7 @@ import {
 
 interface StartRemoteServerOptions {
   storageDir?: string;
+  secretStore?: InMemorySecretStore;
 }
 
 async function startRemoteServer(
@@ -33,6 +39,7 @@ async function startRemoteServer(
 }> {
   const { app, authToken } = createRemoteApp({
     storageDir: options.storageDir,
+    secretStore: options.secretStore ?? new InMemorySecretStore(),
     initialConfig: { defaultEnvironment: {} },
   });
   return new Promise((resolve, reject) => {
@@ -72,7 +79,8 @@ describe("OAuth persistence", () => {
     it("creates store and persists state", async () => {
       tempDir = mkdtempSync(join(tmpdir(), "inspector-storage-test-"));
       const filePath = join(tempDir!, "test-store.json");
-      const storage = new NodeOAuthStorage(filePath);
+      const secretStore = new InMemorySecretStore();
+      const storage = new NodeOAuthStorage(filePath, secretStore);
 
       await storage.saveTokens("https://example.com", {
         access_token: "test-token",
@@ -80,9 +88,25 @@ describe("OAuth persistence", () => {
       });
 
       await flushStoreFileWrites(filePath);
+      // Tokens are split into the secret store; the file keeps only the
+      // non-secret residue for the server entry.
       const fileContent = readFileSync(filePath, "utf-8");
       const parsed = JSON.parse(fileContent);
-      expect(parsed.servers["https://example.com"].tokens).toEqual({
+      expect(parsed.servers["https://example.com"]).toBeDefined();
+      expect(parsed.servers["https://example.com"].tokens).toBeUndefined();
+      expect(
+        JSON.parse(
+          (await secretStore.get(
+            oauthSecretServerId("https://example.com"),
+            LEGACY_TOKENS_FIELD,
+          ))!,
+        ),
+      ).toEqual({ access_token: "test-token", token_type: "Bearer" });
+
+      // A joined read through the backend sees the full state again.
+      const backend = createFileOAuthPersistBackend({ filePath, secretStore });
+      const snapshot = await backend.read();
+      expect(snapshot?.servers["https://example.com"].tokens).toEqual({
         access_token: "test-token",
         token_type: "Bearer",
       });
@@ -91,15 +115,16 @@ describe("OAuth persistence", () => {
     it("loads persisted state on initialization", async () => {
       tempDir = mkdtempSync(join(tmpdir(), "inspector-storage-test-"));
       const filePath = join(tempDir!, "test-store.json");
+      const secretStore = new InMemorySecretStore();
 
-      const storage1 = new NodeOAuthStorage(filePath);
+      const storage1 = new NodeOAuthStorage(filePath, secretStore);
       await storage1.saveTokens("https://example.com", {
         access_token: "initial-token",
         token_type: "Bearer",
       });
       await flushStoreFileWrites(filePath);
 
-      const backend = createFileOAuthPersistBackend({ filePath });
+      const backend = createFileOAuthPersistBackend({ filePath, secretStore });
       const snapshot = await backend.read();
       const freshMemory = new OAuthMemoryStore(snapshot ?? undefined);
       const state = freshMemory
@@ -111,9 +136,10 @@ describe("OAuth persistence", () => {
       });
     });
 
-    it("reads legacy persist envelope and rewrites as plain JSON on save", async () => {
+    it("reads legacy persist envelope, migrates secrets, and rewrites as plain JSON on save", async () => {
       tempDir = mkdtempSync(join(tmpdir(), "inspector-storage-test-"));
       const filePath = join(tempDir!, "test-store.json");
+      const secretStore = new InMemorySecretStore();
       await writeStoreFile(
         filePath,
         JSON.stringify({
@@ -129,17 +155,27 @@ describe("OAuth persistence", () => {
         }),
       );
 
-      const storage = new NodeOAuthStorage(filePath);
+      const storage = new NodeOAuthStorage(filePath, secretStore);
       expect(await storage.getTokens("https://example.com")).toEqual({
         access_token: "legacy",
         token_type: "Bearer",
       });
+
+      // The durable store makes the read migrate: plaintext tokens move to
+      // the secret store and the file is stripped.
+      expect(
+        await secretStore.get(
+          oauthSecretServerId("https://example.com"),
+          LEGACY_TOKENS_FIELD,
+        ),
+      ).not.toBeNull();
 
       await storage.saveScope("https://example.com", "read");
       await flushStoreFileWrites(filePath);
 
       const parsed = JSON.parse(readFileSync(filePath, "utf-8"));
       expect(parsed.servers["https://example.com"].scope).toBe("read");
+      expect(parsed.servers["https://example.com"].tokens).toBeUndefined();
       expect(parsed.version).toBeUndefined();
       expect(parsed.state).toBeUndefined();
     });
@@ -381,7 +417,7 @@ describe("OAuth persistence", () => {
 
       const storage = new RemoteOAuthStorage({
         baseUrl,
-        storeId: "test-store",
+        storeId: "oauth",
         authToken,
       });
 
@@ -390,7 +426,7 @@ describe("OAuth persistence", () => {
         token_type: "Bearer",
       });
 
-      await waitForRemoteStore(baseUrl, "test-store", authToken, (body) => {
+      await waitForRemoteStore(baseUrl, "oauth", authToken, (body) => {
         const d = body as {
           servers?: Record<string, { tokens?: { access_token?: string } }>;
         };
@@ -400,7 +436,7 @@ describe("OAuth persistence", () => {
         );
       });
 
-      const res = await fetch(`${baseUrl}/api/storage/test-store`, {
+      const res = await fetch(`${baseUrl}/api/storage/oauth`, {
         method: "GET",
         headers: {
           "x-mcp-remote-auth": `Bearer ${authToken}`,
@@ -423,14 +459,14 @@ describe("OAuth persistence", () => {
 
       const storage1 = new RemoteOAuthStorage({
         baseUrl,
-        storeId: "test-store",
+        storeId: "oauth",
         authToken,
       });
       await storage1.saveTokens("https://example.com", {
         access_token: "initial-token",
         token_type: "Bearer",
       });
-      await waitForRemoteStore(baseUrl, "test-store", authToken, (body) => {
+      await waitForRemoteStore(baseUrl, "oauth", authToken, (body) => {
         const d = body as {
           servers?: Record<string, { tokens?: { access_token?: string } }>;
         };
@@ -442,7 +478,7 @@ describe("OAuth persistence", () => {
 
       const storage2 = new RemoteOAuthStorage({
         baseUrl,
-        storeId: "test-store",
+        storeId: "oauth",
         authToken,
       });
 
@@ -461,7 +497,7 @@ describe("OAuth persistence", () => {
 
       const storage = new RemoteOAuthStorage({
         baseUrl,
-        storeId: "test-store",
+        storeId: "oauth",
         authToken,
       });
 
@@ -469,12 +505,12 @@ describe("OAuth persistence", () => {
         access_token: "test-token",
         token_type: "Bearer",
       });
-      await waitForRemoteStore(baseUrl, "test-store", authToken, (body) => {
+      await waitForRemoteStore(baseUrl, "oauth", authToken, (body) => {
         const d = body as { servers?: Record<string, unknown> };
         return !!d?.servers && Object.keys(d.servers).length > 0;
       });
 
-      let res = await fetch(`${baseUrl}/api/storage/test-store`, {
+      let res = await fetch(`${baseUrl}/api/storage/oauth`, {
         method: "GET",
         headers: {
           "x-mcp-remote-auth": `Bearer ${authToken}`,
@@ -485,12 +521,12 @@ describe("OAuth persistence", () => {
       expect(Object.keys(storeData.servers).length).toBeGreaterThan(0);
 
       await storage.clear("https://example.com");
-      await waitForRemoteStore(baseUrl, "test-store", authToken, (body) => {
+      await waitForRemoteStore(baseUrl, "oauth", authToken, (body) => {
         const d = body as { servers?: Record<string, unknown> };
         return !d?.servers || Object.keys(d.servers).length === 0;
       });
 
-      res = await fetch(`${baseUrl}/api/storage/test-store`, {
+      res = await fetch(`${baseUrl}/api/storage/oauth`, {
         method: "GET",
         headers: {
           "x-mcp-remote-auth": `Bearer ${authToken}`,
@@ -499,6 +535,99 @@ describe("OAuth persistence", () => {
       expect(res.status).toBe(200);
       const emptyStore = await res.json();
       expect(Object.keys(emptyStore.servers).length).toBe(0);
+    });
+
+    it("plain POST fully replaces the store and splits secrets on disk", async () => {
+      tempDir = mkdtempSync(join(tmpdir(), "inspector-storage-test-"));
+      const secretStore = new InMemorySecretStore();
+      const { baseUrl, server, authToken } = await startRemoteServer(0, {
+        storageDir: tempDir,
+        secretStore,
+      });
+      remoteServer = server;
+      const headers = {
+        "Content-Type": "application/json",
+        "x-mcp-remote-auth": `Bearer ${authToken}`,
+      };
+
+      const post = await fetch(`${baseUrl}/api/storage/oauth`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          servers: {
+            "https://example.com": {
+              scope: "read",
+              tokens: { access_token: "posted", token_type: "Bearer" },
+            },
+          },
+          idpSessions: {},
+        }),
+      });
+      expect(post.status).toBe(200);
+
+      // On disk: residue only. Via the store: the secret. Via GET: rejoined.
+      const raw = JSON.parse(
+        readFileSync(join(tempDir, "oauth.json"), "utf-8"),
+      );
+      expect(raw.servers["https://example.com"].scope).toBe("read");
+      expect(raw.servers["https://example.com"].tokens).toBeUndefined();
+      expect(
+        await secretStore.get(
+          oauthSecretServerId("https://example.com"),
+          LEGACY_TOKENS_FIELD,
+        ),
+      ).not.toBeNull();
+      const got = await fetch(`${baseUrl}/api/storage/oauth`, { headers });
+      expect((await got.json()).servers["https://example.com"].tokens).toEqual({
+        access_token: "posted",
+        token_type: "Bearer",
+      });
+    });
+
+    it("DELETE purges the file and its secret-store entries", async () => {
+      tempDir = mkdtempSync(join(tmpdir(), "inspector-storage-test-"));
+      const secretStore = new InMemorySecretStore();
+      const { baseUrl, server, authToken } = await startRemoteServer(0, {
+        storageDir: tempDir,
+        secretStore,
+      });
+      remoteServer = server;
+      const headers = {
+        "Content-Type": "application/json",
+        "x-mcp-remote-auth": `Bearer ${authToken}`,
+      };
+
+      await fetch(`${baseUrl}/api/storage/oauth`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          servers: {
+            "https://example.com": {
+              tokens: { access_token: "doomed", token_type: "Bearer" },
+            },
+          },
+          idpSessions: {},
+        }),
+      });
+      expect(
+        await secretStore.get(
+          oauthSecretServerId("https://example.com"),
+          LEGACY_TOKENS_FIELD,
+        ),
+      ).not.toBeNull();
+
+      const del = await fetch(`${baseUrl}/api/storage/oauth`, {
+        method: "DELETE",
+        headers,
+      });
+      expect(del.status).toBe(200);
+      expect(existsSync(join(tempDir, "oauth.json"))).toBe(false);
+      expect(
+        await secretStore.get(
+          oauthSecretServerId("https://example.com"),
+          LEGACY_TOKENS_FIELD,
+        ),
+      ).toBeNull();
     });
   });
 });

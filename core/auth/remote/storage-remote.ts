@@ -5,12 +5,15 @@
 
 import { OAuthStorageBase } from "../oauth-storage.js";
 import { OAuthMemoryStore } from "../store.js";
-import { createRemoteOAuthPersistBackend } from "../oauth-persist.js";
+import {
+  createRemoteOAuthPersistBackend,
+  OAUTH_PERSIST_STORE_ID,
+} from "../oauth-persist.js";
 
 export interface RemoteOAuthStorageOptions {
   /** Base URL of the remote server (e.g. http://localhost:3000) */
   baseUrl: string;
-  /** Store ID (default: "oauth") */
+  /** Store ID (default: {@link OAUTH_PERSIST_STORE_ID}) */
   storeId?: string;
   /** Optional auth token for x-mcp-remote-auth header */
   authToken?: string;
@@ -29,7 +32,7 @@ export class RemoteOAuthStorage extends OAuthStorageBase {
       new OAuthMemoryStore(),
       createRemoteOAuthPersistBackend({
         baseUrl: options.baseUrl,
-        storeId: options.storeId ?? "oauth",
+        storeId: options.storeId ?? OAUTH_PERSIST_STORE_ID,
         authToken: options.authToken,
         fetchFn: options.fetchFn,
       }),

@@ -1,6 +1,7 @@
 import { OAuthStorageBase } from "../oauth-storage.js";
 import { OAuthMemoryStore } from "../store.js";
 import { createFileOAuthPersistBackend } from "./oauth-persist-file.js";
+import type { SecretStore } from "./secret-store.js";
 import {
   getDefaultStorageDir,
   getStoreFilePath,
@@ -84,12 +85,15 @@ export async function clearAllOAuthClientState(): Promise<void> {
 export class NodeOAuthStorage extends OAuthStorageBase {
   /**
    * @param storagePath - Optional path to state file. Default: ~/.mcp-inspector/storage/oauth.json
+   * @param secretStore - Optional secret store for tokens/client secrets.
+   *   Default: the process-wide selected store. Tests inject an in-memory
+   *   double here so they never touch the OS keychain.
    */
-  constructor(storagePath?: string) {
+  constructor(storagePath?: string, secretStore?: SecretStore) {
     const filePath = getStateFilePath(storagePath);
     super(
       getSharedMemory(storagePath),
-      createFileOAuthPersistBackend({ filePath }),
+      createFileOAuthPersistBackend({ filePath, secretStore }),
     );
   }
 }

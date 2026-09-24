@@ -1061,7 +1061,21 @@ describe("Remote transport e2e", () => {
       );
       expect(badBody.status).toBe(400);
       expect((await badBody.json()).error).toBe(
-        "Sectioned write requires an OAuth state body",
+        "OAuth store writes require an OAuth state body",
+      );
+
+      // Sectioned writes are an OAuth-store contract; other stores are raw KV.
+      const wrongStore = await fetch(
+        `${baseUrl}/api/storage/other-store?sections=${encodeURIComponent('{"servers":[]}')}`,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ some: "data" }),
+        },
+      );
+      expect(wrongStore.status).toBe(400);
+      expect((await wrongStore.json()).error).toBe(
+        "Sectioned writes are only supported for the oauth store",
       );
     });
 

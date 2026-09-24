@@ -5,11 +5,20 @@
  * (e.g. `NodeOAuthStorage`) import the file backend from here, while the
  * shared blob (de)serialization and browser/remote backends stay isomorphic.
  *
- * Sectioned writes (`OAuthPersistSections`) are applied here as a locked
- * read-modify-write: only the named entries are overlaid onto a fresh read of
- * the file, so several processes (web backend, daemon, CLI) sharing one
- * `oauth.json` can each persist their own mutations without erasing entries
- * the others wrote after this process last read the file.
+ * Two properties are enforced at this boundary:
+ *
+ * 1. **Sectioned writes** (`OAuthPersistSections`): a locked read-modify-write
+ *    overlays only the entries the calling mutation touched onto a fresh read
+ *    of the file, so several processes (web backend, daemon, CLI) sharing one
+ *    `oauth.json` can each persist their own mutations without erasing
+ *    entries the others wrote after this process last read the file.
+ * 2. **Secret split** (`oauth-secrets.ts`): acquired tokens, client secrets,
+ *    and IdP session tokens go to the {@link SecretStore}; only the
+ *    non-secret residue is written to `oauth.json`. Reads rejoin the two and
+ *    lazily migrate a pre-split plaintext file — stripping it only when the
+ *    store is durable, the same guard the mcp.json/client.json migrations
+ *    use. A store write failure degrades those tokens to memory-only with a
+ *    loud warning; it never falls back to writing them into the file.
  */
 
 import {
@@ -26,64 +35,345 @@ import {
   type OAuthPersistSnapshot,
 } from "../oauth-persist.js";
 import { withSecretFileLock } from "./file-lock.js";
-import { SecretStoreUnavailableError } from "./secret-store.js";
+import {
+  SecretStoreUnavailableError,
+  secretStoreGetMany,
+  secretStoreIsDurable,
+  secretStoreSetMany,
+  type SecretBulkRequest,
+  type SecretStore,
+} from "./secret-store.js";
+import { defaultSecretStore } from "./secret-store-selection.js";
+import {
+  IDP_SESSION_FIELD,
+  getPersistTokensPolicy,
+  joinIdpSession,
+  joinServerOAuthState,
+  oauthIdpSecretServerId,
+  oauthSecretServerId,
+  serverSecretFields,
+  snapshotHasPlaintextSecrets,
+  splitIdpSession,
+  splitServerOAuthState,
+} from "./oauth-secrets.js";
 
 export interface FileOAuthPersistBackendOptions {
   filePath: string;
+  /** Injection seam for tests and the remote server route. */
+  secretStore?: SecretStore;
+}
+
+const warnedStoreFailures = new Set<string>();
+
+/**
+ * A failed secret-store write means those tokens survive only in this
+ * process's memory — said loudly, once per reason, because the user's next
+ * restart will silently want a re-auth. Deliberately NOT a fallback to
+ * writing the secrets into `oauth.json`: that would quietly undo the reason
+ * the store exists.
+ */
+function warnStoreWriteFailure(error: unknown): void {
+  const reason = error instanceof Error ? error.message : String(error);
+  if (warnedStoreFailures.has(reason)) return;
+  warnedStoreFailures.add(reason);
+  console.warn(
+    `[mcp-inspector] Could not write OAuth tokens to the secret store (${reason}). Tokens will be kept in memory for this session only and will NOT be persisted; expect to re-authorize after a restart.`,
+  );
+}
+
+/** Test seam: forget which store-failure warnings have been emitted. */
+export function resetOAuthSecretStoreWarnings(): void {
+  warnedStoreFailures.clear();
+}
+
+/** Rethrow the lock's "secrets file" wording as OAuth wording (same file). */
+function rethrowLockError(filePath: string, error: unknown): never {
+  if (error instanceof SecretStoreUnavailableError) {
+    throw new Error(
+      `Could not save OAuth state: the state file at ${filePath} is locked by another Inspector process and did not become available.`,
+      { cause: error },
+    );
+  }
+  throw error;
+}
+
+/**
+ * Persist one entry's secrets: set every post-split value, delete every
+ * candidate field the split no longer produces (clears and policy
+ * downgrades propagate as deletions). Failures degrade to memory-only.
+ */
+async function persistEntrySecrets(
+  store: SecretStore,
+  serverId: string,
+  candidates: string[],
+  secrets: Record<string, string>,
+): Promise<void> {
+  try {
+    if (Object.keys(secrets).length > 0) {
+      await secretStoreSetMany(store, serverId, secrets);
+    }
+    await Promise.all(
+      candidates
+        .filter((field) => secrets[field] === undefined)
+        .map((field) => store.delete(serverId, field)),
+    );
+  } catch (error) {
+    warnStoreWriteFailure(error);
+  }
 }
 
 /**
  * Overlay the named sections of `snapshot` onto the OAuth state file under
- * the cross-process file lock: lock → fresh read → merge → atomic write.
- * Shared by the file backend and the remote server's storage route so both
- * writers use the identical locked merge.
+ * the cross-process file lock — lock → fresh read → merge → split secrets to
+ * the store → atomic write of the residue. Shared by the file backend, the
+ * remote server's storage route, and the CLI's stored-token refresh, so
+ * every writer uses the identical locked merge and the identical split.
  *
- * The lock's own errors talk about "the secrets file" (its other caller);
- * they are rethrown with OAuth wording so an operator seeing the message
- * looks at `oauth.json`, with the original attached as `cause`.
+ * When `sections` is omitted the write is a full replacement: sections are
+ * derived as the union of the file's and the snapshot's keys, which
+ * overlays everything present and deletes everything absent — same code
+ * path, same secret handling.
  */
 export async function writeOAuthSections(
   filePath: string,
   snapshot: OAuthPersistSnapshot,
-  sections: OAuthPersistSections,
+  sections?: OAuthPersistSections,
+  secretStore: SecretStore = defaultSecretStore(),
 ): Promise<void> {
+  const policy = getPersistTokensPolicy();
   try {
     await withSecretFileLock(filePath, async () => {
       const disk = parseOAuthPersistBlob(await readStoreFile(filePath));
-      const merged = mergeOAuthSections(disk, snapshot, sections);
+      const effective: OAuthPersistSections = sections ?? {
+        servers: [
+          ...new Set([
+            ...Object.keys(disk?.servers ?? {}),
+            ...Object.keys(snapshot.servers),
+          ]),
+        ],
+        idpSessions: [
+          ...new Set([
+            ...Object.keys(disk?.idpSessions ?? {}),
+            ...Object.keys(snapshot.idpSessions),
+          ]),
+        ],
+      };
+      const merged = mergeOAuthSections(disk, snapshot, effective);
+
+      for (const url of effective.servers ?? []) {
+        const serverId = oauthSecretServerId(url);
+        const next = snapshot.servers[url];
+        // Candidates span the old and new shapes so a removed issuer's
+        // fields are deleted, not orphaned in the store.
+        const candidates = [
+          ...new Set([
+            ...serverSecretFields(disk?.servers[url]),
+            ...serverSecretFields(next),
+          ]),
+        ];
+        if (next === undefined) {
+          try {
+            await secretStore.deleteAllForServer(serverId);
+          } catch (error) {
+            warnStoreWriteFailure(error);
+          }
+          continue;
+        }
+        const { residue, secrets } = splitServerOAuthState(next, policy);
+        merged.servers[url] = residue;
+        await persistEntrySecrets(secretStore, serverId, candidates, secrets);
+      }
+
+      for (const issuer of effective.idpSessions ?? []) {
+        const serverId = oauthIdpSecretServerId(issuer);
+        const next = snapshot.idpSessions[issuer];
+        if (next === undefined) {
+          try {
+            await secretStore.deleteAllForServer(serverId);
+          } catch (error) {
+            warnStoreWriteFailure(error);
+          }
+          continue;
+        }
+        const { residue, secrets } = splitIdpSession(next, policy);
+        merged.idpSessions[issuer] = residue;
+        await persistEntrySecrets(
+          secretStore,
+          serverId,
+          [IDP_SESSION_FIELD],
+          secrets,
+        );
+      }
+
       await writeStoreFile(filePath, serializeOAuthPersistBlob(merged));
     });
   } catch (error) {
-    if (error instanceof SecretStoreUnavailableError) {
-      throw new Error(
-        `Could not save OAuth state: the state file at ${filePath} is locked by another Inspector process and did not become available.`,
-        { cause: error },
-      );
-    }
-    throw error;
+    rethrowLockError(filePath, error);
   }
+}
+
+/** Build the bulk-read request list for everything a snapshot could hold. */
+function secretRequestsFor(
+  snapshot: OAuthPersistSnapshot,
+): SecretBulkRequest[] {
+  const requests: SecretBulkRequest[] = [];
+  for (const [url, state] of Object.entries(snapshot.servers)) {
+    requests.push({
+      serverId: oauthSecretServerId(url),
+      fields: serverSecretFields(state),
+    });
+  }
+  for (const issuer of Object.keys(snapshot.idpSessions)) {
+    requests.push({
+      serverId: oauthIdpSecretServerId(issuer),
+      fields: [IDP_SESSION_FIELD],
+    });
+  }
+  return requests;
+}
+
+/** Rejoin a residue snapshot with the store's values (store wins). */
+async function joinSnapshot(
+  snapshot: OAuthPersistSnapshot,
+  secretStore: SecretStore,
+): Promise<OAuthPersistSnapshot> {
+  const requests = secretRequestsFor(snapshot);
+  const values =
+    requests.length > 0 ? await secretStoreGetMany(secretStore, requests) : {};
+  return {
+    servers: Object.fromEntries(
+      Object.entries(snapshot.servers).map(([url, state]) => [
+        url,
+        joinServerOAuthState(state, values[oauthSecretServerId(url)] ?? {}),
+      ]),
+    ),
+    idpSessions: Object.fromEntries(
+      Object.entries(snapshot.idpSessions).map(([issuer, session]) => [
+        issuer,
+        joinIdpSession(session, values[oauthIdpSecretServerId(issuer)] ?? {}),
+      ]),
+    ),
+  };
+}
+
+/**
+ * Lazily migrate a pre-split file: move its plaintext secrets into the
+ * store and rewrite the file as residue, under the lock (re-reading fresh so
+ * a concurrent writer's entries are not rolled back). Only when the store is
+ * durable — stripping a file into a session-scoped store would trade secrets
+ * that survive restarts for ones that die with the process. One-way; an
+ * older Inspector version simply re-auths.
+ */
+async function migratePlaintextSecrets(
+  filePath: string,
+  secretStore: SecretStore,
+): Promise<void> {
+  const policy = getPersistTokensPolicy();
+  await withSecretFileLock(filePath, async () => {
+    const fresh = parseOAuthPersistBlob(await readStoreFile(filePath));
+    if (!fresh || !snapshotHasPlaintextSecrets(fresh)) return;
+    const residue: OAuthPersistSnapshot = { servers: {}, idpSessions: {} };
+    for (const [url, state] of Object.entries(fresh.servers)) {
+      const split = splitServerOAuthState(state, policy);
+      residue.servers[url] = split.residue;
+      if (Object.keys(split.secrets).length > 0) {
+        // Unlike the write path there is no memory copy to degrade to —
+        // a failure here must abort the strip, so it throws.
+        await secretStoreSetMany(
+          secretStore,
+          oauthSecretServerId(url),
+          split.secrets,
+        );
+      }
+    }
+    for (const [issuer, session] of Object.entries(fresh.idpSessions)) {
+      const split = splitIdpSession(session, policy);
+      residue.idpSessions[issuer] = split.residue;
+      if (Object.keys(split.secrets).length > 0) {
+        await secretStoreSetMany(
+          secretStore,
+          oauthIdpSecretServerId(issuer),
+          split.secrets,
+        );
+      }
+    }
+    await writeStoreFile(filePath, serializeOAuthPersistBlob(residue));
+  });
+}
+
+/**
+ * Read the OAuth state file and rejoin it with the secret store. When the
+ * file still carries plaintext secrets and the store is durable, they are
+ * migrated first (see {@link migratePlaintextSecrets}); a failed migration
+ * leaves the file untouched and the plaintext keeps working.
+ */
+export async function readOAuthStore(
+  filePath: string,
+  secretStore: SecretStore = defaultSecretStore(),
+): Promise<OAuthPersistSnapshot | null> {
+  let snapshot = parseOAuthPersistBlob(await readStoreFile(filePath));
+  if (snapshot === null) return null;
+
+  if (
+    snapshotHasPlaintextSecrets(snapshot) &&
+    (await secretStoreIsDurable(secretStore))
+  ) {
+    try {
+      await migratePlaintextSecrets(filePath, secretStore);
+      snapshot =
+        parseOAuthPersistBlob(await readStoreFile(filePath)) ?? snapshot;
+    } catch (error) {
+      warnStoreWriteFailure(error);
+    }
+  }
+
+  return joinSnapshot(snapshot, secretStore);
+}
+
+/**
+ * Delete the OAuth state file and every secret-store entry it indexes. The
+ * file is read first because the store cannot enumerate its own entries —
+ * the file's keys are the index.
+ */
+export async function removeOAuthStore(
+  filePath: string,
+  secretStore: SecretStore = defaultSecretStore(),
+): Promise<void> {
+  const snapshot = parseOAuthPersistBlob(await readStoreFile(filePath));
+  if (snapshot) {
+    const ids = [
+      ...Object.keys(snapshot.servers).map(oauthSecretServerId),
+      ...Object.keys(snapshot.idpSessions).map(oauthIdpSecretServerId),
+    ];
+    for (const id of ids) {
+      try {
+        await secretStore.deleteAllForServer(id);
+      } catch (error) {
+        warnStoreWriteFailure(error);
+      }
+    }
+  }
+  await deleteStoreFile(filePath);
 }
 
 export function createFileOAuthPersistBackend(
   options: FileOAuthPersistBackendOptions,
 ): OAuthPersistBackend {
+  const secretStore = options.secretStore ?? defaultSecretStore();
   return {
     async read() {
-      const raw = await readStoreFile(options.filePath);
-      return parseOAuthPersistBlob(raw);
+      return readOAuthStore(options.filePath, secretStore);
     },
     async write(snapshot, sections) {
-      if (sections) {
-        await writeOAuthSections(options.filePath, snapshot, sections);
-        return;
-      }
-      await writeStoreFile(
+      await writeOAuthSections(
         options.filePath,
-        serializeOAuthPersistBlob(snapshot),
+        snapshot,
+        sections,
+        secretStore,
       );
     },
     async remove() {
-      await deleteStoreFile(options.filePath);
+      await removeOAuthStore(options.filePath, secretStore);
     },
   };
 }

@@ -22,6 +22,13 @@ import type { ServerOAuthState } from "./store.js";
 
 export const OAUTH_PERSIST_STORAGE_KEY = "mcp-inspector-oauth";
 
+/**
+ * Store id the remote OAuth persist backend targets (`/api/storage/oauth`).
+ * The server's storage route keys its OAuth-specific handling (secret split,
+ * sectioned merges) off this id, so the two must agree.
+ */
+export const OAUTH_PERSIST_STORE_ID = "oauth";
+
 export interface OAuthPersistSnapshot {
   servers: Record<string, ServerOAuthState>;
   idpSessions: Record<string, IdpSessionState>;

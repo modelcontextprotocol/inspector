@@ -1,5 +1,13 @@
-import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
-import { mkdtempSync, writeFileSync, readFileSync, rmSync } from "node:fs";
+import {
+  describe,
+  it,
+  expect,
+  beforeAll,
+  afterAll,
+  afterEach,
+  vi,
+} from "vitest";
+import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
@@ -10,6 +18,9 @@ import {
   deepLinkTransport,
   refreshStoredAuthToken,
 } from "../src/cli.js";
+import { readOAuthStore } from "@inspector/core/auth/node/oauth-persist-file.js";
+import { oauthSecretServerId } from "@inspector/core/auth/node/oauth-secrets.js";
+import { defaultSecretStore } from "@inspector/core/auth/node/secret-store-selection.js";
 import {
   createTestServerHttp,
   createEchoTool,
@@ -64,6 +75,15 @@ describe("deepLinkTransport", () => {
 
 describe("refreshStoredAuthToken", () => {
   const SERVER = "https://api.example/mcp";
+
+  // Persisted writes split tokens into the process-wide (in-memory, per
+  // vitest.config.ts) secret store, and joined reads prefer the store over
+  // file plaintext — so purge the entry between tests or one test's rotated
+  // tokens would leak into the next test's fixture.
+  afterEach(async () => {
+    await defaultSecretStore().deleteAllForServer(oauthSecretServerId(SERVER));
+  });
+
   const freshTokens = {
     access_token: "refreshed-access-token",
     token_type: "Bearer",
@@ -100,11 +120,10 @@ describe("refreshStoredAuthToken", () => {
         client_id: "cid",
         client_secret: "sec",
       });
-      // Rotation persisted back under the same key.
-      const persisted = JSON.parse(readFileSync(path, "utf8")) as {
-        servers: Record<string, { tokens?: { refresh_token?: string } }>;
-      };
-      expect(persisted.servers[SERVER]?.tokens?.refresh_token).toBe(
+      // Rotation persisted back under the same key — via a joined read, since
+      // the tokens themselves now live in the secret store, not the file.
+      const persisted = await readOAuthStore(path);
+      expect(persisted?.servers[SERVER]?.tokens?.refresh_token).toBe(
         "rotated-refresh-token",
       );
     } finally {
@@ -347,6 +366,15 @@ describe("--use-stored-auth", () => {
     rmSync(fixturePath, { force: true });
   });
 
+  // Same secret-store hygiene as the refreshStoredAuthToken suite: a joined
+  // read prefers the store, so rotated tokens persisted by one test must not
+  // leak into the next test's fixture for the same server URL.
+  afterEach(async () => {
+    await defaultSecretStore().deleteAllForServer(
+      oauthSecretServerId(serverUrl),
+    );
+  });
+
   it("injects the stored token as Authorization: Bearer on the outgoing request", async () => {
     const result = await runCli(
       [
@@ -538,11 +566,10 @@ describe("--use-stored-auth", () => {
       expect(tokenRequests).toBeGreaterThan(0);
       const last = server.getRecordedRequests().at(-1)!;
       expect(last.headers?.authorization).toBe("Bearer refreshed-access-token");
-      // Rotation persisted so a subsequent run reuses the new refresh token.
-      const persisted = JSON.parse(readFileSync(fixture, "utf8")) as {
-        servers: Record<string, { tokens?: { refresh_token?: string } }>;
-      };
-      expect(persisted.servers[serverUrl]?.tokens?.refresh_token).toBe(
+      // Rotation persisted so a subsequent run reuses the new refresh token —
+      // asserted through a joined read (tokens live in the secret store).
+      const persisted = await readOAuthStore(fixture);
+      expect(persisted?.servers[serverUrl]?.tokens?.refresh_token).toBe(
         "rotated-refresh-token",
       );
     } finally {
