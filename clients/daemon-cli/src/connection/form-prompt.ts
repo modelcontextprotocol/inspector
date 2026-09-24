@@ -9,6 +9,7 @@
 import type { Interface as ReadlineInterface } from "node:readline/promises";
 import type { Style } from "@inspector/cli/style.js";
 import type { FormField } from "./form-schema.js";
+import { sanitizeText } from "./sanitize.js";
 
 export type FormOutcome =
   | { action: "accept"; content: Record<string, unknown> }
@@ -49,11 +50,14 @@ function formatDefault(field: FormField): string | undefined {
 }
 
 function describeField(field: FormField, style: Style): string {
+  // Titles, descriptions and defaults are server-controlled: sanitize at the
+  // render point only, so the raw values still travel in the response.
   const req = field.required ? style.yellow(" (required)") : "";
-  const desc = field.description ? ` — ${field.description}` : "";
+  const desc = field.description ? ` — ${sanitizeText(field.description)}` : "";
   const def = formatDefault(field);
-  const defHint = def !== undefined ? style.dim(` [default: ${def}]`) : "";
-  return `${style.bold(field.title)}${req}${desc}${defHint}`;
+  const defHint =
+    def !== undefined ? style.dim(` [default: ${sanitizeText(def)}]`) : "";
+  return `${style.bold(sanitizeText(field.title))}${req}${desc}${defHint}`;
 }
 
 /** Prompts for one field's value; loops until a valid answer or a default/blank-when-optional. */
@@ -82,7 +86,7 @@ async function promptField(
 
     if (field.kind === "enum" || field.kind === "multiselect") {
       const lines = field.choices.map(
-        (choice, i) => `    ${i + 1}. ${choice.label}`,
+        (choice, i) => `    ${i + 1}. ${sanitizeText(choice.label)}`,
       );
       const multi = field.kind === "multiselect";
       const prompt = multi
@@ -147,7 +151,9 @@ async function promptField(
       }
       const n = Number(raw);
       if (
-        Number.isNaN(n) ||
+        // isFinite (not isNaN): "Infinity" is not a valid JSON number and
+        // would serialize as null in the response frame.
+        !Number.isFinite(n) ||
         (field.integer && !Number.isInteger(n)) ||
         (field.minimum !== undefined && n < field.minimum) ||
         (field.maximum !== undefined && n > field.maximum)
@@ -171,7 +177,7 @@ async function promptField(
     const raw = await ask(
       rl,
       closed,
-      `${describeField(field, style)}\n  ${def !== undefined ? `[${def}]` : ""}: `,
+      `${describeField(field, style)}\n  ${def !== undefined ? `[${sanitizeText(def)}]` : ""}: `,
     );
     const value = raw === "" && def !== undefined ? def : raw;
     if (value === "" && field.required) {
@@ -218,7 +224,7 @@ export async function promptForm(
     for (const field of fields) {
       const v = values.get(field.name);
       process.stderr.write(
-        `  ${field.title}: ${v === undefined ? style.dim("(none)") : String(v)}\n`,
+        `  ${sanitizeText(field.title)}: ${v === undefined ? style.dim("(none)") : sanitizeText(String(v))}\n`,
       );
     }
     const answer = (

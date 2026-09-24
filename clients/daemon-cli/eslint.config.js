@@ -14,4 +14,21 @@ export default defineConfig([
       globals: globals.node,
     },
   },
+  {
+    // Type-aware pass for `no-floating-promises` (#1959), mirroring
+    // clients/cli: the rule needs type information, and the parser needs a
+    // project that literally contains the linted file — so both of this
+    // client's tsconfig projects are listed, exactly as `npm run typecheck`
+    // runs them (`src` is in the first, `__tests__` only in the second).
+    files: ["**/*.ts"],
+    languageOptions: {
+      parserOptions: {
+        project: ["./tsconfig.json", "./tsconfig.test.json"],
+        tsconfigRootDir: import.meta.dirname,
+      },
+    },
+    rules: {
+      "@typescript-eslint/no-floating-promises": "error",
+    },
+  },
 ]);

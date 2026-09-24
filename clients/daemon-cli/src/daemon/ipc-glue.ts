@@ -111,16 +111,29 @@ export function acceptDaemonConnection(
   handle: HandleRequest,
 ): void {
   // Enforce the line cap below readline: track bytes since the last newline
-  // and drop the connection once a single line exceeds the limit.
+  // and drop the connection once a single line exceeds the limit. Every
+  // newline-delimited segment is checked at its full accumulated size before
+  // the counter resets — checking only the tail of a chunk would let an
+  // oversized line slip through whenever the chunk that crosses the limit
+  // also contains the terminating newline.
   let bytesSinceNewline = 0;
+  let rejected = false;
   socket.on("data", (chunk: Buffer) => {
-    const idx = chunk.lastIndexOf(0x0a);
-    bytesSinceNewline =
-      idx === -1 ? bytesSinceNewline + chunk.length : chunk.length - idx - 1;
-    if (bytesSinceNewline > MAX_REQUEST_LINE_BYTES) {
-      // No error argument: nothing useful can be written back on a socket
-      // that's mid-way through an oversized line; just drop it.
-      socket.destroy();
+    if (rejected) return;
+    let start = 0;
+    for (;;) {
+      const idx = chunk.indexOf(0x0a, start);
+      bytesSinceNewline += (idx === -1 ? chunk.length : idx) - start;
+      if (bytesSinceNewline > MAX_REQUEST_LINE_BYTES) {
+        rejected = true;
+        // No error argument: nothing useful can be written back on a socket
+        // that's mid-way through an oversized line; just drop it.
+        socket.destroy();
+        return;
+      }
+      if (idx === -1) return;
+      bytesSinceNewline = 0;
+      start = idx + 1;
     }
   });
   const rl = createInterface({ input: socket, crlfDelay: Infinity });
@@ -131,6 +144,10 @@ export function acceptDaemonConnection(
   const elicitationChannel = new ConnectionElicitationChannel(socket);
   rl.on("line", (line) => {
     void (async () => {
+      // readline sees the same chunks as the cap enforcement above, so an
+      // oversized-but-terminated line can still surface here in the same
+      // tick the connection was rejected — never hand it to a handler.
+      if (rejected) return;
       if (elicitationChannel.tryConsumeLine(line)) return;
       let request: DaemonRequest;
       try {

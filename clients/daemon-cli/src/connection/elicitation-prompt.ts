@@ -21,7 +21,7 @@ import type {
 } from "../daemon/protocol.js";
 import { parseFormSchema } from "./form-schema.js";
 import { promptForm, watchForClose } from "./form-prompt.js";
-import { sanitizeDeep, sanitizeText } from "./sanitize.js";
+import { sanitizeText } from "./sanitize.js";
 
 export type PromptElicitationOpts = {
   /**
@@ -77,7 +77,11 @@ export async function promptElicitation(
   const url = frame.url === undefined ? undefined : sanitizeText(frame.url);
 
   if (frame.mode === "form") {
-    const fields = parseFormSchema(sanitizeDeep(frame.requestedSchema));
+    // The schema is parsed raw: sanitizing it wholesale would mutate protocol
+    // data (property names, enum values, defaults), so the accepted response
+    // could carry keys/values the server never defined. Server-controlled
+    // strings are instead sanitized at each render point in form-prompt.ts.
+    const fields = parseFormSchema(frame.requestedSchema);
     if (!fields) {
       // Schema outside the spec's restricted primitive-field shape —
       // shouldn't happen from a well-behaved server; decline clearly rather

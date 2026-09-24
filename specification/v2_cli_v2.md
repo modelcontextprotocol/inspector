@@ -90,7 +90,7 @@ Anything else (e.g. `logging/tail`, `resources/subscribe`, `tasks/*`, `roots/*`)
 | Connection | `connect` (`--relogin`), `disconnect`, `connections/list`, `connections/use` |
 | Auth store | `auth/list`, `auth/clear` / `auth/clear --all` |
 | Daemon | `private`, `daemon status`, `daemon stop` |
-| MCP | `initialize`, `tools/list`, `tools/call`, `resources/*`, `prompts/*`, `logging/setLevel`, `logging/tail`, `tasks/*`, `roots/list`, `roots/set` |
+| MCP | `tools/list`, `tools/call`, `resources/*`, `prompts/*`, `logging/setLevel`, `logging/tail`, `tasks/*`, `roots/list`, `roots/set` (`initialize` is deliberately not registered — connection metadata comes from `connections/show`) |
 
 **Globals (before subcommand):** `--format text|json`, `--plain`, `--connection <name>`, `--catalog` / `--config`, `--stored-auth-only`.
 

@@ -9,6 +9,7 @@ import { Duplex } from "node:stream";
 import type * as net from "node:net";
 import {
   acceptDaemonConnection,
+  MAX_REQUEST_LINE_BYTES,
   type ElicitationChannel,
 } from "../src/daemon/ipc-glue.js";
 import type {
@@ -229,5 +230,26 @@ describe("acceptDaemonConnection guards", () => {
     await new Promise((resolve) => setImmediate(resolve));
     expect(stops).toBe(1);
     expect(socket.all.split('"stream":"data"').length - 1).toBe(1);
+  });
+});
+
+describe("request line cap", () => {
+  it("never hands a terminated oversized line to the handler", async () => {
+    // Deterministic cross-chunk variant of the e2e cap tests: a valid JSON
+    // request padded past the cap, split so the chunk that crosses the limit
+    // also carries the terminating newline. Both the byte accounting and the
+    // post-reject line guard must hold, or the handler sees the request.
+    let handled = 0;
+    const socket = accept(async (request) => {
+      handled += 1;
+      return { response: { id: request.id, ok: true, result: {} } };
+    });
+    const padded =
+      REQUEST + " ".repeat(MAX_REQUEST_LINE_BYTES + 1024 - REQUEST.length);
+    socket.push(padded.slice(0, 600 * 1024));
+    socket.push(padded.slice(600 * 1024) + "\n");
+    await until(() => socket.destroyed);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(handled).toBe(0);
   });
 });

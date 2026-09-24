@@ -194,6 +194,68 @@ describe("private daemon end-to-end", () => {
     expect(closed).toBe(true);
   });
 
+  it("rejects an oversized line even when its terminator arrives with it", async () => {
+    // Regression: the old cap only counted bytes after a chunk's last
+    // newline, so an oversized line whose terminating "\n" arrived in the
+    // crossing chunk reset the counter and reached readline.
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "mcp-priv-cap2-"));
+    server = new DaemonServer({ dir, idleMs: 0 });
+    await server.start();
+
+    const net = await import("node:net");
+    const closed = await new Promise<boolean>((resolve) => {
+      const socket = net.connect(server!.socketPath, () => {
+        socket.write(Buffer.alloc(600 * 1024, 0x61));
+        socket.write(
+          Buffer.concat([Buffer.alloc(600 * 1024, 0x61), Buffer.from("\n")]),
+        );
+      });
+      const done = () => resolve(true);
+      socket.once("close", done);
+      socket.once("error", done);
+      setTimeout(() => {
+        socket.destroy();
+        resolve(false);
+      }, 5000).unref();
+    });
+    expect(closed).toBe(true);
+  });
+
+  it("adopts the winner's published token when a concurrent starter wins the lock", async () => {
+    // Two concurrent first invocations each generate a token and spawn; the
+    // pid lock lets one daemon survive. The loser must finish against the
+    // winner's daemon by re-reading its published daemon.token, not poll
+    // with its own dead token until daemon_start_timeout.
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "mcp-priv-race-"));
+    const prevTok = process.env[DAEMON_TOKEN_ENV];
+    delete process.env[DAEMON_TOKEN_ENV];
+    try {
+      // Our child lost the O_EXCL pid lock: it exits without binding.
+      const stub = path.join(dir, "losing-daemon.js");
+      fs.writeFileSync(stub, "process.exit(0);\n");
+      const ensured = ensureDaemon({ dir, daemonScript: stub });
+      // The concurrent winner, holding a different (published) token.
+      server = new DaemonServer({
+        dir,
+        idleMs: 0,
+        requiredToken: "winner-token",
+      });
+      await server.start();
+
+      const { socketPath, spawned } = await ensured;
+      expect(spawned).toBe(true);
+      const pong = await callDaemon<{ pong: boolean }>(
+        "ping",
+        {},
+        { socketPath, timeoutMs: 2000, token: "winner-token" },
+      );
+      expect(pong.pong).toBe(true);
+    } finally {
+      if (prevTok === undefined) delete process.env[DAEMON_TOKEN_ENV];
+      else process.env[DAEMON_TOKEN_ENV] = prevTok;
+    }
+  });
+
   it("connection front-end rethrows non-unreachable daemon errors", async () => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), "mcp-priv-rethrow-"));
     const token = "good-token";

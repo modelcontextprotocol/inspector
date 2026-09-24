@@ -23,7 +23,7 @@
     "test:coverage": "npm run test-servers:build && npm run build && vitest run --coverage",
     "test-servers:build": "tsc -p ../../test-servers --noCheck",
     "pretest": "npm run test-servers:build && npm run build",
-    "lint": "eslint .",
+    "lint": "eslint . --max-warnings 0",
     "format": "prettier --write src __tests__ \"*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}\"",
     "format:check": "prettier --check src __tests__ \"*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}\""
   },

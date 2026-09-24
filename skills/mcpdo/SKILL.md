@@ -9,7 +9,7 @@ Connect to an MCP server once, then run many commands against that named
 connection.
 
 ```bash
-mcpdo connect ./path/to/server.json          # config-file entry
+mcpdo connect entry-name --config ./mcp.json # entry from a config file
 mcpdo connect https://example.com/mcp        # ad-hoc HTTP/SSE target
 mcpdo connect node server.js                 # ad-hoc stdio target
 

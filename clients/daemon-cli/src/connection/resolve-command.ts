@@ -31,9 +31,11 @@ export function resolveCommandPath(
       ? (env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD").split(";")
       : [""];
   for (const dir of pathVar.split(path.delimiter)) {
-    if (!dir) continue;
+    // POSIX: an empty PATH entry means the current directory. Resolve it (and
+    // any relative entry) against the caller's cwd so the daemon always
+    // receives an absolute path.
     for (const ext of extensions) {
-      const candidate = path.join(dir, command + ext);
+      const candidate = path.resolve(dir === "" ? "." : dir, command + ext);
       try {
         const stat = fs.statSync(candidate);
         if (!stat.isFile()) continue;

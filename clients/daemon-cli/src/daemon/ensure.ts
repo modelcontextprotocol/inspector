@@ -75,15 +75,34 @@ async function isDaemonReachable(socketPath: string): Promise<boolean> {
 
 async function waitForDaemon(
   socketPath: string,
-  token: string | undefined,
+  token: string,
   logPath: string,
-  timeoutMs: number = READY_TIMEOUT_MS,
+  opts?: {
+    timeoutMs?: number;
+    /**
+     * Set only when `token` was self-generated (shared mode). Two concurrent
+     * first invocations each generate a token and spawn; the pid lock lets
+     * one daemon survive, and it may not be ours. Re-reading the winner's
+     * published `daemon.token` between polls lets the losing caller finish
+     * against the surviving daemon instead of timing out on auth failures.
+     * Explicitly supplied / private-mode tokens never fall back — a mismatch
+     * there must stay a loud failure.
+     */
+    rereadTokenDir?: string;
+  },
 ): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
+  const deadline = Date.now() + (opts?.timeoutMs ?? READY_TIMEOUT_MS);
   while (Date.now() < deadline) {
     if (await isDaemonReachable(socketPath)) {
+      const effectiveToken = opts?.rereadTokenDir
+        ? (readDaemonTokenFile(opts.rereadTokenDir) ?? token)
+        : token;
       try {
-        await callDaemon("ping", {}, { socketPath, timeoutMs: 2000, token });
+        await callDaemon(
+          "ping",
+          {},
+          { socketPath, timeoutMs: 2000, token: effectiveToken },
+        );
         return;
       } catch {
         // connected but not ready yet
@@ -151,6 +170,7 @@ export async function ensureDaemon(options?: {
   // Every daemon requires a token; generate one for the child when the
   // caller/environment didn't supply one. The daemon republishes it to
   // daemon.token (0600) so unrelated clients can still connect.
+  const tokenWasGenerated = token === undefined;
   token ??= generateDaemonToken();
   const script = options?.daemonScript ?? resolveDaemonScriptPath();
   const childEnv: NodeJS.ProcessEnv = {
@@ -184,6 +204,9 @@ export async function ensureDaemon(options?: {
     fs.closeSync(stderrTarget);
   }
 
-  await waitForDaemon(socketPath, token, logPath, options?.readyTimeoutMs);
+  await waitForDaemon(socketPath, token, logPath, {
+    timeoutMs: options?.readyTimeoutMs,
+    rereadTokenDir: tokenWasGenerated ? dir : undefined,
+  });
   return { socketPath, spawned: true };
 }
