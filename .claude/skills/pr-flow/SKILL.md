@@ -218,8 +218,32 @@ gh pr create --repo modelcontextprotocol/inspector \
 **default branch** (`main`). Because v2 PRs target `v2/main`, `Closes #N` there
 is only a cross-reference — it will **not** create a hard link or close the issue
 on merge. Keep it anyway, so the issues close if/when `v2/main` reaches `main`.
-There is no `gh` flag for manual linking; closing keywords are the only
-mechanism GitHub exposes.
+
+**So link the PR to its issue explicitly, right after creating it.** The
+`addCloseIssueReferences` GraphQL mutation adds a manual closing reference, the
+same link as the UI's **Development** sidebar, and it works whatever the base
+branch. It is what puts the PR in the card's **Linked pull requests** field,
+which the board shows as a column in table views and as a chip on kanban cards.
+Without it a v2 card shows no PR at all.
+
+```sh
+ISSUE_ID=$(gh api graphql -F n=<ISSUE_NUMBER> -f query='query($n:Int!){
+  repository(owner:"modelcontextprotocol",name:"inspector"){issue(number:$n){id}}}' \
+  --jq .data.repository.issue.id)
+PR_ID=$(gh pr view <N> --repo modelcontextprotocol/inspector --json id --jq .id)
+gh api graphql -f query='mutation($i:ID!,$p:[ID!]!){
+  addCloseIssueReferences(input:{issueId:$i, pullRequestIds:$p}){clientMutationId}}' \
+  -f i="$ISSUE_ID" -f p="$PR_ID"
+
+# Verify: the PR should list the issue.
+gh api graphql -F n=<N> -f query='query($n:Int!){
+  repository(owner:"modelcontextprotocol",name:"inspector"){pullRequest(number:$n){
+    closingIssuesReferences(first:10){nodes{number}}}}}' \
+  --jq '[.data.repository.pullRequest.closingIssuesReferences.nodes[].number]'
+```
+
+The link does not change how the issue closes on a v2 merge; that is still
+step 9. `removeCloseIssueReferences` takes the same input and undoes the link.
 
 Move the card to **In Review**, then go straight to step 7.
 
