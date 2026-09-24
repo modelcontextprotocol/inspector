@@ -12,7 +12,35 @@
  * which is a CLI concern and nothing else's.
  */
 
-import type { SkillVerifyReport } from "@inspector/core/mcp/skillsVerification.js";
+import {
+  allSkillsVerified,
+  anySkillFailed,
+  anySkillUnverifiable,
+  type SkillVerifyReport,
+} from "@inspector/core/mcp/skillsVerification.js";
+import { EXIT_CODES } from "../error-handler.js";
+
+/**
+ * The exit code for a `--verify` run, or `undefined` for success.
+ *
+ * Precedence follows the outcomes: a broken MUST (`7`) outranks a walk the read
+ * bounds cut short (`8`), and both outrank a skill that advertised no digests.
+ * That last one is `9` only under `--require-digests` — `"dynamic"` is a
+ * conforming wire form, so by default the run still succeeds and the report
+ * carries `outcome: "unverifiable"` instead (#2405).
+ */
+export function skillVerificationExitCode(
+  reports: readonly SkillVerifyReport[],
+  requireDigests: boolean,
+): number | undefined {
+  if (allSkillsVerified(reports)) return undefined;
+  if (anySkillFailed(reports)) return EXIT_CODES.SKILL_NONCONFORMANT;
+  if (reports.some((report) => report.outcome === "incomplete"))
+    return EXIT_CODES.SKILL_INCOMPLETE;
+  return requireDigests && anySkillUnverifiable(reports)
+    ? EXIT_CODES.SKILL_UNVERIFIABLE
+    : undefined;
+}
 
 /**
  * A one-line human summary for stderr, so a reader who piped stdout to `jq`
@@ -29,6 +57,9 @@ export function summarizeSkillVerification(
   const incomplete = reports.filter(
     (report) => report.outcome === "incomplete",
   ).length;
+  const unverifiable = reports.filter(
+    (report) => report.outcome === "unverifiable",
+  ).length;
   const files = reports.reduce((sum, report) => sum + report.files.length, 0);
   const mismatched = reports.reduce(
     (sum, report) =>
@@ -43,11 +74,19 @@ export function summarizeSkillVerification(
     incomplete === 0
       ? ""
       : ` ${incomplete} of ${reports.length} ${skillWord} could not be fully checked: the read bounds stopped the walk.`;
+  // ⚠️ Never "Verified" when a skill advertised no digests: nothing of it was
+  // hashed, and a headline saying otherwise is the false pass #2405 reported.
+  const unverifiableClause =
+    unverifiable === 0
+      ? ""
+      : ` ${unverifiable} of ${reports.length} ${skillWord} advertised no digests (resources: "dynamic"), so ${unverifiable === 1 ? "its" : "their"} integrity was not checked.`;
   const headline =
-    failed === 0
-      ? incomplete === 0
-        ? `Verified ${reports.length} ${skillWord} and ${files} ${fileWord}: no conformance errors.`
-        : `Checked ${reports.length} ${skillWord} and ${files} ${fileWord}: no conformance errors in what was read.`
-      : `${failed} of ${reports.length} ${skillWord} failed verification (${mismatched} digest/size mismatch across ${files} ${fileWord}).`;
-  return `${headline}${incompleteClause}`;
+    failed !== 0
+      ? `${failed} of ${reports.length} ${skillWord} failed verification (${mismatched} digest/size mismatch across ${files} ${fileWord}).`
+      : incomplete !== 0
+        ? `Checked ${reports.length} ${skillWord} and ${files} ${fileWord}: no conformance errors in what was read.`
+        : unverifiable !== 0
+          ? `Checked ${reports.length} ${skillWord} and ${files} ${fileWord}: no conformance errors.`
+          : `Verified ${reports.length} ${skillWord} and ${files} ${fileWord}: no conformance errors.`;
+  return `${headline}${incompleteClause}${unverifiableClause}`;
 }
