@@ -191,6 +191,12 @@ export async function writeOAuthSections(
         ],
       };
       const merged = mergeOAuthSections(disk, snapshot, effective);
+      // Server/IdP ids whose secrets are being stored for the first time
+      // (no disk entry indexed them before this write). If the file write
+      // below fails, these must be rolled back: the file is the only
+      // index of the store's entries, so leaving them would strand
+      // credentials `removeOAuthStore` can never find.
+      const unindexedIds: string[] = [];
 
       for (const url of effective.servers ?? []) {
         const serverId = oauthSecretServerId(url);
@@ -229,6 +235,12 @@ export async function writeOAuthSections(
           }
         }
         await persistEntrySecrets(secretStore, serverId, candidates, secrets);
+        if (
+          disk?.servers[url] === undefined &&
+          Object.keys(secrets).length > 0
+        ) {
+          unindexedIds.push(serverId);
+        }
       }
 
       for (const issuer of effective.idpSessions ?? []) {
@@ -257,9 +269,29 @@ export async function writeOAuthSections(
           [IDP_SESSION_FIELD],
           secrets,
         );
+        if (
+          disk?.idpSessions[issuer] === undefined &&
+          Object.keys(secrets).length > 0
+        ) {
+          unindexedIds.push(serverId);
+        }
       }
 
-      await writeStoreFile(filePath, serializeOAuthPersistBlob(merged));
+      try {
+        await writeStoreFile(filePath, serializeOAuthPersistBlob(merged));
+      } catch (error) {
+        // Best-effort rollback of store entries no file entry indexes yet;
+        // a rollback failure is only warned — the original write failure
+        // is the actionable error and must be the one that escapes.
+        for (const id of unindexedIds) {
+          try {
+            await secretStore.deleteAllForServer(id);
+          } catch (rollbackError) {
+            warnStoreWriteFailure(rollbackError);
+          }
+        }
+        throw error;
+      }
     });
   } catch (error) {
     rethrowLockError(filePath, error);

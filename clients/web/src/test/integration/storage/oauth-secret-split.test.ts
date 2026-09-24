@@ -6,7 +6,13 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { mkdtempSync, readFileSync, rmSync, existsSync } from "node:fs";
+import {
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  existsSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -276,6 +282,31 @@ describe("writeOAuthSections secret split", () => {
         String(msg).includes("keychain says no"),
       ),
     ).toHaveLength(2);
+  });
+
+  it("rolls back a new entry's store secrets when the file write fails", async () => {
+    // The file is the only index of the store's entries: if the residue
+    // write fails after the store writes committed, a brand-new server's
+    // secrets would be stranded where removeOAuthStore can never find
+    // them. Force the write to fail by making the parent path a file.
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    void warn; // silence the unlocked-write warning for the blocked path
+    const blocker = join(tempDir, "blocker");
+    writeFileSync(blocker, "not a directory");
+    const blockedPath = join(blocker, "oauth.json");
+    const store = new InMemorySecretStore();
+
+    await expect(
+      writeOAuthSections(blockedPath, snapshotWith(), undefined, store),
+    ).rejects.toThrow();
+
+    // The store writes were rolled back — nothing stranded.
+    expect(
+      await store.get(oauthSecretServerId(SERVER), LEGACY_TOKENS_FIELD),
+    ).toBeNull();
+    expect(
+      await store.get(oauthSecretServerId(SERVER), LEGACY_CLIENT_SECRET_FIELD),
+    ).toBeNull();
   });
 
   it("aborts the write when a store delete fails, keeping the old residue", async () => {
