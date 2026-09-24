@@ -973,6 +973,21 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     }
   }
 
+  // `--advertise-apps` is checked here for the same reason: it shapes the
+  // `initialize` handshake, and the short-circuit paths below never open an
+  // MCP connection, so accepting it there would silently ignore it.
+  if (
+    options.advertiseApps &&
+    (options.listStoredAuth ||
+      options.printHandoff ||
+      options.method === "servers/list" ||
+      options.method === "servers/show")
+  ) {
+    throw new Error(
+      "--advertise-apps requires a command that connects to a server; it has no effect with --list-stored-auth, --print-handoff, or --method servers/list / servers/show.",
+    );
+  }
+
   // State-path precedence (getStateFilePath): MCP_INSPECTOR_OAUTH_STATE_PATH →
   // <MCP_STORAGE_DIR>/oauth.json → ~/.mcp-inspector/storage/oauth.json — the
   // same file the web backend writes, so tokens are shared across surfaces.

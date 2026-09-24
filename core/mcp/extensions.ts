@@ -118,6 +118,20 @@ export const ADVERTISABLE_EXTENSIONS: readonly AdvertisableExtension[] = [
   },
 ];
 
+/**
+ * Whether `ext` is advertised when the user has set no override for it: its
+ * registry `defaultAdvertised`, except that an entry marked
+ * `requiresAppRenderer` defaults off on a client that cannot render Apps
+ * (#2403). Shared by {@link buildClientExtensions} and the Server Settings
+ * form, so the toggle shows exactly what the client will declare.
+ */
+export function isAdvertisedByDefault(
+  ext: AdvertisableExtension,
+  rendersApps: boolean,
+): boolean {
+  return ext.defaultAdvertised && (!ext.requiresAppRenderer || rendersApps);
+}
+
 export interface BuildClientExtensionsInput {
   /** True when the connection routes through the enterprise IdP (EMA). */
   enterpriseManaged: boolean;
@@ -168,10 +182,9 @@ export function buildClientExtensions(
 ): Record<string, ExtensionAdvertisement> {
   const map: Record<string, ExtensionAdvertisement> = {};
   for (const ext of ADVERTISABLE_EXTENSIONS) {
-    const defaultAdvertised =
-      ext.defaultAdvertised &&
-      (!ext.requiresAppRenderer || input.rendersApps === true);
-    const advertised = input.advertised?.[ext.key] ?? defaultAdvertised;
+    const advertised =
+      input.advertised?.[ext.key] ??
+      isAdvertisedByDefault(ext, input.rendersApps === true);
     if (advertised) {
       // Clone the registry advertisement so the returned map never aliases the
       // shared `ADVERTISABLE_EXTENSIONS` entry — a later in-place mutation of a

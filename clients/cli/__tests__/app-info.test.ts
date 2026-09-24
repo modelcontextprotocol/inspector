@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { runCli } from "./helpers/cli-runner.js";
+import { runCli as runCliInProcess } from "../src/cli.js";
 import {
   createEchoTool,
   createTestServerHttp,
@@ -206,4 +207,18 @@ describe("--advertise-apps (#2403)", () => {
   it("advertises the UI extension with --advertise-apps", async () => {
     expect(await listToolNames(["--advertise-apps"])).toContain("echo");
   });
+
+  it.each([
+    ["servers/list", ["--method", "servers/list"]],
+    ["servers/show", ["--method", "servers/show", "--server", "x"]],
+    ["--list-stored-auth", ["--method", "servers/list", "--list-stored-auth"]],
+    ["--print-handoff", ["--method", "servers/list", "--print-handoff"]],
+  ])(
+    "is rejected on the %s short-circuit path, which never connects",
+    async (_label, extra) => {
+      await expect(
+        runCliInProcess(["node", "cli", "--cli", "--advertise-apps", ...extra]),
+      ).rejects.toThrow("--advertise-apps requires a command that connects");
+    },
+  );
 });

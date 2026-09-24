@@ -2000,6 +2000,9 @@ function App() {
             ? protocolEra
             : undefined
         }
+        // Apps render only with a sandbox, and the client claims the UI
+        // extension by default only then (#2403); the toggle must agree.
+        rendersApps={sandboxUrl !== undefined}
         onClose={onSettingsModalClose}
         onSettingsChange={onSettingsChange}
         onClearStoredOAuth={

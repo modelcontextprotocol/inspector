@@ -5,6 +5,7 @@ import {
   UI_EXTENSION_KEY,
   MCP_APP_MIME_TYPE,
   buildClientExtensions,
+  isAdvertisedByDefault,
 } from "@inspector/core/mcp/extensions.js";
 import { TASKS_EXTENSION_KEY } from "@inspector/core/mcp/modernTaskSchemas.js";
 import { SKILLS_EXTENSION_KEY } from "@inspector/core/mcp/skillsSchemas.js";
@@ -290,6 +291,15 @@ describe("extensions (#1738, #1740, #2373, #2403)", () => {
         advertised: { [UI_EXTENSION_KEY]: true },
       });
       expect(map[UI_EXTENSION_KEY]).toEqual(UI_ADVERTISEMENT);
+    });
+
+    it("isAdvertisedByDefault gates only renderer-requiring entries", () => {
+      for (const ext of ADVERTISABLE_EXTENSIONS) {
+        expect(isAdvertisedByDefault(ext, true)).toBe(ext.defaultAdvertised);
+        expect(isAdvertisedByDefault(ext, false)).toBe(
+          ext.defaultAdvertised && !ext.requiresAppRenderer,
+        );
+      }
     });
 
     it("does not gate extensions that need no renderer", () => {

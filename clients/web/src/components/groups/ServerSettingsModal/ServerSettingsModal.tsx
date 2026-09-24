@@ -10,7 +10,10 @@ import type {
   ServerType,
 } from "@inspector/core/mcp/types.js";
 import { isOAuthCapableServerType } from "@inspector/core/mcp/config.js";
-import { ADVERTISABLE_EXTENSIONS } from "@inspector/core/mcp/extensions.js";
+import {
+  ADVERTISABLE_EXTENSIONS,
+  isAdvertisedByDefault,
+} from "@inspector/core/mcp/extensions.js";
 import { ListToggle } from "../../elements/ListToggle/ListToggle";
 import { SecretStorageFooter } from "../../elements/SecretStorageFooter/SecretStorageFooter";
 import type { SecretStorageInfo } from "@inspector/core/auth/secret-storage-info.js";
@@ -75,6 +78,14 @@ export interface ServerSettingsModalProps {
    * isn't the connected one.
    */
   negotiatedEra?: ProtocolEra;
+  /**
+   * Whether this web session can render MCP Apps — true when the backend
+   * supplied a sandbox URL. Decides the default position of any extension that
+   * requires an App renderer (the MCP Apps UI extension) — both the
+   * toggle's position and which value counts as "no override" — so the toggle shows
+   * what the client will actually declare (#2403). Defaults to true.
+   */
+  rendersApps?: boolean;
   onClose: () => void;
   onSettingsChange: (settings: InspectorServerSettings) => void;
   onClearStoredOAuth?: () => void;
@@ -93,6 +104,7 @@ export function ServerSettingsModal({
   serverType,
   isStdio,
   negotiatedEra,
+  rendersApps = true,
   onClose,
   onSettingsChange,
   onClearStoredOAuth,
@@ -221,7 +233,9 @@ export function ServerSettingsModal({
     // default, so the on-disk map (and its byte-stable round-trip) stays minimal
     // — matching the omit-when-default policy used for the other settings. Only
     // a value that actually differs from the default is persisted.
-    if (ext && checked === ext.defaultAdvertised) {
+    // The default is renderer-aware (#2403): with no App renderer the UI
+    // extension defaults off, so checking it is a real `true` override.
+    if (ext && checked === isAdvertisedByDefault(ext, rendersApps)) {
       delete next[key];
     } else {
       next[key] = checked;
@@ -318,6 +332,7 @@ export function ServerSettingsModal({
               handleSuppressNotificationStreamChange
             }
             onAdvertisedExtensionChange={handleAdvertisedExtensionChange}
+            rendersApps={rendersApps}
             onMaxFetchRequestsChange={handleMaxFetchRequestsChange}
             onSkillCatalogLimitChange={handleSkillCatalogLimitChange}
             onProtocolEraChange={handleProtocolEraChange}
