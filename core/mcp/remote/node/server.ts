@@ -81,11 +81,13 @@ import { RemoteSession } from "./remote-session.js";
 import { createRemoteAuthProvider } from "./tokenAuthProvider.js";
 import { API_SERVER_ENV_VARS } from "../constants.js";
 import {
+  restoreSecretFields,
   secretStoreGetMany,
   secretStoreSetMany,
   secretStoreGetStrict,
   secretStoreIsDurable,
   SecretStoreUnavailableError,
+  snapshotSecretFields,
   type SecretStore,
 } from "../../../auth/node/secret-store.js";
 import { defaultSecretStore } from "../../../auth/node/secret-store-selection.js";
@@ -2551,6 +2553,23 @@ export function createRemoteApp(
     await Promise.all(fields.map((field) => secretStore.delete(id, field)));
   };
 
+  // Restore-failure sink for the catalog mutations' compensation blocks
+  // (see `restoreSecretFields`): the original route failure is the
+  // actionable error and escapes; a failed restore can only be reported.
+  const warnSecretRestoreFailure = (error: unknown): void => {
+    const msg = error instanceof Error ? error.message : String(error);
+    if (fileLogger) {
+      fileLogger.warn(
+        { err: msg },
+        "Could not restore keychain entries after a failed catalog mutation; keychain and mcp.json may disagree until the next successful save.",
+      );
+    } else {
+      console.warn(
+        `[mcp-inspector] Could not restore keychain entries after a failed catalog mutation: ${msg}`,
+      );
+    }
+  };
+
   /**
    * The entry that actually goes to disk.
    *
@@ -2762,17 +2781,35 @@ export function createRemoteApp(
         // Split secret values out of the new entry — the stripped shape
         // goes to disk, the values go to the keychain.
         const { stripped, secrets } = extractSecretsFromStored(built);
-        // Order: sweep → keychain → disk. The keychain write is the
-        // only step that can hard-fail (SecretStoreUnavailableError on
-        // `set`); doing it before the disk write means a 503 leaves no
-        // disk entry behind, so a retry POST isn't trapped at 409. The
-        // initial sweep handles the case where a previous DELETE failed
-        // midway and left orphans under the same id the user is now
-        // reusing; it's a silent no-op when the keychain is unavailable.
+        // Order: sweep → keychain → disk. The initial sweep handles the
+        // case where a previous DELETE failed midway and left orphans
+        // under the same id the user is now reusing — left in place they
+        // would rehydrate into the new entry. Under the confirmed-delete
+        // contract an unavailable keychain makes the sweep throw (503),
+        // which is the safe direction: proceeding could resurrect those
+        // orphans into the new server. The keychain writes come before the
+        // disk write and are compensated: if the disk write fails, the
+        // just-written entries are removed again (post-sweep snapshot, so
+        // every prior value is "absent"), leaving no orphans and a retry
+        // POST that isn't trapped at 409.
         await secretStore.deleteAllForServer(id);
-        await writeKeychainEntriesFor(id, secrets);
-        current.mcpServers[id] = await entryForDisk(built, stripped);
-        await writeMcpAndTrackMtime(serializeStore(current));
+        const prior = await snapshotSecretFields(
+          secretStore,
+          id,
+          Object.keys(secrets),
+        );
+        try {
+          await writeKeychainEntriesFor(id, secrets);
+          current.mcpServers[id] = await entryForDisk(built, stripped);
+          await writeMcpAndTrackMtime(serializeStore(current));
+        } catch (error) {
+          await restoreSecretFields(
+            secretStore,
+            prior,
+            warnSecretRestoreFailure,
+          );
+          throw error;
+        }
         return c.json({ ok: true });
       });
     } catch (error) {
@@ -3018,7 +3055,9 @@ export function createRemoteApp(
           }
         }
         // Ordering: write the new keychain entries first, then the
-        // disk file, then clean up obsolete keychain entries.
+        // disk file, then clean up obsolete keychain entries — with
+        // every touched field snapshotted first so any failure after
+        // the first mutation restores the pre-PUT state.
         //
         // - Keychain set is the only hard-fail step (it raises 503 on
         //   `SecretStoreUnavailableError`). Doing it first means a failed
@@ -3026,13 +3065,17 @@ export function createRemoteApp(
         //   the user retries and nothing is half-applied.
         // - The disk write happens after the keychain is fully primed,
         //   so a successful disk write is also a fully-consistent end
-        //   state.
-        // - Obsolete deletion comes last because it's destructive: if
-        //   we deleted first and then the disk write failed, the user
-        //   would still see the old config on disk but with missing
-        //   keychain values. With the current order a failed disk
-        //   write leaves orphan keychain entries — recoverable on the
-        //   next reconcile or `deleteAllForServer` sweep.
+        //   state. If it fails, the keychain writes are rolled back to
+        //   the snapshot — otherwise the old on-disk entry would
+        //   rehydrate with the *new* secrets on the next read.
+        // - Obsolete deletion comes last because it's destructive. Under
+        //   the confirmed-delete contract a failed delete now throws
+        //   *after* the disk commit — so the compensation also rewrites
+        //   the pre-PUT config: without that, a rename 503 would leave
+        //   the new id on disk while the old id's undeleted secrets are
+        //   no longer discoverable from any file entry (orphaned), and a
+        //   retry could no longer find them. All-or-nothing: a PUT that
+        //   returns an error has changed nothing.
         if (newId !== originalId) {
           const previousFields = expectedSecretFields(existing);
           const keychainSecrets = await readKeychainEntriesFor(
@@ -3044,9 +3087,39 @@ export function createRemoteApp(
             keychainSecrets,
             secrets,
           );
-          await writeKeychainEntriesFor(newId, secretsToWrite);
-          await writeMcpAndTrackMtime(serializeStore(next));
-          await secretStore.deleteAllForServer(originalId);
+          const prior = [
+            ...(await snapshotSecretFields(
+              secretStore,
+              newId,
+              Object.keys(secretsToWrite),
+            )),
+            ...(await snapshotSecretFields(
+              secretStore,
+              originalId,
+              previousFields,
+            )),
+          ];
+          let diskCommitted = false;
+          try {
+            await writeKeychainEntriesFor(newId, secretsToWrite);
+            await writeMcpAndTrackMtime(serializeStore(next));
+            diskCommitted = true;
+            await secretStore.deleteAllForServer(originalId);
+          } catch (error) {
+            if (diskCommitted) {
+              try {
+                await writeMcpAndTrackMtime(serializeStore(current));
+              } catch (diskError) {
+                warnSecretRestoreFailure(diskError);
+              }
+            }
+            await restoreSecretFields(
+              secretStore,
+              prior,
+              warnSecretRestoreFailure,
+            );
+            throw error;
+          }
         } else {
           // In-place update: same id, possibly different fields. Set
           // the new values first, then write disk, then drop obsolete
@@ -3087,9 +3160,30 @@ export function createRemoteApp(
               ? settingsIntent.kind !== "preserve" && !(field in secrets)
               : !stillExpected.has(field),
           );
-          await writeKeychainEntriesFor(newId, secrets);
-          await writeMcpAndTrackMtime(serializeStore(next));
-          await deleteKeychainFields(newId, obsolete);
+          const prior = await snapshotSecretFields(secretStore, newId, [
+            ...new Set([...Object.keys(secrets), ...obsolete]),
+          ]);
+          let diskCommitted = false;
+          try {
+            await writeKeychainEntriesFor(newId, secrets);
+            await writeMcpAndTrackMtime(serializeStore(next));
+            diskCommitted = true;
+            await deleteKeychainFields(newId, obsolete);
+          } catch (error) {
+            if (diskCommitted) {
+              try {
+                await writeMcpAndTrackMtime(serializeStore(current));
+              } catch (diskError) {
+                warnSecretRestoreFailure(diskError);
+              }
+            }
+            await restoreSecretFields(
+              secretStore,
+              prior,
+              warnSecretRestoreFailure,
+            );
+            throw error;
+          }
         }
         return c.json({ ok: true });
       });

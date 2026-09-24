@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import * as fs from "node:fs/promises";
 import { existsSync, readFileSync } from "node:fs";
 import * as os from "node:os";
@@ -222,6 +222,211 @@ describe("client node-persistence", () => {
     expect(
       await secretStore.get(CLIENT_KEYCHAIN_ID, SECRET_FIELD_IDP_CLIENT_SECRET),
     ).toBeNull();
+  });
+
+  it("restores the prior keychain secret when the client.json write fails", async () => {
+    // Set/delete happens before the file write; without compensation a
+    // failed write would leave the new secret paired with the old on-disk
+    // config. Force the write to fail by making the directory read-only.
+    const filePath = await makeTmpFile(
+      JSON.stringify({
+        enterpriseManagedAuth: {
+          idp: { issuer: "https://idp.example.com", clientId: "cid" },
+        },
+      }),
+    );
+    const secretStore = new InMemorySecretStore();
+    await secretStore.set(
+      CLIENT_KEYCHAIN_ID,
+      SECRET_FIELD_IDP_CLIENT_SECRET,
+      "old-secret",
+    );
+
+    await fs.chmod(tmpDir, 0o555);
+    try {
+      await expect(
+        writeClientConfigStore(
+          filePath,
+          {
+            enterpriseManagedAuth: {
+              idp: {
+                issuer: "https://idp.example.com",
+                clientId: "cid",
+                clientSecret: "new-secret",
+              },
+            },
+          },
+          secretStore,
+        ),
+      ).rejects.toThrow();
+    } finally {
+      await fs.chmod(tmpDir, 0o755);
+    }
+
+    expect(
+      await secretStore.get(CLIENT_KEYCHAIN_ID, SECRET_FIELD_IDP_CLIENT_SECRET),
+    ).toBe("old-secret");
+  });
+
+  it("restores a cleared keychain secret when the client.json write fails", async () => {
+    const filePath = await makeTmpFile(
+      JSON.stringify({
+        enterpriseManagedAuth: {
+          idp: { issuer: "https://idp.example.com", clientId: "cid" },
+        },
+      }),
+    );
+    const secretStore = new InMemorySecretStore();
+    await secretStore.set(
+      CLIENT_KEYCHAIN_ID,
+      SECRET_FIELD_IDP_CLIENT_SECRET,
+      "old-secret",
+    );
+
+    await fs.chmod(tmpDir, 0o555);
+    try {
+      await expect(
+        writeClientConfigStore(
+          filePath,
+          {
+            cimd: {
+              enabled: true,
+              clientMetadataUrl: "https://x.example/c.json",
+            },
+          },
+          secretStore,
+        ),
+      ).rejects.toThrow();
+    } finally {
+      await fs.chmod(tmpDir, 0o755);
+    }
+
+    expect(
+      await secretStore.get(CLIENT_KEYCHAIN_ID, SECRET_FIELD_IDP_CLIENT_SECRET),
+    ).toBe("old-secret");
+  });
+
+  it("warns but rethrows the write failure when the restore itself fails", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const filePath = await makeTmpFile(
+      JSON.stringify({
+        enterpriseManagedAuth: {
+          idp: { issuer: "https://idp.example.com", clientId: "cid" },
+        },
+      }),
+    );
+    const store = new InMemorySecretStore();
+    await store.set(CLIENT_KEYCHAIN_ID, SECRET_FIELD_IDP_CLIENT_SECRET, "old");
+    let sets = 0;
+    const failingRestore: SecretStore = {
+      get: (id, f) => store.get(id, f),
+      set: async (id, f, v) => {
+        sets += 1;
+        // First set is the write itself; the second is the restore.
+        if (sets > 1) throw new KeychainUnavailableError(new Error("gone"));
+        return store.set(id, f, v);
+      },
+      delete: (id, f) => store.delete(id, f),
+      deleteAllForServer: (id) => store.deleteAllForServer(id),
+    };
+
+    await fs.chmod(tmpDir, 0o555);
+    try {
+      await expect(
+        writeClientConfigStore(
+          filePath,
+          {
+            enterpriseManagedAuth: {
+              idp: {
+                issuer: "https://idp.example.com",
+                clientId: "cid",
+                clientSecret: "new",
+              },
+            },
+          },
+          failingRestore,
+        ),
+      ).rejects.toThrow(/EACCES|EPERM|permission/i);
+    } finally {
+      await fs.chmod(tmpDir, 0o755);
+      warn.mockRestore();
+    }
+  });
+
+  it("stringifies a non-Error restore failure in the warning", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const filePath = await makeTmpFile(
+      JSON.stringify({
+        enterpriseManagedAuth: {
+          idp: { issuer: "https://idp.example.com", clientId: "cid" },
+        },
+      }),
+    );
+    const store = new InMemorySecretStore();
+    await store.set(CLIENT_KEYCHAIN_ID, SECRET_FIELD_IDP_CLIENT_SECRET, "old");
+    let sets = 0;
+    const failingRestore: SecretStore = {
+      get: (id, f) => store.get(id, f),
+      set: async (id, f, v) => {
+        sets += 1;
+        if (sets > 1) throw "gone"; // deliberately a bare string
+        return store.set(id, f, v);
+      },
+      delete: (id, f) => store.delete(id, f),
+      deleteAllForServer: (id) => store.deleteAllForServer(id),
+    };
+
+    await fs.chmod(tmpDir, 0o555);
+    try {
+      await expect(
+        writeClientConfigStore(
+          filePath,
+          {
+            enterpriseManagedAuth: {
+              idp: {
+                issuer: "https://idp.example.com",
+                clientId: "cid",
+                clientSecret: "new",
+              },
+            },
+          },
+          failingRestore,
+        ),
+      ).rejects.toThrow();
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("gone"));
+    } finally {
+      await fs.chmod(tmpDir, 0o755);
+      warn.mockRestore();
+    }
+  });
+
+  it("deleteClientConfigStore keeps the file when the keychain delete fails", async () => {
+    // Keychain-first ordering: a failed confirmed delete leaves the file
+    // (and thus the visible config) untouched, so a retry sees the same
+    // state instead of a config that looks deleted while its secret lives.
+    const filePath = await makeTmpFile(
+      JSON.stringify({ cimd: { enabled: false, clientMetadataUrl: "" } }),
+    );
+    const store = new InMemorySecretStore();
+    await store.set(CLIENT_KEYCHAIN_ID, SECRET_FIELD_IDP_CLIENT_SECRET, "v");
+    const failingDelete: SecretStore = {
+      get: (id, f) => store.get(id, f),
+      set: (id, f, v) => store.set(id, f, v),
+      delete: async () => {
+        throw new KeychainUnavailableError(new Error("locked"));
+      },
+      deleteAllForServer: async () => {
+        throw new KeychainUnavailableError(new Error("locked"));
+      },
+    };
+
+    await expect(
+      deleteClientConfigStore(filePath, failingDelete),
+    ).rejects.toThrow();
+    expect(existsSync(filePath)).toBe(true);
+    expect(
+      await store.get(CLIENT_KEYCHAIN_ID, SECRET_FIELD_IDP_CLIENT_SECRET),
+    ).toBe("v");
   });
 });
 

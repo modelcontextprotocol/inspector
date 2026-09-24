@@ -353,6 +353,41 @@ describe("writeOAuthSections secret split", () => {
     expect(joined?.servers[SERVER]).toEqual(snapshotWith().servers[SERVER]);
   });
 
+  it("deduplicates sections: rollback restores the true prior value", async () => {
+    // A duplicated URL would make the second pass snapshot the value the
+    // first pass just wrote, and a rollback would then finish by
+    // "restoring" that intermediate value over the real prior one.
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    void warn; // silence the unlocked-write warning for the read-only dir
+    const store = new InMemorySecretStore();
+    await writeOAuthSections(filePath, snapshotWith(), undefined, store);
+    await flushStoreFileWrites(filePath);
+
+    const updated = snapshotWith();
+    updated.servers[SERVER]!.clientInformation = {
+      client_id: "cid",
+      client_secret: "cs2",
+    };
+
+    chmodSync(tempDir, 0o555);
+    try {
+      await expect(
+        writeOAuthSections(
+          filePath,
+          updated,
+          { servers: [SERVER, SERVER], idpSessions: [] },
+          store,
+        ),
+      ).rejects.toThrow();
+    } finally {
+      chmodSync(tempDir, 0o755);
+    }
+
+    expect(
+      await store.get(oauthSecretServerId(SERVER), LEGACY_CLIENT_SECRET_FIELD),
+    ).toBe("cs");
+  });
+
   it("aborts the write when a store delete fails, keeping the old residue", async () => {
     const store = new InMemorySecretStore();
     await writeOAuthSections(filePath, snapshotWith(), undefined, store);
@@ -431,6 +466,30 @@ describe("readOAuthStore migration", () => {
 
     const snapshot = await readOAuthStore(filePath, store);
     expect(snapshot?.servers[SERVER]!.tokens).toEqual(TOKENS);
+  });
+
+  it("migration is store-wins: an existing store value is not overwritten", async () => {
+    // The store can legitimately be ahead of a plaintext file (a newer
+    // write whose residue commit failed, a restored file backup) — copying
+    // the plaintext over it would roll credentials back. Mirror the
+    // mcp.json/client.json migrations: copy only where the store is empty.
+    await writeStoreFile(filePath, JSON.stringify(snapshotWith()));
+    await flushStoreFileWrites(filePath);
+    const store = new InMemorySecretStore();
+    const id = oauthSecretServerId(SERVER);
+    const newerTokens = { ...TOKENS, access_token: "newer-at" };
+    await store.set(id, LEGACY_TOKENS_FIELD, JSON.stringify(newerTokens));
+
+    const snapshot = await readOAuthStore(filePath, store);
+
+    // The newer store tokens survive; the plaintext client secret (absent
+    // from the store) is still migrated; the file is stripped either way.
+    expect(JSON.parse((await store.get(id, LEGACY_TOKENS_FIELD))!)).toEqual(
+      newerTokens,
+    );
+    expect(await store.get(id, LEGACY_CLIENT_SECRET_FIELD)).toBe("cs");
+    expect(readRawFile().servers[SERVER]!.tokens).toBeUndefined();
+    expect(snapshot?.servers[SERVER]!.tokens).toEqual(newerTokens);
   });
 
   it("migrates a plaintext file into a durable store on read", async () => {
@@ -733,6 +792,71 @@ describe("removeOAuthStore", () => {
     // The file is the only index of the store entries — deleting it after
     // a failed purge would strand credentials the next attempt can't find.
     expect(existsSync(filePath)).toBe(true);
+  });
+
+  it("restores already-purged entries when a later purge fails", async () => {
+    const store = new InMemorySecretStore();
+    await writeOAuthSections(
+      filePath,
+      snapshotWith({ idpSessions: { [ISSUER]: { idToken: "idt" } } }),
+      undefined,
+      store,
+    );
+    await flushStoreFileWrites(filePath);
+
+    // Servers are purged first, IdP sessions second: fail the second purge.
+    let purges = 0;
+    const failingSecond: SecretStore = {
+      get: (id, f) => store.get(id, f),
+      set: (id, f, v) => store.set(id, f, v),
+      delete: (id, f) => store.delete(id, f),
+      deleteAllForServer: async (id) => {
+        purges += 1;
+        if (purges === 2) throw new Error("keychain went away");
+        await store.deleteAllForServer(id);
+      },
+    };
+
+    await expect(removeOAuthStore(filePath, failingSecond)).rejects.toThrow(
+      "keychain went away",
+    );
+    expect(existsSync(filePath)).toBe(true);
+    // The first target's purged secrets were restored — a retry of the
+    // removal (or a plain read) still finds everything the file indexes.
+    expect(
+      JSON.parse(
+        (await store.get(oauthSecretServerId(SERVER), LEGACY_TOKENS_FIELD))!,
+      ),
+    ).toEqual(TOKENS);
+    expect(
+      await store.get(oauthIdpSecretServerId(ISSUER), IDP_SESSION_FIELD),
+    ).not.toBeNull();
+  });
+
+  it("restores purged secrets when the file delete fails", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    void warn; // silence the unlocked-write warning for the read-only dir
+    const store = new InMemorySecretStore();
+    await writeOAuthSections(filePath, snapshotWith(), undefined, store);
+    await flushStoreFileWrites(filePath);
+
+    chmodSync(tempDir, 0o555);
+    try {
+      await expect(removeOAuthStore(filePath, store)).rejects.toThrow();
+    } finally {
+      chmodSync(tempDir, 0o755);
+    }
+
+    // The file survives as the index and the store matches it again.
+    expect(existsSync(filePath)).toBe(true);
+    expect(
+      JSON.parse(
+        (await store.get(oauthSecretServerId(SERVER), LEGACY_TOKENS_FIELD))!,
+      ),
+    ).toEqual(TOKENS);
+    expect(
+      await store.get(oauthSecretServerId(SERVER), LEGACY_CLIENT_SECRET_FIELD),
+    ).toBe("cs");
   });
 
   it("is a no-op purge for a missing file", async () => {

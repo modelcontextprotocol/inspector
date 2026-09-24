@@ -36,12 +36,15 @@ import {
 } from "../oauth-persist.js";
 import { withSecretFileLock } from "./file-lock.js";
 import {
+  restoreSecretFields,
   SecretFileLockHeldError,
   secretStoreGetMany,
   secretStoreGetStrict,
   secretStoreIsDurable,
   secretStoreSetMany,
+  snapshotSecretFields,
   type SecretBulkRequest,
+  type SecretFieldSnapshot,
   type SecretStore,
 } from "./secret-store.js";
 import { defaultSecretStore } from "./secret-store-selection.js";
@@ -134,56 +137,6 @@ async function persistEntrySecrets(
   );
 }
 
-/** One secret field's pre-write store value; `null` means it was absent. */
-interface PriorSecret {
-  serverId: string;
-  field: string;
-  value: string | null;
-}
-
-/**
- * Record an entry's pre-write store values so a failure later in the write
- * can restore them. Reads use the strict path: the tolerant `get` answers
- * `null` for an *unreadable* store, and a rollback that trusted that answer
- * would delete a secret it should have restored. A strict-read failure
- * aborts the write before this entry is mutated, which is the safe order.
- */
-async function snapshotPriorSecrets(
-  store: SecretStore,
-  serverId: string,
-  fields: string[],
-  into: PriorSecret[],
-): Promise<void> {
-  const values = await Promise.all(
-    fields.map(async (field) => ({
-      serverId,
-      field,
-      value: await secretStoreGetStrict(store, serverId, field),
-    })),
-  );
-  into.push(...values);
-}
-
-/**
- * Best-effort restore of the snapshotted store values after a failed write:
- * a field that existed is set back to its old value, one that did not is
- * deleted. Individual restore failures are only warned — the original
- * failure is the actionable error and must be the one that escapes.
- */
-async function restorePriorSecrets(
-  store: SecretStore,
-  priors: PriorSecret[],
-): Promise<void> {
-  for (const { serverId, field, value } of priors) {
-    try {
-      if (value === null) await store.delete(serverId, field);
-      else await store.set(serverId, field, value);
-    } catch (error) {
-      warnStoreWriteFailure(error);
-    }
-  }
-}
-
 /**
  * The write-path counterpart of the migration's durable-store guard: when
  * the store is session-scoped, a secret that is already durable as file
@@ -227,20 +180,32 @@ export async function writeOAuthSections(
   try {
     await withSecretFileLock(filePath, async () => {
       const disk = parseOAuthPersistBlob(await readStoreFile(filePath));
-      const effective: OAuthPersistSections = sections ?? {
-        servers: [
-          ...new Set([
-            ...Object.keys(disk?.servers ?? {}),
-            ...Object.keys(snapshot.servers),
-          ]),
-        ],
-        idpSessions: [
-          ...new Set([
-            ...Object.keys(disk?.idpSessions ?? {}),
-            ...Object.keys(snapshot.idpSessions),
-          ]),
-        ],
-      };
+      // Deduplicated: caller-passed sections may repeat a URL/issuer, and a
+      // second pass over the same entry would snapshot the value the first
+      // pass just wrote — a rollback would then "restore" that intermediate
+      // value over the real prior one. An omitted list stays omitted (that
+      // section of the file is left untouched).
+      const effective: OAuthPersistSections = sections
+        ? {
+            servers: sections.servers && [...new Set(sections.servers)],
+            idpSessions: sections.idpSessions && [
+              ...new Set(sections.idpSessions),
+            ],
+          }
+        : {
+            servers: [
+              ...new Set([
+                ...Object.keys(disk?.servers ?? {}),
+                ...Object.keys(snapshot.servers),
+              ]),
+            ],
+            idpSessions: [
+              ...new Set([
+                ...Object.keys(disk?.idpSessions ?? {}),
+                ...Object.keys(snapshot.idpSessions),
+              ]),
+            ],
+          };
       const merged = mergeOAuthSections(disk, snapshot, effective);
       // Pre-write store values for every secret field this write touches.
       // If anything fails after the store mutations begin — a delete, a
@@ -251,7 +216,7 @@ export async function writeOAuthSections(
       // `removeOAuthStore` to find, and an updated entry rejoins its *old*
       // residue with the *new* secrets (e.g. the previous client_id paired
       // with the re-registered client_secret) on the next read.
-      const priorSecrets: PriorSecret[] = [];
+      const priorSecrets: SecretFieldSnapshot[] = [];
 
       try {
         for (const url of effective.servers ?? []) {
@@ -265,11 +230,8 @@ export async function writeOAuthSections(
               ...serverSecretFields(next),
             ]),
           ];
-          await snapshotPriorSecrets(
-            secretStore,
-            serverId,
-            candidates,
-            priorSecrets,
+          priorSecrets.push(
+            ...(await snapshotSecretFields(secretStore, serverId, candidates)),
           );
           if (next === undefined) {
             // A failed purge propagates and aborts the write: committing a
@@ -302,11 +264,10 @@ export async function writeOAuthSections(
         for (const issuer of effective.idpSessions ?? []) {
           const serverId = oauthIdpSecretServerId(issuer);
           const next = snapshot.idpSessions[issuer];
-          await snapshotPriorSecrets(
-            secretStore,
-            serverId,
-            [IDP_SESSION_FIELD],
-            priorSecrets,
+          priorSecrets.push(
+            ...(await snapshotSecretFields(secretStore, serverId, [
+              IDP_SESSION_FIELD,
+            ])),
           );
           if (next === undefined) {
             // Same as the server loop: a failed purge aborts the write.
@@ -335,7 +296,11 @@ export async function writeOAuthSections(
 
         await writeStoreFile(filePath, serializeOAuthPersistBlob(merged));
       } catch (error) {
-        await restorePriorSecrets(secretStore, priorSecrets);
+        await restoreSecretFields(
+          secretStore,
+          priorSecrets,
+          warnStoreWriteFailure,
+        );
         throw error;
       }
     });
@@ -402,6 +367,14 @@ async function joinSnapshot(
  * policy trims them on the next save — applying the policy here would make
  * the first read under `none`/`access` silently destroy tokens instead of
  * relocating them.
+ *
+ * Store-wins, like the mcp.json and client.json migrations: each field is
+ * strict-read first and the plaintext is copied only where the store has no
+ * value. The store can legitimately be ahead of a file that still carries
+ * plaintext (a newer write whose residue commit failed, a hand-restored
+ * file backup), and an unconditional copy would roll those credentials
+ * back. The strict read means an unreadable store aborts the migration
+ * (caught by the caller) rather than masquerading as absence.
  */
 async function migratePlaintextSecrets(
   filePath: string,
@@ -410,30 +383,38 @@ async function migratePlaintextSecrets(
   await withSecretFileLock(filePath, async () => {
     const fresh = parseOAuthPersistBlob(await readStoreFile(filePath));
     if (!fresh || !snapshotHasPlaintextSecrets(fresh)) return;
+    const migrateEntrySecrets = async (
+      serverId: string,
+      secrets: OAuthSecretValues,
+    ): Promise<void> => {
+      const absent: Record<string, string> = {};
+      for (const [field, value] of Object.entries(secrets)) {
+        const existing = await secretStoreGetStrict(
+          secretStore,
+          serverId,
+          field,
+        );
+        if (existing === null) absent[field] = value;
+      }
+      if (Object.keys(absent).length > 0) {
+        // Unlike the write path there is no memory copy to degrade to —
+        // a failure here must abort the strip, so it throws. A partial
+        // migration is self-healing: the file keeps its plaintext, the
+        // next read retries, and the store-wins check absorbs the fields
+        // that already landed.
+        await secretStoreSetMany(secretStore, serverId, absent);
+      }
+    };
     const residue: OAuthPersistSnapshot = { servers: {}, idpSessions: {} };
     for (const [url, state] of Object.entries(fresh.servers)) {
       const split = splitServerOAuthState(state, "all");
       residue.servers[url] = split.residue;
-      if (Object.keys(split.secrets).length > 0) {
-        // Unlike the write path there is no memory copy to degrade to —
-        // a failure here must abort the strip, so it throws.
-        await secretStoreSetMany(
-          secretStore,
-          oauthSecretServerId(url),
-          split.secrets,
-        );
-      }
+      await migrateEntrySecrets(oauthSecretServerId(url), split.secrets);
     }
     for (const [issuer, session] of Object.entries(fresh.idpSessions)) {
       const split = splitIdpSession(session, "all");
       residue.idpSessions[issuer] = split.residue;
-      if (Object.keys(split.secrets).length > 0) {
-        await secretStoreSetMany(
-          secretStore,
-          oauthIdpSecretServerId(issuer),
-          split.secrets,
-        );
-      }
+      await migrateEntrySecrets(oauthIdpSecretServerId(issuer), split.secrets);
     }
     await writeStoreFile(filePath, serializeOAuthPersistBlob(residue));
   });
@@ -479,7 +460,10 @@ export async function readOAuthStore(
  * A failed purge propagates and leaves the file in place: the file is the
  * only index of the store entries, so unlinking it while they may still
  * exist would strand credentials the next removal attempt could no longer
- * find.
+ * find. Every purged field is snapshotted first, so a failure partway
+ * through the purges — or in the unlink itself — restores the store to
+ * match the file that survives: the entry keeps working, and retrying the
+ * removal still finds everything.
  */
 export async function removeOAuthStore(
   filePath: string,
@@ -489,15 +473,36 @@ export async function removeOAuthStore(
     await withSecretFileLock(filePath, async () => {
       const snapshot = parseOAuthPersistBlob(await readStoreFile(filePath));
       if (snapshot) {
-        const ids = [
-          ...Object.keys(snapshot.servers).map(oauthSecretServerId),
-          ...Object.keys(snapshot.idpSessions).map(oauthIdpSecretServerId),
+        const targets = [
+          ...Object.entries(snapshot.servers).map(([url, state]) => ({
+            id: oauthSecretServerId(url),
+            fields: serverSecretFields(state),
+          })),
+          ...Object.keys(snapshot.idpSessions).map((issuer) => ({
+            id: oauthIdpSecretServerId(issuer),
+            fields: [IDP_SESSION_FIELD],
+          })),
         ];
-        for (const id of ids) {
-          await secretStore.deleteAllForServer(id);
+        const priorSecrets: SecretFieldSnapshot[] = [];
+        try {
+          for (const { id, fields } of targets) {
+            priorSecrets.push(
+              ...(await snapshotSecretFields(secretStore, id, fields)),
+            );
+            await secretStore.deleteAllForServer(id);
+          }
+          await deleteStoreFile(filePath);
+        } catch (error) {
+          await restoreSecretFields(
+            secretStore,
+            priorSecrets,
+            warnStoreWriteFailure,
+          );
+          throw error;
         }
+      } else {
+        await deleteStoreFile(filePath);
       }
-      await deleteStoreFile(filePath);
     });
   } catch (error) {
     rethrowLockError(filePath, error);

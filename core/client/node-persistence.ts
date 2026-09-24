@@ -3,9 +3,11 @@
  */
 
 import {
+  restoreSecretFields,
   secretStoreGetStrict,
   secretStoreIsDurable,
   SecretStoreUnavailableError,
+  snapshotSecretFields,
   type SecretStore,
 } from "../auth/node/secret-store.js";
 import { SECRET_FIELD_IDP_CLIENT_SECRET } from "../auth/secret-fields.js";
@@ -109,39 +111,56 @@ export async function writeClientConfigStore(
   const validated = parseClientConfig(body);
   const { stripped, secrets } = extractSecretsFromClientConfig(validated);
   const idpSecret = secrets[SECRET_FIELD_IDP_CLIENT_SECRET];
-  if (idpSecret) {
-    await secretStore.set(
-      CLIENT_KEYCHAIN_ID,
-      SECRET_FIELD_IDP_CLIENT_SECRET,
-      idpSecret,
+  // Snapshot before mutating so a failed file write below can restore the
+  // keychain: committing the new secret while the old config survives on
+  // disk (or dropping a cleared one the disk still expects) would leave the
+  // two halves describing different clients. The strict read also aborts
+  // here — before anything is mutated — when the store is unreadable.
+  const prior = await snapshotSecretFields(secretStore, CLIENT_KEYCHAIN_ID, [
+    SECRET_FIELD_IDP_CLIENT_SECRET,
+  ]);
+  try {
+    if (idpSecret) {
+      await secretStore.set(
+        CLIENT_KEYCHAIN_ID,
+        SECRET_FIELD_IDP_CLIENT_SECRET,
+        idpSecret,
+      );
+    } else {
+      await secretStore.delete(
+        CLIENT_KEYCHAIN_ID,
+        SECRET_FIELD_IDP_CLIENT_SECRET,
+      );
+    }
+    // What actually goes to disk. The read-path migration already withholds
+    // the strip for a session-scoped store, but the *write* path did not — so
+    // saving any unrelated field (a CIMD URL, an issuer) round-tripped the
+    // rehydrated secret through the form and then wrote the stripped shape,
+    // moving the only durable copy into RAM to be lost at exit. The two paths
+    // have to agree: while the store cannot outlive the process, `client.json`
+    // stays the durable copy.
+    const durable = await secretStoreIsDurable(secretStore);
+    await writeStoreFile(
+      filePath,
+      serializeStore(
+        durable
+          ? stripped
+          : await preserveLegacyPlaintext(
+              filePath,
+              validated,
+              stripped,
+              idpSecret,
+            ),
+      ),
     );
-  } else {
-    await secretStore.delete(
-      CLIENT_KEYCHAIN_ID,
-      SECRET_FIELD_IDP_CLIENT_SECRET,
-    );
+  } catch (error) {
+    await restoreSecretFields(secretStore, prior, (restoreError) => {
+      console.warn(
+        `[mcp-inspector] Could not restore the IdP client secret after a failed client.json write: ${restoreError instanceof Error ? restoreError.message : String(restoreError)}`,
+      );
+    });
+    throw error;
   }
-  // What actually goes to disk. The read-path migration already withholds
-  // the strip for a session-scoped store, but the *write* path did not — so
-  // saving any unrelated field (a CIMD URL, an issuer) round-tripped the
-  // rehydrated secret through the form and then wrote the stripped shape,
-  // moving the only durable copy into RAM to be lost at exit. The two paths
-  // have to agree: while the store cannot outlive the process, `client.json`
-  // stays the durable copy.
-  const durable = await secretStoreIsDurable(secretStore);
-  await writeStoreFile(
-    filePath,
-    serializeStore(
-      durable
-        ? stripped
-        : await preserveLegacyPlaintext(
-            filePath,
-            validated,
-            stripped,
-            idpSecret,
-          ),
-    ),
-  );
 }
 
 /**
@@ -184,6 +203,13 @@ export async function deleteClientConfigStore(
   filePath: string,
   secretStore: SecretStore,
 ): Promise<void> {
-  await deleteStoreFile(filePath);
+  // Keychain first: if the confirmed delete fails, the file is untouched
+  // and a retry sees the same state. The reverse order would remove the
+  // file and then fail, and although this secret lives under a fixed id (so
+  // a retry could still sweep it), the half-deleted state would meanwhile
+  // look fully deleted to a reader. A file unlink failing after the secret
+  // is gone leaves a config without its secret — consistent, and the retry
+  // finishes the job.
   await secretStore.delete(CLIENT_KEYCHAIN_ID, SECRET_FIELD_IDP_CLIENT_SECRET);
+  await deleteStoreFile(filePath);
 }

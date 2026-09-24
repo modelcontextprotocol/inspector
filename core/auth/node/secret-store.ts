@@ -618,6 +618,69 @@ export async function secretStoreGetStrict(
 }
 
 /**
+ * One secret field's pre-mutation store value; `null` means it was absent.
+ * See {@link snapshotSecretFields}.
+ */
+export interface SecretFieldSnapshot {
+  serverId: string;
+  field: string;
+  value: string | null;
+}
+
+/**
+ * Record fields' pre-mutation store values so a failure later in a combined
+ * file + store mutation can restore them ({@link restoreSecretFields}).
+ *
+ * This pair is the compensation half of the invariant every config file
+ * that indexes store secrets relies on: *the file and the store change
+ * together, or not at all*. A store mutation that commits while the file
+ * write fails (or vice versa) either strands secrets no file entry indexes
+ * or rejoins an old file entry with newer secrets on the next read — so
+ * every writer snapshots what it is about to touch and restores it when
+ * anything after the first mutation fails.
+ *
+ * Reads use the strict path: the tolerant `get` answers `null` for an
+ * *unreadable* store, and a restore that trusted that answer would delete a
+ * secret it should have restored. A strict-read failure therefore aborts
+ * the caller before it has mutated anything, which is the safe order.
+ */
+export async function snapshotSecretFields(
+  store: SecretStore,
+  serverId: string,
+  fields: string[],
+): Promise<SecretFieldSnapshot[]> {
+  return Promise.all(
+    fields.map(async (field) => ({
+      serverId,
+      field,
+      value: await secretStoreGetStrict(store, serverId, field),
+    })),
+  );
+}
+
+/**
+ * Best-effort restore of {@link snapshotSecretFields} values after a failed
+ * combined mutation: a field that existed is set back to its old value, one
+ * that did not is deleted. Individual restore failures go to
+ * `onRestoreFailure` and never throw — the caller's original failure is the
+ * actionable error and must be the one that escapes.
+ */
+export async function restoreSecretFields(
+  store: SecretStore,
+  snapshot: SecretFieldSnapshot[],
+  onRestoreFailure: (error: unknown) => void,
+): Promise<void> {
+  for (const { serverId, field, value } of snapshot) {
+    try {
+      if (value === null) await store.delete(serverId, field);
+      else await store.set(serverId, field, value);
+    } catch (error) {
+      onRestoreFailure(error);
+    }
+  }
+}
+
+/**
  * Read many servers' fields, using the store's bulk path when it has one.
  *
  * Returns a map keyed by server id, holding only the fields that are

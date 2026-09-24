@@ -12,6 +12,7 @@ import {
   rmSync,
   existsSync,
   writeFileSync,
+  chmodSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -2995,5 +2996,163 @@ describe("plaintext migration against a session-scoped store (#1950)", () => {
     const res = await app.request(new Request("http://test/api/servers"));
     expect(res.status).toBe(200);
     expect(readFileSync(configPath, "utf-8")).not.toContain("must-survive");
+  });
+});
+
+describe("catalog mutations are all-or-nothing (file/keychain compensation)", () => {
+  // A store whose destructive operations can be switched to fail, for
+  // exercising the confirmed-delete contract inside the catalog routes:
+  // a failure after the disk write must restore the pre-request state
+  // (disk and keychain), not half-apply the mutation.
+  class FailingDeleteStore extends InMemorySecretStore {
+    failFieldDeletes = false;
+    failPurges = false;
+    override async delete(serverId: string, field: string): Promise<void> {
+      if (this.failFieldDeletes) {
+        throw new KeychainUnavailableError(new Error("keychain locked"));
+      }
+      return super.delete(serverId, field);
+    }
+    override async deleteAllForServer(serverId: string): Promise<void> {
+      if (this.failPurges) {
+        throw new KeychainUnavailableError(new Error("keychain locked"));
+      }
+      return super.deleteAllForServer(serverId);
+    }
+  }
+
+  let tempDir: string;
+  let configPath: string;
+  let store: FailingDeleteStore;
+  let baseUrl: string;
+  let server: ServerType;
+
+  beforeEach(async () => {
+    tempDir = mkdtempSync(join(tmpdir(), "inspector-catalog-txn-"));
+    configPath = join(tempDir, "mcp.json");
+    store = new FailingDeleteStore();
+    ({ baseUrl, server } = await startServer(configPath, store));
+  });
+
+  afterEach(async () => {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    chmodSync(tempDir, 0o755);
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it("PUT in-place: a failed obsolete-field delete restores disk and keychain", async () => {
+    writeFileSync(
+      configPath,
+      JSON.stringify({
+        mcpServers: {
+          srv: { type: "stdio", command: "node", env: { A: "", B: "" } },
+        },
+      }),
+    );
+    await store.set("srv", envSecretField("A"), "value-A");
+    await store.set("srv", envSecretField("B"), "value-B");
+    const before = readConfig(configPath);
+
+    // Dropping B makes its keychain entry obsolete; the delete runs after
+    // the disk write, so its failure must roll the whole request back
+    // (the restore only *sets* prior values here, so it still works while
+    // deletes are down).
+    store.failFieldDeletes = true;
+    const res = await fetch(`${baseUrl}/api/servers/srv`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        config: { type: "stdio", command: "node", env: { A: "value-A2" } },
+      }),
+    });
+    store.failFieldDeletes = false;
+
+    expect(res.status).toBe(503);
+    expect(readConfig(configPath)).toEqual(before);
+    expect(await store.get("srv", envSecretField("A"))).toBe("value-A");
+    expect(await store.get("srv", envSecretField("B"))).toBe("value-B");
+  });
+
+  it("PUT rename: a failed old-id purge restores disk and keychain", async () => {
+    writeFileSync(
+      configPath,
+      JSON.stringify({
+        mcpServers: {
+          "old-name": { type: "stdio", command: "node", env: { K: "" } },
+        },
+      }),
+    );
+    await store.set("old-name", envSecretField("K"), "v");
+    const before = readConfig(configPath);
+
+    // Fail only the purge (deleteAllForServer): targeted field deletes
+    // still work, so the compensation can remove `new-name`'s entries.
+    store.failPurges = true;
+    const res = await fetch(`${baseUrl}/api/servers/old-name`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: "new-name",
+        config: { type: "stdio", command: "node", env: { K: "" } },
+      }),
+    });
+    store.failPurges = false;
+
+    // Without the disk restore, the 503 would leave `new-name` on disk
+    // while `old-name`'s undeleted secrets are no longer indexed by any
+    // entry — orphaned where a retry can't find them.
+    expect(res.status).toBe(503);
+    expect(readConfig(configPath)).toEqual(before);
+    expect(await store.get("old-name", envSecretField("K"))).toBe("v");
+    expect(await store.get("new-name", envSecretField("K"))).toBe(null);
+  });
+
+  it("PUT in-place: a failed disk write rolls the keychain values back", async () => {
+    writeFileSync(
+      configPath,
+      JSON.stringify({
+        mcpServers: {
+          srv: { type: "stdio", command: "node", env: { A: "" } },
+        },
+      }),
+    );
+    await store.set("srv", envSecretField("A"), "value-A");
+    const before = readFileSync(configPath, "utf-8");
+
+    // The keychain set precedes the disk write: without compensation the
+    // old on-disk entry would rehydrate with the *new* secret.
+    chmodSync(tempDir, 0o555);
+    const res = await fetch(`${baseUrl}/api/servers/srv`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        config: { type: "stdio", command: "node", env: { A: "value-A2" } },
+      }),
+    });
+    chmodSync(tempDir, 0o755);
+
+    expect(res.status).toBe(500);
+    expect(readFileSync(configPath, "utf-8")).toBe(before);
+    expect(await store.get("srv", envSecretField("A"))).toBe("value-A");
+  });
+
+  it("POST: a failed disk write removes the just-written keychain entries", async () => {
+    writeFileSync(configPath, JSON.stringify({ mcpServers: {} }));
+
+    chmodSync(tempDir, 0o555);
+    const res = await fetch(`${baseUrl}/api/servers`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: "newsrv",
+        config: { type: "stdio", command: "node", env: { A: "secret-A" } },
+      }),
+    });
+    chmodSync(tempDir, 0o755);
+
+    expect(res.status).toBe(500);
+    // No disk entry indexes them, so leaving them would strand credentials;
+    // a retry POST must also not be trapped by leftovers.
+    expect(await store.get("newsrv", envSecretField("A"))).toBe(null);
   });
 });
