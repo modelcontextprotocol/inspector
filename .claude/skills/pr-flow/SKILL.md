@@ -21,14 +21,51 @@ PR with no linked issue has no board card, so the work is invisible to the
 project board and untracked. If there's no issue yet, create one first with
 `/issue-create` — don't open the PR and backfill.
 
-**Assign the issue to yourself**, then move its card to **In Progress**
-(`/board-ops`). A card in progress with nobody on it can't answer "who has
-this?". `@me` resolves to whoever `gh` is authenticated as, so an agent assigns
-the maintainer it is working for:
+**Step 1 is two actions — assign the issue, and move its card to In Progress.
+Both happen before you branch.** A card in progress with nobody on it can't
+answer "who has this?", and an assigned issue whose card still says `Todo` tells
+the board nobody has started. `@me` resolves to whoever `gh` is authenticated
+as, so an agent assigns the maintainer it is working for.
+
+Run the whole block. It is the assignment, the card move, and a check; **the
+step is done only when the last line prints `card: In Progress`.**
 
 ```sh
-gh issue edit <N> --repo modelcontextprotocol/inspector --add-assignee @me
+N=<ISSUE_NUMBER>; STATUS="In Progress"
+gh issue edit "$N" --repo modelcontextprotocol/inspector --add-assignee @me
+
+# Every id is resolved BY NAME at run time, so none is copied from /board-ops
+# and an option recreated after a deletion (its hazard) still resolves.
+PROJECT_ID= FIELD_ID= OPTION_ID= ITEM_ID=   # no id survives a failed lookup
+PROJECT_ID=$(gh project view 28 --owner modelcontextprotocol --format json --jq .id)
+FIELDS=$(gh project field-list 28 --owner modelcontextprotocol --format json) &&
+  FIELD_ID=$(jq -r '.fields[] | select(.name=="Status") | .id' <<<"$FIELDS") &&
+  OPTION_ID=$(jq -r --arg s "$STATUS" '.fields[] | select(.name=="Status")
+    | .options[] | select(.name==$s) | .id' <<<"$FIELDS")
+# The card is found from the issue, not from a board listing (see /board-ops).
+card() {
+  gh api graphql -F n="$N" -f query='query($n:Int!){
+    repository(owner:"modelcontextprotocol",name:"inspector"){issue(number:$n){
+      projectItems(first:100){nodes{id project{id}
+        fieldValueByName(name:"Status"){... on ProjectV2ItemFieldSingleSelectValue{name}}}}}}}' \
+  | jq -r --arg p "$PROJECT_ID" '.data.repository.issue.projectItems.nodes[]
+      | select(.project.id==$p) | "\(.id) \(.fieldValueByName.name // "(none)")"'
+}
+ITEM_ID=$(card | cut -d' ' -f1)
+if [ -n "$PROJECT_ID" ] && [ -n "$FIELD_ID" ] && [ -n "$OPTION_ID" ] && [ -n "$ITEM_ID" ]; then
+  gh project item-edit --project-id "$PROJECT_ID" --id "$ITEM_ID" \
+    --field-id "$FIELD_ID" --single-select-option-id "$OPTION_ID" >/dev/null
+else
+  echo "lookup failed (project='$PROJECT_ID' field='$FIELD_ID' option='$OPTION_ID' item='$ITEM_ID') — nothing edited" >&2
+fi
+NOW=$(card | cut -d' ' -f2-)
+[ "$NOW" = "$STATUS" ] && echo "card: $NOW" || echo "card is '$NOW', not '$STATUS' — this step is NOT done" >&2
 ```
+
+An issue with no card on #28 fails the lookup; board it first with
+`/issue-create`'s card step rather than skipping the move. For a **v1** issue,
+swap `28` for `11` in both `gh project` calls — board #11 has the same column
+names.
 
 ## 2. Branch
 
@@ -252,7 +289,40 @@ gh api graphql -F n=<N> -f query='query($n:Int!){
 The link does not change how the issue closes on a v2 merge; that is still
 step 9. `removeCloseIssueReferences` takes the same input and undoes the link.
 
-Move the card to **In Review**, then go straight to step 7.
+**Then move the card to In Review. Step 6 is done only when the PR is linked
+_and_ the card says `In Review`.** It is step 1's block with a different
+column and no assignment. Run it in full and check that the last line prints
+`card: In Review`:
+
+```sh
+N=<ISSUE_NUMBER>; STATUS="In Review"   # the ISSUE number, not the PR's
+
+PROJECT_ID= FIELD_ID= OPTION_ID= ITEM_ID=   # no id survives a failed lookup
+PROJECT_ID=$(gh project view 28 --owner modelcontextprotocol --format json --jq .id)
+FIELDS=$(gh project field-list 28 --owner modelcontextprotocol --format json) &&
+  FIELD_ID=$(jq -r '.fields[] | select(.name=="Status") | .id' <<<"$FIELDS") &&
+  OPTION_ID=$(jq -r --arg s "$STATUS" '.fields[] | select(.name=="Status")
+    | .options[] | select(.name==$s) | .id' <<<"$FIELDS")
+card() {
+  gh api graphql -F n="$N" -f query='query($n:Int!){
+    repository(owner:"modelcontextprotocol",name:"inspector"){issue(number:$n){
+      projectItems(first:100){nodes{id project{id}
+        fieldValueByName(name:"Status"){... on ProjectV2ItemFieldSingleSelectValue{name}}}}}}}' \
+  | jq -r --arg p "$PROJECT_ID" '.data.repository.issue.projectItems.nodes[]
+      | select(.project.id==$p) | "\(.id) \(.fieldValueByName.name // "(none)")"'
+}
+ITEM_ID=$(card | cut -d' ' -f1)
+if [ -n "$PROJECT_ID" ] && [ -n "$FIELD_ID" ] && [ -n "$OPTION_ID" ] && [ -n "$ITEM_ID" ]; then
+  gh project item-edit --project-id "$PROJECT_ID" --id "$ITEM_ID" \
+    --field-id "$FIELD_ID" --single-select-option-id "$OPTION_ID" >/dev/null
+else
+  echo "lookup failed (project='$PROJECT_ID' field='$FIELD_ID' option='$OPTION_ID' item='$ITEM_ID') — nothing edited" >&2
+fi
+NOW=$(card | cut -d' ' -f2-)
+[ "$NOW" = "$STATUS" ] && echo "card: $NOW" || echo "card is '$NOW', not '$STATUS' — this step is NOT done" >&2
+```
+
+Then go straight to step 7.
 
 ## 7. Run the Copilot review loop — immediately, every PR
 
