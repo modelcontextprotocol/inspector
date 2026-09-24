@@ -636,8 +636,13 @@ export function anySkillFailed(reports: readonly SkillVerifyReport[]): boolean {
 }
 
 /**
- * True when any skill advertised no digests (`resources: "dynamic"`) and so
- * could not be integrity-checked at all (#2405).
+ * True when any report's outcome is `unverifiable` (#2405): nothing checked was
+ * wrong, but the skill advertised no digests (`resources: "dynamic"`).
+ *
+ * ⚠️ It reads the selected `outcome`, not the manifest, so it is **not** a test
+ * for "any dynamic skill". A dynamic skill whose frontmatter disagrees reports
+ * `failed`, and one past the catalog budget reports `incomplete`, and neither
+ * counts here — the louder outcome is the one that decides the exit code.
  */
 export function anySkillUnverifiable(
   reports: readonly SkillVerifyReport[],
