@@ -109,14 +109,22 @@ export interface SkillVerifyReport {
    */
   incomplete?: string;
   /**
-   * What the verification concluded. **Three outcomes, not two**, because
-   * "this skill is wrong" and "this skill could not be fully checked" are
-   * different answers and collapsing them misreports one of them:
+   * What the verification concluded. **Four outcomes, not two**, because
+   * "this skill is wrong", "this skill could not be fully checked" and "this
+   * skill offers nothing to check" are different answers, and collapsing any
+   * of them misreports it:
    *
    * - `verified` — everything was checked and everything passed.
    * - `failed` — something the SEP makes a MUST was broken.
    * - `incomplete` — nothing checked was wrong, but the read bounds stopped
    *   the walk before it finished. See {@link incomplete} for the reason.
+   * - `unverifiable` — nothing checked was wrong, but the skill's `resources`
+   *   is `"dynamic"`, so no digest was advertised and nothing was hashed.
+   *   SEP-2640's own word for this state: a fetched `SKILL.md` is
+   *   "unverifiable when it is `"dynamic"`" (#2405). Reporting it `verified`
+   *   gave a CI job the same answer for a skill whose every file hashed clean
+   *   and one where no file was hashed at all. It is not `failed` either —
+   *   `"dynamic"` is a conforming wire form — so `ok` stays true.
    *
    * ⚠️ The `incomplete` case exists because both of the obvious two-state
    * answers are wrong. Reporting success would be a **false pass** for a
@@ -125,7 +133,7 @@ export interface SkillVerifyReport {
    * SHOULD NOT — with hosts free to support more — which contradicts this
    * module's own rule that a warning never fails a report (Copilot).
    */
-  outcome: "verified" | "failed" | "incomplete";
+  outcome: "verified" | "failed" | "incomplete" | "unverifiable";
   /**
    * False when anything the SEP makes a MUST was broken: an error-severity
    * finding, a digest or size mismatch, or a file that could not be read.
@@ -591,12 +599,18 @@ export async function verifySkills(
       files,
       ...(incomplete ? { incomplete } : {}),
       ok: !hasError && !fileFailed,
+      // Precedence runs from the loudest verdict down: a broken MUST outranks
+      // an unfinished walk, and an unfinished walk outranks a skill that had
+      // nothing to hash — a `"dynamic"` skill past the run's catalog budget
+      // was not read at all, which `incomplete` already says more precisely.
       outcome:
         hasError || fileFailed
           ? "failed"
           : incomplete !== undefined
             ? "incomplete"
-            : "verified",
+            : entry.resources === DYNAMIC_RESOURCES
+              ? "unverifiable"
+              : "verified",
     });
   }
   return reports;
@@ -607,7 +621,8 @@ export async function verifySkills(
  *
  * Deliberately stricter than `every(r => r.ok)`: a report that could not be
  * finished has not verified anything about the part it did not read, so it is
- * not "verified" even though nothing it *did* read was wrong.
+ * not "verified" even though nothing it *did* read was wrong. The same holds
+ * for an `unverifiable` report, which advertised nothing to verify against.
  */
 export function allSkillsVerified(
   reports: readonly SkillVerifyReport[],
@@ -618,4 +633,19 @@ export function allSkillsVerified(
 /** True when any skill broke something the SEP makes a MUST. */
 export function anySkillFailed(reports: readonly SkillVerifyReport[]): boolean {
   return reports.some((report) => report.outcome === "failed");
+}
+
+/**
+ * True when any report's outcome is `unverifiable` (#2405): nothing checked was
+ * wrong, but the skill advertised no digests (`resources: "dynamic"`).
+ *
+ * ⚠️ It reads the selected `outcome`, not the manifest, so it is **not** a test
+ * for "any dynamic skill". A dynamic skill whose frontmatter disagrees reports
+ * `failed`, and one past the catalog budget reports `incomplete`, and neither
+ * counts here — the louder outcome is the one that decides the exit code.
+ */
+export function anySkillUnverifiable(
+  reports: readonly SkillVerifyReport[],
+): boolean {
+  return reports.some((report) => report.outcome === "unverifiable");
 }

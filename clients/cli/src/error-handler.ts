@@ -11,6 +11,9 @@ import { awaitableError } from "./utils/awaitable-log.js";
  *  - 4: server unreachable (DNS, connect refused, timeout, fetch failure)
  *  - 5: tool error (`tools/call` returned `isError:true`, or tool not found)
  *  - 6: `--strict` found an error-severity tool-schema portability finding
+ *  - 7: `--verify` found a SEP-2640 violation
+ *  - 8: `--verify` could not check the whole catalog within the read bounds
+ *  - 9: `--verify --require-digests` found a skill that advertised no digests
  *
  * Note 6 is `SCHEMA_UNPORTABLE`, not "invalid": the whole premise of the lint
  * is that these schemas ARE valid JSON Schema and are merely refused by some
@@ -48,6 +51,19 @@ export const EXIT_CODES = {
    * on 7.
    */
   SKILL_INCOMPLETE: 8,
+  /**
+   * `--verify --require-digests` found a skill whose `resources` is
+   * `"dynamic"`, so no digest was advertised and nothing was hashed (#2405).
+   *
+   * Only ever produced under `--require-digests`: `"dynamic"` is a conforming
+   * wire form, and SEP-2640 leaves declining such skills to the host ("Hosts
+   * MAY decline to load such skills"). The flag is how a CI job standing in for
+   * a host that declines them says so; without it the run exits 0 and reports
+   * `outcome: "unverifiable"`. Its own code, like 8, so a job can tell "no
+   * digests to check" apart from "a digest was wrong" and "the walk was cut
+   * short".
+   */
+  SKILL_UNVERIFIABLE: 9,
 } as const;
 
 /** Machine-readable error envelope written as one JSON line on stderr. */
