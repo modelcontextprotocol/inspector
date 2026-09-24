@@ -38,6 +38,7 @@ import { withSecretFileLock } from "./file-lock.js";
 import {
   SecretFileLockHeldError,
   secretStoreGetMany,
+  secretStoreGetStrict,
   secretStoreIsDurable,
   secretStoreSetMany,
   type SecretBulkRequest,
@@ -133,6 +134,56 @@ async function persistEntrySecrets(
   );
 }
 
+/** One secret field's pre-write store value; `null` means it was absent. */
+interface PriorSecret {
+  serverId: string;
+  field: string;
+  value: string | null;
+}
+
+/**
+ * Record an entry's pre-write store values so a failure later in the write
+ * can restore them. Reads use the strict path: the tolerant `get` answers
+ * `null` for an *unreadable* store, and a rollback that trusted that answer
+ * would delete a secret it should have restored. A strict-read failure
+ * aborts the write before this entry is mutated, which is the safe order.
+ */
+async function snapshotPriorSecrets(
+  store: SecretStore,
+  serverId: string,
+  fields: string[],
+  into: PriorSecret[],
+): Promise<void> {
+  const values = await Promise.all(
+    fields.map(async (field) => ({
+      serverId,
+      field,
+      value: await secretStoreGetStrict(store, serverId, field),
+    })),
+  );
+  into.push(...values);
+}
+
+/**
+ * Best-effort restore of the snapshotted store values after a failed write:
+ * a field that existed is set back to its old value, one that did not is
+ * deleted. Individual restore failures are only warned — the original
+ * failure is the actionable error and must be the one that escapes.
+ */
+async function restorePriorSecrets(
+  store: SecretStore,
+  priors: PriorSecret[],
+): Promise<void> {
+  for (const { serverId, field, value } of priors) {
+    try {
+      if (value === null) await store.delete(serverId, field);
+      else await store.set(serverId, field, value);
+    } catch (error) {
+      warnStoreWriteFailure(error);
+    }
+  }
+}
+
 /**
  * The write-path counterpart of the migration's durable-store guard: when
  * the store is session-scoped, a secret that is already durable as file
@@ -191,105 +242,100 @@ export async function writeOAuthSections(
         ],
       };
       const merged = mergeOAuthSections(disk, snapshot, effective);
-      // Server/IdP ids whose secrets are being stored for the first time
-      // (no disk entry indexed them before this write). If the file write
-      // below fails, these must be rolled back: the file is the only
-      // index of the store's entries, so leaving them would strand
-      // credentials `removeOAuthStore` can never find.
-      const unindexedIds: string[] = [];
-
-      for (const url of effective.servers ?? []) {
-        const serverId = oauthSecretServerId(url);
-        const next = snapshot.servers[url];
-        // Candidates span the old and new shapes so a removed issuer's
-        // fields are deleted, not orphaned in the store.
-        const candidates = [
-          ...new Set([
-            ...serverSecretFields(disk?.servers[url]),
-            ...serverSecretFields(next),
-          ]),
-        ];
-        if (next === undefined) {
-          // A failed purge propagates and aborts the write: committing a
-          // file without the entry while its secrets may linger in the
-          // store would orphan them, and re-adding the server later could
-          // resurrect the stale credentials.
-          await secretStore.deleteAllForServer(serverId);
-          continue;
-        }
-        const { residue, secrets } = splitServerOAuthState(next, policy);
-        merged.servers[url] = residue;
-        if (!durable) {
-          const diskEntry = disk?.servers[url];
-          // Split the disk value with the *active* policy so the compare
-          // is like-for-like: under `access` the raw disk blob still
-          // carries its refresh token while `secrets` never does, and a
-          // raw compare would wrongly treat the unchanged access token as
-          // changed and strip the only durable copy.
-          const keep = preserveNonDurableSecrets(
-            diskEntry ? splitServerOAuthState(diskEntry, policy).secrets : {},
-            secrets,
-          );
-          if (Object.keys(keep).length > 0) {
-            merged.servers[url] = joinServerOAuthState(residue, keep);
-          }
-        }
-        await persistEntrySecrets(secretStore, serverId, candidates, secrets);
-        if (
-          disk?.servers[url] === undefined &&
-          Object.keys(secrets).length > 0
-        ) {
-          unindexedIds.push(serverId);
-        }
-      }
-
-      for (const issuer of effective.idpSessions ?? []) {
-        const serverId = oauthIdpSecretServerId(issuer);
-        const next = snapshot.idpSessions[issuer];
-        if (next === undefined) {
-          // Same as the server loop: a failed purge aborts the write.
-          await secretStore.deleteAllForServer(serverId);
-          continue;
-        }
-        const { residue, secrets } = splitIdpSession(next, policy);
-        merged.idpSessions[issuer] = residue;
-        if (!durable) {
-          const diskSession = disk?.idpSessions[issuer];
-          const keep = preserveNonDurableSecrets(
-            diskSession ? splitIdpSession(diskSession, policy).secrets : {},
-            secrets,
-          );
-          if (Object.keys(keep).length > 0) {
-            merged.idpSessions[issuer] = joinIdpSession(residue, keep);
-          }
-        }
-        await persistEntrySecrets(
-          secretStore,
-          serverId,
-          [IDP_SESSION_FIELD],
-          secrets,
-        );
-        if (
-          disk?.idpSessions[issuer] === undefined &&
-          Object.keys(secrets).length > 0
-        ) {
-          unindexedIds.push(serverId);
-        }
-      }
+      // Pre-write store values for every secret field this write touches.
+      // If anything fails after the store mutations begin — a delete, a
+      // later entry's snapshot read, or the residue file write — the store
+      // is restored to match the file that is still on disk. Without this,
+      // a failed residue write leaves the store ahead of the file: a
+      // brand-new entry's secrets are stranded with no file index for
+      // `removeOAuthStore` to find, and an updated entry rejoins its *old*
+      // residue with the *new* secrets (e.g. the previous client_id paired
+      // with the re-registered client_secret) on the next read.
+      const priorSecrets: PriorSecret[] = [];
 
       try {
+        for (const url of effective.servers ?? []) {
+          const serverId = oauthSecretServerId(url);
+          const next = snapshot.servers[url];
+          // Candidates span the old and new shapes so a removed issuer's
+          // fields are deleted, not orphaned in the store.
+          const candidates = [
+            ...new Set([
+              ...serverSecretFields(disk?.servers[url]),
+              ...serverSecretFields(next),
+            ]),
+          ];
+          await snapshotPriorSecrets(
+            secretStore,
+            serverId,
+            candidates,
+            priorSecrets,
+          );
+          if (next === undefined) {
+            // A failed purge propagates and aborts the write: committing a
+            // file without the entry while its secrets may linger in the
+            // store would orphan them, and re-adding the server later could
+            // resurrect the stale credentials.
+            await secretStore.deleteAllForServer(serverId);
+            continue;
+          }
+          const { residue, secrets } = splitServerOAuthState(next, policy);
+          merged.servers[url] = residue;
+          if (!durable) {
+            const diskEntry = disk?.servers[url];
+            // Split the disk value with the *active* policy so the compare
+            // is like-for-like: under `access` the raw disk blob still
+            // carries its refresh token while `secrets` never does, and a
+            // raw compare would wrongly treat the unchanged access token as
+            // changed and strip the only durable copy.
+            const keep = preserveNonDurableSecrets(
+              diskEntry ? splitServerOAuthState(diskEntry, policy).secrets : {},
+              secrets,
+            );
+            if (Object.keys(keep).length > 0) {
+              merged.servers[url] = joinServerOAuthState(residue, keep);
+            }
+          }
+          await persistEntrySecrets(secretStore, serverId, candidates, secrets);
+        }
+
+        for (const issuer of effective.idpSessions ?? []) {
+          const serverId = oauthIdpSecretServerId(issuer);
+          const next = snapshot.idpSessions[issuer];
+          await snapshotPriorSecrets(
+            secretStore,
+            serverId,
+            [IDP_SESSION_FIELD],
+            priorSecrets,
+          );
+          if (next === undefined) {
+            // Same as the server loop: a failed purge aborts the write.
+            await secretStore.deleteAllForServer(serverId);
+            continue;
+          }
+          const { residue, secrets } = splitIdpSession(next, policy);
+          merged.idpSessions[issuer] = residue;
+          if (!durable) {
+            const diskSession = disk?.idpSessions[issuer];
+            const keep = preserveNonDurableSecrets(
+              diskSession ? splitIdpSession(diskSession, policy).secrets : {},
+              secrets,
+            );
+            if (Object.keys(keep).length > 0) {
+              merged.idpSessions[issuer] = joinIdpSession(residue, keep);
+            }
+          }
+          await persistEntrySecrets(
+            secretStore,
+            serverId,
+            [IDP_SESSION_FIELD],
+            secrets,
+          );
+        }
+
         await writeStoreFile(filePath, serializeOAuthPersistBlob(merged));
       } catch (error) {
-        // Best-effort rollback of store entries no file entry indexes yet;
-        // a rollback failure is only warned — the original write failure
-        // is the actionable error and must be the one that escapes.
-        for (const id of unindexedIds) {
-          try {
-            await secretStore.deleteAllForServer(id);
-          } catch (rollbackError) {
-            warnStoreWriteFailure(rollbackError);
-          }
-        }
+        await restorePriorSecrets(secretStore, priorSecrets);
         throw error;
       }
     });

@@ -12,6 +12,7 @@ import {
   rmSync,
   existsSync,
   writeFileSync,
+  chmodSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -307,6 +308,49 @@ describe("writeOAuthSections secret split", () => {
     expect(
       await store.get(oauthSecretServerId(SERVER), LEGACY_CLIENT_SECRET_FIELD),
     ).toBeNull();
+  });
+
+  it("restores an indexed entry's prior store secrets when the file write fails", async () => {
+    // An already-indexed entry is not rolled back by deletion — its old
+    // residue is still on disk, so the store must be restored to the *old*
+    // values or the next read joins the old residue (e.g. the previous
+    // client_id) with the new secrets. Force the second write to fail by
+    // making the directory read-only after the first commit.
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    void warn; // silence the unlocked-write warning for the read-only dir
+    const store = new InMemorySecretStore();
+    await writeOAuthSections(filePath, snapshotWith(), undefined, store);
+    await flushStoreFileWrites(filePath);
+
+    const updated = snapshotWith();
+    updated.servers[SERVER]!.tokens = {
+      ...TOKENS,
+      access_token: "at2",
+      refresh_token: "rt2",
+    };
+    updated.servers[SERVER]!.clientInformation = {
+      client_id: "cid2",
+      client_secret: "cs2",
+    };
+
+    chmodSync(tempDir, 0o555);
+    try {
+      await expect(
+        writeOAuthSections(filePath, updated, undefined, store),
+      ).rejects.toThrow();
+    } finally {
+      chmodSync(tempDir, 0o755);
+    }
+
+    // The store holds the *old* secrets again, matching the old residue
+    // still on disk — no cid/cs2 mismatch on the next joined read.
+    const id = oauthSecretServerId(SERVER);
+    expect(JSON.parse((await store.get(id, LEGACY_TOKENS_FIELD))!)).toEqual(
+      TOKENS,
+    );
+    expect(await store.get(id, LEGACY_CLIENT_SECRET_FIELD)).toBe("cs");
+    const joined = await readOAuthStore(filePath, store);
+    expect(joined?.servers[SERVER]).toEqual(snapshotWith().servers[SERVER]);
   });
 
   it("aborts the write when a store delete fails, keeping the old residue", async () => {
