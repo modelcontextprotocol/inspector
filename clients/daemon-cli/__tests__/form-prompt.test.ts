@@ -260,6 +260,26 @@ describe("promptForm", () => {
     expect(stderr).toContain("Enter a number between 1 and 1");
   });
 
+  it("rejects malformed and multi-token single-select answers", async () => {
+    const field: FormField = {
+      name: "color",
+      required: true,
+      title: "Color",
+      kind: "enum",
+      choices: [
+        { value: "red", label: "Red" },
+        { value: "blue", label: "Blue" },
+      ],
+    };
+    // "1abc" must not be silently accepted as choice 1 (parseInt prefix),
+    // and "1,2" on a single-select must not silently submit only "red".
+    const rl = fakeRl(["1abc", "1,2", "2", ""]);
+    const outcome = await promptForm(rl, "msg", [field], style);
+    expect(outcome).toEqual({ action: "accept", content: { color: "blue" } });
+    expect(stderr).toContain("Enter a number between 1 and 2");
+    expect(stderr).toContain("Enter exactly one number");
+  });
+
   it("omits an optional enum field left blank with no default", async () => {
     const field: FormField = {
       name: "color",

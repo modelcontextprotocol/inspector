@@ -48,6 +48,22 @@ function writeOAuthFixture(dir: string): string {
             "https://as.example/": {},
           },
         },
+        "https://multi.example/mcp": {
+          // First issuer: access only. Second: access + refresh. The summary
+          // must aggregate across slots, not stop at the first access token.
+          byIssuer: {
+            "https://as-a.example/": {
+              tokens: { access_token: "a1", token_type: "Bearer" },
+            },
+            "https://as-b.example/": {
+              tokens: {
+                access_token: "a2",
+                token_type: "Bearer",
+                refresh_token: "r2",
+              },
+            },
+          },
+        },
       },
       idpSessions: {},
     }),
@@ -88,6 +104,7 @@ describe("connection stored-auth helpers", () => {
       "https://empty.example/mcp",
       "https://example.com/mcp",
       "https://issuer-empty.example/mcp",
+      "https://multi.example/mcp",
       "https://nullish.example/mcp",
       "https://other.example/mcp",
       "https://stringish.example/mcp",
@@ -102,6 +119,12 @@ describe("connection stored-auth helpers", () => {
     expect(
       list.servers.find((s) => s.url.includes("issuer-empty")),
     ).toMatchObject({ hasTokens: false, hasRefreshToken: false });
+    // Aggregated across issuer slots: the refresh token lives in the second
+    // slot, so first-match-wins would have reported hasRefreshToken: false.
+    expect(list.servers.find((s) => s.url.includes("multi"))).toMatchObject({
+      hasTokens: true,
+      hasRefreshToken: true,
+    });
     expect(
       list.servers.find((s) => s.url.includes("example.com")),
     ).toMatchObject({ hasTokens: true, hasRefreshToken: true });
@@ -125,7 +148,7 @@ describe("connection stored-auth helpers", () => {
     );
 
     const all = await clearAllStoredAuth();
-    expect(all.cleared).toBe(5);
+    expect(all.cleared).toBe(6);
     list = await listStoredAuth();
     expect(list.servers).toEqual([]);
   });
@@ -197,7 +220,7 @@ describe("mcp auth/list and auth/clear", () => {
     const body = JSON.parse(listed.stdout) as {
       servers: { url: string }[];
     };
-    expect(body.servers.length).toBe(6);
+    expect(body.servers.length).toBe(7);
 
     const cleared = await runMcp(
       ["auth/clear", "https://example.com/mcp", "--format", "json"],
@@ -213,7 +236,7 @@ describe("mcp auth/list and auth/clear", () => {
       { env: { MCP_INSPECTOR_OAUTH_STATE_PATH: file } },
     );
     expectCliSuccess(all);
-    expect(JSON.parse(all.stdout)).toMatchObject({ all: true, cleared: 5 });
+    expect(JSON.parse(all.stdout)).toMatchObject({ all: true, cleared: 6 });
   });
 
   it("rejects --all without --yes when non-interactive", async () => {

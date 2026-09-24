@@ -307,6 +307,20 @@ describe("daemon coverage", () => {
     server = undefined;
   });
 
+  it("repeated stop() returns the same in-flight cleanup promise", async () => {
+    // A second SIGINT used to see `stopping` and resolve immediately,
+    // letting its caller process.exit() mid-teardown and strand the
+    // socket/token/lock. Both calls must await the same cleanup.
+    server = new DaemonServer({ dir: freshDir(), idleMs: 0 });
+    await server.start();
+    const first = server.stop("signal");
+    const second = server.stop("signal");
+    expect(second).toBe(first);
+    await first;
+    expect(fs.existsSync(server.socketPath)).toBe(false);
+    server = undefined;
+  });
+
   it("callDaemon times out a hung server", async () => {
     const d = freshDir();
     const sock = path.join(d, "daemon.sock");

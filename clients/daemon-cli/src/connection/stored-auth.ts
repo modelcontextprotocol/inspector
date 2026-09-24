@@ -43,21 +43,18 @@ function tokenFlagsFromState(state: unknown): {
     tokens?: TokenBlob;
     byIssuer?: Record<string, { tokens?: TokenBlob }>;
   };
-  if (s.tokens?.access_token) {
-    return {
-      hasTokens: true,
-      hasRefreshToken: Boolean(s.tokens.refresh_token),
-    };
-  }
+  // Aggregate across every token slot: with multiple issuers, returning at
+  // the first access-token-bearing slot would make hasRefreshToken depend on
+  // object insertion order.
+  let hasTokens = Boolean(s.tokens?.access_token);
+  let hasRefreshToken = hasTokens && Boolean(s.tokens?.refresh_token);
   for (const slot of Object.values(s.byIssuer ?? {})) {
     if (slot?.tokens?.access_token) {
-      return {
-        hasTokens: true,
-        hasRefreshToken: Boolean(slot.tokens.refresh_token),
-      };
+      hasTokens = true;
+      if (slot.tokens.refresh_token) hasRefreshToken = true;
     }
   }
-  return { hasTokens: false, hasRefreshToken: false };
+  return { hasTokens, hasRefreshToken };
 }
 
 async function readServersMap(

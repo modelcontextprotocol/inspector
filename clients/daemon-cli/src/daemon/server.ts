@@ -80,6 +80,11 @@ export class DaemonServer {
   private server: net.Server | null = null;
   private readonly onShutdown: (() => void) | null;
   private stopping = false;
+  /** In-flight stop, memoized so a repeated stop (e.g. a second SIGINT)
+   * awaits the original cleanup instead of resolving immediately and letting
+   * its caller `process.exit()` mid-teardown, stranding the socket, token,
+   * and lock on disk. */
+  private stopPromise: Promise<void> | null = null;
 
   constructor(options: DaemonServerOptions = {}) {
     this.dir = options.dir ?? getDaemonDir();
@@ -150,9 +155,13 @@ export class DaemonServer {
     }
   }
 
-  async stop(reason: "idle" | "stop" | "signal" = "stop"): Promise<void> {
+  stop(reason: "idle" | "stop" | "signal" = "stop"): Promise<void> {
+    this.stopPromise ??= this.doStop(reason);
+    return this.stopPromise;
+  }
+
+  private async doStop(reason: "idle" | "stop" | "signal"): Promise<void> {
     void reason;
-    if (this.stopping) return;
     this.stopping = true;
     await this.registry.disconnectAll();
     await new Promise<void>((resolve) => {

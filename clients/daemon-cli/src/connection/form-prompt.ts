@@ -105,7 +105,12 @@ async function promptField(
         process.stderr.write(style.red("  This field is required.\n"));
         continue;
       }
-      const indices = raw.split(",").map((s) => Number.parseInt(s.trim(), 10));
+      // Strict whole-token integers only: parseInt would accept "1abc" as 1,
+      // silently submitting a different answer than the user typed.
+      const tokens = raw.split(",").map((s) => s.trim());
+      const indices = tokens.map((s) =>
+        /^\d+$/.test(s) ? Number.parseInt(s, 10) : Number.NaN,
+      );
       if (
         indices.some(
           (n) => !Number.isInteger(n) || n < 1 || n > field.choices.length,
@@ -116,6 +121,12 @@ async function promptField(
             `  Enter a number between 1 and ${field.choices.length}.\n`,
           ),
         );
+        continue;
+      }
+      if (!multi && indices.length !== 1) {
+        // "1,2" on a single-select would silently drop everything after the
+        // first choice — re-prompt instead.
+        process.stderr.write(style.red("  Enter exactly one number.\n"));
         continue;
       }
       const values = indices.map((n) => field.choices[n - 1]!.value);
