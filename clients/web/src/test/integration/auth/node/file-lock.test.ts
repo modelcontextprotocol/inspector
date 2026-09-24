@@ -397,7 +397,7 @@ describe("withSecretFileLock degrades rather than failing", () => {
   );
 
   it(
-    "stays silent per the delete contract when the lock is held",
+    "rejects a delete rather than removing alongside a live lock holder",
     async () => {
       // `delete` reports nothing by contract — only `set` hard-fails — so the
       // refusal above must not turn a delete into a throw.
@@ -418,7 +418,9 @@ describe("withSecretFileLock degrades rather than failing", () => {
         realpath: false,
         stale: 10_000,
       });
-      await expect(store.delete("srv", "env:A")).resolves.toBeUndefined();
+      await expect(store.delete("srv", "env:A")).rejects.toBeInstanceOf(
+        SecretStoreUnavailableError,
+      );
       await release();
 
       // …and the entry it could not delete is still there, not half-removed.

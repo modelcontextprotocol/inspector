@@ -49,10 +49,12 @@
  *
  * **Availability contract — identical to `KeyringSecretStore`'s**, because
  * callers must not have to know which store they got. `get` is tolerant
- * (returns `null` on any failure), `delete` no-ops, and `set` is the only
- * operation that hard-fails, throwing {@link SecretStoreUnavailableError}
- * — the moment where a value would actually be lost. Routes translate that
- * to a 503 the same way they already do for the keychain.
+ * (returns `null` on any failure); `set` and the deletes hard-fail with
+ * {@link SecretStoreUnavailableError} — `set` at the moment a value would
+ * be lost, the deletes when the removal cannot be confirmed (reporting
+ * success would let a caller commit state that assumes the entry is gone,
+ * and a later read would resurrect it). Routes translate that to a 503 the
+ * same way they already do for the keychain.
  *
  * The one failure worth calling out is the *key mismatch*: a file written
  * encrypted, opened later with the passphrase changed or removed. Reads go
@@ -996,9 +998,11 @@ export class FileSecretStore implements SecretStore {
   }
 
   /**
-   * Shared delete body. Silent on every failure, matching the keyring store:
-   * every reason a delete can fail collapses to "the entry isn't there
-   * anymore", and `set` is the operation that reports a broken store.
+   * Shared delete body. Same confirmed-delete contract as the keyring
+   * store: a deletion that cannot be confirmed (unreadable file, failed
+   * decrypt, failed write) must escape, because reporting success would
+   * let a caller commit state that assumes the entry is gone — once the
+   * file becomes readable again, a later read would resurrect it.
    */
   private async deleteWhere(match: (key: string) => boolean): Promise<void> {
     try {
@@ -1015,8 +1019,12 @@ export class FileSecretStore implements SecretStore {
           return next;
         }),
       );
-    } catch {
-      // Intentionally silent — see the doc comment above.
+    } catch (err) {
+      if (err instanceof SecretStoreUnavailableError) throw err;
+      throw new SecretStoreUnavailableError(
+        `Could not delete from the secrets file: ${err instanceof Error ? err.message : String(err)}`,
+        { cause: err },
+      );
     }
   }
 }

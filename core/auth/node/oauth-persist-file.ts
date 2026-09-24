@@ -36,7 +36,7 @@ import {
 } from "../oauth-persist.js";
 import { withSecretFileLock } from "./file-lock.js";
 import {
-  SecretStoreUnavailableError,
+  SecretFileLockHeldError,
   secretStoreGetMany,
   secretStoreIsDurable,
   secretStoreSetMany,
@@ -87,9 +87,15 @@ export function resetOAuthSecretStoreWarnings(): void {
   warnedStoreFailures.clear();
 }
 
-/** Rethrow the lock's "secrets file" wording as OAuth wording (same file). */
+/**
+ * Rethrow the lock's "secrets file" wording as OAuth wording (same file).
+ * Matches only {@link SecretFileLockHeldError} — a secret-*store* failure
+ * thrown inside the locked callback (e.g. `KeychainUnavailableError`) is
+ * not a lock failure and passes through unchanged, keeping the type the
+ * HTTP layer maps to an actionable 503.
+ */
 function rethrowLockError(filePath: string, error: unknown): never {
-  if (error instanceof SecretStoreUnavailableError) {
+  if (error instanceof SecretFileLockHeldError) {
     throw new Error(
       `Could not save OAuth state: the state file at ${filePath} is locked by another Inspector process and did not become available.`,
       { cause: error },

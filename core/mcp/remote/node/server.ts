@@ -1482,8 +1482,11 @@ export function createRemoteApp(
       if (error instanceof ZodError) {
         return c.json({ error: formatClientConfigLoadError(error) }, 400);
       }
-      const keychainResp =
-        storeId === "client" ? keychainErrorResponse(c, error) : undefined;
+      // Secret-store failures (keychain down, secrets file unreadable) are
+      // typed; map them to the actionable 503 for every store that touches
+      // the secret store (client and oauth) — the helper returns undefined
+      // for anything else, so running it unconditionally is safe.
+      const keychainResp = keychainErrorResponse(c, error);
       if (keychainResp) return keychainResp;
       const msg = error instanceof Error ? error.message : String(error);
       return c.json({ error: `Failed to write store: ${msg}` }, 500);
@@ -1512,6 +1515,12 @@ export function createRemoteApp(
       await deleteStoreFile(filePath);
       return c.json({ ok: true });
     } catch (error) {
+      // `removeOAuthStore` (and the client store's delete) propagate an
+      // unavailable secret store so the file remains as the index of the
+      // store's entries — surface that as the same actionable 503 as the
+      // other secret-backed routes, not a generic 500.
+      const keychainResp = keychainErrorResponse(c, error);
+      if (keychainResp) return keychainResp;
       const msg = error instanceof Error ? error.message : String(error);
       return c.json({ error: `Failed to delete store: ${msg}` }, 500);
     }

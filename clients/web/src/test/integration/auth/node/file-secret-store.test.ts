@@ -256,7 +256,10 @@ describe("FileSecretStore failure handling", () => {
     expect(raw.version).toBe(2);
   });
 
-  it("delete stays silent on a file it cannot decrypt", async () => {
+  it("delete rejects on a file it cannot decrypt", async () => {
+    // A deletion that cannot be confirmed must escape: committing state
+    // that assumes the entry is gone would resurrect it once the file
+    // decrypts again.
     await writeEncryptedFixture();
     const store = new FileSecretStore({
       filePath: filePath(),
@@ -264,8 +267,10 @@ describe("FileSecretStore failure handling", () => {
     });
     await expect(
       store.delete("alpha", SECRET_FIELD_OAUTH_CLIENT_SECRET),
-    ).resolves.toBeUndefined();
-    await expect(store.deleteAllForServer("alpha")).resolves.toBeUndefined();
+    ).rejects.toBeInstanceOf(SecretStoreUnavailableError);
+    await expect(store.deleteAllForServer("alpha")).rejects.toBeInstanceOf(
+      SecretStoreUnavailableError,
+    );
   });
 
   it("set reports a corrupt file rather than silently replacing it", async () => {
@@ -415,7 +420,7 @@ describe("FileSecretStore failure handling", () => {
     });
     await expect(store.set("alpha", "env:A", "1")).rejects.toThrow();
     expect(await store.get("alpha", "env:A")).toBe(null);
-    await expect(store.delete("alpha", "env:A")).resolves.toBeUndefined();
+    await expect(store.delete("alpha", "env:A")).rejects.toThrow();
     await expect(store.set("alpha", "env:B", "2")).rejects.toThrow();
   });
 
@@ -1688,7 +1693,9 @@ describe("FileSecretStore with MCP_INSPECTOR_SECRET_KEY_FILE (#2447)", () => {
     await expect(store.set("alpha", "env:B", "2")).rejects.toThrow(
       SecretStoreUnavailableError,
     );
-    await expect(store.delete("alpha", "env:A")).resolves.toBeUndefined();
+    await expect(store.delete("alpha", "env:A")).rejects.toThrow(
+      SecretStoreUnavailableError,
+    );
     expect(await fs.readFile(filePath(), "utf-8")).toBe(before);
   });
 

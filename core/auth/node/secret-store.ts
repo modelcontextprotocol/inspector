@@ -175,6 +175,22 @@ export class SecretStoreUnavailableError extends Error {
 }
 
 /**
+ * Thrown only by lock *acquisition* (`withSecretFileLock` /
+ * `openSecretFileLock`) when the cross-process lock is held or stuck. A
+ * distinct type so callers that rewrap "the file is locked" (the OAuth
+ * persist paths) can match it specifically — a `KeychainUnavailableError`
+ * thrown *inside* a locked callback is a store failure, not a lock
+ * failure, and must pass through unchanged for the HTTP layer to map it
+ * to its actionable 503.
+ */
+export class SecretFileLockHeldError extends SecretStoreUnavailableError {
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options);
+    this.name = "SecretFileLockHeldError";
+  }
+}
+
+/**
  * Thrown when the OS keychain is unavailable. Surfaced as a 503 by the
  * API handlers so the UI can show an actionable error rather than a
  * generic 500 — and "actionable" is the point: the causes need
