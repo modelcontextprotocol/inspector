@@ -1,5 +1,13 @@
 [
   {
+    "prompt": "create a PR for #2463",
+    "expect": "pr-flow"
+  },
+  {
+    "prompt": "Create a PR for #2381.",
+    "expect": "pr-flow"
+  },
+  {
     "prompt": "I've finished the fix for issue 2071. Take it through to a pull request.",
     "expect": "pr-flow"
   },
@@ -17,6 +25,10 @@
   },
   {
     "prompt": "My PR is open and green. Walk me through getting it merged and closed out here.",
+    "expect": "pr-flow"
+  },
+  {
+    "prompt": "Open the PR for #2400, then keep getting Copilot to review it until it has nothing left to say.",
     "expect": "pr-flow"
   },
   {

@@ -1,6 +1,6 @@
 ---
 name: pr-flow
-description: Take an issue through to a merged PR in this repo, and what to do at each step. Use when asked to open, create or submit a PR; when a DCO or signoff check fails; when requesting a Copilot review or responding to review comments; when naming a branch; when attaching screenshots to a PR; or when closing out after a merge.
+description: Take an issue through to a merged PR in this repo, and what to do at each step. Use when asked to create a PR for an issue, or to open or submit one; when a DCO or signoff check fails; when running the Copilot review loop after opening a PR or responding to review comments; when naming a branch; when attaching screenshots to a PR; or when closing out after a merge.
 disable-model-invocation: false
 ---
 
@@ -221,9 +221,16 @@ on merge. Keep it anyway, so the issues close if/when `v2/main` reaches `main`.
 There is no `gh` flag for manual linking; closing keywords are the only
 mechanism GitHub exposes.
 
-Move the card to **In Review**.
+Move the card to **In Review**, then go straight to step 7.
 
-## 7. Request a Copilot review
+## 7. Run the Copilot review loop — immediately, every PR
+
+**Opening the PR is not the end of the task.** The next action, without being
+asked, is a Copilot review loop run to exhaustion: request a review, wait for
+the round to land (or for Copilot's session to end), answer it (step 8), and
+request again if anything was pushed. It stops only on one of the exits in 7c.
+
+### 7a. Request a round
 
 Only the GraphQL `requestReviews` mutation with the Copilot **bot id** works —
 REST, `gh pr edit --add-reviewer`, `userIds`, and `copilot-swe-agent` all fail or
@@ -239,17 +246,21 @@ gh api graphql -f query='
   }' -f pr="$PR_ID" -f bot='BOT_kgDOCnlnWA'
 ```
 
-Poll for the review with a `startswith` match — the review login carries a
-`[bot]` suffix. **Put that poll in one backgrounded loop that exits when the
-round lands, and wait for its notification** rather than re-fetching once per
-turn; a review is remote state the harness cannot observe, which is exactly the
-exception described in [Waiting on long-running
-work](../../../AGENTS.md#waiting-on-long-running-work) — and exactly where the
-poll belongs when one is needed.
+### 7b. Wait for it — review posted, or session ended
+
+A round ends one of two ways: Copilot **posts a review**, or its **pending
+request disappears without one** — it failed, or occasionally has nothing to
+say and posts nothing. Waiting only for the review hangs forever on the second
+case, so the wait watches both, plus a hard cap. **Put it in one backgrounded
+loop that exits when the round resolves, and wait for its notification** rather
+than re-fetching once per turn; a review is remote state the harness cannot
+observe, which is exactly the exception described in [Waiting on long-running
+work](../../../AGENTS.md#waiting-on-long-running-work).
 
 ```sh
 EXPECTED=1   # the review COUNT you are waiting to reach — see below
-while :; do
+DEADLINE=$(( $(date +%s) + 1500 ))   # 25 min; rounds normally land in 2–10
+count() {
   # Capture first, so a gh failure stops the loop instead of being swallowed by
   # a pipeline. --slurp cannot be combined with --jq, hence the separate jq.
   raw=$(gh api --paginate --slurp \
@@ -258,7 +269,21 @@ while :; do
   n=$(jq '[.[][] | select(.user.login | startswith("copilot-pull-request-reviewer"))] | length' <<<"$raw") || {
       echo "jq failed ($?) on an unexpected response shape" >&2; exit 1; }
   case $n in '' | *[!0-9]*) echo "not a count: '$n'" >&2; exit 1 ;; esac
-  [ "$n" -ge "$EXPECTED" ] && break
+}
+pending() {
+  p=$(gh api graphql -f query='{repository(owner:"modelcontextprotocol",name:"inspector"){pullRequest(number:<N>){reviewRequests(first:20){nodes{requestedReviewer{... on Bot{login} ... on User{login}}}}}}}' \
+    --jq '[.data.repository.pullRequest.reviewRequests.nodes[].requestedReviewer.login // empty | select(test("copilot";"i"))] | length') || {
+      echo "gh graphql failed ($?)" >&2; exit 1; }
+}
+while :; do
+  count; [ "$n" -ge "$EXPECTED" ] && { echo "ROUND=posted"; break; }
+  pending
+  if [ "$p" = 0 ]; then
+    sleep 30; count   # the request can clear a beat before the review is visible
+    [ "$n" -ge "$EXPECTED" ] && echo "ROUND=posted" || echo "ROUND=ended-without-review"
+    break
+  fi
+  [ "$(date +%s)" -ge "$DEADLINE" ] && { echo "ROUND=timed-out"; break; }
   sleep 30
 done
 ```
@@ -272,8 +297,36 @@ read as a count of `0`; and a `jq` failure on an unexpected shape leaves `n`
 empty, whereupon `[ "" -ge 1 ]` exits non-zero, `break` never fires, and the job
 sleeps and retries forever — the same unbounded wait, reached from the other
 end. A background task that can never succeed is worse than one that never
-started, because it looks like progress. Give the inline comments a further ~60s after the body lands; they
-arrive late (see step 8).
+started, because it looks like progress. On `ROUND=posted`, give the inline
+comments a further ~60s; they arrive late (see step 8).
+
+### 7c. Decide: another round, or stop
+
+Answer the round per step 8 first, then:
+
+| The round…                                                                  | Next                                                                                         |
+| --------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| had an in-scope finding you fixed and pushed                                | Request another round (7a), `EXPECTED` + 1.                                                   |
+| was clean — no inline comments, nothing in the body headline or `Suppressed comments` | **Stop.** One clean round is the end — never request a confirming round "just to be sure"; it spends Copilot tokens to re-review code nothing has changed. |
+| held only findings you declined as out of scope (see below)                 | **Stop.** Nothing changed, so another round only re-argues the same scope.                    |
+| `ended-without-review` or `timed-out`                                       | Request once more. Two in a row means Copilot's session on this PR has ended — stop.          |
+
+"Clean" means all three channels are empty — inline comments, the body's
+headline sentence, and the `Suppressed comments` block. A zero-comment round
+can still name a real bug in the headline or the suppressed block — read all
+three before calling it clean.
+
+**Weigh every finding against the issue the PR closes.** Fix what is a defect
+_in what this PR added_. Decline, with a reason in the thread, anything that is
+pre-existing behavior, a new capability, or hardening beyond what the issue
+asks for — Copilot does not converge on its own, and every fix it talks you
+into beyond the issue is fresh surface for the next round, so accepting scope
+creep is what makes a review cycle protracted. If a declined finding is a real
+problem worth doing, file it with `/issue-create` and link it in the reply
+rather than growing the PR.
+
+When the loop stops, post a PR-level comment saying the review is closed and
+why (which exit fired), and report the same in your reply to the user.
 
 ## 8. Respond to the review
 
