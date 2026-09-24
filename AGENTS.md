@@ -255,8 +255,9 @@ node/field/option IDs, and the option-deletion hazard` was cut at `#28`, so 90
    that work actually starts, and under `true` the model **cannot** reach the
    skill at all: it is absent from the listing and the Skill tool refuses it. The
    costs are asymmetric — a spurious load costs ~250 characters, a missed one
-   costs a wrong base branch or an unsigned commit — and the budget is not tight
-   (ten of the eleven are model-invoked today and total ~3.7k of 4k). Reserve
+   costs a wrong base branch or an unsigned commit — and the budget has held so
+   far (ten of the eleven are model-invoked today and total ~3.9k of 4k, so the
+   next addition needs a description trimmed or the budget raised). Reserve
    `true` for a procedure that is genuinely only ever started deliberately —
    `release` is the only one left, because nobody cuts a release by implication.
    ⚠️ **A `true` skill cannot be reached by another skill either.** If a
@@ -268,7 +269,7 @@ node/field/option IDs, and the option-deletion hazard` was cut at `#28`, so 90
    cases (n=4) and `testing` from 3/5 to 2/5, while the six new skills all
    measured 100% and every negative case stayed clean. So the ceiling is
    attention, not characters — we were at 2.8k of a 4k budget throughout _that
-   experiment_ (it is ~3.7k now; the point is that nothing was near the cap). Adding
+   experiment_ (it is ~3.9k now; the point is that nothing was near the cap). Adding
    a skill therefore has a cost paid by the _existing_ ones, which only
    `skills:eval` can see. **Re-run the full eval after any flip _or description
    edit_**, not just the changed skill's own cases.
@@ -342,7 +343,7 @@ node/field/option IDs, and the option-deletion hazard` was cut at `#28`, so 90
    overflows, and drops the least-invoked entries **first** — which are exactly the
    model-invoked skills that must fire on their own. `verify:skills` prints the
    current cost against the budget recorded in `scripts/lib/skill-manifest.mjs`
-   (3,729/4,000 characters as of this writing) and fails when it is exceeded. Raise
+   (3,900/4,000 characters as of this writing) and fails when it is exceeded. Raise
    the budget deliberately, or tighten a description; each entry is capped at 1,536
    characters regardless, so **put the key use case first**.
 
