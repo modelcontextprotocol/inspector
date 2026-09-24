@@ -51,14 +51,20 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function parseChoicesFromEnum(value: unknown): Choice[] | undefined {
-  if (!Array.isArray(value) || value.some((v) => typeof v !== "string")) {
+  if (
+    !Array.isArray(value) ||
+    value.length === 0 ||
+    value.some((v) => typeof v !== "string")
+  ) {
     return undefined;
   }
   return (value as string[]).map((v) => ({ value: v, label: v }));
 }
 
 function parseChoicesFromOneOf(value: unknown): Choice[] | undefined {
-  if (!Array.isArray(value)) return undefined;
+  // Empty choice sets are rejected (like empty `enum`): a required field
+  // with zero options would render an unwinnable prompt.
+  if (!Array.isArray(value) || value.length === 0) return undefined;
   const choices: Choice[] = [];
   for (const entry of value) {
     if (!isRecord(entry) || typeof entry.const !== "string") return undefined;
@@ -92,8 +98,12 @@ function parseField(prop: unknown): FieldExtra | null {
   }
 
   if (type === "string") {
-    const enumChoices = parseChoicesFromEnum(prop.enum);
-    if (enumChoices) {
+    if (prop.enum !== undefined) {
+      const enumChoices = parseChoicesFromEnum(prop.enum);
+      // Present-but-invalid (non-string entries or an empty list) is a
+      // malformed schema, not a freeform string field: an empty required
+      // choice prompt would be unwinnable.
+      if (!enumChoices) return null;
       return {
         kind: "enum",
         choices: enumChoices,

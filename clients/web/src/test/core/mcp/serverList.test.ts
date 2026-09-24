@@ -610,6 +610,60 @@ describe("serverEntriesToMcpConfig", () => {
     expect("protocolEra" in (round.mcpServers["era-legacy"] ?? {})).toBe(false);
   });
 
+  it("round-trips elicitCapability: lifts a non-default value to settings and back to disk (#1783)", () => {
+    const original: MCPConfig = {
+      mcpServers: {
+        "elicit-url": {
+          type: "streamable-http",
+          url: "https://x.test/mcp",
+          elicitCapability: "url",
+        },
+      },
+    };
+    const [entry] = mcpConfigToServerEntries(original);
+    expect(entry?.settings?.elicitCapability).toBe("url");
+    const round = serverEntriesToMcpConfig(mcpConfigToServerEntries(original));
+    expect(round).toEqual(original);
+  });
+
+  it("drops an unknown elicitCapability literal on read (hand-edited file)", () => {
+    // Like protocolEra: garbage from a hand-edited mcp.json is dropped here
+    // rather than reaching the connect-time capability wiring.
+    const badElicit: object = { elicitCapability: "everything" };
+    const original: MCPConfig = {
+      mcpServers: {
+        "elicit-bad": {
+          type: "streamable-http",
+          url: "https://x.test/mcp",
+          ...badElicit,
+        },
+      },
+    };
+    const [entry] = mcpConfigToServerEntries(original);
+    expect(entry?.settings?.elicitCapability).toBeUndefined();
+  });
+
+  it("omits elicitCapability from disk when it equals the default (both)", () => {
+    // "both" is the default — writing it back must NOT inject the field.
+    // A benign inspector field keeps `settings` materialized.
+    const original: MCPConfig = {
+      mcpServers: {
+        "elicit-both": {
+          type: "streamable-http",
+          url: "https://x.test/mcp",
+          elicitCapability: "both",
+          connectionTimeout: 5000,
+        },
+      },
+    };
+    const [entry] = mcpConfigToServerEntries(original);
+    expect(entry?.settings?.elicitCapability).toBe("both");
+    const round = serverEntriesToMcpConfig(mcpConfigToServerEntries(original));
+    expect("elicitCapability" in (round.mcpServers["elicit-both"] ?? {})).toBe(
+      false,
+    );
+  });
+
   it("round-trips modernLogLevel: lifts a non-default value to settings and back to disk (#1629)", () => {
     const original: MCPConfig = {
       mcpServers: {

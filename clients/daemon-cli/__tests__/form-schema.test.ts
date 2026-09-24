@@ -167,6 +167,47 @@ describe("parseFormSchema", () => {
     ).toBeNull();
   });
 
+  it("returns null for empty choice arrays (unwinnable required prompt otherwise)", () => {
+    // A required field with zero options renders no choices and rejects
+    // every answer (1..0 range) — treat the schema as malformed instead.
+    expect(
+      parseFormSchema({
+        type: "object",
+        properties: { color: { type: "string", enum: [] } },
+        required: ["color"],
+      }),
+    ).toBeNull();
+    expect(
+      parseFormSchema({
+        type: "object",
+        properties: { color: { type: "string", oneOf: [] } },
+      }),
+    ).toBeNull();
+    expect(
+      parseFormSchema({
+        type: "object",
+        properties: {
+          colors: { type: "array", items: { type: "string", enum: [] } },
+        },
+      }),
+    ).toBeNull();
+    expect(
+      parseFormSchema({
+        type: "object",
+        properties: {
+          colors: { type: "array", items: { type: "string", anyOf: [] } },
+        },
+      }),
+    ).toBeNull();
+    // Non-string enum entries stay malformed too (not a freeform string).
+    expect(
+      parseFormSchema({
+        type: "object",
+        properties: { color: { type: "string", enum: [1, 2] } },
+      }),
+    ).toBeNull();
+  });
+
   it("parses a multi-select enum without titles, with min/maxItems and default", () => {
     const fields = parseFormSchema({
       type: "object",
