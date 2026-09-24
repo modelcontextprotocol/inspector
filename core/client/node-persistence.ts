@@ -203,13 +203,23 @@ export async function deleteClientConfigStore(
   filePath: string,
   secretStore: SecretStore,
 ): Promise<void> {
-  // Keychain first: if the confirmed delete fails, the file is untouched
-  // and a retry sees the same state. The reverse order would remove the
-  // file and then fail, and although this secret lives under a fixed id (so
-  // a retry could still sweep it), the half-deleted state would meanwhile
-  // look fully deleted to a reader. A file unlink failing after the secret
-  // is gone leaves a config without its secret — consistent, and the retry
-  // finishes the job.
+  // All-or-nothing, like every other combined file/store writer: snapshot
+  // the secret, delete it, then unlink the file — and if the unlink fails,
+  // restore the secret so the surviving config reloads with its credential
+  // intact and the retry sees the same pre-delete state. Keychain-first
+  // ordering keeps the failed-delete case trivial: the file is untouched.
+  const prior = await snapshotSecretFields(secretStore, CLIENT_KEYCHAIN_ID, [
+    SECRET_FIELD_IDP_CLIENT_SECRET,
+  ]);
   await secretStore.delete(CLIENT_KEYCHAIN_ID, SECRET_FIELD_IDP_CLIENT_SECRET);
-  await deleteStoreFile(filePath);
+  try {
+    await deleteStoreFile(filePath);
+  } catch (error) {
+    await restoreSecretFields(secretStore, prior, (restoreError) => {
+      console.warn(
+        `[mcp-inspector] Could not restore the IdP client secret after a failed client.json delete: ${restoreError instanceof Error ? restoreError.message : String(restoreError)}`,
+      );
+    });
+    throw error;
+  }
 }

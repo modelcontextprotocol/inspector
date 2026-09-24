@@ -428,6 +428,85 @@ describe("client node-persistence", () => {
       await store.get(CLIENT_KEYCHAIN_ID, SECRET_FIELD_IDP_CLIENT_SECRET),
     ).toBe("v");
   });
+
+  it("deleteClientConfigStore restores the secret when the file unlink fails", async () => {
+    // The other half of all-or-nothing: the secret delete succeeded but the
+    // unlink did not — without the restore, the surviving client.json would
+    // reload without its credential.
+    const filePath = await makeTmpFile(
+      JSON.stringify({ cimd: { enabled: false, clientMetadataUrl: "" } }),
+    );
+    const store = new InMemorySecretStore();
+    await store.set(CLIENT_KEYCHAIN_ID, SECRET_FIELD_IDP_CLIENT_SECRET, "v");
+
+    await fs.chmod(tmpDir, 0o555);
+    try {
+      await expect(deleteClientConfigStore(filePath, store)).rejects.toThrow();
+    } finally {
+      await fs.chmod(tmpDir, 0o755);
+    }
+
+    expect(existsSync(filePath)).toBe(true);
+    expect(
+      await store.get(CLIENT_KEYCHAIN_ID, SECRET_FIELD_IDP_CLIENT_SECRET),
+    ).toBe("v");
+  });
+
+  it("delete: warns but rethrows the unlink failure when the restore fails", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const filePath = await makeTmpFile(
+      JSON.stringify({ cimd: { enabled: false, clientMetadataUrl: "" } }),
+    );
+    const store = new InMemorySecretStore();
+    await store.set(CLIENT_KEYCHAIN_ID, SECRET_FIELD_IDP_CLIENT_SECRET, "v");
+    const failingRestore: SecretStore = {
+      get: (id, f) => store.get(id, f),
+      set: async () => {
+        throw new KeychainUnavailableError(new Error("gone"));
+      },
+      delete: (id, f) => store.delete(id, f),
+      deleteAllForServer: (id) => store.deleteAllForServer(id),
+    };
+
+    await fs.chmod(tmpDir, 0o555);
+    try {
+      await expect(
+        deleteClientConfigStore(filePath, failingRestore),
+      ).rejects.toThrow(/EACCES|EPERM|permission/i);
+    } finally {
+      await fs.chmod(tmpDir, 0o755);
+      warn.mockRestore();
+    }
+    expect(existsSync(filePath)).toBe(true);
+  });
+
+  it("delete: stringifies a non-Error restore failure in the warning", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const filePath = await makeTmpFile(
+      JSON.stringify({ cimd: { enabled: false, clientMetadataUrl: "" } }),
+    );
+    const store = new InMemorySecretStore();
+    await store.set(CLIENT_KEYCHAIN_ID, SECRET_FIELD_IDP_CLIENT_SECRET, "v");
+    const failingRestore: SecretStore = {
+      get: (id, f) => store.get(id, f),
+      set: async () => {
+        throw "gone"; // deliberately a bare string
+      },
+      delete: (id, f) => store.delete(id, f),
+      deleteAllForServer: (id) => store.deleteAllForServer(id),
+    };
+
+    await fs.chmod(tmpDir, 0o555);
+    try {
+      await expect(
+        deleteClientConfigStore(filePath, failingRestore),
+      ).rejects.toThrow();
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("gone"));
+    } finally {
+      await fs.chmod(tmpDir, 0o755);
+      warn.mockRestore();
+    }
+  });
 });
 
 describe("session-scoped store keeps client.json durable (#1950 review r19)", () => {
