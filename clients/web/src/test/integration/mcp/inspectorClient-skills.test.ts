@@ -438,6 +438,7 @@ describe("Skills extension over a real transport (#2234)", () => {
 
           const dynamic = reports.find((r) => r.name === "dynamic-report")!;
           expect(dynamic.ok).toBe(true);
+          expect(dynamic.outcome).toBe("unverifiable");
         } finally {
           store.destroy();
         }
