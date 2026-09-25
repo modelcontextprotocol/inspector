@@ -91,6 +91,9 @@ export async function dispatchConnectionRpc(
   try {
     outcome = await callDaemon<RpcResult>("rpc", params, {
       socketPath,
+      // Core enforces the configured MCP request timeout daemon-side; a
+      // fixed local deadline would falsely fail long-running tool calls.
+      timeoutMs: 0,
       signal: ac.signal,
       onElicitation: (frame) =>
         promptElicitation(frame, {

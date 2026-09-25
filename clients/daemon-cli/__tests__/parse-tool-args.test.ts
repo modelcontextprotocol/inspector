@@ -23,6 +23,17 @@ describe("parseToolCallPositionals", () => {
     });
   });
 
+  it('keeps a literal "__proto__" key as an own property, matching the inline-JSON path', () => {
+    // On a plain {} accumulator this key would hit the prototype setter and
+    // vanish while remapping the accumulator's prototype.
+    const out = parseToolCallPositionals(['__proto__:={"polluted":true}']);
+    expect(Object.getOwnPropertyNames(out)).toContain("__proto__");
+    expect(Object.getOwnPropertyDescriptor(out, "__proto__")?.value).toEqual({
+      polluted: true,
+    });
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+  });
+
   it("parses a single inline JSON object", () => {
     expect(parseToolCallPositionals(['{"message":"Foo","count":2}'])).toEqual({
       message: "Foo",

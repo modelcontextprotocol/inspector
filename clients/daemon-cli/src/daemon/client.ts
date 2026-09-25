@@ -17,6 +17,15 @@ import type {
 export type DaemonClientOptions = {
   socketPath?: string;
   /** Per-request timeout in ms. */
+  /**
+   * Client-side deadline for the whole request; `0` disables it. Defaults to
+   * 60s, which suits short control ops (ping, status, list). Callers of ops
+   * whose duration is governed by configured MCP timeouts the daemon already
+   * enforces (`connect` honouring `--connect-timeout`, `rpc` honouring the
+   * request timeout — either may validly run past 60s or be unlimited) must
+   * pass `0` so the fixed local timer can't fail an op the daemon is still
+   * executing. Daemon death is still detected via socket error/close.
+   */
   timeoutMs?: number;
   /** IPC token; defaults to `MCP_INSPECTOR_DAEMON_TOKEN` when set. */
   token?: string;
@@ -190,15 +199,18 @@ export async function callDaemon<T = unknown>(
       }
     });
 
-    timer = setTimeout(() => {
-      fail(
-        new CliExitCodeError(
-          EXIT_CODES.UNREACHABLE,
-          `Daemon request '${op}' timed out after ${timeoutMs}ms`,
-          { code: "daemon_timeout" },
-        ),
-      );
-    }, timeoutMs);
+    timer =
+      timeoutMs > 0
+        ? setTimeout(() => {
+            fail(
+              new CliExitCodeError(
+                EXIT_CODES.UNREACHABLE,
+                `Daemon request '${op}' timed out after ${timeoutMs}ms`,
+                { code: "daemon_timeout" },
+              ),
+            );
+          }, timeoutMs)
+        : undefined;
 
     options.signal?.addEventListener("abort", onAbort, { once: true });
 

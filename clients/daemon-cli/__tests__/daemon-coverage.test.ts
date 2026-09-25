@@ -402,6 +402,42 @@ describe("daemon coverage", () => {
     }
   }, 5000);
 
+  it("callDaemon with timeoutMs 0 arms no local deadline; daemon close still fails it", async () => {
+    // rpc/connect callers pass 0 because the daemon enforces the configured
+    // MCP timeouts; a fixed 60s local timer falsely failed long tool calls.
+    const d = freshDir();
+    const sock = path.join(d, "daemon.sock");
+    const sockets: net.Socket[] = [];
+    const silent = net.createServer((socket) => {
+      sockets.push(socket);
+      socket.on("error", () => {});
+    });
+    await new Promise<void>((resolve) => silent.listen(sock, resolve));
+    try {
+      const pending = callDaemon(
+        "ping",
+        {},
+        { socketPath: sock, timeoutMs: 0 },
+      );
+      let settled = false;
+      // void: observer only; the promise itself is asserted on below.
+      void pending.catch(() => (settled = true)).then(() => (settled = true));
+      // Longer than the "times out a hung server" test's deadline: nothing
+      // fires locally.
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      expect(settled).toBe(false);
+      for (const socket of sockets) socket.destroy();
+      await expect(pending).rejects.toThrow(/closed the connection/);
+    } finally {
+      silent.close();
+      try {
+        fs.unlinkSync(sock);
+      } catch {
+        // ignore
+      }
+    }
+  }, 5000);
+
   it("connections/use and reconnect replace an existing connection", async () => {
     const { command, args } = getTestMcpServerCommand();
     const registry = new ConnectionRegistry(0);

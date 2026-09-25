@@ -293,6 +293,54 @@ describe("ConnectionRegistry", () => {
     }
   });
 
+  it("a connect that outlives shutdown's quiesce grace tears its client down instead of leaking it", async () => {
+    const { InspectorClient } = await import("@inspector/core/mcp/index.js");
+    let releaseConnect!: () => void;
+    const gate = new Promise<void>((resolve) => (releaseConnect = resolve));
+    const connectSpy = vi
+      .spyOn(InspectorClient.prototype, "connect")
+      .mockImplementation(() => gate);
+    const disconnectSpy = vi
+      .spyOn(InspectorClient.prototype, "disconnect")
+      .mockResolvedValue(undefined);
+    const authSpy = vi
+      .spyOn(InspectorClient.prototype, "getOAuthState")
+      .mockResolvedValue(undefined as never);
+    const registry = new ConnectionRegistry(0);
+    try {
+      const params = {
+        name: "late",
+        serverConfig: {
+          type: "streamable-http",
+          url: "https://mcp.example.com/mcp",
+        },
+        serverIdentity: "https://mcp.example.com/mcp",
+      } as const;
+      const pending = registry.connect(params);
+      // Ensure the client is actually dialing before the shutdown snapshot
+      // runs — the bounded-quiesce-expired case (otherwise the entry check
+      // rejects it before a client exists).
+      await vi.waitFor(() => expect(connectSpy).toHaveBeenCalled());
+      await registry.disconnectAll();
+      releaseConnect();
+      await expect(pending).rejects.toMatchObject({
+        envelope: { code: "daemon_stopping" },
+      });
+      // The freshly connected client was disconnected, not registered.
+      expect(disconnectSpy).toHaveBeenCalledTimes(1);
+      expect(registry.connectionCount()).toBe(0);
+      // And a connect arriving after close fails fast, before dialing.
+      await expect(registry.connect(params)).rejects.toMatchObject({
+        envelope: { code: "daemon_stopping" },
+      });
+      expect(connectSpy).toHaveBeenCalledTimes(1); // no second dial
+    } finally {
+      connectSpy.mockRestore();
+      disconnectSpy.mockRestore();
+      authSpy.mockRestore();
+    }
+  });
+
   it("reports the connect-time auth snapshot, and connections/show recomputes from disk", async () => {
     const { InspectorClient } = await import("@inspector/core/mcp/index.js");
     const { NodeOAuthStorage, resetNodeOAuthStorageCache } =

@@ -87,6 +87,14 @@ export class ConnectionRegistry {
    */
   private readonly nameLocks = new Map<string, Promise<void>>();
 
+  /**
+   * Set by {@link disconnectAll} (daemon shutdown). A connect that was
+   * in-flight when the shutdown snapshot was taken — e.g. one that outlived
+   * the bounded quiesce grace — must not register a live client afterwards:
+   * nothing would ever disconnect it once the daemon exits.
+   */
+  private closed = false;
+
   private async withNameLock<T>(
     name: string,
     fn: () => Promise<T>,
@@ -233,6 +241,7 @@ export class ConnectionRegistry {
     serverSettings?: InspectorServerSettings;
     serverIdentity: string;
   }): Promise<ConnectionInfo> {
+    this.assertOpen();
     this.clearIdleTimer();
 
     try {
@@ -266,6 +275,14 @@ export class ConnectionRegistry {
 
       const now = Date.now();
       const auth = await getConnectionAuthInfo(client);
+      if (this.closed) {
+        // Shutdown proceeded past its bounded quiesce grace while this
+        // connect was still in flight; the disconnectAll snapshot has already
+        // run, so registering now would leak a live transport/child process
+        // past daemon exit. Tear the fresh client down instead.
+        await safeDisconnect(client);
+        this.assertOpen();
+      }
       this.connections.set(params.name, {
         name: params.name,
         serverIdentity: params.serverIdentity,
@@ -328,11 +345,22 @@ export class ConnectionRegistry {
   }
 
   async disconnectAll(): Promise<void> {
+    this.closed = true;
     const names = [...this.connections.keys()];
     for (const name of names) {
       await this.disconnect(name, false);
     }
     this.clearIdleTimer();
+  }
+
+  private assertOpen(): void {
+    if (this.closed) {
+      throw new CliExitCodeError(
+        EXIT_CODES.UNREACHABLE,
+        "Connection daemon is shutting down.",
+        { code: "daemon_stopping" },
+      );
+    }
   }
 
   private armIdleTimer(): void {

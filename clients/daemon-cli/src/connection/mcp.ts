@@ -448,6 +448,9 @@ function registerConnect(program: CommandType): void {
       try {
         result = await callDaemon<ConnectionInfo>("connect", connectParams, {
           socketPath,
+          // The daemon enforces the configured connect timeout (which may be
+          // 0 = unlimited or exceed 60s); no fixed local deadline.
+          timeoutMs: 0,
         });
       } catch (error) {
         if (
@@ -471,6 +474,7 @@ function registerConnect(program: CommandType): void {
         const { socketPath: freshSocketPath } = await ensureDaemon();
         result = await callDaemon<ConnectionInfo>("connect", connectParams, {
           socketPath: freshSocketPath,
+          timeoutMs: 0,
         });
       }
       await writeConnectionOutput(outOpts(opts), {

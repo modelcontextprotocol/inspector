@@ -36,7 +36,10 @@ export function parseToolCallPositionals(
     return parsed as Record<string, JsonValue>;
   }
 
-  const out: Record<string, JsonValue> = {};
+  // Null prototype: a "__proto__" key must become an ordinary own property
+  // (as the inline-JSON path preserves it), not hit the {} prototype setter
+  // and vanish while remapping the accumulator's prototype.
+  const out: Record<string, JsonValue> = Object.create(null);
   for (const pair of args) {
     const sep = pair.indexOf(":=");
     if (sep === -1) {
