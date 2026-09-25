@@ -34,6 +34,25 @@ import type {
  * `resources/directory/read`, whose stricter `directoryRead` gate lives in
  * `InspectorClient` itself.
  */
+/**
+ * `JSON.parse` accepts numeric literals JSON cannot represent (`1e999` →
+ * `Infinity`); serializing the request for IPC/MCP would then silently send
+ * `null` instead of the value the user supplied. Reject anything that cannot
+ * round-trip.
+ */
+function assertJsonRoundTrips(value: unknown): void {
+  if (typeof value === "number" && !Number.isFinite(value)) {
+    throw new Error(
+      `${value} has no JSON representation (it would silently be sent as null)`,
+    );
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) assertJsonRoundTrips(item);
+  } else if (value !== null && typeof value === "object") {
+    for (const item of Object.values(value)) assertJsonRoundTrips(item);
+  }
+}
+
 function assertSkillsSupported(
   inspectorClient: InspectorClient,
   method: string,
@@ -333,6 +352,7 @@ export async function runMethod(
         ) {
           throw new Error("must be a JSON object");
         }
+        assertJsonRoundTrips(parsed);
         inputResponses = parsed as Record<string, unknown>;
       } catch (e) {
         throw new Error(

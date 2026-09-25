@@ -12,12 +12,12 @@ Documentation of the **experimental** connection-oriented Inspector CLI (`mcpdo`
 
 ## Overview
 
-| | **One-shot** | **Connection** |
-| --- | --- | --- |
-| Entrypoint | `mcp-inspector --cli` | `mcpdo` |
-| Lifecycle | Connect → one `--method` → disconnect | Connect once → many subcommands → disconnect |
-| Process | In-process only | Short-lived front-end + implicit connection daemon (IPC) |
-| Package | `clients/cli` (ships with `@modelcontextprotocol/inspector`) | `clients/daemon-cli` (experimental; ships the `mcpdo` bin with `@modelcontextprotocol/inspector`) |
+|            | **One-shot**                                                 | **Connection**                                                                                    |
+| ---------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------- |
+| Entrypoint | `mcp-inspector --cli`                                        | `mcpdo`                                                                                           |
+| Lifecycle  | Connect → one `--method` → disconnect                        | Connect once → many subcommands → disconnect                                                      |
+| Process    | In-process only                                              | Short-lived front-end + implicit connection daemon (IPC)                                          |
+| Package    | `clients/cli` (ships with `@modelcontextprotocol/inspector`) | `clients/daemon-cli` (experimental; ships the `mcpdo` bin with `@modelcontextprotocol/inspector`) |
 
 Both use `@inspector/core` `InspectorClient` and shared `clients/cli/src/handlers/run-method.ts` (mcpdo reaches in via a temporary `@inspector/cli` build alias). One-shot never starts the daemon. `mcpdo` does not accept `--method`.
 
@@ -45,12 +45,12 @@ mcpdo tools/list
 
 ### Entrypoints and layout
 
-| Piece | Location |
-| --- | --- |
-| One-shot | `clients/cli/src/cli.ts`, `cliOAuth.ts`, `index.ts` |
+| Piece                | Location                                                                                                                       |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| One-shot             | `clients/cli/src/cli.ts`, `cliOAuth.ts`, `index.ts`                                                                            |
 | Connection front-end | `clients/daemon-cli/src/connection/` (`mcp.ts`, `dispatch.ts`, `authorize.ts`, `format-*.ts`, `private-env.ts`) + `mcp-bin.ts` |
-| Daemon | `clients/daemon-cli/src/daemon/` → `clients/daemon-cli/build/daemon.js` |
-| Shared handlers | `clients/cli/src/handlers/` (`run-method.ts`, `method-types.ts`, `servers-list.ts`, `emit-result.ts`, …) |
+| Daemon               | `clients/daemon-cli/src/daemon/` → `clients/daemon-cli/build/daemon.js`                                                        |
+| Shared handlers      | `clients/cli/src/handlers/` (`run-method.ts`, `method-types.ts`, `servers-list.ts`, `emit-result.ts`, …)                       |
 
 ```
 mcp-inspector --cli …          mcpdo …
@@ -69,10 +69,10 @@ mcp-inspector --cli …          mcpdo …
 
 Frozen automation contract. Each invocation: resolve server → connect → `runMethod` → print → disconnect. Never uses the connection daemon.
 
-| `--method` | Notes |
-| --- | --- |
-| `initialize`, `tools/list`, `tools/call`, `resources/list`, `resources/read`, `resources/templates/list`, `prompts/list`, `prompts/get`, `logging/setLevel` | Core one-shot surface (`ONE_SHOT_METHODS`) |
-| `servers/list`, `servers/show` | Catalog only (no MCP connect); `servers/show` needs `--server` |
+| `--method`                                                                                                                                                  | Notes                                                          |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| `initialize`, `tools/list`, `tools/call`, `resources/list`, `resources/read`, `resources/templates/list`, `prompts/list`, `prompts/get`, `logging/setLevel` | Core one-shot surface (`ONE_SHOT_METHODS`)                     |
+| `servers/list`, `servers/show`                                                                                                                              | Catalog only (no MCP connect); `servers/show` needs `--server` |
 
 Anything else (e.g. `logging/tail`, `resources/subscribe`, `tasks/*`, `roots/*`) is a **usage error before connect** — one-shot must not hang on stream outcomes.
 
@@ -84,13 +84,13 @@ Anything else (e.g. `logging/tail`, `resources/subscribe`, `tasks/*`, `roots/*`)
 
 #### Commands
 
-| Category | Commands |
-| --- | --- |
-| Catalog | `servers/list`, `servers/show <name>` |
-| Connection | `connect` (`--relogin`), `disconnect`, `connections/list`, `connections/use` |
-| Auth store | `auth/list`, `auth/clear` / `auth/clear --all` |
-| Daemon | `private`, `daemon status`, `daemon stop` |
-| MCP | `tools/list`, `tools/call`, `resources/*`, `prompts/*`, `logging/setLevel`, `logging/tail`, `tasks/*`, `roots/list`, `roots/set` (`initialize` is deliberately not registered — connection metadata comes from `connections/show`) |
+| Category   | Commands                                                                                                                                                                                                                           |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Catalog    | `servers/list`, `servers/show <name>`                                                                                                                                                                                              |
+| Connection | `connect` (`--relogin`), `disconnect`, `connections/list`, `connections/use`                                                                                                                                                       |
+| Auth store | `auth/list`, `auth/clear` / `auth/clear --all`                                                                                                                                                                                     |
+| Daemon     | `private`, `daemon status`, `daemon stop`                                                                                                                                                                                          |
+| MCP        | `tools/list`, `tools/call`, `resources/*`, `prompts/*`, `logging/setLevel`, `logging/tail`, `tasks/*`, `roots/list`, `roots/set` (`initialize` is deliberately not registered — connection metadata comes from `connections/show`) |
 
 **Globals (before subcommand):** `--format text|json`, `--plain`, `--connection <name>`, `--catalog` / `--config`, `--stored-auth-only`.
 
@@ -100,11 +100,11 @@ Anything else (e.g. `logging/tail`, `resources/subscribe`, `tasks/*`, `roots/*`)
 
 #### Output
 
-| Flag | Behaviour |
-| --- | --- |
+| Flag                      | Behaviour                                                                                       |
+| ------------------------- | ----------------------------------------------------------------------------------------------- |
 | `--format text` (default) | Human-readable. On a TTY: ANSI color / bold / dim / OSC 8 links unless `--plain` or `NO_COLOR`. |
-| `--format json` | Pretty-printed payload (**no** `{ result }` envelope; never ANSI). |
-| Streams | Long-lived until Ctrl-C; human lines or pretty JSON events per `--format`. |
+| `--format json`           | Pretty-printed payload (**no** `{ result }` envelope; never ANSI).                              |
+| Streams                   | Long-lived until Ctrl-C; human lines or pretty JSON events per `--format`.                      |
 
 #### Default connection (MRU)
 
@@ -115,23 +115,23 @@ Anything else (e.g. `logging/tail`, `resources/subscribe`, `tasks/*`, `roots/*`)
 
 #### Daemon
 
-**IPC ops:** `ping`, `connect`, `disconnect`, `connections/list`, `connections/use`, `daemon/status`, `daemon/stop`, `rpc`, `stream`.
+**IPC ops:** `ping`, `connect`, `disconnect`, `connections/list`, `connections/use`, `connections/show`, `daemon/status`, `daemon/stop`, `rpc`, `stream`.
 
 - One `InspectorClient` per named connection; auto-spawn on first need; idle exit ~60s after last disconnect **or** after a connection-less spawn with no successful connect; `daemon stop` tears down immediately.
 - Socket/lock mode `0600` (best-effort). Config (incl. secrets) over IPC after listen — not on daemon argv.
 - Errors that are not already `CliExitCodeError` go through `classifyError` (exit-code parity with one-shot).
 
-| Context | Path |
-| --- | --- |
-| Shared default | `~/.mcp-inspector/daemon.sock` (+ `daemon.lock`, `daemon.token`, `daemon.log`) |
-| `MCP_STORAGE_DIR` | Socket/lock under that dir (CI isolation; same family as `oauth.json`) |
-| `MCP_INSPECTOR_DAEMON_DIR` | Wins over storage dir when set (spawn pin / private) |
-| Private | `$TMPDIR/mcp-conn-<uid>/<id>/` (0700, short id — `sun_path` caps socket paths at 104 bytes on macOS) from `mcpdo private` |
+| Context                    | Path                                                                                                                      |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| Shared default             | `~/.mcp-inspector/daemon.sock` (+ `daemon.lock`, `daemon.token`, `daemon.log`)                                            |
+| `MCP_STORAGE_DIR`          | Socket/lock under that dir (CI isolation; same family as `oauth.json`)                                                    |
+| `MCP_INSPECTOR_DAEMON_DIR` | Wins over storage dir when set (spawn pin / private)                                                                      |
+| Private                    | `$TMPDIR/mcp-conn-<uid>/<id>/` (0700, short id — `sun_path` caps socket paths at 104 bytes on macOS) from `mcpdo private` |
 
-| Mode | Trust |
-| --- | --- |
-| **Shared (default)** | Auto-generated token, published to `daemon.token` (0600) in the daemon dir (0700). Same-UID peer that can read the dir can drive connections (intentional cross-terminal share); there is no unauthenticated request path. |
-| **Private** | `eval "$(mcpdo private)"` exports `MCP_INSPECTOR_DAEMON_DIR` + `MCP_INSPECTOR_DAEMON_TOKEN`. Daemon requires the token on every request. OAuth store remains shared unless the user also sets `MCP_STORAGE_DIR`. Daemon starts lazily on first IPC. |
+| Mode                 | Trust                                                                                                                                                                                                                                               |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Shared (default)** | Auto-generated token, published to `daemon.token` (0600) in the daemon dir (0700). Same-UID peer that can read the dir can drive connections (intentional cross-terminal share); there is no unauthenticated request path.                          |
+| **Private**          | `eval "$(mcpdo private)"` exports `MCP_INSPECTOR_DAEMON_DIR` + `MCP_INSPECTOR_DAEMON_TOKEN`. Daemon requires the token on every request. OAuth store remains shared unless the user also sets `MCP_STORAGE_DIR`. Daemon starts lazily on first IPC. |
 
 #### Auth (connection)
 
@@ -143,18 +143,18 @@ Anything else (e.g. `logging/tail`, `resources/subscribe`, `tasks/*`, `roots/*`)
 
 #### One-shot ↔ connection mapping
 
-| One-shot | Connection |
-| --- | --- |
-| `… --catalog mcp.json --server s --method tools/list` | `mcpdo connect --catalog mcp.json s` then `mcpdo tools/list` |
-| `… --method tools/call --tool-name X --tool-args-json '…'` | `mcpdo tools/call X key:=val` / `'{"…"}'` |
-| `… --method servers/list` | `mcpdo servers/list` |
-| `… --method servers/show --server <name>` | `mcpdo servers/show <name>` |
+| One-shot                                                   | Connection                                                   |
+| ---------------------------------------------------------- | ------------------------------------------------------------ |
+| `… --catalog mcp.json --server s --method tools/list`      | `mcpdo connect --catalog mcp.json s` then `mcpdo tools/list` |
+| `… --method tools/call --tool-name X --tool-args-json '…'` | `mcpdo tools/call X key:=val` / `'{"…"}'`                    |
+| `… --method servers/list`                                  | `mcpdo servers/list`                                         |
+| `… --method servers/show --server <name>`                  | `mcpdo servers/show <name>`                                  |
 
 ### Testing
 
-| Client | Runner | Coverage |
-| --- | --- | --- |
-| One-shot (`clients/cli`) | In-process `runCli()`; thin binary e2e | Per-file ≥90 on `clients/cli/src`. Exclusion: `src/index.ts`. |
+| Client                                | Runner                                                           | Coverage                                                                                               |
+| ------------------------------------- | ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| One-shot (`clients/cli`)              | In-process `runCli()`; thin binary e2e                           | Per-file ≥90 on `clients/cli/src`. Exclusion: `src/index.ts`.                                          |
 | Connection CLI (`clients/daemon-cli`) | In-process `runMcp()`; daemon IPC + stream + private-token tests | Per-file ≥90 on `clients/daemon-cli/src`. Exclusions: `mcp-bin.ts`, `daemon/run.ts` (bootstraps only). |
 
 Both are wired into root `validate` / `coverage`.
@@ -163,20 +163,19 @@ Both are wired into root `validate` / `coverage`.
 
 ## To-do
 
-| Item | Notes |
-| --- | --- |
-| **Mid-session auth over IPC** | Challenge + step-up UX on the invoking `mcpdo` during `rpc`/`stream`. Connect-time only today. |
-| **Windows daemon transport** | Unix-domain sockets only; named pipes on `win32` when needed. |
-| **Per-socket request serialization** | Requests on one connection are handled as lines arrive (single line capped at 1 MiB); safe while clients use one request per connection. |
-| **Per-connection RPC mutex** | Parallel `mcpdo` processes against one connection can interleave on one `InspectorClient`. |
-| **Shared `createCliInspectorClient`** | Daemon / authorize / one-shot construct clients separately. |
-| **Split `registerRpcCommands`** | Large Commander switch in `connection/mcp.ts`. |
-| **`mcpdo daemon run`** | Optional foreground debug (not a Commander subcommand; `build/daemon.js` works today). |
-| **Launcher help polish** | Make `mcpdo` vs `--cli` unmistakable in launcher `--help` / docs. |
-| **Connection `connect` OAuth flag parity** | One-shot has `--client-id` / `--callback-url` / handoff; connection authorize uses defaults / env only. |
-| **Peer-cred / stronger private IPC** | Private mode uses bearer token; optional OS peer checks beyond that. |
-| **Stream fan-out / `mcpdo attach`** | One consumer per stream invocation today. |
-| **Sampling CLI** | Still TUI/web. mcpdo handles server-driven *elicitation* (URL + form modes, `--elicit` capability override) since #1783; sampling remains unimplemented. Decision: only `--format json` auto-declines elicitation; any other caller — including a non-TTY agent — is prompted and may answer form-mode questions on the user's behalf. URL mode never auto-accepts: completion is only confirmed by an explicit answer. |
-| **Ephemeral no-`connect` shortcuts on `mcpdo`** | Out of scope (keep two mental models). |
-| **`MCP_SESSION` env** | Superseded by require-explicit-on-non-TTY + `MCP_ALLOW_DEFAULT_CONNECTION=1`. |
-| **Human `--full` schema dumps** | Optional formatter polish. |
+| Item                                            | Notes                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Mid-session auth over IPC**                   | Challenge + step-up UX on the invoking `mcpdo` during `rpc`/`stream`. Connect-time only today.                                                                                                                                                                                                                                                                                                                          |
+| **Per-socket request serialization**            | Requests on one connection are handled as lines arrive (single line capped at 1 MiB); safe while clients use one request per connection.                                                                                                                                                                                                                                                                                |
+| **Per-connection RPC mutex**                    | Parallel `mcpdo` processes against one connection can interleave on one `InspectorClient`.                                                                                                                                                                                                                                                                                                                              |
+| **Shared `createCliInspectorClient`**           | Daemon / authorize / one-shot construct clients separately.                                                                                                                                                                                                                                                                                                                                                             |
+| **Split `registerRpcCommands`**                 | Large Commander switch in `connection/mcp.ts`.                                                                                                                                                                                                                                                                                                                                                                          |
+| **`mcpdo daemon run`**                          | Optional foreground debug (not a Commander subcommand; `build/daemon.js` works today).                                                                                                                                                                                                                                                                                                                                  |
+| **Launcher help polish**                        | Make `mcpdo` vs `--cli` unmistakable in launcher `--help` / docs.                                                                                                                                                                                                                                                                                                                                                       |
+| **Connection `connect` OAuth flag parity**      | One-shot has `--client-id` / `--callback-url` / handoff; connection authorize uses defaults / env only.                                                                                                                                                                                                                                                                                                                 |
+| **Peer-cred / stronger private IPC**            | Private mode uses bearer token; optional OS peer checks beyond that.                                                                                                                                                                                                                                                                                                                                                    |
+| **Stream fan-out / `mcpdo attach`**             | One consumer per stream invocation today.                                                                                                                                                                                                                                                                                                                                                                               |
+| **Sampling CLI**                                | Still TUI/web. mcpdo handles server-driven _elicitation_ (URL + form modes, `--elicit` capability override) since #1783; sampling remains unimplemented. Decision: only `--format json` auto-declines elicitation; any other caller — including a non-TTY agent — is prompted and may answer form-mode questions on the user's behalf. URL mode never auto-accepts: completion is only confirmed by an explicit answer. |
+| **Ephemeral no-`connect` shortcuts on `mcpdo`** | Out of scope (keep two mental models).                                                                                                                                                                                                                                                                                                                                                                                  |
+| **`MCP_SESSION` env**                           | Superseded by require-explicit-on-non-TTY + `MCP_ALLOW_DEFAULT_CONNECTION=1`.                                                                                                                                                                                                                                                                                                                                           |
+| **Human `--full` schema dumps**                 | Optional formatter polish.                                                                                                                                                                                                                                                                                                                                                                                              |

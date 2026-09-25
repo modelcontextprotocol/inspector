@@ -225,6 +225,15 @@ describe("runMethod (mocked client)", () => {
         inputResponsesJson: "[1,2,3]",
       }),
     ).rejects.toThrow(/--input-responses is invalid/);
+    // 1e999 parses as Infinity, which serialization would silently send as
+    // null — reject it instead of answering with a different value.
+    await expect(
+      runMethod(client, {
+        method: "tasks/update",
+        taskId: "t1",
+        inputResponsesJson: '{"a":{"b":[1e999]}}',
+      }),
+    ).rejects.toThrow(/no JSON representation/);
 
     await expect(
       runMethod(client, {
