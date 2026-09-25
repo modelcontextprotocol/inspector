@@ -136,6 +136,26 @@ describe("daemon paths", () => {
       /too long for this platform/,
     );
   });
+
+  it("uses a deterministic named-pipe path on Windows with no sun_path limit", () => {
+    const realPlatform = Object.getOwnPropertyDescriptor(
+      process,
+      "platform",
+    ) as PropertyDescriptor;
+    Object.defineProperty(process, "platform", { value: "win32" });
+    try {
+      const pipe = getDaemonSocketPath("/some/daemon/dir");
+      expect(pipe).toMatch(/^\\\\\.\\pipe\\mcp-conn-[0-9a-f]{16}$/);
+      // Same dir (any casing) -> same pipe; different dir -> different pipe.
+      expect(getDaemonSocketPath("/SOME/DAEMON/DIR")).toBe(pipe);
+      expect(getDaemonSocketPath("/other/daemon/dir")).not.toBe(pipe);
+      // Pipe names are not sun_path-constrained.
+      const long = "\\\\.\\pipe\\" + "x".repeat(300);
+      expect(() => assertSocketPathWithinLimit(long)).not.toThrow();
+    } finally {
+      Object.defineProperty(process, "platform", realPlatform);
+    }
+  });
 });
 
 describe("writeFormattedResult", () => {

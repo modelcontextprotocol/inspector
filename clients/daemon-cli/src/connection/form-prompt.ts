@@ -190,12 +190,14 @@ async function promptField(
       closed,
       `${describeField(field, style)}\n  ${def !== undefined ? `[${sanitizeText(def)}]` : ""}: `,
     );
-    const value = raw === "" && def !== undefined ? def : raw;
-    if (value === "" && field.required) {
-      process.stderr.write(style.red("  This field is required.\n"));
-      continue;
-    }
-    if (value === "" && !field.required) return undefined;
+    // Enter with a default selects it — even an empty-string default; the
+    // schema gate already rejected defaults violating their own constraints.
+    if (raw === "" && def !== undefined) return def;
+    // A blank answer with no default omits an optional field. For a required
+    // field "" is a value — JSON Schema `required` means present, not
+    // non-empty — so minLength (if any) decides below.
+    if (raw === "" && !field.required) return undefined;
+    const value = raw;
     if (field.minLength !== undefined && value.length < field.minLength) {
       process.stderr.write(
         style.red(`  Must be at least ${field.minLength} characters.\n`),

@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -94,7 +94,23 @@ export function assertTrustedPrivateRoot(dir: string): void {
   }
 }
 
+/**
+ * IPC endpoint for the daemon owning `dir`. On Unix this is a socket file
+ * inside the directory. On Windows, `net` requires named-pipe paths
+ * (`\\.\pipe\...`) — a filesystem path never binds — so derive a
+ * deterministic per-directory pipe name: every client of the same daemon
+ * dir dials the same pipe, and distinct dirs (private mode, tests) never
+ * collide. The dir is resolved and lowercased first, matching Windows
+ * path-comparison semantics.
+ */
 export function getDaemonSocketPath(dir: string = getDaemonDir()): string {
+  if (process.platform === "win32") {
+    const hash = createHash("sha256")
+      .update(path.resolve(dir).toLowerCase())
+      .digest("hex")
+      .slice(0, 16);
+    return `\\\\.\\pipe\\mcp-conn-${hash}`;
+  }
   return path.join(dir, "daemon.sock");
 }
 
@@ -128,6 +144,8 @@ export function getDaemonLogPath(dir: string = getDaemonDir()): string {
  * generic start timeout. Validate up front with an actionable error instead.
  */
 export function assertSocketPathWithinLimit(socketPath: string): void {
+  // Windows named pipes are not sun_path-constrained.
+  if (process.platform === "win32") return;
   /* v8 ignore next -- one arm per platform; CI runs each on its own OS */
   const limit = process.platform === "linux" ? 107 : 103;
   const bytes = Buffer.byteLength(socketPath);

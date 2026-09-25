@@ -91,11 +91,27 @@ describe("promptForm", () => {
     expect(outcome).toEqual({ action: "accept", content: {} });
   });
 
-  it("re-prompts a required string field until non-blank", async () => {
-    const rl = fakeRl(["", "octocat", ""]);
+  it("accepts a blank answer for a required string field as an empty string", async () => {
+    // JSON Schema `required` means present, not non-empty.
+    const rl = fakeRl(["", ""]);
     const outcome = await promptForm(rl, "msg", [stringField], style);
-    expect(outcome).toEqual({ action: "accept", content: { name: "octocat" } });
-    expect(stderr).toContain("This field is required");
+    expect(outcome).toEqual({ action: "accept", content: { name: "" } });
+    expect(stderr).not.toContain("This field is required");
+  });
+
+  it("lets minLength reject a blank required answer", async () => {
+    const field: FormField = { ...stringField, minLength: 3 };
+    const rl = fakeRl(["", "abc", ""]);
+    const outcome = await promptForm(rl, "msg", [field], style);
+    expect(outcome).toEqual({ action: "accept", content: { name: "abc" } });
+    expect(stderr).toContain("at least 3");
+  });
+
+  it("keeps an empty-string default instead of dropping the field", async () => {
+    const field: FormField = { ...stringField, required: false, default: "" };
+    const rl = fakeRl(["", ""]);
+    const outcome = await promptForm(rl, "msg", [field], style);
+    expect(outcome).toEqual({ action: "accept", content: { name: "" } });
   });
 
   it("enforces minLength/maxLength on a string field", async () => {
