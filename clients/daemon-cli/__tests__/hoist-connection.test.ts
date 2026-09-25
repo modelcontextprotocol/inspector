@@ -47,4 +47,33 @@ describe("expandConnAlias", () => {
     ];
     expect(expandConnAlias(input)).toEqual(input);
   });
+
+  it("passes tokens after -- through verbatim (child-process args)", () => {
+    expect(
+      expandConnAlias([
+        "node",
+        "mcpdo",
+        "--conn",
+        "alpha",
+        "connect",
+        "srv",
+        "--",
+        "--conn=value",
+        "--conn",
+      ]),
+    ).toEqual([
+      "node",
+      "mcpdo",
+      "--connection",
+      "alpha",
+      "connect",
+      "srv",
+      "--",
+      "--conn=value",
+      "--conn",
+    ]);
+    // Only the first separator ends expansion; later ones are child args too.
+    const onlyAfter = ["node", "mcpdo", "--", "--conn", "--", "--conn=x"];
+    expect(expandConnAlias(onlyAfter)).toEqual(onlyAfter);
+  });
 });

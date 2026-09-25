@@ -106,14 +106,21 @@ const validLogLevels: LoggingLevel[] = Object.values(LoggingLevelSchema.enum);
  * `--conn` is a documented shorthand for `--connection`. Expanding it at the
  * argv level keeps a single option registration (one help entry, one
  * GlobalOpts field) instead of two options merged at every consumption site.
+ * Expansion stops at the first `--`: everything after the separator belongs
+ * to the child process (`connect … -- <server args>`) and must pass through
+ * verbatim.
  */
 export function expandConnAlias(argv: string[]): string[] {
-  return argv.map((arg) =>
-    arg === "--conn"
-      ? "--connection"
-      : arg.startsWith("--conn=")
-        ? `--connection=${arg.slice("--conn=".length)}`
-        : arg,
+  const sep = argv.indexOf("--");
+  const end = sep === -1 ? argv.length : sep;
+  return argv.map((arg, i) =>
+    i >= end
+      ? arg
+      : arg === "--conn"
+        ? "--connection"
+        : arg.startsWith("--conn=")
+          ? `--connection=${arg.slice("--conn=".length)}`
+          : arg,
   );
 }
 
