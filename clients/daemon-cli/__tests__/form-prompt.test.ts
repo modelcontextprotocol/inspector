@@ -398,6 +398,24 @@ describe("promptForm", () => {
     expect(outcome).toEqual({ action: "accept", content: { name: "edited" } });
   });
 
+  it("shows the property name in the review when it differs from the title, and edits by title", async () => {
+    const field: FormField = {
+      name: "emailAddress",
+      required: true,
+      title: "Email address",
+      kind: "string",
+    };
+    // Initial value, edit via the display title, new value, submit.
+    const rl = fakeRl(["a@example.com", "Email address", "b@example.com", ""]);
+    const outcome = await promptForm(rl, "msg", [field], style);
+    expect(outcome).toEqual({
+      action: "accept",
+      content: { emailAddress: "b@example.com" },
+    });
+    // The review label must reveal the editable property name.
+    expect(stderr).toContain("Email address (emailAddress):");
+  });
+
   it("shows '(none)' in the review for a field with no value", async () => {
     const field: FormField = { ...stringField, required: false };
     const rl = fakeRl(["", ""]);

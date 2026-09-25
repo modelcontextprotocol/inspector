@@ -77,6 +77,16 @@ function parseChoicesFromOneOf(value: unknown): Choice[] | undefined {
 }
 
 /**
+ * Length/count keywords (`minLength`, `maxLength`, `minItems`, `maxItems`)
+ * must be non-negative integers. A negative bound (e.g. `maxLength: -1` on a
+ * required string) would otherwise parse fine and then reject every possible
+ * answer — an unwinnable prompt loop.
+ */
+function isValidCount(value: number | undefined): boolean {
+  return value === undefined || (Number.isInteger(value) && value >= 0);
+}
+
+/**
  * A structurally valid field can still be internally inconsistent —
  * unsatisfiable constraints (`minimum > maximum`, `minItems` above the
  * choice count) or a default that violates its own constraints. Those would
@@ -104,6 +114,9 @@ function isConsistent(field: FieldExtra): boolean {
       }
       return true;
     case "string":
+      if (!isValidCount(field.minLength) || !isValidCount(field.maxLength)) {
+        return false;
+      }
       if (
         field.minLength !== undefined &&
         field.maxLength !== undefined &&
@@ -132,6 +145,9 @@ function isConsistent(field: FieldExtra): boolean {
         field.choices.some((c) => c.value === field.default)
       );
     case "multiselect": {
+      if (!isValidCount(field.minItems) || !isValidCount(field.maxItems)) {
+        return false;
+      }
       if (
         field.minItems !== undefined &&
         field.maxItems !== undefined &&

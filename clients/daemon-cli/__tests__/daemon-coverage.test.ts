@@ -1,5 +1,13 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import * as fs from "node:fs";
+
+// Wrap renameSync in a pass-through vi.fn so the lock-reclaim race test can
+// inject a concurrent contender in the read→rename window (ESM namespaces
+// cannot be spied on directly).
+vi.mock("node:fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs")>();
+  return { ...actual, renameSync: vi.fn(actual.renameSync) };
+});
 import * as net from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -144,6 +152,40 @@ describe("daemon coverage", () => {
     expect(fs.readFileSync(path.join(d, "daemon.lock"), "utf8").trim()).toBe(
       String(process.pid),
     );
+  });
+
+  it("does not delete a lock it no longer owns on stop", async () => {
+    const d = freshDir();
+    server = new DaemonServer({ dir: d, idleMs: 0 });
+    await server.start();
+    const lockPath = path.join(d, "daemon.lock");
+    // Simulate a successor's lock at the same path (reclaim race / manual
+    // operator cleanup): release must be ownership-checked.
+    fs.writeFileSync(lockPath, "424242\n");
+    await server.stop("stop");
+    server = undefined;
+    expect(fs.readFileSync(lockPath, "utf8").trim()).toBe("424242");
+    fs.unlinkSync(lockPath);
+  });
+
+  it("restores a live lock created between the dead-pid read and the rename", async () => {
+    const d = freshDir();
+    const lockPath = path.join(d, "daemon.lock");
+    fs.writeFileSync(lockPath, "999999999\n"); // dead pid
+    const actualFs = await vi.importActual<typeof import("node:fs")>("node:fs");
+    vi.mocked(fs.renameSync).mockImplementationOnce(((
+      ...args: Parameters<typeof fs.renameSync>
+    ) => {
+      // Simulate a concurrent starter finishing its own reclaim + O_EXCL
+      // create in the window between readLockPid() and renameSync().
+      fs.writeFileSync(lockPath, `${process.pid}\n`);
+      return actualFs.renameSync(...args);
+    }) as typeof fs.renameSync);
+    const contender = new DaemonServer({ dir: d, idleMs: 0 });
+    await expect(contender.start()).rejects.toThrow(/held by running pid/);
+    // The stolen live lock was restored at the canonical path.
+    expect(fs.readFileSync(lockPath, "utf8").trim()).toBe(String(process.pid));
+    expect(fs.existsSync(`${lockPath}.reclaim.${process.pid}`)).toBe(false);
   });
 
   it("removes a stale socket before binding", async () => {

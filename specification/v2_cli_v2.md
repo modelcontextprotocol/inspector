@@ -169,7 +169,6 @@ Both are wired into root `validate` / `coverage`.
 | **Windows daemon transport** | Unix-domain sockets only; named pipes on `win32` when needed. |
 | **Per-socket request serialization** | Requests on one connection are handled as lines arrive (single line capped at 1 MiB); safe while clients use one request per connection. |
 | **Per-connection RPC mutex** | Parallel `mcpdo` processes against one connection can interleave on one `InspectorClient`. |
-| **`streamDaemon` post-open errors** | Socket errors after the initial ok frame are treated as soft end. |
 | **Shared `createCliInspectorClient`** | Daemon / authorize / one-shot construct clients separately. |
 | **Split `registerRpcCommands`** | Large Commander switch in `connection/mcp.ts`. |
 | **`mcpdo daemon run`** | Optional foreground debug (not a Commander subcommand; `build/daemon.js` works today). |

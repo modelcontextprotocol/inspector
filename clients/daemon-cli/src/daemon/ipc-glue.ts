@@ -47,6 +47,16 @@ export type HandleRequest = (
 export const MAX_REQUEST_LINE_BYTES = 1024 * 1024;
 
 /**
+ * Upper bound on unflushed stream-frame bytes buffered for one socket.
+ * `socket.write()` queues without limit when the peer stops reading; a
+ * high-rate stream (e.g. `logging/tail`) to a slow client would otherwise
+ * grow the daemon's heap without bound. Once exceeded, the stream is
+ * terminated: the producer is unsubscribed and the socket destroyed, which
+ * the client reports as an interrupted stream (`daemon_unreachable`).
+ */
+export const MAX_STREAM_BUFFER_BYTES = 1024 * 1024;
+
+/**
  * Per-connection {@link ElicitationChannel}. Writes an elicitation-request
  * frame straight onto the socket (ahead of the eventual `DaemonResponse`) and
  * waits for the next line to answer it; `acceptDaemonConnection`'s line
@@ -177,20 +187,38 @@ export function acceptDaemonConnection(
 
       const id = request.id;
       let stopped = false;
+      let stop: (() => void) | undefined = undefined;
+      const stopProducer = () => {
+        try {
+          stop?.();
+        } catch {
+          // ignore unsubscribe errors
+        }
+      };
       const writeData = (data: unknown) => {
         if (stopped || socket.destroyed) return;
         const frame: DaemonStreamFrame = { id, stream: "data", data };
         socket.write(JSON.stringify(frame) + "\n");
+        if (socket.writableLength > MAX_STREAM_BUFFER_BYTES) {
+          // Slow/non-reading client: cap the buffered backlog instead of
+          // exhausting the daemon heap. Destroying (no end frame) makes the
+          // client report an interrupted stream rather than a clean finish.
+          stopped = true;
+          stopProducer();
+          socket.destroy();
+        }
       };
-      const stop = outcome.startStream(writeData);
+      stop = outcome.startStream(writeData);
+      if (stopped) {
+        // Overflow hit while startStream was still running (synchronous
+        // producer): `stop` wasn't assigned yet, unsubscribe it now.
+        stopProducer();
+        return;
+      }
       const cleanup = () => {
         if (stopped) return;
         stopped = true;
-        try {
-          stop();
-        } catch {
-          // ignore unsubscribe errors
-        }
+        stopProducer();
         if (!socket.destroyed) {
           const end: DaemonStreamFrame = { id, stream: "end" };
           socket.write(JSON.stringify(end) + "\n");

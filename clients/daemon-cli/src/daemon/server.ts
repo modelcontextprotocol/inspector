@@ -505,12 +505,15 @@ export class DaemonServer {
   /**
    * `daemon.lock` is a real lock, not bookkeeping: `O_EXCL`-create it with
    * our pid, and refuse to start while another *live* daemon holds it. A
-   * lock left by a dead pid is reclaimed (one retry). This closes the race
-   * where two starting daemons both probe a dead socket, both unlink, and
-   * the loser's unlink removes the winner's freshly-bound socket.
+   * lock left by a dead pid is reclaimed atomically: the stale file is
+   * `rename`d aside first, so exactly one contender wins the reclaim and a
+   * concurrent starter's freshly-created lock can never be deleted by the
+   * read-pid → unlink window of another. If the renamed-aside file turns out
+   * to hold a *live* pid (created between our read and the rename), it is
+   * restored with a create-only `link` — ownership-preserving, same inode.
    */
   private acquireLock(): void {
-    for (let attempt = 0; attempt < 2; attempt++) {
+    for (let attempt = 0; attempt < 3; attempt++) {
       try {
         const fd = fs.openSync(this.lockPath, "wx", 0o600);
         fs.writeSync(fd, `${process.pid}\n`);
@@ -526,10 +529,40 @@ export class DaemonServer {
             { cause: error },
           );
         }
+        const claimed = `${this.lockPath}.reclaim.${process.pid}`;
         try {
-          fs.unlinkSync(this.lockPath);
+          fs.renameSync(this.lockPath, claimed);
         } catch {
-          // lost a removal race; the retry's O_EXCL create decides
+          // Another contender renamed it first; retry the O_EXCL create.
+          continue;
+        }
+        const claimedPid = this.readPidFile(claimed);
+        if (claimedPid !== undefined && isPidAlive(claimedPid)) {
+          // We renamed away a lock that a concurrent starter created between
+          // our dead-pid read and the rename. Put it back without breaking
+          // that starter's ownership: link() re-creates the path for the
+          // same inode and fails (EEXIST) rather than overwriting.
+          try {
+            fs.linkSync(claimed, this.lockPath);
+          } catch {
+            // A third contender created a new lock meanwhile; the retry's
+            // O_EXCL create / live-pid check decides.
+          }
+          try {
+            fs.unlinkSync(claimed);
+          } catch {
+            // best-effort temp cleanup
+          }
+          throw new Error(
+            `Connection daemon lock ${this.lockPath} is held by running pid ${claimedPid}. ` +
+              `Use \`mcpdo daemon/stop\`, or remove the file if that pid is not an mcpdo daemon.`,
+            { cause: error },
+          );
+        }
+        try {
+          fs.unlinkSync(claimed);
+        } catch {
+          // best-effort temp cleanup
         }
       }
     }
@@ -539,11 +572,12 @@ export class DaemonServer {
   }
 
   private readLockPid(): number | undefined {
+    return this.readPidFile(this.lockPath);
+  }
+
+  private readPidFile(filePath: string): number | undefined {
     try {
-      const pid = Number.parseInt(
-        fs.readFileSync(this.lockPath, "utf8").trim(),
-        10,
-      );
+      const pid = Number.parseInt(fs.readFileSync(filePath, "utf8").trim(), 10);
       return Number.isInteger(pid) && pid > 0 ? pid : undefined;
     } catch {
       return undefined;
@@ -551,6 +585,9 @@ export class DaemonServer {
   }
 
   private releaseLock(): void {
+    // Only release a lock this process still owns: after a reclaim race or
+    // an operator's manual cleanup, the path may hold a successor's lock.
+    if (this.readLockPid() !== process.pid) return;
     try {
       fs.unlinkSync(this.lockPath);
     } catch {

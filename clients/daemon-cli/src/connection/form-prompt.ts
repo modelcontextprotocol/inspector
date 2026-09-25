@@ -234,8 +234,15 @@ export async function promptForm(
     process.stderr.write(`\n${style.bold("Review your answers:")}\n`);
     for (const field of fields) {
       const v = values.get(field.name);
+      // The edit prompt below accepts the schema property *name*; show it
+      // whenever it differs from the display title so the user can discover
+      // what to type.
+      const label =
+        field.title === field.name
+          ? field.title
+          : `${field.title} (${field.name})`;
       process.stderr.write(
-        `  ${sanitizeText(field.title)}: ${v === undefined ? style.dim("(none)") : sanitizeText(String(v))}\n`,
+        `  ${sanitizeText(label)}: ${v === undefined ? style.dim("(none)") : sanitizeText(String(v))}\n`,
       );
     }
     const answer = (
@@ -256,7 +263,9 @@ export async function promptForm(
     if (answer.toLowerCase() === "c") {
       return { action: "cancel" };
     }
-    const field = fields.find((f) => f.name === answer);
+    const field =
+      fields.find((f) => f.name === answer) ??
+      fields.find((f) => f.title === answer);
     if (!field) {
       process.stderr.write(
         style.red(`  Unknown field "${answer}". Try again.\n`),

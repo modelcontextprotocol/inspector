@@ -345,6 +345,27 @@ describe("parseFormSchema", () => {
     }
   });
 
+  it("returns null for negative or non-integer length/count keywords", () => {
+    const cases: Record<string, unknown>[] = [
+      { s: { type: "string", maxLength: -1 } },
+      { s: { type: "string", minLength: -3 } },
+      { s: { type: "string", minLength: 1.5 } },
+      { m: { type: "array", items: { enum: ["a", "b"] }, maxItems: -1 } },
+      { m: { type: "array", items: { enum: ["a", "b"] }, minItems: -2 } },
+      { m: { type: "array", items: { enum: ["a", "b"] }, minItems: 0.5 } },
+    ];
+    for (const properties of cases) {
+      expect(parseFormSchema({ type: "object", properties })).toBeNull();
+    }
+    // Zero is a valid bound.
+    expect(
+      parseFormSchema({
+        type: "object",
+        properties: { s: { type: "string", minLength: 0 } },
+      }),
+    ).toHaveLength(1);
+  });
+
   it("returns null for defaults that violate the field's own constraints", () => {
     const cases: Record<string, unknown>[] = [
       { n: { type: "number", minimum: 1, maximum: 10, default: 11 } },

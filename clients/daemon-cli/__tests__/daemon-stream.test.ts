@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import * as fs from "node:fs";
 import * as net from "node:net";
 import * as os from "node:os";
@@ -355,6 +355,55 @@ describe("streamDaemon + ipc-glue", () => {
     const joined = frames.join("");
     expect(joined).toContain('"stream":"data"');
     expect(stopCalled).toBe(true);
+  });
+
+  it("terminates a stream once the socket write buffer exceeds the cap", async () => {
+    const sock = freshSock();
+    let stopCalled = false;
+    let writeFn: ((data: unknown) => void) | undefined;
+    await listen(sock, (socket) => {
+      acceptDaemonConnection(socket, async (req) => ({
+        response: { id: req.id, ok: true, result: {} },
+        startStream: (writeData) => {
+          writeFn = writeData;
+          return () => {
+            stopCalled = true;
+          };
+        },
+      }));
+    });
+
+    let sawEnd = false;
+    let client!: net.Socket;
+    const closed = new Promise<void>((resolve) => {
+      client = net.connect(sock, () => {
+        sockets.add(client);
+        // Never read: the daemon-side write buffer must hit the cap instead
+        // of growing without bound.
+        client.pause();
+        client.write(
+          JSON.stringify({ id: "s1", op: "stream", params: {} }) + "\n",
+        );
+      });
+      client.on("data", (c) => {
+        if (String(c).includes('"stream":"end"')) sawEnd = true;
+      });
+      client.on("close", () => resolve());
+      client.on("error", () => {});
+    });
+
+    await vi.waitFor(() => expect(writeFn).toBeDefined());
+    const chunk = "x".repeat(64 * 1024);
+    for (let i = 0; i < 200 && !stopCalled; i++) {
+      writeFn!({ chunk });
+    }
+    // Producer unsubscribed and socket destroyed — no clean end frame.
+    expect(stopCalled).toBe(true);
+    // The paused client never drains, so its "close" only fires once the
+    // test tears the socket down.
+    client.destroy();
+    await closed;
+    expect(sawEnd).toBe(false);
   });
 
   it("unreachable socket path fails before streaming", async () => {
