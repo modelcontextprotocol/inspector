@@ -21,6 +21,7 @@ import {
   readOAuthStore,
   removeOAuthStore,
   resetOAuthSecretStoreWarnings,
+  OAuthStateFileUnrecognizedError,
 } from "@inspector/core/auth/node/oauth-persist-file.js";
 import {
   InMemorySecretStore,
@@ -1068,5 +1069,78 @@ describe("isUsableStoredSecret", () => {
 
     const snapshot = await readOAuthStore(filePath, store);
     expect(snapshot?.servers[SERVER]!.tokens).toEqual(stamped);
+  });
+});
+
+describe("unrecognized oauth.json refuses mutations", () => {
+  // The file's keys are the only index of secret-store entries. A present
+  // but unrecognized file (valid JSON of the wrong shape, or empty —
+  // malformed JSON already throws from JSON.parse) must refuse mutations:
+  // treating it as empty would let a sectioned write replace it with only
+  // the named entries, or let removal skip the store purge, orphaning
+  // every other entry's credentials.
+  const CORRUPT = JSON.stringify({ servers: ["not", "a", "map"] });
+
+  it("writeOAuthSections refuses and leaves file and store untouched", async () => {
+    await writeStoreFile(filePath, CORRUPT);
+    await flushStoreFileWrites(filePath);
+    const store = new InMemorySecretStore();
+    const otherId = oauthSecretServerId("https://other.example/mcp");
+    await store.set(otherId, LEGACY_TOKENS_FIELD, JSON.stringify(TOKENS));
+
+    await expect(
+      writeOAuthSections(
+        filePath,
+        snapshotWith(),
+        { servers: [SERVER] },
+        store,
+      ),
+    ).rejects.toThrow(OAuthStateFileUnrecognizedError);
+
+    expect(readFileSync(filePath, "utf-8")).toBe(CORRUPT);
+    expect(await store.get(otherId, LEGACY_TOKENS_FIELD)).toBe(
+      JSON.stringify(TOKENS),
+    );
+  });
+
+  it("writeOAuthSections refuses an empty (truncated) file", async () => {
+    await writeStoreFile(filePath, "");
+    await flushStoreFileWrites(filePath);
+
+    await expect(
+      writeOAuthSections(
+        filePath,
+        snapshotWith(),
+        undefined,
+        new InMemorySecretStore(),
+      ),
+    ).rejects.toThrow(OAuthStateFileUnrecognizedError);
+
+    expect(readFileSync(filePath, "utf-8")).toBe("");
+  });
+
+  it("removeOAuthStore refuses and leaves file and store entries in place", async () => {
+    await writeStoreFile(filePath, CORRUPT);
+    await flushStoreFileWrites(filePath);
+    const store = new InMemorySecretStore();
+    const otherId = oauthSecretServerId("https://other.example/mcp");
+    await store.set(otherId, LEGACY_TOKENS_FIELD, JSON.stringify(TOKENS));
+
+    await expect(removeOAuthStore(filePath, store)).rejects.toThrow(
+      OAuthStateFileUnrecognizedError,
+    );
+
+    expect(existsSync(filePath)).toBe(true);
+    expect(await store.get(otherId, LEGACY_TOKENS_FIELD)).toBe(
+      JSON.stringify(TOKENS),
+    );
+  });
+
+  it("readOAuthStore stays tolerant: unrecognized file reads as no stored state", async () => {
+    await writeStoreFile(filePath, CORRUPT);
+    await flushStoreFileWrites(filePath);
+    expect(
+      await readOAuthStore(filePath, new InMemorySecretStore()),
+    ).toBeNull();
   });
 });

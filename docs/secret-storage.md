@@ -29,6 +29,8 @@ Each process picks one store, once, the first time it needs it: the web backend 
    - `memory` if it is running in a container **and** the directory the secrets file would go in is not on a mounted volume, because a file in a container's writable layer is lost on `docker run --rm` and on every image update;
    - `file` everywhere else.
 
+The probe requires the keychain to both **read** and **enumerate** entries. On Linux the two can come from different providers: single entries can be served from the kernel keyring (keyutils) without a Secret Service, but enumeration — which deleting a server's credentials depends on — needs the Secret Service itself. A host with only the kernel keyring therefore falls back exactly like a host with no keychain at all. Earlier releases probed reads only and selected the keychain on such hosts; anything they stored lives in kernel memory only (it never survives a reboot) and is not read by the fallback store. To keep using those entries for the remainder of the boot session, set `MCP_INSPECTOR_SECRET_STORE=keyring`.
+
 | Where you run it                                                        | Store                               | Secrets survive a restart? |
 | ----------------------------------------------------------------------- | ----------------------------------- | -------------------------- |
 | Desktop macOS or Windows, or Linux with a Secret Service running        | OS keychain                         | Yes                        |

@@ -134,6 +134,46 @@ function rethrowLockError(
 }
 
 /**
+ * The OAuth state file exists but is not a recognized OAuth state shape
+ * (valid JSON of the wrong structure, or an empty/truncated file — malformed
+ * JSON already throws out of `JSON.parse`). Mutations refuse to proceed:
+ * the file's keys are the only index of the secret-store entries, so
+ * treating an unrecognized file as empty would let a sectioned write
+ * replace it with just the named entries — or let removal skip the purge —
+ * orphaning every other entry's credentials in the store. Reads stay
+ * tolerant (an unrecognized file presents as "no stored state"), which is
+ * safe precisely because every mutation re-reads under the lock and lands
+ * here before anything is deleted or overwritten.
+ */
+export class OAuthStateFileUnrecognizedError extends Error {
+  constructor(filePath: string, action: "save" | "remove") {
+    super(
+      `Refusing to ${action} OAuth state: ${filePath} exists but is not a recognized OAuth state file (it may be corrupt, truncated, or written by something else). ` +
+        `Its entries are the only index of credentials in the OS keychain / secret store, so overwriting it would strand them. ` +
+        `Restore the file from a backup or fix its JSON; deleting it starts fresh but abandons any credentials it indexed.`,
+    );
+    this.name = "OAuthStateFileUnrecognizedError";
+  }
+}
+
+/**
+ * Locked-read helper for the mutation paths: parse the OAuth state file,
+ * distinguishing "absent" (null) from "present but unrecognized" (refuse —
+ * see {@link OAuthStateFileUnrecognizedError}).
+ */
+async function readDiskForMutation(
+  filePath: string,
+  action: "save" | "remove",
+): Promise<OAuthPersistSnapshot | null> {
+  const raw = await readStoreFile(filePath);
+  const parsed = parseOAuthPersistBlob(raw);
+  if (raw !== null && parsed === null) {
+    throw new OAuthStateFileUnrecognizedError(filePath, action);
+  }
+  return parsed;
+}
+
+/**
  * Persist one entry's secrets: set every post-split value, delete every
  * candidate field the split no longer produces (clears and policy
  * downgrades propagate as deletions). A failed *set* degrades to
@@ -207,7 +247,7 @@ export async function writeOAuthSections(
   const durable = await secretStoreIsDurable(secretStore);
   try {
     await withSecretFileLock(filePath, async () => {
-      const disk = parseOAuthPersistBlob(await readStoreFile(filePath));
+      const disk = await readDiskForMutation(filePath, "save");
       // Deduplicated: caller-passed sections may repeat a URL/issuer, and a
       // second pass over the same entry would snapshot the value the first
       // pass just wrote — a rollback would then "restore" that intermediate
@@ -535,7 +575,7 @@ export async function removeOAuthStore(
 ): Promise<void> {
   try {
     await withSecretFileLock(filePath, async () => {
-      const snapshot = parseOAuthPersistBlob(await readStoreFile(filePath));
+      const snapshot = await readDiskForMutation(filePath, "remove");
       if (snapshot) {
         const targets = [
           ...Object.entries(snapshot.servers).map(([url, state]) => ({
