@@ -36,6 +36,7 @@ import {
   LEGACY_TOKENS_FIELD,
   LEGACY_CLIENT_SECRET_FIELD,
   IDP_SESSION_FIELD,
+  isUsableStoredSecret,
   resetPersistTokensPolicyWarnings,
 } from "@inspector/core/auth/node/oauth-secrets.js";
 import {
@@ -550,6 +551,25 @@ describe("readOAuthStore migration", () => {
     expect(snapshot?.servers[SERVER]!.tokens).toEqual(newerTokens);
   });
 
+  it("store-wins requires a usable value: corrupt store tokens are replaced", async () => {
+    // A malformed store value would be discarded by the read-side join, so
+    // treating it as authoritative would strip the valid plaintext and lose
+    // the token entirely. Migration must replace it from the plaintext.
+    await writeStoreFile(filePath, JSON.stringify(snapshotWith()));
+    await flushStoreFileWrites(filePath);
+    const store = new InMemorySecretStore();
+    const id = oauthSecretServerId(SERVER);
+    await store.set(id, LEGACY_TOKENS_FIELD, "corrupt {not json");
+
+    const snapshot = await readOAuthStore(filePath, store);
+
+    expect(snapshot?.servers[SERVER]!.tokens).toEqual(TOKENS);
+    expect(JSON.parse((await store.get(id, LEGACY_TOKENS_FIELD))!)).toEqual(
+      TOKENS,
+    );
+    expect(readRawFile().servers[SERVER]!.tokens).toBeUndefined();
+  });
+
   it("migrates a plaintext file into a durable store on read", async () => {
     await writeStoreFile(filePath, JSON.stringify(snapshotWith()));
     await flushStoreFileWrites(filePath);
@@ -951,5 +971,28 @@ describe("removeOAuthStore", () => {
       removeOAuthStore(filePath, new InMemorySecretStore()),
     ).resolves.toBeUndefined();
     expect(existsSync(filePath)).toBe(false);
+  });
+});
+
+describe("isUsableStoredSecret", () => {
+  it("validates structured fields with the same checks the join applies", () => {
+    const tokens = JSON.stringify({ access_token: "at", token_type: "Bearer" });
+    expect(isUsableStoredSecret(LEGACY_TOKENS_FIELD, tokens)).toBe(true);
+    expect(isUsableStoredSecret(issuerTokensField(ISSUER), tokens)).toBe(true);
+    // Parseable JSON but not a usable tokens shape.
+    expect(isUsableStoredSecret(LEGACY_TOKENS_FIELD, "{}")).toBe(false);
+    expect(isUsableStoredSecret(issuerTokensField(ISSUER), "not json")).toBe(
+      false,
+    );
+    expect(
+      isUsableStoredSecret(IDP_SESSION_FIELD, JSON.stringify({ idToken: "i" })),
+    ).toBe(true);
+    // `null` parses but the join requires a non-null object.
+    expect(isUsableStoredSecret(IDP_SESSION_FIELD, "null")).toBe(false);
+    expect(isUsableStoredSecret(IDP_SESSION_FIELD, "not json")).toBe(false);
+    // Opaque secrets (client secrets) have no structure to validate.
+    expect(isUsableStoredSecret(LEGACY_CLIENT_SECRET_FIELD, "anything")).toBe(
+      true,
+    );
   });
 });

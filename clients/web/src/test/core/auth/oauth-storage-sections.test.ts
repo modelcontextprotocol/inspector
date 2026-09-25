@@ -11,6 +11,8 @@
 import { describe, it, expect } from "vitest";
 import { OAuthStorageBase } from "@inspector/core/auth/oauth-storage.js";
 import { OAuthMemoryStore } from "@inspector/core/auth/store.js";
+import { getOwnEntry } from "@inspector/core/storage/own-entry.js";
+import type { IssuerBoundOAuthState } from "@inspector/core/auth/store.js";
 import type {
   OAuthPersistBackend,
   OAuthPersistSections,
@@ -157,5 +159,27 @@ describe("OAuthStorageBase sectioned persistence", () => {
       scope: "second",
       codeVerifier: "cv",
     });
+  });
+
+  it("issuer-agnostic clears keep a __proto__ issuer slot (own-property rebuild)", async () => {
+    // `mapIssuerSlots` rebuilds `byIssuer`; a plain `byIssuer[key] =` would
+    // hit the prototype setter for a persisted `__proto__` issuer, dropping
+    // the slot — clearTokens would then erase that issuer's client
+    // registration too, not just its tokens.
+    const { backend } = makeRecordingBackend();
+    const memory = new OAuthMemoryStore();
+    const storage = new OAuthStorageBase(memory, backend);
+    const byIssuer = JSON.parse(
+      '{"__proto__": {"tokens": {"access_token": "at", "token_type": "Bearer"}, "clientInformation": {"client_id": "cid"}}}',
+    ) as Record<string, IssuerBoundOAuthState>;
+    memory.getState().setServerState(SERVER, { byIssuer });
+
+    await storage.clearTokens(SERVER);
+
+    const state = memory.getState().getServerState(SERVER);
+    expect(Object.hasOwn(state.byIssuer!, "__proto__")).toBe(true);
+    const slot = getOwnEntry(state.byIssuer, "__proto__");
+    expect(slot?.tokens).toBeUndefined();
+    expect(slot?.clientInformation).toEqual({ client_id: "cid" });
   });
 });

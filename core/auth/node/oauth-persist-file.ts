@@ -53,6 +53,7 @@ import { defaultSecretStore } from "./secret-store-selection.js";
 import {
   IDP_SESSION_FIELD,
   getPersistTokensPolicy,
+  isUsableStoredSecret,
   joinIdpSession,
   joinServerOAuthState,
   oauthIdpSecretServerId,
@@ -411,7 +412,9 @@ async function joinSnapshot(
  *
  * Store-wins, like the mcp.json and client.json migrations: each field is
  * strict-read first and the plaintext is copied only where the store has no
- * value. The store can legitimately be ahead of a file that still carries
+ * *usable* value (see {@link isUsableStoredSecret} — a corrupt store entry
+ * would be discarded by the read-side join, so it is replaced from the
+ * plaintext rather than honored). The store can legitimately be ahead of a file that still carries
  * plaintext (a newer write whose residue commit failed, a hand-restored
  * file backup), and an unconditional copy would roll those credentials
  * back. The strict read means an unreadable store aborts the migration
@@ -430,7 +433,12 @@ async function migratePlaintextSecrets(
     const absent: Record<string, string> = {};
     for (const [field, value] of Object.entries(secrets)) {
       const existing = await secretStoreGetStrict(secretStore, serverId, field);
-      if (existing === null) absent[field] = value;
+      // Store-wins only applies to a *usable* store value: a corrupt entry
+      // would be discarded by the read-side join, so honoring it here would
+      // strip valid plaintext and lose the credential. Replace it instead.
+      if (existing === null || !isUsableStoredSecret(field, existing)) {
+        absent[field] = value;
+      }
     }
     if (Object.keys(absent).length > 0) {
       // Unlike the write path there is no memory copy to degrade to —

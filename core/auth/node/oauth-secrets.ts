@@ -184,6 +184,31 @@ function parseStoredTokens(raw: string): OAuthTokens | undefined {
 }
 
 /**
+ * Whether a stored value for `field` would survive the read-side join.
+ * Structured fields (`tokens`, `tokens:<issuer>`, `idp-session`) must hold
+ * the JSON shape the join validates for — the same checks
+ * {@link parseStoredTokens} and {@link joinIdpSession} apply; every other
+ * field is an opaque secret string, so any value is usable. Migration uses
+ * this so "store wins" means a *usable* store value wins: a corrupt store
+ * entry must not suppress copying valid plaintext and then be discarded by
+ * the join — that would turn a recoverable corrupt entry into token loss.
+ */
+export function isUsableStoredSecret(field: string, raw: string): boolean {
+  if (field === LEGACY_TOKENS_FIELD || field.startsWith("tokens:")) {
+    return parseStoredTokens(raw) !== undefined;
+  }
+  if (field === IDP_SESSION_FIELD) {
+    try {
+      const parsed: unknown = JSON.parse(raw);
+      return typeof parsed === "object" && parsed !== null;
+    } catch {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
  * Rejoin a server's residue with its secret store values. The store wins
  * over any plaintext still in the residue (keychain-wins — the migration
  * rule: a store value is at least as fresh as the file copy it replaced). A

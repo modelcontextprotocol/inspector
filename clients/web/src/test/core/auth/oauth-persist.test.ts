@@ -72,6 +72,22 @@ describe("parseOAuthPersistBlob", () => {
       idpSessions: {},
     });
   });
+
+  it("rejects malformed entry maps instead of coercing them", () => {
+    // `{ servers: ["bad"] }` used to be accepted and then coerced into
+    // nonsensical entries downstream; a map that is not a record of records
+    // must reject the whole payload (400 on the route, unreadable on disk).
+    expect(
+      parseOAuthPersistBlob({ servers: ["bad"], idpSessions: {} }),
+    ).toBeNull();
+    expect(parseOAuthPersistBlob({ servers: "nope" })).toBeNull();
+    expect(
+      parseOAuthPersistBlob({ idpSessions: { issuer: "scalar" } }),
+    ).toBeNull();
+    expect(
+      parseOAuthPersistBlob({ state: { servers: ["bad"] }, version: 0 }),
+    ).toBeNull();
+  });
 });
 
 describe("serializeOAuthPersistBlob", () => {
@@ -267,6 +283,14 @@ describe("parseOAuthStoreWriteBody", () => {
     expect(parseOAuthStoreWriteBody({ sections: { servers: [] } })).toBeNull();
     expect(parseOAuthStoreWriteBody({ someOtherStore: true })).toBeNull();
     expect(parseOAuthStoreWriteBody("not an object")).toBeNull();
+    // Malformed maps inside either form reject the write, not coerce it.
+    expect(parseOAuthStoreWriteBody({ servers: ["bad"] })).toBeNull();
+    expect(
+      parseOAuthStoreWriteBody({
+        sections: { servers: ["http://a"] },
+        snapshot: { servers: ["bad"], idpSessions: {} },
+      }),
+    ).toBeNull();
   });
 
   it("rejects an envelope carrying unknown keys", () => {

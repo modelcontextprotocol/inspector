@@ -24,7 +24,7 @@ import type {
   SaveClientInformationOptions,
   SaveTokensOptions,
 } from "./storage.js";
-import { getOwnEntry } from "../storage/own-entry.js";
+import { getOwnEntry, setOwnEntry } from "../storage/own-entry.js";
 
 /**
  * Re-attach the `issuer` stamp (SEP-2352) that `OAuthTokensSchema` /
@@ -151,7 +151,11 @@ export class OAuthStorageBase implements OAuthStorage {
   ): Record<string, IssuerBoundOAuthState> {
     const byIssuer: Record<string, IssuerBoundOAuthState> = {};
     for (const [key, slot] of Object.entries(state.byIssuer ?? {})) {
-      byIssuer[key] = { ...slot, ...fn(slot) };
+      // Own-property write: a persisted `__proto__` issuer key would hit the
+      // prototype setter here, silently dropping that issuer's slot from the
+      // rebuilt map — an issuer-agnostic clear of one field would then erase
+      // the slot's *other* credentials too.
+      setOwnEntry(byIssuer, key, { ...slot, ...fn(slot) });
     }
     return byIssuer;
   }

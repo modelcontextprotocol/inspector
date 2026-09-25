@@ -130,12 +130,27 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+/** A `servers`/`idpSessions` map: a record whose entry values are records. */
+function isEntryMap(value: unknown): value is Record<string, unknown> {
+  return isRecord(value) && Object.values(value).every(isRecord);
+}
+
+/**
+ * Validate and normalize the two entry maps. Absent maps default to empty;
+ * anything that is not a record-of-records (an array, a string, an entry
+ * whose value is a scalar) rejects the whole payload — coercing it would
+ * fabricate nonsensical entries from a malformed body or file instead of
+ * returning 400 / treating the file as unreadable.
+ */
 function snapshotFromPayload(
-  payload: Partial<OAuthPersistSnapshot>,
-): OAuthPersistSnapshot {
+  payload: Record<string, unknown>,
+): OAuthPersistSnapshot | null {
+  const servers = payload.servers ?? {};
+  const idpSessions = payload.idpSessions ?? {};
+  if (!isEntryMap(servers) || !isEntryMap(idpSessions)) return null;
   return {
-    servers: payload.servers ?? {},
-    idpSessions: payload.idpSessions ?? {},
+    servers: servers as OAuthPersistSnapshot["servers"],
+    idpSessions: idpSessions as OAuthPersistSnapshot["idpSessions"],
   };
 }
 
@@ -158,11 +173,11 @@ export function parseOAuthPersistBlob(
   }
 
   if (isRecord(parsed.state) && "version" in parsed) {
-    return snapshotFromPayload(parsed.state as Partial<OAuthPersistSnapshot>);
+    return snapshotFromPayload(parsed.state);
   }
 
   if ("servers" in parsed || "idpSessions" in parsed) {
-    return snapshotFromPayload(parsed as Partial<OAuthPersistSnapshot>);
+    return snapshotFromPayload(parsed);
   }
 
   return null;
