@@ -19,6 +19,7 @@
  * route); the browser round-trips full snapshots over the authed local API.
  */
 
+import { OAuthTokensSchema } from "@modelcontextprotocol/core";
 import type { OAuthTokens } from "@modelcontextprotocol/client";
 import { setOwnEntry } from "../../storage/own-entry.js";
 import type { OAuthPersistSnapshot } from "../oauth-persist.js";
@@ -170,15 +171,46 @@ export function splitServerOAuthState(
 function parseStoredTokens(raw: string): OAuthTokens | undefined {
   try {
     const parsed: unknown = JSON.parse(raw);
-    if (
-      typeof parsed === "object" &&
-      parsed !== null &&
-      typeof (parsed as { access_token?: unknown }).access_token === "string"
-    ) {
+    // Validate with the same schema `getTokens` applies before serving the
+    // value — a looser check here (say, access_token only) would declare a
+    // value "usable" that then throws at the consumer, and migration would
+    // have stripped the valid plaintext in its favor. Validation only: the
+    // *original* object is returned, since the schema strips extra fields
+    // like the SEP-2352 `issuer` stamp that the state relies on.
+    if (OAuthTokensSchema.safeParse(parsed).success) {
       return parsed as OAuthTokens;
     }
   } catch {
     // Corrupt store entry — treat as absent rather than poisoning the state.
+  }
+  return undefined;
+}
+
+/**
+ * Parse a stored `idp-session` value into the fields the join extracts, or
+ * `undefined` when nothing usable is present. Shared by {@link joinIdpSession}
+ * and {@link isUsableStoredSecret} so "usable" cannot drift from what the
+ * join actually accepts: the split only ever stores a value with at least
+ * one string field, so a value yielding neither is corrupt.
+ */
+function parseStoredIdpSession(
+  raw: string,
+): Pick<IdpSessionState, "idToken" | "refreshToken"> | undefined {
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed === "object" && parsed !== null) {
+      const { idToken, refreshToken } = parsed as Pick<
+        IdpSessionState,
+        "idToken" | "refreshToken"
+      >;
+      const usable = {
+        ...(typeof idToken === "string" && { idToken }),
+        ...(typeof refreshToken === "string" && { refreshToken }),
+      };
+      if (Object.keys(usable).length > 0) return usable;
+    }
+  } catch {
+    // Corrupt store entry — treat as absent.
   }
   return undefined;
 }
@@ -198,12 +230,7 @@ export function isUsableStoredSecret(field: string, raw: string): boolean {
     return parseStoredTokens(raw) !== undefined;
   }
   if (field === IDP_SESSION_FIELD) {
-    try {
-      const parsed: unknown = JSON.parse(raw);
-      return typeof parsed === "object" && parsed !== null;
-    } catch {
-      return false;
-    }
+    return parseStoredIdpSession(raw) !== undefined;
   }
   return true;
 }
@@ -294,23 +321,8 @@ export function joinIdpSession(
 ): IdpSessionState {
   const raw = secrets[IDP_SESSION_FIELD];
   if (raw === undefined) return { ...residue };
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    if (typeof parsed === "object" && parsed !== null) {
-      const { idToken, refreshToken } = parsed as Pick<
-        IdpSessionState,
-        "idToken" | "refreshToken"
-      >;
-      return {
-        ...residue,
-        ...(typeof idToken === "string" && { idToken }),
-        ...(typeof refreshToken === "string" && { refreshToken }),
-      };
-    }
-  } catch {
-    // Corrupt store entry — treat as absent.
-  }
-  return { ...residue };
+  const stored = parseStoredIdpSession(raw);
+  return stored ? { ...residue, ...stored } : { ...residue };
 }
 
 /**

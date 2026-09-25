@@ -917,6 +917,36 @@ export class FileSecretStore implements SecretStore {
   }
 
   /**
+   * Bulk twin of {@link getStrict}: the same single-pass read as
+   * {@link getMany}, but an unreadable store throws (with the typed advice
+   * {@link getStrict} attaches) instead of yielding no fields — required by
+   * OAuth read hydration, whose result later drives store deletions.
+   */
+  async getManyStrict(
+    requests: SecretBulkRequest[],
+  ): Promise<Record<string, Record<string, string>>> {
+    let map: Record<string, string> | null;
+    try {
+      map = await this.serialize(() => this.readMap());
+    } catch (err) {
+      if (err instanceof SecretStoreUnavailableError) throw err;
+      throw new SecretStoreUnavailableError(
+        `Could not read the secrets file at ${this.filePath}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+    const out: Record<string, Record<string, string>> = {};
+    for (const { serverId, fields } of requests) {
+      const found: Record<string, string> = {};
+      for (const field of fields) {
+        const value = map?.[buildAccount(serverId, field)];
+        if (value !== undefined) found[field] = value;
+      }
+      out[serverId] = found;
+    }
+    return out;
+  }
+
+  /**
    * The intolerant read — same lookup as {@link get}, minus the catch.
    *
    * Without this, `secretStoreGetStrict` fell back to `get` for the file

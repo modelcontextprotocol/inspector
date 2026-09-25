@@ -1118,6 +1118,51 @@ describe("getStrict (round 9)", () => {
   });
 });
 
+describe("getManyStrict", () => {
+  it("returns values like getMany when the file is readable", async () => {
+    const store = new FileSecretStore({ filePath: filePath() });
+    await store.set("srv", "env:A", "1");
+    expect(
+      await store.getManyStrict([
+        { serverId: "srv", fields: ["env:A", "env:MISSING"] },
+      ]),
+    ).toEqual({ srv: { "env:A": "1" } });
+  });
+
+  it("answers empty fields for a store file that does not exist yet", async () => {
+    // Absence is a real answer — only *unreadability* must throw.
+    const store = new FileSecretStore({ filePath: filePath() });
+    expect(
+      await store.getManyStrict([{ serverId: "srv", fields: ["env:A"] }]),
+    ).toEqual({ srv: {} });
+  });
+
+  it("wraps a filesystem failure as SecretStoreUnavailableError", async () => {
+    const blocker = path.join(tmpDir, "blocker");
+    await fs.writeFile(blocker, "x", "utf-8");
+    const store = new FileSecretStore({
+      filePath: path.join(blocker, "secrets.json"),
+    });
+    await expect(
+      store.getManyStrict([{ serverId: "srv", fields: ["env:A"] }]),
+    ).rejects.toBeInstanceOf(SecretStoreUnavailableError);
+  });
+
+  it("throws where getMany yields no fields, so hydration cannot read an outage as absence", async () => {
+    // OAuth read hydration feeds the memory state that sectioned writes
+    // diff against; an unreadable store answering empty maps would make the
+    // next save delete every credential the outage hid.
+    await fs.writeFile(filePath(), "{ not json", "utf-8");
+    const store = new FileSecretStore({ filePath: filePath() });
+    expect(
+      await store.getMany([{ serverId: "srv", fields: ["env:A"] }]),
+    ).toEqual({ srv: {} });
+    await expect(
+      store.getManyStrict([{ serverId: "srv", fields: ["env:A"] }]),
+    ).rejects.toBeInstanceOf(SecretStoreUnavailableError);
+  });
+});
+
 describe("readOnDiskEncryption rejects an envelope it could not open", () => {
   // Naming the cipher is not the same as being openable, and reporting
   // "encrypted" for a file whose next save is guaranteed to fail is the

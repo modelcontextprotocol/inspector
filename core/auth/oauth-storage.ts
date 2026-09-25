@@ -55,7 +55,15 @@ export class OAuthStorageBase implements OAuthStorage {
 
   load(): Promise<void> {
     if (!this.loadPromise) {
-      this.loadPromise = this.doLoad();
+      // A failed load must not stick: caching the rejection would brick the
+      // storage until restart. Clearing it lets the next call retry once the
+      // outage passes — and until a load *succeeds*, every mutation rejects
+      // in ensureLoaded, so an unreadable store can never look empty and
+      // feed deletions (see joinSnapshot's strict read).
+      this.loadPromise = this.doLoad().catch((error: unknown) => {
+        this.loadPromise = undefined;
+        throw error;
+      });
     }
     return this.loadPromise;
   }

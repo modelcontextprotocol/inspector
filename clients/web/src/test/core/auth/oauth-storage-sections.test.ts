@@ -182,4 +182,28 @@ describe("OAuthStorageBase sectioned persistence", () => {
     expect(slot?.tokens).toBeUndefined();
     expect(slot?.clientInformation).toEqual({ client_id: "cid" });
   });
+
+  it("a failed load blocks mutations and is retried, never cached", async () => {
+    // A tolerant load (or a permanently cached rejection) would let a store
+    // outage hydrate empty state — and the next save's sectioned diff would
+    // delete the credentials the outage hid. The load must fail closed and
+    // retry once the backend recovers.
+    let fail = true;
+    const backend: OAuthPersistBackend = {
+      async read() {
+        // deliberately a bare string
+        if (fail) throw "backend outage";
+        return null;
+      },
+      async write() {},
+    };
+    const storage = new OAuthStorageBase(new OAuthMemoryStore(), backend);
+
+    await expect(storage.saveTokens(SERVER, TOKENS)).rejects.toBe(
+      "backend outage",
+    );
+    fail = false;
+    await expect(storage.saveTokens(SERVER, TOKENS)).resolves.toBeUndefined();
+    expect(await storage.getTokens(SERVER)).toEqual(TOKENS);
+  });
 });

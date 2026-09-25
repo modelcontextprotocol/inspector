@@ -39,7 +39,7 @@ import { withSecretFileLock } from "./file-lock.js";
 import {
   restoreSecretFields,
   SecretFileLockHeldError,
-  secretStoreGetMany,
+  secretStoreGetManyStrict,
   secretStoreGetStrict,
   secretStoreIsDurable,
   secretStoreSetMany,
@@ -376,8 +376,15 @@ async function joinSnapshot(
   secretStore: SecretStore,
 ): Promise<OAuthPersistSnapshot> {
   const requests = secretRequestsFor(snapshot);
+  // Strict: this read hydrates the memory state that later sectioned writes
+  // diff against, so a tolerant read during a store outage would present
+  // every credential as absent — and the next save would *delete* them from
+  // the store. An unreadable store must fail the read (5xx / failed load),
+  // not masquerade as empty.
   const values =
-    requests.length > 0 ? await secretStoreGetMany(secretStore, requests) : {};
+    requests.length > 0
+      ? await secretStoreGetManyStrict(secretStore, requests)
+      : {};
   return {
     servers: Object.fromEntries(
       Object.entries(snapshot.servers).map(([url, state]) => [

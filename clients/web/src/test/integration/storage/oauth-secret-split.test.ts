@@ -570,6 +570,51 @@ describe("readOAuthStore migration", () => {
     expect(readRawFile().servers[SERVER]!.tokens).toBeUndefined();
   });
 
+  it("incomplete stored tokens (schema-invalid) are replaced, not honored", async () => {
+    // `{ access_token }` without `token_type` passes a naive check but fails
+    // the OAuthTokensSchema that getTokens applies — honoring it would strip
+    // the valid plaintext and leave a value that throws when consumed.
+    await writeStoreFile(filePath, JSON.stringify(snapshotWith()));
+    await flushStoreFileWrites(filePath);
+    const store = new InMemorySecretStore();
+    const id = oauthSecretServerId(SERVER);
+    await store.set(
+      id,
+      LEGACY_TOKENS_FIELD,
+      JSON.stringify({ access_token: "incomplete" }),
+    );
+
+    const snapshot = await readOAuthStore(filePath, store);
+
+    expect(snapshot?.servers[SERVER]!.tokens).toEqual(TOKENS);
+    expect(JSON.parse((await store.get(id, LEGACY_TOKENS_FIELD))!)).toEqual(
+      TOKENS,
+    );
+  });
+
+  it("read fails when the store cannot be read, instead of joining empty", async () => {
+    // A tolerant bulk read during a store outage would hydrate memory with
+    // every credential absent — and the next sectioned save would *delete*
+    // them from the store. The read must fail, not masquerade as empty.
+    const store = new InMemorySecretStore();
+    await writeOAuthSections(filePath, snapshotWith(), undefined, store);
+    await flushStoreFileWrites(filePath);
+    const outage: SecretStore = {
+      // Tolerant read still answers null — hydration must not use it.
+      get: async () => null,
+      getStrict: async () => {
+        throw new Error("store outage");
+      },
+      set: (...args) => store.set(...args),
+      delete: (...args) => store.delete(...args),
+      deleteAllForServer: (id) => store.deleteAllForServer(id),
+    };
+
+    await expect(readOAuthStore(filePath, outage)).rejects.toThrow(
+      "store outage",
+    );
+  });
+
   it("migrates a plaintext file into a durable store on read", async () => {
     await writeStoreFile(filePath, JSON.stringify(snapshotWith()));
     await flushStoreFileWrites(filePath);
@@ -981,6 +1026,14 @@ describe("isUsableStoredSecret", () => {
     expect(isUsableStoredSecret(issuerTokensField(ISSUER), tokens)).toBe(true);
     // Parseable JSON but not a usable tokens shape.
     expect(isUsableStoredSecret(LEGACY_TOKENS_FIELD, "{}")).toBe(false);
+    // Passes a naive access_token check but fails the OAuthTokensSchema
+    // that getTokens applies — usable must match the consumer exactly.
+    expect(
+      isUsableStoredSecret(
+        LEGACY_TOKENS_FIELD,
+        JSON.stringify({ access_token: "x" }),
+      ),
+    ).toBe(false);
     expect(isUsableStoredSecret(issuerTokensField(ISSUER), "not json")).toBe(
       false,
     );
@@ -990,9 +1043,30 @@ describe("isUsableStoredSecret", () => {
     // `null` parses but the join requires a non-null object.
     expect(isUsableStoredSecret(IDP_SESSION_FIELD, "null")).toBe(false);
     expect(isUsableStoredSecret(IDP_SESSION_FIELD, "not json")).toBe(false);
+    // An object the join would extract nothing from is not usable either:
+    // the split only ever stores a value with at least one string field.
+    expect(isUsableStoredSecret(IDP_SESSION_FIELD, "{}")).toBe(false);
+    expect(
+      isUsableStoredSecret(IDP_SESSION_FIELD, JSON.stringify({ idToken: 42 })),
+    ).toBe(false);
     // Opaque secrets (client secrets) have no structure to validate.
     expect(isUsableStoredSecret(LEGACY_CLIENT_SECRET_FIELD, "anything")).toBe(
       true,
     );
+  });
+
+  it("schema validation does not strip the SEP-2352 issuer stamp on join", async () => {
+    // parseStoredTokens validates with OAuthTokensSchema but must return the
+    // *original* object: the schema strips unknown fields, and the issuer
+    // stamp rides on the stored value.
+    const stamped = { ...TOKENS, issuer: ISSUER };
+    await writeStoreFile(filePath, JSON.stringify(snapshotWith()));
+    await flushStoreFileWrites(filePath);
+    const store = new InMemorySecretStore();
+    const id = oauthSecretServerId(SERVER);
+    await store.set(id, LEGACY_TOKENS_FIELD, JSON.stringify(stamped));
+
+    const snapshot = await readOAuthStore(filePath, store);
+    expect(snapshot?.servers[SERVER]!.tokens).toEqual(stamped);
   });
 });

@@ -256,6 +256,16 @@ const hintFor = (cause: unknown, message: string): string => {
  * about our own configuration is not a trade worth making; a write that
  * fails after a passing probe still surfaces as the documented 503.
  *
+ * The probe also exercises **enumeration** (`findCredentialsAsync`),
+ * still write-free. The two go through different providers on Linux:
+ * `@napi-rs/keyring` can serve single entries from the kernel keyring
+ * (keyutils) while enumeration needs a Secret Service over D-Bus — a
+ * headless host (or CI runner) has the former and not the latter, so a
+ * get-only probe selects a store whose `deleteAllForServer` can never
+ * work, and every server add/rename/delete answers 503 (see the
+ * confirmed-delete contract). A keychain that cannot enumerate falls
+ * back exactly like an unreachable one.
+ *
  * Never throws — the whole point is to answer a question, and a probe
  * that could fail its caller would just move the crash it exists to
  * prevent.
@@ -274,6 +284,7 @@ export async function probeKeyringAvailable(): Promise<
   try {
     const entry = new keyring.mod.AsyncEntry(SERVICE_NAME, PROBE_ACCOUNT);
     await entry.getPassword();
+    await keyring.mod.findCredentialsAsync(SERVICE_NAME);
     return { available: true };
   } catch (err) {
     return {
@@ -384,6 +395,18 @@ export interface SecretStore {
    * unit the seam takes.
    */
   getMany?(
+    requests: SecretBulkRequest[],
+  ): Promise<Record<string, Record<string, string>>>;
+  /**
+   * Like {@link getMany}, but **throws** when the store cannot be read
+   * instead of answering empty maps — the bulk twin of {@link getStrict},
+   * for the same reason: a caller whose result later drives store
+   * *deletions* (OAuth read hydration feeds the memory state that sectioned
+   * writes diff against) must not mistake a transient outage for absence.
+   * Optional; {@link secretStoreGetManyStrict} falls back to per-field
+   * strict reads.
+   */
+  getManyStrict?(
     requests: SecretBulkRequest[],
   ): Promise<Record<string, Record<string, string>>>;
   set(serverId: string, field: string, value: string): Promise<void>;
@@ -714,6 +737,43 @@ export async function secretStoreGetMany(
       }
       // Own-property write: catalog callers pass raw server ids (OAuth
       // callers prefix theirs) — see `setOwnEntry`.
+      setOwnEntry(out, serverId, found);
+    }),
+  );
+  return out;
+}
+
+/**
+ * Strict variant of {@link secretStoreGetMany}: a store that cannot be read
+ * **throws** instead of contributing empty maps. For reads whose result
+ * later drives store deletions — OAuth hydration fills the memory state
+ * that sectioned writes diff against, so "outage read as absence" would
+ * make the next save delete the very credentials the outage hid.
+ * Falls back to per-field {@link secretStoreGetStrict}, which itself falls
+ * back to `get` for stores whose reads cannot fail.
+ */
+export async function secretStoreGetManyStrict(
+  store: SecretStore,
+  requests: SecretBulkRequest[],
+): Promise<Record<string, Record<string, string>>> {
+  if (store.getManyStrict) return store.getManyStrict(requests);
+  const out: Record<string, Record<string, string>> = {};
+  await Promise.all(
+    requests.map(async ({ serverId, fields }) => {
+      const entries = await Promise.all(
+        fields.map(
+          async (field) =>
+            [
+              field,
+              await secretStoreGetStrict(store, serverId, field),
+            ] as const,
+        ),
+      );
+      const found: Record<string, string> = {};
+      for (const [field, value] of entries) {
+        if (value !== null) found[field] = value;
+      }
+      // Own-property write — see `setOwnEntry`.
       setOwnEntry(out, serverId, found);
     }),
   );

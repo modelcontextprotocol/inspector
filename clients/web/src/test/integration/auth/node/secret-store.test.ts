@@ -454,6 +454,21 @@ describe("KeyringSecretStore (mocked native bindings)", () => {
       expect((await probeKeyringAvailable()).available).toBe(false);
     });
 
+    it("reports a partially available keyring (reads work, enumeration doesn't) as unavailable", async () => {
+      // The exact shape of a headless Linux host or CI runner: keyutils
+      // serves single entries so `getPassword` works, but enumeration needs
+      // a Secret Service over D-Bus that isn't there. A get-only probe would
+      // select a store whose `deleteAllForServer` can never succeed — every
+      // server add/rename/delete would answer 503 under the confirmed-delete
+      // contract. Such a keychain must fall back like an unreachable one.
+      keyringMocks.failures.findThrows = true;
+      const result = await probeKeyringAvailable();
+      expect(result.available).toBe(false);
+      expect((result as { detail: string }).detail).toContain(
+        "keychain find unavailable",
+      );
+    });
+
     it("never writes to the user's keychain", async () => {
       // Deliberate: a write probe would be a stronger signal but would
       // deposit a value in someone's login keyring at every startup, for a
@@ -800,5 +815,66 @@ describe("settleStoreMutations (round 8)", () => {
 
     await expect(setMany).rejects.toThrow("keychain gone");
     expect(landed).toEqual(["lands-late"]);
+  });
+});
+
+describe("secretStoreGetManyStrict", () => {
+  // The bulk twin of the getStrict seam: a store that cannot be read must
+  // fail OAuth hydration rather than answer empty maps — an "outage read as
+  // absence" would make the next sectioned save delete the hidden secrets.
+  async function secretStoreModule() {
+    return await import("@inspector/core/auth/node/secret-store.js");
+  }
+
+  it("uses the store's getManyStrict when present", async () => {
+    const { secretStoreGetManyStrict } = await secretStoreModule();
+    const store = {
+      async get() {
+        return null;
+      },
+      async set() {},
+      async delete() {},
+      async deleteAllForServer() {},
+      async getManyStrict() {
+        return { srv: { "env:A": "1" } };
+      },
+    };
+    expect(
+      await secretStoreGetManyStrict(store, [
+        { serverId: "srv", fields: ["env:A"] },
+      ]),
+    ).toEqual({ srv: { "env:A": "1" } });
+  });
+
+  it("falls back to per-field strict reads, propagating their failure", async () => {
+    const { secretStoreGetManyStrict } = await secretStoreModule();
+    const store = {
+      async get() {
+        // Tolerant read answers null — the strict path must not use it.
+        return null;
+      },
+      async getStrict(): Promise<string | null> {
+        throw new Error("store unreadable");
+      },
+      async set() {},
+      async delete() {},
+      async deleteAllForServer() {},
+    };
+    await expect(
+      secretStoreGetManyStrict(store, [{ serverId: "srv", fields: ["env:A"] }]),
+    ).rejects.toThrow("store unreadable");
+  });
+
+  it("collects values and skips absent fields in the fallback", async () => {
+    const { secretStoreGetManyStrict, InMemorySecretStore } =
+      await secretStoreModule();
+    const store = new InMemorySecretStore();
+    await store.set("srv", "env:A", "1");
+    expect(
+      await secretStoreGetManyStrict(store, [
+        { serverId: "srv", fields: ["env:A", "env:MISSING"] },
+        { serverId: "other", fields: ["env:B"] },
+      ]),
+    ).toEqual({ srv: { "env:A": "1" }, other: {} });
   });
 });
