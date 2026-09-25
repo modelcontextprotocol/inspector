@@ -436,6 +436,44 @@ describe("writeOAuthSections secret split", () => {
       ),
     ).rejects.toThrow("keychain unavailable");
   });
+
+  it("persists and rejoins entries keyed __proto__ instead of dropping them", async () => {
+    // Server URLs and issuers are attacker-influenceable map keys. A plain
+    // assignment while building residue would hit the prototype setter:
+    // the write reports success, the secrets land in the store, but the
+    // file serializes no entry — unindexed credentials.
+    const store = new InMemorySecretStore();
+    const snapshot: OAuthPersistSnapshot = {
+      servers: JSON.parse(
+        JSON.stringify({
+          x: {
+            scope: "read",
+            tokens: { ...TOKENS },
+            clientInformation: { client_id: "cid", client_secret: "cs" },
+          },
+        }).replace('"x"', '"__proto__"'),
+      ),
+      idpSessions: JSON.parse('{"__proto__": {"idToken": "idt"}}'),
+    };
+    await writeOAuthSections(
+      filePath,
+      snapshot,
+      { servers: ["__proto__"], idpSessions: ["__proto__"] },
+      store,
+    );
+    await flushStoreFileWrites(filePath);
+
+    const raw = readRawFile();
+    expect(Object.hasOwn(raw.servers, "__proto__")).toBe(true);
+    expect(Object.hasOwn(raw.idpSessions, "__proto__")).toBe(true);
+
+    const joined = await readOAuthStore(filePath, store);
+    const entry = Object.entries(joined!.servers).find(
+      ([url]) => url === "__proto__",
+    )?.[1];
+    expect(entry?.tokens).toEqual(TOKENS);
+    expect(entry?.clientInformation?.client_secret).toBe("cs");
+  });
 });
 
 describe("readOAuthStore migration", () => {

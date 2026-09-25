@@ -15,6 +15,14 @@ describe("validateStoreId", () => {
     expect(validateStoreId("a/b")).toBe(false);
   });
 
+  it("rejects __proto__ despite matching the character class", () => {
+    // As a map key a plain `map[id] = …` assignment would invoke the
+    // prototype setter and silently drop the entry.
+    expect(validateStoreId("__proto__")).toBe(false);
+    // Ordinary underscore names stay valid.
+    expect(validateStoreId("__internal__")).toBe(true);
+  });
+
   it("is re-exported from store-io for back-compat", () => {
     expect(reexported).toBe(validateStoreId);
   });

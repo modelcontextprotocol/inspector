@@ -1679,6 +1679,18 @@ export function createRemoteApp(
     const out: Record<string, StoredMCPServer> = {};
     for (const [id, val] of Object.entries(raw as Record<string, unknown>)) {
       if (!val || typeof val !== "object") continue;
+      // A `__proto__` key survives JSON.parse as an own property, but every
+      // downstream `mcpServers[id] = …` rebuild would hit the prototype
+      // setter and silently drop the entry (and strand any secrets it
+      // indexes). The routes reject the id (`validateStoreId`); a
+      // hand-edited file gets it dropped loudly here.
+      if (id === "__proto__") {
+        logWarn(
+          { route: "/api/servers", id },
+          "Dropping mcp.json entry with reserved id `__proto__` — rename the server to use it.",
+        );
+        continue;
+      }
       // `valObj` is the per-entry object we'll mutate in place via the
       // `delete` calls below. Safe because the only callers
       // (`readMcpConfig` and the GET handler's file-present branch — the

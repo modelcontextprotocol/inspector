@@ -158,6 +158,25 @@ describe("mergeOAuthSections", () => {
       idpSessions: {},
     });
   });
+
+  it("keeps a __proto__ key as an own entry instead of hitting the prototype setter", () => {
+    // JSON.parse produces "__proto__" as an own key; a plain assignment
+    // while merging would invoke the inherited setter, silently dropping
+    // the entry (and orphaning its already-split secrets).
+    const snapshot: OAuthPersistSnapshot = {
+      servers: JSON.parse('{"__proto__": {"scope": "evil-name"}}'),
+      idpSessions: JSON.parse('{"__proto__": {"idToken": "t"}}'),
+    };
+    const merged = mergeOAuthSections(null, snapshot, {
+      servers: ["__proto__"],
+      idpSessions: ["__proto__"],
+    });
+    expect(Object.hasOwn(merged.servers, "__proto__")).toBe(true);
+    expect(Object.hasOwn(merged.idpSessions, "__proto__")).toBe(true);
+    expect(Object.getPrototypeOf(merged.servers)).toBe(Object.prototype);
+    // Serialization must carry the entry.
+    expect(JSON.stringify(merged)).toContain("evil-name");
+  });
 });
 
 describe("parseOAuthPersistSections", () => {

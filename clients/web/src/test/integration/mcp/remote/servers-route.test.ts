@@ -2272,6 +2272,28 @@ describe("/api/servers routes", () => {
       }
     });
 
+    it("GET drops a hand-edited __proto__ entry instead of mangling the map", async () => {
+      const u = await startUnavailableHarness();
+      try {
+        // JSON.parse keeps "__proto__" as an own key, but every downstream
+        // `mcpServers[id] = …` rebuild would hit the prototype setter.
+        // The id is reserved: normalize drops it (routes reject it via
+        // validateStoreId), other entries are untouched.
+        writeFileSync(
+          u.configPath,
+          '{"mcpServers": {"plain": {"type": "stdio", "command": "node"}, "__proto__": {"type": "stdio", "command": "evil"}}}',
+        );
+        const res = await fetch(`${u.baseUrl}/api/servers`);
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as MCPConfig;
+        expect(body.mcpServers.plain).toBeDefined();
+        expect(Object.hasOwn(body.mcpServers, "__proto__")).toBe(false);
+      } finally {
+        await new Promise<void>((r) => u.server.close(() => r()));
+        rmSync(u.tempDir, { recursive: true });
+      }
+    });
+
     it("GET preserves disk plaintext when migration can't write to the keychain", async () => {
       const u = await startUnavailableHarness();
       try {

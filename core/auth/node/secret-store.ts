@@ -136,6 +136,7 @@ export {
   SECRET_FIELD_IDP_CLIENT_SECRET,
   envSecretField,
 } from "../secret-fields.js";
+import { setOwnEntry } from "../../storage/own-entry.js";
 
 /** Parse a stored account key back into its server id and field. */
 export function parseAccount(
@@ -706,7 +707,9 @@ export async function secretStoreGetMany(
       for (const [field, value] of entries) {
         if (value !== null) found[field] = value;
       }
-      out[serverId] = found;
+      // Own-property write: catalog callers pass raw server ids (OAuth
+      // callers prefix theirs) — see `setOwnEntry`.
+      setOwnEntry(out, serverId, found);
     }),
   );
   return out;

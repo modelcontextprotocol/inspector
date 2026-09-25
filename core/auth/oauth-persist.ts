@@ -17,6 +17,7 @@
  */
 
 import { serializeStore, parseStore } from "../storage/store-serialize.js";
+import { setOwnEntry } from "../storage/own-entry.js";
 import type { IdpSessionState } from "./storage.js";
 import type { ServerOAuthState } from "./store.js";
 
@@ -75,7 +76,9 @@ export function mergeOAuthSections(
     if (value === undefined) {
       delete merged.servers[url];
     } else {
-      merged.servers[url] = value;
+      // Own-property write: a plain assignment with a `__proto__` key
+      // would hit the prototype setter and silently drop the entry.
+      setOwnEntry(merged.servers, url, value);
     }
   }
   for (const issuer of sections.idpSessions ?? []) {
@@ -83,7 +86,7 @@ export function mergeOAuthSections(
     if (value === undefined) {
       delete merged.idpSessions[issuer];
     } else {
-      merged.idpSessions[issuer] = value;
+      setOwnEntry(merged.idpSessions, issuer, value);
     }
   }
   return merged;

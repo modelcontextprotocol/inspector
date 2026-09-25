@@ -26,6 +26,7 @@ import {
   writeStoreFile,
   deleteStoreFile,
 } from "../../storage/store-io.js";
+import { setOwnEntry } from "../../storage/own-entry.js";
 import {
   mergeOAuthSections,
   parseOAuthPersistBlob,
@@ -252,7 +253,9 @@ export async function writeOAuthSections(
             continue;
           }
           const { residue, secrets } = splitServerOAuthState(next, policy);
-          merged.servers[url] = residue;
+          // Own-property writes throughout: URL/issuer keys are untrusted
+          // and "__proto__" would otherwise silently drop the residue.
+          setOwnEntry(merged.servers, url, residue);
           if (!durable) {
             const diskEntry = disk?.servers[url];
             // Split the disk value with the *active* policy so the compare
@@ -265,7 +268,11 @@ export async function writeOAuthSections(
               secrets,
             );
             if (Object.keys(keep).length > 0) {
-              merged.servers[url] = joinServerOAuthState(residue, keep);
+              setOwnEntry(
+                merged.servers,
+                url,
+                joinServerOAuthState(residue, keep),
+              );
             }
           }
           await persistEntrySecrets(secretStore, serverId, candidates, secrets);
@@ -285,7 +292,7 @@ export async function writeOAuthSections(
             continue;
           }
           const { residue, secrets } = splitIdpSession(next, policy);
-          merged.idpSessions[issuer] = residue;
+          setOwnEntry(merged.idpSessions, issuer, residue);
           if (!durable) {
             const diskSession = disk?.idpSessions[issuer];
             const keep = preserveNonDurableSecrets(
@@ -293,7 +300,11 @@ export async function writeOAuthSections(
               secrets,
             );
             if (Object.keys(keep).length > 0) {
-              merged.idpSessions[issuer] = joinIdpSession(residue, keep);
+              setOwnEntry(
+                merged.idpSessions,
+                issuer,
+                joinIdpSession(residue, keep),
+              );
             }
           }
           await persistEntrySecrets(
@@ -414,12 +425,12 @@ async function migratePlaintextSecrets(
   const residue: OAuthPersistSnapshot = { servers: {}, idpSessions: {} };
   for (const [url, state] of Object.entries(fresh.servers)) {
     const split = splitServerOAuthState(state, "all");
-    residue.servers[url] = split.residue;
+    setOwnEntry(residue.servers, url, split.residue);
     await migrateEntrySecrets(oauthSecretServerId(url), split.secrets);
   }
   for (const [issuer, session] of Object.entries(fresh.idpSessions)) {
     const split = splitIdpSession(session, "all");
-    residue.idpSessions[issuer] = split.residue;
+    setOwnEntry(residue.idpSessions, issuer, split.residue);
     await migrateEntrySecrets(oauthIdpSecretServerId(issuer), split.secrets);
   }
   await writeStoreFile(filePath, serializeOAuthPersistBlob(residue));

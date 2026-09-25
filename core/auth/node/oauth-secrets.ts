@@ -20,6 +20,7 @@
  */
 
 import type { OAuthTokens } from "@modelcontextprotocol/client";
+import { setOwnEntry } from "../../storage/own-entry.js";
 import type { OAuthPersistSnapshot } from "../oauth-persist.js";
 import type { IdpSessionState } from "../storage.js";
 import type { IssuerBoundOAuthState, ServerOAuthState } from "../store.js";
@@ -138,7 +139,10 @@ export function splitServerOAuthState(
         slotResidue.clientInformation = publicInfo;
         secrets[issuerClientSecretField(issuer)] = client_secret;
       }
-      byIssuer[issuer] = slotResidue;
+      // Own-property write: issuer keys come from persisted state and can
+      // be "__proto__", which a plain assignment would silently drop —
+      // omitting the residue while its secrets were already emitted.
+      setOwnEntry(byIssuer, issuer, slotResidue);
     }
     residue.byIssuer = byIssuer;
   }
@@ -208,7 +212,7 @@ export function joinServerOAuthState(
           client_secret: clientSecret,
         };
       }
-      byIssuer[issuer] = joinedSlot;
+      setOwnEntry(byIssuer, issuer, joinedSlot);
     }
     joined.byIssuer = byIssuer;
   }
