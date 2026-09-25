@@ -997,20 +997,18 @@ describe("Remote transport e2e", () => {
 
       // A stale-snapshot writer that never saw the entries above posts a
       // sectioned write naming only its own server — the others must survive.
-      const sections = encodeURIComponent(
-        JSON.stringify({ servers: ["https://mine.example"] }),
-      );
-      const res = await fetch(
-        `${baseUrl}/api/storage/oauth?sections=${sections}`,
-        {
-          method: "POST",
-          headers,
-          body: JSON.stringify({
+      // The descriptor rides in the body envelope, not the URL.
+      const res = await fetch(`${baseUrl}/api/storage/oauth`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          sections: { servers: ["https://mine.example"] },
+          snapshot: {
             servers: { "https://mine.example": { scope: "mine" } },
             idpSessions: {},
-          }),
-        },
-      );
+          },
+        }),
+      });
       expect(res.status).toBe(200);
 
       const readRes = await fetch(`${baseUrl}/api/storage/oauth`, {
@@ -1038,44 +1036,52 @@ describe("Remote transport e2e", () => {
         "x-mcp-remote-auth": `Bearer ${authToken}`,
       };
 
-      const badSections = await fetch(
-        `${baseUrl}/api/storage/oauth?sections=${encodeURIComponent('{"servers":"nope"}')}`,
+      const badSections = await fetch(`${baseUrl}/api/storage/oauth`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          sections: { servers: "nope" },
+          snapshot: { servers: {}, idpSessions: {} },
+        }),
+      });
+      expect(badSections.status).toBe(400);
+      expect((await badSections.json()).error).toBe(
+        "OAuth store writes require an OAuth state body",
+      );
+
+      // An envelope whose snapshot is missing must not degrade into a
+      // full replacement.
+      const missingSnapshot = await fetch(`${baseUrl}/api/storage/oauth`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ sections: { servers: [] } }),
+      });
+      expect(missingSnapshot.status).toBe(400);
+
+      const badBody = await fetch(`${baseUrl}/api/storage/oauth`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ someOtherStore: true }),
+      });
+      expect(badBody.status).toBe(400);
+      expect((await badBody.json()).error).toBe(
+        "OAuth store writes require an OAuth state body",
+      );
+
+      // The legacy query-parameter form is rejected, not ignored:
+      // silently dropping the descriptor would turn a stale client's
+      // sectioned merge into a destructive full replacement.
+      const legacyQuery = await fetch(
+        `${baseUrl}/api/storage/oauth?sections=${encodeURIComponent('{"servers":[]}')}`,
         {
           method: "POST",
           headers,
           body: JSON.stringify({ servers: {}, idpSessions: {} }),
         },
       );
-      expect(badSections.status).toBe(400);
-      expect((await badSections.json()).error).toBe(
-        "Invalid sections parameter",
-      );
-
-      const badBody = await fetch(
-        `${baseUrl}/api/storage/oauth?sections=${encodeURIComponent('{"servers":[]}')}`,
-        {
-          method: "POST",
-          headers,
-          body: JSON.stringify({ someOtherStore: true }),
-        },
-      );
-      expect(badBody.status).toBe(400);
-      expect((await badBody.json()).error).toBe(
-        "OAuth store writes require an OAuth state body",
-      );
-
-      // Sectioned writes are an OAuth-store contract; other stores are raw KV.
-      const wrongStore = await fetch(
-        `${baseUrl}/api/storage/other-store?sections=${encodeURIComponent('{"servers":[]}')}`,
-        {
-          method: "POST",
-          headers,
-          body: JSON.stringify({ some: "data" }),
-        },
-      );
-      expect(wrongStore.status).toBe(400);
-      expect((await wrongStore.json()).error).toBe(
-        "Sectioned writes are only supported for the oauth store",
+      expect(legacyQuery.status).toBe(400);
+      expect((await legacyQuery.json()).error).toBe(
+        "The sections descriptor moved from the ?sections query parameter to the request body",
       );
     });
 

@@ -3007,6 +3007,10 @@ describe("catalog mutations are all-or-nothing (file/keychain compensation)", ()
   class FailingDeleteStore extends InMemorySecretStore {
     failFieldDeletes = false;
     failPurges = false;
+    // When set, `deleteAllForServer` removes this one field and then
+    // throws — modeling the keyring backend, whose purge deletes
+    // credentials sequentially and is not atomic.
+    partialPurgeField: string | null = null;
     override async delete(serverId: string, field: string): Promise<void> {
       if (this.failFieldDeletes) {
         throw new KeychainUnavailableError(new Error("keychain locked"));
@@ -3014,6 +3018,10 @@ describe("catalog mutations are all-or-nothing (file/keychain compensation)", ()
       return super.delete(serverId, field);
     }
     override async deleteAllForServer(serverId: string): Promise<void> {
+      if (this.partialPurgeField !== null) {
+        await super.delete(serverId, this.partialPurgeField);
+        throw new KeychainUnavailableError(new Error("keychain locked"));
+      }
       if (this.failPurges) {
         throw new KeychainUnavailableError(new Error("keychain locked"));
       }
@@ -3180,6 +3188,35 @@ describe("catalog mutations are all-or-nothing (file/keychain compensation)", ()
     expect(res.status).toBe(503);
     expect(readConfig(configPath)).toEqual(before);
     expect(await store.get("srv", envSecretField("A"))).toBe("value-A");
+  });
+
+  it("DELETE: a purge that fails midway restores the fields it removed", async () => {
+    writeFileSync(
+      configPath,
+      JSON.stringify({
+        mcpServers: {
+          srv: { type: "stdio", command: "node", env: { A: "", B: "" } },
+        },
+      }),
+    );
+    await store.set("srv", envSecretField("A"), "value-A");
+    await store.set("srv", envSecretField("B"), "value-B");
+    const before = readConfig(configPath);
+
+    // The keyring purge is not atomic: it can delete some credentials
+    // and then throw. The compensation must cover the purge itself, not
+    // only the disk write, or a 503 leaves the surviving entry with part
+    // of its secrets gone.
+    store.partialPurgeField = envSecretField("A");
+    const res = await fetch(`${baseUrl}/api/servers/srv`, {
+      method: "DELETE",
+    });
+    store.partialPurgeField = null;
+
+    expect(res.status).toBe(503);
+    expect(readConfig(configPath)).toEqual(before);
+    expect(await store.get("srv", envSecretField("A"))).toBe("value-A");
+    expect(await store.get("srv", envSecretField("B"))).toBe("value-B");
   });
 
   it("DELETE: a failed disk write restores the purged secrets", async () => {

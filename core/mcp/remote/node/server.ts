@@ -38,8 +38,7 @@ import type {
 import type { JSONRPCMessage } from "@modelcontextprotocol/client";
 import { AuthChallengeError } from "../../../auth/challenge.js";
 import {
-  parseOAuthPersistBlob,
-  parseOAuthPersistSections,
+  parseOAuthStoreWriteBody,
   OAUTH_PERSIST_STORE_ID as OAUTH_STORE_ID,
 } from "../../../auth/oauth-persist.js";
 import {
@@ -1444,34 +1443,40 @@ export function createRemoteApp(
 
       // The OAuth store routes through the shared locked merge + secret
       // split. Sectioned bodies overlay only the named entries (the
-      // remote OAuth persist backend opts in via `?sections=`) — without
-      // that, a browser tab holding a stale snapshot would overwrite
-      // entries other processes (daemon, CLI) wrote since the tab loaded.
-      // A plain POST is a full replacement, still split.
-      const sectionsRaw = c.req.query("sections");
+      // remote OAuth persist backend sends a `{ sections, snapshot }`
+      // envelope — see `parseOAuthStoreWriteBody`) — without that, a
+      // browser tab holding a stale snapshot would overwrite entries
+      // other processes (daemon, CLI) wrote since the tab loaded. A
+      // plain blob body is a full replacement, still split.
+      //
+      // The descriptor used to ride a `?sections=` query parameter.
+      // Reject it rather than ignore it: silently dropping a stale
+      // client's descriptor would turn its sectioned merge into a
+      // destructive full replacement.
+      if (c.req.query("sections") !== undefined) {
+        return c.json(
+          {
+            error:
+              "The sections descriptor moved from the ?sections query parameter to the request body",
+          },
+          400,
+        );
+      }
       if (storeId === OAUTH_STORE_ID) {
-        let sections;
-        if (sectionsRaw !== undefined) {
-          sections = parseOAuthPersistSections(sectionsRaw);
-          if (!sections) {
-            return c.json({ error: "Invalid sections parameter" }, 400);
-          }
-        }
-        const snapshot = parseOAuthPersistBlob(body);
-        if (!snapshot) {
+        const write = parseOAuthStoreWriteBody(body);
+        if (!write) {
           return c.json(
             { error: "OAuth store writes require an OAuth state body" },
             400,
           );
         }
-        await writeOAuthSections(filePath, snapshot, sections, secretStore);
-        return c.json({ ok: true });
-      }
-      if (sectionsRaw !== undefined) {
-        return c.json(
-          { error: "Sectioned writes are only supported for the oauth store" },
-          400,
+        await writeOAuthSections(
+          filePath,
+          write.snapshot,
+          write.sections,
+          secretStore,
         );
+        return c.json({ ok: true });
       }
 
       const jsonData = serializeStore(body);
@@ -3220,14 +3225,16 @@ export function createRemoteApp(
           return c.json({ ok: true });
         }
         // All-or-nothing, like the other combined writers: snapshot the
-        // entry's secret fields, purge the keychain *before* the disk
-        // commit (the purge is the only step that can 503, and failing
-        // it here leaves both file and keychain untouched), then write
-        // the file. If the file write fails the purged secrets are
-        // restored, so a DELETE that returns an error has changed
-        // nothing. `deleteAllForServer` may also sweep legacy fields the
-        // snapshot does not cover — those are orphans by definition and
-        // losing them is the sweep working as intended.
+        // entry's secret fields, then run the purge *and* the disk write
+        // inside one compensated block. The purge precedes the disk
+        // commit but is not atomic itself — the keyring backend deletes
+        // credentials sequentially and can fail midway — so a purge
+        // failure must restore the snapshot exactly like a file-write
+        // failure, not assume nothing was deleted. A DELETE that returns
+        // an error has changed nothing. `deleteAllForServer` may also
+        // sweep legacy fields the snapshot does not cover — those are
+        // orphans by definition and losing them is the sweep working as
+        // intended.
         const stored = current.mcpServers[id];
         delete current.mcpServers[id];
         const prior = await snapshotSecretFields(
@@ -3235,8 +3242,8 @@ export function createRemoteApp(
           id,
           expectedSecretFields(stored),
         );
-        await secretStore.deleteAllForServer(id);
         try {
+          await secretStore.deleteAllForServer(id);
           await writeMcpAndTrackMtime(serializeStore(current));
         } catch (error) {
           await restoreSecretFields(

@@ -94,30 +94,25 @@ function isStringArray(value: unknown): value is string[] {
 }
 
 /**
- * Parse a serialized {@link OAuthPersistSections} (the remote backend sends it
- * as a query parameter). Returns `null` on anything that is not the exact
- * shape — the server route must not merge on an attacker-shaped descriptor.
+ * Parse an untrusted {@link OAuthPersistSections} value (the `sections` key
+ * of a sectioned write body). Returns `null` on anything that is not the
+ * exact shape — the server route must not merge on an attacker-shaped
+ * descriptor.
  */
 export function parseOAuthPersistSections(
-  raw: string,
+  value: unknown,
 ): OAuthPersistSections | null {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    return null;
-  }
-  if (!isRecord(parsed)) {
+  if (!isRecord(value)) {
     return null;
   }
   const sections: OAuthPersistSections = {};
-  if ("servers" in parsed) {
-    if (!isStringArray(parsed.servers)) return null;
-    sections.servers = parsed.servers;
+  if ("servers" in value) {
+    if (!isStringArray(value.servers)) return null;
+    sections.servers = value.servers;
   }
-  if ("idpSessions" in parsed) {
-    if (!isStringArray(parsed.idpSessions)) return null;
-    sections.idpSessions = parsed.idpSessions;
+  if ("idpSessions" in value) {
+    if (!isStringArray(value.idpSessions)) return null;
+    sections.idpSessions = value.idpSessions;
   }
   return sections;
 }
@@ -168,6 +163,56 @@ export function serializeOAuthPersistBlob(
   snapshot: OAuthPersistSnapshot,
 ): string {
   return serializeStore(snapshot);
+}
+
+/**
+ * A sectioned OAuth store write, parsed from an untrusted POST body.
+ *
+ * The descriptor travels in the request body — wrapped as
+ * `{ sections, snapshot }` — not in a query parameter: sections name whole
+ * server URLs, and `clearEnterpriseManagedResourceServers()` puts every
+ * managed URL into one descriptor, so a URL-encoded descriptor can exceed
+ * Node's request-target limit and be rejected (431) before the route runs.
+ * In the body the descriptor is bounded by the body-size limit instead. A
+ * plain (non-enveloped) OAuth blob body remains a full replacement.
+ */
+export type OAuthStoreWrite =
+  | { snapshot: OAuthPersistSnapshot; sections?: undefined }
+  | { snapshot: OAuthPersistSnapshot; sections: OAuthPersistSections };
+
+export function serializeOAuthSectionedWrite(
+  snapshot: OAuthPersistSnapshot,
+  sections: OAuthPersistSections,
+): string {
+  return JSON.stringify({ sections, snapshot });
+}
+
+/**
+ * Parse an OAuth store POST body: either a `{ sections, snapshot }`
+ * envelope (sectioned merge) or a bare persist blob (full replacement).
+ * Returns `null` when neither shape validates. A bare blob can never be
+ * mistaken for an envelope — blobs only ever carry `servers` /
+ * `idpSessions` (or legacy `state`/`version`) keys, never `sections`.
+ */
+export function parseOAuthStoreWriteBody(
+  body: unknown,
+): OAuthStoreWrite | null {
+  // Only records can be valid writes; rejecting everything else up front
+  // also keeps a JSON *string* body away from `parseOAuthPersistBlob`,
+  // which would try to re-parse it as raw JSON and throw.
+  if (!isRecord(body)) return null;
+  if ("sections" in body) {
+    const sections = parseOAuthPersistSections(body.sections);
+    if (!sections) return null;
+    const snapshot = parseOAuthPersistBlob(
+      "snapshot" in body ? body.snapshot : null,
+    );
+    if (!snapshot) return null;
+    return { snapshot, sections };
+  }
+  const snapshot = parseOAuthPersistBlob(body);
+  if (!snapshot) return null;
+  return { snapshot };
 }
 
 export interface OAuthPersistBackend {
@@ -233,21 +278,19 @@ export function createRemoteOAuthPersistBackend(
       }
 
       // The server holds the shared store, so the merge happens there: the
-      // sections descriptor rides a query parameter and the route overlays
-      // only the named entries onto the file, under its cross-process lock.
-      // Posting the whole snapshot bare would overwrite entries other
-      // processes wrote since this browser tab loaded.
-      const sectionsQuery = sections
-        ? `?sections=${encodeURIComponent(JSON.stringify(sections))}`
-        : "";
-      const res = await fetchFn(
-        `${baseUrl}/api/storage/${options.storeId}${sectionsQuery}`,
-        {
-          method: "POST",
-          headers,
-          body: serializeOAuthPersistBlob(snapshot),
-        },
-      );
+      // sections descriptor rides in the POST body (see
+      // `parseOAuthStoreWriteBody` — a query parameter would cap how many
+      // sections fit under Node's request-target limit) and the route
+      // overlays only the named entries onto the file, under its
+      // cross-process lock. Posting the whole snapshot bare would overwrite
+      // entries other processes wrote since this browser tab loaded.
+      const res = await fetchFn(`${baseUrl}/api/storage/${options.storeId}`, {
+        method: "POST",
+        headers,
+        body: sections
+          ? serializeOAuthSectionedWrite(snapshot, sections)
+          : serializeOAuthPersistBlob(snapshot),
+      });
 
       if (!res.ok) {
         throw new Error(`Failed to write store: ${res.status}`);

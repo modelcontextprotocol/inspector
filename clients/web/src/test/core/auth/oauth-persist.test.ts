@@ -4,6 +4,8 @@ import {
   serializeOAuthPersistBlob,
   mergeOAuthSections,
   parseOAuthPersistSections,
+  parseOAuthStoreWriteBody,
+  serializeOAuthSectionedWrite,
   createRemoteOAuthPersistBackend,
   createSessionOAuthPersistBackend,
   OAUTH_PERSIST_STORAGE_KEY,
@@ -161,25 +163,66 @@ describe("mergeOAuthSections", () => {
 describe("parseOAuthPersistSections", () => {
   it("parses servers and idpSessions string arrays", () => {
     expect(
-      parseOAuthPersistSections(
-        JSON.stringify({ servers: ["http://a"], idpSessions: ["https://i"] }),
-      ),
+      parseOAuthPersistSections({
+        servers: ["http://a"],
+        idpSessions: ["https://i"],
+      }),
     ).toEqual({ servers: ["http://a"], idpSessions: ["https://i"] });
   });
 
   it("accepts either key alone or an empty object", () => {
-    expect(parseOAuthPersistSections('{"servers":[]}')).toEqual({
+    expect(parseOAuthPersistSections({ servers: [] })).toEqual({
       servers: [],
     });
-    expect(parseOAuthPersistSections("{}")).toEqual({});
+    expect(parseOAuthPersistSections({})).toEqual({});
   });
 
-  it("rejects malformed JSON, non-objects, and non-string-array values", () => {
-    expect(parseOAuthPersistSections("not json")).toBeNull();
-    expect(parseOAuthPersistSections('"a string"')).toBeNull();
-    expect(parseOAuthPersistSections('{"servers":"http://a"}')).toBeNull();
-    expect(parseOAuthPersistSections('{"servers":[1]}')).toBeNull();
-    expect(parseOAuthPersistSections('{"idpSessions":{}}')).toBeNull();
+  it("rejects non-objects and non-string-array values", () => {
+    expect(parseOAuthPersistSections("a string")).toBeNull();
+    expect(parseOAuthPersistSections(null)).toBeNull();
+    expect(parseOAuthPersistSections({ servers: "http://a" })).toBeNull();
+    expect(parseOAuthPersistSections({ servers: [1] })).toBeNull();
+    expect(parseOAuthPersistSections({ idpSessions: {} })).toBeNull();
+  });
+});
+
+describe("parseOAuthStoreWriteBody", () => {
+  const SNAP = { servers: {}, idpSessions: {} };
+
+  it("treats a bare blob as a full replacement", () => {
+    expect(parseOAuthStoreWriteBody(SNAP)).toEqual({ snapshot: SNAP });
+  });
+
+  it("parses a { sections, snapshot } envelope", () => {
+    expect(
+      parseOAuthStoreWriteBody({
+        sections: { servers: ["http://a"] },
+        snapshot: SNAP,
+      }),
+    ).toEqual({ sections: { servers: ["http://a"] }, snapshot: SNAP });
+  });
+
+  it("round-trips serializeOAuthSectionedWrite", () => {
+    const sections = { servers: ["http://a"] };
+    expect(
+      parseOAuthStoreWriteBody(
+        JSON.parse(serializeOAuthSectionedWrite(SNAPSHOT, sections)),
+      ),
+    ).toEqual({ sections, snapshot: SNAPSHOT });
+  });
+
+  it("rejects bad envelopes and non-OAuth bodies", () => {
+    // A `sections` key marks an envelope: a bad descriptor or missing
+    // snapshot must not fall back to a full replacement.
+    expect(
+      parseOAuthStoreWriteBody({
+        sections: { servers: "nope" },
+        snapshot: SNAP,
+      }),
+    ).toBeNull();
+    expect(parseOAuthStoreWriteBody({ sections: { servers: [] } })).toBeNull();
+    expect(parseOAuthStoreWriteBody({ someOtherStore: true })).toBeNull();
+    expect(parseOAuthStoreWriteBody("not an object")).toBeNull();
   });
 });
 
@@ -259,10 +302,12 @@ describe("createRemoteOAuthPersistBackend", () => {
     );
   });
 
-  it("write() with sections carries them as a query parameter", async () => {
+  it("write() with sections carries them in the body envelope", async () => {
     let capturedUrl: string | undefined;
-    const fetchFn = vi.fn<typeof fetch>(async (input) => {
+    let capturedBody: string | undefined;
+    const fetchFn = vi.fn<typeof fetch>(async (input, init) => {
       capturedUrl = String(input);
+      capturedBody = init?.body as string | undefined;
       return new Response("", { status: 200 });
     });
     const backend = createRemoteOAuthPersistBackend({
@@ -272,11 +317,15 @@ describe("createRemoteOAuthPersistBackend", () => {
     });
     const sections = { servers: ["http://s"] };
     await backend.write(SNAPSHOT, sections);
+    // In the body, not the URL: a descriptor naming many server URLs
+    // would otherwise exceed Node's request-target limit.
     const parsed = new URL(capturedUrl ?? "");
     expect(parsed.pathname).toBe(`/api/storage/${storeId}`);
-    expect(JSON.parse(parsed.searchParams.get("sections") ?? "")).toEqual(
+    expect(parsed.search).toBe("");
+    expect(JSON.parse(capturedBody ?? "")).toEqual({
       sections,
-    );
+      snapshot: SNAPSHOT,
+    });
   });
 
   it("remove() DELETEs, tolerates 404, and throws on other errors", async () => {
