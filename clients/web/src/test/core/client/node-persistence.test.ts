@@ -429,6 +429,37 @@ describe("client node-persistence", () => {
     ).toBe("v");
   });
 
+  it("deleteClientConfigStore restores the secret when the delete removes it and then fails", async () => {
+    // The confirmed-delete contract only promises that a *resolved* delete
+    // removed the value — a rejected one may have removed it first. The
+    // compensation must therefore cover the delete itself, not just the
+    // unlink, or the surviving config loses its indexed secret.
+    const filePath = await makeTmpFile(
+      JSON.stringify({ cimd: { enabled: false, clientMetadataUrl: "" } }),
+    );
+    const store = new InMemorySecretStore();
+    await store.set(CLIENT_KEYCHAIN_ID, SECRET_FIELD_IDP_CLIENT_SECRET, "v");
+    const partialDelete: SecretStore = {
+      get: (id, f) => store.get(id, f),
+      set: (id, f, v) => store.set(id, f, v),
+      delete: async (id, f) => {
+        await store.delete(id, f);
+        throw new KeychainUnavailableError(new Error("locked"));
+      },
+      deleteAllForServer: async () => {
+        throw new KeychainUnavailableError(new Error("locked"));
+      },
+    };
+
+    await expect(
+      deleteClientConfigStore(filePath, partialDelete),
+    ).rejects.toThrow();
+    expect(existsSync(filePath)).toBe(true);
+    expect(
+      await store.get(CLIENT_KEYCHAIN_ID, SECRET_FIELD_IDP_CLIENT_SECRET),
+    ).toBe("v");
+  });
+
   it("deleteClientConfigStore restores the secret when the file unlink fails", async () => {
     // The other half of all-or-nothing: the secret delete succeeded but the
     // unlink did not — without the restore, the surviving client.json would

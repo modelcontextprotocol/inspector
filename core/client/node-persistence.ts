@@ -204,15 +204,20 @@ export async function deleteClientConfigStore(
   secretStore: SecretStore,
 ): Promise<void> {
   // All-or-nothing, like every other combined file/store writer: snapshot
-  // the secret, delete it, then unlink the file — and if the unlink fails,
-  // restore the secret so the surviving config reloads with its credential
-  // intact and the retry sees the same pre-delete state. Keychain-first
-  // ordering keeps the failed-delete case trivial: the file is untouched.
+  // the secret, then run the delete *and* the unlink inside one
+  // compensated block. The keychain delete precedes the unlink but is
+  // itself only confirmed-on-resolve — a rejected delete may have removed
+  // the value before failing — so its failure must restore the snapshot
+  // exactly like an unlink failure, leaving the surviving config with its
+  // credential intact and the retry seeing the same pre-delete state.
   const prior = await snapshotSecretFields(secretStore, CLIENT_KEYCHAIN_ID, [
     SECRET_FIELD_IDP_CLIENT_SECRET,
   ]);
-  await secretStore.delete(CLIENT_KEYCHAIN_ID, SECRET_FIELD_IDP_CLIENT_SECRET);
   try {
+    await secretStore.delete(
+      CLIENT_KEYCHAIN_ID,
+      SECRET_FIELD_IDP_CLIENT_SECRET,
+    );
     await deleteStoreFile(filePath);
   } catch (error) {
     await restoreSecretFields(secretStore, prior, (restoreError) => {
