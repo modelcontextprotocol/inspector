@@ -56,7 +56,7 @@ The choice is made once per process. Installing a keychain while the Inspector i
 
 ### The memory store
 
-`memory` keeps secrets for this process only; nothing is written anywhere and they are gone when it exits. Because it is not durable, the Inspector does **not** remove plaintext values that are already in `mcp.json`, `client.json` or `oauth.json` while it is active: in that case the file on disk is still the durable copy. New or changed values are still kept out of the file — which for acquired OAuth tokens means they last this session only, and every run starts with a re-auth.
+`memory` keeps secrets for this process only; nothing is written anywhere and they are gone when it exits. Because it is not durable, the Inspector does **not** remove plaintext values that are already in `mcp.json`, `client.json` or `oauth.json` while it is active: in that case the file on disk is still the durable copy — including pre-existing OAuth tokens, which keep working across runs until a save changes or removes them. New or changed values are still kept out of the file, so a token *acquired or refreshed* under the memory store lasts this session only and needs a re-auth next run.
 
 ## The file store
 

@@ -203,6 +203,13 @@ describe("parseOAuthPersistSections", () => {
     expect(parseOAuthPersistSections({ servers: [1] })).toBeNull();
     expect(parseOAuthPersistSections({ idpSessions: {} })).toBeNull();
   });
+
+  it("rejects unknown keys so a typo cannot become a silent no-op", () => {
+    expect(parseOAuthPersistSections({ server: ["http://a"] })).toBeNull();
+    expect(
+      parseOAuthPersistSections({ servers: ["http://a"], extra: true }),
+    ).toBeNull();
+  });
 });
 
 describe("parseOAuthStoreWriteBody", () => {
@@ -242,6 +249,16 @@ describe("parseOAuthStoreWriteBody", () => {
     expect(parseOAuthStoreWriteBody({ sections: { servers: [] } })).toBeNull();
     expect(parseOAuthStoreWriteBody({ someOtherStore: true })).toBeNull();
     expect(parseOAuthStoreWriteBody("not an object")).toBeNull();
+  });
+
+  it("rejects an envelope carrying unknown keys", () => {
+    expect(
+      parseOAuthStoreWriteBody({
+        sections: { servers: ["http://a"] },
+        snapshot: SNAP,
+        extra: 1,
+      }),
+    ).toBeNull();
   });
 });
 

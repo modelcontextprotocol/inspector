@@ -748,45 +748,57 @@ describe("settleStoreMutations (round 8)", () => {
   });
 
   it("rethrows the first failure only after every sibling settles", async () => {
+    // Deterministic pending sibling: released explicitly after the settle
+    // call is already in flight, so the ordering proof does not depend on
+    // wall-clock timing.
+    let releaseSlow!: () => void;
     let slowSettled = false;
-    const slow = new Promise<void>((resolve) =>
-      setTimeout(() => {
+    const slow = new Promise<void>((resolve) => {
+      releaseSlow = () => {
         slowSettled = true;
         resolve();
-      }, 20),
-    );
+      };
+    });
     const fast = Promise.reject(new Error("first failure"));
 
-    await expect(settleStoreMutations([fast, slow])).rejects.toThrow(
-      "first failure",
-    );
-    // Promise.all semantics would observe the rejection here with the
-    // slow mutation still pending.
+    const settled = settleStoreMutations([fast, slow]);
+    // Give the helper a microtask turn: with Promise.all semantics the
+    // rejection would already be observable here, before `slow` settles.
+    await Promise.resolve();
+    releaseSlow();
+
+    await expect(settled).rejects.toThrow("first failure");
     expect(slowSettled).toBe(true);
   });
 
   it("secretStoreSetMany's fallback settles in-flight sets before rejecting", async () => {
     const landed: string[] = [];
+    let releaseLate!: () => void;
+    const late = new Promise<void>((resolve) => {
+      releaseLate = resolve;
+    });
     // No `setMany`, so the fallback path runs. One set fails fast, the
-    // other lands late — a compensating caller must not observe the
-    // failure while the late set is still in flight.
+    // other lands only when explicitly released — a compensating caller
+    // must not observe the failure while the late set is still in flight.
     const store: SecretStore = {
       get: async () => null,
       set: async (_id, field) => {
         if (field === "fails-fast") throw new Error("keychain gone");
-        await new Promise((resolve) => setTimeout(resolve, 20));
+        await late;
         landed.push(field);
       },
       delete: async () => {},
       deleteAllForServer: async () => {},
     };
 
-    await expect(
-      secretStoreSetMany(store, "srv", {
-        "fails-fast": "a",
-        "lands-late": "b",
-      }),
-    ).rejects.toThrow("keychain gone");
+    const setMany = secretStoreSetMany(store, "srv", {
+      "fails-fast": "a",
+      "lands-late": "b",
+    });
+    await Promise.resolve();
+    releaseLate();
+
+    await expect(setMany).rejects.toThrow("keychain gone");
     expect(landed).toEqual(["lands-late"]);
   });
 });

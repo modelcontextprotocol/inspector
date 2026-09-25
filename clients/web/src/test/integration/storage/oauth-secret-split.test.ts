@@ -719,6 +719,35 @@ describe("readOAuthStore migration", () => {
     expect(
       warn.mock.calls.some(([msg]) => String(msg).includes("store down")),
     ).toBe(true);
+    // The migration warning must not claim the tokens went memory-only —
+    // the plaintext file was kept and keeps working.
+    expect(
+      warn.mock.calls.some(([msg]) =>
+        String(msg).includes("plaintext copy in oauth.json was kept"),
+      ),
+    ).toBe(true);
+  });
+
+  it("warns once per reason for repeated migration failures, non-Error included", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await writeStoreFile(filePath, JSON.stringify(snapshotWith()));
+    await flushStoreFileWrites(filePath);
+    const failing: SecretStore = {
+      get: async () => null,
+      set: async () => {
+        // deliberately a bare string
+        throw "string failure";
+      },
+      delete: async () => {},
+      deleteAllForServer: async () => {},
+    };
+
+    await readOAuthStore(filePath, failing);
+    await readOAuthStore(filePath, failing);
+    const migrationWarnings = warn.mock.calls.filter(([msg]) =>
+      String(msg).includes("string failure"),
+    );
+    expect(migrationWarnings).toHaveLength(1);
   });
 
   it("returns null for a missing file", async () => {

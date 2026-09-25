@@ -94,6 +94,22 @@ export function resetOAuthSecretStoreWarnings(): void {
 }
 
 /**
+ * Migration-failure variant of {@link warnStoreWriteFailure}: here the
+ * plaintext file is deliberately left untouched, so the write-path message
+ * ("memory only, expect to re-authorize") would be wrong — nothing was
+ * lost, and the next read retries the migration.
+ */
+function warnMigrationFailure(error: unknown): void {
+  const reason = error instanceof Error ? error.message : String(error);
+  const key = `migration:${reason}`;
+  if (warnedStoreFailures.has(key)) return;
+  warnedStoreFailures.add(key);
+  console.warn(
+    `[mcp-inspector] Could not migrate plaintext OAuth secrets into the secret store (${reason}). The plaintext copy in oauth.json was kept and keeps working; migration will be retried on the next read.`,
+  );
+}
+
+/**
  * Rethrow the lock's "secrets file" wording as OAuth wording (same file),
  * preserving the {@link SecretFileLockHeldError} type — it extends
  * `SecretStoreUnavailableError`, which the HTTP layer maps to a retryable
@@ -468,7 +484,7 @@ export async function readOAuthStore(
           snapshot =
             parseOAuthPersistBlob(await readStoreFile(filePath)) ?? snapshot;
         } catch (error) {
-          warnStoreWriteFailure(error);
+          warnMigrationFailure(error);
         }
       }
 

@@ -100,7 +100,9 @@ function isStringArray(value: unknown): value is string[] {
  * Parse an untrusted {@link OAuthPersistSections} value (the `sections` key
  * of a sectioned write body). Returns `null` on anything that is not the
  * exact shape — the server route must not merge on an attacker-shaped
- * descriptor.
+ * descriptor, and an unknown key is rejected rather than ignored: a typo
+ * like `{ server: [...] }` would otherwise merge nothing and still report
+ * success, silently discarding the mutation it was supposed to persist.
  */
 export function parseOAuthPersistSections(
   value: unknown,
@@ -109,6 +111,9 @@ export function parseOAuthPersistSections(
     return null;
   }
   const sections: OAuthPersistSections = {};
+  for (const key of Object.keys(value)) {
+    if (key !== "servers" && key !== "idpSessions") return null;
+  }
   if ("servers" in value) {
     if (!isStringArray(value.servers)) return null;
     sections.servers = value.servers;
@@ -205,6 +210,12 @@ export function parseOAuthStoreWriteBody(
   // which would try to re-parse it as raw JSON and throw.
   if (!isRecord(body)) return null;
   if ("sections" in body) {
+    // Strict envelope: any key besides `sections`/`snapshot` is a malformed
+    // write, not something to skip — accepting it would let a misspelled
+    // payload return 200 while persisting nothing.
+    for (const key of Object.keys(body)) {
+      if (key !== "sections" && key !== "snapshot") return null;
+    }
     const sections = parseOAuthPersistSections(body.sections);
     if (!sections) return null;
     const snapshot = parseOAuthPersistBlob(
