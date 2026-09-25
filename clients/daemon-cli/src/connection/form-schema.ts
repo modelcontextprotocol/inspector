@@ -76,7 +76,97 @@ function parseChoicesFromOneOf(value: unknown): Choice[] | undefined {
   return choices;
 }
 
+/**
+ * A structurally valid field can still be internally inconsistent —
+ * unsatisfiable constraints (`minimum > maximum`, `minItems` above the
+ * choice count) or a default that violates its own constraints. Those would
+ * render unwinnable or instantly-invalid prompts, so treat them like any
+ * other malformed schema and reject the field.
+ */
+function isConsistent(field: FieldExtra): boolean {
+  switch (field.kind) {
+    case "boolean":
+      return true;
+    case "number":
+      if (
+        field.minimum !== undefined &&
+        field.maximum !== undefined &&
+        field.minimum > field.maximum
+      ) {
+        return false;
+      }
+      if (field.default !== undefined) {
+        if (field.integer && !Number.isInteger(field.default)) return false;
+        if (field.minimum !== undefined && field.default < field.minimum)
+          return false;
+        if (field.maximum !== undefined && field.default > field.maximum)
+          return false;
+      }
+      return true;
+    case "string":
+      if (
+        field.minLength !== undefined &&
+        field.maxLength !== undefined &&
+        field.minLength > field.maxLength
+      ) {
+        return false;
+      }
+      if (field.default !== undefined) {
+        if (
+          field.minLength !== undefined &&
+          field.default.length < field.minLength
+        ) {
+          return false;
+        }
+        if (
+          field.maxLength !== undefined &&
+          field.default.length > field.maxLength
+        ) {
+          return false;
+        }
+      }
+      return true;
+    case "enum":
+      return (
+        field.default === undefined ||
+        field.choices.some((c) => c.value === field.default)
+      );
+    case "multiselect": {
+      if (
+        field.minItems !== undefined &&
+        field.maxItems !== undefined &&
+        field.minItems > field.maxItems
+      ) {
+        return false;
+      }
+      if (
+        field.minItems !== undefined &&
+        field.minItems > field.choices.length
+      ) {
+        return false;
+      }
+      const def = field.default;
+      if (def !== undefined) {
+        if (!def.every((v) => field.choices.some((c) => c.value === v))) {
+          return false;
+        }
+        if (field.minItems !== undefined && def.length < field.minItems)
+          return false;
+        if (field.maxItems !== undefined && def.length > field.maxItems)
+          return false;
+      }
+      return true;
+    }
+  }
+}
+
 function parseField(prop: unknown): FieldExtra | null {
+  const parsed = parseFieldShape(prop);
+  if (!parsed || !isConsistent(parsed)) return null;
+  return parsed;
+}
+
+function parseFieldShape(prop: unknown): FieldExtra | null {
   if (!isRecord(prop)) return null;
   const type = prop.type;
 

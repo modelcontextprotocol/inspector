@@ -253,7 +253,10 @@ function registerConnect(program: CommandType): void {
     )
     .argument(
       "[target...]",
-      "Catalog entry name, or command/URL (use -- for command args)",
+      "Catalog entry name, or command/URL (use -- for command args). A " +
+        "single bare word is a catalog name; a URL, a path (contains / or " +
+        "starts with . or ~), multiple tokens, or --transport force an " +
+        "ad-hoc target.",
     )
     .option("--server <name>", "Server name from catalog/config")
     .option(
@@ -368,7 +371,8 @@ function registerConnect(program: CommandType): void {
         rest.length > 1 ||
         Boolean(cmdOpts.transport) ||
         Boolean(cmdOpts.serverUrl?.trim()) ||
-        (rest.length === 1 && looksLikeUrl(rest[0]!));
+        (rest.length === 1 &&
+          (looksLikeUrl(rest[0]!) || looksLikePath(rest[0]!)));
 
       const envCatalog = adHoc ? undefined : process.env.MCP_CATALOG_PATH;
       const serverOptions = {
@@ -1163,6 +1167,22 @@ function parseKeyValue(
 
 function looksLikeUrl(value: string): boolean {
   return /^https?:\/\//i.test(value);
+}
+
+/**
+ * A single positional token is ambiguous between a catalog entry name and a
+ * bare stdio command. Disambiguate deterministically: a token that looks
+ * like a filesystem path (contains a separator, or starts with `.` or `~`)
+ * is an ad-hoc stdio target; a bare word is a catalog/config name. A bare
+ * command name can still be run ad-hoc with an explicit `--transport stdio`.
+ */
+function looksLikePath(value: string): boolean {
+  return (
+    value.includes("/") ||
+    value.includes("\\") ||
+    value.startsWith(".") ||
+    value.startsWith("~")
+  );
 }
 
 function splitConnectionTarget(target: string[]): {

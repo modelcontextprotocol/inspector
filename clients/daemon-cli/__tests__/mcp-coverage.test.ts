@@ -408,6 +408,29 @@ describe("mcp.ts coverage", () => {
     await runMcp(["daemon", "stop", "--format", "json"], { env: e });
   });
 
+  it("treats a single path-like token as ad-hoc stdio, a bare word as a catalog name", async () => {
+    configPath = createSampleTestConfig();
+    const e = { ...env(), MCP_CATALOG_PATH: configPath };
+
+    // Bare word: catalog/config lookup — fails as a catalog miss, before
+    // any daemon or spawn work.
+    const bareWord = await runMcp(
+      ["connect", "no-such-catalog-entry", "--format", "json"],
+      { env: e, timeout: 20000 },
+    );
+    expectCliFailure(bareWord);
+    expect(bareWord.stderr).toMatch(/not found/i);
+
+    // Path-like token: ad-hoc stdio target — never touches the catalog, so
+    // the failure is a spawn/connect failure, not a catalog miss.
+    const pathToken = await runMcp(
+      ["connect", "./no-such-server-binary", "--format", "json"],
+      { env: e, timeout: 20000 },
+    );
+    expectCliFailure(pathToken);
+    expect(pathToken.stderr).not.toMatch(/not found\. Available servers/);
+  });
+
   it("bare mcpdo / --help print usage without an ErrorEnvelope", async () => {
     // Bare invocation: Commander writes help to stderr (help-after-error).
     const bare = await runMcp([]);

@@ -322,4 +322,84 @@ describe("parseFormSchema", () => {
     });
     expect(fields?.[0].required).toBe(false);
   });
+
+  // Internally inconsistent fields are rejected like any other malformed
+  // schema: unsatisfiable constraints or a default violating its own
+  // constraints would render unwinnable / instantly-invalid prompts.
+  it("returns null for unsatisfiable constraints", () => {
+    const cases: Record<string, unknown>[] = [
+      { n: { type: "number", minimum: 10, maximum: 5 } },
+      { s: { type: "string", minLength: 5, maxLength: 2 } },
+      { m: { type: "array", items: { enum: ["a"] }, minItems: 2 } },
+      {
+        m: {
+          type: "array",
+          items: { enum: ["a", "b"] },
+          minItems: 2,
+          maxItems: 1,
+        },
+      },
+    ];
+    for (const properties of cases) {
+      expect(parseFormSchema({ type: "object", properties })).toBeNull();
+    }
+  });
+
+  it("returns null for defaults that violate the field's own constraints", () => {
+    const cases: Record<string, unknown>[] = [
+      { n: { type: "number", minimum: 1, maximum: 10, default: 11 } },
+      { n: { type: "number", minimum: 1, default: 0 } },
+      { i: { type: "integer", default: 1.5 } },
+      { s: { type: "string", minLength: 3, default: "ab" } },
+      { s: { type: "string", maxLength: 2, default: "abc" } },
+      { e: { type: "string", enum: ["a", "b"], default: "c" } },
+      {
+        e: {
+          type: "string",
+          oneOf: [{ const: "a", title: "A" }],
+          default: "b",
+        },
+      },
+      { m: { type: "array", items: { enum: ["a", "b"] }, default: ["c"] } },
+      {
+        m: {
+          type: "array",
+          items: { enum: ["a", "b"] },
+          minItems: 2,
+          default: ["a"],
+        },
+      },
+      {
+        m: {
+          type: "array",
+          items: { enum: ["a", "b"] },
+          maxItems: 1,
+          default: ["a", "b"],
+        },
+      },
+    ];
+    for (const properties of cases) {
+      expect(parseFormSchema({ type: "object", properties })).toBeNull();
+    }
+  });
+
+  it("accepts consistent constraints with in-range defaults", () => {
+    const fields = parseFormSchema({
+      type: "object",
+      properties: {
+        n: { type: "number", minimum: 1, maximum: 10, default: 5 },
+        i: { type: "integer", minimum: 0, default: 0 },
+        s: { type: "string", minLength: 1, maxLength: 3, default: "ab" },
+        e: { type: "string", enum: ["a", "b"], default: "b" },
+        m: {
+          type: "array",
+          items: { enum: ["a", "b"] },
+          minItems: 1,
+          maxItems: 2,
+          default: ["a", "b"],
+        },
+      },
+    });
+    expect(fields).toHaveLength(5);
+  });
 });

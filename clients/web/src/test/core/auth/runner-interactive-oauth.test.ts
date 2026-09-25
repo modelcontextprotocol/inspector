@@ -587,6 +587,64 @@ describe("runRunnerInteractiveOAuth", () => {
     expect(process.listenerCount("SIGTERM")).toBe(0);
   });
 
+  it("handles a signal during server startup without an unhandled rejection", async () => {
+    const redirectUrlProvider = { redirectUrl: "" };
+    let releaseStart!: () => void;
+    const startGate = new Promise<void>((resolve) => (releaseStart = resolve));
+    const mockServer = {
+      start: vi.fn(async (opts: OAuthCallbackServerStartOptions) => {
+        handlers.current = {
+          onCallback: opts.onCallback,
+          onError: opts.onError,
+        };
+        await startGate;
+        return {
+          port: 6276,
+          redirectUrl: "http://127.0.0.1:6276/oauth/callback",
+        };
+      }),
+      stop: vi.fn(async () => {}),
+    } as unknown as OAuthCallbackServer;
+    const client = mockClient({
+      authenticate: vi.fn(async () => new URL("https://as.example/authorize")),
+    });
+
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => unhandled.push(reason);
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      const promise = runRunnerInteractiveOAuth({
+        client,
+        redirectUrlProvider,
+        callbackListen: {
+          hostname: "127.0.0.1",
+          port: 6276,
+          pathname: "/oauth/callback",
+        },
+        createCallbackServer: () => mockServer,
+        handleSignals: true,
+      });
+
+      // The signal listeners are installed before `server.start()` is
+      // awaited, so a signal in that window rejects flowDone before the
+      // Promise.race ever subscribes to it.
+      await Promise.resolve();
+      process.emit("SIGINT", "SIGINT");
+      // A full macrotask turn: Node reports any unhandled rejection here.
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(unhandled).toEqual([]);
+
+      releaseStart();
+      await expect(promise).rejects.toThrow(
+        "OAuth authorization cancelled (SIGINT).",
+      );
+      expect(mockServer.stop).toHaveBeenCalled();
+      expect(process.listenerCount("SIGINT")).toBe(0);
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
+  });
+
   it("installs no signal listeners unless handleSignals is set (TUI owns Ctrl-C via Ink)", async () => {
     const redirectUrlProvider = { redirectUrl: "" };
     const mockServer = createMockCallbackServer(handlers);

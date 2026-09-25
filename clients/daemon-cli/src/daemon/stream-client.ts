@@ -125,7 +125,16 @@ export async function streamDaemon(
 
     socket.on("error", (err) => {
       if (streaming) {
-        succeed();
+        // A socket error mid-stream means the daemon crashed or the
+        // transport broke — not a clean finish. A deliberate cancel settles
+        // first via onAbort, so only unsolicited errors reach here.
+        fail(
+          new CliExitCodeError(
+            EXIT_CODES.UNREACHABLE,
+            `Connection daemon stream failed: ${err.message}`,
+            { code: "daemon_unreachable" },
+          ),
+        );
         return;
       }
       fail(
@@ -139,10 +148,17 @@ export async function streamDaemon(
 
     socket.on("close", () => {
       if (settled) return;
-      // Soft-end after the ok frame; pre-response FIN is unreachable (mirrors
-      // the error handler and callDaemon's close guard).
+      // Only an explicit `end` frame (or a caller abort, which settles via
+      // onAbort before destroying) is a clean finish. EOF without `end`
+      // means the daemon exited or dropped the socket mid-stream.
       if (streaming) {
-        succeed();
+        fail(
+          new CliExitCodeError(
+            EXIT_CODES.UNREACHABLE,
+            `Connection daemon closed the stream before it ended`,
+            { code: "daemon_unreachable" },
+          ),
+        );
         return;
       }
       fail(

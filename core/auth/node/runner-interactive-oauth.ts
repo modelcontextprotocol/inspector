@@ -85,6 +85,13 @@ export async function runRunnerInteractiveOAuth(
     flowResolve = resolve;
     flowReject = reject;
   });
+  // flowDone can reject before the Promise.race below ever subscribes — a
+  // signal (or an early callback error) while `server.start()` is still
+  // awaited would otherwise surface as an unhandled rejection. This no-op
+  // observer marks it handled for that window; the race still receives the
+  // rejection through its own subscription.
+  // void: intentional fire-and-forget rejection observer (see comment above)
+  void flowDone.catch(() => {});
 
   // Ctrl-C / a caller killing the process while waiting on the loopback
   // callback would otherwise either hang until the timeout below or (for

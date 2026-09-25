@@ -85,7 +85,7 @@ describe("streamDaemon + ipc-glue", () => {
     expect(data).toEqual([{ n: 1 }]);
   });
 
-  it("resolves on socket error after the stream has opened", async () => {
+  it("rejects on socket error after the stream has opened", async () => {
     const sock = freshSock();
     await listen(sock, (socket) => {
       socket.once("data", (buf) => {
@@ -96,10 +96,11 @@ describe("streamDaemon + ipc-glue", () => {
         setTimeout(() => socket.destroy(), 20);
       });
     });
-    await streamDaemon(
-      {},
-      { socketPath: sock, timeoutMs: 2000, onData: () => {} },
-    );
+    await expect(
+      streamDaemon({}, { socketPath: sock, timeoutMs: 2000, onData: () => {} }),
+    ).rejects.toMatchObject({
+      envelope: { code: "daemon_unreachable" },
+    });
   });
 
   it("rejects malformed stream frames after open", async () => {
@@ -206,7 +207,7 @@ describe("streamDaemon + ipc-glue", () => {
     });
   });
 
-  it("resolves when the peer closes mid-stream", async () => {
+  it("rejects when the peer closes mid-stream without an end frame", async () => {
     const sock = freshSock();
     await listen(sock, (socket) => {
       socket.once("data", (buf) => {
@@ -217,10 +218,12 @@ describe("streamDaemon + ipc-glue", () => {
         socket.end();
       });
     });
-    await streamDaemon(
-      {},
-      { socketPath: sock, timeoutMs: 2000, onData: () => {} },
-    );
+    await expect(
+      streamDaemon({}, { socketPath: sock, timeoutMs: 2000, onData: () => {} }),
+    ).rejects.toMatchObject({
+      envelope: { code: "daemon_unreachable" },
+      message: expect.stringMatching(/closed the stream before it ended/),
+    });
   });
 
   it("uses env-derived defaults and sends an explicit token", async () => {
