@@ -435,6 +435,65 @@ try {
     );
   }
 
+  // 4b³. Daemon lifecycle from the installed package: `connect` must locate
+  //      and spawn the separately shipped `build/daemon.js` — the daemon-free
+  //      checks above pass even when that artifact is missing or mislocated,
+  //      yet every connection command would fail at startup. Connect against
+  //      the same stdio fixture, verify the connection is listed, then tear
+  //      everything down (stop the daemon before any fail() so nothing
+  //      outlives the check).
+  step("verifying installed `mcpdo` daemon flow (connect/list/disconnect)...");
+  const mcpdoDaemonEnv = {
+    MCP_INSPECTOR_DAEMON_DIR: join(work, "mcpdo-daemon"),
+  };
+  const stopMcpdoDaemon = () => runMcpdo(["daemon", "stop"], mcpdoDaemonEnv);
+  const failMcpdoDaemonFlow = (message) => {
+    stopMcpdoDaemon();
+    fail(message);
+  };
+  const mcpdoConnect = runMcpdo(
+    ["connect", "test", "--catalog", catalogPath, "--plain"],
+    mcpdoDaemonEnv,
+  );
+  if (mcpdoConnect.status !== 0 || !mcpdoConnect.output.includes("test")) {
+    failMcpdoDaemonFlow(
+      `\`mcpdo connect test\` exited ${mcpdoConnect.status} — the packaged ` +
+        `daemon (build/daemon.js) likely failed to start\n` +
+        mcpdoConnect.output.slice(0, 800),
+    );
+  }
+  const mcpdoConnections = runMcpdo(
+    ["connections/list", "--plain"],
+    mcpdoDaemonEnv,
+  );
+  if (
+    mcpdoConnections.status !== 0 ||
+    !mcpdoConnections.output.includes("test")
+  ) {
+    failMcpdoDaemonFlow(
+      `\`mcpdo connections/list\` exited ${mcpdoConnections.status} or missing ` +
+        `the "test" connection\n` +
+        mcpdoConnections.output.slice(0, 800),
+    );
+  }
+  const mcpdoDisconnect = runMcpdo(
+    ["disconnect", "test", "--plain"],
+    mcpdoDaemonEnv,
+  );
+  if (mcpdoDisconnect.status !== 0) {
+    failMcpdoDaemonFlow(
+      `\`mcpdo disconnect test\` exited ${mcpdoDisconnect.status}\n` +
+        mcpdoDisconnect.output.slice(0, 800),
+    );
+  }
+  const mcpdoStop = stopMcpdoDaemon();
+  if (mcpdoStop.status !== 0) {
+    fail(
+      `\`mcpdo daemon stop\` exited ${mcpdoStop.status}\n` +
+        mcpdoStop.output.slice(0, 800),
+    );
+  }
+
   // 4c. Prod `--web` boot from the installed package — THE critical packaging
   //     path: the runner must locate and serve the shipped `dist` (not rebuild
   //     it) and inject the auth token. Run non-blocking and poll `/`.

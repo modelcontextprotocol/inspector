@@ -66,6 +66,12 @@ export type DaemonServerOptions = {
   requiredToken?: string;
   /** Called when the daemon should exit (idle timeout or daemon/stop). */
   onShutdown?: () => void;
+  /**
+   * Grace period at shutdown for flushing buffered response bytes before
+   * still-open sockets are force-destroyed (a client that stopped reading
+   * must not hang `daemon stop`). Tests use a short value.
+   */
+  flushTimeoutMs?: number;
 };
 
 /**
@@ -100,6 +106,8 @@ export class DaemonServer {
     this.socketPath = getDaemonSocketPath(this.dir);
     this.lockPath = getDaemonLockPath(this.dir);
     this.requiredToken = options.requiredToken ?? getDaemonTokenFromEnv();
+    this.flushTimeoutMs =
+      options.flushTimeoutMs ?? DaemonServer.FLUSH_TIMEOUT_MS;
     this.registry = new ConnectionRegistry(options.idleMs ?? DEFAULT_IDLE_MS);
     this.onShutdown = options.onShutdown ?? null;
     this.registry.setIdleHandler(() => {
@@ -198,7 +206,20 @@ export class DaemonServer {
         resolve();
         return;
       }
-      this.server.close(() => resolve());
+      // destroySoon() only destroys once queued bytes drain — a client that
+      // stopped reading with a buffered response would keep server.close()
+      // waiting forever. Bounded grace for the flush, then force-destroy
+      // whatever is left.
+      const force = setTimeout(() => {
+        for (const socket of [...this.ipcSockets]) {
+          socket.destroy();
+        }
+      }, this.flushTimeoutMs);
+      force.unref();
+      this.server.close(() => {
+        clearTimeout(force);
+        resolve();
+      });
     });
     this.server = null;
     this.removeLockAndSocket();
@@ -208,6 +229,10 @@ export class DaemonServer {
   /** Grace period for in-flight ops during shutdown before teardown proceeds
    * anyway. Exported for tests. */
   static readonly QUIESCE_TIMEOUT_MS = 3_000;
+
+  /** Default shutdown flush grace before force-destroying sockets. */
+  static readonly FLUSH_TIMEOUT_MS = 2_000;
+  private readonly flushTimeoutMs: number;
 
   private waitForActiveOps(timeoutMs: number): Promise<void> {
     if (this.activeOps === 0) return Promise.resolve();

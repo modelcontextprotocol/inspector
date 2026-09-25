@@ -107,6 +107,33 @@ describe("resolveToolCallArgs", () => {
     ).toThrow(/one style/);
   });
 
+  it("rejects non-finite numbers that JSON cannot represent", () => {
+    // 1e999 parses to Infinity; NDJSON serialization would send null.
+    expect(() => parseToolCallPositionals(["count:=1e999"])).toThrow(
+      /no JSON representation/,
+    );
+    expect(() => parseToolCallPositionals(["count:=-1e999"])).toThrow(
+      /no JSON representation/,
+    );
+    expect(() => parseToolCallPositionals(['{"count":1e999}'])).toThrow(
+      /no JSON representation/,
+    );
+    // Nested values are validated recursively.
+    expect(() => parseToolCallPositionals(['{"a":{"b":[1,2,1e999]}}'])).toThrow(
+      /no JSON representation/,
+    );
+    expect(() =>
+      resolveToolCallArgs({
+        toolNamePos: "echo",
+        toolArgsJson: '{"count":1e999}',
+      }),
+    ).toThrow(/no JSON representation/);
+    // Large-but-finite numbers still round-trip and are accepted.
+    expect(parseToolCallPositionals(["count:=1e308"])).toEqual({
+      count: 1e308,
+    });
+  });
+
   it("rejects invalid --tool-args-json", () => {
     expect(() =>
       resolveToolCallArgs({

@@ -43,7 +43,10 @@ import {
 } from "@inspector/cli/handlers/method-types.js";
 import { authorizeInFrontend } from "./authorize.js";
 import { emaLogin, emaLogout, getEmaStatus } from "./ema.js";
-import { resolveToolCallArgs } from "./parse-tool-args.js";
+import {
+  assertJsonRoundTrips,
+  resolveToolCallArgs,
+} from "./parse-tool-args.js";
 import { resolveCommandPath } from "./resolve-command.js";
 import {
   dispatchConnectionRpc,
@@ -1169,6 +1172,7 @@ function parseKeyValue(
   } catch {
     parsedValue = val;
   }
+  assertJsonRoundTrips(parsedValue, `parameter "${value}"`);
   return { ...previous, [key]: parsedValue };
 }
 

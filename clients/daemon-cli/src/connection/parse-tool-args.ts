@@ -1,6 +1,28 @@
 import type { JsonValue } from "@inspector/core/mcp/index.js";
 
 /**
+ * `JSON.parse` accepts numbers JSON cannot represent (`1e999` → `Infinity`);
+ * the NDJSON serialization to the daemon would then silently send `null`,
+ * invoking the tool with a different value than the user typed. Reject
+ * anything that cannot round-trip instead.
+ */
+export function assertJsonRoundTrips(value: unknown, context: string): void {
+  if (typeof value === "number" && !Number.isFinite(value)) {
+    throw new Error(
+      `Invalid ${context}: ${value} has no JSON representation ` +
+        `(it would silently reach the tool as null).`,
+    );
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) assertJsonRoundTrips(item, context);
+  } else if (value !== null && typeof value === "object") {
+    for (const item of Object.values(value)) {
+      assertJsonRoundTrips(item, context);
+    }
+  }
+}
+
+/**
  * Parse connection `tools/call` positionals after the tool name:
  * - `key:=value` pairs (JSON-typed when the value parses as JSON, else string)
  * - a single inline JSON object (`{"message":"Foo"}`)
@@ -33,6 +55,7 @@ export function parseToolCallPositionals(
     ) {
       throw new Error("Inline JSON tool arguments must be a JSON object.");
     }
+    assertJsonRoundTrips(parsed, "inline JSON tool arguments");
     return parsed as Record<string, JsonValue>;
   }
 
@@ -55,17 +78,20 @@ export function parseToolCallPositionals(
         `Invalid tool argument "${pair}" — missing key before :=`,
       );
     }
-    out[key] = autoParseValue(rawValue);
+    out[key] = autoParseValue(rawValue, `tool argument "${pair}"`);
   }
   return out;
 }
 
-function autoParseValue(raw: string): JsonValue {
+function autoParseValue(raw: string, context: string): JsonValue {
+  let parsed: unknown;
   try {
-    return JSON.parse(raw) as JsonValue;
+    parsed = JSON.parse(raw) as JsonValue;
   } catch {
     return raw;
   }
+  assertJsonRoundTrips(parsed, context);
+  return parsed as JsonValue;
 }
 
 export type ResolveToolCallArgsInput = {
@@ -133,5 +159,6 @@ function parseJsonObject(raw: string, flag: string): Record<string, JsonValue> {
   if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
     throw new Error(`${flag} must be a JSON object.`);
   }
+  assertJsonRoundTrips(parsed, flag);
   return parsed as Record<string, JsonValue>;
 }

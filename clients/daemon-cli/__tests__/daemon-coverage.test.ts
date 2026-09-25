@@ -188,6 +188,30 @@ describe("daemon coverage", () => {
     expect(fs.existsSync(`${lockPath}.reclaim.${process.pid}`)).toBe(false);
   });
 
+  it("stop() force-destroys sockets whose shutdown flush never drains", async () => {
+    const d = freshDir();
+    server = new DaemonServer({ dir: d, idleMs: 0, flushTimeoutMs: 100 });
+    await server.start();
+    const client = net.connect(server.socketPath);
+    await new Promise<void>((resolve) => client.on("connect", () => resolve()));
+    client.pause();
+    const ipcSockets = (server as unknown as { ipcSockets: Set<net.Socket> })
+      .ipcSockets;
+    await vi.waitFor(() => expect(ipcSockets.size).toBe(1));
+    // Backpressure: buffer a payload the paused client never reads, so
+    // destroySoon()'s drain never completes and server.close() would wait
+    // forever without the bounded force-destroy.
+    const [serverSocket] = ipcSockets;
+    serverSocket!.write("x".repeat(4 * 1024 * 1024));
+    const stopped = await Promise.race([
+      server.stop("stop").then(() => true),
+      new Promise<boolean>((r) => setTimeout(() => r(false), 5000)),
+    ]);
+    expect(stopped).toBe(true);
+    server = undefined;
+    client.destroy();
+  });
+
   it("removes a stale socket before binding", async () => {
     const d = freshDir();
     const sock = path.join(d, "daemon.sock");
