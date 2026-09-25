@@ -580,6 +580,35 @@ describe("OAuth persistence", () => {
       });
     });
 
+    it("POST over the body cap is refused with 413 before parsing", async () => {
+      tempDir = mkdtempSync(join(tmpdir(), "inspector-storage-test-"));
+      const secretStore = new InMemorySecretStore();
+      const { baseUrl, server, authToken } = await startRemoteServer(0, {
+        storageDir: tempDir,
+        secretStore,
+      });
+      remoteServer = server;
+      const headers = {
+        "Content-Type": "application/json",
+        "x-mcp-remote-auth": `Bearer ${authToken}`,
+      };
+
+      // Just over MAX_STORAGE_BODY_BYTES (4 MiB): the bodyLimit middleware
+      // must reject before c.req.json() buffers it, and nothing may land on
+      // disk.
+      const oversized = `{"servers":{},"idpSessions":{},"pad":"${"x".repeat(
+        4 * 1024 * 1024,
+      )}"}`;
+      const res = await fetch(`${baseUrl}/api/storage/oauth`, {
+        method: "POST",
+        headers,
+        body: oversized,
+      });
+      expect(res.status).toBe(413);
+      expect((await res.json()).error).toBe("Storage payload too large");
+      expect(existsSync(join(tempDir, "oauth.json"))).toBe(false);
+    });
+
     it("DELETE purges the file and its secret-store entries", async () => {
       tempDir = mkdtempSync(join(tmpdir(), "inspector-storage-test-"));
       const secretStore = new InMemorySecretStore();

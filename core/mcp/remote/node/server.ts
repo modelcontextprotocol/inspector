@@ -343,6 +343,18 @@ const MAX_APP_DOCUMENT_BODY_BYTES = 24 * 1024 * 1024;
 const MAX_APP_CSP_CHARS = 8 * 1024;
 
 /**
+ * Upper bound on a `POST /api/storage/:storeId` body, in bytes, enforced by
+ * `bodyLimit` *before* `c.req.json()` buffers it (same reasoning as
+ * {@link MAX_APP_DOCUMENT_BODY_BYTES}). The sectioned OAuth write rides in
+ * this body precisely because a query parameter could not hold a large
+ * descriptor (see `OAuthStoreWrite`), so the body is where the bound must
+ * actually exist. Generous: the largest legitimate payload is a full OAuth
+ * or servers store plus a descriptor naming every entry — thousands of
+ * server URLs and their residues still measure in the hundreds of KB.
+ */
+const MAX_STORAGE_BODY_BYTES = 4 * 1024 * 1024;
+
+/**
  * Whether a string is safe to emit as an HTTP header VALUE.
  *
  * The published `csp` is handed to `res.writeHead()` verbatim by the app-origin
@@ -1424,86 +1436,94 @@ export function createRemoteApp(
     }
   });
 
-  app.post("/api/storage/:storeId", async (c) => {
-    const storeId = c.req.param("storeId");
-    if (!storeId || !validateStoreId(storeId)) {
-      return c.json({ error: "Invalid storeId" }, 400);
-    }
-
-    let body: unknown;
-    try {
-      body = await c.req.json();
-    } catch {
-      return c.json({ error: "Invalid JSON body" }, 400);
-    }
-
-    const filePath = getStoreFilePath(storageDir, storeId);
-
-    try {
-      if (storeId === "client") {
-        await writeClientConfigStore(filePath, body, secretStore);
-        return c.json({ ok: true });
+  app.post(
+    "/api/storage/:storeId",
+    // Before the parse, not after: see MAX_STORAGE_BODY_BYTES.
+    bodyLimit({
+      maxSize: MAX_STORAGE_BODY_BYTES,
+      onError: (c) => c.json({ error: "Storage payload too large" }, 413),
+    }),
+    async (c) => {
+      const storeId = c.req.param("storeId");
+      if (!storeId || !validateStoreId(storeId)) {
+        return c.json({ error: "Invalid storeId" }, 400);
       }
 
-      // The OAuth store routes through the shared locked merge + secret
-      // split. Sectioned bodies overlay only the named entries (the
-      // remote OAuth persist backend sends a `{ sections, snapshot }`
-      // envelope — see `parseOAuthStoreWriteBody`) — without that, a
-      // browser tab holding a stale snapshot would overwrite entries
-      // other processes (daemon, CLI) wrote since the tab loaded. A
-      // plain blob body is a full replacement, still split.
-      //
-      // The descriptor used to ride a `?sections=` query parameter.
-      // Reject it rather than ignore it: silently dropping a stale
-      // client's descriptor would turn its sectioned merge into a
-      // destructive full replacement.
-      if (c.req.query("sections") !== undefined) {
-        return c.json(
-          {
-            error:
-              "The sections descriptor moved from the ?sections query parameter to the request body",
-          },
-          400,
-        );
+      let body: unknown;
+      try {
+        body = await c.req.json();
+      } catch {
+        return c.json({ error: "Invalid JSON body" }, 400);
       }
-      if (storeId === OAUTH_STORE_ID) {
-        const write = parseOAuthStoreWriteBody(body);
-        if (!write) {
+
+      const filePath = getStoreFilePath(storageDir, storeId);
+
+      try {
+        if (storeId === "client") {
+          await writeClientConfigStore(filePath, body, secretStore);
+          return c.json({ ok: true });
+        }
+
+        // The OAuth store routes through the shared locked merge + secret
+        // split. Sectioned bodies overlay only the named entries (the
+        // remote OAuth persist backend sends a `{ sections, snapshot }`
+        // envelope — see `parseOAuthStoreWriteBody`) — without that, a
+        // browser tab holding a stale snapshot would overwrite entries
+        // other processes (daemon, CLI) wrote since the tab loaded. A
+        // plain blob body is a full replacement, still split.
+        //
+        // The descriptor used to ride a `?sections=` query parameter.
+        // Reject it rather than ignore it: silently dropping a stale
+        // client's descriptor would turn its sectioned merge into a
+        // destructive full replacement.
+        if (c.req.query("sections") !== undefined) {
           return c.json(
-            { error: "OAuth store writes require an OAuth state body" },
+            {
+              error:
+                "The sections descriptor moved from the ?sections query parameter to the request body",
+            },
             400,
           );
         }
-        await writeOAuthSections(
-          filePath,
-          write.snapshot,
-          write.sections,
-          secretStore,
-        );
-        return c.json({ ok: true });
-      }
+        if (storeId === OAUTH_STORE_ID) {
+          const write = parseOAuthStoreWriteBody(body);
+          if (!write) {
+            return c.json(
+              { error: "OAuth store writes require an OAuth state body" },
+              400,
+            );
+          }
+          await writeOAuthSections(
+            filePath,
+            write.snapshot,
+            write.sections,
+            secretStore,
+          );
+          return c.json({ ok: true });
+        }
 
-      const jsonData = serializeStore(body);
-      await writeStoreFile(filePath, jsonData);
-      return c.json({ ok: true });
-    } catch (error) {
-      // A malformed client.json body fails `parseClientConfig` with a ZodError
-      // — that's a client error (bad request), not a server failure. Return 400
-      // with the same human-readable formatting the load path uses, rather than
-      // letting it fall through to the generic 500 below.
-      if (error instanceof ZodError) {
-        return c.json({ error: formatClientConfigLoadError(error) }, 400);
+        const jsonData = serializeStore(body);
+        await writeStoreFile(filePath, jsonData);
+        return c.json({ ok: true });
+      } catch (error) {
+        // A malformed client.json body fails `parseClientConfig` with a ZodError
+        // — that's a client error (bad request), not a server failure. Return 400
+        // with the same human-readable formatting the load path uses, rather than
+        // letting it fall through to the generic 500 below.
+        if (error instanceof ZodError) {
+          return c.json({ error: formatClientConfigLoadError(error) }, 400);
+        }
+        // Secret-store failures (keychain down, secrets file unreadable) are
+        // typed; map them to the actionable 503 for every store that touches
+        // the secret store (client and oauth) — the helper returns undefined
+        // for anything else, so running it unconditionally is safe.
+        const keychainResp = keychainErrorResponse(c, error);
+        if (keychainResp) return keychainResp;
+        const msg = error instanceof Error ? error.message : String(error);
+        return c.json({ error: `Failed to write store: ${msg}` }, 500);
       }
-      // Secret-store failures (keychain down, secrets file unreadable) are
-      // typed; map them to the actionable 503 for every store that touches
-      // the secret store (client and oauth) — the helper returns undefined
-      // for anything else, so running it unconditionally is safe.
-      const keychainResp = keychainErrorResponse(c, error);
-      if (keychainResp) return keychainResp;
-      const msg = error instanceof Error ? error.message : String(error);
-      return c.json({ error: `Failed to write store: ${msg}` }, 500);
-    }
-  });
+    },
+  );
 
   app.delete("/api/storage/:storeId", async (c) => {
     const storeId = c.req.param("storeId");

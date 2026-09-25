@@ -197,8 +197,10 @@ export function serializeOAuthPersistBlob(
  * server URLs, and `clearEnterpriseManagedResourceServers()` puts every
  * managed URL into one descriptor, so a URL-encoded descriptor can exceed
  * Node's request-target limit and be rejected (431) before the route runs.
- * In the body the descriptor is bounded by the body-size limit instead. A
- * plain (non-enveloped) OAuth blob body remains a full replacement.
+ * In the body the descriptor is bounded by the route's `bodyLimit` cap
+ * (`MAX_STORAGE_BODY_BYTES` in the remote server), enforced before the body
+ * is buffered. A plain (non-enveloped) OAuth blob body remains a full
+ * replacement.
  */
 export type OAuthStoreWrite =
   | { snapshot: OAuthPersistSnapshot; sections?: undefined }
