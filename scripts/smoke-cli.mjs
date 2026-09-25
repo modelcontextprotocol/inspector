@@ -72,6 +72,16 @@ function runCli(args, extraEnv = {}) {
 }
 
 /**
+ * Last non-empty line of a stream — where the CLI's error envelope lives.
+ * The documented contract (`2>&1 | tail -1 | jq .error`) puts diagnostics
+ * like the secret-store fallback banner *before* the envelope on stderr.
+ */
+function lastLine(text) {
+  const lines = text.trim().split("\n");
+  return lines[lines.length - 1] ?? "";
+}
+
+/**
  * Async variant of `runCli` using non-blocking `spawn`. Required for the HTTP
  * case: the test server runs in THIS process's event loop, so a blocking
  * `spawnSync` would deadlock (the CLI child's request could never be serviced).
@@ -419,10 +429,16 @@ try {
   }
   let envelope;
   try {
-    envelope = JSON.parse(badCallback.stderr.trim());
+    // The documented envelope contract (clients/cli/src/error-handler.ts) is
+    // that the envelope is the *last* stderr line — `2>&1 | tail -1 | jq
+    // .error` — because stderr legitimately carries diagnostics first (the
+    // secret-store fallback banner on a host without a usable keychain, e.g.
+    // a CI runner whose keyring cannot enumerate). Parse what the contract
+    // promises, not the whole stream.
+    envelope = JSON.parse(lastLine(badCallback.stderr));
   } catch {
     fail(
-      `bad --callback-url should emit a JSON {"error":…} envelope through the launcher; got:\n${badCallback.stderr}`,
+      `bad --callback-url should emit a JSON {"error":…} envelope as the last stderr line through the launcher; got:\n${badCallback.stderr}`,
     );
   }
   if (envelope?.error?.code !== "error") {
@@ -452,10 +468,11 @@ try {
   }
   let authEnvelope;
   try {
-    authEnvelope = JSON.parse(noStoredAuth.stderr.trim());
+    // Last line per the envelope contract — see the bad --callback-url check.
+    authEnvelope = JSON.parse(lastLine(noStoredAuth.stderr));
   } catch {
     fail(
-      `--use-stored-auth should emit a JSON envelope through the launcher; got:\n${noStoredAuth.stderr}`,
+      `--use-stored-auth should emit a JSON envelope as the last stderr line through the launcher; got:\n${noStoredAuth.stderr}`,
     );
   }
   if (authEnvelope?.error?.code !== "no_stored_token") {
