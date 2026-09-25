@@ -341,6 +341,66 @@ describe("ConnectionRegistry", () => {
     }
   });
 
+  it("idle timer does not fire while another connect is still in flight", async () => {
+    const { InspectorClient } = await import("@inspector/core/mcp/index.js");
+    let releaseConnect!: () => void;
+    const gate = new Promise<void>((resolve) => (releaseConnect = resolve));
+    let dials = 0;
+    const connectSpy = vi
+      .spyOn(InspectorClient.prototype, "connect")
+      .mockImplementation(() => {
+        dials++;
+        // First dial (the slow, valid connect) blocks on the gate; the
+        // second (a concurrent connect for a different name) fails.
+        return dials === 1 ? gate : Promise.reject(new Error("dial failed"));
+      });
+    const disconnectSpy = vi
+      .spyOn(InspectorClient.prototype, "disconnect")
+      .mockResolvedValue(undefined);
+    const authSpy = vi
+      .spyOn(InspectorClient.prototype, "getOAuthState")
+      .mockResolvedValue(undefined as never);
+    const registry = new ConnectionRegistry(25);
+    const onIdle = vi.fn();
+    registry.setIdleHandler(onIdle);
+    try {
+      const config = {
+        type: "streamable-http",
+        url: "https://mcp.example.com/mcp",
+      } as const;
+      const identity = "https://mcp.example.com/mcp";
+      const slow = registry.connect({
+        name: "slow",
+        serverConfig: config,
+        serverIdentity: identity,
+      });
+      await vi.waitFor(() => expect(connectSpy).toHaveBeenCalled());
+      await expect(
+        registry.connect({
+          name: "fail",
+          serverConfig: config,
+          serverIdentity: identity,
+        }),
+      ).rejects.toThrow("dial failed");
+      // The failed connect must not arm the idle timer while the valid
+      // connect is still in flight — the daemon would otherwise stop under
+      // it and fail it with daemon_stopping.
+      expect(registry.idleRemainingMs()).toBeNull();
+      await new Promise((resolve) => setTimeout(resolve, 60));
+      expect(onIdle).not.toHaveBeenCalled();
+      releaseConnect();
+      await expect(slow).resolves.toMatchObject({ name: "slow" });
+      expect(registry.connectionCount()).toBe(1);
+      // Self-reaping still works once the registry actually empties.
+      await registry.disconnect("slow", false);
+      await vi.waitFor(() => expect(onIdle).toHaveBeenCalled());
+    } finally {
+      connectSpy.mockRestore();
+      disconnectSpy.mockRestore();
+      authSpy.mockRestore();
+    }
+  });
+
   it("reports the connect-time auth snapshot, and connections/show recomputes from disk", async () => {
     const { InspectorClient } = await import("@inspector/core/mcp/index.js");
     const { NodeOAuthStorage, resetNodeOAuthStorageCache } =

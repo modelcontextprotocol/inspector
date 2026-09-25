@@ -113,12 +113,23 @@ export class ConnectionRegistry {
   }
 
   /**
-   * Arm the idle shutdown timer when there are no connections.
-   * Called at daemon start so a spawn that never connects still self-reaps,
-   * and after a failed connect that left the registry empty.
+   * Connects currently in flight (past {@link connectLocked} entry, not yet
+   * registered or failed). The idle timer must not fire while one is
+   * pending: a *different* name's failed connect (or a disconnect) would
+   * otherwise re-arm the timer and stop the daemon under a valid connect
+   * still awaiting `client.connect()`.
+   */
+  private pendingConnects = 0;
+
+  /**
+   * Arm the idle shutdown timer when there are no connections and no
+   * connects in flight. Called at daemon start so a spawn that never
+   * connects still self-reaps, and after a failed connect/disconnect that
+   * left the registry empty.
    */
   armIdleTimerIfEmpty(): void {
-    if (this.connections.size === 0) {
+    if (this.closed) return;
+    if (this.connections.size === 0 && this.pendingConnects === 0) {
       this.armIdleTimer();
     }
   }
@@ -243,6 +254,7 @@ export class ConnectionRegistry {
   }): Promise<ConnectionInfo> {
     this.assertOpen();
     this.clearIdleTimer();
+    this.pendingConnects++;
 
     try {
       if (this.connections.has(params.name)) {
@@ -304,12 +316,13 @@ export class ConnectionRegistry {
         protocolEra: client.getProtocolEra(),
         ...(auth && { auth }),
       };
-    } catch (error) {
-      // Any failure after clearIdleTimer (createConnectionClient, reconnect
-      // disconnect, client.connect, …) must re-arm so a connection-less daemon
-      // still self-reaps.
+    } finally {
+      this.pendingConnects--;
+      // Re-arm on any exit. On success the registered connection makes this
+      // a no-op; on failure (createConnectionClient, reconnect disconnect,
+      // client.connect, …) it restores self-reaping — but only once no other
+      // connect is still in flight.
       this.armIdleTimerIfEmpty();
-      throw error;
     }
   }
 
@@ -338,9 +351,7 @@ export class ConnectionRegistry {
       this.mruName = remaining[0]?.name ?? null;
     }
     await safeDisconnect(connection.client);
-    if (this.connections.size === 0) {
-      this.armIdleTimer();
-    }
+    this.armIdleTimerIfEmpty();
     return { name: connectionName };
   }
 
@@ -370,7 +381,7 @@ export class ConnectionRegistry {
     this.idleTimer = setTimeout(() => {
       this.idleTimer = null;
       this.idleDeadline = null;
-      if (this.connections.size === 0) {
+      if (this.connections.size === 0 && this.pendingConnects === 0) {
         this.onIdle?.();
       }
     }, this.idleMs);
