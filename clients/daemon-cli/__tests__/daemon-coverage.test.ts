@@ -321,6 +321,66 @@ describe("daemon coverage", () => {
     server = undefined;
   });
 
+  it("rejects new ops while stopping but keeps status ops answerable", async () => {
+    server = new DaemonServer({ dir: freshDir(), idleMs: 0 });
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    vi.spyOn(server.registry, "disconnectAll").mockImplementation(() => gate);
+    const stopP = server.stop("stop");
+
+    const rejected = await server.handle({ id: "q1", op: "connections/list" });
+    expect(rejected.ok).toBe(false);
+    if (!rejected.ok) expect(rejected.error.code).toBe("daemon_stopping");
+
+    const status = await server.handle({ id: "q2", op: "daemon/status" });
+    expect(status.ok).toBe(true);
+    const pong = await server.handle({ id: "q3", op: "ping" });
+    expect(pong.ok).toBe(true);
+
+    release();
+    await stopP;
+    server = undefined;
+  });
+
+  it("stop() quiesces in-flight ops before disconnecting connections", async () => {
+    // A connect racing shutdown used to register its client *after*
+    // disconnectAll's snapshot, leaking a live child process. Shutdown now
+    // waits for in-flight ops so the late registration is included.
+    server = new DaemonServer({ dir: freshDir(), idleMs: 0 });
+    const order: string[] = [];
+    let releaseConnect!: () => void;
+    const gate = new Promise<void>((resolve) => (releaseConnect = resolve));
+    vi.spyOn(server.registry, "connect").mockImplementation(async () => {
+      order.push("connect:start");
+      await gate;
+      order.push("connect:end");
+      return { name: "a" } as never;
+    });
+    vi.spyOn(server.registry, "disconnectAll").mockImplementation(async () => {
+      order.push("disconnectAll");
+    });
+
+    const opP = server.handle({
+      id: "c1",
+      op: "connect",
+      params: {
+        name: "a",
+        serverConfig: { type: "stdio", command: "x" },
+        serverIdentity: "x",
+      } as never,
+    });
+    await vi.waitFor(() => expect(order).toContain("connect:start"));
+    const stopP = server.stop("stop");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(order).toEqual(["connect:start"]); // stop is waiting, not tearing down
+
+    releaseConnect();
+    await opP;
+    await stopP;
+    expect(order).toEqual(["connect:start", "connect:end", "disconnectAll"]);
+    server = undefined;
+  });
+
   it("callDaemon times out a hung server", async () => {
     const d = freshDir();
     const sock = path.join(d, "daemon.sock");

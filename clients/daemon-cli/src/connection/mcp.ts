@@ -396,9 +396,14 @@ function registerConnect(program: CommandType): void {
       // relative paths against the DAEMON's cwd — whichever directory the
       // first mcpdo invocation happened to run from. Pin it to the caller's
       // cwd, which is what `mcpdo connect node ./server.js` means to the user.
-      // A cwd configured in the catalog/config entry (or --cwd) still wins.
-      if (serverConfig.type === "stdio" && !serverConfig.cwd) {
-        serverConfig = { ...serverConfig, cwd: process.cwd() };
+      // A cwd configured in the catalog/config entry (or --cwd) still wins —
+      // but a *relative* configured cwd must also be resolved here, against
+      // this shell's cwd, not left for the daemon to resolve post-chdir.
+      if (serverConfig.type === "stdio") {
+        serverConfig = {
+          ...serverConfig,
+          cwd: path.resolve(serverConfig.cwd ?? process.cwd()),
+        };
       }
       // Same staleness problem for bare command names: the daemon would look
       // `node` up in the PATH of whichever mcpdo invocation first spawned it.

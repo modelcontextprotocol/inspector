@@ -41,7 +41,13 @@ export function sanitizeDeep<T>(value: T): T {
   if (typeof value === "string") return sanitizeText(value) as T;
   if (Array.isArray(value)) return value.map((v) => sanitizeDeep(v)) as T;
   if (value !== null && typeof value === "object") {
-    const out: Record<string, unknown> = {};
+    // Null prototype: a JSON key named "__proto__" must become an own
+    // property, not invoke the inherited prototype setter (which would
+    // silently drop the field from formatted output).
+    const out: Record<string, unknown> = Object.create(null) as Record<
+      string,
+      unknown
+    >;
     for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
       out[sanitizeText(k)] = sanitizeDeep(v);
     }

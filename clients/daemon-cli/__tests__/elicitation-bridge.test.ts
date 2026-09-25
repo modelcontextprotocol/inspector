@@ -173,6 +173,63 @@ describe("wireElicitationBridge", () => {
     unwire();
   });
 
+  it("delivers each elicitation to exactly one of two concurrent callers (oldest first)", async () => {
+    const { client, emit } = fakeClient();
+    const answerFor = (frame: {
+      id: string;
+      elicitationId: string;
+    }): ElicitationResponseFrame => ({
+      id: frame.id,
+      kind: "elicitation-response",
+      elicitationId: frame.elicitationId,
+      action: "cancel",
+    });
+    const requestA = vi
+      .fn()
+      .mockImplementation(async (frame) => answerFor(frame));
+    const requestB = vi
+      .fn()
+      .mockImplementation(async (frame) => answerFor(frame));
+    const unwireA = wireElicitationBridge(
+      client,
+      { request: requestA },
+      "req-a",
+    );
+    const unwireB = wireElicitationBridge(
+      client,
+      { request: requestB },
+      "req-b",
+    );
+
+    const first = fakeMessage({ id: "e1" });
+    emit(first);
+    await vi.waitFor(() => expect(first.respond).toHaveBeenCalled());
+    expect(requestA).toHaveBeenCalledTimes(1);
+    expect(requestB).not.toHaveBeenCalled();
+    expect(first.respond).toHaveBeenCalledTimes(1);
+
+    // Once the oldest caller settles, the next event goes to the survivor.
+    unwireA();
+    const second = fakeMessage({ id: "e2" });
+    emit(second);
+    await vi.waitFor(() => expect(second.respond).toHaveBeenCalled());
+    expect(requestA).toHaveBeenCalledTimes(1);
+    expect(requestB).toHaveBeenCalledTimes(1);
+    unwireB();
+  });
+
+  it("cancels an event already queued when every caller settled before dispatch", async () => {
+    const { client, emit } = fakeClient();
+    const request = vi.fn();
+    const unwire = wireElicitationBridge(client, { request }, "req-1");
+    const message = fakeMessage();
+    emit(message);
+    unwire(); // settle before the queued microtask dispatches
+    await vi.waitFor(() => expect(message.cancel).toHaveBeenCalled());
+    expect(request).not.toHaveBeenCalled();
+    expect(message.respond).not.toHaveBeenCalled();
+  });
+
   it("unwire stops the listener from reacting to further events", () => {
     const { client, emit } = fakeClient();
     const channel: ElicitationChannel = { request: vi.fn() };

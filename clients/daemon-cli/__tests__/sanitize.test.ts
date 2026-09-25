@@ -77,6 +77,28 @@ describe("sanitizeDeep", () => {
     expect(input.text).toBe("esc\u001b");
     expect(out.text).toBe("esc\u241b");
   });
+
+  it('preserves a literal "__proto__" key instead of dropping it', () => {
+    // On a plain {} accumulator, assigning "__proto__" hits the prototype
+    // setter and silently discards the entry; the null-prototype result
+    // keeps it as an ordinary own property.
+    const input = JSON.parse(
+      '{"__proto__": {"polluted": "esc\\u001b"}, "a": 1}',
+    );
+    const out = sanitizeDeep(input) as Record<string, unknown>;
+    expect(Object.getOwnPropertyNames(out)).toContain("__proto__");
+    expect(
+      (
+        Object.getOwnPropertyDescriptor(out, "__proto__")?.value as Record<
+          string,
+          unknown
+        >
+      ).polluted,
+    ).toBe("esc\u241b");
+    expect(out.a).toBe(1);
+    // No pollution of shared prototypes either.
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+  });
 });
 
 describe("isSafeLinkTarget", () => {

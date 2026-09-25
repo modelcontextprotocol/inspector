@@ -25,10 +25,16 @@ export function resolveCommandPath(
     return command;
   }
   const pathVar = env.PATH ?? "";
-  /* v8 ignore next 4 -- platform-only branch: PATHEXT applies on win32 only */
+  /* v8 ignore next 7 -- platform-only branch: PATHEXT applies on win32 only */
   const extensions =
     process.platform === "win32"
-      ? (env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD").split(";")
+      ? // cmd.exe-like: an already-suffixed name ("node.exe") is tried as-is
+        // before PATHEXT variants — otherwise only "node.exe.EXE" etc. would
+        // be searched and resolution would silently fall to the daemon's PATH.
+        [
+          ...(path.extname(command) ? [""] : []),
+          ...(env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD").split(";"),
+        ]
       : [""];
   for (const dir of pathVar.split(path.delimiter)) {
     // POSIX: an empty PATH entry means the current directory. Resolve it (and

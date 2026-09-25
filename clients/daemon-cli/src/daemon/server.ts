@@ -85,6 +85,15 @@ export class DaemonServer {
    * its caller `process.exit()` mid-teardown, stranding the socket, token,
    * and lock on disk. */
   private stopPromise: Promise<void> | null = null;
+  /** In-flight handleOutcome calls; shutdown quiesces these before the
+   * registry snapshot so a concurrent connect cannot register a live client
+   * after disconnectAll and leak it. */
+  private activeOps = 0;
+  private opsIdleResolvers: (() => void)[] = [];
+  /** Accepted IPC sockets. Long-lived stream sockets never end on their own,
+   * so shutdown flushes and destroys them — otherwise server.close() would
+   * wait forever. */
+  private readonly ipcSockets = new Set<net.Socket>();
 
   constructor(options: DaemonServerOptions = {}) {
     this.dir = options.dir ?? getDaemonDir();
@@ -128,6 +137,8 @@ export class DaemonServer {
       }
 
       this.server = net.createServer((socket) => {
+        this.ipcSockets.add(socket);
+        socket.once("close", () => this.ipcSockets.delete(socket));
         acceptDaemonConnection(socket, (req, elicitation) =>
           this.handleOutcome(req, elicitation),
         );
@@ -170,7 +181,18 @@ export class DaemonServer {
   private async doStop(reason: "idle" | "stop" | "signal"): Promise<void> {
     void reason;
     this.stopping = true;
+    // Quiesce: new ops are rejected above; wait (bounded — an rpc blocked on
+    // an interactive elicitation prompt must not hang shutdown forever) for
+    // in-flight ops so a concurrent connect lands in the registry before the
+    // disconnect snapshot below.
+    await this.waitForActiveOps(DaemonServer.QUIESCE_TIMEOUT_MS);
     await this.registry.disconnectAll();
+    // Flush pending response writes (e.g. daemon/stop's own {stopping:true})
+    // then drop the sockets: long-lived stream sockets never end on their
+    // own and would keep server.close() waiting forever.
+    for (const socket of [...this.ipcSockets]) {
+      socket.destroySoon();
+    }
     await new Promise<void>((resolve) => {
       if (!this.server) {
         resolve();
@@ -181,6 +203,22 @@ export class DaemonServer {
     this.server = null;
     this.removeLockAndSocket();
     this.onShutdown?.();
+  }
+
+  /** Grace period for in-flight ops during shutdown before teardown proceeds
+   * anyway. Exported for tests. */
+  static readonly QUIESCE_TIMEOUT_MS = 3_000;
+
+  private waitForActiveOps(timeoutMs: number): Promise<void> {
+    if (this.activeOps === 0) return Promise.resolve();
+    return new Promise((resolve) => {
+      const timer = setTimeout(resolve, timeoutMs);
+      timer.unref?.();
+      this.opsIdleResolvers.push(() => {
+        clearTimeout(timer);
+        resolve();
+      });
+    });
   }
 
   status(): DaemonStatus {
@@ -207,7 +245,15 @@ export class DaemonServer {
   ): Promise<HandleOutcome> {
     try {
       assertDaemonToken(this.requiredToken, request.token);
-      return await this.dispatch(request, elicitation);
+      this.activeOps++;
+      try {
+        return await this.dispatch(request, elicitation);
+      } finally {
+        this.activeOps--;
+        if (this.activeOps === 0) {
+          for (const resolve of this.opsIdleResolvers.splice(0)) resolve();
+        }
+      }
     } catch (error) {
       if (error instanceof CliExitCodeError) {
         return {
@@ -242,6 +288,22 @@ export class DaemonServer {
     request: DaemonRequest,
     elicitation: ElicitationChannel,
   ): Promise<HandleOutcome> {
+    // Once shutdown starts, new work is rejected: an op accepted here could
+    // otherwise register a live client after disconnectAll's snapshot.
+    // Status-style ops stay answerable; a repeated daemon/stop joins the
+    // in-flight stop via the memoized promise.
+    if (
+      this.stopping &&
+      request.op !== "ping" &&
+      request.op !== "daemon/status" &&
+      request.op !== "daemon/stop"
+    ) {
+      throw new CliExitCodeError(
+        EXIT_CODES.UNREACHABLE,
+        "Connection daemon is shutting down.",
+        { code: "daemon_stopping" },
+      );
+    }
     switch (request.op) {
       case "ping":
         return {
