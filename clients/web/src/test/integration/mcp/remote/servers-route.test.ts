@@ -1770,6 +1770,24 @@ describe("/api/servers routes", () => {
       });
       expect(res.status).toBe(400);
     });
+
+    it("rejects Object.prototype names as ids with 400, not a false 409", async () => {
+      // "constructor" passes the character class, but `id in map` is true
+      // even on an empty map — before the prototype-name rejection the
+      // POST route answered a permanent 409 for an id that was never
+      // created. Now validation refuses it outright.
+      for (const id of ["constructor", "toString", "hasOwnProperty"]) {
+        const res = await fetch(`${h.baseUrl}/api/servers`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id,
+            config: { type: "streamable-http", url: "https://x.test/mcp" },
+          }),
+        });
+        expect(res.status, id).toBe(400);
+      }
+    });
   });
 
   describe("keychain secrets (#1356)", () => {

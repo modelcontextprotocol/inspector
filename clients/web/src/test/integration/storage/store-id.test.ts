@@ -15,10 +15,16 @@ describe("validateStoreId", () => {
     expect(validateStoreId("a/b")).toBe(false);
   });
 
-  it("rejects __proto__ despite matching the character class", () => {
-    // As a map key a plain `map[id] = …` assignment would invoke the
-    // prototype setter and silently drop the entry.
+  it("rejects every Object.prototype name despite matching the character class", () => {
+    // As a map key a plain `map[id] = …` assignment with `__proto__` would
+    // invoke the prototype setter and silently drop the entry, and any
+    // inherited name makes `id in map` answer true on an empty map — a
+    // permanent false "duplicate" on create.
     expect(validateStoreId("__proto__")).toBe(false);
+    for (const name of Object.getOwnPropertyNames(Object.prototype)) {
+      if (!/^[a-zA-Z0-9_-]+$/.test(name)) continue; // out of charset anyway
+      expect(validateStoreId(name), name).toBe(false);
+    }
     // Ordinary underscore names stay valid.
     expect(validateStoreId("__internal__")).toBe(true);
   });

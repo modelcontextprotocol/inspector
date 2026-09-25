@@ -17,7 +17,7 @@
  */
 
 import { serializeStore, parseStore } from "../storage/store-serialize.js";
-import { setOwnEntry } from "../storage/own-entry.js";
+import { setOwnEntry, getOwnEntry } from "../storage/own-entry.js";
 import type { IdpSessionState } from "./storage.js";
 import type { ServerOAuthState } from "./store.js";
 
@@ -72,17 +72,18 @@ export function mergeOAuthSections(
     idpSessions: { ...disk?.idpSessions },
   };
   for (const url of sections.servers ?? []) {
-    const value = snapshot.servers[url];
+    // Own-property read/write: with a `__proto__` key a plain lookup on an
+    // empty map returns the inherited prototype, turning a clear into an
+    // update, and a plain assignment would hit the prototype setter.
+    const value = getOwnEntry(snapshot.servers, url);
     if (value === undefined) {
       delete merged.servers[url];
     } else {
-      // Own-property write: a plain assignment with a `__proto__` key
-      // would hit the prototype setter and silently drop the entry.
       setOwnEntry(merged.servers, url, value);
     }
   }
   for (const issuer of sections.idpSessions ?? []) {
-    const value = snapshot.idpSessions[issuer];
+    const value = getOwnEntry(snapshot.idpSessions, issuer);
     if (value === undefined) {
       delete merged.idpSessions[issuer];
     } else {

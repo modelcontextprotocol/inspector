@@ -177,6 +177,24 @@ describe("mergeOAuthSections", () => {
     // Serialization must carry the entry.
     expect(JSON.stringify(merged)).toContain("evil-name");
   });
+
+  it("propagates a clear of a __proto__ entry instead of resurrecting it", () => {
+    // After a clear, `snapshot.servers` is `{}` — a plain lookup for
+    // "__proto__" would return the inherited `Object.prototype`, turning
+    // the deletion into an update that re-creates an empty entry.
+    const diskWithProto: OAuthPersistSnapshot = {
+      servers: JSON.parse('{"__proto__": {"scope": "stale"}}'),
+      idpSessions: JSON.parse('{"__proto__": {"idToken": "stale"}}'),
+    };
+    const merged = mergeOAuthSections(
+      diskWithProto,
+      { servers: {}, idpSessions: {} },
+      { servers: ["__proto__"], idpSessions: ["__proto__"] },
+    );
+    expect(Object.hasOwn(merged.servers, "__proto__")).toBe(false);
+    expect(Object.hasOwn(merged.idpSessions, "__proto__")).toBe(false);
+    expect(JSON.stringify(merged)).not.toContain("stale");
+  });
 });
 
 describe("parseOAuthPersistSections", () => {

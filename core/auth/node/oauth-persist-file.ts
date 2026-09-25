@@ -26,7 +26,7 @@ import {
   writeStoreFile,
   deleteStoreFile,
 } from "../../storage/store-io.js";
-import { setOwnEntry } from "../../storage/own-entry.js";
+import { setOwnEntry, getOwnEntry } from "../../storage/own-entry.js";
 import {
   mergeOAuthSections,
   parseOAuthPersistBlob,
@@ -248,12 +248,15 @@ export async function writeOAuthSections(
       try {
         for (const url of effective.servers ?? []) {
           const serverId = oauthSecretServerId(url);
-          const next = snapshot.servers[url];
+          // Own-property reads: with a `__proto__` key a plain lookup on a
+          // map that lacks it returns the inherited prototype, so a clear
+          // would read as an update and skip the purge below.
+          const next = getOwnEntry(snapshot.servers, url);
           // Candidates span the old and new shapes so a removed issuer's
           // fields are deleted, not orphaned in the store.
           const candidates = [
             ...new Set([
-              ...serverSecretFields(disk?.servers[url]),
+              ...serverSecretFields(getOwnEntry(disk?.servers, url)),
               ...serverSecretFields(next),
             ]),
           ];
@@ -273,7 +276,7 @@ export async function writeOAuthSections(
           // and "__proto__" would otherwise silently drop the residue.
           setOwnEntry(merged.servers, url, residue);
           if (!durable) {
-            const diskEntry = disk?.servers[url];
+            const diskEntry = getOwnEntry(disk?.servers, url);
             // Split the disk value with the *active* policy so the compare
             // is like-for-like: under `access` the raw disk blob still
             // carries its refresh token while `secrets` never does, and a
@@ -296,7 +299,7 @@ export async function writeOAuthSections(
 
         for (const issuer of effective.idpSessions ?? []) {
           const serverId = oauthIdpSecretServerId(issuer);
-          const next = snapshot.idpSessions[issuer];
+          const next = getOwnEntry(snapshot.idpSessions, issuer);
           priorSecrets.push(
             ...(await snapshotSecretFields(secretStore, serverId, [
               IDP_SESSION_FIELD,
@@ -310,7 +313,7 @@ export async function writeOAuthSections(
           const { residue, secrets } = splitIdpSession(next, policy);
           setOwnEntry(merged.idpSessions, issuer, residue);
           if (!durable) {
-            const diskSession = disk?.idpSessions[issuer];
+            const diskSession = getOwnEntry(disk?.idpSessions, issuer);
             const keep = preserveNonDurableSecrets(
               diskSession ? splitIdpSession(diskSession, policy).secrets : {},
               secrets,

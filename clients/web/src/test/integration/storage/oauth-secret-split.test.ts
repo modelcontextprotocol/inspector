@@ -473,6 +473,26 @@ describe("writeOAuthSections secret split", () => {
     )?.[1];
     expect(entry?.tokens).toEqual(TOKENS);
     expect(entry?.clientInformation?.client_secret).toBe("cs");
+
+    // And a clear must propagate: with the entry gone from the snapshot, a
+    // plain lookup for "__proto__" would return the inherited prototype and
+    // process the clear as an update — leaving an empty residue entry on
+    // disk and the secrets alive in the store.
+    await writeOAuthSections(
+      filePath,
+      { servers: {}, idpSessions: {} },
+      { servers: ["__proto__"], idpSessions: ["__proto__"] },
+      store,
+    );
+    await flushStoreFileWrites(filePath);
+    const cleared = readRawFile();
+    expect(Object.hasOwn(cleared.servers, "__proto__")).toBe(false);
+    expect(Object.hasOwn(cleared.idpSessions, "__proto__")).toBe(false);
+    const rejoined = await readOAuthStore(filePath, store);
+    expect(Object.hasOwn(rejoined?.servers ?? {}, "__proto__")).toBe(false);
+    // The store's secret fields were purged, not orphaned.
+    expect(await store.get("oauth+__proto__", "client-secret")).toBeNull();
+    expect(await store.get("oauth+__proto__", "tokens")).toBeNull();
   });
 });
 

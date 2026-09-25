@@ -9,15 +9,18 @@
 /**
  * A store id must be non-empty and contain only alphanumerics, hyphens, and
  * underscores (it becomes a filename and an `mcpServers` map key). Reject
- * `__proto__` explicitly: it matches the character class, but as a map key
- * a plain assignment would invoke `Object.prototype`'s setter instead of
- * creating an entry — silently dropping the server (and any secrets it
- * indexes) from every id-keyed map.
+ * every `Object.prototype` member name, not just `__proto__`: they all match
+ * the character class, but as map keys they collide with the prototype chain
+ * — `__proto__` assignment invokes the inherited setter and silently drops
+ * the server, and any of them (`constructor`, `toString`, …) makes an
+ * `id in map` membership check answer true on an empty map, so the id could
+ * never be created (a permanent false "duplicate"). `in Object.prototype`
+ * covers exactly that set.
  */
 export function validateStoreId(storeId: string): boolean {
   return (
     /^[a-zA-Z0-9_-]+$/.test(storeId) &&
     storeId.length > 0 &&
-    storeId !== "__proto__"
+    !(storeId in Object.prototype)
   );
 }

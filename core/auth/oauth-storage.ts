@@ -24,6 +24,7 @@ import type {
   SaveClientInformationOptions,
   SaveTokensOptions,
 } from "./storage.js";
+import { getOwnEntry } from "../storage/own-entry.js";
 
 /**
  * Re-attach the `issuer` stamp (SEP-2352) that `OAuthTokensSchema` /
@@ -109,7 +110,9 @@ export class OAuthStorageBase implements OAuthStorage {
     issuer?: string,
   ): IssuerBoundOAuthState | undefined {
     const key = this.resolveReadIssuer(state, issuer);
-    return key ? state.byIssuer?.[key] : undefined;
+    // Own-property read: a missing `__proto__` issuer must answer
+    // `undefined`, not the inherited `Object.prototype`.
+    return key ? getOwnEntry(state.byIssuer, key) : undefined;
   }
 
   /**
@@ -130,7 +133,9 @@ export class OAuthStorageBase implements OAuthStorage {
     const state = this.memory.getState().getServerState(serverUrl);
     const byIssuer = {
       ...state.byIssuer,
-      [issuer]: { ...state.byIssuer?.[issuer], ...updates },
+      // The computed key defines an own property; the merge-base read needs
+      // the own guard so an absent `__proto__` slot reads as undefined.
+      [issuer]: { ...getOwnEntry(state.byIssuer, issuer), ...updates },
     };
     this.memory.getState().setServerState(serverUrl, {
       byIssuer,

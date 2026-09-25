@@ -14,6 +14,7 @@ import type {
   OAuthClientRegistrationKind,
 } from "./storage.js";
 import type { OAuthPersistSnapshot } from "./oauth-persist.js";
+import { getOwnEntry } from "../storage/own-entry.js";
 
 /**
  * OAuth credentials bound to a single authorization-server `issuer` (SEP-2352).
@@ -102,7 +103,9 @@ export class OAuthMemoryStore {
       servers: this.servers,
       idpSessions: this.idpSessions,
       getServerState: (serverUrl: string) => {
-        return this.servers[serverUrl] || {};
+        // Own-property read: a missing `__proto__` key must answer `{}`,
+        // not the inherited `Object.prototype`.
+        return getOwnEntry(this.servers, serverUrl) || {};
       },
       setServerState: (
         serverUrl: string,
@@ -110,8 +113,10 @@ export class OAuthMemoryStore {
       ) => {
         this.servers = {
           ...this.servers,
+          // Computed keys define own properties, so this write is safe for
+          // `__proto__`; only the merge-base read needs the own guard.
           [serverUrl]: {
-            ...this.servers[serverUrl],
+            ...getOwnEntry(this.servers, serverUrl),
             ...updates,
           },
         };
@@ -122,13 +127,13 @@ export class OAuthMemoryStore {
         this.servers = rest;
       },
       getIdpSession: (issuer: string) => {
-        return this.idpSessions[issuer] || {};
+        return getOwnEntry(this.idpSessions, issuer) || {};
       },
       setIdpSession: (issuer: string, updates: Partial<IdpSessionState>) => {
         this.idpSessions = {
           ...this.idpSessions,
           [issuer]: {
-            ...this.idpSessions[issuer],
+            ...getOwnEntry(this.idpSessions, issuer),
             ...updates,
           },
         };

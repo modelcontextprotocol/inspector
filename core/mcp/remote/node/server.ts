@@ -2801,7 +2801,9 @@ export function createRemoteApp(
     try {
       return await withWriteLock(async () => {
         const current = await readMcpConfig();
-        if (id in current.mcpServers) {
+        // Own-property check: `in` consults the prototype chain, where an
+        // Object.prototype-named id would read as a permanent duplicate.
+        if (Object.hasOwn(current.mcpServers, id)) {
           return c.json({ error: `Server '${id}' already exists` }, 409);
         }
         const built = buildStoredEntry(id, body.config, postSettings);
@@ -2978,10 +2980,11 @@ export function createRemoteApp(
     try {
       return await withWriteLock(async () => {
         const current = await readMcpConfig();
-        if (!(originalId in current.mcpServers)) {
+        // Own-property checks — see the POST route's duplicate check.
+        if (!Object.hasOwn(current.mcpServers, originalId)) {
           return c.json({ error: `Server '${originalId}' not found` }, 404);
         }
-        if (newId !== originalId && newId in current.mcpServers) {
+        if (newId !== originalId && Object.hasOwn(current.mcpServers, newId)) {
           return c.json({ error: `Server '${newId}' already exists` }, 409);
         }
         // Rebuild preserving insertion order; replace the original key in
@@ -2991,7 +2994,7 @@ export function createRemoteApp(
         // deliberate side-effect of using `readMcpConfig` + full rewrite
         // here.
         const existing = current.mcpServers[originalId];
-        /* v8 ignore next 5 -- the `in` check above guarantees this branch is unreachable; narrowing without the non-null assertion keeps TS happy and makes the contract explicit for future refactors. */
+        /* v8 ignore next 5 -- the own-property check above guarantees this branch is unreachable; narrowing without the non-null assertion keeps TS happy and makes the contract explicit for future refactors. */
         if (!existing) {
           return c.json({ error: `Server '${originalId}' not found` }, 404);
         }
@@ -3233,7 +3236,8 @@ export function createRemoteApp(
     try {
       return await withWriteLock(async () => {
         const current = await readMcpConfig();
-        if (!(id in current.mcpServers)) {
+        // Own-property check — see the POST route's duplicate check.
+        if (!Object.hasOwn(current.mcpServers, id)) {
           // Idempotent DELETE — but still sweep the keychain in case a
           // prior delete failed after rewriting the file and orphaned
           // entries are sitting there.

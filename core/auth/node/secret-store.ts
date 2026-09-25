@@ -313,10 +313,13 @@ const PROBE_ACCOUNT = "__inspector:probe";
  *
  * All three share one availability contract, which is what lets callers
  * stay ignorant of which they got: `get` is tolerant (`null` on any
- * failure), `delete` no-ops, and `set` is the only operation that
- * hard-fails — throwing a {@link SecretStoreUnavailableError} the API
- * routes turn into a 503 — because it is the only one where a value would
- * be lost.
+ * failure), while every operation whose reported outcome a caller commits
+ * state against hard-fails — `set` throws where a value would be lost, and
+ * `delete`/`deleteAllForServer` throw where the store cannot *confirm* the
+ * entry is gone (a silently skipped delete would let a later read
+ * resurrect a credential the caller believes destroyed). The thrown
+ * {@link SecretStoreUnavailableError} is what the API routes turn into a
+ * 503.
  */
 /** One server's worth of a bulk read: which fields, for which server id. */
 export interface SecretBulkRequest {
@@ -432,14 +435,16 @@ const isNoEntryError = (err: unknown): boolean =>
  * can use `=== null` rather than truthiness (an empty-string secret is
  * a real value and must round-trip).
  *
- * **Availability behavior.** When the keychain is unavailable, `set` is
- * the only operation that throws `KeychainUnavailableError` — that's
- * the moment where data would actually be lost. `get` returns `null`
- * (as if no entry existed) and the destructive operations silently
- * no-op (there's nothing to delete anyway). This keeps non-secret flows
+ * **Availability behavior.** When the keychain is unavailable, `get`
+ * returns `null` (as if no entry existed) so non-secret flows keep
  * working on a stock CI runner / minimal Linux box / unsupported
- * platform; the user only hits a hard error when they actually try to
- * save a secret.
+ * platform. `set` throws `KeychainUnavailableError` — that's the moment
+ * where data would actually be lost — and so do `delete` and
+ * `deleteAllForServer`, because an unconfirmed delete is a lie: the
+ * entry may still exist, and a caller that commits state on the
+ * reported success would see a later read resurrect the credential. A
+ * *missing* entry is still a successful delete; only an unreachable
+ * store throws.
  *
  * "Unavailable" covers four distinct failures, all funneled into that
  * one contract — the contract is only as good as its narrowest funnel,
