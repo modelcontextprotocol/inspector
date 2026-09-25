@@ -106,13 +106,17 @@ A v2 issue's lifecycle:
 
 1. **Filed and labeled** — exactly one version label (`v1`/`v2`), exactly one
    type label (`bug`/`enhancement`/`documentation`/`chore`/`question`).
-2. **Boarded on #28, Status: Incoming** — no milestone yet, because nobody has
-   approved it.
-3. **Triaged** — Priority is scored against a rubric and posted as an issue
-   comment, for auditability.
-4. **Approved** — a maintainer assigns a milestone and moves the card to
-   Todo. ("Milestoned" *is* "approved" — enforced by an automated board
-   audit.)
+2. **Boarded on #28.** An issue a maintainer creates directly through the
+   `issue-create` flow is approved by definition, so it's boarded straight
+   into a milestoned **Todo**, skipping to step 5. Everything else — an
+   outside reporter's issue, or a maintainer's own issue opened by hand
+   instead of through that flow — has no board access behind it and lands
+   unmilestoned in **Incoming** instead, regardless of who filed it.
+3. **Triaged** *(Incoming path only)* — Priority is scored against a rubric
+   and posted as an issue comment, for auditability.
+4. **Approved** *(Incoming path only)* — a maintainer assigns a milestone and
+   moves the card to Todo. ("Milestoned" *is* "approved" — enforced by an
+   automated board audit.)
 5. **Work starts** — a branch is cut from `v2/main`, Status → In Progress.
 6. **Sent for review** — `npm run local:gate` runs, every commit is signed
    off (DCO), a PR opens against `v2/main` with `Closes #<N>` as its first
@@ -237,8 +241,9 @@ never bulk-applied, regardless of how routine the rest of the flow becomes.
 
 ## The quality gate
 
-None of the above works without a gate strict enough that a green run is a
-real guarantee. `npm run local:gate` is the mandatory pre-push command:
+None of the above works without a gate comprehensive enough that a green run
+is the strongest predictor there is of a green CI run. `npm run local:gate`
+is the mandatory pre-push command:
 
 - **≥90% coverage on lines, statements, functions, and branches, per file**,
   with the only escape hatch a justified, inline `/* v8 ignore ... */` on a
@@ -251,7 +256,7 @@ real guarantee. `npm run local:gate` is the mandatory pre-push command:
   flake can't pass silently on a second attempt.
 
 See [Testing and the quality gate](./quality-gate.md) for the full stage list
-and why two stages are local-only.
+and why one stage is local-only.
 
 ## What makes it work
 
@@ -292,13 +297,16 @@ shipped behavior.
 **The target shape narrows human involvement to two decisions, with
 everything between them automatic:**
 
-1. **Deciding an issue is ready to work.** Triage and prioritization are
-   already agent-driven (the `issue-triage` rubric and board audit, above) —
-   an issue arrives scored and boarded on its own. What stays a human call is
-   approving it out of that queue: is it worth doing, does it match the
-   roadmap, should it be closed instead. Once approved, the orchestrator's
-   job is to take it the rest of the way — implementation, review, QA and
-   security passes, merge — with no further human step in between.
+1. **Deciding an issue is ready to work.** The mechanics of scoring and
+   boarding are already agent-driven (the `issue-triage` rubric and board
+   audit, above) — but today someone still has to invoke that sweep; a
+   UI-filed issue, or one filed by the monthly dependency and nightly SDK
+   sweeps, sits unboarded until they do. What stays a human call either way
+   is approving an issue out of the Incoming queue: is it worth doing, does
+   it match the roadmap, should it be closed instead. Once approved, the
+   orchestrator's job is to take it the rest of the way — implementation,
+   review, QA and security passes, merge — with no further human step in
+   between.
 2. **Approving the release.** The `release` skill's ledger-artifact review
    (see the skills table, above) stays the final human sign-off before a
    milestone reaches `main` and ships — everything that produced the
