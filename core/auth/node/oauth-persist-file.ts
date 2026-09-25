@@ -93,16 +93,22 @@ export function resetOAuthSecretStoreWarnings(): void {
 }
 
 /**
- * Rethrow the lock's "secrets file" wording as OAuth wording (same file).
- * Matches only {@link SecretFileLockHeldError} — a secret-*store* failure
- * thrown inside the locked callback (e.g. `KeychainUnavailableError`) is
- * not a lock failure and passes through unchanged, keeping the type the
- * HTTP layer maps to an actionable 503.
+ * Rethrow the lock's "secrets file" wording as OAuth wording (same file),
+ * preserving the {@link SecretFileLockHeldError} type — it extends
+ * `SecretStoreUnavailableError`, which the HTTP layer maps to a retryable
+ * 503; rewrapping in a plain `Error` would demote lock contention to a
+ * generic 500. A secret-*store* failure thrown inside the locked callback
+ * (e.g. `KeychainUnavailableError`) is not a lock failure and passes
+ * through unchanged.
  */
-function rethrowLockError(filePath: string, error: unknown): never {
+function rethrowLockError(
+  filePath: string,
+  error: unknown,
+  action: "save" | "read" = "save",
+): never {
   if (error instanceof SecretFileLockHeldError) {
-    throw new Error(
-      `Could not save OAuth state: the state file at ${filePath} is locked by another Inspector process and did not become available.`,
+    throw new SecretFileLockHeldError(
+      `Could not ${action} OAuth state: the state file at ${filePath} is locked by another Inspector process and did not become available.`,
       { cause: error },
     );
   }
@@ -359,8 +365,9 @@ async function joinSnapshot(
 
 /**
  * Lazily migrate a pre-split file: move its plaintext secrets into the
- * store and rewrite the file as residue, under the lock (re-reading fresh so
- * a concurrent writer's entries are not rolled back). Only when the store is
+ * store and rewrite the file as residue. Runs inside the caller's file lock
+ * (see {@link readOAuthStore}) and re-reads fresh under it, so a concurrent
+ * writer's entries are not rolled back. Only when the store is
  * durable — stripping a file into a session-scoped store would trade secrets
  * that survive restarts for ones that die with the process. One-way; an
  * older Inspector version simply re-auths.
@@ -384,44 +391,38 @@ async function migratePlaintextSecrets(
   filePath: string,
   secretStore: SecretStore,
 ): Promise<void> {
-  await withSecretFileLock(filePath, async () => {
-    const fresh = parseOAuthPersistBlob(await readStoreFile(filePath));
-    if (!fresh || !snapshotHasPlaintextSecrets(fresh)) return;
-    const migrateEntrySecrets = async (
-      serverId: string,
-      secrets: OAuthSecretValues,
-    ): Promise<void> => {
-      const absent: Record<string, string> = {};
-      for (const [field, value] of Object.entries(secrets)) {
-        const existing = await secretStoreGetStrict(
-          secretStore,
-          serverId,
-          field,
-        );
-        if (existing === null) absent[field] = value;
-      }
-      if (Object.keys(absent).length > 0) {
-        // Unlike the write path there is no memory copy to degrade to —
-        // a failure here must abort the strip, so it throws. A partial
-        // migration is self-healing: the file keeps its plaintext, the
-        // next read retries, and the store-wins check absorbs the fields
-        // that already landed.
-        await secretStoreSetMany(secretStore, serverId, absent);
-      }
-    };
-    const residue: OAuthPersistSnapshot = { servers: {}, idpSessions: {} };
-    for (const [url, state] of Object.entries(fresh.servers)) {
-      const split = splitServerOAuthState(state, "all");
-      residue.servers[url] = split.residue;
-      await migrateEntrySecrets(oauthSecretServerId(url), split.secrets);
+  const fresh = parseOAuthPersistBlob(await readStoreFile(filePath));
+  if (!fresh || !snapshotHasPlaintextSecrets(fresh)) return;
+  const migrateEntrySecrets = async (
+    serverId: string,
+    secrets: OAuthSecretValues,
+  ): Promise<void> => {
+    const absent: Record<string, string> = {};
+    for (const [field, value] of Object.entries(secrets)) {
+      const existing = await secretStoreGetStrict(secretStore, serverId, field);
+      if (existing === null) absent[field] = value;
     }
-    for (const [issuer, session] of Object.entries(fresh.idpSessions)) {
-      const split = splitIdpSession(session, "all");
-      residue.idpSessions[issuer] = split.residue;
-      await migrateEntrySecrets(oauthIdpSecretServerId(issuer), split.secrets);
+    if (Object.keys(absent).length > 0) {
+      // Unlike the write path there is no memory copy to degrade to —
+      // a failure here must abort the strip, so it throws. A partial
+      // migration is self-healing: the file keeps its plaintext, the
+      // next read retries, and the store-wins check absorbs the fields
+      // that already landed.
+      await secretStoreSetMany(secretStore, serverId, absent);
     }
-    await writeStoreFile(filePath, serializeOAuthPersistBlob(residue));
-  });
+  };
+  const residue: OAuthPersistSnapshot = { servers: {}, idpSessions: {} };
+  for (const [url, state] of Object.entries(fresh.servers)) {
+    const split = splitServerOAuthState(state, "all");
+    residue.servers[url] = split.residue;
+    await migrateEntrySecrets(oauthSecretServerId(url), split.secrets);
+  }
+  for (const [issuer, session] of Object.entries(fresh.idpSessions)) {
+    const split = splitIdpSession(session, "all");
+    residue.idpSessions[issuer] = split.residue;
+    await migrateEntrySecrets(oauthIdpSecretServerId(issuer), split.secrets);
+  }
+  await writeStoreFile(filePath, serializeOAuthPersistBlob(residue));
 }
 
 /**
@@ -429,28 +430,42 @@ async function migratePlaintextSecrets(
  * file still carries plaintext secrets and the store is durable, they are
  * migrated first (see {@link migratePlaintextSecrets}); a failed migration
  * leaves the file untouched and the plaintext keeps working.
+ *
+ * The whole read — file read, lazy migration, and store join — runs under
+ * the same file lock as writes, migration, and removal. An unlocked reader
+ * could interleave with a writer that has updated the secret store but not
+ * yet committed the new residue, and join the *old* residue (say, the old
+ * `client_id`) with the *new* secrets — a torn read producing a mismatched
+ * credential pair, distinct from the accepted long-lived-cache staleness.
+ * A held lock surfaces as a retryable 503 (see {@link rethrowLockError}).
  */
 export async function readOAuthStore(
   filePath: string,
   secretStore: SecretStore = defaultSecretStore(),
 ): Promise<OAuthPersistSnapshot | null> {
-  let snapshot = parseOAuthPersistBlob(await readStoreFile(filePath));
-  if (snapshot === null) return null;
+  try {
+    return await withSecretFileLock(filePath, async () => {
+      let snapshot = parseOAuthPersistBlob(await readStoreFile(filePath));
+      if (snapshot === null) return null;
 
-  if (
-    snapshotHasPlaintextSecrets(snapshot) &&
-    (await secretStoreIsDurable(secretStore))
-  ) {
-    try {
-      await migratePlaintextSecrets(filePath, secretStore);
-      snapshot =
-        parseOAuthPersistBlob(await readStoreFile(filePath)) ?? snapshot;
-    } catch (error) {
-      warnStoreWriteFailure(error);
-    }
+      if (
+        snapshotHasPlaintextSecrets(snapshot) &&
+        (await secretStoreIsDurable(secretStore))
+      ) {
+        try {
+          await migratePlaintextSecrets(filePath, secretStore);
+          snapshot =
+            parseOAuthPersistBlob(await readStoreFile(filePath)) ?? snapshot;
+        } catch (error) {
+          warnStoreWriteFailure(error);
+        }
+      }
+
+      return joinSnapshot(snapshot, secretStore);
+    });
+  } catch (error) {
+    rethrowLockError(filePath, error, "read");
   }
-
-  return joinSnapshot(snapshot, secretStore);
 }
 
 /**

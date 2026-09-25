@@ -1415,6 +1415,10 @@ export function createRemoteApp(
       const store = parseStore(raw);
       return c.json(store);
     } catch (error) {
+      // Lock contention and secret-store failures are retryable/actionable
+      // — map them to 503 like the write paths, not a generic 500.
+      const keychainResp = keychainErrorResponse(c, error);
+      if (keychainResp) return keychainResp;
       const msg = error instanceof Error ? error.message : String(error);
       return c.json({ error: `Failed to read store: ${msg}` }, 500);
     }
