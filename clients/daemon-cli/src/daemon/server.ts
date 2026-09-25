@@ -110,8 +110,15 @@ export class DaemonServer {
       // read the token it needs. See getDaemonTokenPath.
       if (this.requiredToken !== undefined) {
         const tokenPath = getDaemonTokenPath(this.dir);
+        // Exclusive create after removing any existing entry: writeFileSync
+        // follows symlinks, and ensureDaemonDir's tightening of the parent
+        // does not remove children planted while the dir was writable — a
+        // planted symlink would leak the token into an attacker-readable
+        // file. rmSync removes a symlink itself, never its target.
+        fs.rmSync(tokenPath, { force: true });
         fs.writeFileSync(tokenPath, this.requiredToken + "\n", {
           mode: 0o600,
+          flag: "wx",
         });
         try {
           fs.chmodSync(tokenPath, 0o600);

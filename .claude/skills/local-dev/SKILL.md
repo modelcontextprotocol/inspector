@@ -21,8 +21,8 @@ npm install     # at the REPO ROOT
 v2 is **not** an npm workspace — each client under `clients/*` keeps its own
 `package.json` and `node_modules`. A single root `npm install` is still all you
 need: the root `postinstall` (`scripts/install-clients.mjs`) cascades
-`npm install` into `clients/web`, `clients/cli`, `clients/tui`, and
-`clients/launcher`.
+`npm install` into `clients/web`, `clients/cli`, `clients/daemon-cli`,
+`clients/tui`, and `clients/launcher`.
 
 - **Fresh clone:** `npm install` at the root.
 - **After a pull that changes a client's dependencies:** re-run `npm install` at
@@ -52,21 +52,24 @@ The launcher-driven scripts run the **built** launcher, so `npm run build`
 first:
 
 ```sh
-npm run build        # web → cli → tui → launcher
+npm run build        # web → cli → daemon-cli → tui → launcher
 npm run web          # prod web launcher against clients/web/dist
 npm run web:dev      # web launcher in --dev mode (Vite)
 ```
 
-Individual builds: `build:web`, `build:cli`, `build:tui`, `build:launcher`. The
+Individual builds: `build:web`, `build:cli`, `build:daemon-cli`, `build:tui`,
+`build:launcher`. The
 web build produces both the browser SPA (`clients/web/dist`, Vite) and the Node
 prod-server runner (`clients/web/build`, tsup).
 
 To run the CLI or TUI: `node clients/launcher/build/index.js --cli …` /
-`--tui …`.
+`--tui …`. The connection CLI (`mcpdo`) has its own bin:
+`node clients/daemon-cli/build/mcp-bin.js …` (or `npm link` from
+`clients/daemon-cli` for a global `mcpdo`).
 
 ## The `@inspector/core` alias
 
-`core/` holds the logic shared by all three clients and intentionally has **no
+`core/` holds the logic shared by all five clients and intentionally has **no
 `package.json`** — it is not published on its own. Each client bundles it via a
 build-time alias:
 
@@ -82,7 +85,7 @@ build-time alias:
 ## Where a dependency goes
 
 **The rules are in [`AGENTS.md`](../../../AGENTS.md) → Dependency placement, and
-they are not restated here.** Read them there and come back for the *why* — what
+they are not restated here.** Read them there and come back for the _why_ — what
 each rule is defending against, what it looked like when it was violated, and how
 to tell you have hit one.
 
@@ -107,8 +110,8 @@ Keep two distinctions straight, because AGENTS.md's rules split on them:
 
 - **Root-declared is not the same as `core/`-imported.** `commander`, `open` and
   `@hono/node-server` are root `dependencies` too, but they are reached only
-  from client code. Only the `core/` set has to appear in *all three* bundler
-  `external` lists.
+  from client code. Only the `core/` set has to appear in _every_ client's
+  bundler `external` list.
 - **Root-declared is not the same as aliased.** The `vitest.shared.mts` pins and
   the `clients/web/tsconfig.*.json` `paths` cover the packages whose resolution
   is genuinely ambiguous, which is two different situations: the importer is
@@ -163,25 +166,25 @@ do not need to be: `npm run` prepends **every ancestor** `node_modules/.bin` to
 all still resolves the root's copy. `clients/launcher` declares no
 `devDependencies` whatsoever and its `validate` is unchanged.
 
-What a per-client declaration *does* buy is a second copy free to drift, and it
+What a per-client declaration _does_ buy is a second copy free to drift, and it
 had (#2196): `globals` sat at `^17.7.0` at the root against `^17.4.0` in all four
 clients, and `typescript-eslint` at `^8.65.0` against `^8.56.1`. Nothing failed —
 which is the point. A lint or format tool that differs per client makes the gate's
-verdict a function of *where you ran it*, and the exact `prettier` pin (#1790)
+verdict a function of _where you ran it_, and the exact `prettier` pin (#1790)
 only means something when there is one of it.
 
 ⚠️ The line is **used by every client**, not "used by one" and not "is it
 toolchain". `tsx`, `playwright`, `storybook`, `happy-dom`, `ink-testing-library`,
 `vite-node` and each client's own `@types/*` are toolchain too and stay where
-they are — hoisting them would make every client install the union of all four.
+they are — hoisting them would make every client install the union of all five.
 So do the ones **more than one** client declares without all of them doing so:
 `tsup` sits in web, cli and tui, and `vite` in web and tui on top of the root
-*runtime* `dependency` that `--web --dev` needs. Neither is in scope here;
+_runtime_ `dependency` that `--web --dev` needs. Neither is in scope here;
 whether to consolidate them is a separate call with a separate rationale (`vite`
 especially, since its root declaration is a `dependency`, not a
 `devDependency`).
 
-#### What the walk-up does *not* buy you
+#### What the walk-up does _not_ buy you
 
 ⚠️ **Deleting a client's declaration does not always delete the copy** — and
 where a copy survives, it is the one that wins. Two mechanisms put one back,
@@ -195,7 +198,7 @@ neither of which the manifest mentions:
 - **A hoisted transitive.** `@types/express` brings `@types/node` into web and
   cli's trees on its own.
 
-Those copies sit *nearer* than the root's, so `clients/web/node_modules/.bin`
+Those copies sit _nearer_ than the root's, so `clients/web/node_modules/.bin`
 precedes the root bin directory on `PATH` and TypeScript resolves the nearest
 `node_modules/@types`. Verify with `npm exec -- which eslint` from the client
 rather than assuming — the assumption is what made the first cut of #2196 claim
@@ -217,10 +220,10 @@ on disk. The two mechanisms are **not** equally safe, and neither is a guarantee
   #2226.
 
 ✅ **`verify:dep-lockstep` gates both of those since #2226.** Its second tier
-compares every package **any** install *declares* — `dependencies`,
+compares every package **any** install _declares_ — `dependencies`,
 `devDependencies` and `optionalDependencies`, unioned across the root and all
-four clients — against every **top-level** copy in every install, independent of
-what a `tsc` program resolves. So a tool *binary* that no program loads
+five clients — against every **top-level** copy in every install, independent of
+what a `tsc` program resolves. So a tool _binary_ that no program loads
 (`eslint`, `typescript`, `vitest`) and a transitive copy that no single program
 meets (the cli `@types/node` above) are both in scope now, as is a skew between
 two **clients** with no root copy involved (`@types/react`, web against tui).
@@ -270,7 +273,7 @@ Two live examples worth knowing:
 tsup and Vite externalise what the **client's** `package.json` declares, and a
 root-only dependency is in none of them — so it is **bundled**, silently. For a
 CJS package inlined into an ESM bundle that is fatal: esbuild leaves a
-`Dynamic require of "path" is not supported` shim that throws at *import* time,
+`Dynamic require of "path" is not supported` shim that throws at _import_ time,
 so the binary dies before it parses a flag (`proper-lockfile`, #2082).
 
 `undici` (#2067) is the worse variant, because it is `import()`ed lazily: the
@@ -293,7 +296,7 @@ file.
 ### Why React-rendering packages are the exception
 
 An externalised package resolves its own `react` from wherever npm placed
-**it** — beside a React satisfying *that package's* peer range, which is looser
+**it** — beside a React satisfying _that package's_ peer range, which is looser
 than ours in every case here. `ink-form` and `ink-scroll-view` declare `">=18"`,
 so a consumer's React 18 satisfies them and hoists them while our React 19 nests
 underneath: the bundle renders through one React, those packages call hooks on
@@ -303,8 +306,8 @@ another, and the TUI crashes on the first hook (#1952).
 a `createRequire` banner). ⚠️ **Never justify that exemption by a peer range** —
 it briefly read "its `">=19"` peer keeps npm honest", which is false: a consumer
 pinning React 19.0 satisfies `">=19"` while a narrower range of ours nests
-underneath. What makes it safe is the *root `react` range staying open to the
-whole major*, so npm can dedupe. `clients/tui/__tests__/tsupConfig.test.ts`
+underneath. What makes it safe is the _root `react` range staying open to the
+whole major_, so npm can dedupe. `clients/tui/__tests__/tsupConfig.test.ts`
 enforces the whole split, the exemption included.
 
 ### Why a version skew is worth aligning rather than working around
@@ -332,7 +335,7 @@ an `overrides` entry in that install (see the next section).
 ### Why `overrides` beats `npm audit fix`
 
 `tsup@8.5.1` declares `esbuild: ^0.27.0`, and the advisory covers
-`0.27.3 - 0.28.0` with `0.27.7` the last 0.27.x — so there is no *upward* escape
+`0.27.3 - 0.28.0` with `0.27.7` the last 0.27.x — so there is no _upward_ escape
 inside that range, and `npm audit fix` "resolves" it by silently **downgrading**
 to `0.27.2` across three installs (~700 lines of lockfile churn for a low-severity
 dev-only advisory; tried and reverted in #2058). The override forces one deduped

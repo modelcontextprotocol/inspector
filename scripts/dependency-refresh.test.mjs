@@ -263,6 +263,22 @@ test("main throws when npm outdated exits with an undocumented status", () => {
   assert.equal(ghCall(spawn, "create"), undefined);
 });
 
+test("INSTALLS enrolls the root and every client install", () => {
+  // A client absent here is silently skipped by the monthly sweep — its
+  // client-only devDependencies would never show up in `npm outdated`.
+  assert.deepEqual(
+    INSTALLS.map((i) => i.dir),
+    [
+      ".",
+      "clients/web",
+      "clients/cli",
+      "clients/tui",
+      "clients/launcher",
+      "clients/daemon-cli",
+    ],
+  );
+});
+
 test("main sweeps every install and files one milestoned issue", () => {
   const spawn = fakeSpawn({
     outdated: {

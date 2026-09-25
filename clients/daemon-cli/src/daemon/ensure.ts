@@ -186,7 +186,13 @@ export async function ensureDaemon(options?: {
   const logPath = getDaemonLogPath(dir);
   let stderrTarget: number | "ignore" = "ignore";
   try {
-    stderrTarget = fs.openSync(logPath, "a", 0o600);
+    // Recreate exclusively: append-open follows symlinks and applies the mode
+    // only on create, so a pre-existing daemon.log could stay group/other-
+    // readable or redirect daemon stderr to a planted target. The parent dir
+    // was just tightened to 0700; removing the entry closes the window for
+    // children planted before that.
+    fs.rmSync(logPath, { force: true });
+    stderrTarget = fs.openSync(logPath, "ax", 0o600);
     /* v8 ignore next 3 -- log capture is best-effort; openSync on a freshly
        ensured 0700 dir cannot be made to fail portably in tests. */
   } catch {

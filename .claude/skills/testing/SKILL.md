@@ -1,6 +1,6 @@
 ---
 name: testing
-description: Run, place and fix tests in this repo. Use when choosing which npm command runs a given suite (web unit, web integration, Storybook, cli, tui, launcher, scripts); when deciding where a new test file belongs — beside its source, under src/test/, or in a client's __tests__/; when a per-file coverage check fails or a v8 ignore is in question; when asking which test tier spawns the built binary rather than importing it; or when rendering, mounting or asserting on Mantine components and their transitions in a test.
+description: Run, place and fix tests in this repo. Use when choosing which npm command runs a given suite (web unit, web integration, Storybook, cli, daemon-cli, tui, launcher, scripts); when deciding where a new test file belongs — beside its source, under src/test/, or in a client's __tests__/; when a per-file coverage check fails or a v8 ignore is in question; when asking which test tier spawns the built binary rather than importing it; or when rendering, mounting or asserting on Mantine components and their transitions in a test.
 disable-model-invocation: false
 ---
 
@@ -20,7 +20,7 @@ choosing a location or writing a line.**
 end-to-end or integration coverage of an MCP operation — listing tools,
 paginating a list, calling a tool, reading a resource — almost always stands a
 fixture up, so treat that phrasing as the answer to the question above and load
-`test-servers` *first*. Grepping for an existing test to copy is not a
+`test-servers` _first_. Grepping for an existing test to copy is not a
 substitute: the fixture you find that way (a config under
 `test-servers/configs/`) does not tell you which of the three shapes below
 drives it, or that it can be stale. If the skill then shows the case needs no
@@ -45,7 +45,7 @@ ways to depend on one, and they need different halves of that skill:
     config and no era table apply.**
   - **An integration or CLI test where stdio is the point → spawned stdio.**
     `getTestMcpServerCommand()` handed to a stdio transport or to the built CLI,
-    which spawns it. A subprocess *is* started, but it runs the stdio fixture's
+    which spawns it. A subprocess _is_ started, but it runs the stdio fixture's
     **default** config, so there is still nothing to pick — and nothing to
     override, so if the case needs a specific tool set it is an in-process HTTP
     test instead.
@@ -64,31 +64,32 @@ ways to depend on one, and they need different halves of that skill:
   What applies to all three is that section's build warning.
   ⚠️ **Connecting is a strong hint, not the rule.** A few integration tests
   deliberately hand-roll a JSON-RPC server because the composable fixture
-  *cannot* produce what they assert on — `inspectorClient-malformed-list.test.ts`
+  _cannot_ produce what they assert on — `inspectorClient-malformed-list.test.ts`
   and `listSalvage-era.test.ts` need wire shapes the SDK's own server refuses to
   emit. Real transport, real client, no `test-servers/` dependency. Check
   whether a fixture can express the case before reaching for one.
+
 - **It names or runs the built fixture without connecting.** `smoke:tui` boots
-  the TUI against a catalog whose stdio command *is* the built fixture, then
+  the TUI against a catalog whose stdio command _is_ the built fixture, then
   asserts it survives. No transport is driven and no protocol era applies, but
   the **build and staleness** half lands on it in full.
 
 ⚠️ **"A build ran" is not the dependency — using the artefact is.**
-`clients/web`'s `pretest` runs `test-servers:build` before *every* unit run, so
+`clients/web`'s `pretest` runs `test-servers:build` before _every_ unit run, so
 the fixture is on disk for tests that never reference it. What counts is whether
 the test **starts, spawns, configures, or hands a built entry to the subject
 under test**. That last clause is what covers `smoke:tui`, which drives no
 transport at all and still depends on the fixture — see the build-only bullet
 above.
 
-⚠️ **And *importing* the package is not the dependency either.** The barrel
+⚠️ **And _importing_ the package is not the dependency either.** The barrel
 exports plain functions as well as server factories, so a test can import from
 it and never stand a server up — `src/test/core/mcp/test-server-scope.test.ts`
 imports `createScopeCheckMiddleware` and friends to unit-test the scope
 middleware as a pure function, with no `start()` anywhere in the file. None of
 the procedure applies to it — no config, no era, no lifecycle — it is an
 ordinary unit test that happens to import its subject from that package. Ask
-whether a *server* runs, not whether the import line is present.
+whether a _server_ runs, not whether the import line is present.
 
 So the condition does **not** hold when the test renders a component from
 fixture props, exercises a pure function or a parser, or is a smoke that touches
@@ -100,7 +101,7 @@ holds `storage/store-id.test.ts`, which validates a string, and `mcp/import/*`,
 which parses config files, right beside the tests that drive a live connection.
 They sit there for the node env and the 30s timeout, not because they connect —
 placement is the project manifest, so it cannot also be the fixture trigger.
-Ask what the test *does*, not where it lives.
+Ask what the test _does_, not where it lives.
 
 **In the connecting case**, the test drives a **real server over a real
 transport, never a mock**, and picking the fixture, building it, and connecting
@@ -122,7 +123,7 @@ the Node clients are different.**
 Components, hooks, `lib/`, `utils/`. This is the overwhelming majority; a
 web-owned test living under `src/test/` instead is a bug.
 
-`clients/web/src/test/` is for the three things that *cannot* be co-located:
+`clients/web/src/test/` is for the three things that _cannot_ be co-located:
 
 1. **Tests of the repo-root `core/` package** → `src/test/core/…`, mirroring the
    `core/` folder layout. `core/` physically lives outside `clients/web/`, is
@@ -132,7 +133,7 @@ web-owned test living under `src/test/` instead is a bug.
    `core/` source layout (`mcp/`, `mcp/node/`, `mcp/remote/`, `auth/`,
    `auth/node/`, `storage/`). **Placement is the manifest** — any file under that
    folder is picked up by the integration project (node env, 30s timeouts) via a
-   folder glob; there is no enumeration to keep in sync. ⚠️ Placement is *not*
+   folder glob; there is no enumeration to keep in sync. ⚠️ Placement is _not_
    the fixture trigger, though — this folder holds pure parser and storage tests
    alongside the connecting ones. If the test you are adding here **needs a
    fixture from `test-servers/`, load that skill first**; the fixture is half of
@@ -141,7 +142,7 @@ web-owned test living under `src/test/` instead is a bug.
 3. **Shared test infrastructure** — `renderWithMantine.tsx`, `setup.ts`,
    `fixtures/`, `scrollAreaStoryAssertions.ts`.
 
-### `clients/cli`, `clients/tui`, `clients/launcher` — a top-level `__tests__/`
+### `clients/cli`, `clients/daemon-cli`, `clients/tui`, `clients/launcher` — a top-level `__tests__/`
 
 **All** their tests, not beside their source. Their `tsconfig.json` excludes
 `**/*.test.*` and their `tsconfig.test.json` includes `__tests__/**/*`, so a
@@ -157,17 +158,18 @@ file its glob misses and still exits 0.
 
 ## Running them
 
-| Scope | From | Command |
-| --- | --- | --- |
-| Web unit | `clients/web` | `npm run test` (`test:watch` while iterating) |
-| Web integration | `clients/web` | `npm run test:integration` |
-| Web Storybook play fns | `clients/web` | `npm run test:storybook` |
-| CLI | `clients/cli` | `npm run test` (`pretest` builds test-servers + the bin) |
-| TUI | `clients/tui` | `npm run test` |
-| Launcher | `clients/launcher` | `npm run test` |
-| Root tooling | repo root | `npm run test:scripts` |
-| Everything, fast | repo root | `npm run validate` |
-| The coverage gate | repo root | `npm run coverage` |
+| Scope                  | From                 | Command                                                  |
+| ---------------------- | -------------------- | -------------------------------------------------------- |
+| Web unit               | `clients/web`        | `npm run test` (`test:watch` while iterating)            |
+| Web integration        | `clients/web`        | `npm run test:integration`                               |
+| Web Storybook play fns | `clients/web`        | `npm run test:storybook`                                 |
+| CLI                    | `clients/cli`        | `npm run test` (`pretest` builds test-servers + the bin) |
+| Connection CLI (mcpdo) | `clients/daemon-cli` | `npm run test` (`pretest` builds test-servers + the bin) |
+| TUI                    | `clients/tui`        | `npm run test`                                           |
+| Launcher               | `clients/launcher`   | `npm run test`                                           |
+| Root tooling           | repo root            | `npm run test:scripts`                                   |
+| Everything, fast       | repo root            | `npm run validate`                                       |
+| The coverage gate      | repo root            | `npm run coverage`                                       |
 
 There is **no aggregate root `test` script** — each client self-validates.
 
@@ -201,8 +203,8 @@ inside the `coverage` gate. CI therefore has no separate `test:integration` step
 
 ## The coverage gate
 
-**Per-file ≥90 on all four dimensions**, CI-enforced, across web, cli, tui and
-launcher. New code must clear 90 on every dimension.
+**Per-file ≥90 on all four dimensions**, CI-enforced, across web, cli,
+daemon-cli, tui and launcher. New code must clear 90 on every dimension.
 
 Scope notes:
 
@@ -220,19 +222,14 @@ Scope notes:
   only exclusion. `commander` uses `.exitOverride()` so a parse error throws
   instead of tearing down the test worker.
 - **TUI** covers **all of `src/**`, React surface included**. Components mount
-  through `__tests__/helpers/renderTui.tsx` — `ink-testing-library`'s `render`
-  with every frame ANSI-stripped — alongside the passthrough doubles in the same
-  directory; keypresses are driven through stdin. The only exclusion is
-  `src/tui-servers.ts` (a pure re-export, excluded so it doesn't surface as a
-  misleading 0/0 row).
-  ⚠️ **Import `render` from that helper, not from `ink-testing-library`.** Ink
-  writes styling *inside* the styled run, so `<Text underline>I</Text>nfo`
-  reaches the frame buffer with escapes between `I` and `nfo` and a plain
-  `toContain("Info")` fails against a component that is rendering correctly. It
-  only shows up where chalk emits color — a developer whose shell exports
-  `FORCE_COLOR` — so CI, which has no TTY, stays green on a suite that is red
-  for them (#2207). If a frame assertion fails on a string you can plainly see
-  in the printed diff, that is the tell. Reach `stdout.lastFrame()` on the
+through `**tests**/helpers/renderTui.tsx`—`ink-testing-library`'s `render`with every frame ANSI-stripped — alongside the passthrough doubles in the same
+directory; keypresses are driven through stdin. The only exclusion is`src/tui-servers.ts`(a pure re-export, excluded so it doesn't surface as a
+misleading 0/0 row).
+⚠️ **Import`render`from that helper, not from`ink-testing-library`.** Ink
+writes styling *inside* the styled run, so `<Text underline>I</Text>nfo`reaches the frame buffer with escapes between`I`and`nfo`and a plain`toContain("Info")`fails against a component that is rendering correctly. It
+only shows up where chalk emits color — a developer whose shell exports`FORCE_COLOR`— so CI, which has no TTY, stays green on a suite that is red
+for them (#2207). If a frame assertion fails on a string you can plainly see
+in the printed diff, that is the tell. Reach`stdout.lastFrame()` on the
   returned instance for the raw bytes.
 
 ### When a `v8 ignore` is justified
@@ -295,7 +292,7 @@ the skill and use all of it**: which showcase config covers the feature, which
 protocol era to connect with, how to add a combination that does not exist yet,
 and why a fixture can keep serving stale code after an edit.
 
-**A test that only *names* the built fixture needs that skill too, for a
+**A test that only _names_ the built fixture needs that skill too, for a
 narrower reason.** `smoke:tui` boots the TUI against a catalog whose stdio
 command is the build output and asserts it survives — it opens no transport, so
 config choice and protocol era do not apply to it, but **building the fixture
