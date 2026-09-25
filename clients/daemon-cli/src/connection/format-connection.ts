@@ -28,9 +28,19 @@ type JsonObject = Record<string, unknown>;
  * Pretty-print JSON for connection `--format json`.
  * Unlike one-shot, this does **not** wrap in `{ result }` — the payload is the
  * MCP / admin object itself (convenient for scripting).
+ *
+ * `JSON.stringify` escapes C0 controls but emits C1 controls (U+0080–U+009F,
+ * including 8-bit CSI/OSC) literally, which terminals can interpret. Escape
+ * them as standard `\uXXXX` sequences: the serialized text is terminal-safe
+ * while parsed values stay byte-identical.
  */
 export function formatConnectionJson(data: unknown): string {
-  return JSON.stringify(data, null, 2) + "\n";
+  return (
+    JSON.stringify(data, null, 2).replace(
+      /[\u0080-\u009F]/g,
+      (ch) => `\\u${ch.charCodeAt(0).toString(16).padStart(4, "0")}`,
+    ) + "\n"
+  );
 }
 
 export type ConnectionWriteKind =
@@ -123,7 +133,8 @@ export async function writeConnectionOutput(
   // injection: OSC 52 clipboard writes, title spoofing, output rewriting).
   // Sanitize the whole payload before human formatting; the formatter's own
   // ANSI styling is applied afterwards and stays intact. JSON output above
-  // is already safe — JSON.stringify escapes control characters.
+  // is made safe by formatConnectionJson (C0 via JSON.stringify, C1 via its
+  // own escaping).
   await awaitableLog(humanPayload(sanitizeDeep(payload), style) + "\n");
   await writeNdjsonSummary(payload);
   applyExitCodes(payload);

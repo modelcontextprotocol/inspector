@@ -291,7 +291,11 @@ export function formatCallToolResultHuman(
     }
   }
 
-  if (hasStructuredContent && visible.length === 0) {
+  // Always render structuredContent once. The duplicate-text filter above
+  // may have removed its JSON copy from the content blocks, so gating this
+  // on `visible.length === 0` would drop the structured payload whenever
+  // any other content block is present alongside the duplicate.
+  if (hasStructuredContent) {
     if (lines.length > 0) lines.push("");
     lines.push(heading(style, "Structured content:"));
     lines.push(JSON.stringify(sc, null, 2));

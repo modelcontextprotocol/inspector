@@ -191,7 +191,10 @@ describe("format-human", () => {
     expect(withDupe).toContain("[Audio:");
     expect(withDupe).toContain("Embedded resource");
     expect(withDupe).toContain('"x": 1');
-    expect(withDupe).not.toContain("Structured content:");
+    // The JSON duplicate of structuredContent is filtered from the content
+    // blocks, but the structured payload itself must still be rendered once.
+    expect(withDupe).toContain("Structured content:");
+    expect(withDupe).toContain('"ok": true');
 
     expect(
       formatCallToolResultHuman({
@@ -596,6 +599,27 @@ describe("writeConnectionOutput", () => {
       },
     );
     expect(stdout).toBe('{\n  "tools": []\n}\n');
+  });
+
+  it("escapes C1 controls in json output (JSON.stringify only escapes C0)", async () => {
+    await writeConnectionOutput(
+      { format: "json" },
+      {
+        kind: "rpc",
+        method: "tools/call",
+        result: {
+          content: [{ type: "text", text: "before\u009b31mafter" }],
+        },
+      },
+    );
+    // U+009B is 8-bit CSI: it must reach the terminal as a \u escape, and
+    // parsing the output must restore the original value byte-for-byte.
+    expect(stdout).not.toContain("\u009b");
+    expect(stdout).toContain("\\u009b");
+    const parsed = JSON.parse(stdout) as {
+      content: { text: string }[];
+    };
+    expect(parsed.content[0]!.text).toBe("before\u009b31mafter");
   });
 
   it("sanitizes server-supplied terminal escapes in text mode", async () => {
