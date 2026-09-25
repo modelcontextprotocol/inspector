@@ -34,7 +34,7 @@ function clientConfigPath(): string {
 }
 
 /**
- * mcp-conn-flavoured guidance for a missing/disabled EMA client configuration.
+ * mcpdo-flavoured guidance for a missing/disabled EMA client configuration.
  * The core `EmaClientNotConfiguredError` message points at the web Client
  * Settings dialog; mcpdo users may equally well edit `client.json` directly,
  * so name both, with the resolved path.

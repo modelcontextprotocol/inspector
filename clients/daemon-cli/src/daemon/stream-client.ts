@@ -3,7 +3,6 @@
  */
 import { randomUUID } from "node:crypto";
 import * as net from "node:net";
-import * as path from "node:path";
 import { CliExitCodeError, EXIT_CODES } from "@inspector/cli/error-handler.js";
 import { getDaemonTokenFromEnv, readDaemonTokenFile } from "./auth.js";
 import { encodeRequest } from "./framing.js";
@@ -14,6 +13,7 @@ import type {
   DaemonStreamFrame,
 } from "./protocol.js";
 import type { DaemonClientOptions } from "./client.js";
+import { daemonTokenDir } from "./client.js";
 import { sanitizeText } from "../connection/sanitize.js";
 
 export type StreamDaemonOptions = DaemonClientOptions & {
@@ -36,7 +36,7 @@ export async function streamDaemon(
   const token =
     options.token ??
     getDaemonTokenFromEnv() ??
-    readDaemonTokenFile(path.dirname(socketPath));
+    readDaemonTokenFile(daemonTokenDir(options));
   const request: DaemonRequest = { id, op: "stream", params };
   if (token !== undefined) request.token = token;
 

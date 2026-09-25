@@ -118,7 +118,7 @@ export async function authorizeInFrontend(
   } catch (err) {
     // An EMA server without active install-level IdP config: interactive
     // OAuth cannot fix this, so replace the core error (which points at the
-    // web Client Settings dialog only) with mcp-conn-appropriate guidance.
+    // web Client Settings dialog only) with mcpdo-appropriate guidance.
     if (isEmaClientNotConfiguredError(err)) {
       throw new CliExitCodeError(
         EXIT_CODES.AUTH_REQUIRED,

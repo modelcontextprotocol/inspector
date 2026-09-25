@@ -101,8 +101,31 @@ export async function runRunnerInteractiveOAuth(
   // AUTH_REQUIRED — see clients/cli/src/error-handler.ts) rather than a raw
   // process death. Opt-in (see handleSignals) — never installed under the
   // TUI, which owns Ctrl-C through Ink.
+  //
+  // Every awaited phase — server.start(), authenticate() /
+  // beginInteractiveAuthorization(), the callback wait, and the challenge
+  // check — is raced against `signalAbort`: rejecting only flowDone would
+  // leave a signal during a stalled startup or authorization ignored until
+  // the final callback wait (and discarded entirely when authenticate()
+  // resolves undefined).
+  let signalAbortReject!: (err: Error) => void;
+  const signalAbort = new Promise<never>((_, reject) => {
+    signalAbortReject = reject;
+  });
+  // Same pre-subscription window as flowDone above.
+  // void: intentional fire-and-forget rejection observer
+  void signalAbort.catch(() => {});
   const onSignal = (signal: NodeJS.Signals) => {
-    flowReject(new Error(`OAuth authorization cancelled (${signal}).`));
+    const err = new Error(`OAuth authorization cancelled (${signal}).`);
+    signalAbortReject(err);
+    flowReject(err);
+  };
+  const racingSignals = <T>(work: Promise<T>): Promise<T> => {
+    if (!options.handleSignals) return work;
+    // If the signal wins the race, `work` is abandoned while still pending;
+    // observe its eventual rejection so it can't surface as unhandled.
+    void work.catch(() => {});
+    return Promise.race([work, signalAbort]);
   };
   if (options.handleSignals) {
     process.on("SIGINT", onSignal);
@@ -112,27 +135,29 @@ export async function runRunnerInteractiveOAuth(
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
 
   try {
-    const { redirectUrl } = await server.start({
-      hostname: options.callbackListen.hostname,
-      port: options.callbackListen.port,
-      path: options.callbackListen.pathname,
-      onCallback: async (params) => {
-        try {
-          await options.client.completeOAuthFlow(params.code, params.iss);
-          flowResolve();
-        } catch (err) {
-          flowReject(toRunnerOAuthError(err));
-        }
-      },
-      onError: (params) => {
-        flowReject(
-          new Error(
-            /* v8 ignore next -- params.error is a required non-null string, so the "OAuth error" fallback is unreachable */
-            params.error_description ?? params.error ?? "OAuth error",
-          ),
-        );
-      },
-    });
+    const { redirectUrl } = await racingSignals(
+      server.start({
+        hostname: options.callbackListen.hostname,
+        port: options.callbackListen.port,
+        path: options.callbackListen.pathname,
+        onCallback: async (params) => {
+          try {
+            await options.client.completeOAuthFlow(params.code, params.iss);
+            flowResolve();
+          } catch (err) {
+            flowReject(toRunnerOAuthError(err));
+          }
+        },
+        onError: (params) => {
+          flowReject(
+            new Error(
+              /* v8 ignore next -- params.error is a required non-null string, so the "OAuth error" fallback is unreachable */
+              params.error_description ?? params.error ?? "OAuth error",
+            ),
+          );
+        },
+      }),
+    );
 
     options.onCallbackServer?.(server);
     options.redirectUrlProvider.redirectUrl = redirectUrl;
@@ -156,14 +181,20 @@ export async function runRunnerInteractiveOAuth(
         }, timeoutMs);
       }),
     ]);
+    // A signal can now abort the flow between this construction and the
+    // point waitForCallback is awaited (flowDone rejects but the racing
+    // authenticate()/beginInteractiveAuthorization() throws first); observe
+    // the rejection so that path can't surface it as unhandled.
+    // void: intentional fire-and-forget rejection observer
+    void waitForCallback.catch(() => {});
 
     if (options.authorizationUrl) {
-      await options.client.beginInteractiveAuthorization(
-        options.authorizationUrl,
+      await racingSignals(
+        options.client.beginInteractiveAuthorization(options.authorizationUrl),
       );
       await waitForCallback;
     } else {
-      const authUrl = await options.client.authenticate();
+      const authUrl = await racingSignals(options.client.authenticate());
       if (authUrl !== undefined) {
         await waitForCallback;
       } else {
@@ -172,8 +203,8 @@ export async function runRunnerInteractiveOAuth(
     }
 
     if (options.authChallenge) {
-      const satisfied = await options.client.checkAuthChallengeSatisfied(
-        options.authChallenge,
+      const satisfied = await racingSignals(
+        options.client.checkAuthChallengeSatisfied(options.authChallenge),
       );
       if (!satisfied) {
         return {

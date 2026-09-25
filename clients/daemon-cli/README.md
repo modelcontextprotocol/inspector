@@ -114,7 +114,7 @@ local code, so they need no process isolation.
 mcpdo shares `core`'s `InspectorClient`, so it negotiates whichever era
 (`legacy` 2025-03-26-style vs. `modern`/2026-era, e.g. task-augmented calls,
 `server/discover`) the target actually speaks — no extra flags needed for
-that to work. Two things are mcp-conn-specific:
+that to work. Two things are mcpdo-specific:
 
 - **`--era <era>` on `connect`**: `legacy` (default), `auto` (probe via
   `server/discover` before connecting), or `modern`. Overrides whatever a
@@ -198,10 +198,10 @@ mcpdo connect https://example.com/mcp --elicit url
 
 ## Relation to one-shot CLI
 
-|               | One-shot                              | Connection (`mcpdo`)                |
+|               | One-shot                              | Connection (`mcpdo`)            |
 | ------------- | ------------------------------------- | ------------------------------- |
-| Entrypoint    | `mcp-inspector --cli`                 | `mcpdo`                          |
-| Package (dev) | `clients/cli`                         | `clients/daemon-cli`                  |
+| Entrypoint    | `mcp-inspector --cli`                 | `mcpdo`                         |
+| Package (dev) | `clients/cli`                         | `clients/daemon-cli`            |
 | Lifecycle     | Connect → one `--method` → disconnect | Connect once → many subcommands |
 
 One-shot docs: [`clients/cli/README.md`](../cli/README.md).

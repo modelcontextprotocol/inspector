@@ -13,7 +13,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { getTestMcpServerCommand } from "@modelcontextprotocol/inspector-test-server";
 import { DaemonServer } from "../src/daemon/server.js";
-import { callDaemon } from "../src/daemon/client.js";
+import { callDaemon, daemonTokenDir } from "../src/daemon/client.js";
 import {
   ensureDaemon,
   readLogTail,
@@ -230,6 +230,28 @@ describe("daemon coverage", () => {
       socket.on("error", reject);
       socket.write("not-json\n");
     });
+  });
+
+  it("resolves the daemon.token directory without deriving it from pipe paths", () => {
+    // Explicit dir always wins.
+    expect(daemonTokenDir({ dir: "/x", socketPath: "/y/daemon.sock" })).toBe(
+      "/x",
+    );
+    // A Unix socket path implies its directory.
+    expect(daemonTokenDir({ socketPath: "/y/daemon.sock" })).toBe("/y");
+    // A Windows named pipe has no meaningful dirname: fall back to the
+    // configured daemon directory, where the token is actually published.
+    const prev = process.env.MCP_INSPECTOR_DAEMON_DIR;
+    process.env.MCP_INSPECTOR_DAEMON_DIR = "/daemon/dir";
+    try {
+      expect(daemonTokenDir({ socketPath: "\\\\.\\pipe\\mcp-conn-abc" })).toBe(
+        path.resolve("/daemon/dir"),
+      );
+      expect(daemonTokenDir({})).toBe(path.resolve("/daemon/dir"));
+    } finally {
+      if (prev === undefined) delete process.env.MCP_INSPECTOR_DAEMON_DIR;
+      else process.env.MCP_INSPECTOR_DAEMON_DIR = prev;
+    }
   });
 
   it("callDaemon maps error responses and unreachable sockets", async () => {

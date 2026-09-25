@@ -20,7 +20,7 @@ inspector/
 │   │   ├── server/      Node-only dev/prod backend wiring (see below)
 │   │   └── static/      sandbox_proxy.html — served for the MCP Apps tab
 │   ├── cli/          Scriptable CLI (tsup bundle, @inspector/core alias)
-│   ├── daemon-cli/   The `mcpdo` connection CLI bin; daemon + client over a Unix socket (tsup bundle, @inspector/core alias)
+│   ├── daemon-cli/   The `mcpdo` connection CLI bin; daemon + client over local IPC (Unix socket / Windows named pipe; tsup bundle, @inspector/core alias)
 │   ├── tui/          Ink + React terminal UI (tsup bundle)
 │   └── launcher/     The `mcp-inspector` bin; dispatches to web/cli/tui in-process
 ├── core/             Shared code, consumed via the `@inspector/core` alias (no package.json)

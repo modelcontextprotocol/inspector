@@ -4,7 +4,7 @@ import * as path from "node:path";
 import { CliExitCodeError, EXIT_CODES } from "@inspector/cli/error-handler.js";
 import { getDaemonTokenFromEnv, readDaemonTokenFile } from "./auth.js";
 import { encodeRequest } from "./framing.js";
-import { getDaemonSocketPath } from "./paths.js";
+import { getDaemonDir, getDaemonSocketPath } from "./paths.js";
 import { sanitizeText } from "../connection/sanitize.js";
 import type {
   DaemonOp,
@@ -16,6 +16,14 @@ import type {
 
 export type DaemonClientOptions = {
   socketPath?: string;
+  /**
+   * Daemon directory that owns `daemon.token`. On Windows `socketPath` is a
+   * named pipe (`\\.\pipe\...`), so the token location cannot be derived
+   * from the endpoint; callers using a non-default directory with an
+   * explicit `socketPath` should pass it. Defaults to the socket's directory
+   * for Unix socket paths, else the shared daemon directory.
+   */
+  dir?: string;
   /** Per-request timeout in ms. */
   /**
    * Client-side deadline for the whole request; `0` disables it. Defaults to
@@ -49,6 +57,26 @@ export type DaemonClientOptions = {
 };
 
 /**
+ * Directory holding `daemon.token` for a request. An explicit `dir` wins; a
+ * filesystem `socketPath` implies its directory (Unix sockets live next to
+ * the token file); otherwise — the default endpoint, or a Windows named
+ * pipe, which has no meaningful dirname — the shared daemon directory.
+ */
+export function daemonTokenDir(options: {
+  dir?: string;
+  socketPath?: string;
+}): string {
+  if (options.dir !== undefined) return options.dir;
+  if (
+    options.socketPath !== undefined &&
+    !options.socketPath.startsWith("\\\\.\\pipe\\")
+  ) {
+    return path.dirname(options.socketPath);
+  }
+  return getDaemonDir();
+}
+
+/**
  * Short-lived NDJSON client for one request/response against the daemon.
  */
 export async function callDaemon<T = unknown>(
@@ -60,11 +88,14 @@ export async function callDaemon<T = unknown>(
   const timeoutMs = options.timeoutMs ?? 60_000;
   const id = randomUUID();
   // Env token wins (private mode / spawner); otherwise read the token the
-  // daemon published next to its socket (see getDaemonTokenPath).
+  // daemon published in its directory (see getDaemonTokenPath). The
+  // directory is only derived from `socketPath` when that is a filesystem
+  // path — dirname of a Windows named pipe is the pipe namespace, not the
+  // daemon dir.
   const token =
     options.token ??
     getDaemonTokenFromEnv() ??
-    readDaemonTokenFile(path.dirname(socketPath));
+    readDaemonTokenFile(daemonTokenDir(options));
   const request: DaemonRequest = { id, op, params };
   if (token !== undefined) request.token = token;
 
