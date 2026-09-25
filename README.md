@@ -86,6 +86,7 @@ Each client has its own README with client-specific detail:
 | [Smoke-testing an MCP server](./docs/cli-smoke-testing.md) | The connect → list → call → assert workflow for a shell or CI job: `--format json` + `jq`, the exit-code map, and keeping OAuth non-interactive |
 | [Launcher and config consolidation](./docs/launcher-config-consolidation-plan.md) | Why the launcher runs a client in-process rather than spawning it |
 | [Roadmap, Aug 2026 → Feb 2027](./docs/inspector-roadmap-2026-h2.md) | The six-month plan: spec-following work aligned to the published MCP roadmap, official extension support, and the experience work we choose |
+| [MCP Inspector: Our AI Software Factory](./docs/ai-software-factory.md) | How contributions actually happen since v2.0.0 — issue-driven work end to end, the rules/skills split, the sweeps that replaced Dependabot, the quality gate, and where it's headed |
 
 ## Testing and the quality gate
 
