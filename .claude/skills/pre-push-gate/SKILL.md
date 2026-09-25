@@ -89,6 +89,15 @@ model-invoked skill is missing its eval cases. `verify:skills:cli` is the
 authoritative validator and fetches a pinned CLI over the network if you have
 none installed — so it is also the one stage that will fail offline.
 
+### `verify:install-fresh`
+
+An installed package's version disagrees with its install's lockfile — `node_modules`
+is older than the tree you pulled. **Run `npm install` at the repo root** (it
+cascades into every client) and re-run. This is the first guard for a reason: a
+stale install otherwise passes every check and fails later as a behavioral test
+reporting the *old* dependency's behavior as a product bug (#2494). Don't
+"fix" that test.
+
 ### `verify:dep-lockstep`
 
 A dependency reaching one `tsc` program from two installs resolves to two
