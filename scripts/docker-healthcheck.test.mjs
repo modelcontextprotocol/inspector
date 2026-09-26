@@ -129,6 +129,9 @@ describe("launchMode", () => {
     [["/sbin/docker-init", "--", "mcp-inspector", "--tui"], "tui"],
     // An overridden entrypoint names no launcher.
     [["sh", "-c", "sleep 1"], undefined],
+    // …even when its args happen to name the launcher.
+    [["sh", "-c", "sleep 60", "mcp-inspector", "--tui"], undefined],
+    [["tini", "--", "mcp-inspector", "--tui"], undefined],
     [[], undefined],
   ];
   for (const [argv, expected] of cases) {

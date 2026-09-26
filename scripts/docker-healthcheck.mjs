@@ -85,11 +85,15 @@ const LAUNCHER_BIN = "mcp-inspector";
  * (`docker run --init` gives `/sbin/docker-init -- mcp-inspector --tui`).
  * Mirrors `parseLauncherArgv` in `clients/launcher`: only the token right
  * after the bin is a mode flag, and anything else is the default `web`.
- * Returns `undefined` when no argument names the launcher.
+ *
+ * Only those two shapes count. Matching the bin anywhere in argv would let a
+ * foreign entrypoint that merely mentions it (`sh -c '…' mcp-inspector --tui`)
+ * read as TUI and skip the probe. Any other argv returns `undefined`.
  */
 export function launchMode(argv) {
-  const bin = argv.findIndex((arg) => basename(arg) === LAUNCHER_BIN);
-  if (bin === -1) return undefined;
+  const bin =
+    basename(argv[0] ?? "") === "docker-init" && argv[1] === "--" ? 2 : 1;
+  if (basename(argv[bin] ?? "") !== LAUNCHER_BIN) return undefined;
   const flag = argv[bin + 1];
   return flag === "--cli" ? "cli" : flag === "--tui" ? "tui" : "web";
 }
