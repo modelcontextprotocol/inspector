@@ -105,11 +105,14 @@ describe("runMethod (mocked client)", () => {
       listener?.(
         new CustomEvent("resourceUpdated", { detail: { uri: "test://x" } }),
       );
-      expect(
-        lines.some(
-          (l) => (l as { type?: string }).type === "resources/updated",
-        ),
-      ).toBe(true);
+      // Updates for other URIs on the same connection are filtered out.
+      listener?.(
+        new CustomEvent("resourceUpdated", { detail: { uri: "test://other" } }),
+      );
+      const updated = lines.filter(
+        (l) => (l as { type?: string }).type === "resources/updated",
+      );
+      expect(updated).toEqual([{ type: "resources/updated", uri: "test://x" }]);
       stop();
     }
 

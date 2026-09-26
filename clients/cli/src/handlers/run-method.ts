@@ -218,6 +218,10 @@ export async function runMethod(
           writeLine({ type: "subscribed", uri: args.uri });
           const onUpdate = (ev: Event) => {
             const detail = (ev as CustomEvent<{ uri: string }>).detail;
+            // Multiple subscribe streams can share one connection; only
+            // forward updates for this stream's URI. Events without a uri
+            // (spec-noncompliant server) still pass through as before.
+            if (detail?.uri !== undefined && detail.uri !== args.uri) return;
             writeLine({
               type: "resources/updated",
               uri: detail?.uri ?? args.uri,

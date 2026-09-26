@@ -345,10 +345,10 @@ function registerConnect(program: CommandType): void {
       "--ema",
       "Treat the server as enterprise-managed (EMA): mint tokens from the " +
         "signed-in enterprise IdP session instead of standard OAuth. " +
-        "Overrides the catalog/config entry's oauth.enterpriseManaged; the " +
-        "only way to set it for an ad-hoc target. Requires install-level IdP " +
-        "config (see auth/ema-status) and per-server OAuth client id/secret " +
-        "from the catalog entry.",
+        "Overrides the catalog/config entry's oauth.enterpriseManaged. " +
+        "Requires install-level IdP config (see auth/ema-status) and " +
+        "per-server OAuth client id/secret from the catalog entry, so it " +
+        "cannot be used with an ad-hoc target.",
     )
     .action(async (target: string[], cmdOpts) => {
       const opts = program.opts<GlobalOpts>();
@@ -383,6 +383,22 @@ function registerConnect(program: CommandType): void {
         Boolean(cmdOpts.serverUrl?.trim()) ||
         (rest.length === 1 &&
           (looksLikeUrl(rest[0]!) || looksLikePath(rest[0]!)));
+
+      // EMA needs the resource server's OAuth client id/secret, which only a
+      // catalog/config entry can carry (oauth.clientId / oauth.clientSecret).
+      // An ad-hoc target has no entry and this CLI deliberately offers no
+      // secret-bearing flags, so the flow would only fail later with an
+      // opaque error — reject up front with actionable guidance instead.
+      if (cmdOpts.ema === true && adHoc) {
+        throw new CliExitCodeError(
+          EXIT_CODES.USAGE,
+          "--ema cannot be used with an ad-hoc target: EMA requires per-server " +
+            "OAuth client id/secret from a catalog entry. Add the server to a " +
+            "catalog with oauth.clientId and oauth.clientSecret (and " +
+            "oauth.enterpriseManaged), then connect by entry name.",
+          { code: "usage" },
+        );
+      }
 
       const envCatalog = adHoc ? undefined : process.env.MCP_CATALOG_PATH;
       const serverOptions = {
@@ -1128,10 +1144,12 @@ function withElicitOverride(
 }
 
 /**
- * Overlay `--ema` onto the settings lifted from the file/ad-hoc target.
+ * Overlay `--ema` onto the settings lifted from the catalog/config target.
  * Mirrors `withEraOverride`: only `enterpriseManaged` is overridden, and a
- * bare-defaults settings object is synthesized when the target had none (the
- * common ad-hoc case, which otherwise has no way to request EMA).
+ * bare-defaults settings object is synthesized when the entry had none.
+ * Ad-hoc targets never reach here with `--ema` set — connect rejects that
+ * combination up front, since EMA needs per-server OAuth credentials only a
+ * catalog entry can supply.
  */
 function withEmaOverride(
   settings: InspectorServerSettings | undefined,

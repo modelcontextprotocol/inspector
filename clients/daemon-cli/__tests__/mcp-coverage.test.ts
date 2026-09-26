@@ -337,7 +337,6 @@ describe("mcp.ts coverage", () => {
         "auto",
         "--elicit",
         "url",
-        "--ema",
         "--format",
         "json",
         command,
@@ -346,6 +345,15 @@ describe("mcp.ts coverage", () => {
       { env: e, timeout: 20000 },
     );
     expectCliSuccess(adHoc);
+
+    // --ema is rejected for ad-hoc targets: EMA needs per-server OAuth
+    // client id/secret, which only a catalog entry can supply.
+    const emaAdHoc = await runMcp(
+      ["connect", "--ema", "--format", "json", command, ...args],
+      { env: e, timeout: 20000 },
+    );
+    expectCliFailure(emaAdHoc);
+    expect(emaAdHoc.stderr).toMatch(/--ema cannot be used with an ad-hoc/);
 
     // Invalid --era is rejected before any connection is attempted.
     const badEra = await runMcp(

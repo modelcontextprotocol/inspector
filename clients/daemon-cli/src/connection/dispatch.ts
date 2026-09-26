@@ -73,6 +73,9 @@ export async function dispatchConnectionRpc(
           // stream is still running; write errors stay non-fatal, as they
           // were when these writes were fire-and-forget.
           writeChain.catch(() => {});
+          // Returning the chain lets streamDaemon pause socket reads until
+          // the write settles, bounding memory when stdout is slow.
+          return writeChain;
         },
       });
     } finally {

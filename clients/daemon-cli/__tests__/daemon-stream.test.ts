@@ -80,9 +80,112 @@ describe("streamDaemon + ipc-glue", () => {
     const data: unknown[] = [];
     await streamDaemon(
       { method: "logging/tail" },
-      { socketPath: sock, timeoutMs: 5000, onData: (d) => data.push(d) },
+      {
+        socketPath: sock,
+        timeoutMs: 5000,
+        onData: (d) => {
+          data.push(d);
+        },
+      },
     );
     expect(data).toEqual([{ n: 1 }]);
+  });
+
+  it("pauses socket reads while an async onData callback is pending", async () => {
+    const sock = freshSock();
+    let serverSocket: net.Socket | undefined;
+    let requestId: string | undefined;
+    await listen(sock, (socket) => {
+      serverSocket = socket;
+      socket.once("data", (buf) => {
+        const req = JSON.parse(String(buf).trim()) as { id: string };
+        requestId = req.id;
+        socket.write(
+          JSON.stringify({ id: req.id, ok: true, result: {} }) + "\n",
+        );
+        socket.write(
+          JSON.stringify({ id: req.id, stream: "data", data: { n: 1 } }) + "\n",
+        );
+      });
+    });
+
+    const until = async (cond: () => boolean) => {
+      const deadline = Date.now() + 3000;
+      while (!cond()) {
+        if (Date.now() > deadline) throw new Error("condition timed out");
+        await new Promise((r) => setTimeout(r, 5));
+      }
+    };
+
+    const seen: unknown[] = [];
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const done = streamDaemon(
+      { method: "logging/tail" },
+      {
+        socketPath: sock,
+        timeoutMs: 5000,
+        // First callback stalls on the gate; the client must stop reading
+        // instead of queueing further frames behind an unbounded chain.
+        onData: (d) => {
+          seen.push(d);
+          return seen.length === 1 ? gate : undefined;
+        },
+      },
+    );
+
+    await until(() => seen.length === 1);
+    // Send a second frame + end while the first callback is still pending.
+    serverSocket!.write(
+      JSON.stringify({ id: requestId, stream: "data", data: { n: 2 } }) + "\n",
+    );
+    serverSocket!.write(
+      JSON.stringify({ id: requestId, stream: "end" }) + "\n",
+    );
+    await new Promise((r) => setTimeout(r, 100));
+    // Reads are paused, so the second frame must not have been dispatched.
+    expect(seen.length).toBe(1);
+
+    release();
+    await done;
+    expect(seen).toEqual([{ n: 1 }, { n: 2 }]);
+  });
+
+  it("continues the stream when an async onData callback rejects", async () => {
+    const sock = freshSock();
+    await listen(sock, (socket) => {
+      socket.once("data", (buf) => {
+        const req = JSON.parse(String(buf).trim()) as { id: string };
+        socket.write(
+          JSON.stringify({ id: req.id, ok: true, result: {} }) + "\n",
+        );
+        socket.write(
+          JSON.stringify({ id: req.id, stream: "data", data: { n: 1 } }) + "\n",
+        );
+        socket.write(
+          JSON.stringify({ id: req.id, stream: "data", data: { n: 2 } }) + "\n",
+        );
+        socket.write(JSON.stringify({ id: req.id, stream: "end" }) + "\n");
+      });
+    });
+
+    const seen: unknown[] = [];
+    // Write errors are non-fatal: a rejected callback promise must not kill
+    // the stream or surface as an unhandled rejection.
+    await streamDaemon(
+      { method: "logging/tail" },
+      {
+        socketPath: sock,
+        timeoutMs: 5000,
+        onData: (d) => {
+          seen.push(d);
+          return Promise.reject(new Error("write failed"));
+        },
+      },
+    );
+    expect(seen).toEqual([{ n: 1 }, { n: 2 }]);
   });
 
   it("rejects on socket error after the stream has opened", async () => {

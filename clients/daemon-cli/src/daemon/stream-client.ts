@@ -17,7 +17,12 @@ import { daemonTokenDir } from "./client.js";
 import { sanitizeText } from "../connection/sanitize.js";
 
 export type StreamDaemonOptions = DaemonClientOptions & {
-  onData: (data: unknown) => void;
+  /**
+   * Called for every data frame. A returned promise applies backpressure:
+   * socket reads pause until it settles, so a fast daemon stream cannot
+   * queue unbounded output ahead of a slow consumer.
+   */
+  onData: (data: unknown) => void | Promise<void>;
   /** Abort / cancel the stream (closes the socket). */
   signal?: AbortSignal;
 };
@@ -44,6 +49,7 @@ export async function streamDaemon(
     let settled = false;
     let buffer = "";
     let streaming = false;
+    let pendingCallbacks = 0;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const socket = new net.Socket();
 
@@ -115,7 +121,25 @@ export async function streamDaemon(
       }
       if (frame.id !== id) return;
       if (frame.stream === "data") {
-        options.onData(frame.data);
+        const result = options.onData(frame.data);
+        if (
+          result !== undefined &&
+          typeof (result as Promise<void>).then === "function"
+        ) {
+          // Backpressure: stop reading until the consumer's write settles.
+          // Frames already split from the current chunk still dispatch
+          // synchronously (bounded by one socket read), but no further
+          // chunks are read while any callback is pending. Callback errors
+          // stay non-fatal, matching the previous fire-and-forget behavior.
+          pendingCallbacks++;
+          socket.pause();
+          void Promise.resolve(result)
+            .catch(() => {})
+            .finally(() => {
+              pendingCallbacks--;
+              if (pendingCallbacks === 0 && !settled) socket.resume();
+            });
+        }
         return;
       }
       if (frame.stream === "end") {
