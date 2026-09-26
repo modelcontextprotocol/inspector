@@ -888,6 +888,48 @@ describe("DaemonServer IPC", () => {
     stop();
   });
 
+  it("ends a stream whose connection disconnected before startStream ran", async () => {
+    // Regression: the statusChange listener was only installed inside
+    // startStream, which ipc-glue invokes after the ok frame. A disconnect
+    // completing in the window after runMethod() returned but before the
+    // listener existed lost the terminal event, leaving the stream open
+    // against a dead client forever. Terminal status is persistent state,
+    // so startStream now checks the current status after installing the
+    // listener.
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "mcp-daemon-streamrace-"));
+    server = new DaemonServer({ dir, idleMs: 0 });
+    const { command, args } = getTestMcpServerCommand();
+    await server.registry.connect({
+      name: "s",
+      serverConfig: { type: "stdio", command, args },
+      serverIdentity: "test-stdio",
+    });
+
+    const outcome = await server.handleOutcome({
+      id: "st",
+      op: "stream",
+      params: { method: "logging/tail", name: "s" } as never,
+    });
+    expect(outcome.response.ok).toBe(true);
+
+    // Disconnect in the window between runMethod() and startStream.
+    await server.handle({
+      id: "d",
+      op: "disconnect",
+      params: { name: "s" } as never,
+    });
+
+    let ended = 0;
+    const stop = outcome.startStream!(
+      () => {},
+      () => {
+        ended += 1;
+      },
+    );
+    expect(ended).toBe(1);
+    stop();
+  });
+
   it("serializes rpc ops per connection so elicitation routing is exact", async () => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), "mcp-daemon-rpcqueue-"));
     server = new DaemonServer({ dir, idleMs: 0 });

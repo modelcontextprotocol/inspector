@@ -558,7 +558,6 @@ export class DaemonServer {
         result: { streaming: true, label: outcome.label },
       },
       startStream: (write, end) => {
-        const stop = outcome.start(write);
         // Tie the stream to its connection's lifecycle: when the named
         // connection reaches a terminal state (mcpdo disconnect, a
         // connections/use replacement, or a transport failure), end the
@@ -570,6 +569,13 @@ export class DaemonServer {
           if (isTerminalStatus(event.detail)) end();
         };
         client.addEventListener("statusChange", onStatus);
+        const stop = outcome.start(write);
+        // Terminal status is persistent state, not just an event: a
+        // disconnect completing between runMethod() and the listener
+        // install above would never fire statusChange again, leaving the
+        // stream open against a dead client. Checking the current status
+        // after installing the listener closes both sides of that race.
+        if (isTerminalStatus(client.getStatus())) end();
         return () => {
           client.removeEventListener("statusChange", onStatus);
           stop();
