@@ -56,7 +56,7 @@ import {
 // `clientIdentity`. Real clients supply their own: the Node clients (CLI, TUI)
 // read the single-source version from the root package.json via
 // `readInspectorVersion()`, and the web browser — which can't read the
-// filesystem — will pass a version sourced from `GET /api/config` (see #1639).
+// filesystem — passes the version sourced from `GET /api/config` (#1639, #2445).
 // This stays a neutral placeholder rather than a hardcoded release number that
 // would silently drift out of sync with the root package.json version.
 const corePackageJson = {
@@ -3617,6 +3617,14 @@ export class InspectorClient extends InspectorClientEventTarget {
    */
   getClientCapabilities(): ClientCapabilities {
     return this.clientCapabilities;
+  }
+
+  /**
+   * Get the client identity (name, version) this client reports to servers —
+   * the caller's `clientIdentity`, or core's neutral fallback without one.
+   */
+  getClientInfo(): Implementation {
+    return this.clientInfo;
   }
 
   /**
