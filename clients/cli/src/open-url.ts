@@ -4,9 +4,10 @@ import open from "open";
  * How long {@link openUrl} waits for the opener before giving up. `open`
  * resolves once it has launched the platform opener, but before that it may
  * probe the environment (WSL's default browser, the PowerShell path), and on a
- * headless box or a container any of those can stall. The OAuth flow awaits
- * this call, so an unbounded wait would hang it with the URL already printed
- * and nothing telling the user to act (#2410).
+ * headless box or a container any of those can stall. The OAuth flow itself
+ * does not wait on this (`CallbackNavigation` fires its callback and discards
+ * the promise); the timeout exists so a stalled open settles as a failure and
+ * the caller's "open the URL manually" line is actually printed (#2410).
  */
 export const OPEN_URL_TIMEOUT_MS = 5_000;
 
