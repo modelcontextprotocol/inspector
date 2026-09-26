@@ -63,9 +63,9 @@ function fail(message) {
 // MCP_INSPECTOR_SECRET_STORE=memory keeps the smoke hermetic: without it the
 // CLI probes the host's real keychain at startup (and can resolve a
 // developer's local secret-store config), so output differed per host. The
-// memory store is non-durable, and OAuth writes keep plaintext in the state
-// file for non-durable stores, so fixtures and cross-process token flows
-// behave identically.
+// memory store is non-durable — new OAuth secrets stay session-only under it
+// (only *unchanged* legacy plaintext is preserved in the state file) — which
+// is fine here: no smoke step reads back a token written by an earlier step.
 const SMOKE_BASE_ENV = {
   MCP_OAUTH_CALLBACK_URL: "",
   MCP_INSPECTOR_SECRET_STORE: "memory",

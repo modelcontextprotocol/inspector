@@ -1016,6 +1016,55 @@ describe("waitForStoredToken read-failure policy", () => {
       waitForStoredToken(url, "/tmp/state.json", 5, readServers),
     ).resolves.toBe("healed-tok");
   });
+
+  it("honors the deadline while a read is stuck on the state-file lock", async () => {
+    // A single lock acquisition retries for ~15s; the deadline must abandon
+    // the in-flight read, not wait it out.
+    const readServers = vi
+      .fn<(p: string) => Promise<StoredServers>>()
+      .mockImplementation(() => new Promise(() => {}));
+    const started = Date.now();
+    await expect(
+      waitForStoredToken(url, "/tmp/state.json", 0.3, readServers),
+    ).rejects.toMatchObject({
+      exitCode: 3,
+      envelope: { code: "auth_wait_timeout" },
+    });
+    expect(Date.now() - started).toBeLessThan(2_000);
+  });
+
+  it("rethrows the retained failure when the deadline lands mid-read", async () => {
+    const boom = Object.assign(new Error("EACCES: permission denied"), {
+      code: "EACCES",
+    });
+    const readServers = vi
+      .fn<(p: string) => Promise<StoredServers>>()
+      .mockRejectedValueOnce(boom)
+      .mockImplementation(() => new Promise(() => {}));
+    await expect(
+      waitForStoredToken(url, "/tmp/state.json", 0.3, readServers),
+    ).rejects.toBe(boom);
+  });
+
+  it("swallows an abandoned read's late rejection instead of crashing", async () => {
+    // The abandoned read's promise settles after the wait has already
+    // thrown; its rejection must not surface as an unhandled rejection.
+    let rejectLate: ((e: unknown) => void) | undefined;
+    const readServers = vi
+      .fn<(p: string) => Promise<StoredServers>>()
+      .mockImplementation(
+        () =>
+          new Promise((_, reject) => {
+            rejectLate = reject;
+          }),
+      );
+    await expect(
+      waitForStoredToken(url, "/tmp/state.json", 0.3, readServers),
+    ).rejects.toMatchObject({ envelope: { code: "auth_wait_timeout" } });
+    rejectLate?.(new Error("lock acquisition gave up after abandonment"));
+    // A macrotask tick: an unhandled rejection here would fail the run.
+    await new Promise((r) => setTimeout(r, 20));
+  });
 });
 
 /**

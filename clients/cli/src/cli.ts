@@ -453,6 +453,33 @@ export async function refreshStoredAuthToken(
   return tokens.access_token;
 }
 
+/** Sentinel: the wait deadline elapsed while a read was still in flight. */
+const DEADLINE_ELAPSED = Symbol("deadline-elapsed");
+
+/**
+ * Race `promise` against the absolute `deadline` (epoch ms). Resolves with
+ * {@link DEADLINE_ELAPSED} if the deadline passes first; the abandoned
+ * promise's eventual rejection is swallowed (a lock-acquisition failure
+ * landing after abandonment must not become an unhandled rejection).
+ */
+async function raceDeadline<T>(
+  promise: Promise<T>,
+  deadline: number,
+): Promise<T | typeof DEADLINE_ELAPSED> {
+  promise.catch(() => {});
+  const remaining = deadline - Date.now();
+  if (remaining <= 0) return DEADLINE_ELAPSED;
+  let timer: NodeJS.Timeout | undefined;
+  const elapsed = new Promise<typeof DEADLINE_ELAPSED>((resolve) => {
+    timer = setTimeout(() => resolve(DEADLINE_ELAPSED), remaining);
+  });
+  try {
+    return await Promise.race([promise, elapsed]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /**
  * Poll the OAuth state file until a token for `serverUrl` appears (or the
  * timeout elapses). Used by `--wait-for-auth` so an automated caller can hand
@@ -468,6 +495,15 @@ export async function refreshStoredAuthToken(
  * real operational problem — `classifyError` maps it to its own envelope —
  * instead of masking it as `auth_wait_timeout`, which re-authorizing cannot
  * fix. A later successful read clears the retained error.
+ *
+ * The deadline bounds the *whole* loop, reads included: a single read can
+ * block for the state-file lock's full acquisition budget (~15s, see
+ * `RETRY_BUDGET_MS` in core/auth/node/file-lock.ts), which would let
+ * `--wait-for-auth 1` run fifteen times past its own deadline. Each read is
+ * raced against the remaining budget ({@link raceDeadline}) and abandoned
+ * when it elapses — safe, because the read's only side effect (lazy
+ * plaintext migration) is atomic under the file lock, and the process is
+ * about to exit through `handleError` anyway.
  */
 export async function waitForStoredToken(
   serverUrl: string,
@@ -481,8 +517,11 @@ export async function waitForStoredToken(
   let lastError: unknown;
   for (;;) {
     try {
-      servers = await readServers(statePath);
-      lastError = undefined;
+      const read = await raceDeadline(readServers(statePath), deadline);
+      if (read !== DEADLINE_ELAPSED) {
+        servers = read;
+        lastError = undefined;
+      }
     } catch (error) {
       if (!(error instanceof SecretFileLockHeldError)) lastError = error;
     }
@@ -500,7 +539,9 @@ export async function waitForStoredToken(
         { code: "auth_wait_timeout", url: serverUrl },
       );
     }
-    await new Promise((r) => setTimeout(r, 500));
+    await new Promise((r) =>
+      setTimeout(r, Math.min(500, deadline - Date.now())),
+    );
   }
 }
 
