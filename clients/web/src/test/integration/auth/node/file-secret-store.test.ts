@@ -341,6 +341,32 @@ describe("FileSecretStore failure handling", () => {
     );
   });
 
+  it("refuses an authentic tag truncated to 4 bytes (#2485)", async () => {
+    // A genuine tag, cut short. Node 22 (the engines floor) authenticates a
+    // 4-byte GCM tag unless the length is pinned, which makes a forgery a
+    // ~2^-32 guess — so no read may return the secret, whatever the runtime.
+    await writeEncryptedFixture();
+    const parsed = JSON.parse(await fs.readFile(filePath(), "utf-8"));
+    const [iv, tag, body] = parsed.data.split(".");
+    const short = Buffer.from(tag, "base64").subarray(0, 4).toString("base64");
+    parsed.data = `${iv}.${short}.${body}`;
+    await fs.writeFile(filePath(), JSON.stringify(parsed), "utf-8");
+    const store = new FileSecretStore({
+      filePath: filePath(),
+      passphrase: "right-key",
+    });
+    expect(await store.get("alpha", SECRET_FIELD_OAUTH_CLIENT_SECRET)).toBe(
+      null,
+    );
+    await expect(
+      store.getStrict("alpha", SECRET_FIELD_OAUTH_CLIENT_SECRET),
+    ).rejects.toThrow(/authentication tag is 4 bytes, expected 16/);
+    expect(await store.readOnDiskEncryption()).toEqual({
+      state: "unreadable",
+      detail: "authentication tag is 4 bytes, expected 16",
+    });
+  });
+
   it("blames the file, not the passphrase, for a decrypted-but-corrupt payload", async () => {
     // GCM has already authenticated by this point, so the passphrase is
     // *proven correct* — telling the user to restore it sends them after a
