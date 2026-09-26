@@ -25,8 +25,21 @@
  * uses, so legacy spellings (`HOST=0`, `0x0`, `::0`) resolve to the wildcard
  * the socket actually binds. `/` needs no auth, and Node's global `fetch` is
  * used because the slim image has no curl or wget.
+ *
+ * Only `--web` has a server to probe (#2415). `--cli` and `--tui` run the same
+ * image with different args, and a HEALTHCHECK baked into the image cannot be
+ * switched off from inside it, so the probe used to report those containers
+ * permanently unhealthy unless the user remembered `--no-healthcheck`. The
+ * probe runs as a separate process, so it reads the launch mode from PID 1's
+ * argv (`/proc/1/cmdline`) with the launcher's own rule, and reports a
+ * non-web container healthy for as long as it is running — which is all a
+ * health state can say about a process with no listener. An argv that does not
+ * name the launcher (an overridden `--entrypoint`) keeps the web probe, so
+ * nothing that used to be probed stops being probed.
  */
 
+import { readFileSync } from "node:fs";
+import { basename } from "node:path";
 import { pathToFileURL } from "node:url";
 
 const DEFAULT_HOST = "127.0.0.1";
@@ -63,6 +76,48 @@ export function probeUrl(env) {
   return `http://${WILDCARD_TO_LOOPBACK.get(host) ?? host}:${port}/`;
 }
 
+/** The image's ENTRYPOINT, as the launcher's argv names it. */
+const LAUNCHER_BIN = "mcp-inspector";
+
+/**
+ * The launch mode in `argv` — PID 1's argv, whether that is the launcher
+ * itself (`node /usr/local/bin/mcp-inspector --tui`) or an init that execs it
+ * (`docker run --init` gives `/sbin/docker-init -- mcp-inspector --tui`).
+ * Mirrors `parseLauncherArgv` in `clients/launcher`: only the token right
+ * after the bin is a mode flag, and anything else is the default `web`.
+ *
+ * Only those two shapes count. Matching the bin anywhere in argv would let a
+ * foreign entrypoint that merely mentions it (`sh -c '…' mcp-inspector --tui`)
+ * read as TUI and skip the probe, and so would a wrapper that passes it on
+ * (`wrapper mcp-inspector --tui`) if the interpreter were not checked. Any
+ * other argv returns `undefined`.
+ */
+export function launchMode(argv) {
+  const head = basename(argv[0] ?? "");
+  const bin =
+    head === "docker-init" && argv[1] === "--" ? 2 : head === "node" ? 1 : -1;
+  if (bin === -1 || basename(argv[bin] ?? "") !== LAUNCHER_BIN)
+    return undefined;
+  const flag = argv[bin + 1];
+  return flag === "--cli" ? "cli" : flag === "--tui" ? "tui" : "web";
+}
+
+/**
+ * PID 1's argv, or `[]` where `/proc` cannot be read (not Linux). Each
+ * argument is NUL-terminated, so only the empty string after the last NUL is
+ * dropped: an empty argument is still an argument, and dropping it would shift
+ * the positions `launchMode` reads.
+ */
+export function readPid1Argv(path = "/proc/1/cmdline") {
+  try {
+    const argv = readFileSync(path, "utf8").split("\0");
+    if (argv.at(-1) === "") argv.pop();
+    return argv;
+  } catch {
+    return [];
+  }
+}
+
 /** True when the web UI answers `/` with a 2xx; false on any failure. */
 export async function probe(env) {
   try {
@@ -73,5 +128,15 @@ export async function probe(env) {
   }
 }
 
+/**
+ * The HEALTHCHECK verdict: a `--cli`/`--tui` container is healthy while it
+ * runs, and everything else must answer the web probe.
+ */
+export async function healthy(env, argv) {
+  const mode = launchMode(argv);
+  if (mode === "cli" || mode === "tui") return true;
+  return probe(env);
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href)
-  process.exit((await probe(process.env)) ? 0 : 1);
+  process.exit((await healthy(process.env, readPid1Argv())) ? 0 : 1);

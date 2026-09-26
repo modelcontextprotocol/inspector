@@ -7,16 +7,26 @@
  * its own family. The `probe` cases run it against a real listener, since the
  * exit status is the whole contract Docker reads.
  *
+ * `launchMode` is #2415: only `--web` has a server, so the verdict reads the
+ * mode from PID 1's argv and a `--cli`/`--tui` container is not probed.
+ *
  * The last block reads the Dockerfile, because the script being right is no use
  * if the image stops running it.
  */
 
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
-import { probe, probeUrl } from "./docker-healthcheck.mjs";
+import {
+  healthy,
+  launchMode,
+  probe,
+  probeUrl,
+  readPid1Argv,
+} from "./docker-healthcheck.mjs";
 
 describe("probeUrl", () => {
   const cases = [
@@ -102,6 +112,92 @@ describe("probe", () => {
 
   it("is unhealthy, not a crash, on an unparseable HOST", async () => {
     assert.equal(await probe({ HOST: "not a host", CLIENT_PORT: port }), false);
+  });
+});
+
+describe("launchMode", () => {
+  const BIN = "/usr/local/bin/mcp-inspector";
+  const cases = [
+    // [PID 1 argv, expected mode]
+    [["node", BIN], "web"],
+    [["node", BIN, "--web"], "web"],
+    [["node", BIN, "--cli", "npx", "server"], "cli"],
+    [["node", BIN, "--tui"], "tui"],
+    // Only the token right after the bin is a mode flag, as in the launcher.
+    [["node", BIN, "--config", "x.json", "--tui"], "web"],
+    // `docker run --init` puts an init in front of the launcher.
+    [["/sbin/docker-init", "--", "mcp-inspector", "--tui"], "tui"],
+    // An overridden entrypoint names no launcher.
+    [["sh", "-c", "sleep 1"], undefined],
+    // …even when its args happen to name the launcher.
+    [["sh", "-c", "sleep 60", "mcp-inspector", "--tui"], undefined],
+    [["tini", "--", "mcp-inspector", "--tui"], undefined],
+    // …or pass it on from a wrapper that is not the node interpreter.
+    [["wrapper", BIN, "--tui"], undefined],
+    // An empty argument keeps its position.
+    [["node", "", BIN, "--tui"], undefined],
+    [[], undefined],
+  ];
+  for (const [argv, expected] of cases) {
+    it(`${JSON.stringify(argv)} is ${expected}`, () => {
+      assert.equal(launchMode(argv), expected);
+    });
+  }
+});
+
+describe("readPid1Argv", () => {
+  let dir;
+  before(() => {
+    dir = mkdtempSync(join(tmpdir(), "healthcheck-"));
+  });
+  after(() => rmSync(dir, { recursive: true, force: true }));
+
+  it("splits a NUL-separated cmdline", () => {
+    const path = join(dir, "cmdline");
+    writeFileSync(path, "node\0/usr/local/bin/mcp-inspector\0--tui\0");
+    assert.deepEqual(readPid1Argv(path), [
+      "node",
+      "/usr/local/bin/mcp-inspector",
+      "--tui",
+    ]);
+  });
+
+  it("keeps an empty argument in place", () => {
+    const path = join(dir, "cmdline-empty");
+    writeFileSync(path, "node\0\0mcp-inspector\0--tui\0");
+    assert.deepEqual(readPid1Argv(path), [
+      "node",
+      "",
+      "mcp-inspector",
+      "--tui",
+    ]);
+  });
+
+  it("is empty for an empty cmdline", () => {
+    const path = join(dir, "cmdline-none");
+    writeFileSync(path, "");
+    assert.deepEqual(readPid1Argv(path), []);
+  });
+
+  it("is empty where the file cannot be read", () => {
+    assert.deepEqual(readPid1Argv(join(dir, "missing")), []);
+  });
+});
+
+describe("healthy", () => {
+  // Nothing listens here, so any mode that probes is unhealthy.
+  const env = { HOST: "127.0.0.1", CLIENT_PORT: "1" };
+  const BIN = "/usr/local/bin/mcp-inspector";
+
+  it("does not probe a --cli or --tui container", async () => {
+    assert.equal(await healthy(env, ["node", BIN, "--cli"]), true);
+    assert.equal(await healthy(env, ["node", BIN, "--tui"]), true);
+  });
+
+  it("probes --web, the default mode, and an unrecognized argv", async () => {
+    assert.equal(await healthy(env, ["node", BIN, "--web"]), false);
+    assert.equal(await healthy(env, ["node", BIN]), false);
+    assert.equal(await healthy(env, []), false);
   });
 });
 
