@@ -19,15 +19,19 @@ on:
 permissions:
   contents: read
 
-# Serialize whole RELEASE runs, oldest first, never cancelling one (#2483).
+# Serialize whole RELEASE runs, never cancelling an in-progress one (#2483).
 # Packaging and publishing are separate jobs, so a job-level group on `publish`
 # alone would let two releases race through `package` and publish in the order
 # their packaging happened to finish — and because the dist-tag is passed
 # explicitly, an older release finishing last would move `latest` back to it.
-# Holding the group for the whole run keeps release order = publish order.
+# Holding the group for the whole run restores what the single pre-split job
+# gave: one release run at a time, packaging and publishing together.
 # Push runs get a unique group (their run id), so they are unaffected.
-# ⚠️ GitHub keeps only ONE pending run per group, so a third release cut while
-# one runs and one waits cancels the waiting one — re-run it by hand.
+# ⚠️ This is mutual exclusion, NOT a version-order guarantee. GitHub orders a
+# group's queue by when each run starts waiting, not by release order, and
+# keeps only ONE pending run per group, so a third release cut while one runs
+# and one waits cancels the waiting one. Cut releases one at a time, and
+# re-run a cancelled one by hand.
 concurrency:
   group: ${{ github.event_name == 'release' && 'release-npm' || format('run-{0}', github.run_id) }}
   cancel-in-progress: false
