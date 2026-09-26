@@ -253,8 +253,10 @@ async function readDiskForMutation(
  * residue over restored old secrets is just the same mismatch on the other
  * side (a re-registered `client_id` paired with the old `client_secret`).
  * The prior file entry and the restored prior store fields together are the
- * consistent pre-write state; the new credentials live only in memory for
- * the session. When the compensation itself cannot be confirmed the write
+ * consistent pre-write state (on a retry, `writeOAuthSections` passes
+ * baseline-adjusted priors so an earlier attempt's own writes are not what
+ * gets "restored"); the new credentials live only in memory for the
+ * session. When the compensation itself cannot be confirmed the write
  * aborts instead — the store's state is unknown, so the file must not
  * move. A failed *delete* must abort likewise: committing residue that
  * omits a secret while the store may still hold it lets the next read
@@ -355,14 +357,65 @@ export async function writeOAuthSections(
   const policy = getPersistTokensPolicy();
   const durable = await secretStoreIsDurable(secretStore);
   await withOAuthStateLock(filePath, "save", async () => {
-    // Priors as of the first attempt, kept for the give-up path below: they
-    // describe the store before any attempt touched it, so restoring them
-    // unwinds every attempt's writes (later attempts' priors would not do —
-    // they observe the values earlier attempts wrote). Without this, giving
-    // up would strand a brand-new entry's secrets in the store with no file
-    // index for `removeOAuthStore` to find — the same hole the failed-write
-    // rollback below closes.
-    let originalPriors: SecretFieldSnapshot[] | undefined;
+    // Restore baseline for every failure exit below. For each touched
+    // (server, field) it holds the latest store value NOT written by this
+    // call: the pre-operation value, superseded by a concurrent writer's
+    // value when one lands between attempts. An individual attempt's priors
+    // would not do — from the second attempt on they observe the values
+    // *earlier attempts* wrote, and restoring those treats an intermediate
+    // attempt as committed: a brand-new entry's secrets would stay in the
+    // store with no file index for `removeOAuthStore` to find.
+    const restoreBaseline = new Map<string, SecretFieldSnapshot>();
+    // What this call writes per (server, field) — constant across attempts,
+    // because `secrets` derives from the caller's snapshot and the policy,
+    // never from disk; a candidate outside `secrets` is deleted (null).
+    // This is what lets the fold below tell "our own earlier attempt's
+    // write" apart from "a concurrent writer's newer value".
+    const ourWrites = new Map<string, string | null>();
+    const priorKey = (p: { serverId: string; field: string }): string =>
+      `${p.serverId}\u0000${p.field}`;
+    const foldPriors = (priors: SecretFieldSnapshot[]): void => {
+      for (const prior of priors) {
+        const key = priorKey(prior);
+        // A prior equal to what this call writes is an earlier attempt's own
+        // work (or an indistinguishable identical write) — the baseline
+        // already holds the right older value. Anything else is a value this
+        // call did not write: the newest state a restore must not clobber.
+        if (
+          restoreBaseline.has(key) &&
+          ourWrites.get(key) !== undefined &&
+          prior.value === ourWrites.get(key)
+        ) {
+          continue;
+        }
+        restoreBaseline.set(key, prior);
+      }
+    };
+    const restoreToBaseline = (): Promise<void> =>
+      restoreSecretFields(
+        secretStore,
+        [...restoreBaseline.values()],
+        warnRestoreFailure,
+      );
+    // The inner degrade restore in `persistEntrySecrets` needs the same
+    // treatment as the rollbacks below: on a retry the raw per-attempt prior
+    // for a field is this call's own earlier-attempt write, and "restoring"
+    // it while `revertEntryToDisk` keeps the pre-write residue would report
+    // success with the new secrets committed under the old residue.
+    // Substitute the baseline value wherever the prior is our own write.
+    const baselinePriors = (
+      priors: SecretFieldSnapshot[],
+    ): SecretFieldSnapshot[] =>
+      priors.map((prior) => {
+        const key = priorKey(prior);
+        if (
+          ourWrites.get(key) !== undefined &&
+          prior.value === ourWrites.get(key)
+        ) {
+          return restoreBaseline.get(key) ?? prior;
+        }
+        return prior;
+      });
     // Read-merge-write plus a verifying read, re-applied when another writer
     // lands in between — the same convergence pattern, with the same attempt
     // budget, as `FileSecretStore.mutateLocked` (see its doc for why a
@@ -373,34 +426,6 @@ export async function writeOAuthSections(
     // and the later atomic write would clobber the earlier one's sections
     // with both reporting success.
     for (let attempt = 0; attempt < MAX_WRITE_ATTEMPTS; attempt++) {
-      const disk = await readDiskForMutation(filePath, "save");
-      // Deduplicated: caller-passed sections may repeat a URL/issuer, and a
-      // second pass over the same entry would snapshot the value the first
-      // pass just wrote — a rollback would then "restore" that intermediate
-      // value over the real prior one. An omitted list stays omitted (that
-      // section of the file is left untouched).
-      const effective: OAuthPersistSections = sections
-        ? {
-            servers: sections.servers && [...new Set(sections.servers)],
-            idpSessions: sections.idpSessions && [
-              ...new Set(sections.idpSessions),
-            ],
-          }
-        : {
-            servers: [
-              ...new Set([
-                ...Object.keys(disk?.servers ?? {}),
-                ...Object.keys(snapshot.servers),
-              ]),
-            ],
-            idpSessions: [
-              ...new Set([
-                ...Object.keys(disk?.idpSessions ?? {}),
-                ...Object.keys(snapshot.idpSessions),
-              ]),
-            ],
-          };
-      const merged = mergeOAuthSections(disk, snapshot, effective);
       // Pre-write store values for every secret field this write touches.
       // If anything fails after the store mutations begin — a delete, a
       // later entry's snapshot read, or the residue file write — the store
@@ -411,12 +436,45 @@ export async function writeOAuthSections(
       // residue with the *new* secrets (e.g. the previous client_id paired
       // with the re-registered client_secret) on the next read.
       const priorSecrets: SecretFieldSnapshot[] = [];
-      // Set inside the try (the residue overlay above mutates `merged`, so it
+      // Set inside the try (the residue overlay below mutates `merged`, so it
       // can only be serialized after the entry loops); read by the verify
       // below, which the catch's rethrow can never reach unassigned.
       let written: string;
 
+      // The disk read sits inside the try too: on a retry the store already
+      // holds an earlier attempt's writes, and a concurrent writer replacing
+      // the file with something unrecognized would otherwise make
+      // `readDiskForMutation` throw past the loop without any rollback.
       try {
+        const disk = await readDiskForMutation(filePath, "save");
+        // Deduplicated: caller-passed sections may repeat a URL/issuer, and a
+        // second pass over the same entry would snapshot the value the first
+        // pass just wrote — a rollback would then "restore" that intermediate
+        // value over the real prior one. An omitted list stays omitted (that
+        // section of the file is left untouched).
+        const effective: OAuthPersistSections = sections
+          ? {
+              servers: sections.servers && [...new Set(sections.servers)],
+              idpSessions: sections.idpSessions && [
+                ...new Set(sections.idpSessions),
+              ],
+            }
+          : {
+              servers: [
+                ...new Set([
+                  ...Object.keys(disk?.servers ?? {}),
+                  ...Object.keys(snapshot.servers),
+                ]),
+              ],
+              idpSessions: [
+                ...new Set([
+                  ...Object.keys(disk?.idpSessions ?? {}),
+                  ...Object.keys(snapshot.idpSessions),
+                ]),
+              ],
+            };
+        const merged = mergeOAuthSections(disk, snapshot, effective);
+
         for (const url of effective.servers ?? []) {
           const serverId = oauthSecretServerId(url);
           // Own-property reads: with a `__proto__` key a plain lookup on a
@@ -442,10 +500,19 @@ export async function writeOAuthSections(
             // file without the entry while its secrets may linger in the
             // store would orphan them, and re-adding the server later could
             // resurrect the stale credentials.
+            for (const field of candidates) {
+              ourWrites.set(priorKey({ serverId, field }), null);
+            }
             await secretStore.deleteAllForServer(serverId);
             continue;
           }
           const { residue, secrets } = splitServerOAuthState(next, policy);
+          for (const field of candidates) {
+            ourWrites.set(
+              priorKey({ serverId, field }),
+              secrets[field] ?? null,
+            );
+          }
           // Own-property writes throughout: URL/issuer keys are untrusted
           // and "__proto__" would otherwise silently drop the residue.
           setOwnEntry(merged.servers, url, residue);
@@ -473,7 +540,7 @@ export async function writeOAuthSections(
             serverId,
             candidates,
             secrets,
-            entryPrior,
+            baselinePriors(entryPrior),
           );
           if (!persisted) revertEntryToDisk(merged.servers, disk?.servers, url);
         }
@@ -487,10 +554,18 @@ export async function writeOAuthSections(
           priorSecrets.push(...entryPrior);
           if (next === undefined) {
             // Same as the server loop: a failed purge aborts the write.
+            ourWrites.set(
+              priorKey({ serverId, field: IDP_SESSION_FIELD }),
+              null,
+            );
             await secretStore.deleteAllForServer(serverId);
             continue;
           }
           const { residue, secrets } = splitIdpSession(next, policy);
+          ourWrites.set(
+            priorKey({ serverId, field: IDP_SESSION_FIELD }),
+            secrets[IDP_SESSION_FIELD] ?? null,
+          );
           setOwnEntry(merged.idpSessions, issuer, residue);
           if (!durable) {
             const diskSession = getOwnEntry(disk?.idpSessions, issuer);
@@ -511,7 +586,7 @@ export async function writeOAuthSections(
             serverId,
             [IDP_SESSION_FIELD],
             secrets,
-            entryPrior,
+            baselinePriors(entryPrior),
           );
           if (!persisted)
             revertEntryToDisk(merged.idpSessions, disk?.idpSessions, issuer);
@@ -520,14 +595,14 @@ export async function writeOAuthSections(
         written = serializeOAuthPersistBlob(merged);
         await writeStoreFile(filePath, written);
       } catch (error) {
-        await restoreSecretFields(
-          secretStore,
-          priorSecrets,
-          warnRestoreFailure,
-        );
+        // Fold this attempt's priors first: a concurrent writer's value
+        // observed at the start of this attempt supersedes the baseline's,
+        // and a field first seen this attempt has no baseline entry yet.
+        foldPriors(priorSecrets);
+        await restoreToBaseline();
         throw error;
       }
-      originalPriors ??= priorSecrets;
+      foldPriors(priorSecrets);
 
       // The verify sits outside the try: the file write above succeeded, so
       // the store and the file are consistent and a failure to *read back*
@@ -545,11 +620,7 @@ export async function writeOAuthSections(
       // Someone wrote between our write and our read-back. Loop: the next
       // attempt re-reads and re-merges onto what they left.
     }
-    await restoreSecretFields(
-      secretStore,
-      originalPriors ?? [],
-      warnRestoreFailure,
-    );
+    await restoreToBaseline();
     throw new SecretStoreUnavailableError(
       `Could not save OAuth state: another process kept overwriting ${filePath} (gave up after ${MAX_WRITE_ATTEMPTS} attempts). Re-run the action to retry.`,
     );
@@ -689,6 +760,17 @@ async function migratePlaintextSecrets(
  * `client_id`) with the *new* secrets — a torn read producing a mismatched
  * credential pair, distinct from the accepted long-lived-cache staleness.
  * A held lock surfaces as a retryable 503 (see {@link rethrowLockError}).
+ *
+ * Where the lock cannot be created at all, `withSecretFileLock` runs the
+ * body unlocked (announcing so once on the console) and this protection is
+ * genuinely absent — stated rather than oversold, as with the residual in
+ * `FileSecretStore.mutate`. No read-side verification can close it: the
+ * tear is this read landing inside another process's store-write →
+ * file-write window, and until that writer commits its file there is
+ * nothing observable to re-check. The tear is also transient, not
+ * persisted corruption — the next read after the writer commits joins a
+ * consistent pair, and persisted state itself still converges via the
+ * write path's read-back verification in {@link writeOAuthSections}.
  */
 export async function readOAuthStore(
   filePath: string,
