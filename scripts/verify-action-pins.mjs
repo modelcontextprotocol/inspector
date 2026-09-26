@@ -16,7 +16,9 @@
 //   1. can mint an OIDC token or push a package — `id-token: write` or
 //      `packages: write` (or `write-all`), in its own `permissions:` or, absent
 //      one, the workflow's;
-//   2. is handed any secret other than `GITHUB_TOKEN`; or
+//   2. is handed any secret other than `GITHUB_TOKEN` — in any spelling of the
+//      expression (`secrets.X`, `secrets['X']`, `secrets[matrix.name]`), or as
+//      a reusable-workflow call's `secrets:` (`inherit` or a mapping); or
 //   3. uploads an artifact that a job from (1) or (2) downloads and `needs` —
 //      `package` builds the tarball `publish` hands to `npm publish` under
 //      provenance, so a moved tag in `package` publishes as surely as one in
@@ -47,7 +49,12 @@ const repoRoot = path.resolve(
   "..",
 );
 
-const NON_DEFAULT_SECRET = /\bsecrets\.(?!GITHUB_TOKEN\b)[A-Za-z_]\w*/;
+// `GITHUB_TOKEN` in either accessor spelling; removed before looking for any
+// other `secrets` reference, so every spelling of every other name — a dynamic
+// index included — still reads as a secret (Copilot).
+const DEFAULT_TOKEN =
+  /\bsecrets\s*(?:\.\s*GITHUB_TOKEN\b|\[\s*(['"])GITHUB_TOKEN\1\s*\])/g;
+const EXPRESSION = /\$\{\{([\s\S]*?)\}\}/g;
 const EXACT_VERSION = /^v\d+\.\d+\.\d+$/;
 
 /** Does this `permissions:` value let the job mint a token or push a package? */
@@ -56,6 +63,24 @@ function mints(permissions) {
   if (permissions === null || typeof permissions !== "object") return false;
   return (
     permissions["id-token"] === "write" || permissions.packages === "write"
+  );
+}
+
+/** Every string anywhere in a parsed value — keys excluded, as they hold no expression. */
+function stringsIn(value) {
+  if (typeof value === "string") return [value];
+  if (value === null || typeof value !== "object") return [];
+  return Object.values(value).flatMap(stringsIn);
+}
+
+/** Is this job handed any secret but `GITHUB_TOKEN`? */
+function handedSecret(job) {
+  // A reusable-workflow call passes secrets by key, not by expression.
+  if (job.secrets != null) return true;
+  return stringsIn(job).some((text) =>
+    [...text.matchAll(EXPRESSION)].some(([, body]) =>
+      /\bsecrets\b/.test(body.replace(DEFAULT_TOKEN, "")),
+    ),
   );
 }
 
@@ -95,8 +120,7 @@ export function credentialedJobs(yaml, file) {
   for (const [name, job] of jobs) {
     const permissions =
       "permissions" in job ? job.permissions : workflow.permissions;
-    if (mints(permissions) || NON_DEFAULT_SECRET.test(JSON.stringify(job)))
-      held.add(name);
+    if (mints(permissions) || handedSecret(job)) held.add(name);
   }
   for (const [name, job] of jobs) {
     if (!held.has(name) || !stepsUsing(job, "actions/download-artifact@"))
@@ -112,7 +136,9 @@ export function credentialedJobs(yaml, file) {
 
 /**
  * Every `uses:` in a credentialed job that is not a 40-hex SHA followed by a
- * `# vX.Y.Z` comment. Local (`./…`) actions are repository code, not a ref.
+ * `# vX.Y.Z` comment — each step's, and the job's own when it calls a reusable
+ * workflow, whose ref is just as mutable (Copilot). Local (`./…`) actions and
+ * workflows are repository code, not a ref.
  *
  * @param {string} yaml raw contents of a workflow file
  * @param {string} [file] only for the parse-error message
@@ -127,9 +153,13 @@ export function unpinnedRefs(yaml, file) {
     const name = String(isScalar(key) ? key.value : key);
     if (!held.has(name) || !isMap(value)) continue;
     const steps = value.get("steps", true);
-    if (!isSeq(steps)) continue;
-    for (const step of steps.items) {
-      const node = isMap(step) ? step.get("uses", true) : undefined;
+    const nodes = [
+      value.get("uses", true),
+      ...(isSeq(steps) ? steps.items : []).map((step) =>
+        isMap(step) ? step.get("uses", true) : undefined,
+      ),
+    ];
+    for (const node of nodes) {
       if (!isScalar(node) || typeof node.value !== "string") continue;
       const uses = node.value;
       if (uses.startsWith("./")) continue;

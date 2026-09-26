@@ -82,6 +82,36 @@ test("any secret but GITHUB_TOKEN makes a job credentialed", () => {
   assert.deepEqual([...credentialedJobs(yaml)], ["model"]);
 });
 
+test("every spelling of a non-default secret counts; GITHUB_TOKEN in any spelling does not", () => {
+  const yaml = wf(
+    "jobs:",
+    "  bracket:",
+    "    steps:",
+    "      - env:",
+    "          KEY: ${{ secrets['DEPLOY_TOKEN'] }}",
+    "  dynamic:",
+    "    steps:",
+    "      - env:",
+    "          KEY: ${{ secrets[matrix.secret] }}",
+    "  inherits:",
+    "    uses: org/repo/.github/workflows/publish.yml@v1",
+    "    secrets: inherit",
+    "  default-bracket:",
+    "    steps:",
+    "      - env:",
+    `          GH_TOKEN: \${{ secrets["GITHUB_TOKEN"] }}`,
+    "  prose:",
+    "    steps:",
+    "      - name: Scan for secrets",
+    "        run: echo secrets.NOT_AN_EXPRESSION",
+  );
+  assert.deepEqual([...credentialedJobs(yaml)].sort(), [
+    "bracket",
+    "dynamic",
+    "inherits",
+  ]);
+});
+
 test("a job whose artifact a credentialed job downloads is credentialed", () => {
   const yaml = wf(
     "jobs:",
@@ -134,6 +164,27 @@ test("unpinnedRefs flags tags and comment-less SHAs in credentialed jobs only", 
   assert.deepEqual(unpinnedRefs(yaml), [
     { job: "publish", uses: `actions/download-artifact@${SHA}` },
     { job: "publish", uses: "actions/checkout@v7" },
+  ]);
+});
+
+test("a credentialed reusable-workflow call must pin its own ref", () => {
+  const yaml = wf(
+    "jobs:",
+    "  release:",
+    "    permissions:",
+    "      id-token: write",
+    "    uses: org/repo/.github/workflows/publish.yml@main",
+    "  pinned:",
+    "    permissions:",
+    "      id-token: write",
+    `    uses: org/repo/.github/workflows/publish.yml@${SHA} # v1.2.3`,
+    "  local:",
+    "    permissions:",
+    "      id-token: write",
+    "    uses: ./.github/workflows/publish.yml",
+  );
+  assert.deepEqual(unpinnedRefs(yaml), [
+    { job: "release", uses: "org/repo/.github/workflows/publish.yml@main" },
   ]);
 });
 
