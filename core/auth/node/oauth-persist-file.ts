@@ -13,8 +13,11 @@
  *    `oauth.json` can each persist their own mutations without erasing
  *    entries the others wrote after this process last read the file.
  * 2. **Secret split** (`oauth-secrets.ts`): acquired tokens, client secrets,
- *    and IdP session tokens go to the {@link SecretStore}; only the
- *    non-secret residue is written to `oauth.json`. Reads rejoin the two and
+ *    and IdP session tokens go to the {@link SecretStore}; the residue
+ *    written to `oauth.json` carries no secret the store can serve back —
+ *    though a partial-but-legitimate token payload the store's read gate
+ *    would reject (see `splitTokens`) deliberately stays plaintext there.
+ *    Reads rejoin the two and
  *    lazily migrate a pre-split plaintext file — stripping it only when the
  *    store is durable, the same guard the mcp.json/client.json migrations
  *    use. A store write failure degrades those tokens to memory-only with a

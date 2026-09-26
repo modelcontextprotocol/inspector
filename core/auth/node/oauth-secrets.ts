@@ -103,7 +103,13 @@ export const IDP_SESSION_FIELD = "idp-session";
 export type OAuthSecretValues = Record<string, string>;
 
 export interface SplitResult<T> {
-  /** What remains for `oauth.json` — never carries a secret value. */
+  /**
+   * What remains for `oauth.json`. Usually secret-free, with one deliberate
+   * exception: a partial-but-legitimate token payload that the store's
+   * read-side gate would reject (see {@link splitTokens}) stays plaintext
+   * here — the file is the only place it can survive. Callers must not
+   * assume the residue is safe to expose as if it carried no credentials.
+   */
   residue: T;
   /** What goes to the secret store, post-policy. */
   secrets: OAuthSecretValues;
