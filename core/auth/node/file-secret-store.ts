@@ -340,8 +340,12 @@ function decodeParts(
  * instant is already rare; losing five consecutive rounds to one means
  * something other than ordinary contention is happening, and reporting that
  * is more honest than looping.
+ *
+ * Exported because `writeOAuthSections` runs the same verify/re-apply
+ * pattern over `oauth.json` (see {@link mutate} for why a verify is needed
+ * at all); one budget keeps the two files' give-up behaviour aligned.
  */
-const MAX_WRITE_ATTEMPTS = 5;
+export const MAX_WRITE_ATTEMPTS = 5;
 
 /**
  * In-process mutation queues, one per resolved secrets-file path.
