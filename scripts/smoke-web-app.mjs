@@ -269,9 +269,13 @@ try {
       driveDedicatedOrigin(),
     ]);
   } catch (err) {
+    // The non-fatal console errors belong on a failure too (#2496): a 4xx/5xx
+    // from the backend lands there, and on #2482 that 503 was the whole cause
+    // while the success path was the only one that ever printed it.
     const notes = [
       ...diagnostics.pageErrors,
       ...diagnostics.fatalConsole().map((m) => `console: ${m}`),
+      ...diagnostics.benignConsole().map((m) => `console (non-fatal): ${m}`),
     ];
     await fail(
       `${err instanceof Error ? err.message : String(err)}${
