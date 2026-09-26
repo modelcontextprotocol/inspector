@@ -61,6 +61,10 @@ export async function dispatchConnectionRpc(
     try {
       await streamDaemon(params, {
         socketPath,
+        // Core enforces the configured MCP request timeout daemon-side; a
+        // fixed local deadline would falsely fail stream setups (e.g. a
+        // subscribe against a slow server) that are still valid.
+        timeoutMs: 0,
         signal: ac.signal,
         onData: (data) => {
           writeChain = writeChain

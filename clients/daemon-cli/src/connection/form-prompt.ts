@@ -102,6 +102,15 @@ async function promptField(
       if (raw === "") {
         if (field.default !== undefined) return field.default;
         if (!field.required) return undefined;
+        if (multi) {
+          const m = field as Extract<FormField, { kind: "multiselect" }>;
+          // JSON Schema "required" only means the key must be present; an
+          // empty array is a valid value unless minItems forbids it. Without
+          // this, "none selected" on a required multiselect loops forever.
+          if ((m.minItems ?? 0) === 0) return [];
+          process.stderr.write(style.red(`  Select at least ${m.minItems}.\n`));
+          continue;
+        }
         process.stderr.write(style.red("  This field is required.\n"));
         continue;
       }

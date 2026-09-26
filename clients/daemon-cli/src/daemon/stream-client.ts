@@ -194,15 +194,21 @@ export async function streamDaemon(
       );
     });
 
-    timer = setTimeout(() => {
-      fail(
-        new CliExitCodeError(
-          EXIT_CODES.UNREACHABLE,
-          `Daemon stream open timed out after ${timeoutMs}ms`,
-          { code: "daemon_timeout" },
-        ),
-      );
-    }, timeoutMs);
+    // timeoutMs 0 disables the deadline (mirrors callDaemon): an
+    // unconditional setTimeout(..., 0) would fire immediately, failing
+    // every stream on the next tick instead of never.
+    timer =
+      timeoutMs > 0
+        ? setTimeout(() => {
+            fail(
+              new CliExitCodeError(
+                EXIT_CODES.UNREACHABLE,
+                `Daemon stream open timed out after ${timeoutMs}ms`,
+                { code: "daemon_timeout" },
+              ),
+            );
+          }, timeoutMs)
+        : undefined;
 
     // AbortSignal does not replay: a pre-aborted signal would never fire
     // the listener, leaving the stream open until the timeout. Check first.

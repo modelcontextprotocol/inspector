@@ -157,6 +157,12 @@ describe("dispatchConnectionRpc", () => {
     );
     expect(stdout).toContain("Subscribed:");
     expect(streamDaemon).toHaveBeenCalled();
+    // Core enforces the configured MCP request timeout daemon-side; the
+    // stream path must disable the fixed local deadline like the rpc path.
+    expect(streamDaemon).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ timeoutMs: 0 }),
+    );
   });
 
   it("flushes queued stream writes before returning", async () => {

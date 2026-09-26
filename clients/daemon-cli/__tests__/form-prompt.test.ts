@@ -373,6 +373,46 @@ describe("promptForm", () => {
     expect(stderr).toContain("Select at least 2");
   });
 
+  it("accepts blank on a required multi-select as an empty array when minItems permits", async () => {
+    // JSON Schema `required` means the key must be present; [] is a valid
+    // value unless minItems forbids it. Previously this looped forever.
+    const field: FormField = {
+      name: "colors",
+      required: true,
+      title: "Colors",
+      kind: "multiselect",
+      choices: [
+        { value: "red", label: "Red" },
+        { value: "green", label: "Green" },
+      ],
+    };
+    const rl = fakeRl(["", ""]);
+    const outcome = await promptForm(rl, "msg", [field], style);
+    expect(outcome).toEqual({ action: "accept", content: { colors: [] } });
+    expect(stderr).not.toContain("This field is required");
+  });
+
+  it("re-prompts blank on a required multi-select when minItems demands entries", async () => {
+    const field: FormField = {
+      name: "colors",
+      required: true,
+      title: "Colors",
+      kind: "multiselect",
+      choices: [
+        { value: "red", label: "Red" },
+        { value: "green", label: "Green" },
+      ],
+      minItems: 1,
+    };
+    const rl = fakeRl(["", "1", ""]);
+    const outcome = await promptForm(rl, "msg", [field], style);
+    expect(outcome).toEqual({
+      action: "accept",
+      content: { colors: ["red"] },
+    });
+    expect(stderr).toContain("Select at least 1");
+  });
+
   it("uses a multi-select default on blank, formatted in the field description", async () => {
     const field: FormField = {
       name: "colors",

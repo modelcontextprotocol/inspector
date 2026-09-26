@@ -310,6 +310,27 @@ describe("streamDaemon + ipc-glue", () => {
     ).rejects.toThrow(/timed out/);
   }, 5000);
 
+  it("disables the open deadline entirely with timeoutMs 0", async () => {
+    // Regression: an unconditional setTimeout(..., 0) fired on the next
+    // tick, so timeoutMs 0 (documented as "no deadline") failed every
+    // stream immediately instead of waiting indefinitely.
+    const sock = freshSock();
+    await listen(sock, (socket) => {
+      socket.once("data", (buf) => {
+        const req = JSON.parse(String(buf).trim()) as { id: string };
+        setTimeout(() => {
+          socket.write(
+            JSON.stringify({ id: req.id, ok: true, result: {} }) + "\n",
+          );
+          socket.write(JSON.stringify({ id: req.id, stream: "end" }) + "\n");
+        }, 120);
+      });
+    });
+    await expect(
+      streamDaemon({}, { socketPath: sock, timeoutMs: 0, onData: () => {} }),
+    ).resolves.toBeUndefined();
+  }, 5000);
+
   it("fails when the peer FINs before the stream ok frame", async () => {
     const sock = freshSock();
     await listen(sock, (socket) => {
