@@ -136,11 +136,58 @@ function isEntryMap(value: unknown): value is Record<string, unknown> {
 }
 
 /**
+ * The client-information fields the node split extracts *verbatim* into the
+ * secret store (see `splitClientInformation` in oauth-secrets.ts). Every
+ * other secret the split emits is `JSON.stringify`-ed first, so whatever
+ * shape it holds arrives at the store as a string — these are the only
+ * fields whose raw payload value reaches `SecretStore.set` unchanged.
+ */
+const VERBATIM_SECRET_KEYS = [
+  "client_secret",
+  "registration_access_token",
+] as const;
+
+/**
+ * Whether a `clientInformation`-shaped value is absent, or is a record whose
+ * verbatim-extracted secret fields are strings. A non-string there (say
+ * `client_secret: 123` in a hand-edited file or a malformed PUT body) would
+ * pass through the split into the secret store untouched — and a non-string
+ * value in `secrets.json` makes the store refuse the *entire* file on every
+ * later read and write, poisoning unrelated servers' credentials.
+ */
+function isValidClientInformation(value: unknown): boolean {
+  if (value === undefined) return true;
+  if (!isRecord(value)) return false;
+  return VERBATIM_SECRET_KEYS.every(
+    (key) => !Object.hasOwn(value, key) || typeof value[key] === "string",
+  );
+}
+
+/** Validate one server entry's secret-bearing containers (see above). */
+function isValidServerEntry(entry: unknown): boolean {
+  if (!isRecord(entry)) return false;
+  if (!isValidClientInformation(entry.clientInformation)) return false;
+  if (!isValidClientInformation(entry.preregisteredClientInformation))
+    return false;
+  if (entry.byIssuer !== undefined) {
+    if (!isRecord(entry.byIssuer)) return false;
+    for (const slot of Object.values(entry.byIssuer)) {
+      if (!isRecord(slot)) return false;
+      if (!isValidClientInformation(slot.clientInformation)) return false;
+    }
+  }
+  return true;
+}
+
+/**
  * Validate and normalize the two entry maps. Absent maps default to empty;
  * anything that is not a record-of-records (an array, a string, an entry
  * whose value is a scalar) rejects the whole payload — coercing it would
  * fabricate nonsensical entries from a malformed body or file instead of
- * returning 400 / treating the file as unreadable.
+ * returning 400 / treating the file as unreadable. Entries whose
+ * verbatim-extracted secret fields are not strings are rejected the same
+ * way: they would otherwise poison the shared secret store (see
+ * {@link isValidClientInformation}).
  */
 function snapshotFromPayload(
   payload: Record<string, unknown>,
@@ -148,6 +195,7 @@ function snapshotFromPayload(
   const servers = payload.servers ?? {};
   const idpSessions = payload.idpSessions ?? {};
   if (!isEntryMap(servers) || !isEntryMap(idpSessions)) return null;
+  if (!Object.values(servers).every(isValidServerEntry)) return null;
   return {
     servers: servers as OAuthPersistSnapshot["servers"],
     idpSessions: idpSessions as OAuthPersistSnapshot["idpSessions"],

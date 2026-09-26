@@ -210,6 +210,30 @@ describe("FileSecretStore failure handling", () => {
     );
   });
 
+  it("refuses a non-string value before touching the file", async () => {
+    // A cast slipping past the compile-time contract (say a numeric
+    // client_secret from a malformed payload) must not be written: one
+    // non-string value makes `asSecretMap` refuse the whole file on every
+    // later read and write, poisoning unrelated stored credentials.
+    const store = new FileSecretStore({ filePath: filePath() });
+    await store.set("alpha", "keep", "safe");
+    await expect(
+      store.set("alpha", "bad", 123 as unknown as string),
+    ).rejects.toThrow(/non-string secret value \(number\) for "bad"/);
+    await expect(
+      store.setMany("alpha", {
+        ok: "fine",
+        worse: { nested: true } as unknown as string,
+      }),
+    ).rejects.toThrow(/non-string secret value \(object\) for "worse"/);
+    // Nothing from the refused batch landed, and the store still works.
+    expect(await store.get("alpha", "bad")).toBeNull();
+    expect(await store.get("alpha", "ok")).toBeNull();
+    expect(await store.get("alpha", "keep")).toBe("safe");
+    await store.set("alpha", "after", "still-writable");
+    expect(await store.get("alpha", "after")).toBe("still-writable");
+  });
+
   it("reads a plaintext file that carries no secrets key as empty", async () => {
     // A hand-edited (or hand-created) file is the realistic source of this
     // shape, and it must read as "no secrets yet" rather than throwing: the

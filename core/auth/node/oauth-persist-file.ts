@@ -95,6 +95,24 @@ export function resetOAuthSecretStoreWarnings(): void {
 }
 
 /**
+ * Compensation-failure variant of {@link warnStoreWriteFailure}: here a
+ * mutation already changed the secret store and the attempt to restore the
+ * prior values failed, so the write-path message ("kept in memory for this
+ * session") would be false — the prior values may be gone, and the store may
+ * no longer agree with the file. Re-authorizing is the recovery, not a
+ * restart-time inconvenience.
+ */
+function warnRestoreFailure(error: unknown): void {
+  const reason = error instanceof Error ? error.message : String(error);
+  const key = `restore:${reason}`;
+  if (warnedStoreFailures.has(key)) return;
+  warnedStoreFailures.add(key);
+  console.warn(
+    `[mcp-inspector] Could not restore secret-store entries after a failed OAuth state write (${reason}). The secret store may be inconsistent with oauth.json; if a server's stored credentials stop working, re-authorize it.`,
+  );
+}
+
+/**
  * Migration-failure variant of {@link warnStoreWriteFailure}: here the
  * plaintext file is deliberately left untouched, so the write-path message
  * ("memory only, expect to re-authorize") would be wrong — nothing was
@@ -477,11 +495,7 @@ export async function writeOAuthSections(
 
       await writeStoreFile(filePath, serializeOAuthPersistBlob(merged));
     } catch (error) {
-      await restoreSecretFields(
-        secretStore,
-        priorSecrets,
-        warnStoreWriteFailure,
-      );
+      await restoreSecretFields(secretStore, priorSecrets, warnRestoreFailure);
       throw error;
     }
   });
@@ -692,7 +706,7 @@ export async function removeOAuthStore(
         await restoreSecretFields(
           secretStore,
           priorSecrets,
-          warnStoreWriteFailure,
+          warnRestoreFailure,
         );
         throw error;
       }

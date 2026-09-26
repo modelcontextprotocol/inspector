@@ -88,6 +88,66 @@ describe("parseOAuthPersistBlob", () => {
       parseOAuthPersistBlob({ state: { servers: ["bad"] }, version: 0 }),
     ).toBeNull();
   });
+
+  it("rejects non-string verbatim secret fields that would poison the store", () => {
+    // `client_secret` / `registration_access_token` pass through the split
+    // into the secret store *verbatim* (every other secret is stringified
+    // first), and one non-string value in secrets.json makes the store
+    // refuse the entire file — corrupting unrelated servers' credentials.
+    const entry = (clientInformation: unknown) => ({
+      servers: { "http://s": { clientInformation } },
+      idpSessions: {},
+    });
+    expect(
+      parseOAuthPersistBlob(entry({ client_id: "x", client_secret: 123 })),
+    ).toBeNull();
+    expect(
+      parseOAuthPersistBlob(
+        entry({ client_id: "x", registration_access_token: { a: 1 } }),
+      ),
+    ).toBeNull();
+    // Non-record containers are malformed state, not credentials.
+    expect(parseOAuthPersistBlob(entry("not a record"))).toBeNull();
+    expect(
+      parseOAuthPersistBlob({
+        servers: {
+          "http://s": {
+            preregisteredClientInformation: {
+              client_id: "x",
+              client_secret: null,
+            },
+          },
+        },
+        idpSessions: {},
+      }),
+    ).toBeNull();
+    expect(
+      parseOAuthPersistBlob({
+        servers: {
+          "http://s": {
+            byIssuer: {
+              "https://as": {
+                clientInformation: { client_id: "x", client_secret: 5 },
+              },
+            },
+          },
+        },
+        idpSessions: {},
+      }),
+    ).toBeNull();
+    // A byIssuer slot that is not a record rejects too.
+    expect(
+      parseOAuthPersistBlob({
+        servers: { "http://s": { byIssuer: { "https://as": "scalar" } } },
+        idpSessions: {},
+      }),
+    ).toBeNull();
+    // String secrets — including under a __proto__ issuer key — stay valid.
+    const valid = JSON.parse(
+      '{"servers":{"http://s":{"clientInformation":{"client_id":"x","client_secret":"s3cret"},"byIssuer":{"__proto__":{"clientInformation":{"client_id":"y","client_secret":"also"}}}}},"idpSessions":{}}',
+    ) as Record<string, unknown>;
+    expect(parseOAuthPersistBlob(valid)).not.toBeNull();
+  });
 });
 
 describe("serializeOAuthPersistBlob", () => {

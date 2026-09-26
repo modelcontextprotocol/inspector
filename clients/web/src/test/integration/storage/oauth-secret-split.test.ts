@@ -314,6 +314,53 @@ describe("writeOAuthSections secret split", () => {
     ).toBeNull();
   });
 
+  it("warns that the store may be inconsistent when the rollback itself fails", async () => {
+    // A failed compensation is not a failed save: the store already changed
+    // and could not be put back, so the save-path warning ("tokens kept in
+    // memory for this session") would be false. The message must say the
+    // store may disagree with the file and point at re-authorization.
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const store = new InMemorySecretStore();
+    await writeOAuthSections(filePath, snapshotWith(), undefined, store);
+    await flushStoreFileWrites(filePath);
+
+    const updated = snapshotWith();
+    updated.servers[SERVER]!.tokens = { ...TOKENS, access_token: "at2" };
+    // The update's own writes ("at2", unchanged "cs") succeed; only the
+    // rollback's attempt to put the *prior* token value back fails.
+    const realSet = store.set.bind(store);
+    store.set = async (id, field, value) => {
+      if (value.includes(`"access_token":"${TOKENS.access_token}"`)) {
+        throw new Error("store refused the restore");
+      }
+      return realSet(id, field, value);
+    };
+
+    chmodSync(tempDir, 0o555);
+    try {
+      await expect(
+        writeOAuthSections(filePath, updated, undefined, store),
+      ).rejects.toThrow();
+    } finally {
+      chmodSync(tempDir, 0o755);
+    }
+
+    expect(
+      warn.mock.calls.some(([msg]) =>
+        String(msg).includes(
+          "Could not restore secret-store entries after a failed OAuth state write",
+        ),
+      ),
+    ).toBe(true);
+    // The save-path wording must not appear: nothing here is "kept in
+    // memory" — the store diverged from the file and could not be put back.
+    expect(
+      warn.mock.calls.some(([msg]) =>
+        String(msg).includes("kept in memory for this session"),
+      ),
+    ).toBe(false);
+  });
+
   it("restores an indexed entry's prior store secrets when the file write fails", async () => {
     // An already-indexed entry is not rolled back by deletion — its old
     // residue is still on disk, so the store must be restored to the *old*

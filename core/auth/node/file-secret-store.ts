@@ -243,6 +243,25 @@ const buildAccount = (serverId: string, field: string): string =>
   `${serverId}:${field}`;
 
 /**
+ * Refuse a non-string secret value before any mutation happens. The file
+ * holds a `Record<string, string>` and {@link asSecretMap} refuses the
+ * *entire* file when any value is not a string — so accepting one bad value
+ * here (a cast slipping past the compile-time contract) would poison every
+ * stored credential on the next read. A `TypeError` because this is a caller
+ * bug or malformed input, not store unavailability: retrying cannot help.
+ */
+function assertSecretString(
+  field: string,
+  value: unknown,
+): asserts value is string {
+  if (typeof value !== "string") {
+    throw new TypeError(
+      `Refusing to store a non-string secret value (${typeof value}) for "${field}": the secrets file holds only strings, and writing this would make the whole file unreadable.`,
+    );
+  }
+}
+
+/**
  * Assert that a decoded payload really is a `Record<string, string>`.
  *
  * Neither branch of {@link FileSecretStore.readMap} can trust its input: the
@@ -1006,6 +1025,9 @@ export class FileSecretStore implements SecretStore {
     values: Record<string, string>,
   ): Promise<void> {
     if (Object.keys(values).length === 0) return;
+    for (const [field, value] of Object.entries(values)) {
+      assertSecretString(field, value);
+    }
     await this.serialize(() =>
       this.mutate((map) => {
         const next = { ...map };
@@ -1018,6 +1040,7 @@ export class FileSecretStore implements SecretStore {
   }
 
   async set(serverId: string, field: string, value: string): Promise<void> {
+    assertSecretString(field, value);
     await this.serialize(() =>
       this.mutate((map) => ({
         ...map,

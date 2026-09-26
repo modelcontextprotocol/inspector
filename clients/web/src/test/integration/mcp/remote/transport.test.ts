@@ -1083,6 +1083,28 @@ describe("Remote transport e2e", () => {
       expect((await legacyQuery.json()).error).toBe(
         "The sections descriptor moved from the ?sections query parameter to the request body",
       );
+
+      // A body whose verbatim-extracted secret field is not a string is
+      // rejected up front: passed through, the split would write the raw
+      // value into the secret store, and one non-string value there makes
+      // the store refuse its entire file — corrupting every stored
+      // credential, not just this entry's.
+      const poisonSecret = await fetch(`${baseUrl}/api/storage/oauth`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          servers: {
+            "http://srv.example/mcp": {
+              clientInformation: { client_id: "cid", client_secret: 123 },
+            },
+          },
+          idpSessions: {},
+        }),
+      });
+      expect(poisonSecret.status).toBe(400);
+      expect((await poisonSecret.json()).error).toBe(
+        "OAuth store writes require an OAuth state body",
+      );
     });
 
     it("rejects requests without auth token", async () => {
