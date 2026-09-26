@@ -436,7 +436,7 @@ prose from stderr:
 | `0`  | Success.                                                                      |
 | `1`  | Usage / unexpected error (the catch-all).                                     |
 | `2`  | No MCP App found on the tool (`--app-info` probe).                            |
-| `3`  | Server requires authentication (401/403, `WWW-Authenticate`, OAuth).          |
+| `3`  | Server requires authentication (401/403 or a typed SDK auth error).           |
 | `4`  | Server unreachable (DNS, connection refused, timeout, `fetch failed`).        |
 | `5`  | Tool error (`tools/call` returned `isError:true`, or the tool was not found). |
 | `6`  | `--strict` found an error-severity tool-schema portability problem (`schema_unportable` — the schema is valid JSON Schema, just not portable). |

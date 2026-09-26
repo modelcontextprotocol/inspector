@@ -153,10 +153,14 @@ try {
       // ~/.mcp-inspector. Pin MCP_OAUTH_CALLBACK_URL="" (empty reads as unset)
       // so an ambient non-loopback value can't crash the TUI before render via
       // the loopback callback guard — same class smoke-cli.mjs's
-      // SMOKE_BASE_ENV neutralizes.
+      // SMOKE_BASE_ENV neutralizes. Pin the secret store to memory too: the
+      // HOME redirect does not stop the startup keychain probe (the OS
+      // keychain is not under HOME), so without it the smoke still touches
+      // the host's real keychain and its output varies per host.
       env: {
         ...process.env,
         MCP_OAUTH_CALLBACK_URL: "",
+        MCP_INSPECTOR_SECRET_STORE: "memory",
         HOME: work,
         USERPROFILE: work,
       },

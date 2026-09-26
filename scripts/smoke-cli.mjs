@@ -59,7 +59,17 @@ function fail(message) {
 // a non-loopback host would fail steps 1–8. Empty reads as unset in the parser
 // (default 127.0.0.1:6276 applies); per-call extraEnv is spread after, so step 9
 // can still pass --callback-url explicitly. Mirrors prod-web-server.mjs's HOST pin.
-const SMOKE_BASE_ENV = { MCP_OAUTH_CALLBACK_URL: "" };
+//
+// MCP_INSPECTOR_SECRET_STORE=memory keeps the smoke hermetic: without it the
+// CLI probes the host's real keychain at startup (and can resolve a
+// developer's local secret-store config), so output differed per host. The
+// memory store is non-durable, and OAuth writes keep plaintext in the state
+// file for non-durable stores, so fixtures and cross-process token flows
+// behave identically.
+const SMOKE_BASE_ENV = {
+  MCP_OAUTH_CALLBACK_URL: "",
+  MCP_INSPECTOR_SECRET_STORE: "memory",
+};
 
 /** Run the launcher in --cli mode. Returns { status, stdout, stderr }. */
 function runCli(args, extraEnv = {}) {
