@@ -195,32 +195,31 @@ jobs:
 
   # Publish the single `@modelcontextprotocol/inspector` package to npm on a
   # published GitHub release. v2 is not an npm workspace, so there is no
-  # `publish-all` / `--workspaces` (v1) — just one `npm publish`, whose `prepack`
-  # (`npm run build`) builds every client bundle into the `files` allowlist.
-  # `pack:verify` runs first as the pre-publish gate: it builds, packs the real
-  # tarball, installs it into a clean throwaway consumer, and drives the
-  # installed `mcp-inspector` bin (web/cli/tui) end to end — so a broken package
-  # is caught before it reaches npm rather than after.
-  publish:
+  # `publish-all` / `--workspaces` (v1) — just one package.
+  #
+  # Two jobs, split on the credential (#2483). `package` does everything that
+  # executes third-party code — the dependency install (whose lifecycle scripts
+  # and the root `postinstall` client cascade all run), `pack:verify`, and the
+  # `npm pack` that builds the tarball — and holds NO `id-token`. `publish`
+  # holds `id-token: write` and does nothing but download that tarball and hand
+  # it to `npm publish`: no checkout, no dependency install, no build. Before
+  # the split both halves shared one job, so any install script from any
+  # transitive dependency ran in the process environment carrying the OIDC
+  # request variables and could mint a token and publish under the
+  # trusted-publisher identity. Permissions are scoped per JOB, not per step,
+  # so a separate job is the only way to keep that token away from the
+  # install. Do not fold them back together, and do not add an install or a
+  # checkout to `publish`.
+  package:
     runs-on: ubuntu-latest
     if: github.event_name == 'release'
-    environment: release
     needs: [build, coverage]
-    # Serialize publishes so two releases cut in quick succession can't run
-    # overlapping `npm publish`es. Never cancel an in-flight publish.
-    concurrency:
-      group: publish-npm
-      cancel-in-progress: false
-    # Observed 2.3–2.8 min across the last three releases (2.4.0–2.6.0), of
-    # which `pack:verify` is about half and the only step that reaches the
-    # registry. The publish itself is atomic on npm's side, so a cut-off here
-    # leaves nothing half-published.
+    # Carries over the old single `publish` job's budget: it was observed at
+    # 2.3–2.8 min across the last three releases (2.4.0–2.6.0), of which
+    # `pack:verify` is about half, and all of that work now lives here.
     timeout-minutes: 10
     permissions:
       contents: read
-      # Required for npm provenance (`--provenance` mints a signed attestation
-      # via GitHub's OIDC token). The repo is public, so provenance is available.
-      id-token: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
@@ -230,7 +229,6 @@ jobs:
         with:
           node-version: '22.x'
           cache: 'npm'
-          registry-url: 'https://registry.npmjs.org'
 
       - name: Assert release tag matches package version
         # `npm publish` ships whatever `version` is in the root package.json,
@@ -250,11 +248,6 @@ jobs:
             exit 1
           fi
 
-      # OIDC trusted publishing requires npm >= 11.5.1; Node 22's bundled npm is
-      # 10.x, which fails with ENEEDAUTH before OIDC is ever attempted.
-      - name: Ensure npm CLI supports OIDC trusted publishing
-        run: npm install -g npm@^11.5.1
-
       - name: Install dependencies (root + all clients)
         run: npm install
 
@@ -265,12 +258,82 @@ jobs:
         # the real TUI boot is `smoke:tui`, which the `build` job runs.
         run: npm run pack:verify
 
+      - name: Pack the tarball to publish
+        # `pack:verify` deletes its own tarball on success, so this packs the
+        # one that ships. `prepack` (`npm run build`) runs here, so the build
+        # happens three times on this path (build job → pack:verify → this
+        # step); the redundancy is intentional — each is a clean-tree rebuild
+        # and this one is what actually populates the published tarball, so
+        # don't "optimize" it away. `publish` never builds: publishing a `.tgz`
+        # runs no lifecycle scripts, so what this step packs is what ships.
+        run: |
+          mkdir -p release-tarball
+          npm pack --pack-destination release-tarball
+          ls -l release-tarball
+
+      - name: Upload the tarball for the publish job
+        uses: actions/upload-artifact@v7
+        with:
+          name: npm-tarball
+          path: release-tarball/*.tgz
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release'
+    # npm's trusted-publisher config keys off this workflow file and the
+    # `release` environment, so the environment stays on the job that
+    # publishes. `package` deliberately does not take it.
+    environment: release
+    needs: [package]
+    # Serialize publishes so two releases cut in quick succession can't run
+    # overlapping `npm publish`es. Never cancel an in-flight publish.
+    concurrency:
+      group: publish-npm
+      cancel-in-progress: false
+    # Unmeasured since the split (#2483): it now only downloads an artifact,
+    # installs one pinned npm and publishes, so the old job's 10-minute budget
+    # is a generous ceiling. Re-size it from observed runs after a release or
+    # two. The publish itself is atomic on npm's side, so a cut-off here
+    # leaves nothing half-published.
+    timeout-minutes: 10
+    permissions:
+      # Required for npm provenance (`--provenance` mints a signed attestation
+      # via GitHub's OIDC token) and for trusted publishing. This is the only
+      # job in the workflow that runs npm with this token, and it deliberately
+      # executes no dependency code — see the comment on `package`.
+      id-token: write
+    steps:
+      - name: Setup Node.js
+        # No `cache: 'npm'`: there is no checkout, so no lockfile to key it on,
+        # and nothing here installs dependencies to cache.
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22.x'
+          registry-url: 'https://registry.npmjs.org'
+
+      # OIDC trusted publishing requires npm >= 11.5.1; Node 22's bundled npm is
+      # 10.x, which fails with ENEEDAUTH before OIDC is ever attempted. Pinned
+      # EXACTLY, not to a range (#2483): this install runs in the job that
+      # holds `id-token: write`, so it is the one package this job trusts, and
+      # a range would let whatever 11.x is current at release time into it.
+      # `--ignore-scripts` keeps even that package's lifecycle scripts out.
+      # Bump deliberately; stay on 11.x until 12's Node floor is checked.
+      - name: Install the pinned npm CLI (OIDC trusted publishing)
+        run: npm install -g --ignore-scripts npm@11.20.0
+
+      - name: Download the tarball built by the package job
+        uses: actions/download-artifact@v8
+        with:
+          name: npm-tarball
+          path: release-tarball
+
       - name: Publish to npm (single package, with provenance)
-        # `prepack` (`npm run build`) rebuilds the client bundles into the tarball.
-        # The build runs three times on this path (build job → pack:verify →
-        # prepack); the redundancy is intentional — each is a clean-tree rebuild
-        # and the `prepack` one is what actually populates the published tarball,
-        # so don't "optimize" it away.
+        # Publishes the tarball `package` built — a file argument, so npm runs
+        # no lifecycle scripts and builds nothing here. Exactly one tarball is
+        # expected; anything else is a packaging fault, not something to pick
+        # from.
         #
         # The dist-tag is derived from the version, and passing it explicitly is
         # NOT optional: `npm publish` defaults to `--tag latest` regardless of
@@ -279,7 +342,9 @@ jobs:
         # candidate. A prerelease is a hyphen after the patch component
         # (`2.0.0-rc.1`); build metadata uses `+` and is not a prerelease. Done
         # in shell rather than with `semver` because that package is only a
-        # transitive dependency here and must not be relied on in CI.
+        # transitive dependency here and must not be relied on in CI. The
+        # version is read from the tarball's own `package.json`, since there is
+        # no checkout — and that file is what npm publishes anyway.
         #
         # There is deliberately NO `NODE_AUTH_TOKEN` here. Publishing uses npm
         # OIDC trusted publishing (`id-token: write` + `environment: release`),
@@ -288,13 +353,19 @@ jobs:
         # `.npmrc` that `setup-node` generates, and npm then fails `ENEEDAUTH`
         # before OIDC is ever attempted. Do not "restore" it.
         run: |
-          VERSION="$(node -p "require('./package.json').version")"
+          set -- release-tarball/*.tgz
+          if [ "$#" -ne 1 ] || [ ! -f "$1" ]; then
+            echo "Expected exactly one tarball in release-tarball/, found: $*"
+            exit 1
+          fi
+          TARBALL="$1"
+          VERSION="$(tar -xOzf "$TARBALL" package/package.json | node -p "JSON.parse(require('fs').readFileSync(0, 'utf8')).version")"
           case "$VERSION" in
             *-*) NPM_TAG=next ;;
             *)   NPM_TAG=latest ;;
           esac
-          echo "Publishing $VERSION under dist-tag '$NPM_TAG'"
-          npm publish --access public --provenance --tag "$NPM_TAG"
+          echo "Publishing $TARBALL ($VERSION) under dist-tag '$NPM_TAG'"
+          npm publish "$TARBALL" --access public --provenance --tag "$NPM_TAG"
 
   # Build and push the multi-arch container image to GHCR on a published
   # release. The image installs the packed tarball (`Dockerfile`) so it ships
