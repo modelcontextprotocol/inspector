@@ -24,7 +24,10 @@ export function readDaemonTokenFile(dir?: string): string | undefined {
 
 /**
  * Read the IPC token from the environment (parent client or daemon child).
- * Empty / unset → shared (unauthenticated) mode.
+ * Empty / unset → shared mode, which is still authenticated: the daemon
+ * generates its own required token (see `daemon/run.ts`) and publishes it
+ * to `daemon.token` for same-user clients to read. Every daemon requires a
+ * token; the environment variable only selects who supplies it.
  */
 export function getDaemonTokenFromEnv(
   env: NodeJS.ProcessEnv = process.env,
