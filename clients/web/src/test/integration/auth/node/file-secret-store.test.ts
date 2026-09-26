@@ -367,6 +367,56 @@ describe("FileSecretStore failure handling", () => {
     });
   });
 
+  it("pins the tag length at the cipher, not only in the envelope check (#2485)", async () => {
+    // The test above cannot see this: `encryptedEnvelopeProblem` rejects a
+    // short tag before `createDecipheriv` runs, and current Node rejects one
+    // natively. So observe the options themselves — without them, Node 22
+    // authenticates a 4-byte tag should the envelope check ever regress.
+    const seen: { cipher: unknown[]; decipher: unknown[] } = {
+      cipher: [],
+      decipher: [],
+    };
+    vi.resetModules();
+    vi.doMock("node:crypto", async () => {
+      const actual =
+        await vi.importActual<typeof import("node:crypto")>("node:crypto");
+      return {
+        ...actual,
+        default: actual,
+        createCipheriv: (...args: Parameters<typeof actual.createCipheriv>) => {
+          seen.cipher.push(args[3]);
+          return actual.createCipheriv(...args);
+        },
+        createDecipheriv: (
+          ...args: Parameters<typeof actual.createDecipheriv>
+        ) => {
+          seen.decipher.push(args[3]);
+          return actual.createDecipheriv(...args);
+        },
+      };
+    });
+    try {
+      const mod =
+        await import("@inspector/core/auth/node/file-secret-store.js");
+      const fresh = new mod.FileSecretStore({
+        filePath: filePath(),
+        passphrase: "right-key",
+      });
+      await fresh.set("alpha", SECRET_FIELD_OAUTH_CLIENT_SECRET, "shh");
+      expect(await fresh.get("alpha", SECRET_FIELD_OAUTH_CLIENT_SECRET)).toBe(
+        "shh",
+      );
+      expect(seen.cipher).toEqual([{ authTagLength: 16 }]);
+      expect(seen.decipher.length).toBeGreaterThan(0);
+      for (const options of seen.decipher) {
+        expect(options).toEqual({ authTagLength: 16 });
+      }
+    } finally {
+      vi.doUnmock("node:crypto");
+      vi.resetModules();
+    }
+  });
+
   it("blames the file, not the passphrase, for a decrypted-but-corrupt payload", async () => {
     // GCM has already authenticated by this point, so the passphrase is
     // *proven correct* — telling the user to restore it sends them after a
