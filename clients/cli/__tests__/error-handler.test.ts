@@ -444,12 +444,13 @@ describe("envelope URL redaction", () => {
   });
 
   it("classifies on the unredacted text", () => {
-    // The only auth signal is inside a parameter value that redaction
-    // replaces; classifying the redacted copy would fall through to USAGE.
+    // The only classification signal (an UNREACHABLE_PATTERN match) is
+    // inside a parameter value that redaction replaces; classifying the
+    // redacted copy would fall through to USAGE.
     const { exitCode, envelope } = classifyError(
-      new Error("Rejected https://srv.example/cb?token=invalid_token"),
+      new Error("Rejected https://srv.example/cb?token=ECONNREFUSED"),
     );
-    expect(exitCode).toBe(EXIT_CODES.AUTH_REQUIRED);
+    expect(exitCode).toBe(EXIT_CODES.UNREACHABLE);
     expect(envelope.message).toBe(
       "Rejected https://srv.example/cb?token=%5BREDACTED%5D",
     );
