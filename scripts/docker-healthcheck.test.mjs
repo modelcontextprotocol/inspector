@@ -132,6 +132,10 @@ describe("launchMode", () => {
     // …even when its args happen to name the launcher.
     [["sh", "-c", "sleep 60", "mcp-inspector", "--tui"], undefined],
     [["tini", "--", "mcp-inspector", "--tui"], undefined],
+    // …or pass it on from a wrapper that is not the node interpreter.
+    [["wrapper", BIN, "--tui"], undefined],
+    // An empty argument keeps its position.
+    [["node", "", BIN, "--tui"], undefined],
     [[], undefined],
   ];
   for (const [argv, expected] of cases) {
@@ -156,6 +160,23 @@ describe("readPid1Argv", () => {
       "/usr/local/bin/mcp-inspector",
       "--tui",
     ]);
+  });
+
+  it("keeps an empty argument in place", () => {
+    const path = join(dir, "cmdline-empty");
+    writeFileSync(path, "node\0\0mcp-inspector\0--tui\0");
+    assert.deepEqual(readPid1Argv(path), [
+      "node",
+      "",
+      "mcp-inspector",
+      "--tui",
+    ]);
+  });
+
+  it("is empty for an empty cmdline", () => {
+    const path = join(dir, "cmdline-none");
+    writeFileSync(path, "");
+    assert.deepEqual(readPid1Argv(path), []);
   });
 
   it("is empty where the file cannot be read", () => {

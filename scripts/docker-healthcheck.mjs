@@ -88,20 +88,31 @@ const LAUNCHER_BIN = "mcp-inspector";
  *
  * Only those two shapes count. Matching the bin anywhere in argv would let a
  * foreign entrypoint that merely mentions it (`sh -c '…' mcp-inspector --tui`)
- * read as TUI and skip the probe. Any other argv returns `undefined`.
+ * read as TUI and skip the probe, and so would a wrapper that passes it on
+ * (`wrapper mcp-inspector --tui`) if the interpreter were not checked. Any
+ * other argv returns `undefined`.
  */
 export function launchMode(argv) {
+  const head = basename(argv[0] ?? "");
   const bin =
-    basename(argv[0] ?? "") === "docker-init" && argv[1] === "--" ? 2 : 1;
-  if (basename(argv[bin] ?? "") !== LAUNCHER_BIN) return undefined;
+    head === "docker-init" && argv[1] === "--" ? 2 : head === "node" ? 1 : -1;
+  if (bin === -1 || basename(argv[bin] ?? "") !== LAUNCHER_BIN)
+    return undefined;
   const flag = argv[bin + 1];
   return flag === "--cli" ? "cli" : flag === "--tui" ? "tui" : "web";
 }
 
-/** PID 1's argv, or `[]` where `/proc` cannot be read (not Linux). */
+/**
+ * PID 1's argv, or `[]` where `/proc` cannot be read (not Linux). Each
+ * argument is NUL-terminated, so only the empty string after the last NUL is
+ * dropped: an empty argument is still an argument, and dropping it would shift
+ * the positions `launchMode` reads.
+ */
 export function readPid1Argv(path = "/proc/1/cmdline") {
   try {
-    return readFileSync(path, "utf8").split("\0").filter(Boolean);
+    const argv = readFileSync(path, "utf8").split("\0");
+    if (argv.at(-1) === "") argv.pop();
+    return argv;
   } catch {
     return [];
   }
