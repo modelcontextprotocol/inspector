@@ -18,8 +18,12 @@
 //      one, the workflow's;
 //   2. is handed any secret other than `GITHUB_TOKEN` — in any spelling of the
 //      expression (`secrets.X`, `secrets['X']`, `secrets[matrix.name]`), or as
-//      a reusable-workflow call's `secrets:` (`inherit` or a mapping); or
-//   3. uploads an artifact that a job from (1) or (2) downloads and `needs` —
+//      a reusable-workflow call's `secrets: inherit` (a `secrets:` mapping is
+//      read like any other expression, so one passing only `GITHUB_TOKEN`
+//      does not count); or
+//   3. uploads an artifact that a credentialed job downloads and `needs` —
+//      transitively, so every hop of a `source → package → publish` chain
+//      counts, not only the last —
 //      `package` builds the tarball `publish` hands to `npm publish` under
 //      provenance, so a moved tag in `package` publishes as surely as one in
 //      `publish` would (#2483 split the two to keep the token out of the
@@ -41,7 +45,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { isMap, isScalar, isSeq, parseDocument } from "yaml";
+import { isAlias, isMap, isScalar, isSeq, parseDocument, visit } from "yaml";
 import { SHA_REF } from "./dependency-refresh.mjs";
 
 const repoRoot = path.resolve(
@@ -75,8 +79,9 @@ function stringsIn(value) {
 
 /** Is this job handed any secret but `GITHUB_TOKEN`? */
 function handedSecret(job) {
-  // A reusable-workflow call passes secrets by key, not by expression.
-  if (job.secrets != null) return true;
+  // `inherit` hands over every secret with no expression to scan. A mapping
+  // is scanned below with everything else.
+  if (job.secrets === "inherit") return true;
   return stringsIn(job).some((text) =>
     [...text.matchAll(EXPRESSION)].some(([, body]) =>
       /\bsecrets\b/.test(body.replace(DEFAULT_TOKEN, "")),
@@ -122,13 +127,24 @@ export function credentialedJobs(yaml, file) {
       "permissions" in job ? job.permissions : workflow.permissions;
     if (mints(permissions) || handedSecret(job)) held.add(name);
   }
-  for (const [name, job] of jobs) {
-    if (!held.has(name) || !stepsUsing(job, "actions/download-artifact@"))
-      continue;
-    for (const producer of needsOf(job)) {
-      const upstream = workflow.jobs[producer];
-      if (upstream && stepsUsing(upstream, "actions/upload-artifact@"))
-        held.add(producer);
+  // To a fixed point: marking a producer credentialed can make ITS producers
+  // credentialed, and job order in the file says nothing about the chain.
+  for (let grew = true; grew; ) {
+    grew = false;
+    for (const [name, job] of jobs) {
+      if (!held.has(name) || !stepsUsing(job, "actions/download-artifact@"))
+        continue;
+      for (const producer of needsOf(job)) {
+        const upstream = workflow.jobs[producer];
+        if (
+          upstream &&
+          !held.has(producer) &&
+          stepsUsing(upstream, "actions/upload-artifact@")
+        ) {
+          held.add(producer);
+          grew = true;
+        }
+      }
     }
   }
   return held;
@@ -139,6 +155,11 @@ export function credentialedJobs(yaml, file) {
  * `# vX.Y.Z` comment — each step's, and the job's own when it calls a reusable
  * workflow, whose ref is just as mutable (Copilot). Local (`./…`) actions and
  * workflows are repository code, not a ref.
+ *
+ * A YAML alias anywhere in a credentialed job is itself a finding. Resolving it
+ * here would accept a pin the monthly sweep's line parser cannot see, so the
+ * pin would pass this guard and then silently drop out of the sweep; spelling
+ * the ref out is the only form both can read.
  *
  * @param {string} yaml raw contents of a workflow file
  * @param {string} [file] only for the parse-error message
@@ -151,7 +172,17 @@ export function unpinnedRefs(yaml, file) {
   if (!isMap(jobs)) return problems;
   for (const { key, value } of jobs.items) {
     const name = String(isScalar(key) ? key.value : key);
-    if (!held.has(name) || !isMap(value)) continue;
+    if (!held.has(name)) continue;
+    if (!isMap(value)) {
+      if (isAlias(value))
+        problems.push({ job: name, uses: `*${value.source}` });
+      continue;
+    }
+    visit(value, {
+      Alias: (_, node) => {
+        problems.push({ job: name, uses: `*${node.source}` });
+      },
+    });
     const steps = value.get("steps", true);
     const nodes = [
       value.get("uses", true),

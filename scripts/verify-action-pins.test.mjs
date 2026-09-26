@@ -96,6 +96,17 @@ test("every spelling of a non-default secret counts; GITHUB_TOKEN in any spellin
     "  inherits:",
     "    uses: org/repo/.github/workflows/publish.yml@v1",
     "    secrets: inherit",
+    "  maps-default-only:",
+    "    uses: org/repo/.github/workflows/lint.yml@v1",
+    "    secrets:",
+    "      token: ${{ secrets.GITHUB_TOKEN }}",
+    "  maps-empty:",
+    "    uses: org/repo/.github/workflows/lint.yml@v1",
+    "    secrets: {}",
+    "  maps-real:",
+    "    uses: org/repo/.github/workflows/lint.yml@v1",
+    "    secrets:",
+    "      token: ${{ secrets.NPM_TOKEN }}",
     "  default-bracket:",
     "    steps:",
     "      - env:",
@@ -109,6 +120,7 @@ test("every spelling of a non-default secret counts; GITHUB_TOKEN in any spellin
     "bracket",
     "dynamic",
     "inherits",
+    "maps-real",
   ]);
 });
 
@@ -131,6 +143,31 @@ test("a job whose artifact a credentialed job downloads is credentialed", () => 
   );
   // `build` is needed too, but uploads nothing, so it feeds nothing published.
   assert.deepEqual([...credentialedJobs(yaml)].sort(), ["package", "publish"]);
+});
+
+test("the artifact rule follows a multi-hop chain regardless of job order", () => {
+  const yaml = wf(
+    "jobs:",
+    "  source:",
+    "    steps:",
+    "      - uses: actions/upload-artifact@v7",
+    "  package:",
+    "    needs: source",
+    "    steps:",
+    "      - uses: actions/download-artifact@v8",
+    "      - uses: actions/upload-artifact@v7",
+    "  publish:",
+    "    needs: package",
+    "    permissions:",
+    "      id-token: write",
+    "    steps:",
+    "      - uses: actions/download-artifact@v8",
+  );
+  assert.deepEqual([...credentialedJobs(yaml)].sort(), [
+    "package",
+    "publish",
+    "source",
+  ]);
 });
 
 test("an upload is not credentialed when the consumer downloads nothing", () => {
@@ -185,6 +222,29 @@ test("a credentialed reusable-workflow call must pin its own ref", () => {
   );
   assert.deepEqual(unpinnedRefs(yaml), [
     { job: "release", uses: "org/repo/.github/workflows/publish.yml@main" },
+  ]);
+});
+
+test("a YAML alias in a credentialed job is a finding, not a pass", () => {
+  const yaml = wf(
+    "x-refs:",
+    "  checkout: &checkout actions/checkout@v7",
+    "  step: &step",
+    "    uses: actions/cache@v6",
+    "jobs:",
+    "  publish:",
+    "    permissions:",
+    "      id-token: write",
+    "    steps:",
+    "      - uses: *checkout",
+    "      - *step",
+    "  lint:",
+    "    steps:",
+    "      - uses: *checkout",
+  );
+  assert.deepEqual(unpinnedRefs(yaml), [
+    { job: "publish", uses: "*checkout" },
+    { job: "publish", uses: "*step" },
   ]);
 });
 
