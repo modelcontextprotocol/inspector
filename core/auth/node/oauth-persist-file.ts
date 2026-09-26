@@ -242,10 +242,20 @@ async function readDiskForMutation(
 }
 
 /**
- * Persist one entry's secrets: set every post-split value, delete every
- * candidate field the split no longer produces (clears and policy
+ * Persist one entry's secrets: set every post-split value that *differs*
+ * from its snapshotted store value, delete every candidate field the split
+ * no longer produces *that the store still holds* (clears and policy
  * downgrades propagate as deletions). Returns whether the new state was
  * persisted.
+ *
+ * Only deltas touch the store. The `prior` snapshot is a strict per-field
+ * read taken under the same lock, so a field whose desired value equals it
+ * needs no write and an absent field needs no delete — and a *redundant*
+ * mutation failing (say, a keychain that turned read-only) must not take
+ * unrelated state down with it: without the filter, a scope-only save that
+ * rewrote an unchanged token batch and failed would degrade the whole
+ * entry to memory-only (or abort on a redundant delete) even though the
+ * store already held exactly the desired state.
  *
  * A failed *set* degrades the entry to memory-only, all-or-nothing: the
  * bulk set settles every sibling before rejecting, so some writes may
@@ -283,16 +293,21 @@ async function persistEntrySecrets(
   prior: SecretFieldSnapshot[],
   allowDegrade: boolean,
 ): Promise<boolean> {
+  const priorValue = new Map(prior.map(({ field, value }) => [field, value]));
+  const changed: Record<string, string> = {};
+  for (const [field, value] of Object.entries(secrets)) {
+    if (priorValue.get(field) !== value) changed[field] = value;
+  }
   try {
-    if (Object.keys(secrets).length > 0) {
-      await secretStoreSetMany(store, serverId, secrets);
+    if (Object.keys(changed).length > 0) {
+      await secretStoreSetMany(store, serverId, changed);
     }
   } catch (error) {
     if (!allowDegrade) throw error;
     warnStoreWriteFailure(error);
     // Restore only the fields the batch could have touched: an untouched
     // field's restore cannot help, but its failure would abort needlessly.
-    const touched = prior.filter(({ field }) => secrets[field] !== undefined);
+    const touched = prior.filter(({ field }) => changed[field] !== undefined);
     let restoreFailure: unknown;
     await restoreSecretFields(store, touched, (err) => {
       restoreFailure = err;
@@ -305,7 +320,10 @@ async function persistEntrySecrets(
   // which could remove a value the rollback just restored.
   await settleStoreMutations(
     candidates
-      .filter((field) => secrets[field] === undefined)
+      .filter(
+        (field) =>
+          secrets[field] === undefined && priorValue.get(field) !== null,
+      )
       .map((field) => store.delete(serverId, field)),
   );
   return true;

@@ -290,8 +290,13 @@ describe("writeOAuthSections convergence verification", () => {
     expect(oldTokens).toContain("at-b");
 
     const realSet = store.set.bind(store);
-    hook.afterWrite = (path) => {
+    hook.afterWrite = async (path) => {
       writeFileSync(path, withOldB);
+      // The foreign writer restored the store too: only-delta persistence
+      // means the retry issues a store write at all only when the store
+      // does not already hold the desired values.
+      await realSet(idB, LEGACY_TOKENS_FIELD, oldTokens!);
+      await realSet(idB, LEGACY_CLIENT_SECRET_FIELD, "cs-b");
       hook.afterWrite = undefined;
       let failed = false;
       store.set = async (serverId, field, value) => {

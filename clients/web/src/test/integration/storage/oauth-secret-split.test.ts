@@ -1344,3 +1344,52 @@ describe("partial token payloads round-trip through the store", () => {
     expect(readRawFile().servers[SERVER]!.tokens).toBeUndefined();
   });
 });
+
+describe("saves only touch changed store fields", () => {
+  // `persistEntrySecrets` writes and deletes only deltas against the
+  // strict per-field snapshot. Without the filter, every save rewrites the
+  // unchanged credential batch and issues deletes for the always-candidate
+  // legacy fields the store never held — so a store that turned read-only
+  // between saves would degrade (or abort) a save that only changed
+  // non-secret state, silently losing it from the file even though the
+  // store already held exactly the desired values.
+  class ReadOnlyableStore extends InMemorySecretStore {
+    readOnly = false;
+    override async set(
+      serverId: string,
+      field: string,
+      value: string,
+    ): Promise<void> {
+      if (this.readOnly) throw new Error("keychain is read-only");
+      return super.set(serverId, field, value);
+    }
+    override async delete(serverId: string, field: string): Promise<void> {
+      if (this.readOnly) throw new Error("keychain is read-only");
+      return super.delete(serverId, field);
+    }
+  }
+
+  it("a scope-only save persists against a store that turned read-only", async () => {
+    const store = new ReadOnlyableStore();
+    await writeOAuthSections(filePath, snapshotWith(), undefined, store);
+    await flushStoreFileWrites(filePath);
+    store.readOnly = true;
+
+    const next = snapshotWith();
+    next.servers[SERVER]!.scope = "write";
+    await writeOAuthSections(filePath, next, { servers: [SERVER] }, store);
+    await flushStoreFileWrites(filePath);
+
+    // The non-secret update reached the file; the entry was not reverted.
+    const raw = readRawFile();
+    expect(raw.servers[SERVER]!.scope).toBe("write");
+    expect(raw.servers[SERVER]!.tokens).toBeUndefined();
+
+    // The store still holds the unchanged credentials, untouched.
+    const id = oauthSecretServerId(SERVER);
+    expect(JSON.parse((await store.get(id, LEGACY_TOKENS_FIELD))!)).toEqual(
+      TOKENS,
+    );
+    expect(await store.get(id, LEGACY_CLIENT_SECRET_FIELD)).toBe("cs");
+  });
+});
