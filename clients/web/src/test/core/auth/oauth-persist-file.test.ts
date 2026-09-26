@@ -24,6 +24,11 @@ import {
   writeOAuthSections,
 } from "@inspector/core/auth/node/oauth-persist-file.js";
 import { InMemorySecretStore } from "@inspector/core/auth/node/secret-store.js";
+import { oauthSecretServerId } from "@inspector/core/auth/node/oauth-secrets.js";
+import { mkdtemp, readFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 
 const SNAPSHOT = { servers: {}, idpSessions: {} };
 
@@ -179,5 +184,103 @@ describe("readOAuthStore locking", () => {
     await expect(
       readOAuthStore("/tmp/oauth.json", new InMemorySecretStore()),
     ).rejects.toBe(original);
+  });
+});
+
+describe("persistEntrySecrets partial-commit compensation", () => {
+  beforeEach(() => {
+    vi.mocked(withSecretFileLock).mockReset();
+    vi.mocked(withSecretFileLock).mockImplementation(
+      async (_path, fn) => fn() as Promise<never>,
+    );
+  });
+
+  const url = "https://s.example/mcp";
+  const NEW_STATE = {
+    tokens: {
+      access_token: "new-at",
+      refresh_token: "new-rt",
+      token_type: "Bearer",
+    },
+    clientInformation: { client_id: "cid", client_secret: "new-cs" },
+  };
+  const OLD_TOKENS = JSON.stringify({
+    access_token: "old-at",
+    token_type: "Bearer",
+  });
+
+  /** A store pre-loaded with the entry's prior secrets, whose `set` rejects
+   * per `failWhen` — the bulk-set fallback settles siblings before
+   * rethrowing, so a selective failure produces a real partial commit. */
+  const storeWithFailingSet = async (
+    failWhen: (field: string, value: string) => boolean,
+  ) => {
+    const store = new InMemorySecretStore();
+    const serverId = oauthSecretServerId(url);
+    await store.set(serverId, "tokens", OLD_TOKENS);
+    await store.set(serverId, "client-secret", "old-cs");
+    const realSet = store.set.bind(store);
+    store.set = async (sid: string, field: string, value: string) => {
+      if (failWhen(field, value))
+        throw new KeychainUnavailableError(new Error("keychain flaked"));
+      return realSet(sid, field, value);
+    };
+    return { store, serverId };
+  };
+
+  it("restores the touched fields after a partial bulk-set commit, then degrades", async () => {
+    // One sibling set lands ("tokens") while another fails ("client-secret").
+    // Without compensation the store would hold new tokens next to the old
+    // client secret — a credential set that was never issued together —
+    // joined to the new residue on the next read. The catch must put the
+    // touched fields back to their pre-write values and only then continue
+    // with the memory-only degradation (residue still committed).
+    const { store, serverId } = await storeWithFailingSet(
+      (field, value) => field === "client-secret" && value === "new-cs",
+    );
+    const dir = await mkdtemp(join(tmpdir(), "oauth-persist-partial-"));
+    const file = join(dir, "oauth.json");
+
+    await writeOAuthSections(
+      file,
+      { servers: { [url]: NEW_STATE }, idpSessions: {} },
+      { servers: [url] },
+      store,
+    );
+
+    expect(await store.get(serverId, "tokens")).toBe(OLD_TOKENS);
+    expect(await store.get(serverId, "client-secret")).toBe("old-cs");
+    const written = JSON.parse(await readFile(file, "utf8")) as {
+      servers: Record<string, { clientInformation?: { client_id?: string } }>;
+    };
+    expect(written.servers[url]?.clientInformation?.client_id).toBe("cid");
+    expect(JSON.stringify(written)).not.toContain("new-cs");
+    expect(JSON.stringify(written)).not.toContain("new-at");
+  });
+
+  it("aborts the file write when the compensation cannot be confirmed", async () => {
+    // The failing field's prior value existed, so its restore goes through
+    // `set` — which is still down. An unconfirmed restore leaves the store
+    // in an unknown state; committing the residue over it would be a guess,
+    // so the write must abort and surface the store failure.
+    const { store, serverId } = await storeWithFailingSet(
+      (field) => field === "client-secret",
+    );
+    const dir = await mkdtemp(join(tmpdir(), "oauth-persist-abort-"));
+    const file = join(dir, "oauth.json");
+
+    await expect(
+      writeOAuthSections(
+        file,
+        { servers: { [url]: NEW_STATE }, idpSessions: {} },
+        { servers: [url] },
+        store,
+      ),
+    ).rejects.toBeInstanceOf(KeychainUnavailableError);
+
+    expect(existsSync(file)).toBe(false);
+    // The sibling that landed was still rolled back before the abort.
+    expect(await store.get(serverId, "tokens")).toBe(OLD_TOKENS);
+    expect(await store.get(serverId, "client-secret")).toBe("old-cs");
   });
 });

@@ -125,7 +125,8 @@ function applyTokensPolicy(
  * The bearer-grade keys a `clientInformation` object can carry.
  * `client_secret` is in the declared type; `registration_access_token` (the
  * RFC 7592 registration-management credential — same bearer class, see
- * `maskSecrets.ts`) arrives because DCR responses are saved whole (see
+ * `maskSecrets.ts`) has never been surfaced by any SDK release, so this
+ * split handles it purely defensively should one ever preserve it (see
  * `StoredOAuthClientInformation` in `store.ts`).
  */
 type ClientInfoSecretKeys = {

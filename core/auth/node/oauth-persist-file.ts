@@ -206,16 +206,23 @@ async function readDiskForMutation(
  * Persist one entry's secrets: set every post-split value, delete every
  * candidate field the split no longer produces (clears and policy
  * downgrades propagate as deletions). A failed *set* degrades to
- * memory-only — the residue is still safe to commit, the secret just
- * doesn't survive the session. A failed *delete* must abort the write
- * instead: committing residue that omits a secret while the store may
- * still hold it lets the next read rejoin (resurrect) the cleared value.
+ * memory-only — but only after the fields the batch touched are restored
+ * to their `prior` values: the bulk set settles every sibling before
+ * rejecting, so some writes may already have landed, and committing
+ * residue over a store holding a mixed old/new credential set would let
+ * the next read rejoin tokens that were never issued together. When that
+ * compensation itself cannot be confirmed the write aborts instead — the
+ * store's state is unknown, so the file must not move. A failed *delete*
+ * must abort likewise: committing residue that omits a secret while the
+ * store may still hold it lets the next read rejoin (resurrect) the
+ * cleared value.
  */
 async function persistEntrySecrets(
   store: SecretStore,
   serverId: string,
   candidates: string[],
   secrets: Record<string, string>,
+  prior: SecretFieldSnapshot[],
 ): Promise<void> {
   try {
     if (Object.keys(secrets).length > 0) {
@@ -223,6 +230,14 @@ async function persistEntrySecrets(
     }
   } catch (error) {
     warnStoreWriteFailure(error);
+    // Restore only the fields the batch could have touched: an untouched
+    // field's restore cannot help, but its failure would abort needlessly.
+    const touched = prior.filter(({ field }) => secrets[field] !== undefined);
+    let restoreFailure: unknown;
+    await restoreSecretFields(store, touched, (err) => {
+      restoreFailure = err;
+    });
+    if (restoreFailure !== undefined) throw restoreFailure;
   }
   // Settle every delete before surfacing the first failure: the caller's
   // rollback (restoreSecretFields) must not race deletes still in flight,
@@ -329,9 +344,12 @@ export async function writeOAuthSections(
             ...serverSecretFields(next),
           ]),
         ];
-        priorSecrets.push(
-          ...(await snapshotSecretFields(secretStore, serverId, candidates)),
+        const entryPrior = await snapshotSecretFields(
+          secretStore,
+          serverId,
+          candidates,
         );
+        priorSecrets.push(...entryPrior);
         if (next === undefined) {
           // A failed purge propagates and aborts the write: committing a
           // file without the entry while its secrets may linger in the
@@ -363,17 +381,22 @@ export async function writeOAuthSections(
             );
           }
         }
-        await persistEntrySecrets(secretStore, serverId, candidates, secrets);
+        await persistEntrySecrets(
+          secretStore,
+          serverId,
+          candidates,
+          secrets,
+          entryPrior,
+        );
       }
 
       for (const issuer of effective.idpSessions ?? []) {
         const serverId = oauthIdpSecretServerId(issuer);
         const next = getOwnEntry(snapshot.idpSessions, issuer);
-        priorSecrets.push(
-          ...(await snapshotSecretFields(secretStore, serverId, [
-            IDP_SESSION_FIELD,
-          ])),
-        );
+        const entryPrior = await snapshotSecretFields(secretStore, serverId, [
+          IDP_SESSION_FIELD,
+        ]);
+        priorSecrets.push(...entryPrior);
         if (next === undefined) {
           // Same as the server loop: a failed purge aborts the write.
           await secretStore.deleteAllForServer(serverId);
@@ -400,6 +423,7 @@ export async function writeOAuthSections(
           serverId,
           [IDP_SESSION_FIELD],
           secrets,
+          entryPrior,
         );
       }
 

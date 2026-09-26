@@ -1557,9 +1557,14 @@ describe("cross-process convergence (optimistic verify-and-retry)", () => {
     );
   });
 
-  it("a non-convergent delete stays silent, per the interface contract", async () => {
-    // `delete` reports nothing by contract — only `set` hard-fails — so a
-    // delete that cannot converge must still resolve rather than throw.
+  it("resolves a delete once the clobbering writer removes the key itself", async () => {
+    // The confirmed-delete contract: a delete resolves only when the key's
+    // absence is confirmed, and throws when it cannot be (unreadable file,
+    // held lock, non-convergence). Here the clobbering writer replaces the
+    // file *without* the target key, so the retry finds nothing left to
+    // delete — absence confirmed by someone else's hand is still absence,
+    // and the delete resolves. A clobberer that kept the key present would
+    // exhaust the retries and throw the non-convergence error, same as set.
     const store = new FileSecretStore({ filePath: filePath() });
     await store.set("srv", "env:A", "1");
     clobberAfterEveryWrite(store);
