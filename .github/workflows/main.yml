@@ -361,13 +361,25 @@ jobs:
             exit 1
           fi
           TARBALL="$1"
-          VERSION="$(tar -xOzf "$TARBALL" package/package.json | node -p "JSON.parse(require('fs').readFileSync(0, 'utf8')).version")"
+          MANIFEST="$(tar -xOzf "$TARBALL" package/package.json)"
+          # The tarball was built after dependency install scripts ran, so its
+          # manifest is untrusted input here. npm merges a manifest's
+          # `publishConfig` into its own config before the OIDC exchange, so an
+          # injected registry, proxy or TLS setting could redirect this job's
+          # credential flow. This package declares no `publishConfig`, so any
+          # present is refused outright, and the registry is pinned on the
+          # command line below as well.
+          if printf '%s' "$MANIFEST" | node -e "process.exit('publishConfig' in JSON.parse(require('fs').readFileSync(0, 'utf8')) ? 0 : 1)"; then
+            echo "Refusing to publish: the tarball's package.json declares publishConfig"
+            exit 1
+          fi
+          VERSION="$(printf '%s' "$MANIFEST" | node -p "JSON.parse(require('fs').readFileSync(0, 'utf8')).version")"
           case "$VERSION" in
             *-*) NPM_TAG=next ;;
             *)   NPM_TAG=latest ;;
           esac
           echo "Publishing $TARBALL ($VERSION) under dist-tag '$NPM_TAG'"
-          npm publish "$TARBALL" --access public --provenance --tag "$NPM_TAG"
+          npm publish "$TARBALL" --registry https://registry.npmjs.org/ --access public --provenance --tag "$NPM_TAG"
 
   # Build and push the multi-arch container image to GHCR on a published
   # release. The image installs the packed tarball (`Dockerfile`) so it ships
