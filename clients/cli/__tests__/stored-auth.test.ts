@@ -17,7 +17,10 @@ import {
   normalizeServerUrl,
   deepLinkTransport,
   refreshStoredAuthToken,
+  waitForStoredToken,
+  type StoredServers,
 } from "../src/cli.js";
+import { SecretFileLockHeldError } from "@inspector/core/auth/node/secret-store.js";
 import { readOAuthStore } from "@inspector/core/auth/node/oauth-persist-file.js";
 import { oauthSecretServerId } from "@inspector/core/auth/node/oauth-secrets.js";
 import { defaultSecretStore } from "@inspector/core/auth/node/secret-store-selection.js";
@@ -930,12 +933,13 @@ describe("--wait-for-auth", () => {
     expect(result.stderr).toContain("positive number of seconds");
   });
 
-  it("tolerates read failures while polling and reports the ordinary timeout", async () => {
+  it("rethrows a persistent read failure at the deadline instead of masking it as a timeout", async () => {
     // Polling races the browser flow *writing* the same state file under the
-    // same lock, so transient read failures there are the success case in
-    // progress — the loop retries them instead of propagating (unlike the
-    // one-shot --use-stored-auth read). A persistently unreadable path
-    // (here: a directory) therefore surfaces as the ordinary timeout.
+    // same lock, so lock contention is tolerated (see the waitForStoredToken
+    // unit tests). But a *permanent* operational failure — here EISDIR from
+    // a state path that is a directory — is something re-authorizing cannot
+    // fix, so the deadline rethrows it and classifyError maps it to an
+    // operational envelope (exit 1), not `auth_wait_timeout` (exit 3).
     const dir = mkdtempSync(join(tmpdir(), "inspector-cli-wait-eisdir-"));
     try {
       const result = await runCli(
@@ -951,14 +955,66 @@ describe("--wait-for-auth", () => {
         ],
         { env: { MCP_INSPECTOR_OAUTH_STATE_PATH: dir } },
       );
-      expect(result.exitCode).toBe(3);
+      expect(result.exitCode).toBe(1);
       const env = JSON.parse(result.stderr.trim()) as {
-        error: { code: string };
+        error: { code: string; message: string };
       };
-      expect(env.error.code).toBe("auth_wait_timeout");
+      expect(env.error.code).not.toBe("auth_wait_timeout");
+      expect(env.error.message).toContain("EISDIR");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+/**
+ * Unit tests for the waitForStoredToken read-failure policy, via the injected
+ * `readServers` (integration can't exercise lock contention: acquisition
+ * retries internally for ~10s before throwing, longer than any sane test
+ * timeout). Policy under test: held locks are the success case in progress
+ * (never retained); other failures keep polling but are rethrown at the
+ * deadline; a later successful read clears the retained error.
+ */
+describe("waitForStoredToken read-failure policy", () => {
+  const url = "https://wait.example/mcp";
+  const withToken: StoredServers = {
+    [normalizeServerUrl(url)]: {
+      tokens: { access_token: "healed-tok", token_type: "Bearer" },
+    },
+  };
+
+  it("treats a held lock as contention, not an error: deadline reports the ordinary timeout", async () => {
+    const readServers = vi
+      .fn<(p: string) => Promise<StoredServers>>()
+      .mockRejectedValue(new SecretFileLockHeldError("state file locked"));
+    await expect(
+      waitForStoredToken(url, "/tmp/state.json", 0.3, readServers),
+    ).rejects.toMatchObject({
+      exitCode: 3,
+      envelope: { code: "auth_wait_timeout" },
+    });
+  });
+
+  it("rethrows a retained non-lock failure at the deadline", async () => {
+    const boom = Object.assign(new Error("EACCES: permission denied"), {
+      code: "EACCES",
+    });
+    const readServers = vi
+      .fn<(p: string) => Promise<StoredServers>>()
+      .mockRejectedValue(boom);
+    await expect(
+      waitForStoredToken(url, "/tmp/state.json", 0.3, readServers),
+    ).rejects.toBe(boom);
+  });
+
+  it("clears a retained failure once a later read succeeds with the token", async () => {
+    const readServers = vi
+      .fn<(p: string) => Promise<StoredServers>>()
+      .mockRejectedValueOnce(new Error("transient outage"))
+      .mockResolvedValue(withToken);
+    await expect(
+      waitForStoredToken(url, "/tmp/state.json", 5, readServers),
+    ).resolves.toBe("healed-tok");
   });
 });
 

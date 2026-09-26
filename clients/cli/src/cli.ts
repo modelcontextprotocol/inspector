@@ -34,6 +34,7 @@ import {
   isAllInterfacesHost,
 } from "@inspector/core/node/hostUrl.js";
 import { getStateFilePath } from "@inspector/core/auth/node/storage-node.js";
+import { SecretFileLockHeldError } from "@inspector/core/auth/node/secret-store.js";
 import { consumeMethodOutcome } from "./handlers/consume-outcome.js";
 import { runMethod } from "./handlers/run-method.js";
 import {
@@ -257,7 +258,7 @@ type StoredServerState = {
   serverMetadata?: OAuthMetadata;
 };
 /** The stored-server map shape the CLI reads out of the OAuth state file. */
-type StoredServers = Record<string, StoredServerState>;
+export type StoredServers = Record<string, StoredServerState>;
 
 /**
  * Read the shared OAuth state ({@link OAuthPersistSnapshot}) fresh on every
@@ -450,28 +451,37 @@ export async function refreshStoredAuthToken(
  * off to a human for the OAuth dance and resume once the token lands. The
  * lookup is normalised, so a trailing-slash mismatch between the URL the human
  * opened and the one the agent passed still resolves.
+ *
+ * Read-failure policy: a held lock ({@link SecretFileLockHeldError}) is the
+ * success case in progress — the browser flow this waits on *writes* the same
+ * state file under the same lock — so it is never treated as an error here.
+ * Any other read failure keeps the loop polling (the store may heal mid-wait,
+ * e.g. a keychain unlocking), but is retained so a deadline hit rethrows the
+ * real operational problem — `classifyError` maps it to its own envelope —
+ * instead of masking it as `auth_wait_timeout`, which re-authorizing cannot
+ * fix. A later successful read clears the retained error.
  */
-async function waitForStoredToken(
+export async function waitForStoredToken(
   serverUrl: string,
   statePath: string,
   timeoutSec: number,
+  readServers: (statePath: string) => Promise<StoredServers> = readOAuthServers,
 ): Promise<string> {
   const key = normalizeServerUrl(serverUrl);
   const deadline = Date.now() + timeoutSec * 1000;
   let servers: StoredServers = {};
+  let lastError: unknown;
   for (;;) {
     try {
-      servers = await readOAuthServers(statePath);
-    } catch {
-      // Transient read failures are expected while polling — the browser
-      // flow this waits on *writes* the same state file under the same
-      // lock, so contention here is the success case in progress. Keep the
-      // last good listing for the timeout message and try again; a
-      // persistent store failure surfaces as the ordinary timeout.
+      servers = await readServers(statePath);
+      lastError = undefined;
+    } catch (error) {
+      if (!(error instanceof SecretFileLockHeldError)) lastError = error;
     }
     const token = findStoredToken(servers, serverUrl);
     if (token) return token;
     if (Date.now() >= deadline) {
+      if (lastError !== undefined) throw lastError;
       const stored = Object.keys(servers);
       throw new CliExitCodeError(
         EXIT_CODES.AUTH_REQUIRED,
