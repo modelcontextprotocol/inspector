@@ -949,6 +949,31 @@ describe("getMany", () => {
     });
   });
 
+  it("returns prototype-named fields and server ids as own entries", async () => {
+    // A plain `out[serverId] = found` / `found[field] = value` invokes the
+    // inherited `__proto__` setter instead of creating an entry, so a
+    // requested field or server id with that name would be silently omitted
+    // from the result — a violated bulk-read contract, not just a missing
+    // value. Both maps must be built with own-property writes.
+    const store = new FileSecretStore({
+      filePath: filePath(),
+      passphrase: "hunter2",
+    });
+    await store.set("srv", "__proto__", "field-value");
+    await store.set("__proto__", "env:A", "server-value");
+
+    const out = await store.getMany([
+      { serverId: "srv", fields: ["__proto__"] },
+      { serverId: "__proto__", fields: ["env:A"] },
+    ]);
+    expect(Object.getOwnPropertyDescriptor(out.srv, "__proto__")?.value).toBe(
+      "field-value",
+    );
+    expect(Object.getOwnPropertyDescriptor(out, "__proto__")?.value).toEqual({
+      "env:A": "server-value",
+    });
+  });
+
   it("derives the key once for the whole set, not once per field", async () => {
     // The reason the seam exists: `get` reads and decrypts the *entire* file,
     // so rehydrating field-by-field cost one scrypt derivation per field,
@@ -1235,6 +1260,27 @@ describe("getManyStrict", () => {
     expect(
       await store.getManyStrict([{ serverId: "srv", fields: ["env:A"] }]),
     ).toEqual({ srv: {} });
+  });
+
+  it("returns prototype-named fields and server ids as own entries", async () => {
+    // Same contract as getMany: a `__proto__`-named request must land as an
+    // own entry rather than vanish into the inherited setter — this read
+    // later drives store deletions, so a silently omitted result is a
+    // deleted secret.
+    const store = new FileSecretStore({ filePath: filePath() });
+    await store.set("srv", "__proto__", "field-value");
+    await store.set("__proto__", "env:A", "server-value");
+
+    const out = await store.getManyStrict([
+      { serverId: "srv", fields: ["__proto__"] },
+      { serverId: "__proto__", fields: ["env:A"] },
+    ]);
+    expect(Object.getOwnPropertyDescriptor(out.srv, "__proto__")?.value).toBe(
+      "field-value",
+    );
+    expect(Object.getOwnPropertyDescriptor(out, "__proto__")?.value).toEqual({
+      "env:A": "server-value",
+    });
   });
 
   it("wraps a filesystem failure as SecretStoreUnavailableError", async () => {

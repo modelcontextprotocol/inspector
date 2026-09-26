@@ -69,6 +69,7 @@ import { readFileSync, statSync } from "node:fs";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { readStoreFile, writeStoreFile } from "../../storage/store-io.js";
+import { setOwnEntry } from "../../storage/own-entry.js";
 import { withSecretFileLock } from "./file-lock.js";
 import {
   SecretStoreUnavailableError,
@@ -940,9 +941,13 @@ export class FileSecretStore implements SecretStore {
       const found: Record<string, string> = {};
       for (const field of fields) {
         const value = map?.[buildAccount(serverId, field)];
-        if (value !== undefined) found[field] = value;
+        // Own-property writes: serverId and field are caller-supplied
+        // dynamic keys, and a plain assignment of "__proto__" would invoke
+        // the inherited setter and silently omit the result, violating the
+        // bulk-read contract - see `setOwnEntry`.
+        if (value !== undefined) setOwnEntry(found, field, value);
       }
-      out[serverId] = found;
+      setOwnEntry(out, serverId, found);
     }
     return out;
   }
@@ -970,9 +975,13 @@ export class FileSecretStore implements SecretStore {
       const found: Record<string, string> = {};
       for (const field of fields) {
         const value = map?.[buildAccount(serverId, field)];
-        if (value !== undefined) found[field] = value;
+        // Own-property writes: serverId and field are caller-supplied
+        // dynamic keys, and a plain assignment of "__proto__" would invoke
+        // the inherited setter and silently omit the result, violating the
+        // bulk-read contract - see `setOwnEntry`.
+        if (value !== undefined) setOwnEntry(found, field, value);
       }
-      out[serverId] = found;
+      setOwnEntry(out, serverId, found);
     }
     return out;
   }

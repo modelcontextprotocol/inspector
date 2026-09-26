@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach, vi } from "vitest";
+import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import * as fs from "node:fs/promises";
 import { existsSync, readFileSync } from "node:fs";
 import * as os from "node:os";
@@ -683,5 +683,231 @@ describe("session-scoped store keeps client.json durable (#1950 review r19)", ()
     } finally {
       await fs.rm(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("client.json writers are serialized per resolved path", () => {
+  // The compensated snapshot/mutate/write blocks are only sound one at a
+  // time: two unserialized writers both snapshot the same prior secret, and
+  // the loser's compensation then overwrites the winner's *committed* value
+  // with the stale snapshot, leaving client.json describing one client while
+  // the keychain holds another's secret. The file lock (`withSecretFileLock`,
+  // the same exclusion oauth.json's writers take) makes the whole block a
+  // critical section; this test drives the exact interleaving the lock
+  // exists to close.
+  it("a failed save's compensation cannot clobber a concurrent save's committed secret", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "client-serialize-"));
+    const file = path.join(dir, "client.json");
+    try {
+      await fs.writeFile(
+        file,
+        JSON.stringify({
+          enterpriseManagedAuth: {
+            idp: { issuer: "https://idp.example/", clientId: "cid-old" },
+          },
+        }),
+        "utf-8",
+      );
+      const store = new InMemorySecretStore();
+      await store.set(
+        CLIENT_KEYCHAIN_ID,
+        SECRET_FIELD_IDP_CLIENT_SECRET,
+        "old",
+      );
+
+      // Writer A parks inside its critical section — after its snapshot,
+      // mid-`set` — until released, then fails, so its compensation restores
+      // the snapshot. Writer B, started while A is parked, saves a new
+      // secret and succeeds.
+      let releaseA!: () => void;
+      const gateA = new Promise<void>((resolve) => {
+        releaseA = resolve;
+      });
+      let aReachedSet!: () => void;
+      const aInsideSet = new Promise<void>((resolve) => {
+        aReachedSet = resolve;
+      });
+      const gated: SecretStore = {
+        get: (serverId, field) => store.get(serverId, field),
+        set: async (serverId, field, value) => {
+          if (value === "secret-a") {
+            aReachedSet();
+            await gateA;
+            throw new Error("keychain rejected the write");
+          }
+          return store.set(serverId, field, value);
+        },
+        delete: (serverId, field) => store.delete(serverId, field),
+        deleteAllForServer: (serverId) => store.deleteAllForServer(serverId),
+      };
+
+      const configFor = (suffix: string) => ({
+        enterpriseManagedAuth: {
+          idp: {
+            issuer: "https://idp.example/",
+            clientId: `cid-${suffix}`,
+            clientSecret: `secret-${suffix}`,
+          },
+        },
+      });
+
+      const saveA = writeClientConfigStore(file, configFor("a"), gated);
+      const rejectedA = saveA.catch((err: unknown) => err);
+      await aInsideSet; // A holds the lock, parked mid-mutation.
+      const saveB = writeClientConfigStore(file, configFor("b"), store);
+      // Give B time to run: under the lock it is parked at acquisition;
+      // without the lock it would commit here, exposing its secret to A's
+      // stale compensation below.
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      releaseA();
+      expect(await rejectedA).toBeInstanceOf(Error);
+      await saveB;
+
+      // B's committed state survives A's compensation: the store holds B's
+      // secret and the file names B's client — the two halves agree.
+      expect(
+        await store.get(CLIENT_KEYCHAIN_ID, SECRET_FIELD_IDP_CLIENT_SECRET),
+      ).toBe("secret-b");
+      const onDisk = JSON.parse(await fs.readFile(file, "utf-8")) as {
+        enterpriseManagedAuth: { idp: { clientId: string } };
+      };
+      expect(onDisk.enterpriseManagedAuth.idp.clientId).toBe("cid-b");
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("withClientConfigLock failure paths", () => {
+  // These force the lock seam itself to fail, which needs the module graph
+  // rebuilt around a mocked `file-lock` — class identities (for the
+  // `instanceof SecretFileLockHeldError` checks) must come from the same
+  // fresh graph, so everything is imported after `vi.doMock`.
+  let dir: string;
+  let file: string;
+
+  async function freshWithLock(
+    impl: (filePath: string, fn: () => Promise<unknown>) => Promise<unknown>,
+  ) {
+    vi.resetModules();
+    vi.doMock("@inspector/core/auth/node/file-lock.js", () => ({
+      withSecretFileLock: impl,
+    }));
+    const persistence =
+      await import("@inspector/core/client/node-persistence.js");
+    const stores = await import("@inspector/core/auth/node/secret-store.js");
+    return { persistence, stores };
+  }
+
+  beforeEach(async () => {
+    dir = await fs.mkdtemp(path.join(os.tmpdir(), "client-lockfail-"));
+    file = path.join(dir, "client.json");
+  });
+
+  afterEach(async () => {
+    vi.doUnmock("@inspector/core/auth/node/file-lock.js");
+    vi.resetModules();
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+
+  it("rewords a held lock at acquisition to name client.json, keeping type and cause", async () => {
+    const { persistence, stores } = await freshWithLock(async () => {
+      throw new stores.SecretFileLockHeldError("Could not lock");
+    });
+    const rejection = persistence.writeClientConfigStore(
+      file,
+      {
+        enterpriseManagedAuth: {
+          idp: { issuer: "https://idp.example.com", clientId: "c" },
+        },
+      },
+      new stores.InMemorySecretStore(),
+    );
+    await expect(rejection).rejects.toMatchObject({
+      message: expect.stringContaining(
+        `Could not save the client configuration: the file at ${file} is locked`,
+      ),
+    });
+    // The subclass survives the rewording — it is what the HTTP layer maps
+    // to a retryable 503; a plain Error would demote it to a 500.
+    await expect(rejection).rejects.toBeInstanceOf(
+      stores.SecretFileLockHeldError,
+    );
+    await expect(
+      persistence.deleteClientConfigStore(
+        file,
+        new stores.InMemorySecretStore(),
+      ),
+    ).rejects.toMatchObject({
+      message: expect.stringContaining(
+        "Could not remove the client configuration",
+      ),
+    });
+  });
+
+  it("a held lock skips the read-path migration but keeps the read available", async () => {
+    await fs.writeFile(file, JSON.stringify(configWithPlaintextSecret));
+    const { persistence, stores } = await freshWithLock(async () => {
+      throw new stores.SecretFileLockHeldError("Could not lock");
+    });
+    const store = new stores.InMemorySecretStore();
+    const config = await persistence.readClientConfigStore(file, store);
+    // The unlocked read's config is served untouched; nothing migrated.
+    expect(
+      (config as typeof configWithPlaintextSecret).enterpriseManagedAuth.idp
+        .clientSecret,
+    ).toBe("plain");
+    expect(
+      await store.get(CLIENT_KEYCHAIN_ID, SECRET_FIELD_IDP_CLIENT_SECRET),
+    ).toBeNull();
+    expect(JSON.parse(await fs.readFile(file, "utf-8"))).toEqual(
+      configWithPlaintextSecret,
+    );
+  });
+
+  it("a non-lock acquisition failure propagates untouched", async () => {
+    await fs.writeFile(file, JSON.stringify(configWithPlaintextSecret));
+    const original = new Error("disk exploded");
+    const { persistence, stores } = await freshWithLock(async () => {
+      throw original;
+    });
+    await expect(
+      persistence.readClientConfigStore(file, new stores.InMemorySecretStore()),
+    ).rejects.toBe(original);
+  });
+
+  it("migration re-reads under the lock: a file deleted meanwhile yields an empty config", async () => {
+    await fs.writeFile(file, JSON.stringify(configWithPlaintextSecret));
+    const { persistence, stores } = await freshWithLock(async (_p, fn) => {
+      await fs.rm(file, { force: true });
+      return fn();
+    });
+    const store = new stores.InMemorySecretStore();
+    expect(await persistence.readClientConfigStore(file, store)).toEqual({});
+    expect(
+      await store.get(CLIENT_KEYCHAIN_ID, SECRET_FIELD_IDP_CLIENT_SECRET),
+    ).toBeNull();
+  });
+
+  it("migration re-reads under the lock: a file already stripped meanwhile migrates nothing", async () => {
+    await fs.writeFile(file, JSON.stringify(configWithPlaintextSecret));
+    const stripped = {
+      enterpriseManagedAuth: {
+        idp: { issuer: "https://idp.example.com", clientId: "cid" },
+      },
+    };
+    const { persistence, stores } = await freshWithLock(async (_p, fn) => {
+      await fs.writeFile(file, JSON.stringify(stripped));
+      return fn();
+    });
+    const store = new stores.InMemorySecretStore();
+    // The fresh (already-stripped) file decides: no plaintext left, so the
+    // store is never written and the fresh shape is served.
+    expect(await persistence.readClientConfigStore(file, store)).toEqual(
+      stripped,
+    );
+    expect(
+      await store.get(CLIENT_KEYCHAIN_ID, SECRET_FIELD_IDP_CLIENT_SECRET),
+    ).toBeNull();
   });
 });

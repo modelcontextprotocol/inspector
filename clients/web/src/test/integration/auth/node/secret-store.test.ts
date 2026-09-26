@@ -877,4 +877,31 @@ describe("secretStoreGetManyStrict", () => {
       ]),
     ).toEqual({ srv: { "env:A": "1" }, other: {} });
   });
+
+  it("both fallbacks return prototype-named fields as own entries", async () => {
+    // The inner field map is built with dynamic keys too: a field named
+    // "__proto__" written with plain assignment would invoke the inherited
+    // setter and silently vanish from the result, violating the bulk-read
+    // contract the same way an unsafe outer `out[serverId]` write does.
+    const {
+      secretStoreGetMany,
+      secretStoreGetManyStrict,
+      InMemorySecretStore,
+    } = await secretStoreModule();
+    const store = new InMemorySecretStore();
+    await store.set("srv", "__proto__", "field-value");
+    await store.set("__proto__", "env:A", "server-value");
+    for (const read of [secretStoreGetMany, secretStoreGetManyStrict]) {
+      const out = await read(store, [
+        { serverId: "srv", fields: ["__proto__"] },
+        { serverId: "__proto__", fields: ["env:A"] },
+      ]);
+      expect(Object.getOwnPropertyDescriptor(out.srv, "__proto__")?.value).toBe(
+        "field-value",
+      );
+      expect(Object.getOwnPropertyDescriptor(out, "__proto__")?.value).toEqual({
+        "env:A": "server-value",
+      });
+    }
+  });
 });

@@ -733,7 +733,8 @@ export async function secretStoreGetMany(
       );
       const found: Record<string, string> = {};
       for (const [field, value] of entries) {
-        if (value !== null) found[field] = value;
+        // Own-property write: `field` is a dynamic key too - see `setOwnEntry`.
+        if (value !== null) setOwnEntry(found, field, value);
       }
       // Own-property write: catalog callers pass raw server ids (OAuth
       // callers prefix theirs) — see `setOwnEntry`.
@@ -771,7 +772,8 @@ export async function secretStoreGetManyStrict(
       );
       const found: Record<string, string> = {};
       for (const [field, value] of entries) {
-        if (value !== null) found[field] = value;
+        // Own-property write: `field` is a dynamic key too - see `setOwnEntry`.
+        if (value !== null) setOwnEntry(found, field, value);
       }
       // Own-property write — see `setOwnEntry`.
       setOwnEntry(out, serverId, found);
