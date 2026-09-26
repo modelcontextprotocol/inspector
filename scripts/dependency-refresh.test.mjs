@@ -158,6 +158,24 @@ test("parseActionRefs skips local, container and unpinned steps", () => {
   ]);
 });
 
+test("parseActionRefs reads the version comment on a SHA pin, and only there", () => {
+  const sha = "3d3c42e5aac5ba805825da76410c181273ba90b1";
+  const yaml = [
+    `      - uses: actions/checkout@${sha} # v7.0.1`,
+    `      - uses: actions/setup-node@${sha}`,
+    "      - uses: docker/login-action@v4 # v4.6.0",
+    `      - uses: actions/cache@${sha} # not a version`,
+  ].join("\n");
+  assert.deepEqual(parseActionRefs(yaml), [
+    { action: "actions/checkout", ref: sha, version: "v7.0.1" },
+    // No comment: the pin is still found, just unrankable.
+    { action: "actions/setup-node", ref: sha },
+    // A tag ref already names its version; the comment is not consulted.
+    { action: "docker/login-action", ref: "v4" },
+    { action: "actions/cache", ref: sha },
+  ]);
+});
+
 test("parseVersionRef reads a numeric ref and rejects anything else", () => {
   assert.deepEqual(parseVersionRef("v7"), [7]);
   assert.deepEqual(parseVersionRef("7.0.1"), [7, 0, 1]);
@@ -216,6 +234,30 @@ test("staleActions dedupes, drops actions with no known release and sorts", () =
       "some/unreleased": null,
     }),
     [{ action: "actions/cache", current: "v6", latest: "v7.0.0" }],
+  );
+});
+
+test("staleActions ranks a SHA pin by its version comment, to the patch", () => {
+  const sha = "3d3c42e5aac5ba805825da76410c181273ba90b1";
+  const refs = [
+    { action: "actions/checkout", ref: sha, version: "v7.0.1" },
+    { action: "actions/setup-node", ref: sha, version: "v7.0.0" },
+    // Without a comment a SHA pin cannot be ranked, so it is never reported.
+    { action: "actions/cache", ref: sha },
+  ];
+  assert.deepEqual(
+    staleActions(refs, {
+      "actions/checkout": "v7.0.2",
+      "actions/setup-node": "v7.0.0",
+      "actions/cache": "v9.0.0",
+    }),
+    [
+      {
+        action: "actions/checkout",
+        current: "v7.0.1 (`3d3c42e`)",
+        latest: "v7.0.2",
+      },
+    ],
   );
 });
 

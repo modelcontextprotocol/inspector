@@ -36,6 +36,13 @@ concurrency:
   group: ${{ github.event_name == 'release' && 'release-npm' || format('run-{0}', github.run_id) }}
   cancel-in-progress: false
 
+# The `package`, `publish` and `publish-github-container-registry` jobs pin
+# every action to a commit SHA with a `# vX.Y.Z` comment; `build` and
+# `coverage` stay on moving major tags (#2235). A job holding a credential — or
+# building what one publishes — must not run code a moved tag can replace
+# (#2484); `npm run verify:action-pins` enforces it, and the monthly
+# dependency-refresh sweep reads the comment to report a newer release.
+
 # Every job below declares `timeout-minutes` (#2333). It is a HUNG-JOB GUARD,
 # not a flake remedy: GitHub runners are not the contended machine the local
 # gate runs on, and nothing measured implicates them — so no value here is
@@ -241,10 +248,10 @@ jobs:
       contents: read
     steps:
       - name: Checkout code
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '22.x'
           cache: 'npm'
@@ -291,7 +298,7 @@ jobs:
           ls -l release-tarball
 
       - name: Upload the tarball for the publish job
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: npm-tarball
           path: release-tarball/*.tgz
@@ -333,7 +340,7 @@ jobs:
       - name: Setup Node.js
         # No `cache: 'npm'`: there is no checkout, so no lockfile to key it on,
         # and nothing here installs dependencies to cache.
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '22.x'
           registry-url: 'https://registry.npmjs.org'
@@ -349,7 +356,7 @@ jobs:
         run: npm install -g --ignore-scripts npm@11.20.0
 
       - name: Download the tarball built by the package job
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: npm-tarball
           path: release-tarball
@@ -441,10 +448,10 @@ jobs:
       id-token: write
     steps:
       - name: Checkout code
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Log in to the Container registry
-        uses: docker/login-action@v4
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -452,7 +459,7 @@ jobs:
 
       - name: Extract metadata (tags, labels) for Docker
         id: meta
-        uses: docker/metadata-action@v6
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
           images: ghcr.io/${{ github.repository }}
           # Be explicit rather than relying on `flavor.latest=auto`: on a release
@@ -465,14 +472,14 @@ jobs:
             latest=true
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v4
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       - name: Build and push Docker image
         id: push
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           push: true
@@ -513,7 +520,7 @@ jobs:
         # should return a record instead of 404. If the warning persists, the
         # honest fix is `create-storage-record: false` plus a note here saying
         # the record is unavailable to us — not carrying an unexplained warning.
-        uses: actions/attest-build-provenance@v4
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-name: ghcr.io/${{ github.repository }}
           subject-digest: ${{ steps.push.outputs.digest }}
