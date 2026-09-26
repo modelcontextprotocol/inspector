@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-  # A published GitHub release triggers the `publish` job below. The release's
+  # A published GitHub release triggers the `package` → `publish` jobs below. The release's
   # target commit determines which workflow runs — so this only publishes when a
   # release is cut from a commit that carries this (v2) workflow.
   release:
@@ -10,10 +10,12 @@ on:
 
 # Default least-privilege scope for GITHUB_TOKEN. Without this, jobs inherit the
 # repository's default token permissions, which are broader than any job here
-# needs (CodeQL `actions/missing-workflow-permissions`). The `publish` and
-# `publish-github-container-registry` jobs declare their own blocks below, which
-# override this one entirely rather than adding to it — so each publish job must
-# continue to list every scope it needs, including `contents: read`.
+# needs (CodeQL `actions/missing-workflow-permissions`). The `package`, `publish`
+# and `publish-github-container-registry` jobs declare their own blocks below,
+# which override this one entirely rather than adding to it — so each must list
+# exactly the scopes it needs and no more. `publish` deliberately omits
+# `contents: read`: it has no checkout, and its only scope is `id-token: write`
+# (#2483). Do not re-add scopes to it.
 permissions:
   contents: read
 
