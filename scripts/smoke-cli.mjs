@@ -59,7 +59,17 @@ function fail(message) {
 // a non-loopback host would fail steps 1–8. Empty reads as unset in the parser
 // (default 127.0.0.1:6276 applies); per-call extraEnv is spread after, so step 9
 // can still pass --callback-url explicitly. Mirrors prod-web-server.mjs's HOST pin.
-const SMOKE_BASE_ENV = { MCP_OAUTH_CALLBACK_URL: "" };
+//
+// MCP_INSPECTOR_SECRET_STORE=memory keeps the smoke hermetic: without it the
+// CLI probes the host's real keychain at startup (and can resolve a
+// developer's local secret-store config), so output differed per host. The
+// memory store is non-durable — new OAuth secrets stay session-only under it
+// (only *unchanged* legacy plaintext is preserved in the state file) — which
+// is fine here: no smoke step reads back a token written by an earlier step.
+const SMOKE_BASE_ENV = {
+  MCP_OAUTH_CALLBACK_URL: "",
+  MCP_INSPECTOR_SECRET_STORE: "memory",
+};
 
 /** Run the launcher in --cli mode. Returns { status, stdout, stderr }. */
 function runCli(args, extraEnv = {}) {
@@ -69,6 +79,16 @@ function runCli(args, extraEnv = {}) {
     encoding: "utf-8",
   });
   return { status: r.status, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
+}
+
+/**
+ * Last non-empty line of a stream — where the CLI's error envelope lives.
+ * The documented contract (`2>&1 | tail -1 | jq .error`) puts diagnostics
+ * like the secret-store fallback banner *before* the envelope on stderr.
+ */
+function lastLine(text) {
+  const lines = text.trim().split("\n");
+  return lines[lines.length - 1] ?? "";
 }
 
 /**
@@ -419,10 +439,16 @@ try {
   }
   let envelope;
   try {
-    envelope = JSON.parse(badCallback.stderr.trim());
+    // The documented envelope contract (clients/cli/src/error-handler.ts) is
+    // that the envelope is the *last* stderr line — `2>&1 | tail -1 | jq
+    // .error` — because stderr legitimately carries diagnostics first (the
+    // secret-store fallback banner on a host without a usable keychain, e.g.
+    // a CI runner whose keyring cannot enumerate). Parse what the contract
+    // promises, not the whole stream.
+    envelope = JSON.parse(lastLine(badCallback.stderr));
   } catch {
     fail(
-      `bad --callback-url should emit a JSON {"error":…} envelope through the launcher; got:\n${badCallback.stderr}`,
+      `bad --callback-url should emit a JSON {"error":…} envelope as the last stderr line through the launcher; got:\n${badCallback.stderr}`,
     );
   }
   if (envelope?.error?.code !== "error") {
@@ -452,10 +478,11 @@ try {
   }
   let authEnvelope;
   try {
-    authEnvelope = JSON.parse(noStoredAuth.stderr.trim());
+    // Last line per the envelope contract — see the bad --callback-url check.
+    authEnvelope = JSON.parse(lastLine(noStoredAuth.stderr));
   } catch {
     fail(
-      `--use-stored-auth should emit a JSON envelope through the launcher; got:\n${noStoredAuth.stderr}`,
+      `--use-stored-auth should emit a JSON envelope as the last stderr line through the launcher; got:\n${noStoredAuth.stderr}`,
     );
   }
   if (authEnvelope?.error?.code !== "no_stored_token") {

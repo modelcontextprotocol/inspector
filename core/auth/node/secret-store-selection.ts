@@ -64,6 +64,7 @@ import {
   parseAccount,
   probeKeyringAvailable,
   secretStoreGetMany,
+  secretStoreGetManyStrict,
   secretStoreSetMany,
   type SecretBulkRequest,
   secretStoreGetStrict,
@@ -948,6 +949,11 @@ class DeferredSecretStore implements SecretStore {
     requests: SecretBulkRequest[],
   ): Promise<Record<string, Record<string, string>>> {
     return secretStoreGetMany(await this.target(), requests);
+  }
+  async getManyStrict(
+    requests: SecretBulkRequest[],
+  ): Promise<Record<string, Record<string, string>>> {
+    return secretStoreGetManyStrict(await this.target(), requests);
   }
   async get(serverId: string, field: string): Promise<string | null> {
     return (await this.target()).get(serverId, field);

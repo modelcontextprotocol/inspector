@@ -136,6 +136,7 @@ export {
   SECRET_FIELD_IDP_CLIENT_SECRET,
   envSecretField,
 } from "../secret-fields.js";
+import { setOwnEntry } from "../../storage/own-entry.js";
 
 /** Parse a stored account key back into its server id and field. */
 export function parseAccount(
@@ -171,6 +172,22 @@ export class SecretStoreUnavailableError extends Error {
   constructor(message: string, options?: { cause?: unknown }) {
     super(message, options);
     this.name = "SecretStoreUnavailableError";
+  }
+}
+
+/**
+ * Thrown only by lock *acquisition* (`withSecretFileLock` /
+ * `openSecretFileLock`) when the cross-process lock is held or stuck. A
+ * distinct type so callers that rewrap "the file is locked" (the OAuth
+ * persist paths) can match it specifically — a `KeychainUnavailableError`
+ * thrown *inside* a locked callback is a store failure, not a lock
+ * failure, and must pass through unchanged for the HTTP layer to map it
+ * to its actionable 503.
+ */
+export class SecretFileLockHeldError extends SecretStoreUnavailableError {
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options);
+    this.name = "SecretFileLockHeldError";
   }
 }
 
@@ -239,6 +256,16 @@ const hintFor = (cause: unknown, message: string): string => {
  * about our own configuration is not a trade worth making; a write that
  * fails after a passing probe still surfaces as the documented 503.
  *
+ * The probe also exercises **enumeration** (`findCredentialsAsync`),
+ * still write-free. The two go through different providers on Linux:
+ * `@napi-rs/keyring` can serve single entries from the kernel keyring
+ * (keyutils) while enumeration needs a Secret Service over D-Bus — a
+ * headless host (or CI runner) has the former and not the latter, so a
+ * get-only probe selects a store whose `deleteAllForServer` can never
+ * work, and every server add/rename/delete answers 503 (see the
+ * confirmed-delete contract). A keychain that cannot enumerate falls
+ * back exactly like an unreachable one.
+ *
  * Never throws — the whole point is to answer a question, and a probe
  * that could fail its caller would just move the crash it exists to
  * prevent.
@@ -257,6 +284,7 @@ export async function probeKeyringAvailable(): Promise<
   try {
     const entry = new keyring.mod.AsyncEntry(SERVICE_NAME, PROBE_ACCOUNT);
     await entry.getPassword();
+    await keyring.mod.findCredentialsAsync(SERVICE_NAME);
     return { available: true };
   } catch (err) {
     return {
@@ -296,10 +324,13 @@ const PROBE_ACCOUNT = "__inspector:probe";
  *
  * All three share one availability contract, which is what lets callers
  * stay ignorant of which they got: `get` is tolerant (`null` on any
- * failure), `delete` no-ops, and `set` is the only operation that
- * hard-fails — throwing a {@link SecretStoreUnavailableError} the API
- * routes turn into a 503 — because it is the only one where a value would
- * be lost.
+ * failure), while every operation whose reported outcome a caller commits
+ * state against hard-fails — `set` throws where a value would be lost, and
+ * `delete`/`deleteAllForServer` throw where the store cannot *confirm* the
+ * entry is gone (a silently skipped delete would let a later read
+ * resurrect a credential the caller believes destroyed). The thrown
+ * {@link SecretStoreUnavailableError} is what the API routes turn into a
+ * 503.
  */
 /** One server's worth of a bulk read: which fields, for which server id. */
 export interface SecretBulkRequest {
@@ -366,6 +397,18 @@ export interface SecretStore {
   getMany?(
     requests: SecretBulkRequest[],
   ): Promise<Record<string, Record<string, string>>>;
+  /**
+   * Like {@link getMany}, but **throws** when the store cannot be read
+   * instead of answering empty maps — the bulk twin of {@link getStrict},
+   * for the same reason: a caller whose result later drives store
+   * *deletions* (OAuth read hydration feeds the memory state that sectioned
+   * writes diff against) must not mistake a transient outage for absence.
+   * Optional; {@link secretStoreGetManyStrict} falls back to per-field
+   * strict reads.
+   */
+  getManyStrict?(
+    requests: SecretBulkRequest[],
+  ): Promise<Record<string, Record<string, string>>>;
   set(serverId: string, field: string, value: string): Promise<void>;
   /**
    * Write several of one server's fields in a single pass.
@@ -382,11 +425,29 @@ export interface SecretStore {
    * which is what the keychain wants (independent native round-trips).
    */
   setMany?(serverId: string, values: Record<string, string>): Promise<void>;
-  /** No-op if no entry exists. */
+  /**
+   * No-op if no entry exists; throws when the store cannot confirm the
+   * entry is gone (e.g. the keychain is unavailable). Reporting success
+   * for an unconfirmed delete would let callers commit state that assumes
+   * the credential is gone, and a later read would resurrect it.
+   */
   delete(serverId: string, field: string): Promise<void>;
-  /** Remove every secret stored for this server id (called on DELETE /api/servers/:id). */
+  /**
+   * Remove every secret stored for this server id (called on DELETE
+   * /api/servers/:id). Same contract as {@link delete}: throws when the
+   * sweep cannot be confirmed.
+   */
   deleteAllForServer(serverId: string): Promise<void>;
 }
+
+/**
+ * Is this the keyring's "no matching entry" error? A missing credential is
+ * a *successful* delete, and some binding versions report it as a thrown
+ * error rather than a `false` resolution. Message-match because the error
+ * comes from the native binding, not from us.
+ */
+const isNoEntryError = (err: unknown): boolean =>
+  err instanceof Error && /no (matching )?entry/i.test(err.message);
 
 /**
  * Default implementation. Each operation constructs a fresh `AsyncEntry`;
@@ -397,14 +458,16 @@ export interface SecretStore {
  * can use `=== null` rather than truthiness (an empty-string secret is
  * a real value and must round-trip).
  *
- * **Availability behavior.** When the keychain is unavailable, `set` is
- * the only operation that throws `KeychainUnavailableError` — that's
- * the moment where data would actually be lost. `get` returns `null`
- * (as if no entry existed) and the destructive operations silently
- * no-op (there's nothing to delete anyway). This keeps non-secret flows
+ * **Availability behavior.** When the keychain is unavailable, `get`
+ * returns `null` (as if no entry existed) so non-secret flows keep
  * working on a stock CI runner / minimal Linux box / unsupported
- * platform; the user only hits a hard error when they actually try to
- * save a secret.
+ * platform. `set` throws `KeychainUnavailableError` — that's the moment
+ * where data would actually be lost — and so do `delete` and
+ * `deleteAllForServer`, because an unconfirmed delete is a lie: the
+ * entry may still exist, and a caller that commits state on the
+ * reported success would see a later read resurrect the credential. A
+ * *missing* entry is still a successful delete; only an unreachable
+ * store throws.
  *
  * "Unavailable" covers four distinct failures, all funneled into that
  * one contract — the contract is only as good as its narrowest funnel,
@@ -503,20 +566,24 @@ export class KeyringSecretStore implements SecretStore {
   async delete(serverId: string, field: string): Promise<void> {
     try {
       const keyring = await loadKeyring();
-      if (!keyring.ok) return;
+      // An unloadable package is as fatal to a delete as an unreachable
+      // keychain: the entry may still exist, and reporting success would
+      // let a caller commit state that assumes the credential is gone —
+      // a later read would resurrect it.
+      if (!keyring.ok) throw new KeychainUnavailableError(keyring.err);
       const entry = new keyring.mod.AsyncEntry(
         SERVICE_NAME,
         buildAccount(serverId, field),
       );
+      // Resolves `false` for a missing credential — that is success (the
+      // entry isn't there anymore). Only an unavailable keychain throws.
       await entry.deleteCredential();
-    } catch {
-      // Every reason for a throw collapses to the same desired outcome
-      // ("the entry isn't there anymore"): `deleteCredential` raises
-      // NoEntry for a missing credential, and both the constructor and
-      // the native binding raise a runtime error when the keychain
-      // itself is unavailable. We treat all of them as success — there's
-      // no value to lose either way, and `set` is the operation that
-      // hard-fails when the keychain is actually down.
+    } catch (err) {
+      // Some binding versions raise a NoEntry error instead of resolving
+      // `false` for a missing credential; that is still success.
+      if (isNoEntryError(err)) return;
+      if (err instanceof KeychainUnavailableError) throw err;
+      throw new KeychainUnavailableError(err);
     }
   }
 
@@ -524,11 +591,13 @@ export class KeyringSecretStore implements SecretStore {
     let creds: Array<{ account: string; password: string }>;
     try {
       const keyring = await loadKeyring();
-      if (!keyring.ok) return;
+      // Same contract as `delete`: an unenumerable keychain may still
+      // hold this server's entries, so "success" here would be a lie.
+      if (!keyring.ok) throw new KeychainUnavailableError(keyring.err);
       creds = await keyring.mod.findCredentialsAsync(SERVICE_NAME);
-    } catch {
-      // Same reasoning as `delete`: nothing was written, nothing to sweep.
-      return;
+    } catch (err) {
+      if (err instanceof KeychainUnavailableError) throw err;
+      throw new KeychainUnavailableError(err);
     }
     const prefix = `${serverId}:`;
     for (const c of creds) {
@@ -578,6 +647,69 @@ export async function secretStoreGetStrict(
 }
 
 /**
+ * One secret field's pre-mutation store value; `null` means it was absent.
+ * See {@link snapshotSecretFields}.
+ */
+export interface SecretFieldSnapshot {
+  serverId: string;
+  field: string;
+  value: string | null;
+}
+
+/**
+ * Record fields' pre-mutation store values so a failure later in a combined
+ * file + store mutation can restore them ({@link restoreSecretFields}).
+ *
+ * This pair is the compensation half of the invariant every config file
+ * that indexes store secrets relies on: *the file and the store change
+ * together, or not at all*. A store mutation that commits while the file
+ * write fails (or vice versa) either strands secrets no file entry indexes
+ * or rejoins an old file entry with newer secrets on the next read — so
+ * every writer snapshots what it is about to touch and restores it when
+ * anything after the first mutation fails.
+ *
+ * Reads use the strict path: the tolerant `get` answers `null` for an
+ * *unreadable* store, and a restore that trusted that answer would delete a
+ * secret it should have restored. A strict-read failure therefore aborts
+ * the caller before it has mutated anything, which is the safe order.
+ */
+export async function snapshotSecretFields(
+  store: SecretStore,
+  serverId: string,
+  fields: string[],
+): Promise<SecretFieldSnapshot[]> {
+  return Promise.all(
+    fields.map(async (field) => ({
+      serverId,
+      field,
+      value: await secretStoreGetStrict(store, serverId, field),
+    })),
+  );
+}
+
+/**
+ * Best-effort restore of {@link snapshotSecretFields} values after a failed
+ * combined mutation: a field that existed is set back to its old value, one
+ * that did not is deleted. Individual restore failures go to
+ * `onRestoreFailure` and never throw — the caller's original failure is the
+ * actionable error and must be the one that escapes.
+ */
+export async function restoreSecretFields(
+  store: SecretStore,
+  snapshot: SecretFieldSnapshot[],
+  onRestoreFailure: (error: unknown) => void,
+): Promise<void> {
+  for (const { serverId, field, value } of snapshot) {
+    try {
+      if (value === null) await store.delete(serverId, field);
+      else await store.set(serverId, field, value);
+    } catch (error) {
+      onRestoreFailure(error);
+    }
+  }
+}
+
+/**
  * Read many servers' fields, using the store's bulk path when it has one.
  *
  * Returns a map keyed by server id, holding only the fields that are
@@ -603,18 +735,80 @@ export async function secretStoreGetMany(
       for (const [field, value] of entries) {
         if (value !== null) found[field] = value;
       }
-      out[serverId] = found;
+      // Own-property write: catalog callers pass raw server ids (OAuth
+      // callers prefix theirs) — see `setOwnEntry`.
+      setOwnEntry(out, serverId, found);
     }),
   );
   return out;
 }
 
 /**
+ * Strict variant of {@link secretStoreGetMany}: a store that cannot be read
+ * **throws** instead of contributing empty maps. For reads whose result
+ * later drives store deletions — OAuth hydration fills the memory state
+ * that sectioned writes diff against, so "outage read as absence" would
+ * make the next save delete the very credentials the outage hid.
+ * Falls back to per-field {@link secretStoreGetStrict}, which itself falls
+ * back to `get` for stores whose reads cannot fail.
+ */
+export async function secretStoreGetManyStrict(
+  store: SecretStore,
+  requests: SecretBulkRequest[],
+): Promise<Record<string, Record<string, string>>> {
+  if (store.getManyStrict) return store.getManyStrict(requests);
+  const out: Record<string, Record<string, string>> = {};
+  await Promise.all(
+    requests.map(async ({ serverId, fields }) => {
+      const entries = await Promise.all(
+        fields.map(
+          async (field) =>
+            [
+              field,
+              await secretStoreGetStrict(store, serverId, field),
+            ] as const,
+        ),
+      );
+      const found: Record<string, string> = {};
+      for (const [field, value] of entries) {
+        if (value !== null) found[field] = value;
+      }
+      // Own-property write — see `setOwnEntry`.
+      setOwnEntry(out, serverId, found);
+    }),
+  );
+  return out;
+}
+
+/**
+ * Await every parallel store mutation, then rethrow the first failure.
+ *
+ * `Promise.all` rejects as soon as one operation fails, while sibling
+ * operations are still in flight. Every caller that runs mutations in
+ * parallel also compensates on failure ({@link restoreSecretFields} or a
+ * config rewrite), and a rollback that starts while stragglers are still
+ * running can be re-broken by a late-landing set or delete — the restored
+ * value gets overwritten, or a just-restored field gets deleted. Settling
+ * everything first guarantees the store is quiescent before any
+ * compensation begins, at no cost to the success path.
+ */
+export async function settleStoreMutations(
+  mutations: Promise<unknown>[],
+): Promise<void> {
+  const results = await Promise.allSettled(mutations);
+  for (const result of results) {
+    if (result.status === "rejected") throw result.reason;
+  }
+}
+
+/**
  * Write several of one server's fields, using the store's bulk path when it
  * has one. Falls back to parallel `set`s.
  *
- * The fallback keeps `set`'s contract: `Promise.all` surfaces the first
- * rejection, which is what the routes translate into a 503.
+ * The fallback keeps `set`'s contract: the first rejection escapes (the
+ * routes translate it into a 503) — but only after every sibling set has
+ * settled, so a caller's compensation never races an in-flight write
+ * (see {@link settleStoreMutations}).
  */
 export async function secretStoreSetMany(
   store: SecretStore,
@@ -622,7 +816,7 @@ export async function secretStoreSetMany(
   values: Record<string, string>,
 ): Promise<void> {
   if (store.setMany) return store.setMany(serverId, values);
-  await Promise.all(
+  await settleStoreMutations(
     Object.entries(values).map(([field, value]) =>
       store.set(serverId, field, value),
     ),

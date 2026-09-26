@@ -6,6 +6,12 @@ import {
   formatErrorOutput,
   handleError,
 } from "../src/error-handler.js";
+import { UnauthorizedError } from "@modelcontextprotocol/client";
+import {
+  SecretFileLockHeldError,
+  SecretStoreUnavailableError,
+} from "@inspector/core/auth/node/secret-store.js";
+import { OAuthStateFileUnrecognizedError } from "@inspector/core/auth/node/oauth-persist-file.js";
 
 /**
  * `handleError` is the binary's last-resort error sink (wired up in
@@ -111,11 +117,70 @@ describe("classifyError", () => {
     expect(envelope.code).toBe("schema_unportable");
   });
 
-  it("classifies a WWW-Authenticate message as AUTH_REQUIRED without a status", () => {
-    const { exitCode } = classifyError(
-      new Error("Dynamic client registration failed: WWW-Authenticate Bearer"),
+  it("classifies a typed UnauthorizedError as AUTH_REQUIRED without a status", () => {
+    // Every genuine auth-required condition in the SDK throws typed
+    // `UnauthorizedError` (or carries a structured 401) — classification is
+    // by type via isUnauthorizedError, not by sniffing message keywords.
+    const { exitCode, envelope } = classifyError(
+      new UnauthorizedError("Failed to authorize"),
     );
     expect(exitCode).toBe(EXIT_CODES.AUTH_REQUIRED);
+    expect(envelope.code).toBe("auth_required");
+  });
+
+  it("classifies a structured 401 buried in the cause chain as AUTH_REQUIRED", () => {
+    // protocolEra negotiation can wrap the real 401 as a nested cause;
+    // isUnauthorizedError walks the chain.
+    const err = new Error("negotiation failed", {
+      cause: Object.assign(new Error("upstream"), { status: 401 }),
+    });
+    const { exitCode } = classifyError(err);
+    expect(exitCode).toBe(EXIT_CODES.AUTH_REQUIRED);
+  });
+
+  it("does not classify prose mentioning OAuth as AUTH_REQUIRED", () => {
+    // The retired keyword heuristic (/…|OAuth/i) reported errors like this
+    // one — a programming/usage failure — as "re-authorize", exit 3. It is
+    // a plain error: exit 1, and the caller reads the message.
+    const { exitCode, envelope } = classifyError(
+      new Error("OAuth storage is required for this operation."),
+    );
+    expect(exitCode).toBe(EXIT_CODES.USAGE);
+    expect(envelope.code).toBe("error");
+  });
+
+  it("classifies SecretStoreUnavailableError as store_unavailable, exit 1", () => {
+    const { exitCode, envelope } = classifyError(
+      new SecretStoreUnavailableError("keychain probe failed"),
+      { url: "https://x.example/mcp" },
+    );
+    expect(exitCode).toBe(EXIT_CODES.USAGE);
+    expect(envelope.code).toBe("store_unavailable");
+    expect(envelope.url).toBe("https://x.example/mcp");
+  });
+
+  it("does not let OAuth wording in a lock-held store error read as auth_required", () => {
+    // SecretFileLockHeldError messages mention the OAuth state file. The
+    // typed operational branch classifies it as store_unavailable — telling
+    // the user the store is busy, not to re-authorize.
+    const { exitCode, envelope } = classifyError(
+      new SecretFileLockHeldError(
+        "Could not lock the OAuth state file: held by another process",
+      ),
+    );
+    expect(exitCode).toBe(EXIT_CODES.USAGE);
+    expect(envelope.code).toBe("store_unavailable");
+  });
+
+  it("classifies an unrecognized OAuth state file as oauth_state_unrecognized", () => {
+    // Repair-the-file advice, not re-authorize (auth_required) and not
+    // retry-later (store_unavailable): the error message tells the user
+    // exactly what to do, and the code lets a script branch on it.
+    const { exitCode, envelope } = classifyError(
+      new OAuthStateFileUnrecognizedError("/tmp/oauth.json", "save"),
+    );
+    expect(exitCode).toBe(EXIT_CODES.USAGE);
+    expect(envelope.code).toBe("oauth_state_unrecognized");
   });
 
   it("classifies ENOTFOUND / fetch failed as UNREACHABLE", () => {
@@ -379,12 +444,13 @@ describe("envelope URL redaction", () => {
   });
 
   it("classifies on the unredacted text", () => {
-    // The only auth signal is inside a parameter value that redaction
-    // replaces; classifying the redacted copy would fall through to USAGE.
+    // The only classification signal (an UNREACHABLE_PATTERN match) is
+    // inside a parameter value that redaction replaces; classifying the
+    // redacted copy would fall through to USAGE.
     const { exitCode, envelope } = classifyError(
-      new Error("Rejected https://srv.example/cb?token=invalid_token"),
+      new Error("Rejected https://srv.example/cb?token=ECONNREFUSED"),
     );
-    expect(exitCode).toBe(EXIT_CODES.AUTH_REQUIRED);
+    expect(exitCode).toBe(EXIT_CODES.UNREACHABLE);
     expect(envelope.message).toBe(
       "Rejected https://srv.example/cb?token=%5BREDACTED%5D",
     );

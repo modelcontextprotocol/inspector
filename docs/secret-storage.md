@@ -1,18 +1,23 @@
 # Where secrets are stored
 
-The Inspector keeps a few values out of `mcp.json` and `client.json` and puts them in a **secret store** instead. This guide explains which store you get, why, where it lives, and how to change it. It applies to every runtime: a desktop install, a Linux server or SSH session, Android/Termux, and a container. For the container-specific parts (volumes, ownership), also read the [Docker guide](./docker.md).
+The Inspector keeps a few values out of `mcp.json`, `client.json` and `oauth.json` and puts them in a **secret store** instead. This guide explains which store you get, why, where it lives, and how to change it. It applies to every runtime: a desktop install, a Linux server or SSH session, Android/Termux, and a container. For the container-specific parts (volumes, ownership), also read the [Docker guide](./docker.md).
 
 ## What counts as a secret
 
-Three kinds of value are stored as secrets:
+These values are stored as secrets:
 
 | Value                             | Saved from                             |
 | --------------------------------- | -------------------------------------- |
 | A server's OAuth client secret    | The server's OAuth settings            |
 | The enterprise IdP client secret  | Client Settings (install-level)        |
 | Each stdio server's `env:` value  | A stdio server's environment variables |
+| Acquired OAuth tokens (access, refresh, ID) | Completing an OAuth flow     |
+| IdP session tokens (enterprise-managed auth) | Completing an IdP login     |
+| Dynamically registered client secrets | DCR during an OAuth flow          |
 
 They are kept out of `mcp.json` so that sharing, committing or syncing the file does not leak credentials (#1356). When the Inspector saves an entry to a durable store, it leaves each `env` key in `mcp.json` with an empty value and omits the client secret; the real values live in the store. `headers` are **not** moved: they are saved in `mcp.json` exactly as written, so a header that carries a credential stays in the file. [MCP server configuration](./mcp-server-configuration.md) describes what that means for other tools reading the same file.
+
+Acquired tokens follow the same rule for the OAuth state file: `oauth.json` keeps only non-secret state (flow bookkeeping, discovered metadata, public client ids), and the tokens and client secrets it used to hold live in the secret store. A pre-existing `oauth.json` that still carries plaintext tokens is migrated on first read — the tokens move into the store and the file is rewritten without them — but only when the store is durable; under the `memory` store the file is left as-is, since it is still the only durable copy. A token entry so malformed it cannot be a credential (for example, a hand-edited value of the wrong type) is left in the file rather than migrated, so it stays visible and clearable. `MCP_INSPECTOR_PERSIST_TOKENS=all|access|none` controls which acquired tokens are persisted at all (see [Environment variables](./environment-variables.md#secret-store)).
 
 ## How the store is chosen
 
@@ -23,6 +28,8 @@ Each process picks one store, once, the first time it needs it: the web backend 
 3. **A fallback**, when the probe fails. The Inspector says so on stderr when it selects the store, and names the store it picked (see [Where the active store is reported](#where-the-active-store-is-reported)):
    - `memory` if it is running in a container **and** the directory the secrets file would go in is not on a mounted volume, because a file in a container's writable layer is lost on `docker run --rm` and on every image update;
    - `file` everywhere else.
+
+The probe requires the keychain to both **read** and **enumerate** entries. On Linux the two can come from different providers: single entries can be served from the kernel keyring (keyutils) without a Secret Service, but enumeration — which deleting a server's credentials depends on — needs the Secret Service itself. A host with only the kernel keyring therefore falls back exactly like a host with no keychain at all. Earlier releases probed reads only and selected the keychain on such hosts; anything they stored lives in kernel memory only (it never survives a reboot) and is not read by the fallback store. To keep using those entries for the remainder of the boot session, set `MCP_INSPECTOR_SECRET_STORE=keyring`.
 
 | Where you run it                                                        | Store                               | Secrets survive a restart? |
 | ----------------------------------------------------------------------- | ----------------------------------- | -------------------------- |
@@ -51,7 +58,7 @@ The choice is made once per process. Installing a keychain while the Inspector i
 
 ### The memory store
 
-`memory` keeps secrets for this process only; nothing is written anywhere and they are gone when it exits. Because it is not durable, the Inspector does **not** remove plaintext values that are already in `mcp.json` or `client.json` while it is active: in that case the file on disk is still the durable copy. New or changed values are still kept out of the file.
+`memory` keeps secrets for this process only; nothing is written anywhere and they are gone when it exits. Because it is not durable, the Inspector does **not** remove plaintext values that are already in `mcp.json`, `client.json` or `oauth.json` while it is active: in that case the file on disk is still the durable copy — including pre-existing OAuth tokens, which keep working across runs until a save changes or removes them. New or changed values are still kept out of the file, so a token *acquired or refreshed* under the memory store lasts this session only and needs a re-auth next run.
 
 ## The file store
 

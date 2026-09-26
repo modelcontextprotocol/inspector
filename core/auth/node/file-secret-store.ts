@@ -49,10 +49,12 @@
  *
  * **Availability contract — identical to `KeyringSecretStore`'s**, because
  * callers must not have to know which store they got. `get` is tolerant
- * (returns `null` on any failure), `delete` no-ops, and `set` is the only
- * operation that hard-fails, throwing {@link SecretStoreUnavailableError}
- * — the moment where a value would actually be lost. Routes translate that
- * to a 503 the same way they already do for the keychain.
+ * (returns `null` on any failure); `set` and the deletes hard-fail with
+ * {@link SecretStoreUnavailableError} — `set` at the moment a value would
+ * be lost, the deletes when the removal cannot be confirmed (reporting
+ * success would let a caller commit state that assumes the entry is gone,
+ * and a later read would resurrect it). Routes translate that to a 503 the
+ * same way they already do for the keychain.
  *
  * The one failure worth calling out is the *key mismatch*: a file written
  * encrypted, opened later with the passphrase changed or removed. Reads go
@@ -241,6 +243,25 @@ const buildAccount = (serverId: string, field: string): string =>
   `${serverId}:${field}`;
 
 /**
+ * Refuse a non-string secret value before any mutation happens. The file
+ * holds a `Record<string, string>` and {@link asSecretMap} refuses the
+ * *entire* file when any value is not a string — so accepting one bad value
+ * here (a cast slipping past the compile-time contract) would poison every
+ * stored credential on the next read. A `TypeError` because this is a caller
+ * bug or malformed input, not store unavailability: retrying cannot help.
+ */
+function assertSecretString(
+  field: string,
+  value: unknown,
+): asserts value is string {
+  if (typeof value !== "string") {
+    throw new TypeError(
+      `Refusing to store a non-string secret value (${typeof value}) for "${field}": the secrets file holds only strings, and writing this would make the whole file unreadable.`,
+    );
+  }
+}
+
+/**
  * Assert that a decoded payload really is a `Record<string, string>`.
  *
  * Neither branch of {@link FileSecretStore.readMap} can trust its input: the
@@ -319,8 +340,12 @@ function decodeParts(
  * instant is already rare; losing five consecutive rounds to one means
  * something other than ordinary contention is happening, and reporting that
  * is more honest than looping.
+ *
+ * Exported because `writeOAuthSections` runs the same verify/re-apply
+ * pattern over `oauth.json` (see {@link mutate} for why a verify is needed
+ * at all); one budget keeps the two files' give-up behaviour aligned.
  */
-const MAX_WRITE_ATTEMPTS = 5;
+export const MAX_WRITE_ATTEMPTS = 5;
 
 /**
  * In-process mutation queues, one per resolved secrets-file path.
@@ -923,6 +948,36 @@ export class FileSecretStore implements SecretStore {
   }
 
   /**
+   * Bulk twin of {@link getStrict}: the same single-pass read as
+   * {@link getMany}, but an unreadable store throws (with the typed advice
+   * {@link getStrict} attaches) instead of yielding no fields — required by
+   * OAuth read hydration, whose result later drives store deletions.
+   */
+  async getManyStrict(
+    requests: SecretBulkRequest[],
+  ): Promise<Record<string, Record<string, string>>> {
+    let map: Record<string, string> | null;
+    try {
+      map = await this.serialize(() => this.readMap());
+    } catch (err) {
+      if (err instanceof SecretStoreUnavailableError) throw err;
+      throw new SecretStoreUnavailableError(
+        `Could not read the secrets file at ${this.filePath}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+    const out: Record<string, Record<string, string>> = {};
+    for (const { serverId, fields } of requests) {
+      const found: Record<string, string> = {};
+      for (const field of fields) {
+        const value = map?.[buildAccount(serverId, field)];
+        if (value !== undefined) found[field] = value;
+      }
+      out[serverId] = found;
+    }
+    return out;
+  }
+
+  /**
    * The intolerant read — same lookup as {@link get}, minus the catch.
    *
    * Without this, `secretStoreGetStrict` fell back to `get` for the file
@@ -974,6 +1029,9 @@ export class FileSecretStore implements SecretStore {
     values: Record<string, string>,
   ): Promise<void> {
     if (Object.keys(values).length === 0) return;
+    for (const [field, value] of Object.entries(values)) {
+      assertSecretString(field, value);
+    }
     await this.serialize(() =>
       this.mutate((map) => {
         const next = { ...map };
@@ -986,6 +1044,7 @@ export class FileSecretStore implements SecretStore {
   }
 
   async set(serverId: string, field: string, value: string): Promise<void> {
+    assertSecretString(field, value);
     await this.serialize(() =>
       this.mutate((map) => ({
         ...map,
@@ -1004,9 +1063,11 @@ export class FileSecretStore implements SecretStore {
   }
 
   /**
-   * Shared delete body. Silent on every failure, matching the keyring store:
-   * every reason a delete can fail collapses to "the entry isn't there
-   * anymore", and `set` is the operation that reports a broken store.
+   * Shared delete body. Same confirmed-delete contract as the keyring
+   * store: a deletion that cannot be confirmed (unreadable file, failed
+   * decrypt, failed write) must escape, because reporting success would
+   * let a caller commit state that assumes the entry is gone — once the
+   * file becomes readable again, a later read would resurrect it.
    */
   private async deleteWhere(match: (key: string) => boolean): Promise<void> {
     try {
@@ -1023,8 +1084,12 @@ export class FileSecretStore implements SecretStore {
           return next;
         }),
       );
-    } catch {
-      // Intentionally silent — see the doc comment above.
+    } catch (err) {
+      if (err instanceof SecretStoreUnavailableError) throw err;
+      throw new SecretStoreUnavailableError(
+        `Could not delete from the secrets file: ${err instanceof Error ? err.message : String(err)}`,
+        { cause: err },
+      );
     }
   }
 }

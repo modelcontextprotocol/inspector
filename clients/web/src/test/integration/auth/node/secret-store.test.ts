@@ -103,6 +103,9 @@ import {
   SECRET_FIELD_OAUTH_CLIENT_SECRET,
   envSecretField,
   parseAccount,
+  secretStoreSetMany,
+  settleStoreMutations,
+  type SecretStore,
 } from "@inspector/core/auth/node/secret-store.js";
 
 // The generic cases live in `secretStoreContract.ts` and are shared with
@@ -191,11 +194,14 @@ describe("KeyringSecretStore (mocked native bindings)", () => {
     ).resolves.toBeUndefined();
   });
 
-  it("delete silently no-ops when the keychain is unavailable", async () => {
+  it("delete rejects with the typed error when the keychain is unavailable", async () => {
+    // A missing entry is success, but an unconfirmed delete must not be:
+    // reporting success would let callers commit state that assumes the
+    // credential is gone, and a later read would resurrect it.
     keyringMocks.failures.deleteThrows = true;
     await expect(
       store.delete("alpha", SECRET_FIELD_OAUTH_CLIENT_SECRET),
-    ).resolves.toBeUndefined();
+    ).rejects.toBeInstanceOf(KeychainUnavailableError);
   });
 
   it("delete actually removes the value when the keychain is available", async () => {
@@ -206,12 +212,14 @@ describe("KeyringSecretStore (mocked native bindings)", () => {
     );
   });
 
-  it("deleteAllForServer no-ops when findCredentialsAsync throws", async () => {
-    // We don't even know what was written, so there's nothing to sweep.
-    // Critically, this must not throw — the route's defensive sweep on
-    // POST and DELETE depends on it.
+  it("deleteAllForServer rejects when findCredentialsAsync throws", async () => {
+    // An unenumerable keychain may still hold this server's entries, so
+    // "success" would be a lie; the routes translate the typed error to
+    // the same 503 a failed `set` produces.
     keyringMocks.failures.findThrows = true;
-    await expect(store.deleteAllForServer("alpha")).resolves.toBeUndefined();
+    await expect(store.deleteAllForServer("alpha")).rejects.toBeInstanceOf(
+      KeychainUnavailableError,
+    );
   });
 
   it("deleteAllForServer removes every entry under the given id", async () => {
@@ -361,20 +369,22 @@ describe("KeyringSecretStore (mocked native bindings)", () => {
       ).rejects.toThrow(/Couldn't access platform storage/);
     });
 
-    it("delete silently no-ops", async () => {
+    it("delete rejects with the typed error", async () => {
       await expect(
         store.delete("alpha", SECRET_FIELD_OAUTH_CLIENT_SECRET),
-      ).resolves.toBeUndefined();
+      ).rejects.toBeInstanceOf(KeychainUnavailableError);
     });
 
-    it("deleteAllForServer no-ops even when the credential sweep finds entries", async () => {
+    it("deleteAllForServer rejects when the credential sweep finds entries it cannot delete", async () => {
       // findCredentialsAsync can succeed while per-entry construction
-      // fails; the sweep must still resolve rather than escape.
+      // fails; an unconfirmed sweep must escape rather than resolve.
       keyringMocks.failures.constructorThrows = false;
       await store.set("alpha", SECRET_FIELD_OAUTH_CLIENT_SECRET, "a");
       keyringMocks.failures.constructorThrows = true;
 
-      await expect(store.deleteAllForServer("alpha")).resolves.toBeUndefined();
+      await expect(store.deleteAllForServer("alpha")).rejects.toBeInstanceOf(
+        KeychainUnavailableError,
+      );
     });
   });
 
@@ -442,6 +452,21 @@ describe("KeyringSecretStore (mocked native bindings)", () => {
     it("reports unavailable when the read itself throws", async () => {
       keyringMocks.failures.getThrows = true;
       expect((await probeKeyringAvailable()).available).toBe(false);
+    });
+
+    it("reports a partially available keyring (reads work, enumeration doesn't) as unavailable", async () => {
+      // The exact shape of a headless Linux host or CI runner: keyutils
+      // serves single entries so `getPassword` works, but enumeration needs
+      // a Secret Service over D-Bus that isn't there. A get-only probe would
+      // select a store whose `deleteAllForServer` can never succeed — every
+      // server add/rename/delete would answer 503 under the confirmed-delete
+      // contract. Such a keychain must fall back like an unreachable one.
+      keyringMocks.failures.findThrows = true;
+      const result = await probeKeyringAvailable();
+      expect(result.available).toBe(false);
+      expect((result as { detail: string }).detail).toContain(
+        "keychain find unavailable",
+      );
     });
 
     it("never writes to the user's keychain", async () => {
@@ -535,13 +560,15 @@ describe("@napi-rs/keyring unloadable on this platform (#1905)", () => {
     }
   });
 
-  it("delete and deleteAllForServer silently no-op", async () => {
+  it("delete and deleteAllForServer reject with the typed error", async () => {
     const mod = await importWithUnloadableKeyring();
     const store = new mod.KeyringSecretStore();
     await expect(
       store.delete("alpha", "oauth-client-secret"),
-    ).resolves.toBeUndefined();
-    await expect(store.deleteAllForServer("alpha")).resolves.toBeUndefined();
+    ).rejects.toBeInstanceOf(mod.KeychainUnavailableError);
+    await expect(store.deleteAllForServer("alpha")).rejects.toBeInstanceOf(
+      mod.KeychainUnavailableError,
+    );
   });
 
   it("the availability probe reports unavailable and names the load error", async () => {
@@ -569,7 +596,7 @@ describe("@napi-rs/keyring unloadable on this platform (#1905)", () => {
 
     await store.get("alpha", "oauth-client-secret");
     await store.get("beta", "oauth-client-secret");
-    await store.delete("alpha", "oauth-client-secret");
+    await store.delete("alpha", "oauth-client-secret").catch(() => {});
 
     expect(onLoadAttempt).toHaveBeenCalledTimes(1);
   });
@@ -659,7 +686,9 @@ describe("@napi-rs/keyring loads but exposes the wrong shape", () => {
     await expect(
       store.set("alpha", "oauth-client-secret", "v"),
     ).rejects.toBeInstanceOf(mod.KeychainUnavailableError);
-    await expect(store.deleteAllForServer("alpha")).resolves.toBeUndefined();
+    await expect(store.deleteAllForServer("alpha")).rejects.toBeInstanceOf(
+      mod.KeychainUnavailableError,
+    );
   });
 
   it("treats a namespace that throws on member access as unavailable", async () => {
@@ -685,7 +714,9 @@ describe("@napi-rs/keyring loads but exposes the wrong shape", () => {
     ).rejects.not.toThrow(/libsecret/);
     // Absorbed, not escaped: a rejected cached promise would surface here
     // as the raw access error instead of the typed one.
-    await expect(store.deleteAllForServer("alpha")).resolves.toBeUndefined();
+    await expect(store.deleteAllForServer("alpha")).rejects.toBeInstanceOf(
+      mod.KeychainUnavailableError,
+    );
   });
 
   it("accepts a well-formed namespace", async () => {
@@ -717,5 +748,133 @@ describe("@napi-rs/keyring loads but exposes the wrong shape", () => {
 
     await store.set("alpha", "oauth-client-secret", "shh");
     expect(await store.get("alpha", "oauth-client-secret")).toBe("shh");
+  });
+});
+
+describe("settleStoreMutations (round 8)", () => {
+  // The point of the helper: a rollback that starts while sibling
+  // mutations are still in flight can be re-broken by a late-landing
+  // set or delete. The first failure must not escape until every
+  // sibling has settled.
+  it("resolves when every mutation fulfills", async () => {
+    await expect(
+      settleStoreMutations([Promise.resolve(1), Promise.resolve(2)]),
+    ).resolves.toBeUndefined();
+  });
+
+  it("rethrows the first failure only after every sibling settles", async () => {
+    // Deterministic pending sibling: released explicitly after the settle
+    // call is already in flight, so the ordering proof does not depend on
+    // wall-clock timing.
+    let releaseSlow!: () => void;
+    let slowSettled = false;
+    const slow = new Promise<void>((resolve) => {
+      releaseSlow = () => {
+        slowSettled = true;
+        resolve();
+      };
+    });
+    const fast = Promise.reject(new Error("first failure"));
+
+    const settled = settleStoreMutations([fast, slow]);
+    // Give the helper a microtask turn: with Promise.all semantics the
+    // rejection would already be observable here, before `slow` settles.
+    await Promise.resolve();
+    releaseSlow();
+
+    await expect(settled).rejects.toThrow("first failure");
+    expect(slowSettled).toBe(true);
+  });
+
+  it("secretStoreSetMany's fallback settles in-flight sets before rejecting", async () => {
+    const landed: string[] = [];
+    let releaseLate!: () => void;
+    const late = new Promise<void>((resolve) => {
+      releaseLate = resolve;
+    });
+    // No `setMany`, so the fallback path runs. One set fails fast, the
+    // other lands only when explicitly released — a compensating caller
+    // must not observe the failure while the late set is still in flight.
+    const store: SecretStore = {
+      get: async () => null,
+      set: async (_id, field) => {
+        if (field === "fails-fast") throw new Error("keychain gone");
+        await late;
+        landed.push(field);
+      },
+      delete: async () => {},
+      deleteAllForServer: async () => {},
+    };
+
+    const setMany = secretStoreSetMany(store, "srv", {
+      "fails-fast": "a",
+      "lands-late": "b",
+    });
+    await Promise.resolve();
+    releaseLate();
+
+    await expect(setMany).rejects.toThrow("keychain gone");
+    expect(landed).toEqual(["lands-late"]);
+  });
+});
+
+describe("secretStoreGetManyStrict", () => {
+  // The bulk twin of the getStrict seam: a store that cannot be read must
+  // fail OAuth hydration rather than answer empty maps — an "outage read as
+  // absence" would make the next sectioned save delete the hidden secrets.
+  async function secretStoreModule() {
+    return await import("@inspector/core/auth/node/secret-store.js");
+  }
+
+  it("uses the store's getManyStrict when present", async () => {
+    const { secretStoreGetManyStrict } = await secretStoreModule();
+    const store = {
+      async get() {
+        return null;
+      },
+      async set() {},
+      async delete() {},
+      async deleteAllForServer() {},
+      async getManyStrict() {
+        return { srv: { "env:A": "1" } };
+      },
+    };
+    expect(
+      await secretStoreGetManyStrict(store, [
+        { serverId: "srv", fields: ["env:A"] },
+      ]),
+    ).toEqual({ srv: { "env:A": "1" } });
+  });
+
+  it("falls back to per-field strict reads, propagating their failure", async () => {
+    const { secretStoreGetManyStrict } = await secretStoreModule();
+    const store = {
+      async get() {
+        // Tolerant read answers null — the strict path must not use it.
+        return null;
+      },
+      async getStrict(): Promise<string | null> {
+        throw new Error("store unreadable");
+      },
+      async set() {},
+      async delete() {},
+      async deleteAllForServer() {},
+    };
+    await expect(
+      secretStoreGetManyStrict(store, [{ serverId: "srv", fields: ["env:A"] }]),
+    ).rejects.toThrow("store unreadable");
+  });
+
+  it("collects values and skips absent fields in the fallback", async () => {
+    const { secretStoreGetManyStrict, InMemorySecretStore } =
+      await secretStoreModule();
+    const store = new InMemorySecretStore();
+    await store.set("srv", "env:A", "1");
+    expect(
+      await secretStoreGetManyStrict(store, [
+        { serverId: "srv", fields: ["env:A", "env:MISSING"] },
+        { serverId: "other", fields: ["env:B"] },
+      ]),
+    ).toEqual({ srv: { "env:A": "1" }, other: {} });
   });
 });

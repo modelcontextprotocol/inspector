@@ -14,6 +14,23 @@ import type {
   OAuthClientRegistrationKind,
 } from "./storage.js";
 import type { OAuthPersistSnapshot } from "./oauth-persist.js";
+import { getOwnEntry } from "../storage/own-entry.js";
+
+/**
+ * `clientInformation` as the Inspector persists it. No SDK release
+ * (`@modelcontextprotocol/sdk` 1.x through `@modelcontextprotocol/client`
+ * 2.0.0) declares the RFC 7592 registration-management credential in its
+ * client-information schemas, and both parse DCR responses with
+ * `OAuthClientInformationFullSchema.parse(...)` (zod strip), so the field
+ * has never reached this store from a live registration — it exists only in
+ * the wire response (which the UI masks for display). The secret split
+ * (`oauth-secrets.ts`) handles it purely defensively: if a future SDK
+ * preserves the field, it is bearer-grade and must never reach plaintext
+ * `oauth.json`. Nothing in the Inspector consumes it.
+ */
+export type StoredOAuthClientInformation = OAuthClientInformation & {
+  registration_access_token?: string;
+};
 
 /**
  * OAuth credentials bound to a single authorization-server `issuer` (SEP-2352).
@@ -26,7 +43,7 @@ import type { OAuthPersistSnapshot } from "./oauth-persist.js";
  * of reusing mismatched credentials.
  */
 export interface IssuerBoundOAuthState {
-  clientInformation?: OAuthClientInformation;
+  clientInformation?: StoredOAuthClientInformation;
   /** Set when {@link clientInformation} is saved — DCR vs CIMD. */
   clientRegistrationKind?: OAuthClientRegistrationKind;
   tokens?: OAuthTokens;
@@ -52,7 +69,7 @@ export interface ServerOAuthState {
   byIssuer?: Record<string, IssuerBoundOAuthState>;
   /** Most-recently-saved issuer — answers ctx-less reads (per-request bearer token). */
   activeIssuer?: string;
-  preregisteredClientInformation?: OAuthClientInformation;
+  preregisteredClientInformation?: StoredOAuthClientInformation;
   codeVerifier?: string;
   scope?: string;
   serverMetadata?: OAuthMetadata;
@@ -62,7 +79,7 @@ export interface ServerOAuthState {
   enterpriseManaged?: boolean;
 
   /** @deprecated Legacy unkeyed fallback — see {@link ServerOAuthState}. */
-  clientInformation?: OAuthClientInformation;
+  clientInformation?: StoredOAuthClientInformation;
   /** @deprecated Legacy unkeyed fallback — see {@link ServerOAuthState}. */
   clientRegistrationKind?: OAuthClientRegistrationKind;
   /** @deprecated Legacy unkeyed fallback — see {@link ServerOAuthState}. */
@@ -102,7 +119,9 @@ export class OAuthMemoryStore {
       servers: this.servers,
       idpSessions: this.idpSessions,
       getServerState: (serverUrl: string) => {
-        return this.servers[serverUrl] || {};
+        // Own-property read: a missing `__proto__` key must answer `{}`,
+        // not the inherited `Object.prototype`.
+        return getOwnEntry(this.servers, serverUrl) || {};
       },
       setServerState: (
         serverUrl: string,
@@ -110,8 +129,10 @@ export class OAuthMemoryStore {
       ) => {
         this.servers = {
           ...this.servers,
+          // Computed keys define own properties, so this write is safe for
+          // `__proto__`; only the merge-base read needs the own guard.
           [serverUrl]: {
-            ...this.servers[serverUrl],
+            ...getOwnEntry(this.servers, serverUrl),
             ...updates,
           },
         };
@@ -122,13 +143,13 @@ export class OAuthMemoryStore {
         this.servers = rest;
       },
       getIdpSession: (issuer: string) => {
-        return this.idpSessions[issuer] || {};
+        return getOwnEntry(this.idpSessions, issuer) || {};
       },
       setIdpSession: (issuer: string, updates: Partial<IdpSessionState>) => {
         this.idpSessions = {
           ...this.idpSessions,
           [issuer]: {
-            ...this.idpSessions[issuer],
+            ...getOwnEntry(this.idpSessions, issuer),
             ...updates,
           },
         };

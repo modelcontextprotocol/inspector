@@ -563,7 +563,7 @@ These items came out of EMA staging and apply beyond EMA. They are **not** requi
 | Remote HTTP | `RemoteOAuthStorage`  | Web → `GET/POST/DELETE /api/storage/oauth` on the Hono backend    |
 | Session     | `BrowserOAuthStorage` | Reference/tests only; v2 web uses shared file-backed remote store |
 
-**On disk / wire:** writes plain JSON `{ servers, idpSessions }`. **Reads** still accept legacy blobs wrapped as `{ state: { servers, idpSessions }, version }` (produced by the old Zustand `persist` middleware) and promote the inner payload — migrate-on-write on the next save.
+**On disk / wire:** the file holds `{ servers, idpSessions }` — but since #2481 the on-disk copy is **non-secret residue only**: access/refresh tokens, `client_secret`, `registration_access_token`, and IdP session payloads are lifted into the OS secret store (`core/auth/node/secret-store.ts`) and rejoined on read, with legacy plaintext migrated lazily into the store. Writes are section-scoped merges under the state-file lock. **Reads** still accept legacy blobs wrapped as `{ state: { servers, idpSessions }, version }` (produced by the old Zustand `persist` middleware) and promote the inner payload — migrate-on-write on the next save.
 
 **API shape:** all getters are async (`ensureLoaded()` internally); setters `await` persist. `load()` is optional preload (OAuth callback fail-fast on web), not required before reads. `BaseOAuthClientProvider.prepareForAuth()` caches scope for the SDK’s sync `clientMetadata.scope`.
 

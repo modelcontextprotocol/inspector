@@ -14,6 +14,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import * as os from "node:os";
 import { flushStoreFileWrites } from "@inspector/core/storage/store-io.js";
+import { createFileOAuthPersistBackend } from "@inspector/core/auth/node/oauth-persist-file.js";
 
 // Unique path per process so parallel test files don't share the same state file
 const testStatePath = path.join(
@@ -434,6 +435,33 @@ describe("NodeOAuthStorage", () => {
     expect(await otherView.getTokens(serverUrl)).toEqual(tokens);
   });
 
+  it("a second instance for the same path does not reload disk state over live memory", async () => {
+    // Instances for one path share memory AND load/persist coordination
+    // (storage-node.ts). With a per-instance load latch, the second
+    // instance's first load() would replace() the shared memory with what is
+    // on disk — reverting, in memory, a mutation the first instance already
+    // reported as saved (the deferred persist snapshot would then persist the
+    // reverted state too).
+    const serverUrl = "http://localhost:3000";
+    const tokens: OAuthTokens = {
+      access_token: "live-token",
+      token_type: "Bearer",
+    };
+    await storage.saveTokens(serverUrl, tokens);
+    await flushStoreFileWrites(testStatePath);
+
+    // Rewrite the state file out-of-band, as another process would.
+    const backend = createFileOAuthPersistBackend({ filePath: testStatePath });
+    const onDisk = await backend.read();
+    const mutated = JSON.parse(
+      JSON.stringify(onDisk).replaceAll("live-token", "disk-token"),
+    ) as NonNullable<typeof onDisk>;
+    await backend.write(mutated);
+
+    const second = new NodeOAuthStorage(testStatePath);
+    expect(await second.getTokens(serverUrl)).toEqual(tokens);
+  });
+
   it("persists state to file on save", async () => {
     const persistTestPath = path.join(
       os.tmpdir(),
@@ -532,9 +560,10 @@ describe("NodeOAuthStorage with custom storagePath", () => {
         await fs.readFile(customPath, "utf-8"),
       ) as StateShape;
 
-      expect(parsed.servers[testServerUrl]?.tokens?.access_token).toBe(
-        tokens.access_token,
-      );
+      // The file keeps only the entry's residue — tokens are split into the
+      // secret store, so they must NOT appear at the custom path.
+      expect(parsed.servers[testServerUrl]).toBeDefined();
+      expect(parsed.servers[testServerUrl]?.tokens).toBeUndefined();
 
       const stored = await storage.getTokens(testServerUrl);
       expect(stored?.access_token).toBe(tokens.access_token);

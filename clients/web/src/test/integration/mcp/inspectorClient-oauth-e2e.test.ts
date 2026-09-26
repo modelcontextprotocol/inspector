@@ -30,6 +30,7 @@ import {
 } from "@modelcontextprotocol/inspector-test-server";
 import { discoverAuthorizationServerMetadata } from "@modelcontextprotocol/client";
 import { flushStoreFileWrites } from "@inspector/core/storage/store-io.js";
+import { readOAuthStore } from "@inspector/core/auth/node/oauth-persist-file.js";
 import {
   createOAuthClientConfig,
   completeOAuthAuthorization,
@@ -1204,17 +1205,22 @@ describe("InspectorClient OAuth E2E", () => {
         ) as StateShape;
         const servers = parsed.servers ?? {};
         expect(Object.keys(servers).length).toBeGreaterThan(0);
-        // SEP-2352: tokens persist under `byIssuer[issuer].tokens`; accept the
-        // legacy top-level slot too.
-        expect(
-          Object.values(servers).some(
-            (s) =>
-              !!s?.tokens?.access_token ||
-              Object.values(s?.byIssuer ?? {}).some(
+        // Tokens are split into the secret store — the file at the custom
+        // path holds only residue, never a plaintext access token.
+        const hasPlaintextToken = (s: StateShape["servers"]): boolean =>
+          Object.values(s ?? {}).some(
+            (entry) =>
+              !!entry?.tokens?.access_token ||
+              Object.values(entry?.byIssuer ?? {}).some(
                 (slot) => !!slot?.tokens?.access_token,
               ),
-          ),
-        ).toBe(true);
+          );
+        expect(hasPlaintextToken(servers)).toBe(false);
+        // The joined read (residue + secret store) still yields the tokens.
+        // SEP-2352: tokens persist under `byIssuer[issuer].tokens`; accept the
+        // legacy top-level slot too.
+        const joined = await readOAuthStore(customPath);
+        expect(hasPlaintextToken(joined?.servers)).toBe(true);
       } finally {
         try {
           await fs.unlink(customPath);

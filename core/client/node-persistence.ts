@@ -3,9 +3,11 @@
  */
 
 import {
+  restoreSecretFields,
   secretStoreGetStrict,
   secretStoreIsDurable,
   SecretStoreUnavailableError,
+  snapshotSecretFields,
   type SecretStore,
 } from "../auth/node/secret-store.js";
 import { SECRET_FIELD_IDP_CLIENT_SECRET } from "../auth/secret-fields.js";
@@ -109,39 +111,56 @@ export async function writeClientConfigStore(
   const validated = parseClientConfig(body);
   const { stripped, secrets } = extractSecretsFromClientConfig(validated);
   const idpSecret = secrets[SECRET_FIELD_IDP_CLIENT_SECRET];
-  if (idpSecret) {
-    await secretStore.set(
-      CLIENT_KEYCHAIN_ID,
-      SECRET_FIELD_IDP_CLIENT_SECRET,
-      idpSecret,
+  // Snapshot before mutating so a failed file write below can restore the
+  // keychain: committing the new secret while the old config survives on
+  // disk (or dropping a cleared one the disk still expects) would leave the
+  // two halves describing different clients. The strict read also aborts
+  // here — before anything is mutated — when the store is unreadable.
+  const prior = await snapshotSecretFields(secretStore, CLIENT_KEYCHAIN_ID, [
+    SECRET_FIELD_IDP_CLIENT_SECRET,
+  ]);
+  try {
+    if (idpSecret) {
+      await secretStore.set(
+        CLIENT_KEYCHAIN_ID,
+        SECRET_FIELD_IDP_CLIENT_SECRET,
+        idpSecret,
+      );
+    } else {
+      await secretStore.delete(
+        CLIENT_KEYCHAIN_ID,
+        SECRET_FIELD_IDP_CLIENT_SECRET,
+      );
+    }
+    // What actually goes to disk. The read-path migration already withholds
+    // the strip for a session-scoped store, but the *write* path did not — so
+    // saving any unrelated field (a CIMD URL, an issuer) round-tripped the
+    // rehydrated secret through the form and then wrote the stripped shape,
+    // moving the only durable copy into RAM to be lost at exit. The two paths
+    // have to agree: while the store cannot outlive the process, `client.json`
+    // stays the durable copy.
+    const durable = await secretStoreIsDurable(secretStore);
+    await writeStoreFile(
+      filePath,
+      serializeStore(
+        durable
+          ? stripped
+          : await preserveLegacyPlaintext(
+              filePath,
+              validated,
+              stripped,
+              idpSecret,
+            ),
+      ),
     );
-  } else {
-    await secretStore.delete(
-      CLIENT_KEYCHAIN_ID,
-      SECRET_FIELD_IDP_CLIENT_SECRET,
-    );
+  } catch (error) {
+    await restoreSecretFields(secretStore, prior, (restoreError) => {
+      console.warn(
+        `[mcp-inspector] Could not restore the IdP client secret after a failed client.json write: ${restoreError instanceof Error ? restoreError.message : String(restoreError)}`,
+      );
+    });
+    throw error;
   }
-  // What actually goes to disk. The read-path migration already withholds
-  // the strip for a session-scoped store, but the *write* path did not — so
-  // saving any unrelated field (a CIMD URL, an issuer) round-tripped the
-  // rehydrated secret through the form and then wrote the stripped shape,
-  // moving the only durable copy into RAM to be lost at exit. The two paths
-  // have to agree: while the store cannot outlive the process, `client.json`
-  // stays the durable copy.
-  const durable = await secretStoreIsDurable(secretStore);
-  await writeStoreFile(
-    filePath,
-    serializeStore(
-      durable
-        ? stripped
-        : await preserveLegacyPlaintext(
-            filePath,
-            validated,
-            stripped,
-            idpSecret,
-          ),
-    ),
-  );
 }
 
 /**
@@ -184,6 +203,28 @@ export async function deleteClientConfigStore(
   filePath: string,
   secretStore: SecretStore,
 ): Promise<void> {
-  await deleteStoreFile(filePath);
-  await secretStore.delete(CLIENT_KEYCHAIN_ID, SECRET_FIELD_IDP_CLIENT_SECRET);
+  // All-or-nothing, like every other combined file/store writer: snapshot
+  // the secret, then run the delete *and* the unlink inside one
+  // compensated block. The keychain delete precedes the unlink but is
+  // itself only confirmed-on-resolve — a rejected delete may have removed
+  // the value before failing — so its failure must restore the snapshot
+  // exactly like an unlink failure, leaving the surviving config with its
+  // credential intact and the retry seeing the same pre-delete state.
+  const prior = await snapshotSecretFields(secretStore, CLIENT_KEYCHAIN_ID, [
+    SECRET_FIELD_IDP_CLIENT_SECRET,
+  ]);
+  try {
+    await secretStore.delete(
+      CLIENT_KEYCHAIN_ID,
+      SECRET_FIELD_IDP_CLIENT_SECRET,
+    );
+    await deleteStoreFile(filePath);
+  } catch (error) {
+    await restoreSecretFields(secretStore, prior, (restoreError) => {
+      console.warn(
+        `[mcp-inspector] Could not restore the IdP client secret after a failed client.json delete: ${restoreError instanceof Error ? restoreError.message : String(restoreError)}`,
+      );
+    });
+    throw error;
+  }
 }

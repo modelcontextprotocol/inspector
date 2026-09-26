@@ -397,10 +397,13 @@ describe("withSecretFileLock degrades rather than failing", () => {
   );
 
   it(
-    "stays silent per the delete contract when the lock is held",
+    "rejects a delete rather than removing alongside a live lock holder",
     async () => {
-      // `delete` reports nothing by contract — only `set` hard-fails — so the
-      // refusal above must not turn a delete into a throw.
+      // The confirmed-delete contract: reporting success for a delete that
+      // could not happen would let a caller commit state that assumes the
+      // entry is gone, and the entry would resurface once the lock clears.
+      // So a live lock holder must make the delete *reject*, with the
+      // entry left intact.
       const target = filePath();
       const store = new FileSecretStore({ filePath: target });
       await store.set("srv", "env:A", "1");
@@ -418,7 +421,9 @@ describe("withSecretFileLock degrades rather than failing", () => {
         realpath: false,
         stale: 10_000,
       });
-      await expect(store.delete("srv", "env:A")).resolves.toBeUndefined();
+      await expect(store.delete("srv", "env:A")).rejects.toBeInstanceOf(
+        SecretStoreUnavailableError,
+      );
       await release();
 
       // …and the entry it could not delete is still there, not half-removed.

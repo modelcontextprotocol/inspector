@@ -81,4 +81,20 @@ describe("OAuthMemoryStore", () => {
       idpSessions: {},
     });
   });
+
+  it("answers {} for a missing __proto__ key instead of the inherited prototype", () => {
+    // Server URLs and issuers are untrusted map keys: a plain lookup for a
+    // missing "__proto__" returns `Object.prototype`, a truthy non-entry.
+    const store = new OAuthMemoryStore();
+    const state = store.getState();
+    expect(state.getServerState("__proto__")).toEqual({});
+    expect(state.getIdpSession("__proto__")).toEqual({});
+    // And the read-modify-write merge base is the own entry, not the
+    // prototype: a set for the key round-trips as an own property.
+    state.setServerState("__proto__", { scope: "read" });
+    expect(Object.hasOwn(store.snapshot().servers, "__proto__")).toBe(true);
+    expect(state.getServerState("__proto__")).toEqual({ scope: "read" });
+    state.setIdpSession("__proto__", { idToken: "t" });
+    expect(state.getIdpSession("__proto__")).toEqual({ idToken: "t" });
+  });
 });
