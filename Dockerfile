@@ -58,12 +58,15 @@ RUN mkdir -p /home/node/.mcp-inspector && chown -R node:node /home/node/.mcp-ins
 USER node
 WORKDIR /home/node
 
-# Report readiness by probing the served SPA (`/` needs no auth). Uses Node's
-# global fetch — no curl/wget in the slim image. Assumes the default `--web`
-# mode; running `--cli`/`--tui` has no web server, so add `--no-healthcheck` to
-# `docker run` for those.
+# Report readiness by probing the served SPA (`/` needs no auth). The probe
+# connects to the address derived from the same `HOST` the server binds (a
+# wildcard maps to loopback), so overriding `HOST` to one interface keeps the
+# healthcheck valid (#2424) — see the script's header. Only `--web` has a
+# server to probe, so the script reads the launch mode from PID 1's argv and
+# reports a `--cli`/`--tui` container healthy while it runs (#2415).
+COPY --from=builder /build/scripts/docker-healthcheck.mjs /usr/local/lib/mcp-inspector-healthcheck.mjs
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-    CMD node -e "fetch('http://127.0.0.1:'+(process.env.CLIENT_PORT||6274)+'/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+    CMD ["node", "/usr/local/lib/mcp-inspector-healthcheck.mjs"]
 
 # Default to the web UI; override the args to run --cli / --tui.
 ENTRYPOINT ["mcp-inspector"]

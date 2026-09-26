@@ -23,8 +23,13 @@
  *   - `data-status` is the connection itself.
  *
  * Takes only the slice of Playwright's `page` it uses (`goto`, `locator` →
- * `waitFor`/`getAttribute`), which is what lets its failure branches be
+ * `waitFor`/`getAttribute`/`count`), which is what lets its failure branches be
  * unit-tested against a stand-in — a smoke only ever drives its happy path.
+ *
+ * A connect timeout is reported with the status element's last `data-status`
+ * and `data-error-message` (#2496), the same way `driveAppFlow` reports a ready
+ * timeout with the apps form's last state — Playwright's own message names
+ * only the selector it gave up on, never why the app did not get there.
  *
  * The two budgets default to `BROWSER_TIMEOUTS` rather than restating them
  * (#2333): `goto` and the status element attaching are the page loading and
@@ -90,7 +95,31 @@ export async function connectViaDeepLink({
     }
   }
 
-  await page
-    .locator('[data-testid="connection-status"][data-status="connected"]')
-    .waitFor({ state: "attached", timeout: connectTimeoutMs });
+  try {
+    await page
+      .locator('[data-testid="connection-status"][data-status="connected"]')
+      .waitFor({ state: "attached", timeout: connectTimeoutMs });
+  } catch (err) {
+    throw new Error(
+      `connection never reached data-status="connected" (${await describeStatus(status)})` +
+        ` — ${err instanceof Error ? err.message : String(err)}`,
+      { cause: err },
+    );
+  }
+}
+
+/**
+ * What the status element last said, for a connect timeout (#2496).
+ *
+ * The app records a failed connect on this element's `data-error-message`, so
+ * the cause is usually already on the page when the wait gives up — a 503 from
+ * `POST /api/servers` hid behind a bare 45s timeout on #2482 for exactly this
+ * reason. `count()` first, so a status element that never mounted is reported
+ * as such rather than stalling `getAttribute` on its own default budget.
+ */
+async function describeStatus(status) {
+  if ((await status.count()) === 0) return "no connection-status element";
+  const state = await status.getAttribute("data-status");
+  const message = await status.getAttribute("data-error-message");
+  return `last: "${state}"${message ? `, data-error-message="${message}"` : ""}`;
 }

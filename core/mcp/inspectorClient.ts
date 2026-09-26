@@ -56,7 +56,7 @@ import {
 // `clientIdentity`. Real clients supply their own: the Node clients (CLI, TUI)
 // read the single-source version from the root package.json via
 // `readInspectorVersion()`, and the web browser — which can't read the
-// filesystem — will pass a version sourced from `GET /api/config` (see #1639).
+// filesystem — passes the version sourced from `GET /api/config` (#1639, #2445).
 // This stays a neutral placeholder rather than a hardcoded release number that
 // would silently drift out of sync with the root package.json version.
 const corePackageJson = {
@@ -149,6 +149,7 @@ import { buildClientExtensions } from "./extensions.js";
 import {
   DirectoryReadResultSchema,
   GetSkillEnvelopeSchema,
+  ModernGetSkillEnvelopeSchema,
   ListSkillsResultSchema,
   ModernListSkillsResultSchema,
   RESOURCES_DIRECTORY_READ_METHOD,
@@ -547,6 +548,11 @@ export class InspectorClient extends InspectorClientEventTarget {
   private requestTimeout: number | undefined;
   private defaultMetadata: RequestMetadata | undefined;
   private serverSettings: InspectorServerSettings | undefined;
+  // The settings the current transport was built from. `serverSettings` is
+  // replaced live on every settings save (#1444), but transport-level inputs
+  // such as custom headers are fixed when the transport is created, so this
+  // is what the open connection actually sends (#2460).
+  private transportSettings: InspectorServerSettings | undefined;
   private versionNegotiation: VersionNegotiationOptions;
   private status: ConnectionStatus = "disconnected";
   // True only while an explicit disconnect() owns the teardown. close() can
@@ -1012,6 +1018,12 @@ export class InspectorClient extends InspectorClientEventTarget {
     const advertisedExtensions = buildClientExtensions({
       enterpriseManaged: options.oauth?.enterpriseManaged ?? false,
       advertised: this.advertisedExtensions,
+      // Only a client that can render Apps claims the UI extension by default
+      // (#2403). An app-elicitation renderer is itself a claim to host an App,
+      // so supplying one implies it.
+      rendersApps:
+        options.rendersApps === true ||
+        this.appElicitationRenderer !== undefined,
       // Read off the built `capabilities.elicitation.form` rather than
       // re-deriving from `options.elicit`: the nested MCP Apps `elicitation`
       // setting must never be advertised without the core form capability it
@@ -1613,6 +1625,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     }
     this.baseTransport = null;
     this.transport = null;
+    this.transportSettings = undefined;
     this.transportHasAuthProvider = false;
   }
 
@@ -2287,6 +2300,10 @@ export class InspectorClient extends InspectorClientEventTarget {
         transportOptions,
       );
       this.baseTransport = baseTransport;
+      // What the factory was handed, not the live value: `transportOptions`
+      // was built before the OAuth awaits above, and a settings save landing
+      // during them would otherwise be reported as sent when it was not.
+      this.transportSettings = transportOptions.settings;
       if (this.directAuthRecovery) {
         this.directAuthRecoveryActive = !(
           baseTransport instanceof RemoteClientTransport
@@ -2680,6 +2697,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     // Null out transport so next connect() creates a fresh one.
     this.baseTransport = null;
     this.transport = null;
+    this.transportSettings = undefined;
     this.transportHasAuthProvider = false;
     // Drop anything the server had queued with us before announcing the
     // teardown, so a `disconnect` consumer sees an empty queue here as it does
@@ -3602,6 +3620,14 @@ export class InspectorClient extends InspectorClientEventTarget {
   }
 
   /**
+   * Get the client identity (name, version) this client reports to servers —
+   * the caller's `clientIdentity`, or core's neutral fallback without one.
+   */
+  getClientInfo(): Implementation {
+    return this.clientInfo;
+  }
+
+  /**
    * Get server info (name, version)
    */
   getServerInfo(): Implementation | undefined {
@@ -3656,6 +3682,17 @@ export class InspectorClient extends InspectorClientEventTarget {
    */
   getServerSettings(): InspectorServerSettings | undefined {
     return this.serverSettings;
+  }
+
+  /**
+   * The settings the current transport was built from, or `undefined` when no
+   * transport exists. Unlike {@link getServerSettings}, a live settings edit
+   * does not change this: transport-level inputs (custom headers) apply only
+   * when the next transport is created, so comparing the two tells a caller
+   * whether an edit is still waiting on a reconnect (#2460).
+   */
+  getTransportSettings(): InspectorServerSettings | undefined {
+    return this.transportSettings;
   }
 
   /**
@@ -5781,10 +5818,9 @@ export class InspectorClient extends InspectorClientEventTarget {
    * removes it before the result gets here (#2373).
    *
    * Separate from {@link getSkill} because the callers differ: the UIs want the
-   * entry, while the CLI prints the result and must not reshape it. SEP-2640
-   * explicitly leaves open whether this result carries `ttlMs` / `cacheScope`,
-   * so a server may send them — and unwrapping to the entry discards exactly
-   * those (Copilot).
+   * entry, while the CLI prints the result and must not reshape it. A modern
+   * result carries `ttlMs` / `cacheScope` (#2404), and unwrapping to the entry
+   * discards exactly those (Copilot).
    */
   async getSkillResult(
     uri: string,
@@ -5798,16 +5834,21 @@ export class InspectorClient extends InspectorClientEventTarget {
       uri,
       ...(effectiveMeta ? { _meta: effectiveMeta } : {}),
     };
-    // One schema for both eras (#2373): on a modern connection the SDK codec
-    // has already enforced `resultType` and lifted it off, and the caching
-    // attributes are left open by SEP-2640, so there is nothing era-specific
-    // left to require. The envelope is returned whole; `getSkill` unwraps.
+    // Era-aware, like `listSkills` (#2404): the stable ext-skills spec makes
+    // `GetSkillResult` a `CacheableResult`, so a modern result must carry
+    // `ttlMs` / `cacheScope`. The SDK codec checks and lifts `resultType`
+    // (#2373) but, for a consumer-owned method, neither caching attribute —
+    // so this schema is the only thing that does. Legacy stays permissive.
+    // The envelope is returned whole; `getSkill` unwraps.
+    const resultSchema = this.isModernEra()
+      ? ModernGetSkillEnvelopeSchema
+      : GetSkillEnvelopeSchema;
     try {
       return await this.invokeMcpClient(
         () =>
           this.client!.request(
             { method: SKILLS_GET_METHOD, params },
-            GetSkillEnvelopeSchema,
+            resultSchema,
             this.getRequestOptions(this.progressTokenOf(metadata)),
           ),
         { method: SKILLS_GET_METHOD },

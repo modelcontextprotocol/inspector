@@ -279,6 +279,22 @@ describe("RemoteSession", () => {
     vi.useRealTimers();
   });
 
+  it("a string progressToken re-arms the wait for the matching numeric request id (#2458)", async () => {
+    vi.useFakeTimers();
+    const session = new RemoteSession("s-progress-string-token");
+    const wait = session.waitForRequestResponse(4, 1000);
+    await vi.advanceTimersByTimeAsync(900);
+    session.onMessage({
+      jsonrpc: "2.0",
+      method: "notifications/progress",
+      params: { progressToken: "4", progress: 1, total: 10 },
+    });
+    await vi.advanceTimersByTimeAsync(900);
+    session.onMessage({ jsonrpc: "2.0", id: 4, result: {} });
+    await expect(wait).resolves.toBeUndefined();
+    vi.useRealTimers();
+  });
+
   it("a notifications/message does NOT re-arm the wait (log messages don't extend the deadline, #2028)", async () => {
     vi.useFakeTimers();
     const session = new RemoteSession("s-message-no-reset");

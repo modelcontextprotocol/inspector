@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { fn } from "storybook/test";
 import { FetchBodyDroppedToastMessage } from "./FetchBodyDroppedToastMessage";
+import { HeadersReconnectToastMessage } from "./HeadersReconnectToastMessage";
 import { OutputValidationToastMessage } from "./OutputValidationToastMessage";
 import { UrlElicitationErrorToastMessage } from "./UrlElicitationErrorToastMessage";
 
@@ -17,6 +18,12 @@ export default meta;
 export const FetchBodyDropped: StoryObj<typeof FetchBodyDroppedToastMessage> = {
   render: (args) => <FetchBodyDroppedToastMessage {...args} />,
   args: { maxFetchRequests: 250, onAdjust: fn() },
+};
+
+/** #2460 — custom headers edited while connected apply only on reconnect. */
+export const HeadersReconnect: StoryObj<typeof HeadersReconnectToastMessage> = {
+  render: (args) => <HeadersReconnectToastMessage {...args} />,
+  args: { onReconnect: fn() },
 };
 
 /** A tool result whose `structuredContent` doesn't match its `outputSchema`. */

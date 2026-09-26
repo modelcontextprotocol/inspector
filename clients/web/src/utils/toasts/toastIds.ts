@@ -1,6 +1,6 @@
 // Toast ids that aren't owned by a feature-specific formatter module. The
 // progress and task ids live beside their message formatters in
-// `progressToasts.ts` / `taskToasts.ts`; these two have no formatter of their
+// `progressToasts.ts` / `taskToasts.ts`; these have no formatter of their
 // own, so they land here.
 
 // Stable toast id for the "response body dropped" warning, keyed per server so
@@ -8,6 +8,12 @@
 // (the drop event can fire rapidly). Mirrors the progress-toast dedupe pattern.
 export function bodyDroppedToastId(serverId: string): string {
   return `fetch-body-dropped-${serverId}`;
+}
+
+// Stable toast id for the "custom headers changed, reconnect to apply" notice,
+// keyed per server so repeated settings edits update one toast (#2460).
+export function headersReconnectToastId(serverId: string): string {
+  return `headers-reconnect-${serverId}`;
 }
 
 export const CLIENT_CONFIG_LOAD_ERROR_NOTIFICATION_ID =

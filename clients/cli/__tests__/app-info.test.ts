@@ -1,6 +1,12 @@
 import { describe, it, expect } from "vitest";
 import { runCli } from "./helpers/cli-runner.js";
-import { getTestMcpServerCommand } from "@modelcontextprotocol/inspector-test-server";
+import { runCli as runCliInProcess } from "../src/cli.js";
+import {
+  createEchoTool,
+  createTestServerHttp,
+  createTestServerInfo,
+  getTestMcpServerCommand,
+} from "@modelcontextprotocol/inspector-test-server";
 
 /**
  * The default stdio test server advertises exactly one MCP App tool
@@ -152,4 +158,67 @@ describe("--app-info", () => {
     expect(result.exitCode).toBe(2);
     expect(result.output).not.toContain("isError");
   });
+});
+
+/**
+ * The CLI cannot render an MCP App, so it must not claim the UI extension by
+ * default (#2403) — a server decides whether to expose its App tools from that
+ * advertisement. `--advertise-apps` is the explicit opt-in. Observed from the
+ * server side: a tool gated on `io.modelcontextprotocol/ui` is listed only when
+ * the client declared it at `initialize`. A fresh server per case, because the
+ * gate only ever enables the tool.
+ */
+describe("--advertise-apps (#2403)", () => {
+  const UI_EXTENSION = "io.modelcontextprotocol/ui";
+
+  async function listToolNames(extraArgs: string[]): Promise<string[]> {
+    const server = createTestServerHttp({
+      serverInfo: createTestServerInfo(),
+      tools: [createEchoTool()],
+      extensionGatedTools: { [UI_EXTENSION]: "echo" },
+    });
+    try {
+      await server.start();
+      const result = await runCli([
+        server.url,
+        "--cli",
+        "--method",
+        "tools/list",
+        "--transport",
+        "http",
+        "--format",
+        "json",
+        ...extraArgs,
+      ]);
+      expect(result.exitCode).toBe(0);
+      const parsed = JSON.parse(result.stdout) as {
+        result: { tools: { name: string }[] };
+      };
+      return parsed.result.tools.map((t) => t.name);
+    } finally {
+      await server.stop();
+    }
+  }
+
+  it("does not advertise the UI extension by default", async () => {
+    expect(await listToolNames([])).not.toContain("echo");
+  });
+
+  it("advertises the UI extension with --advertise-apps", async () => {
+    expect(await listToolNames(["--advertise-apps"])).toContain("echo");
+  });
+
+  it.each([
+    ["servers/list", ["--method", "servers/list"]],
+    ["servers/show", ["--method", "servers/show", "--server", "x"]],
+    ["--list-stored-auth", ["--method", "servers/list", "--list-stored-auth"]],
+    ["--print-handoff", ["--method", "servers/list", "--print-handoff"]],
+  ])(
+    "is rejected on the %s short-circuit path, which never connects",
+    async (_label, extra) => {
+      await expect(
+        runCliInProcess(["node", "cli", "--cli", "--advertise-apps", ...extra]),
+      ).rejects.toThrow("--advertise-apps requires a command that connects");
+    },
+  );
 });

@@ -25,6 +25,13 @@ export type MethodArgs = {
   metadata?: RequestMetadata;
   appInfo?: boolean;
   /**
+   * `--advertise-apps`: advertise the MCP Apps UI extension
+   * (`io.modelcontextprotocol/ui`) at `initialize`. The CLI cannot render an
+   * App, so it does not claim the extension by default; this opts in for a
+   * server that only exposes its App tools to a client that does (#2403).
+   */
+  advertiseApps?: boolean;
+  /**
    * `--strict`: report tool-schema portability findings in full and exit
    * non-zero when any is error-severity (#1005). `tools/list` only.
    */
@@ -40,6 +47,12 @@ export type MethodArgs = {
    * and exit non-zero when any fails (#2248).
    */
   verify?: boolean;
+  /**
+   * `--require-digests` (with `--verify`): treat a skill whose `resources` is
+   * `"dynamic"` — one that advertised no digests — as a non-zero exit (`9`)
+   * rather than as `0` (#2405).
+   */
+  requireDigests?: boolean;
   /**
    * Opaque pagination cursor. Used by `resources/directory/read`, whose result
    * pages exactly as `resources/list` does — and where the caller descends the

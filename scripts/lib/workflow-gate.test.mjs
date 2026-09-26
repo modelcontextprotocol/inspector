@@ -484,7 +484,7 @@ describe("findWorkflowViolations", () => {
       rules: [],
     },
     {
-      name: "allows smoke:tui, which self-skips under CI on its own",
+      name: "allows smoke:tui, which runs for real in CI (#2408)",
       text: workflow("      - run: npm run smoke:tui"),
       rules: [],
     },

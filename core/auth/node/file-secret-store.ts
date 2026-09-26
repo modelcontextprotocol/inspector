@@ -677,7 +677,13 @@ export class FileSecretStore implements SecretStore {
     let plain: string;
     try {
       const key = await this.deriveKey(parsed.kdf);
-      const decipher = crypto.createDecipheriv(CIPHER, key, parts.iv);
+      // `authTagLength` pins the tag size at the cipher itself, not only in
+      // `encryptedEnvelopeProblem` above: Node 22 (our engines floor) will
+      // otherwise authenticate a tag truncated to 4 bytes, cutting a forgery
+      // to ~2^-32 per attempt (#2485). Newer Node rejects it on its own.
+      const decipher = crypto.createDecipheriv(CIPHER, key, parts.iv, {
+        authTagLength: GCM_TAG_BYTES,
+      });
       decipher.setAuthTag(parts.tag);
       plain = Buffer.concat([
         decipher.update(parts.body),
@@ -716,7 +722,9 @@ export class FileSecretStore implements SecretStore {
       };
       const key = await this.deriveKey(kdf);
       const iv = crypto.randomBytes(IV_BYTES);
-      const cipher = crypto.createCipheriv(CIPHER, key, iv);
+      const cipher = crypto.createCipheriv(CIPHER, key, iv, {
+        authTagLength: GCM_TAG_BYTES,
+      });
       const body = Buffer.concat([
         cipher.update(JSON.stringify(map), "utf-8"),
         cipher.final(),

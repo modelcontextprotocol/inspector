@@ -56,8 +56,9 @@ inspector/
 │   └── launcher/     Shared launcher — provides the `mcp-inspector` bin, dispatches to web/cli/tui
 ├── core/             Shared code consumed via the `@inspector/core` alias (no package.json)
 ├── test-servers/     Composable MCP test servers + fixtures used by integration and smoke tests
-├── scripts/          Root build/verify tooling (install cascade, smokes, the verify:* guards)
-│                     and repo automation run from CI (the dependency, Dependabot-alert and SDK sweeps)
+├── scripts/          Root build/verify tooling (install cascade, smokes, the verify:* guards),
+│                     repo automation run from CI (the dependency, Dependabot-alert and SDK sweeps)
+│                     and the Docker image's HEALTHCHECK probe
 ├── docs/             Task-oriented guides — see below
 ├── specification/    Design/build specifications
 ├── .claude/skills/   Agent skills: the repo's procedures, invokable by name
@@ -94,10 +95,10 @@ Each client self-validates from its own folder; the root scripts chain them. The
 ```bash
 npm run validate     # fast inner loop: format:check + lint + typecheck + build + unit tests
 npm run coverage     # the per-file ≥90% gate (lines/statements/functions/branches)
-npm run local:gate   # MANDATORY before pushing — every GitHub CI check, plus two local-only ones
+npm run local:gate   # MANDATORY before pushing — every GitHub CI check, plus one local-only one
 ```
 
-`npm run local:gate` chains every check below, plus the smokes and the Storybook tests. [Testing and the quality gate](./docs/quality-gate.md) owns the stage list and says what each one covers and why two are local-only; [`AGENTS.md`](./AGENTS.md) holds the testing rules themselves.
+`npm run local:gate` chains every check below, plus the smokes and the Storybook tests. [Testing and the quality gate](./docs/quality-gate.md) owns the stage list and says what each one covers and why one is local-only; [`AGENTS.md`](./AGENTS.md) holds the testing rules themselves.
 
 ## Contributing — `AGENTS.md`, `CLAUDE.md`, and the skills
 

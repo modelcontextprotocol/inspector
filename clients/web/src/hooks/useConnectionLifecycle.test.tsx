@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { useLayoutEffect, useRef } from "react";
 import { InspectorClient } from "@inspector/core/mcp/index.js";
+import { UI_EXTENSION_KEY } from "@inspector/core/mcp/extensions.js";
 import type {
   ConnectionStatus,
   InspectorServerSettings,
@@ -22,6 +23,7 @@ import type { getWebRemoteOAuthStorage } from "../lib/remoteOAuthStorage";
 import {
   useConnectionLifecycle,
   useHandshakeTelemetry,
+  WEB_CLIENT_NAME,
   type ConnectionLifecycle,
   type SessionResetSurface,
 } from "./useConnectionLifecycle";
@@ -111,6 +113,8 @@ interface HarnessProps {
   client?: InspectorClient | null;
   clientConfig?: ClientConfig;
   sandboxUrl?: string;
+  /** The Inspector version `/api/config` reported, if any (#2445). */
+  inspectorVersion?: string;
   /**
    * The `/api/config` gate a connect awaits. Defaults to already-settled;
    * supply a pending promise to hold a connect at that gate.
@@ -218,6 +222,7 @@ function harness(initial: HarnessProps = {}): Harness {
       clientConfig: p.clientConfig ?? {},
       newAppElicitationSession: s.newAppElicitationSession,
       sandboxUrl: p.sandboxUrl,
+      inspectorVersion: p.inspectorVersion,
       initialConfigSettledRef,
       connectStartRef,
       setupClientForServerRef,
@@ -418,6 +423,10 @@ describe("useConnectionLifecycle", () => {
       // The sandbox is present, so the nested MCP Apps elicitation session is
       // opened and the capability may be advertised (#1854).
       expect(h.spies.newAppElicitationSession).toHaveBeenCalled();
+      // ...and the client claims it can render MCP Apps (#2403).
+      expect(
+        client.getClientCapabilities().extensions?.[UI_EXTENSION_KEY],
+      ).toBeDefined();
     });
 
     it("falls back to the entry's own settings and the default log size", () => {
@@ -433,6 +442,10 @@ describe("useConnectionLifecycle", () => {
       );
       // No sandbox URL — the client must not claim app-rendered elicitation.
       expect(h.spies.newAppElicitationSession).not.toHaveBeenCalled();
+      // Nor MCP Apps rendering at all — it has no renderer (#2403).
+      expect(
+        client.getClientCapabilities().extensions?.[UI_EXTENSION_KEY],
+      ).toBeUndefined();
     });
 
     it("waits for the config gate, then reads the sandbox URL as of then", async () => {
@@ -470,6 +483,55 @@ describe("useConnectionLifecycle", () => {
       // Built from the URL as of the release, not the `undefined` in scope when
       // the toggle was called.
       expect(h.spies.newAppElicitationSession).toHaveBeenCalled();
+    });
+
+    it("reports the /api/config Inspector version as clientInfo (#2445)", () => {
+      const h = harness({ servers: [entry("a")], inspectorVersion: "2.7.0" });
+
+      const client = h.published()!(entry("a"));
+
+      expect(client.getClientInfo()).toEqual({
+        name: WEB_CLIENT_NAME,
+        version: "2.7.0",
+      });
+    });
+
+    it("keeps core's neutral identity when no version is available", () => {
+      // An unreadable version leaves the option off rather than inventing
+      // one; core's fallback carries the same name, so only the version moves.
+      const h = harness({ servers: [entry("a")] });
+
+      const client = h.published()!(entry("a"));
+
+      expect(client.getClientInfo()).toEqual({
+        name: WEB_CLIENT_NAME,
+        version: "0.0.0",
+      });
+    });
+
+    it("reads the version as of the config gate, like the sandbox URL", async () => {
+      // Same late-arrival shape as the sandbox test above: the version comes
+      // in the same `/api/config` response the connect is waiting on.
+      let settle!: () => void;
+      const gate = new Promise<void>((resolve) => (settle = resolve));
+      const props: HarnessProps = {
+        servers: [entry("a")],
+        configSettled: gate,
+      };
+      const h = harness(props);
+
+      let toggled: Promise<void>;
+      act(() => {
+        toggled = h.api().onToggleConnection("a");
+      });
+      h.rerender({ ...props, inspectorVersion: "2.7.0" });
+
+      await act(async () => {
+        settle();
+        await toggled;
+      });
+
+      expect(lastClient(h).getClientInfo().version).toBe("2.7.0");
     });
 
     it("carries the OAuth session id onto both the client and its stores", () => {
@@ -950,6 +1012,67 @@ describe("useConnectionLifecycle", () => {
 
       expect(disconnectSpy).toHaveBeenCalled();
       expect(h.spies.finalizeExplicitDisconnect).toHaveBeenCalled();
+    });
+  });
+
+  describe("onReconnect", () => {
+    /** Connect "a" and rerender with it as the live session. */
+    const connectedHarness = async () => {
+      const h = harness({ servers: [entry("a")] });
+      await act(async () => {
+        await h.api().onToggleConnection("a");
+      });
+      const first = lastClient(h);
+      h.rerender({
+        servers: [entry("a")],
+        activeServerId: "a",
+        connectionStatus: "connected",
+        client: first,
+      });
+      vi.clearAllMocks();
+      return { h, first };
+    };
+
+    it("tears the live session down and connects a fresh client (#2460)", async () => {
+      const { h, first } = await connectedHarness();
+
+      await act(async () => {
+        await h.api().onReconnect("a");
+      });
+
+      // One disconnect, then a connect — not the second disconnect a stale
+      // toggle closure would have produced.
+      expect(disconnectSpy).toHaveBeenCalledTimes(1);
+      expect(h.spies.finalizeExplicitDisconnect).toHaveBeenCalledTimes(1);
+      expect(connectSpy).toHaveBeenCalledTimes(1);
+      expect(lastClient(h)).not.toBe(first);
+      // Restores the id the teardown's disconnect event cleared.
+      expect(h.spies.setActiveServerId).toHaveBeenCalledWith("a");
+    });
+
+    it("connects without a teardown when the target is not the live session", async () => {
+      const h = harness({ servers: [entry("a"), entry("b")] });
+
+      await act(async () => {
+        await h.api().onReconnect("b");
+      });
+
+      expect(disconnectSpy).not.toHaveBeenCalled();
+      expect(h.spies.finalizeExplicitDisconnect).not.toHaveBeenCalled();
+      expect(connectSpy).toHaveBeenCalledTimes(1);
+      expect(h.spies.setActiveServerId).toHaveBeenCalledWith("b");
+    });
+
+    it("finalizes and does not reconnect when the teardown rejects", async () => {
+      const { h } = await connectedHarness();
+      disconnectSpy.mockRejectedValueOnce(new Error("close failed"));
+
+      await act(async () => {
+        await expect(h.api().onReconnect("a")).rejects.toThrow("close failed");
+      });
+
+      expect(h.spies.finalizeExplicitDisconnect).toHaveBeenCalledTimes(1);
+      expect(connectSpy).not.toHaveBeenCalled();
     });
   });
 

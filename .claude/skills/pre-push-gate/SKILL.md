@@ -31,7 +31,7 @@ prints each stage as it starts, so the running command is the other reliable
 answer.
 
 It runs **every check** GitHub CI runs (which additionally runs `npm install`,
-and runs `coverage` as a parallel job), plus two local-only steps. So the
+and runs `coverage` as a parallel job), plus one local-only step. So the
 direction that matters holds: **passing `local:gate` locally means every check
 CI applies has already passed on your machine** — the strongest predictor of a
 green CI there is here, though not a proof (a different OS, and the bare test
@@ -88,6 +88,32 @@ A `.claude/skills` manifest does not parse, declares no invocation mode, or a
 model-invoked skill is missing its eval cases. `verify:skills:cli` is the
 authoritative validator and fetches a pinned CLI over the network if you have
 none installed — so it is also the one stage that will fail offline.
+
+### `verify:install-fresh`
+
+An installed package's version disagrees with its install's lockfile — `node_modules`
+is older than the tree you pulled. **Run `npm install` at the repo root** (it
+cascades into every client) and re-run. This is the first guard for a reason: a
+stale install otherwise passes every check and fails later as a behavioral test
+reporting the *old* dependency's behavior as a product bug (#2494). Don't
+"fix" that test.
+
+### `verify:action-pins`
+
+A job that holds a credential (`id-token`/`packages: write`, a non-default
+secret, or it builds an artifact such a job downloads) runs an action that is
+not SHA-pinned (#2484). Pin it the way its neighbours are —
+`owner/repo@<40-hex sha> # vX.Y.Z` — resolving both from one lookup:
+
+```sh
+REPO=actions/checkout; TAG=v7
+SHA=$(gh api "repos/$REPO/commits/$TAG" --jq .sha)
+gh api --paginate "repos/$REPO/tags?per_page=100" \
+  --jq ".[] | select(.commit.sha==\"$SHA\") | .name" | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1
+```
+
+If a job started failing because it gained a secret or a scope, that is the
+guard doing its job — pin its actions rather than dropping the scope to dodge it.
 
 ### `verify:dep-lockstep`
 
@@ -165,13 +191,15 @@ and a `pgrep -f "npm run local:gate"` loop matches _itself_ and never exits.
 A gate that starts with
 
 ```
-gate-lease: pid 12345 in /Users/you/Projects/mcp-inspector-wt-1, running for 2m10s holds the gate lease; waiting …
+gate-lease: pid 12345 in /Users/you/Projects/mcp-inspector-wt-1, running for 2m10s holds the gate lease, with 2 more gates queued ahead of this one; waiting …
 ```
 
-is queued behind another worktree's gate, and will start the moment it
-releases (it re-checks every 2s and prints `still waiting` once a minute). The
+is queued behind another worktree's gate. Queued gates start in the order they
+arrived (#2473), so this one starts once the holder and the gates ahead of it
+have run (it re-checks every 2s and prints `still waiting` once a minute). The
 holder's pid and worktree are in the line, so you can decide whether to wait
-or to stop that gate. A holder that was **killed** — a closed terminal, an
+or to stop that gate. A queued gate that is stopped or killed while waiting
+leaves the line at the next waiter's poll; nothing needs cleaning up. A holder that was **killed** — a closed terminal, an
 OOM'd session — stops refreshing its lock and is taken over after 30s; nothing
 needs cleaning up by hand. The one exception is a dead holder's lock directory
 that cannot be removed (a stray file inside it, or permissions): the takeover
@@ -187,16 +215,14 @@ own.
 for a measurement that needs contention; it does not get a result sooner,
 because the queued run finishes before an overlapped one would.
 
-## Local-only steps
+## Local-only step
 
-Two stages have no GitHub CI counterpart, each deliberately:
+One stage has no GitHub CI counterpart, deliberately:
 
 - **`smoke:web:firefox`** — the three browser-driven web smokes again under
   Firefox. Trialled as a CI job and removed (#2086): across a dozen runs it never
   disagreed with Chromium, and `playwright install --with-deps` carries a real
   flake surface. Kept in front of a human about to push instead.
-- **`smoke:tui`** — needs a real TTY. It _is_ invoked in CI via `npm run smoke`
-  and self-skips there on `process.env.CI`, so it needs no guarding.
 
 A guard (`scripts/lib/workflow-gate.mjs`, run by `npm run test:scripts`) fails
 the suite if a workflow invokes a `local:*` script, a non-Chromium engine pass,

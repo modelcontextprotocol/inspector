@@ -202,7 +202,7 @@ describe("createCliOAuthNavigation", () => {
     expect(lines.join("")).not.toContain("\u001b]8;;");
   });
 
-  it("swallows browser-open failures after printing the URL", async () => {
+  it("tells the user to open the URL manually when the browser open fails", async () => {
     const lines: string[] = [];
     const openBrowser = vi.fn().mockRejectedValue(new Error("no browser"));
     const nav = createCliOAuthNavigation({
@@ -214,8 +214,29 @@ describe("createCliOAuthNavigation", () => {
       autoOpenEnabled: true,
     });
     nav.navigateToAuthorization(new URL("https://as.example/a"));
-    await vi.waitFor(() => expect(openBrowser).toHaveBeenCalledOnce());
-    expect(lines.join("")).toContain("Please navigate to:");
+    await vi.waitFor(() => expect(lines).toHaveLength(2));
+    expect(lines).toEqual([
+      "Please navigate to: https://as.example/a\n",
+      "Could not open a browser automatically (no browser). Open the URL above manually.\n",
+    ]);
+  });
+
+  it("reports a non-Error browser-open rejection verbatim", async () => {
+    const lines: string[] = [];
+    const openBrowser = vi.fn().mockRejectedValue("spawn failed");
+    const nav = createCliOAuthNavigation({
+      isTTY: true,
+      noColorEnv: "1",
+      write: (line) => lines.push(line),
+      openBrowser,
+      autoOpenControl: { armed: true },
+      autoOpenEnabled: true,
+    });
+    nav.navigateToAuthorization(new URL("https://as.example/a"));
+    await vi.waitFor(() => expect(lines).toHaveLength(2));
+    expect(lines[1]).toBe(
+      "Could not open a browser automatically (spawn failed). Open the URL above manually.\n",
+    );
   });
 
   it("writes to stderr and uses openUrl by default when armed on a TTY", async () => {
