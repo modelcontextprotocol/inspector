@@ -1231,3 +1231,64 @@ describe("unrecognized oauth.json refuses mutations", () => {
     ).toBeNull();
   });
 });
+
+describe("unservable token payloads stay plaintext", () => {
+  // The store join serves a stored token value only when it passes the full
+  // OAuthTokensSchema (parseStoredTokens). A partial-but-legitimate payload
+  // — e.g. a refresh-only entry inherited from a legacy plaintext file —
+  // must therefore never be stripped into the store: it would be written
+  // with apparent success and silently dropped on the very next read. The
+  // split keeps it in the residue instead, so saves, migration, and the
+  // GET/echo round trip all preserve it.
+  const PARTIAL = { refresh_token: "rt-only", token_type: "Bearer" };
+
+  it("a save keeps a partial token payload in the file, not the store", async () => {
+    const store = new InMemorySecretStore();
+    const id = oauthSecretServerId(SERVER);
+    const snapshot = snapshotWith();
+    snapshot.servers[SERVER]!.tokens = { ...PARTIAL } as never;
+
+    await writeOAuthSections(filePath, snapshot, { servers: [SERVER] }, store);
+    await flushStoreFileWrites(filePath);
+
+    // Plaintext residue carries the payload; the store holds nothing the
+    // join would discard; the servable client secret still splits.
+    expect(readRawFile().servers[SERVER]!.tokens).toEqual(PARTIAL);
+    expect(await store.get(id, LEGACY_TOKENS_FIELD)).toBeNull();
+    expect(await store.get(id, LEGACY_CLIENT_SECRET_FIELD)).toBe("cs");
+
+    const read = await readOAuthStore(filePath, store);
+    expect(read?.servers[SERVER]?.tokens).toEqual(PARTIAL);
+    expect(read?.servers[SERVER]?.clientInformation?.client_secret).toBe("cs");
+  });
+
+  it("migration preserves partial plaintext tokens while stripping servable fields", async () => {
+    const legacy = snapshotWith();
+    legacy.servers[SERVER]!.tokens = { ...PARTIAL } as never;
+    await writeStoreFile(filePath, JSON.stringify(legacy));
+    await flushStoreFileWrites(filePath);
+    const store = new InMemorySecretStore();
+    const id = oauthSecretServerId(SERVER);
+
+    const snapshot = await readOAuthStore(filePath, store);
+
+    // Served on the first read — the exact loss scenario: migration used to
+    // copy the unservable JSON into the store and strip the file, turning a
+    // working refresh-only entry into no token at all.
+    expect(snapshot?.servers[SERVER]?.tokens).toEqual(PARTIAL);
+    expect(await store.get(id, LEGACY_TOKENS_FIELD)).toBeNull();
+    expect(await store.get(id, LEGACY_CLIENT_SECRET_FIELD)).toBe("cs");
+    const raw = readRawFile();
+    expect(raw.servers[SERVER]!.tokens).toEqual(PARTIAL);
+    expect(
+      raw.servers[SERVER]!.clientInformation?.client_secret,
+    ).toBeUndefined();
+
+    // A steady-state file re-enters migration on every read; it must stay
+    // stable (and identical — the rewrite is skipped) across reads.
+    const bytesAfterFirstRead = readFileSync(filePath, "utf-8");
+    const again = await readOAuthStore(filePath, store);
+    expect(again?.servers[SERVER]?.tokens).toEqual(PARTIAL);
+    expect(readFileSync(filePath, "utf-8")).toBe(bytesAfterFirstRead);
+  });
+});

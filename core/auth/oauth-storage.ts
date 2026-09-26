@@ -322,11 +322,21 @@ export class OAuthStorageBase implements OAuthStorage {
     if (!tokens) {
       return undefined;
     }
-    const parsed = await OAuthTokensSchema.parseAsync(tokens);
+    // Serve only a full, servable token set. A partial payload — say a
+    // refresh-only entry preserved from a legacy plaintext file (see
+    // `splitTokens` in oauth-secrets.ts) — is deliberately kept at rest for
+    // the CLI's stored-token refresh, but *serving* it here would hand the
+    // SDK a token set with no access token; and a throw would brick every
+    // flow that touches this server instead of prompting re-authorization.
+    // "No usable tokens" is the answer that re-authorizes.
+    const result = await OAuthTokensSchema.safeParseAsync(tokens);
+    if (!result.success) {
+      return undefined;
+    }
     // Stamp only when the value came from the issuer-keyed slot (see
     // getClientInformation) — never stamp a legacy unkeyed token with this issuer.
     return withIssuer(
-      parsed,
+      result.data,
       fromSlot ? this.resolveReadIssuer(state, issuer) : undefined,
     );
   }

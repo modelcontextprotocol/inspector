@@ -176,18 +176,15 @@ function isValidClientInformation(value: unknown): boolean {
  * not brick every mutation of the file.
  *
  * The check is the *partial* token schema — every present field must be
- * well-typed, none is required — because the API's own reads can produce
- * partial shapes: a legacy plaintext file whose tokens the store join's
- * usability gate does not serve keeps them in the residue
- * (`isUsableStoredSecret` stops migration from stripping them), a GET
- * returns them, and a client echoing that state back must not be refused.
- * Known residual: a partial shape written *fresh* through a durable store
- * is split into the store, where the same usability gate drops it on the
- * next read — the gate's documented "usable = servable" rule (see
- * `parseStoredTokens`), applied uniformly to file- and API-originated
- * values, not something this boundary can reject without refusing state
- * the API itself serves. Validation only: extra fields such as the
- * SEP-2352 `issuer` stamp pass through.
+ * well-typed, none is required — because partial shapes are legitimate
+ * state the API itself serves: the split keeps a token payload the store
+ * join cannot serve (full-schema gate, see `parseStoredTokens`) plaintext
+ * in the residue, so a legacy refresh-only entry round-trips through
+ * saves, migration, and GET/echo without loss (the token *serve* path,
+ * `getTokens`, reports such an entry as no usable tokens rather than
+ * serving or throwing — the CLI's stored-token refresh reads the plaintext
+ * `refresh_token` directly). Validation only: extra
+ * fields such as the SEP-2352 `issuer` stamp pass through.
  */
 const PartialTokensSchema = OAuthTokensSchema.partial();
 function isValidTokens(value: unknown): boolean {

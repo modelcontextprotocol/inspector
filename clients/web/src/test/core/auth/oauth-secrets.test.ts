@@ -27,6 +27,7 @@ import {
   snapshotHasPlaintextSecrets,
 } from "@inspector/core/auth/node/oauth-secrets.js";
 import type { ServerOAuthState } from "@inspector/core/auth/store.js";
+import type { OAuthTokens } from "@modelcontextprotocol/client";
 import type { OAuthPersistSnapshot } from "@inspector/core/auth/oauth-persist.js";
 
 const TOKENS = {
@@ -178,6 +179,21 @@ describe("splitServerOAuthState", () => {
     expect(residue).toEqual(state);
     expect(secrets).toEqual({});
   });
+
+  it("drops a post-policy token payload with no secret-bearing field", () => {
+    // Policy "access" applied to a refresh-only entry leaves only
+    // { token_type } — nothing worth preserving. Keeping it plaintext
+    // would plant a secretless artifact that lingers in the file forever.
+    const state: ServerOAuthState = {
+      tokens: {
+        refresh_token: "rt-only",
+        token_type: "Bearer",
+      } as unknown as OAuthTokens,
+    };
+    const { residue, secrets } = splitServerOAuthState(state, "access");
+    expect(secrets[LEGACY_TOKENS_FIELD]).toBeUndefined();
+    expect(residue.tokens).toBeUndefined();
+  });
 });
 
 describe("joinServerOAuthState", () => {
@@ -267,6 +283,27 @@ describe("splitIdpSession / joinIdpSession", () => {
 
   it("stores nothing for a session with no tokens", () => {
     expect(splitIdpSession({ idTokenExpiresAt: 5 }, "all").secrets).toEqual({});
+  });
+
+  it("stringifies only string-typed fields: non-strings never reach the store", () => {
+    // parseStoredIdpSession extracts only string fields on read, so a
+    // non-string (corrupt data tolerated by the file parser) would be
+    // stored with apparent success and yield nothing. It is dropped here.
+    const corrupt = {
+      idToken: 42,
+      refreshToken: "rt",
+      idTokenExpiresAt: 5,
+    } as unknown as Parameters<typeof splitIdpSession>[0];
+    const { residue, secrets } = splitIdpSession(corrupt, "all");
+    expect(JSON.parse(secrets[IDP_SESSION_FIELD]!)).toEqual({
+      refreshToken: "rt",
+    });
+    expect(residue).toEqual({ idTokenExpiresAt: 5 });
+    // Both fields corrupt: nothing usable, nothing stored.
+    const junk = { idToken: 42 } as unknown as Parameters<
+      typeof splitIdpSession
+    >[0];
+    expect(splitIdpSession(junk, "all").secrets).toEqual({});
   });
 
   it("rejoins, and tolerates absent or corrupt store entries", () => {

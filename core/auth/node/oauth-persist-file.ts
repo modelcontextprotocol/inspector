@@ -823,7 +823,8 @@ async function migratePlaintextSecrets(
   filePath: string,
   secretStore: SecretStore,
 ): Promise<void> {
-  const fresh = parseOAuthPersistBlob(await readStoreFile(filePath));
+  const raw = await readStoreFile(filePath);
+  const fresh = parseOAuthPersistBlob(raw);
   if (!fresh || !snapshotHasPlaintextSecrets(fresh)) return;
   const migrateEntrySecrets = async (
     serverId: string,
@@ -859,7 +860,16 @@ async function migratePlaintextSecrets(
     setOwnEntry(residue.idpSessions, issuer, split.residue);
     await migrateEntrySecrets(oauthIdpSecretServerId(issuer), split.secrets);
   }
-  await writeStoreFile(filePath, serializeOAuthPersistBlob(residue));
+  // The split keeps token payloads the store join cannot serve in the
+  // residue (see `splitTokens`), so a legacy partial-token entry stays
+  // plaintext instead of being stripped into an unreadable store value.
+  // Such a file re-enters migration on every read; skip the rewrite when
+  // nothing would change so a steady-state file is not re-written (and a
+  // concurrent writer not clobbered) per read.
+  const stripped = serializeOAuthPersistBlob(residue);
+  if (stripped !== raw) {
+    await writeStoreFile(filePath, stripped);
+  }
 }
 
 /**

@@ -122,6 +122,43 @@ function applyTokensPolicy(
 }
 
 /**
+ * Split one `tokens` payload into what goes to the store and what must stay
+ * plaintext in the residue. The store only receives a payload the read-side
+ * join can serve back (`parseStoredTokens` gates with the full
+ * `OAuthTokensSchema`): a partial-but-legitimate payload — say a
+ * refresh-only entry inherited from a legacy plaintext file — would
+ * otherwise be stored with apparent success, stripped from the residue, and
+ * silently dropped on the very next read. Such a payload stays in the
+ * residue instead, *post-policy* so `none`/`access` stripping still
+ * applies: the file is the only place it can survive. A post-policy payload
+ * with no secret-bearing field at all (no `access_token`, `refresh_token`,
+ * or `id_token` — say policy `access` applied to a refresh-only entry) is
+ * dropped rather than kept: there is nothing left worth preserving, and a
+ * secretless `tokens` artifact in the residue would linger forever. Every
+ * consumer of the split (saves, lazy migration, the non-durable keep)
+ * inherits this rule, so no path can strip a token payload the store
+ * cannot serve.
+ */
+function splitTokens(
+  tokens: OAuthTokens,
+  policy: PersistTokensPolicy,
+): { secret?: string; plaintext?: OAuthTokens } {
+  const kept = applyTokensPolicy(tokens, policy);
+  if (!kept) return {};
+  if (OAuthTokensSchema.safeParse(kept).success) {
+    return { secret: JSON.stringify(kept) };
+  }
+  if (
+    kept.access_token === undefined &&
+    kept.refresh_token === undefined &&
+    kept.id_token === undefined
+  ) {
+    return {};
+  }
+  return { plaintext: kept };
+}
+
+/**
  * The bearer-grade keys a `clientInformation` object can carry.
  * `client_secret` is in the declared type; `registration_access_token` (the
  * RFC 7592 registration-management credential — same bearer class, see
@@ -220,8 +257,11 @@ export function splitServerOAuthState(
       const slotResidue: IssuerBoundOAuthState = { ...slot };
       if (slot.tokens) {
         delete slotResidue.tokens;
-        const kept = applyTokensPolicy(slot.tokens, policy);
-        if (kept) secrets[issuerTokensField(issuer)] = JSON.stringify(kept);
+        const tokenSplit = splitTokens(slot.tokens, policy);
+        if (tokenSplit.secret !== undefined) {
+          secrets[issuerTokensField(issuer)] = tokenSplit.secret;
+        }
+        if (tokenSplit.plaintext) slotResidue.tokens = tokenSplit.plaintext;
       }
       if (slot.clientInformation) {
         slotResidue.clientInformation = splitClientInformation(
@@ -240,8 +280,11 @@ export function splitServerOAuthState(
 
   if (state.tokens) {
     delete residue.tokens;
-    const kept = applyTokensPolicy(state.tokens, policy);
-    if (kept) secrets[LEGACY_TOKENS_FIELD] = JSON.stringify(kept);
+    const tokenSplit = splitTokens(state.tokens, policy);
+    if (tokenSplit.secret !== undefined) {
+      secrets[LEGACY_TOKENS_FIELD] = tokenSplit.secret;
+    }
+    if (tokenSplit.plaintext) residue.tokens = tokenSplit.plaintext;
   }
   if (state.clientInformation) {
     residue.clientInformation = splitClientInformation(
@@ -385,7 +428,15 @@ export function joinServerOAuthState(
   return joined;
 }
 
-/** Split one IdP session: `idToken`/`refreshToken` are the secrets. */
+/**
+ * Split one IdP session: `idToken`/`refreshToken` are the secrets. Only
+ * string-typed values are stringified into the store — the read-side
+ * `parseStoredIdpSession` extracts only string fields, so a non-string
+ * (corrupt data tolerated by the file parser) would be stored with apparent
+ * success and yield nothing on read. Unlike partial token payloads there is
+ * no legitimate non-string shape to preserve, so it is dropped here rather
+ * than kept in the residue.
+ */
 export function splitIdpSession(
   session: IdpSessionState,
   policy: PersistTokensPolicy,
@@ -397,8 +448,9 @@ export function splitIdpSession(
     (idToken !== undefined || refreshToken !== undefined)
   ) {
     const kept: Pick<IdpSessionState, "idToken" | "refreshToken"> = {
-      ...(idToken !== undefined && { idToken }),
-      ...(policy === "all" && refreshToken !== undefined && { refreshToken }),
+      ...(typeof idToken === "string" && { idToken }),
+      ...(policy === "all" &&
+        typeof refreshToken === "string" && { refreshToken }),
     };
     if (Object.keys(kept).length > 0) {
       secrets[IDP_SESSION_FIELD] = JSON.stringify(kept);
