@@ -13,7 +13,10 @@
  * `HOST` is a *bind* address and this needs a *connect* address, so a wildcard
  * cannot be used verbatim: the IPv4 wildcard (and the empty host, which Node's
  * `listen()` treats as unspecified) maps to `127.0.0.1`, the IPv6 wildcard to
- * `[::1]`. Every other host is used as the server would bind it.
+ * `[::1]`. Every other host is used as the server would bind it, except that
+ * an IPv6 zone id (`fe80::1%eth0`) is dropped: a URL authority cannot carry
+ * one, so a link-local bind is not probed on its own scope. `CLIENT_PORT` is
+ * trimmed and an empty value treated as unset, as the server does.
  *
  * It is a file rather than the `node -e` one-liner so it can be tested — the
  * image installs only the packed tarball, so it cannot import
@@ -46,7 +49,8 @@ const WILDCARD_TO_LOOPBACK = new Map([
  * as unhealthy — a server could not have bound it either.
  */
 export function probeUrl(env) {
-  const port = env.CLIENT_PORT || DEFAULT_PORT;
+  // Matches web-server-config.ts: trimmed, and empty means unset.
+  const port = env.CLIENT_PORT?.trim() || DEFAULT_PORT;
   // The server de-brackets an IPv6 HOST and a URL authority cannot carry a
   // zone id, so strip both before re-bracketing any IPv6 literal.
   const bare = (env.HOST ?? DEFAULT_HOST)

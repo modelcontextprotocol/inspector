@@ -53,6 +53,12 @@ describe("probeUrl", () => {
     );
   });
 
+  it("trims CLIENT_PORT and treats an empty one as unset, as the server does", () => {
+    assert.equal(probeUrl({ CLIENT_PORT: " 8080 " }), "http://127.0.0.1:8080/");
+    assert.equal(probeUrl({ CLIENT_PORT: "   " }), "http://127.0.0.1:6274/");
+    assert.equal(probeUrl({ CLIENT_PORT: "" }), "http://127.0.0.1:6274/");
+  });
+
   it("throws on a HOST no server could bind", () => {
     assert.throws(() => probeUrl({ HOST: "not a host" }));
   });
