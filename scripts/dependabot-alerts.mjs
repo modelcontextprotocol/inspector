@@ -846,7 +846,13 @@ function openAlerts(repo, spawn) {
   }
   // `--slurp` always yields an array of per-page arrays, `[[]]` when there are
   // no alerts at all, so any other shape is a partial or unexpected response.
-  if (!Array.isArray(pages) || !pages.every(Array.isArray)) {
+  // ⚠️ `every` is vacuously true for `[]`, which is zero pages rather than one
+  // empty page — the length check keeps it from reading as zero alerts.
+  if (
+    !Array.isArray(pages) ||
+    pages.length === 0 ||
+    !pages.every(Array.isArray)
+  ) {
     throw new Error(
       `dependabot-alerts: the alert listing was not a list of pages — ${untouched}`,
     );

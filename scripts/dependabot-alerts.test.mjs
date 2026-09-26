@@ -1073,6 +1073,11 @@ test("main throws, touching nothing, on an alert listing that is not a list of p
     { status: 0, stdout: JSON.stringify([[], { message: "oops" }]) },
     /not a list of pages/,
   );
+  // Zero pages is not one empty page: `[[]]` is the no-alert answer.
+  assertListingFailureTouchesNothing(
+    { status: 0, stdout: "[]" },
+    /not a list of pages/,
+  );
 });
 
 test("main leaves an unmilestoned issue off the board for triage", () => {
