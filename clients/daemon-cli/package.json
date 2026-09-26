@@ -14,7 +14,7 @@
   ],
   "scripts": {
     "build": "tsup",
-    "build:dev": "node build/mcp-bin.js daemon stop >/dev/null 2>&1; tsup",
+    "build:dev": "node scripts/stop-dev-daemon.mjs && tsup",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.test.json",
     "check": "npm run format:check && npm run lint && npm run typecheck",
     "validate": "npm run check && npm run test",
