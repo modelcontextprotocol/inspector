@@ -17,12 +17,16 @@ import type { OAuthPersistSnapshot } from "./oauth-persist.js";
 import { getOwnEntry } from "../storage/own-entry.js";
 
 /**
- * `clientInformation` as the Inspector persists it. DCR registration
- * responses are saved whole, so the RFC 7592 registration-management
- * credential can ride along even though the SDK's base
- * `OAuthClientInformation` type does not declare it. Named here so the
- * secret split (`oauth-secrets.ts`) and callers agree that the key exists —
- * it is bearer-grade and must never reach plaintext `oauth.json`.
+ * `clientInformation` as the Inspector persists it. No SDK release
+ * (`@modelcontextprotocol/sdk` 1.x through `@modelcontextprotocol/client`
+ * 2.0.0) declares the RFC 7592 registration-management credential in its
+ * client-information schemas, and both parse DCR responses with
+ * `OAuthClientInformationFullSchema.parse(...)` (zod strip), so the field
+ * has never reached this store from a live registration — it exists only in
+ * the wire response (which the UI masks for display). The secret split
+ * (`oauth-secrets.ts`) handles it purely defensively: if a future SDK
+ * preserves the field, it is bearer-grade and must never reach plaintext
+ * `oauth.json`. Nothing in the Inspector consumes it.
  */
 export type StoredOAuthClientInformation = OAuthClientInformation & {
   registration_access_token?: string;
