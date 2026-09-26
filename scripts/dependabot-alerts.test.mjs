@@ -35,6 +35,7 @@ import {
   groupAlerts,
   isDirectDependency,
   isPermissionDenied,
+  isRateLimited,
   lockfileVersions,
   main,
   mergeGhsas,
@@ -250,6 +251,21 @@ test("isPermissionDenied treats a bad token or a rate limit as a real failure", 
     isPermissionDenied("gh: HTTP 500: Internal Server Error"),
     false,
   );
+});
+
+test("isRateLimited recognizes primary, secondary and 429 rate limits", () => {
+  assert.equal(isRateLimited("gh: API rate limit exceeded (HTTP 403)"), true);
+  assert.equal(
+    isRateLimited("gh: HTTP 403: You have exceeded a secondary rate limit"),
+    true,
+  );
+  assert.equal(isRateLimited("gh: HTTP 429: Too Many Requests"), true);
+  // A scope refusal shares the 403 but is not a rate limit.
+  assert.equal(
+    isRateLimited("gh: HTTP 403: Resource not accessible by integration"),
+    false,
+  );
+  assert.equal(isRateLimited("gh: HTTP 502: Bad Gateway"), false);
 });
 
 test("parseMarker returns null for an unmarked or absent body", () => {
@@ -560,6 +576,9 @@ function fakeSpawn({
   securityFixesStatus = 0,
   securityFixesStderr = "",
   alertPages = [[]],
+  // A raw alert-listing response, overriding `alertPages` — for the failure
+  // paths, where `gh` exits non-zero or hands back something unparseable.
+  alertResponse,
   issues = [],
   comments = [],
   milestone = "v2.6.0",
@@ -582,6 +601,7 @@ function fakeSpawn({
           };
     }
     if (joined.includes("dependabot/alerts")) {
+      if (alertResponse) return { stdout: "", stderr: "", ...alertResponse };
       // `--slurp` yields one array PER PAGE; main() must flatten them.
       return ok(JSON.stringify(alertPages));
     }
@@ -967,6 +987,91 @@ test("main throws when the setting lookup fails for a non-permission reason", ()
   assert.throws(
     () => captureLog(() => main("o/r", spawn)),
     /automated-security-fixes lookup failed.*502/s,
+  );
+});
+
+// A failed or partial alert listing must never read as "no alerts": main()
+// clears every tracked issue whose alert vanished from the feed, so each of
+// these has to throw before any issue is touched (#2425).
+const trackedIssue = () => ({
+  number: 12,
+  state: "open",
+  title: "Bump `fast-uri` to `3.1.6` (security)",
+  body: buildIssueBody(
+    {
+      package: "fast-uri",
+      manifestPath: "package-lock.json",
+      fixedIn: "3.1.6",
+      ghsas: ["GHSA-a"],
+      severity: "high",
+      advisories: [],
+    },
+    asInstalled(),
+  ),
+});
+
+function assertListingFailureTouchesNothing(alertResponse, message) {
+  const spawn = fakeSpawn({ alertResponse, issues: [trackedIssue()] });
+  assert.throws(
+    () =>
+      inTempRepo({ "package-lock.json": lockWith("fast-uri", "3.1.5") }, () =>
+        withoutProjectToken(() => captureLog(() => main("o/r", spawn))),
+      ),
+    message,
+  );
+  const writes = spawn.calls.filter(
+    (c) =>
+      c.args[0] === "issue" &&
+      ["create", "edit", "comment", "close"].includes(c.args[1]),
+  );
+  assert.deepEqual(writes, [], "no issue is written");
+  assert.equal(
+    spawn.calls.some((c) => c.args.join(" ").includes("/issues?")),
+    false,
+    "the run stops before it even reads the tracked issues",
+  );
+}
+
+test("main throws, touching nothing, when the alert listing is rate-limited", () => {
+  assertListingFailureTouchesNothing(
+    { status: 1, stderr: "gh: API rate limit exceeded (HTTP 403)" },
+    /alert listing was rate-limited.*re-run once the quota resets/s,
+  );
+  assertListingFailureTouchesNothing(
+    { status: 1, stderr: "gh: HTTP 429: Too Many Requests" },
+    /alert listing was rate-limited/,
+  );
+});
+
+test("main throws, touching nothing, when the alert listing fails mid-pagination", () => {
+  // `gh api --paginate` exits non-zero when a later page fails, even though
+  // earlier pages were fetched — those must not be used as the whole feed.
+  assertListingFailureTouchesNothing(
+    { status: 1, stdout: "[[{", stderr: "gh: HTTP 502: Bad Gateway" },
+    /alert listing failed \(gh: HTTP 502: Bad Gateway\) — no issue was filed/,
+  );
+});
+
+test("main throws, touching nothing, on a truncated or empty alert listing", () => {
+  assertListingFailureTouchesNothing(
+    { status: 0, stdout: '[[{"number": 1' },
+    /truncated or malformed response/,
+  );
+  // An empty body used to parse as `null` and read as zero alerts.
+  assertListingFailureTouchesNothing(
+    { status: 0, stdout: "" },
+    /truncated or malformed response/,
+  );
+});
+
+test("main throws, touching nothing, on an alert listing that is not a list of pages", () => {
+  assertListingFailureTouchesNothing(
+    { status: 0, stdout: JSON.stringify({ message: "Not Found" }) },
+    /not a list of pages/,
+  );
+  assertListingFailureTouchesNothing(
+    { status: 0, stdout: JSON.stringify([[], { message: "oops" }]) },
+    /not a list of pages/,
   );
 });
 

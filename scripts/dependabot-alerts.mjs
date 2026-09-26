@@ -735,8 +735,21 @@ function ghJson(spawn, args) {
  * @returns {boolean}
  */
 export function isPermissionDenied(stderr) {
-  if (/rate limit/i.test(stderr)) return false;
+  if (isRateLimited(stderr)) return false;
   return /HTTP (403|404)\b/.test(stderr);
+}
+
+/**
+ * Did this failed `gh api` call hit a primary or secondary rate limit?
+ *
+ * GitHub reports both as 403 (sometimes 429), so the status cannot tell a
+ * rate limit from a scope refusal — the wording is what distinguishes them.
+ *
+ * @param {string} stderr stderr from a non-zero `gh api` call
+ * @returns {boolean}
+ */
+export function isRateLimited(stderr) {
+  return /rate limit/i.test(stderr) || /HTTP 429\b/.test(stderr);
 }
 
 /**
@@ -793,15 +806,52 @@ function checkSecurityPrsStillDisabled(repo, spawn) {
  * top-level JSON array PER PAGE, which `JSON.parse` rejects outright the moment
  * open alerts exceed the 100-per-page limit (Copilot). With it the pages arrive
  * as an array of arrays, flattened here.
+ *
+ * ⚠️ **Every failure here throws; none degrades to "no alerts"** (#2425). This
+ * is the opposite of the automated-security-fixes check, and on purpose:
+ * `main()` clears any tracked issue whose alert has vanished from this feed, so
+ * an empty or partial list — a rate limit, a pagination cut off mid-stream, an
+ * empty body — would stand down issues for alerts that are still open. The
+ * call runs before anything is written, so throwing leaves every issue and card
+ * exactly as it was, and the next scheduled run is the retry.
  */
 function openAlerts(repo, spawn) {
-  const pages = ghJson(spawn, [
+  const result = gh(spawn, [
     "api",
     "--paginate",
     "--slurp",
     `repos/${repo}/dependabot/alerts?state=open&per_page=100`,
   ]);
-  return (pages ?? []).flat();
+  const untouched = "no issue was filed, commented on or cleared this run";
+  if (result.status !== 0) {
+    const stderr = (result.stderr ?? "").trim();
+    if (isRateLimited(stderr)) {
+      throw new Error(
+        `dependabot-alerts: the alert listing was rate-limited (${stderr}) — ` +
+          `${untouched}; re-run once the quota resets`,
+      );
+    }
+    throw new Error(
+      `dependabot-alerts: the alert listing failed (${stderr}) — ${untouched}`,
+    );
+  }
+  let pages;
+  try {
+    pages = JSON.parse(result.stdout ?? "");
+  } catch (error) {
+    throw new Error(
+      `dependabot-alerts: the alert listing returned a truncated or malformed ` +
+        `response (${error.message}) — ${untouched}`,
+    );
+  }
+  // `--slurp` always yields an array of per-page arrays, `[[]]` when there are
+  // no alerts at all, so any other shape is a partial or unexpected response.
+  if (!Array.isArray(pages) || !pages.every(Array.isArray)) {
+    throw new Error(
+      `dependabot-alerts: the alert listing was not a list of pages — ${untouched}`,
+    );
+  }
+  return pages.flat();
 }
 
 /**
