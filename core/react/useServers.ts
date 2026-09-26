@@ -20,7 +20,15 @@ export interface UseServersOptions {
   baseUrl: string;
   /** Optional auth token for the `x-mcp-remote-auth` header. */
   authToken?: string;
-  /** Fetch function to use (default: globalThis.fetch). Useful in tests. */
+  /**
+   * Fetch function to use (default: globalThis.fetch). Useful in tests.
+   *
+   * Must be referentially stable across renders — declare it outside the
+   * component (or memoize it). The load and SSE effects key off it, so an
+   * inline arrow re-runs them on every render, and each run sets state:
+   * React aborts the resulting loop with "Maximum update depth exceeded"
+   * (#2508).
+   */
   fetchFn?: typeof fetch;
 }
 
