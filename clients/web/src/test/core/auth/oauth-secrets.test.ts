@@ -194,6 +194,31 @@ describe("splitServerOAuthState", () => {
     expect(secrets[LEGACY_TOKENS_FIELD]).toBeUndefined();
     expect(residue.tokens).toBeUndefined();
   });
+
+  it("moves a partial-but-legitimate token payload to the store", () => {
+    // Store write and read share the partial-schema contract, so a
+    // refresh-only payload belongs in the store like any full token set —
+    // never as plaintext in the residue.
+    const partial = { refresh_token: "rt-only", token_type: "Bearer" };
+    const state: ServerOAuthState = {
+      tokens: { ...partial } as unknown as OAuthTokens,
+    };
+    const { residue, secrets } = splitServerOAuthState(state, "all");
+    expect(residue.tokens).toBeUndefined();
+    expect(JSON.parse(secrets[LEGACY_TOKENS_FIELD]!)).toEqual(partial);
+  });
+
+  it("keeps a type-corrupt token payload in the residue, not the store", () => {
+    // The store must never hold junk the join cannot serve; the corrupt
+    // entry stays in the file, where it remains visible and clearable.
+    const corrupt = { access_token: 123, token_type: "Bearer" };
+    const state: ServerOAuthState = {
+      tokens: { ...corrupt } as unknown as OAuthTokens,
+    };
+    const { residue, secrets } = splitServerOAuthState(state, "all");
+    expect(secrets[LEGACY_TOKENS_FIELD]).toBeUndefined();
+    expect(residue.tokens).toEqual(corrupt);
+  });
 });
 
 describe("joinServerOAuthState", () => {

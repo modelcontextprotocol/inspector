@@ -177,14 +177,14 @@ function isValidClientInformation(value: unknown): boolean {
  *
  * The check is the *partial* token schema — every present field must be
  * well-typed, none is required — because partial shapes are legitimate
- * state the API itself serves: the split keeps a token payload the store
- * join cannot serve (full-schema gate, see `parseStoredTokens`) plaintext
- * in the residue, so a legacy refresh-only entry round-trips through
- * saves, migration, and GET/echo without loss (the token *serve* path,
- * `getTokens`, reports such an entry as no usable tokens rather than
- * serving or throwing — the CLI's stored-token refresh reads the plaintext
- * `refresh_token` directly). Validation only: extra
- * fields such as the SEP-2352 `issuer` stamp pass through.
+ * state the API itself serves: the store's write and read gates use the
+ * same partial contract (see `splitTokens` / `parseStoredTokens` in
+ * `node/oauth-secrets.ts`), so a legacy refresh-only entry round-trips
+ * through the store across saves, migration, and GET/echo without loss
+ * (the token *serve* path, `getTokens`, reports it as no usable tokens
+ * rather than handing the SDK a partial set — the CLI's stored-token
+ * refresh reads the rejoined `refresh_token` directly). Validation only:
+ * extra fields such as the SEP-2352 `issuer` stamp pass through.
  */
 const PartialTokensSchema = OAuthTokensSchema.partial();
 function isValidTokens(value: unknown): boolean {

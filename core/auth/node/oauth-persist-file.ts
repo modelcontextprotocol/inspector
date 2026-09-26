@@ -14,10 +14,9 @@
  *    entries the others wrote after this process last read the file.
  * 2. **Secret split** (`oauth-secrets.ts`): acquired tokens, client secrets,
  *    and IdP session tokens go to the {@link SecretStore}; the residue
- *    written to `oauth.json` carries no secret the store can serve back —
- *    though a partial-but-legitimate token payload the store's read gate
- *    would reject (see `splitTokens`) deliberately stays plaintext there.
- *    Reads rejoin the two and
+ *    written to `oauth.json` carries no usable secret (a *type-corrupt*
+ *    token payload from a hand-edited file stays in place so the entry
+ *    remains clearable — see `splitTokens`). Reads rejoin the two and
  *    lazily migrate a pre-split plaintext file — stripping it only when the
  *    store is durable, the same guard the mcp.json/client.json migrations
  *    use. A store write failure degrades those tokens to memory-only with a
@@ -863,12 +862,12 @@ async function migratePlaintextSecrets(
     setOwnEntry(residue.idpSessions, issuer, split.residue);
     await migrateEntrySecrets(oauthIdpSecretServerId(issuer), split.secrets);
   }
-  // The split keeps token payloads the store join cannot serve in the
-  // residue (see `splitTokens`), so a legacy partial-token entry stays
-  // plaintext instead of being stripped into an unreadable store value.
-  // Such a file re-enters migration on every read; skip the rewrite when
-  // nothing would change so a steady-state file is not re-written (and a
-  // concurrent writer not clobbered) per read.
+  // The split leaves only type-corrupt token payloads in the residue (see
+  // `splitTokens`), so a hand-edited junk entry stays plaintext and
+  // clearable instead of being stripped into a store value the join would
+  // reject. Such a file re-enters migration on every read; skip the rewrite
+  // when nothing would change so a steady-state file is not re-written (and
+  // a concurrent writer not clobbered) per read.
   const stripped = serializeOAuthPersistBlob(residue);
   if (stripped !== raw) {
     await writeStoreFile(filePath, stripped);

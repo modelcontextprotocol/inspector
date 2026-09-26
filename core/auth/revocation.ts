@@ -664,11 +664,21 @@ async function collectGrants(
   return { grants, failures };
 }
 
-/** Parse stored tokens, or `undefined` when the slot held none. */
+/**
+ * Parse stored tokens, or `undefined` when the slot held none. Validates
+ * with the *partial* token schema — the store contract (see `splitTokens` /
+ * `parseStoredTokens` in `node/oauth-secrets.ts`) deliberately holds
+ * partial payloads such as a refresh-only grant, and `selectRevocableToken`
+ * already picks the right token from one. Gating on the full schema here
+ * would report the grant as unreadable *after* the local state was already
+ * cleared — leaving a live bearer token at the AS with no local record. A
+ * genuinely type-corrupt value still throws, which `addSafely` reports as
+ * a per-grant failure.
+ */
 async function parseTokens(raw: unknown): Promise<OAuthTokens | undefined> {
   return raw === undefined || raw === null
     ? undefined
-    : await OAuthTokensSchema.parseAsync(raw);
+    : ((await OAuthTokensSchema.partial().parseAsync(raw)) as OAuthTokens);
 }
 
 /** Parse stored client information, or `undefined` when the slot held none. */

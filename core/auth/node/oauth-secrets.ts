@@ -104,11 +104,11 @@ export type OAuthSecretValues = Record<string, string>;
 
 export interface SplitResult<T> {
   /**
-   * What remains for `oauth.json`. Usually secret-free, with one deliberate
-   * exception: a partial-but-legitimate token payload that the store's
-   * read-side gate would reject (see {@link splitTokens}) stays plaintext
-   * here — the file is the only place it can survive. Callers must not
-   * assume the residue is safe to expose as if it carried no credentials.
+   * What remains for `oauth.json` — carries no usable secret. The one
+   * exception is a *type-corrupt* token payload (say `access_token: 123`,
+   * possible only in a hand-edited file) that {@link splitTokens} leaves in
+   * place so the entry stays clearable; every well-typed token payload,
+   * partial or full, moves to the store.
    */
   residue: T;
   /** What goes to the secret store, post-policy. */
@@ -128,22 +128,47 @@ function applyTokensPolicy(
 }
 
 /**
+ * The schema for what the secret store may hold in a tokens field: every
+ * present field well-typed, none required. This is deliberately the same
+ * shape the API write boundary accepts (`parseOAuthStoreWriteBody`) and the
+ * read-side join serves back (`parseStoredTokens`) — one contract for
+ * "storable", so nothing the split stores can be dropped on read, and
+ * nothing the boundary admits gets stranded outside the store.
+ */
+const StorableTokensSchema = OAuthTokensSchema.partial();
+
+/**
+ * The other half of the store contract: a stored payload must carry at
+ * least one bearer-grade field. `splitTokens` never stores a secretless
+ * payload, and the read side ({@link parseStoredTokens}) must not treat one
+ * as usable — it would win over plaintext in the join for no benefit.
+ */
+function hasSecretBearingTokenField(tokens: OAuthTokens): boolean {
+  return (
+    tokens.access_token !== undefined ||
+    tokens.refresh_token !== undefined ||
+    tokens.id_token !== undefined
+  );
+}
+
+/**
  * Split one `tokens` payload into what goes to the store and what must stay
- * plaintext in the residue. The store only receives a payload the read-side
- * join can serve back (`parseStoredTokens` gates with the full
- * `OAuthTokensSchema`): a partial-but-legitimate payload — say a
- * refresh-only entry inherited from a legacy plaintext file — would
- * otherwise be stored with apparent success, stripped from the residue, and
- * silently dropped on the very next read. Such a payload stays in the
- * residue instead, *post-policy* so `none`/`access` stripping still
- * applies: the file is the only place it can survive. A post-policy payload
- * with no secret-bearing field at all (no `access_token`, `refresh_token`,
+ * plaintext in the residue, *post-policy* so `none`/`access` stripping
+ * still applies. Any payload the store contract accepts
+ * ({@link StorableTokensSchema}) and that carries at least one
+ * secret-bearing field goes to the store — including partial-but-legitimate
+ * shapes such as a refresh-only entry inherited from a legacy plaintext
+ * file, which the read-side join serves back for the CLI's stored-token
+ * refresh while `getTokens` still withholds it from the SDK. A storable
+ * payload with no secret-bearing field (no `access_token`, `refresh_token`,
  * or `id_token` — say policy `access` applied to a refresh-only entry) is
- * dropped rather than kept: there is nothing left worth preserving, and a
- * secretless `tokens` artifact in the residue would linger forever. Every
- * consumer of the split (saves, lazy migration, the non-durable keep)
- * inherits this rule, so no path can strip a token payload the store
- * cannot serve.
+ * dropped: there is nothing worth preserving, and a secretless `tokens`
+ * artifact would linger forever. Only a *type-corrupt* payload (say
+ * `access_token: 123`, possible only in a hand-edited file — the API write
+ * boundary rejects it) stays plaintext in the residue: the store must never
+ * hold junk the join cannot serve, and the entry must remain clearable
+ * from the file. Every consumer of the split (saves, lazy migration, the
+ * non-durable keep) inherits these rules.
  */
 function splitTokens(
   tokens: OAuthTokens,
@@ -151,17 +176,13 @@ function splitTokens(
 ): { secret?: string; plaintext?: OAuthTokens } {
   const kept = applyTokensPolicy(tokens, policy);
   if (!kept) return {};
-  if (OAuthTokensSchema.safeParse(kept).success) {
-    return { secret: JSON.stringify(kept) };
+  if (!StorableTokensSchema.safeParse(kept).success) {
+    return { plaintext: kept };
   }
-  if (
-    kept.access_token === undefined &&
-    kept.refresh_token === undefined &&
-    kept.id_token === undefined
-  ) {
+  if (!hasSecretBearingTokenField(kept)) {
     return {};
   }
-  return { plaintext: kept };
+  return { secret: JSON.stringify(kept) };
 }
 
 /**
@@ -313,13 +334,20 @@ export function splitServerOAuthState(
 function parseStoredTokens(raw: string): OAuthTokens | undefined {
   try {
     const parsed: unknown = JSON.parse(raw);
-    // Validate with the same schema `getTokens` applies before serving the
-    // value — a looser check here (say, access_token only) would declare a
-    // value "usable" that then throws at the consumer, and migration would
-    // have stripped the valid plaintext in its favor. Validation only: the
-    // *original* object is returned, since the schema strips extra fields
-    // like the SEP-2352 `issuer` stamp that the state relies on.
-    if (OAuthTokensSchema.safeParse(parsed).success) {
+    // Validate with the store contract — the same gate `splitTokens`
+    // applies on write ({@link StorableTokensSchema} plus at least one
+    // secret-bearing field), so exactly what the split stores is served
+    // back. Partial shapes (say refresh-only) are
+    // deliberately servable: the CLI's stored-token refresh reads
+    // `state.tokens.refresh_token` from the joined state, while `getTokens`
+    // applies the full schema before handing tokens to the SDK and reports
+    // a partial as "no usable tokens". Validation only: the *original*
+    // object is returned, since the schema strips extra fields like the
+    // SEP-2352 `issuer` stamp that the state relies on.
+    if (
+      StorableTokensSchema.safeParse(parsed).success &&
+      hasSecretBearingTokenField(parsed as OAuthTokens)
+    ) {
       return parsed as OAuthTokens;
     }
   } catch {

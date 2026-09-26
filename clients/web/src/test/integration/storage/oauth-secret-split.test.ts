@@ -620,23 +620,37 @@ describe("readOAuthStore migration", () => {
     expect(readRawFile().servers[SERVER]!.tokens).toBeUndefined();
   });
 
-  it("incomplete stored tokens (schema-invalid) are replaced, not honored", async () => {
-    // `{ access_token }` without `token_type` passes a naive check but fails
-    // the OAuthTokensSchema that getTokens applies — honoring it would strip
-    // the valid plaintext and leave a value that throws when consumed.
+  it("partial stored tokens are honored over stale plaintext; junk is replaced", async () => {
+    // `{ access_token }` without `token_type` is a legitimate store value
+    // under the shared partial-schema contract — a newer save may have
+    // written it while its residue commit failed, leaving stale plaintext
+    // behind. Store-wins applies to it like any full token set. Only a
+    // value the join rejects (type-corrupt junk) is replaced by migration.
     await writeStoreFile(filePath, JSON.stringify(snapshotWith()));
     await flushStoreFileWrites(filePath);
     const store = new InMemorySecretStore();
     const id = oauthSecretServerId(SERVER);
-    await store.set(
-      id,
-      LEGACY_TOKENS_FIELD,
-      JSON.stringify({ access_token: "incomplete" }),
-    );
+    const partial = { access_token: "incomplete" };
+    await store.set(id, LEGACY_TOKENS_FIELD, JSON.stringify(partial));
 
     const snapshot = await readOAuthStore(filePath, store);
 
-    expect(snapshot?.servers[SERVER]!.tokens).toEqual(TOKENS);
+    expect(snapshot?.servers[SERVER]!.tokens).toEqual(partial);
+    expect(JSON.parse((await store.get(id, LEGACY_TOKENS_FIELD))!)).toEqual(
+      partial,
+    );
+
+    // Type-corrupt junk in the store is not usable: migration replaces it
+    // with the valid plaintext instead of honoring it.
+    await writeStoreFile(filePath, JSON.stringify(snapshotWith()));
+    await flushStoreFileWrites(filePath);
+    await store.set(
+      id,
+      LEGACY_TOKENS_FIELD,
+      JSON.stringify({ access_token: 123 }),
+    );
+    const replaced = await readOAuthStore(filePath, store);
+    expect(replaced?.servers[SERVER]!.tokens).toEqual(TOKENS);
     expect(JSON.parse((await store.get(id, LEGACY_TOKENS_FIELD))!)).toEqual(
       TOKENS,
     );
@@ -1114,12 +1128,20 @@ describe("isUsableStoredSecret", () => {
     expect(isUsableStoredSecret(issuerTokensField(ISSUER), tokens)).toBe(true);
     // Parseable JSON but not a usable tokens shape.
     expect(isUsableStoredSecret(LEGACY_TOKENS_FIELD, "{}")).toBe(false);
-    // Passes a naive access_token check but fails the OAuthTokensSchema
-    // that getTokens applies — usable must match the consumer exactly.
+    // A partial-but-legitimate payload is usable: the store's write and
+    // read gates share the partial-schema contract, and `getTokens`
+    // withholds a partial set from the SDK on its own.
     expect(
       isUsableStoredSecret(
         LEGACY_TOKENS_FIELD,
         JSON.stringify({ access_token: "x" }),
+      ),
+    ).toBe(true);
+    // Type-corrupt junk the join would reject is not usable.
+    expect(
+      isUsableStoredSecret(
+        LEGACY_TOKENS_FIELD,
+        JSON.stringify({ access_token: 123 }),
       ),
     ).toBe(false);
     expect(isUsableStoredSecret(issuerTokensField(ISSUER), "not json")).toBe(
@@ -1232,17 +1254,19 @@ describe("unrecognized oauth.json refuses mutations", () => {
   });
 });
 
-describe("unservable token payloads stay plaintext", () => {
-  // The store join serves a stored token value only when it passes the full
-  // OAuthTokensSchema (parseStoredTokens). A partial-but-legitimate payload
-  // — e.g. a refresh-only entry inherited from a legacy plaintext file —
-  // must therefore never be stripped into the store: it would be written
-  // with apparent success and silently dropped on the very next read. The
-  // split keeps it in the residue instead, so saves, migration, and the
-  // GET/echo round trip all preserve it.
+describe("partial token payloads round-trip through the store", () => {
+  // The store's write gate (`splitTokens`) and read gate
+  // (`parseStoredTokens`) share one contract: every present field
+  // well-typed, none required. A partial-but-legitimate payload — e.g. a
+  // refresh-only entry inherited from a legacy plaintext file — therefore
+  // moves to the store like any full token set and is served back by the
+  // join (the CLI's stored-token refresh depends on that), never left as
+  // plaintext in `oauth.json`. Only a type-corrupt payload stays in the
+  // file, where it remains clearable.
   const PARTIAL = { refresh_token: "rt-only", token_type: "Bearer" };
+  const CORRUPT = { access_token: 123, token_type: "Bearer" };
 
-  it("a save keeps a partial token payload in the file, not the store", async () => {
+  it("a save moves a partial token payload to the store and serves it back", async () => {
     const store = new InMemorySecretStore();
     const id = oauthSecretServerId(SERVER);
     const snapshot = snapshotWith();
@@ -1251,18 +1275,18 @@ describe("unservable token payloads stay plaintext", () => {
     await writeOAuthSections(filePath, snapshot, { servers: [SERVER] }, store);
     await flushStoreFileWrites(filePath);
 
-    // Plaintext residue carries the payload; the store holds nothing the
-    // join would discard; the servable client secret still splits.
-    expect(readRawFile().servers[SERVER]!.tokens).toEqual(PARTIAL);
-    expect(await store.get(id, LEGACY_TOKENS_FIELD)).toBeNull();
-    expect(await store.get(id, LEGACY_CLIENT_SECRET_FIELD)).toBe("cs");
+    // The bearer-grade refresh token is in the store, not the file.
+    expect(readRawFile().servers[SERVER]!.tokens).toBeUndefined();
+    expect(JSON.parse((await store.get(id, LEGACY_TOKENS_FIELD))!)).toEqual(
+      PARTIAL,
+    );
 
     const read = await readOAuthStore(filePath, store);
     expect(read?.servers[SERVER]?.tokens).toEqual(PARTIAL);
     expect(read?.servers[SERVER]?.clientInformation?.client_secret).toBe("cs");
   });
 
-  it("migration preserves partial plaintext tokens while stripping servable fields", async () => {
+  it("migration moves partial plaintext tokens into the store without loss", async () => {
     const legacy = snapshotWith();
     legacy.servers[SERVER]!.tokens = { ...PARTIAL } as never;
     await writeStoreFile(filePath, JSON.stringify(legacy));
@@ -1272,23 +1296,51 @@ describe("unservable token payloads stay plaintext", () => {
 
     const snapshot = await readOAuthStore(filePath, store);
 
-    // Served on the first read — the exact loss scenario: migration used to
-    // copy the unservable JSON into the store and strip the file, turning a
-    // working refresh-only entry into no token at all.
+    // Served on the first read — the loss scenario was migration storing a
+    // payload the old full-schema read gate then refused to serve.
     expect(snapshot?.servers[SERVER]?.tokens).toEqual(PARTIAL);
-    expect(await store.get(id, LEGACY_TOKENS_FIELD)).toBeNull();
-    expect(await store.get(id, LEGACY_CLIENT_SECRET_FIELD)).toBe("cs");
+    expect(JSON.parse((await store.get(id, LEGACY_TOKENS_FIELD))!)).toEqual(
+      PARTIAL,
+    );
     const raw = readRawFile();
-    expect(raw.servers[SERVER]!.tokens).toEqual(PARTIAL);
+    expect(raw.servers[SERVER]!.tokens).toBeUndefined();
     expect(
       raw.servers[SERVER]!.clientInformation?.client_secret,
     ).toBeUndefined();
 
-    // A steady-state file re-enters migration on every read; it must stay
-    // stable (and identical — the rewrite is skipped) across reads.
+    // Fully stripped, so the file must stay byte-stable across reads.
     const bytesAfterFirstRead = readFileSync(filePath, "utf-8");
     const again = await readOAuthStore(filePath, store);
     expect(again?.servers[SERVER]?.tokens).toEqual(PARTIAL);
     expect(readFileSync(filePath, "utf-8")).toBe(bytesAfterFirstRead);
+  });
+
+  it("a type-corrupt token payload stays in the file, clearable and byte-stable", async () => {
+    const legacy = snapshotWith();
+    legacy.servers[SERVER]!.tokens = { ...CORRUPT } as never;
+    await writeStoreFile(filePath, JSON.stringify(legacy));
+    await flushStoreFileWrites(filePath);
+    const store = new InMemorySecretStore();
+    const id = oauthSecretServerId(SERVER);
+
+    // Migration must not copy junk into the store (the join would reject
+    // it) and must not destroy it either — the entry stays clearable.
+    const snapshot = await readOAuthStore(filePath, store);
+    expect(snapshot?.servers[SERVER]?.tokens).toEqual(CORRUPT);
+    expect(await store.get(id, LEGACY_TOKENS_FIELD)).toBeNull();
+    expect(readRawFile().servers[SERVER]!.tokens).toEqual(CORRUPT);
+
+    // Such a file re-enters migration on every read; the skipped rewrite
+    // keeps it byte-stable.
+    const bytesAfterFirstRead = readFileSync(filePath, "utf-8");
+    await readOAuthStore(filePath, store);
+    expect(readFileSync(filePath, "utf-8")).toBe(bytesAfterFirstRead);
+
+    // Clearing the entry still works and removes the junk from the file.
+    const cleared = snapshotWith();
+    delete cleared.servers[SERVER]!.tokens;
+    await writeOAuthSections(filePath, cleared, { servers: [SERVER] }, store);
+    await flushStoreFileWrites(filePath);
+    expect(readRawFile().servers[SERVER]!.tokens).toBeUndefined();
   });
 });

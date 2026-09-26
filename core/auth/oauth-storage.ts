@@ -323,12 +323,12 @@ export class OAuthStorageBase implements OAuthStorage {
       return undefined;
     }
     // Serve only a full, servable token set. A partial payload — say a
-    // refresh-only entry preserved from a legacy plaintext file (see
-    // `splitTokens` in oauth-secrets.ts) — is deliberately kept at rest for
-    // the CLI's stored-token refresh, but *serving* it here would hand the
-    // SDK a token set with no access token; and a throw would brick every
-    // flow that touches this server instead of prompting re-authorization.
-    // "No usable tokens" is the answer that re-authorizes.
+    // refresh-only entry inherited from a legacy plaintext file (see
+    // `splitTokens` in oauth-secrets.ts) — is kept in the secret store and
+    // rejoined for the CLI's stored-token refresh, but *serving* it here
+    // would hand the SDK a token set with no access token; and a throw
+    // would brick every flow that touches this server instead of prompting
+    // re-authorization. "No usable tokens" is the answer that re-authorizes.
     const result = await OAuthTokensSchema.safeParseAsync(tokens);
     if (!result.success) {
       return undefined;
