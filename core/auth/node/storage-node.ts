@@ -1,4 +1,7 @@
-import { OAuthStorageBase } from "../oauth-storage.js";
+import {
+  OAuthStorageBase,
+  OAuthStorageCoordination,
+} from "../oauth-storage.js";
 import { OAuthMemoryStore } from "../store.js";
 import { createFileOAuthPersistBackend } from "./oauth-persist-file.js";
 import type { SecretStore } from "./secret-store.js";
@@ -39,17 +42,32 @@ export function getStateFilePath(customPath?: string): string {
   return DEFAULT_STATE_PATH;
 }
 
-const memoryCache = new Map<string, OAuthMemoryStore>();
+/**
+ * Per-path shared storage state. The memory store and its load/persist
+ * coordination travel together: every {@link NodeOAuthStorage} for the same
+ * state file must share BOTH, or a second instance's first `load()` would
+ * `replace()` the shared memory with older disk state and silently drop a
+ * mutation another instance had just made (see {@link OAuthStorageCoordination}).
+ */
+interface SharedStorageState {
+  memory: OAuthMemoryStore;
+  coordination: OAuthStorageCoordination;
+}
+
+const sharedStateCache = new Map<string, SharedStorageState>();
 const storageCache = new Map<string, NodeOAuthStorage>();
 
-function getSharedMemory(stateFilePath?: string): OAuthMemoryStore {
+function getSharedState(stateFilePath?: string): SharedStorageState {
   const key = getStateFilePath(stateFilePath);
-  let memory = memoryCache.get(key);
-  if (!memory) {
-    memory = new OAuthMemoryStore();
-    memoryCache.set(key, memory);
+  let shared = sharedStateCache.get(key);
+  if (!shared) {
+    shared = {
+      memory: new OAuthMemoryStore(),
+      coordination: new OAuthStorageCoordination(),
+    };
+    sharedStateCache.set(key, shared);
   }
-  return memory;
+  return shared;
 }
 
 /**
@@ -59,7 +77,7 @@ function getSharedMemory(stateFilePath?: string): OAuthMemoryStore {
  */
 export function resetNodeOAuthStorageCache(stateFilePath?: string): void {
   const key = getStateFilePath(stateFilePath);
-  memoryCache.delete(key);
+  sharedStateCache.delete(key);
   storageCache.delete(key);
 }
 
@@ -91,9 +109,11 @@ export class NodeOAuthStorage extends OAuthStorageBase {
    */
   constructor(storagePath?: string, secretStore?: SecretStore) {
     const filePath = getStateFilePath(storagePath);
+    const shared = getSharedState(storagePath);
     super(
-      getSharedMemory(storagePath),
+      shared.memory,
       createFileOAuthPersistBackend({ filePath, secretStore }),
+      shared.coordination,
     );
   }
 }

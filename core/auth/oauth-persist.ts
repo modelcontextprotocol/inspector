@@ -313,15 +313,24 @@ export interface OAuthPersistBackend {
 
 export interface RemoteOAuthPersistBackendOptions {
   baseUrl: string;
-  storeId: string;
   authToken?: string;
   fetchFn?: typeof fetch;
 }
 
+/**
+ * HTTP persist backend for OAuth state, pinned to the server's OAuth store
+ * ({@link OAUTH_PERSIST_STORE_ID}). Only the `/api/storage/oauth` route
+ * understands the `{ sections, snapshot }` sectioned-write envelope this
+ * backend sends (and gives it locked-merge + secret-split semantics); the
+ * generic store route would persist the envelope verbatim with a 200, and the
+ * next `read()` would fail to parse it — silent state loss. The store id is
+ * therefore not configurable.
+ */
 export function createRemoteOAuthPersistBackend(
   options: RemoteOAuthPersistBackendOptions,
 ): OAuthPersistBackend {
   const baseUrl = options.baseUrl.replace(/\/$/, "");
+  const storeUrl = `${baseUrl}/api/storage/${OAUTH_PERSIST_STORE_ID}`;
   const fetchFn = options.fetchFn ?? globalThis.fetch;
 
   return {
@@ -331,7 +340,7 @@ export function createRemoteOAuthPersistBackend(
         headers["x-mcp-remote-auth"] = `Bearer ${options.authToken}`;
       }
 
-      const res = await fetchFn(`${baseUrl}/api/storage/${options.storeId}`, {
+      const res = await fetchFn(storeUrl, {
         method: "GET",
         headers,
       });
@@ -364,7 +373,7 @@ export function createRemoteOAuthPersistBackend(
       // overlays only the named entries onto the file, under its
       // cross-process lock. Posting the whole snapshot bare would overwrite
       // entries other processes wrote since this browser tab loaded.
-      const res = await fetchFn(`${baseUrl}/api/storage/${options.storeId}`, {
+      const res = await fetchFn(storeUrl, {
         method: "POST",
         headers,
         body: sections
@@ -382,7 +391,7 @@ export function createRemoteOAuthPersistBackend(
         headers["x-mcp-remote-auth"] = `Bearer ${options.authToken}`;
       }
 
-      const res = await fetchFn(`${baseUrl}/api/storage/${options.storeId}`, {
+      const res = await fetchFn(storeUrl, {
         method: "DELETE",
         headers,
       });

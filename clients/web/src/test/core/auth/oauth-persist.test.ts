@@ -366,14 +366,16 @@ describe("parseOAuthStoreWriteBody", () => {
 
 describe("createRemoteOAuthPersistBackend", () => {
   const baseUrl = "http://remote.example/";
-  const storeId = "oauth";
+  // The backend is pinned to the OAuth store: only /api/storage/oauth gives
+  // the sectioned-write envelope locked-merge semantics; a configurable id
+  // would let a caller store the envelope verbatim in a generic store, where
+  // the next read would fail to parse it.
   const url = "http://remote.example/api/storage/oauth";
 
   it("read() returns the parsed snapshot and sends the auth header", async () => {
     const fetchFn = vi.fn(async () => jsonResponse(SNAPSHOT));
     const backend = createRemoteOAuthPersistBackend({
       baseUrl,
-      storeId,
       authToken: "tok",
       fetchFn: fetchFn as unknown as typeof fetch,
     });
@@ -387,7 +389,6 @@ describe("createRemoteOAuthPersistBackend", () => {
   it("read() returns null for the empty-object missing-file response", async () => {
     const backend = createRemoteOAuthPersistBackend({
       baseUrl,
-      storeId,
       fetchFn: (async () => jsonResponse({})) as unknown as typeof fetch,
     });
     expect(await backend.read()).toBeNull();
@@ -396,7 +397,6 @@ describe("createRemoteOAuthPersistBackend", () => {
   it("read() returns null on 404 and throws on other errors", async () => {
     const notFound = createRemoteOAuthPersistBackend({
       baseUrl,
-      storeId,
       fetchFn: (async () =>
         new Response("", { status: 404 })) as unknown as typeof fetch,
     });
@@ -404,7 +404,6 @@ describe("createRemoteOAuthPersistBackend", () => {
 
     const failing = createRemoteOAuthPersistBackend({
       baseUrl,
-      storeId,
       fetchFn: (async () =>
         new Response("", { status: 500 })) as unknown as typeof fetch,
     });
@@ -419,7 +418,6 @@ describe("createRemoteOAuthPersistBackend", () => {
     });
     const backend = createRemoteOAuthPersistBackend({
       baseUrl,
-      storeId,
       fetchFn: ok,
     });
     await backend.write(SNAPSHOT);
@@ -431,7 +429,6 @@ describe("createRemoteOAuthPersistBackend", () => {
 
     const failing = createRemoteOAuthPersistBackend({
       baseUrl,
-      storeId,
       fetchFn: (async () =>
         new Response("", { status: 500 })) as unknown as typeof fetch,
     });
@@ -450,7 +447,6 @@ describe("createRemoteOAuthPersistBackend", () => {
     });
     const backend = createRemoteOAuthPersistBackend({
       baseUrl,
-      storeId,
       fetchFn,
     });
     const sections = { servers: ["http://s"] };
@@ -458,7 +454,7 @@ describe("createRemoteOAuthPersistBackend", () => {
     // In the body, not the URL: a descriptor naming many server URLs
     // would otherwise exceed Node's request-target limit.
     const parsed = new URL(capturedUrl ?? "");
-    expect(parsed.pathname).toBe(`/api/storage/${storeId}`);
+    expect(parsed.pathname).toBe("/api/storage/oauth");
     expect(parsed.search).toBe("");
     expect(JSON.parse(capturedBody ?? "")).toEqual({
       sections,
@@ -469,7 +465,6 @@ describe("createRemoteOAuthPersistBackend", () => {
   it("remove() DELETEs, tolerates 404, and throws on other errors", async () => {
     const ok = createRemoteOAuthPersistBackend({
       baseUrl,
-      storeId,
       authToken: "tok",
       fetchFn: (async () =>
         new Response("", { status: 200 })) as unknown as typeof fetch,
@@ -478,7 +473,6 @@ describe("createRemoteOAuthPersistBackend", () => {
 
     const gone = createRemoteOAuthPersistBackend({
       baseUrl,
-      storeId,
       fetchFn: (async () =>
         new Response("", { status: 404 })) as unknown as typeof fetch,
     });
@@ -486,7 +480,6 @@ describe("createRemoteOAuthPersistBackend", () => {
 
     const failing = createRemoteOAuthPersistBackend({
       baseUrl,
-      storeId,
       fetchFn: (async () =>
         new Response("", { status: 500 })) as unknown as typeof fetch,
     });

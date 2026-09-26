@@ -37,46 +37,65 @@ function withIssuer<T extends object>(value: T, issuer: string | undefined): T {
 }
 
 /**
+ * Load/persist coordination for one logical store: the load-once latch and
+ * the write-serializing persist queue. Instances that share an
+ * {@link OAuthMemoryStore} (Node caches one per state-file path) must share
+ * this object too — with a per-instance latch, a second instance's first
+ * `load()` would `replace()` the shared memory with older disk state, and a
+ * mutation another instance made in the meantime would silently vanish while
+ * its mutator had already resolved as success.
+ */
+export class OAuthStorageCoordination {
+  loaded = false;
+  loadPromise: Promise<void> | undefined;
+  /** Serializes persist writes so concurrent mutators cannot reorder POSTs. */
+  persistQueue: Promise<void> = Promise.resolve();
+}
+
+/**
  * Concrete OAuthStorage implementation backed by in-memory state and an explicit
  * persist backend (file, remote HTTP, sessionStorage, …).
  */
 export class OAuthStorageBase implements OAuthStorage {
-  private loaded = false;
-  private loadPromise: Promise<void> | undefined;
-  /** Serializes persist writes so concurrent mutators cannot reorder POSTs. */
-  private persistQueue: Promise<void> = Promise.resolve();
+  private readonly coordination: OAuthStorageCoordination;
   private readonly memory: OAuthMemoryStore;
   private readonly backend: OAuthPersistBackend;
 
-  constructor(memory: OAuthMemoryStore, backend: OAuthPersistBackend) {
+  constructor(
+    memory: OAuthMemoryStore,
+    backend: OAuthPersistBackend,
+    coordination: OAuthStorageCoordination = new OAuthStorageCoordination(),
+  ) {
     this.memory = memory;
     this.backend = backend;
+    this.coordination = coordination;
   }
 
   load(): Promise<void> {
-    if (!this.loadPromise) {
+    const coordination = this.coordination;
+    if (!coordination.loadPromise) {
       // A failed load must not stick: caching the rejection would brick the
       // storage until restart. Clearing it lets the next call retry once the
       // outage passes — and until a load *succeeds*, every mutation rejects
       // in ensureLoaded, so an unreadable store can never look empty and
       // feed deletions (see joinSnapshot's strict read).
-      this.loadPromise = this.doLoad().catch((error: unknown) => {
-        this.loadPromise = undefined;
+      coordination.loadPromise = this.doLoad().catch((error: unknown) => {
+        coordination.loadPromise = undefined;
         throw error;
       });
     }
-    return this.loadPromise;
+    return coordination.loadPromise;
   }
 
   private async doLoad(): Promise<void> {
-    if (this.loaded) {
+    if (this.coordination.loaded) {
       return;
     }
     const snapshot = await this.backend.read();
     if (snapshot) {
       this.memory.replace(snapshot);
     }
-    this.loaded = true;
+    this.coordination.loaded = true;
   }
 
   private async ensureLoaded(): Promise<void> {
@@ -92,11 +111,11 @@ export class OAuthStorageBase implements OAuthStorage {
    * any mutations that landed in memory while it waited.
    */
   private async persist(sections: OAuthPersistSections): Promise<void> {
-    const prior = this.persistQueue;
+    const prior = this.coordination.persistQueue;
     const tracked = prior
       .catch(() => {})
       .then(() => this.backend.write(this.memory.snapshot(), sections));
-    this.persistQueue = tracked;
+    this.coordination.persistQueue = tracked;
     await tracked;
   }
 

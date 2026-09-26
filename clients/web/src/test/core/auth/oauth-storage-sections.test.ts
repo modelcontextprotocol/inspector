@@ -9,7 +9,10 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { OAuthStorageBase } from "@inspector/core/auth/oauth-storage.js";
+import {
+  OAuthStorageBase,
+  OAuthStorageCoordination,
+} from "@inspector/core/auth/oauth-storage.js";
 import { OAuthMemoryStore } from "@inspector/core/auth/store.js";
 import { getOwnEntry } from "@inspector/core/storage/own-entry.js";
 import type { IssuerBoundOAuthState } from "@inspector/core/auth/store.js";
@@ -205,5 +208,100 @@ describe("OAuthStorageBase sectioned persistence", () => {
     fail = false;
     await expect(storage.saveTokens(SERVER, TOKENS)).resolves.toBeUndefined();
     expect(await storage.getTokens(SERVER)).toEqual(TOKENS);
+  });
+});
+
+describe("shared load/persist coordination", () => {
+  const STALE: OAuthTokens = { access_token: "stale", token_type: "Bearer" };
+
+  /** A persisted snapshot holding `tokens` for SERVER, built the real way. */
+  async function snapshotWithTokens(
+    tokens: OAuthTokens,
+  ): Promise<OAuthPersistSnapshot> {
+    const memory = new OAuthMemoryStore();
+    const scratch = new OAuthStorageBase(memory, {
+      async read() {
+        return null;
+      },
+      async write() {},
+    });
+    await scratch.saveTokens(SERVER, tokens, { issuer: ISSUER });
+    return memory.snapshot();
+  }
+
+  it("a second instance sharing memory must not replace() a live mutation with stale disk state", async () => {
+    // The Node storage caches one OAuthMemoryStore per state-file path but
+    // callers can construct several NodeOAuthStorage instances over it (CLI
+    // connect + --relogin do). With a per-instance load latch, the second
+    // instance's first load() re-reads disk and replace()s the shared memory
+    // — silently reverting a mutation the first instance had already
+    // reported as saved. Sharing OAuthStorageCoordination pins load-once and
+    // one persist queue per shared memory.
+    const disk = await snapshotWithTokens(STALE);
+    let reads = 0;
+    const writes: RecordedWrite[] = [];
+    const backend: OAuthPersistBackend = {
+      async read() {
+        reads += 1;
+        return disk;
+      },
+      async write(snapshot, sections) {
+        writes.push({ snapshot, sections });
+      },
+    };
+
+    const memory = new OAuthMemoryStore();
+    const coordination = new OAuthStorageCoordination();
+    const first = new OAuthStorageBase(memory, backend, coordination);
+    await first.saveTokens(SERVER, TOKENS, { issuer: ISSUER });
+
+    const second = new OAuthStorageBase(memory, backend, coordination);
+    await second.load();
+
+    expect(reads).toBe(1);
+    expect(await second.getTokens(SERVER)).toEqual({
+      ...TOKENS,
+      issuer: ISSUER,
+    });
+
+    // The mutation also survives into the next queued persist.
+    await second.saveScope(SERVER, "s");
+    const last = writes[writes.length - 1]!;
+    expect(JSON.stringify(last.snapshot)).toContain(TOKENS.access_token);
+    expect(JSON.stringify(last.snapshot)).not.toContain(STALE.access_token);
+  });
+
+  it("concurrent first loads on two instances share one backend read", async () => {
+    let reads = 0;
+    let release!: (snapshot: OAuthPersistSnapshot | null) => void;
+    const gate = new Promise<OAuthPersistSnapshot | null>((resolve) => {
+      release = resolve;
+    });
+    const backend: OAuthPersistBackend = {
+      async read() {
+        reads += 1;
+        return gate;
+      },
+      async write() {},
+    };
+
+    const memory = new OAuthMemoryStore();
+    const coordination = new OAuthStorageCoordination();
+    const first = new OAuthStorageBase(memory, backend, coordination);
+    const second = new OAuthStorageBase(memory, backend, coordination);
+
+    const loads = Promise.all([first.load(), second.load()]);
+    release(await snapshotWithTokens(STALE));
+    await loads;
+
+    expect(reads).toBe(1);
+    expect(await first.getTokens(SERVER)).toEqual({
+      ...STALE,
+      issuer: ISSUER,
+    });
+    expect(await second.getTokens(SERVER)).toEqual({
+      ...STALE,
+      issuer: ISSUER,
+    });
   });
 });
