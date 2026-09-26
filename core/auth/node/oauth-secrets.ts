@@ -1,7 +1,8 @@
 /**
  * Splits acquired OAuth secrets out of the persisted `oauth.json` shape and
  * into the {@link SecretStore} (Step 2 of the token-storage plan): tokens,
- * DCR/legacy client secrets, and IdP session tokens live in the secret store;
+ * DCR/legacy client secrets and registration access tokens (RFC 7592), and
+ * IdP session tokens live in the secret store;
  * `oauth.json` keeps only non-secret state/cache (verifiers, metadata, scope,
  * issuer keys, public client ids). Pure split/join/field-enumeration helpers
  * — the orchestration (locked read-modify-write, migration, store IO) lives
@@ -84,11 +85,17 @@ export const issuerTokensField = (issuer: string): string => `tokens:${issuer}`;
 /** Field for one issuer's DCR `client_secret`. */
 export const issuerClientSecretField = (issuer: string): string =>
   `client-secret:${issuer}`;
+/** Field for one issuer's DCR `registration_access_token` (RFC 7592). */
+export const issuerRegistrationTokenField = (issuer: string): string =>
+  `registration-token:${issuer}`;
 /** Legacy unkeyed fallback slots (pre-1625 snapshots) — no issuer suffix. */
 export const LEGACY_TOKENS_FIELD = "tokens";
 export const LEGACY_CLIENT_SECRET_FIELD = "client-secret";
+export const LEGACY_REGISTRATION_TOKEN_FIELD = "registration-token";
 /** `client_secret` of a statically preregistered client. */
 export const PREREG_CLIENT_SECRET_FIELD = "prereg-client-secret";
+/** `registration_access_token` of a statically preregistered client. */
+export const PREREG_REGISTRATION_TOKEN_FIELD = "prereg-registration-token";
 /** One IdP issuer's session tokens (JSON `{ idToken?, refreshToken? }`). */
 export const IDP_SESSION_FIELD = "idp-session";
 
@@ -115,6 +122,86 @@ function applyTokensPolicy(
 }
 
 /**
+ * The bearer-grade keys a `clientInformation` object can carry.
+ * `client_secret` is in the declared type; `registration_access_token` (the
+ * RFC 7592 registration-management credential — same bearer class, see
+ * `maskSecrets.ts`) arrives because DCR responses are saved whole (see
+ * `StoredOAuthClientInformation` in `store.ts`).
+ */
+type ClientInfoSecretKeys = {
+  client_secret?: string;
+  registration_access_token?: string;
+};
+
+/** The pair of store fields one `clientInformation` slot splits into. */
+interface ClientInfoFields {
+  clientSecret: string;
+  registrationToken: string;
+}
+
+/**
+ * Extract the bearer-grade keys from one `clientInformation` object into
+ * `secrets`, returning the public residue. Both keys are handled in one
+ * place so a slot with a `registration_access_token` but no `client_secret`
+ * still splits — key-by-key extraction is how the token used to slip
+ * through to plaintext.
+ */
+function splitClientInformation<T extends ClientInfoSecretKeys>(
+  info: T,
+  fields: ClientInfoFields,
+  secrets: OAuthSecretValues,
+): T {
+  const { client_secret, registration_access_token, ...publicInfo } = info;
+  if (client_secret === undefined && registration_access_token === undefined) {
+    return info;
+  }
+  if (client_secret !== undefined) {
+    secrets[fields.clientSecret] = client_secret;
+  }
+  if (registration_access_token !== undefined) {
+    secrets[fields.registrationToken] = registration_access_token;
+  }
+  return publicInfo as T;
+}
+
+/**
+ * Overlay a slot's stored bearer-grade keys back onto its residue
+ * (store-wins). Only called when the residue slot exists — a secret with no
+ * slot was cleared, and rejoining it would resurrect the cleared value.
+ */
+function joinClientInformation<T extends ClientInfoSecretKeys>(
+  info: T,
+  fields: ClientInfoFields,
+  secrets: OAuthSecretValues,
+): T {
+  const clientSecret = secrets[fields.clientSecret];
+  const registrationToken = secrets[fields.registrationToken];
+  if (clientSecret === undefined && registrationToken === undefined) {
+    return info;
+  }
+  return {
+    ...info,
+    ...(clientSecret !== undefined && { client_secret: clientSecret }),
+    ...(registrationToken !== undefined && {
+      registration_access_token: registrationToken,
+    }),
+  };
+}
+
+const issuerClientInfoFields = (issuer: string): ClientInfoFields => ({
+  clientSecret: issuerClientSecretField(issuer),
+  registrationToken: issuerRegistrationTokenField(issuer),
+});
+const LEGACY_CLIENT_INFO_FIELDS: ClientInfoFields = {
+  clientSecret: LEGACY_CLIENT_SECRET_FIELD,
+  registrationToken: LEGACY_REGISTRATION_TOKEN_FIELD,
+};
+const PREREG_CLIENT_INFO_FIELDS: ClientInfoFields = {
+  clientSecret: PREREG_CLIENT_SECRET_FIELD,
+  registrationToken: PREREG_REGISTRATION_TOKEN_FIELD,
+};
+
+/**
  * Split one server's OAuth state into its non-secret residue and the secret
  * store values it produces. Total and non-destructive: the input is not
  * mutated, and every non-secret field passes through untouched.
@@ -135,10 +222,12 @@ export function splitServerOAuthState(
         const kept = applyTokensPolicy(slot.tokens, policy);
         if (kept) secrets[issuerTokensField(issuer)] = JSON.stringify(kept);
       }
-      if (slot.clientInformation?.client_secret !== undefined) {
-        const { client_secret, ...publicInfo } = slot.clientInformation;
-        slotResidue.clientInformation = publicInfo;
-        secrets[issuerClientSecretField(issuer)] = client_secret;
+      if (slot.clientInformation) {
+        slotResidue.clientInformation = splitClientInformation(
+          slot.clientInformation,
+          issuerClientInfoFields(issuer),
+          secrets,
+        );
       }
       // Own-property write: issuer keys come from persisted state and can
       // be "__proto__", which a plain assignment would silently drop —
@@ -153,16 +242,19 @@ export function splitServerOAuthState(
     const kept = applyTokensPolicy(state.tokens, policy);
     if (kept) secrets[LEGACY_TOKENS_FIELD] = JSON.stringify(kept);
   }
-  if (state.clientInformation?.client_secret !== undefined) {
-    const { client_secret, ...publicInfo } = state.clientInformation;
-    residue.clientInformation = publicInfo;
-    secrets[LEGACY_CLIENT_SECRET_FIELD] = client_secret;
+  if (state.clientInformation) {
+    residue.clientInformation = splitClientInformation(
+      state.clientInformation,
+      LEGACY_CLIENT_INFO_FIELDS,
+      secrets,
+    );
   }
-  if (state.preregisteredClientInformation?.client_secret !== undefined) {
-    const { client_secret, ...publicInfo } =
-      state.preregisteredClientInformation;
-    residue.preregisteredClientInformation = publicInfo;
-    secrets[PREREG_CLIENT_SECRET_FIELD] = client_secret;
+  if (state.preregisteredClientInformation) {
+    residue.preregisteredClientInformation = splitClientInformation(
+      state.preregisteredClientInformation,
+      PREREG_CLIENT_INFO_FIELDS,
+      secrets,
+    );
   }
 
   return { residue, secrets };
@@ -257,12 +349,12 @@ export function joinServerOAuthState(
         const tokens = parseStoredTokens(tokensRaw);
         if (tokens) joinedSlot.tokens = tokens;
       }
-      const clientSecret = secrets[issuerClientSecretField(issuer)];
-      if (clientSecret !== undefined && joinedSlot.clientInformation) {
-        joinedSlot.clientInformation = {
-          ...joinedSlot.clientInformation,
-          client_secret: clientSecret,
-        };
+      if (joinedSlot.clientInformation) {
+        joinedSlot.clientInformation = joinClientInformation(
+          joinedSlot.clientInformation,
+          issuerClientInfoFields(issuer),
+          secrets,
+        );
       }
       setOwnEntry(byIssuer, issuer, joinedSlot);
     }
@@ -274,19 +366,19 @@ export function joinServerOAuthState(
     const tokens = parseStoredTokens(legacyTokensRaw);
     if (tokens) joined.tokens = tokens;
   }
-  const legacySecret = secrets[LEGACY_CLIENT_SECRET_FIELD];
-  if (legacySecret !== undefined && joined.clientInformation) {
-    joined.clientInformation = {
-      ...joined.clientInformation,
-      client_secret: legacySecret,
-    };
+  if (joined.clientInformation) {
+    joined.clientInformation = joinClientInformation(
+      joined.clientInformation,
+      LEGACY_CLIENT_INFO_FIELDS,
+      secrets,
+    );
   }
-  const preregSecret = secrets[PREREG_CLIENT_SECRET_FIELD];
-  if (preregSecret !== undefined && joined.preregisteredClientInformation) {
-    joined.preregisteredClientInformation = {
-      ...joined.preregisteredClientInformation,
-      client_secret: preregSecret,
-    };
+  if (joined.preregisteredClientInformation) {
+    joined.preregisteredClientInformation = joinClientInformation(
+      joined.preregisteredClientInformation,
+      PREREG_CLIENT_INFO_FIELDS,
+      secrets,
+    );
   }
 
   return joined;
@@ -338,13 +430,27 @@ export function serverSecretFields(
   const fields = new Set<string>([
     LEGACY_TOKENS_FIELD,
     LEGACY_CLIENT_SECRET_FIELD,
+    LEGACY_REGISTRATION_TOKEN_FIELD,
     PREREG_CLIENT_SECRET_FIELD,
+    PREREG_REGISTRATION_TOKEN_FIELD,
   ]);
   for (const issuer of Object.keys(state?.byIssuer ?? {})) {
     fields.add(issuerTokensField(issuer));
     fields.add(issuerClientSecretField(issuer));
+    fields.add(issuerRegistrationTokenField(issuer));
   }
   return [...fields];
+}
+
+/** Does this `clientInformation` object still carry a bearer-grade key? */
+function clientInfoHasPlaintext(
+  info: ClientInfoSecretKeys | undefined,
+): boolean {
+  return (
+    info !== undefined &&
+    (info.client_secret !== undefined ||
+      info.registration_access_token !== undefined)
+  );
 }
 
 /** Does this snapshot still carry plaintext secrets (pre-migration file)? */
@@ -353,13 +459,13 @@ export function snapshotHasPlaintextSecrets(
 ): boolean {
   for (const state of Object.values(snapshot.servers)) {
     if (state.tokens) return true;
-    if (state.clientInformation?.client_secret !== undefined) return true;
-    if (state.preregisteredClientInformation?.client_secret !== undefined) {
+    if (clientInfoHasPlaintext(state.clientInformation)) return true;
+    if (clientInfoHasPlaintext(state.preregisteredClientInformation)) {
       return true;
     }
     for (const slot of Object.values(state.byIssuer ?? {})) {
       if (slot.tokens) return true;
-      if (slot.clientInformation?.client_secret !== undefined) return true;
+      if (clientInfoHasPlaintext(slot.clientInformation)) return true;
     }
   }
   for (const session of Object.values(snapshot.idpSessions)) {

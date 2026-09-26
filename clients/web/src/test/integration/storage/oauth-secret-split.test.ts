@@ -36,6 +36,7 @@ import {
   issuerClientSecretField,
   LEGACY_TOKENS_FIELD,
   LEGACY_CLIENT_SECRET_FIELD,
+  LEGACY_REGISTRATION_TOKEN_FIELD,
   IDP_SESSION_FIELD,
   isUsableStoredSecret,
   resetPersistTokensPolicyWarnings,
@@ -632,6 +633,44 @@ describe("readOAuthStore migration", () => {
     expect(
       await store.get(oauthSecretServerId(SERVER), LEGACY_TOKENS_FIELD),
     ).not.toBeNull();
+  });
+
+  it("migrates a plaintext registration_access_token with no client_secret", async () => {
+    // The RFC 7592 management credential alone must trigger the migration
+    // sweep — key-by-key detection used to leave it plaintext when no
+    // client_secret sat beside it.
+    await writeStoreFile(
+      filePath,
+      JSON.stringify({
+        servers: {
+          [SERVER]: {
+            clientInformation: {
+              client_id: "cid",
+              registration_access_token: "rat",
+            },
+          },
+        },
+        idpSessions: {},
+      }),
+    );
+    await flushStoreFileWrites(filePath);
+    const store = new InMemorySecretStore();
+
+    const snapshot = await readOAuthStore(filePath, store);
+    expect(snapshot?.servers[SERVER]!.clientInformation).toEqual({
+      client_id: "cid",
+      registration_access_token: "rat",
+    });
+
+    expect(readRawFile().servers[SERVER]!.clientInformation).toEqual({
+      client_id: "cid",
+    });
+    expect(
+      await store.get(
+        oauthSecretServerId(SERVER),
+        LEGACY_REGISTRATION_TOKEN_FIELD,
+      ),
+    ).toBe("rat");
   });
 
   it("migrates plaintext IdP sessions too", async () => {

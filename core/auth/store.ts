@@ -17,6 +17,18 @@ import type { OAuthPersistSnapshot } from "./oauth-persist.js";
 import { getOwnEntry } from "../storage/own-entry.js";
 
 /**
+ * `clientInformation` as the Inspector persists it. DCR registration
+ * responses are saved whole, so the RFC 7592 registration-management
+ * credential can ride along even though the SDK's base
+ * `OAuthClientInformation` type does not declare it. Named here so the
+ * secret split (`oauth-secrets.ts`) and callers agree that the key exists —
+ * it is bearer-grade and must never reach plaintext `oauth.json`.
+ */
+export type StoredOAuthClientInformation = OAuthClientInformation & {
+  registration_access_token?: string;
+};
+
+/**
  * OAuth credentials bound to a single authorization-server `issuer` (SEP-2352).
  *
  * Client identifiers are unique to the AS that issued them (RFC 6749 §2.2), and
@@ -27,7 +39,7 @@ import { getOwnEntry } from "../storage/own-entry.js";
  * of reusing mismatched credentials.
  */
 export interface IssuerBoundOAuthState {
-  clientInformation?: OAuthClientInformation;
+  clientInformation?: StoredOAuthClientInformation;
   /** Set when {@link clientInformation} is saved — DCR vs CIMD. */
   clientRegistrationKind?: OAuthClientRegistrationKind;
   tokens?: OAuthTokens;
@@ -53,7 +65,7 @@ export interface ServerOAuthState {
   byIssuer?: Record<string, IssuerBoundOAuthState>;
   /** Most-recently-saved issuer — answers ctx-less reads (per-request bearer token). */
   activeIssuer?: string;
-  preregisteredClientInformation?: OAuthClientInformation;
+  preregisteredClientInformation?: StoredOAuthClientInformation;
   codeVerifier?: string;
   scope?: string;
   serverMetadata?: OAuthMetadata;
@@ -63,7 +75,7 @@ export interface ServerOAuthState {
   enterpriseManaged?: boolean;
 
   /** @deprecated Legacy unkeyed fallback — see {@link ServerOAuthState}. */
-  clientInformation?: OAuthClientInformation;
+  clientInformation?: StoredOAuthClientInformation;
   /** @deprecated Legacy unkeyed fallback — see {@link ServerOAuthState}. */
   clientRegistrationKind?: OAuthClientRegistrationKind;
   /** @deprecated Legacy unkeyed fallback — see {@link ServerOAuthState}. */

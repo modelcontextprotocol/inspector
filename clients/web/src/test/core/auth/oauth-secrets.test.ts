@@ -12,9 +12,12 @@ import {
   oauthIdpSecretServerId,
   issuerTokensField,
   issuerClientSecretField,
+  issuerRegistrationTokenField,
   LEGACY_TOKENS_FIELD,
   LEGACY_CLIENT_SECRET_FIELD,
+  LEGACY_REGISTRATION_TOKEN_FIELD,
   PREREG_CLIENT_SECRET_FIELD,
+  PREREG_REGISTRATION_TOKEN_FIELD,
   IDP_SESSION_FIELD,
   splitServerOAuthState,
   joinServerOAuthState,
@@ -292,7 +295,9 @@ describe("serverSecretFields", () => {
       [
         LEGACY_TOKENS_FIELD,
         LEGACY_CLIENT_SECRET_FIELD,
+        LEGACY_REGISTRATION_TOKEN_FIELD,
         PREREG_CLIENT_SECRET_FIELD,
+        PREREG_REGISTRATION_TOKEN_FIELD,
       ].sort(),
     );
     const issuer = "https://as.example";
@@ -301,6 +306,9 @@ describe("serverSecretFields", () => {
     );
     expect(serverSecretFields({ byIssuer: { [issuer]: {} } })).toContain(
       issuerClientSecretField(issuer),
+    );
+    expect(serverSecretFields({ byIssuer: { [issuer]: {} } })).toContain(
+      issuerRegistrationTokenField(issuer),
     );
   });
 });
@@ -364,5 +372,87 @@ describe("snapshotHasPlaintextSecrets", () => {
         idpSessions: { i: { idTokenExpiresAt: 1 } },
       }),
     ).toBe(false);
+  });
+});
+
+describe("registration_access_token split (RFC 7592)", () => {
+  // The DCR management credential rides inside clientInformation because DCR
+  // responses are saved whole. It is bearer-grade (maskSecrets.ts) and must
+  // never remain in the oauth.json residue — including when there is no
+  // client_secret alongside it, the shape that used to slip through.
+  const issuer = "https://as.example";
+
+  it("splits and rejoins per-issuer, with and without client_secret", () => {
+    const state: ServerOAuthState = {
+      byIssuer: {
+        [issuer]: {
+          clientInformation: {
+            client_id: "cid",
+            registration_access_token: "rat",
+          },
+        },
+      },
+    };
+    const { residue, secrets } = splitServerOAuthState(state, "all");
+    expect(secrets[issuerRegistrationTokenField(issuer)]).toBe("rat");
+    expect(residue.byIssuer![issuer]!.clientInformation).toEqual({
+      client_id: "cid",
+    });
+
+    const joined = joinServerOAuthState(residue, secrets);
+    expect(joined.byIssuer![issuer]!.clientInformation).toEqual({
+      client_id: "cid",
+      registration_access_token: "rat",
+    });
+  });
+
+  it("splits both bearer keys from one legacy clientInformation", () => {
+    const state: ServerOAuthState = {
+      clientInformation: {
+        client_id: "cid",
+        client_secret: "cs",
+        registration_access_token: "rat",
+      },
+    };
+    const { residue, secrets } = splitServerOAuthState(state, "all");
+    expect(secrets[LEGACY_CLIENT_SECRET_FIELD]).toBe("cs");
+    expect(secrets[LEGACY_REGISTRATION_TOKEN_FIELD]).toBe("rat");
+    expect(residue.clientInformation).toEqual({ client_id: "cid" });
+
+    const joined = joinServerOAuthState(residue, secrets);
+    expect(joined.clientInformation).toEqual(state.clientInformation);
+  });
+
+  it("splits and rejoins the preregistered client's token", () => {
+    const state: ServerOAuthState = {
+      preregisteredClientInformation: {
+        client_id: "cid",
+        registration_access_token: "rat",
+      },
+    };
+    const { residue, secrets } = splitServerOAuthState(state, "all");
+    expect(secrets[PREREG_REGISTRATION_TOKEN_FIELD]).toBe("rat");
+    expect(residue.preregisteredClientInformation).toEqual({
+      client_id: "cid",
+    });
+    const joined = joinServerOAuthState(residue, secrets);
+    expect(joined.preregisteredClientInformation).toEqual(
+      state.preregisteredClientInformation,
+    );
+  });
+
+  it("a plaintext registration token alone marks the snapshot for migration", () => {
+    const snapshot: OAuthPersistSnapshot = {
+      servers: {
+        "https://api.example/mcp": {
+          clientInformation: {
+            client_id: "cid",
+            registration_access_token: "rat",
+          },
+        },
+      },
+      idpSessions: {},
+    };
+    expect(snapshotHasPlaintextSecrets(snapshot)).toBe(true);
   });
 });
