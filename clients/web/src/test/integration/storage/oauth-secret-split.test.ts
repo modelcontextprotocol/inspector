@@ -270,10 +270,11 @@ describe("writeOAuthSections secret split", () => {
     await writeOAuthSections(filePath, snapshotWith(), undefined, failing);
     await flushStoreFileWrites(filePath);
 
-    // The residue file is still written — never with the secrets in it.
+    // A brand-new entry that fails to persist its secrets is dropped from
+    // the file entirely (file and store change together, or not at all) —
+    // its credentials stay memory-only for the session.
     const raw = readRawFile();
-    expect(raw.servers[SERVER]!.scope).toBe("read");
-    expect(raw.servers[SERVER]!.tokens).toBeUndefined();
+    expect(raw.servers[SERVER]).toBeUndefined();
     const failures = warn.mock.calls.filter(([msg]) =>
       String(msg).includes("keychain says no"),
     );
