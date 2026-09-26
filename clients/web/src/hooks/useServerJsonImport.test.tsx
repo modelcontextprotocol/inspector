@@ -56,7 +56,11 @@ describe("useServerJsonImport", () => {
     vi.useFakeTimers();
   });
   afterEach(() => {
-    vi.runOnlyPendingTimers();
+    // The collapse/highlight timers a test leaves pending set state when they
+    // fire, so they are flushed inside `act` like any other update (#2507).
+    act(() => {
+      vi.runOnlyPendingTimers();
+    });
     vi.useRealTimers();
   });
 

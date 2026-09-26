@@ -2252,7 +2252,7 @@ describe("useOAuthRecovery", () => {
       expect(replacement.disconnect).not.toHaveBeenCalled();
     });
 
-    it("clears the resume snapshot on an explicit disconnect", () => {
+    it("clears the resume snapshot on an explicit disconnect", async () => {
       writeOAuthResumeSnapshot({
         version: 1,
         serverId: "a",
@@ -2261,7 +2261,7 @@ describe("useOAuthRecovery", () => {
         tabUi: {},
       });
       const h = harness({ servers: [entry("a")] });
-      act(() => h.api().finalizeExplicitDisconnect());
+      await act(async () => h.api().finalizeExplicitDisconnect());
       expect(window.sessionStorage.getItem(OAUTH_RESUME_KEY)).toBeNull();
     });
   });
