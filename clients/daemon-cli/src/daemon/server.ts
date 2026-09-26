@@ -156,8 +156,8 @@ export class DaemonServer {
       this.server = net.createServer((socket) => {
         this.ipcSockets.add(socket);
         socket.once("close", () => this.ipcSockets.delete(socket));
-        acceptDaemonConnection(socket, (req, elicitation) =>
-          this.handleOutcome(req, elicitation),
+        acceptDaemonConnection(socket, (req, elicitation, signal) =>
+          this.handleOutcome(req, elicitation, signal),
         );
       });
 

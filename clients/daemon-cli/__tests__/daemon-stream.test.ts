@@ -254,6 +254,24 @@ describe("streamDaemon + ipc-glue", () => {
     ).rejects.toThrow();
   });
 
+  it("finishes immediately on a pre-aborted signal instead of hanging", async () => {
+    const sock = freshSock();
+    await listen(sock, () => {
+      // Never respond: only the pre-aborted check can settle this promptly.
+    });
+    const ac = new AbortController();
+    ac.abort();
+    await streamDaemon(
+      {},
+      {
+        socketPath: sock,
+        timeoutMs: 5000,
+        signal: ac.signal,
+        onData: () => {},
+      },
+    );
+  });
+
   it("aborts via signal after the stream opens", async () => {
     const sock = freshSock();
     await listen(sock, (socket) => {

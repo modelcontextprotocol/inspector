@@ -73,7 +73,24 @@ function assertSkillsSupported(
  * so the unsubscribe must be reference-counted: tearing it down when the
  * first stream closes would leave the survivors open but silent.
  */
-const resourceStreamRefs = new WeakMap<InspectorClient, Map<string, number>>();
+const resourceStreamRefs = new WeakMap<
+  InspectorClient,
+  Map<string, SharedResourceSubscription>
+>();
+
+/**
+ * One server-side subscription shared by every open subscribe stream for a
+ * given client + URI. The entry is the synchronization point for concurrent
+ * setups: it is reserved synchronously (before any await), so racing streams
+ * all join the same in-flight `ready` promise instead of each subscribing
+ * and corrupting the count. Consumers are counted from reservation; on
+ * subscribe failure each waiter rolls back its own reservation and the last
+ * one out removes the entry so a later subscribe can retry cleanly.
+ */
+type SharedResourceSubscription = {
+  count: number;
+  ready: Promise<void>;
+};
 
 /**
  * Run one MCP method against a connected {@link InspectorClient}.
@@ -225,13 +242,24 @@ export async function runMethod(
         resourceStreamRefs.set(inspectorClient, refs);
       }
       const uri = args.uri;
-      const priorConsumers = refs.get(uri) ?? 0;
-      // Only the first consumer subscribes; the count is bumped after the
-      // subscribe succeeds so a failure leaves nothing to unwind.
-      if (priorConsumers === 0) {
-        await inspectorClient.subscribeToResource(uri);
+      // Reserve before awaiting (see SharedResourceSubscription): the first
+      // arrival creates the entry with the in-flight subscribe, and every
+      // concurrent arrival joins it. The stream is only exposed once the
+      // shared subscribe has succeeded.
+      let shared = refs.get(uri);
+      if (!shared) {
+        shared = { count: 0, ready: inspectorClient.subscribeToResource(uri) };
+        refs.set(uri, shared);
       }
-      refs.set(uri, priorConsumers + 1);
+      const entry = shared;
+      entry.count++;
+      try {
+        await entry.ready;
+      } catch (error) {
+        entry.count--;
+        if (entry.count === 0 && refs.get(uri) === entry) refs.delete(uri);
+        throw error;
+      }
       return {
         kind: "stream",
         label: "resources/subscribe",
@@ -249,14 +277,18 @@ export async function runMethod(
             });
           };
           inspectorClient.addEventListener("resourceUpdated", onUpdate);
+          let closed = false;
           return () => {
+            // A second stop from any caller must not double-decrement the
+            // shared count.
+            if (closed) return;
+            closed = true;
             inspectorClient.removeEventListener("resourceUpdated", onUpdate);
-            const remaining = (refs.get(uri) ?? 1) - 1;
-            if (remaining > 0) {
-              refs.set(uri, remaining);
-              return;
-            }
-            refs.delete(uri);
+            entry.count--;
+            if (entry.count > 0) return;
+            // Guard against deleting a successor generation: only remove
+            // the mapping if it is still this stream's entry.
+            if (refs.get(uri) === entry) refs.delete(uri);
             // Catch the rejection here: this stop can run during daemon
             // shutdown after disconnectAll has closed the client, where the
             // unsubscribe rejects; a bare `void` would surface that as an
@@ -276,7 +308,7 @@ export async function runMethod(
       // that shared subscription down while the counted streams stay open
       // and silent — and the last stream's cleanup would unsubscribe again.
       const activeStreams =
-        resourceStreamRefs.get(inspectorClient)?.get(args.uri) ?? 0;
+        resourceStreamRefs.get(inspectorClient)?.get(args.uri)?.count ?? 0;
       if (activeStreams > 0) {
         throw new Error(
           `Cannot unsubscribe: ${activeStreams} active resources/subscribe stream(s) share this URI's subscription. Close those streams (Ctrl-C) instead; the subscription ends when the last one closes.`,

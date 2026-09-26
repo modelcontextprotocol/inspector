@@ -243,7 +243,14 @@ export async function callDaemon<T = unknown>(
           }, timeoutMs)
         : undefined;
 
-    options.signal?.addEventListener("abort", onAbort, { once: true });
+    // AbortSignal does not replay: a signal that aborted before this point
+    // (e.g. SIGINT during ensureDaemon) would never fire the listener, and
+    // with timeoutMs 0 the request would hang forever. Check first.
+    if (options.signal?.aborted) {
+      onAbort();
+    } else {
+      options.signal?.addEventListener("abort", onAbort, { once: true });
+    }
 
     socket.once("connect", () => {
       socket.write(encodeRequest(request));

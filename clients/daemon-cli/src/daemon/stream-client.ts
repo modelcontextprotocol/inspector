@@ -204,7 +204,13 @@ export async function streamDaemon(
       );
     }, timeoutMs);
 
-    options.signal?.addEventListener("abort", onAbort, { once: true });
+    // AbortSignal does not replay: a pre-aborted signal would never fire
+    // the listener, leaving the stream open until the timeout. Check first.
+    if (options.signal?.aborted) {
+      onAbort();
+    } else {
+      options.signal?.addEventListener("abort", onAbort, { once: true });
+    }
 
     socket.once("connect", () => {
       socket.write(encodeRequest(request));

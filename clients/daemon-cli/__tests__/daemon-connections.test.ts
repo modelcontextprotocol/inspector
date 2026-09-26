@@ -464,6 +464,51 @@ describe("ConnectionRegistry", () => {
     }
   });
 
+  it("does not start dialing when the abort lands during reconnect teardown", async () => {
+    const { InspectorClient } = await import("@inspector/core/mcp/index.js");
+    const ac = new AbortController();
+    const connectSpy = vi
+      .spyOn(InspectorClient.prototype, "connect")
+      .mockResolvedValue(undefined);
+    // Abort while the reconnect path is tearing down the previous client —
+    // after the entry abort check, before the dial. AbortSignal does not
+    // replay, so only withAbort's synchronous pre-start check catches this.
+    const disconnectSpy = vi
+      .spyOn(InspectorClient.prototype, "disconnect")
+      .mockImplementation(async () => {
+        ac.abort();
+      });
+    const authSpy = vi
+      .spyOn(InspectorClient.prototype, "getOAuthState")
+      .mockResolvedValue(undefined as never);
+    const registry = new ConnectionRegistry(0);
+    const params = {
+      name: "re",
+      serverConfig: {
+        type: "streamable-http",
+        url: "https://mcp.example.com/mcp",
+      },
+      serverIdentity: "https://mcp.example.com/mcp",
+    } as const;
+    try {
+      await registry.connect(params);
+      expect(connectSpy).toHaveBeenCalledTimes(1);
+      await expect(registry.connect(params, ac.signal)).rejects.toThrow(
+        /Connect cancelled/,
+      );
+      // The second dial never started: the signal was checked synchronously
+      // before invoking connect, with no listener-install gap to hang in.
+      expect(connectSpy).toHaveBeenCalledTimes(1);
+      // Reconnect teardown plus the cancelled attempt's cleanup.
+      expect(disconnectSpy).toHaveBeenCalledTimes(2);
+      expect(registry.connectionCount()).toBe(0);
+    } finally {
+      connectSpy.mockRestore();
+      disconnectSpy.mockRestore();
+      authSpy.mockRestore();
+    }
+  });
+
   it("discards a connect that completes only after the caller hung up", async () => {
     const { InspectorClient } = await import("@inspector/core/mcp/index.js");
     const ac = new AbortController();
@@ -897,6 +942,62 @@ describe("DaemonServer IPC", () => {
       ]);
     } finally {
       spy.mockRestore();
+    }
+  });
+
+  it("cancels a daemon-side connect end-to-end when the caller's socket closes", async () => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "mcp-daemon-cancel-"));
+    server = new DaemonServer({ dir, idleMs: 0 });
+    await server.start();
+
+    const { InspectorClient } = await import("@inspector/core/mcp/index.js");
+    let releaseConnect!: () => void;
+    const gate = new Promise<void>((resolve) => (releaseConnect = resolve));
+    const connectSpy = vi
+      .spyOn(InspectorClient.prototype, "connect")
+      .mockImplementation(() => gate);
+    const disconnectSpy = vi
+      .spyOn(InspectorClient.prototype, "disconnect")
+      .mockResolvedValue(undefined);
+    try {
+      // Full real-socket path: this is the seam test that unit tests on
+      // either side of the IPC adapter cannot cover (a dropped signal
+      // argument in the adapter would pass both and fail here).
+      const ac = new AbortController();
+      const pending = callDaemon(
+        "connect",
+        {
+          name: "hung",
+          serverConfig: {
+            type: "streamable-http",
+            url: "https://mcp.example.com/mcp",
+          },
+          serverIdentity: "https://mcp.example.com/mcp",
+        },
+        { socketPath: server.socketPath, timeoutMs: 0, signal: ac.signal },
+      );
+      let deadline = Date.now() + 3000;
+      while (connectSpy.mock.calls.length === 0 && Date.now() < deadline) {
+        await new Promise((resolve) => setImmediate(resolve));
+      }
+      expect(connectSpy).toHaveBeenCalledTimes(1);
+      // Frontend hangs up (Ctrl-C): its socket is destroyed…
+      ac.abort();
+      await expect(pending).rejects.toThrow(/cancelled/);
+      // …and the daemon-side dial is torn down without ever completing.
+      deadline = Date.now() + 3000;
+      while (disconnectSpy.mock.calls.length === 0 && Date.now() < deadline) {
+        await new Promise((resolve) => setImmediate(resolve));
+      }
+      expect(disconnectSpy).toHaveBeenCalledTimes(1);
+      expect(server.registry.connectionCount()).toBe(0);
+      // A late success is discarded, never registered.
+      releaseConnect();
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      expect(server.registry.connectionCount()).toBe(0);
+    } finally {
+      connectSpy.mockRestore();
+      disconnectSpy.mockRestore();
     }
   });
 

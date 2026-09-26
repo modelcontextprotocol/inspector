@@ -290,26 +290,8 @@ export class ConnectionRegistry {
         // otherwise pin `pendingConnects` (blocking idle shutdown) or
         // register a connection the user cancelled. On abort the shared
         // catch below tears the client down, which also cancels the
-        // still-in-flight connect; its eventual settlement is observed by
-        // the race's handlers, so nothing rejects unhandled.
-        if (!signal) {
-          await client.connect();
-        } else {
-          await new Promise<void>((resolve, reject) => {
-            const onAbort = () => reject(connectCancelledError());
-            signal.addEventListener("abort", onAbort, { once: true });
-            client.connect().then(
-              () => {
-                signal.removeEventListener("abort", onAbort);
-                resolve();
-              },
-              (error: unknown) => {
-                signal.removeEventListener("abort", onAbort);
-                reject(error);
-              },
-            );
-          });
-        }
+        // still-in-flight connect.
+        await withAbort(() => client.connect(), signal, connectCancelledError);
       } catch (error) {
         await safeDisconnect(client);
         if (isConnectionAuthRequiredError(error)) {
@@ -642,6 +624,39 @@ async function safeDisconnect(client: InspectorClient): Promise<void> {
   } catch {
     // Best-effort teardown.
   }
+}
+
+/**
+ * Run a cancellable async operation. Guards the whole class of
+ * abort-listener races: `AbortSignal` does not replay its event, so any
+ * "check aborted, await something, then addEventListener" sequence can miss
+ * an abort that fired in the gap and hang forever. Here the aborted check is
+ * synchronous and the listener is installed *before* the operation starts,
+ * so no abort can interleave. When aborted pre-start the operation is never
+ * invoked; when aborted mid-flight its eventual settlement is still
+ * observed by the race handlers, so nothing rejects unhandled.
+ */
+async function withAbort<T>(
+  start: () => Promise<T>,
+  signal: AbortSignal | undefined,
+  makeError: () => Error,
+): Promise<T> {
+  if (!signal) return start();
+  if (signal.aborted) throw makeError();
+  return await new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(makeError());
+    signal.addEventListener("abort", onAbort, { once: true });
+    start().then(
+      (value) => {
+        signal.removeEventListener("abort", onAbort);
+        resolve(value);
+      },
+      (error: unknown) => {
+        signal.removeEventListener("abort", onAbort);
+        reject(error);
+      },
+    );
+  });
 }
 
 /**

@@ -108,6 +108,64 @@ describe("runMethod (mocked client)", () => {
     expect(failing.unsubscribeFromResource).toHaveBeenCalledTimes(1);
   });
 
+  it("concurrent same-URI subscribes share one in-flight subscription", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const client = mockClient({
+      subscribeToResource: vi.fn().mockImplementation(() => gate),
+    } as Partial<InspectorClient>);
+    // Both setups race before the subscribe resolves; the reservation is
+    // synchronous, so they must join one in-flight subscribe rather than
+    // each subscribing and writing a count of 1.
+    const p1 = runMethod(client, {
+      method: "resources/subscribe",
+      uri: "test://race",
+    });
+    const p2 = runMethod(client, {
+      method: "resources/subscribe",
+      uri: "test://race",
+    });
+    release();
+    const [s1, s2] = await Promise.all([p1, p2]);
+    expect(client.subscribeToResource).toHaveBeenCalledTimes(1);
+    const stop1 = s1.kind === "stream" ? s1.start(() => {}) : () => {};
+    const stop2 = s2.kind === "stream" ? s2.start(() => {}) : () => {};
+    stop1();
+    stop1(); // double-stop must not corrupt the shared count
+    expect(client.unsubscribeFromResource).not.toHaveBeenCalled();
+    stop2();
+    expect(client.unsubscribeFromResource).toHaveBeenCalledTimes(1);
+  });
+
+  it("rolls back reservations when the shared subscribe fails, allowing retry", async () => {
+    const subscribe = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("subscribe boom"))
+      .mockResolvedValue(undefined);
+    const client = mockClient({
+      subscribeToResource: subscribe,
+    } as Partial<InspectorClient>);
+    const p1 = runMethod(client, {
+      method: "resources/subscribe",
+      uri: "test://fail",
+    });
+    const p2 = runMethod(client, {
+      method: "resources/subscribe",
+      uri: "test://fail",
+    });
+    await expect(p1).rejects.toThrow("subscribe boom");
+    await expect(p2).rejects.toThrow("subscribe boom");
+    // Both joined the same failed attempt…
+    expect(subscribe).toHaveBeenCalledTimes(1);
+    // …and both rolled back, so a retry issues a fresh subscribe.
+    const s3 = await runMethod(client, {
+      method: "resources/subscribe",
+      uri: "test://fail",
+    });
+    expect(subscribe).toHaveBeenCalledTimes(2);
+    expect(s3.kind).toBe("stream");
+  });
+
   it("rejects explicit unsubscribe while subscribe streams share the URI", async () => {
     const client = mockClient();
     const sub = await runMethod(client, {

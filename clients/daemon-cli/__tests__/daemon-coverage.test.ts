@@ -278,6 +278,23 @@ describe("daemon coverage", () => {
     }
   });
 
+  it("callDaemon rejects immediately on a pre-aborted signal instead of hanging", async () => {
+    const d = freshDir();
+    server = new DaemonServer({ dir: d, idleMs: 0 });
+    await server.start();
+    const ac = new AbortController();
+    ac.abort();
+    // timeoutMs 0 = no timer: without the pre-aborted check (AbortSignal
+    // does not replay) this request would hang forever.
+    await expect(
+      callDaemon(
+        "ping",
+        {},
+        { socketPath: server.socketPath, timeoutMs: 0, signal: ac.signal },
+      ),
+    ).rejects.toThrow(/cancelled/);
+  });
+
   it("callDaemon maps error responses and unreachable sockets", async () => {
     await expect(
       callDaemon(
