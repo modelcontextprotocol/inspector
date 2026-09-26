@@ -121,8 +121,13 @@ export function createCliOAuthNavigation(
 
     try {
       await (options.openBrowser ?? openUrl)(href);
-    } catch {
-      // URL already printed; browser open is best-effort.
+    } catch (error) {
+      // URL already printed; browser open is best-effort — but say so, or a
+      // failed open reads as the flow silently waiting on a browser (#2410).
+      const reason = error instanceof Error ? error.message : String(error);
+      write(
+        `Could not open a browser automatically (${reason}). Open the URL above manually.\n`,
+      );
     }
   });
 }
