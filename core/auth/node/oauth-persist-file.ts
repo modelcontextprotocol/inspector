@@ -217,13 +217,36 @@ async function readDiskForMutation(
  * store may still hold it lets the next read rejoin (resurrect) the
  * cleared value.
  */
+/**
+ * Persist one entry's secrets: set every post-split value, delete every
+ * candidate field the split no longer produces (clears and policy
+ * downgrades propagate as deletions). Returns whether the new state was
+ * persisted.
+ *
+ * A failed *set* degrades the entry to memory-only, all-or-nothing: the
+ * bulk set settles every sibling before rejecting, so some writes may
+ * already have landed, and a store holding a mixed old/new credential set
+ * would let the next read rejoin tokens that were never issued together.
+ * The catch restores the fields the batch touched to their `prior` values
+ * and returns `false` **without running the deletes** — the caller must
+ * then keep the entry's *prior* residue in the file as well, because new
+ * residue over restored old secrets is just the same mismatch on the other
+ * side (a re-registered `client_id` paired with the old `client_secret`).
+ * The prior file entry and the restored prior store fields together are the
+ * consistent pre-write state; the new credentials live only in memory for
+ * the session. When the compensation itself cannot be confirmed the write
+ * aborts instead — the store's state is unknown, so the file must not
+ * move. A failed *delete* must abort likewise: committing residue that
+ * omits a secret while the store may still hold it lets the next read
+ * rejoin (resurrect) the cleared value.
+ */
 async function persistEntrySecrets(
   store: SecretStore,
   serverId: string,
   candidates: string[],
   secrets: Record<string, string>,
   prior: SecretFieldSnapshot[],
-): Promise<void> {
+): Promise<boolean> {
   try {
     if (Object.keys(secrets).length > 0) {
       await secretStoreSetMany(store, serverId, secrets);
@@ -238,6 +261,7 @@ async function persistEntrySecrets(
       restoreFailure = err;
     });
     if (restoreFailure !== undefined) throw restoreFailure;
+    return false;
   }
   // Settle every delete before surfacing the first failure: the caller's
   // rollback (restoreSecretFields) must not race deletes still in flight,
@@ -247,6 +271,27 @@ async function persistEntrySecrets(
       .filter((field) => secrets[field] === undefined)
       .map((field) => store.delete(serverId, field)),
   );
+  return true;
+}
+
+/**
+ * Put one section entry back to its on-disk value after a memory-only
+ * degradation (see {@link persistEntrySecrets}): the entry that could not
+ * persist its secrets keeps its prior residue too, so file and store stay
+ * a consistent pair. An entry the disk never had is removed from the merge
+ * outright.
+ */
+function revertEntryToDisk<T>(
+  merged: Record<string, T>,
+  disk: Record<string, T> | undefined,
+  key: string,
+): void {
+  const diskEntry = getOwnEntry(disk, key);
+  if (diskEntry === undefined) {
+    if (Object.hasOwn(merged, key)) delete merged[key];
+  } else {
+    setOwnEntry(merged, key, diskEntry);
+  }
 }
 
 /**
@@ -381,13 +426,14 @@ export async function writeOAuthSections(
             );
           }
         }
-        await persistEntrySecrets(
+        const persisted = await persistEntrySecrets(
           secretStore,
           serverId,
           candidates,
           secrets,
           entryPrior,
         );
+        if (!persisted) revertEntryToDisk(merged.servers, disk?.servers, url);
       }
 
       for (const issuer of effective.idpSessions ?? []) {
@@ -418,13 +464,15 @@ export async function writeOAuthSections(
             );
           }
         }
-        await persistEntrySecrets(
+        const persisted = await persistEntrySecrets(
           secretStore,
           serverId,
           [IDP_SESSION_FIELD],
           secrets,
           entryPrior,
         );
+        if (!persisted)
+          revertEntryToDisk(merged.idpSessions, disk?.idpSessions, issuer);
       }
 
       await writeStoreFile(filePath, serializeOAuthPersistBlob(merged));

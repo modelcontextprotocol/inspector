@@ -3151,6 +3151,16 @@ export function createRemoteApp(
             keychainSecrets,
             secrets,
           );
+          // Sweep the destination id before writing to it — same reuse
+          // safeguard as POST: `newId` has no file entry (409 above), so
+          // any fields under it are orphans from a previous failed DELETE,
+          // and left in place the ones `secretsToWrite` doesn't overwrite
+          // would rehydrate into the renamed server. Under the
+          // confirmed-delete contract an unavailable keychain makes the
+          // sweep throw (503) before anything else has been mutated. The
+          // post-sweep snapshot below then records every destination field
+          // as absent, so the rollback removes exactly what this PUT wrote.
+          await secretStore.deleteAllForServer(newId);
           const prior = [
             ...(await snapshotSecretFields(
               secretStore,

@@ -2111,6 +2111,53 @@ describe("/api/servers routes", () => {
       expect(srv.oauth?.scopes).toBe("read");
     });
 
+    it("PUT rename sweeps orphaned destination secrets before writing to it", async () => {
+      // Same reuse safeguard POST has: the destination id has no file entry
+      // (or the rename would 409), so any store fields under it are orphans
+      // from a previous failed DELETE. Left in place, fields the rename does
+      // not overwrite would rehydrate into the renamed server — here an
+      // OAuth client secret the renamed server never had.
+      writeFileSync(
+        h.configPath,
+        JSON.stringify({
+          mcpServers: {
+            "old-name": {
+              type: "streamable-http",
+              url: "https://x.test/mcp",
+              oauth: { clientId: "cid" },
+            },
+          },
+        }),
+      );
+      await h.secretStore.set(
+        "new-name",
+        SECRET_FIELD_OAUTH_CLIENT_SECRET,
+        "orphaned-secret",
+      );
+
+      const res = await fetch(`${h.baseUrl}/api/servers/old-name`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: "new-name",
+          config: { type: "streamable-http", url: "https://x.test/mcp" },
+        }),
+      });
+      expect(res.status).toBe(200);
+
+      expect(
+        await h.secretStore.get("new-name", SECRET_FIELD_OAUTH_CLIENT_SECRET),
+      ).toBe(null);
+      const cfg = (await (
+        await fetch(`${h.baseUrl}/api/servers`)
+      ).json()) as MCPConfig;
+      const srv = cfg.mcpServers["new-name"] as {
+        oauth?: { clientId?: string; clientSecret?: string };
+      };
+      expect(srv.oauth?.clientId).toBe("cid");
+      expect(srv.oauth?.clientSecret).toBeUndefined();
+    });
+
     it("PUT rename carries secrets via strict reads even when tolerant reads blank out", async () => {
       // The rename copies the old id's secrets and then deletes them under
       // the old id — a deletion-driving read, so it must come from the
