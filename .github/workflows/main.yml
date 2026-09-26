@@ -19,6 +19,19 @@ on:
 permissions:
   contents: read
 
+# Serialize whole RELEASE runs, oldest first, never cancelling one (#2483).
+# Packaging and publishing are separate jobs, so a job-level group on `publish`
+# alone would let two releases race through `package` and publish in the order
+# their packaging happened to finish — and because the dist-tag is passed
+# explicitly, an older release finishing last would move `latest` back to it.
+# Holding the group for the whole run keeps release order = publish order.
+# Push runs get a unique group (their run id), so they are unaffected.
+# ⚠️ GitHub keeps only ONE pending run per group, so a third release cut while
+# one runs and one waits cancels the waiting one — re-run it by hand.
+concurrency:
+  group: ${{ github.event_name == 'release' && 'release-npm' || format('run-{0}', github.run_id) }}
+  cancel-in-progress: false
+
 # Every job below declares `timeout-minutes` (#2333). It is a HUNG-JOB GUARD,
 # not a flake remedy: GitHub runners are not the contended machine the local
 # gate runs on, and nothing measured implicates them — so no value here is
@@ -290,7 +303,9 @@ jobs:
     environment: release
     needs: [package]
     # Serialize publishes so two releases cut in quick succession can't run
-    # overlapping `npm publish`es. Never cancel an in-flight publish.
+    # overlapping `npm publish`es. Never cancel an in-flight publish. The
+    # workflow-level `concurrency` above already orders whole release runs;
+    # this group is the narrower guarantee kept on the job that publishes.
     concurrency:
       group: publish-npm
       cancel-in-progress: false
@@ -306,6 +321,10 @@ jobs:
       # job in the workflow that runs npm with this token, and it deliberately
       # executes no dependency code — see the comment on `package`.
       id-token: write
+    env:
+      # The release tag, re-checked against the tarball below. It arrives via
+      # `env:` rather than spliced into the script, as in `package`.
+      TAG: ${{ github.event.release.tag_name }}
     steps:
       - name: Setup Node.js
         # No `cache: 'npm'`: there is no checkout, so no lockfile to key it on,
@@ -373,7 +392,20 @@ jobs:
             echo "Refusing to publish: the tarball's package.json declares publishConfig"
             exit 1
           fi
+          # `package` asserts tag == version BEFORE its install runs, so that
+          # check cannot vouch for what was packed afterwards: an install
+          # script could rewrite the root manifest. Re-assert the tarball's own
+          # name and version against the expected package and the release tag.
+          NAME="$(printf '%s' "$MANIFEST" | node -p "JSON.parse(require('fs').readFileSync(0, 'utf8')).name")"
           VERSION="$(printf '%s' "$MANIFEST" | node -p "JSON.parse(require('fs').readFileSync(0, 'utf8')).version")"
+          if [ "$NAME" != "@modelcontextprotocol/inspector" ]; then
+            echo "Refusing to publish: tarball package name is '$NAME'"
+            exit 1
+          fi
+          if [ "${TAG#v}" != "$VERSION" ]; then
+            echo "Refusing to publish: tarball version '$VERSION' does not match release tag '$TAG'"
+            exit 1
+          fi
           case "$VERSION" in
             *-*) NPM_TAG=next ;;
             *)   NPM_TAG=latest ;;
