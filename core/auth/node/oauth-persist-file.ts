@@ -115,6 +115,23 @@ function warnRestoreFailure(error: unknown): void {
 }
 
 /**
+ * Confirmation-failure variant of {@link warnRestoreFailure}: a file write
+ * succeeded but was never confirmed by a read-back, a later step failed, and
+ * the re-read that decides between "committed" and "rolled back" also
+ * failed. The store was restored to the pre-write state — the bias that
+ * cannot strand secrets — but the file may still hold the interrupted save.
+ */
+function warnUnconfirmedFile(error: unknown): void {
+  const reason = error instanceof Error ? error.message : String(error);
+  const key = `unconfirmed:${reason}`;
+  if (warnedStoreFailures.has(key)) return;
+  warnedStoreFailures.add(key);
+  console.warn(
+    `[mcp-inspector] Could not re-read oauth.json after a failed OAuth state save (${reason}). The file may still contain the interrupted save while the secret store was restored to the previous values; if a server's stored credentials stop working, re-authorize it.`,
+  );
+}
+
+/**
  * Migration-failure variant of {@link warnStoreWriteFailure}: here the
  * plaintext file is deliberately left untouched, so the write-path message
  * ("memory only, expect to re-authorize") would be wrong — nothing was
@@ -225,21 +242,6 @@ async function readDiskForMutation(
 /**
  * Persist one entry's secrets: set every post-split value, delete every
  * candidate field the split no longer produces (clears and policy
- * downgrades propagate as deletions). A failed *set* degrades to
- * memory-only — but only after the fields the batch touched are restored
- * to their `prior` values: the bulk set settles every sibling before
- * rejecting, so some writes may already have landed, and committing
- * residue over a store holding a mixed old/new credential set would let
- * the next read rejoin tokens that were never issued together. When that
- * compensation itself cannot be confirmed the write aborts instead — the
- * store's state is unknown, so the file must not move. A failed *delete*
- * must abort likewise: committing residue that omits a secret while the
- * store may still hold it lets the next read rejoin (resurrect) the
- * cleared value.
- */
-/**
- * Persist one entry's secrets: set every post-split value, delete every
- * candidate field the split no longer produces (clears and policy
  * downgrades propagate as deletions). Returns whether the new state was
  * persisted.
  *
@@ -253,10 +255,19 @@ async function readDiskForMutation(
  * residue over restored old secrets is just the same mismatch on the other
  * side (a re-registered `client_id` paired with the old `client_secret`).
  * The prior file entry and the restored prior store fields together are the
- * consistent pre-write state (on a retry, `writeOAuthSections` passes
- * baseline-adjusted priors so an earlier attempt's own writes are not what
- * gets "restored"); the new credentials live only in memory for the
- * session. When the compensation itself cannot be confirmed the write
+ * consistent pre-write state; the new credentials live only in memory for
+ * the session.
+ *
+ * That contract is only sound on a *first* attempt (`allowDegrade`), where
+ * the disk entry really is the pre-call state the priors pair with. On a
+ * retry the disk may already hold an earlier attempt's committed residue —
+ * "reverting" to it while restoring pre-call secrets would pair a new
+ * `client_id` with the old `client_secret` and report success — so a retry
+ * escalates instead: the error is rethrown without compensation here, and
+ * the caller's reconciling exit decides against the file (see
+ * `writeOAuthSections`), whose whole-attempt rollback covers these fields.
+ *
+ * When the degrade compensation itself cannot be confirmed the write
  * aborts instead — the store's state is unknown, so the file must not
  * move. A failed *delete* must abort likewise: committing residue that
  * omits a secret while the store may still hold it lets the next read
@@ -268,12 +279,14 @@ async function persistEntrySecrets(
   candidates: string[],
   secrets: Record<string, string>,
   prior: SecretFieldSnapshot[],
+  allowDegrade: boolean,
 ): Promise<boolean> {
   try {
     if (Object.keys(secrets).length > 0) {
       await secretStoreSetMany(store, serverId, secrets);
     }
   } catch (error) {
+    if (!allowDegrade) throw error;
     warnStoreWriteFailure(error);
     // Restore only the fields the batch could have touched: an untouched
     // field's restore cannot help, but its failure would abort needlessly.
@@ -397,25 +410,74 @@ export async function writeOAuthSections(
         [...restoreBaseline.values()],
         warnRestoreFailure,
       );
-    // The inner degrade restore in `persistEntrySecrets` needs the same
-    // treatment as the rollbacks below: on a retry the raw per-attempt prior
-    // for a field is this call's own earlier-attempt write, and "restoring"
-    // it while `revertEntryToDisk` keeps the pre-write residue would report
-    // success with the new secrets committed under the old residue.
-    // Substitute the baseline value wherever the prior is our own write.
-    const baselinePriors = (
-      priors: SecretFieldSnapshot[],
-    ): SecretFieldSnapshot[] =>
-      priors.map((prior) => {
-        const key = priorKey(prior);
-        if (
-          ourWrites.get(key) !== undefined &&
-          prior.value === ourWrites.get(key)
-        ) {
-          return restoreBaseline.get(key) ?? prior;
+    // The last file write that succeeded but was never confirmed by a
+    // read-back, with the store writes its attempt actually committed
+    // (degraded entries excluded — their store fields deliberately stayed at
+    // their prior values, matching the reverted residue in the file). A
+    // later failure does not prove that write gone: a read-back failure
+    // followed by a failed retry (both reads breaking on the same sick
+    // filesystem) leaves the file holding it, and rolling back only the
+    // store would pair committed residue with restored old secrets.
+    let unconfirmed: {
+      written: string;
+      writes: Map<
+        string,
+        { serverId: string; field: string; value: string | null }
+      >;
+    } | null = null;
+    // Every failure exit funnels through this one decision procedure:
+    // re-read the file first. If it still holds the unconfirmed write, the
+    // save *is* committed — re-point the store at exactly the pairing that
+    // file holds: the committed attempt's writes for the entries it
+    // persisted, and the baseline values for every other touched field
+    // (an entry the committed attempt degraded kept its pre-call residue,
+    // and a later attempt's store writes for it must not survive under it).
+    // Only a file confirmed to hold something else — or never written to —
+    // rolls the store back to the fold baseline. An unreadable file cannot
+    // confirm either way; restoring then biases toward store-behind
+    // (missing tokens re-authorize, the file still indexes them) over
+    // store-ahead (secrets stranded with no index), and says so. Returns
+    // whether the caller should report success.
+    const reconcileFailure = async (): Promise<boolean> => {
+      if (unconfirmed !== null) {
+        const committed = unconfirmed;
+        let observed: string | null = null;
+        let readable = true;
+        try {
+          observed = await readStoreFile(filePath);
+        } catch (error) {
+          readable = false;
+          warnUnconfirmedFile(error);
         }
-        return prior;
-      });
+        if (readable && observed === committed.written) {
+          const target = new Map(
+            [...restoreBaseline].map(([key, { serverId, field, value }]) => [
+              key,
+              { serverId, field, value },
+            ]),
+          );
+          for (const [key, write] of committed.writes) target.set(key, write);
+          try {
+            await settleStoreMutations(
+              [...target.values()].map(({ serverId, field, value }) =>
+                value === null
+                  ? secretStore.delete(serverId, field)
+                  : secretStore.set(serverId, field, value),
+              ),
+            );
+            return true;
+          } catch (error) {
+            // The file is committed but the store could not be re-pointed
+            // at it; restoring the baseline would contradict the file, so
+            // warn and let the caller throw — a retried save converges.
+            warnRestoreFailure(error);
+            return false;
+          }
+        }
+      }
+      await restoreToBaseline();
+      return false;
+    };
     // Read-merge-write plus a verifying read, re-applied when another writer
     // lands in between — the same convergence pattern, with the same attempt
     // budget, as `FileSecretStore.mutateLocked` (see its doc for why a
@@ -436,6 +498,17 @@ export async function writeOAuthSections(
       // residue with the *new* secrets (e.g. the previous client_id paired
       // with the re-registered client_secret) on the next read.
       const priorSecrets: SecretFieldSnapshot[] = [];
+      // What this attempt actually committed to the store, keyed like
+      // `ourWrites` — deletion branches after the purge lands, persisted
+      // entries after `persistEntrySecrets` succeeds, degraded entries
+      // excluded (their store fields stayed at prior values, matching the
+      // reverted residue). Attached to `unconfirmed` when the file write
+      // lands, so a reconciling exit can re-point the store at exactly the
+      // set the committed file pairs with.
+      const attemptWrites = new Map<
+        string,
+        { serverId: string; field: string; value: string | null }
+      >();
       // Set inside the try (the residue overlay below mutates `merged`, so it
       // can only be serialized after the entry loops); read by the verify
       // below, which the catch's rethrow can never reach unassigned.
@@ -504,6 +577,13 @@ export async function writeOAuthSections(
               ourWrites.set(priorKey({ serverId, field }), null);
             }
             await secretStore.deleteAllForServer(serverId);
+            for (const field of candidates) {
+              attemptWrites.set(priorKey({ serverId, field }), {
+                serverId,
+                field,
+                value: null,
+              });
+            }
             continue;
           }
           const { residue, secrets } = splitServerOAuthState(next, policy);
@@ -540,9 +620,24 @@ export async function writeOAuthSections(
             serverId,
             candidates,
             secrets,
-            baselinePriors(entryPrior),
+            entryPrior,
+            // Degrading is only sound when the disk entry is the pre-call
+            // state this attempt's priors pair with; on a retry it may be an
+            // earlier attempt's committed residue, so escalate into the
+            // reconciling exit instead.
+            attempt === 0,
           );
-          if (!persisted) revertEntryToDisk(merged.servers, disk?.servers, url);
+          if (!persisted) {
+            revertEntryToDisk(merged.servers, disk?.servers, url);
+            continue;
+          }
+          for (const field of candidates) {
+            attemptWrites.set(priorKey({ serverId, field }), {
+              serverId,
+              field,
+              value: secrets[field] ?? null,
+            });
+          }
         }
 
         for (const issuer of effective.idpSessions ?? []) {
@@ -559,6 +654,14 @@ export async function writeOAuthSections(
               null,
             );
             await secretStore.deleteAllForServer(serverId);
+            attemptWrites.set(
+              priorKey({ serverId, field: IDP_SESSION_FIELD }),
+              {
+                serverId,
+                field: IDP_SESSION_FIELD,
+                value: null,
+              },
+            );
             continue;
           }
           const { residue, secrets } = splitIdpSession(next, policy);
@@ -586,20 +689,30 @@ export async function writeOAuthSections(
             serverId,
             [IDP_SESSION_FIELD],
             secrets,
-            baselinePriors(entryPrior),
+            entryPrior,
+            // Same as the server loop: degrade on the first attempt only.
+            attempt === 0,
           );
-          if (!persisted)
+          if (!persisted) {
             revertEntryToDisk(merged.idpSessions, disk?.idpSessions, issuer);
+            continue;
+          }
+          attemptWrites.set(priorKey({ serverId, field: IDP_SESSION_FIELD }), {
+            serverId,
+            field: IDP_SESSION_FIELD,
+            value: secrets[IDP_SESSION_FIELD] ?? null,
+          });
         }
 
         written = serializeOAuthPersistBlob(merged);
         await writeStoreFile(filePath, written);
+        unconfirmed = { written, writes: attemptWrites };
       } catch (error) {
         // Fold this attempt's priors first: a concurrent writer's value
         // observed at the start of this attempt supersedes the baseline's,
         // and a field first seen this attempt has no baseline entry yet.
         foldPriors(priorSecrets);
-        await restoreToBaseline();
+        if (await reconcileFailure()) return;
         throw error;
       }
       foldPriors(priorSecrets);
@@ -612,15 +725,17 @@ export async function writeOAuthSections(
         observed = await readStoreFile(filePath);
       } catch {
         // Wrote successfully but cannot read it back; claiming convergence
-        // would be a guess. Retry, and fall through to the give-up error if
-        // it never becomes readable.
+        // would be a guess. Retry; the write stays in `unconfirmed`, so a
+        // failing retry reconciles against it instead of assuming it gone.
         continue;
       }
       if (observed === written) return;
-      // Someone wrote between our write and our read-back. Loop: the next
+      // Someone wrote between our write and our read-back — the file is
+      // confirmed to no longer hold this attempt's write. Loop: the next
       // attempt re-reads and re-merges onto what they left.
+      unconfirmed = null;
     }
-    await restoreToBaseline();
+    if (await reconcileFailure()) return;
     throw new SecretStoreUnavailableError(
       `Could not save OAuth state: another process kept overwriting ${filePath} (gave up after ${MAX_WRITE_ATTEMPTS} attempts). Re-run the action to retry.`,
     );

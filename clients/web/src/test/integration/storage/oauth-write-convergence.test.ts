@@ -34,6 +34,7 @@ const hook = vi.hoisted(() => ({
   afterWrite: undefined as
     | ((path: string, data: string) => void | Promise<void>)
     | undefined,
+  beforeRead: undefined as ((path: string) => void) | undefined,
 }));
 
 vi.mock("@inspector/core/storage/store-io.js", async (importOriginal) => {
@@ -47,6 +48,10 @@ vi.mock("@inspector/core/storage/store-io.js", async (importOriginal) => {
       hook.beforeWrite?.(filePath, data);
       await actual.writeStoreFile(filePath, data);
       await hook.afterWrite?.(filePath, data);
+    }),
+    readStoreFile: vi.fn(async (filePath: string) => {
+      hook.beforeRead?.(filePath);
+      return actual.readStoreFile(filePath);
     }),
   };
 });
@@ -83,6 +88,7 @@ beforeEach(async () => {
   filePath = join(tempDir, "oauth.json");
   store = new InMemorySecretStore();
   hook.beforeWrite = undefined;
+  hook.beforeRead = undefined;
   hook.afterWrite = undefined;
   vi.mocked(writeStoreFile).mockClear();
   await writeOAuthSections(
@@ -96,6 +102,7 @@ beforeEach(async () => {
 
 afterEach(() => {
   hook.beforeWrite = undefined;
+  hook.beforeRead = undefined;
   hook.afterWrite = undefined;
   rmSync(tempDir, { recursive: true, force: true });
 });
@@ -264,13 +271,12 @@ describe("writeOAuthSections convergence verification", () => {
     expect(await store.get(idB, LEGACY_CLIENT_SECRET_FIELD)).toBe("cs-b");
   });
 
-  it("degrading on a retry restores pre-operation secrets, not the failed attempt's own writes", async () => {
+  it("escalates a retry store failure instead of degrading, restoring pre-operation secrets", async () => {
     // Attempt 1 lands fully but is clobbered by a writer restoring the old
-    // file; attempt 2's store write fails, degrading the entry to
-    // memory-only. The degrade keeps the *old* residue in the file, so the
-    // restore must put back the *old* secrets — restoring attempt 1's own
-    // writes would report success with the new secrets committed under the
-    // old residue.
+    // file; attempt 2's store write fails. Degrading here would be unsound —
+    // the disk entry is no longer the pre-call state the degrade contract
+    // pairs with — so the failure escalates into the reconciling exit, which
+    // finds the file changed and restores the pre-operation secrets.
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const idB = oauthSecretServerId(SERVER_B);
     await writeOAuthSections(
@@ -287,13 +293,76 @@ describe("writeOAuthSections convergence verification", () => {
     hook.afterWrite = (path) => {
       writeFileSync(path, withOldB);
       hook.afterWrite = undefined;
+      let failed = false;
       store.set = async (serverId, field, value) => {
-        // Only the new values fail; the compensating restore must succeed
-        // (an unconfirmed compensation aborts the write instead).
-        if (serverId === idB && value.includes("b2"))
+        // Fail exactly one set: a degrade's compensating restore would
+        // succeed, so only escalation reaches the reconciling exit.
+        if (!failed && serverId === idB) {
+          failed = true;
           throw new Error("keychain says no");
+        }
         return realSet(serverId, field, value);
       };
+    };
+
+    await expect(
+      writeOAuthSections(
+        filePath,
+        snapshotOf({ [SERVER_B]: serverState("b2") }),
+        { servers: [SERVER_B] },
+        store,
+      ),
+    ).rejects.toThrow(/keychain says no/);
+
+    store.set = realSet;
+    expect(await store.get(idB, LEGACY_TOKENS_FIELD)).toBe(oldTokens);
+    expect(await store.get(idB, LEGACY_CLIENT_SECRET_FIELD)).toBe("cs-b");
+    const read = await readOAuthStore(filePath, store);
+    expect(read?.servers[SERVER_B]?.tokens?.access_token).toBe("at-b");
+    expect(read?.servers[SERVER_B]?.clientInformation?.client_id).toBe("cid-b");
+    warn.mockRestore();
+  });
+
+  it("restores the baseline for fields the committed attempt degraded, not a later attempt's writes", async () => {
+    // Attempt 1's store write fails, degrading server B back to its old
+    // residue; that file write lands but its read-back fails. Attempt 2's
+    // store writes succeed, but its file write fails, escalating into the
+    // reconciling exit — which confirms the file still holds attempt 1's
+    // blob. That blob pairs with the *old* secrets (attempt 1 degraded B),
+    // so attempt 2's store writes must be rolled back to the baseline, not
+    // left in place under the old residue.
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const idB = oauthSecretServerId(SERVER_B);
+    await writeOAuthSections(
+      filePath,
+      snapshotOf({ [SERVER_B]: serverState("b") }),
+      { servers: [SERVER_B] },
+      store,
+    );
+    const oldTokens = await store.get(idB, LEGACY_TOKENS_FIELD);
+    expect(oldTokens).toContain("at-b");
+
+    const realSet = store.set.bind(store);
+    let failNewSets = true;
+    store.set = async (serverId, field, value) => {
+      // The degrade's own compensating restore (old values) must succeed.
+      if (failNewSets && serverId === idB && value.includes("b2"))
+        throw new Error("keychain says no");
+      return realSet(serverId, field, value);
+    };
+    let reads = 0;
+    hook.beforeRead = () => {
+      reads += 1;
+      // Read 1: attempt 1's disk read. Read 2: its failing read-back.
+      // Read 3: attempt 2's disk read — the store has recovered by now.
+      // Read 4: the reconciling exit's confirmation read.
+      if (reads === 2) throw new Error("EIO: read failed");
+      if (reads === 3) failNewSets = false;
+    };
+    let writes = 0;
+    hook.beforeWrite = () => {
+      writes += 1;
+      if (writes === 2) throw new Error("disk full");
     };
 
     await writeOAuthSections(
@@ -304,11 +373,118 @@ describe("writeOAuthSections convergence verification", () => {
     );
 
     store.set = realSet;
+    // The committed file holds the old residue; the store must pair with
+    // it — attempt 2's b2 values must not survive.
     expect(await store.get(idB, LEGACY_TOKENS_FIELD)).toBe(oldTokens);
     expect(await store.get(idB, LEGACY_CLIENT_SECRET_FIELD)).toBe("cs-b");
     const read = await readOAuthStore(filePath, store);
     expect(read?.servers[SERVER_B]?.tokens?.access_token).toBe("at-b");
-    expect(read?.servers[SERVER_B]?.clientInformation?.client_id).toBe("cid-b");
+    warn.mockRestore();
+  });
+
+  it("re-applies a committed attempt's writes when a retry's store failure escalates", async () => {
+    // Attempt 1 lands fully but its read-back fails; attempt 2's store
+    // write fails outright (no degrade on retries) and escalates into the
+    // reconciling exit. The file is confirmed to still hold attempt 1's
+    // write, so the save is committed: the store is re-pointed at attempt
+    // 1's values and the call reports success.
+    const idB = oauthSecretServerId(SERVER_B);
+    await writeOAuthSections(
+      filePath,
+      snapshotOf({ [SERVER_B]: serverState("b") }),
+      { servers: [SERVER_B] },
+      store,
+    );
+
+    const realSet = store.set.bind(store);
+    let failSets = false;
+    store.set = async (serverId, field, value) => {
+      if (failSets) throw new Error("keychain flake");
+      return realSet(serverId, field, value);
+    };
+    let reads = 0;
+    hook.beforeRead = () => {
+      reads += 1;
+      // Read 1: attempt 1's disk read. Read 2: its failing read-back.
+      // Read 3: attempt 2's disk read — the store starts flaking here.
+      // Read 4: the confirmation read — the flake has passed.
+      if (reads === 2) throw new Error("EIO: read failed");
+      if (reads === 3) failSets = true;
+      if (reads === 4) failSets = false;
+    };
+
+    await writeOAuthSections(
+      filePath,
+      snapshotOf({ [SERVER_B]: serverState("b2") }),
+      { servers: [SERVER_B] },
+      store,
+    );
+
+    store.set = realSet;
+    expect(await store.get(idB, LEGACY_TOKENS_FIELD)).toContain("at-b2");
+    expect(await store.get(idB, LEGACY_CLIENT_SECRET_FIELD)).toBe("cs-b2");
+    const read = await readOAuthStore(filePath, store);
+    expect(read?.servers[SERVER_B]?.tokens?.access_token).toBe("at-b2");
+  });
+
+  it("reports success when the file is confirmed to still hold an unverified write", async () => {
+    // Attempt 1's write lands but its read-back fails; attempt 2's disk read
+    // fails too (same sick filesystem). The file still holds attempt 1's
+    // write, so rolling back only the store would pair committed residue
+    // with restored old secrets. The reconciling exit re-reads the file,
+    // finds the write, and reports the save as what it is: committed.
+    let reads = 0;
+    hook.beforeRead = () => {
+      reads += 1;
+      // Read 1: attempt 1's disk read. Reads 2-3: attempt 1's verifying
+      // read-back and attempt 2's disk read, both failing. Read 4: the
+      // reconciling exit's confirmation read, which succeeds.
+      if (reads === 2 || reads === 3) throw new Error("EIO: read failed");
+    };
+
+    await writeOAuthSections(
+      filePath,
+      snapshotOf({ [SERVER_B]: serverState("b") }),
+      { servers: [SERVER_B] },
+      store,
+    );
+
+    const idB = oauthSecretServerId(SERVER_B);
+    expect(await store.get(idB, LEGACY_TOKENS_FIELD)).toContain("at-b");
+    expect(await store.get(idB, LEGACY_CLIENT_SECRET_FIELD)).toBe("cs-b");
+    const read = await readOAuthStore(filePath, store);
+    expect(read?.servers[SERVER_B]?.tokens?.access_token).toBe("at-b");
+  });
+
+  it("restores and warns when the unverified write cannot be confirmed either way", async () => {
+    // Same as above, but the confirmation read fails too. Nothing can say
+    // whether the file holds the write; the store is restored (the bias
+    // that cannot strand secrets) and the warning says the file may still
+    // hold the interrupted save.
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    let reads = 0;
+    hook.beforeRead = () => {
+      reads += 1;
+      if (reads >= 2) throw new Error("EIO: read failed");
+    };
+
+    await expect(
+      writeOAuthSections(
+        filePath,
+        snapshotOf({ [SERVER_B]: serverState("b") }),
+        { servers: [SERVER_B] },
+        store,
+      ),
+    ).rejects.toThrow(/EIO/);
+
+    const idB = oauthSecretServerId(SERVER_B);
+    expect(await store.get(idB, LEGACY_TOKENS_FIELD)).toBeNull();
+    expect(await store.get(idB, LEGACY_CLIENT_SECRET_FIELD)).toBeNull();
+    expect(
+      warn.mock.calls.some(([msg]) =>
+        String(msg).includes("Could not re-read"),
+      ),
+    ).toBe(true);
     warn.mockRestore();
   });
 });

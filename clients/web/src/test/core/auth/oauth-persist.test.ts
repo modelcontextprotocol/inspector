@@ -148,6 +148,96 @@ describe("parseOAuthPersistBlob", () => {
     ) as Record<string, unknown>;
     expect(parseOAuthPersistBlob(valid)).not.toBeNull();
   });
+
+  it("rejects API write bodies with token payloads the read path would silently drop", () => {
+    // The split stringifies whatever `tokens` holds into the store, so a
+    // type-corrupt payload would be accepted with apparent success and then
+    // dropped when the join validates before serving. An untrusted write
+    // gets a 400 instead. Partial shapes are legitimate (see the acceptance
+    // cases below): only present-but-mistyped fields reject.
+    expect(
+      parseOAuthStoreWriteBody({
+        servers: { "http://s": { tokens: { access_token: 123 } } },
+        idpSessions: {},
+      }),
+    ).toBeNull();
+    expect(
+      parseOAuthStoreWriteBody({
+        sections: { servers: ["http://s"] },
+        snapshot: {
+          servers: {
+            "http://s": {
+              byIssuer: {
+                "https://as": { tokens: { refresh_token: 42 } },
+              },
+            },
+          },
+          idpSessions: {},
+        },
+      }),
+    ).toBeNull();
+    // IdP session secret fields: the join extracts only string-typed
+    // `idToken` / `refreshToken`, so a non-string would be dropped the same
+    // way.
+    expect(
+      parseOAuthStoreWriteBody({
+        servers: {},
+        idpSessions: { "https://idp": { idToken: 42 } },
+      }),
+    ).toBeNull();
+    expect(
+      parseOAuthStoreWriteBody({
+        servers: {},
+        idpSessions: { "https://idp": { refreshToken: { a: 1 } } },
+      }),
+    ).toBeNull();
+    // Valid tokens — including the SEP-2352 issuer stamp the schema strips —
+    // and string IdP fields stay accepted. So do partial token shapes: a
+    // legacy plaintext file can hold a refresh-only entry that the join
+    // serves from the residue, so a GET can return it and a client echoing
+    // that state back must not be refused.
+    expect(
+      parseOAuthStoreWriteBody({
+        servers: {
+          "http://s": {
+            tokens: { refresh_token: "rt", token_type: "Bearer" },
+          },
+        },
+        idpSessions: {},
+      }),
+    ).not.toBeNull();
+    expect(
+      parseOAuthStoreWriteBody({
+        servers: {
+          "http://s": {
+            tokens: {
+              access_token: "at",
+              token_type: "Bearer",
+              issuer: "https://as",
+            },
+            byIssuer: {
+              "https://as": {
+                tokens: { access_token: "at2", token_type: "Bearer" },
+              },
+            },
+          },
+        },
+        idpSessions: {
+          "https://idp": { idToken: "idt", idTokenExpiresAt: 123 },
+        },
+      }),
+    ).not.toBeNull();
+    // File reads stay tolerant on purpose: a corrupt token entry in
+    // oauth.json must remain readable so it can be cleared / re-authorized,
+    // not brick every mutation of the file. (The store is never at risk —
+    // token payloads are JSON-stringified, unlike verbatim client_secret.)
+    expect(
+      parseOAuthPersistBlob({
+        servers: { "http://s": { tokens: { access_token: 123 } } },
+        idpSessions: { "https://idp": { idToken: 42 } },
+      }),
+    ).not.toBeNull();
+  });
 });
 
 describe("serializeOAuthPersistBlob", () => {

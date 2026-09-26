@@ -18,6 +18,7 @@
 
 import { serializeStore, parseStore } from "../storage/store-serialize.js";
 import { setOwnEntry, getOwnEntry } from "../storage/own-entry.js";
+import { OAuthTokensSchema } from "@modelcontextprotocol/core";
 import type { IdpSessionState } from "./storage.js";
 import type { ServerOAuthState } from "./store.js";
 
@@ -163,7 +164,44 @@ function isValidClientInformation(value: unknown): boolean {
   );
 }
 
-/** Validate one server entry's secret-bearing containers (see above). */
+/**
+ * Whether a `tokens`-shaped value is absent or structurally sound. The
+ * split stringifies whatever it is given into the secret store, so a
+ * type-corrupt value (say `access_token: 123`) is never *unsafe* there —
+ * but it would be accepted with apparent success, removed from the
+ * residue, and then silently dropped when the join validates before
+ * serving. {@link parseOAuthStoreWriteBody} rejects it at the API write
+ * boundary, turning that into a 400. File reads stay tolerant on purpose:
+ * a corrupt entry in `oauth.json` must remain clearable/re-authorizable,
+ * not brick every mutation of the file.
+ *
+ * The check is the *partial* token schema — every present field must be
+ * well-typed, none is required — because the API's own reads can produce
+ * partial shapes: a legacy plaintext file whose tokens the store join's
+ * usability gate does not serve keeps them in the residue
+ * (`isUsableStoredSecret` stops migration from stripping them), a GET
+ * returns them, and a client echoing that state back must not be refused.
+ * Known residual: a partial shape written *fresh* through a durable store
+ * is split into the store, where the same usability gate drops it on the
+ * next read — the gate's documented "usable = servable" rule (see
+ * `parseStoredTokens`), applied uniformly to file- and API-originated
+ * values, not something this boundary can reject without refusing state
+ * the API itself serves. Validation only: extra fields such as the
+ * SEP-2352 `issuer` stamp pass through.
+ */
+const PartialTokensSchema = OAuthTokensSchema.partial();
+function isValidTokens(value: unknown): boolean {
+  if (value === undefined) return true;
+  return PartialTokensSchema.safeParse(value).success;
+}
+
+/**
+ * Validate one server entry's secret-bearing containers. The verbatim
+ * check is unconditional even for file reads: migration lifts
+ * `client_secret` / `registration_access_token` into the secret store
+ * verbatim, so a non-string here would poison the store on the very next
+ * read (see {@link isValidClientInformation}).
+ */
 function isValidServerEntry(entry: unknown): boolean {
   if (!isRecord(entry)) return false;
   if (!isValidClientInformation(entry.clientInformation)) return false;
@@ -180,6 +218,44 @@ function isValidServerEntry(entry: unknown): boolean {
 }
 
 /**
+ * Whether an IdP session's secret fields would survive the read path: the
+ * split stringifies only string-typed `idToken` / `refreshToken` into the
+ * store, and the join extracts only string-typed fields back out — a
+ * non-string would be accepted and then silently dropped. Applied at the
+ * API write boundary only, like {@link isValidTokens}.
+ */
+function isValidIdpSession(session: unknown): boolean {
+  if (!isRecord(session)) return false;
+  return (["idToken", "refreshToken"] as const).every(
+    (key) => !Object.hasOwn(session, key) || typeof session[key] === "string",
+  );
+}
+
+/**
+ * Whether every token payload and IdP session field in `snapshot` would
+ * survive the read path (see {@link isValidTokens} /
+ * {@link isValidIdpSession}). Applied by {@link parseOAuthStoreWriteBody}
+ * so an untrusted write gets a 400 instead of silently losing the payload
+ * on the next read; deliberately *not* applied when parsing the file or a
+ * remote/sessionStorage read, where tolerance keeps a corrupt entry
+ * clearable.
+ */
+function snapshotHasValidSecretPayloads(
+  snapshot: OAuthPersistSnapshot,
+): boolean {
+  for (const entry of Object.values(snapshot.servers)) {
+    const record = entry as Record<string, unknown>;
+    if (!isValidTokens(record.tokens)) return false;
+    if (isRecord(record.byIssuer)) {
+      for (const slot of Object.values(record.byIssuer)) {
+        if (isRecord(slot) && !isValidTokens(slot.tokens)) return false;
+      }
+    }
+  }
+  return Object.values(snapshot.idpSessions).every(isValidIdpSession);
+}
+
+/**
  * Validate and normalize the two entry maps. Absent maps default to empty;
  * anything that is not a record-of-records (an array, a string, an entry
  * whose value is a scalar) rejects the whole payload — coercing it would
@@ -187,7 +263,8 @@ function isValidServerEntry(entry: unknown): boolean {
  * returning 400 / treating the file as unreadable. Entries whose
  * verbatim-extracted secret fields are not strings are rejected the same
  * way: they would otherwise poison the shared secret store (see
- * {@link isValidClientInformation}).
+ * {@link isValidClientInformation}). Token and IdP-session payload shapes
+ * are *not* checked here — see {@link snapshotHasValidSecretPayloads}.
  */
 function snapshotFromPayload(
   payload: Record<string, unknown>,
@@ -264,7 +341,10 @@ export function serializeOAuthSectionedWrite(
 /**
  * Parse an OAuth store POST body: either a `{ sections, snapshot }`
  * envelope (sectioned merge) or a bare persist blob (full replacement).
- * Returns `null` when neither shape validates. A bare blob can never be
+ * Returns `null` when neither shape validates — including token / IdP
+ * session payloads the read path would silently drop (an untrusted write
+ * deserves a 400, not apparent success; see
+ * {@link snapshotHasValidSecretPayloads}). A bare blob can never be
  * mistaken for an envelope — blobs only ever carry `servers` /
  * `idpSessions` (or legacy `state`/`version`) keys, never `sections`.
  */
@@ -287,11 +367,11 @@ export function parseOAuthStoreWriteBody(
     const snapshot = parseOAuthPersistBlob(
       "snapshot" in body ? body.snapshot : null,
     );
-    if (!snapshot) return null;
+    if (!snapshot || !snapshotHasValidSecretPayloads(snapshot)) return null;
     return { snapshot, sections };
   }
   const snapshot = parseOAuthPersistBlob(body);
-  if (!snapshot) return null;
+  if (!snapshot || !snapshotHasValidSecretPayloads(snapshot)) return null;
   return { snapshot };
 }
 
