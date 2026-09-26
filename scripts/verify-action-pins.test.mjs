@@ -124,6 +124,27 @@ test("every spelling of a non-default secret counts; GITHUB_TOKEN in any spellin
   ]);
 });
 
+test("a secret in the workflow-level env reaches every job", () => {
+  const yaml = wf(
+    "env:",
+    "  TOKEN: ${{ secrets.DEPLOY_TOKEN }}",
+    "jobs:",
+    "  a:",
+    "    runs-on: x",
+    "  b:",
+    "    runs-on: y",
+  );
+  assert.deepEqual([...credentialedJobs(yaml)].sort(), ["a", "b"]);
+  const defaultOnly = wf(
+    "env:",
+    "  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}",
+    "jobs:",
+    "  a:",
+    "    runs-on: x",
+  );
+  assert.deepEqual([...credentialedJobs(defaultOnly)], []);
+});
+
 test("a job whose artifact a credentialed job downloads is credentialed", () => {
   const yaml = wf(
     "jobs:",

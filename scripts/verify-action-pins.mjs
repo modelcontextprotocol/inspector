@@ -16,7 +16,8 @@
 //   1. can mint an OIDC token or push a package — `id-token: write` or
 //      `packages: write` (or `write-all`), in its own `permissions:` or, absent
 //      one, the workflow's;
-//   2. is handed any secret other than `GITHUB_TOKEN` — in any spelling of the
+//   2. is handed any secret other than `GITHUB_TOKEN`, its own or through the
+//      workflow-level `env:` — in any spelling of the
 //      expression (`secrets.X`, `secrets['X']`, `secrets[matrix.name]`), or as
 //      a reusable-workflow call's `secrets: inherit` (a `secrets:` mapping is
 //      read like any other expression, so one passing only `GITHUB_TOKEN`
@@ -41,6 +42,12 @@
 //
 // Checked offline: a SHA that does not match its comment's release cannot be
 // seen without the network. Resolve both from the same lookup when bumping.
+//
+// ⚠️ Local `./…` actions and reusable workflows are skipped, not traced: the
+// remote `uses:` INSIDE one runs under its caller's credentials but is not
+// associated with the caller here, and composite-action files are not read at
+// all. None exists in this repo; adding the first one to a credentialed job
+// means extending this guard to follow it, or it is a silent bypass.
 
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -77,12 +84,16 @@ function stringsIn(value) {
   return Object.values(value).flatMap(stringsIn);
 }
 
-/** Is this job handed any secret but `GITHUB_TOKEN`? */
-function handedSecret(job) {
+/**
+ * Is this job handed any secret but `GITHUB_TOKEN`? `inherited` is the
+ * workflow-level `env:`, which every job receives the way a job with no
+ * `permissions:` of its own receives the workflow's (Copilot).
+ */
+function handedSecret(job, inherited) {
   // `inherit` hands over every secret with no expression to scan. A mapping
   // is scanned below with everything else.
   if (job.secrets === "inherit") return true;
-  return stringsIn(job).some((text) =>
+  return stringsIn([job, inherited]).some((text) =>
     [...text.matchAll(EXPRESSION)].some(([, body]) =>
       /\bsecrets\b/.test(body.replace(DEFAULT_TOKEN, "")),
     ),
@@ -125,7 +136,7 @@ export function credentialedJobs(yaml, file) {
   for (const [name, job] of jobs) {
     const permissions =
       "permissions" in job ? job.permissions : workflow.permissions;
-    if (mints(permissions) || handedSecret(job)) held.add(name);
+    if (mints(permissions) || handedSecret(job, workflow.env)) held.add(name);
   }
   // To a fixed point: marking a producer credentialed can make ITS producers
   // credentialed, and job order in the file says nothing about the chain.
