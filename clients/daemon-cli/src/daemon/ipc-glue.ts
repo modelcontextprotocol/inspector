@@ -44,6 +44,11 @@ export type ElicitationChannel = {
 export type HandleRequest = (
   request: DaemonRequest,
   elicitation: ElicitationChannel,
+  /**
+   * Aborted when the requesting socket closes, so long-running handlers
+   * (notably `connect`) can stop work whose caller is gone.
+   */
+  signal?: AbortSignal,
 ) => Promise<HandleOutcome>;
 
 /**
@@ -160,6 +165,11 @@ export function acceptDaemonConnection(
   // socket's own error handler below owns the teardown.
   rl.on("error", () => {});
   const elicitationChannel = new ConnectionElicitationChannel(socket);
+  // Cancellation for in-flight handlers: when the caller hangs up (Ctrl-C
+  // closes its socket) the handler should stop working on its behalf —
+  // e.g. abort a `connect` that would otherwise keep dialing indefinitely.
+  const requestAbort = new AbortController();
+  socket.once("close", () => requestAbort.abort());
   rl.on("line", (line) => {
     void (async () => {
       // readline sees the same chunks as the cap enforcement above, so an
@@ -185,7 +195,11 @@ export function acceptDaemonConnection(
         );
         return;
       }
-      const outcome = await handle(request, elicitationChannel);
+      const outcome = await handle(
+        request,
+        elicitationChannel,
+        requestAbort.signal,
+      );
       if (socket.destroyed) {
         // The caller vanished while the handler ran. A stream outcome may
         // already hold producer-side state (resources/subscribe subscribes

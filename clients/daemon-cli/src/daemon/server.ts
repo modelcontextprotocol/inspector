@@ -268,20 +268,22 @@ export class DaemonServer {
   async handle(
     request: DaemonRequest,
     elicitation: ElicitationChannel = autoCancelElicitationChannel,
+    signal?: AbortSignal,
   ): Promise<DaemonResponse> {
-    return (await this.handleOutcome(request, elicitation)).response;
+    return (await this.handleOutcome(request, elicitation, signal)).response;
   }
 
   /** Full handle including optional stream starter (socket accept path). */
   async handleOutcome(
     request: DaemonRequest,
     elicitation: ElicitationChannel = autoCancelElicitationChannel,
+    signal?: AbortSignal,
   ): Promise<HandleOutcome> {
     try {
       assertDaemonToken(this.requiredToken, request.token);
       this.activeOps++;
       try {
-        return await this.dispatch(request, elicitation);
+        return await this.dispatch(request, elicitation, signal);
       } finally {
         this.activeOps--;
         if (this.activeOps === 0) {
@@ -321,6 +323,7 @@ export class DaemonServer {
   private async dispatch(
     request: DaemonRequest,
     elicitation: ElicitationChannel,
+    signal?: AbortSignal,
   ): Promise<HandleOutcome> {
     // Once shutdown starts, new work is rejected: an op accepted here could
     // otherwise register a live client after disconnectAll's snapshot.
@@ -360,7 +363,7 @@ export class DaemonServer {
           response: {
             id: request.id,
             ok: true,
-            result: await this.registry.connect(params),
+            result: await this.registry.connect(params, signal),
           },
         };
       }
@@ -696,8 +699,12 @@ function isPidAlive(pid: number): boolean {
 function stripConnectionFields(
   params: RpcParams,
 ): MethodArgs & { method: string } {
-  const { name, requireExplicit, method, ...rest } = params;
+  // `format` is a frontend-only output concern; forwarding it would make
+  // runMethod's `format === "json"` branch collect app info (an extra
+  // resources/read) whose result the frontend discards.
+  const { name, requireExplicit, format, method, ...rest } = params;
   void name;
   void requireExplicit;
+  void format;
   return { method, ...rest };
 }

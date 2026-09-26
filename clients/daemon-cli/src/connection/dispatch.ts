@@ -38,7 +38,10 @@ export async function dispatchConnectionRpc(
   const style = styleFromOpts({ plain: opts.plain, format });
   const params: RpcParams = {
     ...methodArgs,
-    format,
+    // `format` stays frontend-only: forwarding it would make the daemon's
+    // runMethod treat `format: "json"` tool calls as app-info requests and
+    // issue a hidden extra resources/read whose result we discard. The
+    // daemon also strips it defensively (see stripConnectionFields).
     method,
     name: stripAt(opts.connection),
     requireExplicit: opts.requireExplicit,

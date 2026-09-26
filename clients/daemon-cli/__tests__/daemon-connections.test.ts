@@ -401,6 +401,112 @@ describe("ConnectionRegistry", () => {
     }
   });
 
+  it("rejects a connect whose caller is already gone (pre-aborted signal)", async () => {
+    const registry = new ConnectionRegistry(0);
+    const ac = new AbortController();
+    ac.abort();
+    const { command, args } = getTestMcpServerCommand();
+    await expect(
+      registry.connect(
+        {
+          name: "gone",
+          serverConfig: { type: "stdio", command, args },
+          serverIdentity: "test-stdio",
+        },
+        ac.signal,
+      ),
+    ).rejects.toThrow(/Connect cancelled/);
+    expect(registry.connectionCount()).toBe(0);
+  });
+
+  it("cancels an in-flight connect when the caller disconnects, tearing the client down", async () => {
+    const { InspectorClient } = await import("@inspector/core/mcp/index.js");
+    let releaseConnect!: () => void;
+    const gate = new Promise<void>((resolve) => (releaseConnect = resolve));
+    const connectSpy = vi
+      .spyOn(InspectorClient.prototype, "connect")
+      .mockImplementation(() => gate);
+    const disconnectSpy = vi
+      .spyOn(InspectorClient.prototype, "disconnect")
+      .mockResolvedValue(undefined);
+    const registry = new ConnectionRegistry(0);
+    try {
+      const ac = new AbortController();
+      const pending = registry.connect(
+        {
+          name: "slow",
+          serverConfig: {
+            type: "streamable-http",
+            url: "https://mcp.example.com/mcp",
+          },
+          serverIdentity: "https://mcp.example.com/mcp",
+        },
+        ac.signal,
+      );
+      // Let the connect get in flight before hanging up.
+      const deadline = Date.now() + 3000;
+      while (connectSpy.mock.calls.length === 0 && Date.now() < deadline) {
+        await new Promise((resolve) => setImmediate(resolve));
+      }
+      expect(connectSpy).toHaveBeenCalledTimes(1);
+      ac.abort();
+      await expect(pending).rejects.toThrow(/Connect cancelled/);
+      // The abandoned client was torn down, not left dialing.
+      expect(disconnectSpy).toHaveBeenCalledTimes(1);
+      expect(registry.connectionCount()).toBe(0);
+      // The late settlement of the abandoned connect is observed by the
+      // cancellation race, so it never surfaces as an unhandled rejection.
+      releaseConnect();
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    } finally {
+      connectSpy.mockRestore();
+      disconnectSpy.mockRestore();
+    }
+  });
+
+  it("discards a connect that completes only after the caller hung up", async () => {
+    const { InspectorClient } = await import("@inspector/core/mcp/index.js");
+    const ac = new AbortController();
+    const connectSpy = vi
+      .spyOn(InspectorClient.prototype, "connect")
+      .mockResolvedValue(undefined);
+    const disconnectSpy = vi
+      .spyOn(InspectorClient.prototype, "disconnect")
+      .mockResolvedValue(undefined);
+    // Abort between connect settling and registration (the auth snapshot
+    // read sits exactly there), hitting the post-connect abort check.
+    const authSpy = vi
+      .spyOn(InspectorClient.prototype, "getOAuthState")
+      .mockImplementation(async () => {
+        ac.abort();
+        return undefined as never;
+      });
+    const registry = new ConnectionRegistry(0);
+    try {
+      await expect(
+        registry.connect(
+          {
+            name: "late",
+            serverConfig: {
+              type: "streamable-http",
+              url: "https://mcp.example.com/mcp",
+            },
+            serverIdentity: "https://mcp.example.com/mcp",
+          },
+          ac.signal,
+        ),
+      ).rejects.toThrow(/Connect cancelled/);
+      // Connected fine — but registering would leak a connection nobody
+      // asked to keep, so it was disconnected instead.
+      expect(disconnectSpy).toHaveBeenCalledTimes(1);
+      expect(registry.connectionCount()).toBe(0);
+    } finally {
+      connectSpy.mockRestore();
+      disconnectSpy.mockRestore();
+      authSpy.mockRestore();
+    }
+  });
+
   it("reports the connect-time auth snapshot, and connections/show recomputes from disk", async () => {
     const { InspectorClient } = await import("@inspector/core/mcp/index.js");
     const { NodeOAuthStorage, resetNodeOAuthStorageCache } =
@@ -792,5 +898,52 @@ describe("DaemonServer IPC", () => {
     } finally {
       spy.mockRestore();
     }
+  });
+
+  it("strips format from rpc method args so JSON tool calls skip the app-info probe", async () => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "mcp-daemon-fmt-"));
+    server = new DaemonServer({ dir, idleMs: 0 });
+    const { command, args } = getTestMcpServerCommand();
+    await server.registry.connect({
+      name: "s",
+      serverConfig: { type: "stdio", command, args },
+      serverIdentity: "test-stdio",
+    });
+
+    const res = await server.handle({
+      id: "1",
+      op: "rpc",
+      params: {
+        method: "tools/call",
+        name: "s",
+        toolName: "echo",
+        toolArg: { message: "hi" },
+        format: "json",
+      },
+    });
+    expect(res.ok).toBe(true);
+    const rpc = (res as { result: { kind: string; appInfo?: unknown } }).result;
+    expect(rpc.kind).toBe("result");
+    // format is a frontend-only output concern: forwarding it used to make
+    // runMethod collect app info (a hidden extra resources/read) whose
+    // result the frontend discards.
+    expect(rpc.appInfo).toBeUndefined();
+
+    // Explicit --app-info still probes.
+    const withApp = await server.handle({
+      id: "2",
+      op: "rpc",
+      params: {
+        method: "tools/call",
+        name: "s",
+        toolName: "echo",
+        appInfo: true,
+      },
+    });
+    expect(withApp.ok).toBe(true);
+    const appRes = (
+      withApp as { result: { result: { hasApp?: boolean; toolName?: string } } }
+    ).result;
+    expect(appRes.result).toMatchObject({ hasApp: false, toolName: "echo" });
   });
 });

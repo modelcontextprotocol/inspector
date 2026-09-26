@@ -108,6 +108,37 @@ describe("runMethod (mocked client)", () => {
     expect(failing.unsubscribeFromResource).toHaveBeenCalledTimes(1);
   });
 
+  it("rejects explicit unsubscribe while subscribe streams share the URI", async () => {
+    const client = mockClient();
+    const sub = await runMethod(client, {
+      method: "resources/subscribe",
+      uri: "test://shared",
+    });
+    expect(sub.kind).toBe("stream");
+    const stop = sub.kind === "stream" ? sub.start(() => {}) : () => {};
+
+    // Tearing down the shared subscription out from under the open stream
+    // (and double-unsubscribing later) is refused with guidance.
+    await expect(
+      runMethod(client, {
+        method: "resources/unsubscribe",
+        uri: "test://shared",
+      }),
+    ).rejects.toThrow(/active resources\/subscribe stream/);
+    expect(client.unsubscribeFromResource).not.toHaveBeenCalled();
+
+    // Once the last stream closes, its cleanup unsubscribes and an explicit
+    // unsubscribe is allowed again.
+    stop();
+    expect(client.unsubscribeFromResource).toHaveBeenCalledTimes(1);
+    const out = await runMethod(client, {
+      method: "resources/unsubscribe",
+      uri: "test://shared",
+    });
+    expect(out.kind).toBe("result");
+    expect(client.unsubscribeFromResource).toHaveBeenCalledTimes(2);
+  });
+
   it("covers subscribe stream, tasks, complete, and app-info call", async () => {
     const client = mockClient({
       callTool: vi.fn().mockResolvedValue({

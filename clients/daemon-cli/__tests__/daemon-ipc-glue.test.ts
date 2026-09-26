@@ -41,6 +41,7 @@ function accept(
   handle: (
     request: DaemonRequest,
     elicitation: ElicitationChannel,
+    signal?: AbortSignal,
   ) => Promise<{
     response: { id: string; ok: true; result: unknown };
     startStream?: (
@@ -181,6 +182,27 @@ describe("acceptDaemonConnection elicitation channel", () => {
 });
 
 describe("acceptDaemonConnection guards", () => {
+  it("aborts the per-request signal when the caller's socket closes", async () => {
+    let seen: AbortSignal | undefined;
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const socket = accept(async (request, _elicitation, signal) => {
+      seen = signal;
+      await gate;
+      return { response: { id: request.id, ok: true, result: {} } };
+    });
+
+    socket.pushLine(REQUEST);
+    await until(() => seen !== undefined);
+    // Caller still attached: nothing aborted.
+    expect(seen!.aborted).toBe(false);
+    socket.destroy();
+    await until(() => seen!.aborted === true);
+    release();
+  });
+
   it("drops the response when the socket dies mid-handle", async () => {
     let release: () => void = () => {};
     const gate = new Promise<void>((resolve) => {

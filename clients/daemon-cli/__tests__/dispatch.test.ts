@@ -84,6 +84,26 @@ describe("dispatchConnectionRpc", () => {
     expect(stdout).toContain("\n");
   });
 
+  it("omits format from the daemon rpc params (frontend-only concern)", async () => {
+    callDaemon.mockResolvedValue({ kind: "result", result: {} });
+    const { dispatchConnectionRpc } =
+      await import("../src/connection/dispatch.js");
+    await dispatchConnectionRpc(
+      "tools/call",
+      { toolName: "echo" },
+      { format: "json", requireExplicit: false },
+    );
+    const [op, params] = callDaemon.mock.calls[0] as [
+      string,
+      Record<string, unknown>,
+    ];
+    expect(op).toBe("rpc");
+    // Forwarding format would make the daemon's runMethod issue a hidden
+    // app-info resources/read for JSON tool calls.
+    expect("format" in params).toBe(false);
+    expect(params).toMatchObject({ method: "tools/call", toolName: "echo" });
+  });
+
   it("writes human text for tools/list by default", async () => {
     callDaemon.mockResolvedValue({
       kind: "result",

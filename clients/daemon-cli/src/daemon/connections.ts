@@ -237,26 +237,38 @@ export class ConnectionRegistry {
     };
   }
 
-  async connect(params: {
-    name: string;
-    serverConfig: MCPServerConfig;
-    serverSettings?: InspectorServerSettings;
-    serverIdentity: string;
-  }): Promise<ConnectionInfo> {
-    return this.withNameLock(params.name, () => this.connectLocked(params));
+  async connect(
+    params: {
+      name: string;
+      serverConfig: MCPServerConfig;
+      serverSettings?: InspectorServerSettings;
+      serverIdentity: string;
+    },
+    signal?: AbortSignal,
+  ): Promise<ConnectionInfo> {
+    return this.withNameLock(params.name, () =>
+      this.connectLocked(params, signal),
+    );
   }
 
-  private async connectLocked(params: {
-    name: string;
-    serverConfig: MCPServerConfig;
-    serverSettings?: InspectorServerSettings;
-    serverIdentity: string;
-  }): Promise<ConnectionInfo> {
+  private async connectLocked(
+    params: {
+      name: string;
+      serverConfig: MCPServerConfig;
+      serverSettings?: InspectorServerSettings;
+      serverIdentity: string;
+    },
+    signal?: AbortSignal,
+  ): Promise<ConnectionInfo> {
     this.assertOpen();
     this.clearIdleTimer();
     this.pendingConnects++;
 
     try {
+      // Caller may already be gone (e.g. Ctrl-C while queued on the name
+      // lock); don't start dialing on behalf of nobody.
+      if (signal?.aborted) throw connectCancelledError();
+
       if (this.connections.has(params.name)) {
         // Reconnect: tear down the previous client first.
         await this.disconnectLocked(params.name);
@@ -272,7 +284,32 @@ export class ConnectionRegistry {
       );
 
       try {
-        await client.connect();
+        // Race the connect against caller hang-up: when the requesting
+        // socket closes mid-dial (Ctrl-C, frontend crash) the daemon must
+        // not keep the attempt alive — with `--connect-timeout 0` it would
+        // otherwise pin `pendingConnects` (blocking idle shutdown) or
+        // register a connection the user cancelled. On abort the shared
+        // catch below tears the client down, which also cancels the
+        // still-in-flight connect; its eventual settlement is observed by
+        // the race's handlers, so nothing rejects unhandled.
+        if (!signal) {
+          await client.connect();
+        } else {
+          await new Promise<void>((resolve, reject) => {
+            const onAbort = () => reject(connectCancelledError());
+            signal.addEventListener("abort", onAbort, { once: true });
+            client.connect().then(
+              () => {
+                signal.removeEventListener("abort", onAbort);
+                resolve();
+              },
+              (error: unknown) => {
+                signal.removeEventListener("abort", onAbort);
+                reject(error);
+              },
+            );
+          });
+        }
       } catch (error) {
         await safeDisconnect(client);
         if (isConnectionAuthRequiredError(error)) {
@@ -294,6 +331,13 @@ export class ConnectionRegistry {
         // past daemon exit. Tear the fresh client down instead.
         await safeDisconnect(client);
         this.assertOpen();
+      }
+      if (signal?.aborted) {
+        // Caller hung up after the connect completed but before
+        // registration; keeping the client would leak a live connection
+        // nobody asked to retain.
+        await safeDisconnect(client);
+        throw connectCancelledError();
       }
       this.connections.set(params.name, {
         name: params.name,
@@ -598,4 +642,18 @@ async function safeDisconnect(client: InspectorClient): Promise<void> {
   } catch {
     // Best-effort teardown.
   }
+}
+
+/**
+ * Error thrown when a connect is abandoned because the requesting client's
+ * socket closed. The response is written to a dead socket, so the exit code
+ * only matters for in-process callers; UNREACHABLE ("no connection was
+ * established") is the closest fit.
+ */
+function connectCancelledError(): CliExitCodeError {
+  return new CliExitCodeError(
+    EXIT_CODES.UNREACHABLE,
+    "Connect cancelled: the requesting client disconnected while the connection was still in progress.",
+    { code: "connect_cancelled" },
+  );
 }

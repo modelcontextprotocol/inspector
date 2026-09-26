@@ -271,6 +271,17 @@ export async function runMethod(
           "URI is required for resources/unsubscribe. Use --uri to specify the resource URI.",
         );
       }
+      // Subscribe streams share one server-side subscription per URI (see
+      // resourceStreamRefs above). An explicit unsubscribe here would tear
+      // that shared subscription down while the counted streams stay open
+      // and silent — and the last stream's cleanup would unsubscribe again.
+      const activeStreams =
+        resourceStreamRefs.get(inspectorClient)?.get(args.uri) ?? 0;
+      if (activeStreams > 0) {
+        throw new Error(
+          `Cannot unsubscribe: ${activeStreams} active resources/subscribe stream(s) share this URI's subscription. Close those streams (Ctrl-C) instead; the subscription ends when the last one closes.`,
+        );
+      }
       await inspectorClient.unsubscribeFromResource(args.uri);
       result = { unsubscribed: true, uri: args.uri };
     } else if (args.method === "prompts/list") {
