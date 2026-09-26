@@ -67,6 +67,15 @@ function assertSkillsSupported(
 }
 
 /**
+ * Live `resources/subscribe` stream consumers per client and URI. Streams
+ * for the same URI on one connection share a single core subscription
+ * (`subscribeToResource` is a no-op filter update when already subscribed),
+ * so the unsubscribe must be reference-counted: tearing it down when the
+ * first stream closes would leave the survivors open but silent.
+ */
+const resourceStreamRefs = new WeakMap<InspectorClient, Map<string, number>>();
+
+/**
  * Run one MCP method against a connected {@link InspectorClient}.
  * Core method dispatch used by the CLI (and other Inspector Node runners).
  *
@@ -210,7 +219,19 @@ export async function runMethod(
           "URI is required for resources/subscribe. Use --uri to specify the resource URI.",
         );
       }
-      await inspectorClient.subscribeToResource(args.uri);
+      let refs = resourceStreamRefs.get(inspectorClient);
+      if (!refs) {
+        refs = new Map();
+        resourceStreamRefs.set(inspectorClient, refs);
+      }
+      const uri = args.uri;
+      const priorConsumers = refs.get(uri) ?? 0;
+      // Only the first consumer subscribes; the count is bumped after the
+      // subscribe succeeds so a failure leaves nothing to unwind.
+      if (priorConsumers === 0) {
+        await inspectorClient.subscribeToResource(uri);
+      }
+      refs.set(uri, priorConsumers + 1);
       return {
         kind: "stream",
         label: "resources/subscribe",
@@ -230,7 +251,17 @@ export async function runMethod(
           inspectorClient.addEventListener("resourceUpdated", onUpdate);
           return () => {
             inspectorClient.removeEventListener("resourceUpdated", onUpdate);
-            void inspectorClient.unsubscribeFromResource(args.uri!);
+            const remaining = (refs.get(uri) ?? 1) - 1;
+            if (remaining > 0) {
+              refs.set(uri, remaining);
+              return;
+            }
+            refs.delete(uri);
+            // Catch the rejection here: this stop can run during daemon
+            // shutdown after disconnectAll has closed the client, where the
+            // unsubscribe rejects; a bare `void` would surface that as an
+            // unhandled rejection outside any caller's try/catch.
+            void inspectorClient.unsubscribeFromResource(uri).catch(() => {});
           };
         },
       };

@@ -696,4 +696,101 @@ describe("DaemonServer IPC", () => {
       { socketPath: server.socketPath },
     );
   });
+
+  it("ends an open stream when its connection disconnects", async () => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "mcp-daemon-streamlife-"));
+    server = new DaemonServer({ dir, idleMs: 0 });
+    const { command, args } = getTestMcpServerCommand();
+    await server.registry.connect({
+      name: "s",
+      serverConfig: { type: "stdio", command, args },
+      serverIdentity: "test-stdio",
+    });
+
+    const outcome = await server.handleOutcome({
+      id: "st",
+      op: "stream",
+      params: { method: "logging/tail", name: "s" } as never,
+    });
+    expect(outcome.response.ok).toBe(true);
+    expect(outcome.startStream).toBeDefined();
+    let ended = 0;
+    const stop = outcome.startStream!(
+      () => {},
+      () => {
+        ended += 1;
+      },
+    );
+
+    // Disconnecting the named connection must terminate its streams instead
+    // of leaving the caller attached to a stale client until Ctrl-C.
+    await server.handle({
+      id: "d",
+      op: "disconnect",
+      params: { name: "s" } as never,
+    });
+    const deadline = Date.now() + 3000;
+    while (ended === 0 && Date.now() < deadline) {
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+    expect(ended).toBe(1);
+    stop();
+  });
+
+  it("serializes rpc ops per connection so elicitation routing is exact", async () => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "mcp-daemon-rpcqueue-"));
+    server = new DaemonServer({ dir, idleMs: 0 });
+    const { command, args } = getTestMcpServerCommand();
+    await server.registry.connect({
+      name: "s",
+      serverConfig: { type: "stdio", command, args },
+      serverIdentity: "test-stdio",
+    });
+
+    const { InspectorClient } = await import("@inspector/core/mcp/index.js");
+    const order: string[] = [];
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const spy = vi
+      .spyOn(InspectorClient.prototype, "readResource")
+      .mockImplementation(async (uri: string) => {
+        order.push(`start:${uri}`);
+        if (uri === "test://a") await gate;
+        order.push(`end:${uri}`);
+        return { result: { contents: [] } } as never;
+      });
+    try {
+      const first = server.handle({
+        id: "1",
+        op: "rpc",
+        params: { method: "resources/read", uri: "test://a", name: "s" },
+      });
+      const second = server.handle({
+        id: "2",
+        op: "rpc",
+        params: { method: "resources/read", uri: "test://b", name: "s" },
+      });
+      const deadline = Date.now() + 3000;
+      while (!order.includes("start:test://a") && Date.now() < deadline) {
+        await new Promise((resolve) => setImmediate(resolve));
+      }
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      // The second rpc must not have started while the first is in flight.
+      expect(order).toEqual(["start:test://a"]);
+      release();
+      const [r1, r2] = await Promise.all([first, second]);
+      expect(r1.ok).toBe(true);
+      expect(r2.ok).toBe(true);
+      expect(order).toEqual([
+        "start:test://a",
+        "end:test://a",
+        "start:test://b",
+        "end:test://b",
+      ]);
+    } finally {
+      spy.mockRestore();
+    }
+  });
 });

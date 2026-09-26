@@ -255,7 +255,14 @@ export async function promptForm(
       )
     ).trim();
     if (answer === "") {
-      const content: Record<string, unknown> = {};
+      // Null prototype: a schema is entitled to a property named
+      // "__proto__", which on a plain object would hit the prototype
+      // setter instead of creating an own property, silently dropping the
+      // answer (mirrors sanitizeDeep's handling of untrusted keys).
+      const content: Record<string, unknown> = Object.create(null) as Record<
+        string,
+        unknown
+      >;
       for (const field of fields) {
         const v = values.get(field.name);
         if (v !== undefined) content[field.name] = v;

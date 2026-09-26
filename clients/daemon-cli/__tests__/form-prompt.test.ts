@@ -99,6 +99,26 @@ describe("promptForm", () => {
     expect(stderr).not.toContain("This field is required");
   });
 
+  it("preserves a schema property named __proto__ as an own property", async () => {
+    // On a plain object, `content["__proto__"] = v` hits the prototype
+    // setter instead of creating an own property, silently dropping the
+    // answer; the accepted payload is built with a null prototype.
+    const field: FormField = {
+      name: "__proto__",
+      required: true,
+      title: "Proto",
+      kind: "string",
+    };
+    const rl = fakeRl(["value", ""]);
+    const outcome = await promptForm(rl, "msg", [field], style);
+    expect(outcome.action).toBe("accept");
+    const content = (outcome as { content: Record<string, unknown> }).content;
+    expect(Object.prototype.hasOwnProperty.call(content, "__proto__")).toBe(
+      true,
+    );
+    expect(content["__proto__"]).toBe("value");
+  });
+
   it("lets minLength reject a blank required answer", async () => {
     const field: FormField = { ...stringField, minLength: 3 };
     const rl = fakeRl(["", "abc", ""]);

@@ -66,6 +66,48 @@ vi.mock("@inspector/core/mcp/state/index.js", async (importOriginal) => {
 });
 
 describe("runMethod (mocked client)", () => {
+  it("reference-counts same-URI subscribe streams", async () => {
+    const client = mockClient();
+    const s1 = await runMethod(client, {
+      method: "resources/subscribe",
+      uri: "test://x",
+    });
+    const s2 = await runMethod(client, {
+      method: "resources/subscribe",
+      uri: "test://x",
+    });
+    // Both streams share one core subscription.
+    expect(client.subscribeToResource).toHaveBeenCalledTimes(1);
+    expect(s1.kind).toBe("stream");
+    expect(s2.kind).toBe("stream");
+    if (s1.kind === "stream" && s2.kind === "stream") {
+      const stop1 = s1.start(() => {});
+      const stop2 = s2.start(() => {});
+      stop1();
+      // The survivor keeps the subscription alive.
+      expect(client.unsubscribeFromResource).not.toHaveBeenCalled();
+      stop2();
+      expect(client.unsubscribeFromResource).toHaveBeenCalledTimes(1);
+    }
+
+    // A rejected unsubscribe (e.g. after daemon disconnectAll) is caught at
+    // the source instead of surfacing as an unhandled rejection.
+    const failing = mockClient({
+      unsubscribeFromResource: vi
+        .fn()
+        .mockRejectedValue(new Error("client closed")),
+    } as Partial<InspectorClient>);
+    const s3 = await runMethod(failing, {
+      method: "resources/subscribe",
+      uri: "test://y",
+    });
+    if (s3.kind === "stream") {
+      s3.start(() => {})();
+    }
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(failing.unsubscribeFromResource).toHaveBeenCalledTimes(1);
+  });
+
   it("covers subscribe stream, tasks, complete, and app-info call", async () => {
     const client = mockClient({
       callTool: vi.fn().mockResolvedValue({

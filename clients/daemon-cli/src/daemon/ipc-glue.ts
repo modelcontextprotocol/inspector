@@ -13,7 +13,15 @@ import type {
   ElicitationResponseFrame,
 } from "./protocol.js";
 
-export type StreamStarter = (writeData: (data: unknown) => void) => () => void;
+/**
+ * Starts a stream producer. `writeData` pushes one data frame; `endStream`
+ * lets the producer side finish the stream cleanly (end frame + socket end),
+ * e.g. when the underlying connection is torn down. Returns an unsubscribe.
+ */
+export type StreamStarter = (
+  writeData: (data: unknown) => void,
+  endStream: () => void,
+) => () => void;
 
 /** Result of handling one daemon request — optional long-lived stream. */
 export type HandleOutcome = {
@@ -178,7 +186,25 @@ export function acceptDaemonConnection(
         return;
       }
       const outcome = await handle(request, elicitationChannel);
-      if (socket.destroyed) return;
+      if (socket.destroyed) {
+        // The caller vanished while the handler ran. A stream outcome may
+        // already hold producer-side state (resources/subscribe subscribes
+        // before returning its starter), so start it inert and stop it
+        // immediately — otherwise the daemon keeps a hidden subscription
+        // with no consumer.
+        if (outcome.response.ok && outcome.startStream) {
+          try {
+            const stop = outcome.startStream(
+              () => {},
+              () => {},
+            );
+            stop();
+          } catch {
+            // ignore cleanup errors
+          }
+        }
+        return;
+      }
       socket.write(encodeResponse(outcome.response));
 
       if (!outcome.response.ok || !outcome.startStream) {
@@ -208,13 +234,6 @@ export function acceptDaemonConnection(
           socket.destroy();
         }
       };
-      stop = outcome.startStream(writeData);
-      if (stopped) {
-        // Overflow hit while startStream was still running (synchronous
-        // producer): `stop` wasn't assigned yet, unsubscribe it now.
-        stopProducer();
-        return;
-      }
       const cleanup = () => {
         if (stopped) return;
         stopped = true;
@@ -225,6 +244,14 @@ export function acceptDaemonConnection(
           socket.end();
         }
       };
+      stop = outcome.startStream(writeData, cleanup);
+      if (stopped) {
+        // Overflow or a producer-side end hit while startStream was still
+        // running (synchronous producer): `stop` wasn't assigned yet,
+        // unsubscribe it now.
+        stopProducer();
+        return;
+      }
       socket.once("close", cleanup);
       socket.once("error", cleanup);
     })();

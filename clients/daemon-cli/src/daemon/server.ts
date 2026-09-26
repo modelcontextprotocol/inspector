@@ -15,6 +15,10 @@ import {
 } from "./ipc-glue.js";
 import { wireElicitationBridge } from "./elicitation-bridge.js";
 import { assertDaemonToken, getDaemonTokenFromEnv } from "./auth.js";
+import type { InspectorClient } from "@inspector/core/mcp/index.js";
+import { isTerminalStatus } from "@inspector/core/mcp/types.js";
+import type { InspectorClientEventMap } from "@inspector/core/mcp/inspectorClientEventTarget.js";
+import type { TypedEventGeneric } from "@inspector/core/mcp/typedEventTarget.js";
 import {
   assertSocketPathWithinLimit,
   ensureDaemonDir,
@@ -100,6 +104,11 @@ export class DaemonServer {
    * so shutdown flushes and destroys them — otherwise server.close() would
    * wait forever. */
   private readonly ipcSockets = new Set<net.Socket>();
+  /** Serializes `rpc` ops per client. Core cannot attribute an elicitation
+   * to a specific in-flight call, so with concurrent RPCs on one connection
+   * the bridge would route a prompt to the wrong caller's terminal; running
+   * at most one rpc per connection at a time makes the routing exact. */
+  private readonly rpcQueues = new WeakMap<InspectorClient, Promise<void>>();
 
   constructor(options: DaemonServerOptions = {}) {
     this.dir = options.dir ?? getDaemonDir();
@@ -468,6 +477,28 @@ export class DaemonServer {
       });
     }
     const client = this.registry.clientFor(params.name, params.requireExplicit);
+    const previous = this.rpcQueues.get(client) ?? Promise.resolve();
+    const run = previous.then(() =>
+      this.runRpcOnClient(client, requestId, params, elicitation),
+    );
+    // Keep the queue alive past failures; each caller still sees its own
+    // error through `run`.
+    this.rpcQueues.set(
+      client,
+      run.then(
+        () => undefined,
+        () => undefined,
+      ),
+    );
+    return run;
+  }
+
+  private async runRpcOnClient(
+    client: InspectorClient,
+    requestId: string,
+    params: RpcParams,
+    elicitation: ElicitationChannel,
+  ): Promise<RpcResult> {
     const methodArgs = stripConnectionFields(params);
     const unwire = wireElicitationBridge(client, elicitation, requestId);
     let outcome;
@@ -523,7 +554,24 @@ export class DaemonServer {
         ok: true,
         result: { streaming: true, label: outcome.label },
       },
-      startStream: outcome.start,
+      startStream: (write, end) => {
+        const stop = outcome.start(write);
+        // Tie the stream to its connection's lifecycle: when the named
+        // connection reaches a terminal state (mcpdo disconnect, a
+        // connections/use replacement, or a transport failure), end the
+        // stream instead of leaving the caller attached to a stale client
+        // until Ctrl-C or daemon idle shutdown.
+        const onStatus = (
+          event: TypedEventGeneric<InspectorClientEventMap, "statusChange">,
+        ) => {
+          if (isTerminalStatus(event.detail)) end();
+        };
+        client.addEventListener("statusChange", onStatus);
+        return () => {
+          client.removeEventListener("statusChange", onStatus);
+          stop();
+        };
+      },
     };
   }
 

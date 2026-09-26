@@ -43,7 +43,10 @@ function accept(
     elicitation: ElicitationChannel,
   ) => Promise<{
     response: { id: string; ok: true; result: unknown };
-    startStream?: (writeData: (data: unknown) => void) => () => void;
+    startStream?: (
+      writeData: (data: unknown) => void,
+      endStream: () => void,
+    ) => () => void;
   }>,
 ): FakeSocket {
   const socket = new FakeSocket();
@@ -198,6 +201,69 @@ describe("acceptDaemonConnection guards", () => {
     // One more tick for the post-await destroyed guard.
     await new Promise((resolve) => setImmediate(resolve));
     expect(socket.all).toBe("");
+  });
+
+  it("disposes an opened stream when the socket died mid-handle", async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let started = 0;
+    let stops = 0;
+    const socket = accept(async (request) => {
+      await gate;
+      return {
+        response: { id: request.id, ok: true, result: {} },
+        // e.g. resources/subscribe: producer-side state exists before the
+        // starter runs; the glue must start it inert and stop it so the
+        // daemon doesn't keep a hidden subscription with no consumer.
+        startStream: (writeData, endStream) => {
+          started += 1;
+          // The inert writer/end are safe to call: nothing reaches the wire.
+          writeData({ n: 1 });
+          endStream();
+          return () => {
+            stops += 1;
+          };
+        },
+      };
+    });
+
+    socket.pushLine(REQUEST);
+    socket.destroy();
+    await until(() => socket.destroyed);
+    release();
+    await until(() => stops === 1);
+    expect(started).toBe(1);
+    expect(socket.all).toBe("");
+  });
+
+  it("ends the stream when the producer invokes endStream", async () => {
+    let end: () => void = () => {};
+    let stops = 0;
+    const socket = accept(async (request) => ({
+      response: { id: request.id, ok: true, result: {} },
+      startStream: (writeData, endStream) => {
+        end = endStream;
+        writeData({ n: 1 });
+        return () => {
+          stops += 1;
+        };
+      },
+    }));
+
+    socket.pushLine(REQUEST);
+    await until(() => socket.all.includes('"stream":"data"'));
+
+    end();
+    await until(() => socket.all.includes('"stream":"end"'));
+    expect(stops).toBe(1);
+
+    // A duplicate end (or a later close event) does not double-stop.
+    end();
+    socket.emit("close");
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(stops).toBe(1);
   });
 
   it("cleans up a stream once on socket error and ignores late writes", async () => {

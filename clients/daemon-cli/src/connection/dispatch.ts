@@ -60,19 +60,22 @@ export async function dispatchConnectionRpc(
         socketPath,
         signal: ac.signal,
         onData: (data) => {
-          writeChain = writeChain.then(() =>
-            writeConnectionOutput(
-              { format, style },
-              {
-                kind: "stream-event",
-                data,
-              },
-            ),
-          );
-          // Detached observer: prevents an unhandled rejection while the
-          // stream is still running; write errors stay non-fatal, as they
-          // were when these writes were fire-and-forget.
-          writeChain.catch(() => {});
+          writeChain = writeChain
+            .then(() =>
+              writeConnectionOutput(
+                { format, style },
+                {
+                  kind: "stream-event",
+                  data,
+                },
+              ),
+            )
+            // Recover the chain itself, not just observe it: a rejected
+            // chain would skip every later `.then`, silently dropping all
+            // subsequent events after one failed write. Write errors stay
+            // non-fatal, as they were when these writes were
+            // fire-and-forget.
+            .catch(() => {});
           // Returning the chain lets streamDaemon pause socket reads until
           // the write settles, bounding memory when stdout is slow.
           return writeChain;

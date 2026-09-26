@@ -161,6 +161,31 @@ describe("dispatchConnectionRpc", () => {
     expect(stdout).toContain("test://two");
   });
 
+  it("recovers the write chain after a failed write and keeps streaming", async () => {
+    // Regression: one rejected write left the chain permanently rejected, so
+    // every later frame's `.then` was skipped and the stream went silent.
+    writeReject.value = true;
+    streamDaemon.mockImplementation(
+      async (
+        _params: unknown,
+        opts: { onData: (d: unknown) => void | Promise<void> },
+      ) => {
+        await opts.onData({ type: "subscribed", uri: "test://failed" });
+        writeReject.value = false;
+        await opts.onData({ type: "subscribed", uri: "test://recovered" });
+      },
+    );
+    const { dispatchConnectionRpc } =
+      await import("../src/connection/dispatch.js");
+    await dispatchConnectionRpc(
+      "logging/tail",
+      {},
+      { requireExplicit: false, connection: "@s" },
+    );
+    expect(stdout).not.toContain("test://failed");
+    expect(stdout).toContain("test://recovered");
+  });
+
   it("keeps stream write failures non-fatal, as when they were fire-and-forget", async () => {
     writeReject.value = true;
     streamDaemon.mockImplementation(

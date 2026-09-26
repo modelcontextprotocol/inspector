@@ -19,10 +19,11 @@ import type { ElicitationRequestFrame } from "./protocol.js";
  * otherwise each install their own `newPendingElicitation` listener, so one
  * server elicitation would be delivered to every active caller — duplicate
  * prompts and multiple `respond()` calls. One listener per client dispatches
- * each event to exactly one active subscriber. Core cannot attribute an
- * elicitation to a specific in-flight call, so the oldest active subscriber
- * is chosen (with core's one-pending-at-a-time guarantee the sets coincide
- * for the common single-RPC case).
+ * each event to exactly one active subscriber. The daemon serializes `rpc`
+ * ops per client (see `DaemonServer.rpcQueues`), so at most one subscriber
+ * is active at a time and the dispatch is exact; the subscriber list (with
+ * its oldest-first pick) remains as defense in depth should that
+ * serialization ever change.
  */
 type BridgeSubscriber = { channel: ElicitationChannel; requestId: string };
 
