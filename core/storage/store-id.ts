@@ -8,19 +8,17 @@
 
 /**
  * A store id must be non-empty and contain only alphanumerics, hyphens, and
- * underscores (it becomes a filename and an `mcpServers` map key). Reject
- * every `Object.prototype` member name, not just `__proto__`: they all match
- * the character class, but as map keys they collide with the prototype chain
- * — `__proto__` assignment invokes the inherited setter and silently drops
- * the server, and any of them (`constructor`, `toString`, …) makes an
- * `id in map` membership check answer true on an empty map, so the id could
- * never be created (a permanent false "duplicate"). `in Object.prototype`
- * covers exactly that set.
+ * underscores (it becomes a filename and an `mcpServers` map key).
+ * `__proto__` matches the character class but is additionally rejected: a
+ * plain `map[id] = …` assignment with it invokes the inherited prototype
+ * setter and silently drops the entry. Other `Object.prototype` names
+ * (`constructor`, `toString`, …) stay valid — they were accepted before this
+ * check existed, so rejecting them would strand pre-existing `mcp.json`
+ * entries (listed by GET but refused by PUT/DELETE), and they are safe
+ * because every dynamic-key map access uses own-property operations
+ * (`Object.hasOwn`, `getOwnEntry`/`setOwnEntry`), never `in` membership or
+ * bare reads.
  */
 export function validateStoreId(storeId: string): boolean {
-  return (
-    /^[a-zA-Z0-9_-]+$/.test(storeId) &&
-    storeId.length > 0 &&
-    !(storeId in Object.prototype)
-  );
+  return /^[a-zA-Z0-9_-]+$/.test(storeId) && storeId !== "__proto__";
 }

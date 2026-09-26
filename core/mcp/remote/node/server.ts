@@ -2801,7 +2801,7 @@ export function createRemoteApp(
       return c.json(
         {
           error:
-            "Invalid id: must be non-empty, contain only alphanumeric, hyphen, or underscore, and not be a reserved object-property name (constructor, toString, __proto__, …)",
+            "Invalid id: must be non-empty, contain only alphanumeric, hyphen, or underscore, and not be `__proto__`",
         },
         400,
       );

@@ -1771,13 +1771,28 @@ describe("/api/servers routes", () => {
       expect(res.status).toBe(400);
     });
 
-    it("rejects Object.prototype names as ids with 400, not a false 409", async () => {
-      // "constructor" passes the character class, but `id in map` is true
-      // even on an empty map — before the prototype-name rejection the
-      // POST route answered a permanent 409 for an id that was never
-      // created. Now validation refuses it outright.
+    it("rejects `__proto__` with 400 but keeps other prototype names manageable", async () => {
+      // `__proto__` is the one prototype name a plain assignment can't
+      // store, so it is refused with a message that says why (it satisfies
+      // the stated character-class rule).
+      const res = await fetch(`${h.baseUrl}/api/servers`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: "__proto__",
+          config: { type: "streamable-http", url: "https://x.test/mcp" },
+        }),
+      });
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as { error: string };
+      expect(body.error).toContain("__proto__");
+
+      // Other Object.prototype names were valid ids before the `__proto__`
+      // rejection existed, so they must remain fully manageable: create,
+      // list, and delete all work (membership checks use `Object.hasOwn`,
+      // so `constructor` is not a false duplicate on an empty map).
       for (const id of ["constructor", "toString", "hasOwnProperty"]) {
-        const res = await fetch(`${h.baseUrl}/api/servers`, {
+        const created = await fetch(`${h.baseUrl}/api/servers`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -1785,11 +1800,17 @@ describe("/api/servers routes", () => {
             config: { type: "streamable-http", url: "https://x.test/mcp" },
           }),
         });
-        expect(res.status, id).toBe(400);
-        // These ids satisfy the stated character-class rule, so the error
-        // must say *why* they are rejected or the user cannot fix the id.
-        const body = (await res.json()) as { error: string };
-        expect(body.error, id).toContain("reserved object-property name");
+        expect(created.status, id).toBe(200);
+        const listed = (await (
+          await fetch(`${h.baseUrl}/api/servers`)
+        ).json()) as {
+          mcpServers: Record<string, unknown>;
+        };
+        expect(Object.hasOwn(listed.mcpServers, id), id).toBe(true);
+        const deleted = await fetch(`${h.baseUrl}/api/servers/${id}`, {
+          method: "DELETE",
+        });
+        expect(deleted.status, id).toBe(200);
       }
     });
   });
