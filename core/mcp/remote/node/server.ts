@@ -91,6 +91,7 @@ import {
   type SecretStore,
 } from "../../../auth/node/secret-store.js";
 import { defaultSecretStore } from "../../../auth/node/secret-store-selection.js";
+import { setOwnEntry } from "../../../storage/own-entry.js";
 import {
   deleteClientConfigStore,
   readClientConfigStore,
@@ -2800,7 +2801,7 @@ export function createRemoteApp(
       return c.json(
         {
           error:
-            "Invalid id: must be non-empty and contain only alphanumeric, hyphen, or underscore",
+            "Invalid id: must be non-empty, contain only alphanumeric, hyphen, or underscore, and not be a reserved object-property name (constructor, toString, __proto__, …)",
         },
         400,
       );
@@ -3128,10 +3129,23 @@ export function createRemoteApp(
         //   returns an error has changed nothing.
         if (newId !== originalId) {
           const previousFields = expectedSecretFields(existing);
-          const keychainSecrets = await readKeychainEntriesFor(
+          // Strict snapshot first, and it does double duty: rollback
+          // record *and* the source of the values to carry to the new
+          // id. The tolerant read used elsewhere answers `{}` for an
+          // unreadable store, and this read drives a delete — a
+          // transient blank would commit the rename without the old
+          // id's secrets and then `deleteAllForServer` would erase the
+          // only copy. Strict reads throw instead, aborting the PUT
+          // before anything is mutated.
+          const originalPrior = await snapshotSecretFields(
+            secretStore,
             originalId,
             previousFields,
           );
+          const keychainSecrets: Record<string, string> = {};
+          for (const { field, value } of originalPrior) {
+            if (value !== null) setOwnEntry(keychainSecrets, field, value);
+          }
           const secretsToWrite = mergeRenameKeychainSecrets(
             stripped,
             keychainSecrets,
@@ -3143,11 +3157,7 @@ export function createRemoteApp(
               newId,
               Object.keys(secretsToWrite),
             )),
-            ...(await snapshotSecretFields(
-              secretStore,
-              originalId,
-              previousFields,
-            )),
+            ...originalPrior,
           ];
           let diskCommitted = false;
           try {

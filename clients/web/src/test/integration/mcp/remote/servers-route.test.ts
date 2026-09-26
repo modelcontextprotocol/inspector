@@ -1786,6 +1786,10 @@ describe("/api/servers routes", () => {
           }),
         });
         expect(res.status, id).toBe(400);
+        // These ids satisfy the stated character-class rule, so the error
+        // must say *why* they are rejected or the user cannot fix the id.
+        const body = (await res.json()) as { error: string };
+        expect(body.error, id).toContain("reserved object-property name");
       }
     });
   });
@@ -2084,6 +2088,107 @@ describe("/api/servers routes", () => {
       expect(srv.oauth?.clientId).toBe("cid");
       expect(srv.oauth?.clientSecret).toBe("keychain-only-secret");
       expect(srv.oauth?.scopes).toBe("read");
+    });
+
+    it("PUT rename carries secrets via strict reads even when tolerant reads blank out", async () => {
+      // The rename copies the old id's secrets and then deletes them under
+      // the old id — a deletion-driving read, so it must come from the
+      // strict path. The tolerant `get` answers null for an unreadable
+      // store; if the copy trusted it, a transient blank would commit the
+      // rename without the secret and the delete would erase the only copy.
+      writeFileSync(
+        h.configPath,
+        JSON.stringify({
+          mcpServers: {
+            "old-name": {
+              type: "streamable-http",
+              url: "https://x.test/mcp",
+              oauth: { clientId: "cid" },
+            },
+          },
+        }),
+      );
+      await h.secretStore.set(
+        "old-name",
+        SECRET_FIELD_OAUTH_CLIENT_SECRET,
+        "keychain-only-secret",
+      );
+
+      const store = h.secretStore as InMemorySecretStore & {
+        getStrict?: (id: string, field: string) => Promise<string | null>;
+      };
+      const realGet = store.get.bind(store);
+      store.getStrict = realGet;
+      store.get = async () => null;
+      try {
+        const res = await fetch(`${h.baseUrl}/api/servers/old-name`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id: "new-name",
+            config: { type: "streamable-http", url: "https://x.test/mcp" },
+          }),
+        });
+        expect(res.status).toBe(200);
+      } finally {
+        store.get = realGet;
+        delete store.getStrict;
+      }
+
+      expect(
+        await h.secretStore.get("old-name", SECRET_FIELD_OAUTH_CLIENT_SECRET),
+      ).toBe(null);
+      expect(
+        await h.secretStore.get("new-name", SECRET_FIELD_OAUTH_CLIENT_SECRET),
+      ).toBe("keychain-only-secret");
+    });
+
+    it("PUT rename aborts before mutating anything when the strict read fails", async () => {
+      writeFileSync(
+        h.configPath,
+        JSON.stringify({
+          mcpServers: {
+            "old-name": {
+              type: "streamable-http",
+              url: "https://x.test/mcp",
+              oauth: { clientId: "cid" },
+            },
+          },
+        }),
+      );
+      await h.secretStore.set(
+        "old-name",
+        SECRET_FIELD_OAUTH_CLIENT_SECRET,
+        "keychain-only-secret",
+      );
+
+      const store = h.secretStore as InMemorySecretStore & {
+        getStrict?: (id: string, field: string) => Promise<string | null>;
+      };
+      store.getStrict = async () => {
+        throw new KeychainUnavailableError(new Error("keychain down"));
+      };
+      try {
+        const res = await fetch(`${h.baseUrl}/api/servers/old-name`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id: "new-name",
+            config: { type: "streamable-http", url: "https://x.test/mcp" },
+          }),
+        });
+        expect(res.status).toBe(503);
+      } finally {
+        delete store.getStrict;
+      }
+
+      // Nothing moved: the secret survives under the old id and the disk
+      // file still names it.
+      expect(
+        await h.secretStore.get("old-name", SECRET_FIELD_OAUTH_CLIENT_SECRET),
+      ).toBe("keychain-only-secret");
+      const cfg = JSON.parse(readFileSync(h.configPath, "utf8")) as MCPConfig;
+      expect(Object.keys(cfg.mcpServers)).toEqual(["old-name"]);
     });
 
     it("DELETE sweeps every keychain entry for the deleted server", async () => {

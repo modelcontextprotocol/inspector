@@ -72,6 +72,36 @@ describe("writeOAuthSections lock failures", () => {
       writeOAuthSections("/tmp/oauth.json", SNAPSHOT, { servers: ["s"] }),
     ).rejects.toBe(original);
   });
+
+  it("does not reword a nested secrets-file lock error from inside the callback", async () => {
+    // The nested FileSecretStore takes its own lock on secrets.json while
+    // this callback runs. If *that* lock is contended, the error escaping
+    // here already names the actually-contended file — rewording it as
+    // "the state file at …oauth.json is locked" would direct the user at
+    // the wrong file. Only acquisition failures (the mocks above, which
+    // reject before the callback runs) get the OAuth wording.
+    vi.mocked(withSecretFileLock).mockImplementation(
+      async (_path, fn) => fn() as Promise<never>,
+    );
+    const original = new SecretFileLockHeldError(
+      "Could not lock the secrets file at /home/u/.mcp-inspector/secrets.json",
+    );
+    const store = new InMemorySecretStore();
+    store.deleteAllForServer = async () => {
+      throw original;
+    };
+
+    // An empty snapshot with a named section deletes that entry's store
+    // fields — the first store mutation the callback makes.
+    await expect(
+      writeOAuthSections(
+        "/tmp/does-not-exist-oauth.json",
+        SNAPSHOT,
+        { servers: ["https://s.example/mcp"] },
+        store,
+      ),
+    ).rejects.toBe(original);
+  });
 });
 
 describe("removeOAuthStore lock failures", () => {
@@ -79,7 +109,7 @@ describe("removeOAuthStore lock failures", () => {
     vi.mocked(withSecretFileLock).mockReset();
   });
 
-  it("runs under the file lock and rethrows lock failures with OAuth wording", async () => {
+  it("runs under the file lock and rethrows lock failures with remove wording", async () => {
     const original = new SecretFileLockHeldError(
       "Could not lock the secrets file",
     );
@@ -87,7 +117,7 @@ describe("removeOAuthStore lock failures", () => {
 
     await expect(removeOAuthStore("/tmp/oauth.json")).rejects.toMatchObject({
       message: expect.stringContaining(
-        "Could not save OAuth state: the state file at /tmp/oauth.json is locked",
+        "Could not remove OAuth state: the state file at /tmp/oauth.json is locked",
       ),
       cause: original,
     });

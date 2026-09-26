@@ -115,14 +115,17 @@ function warnMigrationFailure(error: unknown): void {
  * preserving the {@link SecretFileLockHeldError} type — it extends
  * `SecretStoreUnavailableError`, which the HTTP layer maps to a retryable
  * 503; rewrapping in a plain `Error` would demote lock contention to a
- * generic 500. A secret-*store* failure thrown inside the locked callback
- * (e.g. `KeychainUnavailableError`) is not a lock failure and passes
- * through unchanged.
+ * generic 500. Called only for lock *acquisition* failures (see
+ * {@link withOAuthStateLock}): a failure thrown inside the locked callback
+ * — a `KeychainUnavailableError`, or a `SecretFileLockHeldError` from the
+ * nested `FileSecretStore` locking `secrets.json` — is not *this* file's
+ * lock and passes through unchanged, so the error keeps naming the file
+ * that is actually contended.
  */
 function rethrowLockError(
   filePath: string,
   error: unknown,
-  action: "save" | "read" = "save",
+  action: "save" | "read" | "remove" = "save",
 ): never {
   if (error instanceof SecretFileLockHeldError) {
     throw new SecretFileLockHeldError(
@@ -131,6 +134,32 @@ function rethrowLockError(
     );
   }
   throw error;
+}
+
+/**
+ * Run `body` under the OAuth state file's lock, rewording only lock
+ * *acquisition* failures via {@link rethrowLockError}. The `entered` flag
+ * is what distinguishes them: `withSecretFileLock` throws
+ * `SecretFileLockHeldError` before the callback runs when the lock is
+ * held, while the same error type escaping mid-callback comes from the
+ * nested secret store contending on `secrets.json` — rewording that one
+ * would direct the user at the wrong file.
+ */
+async function withOAuthStateLock<T>(
+  filePath: string,
+  action: "save" | "read" | "remove",
+  body: () => Promise<T>,
+): Promise<T> {
+  let entered = false;
+  try {
+    return await withSecretFileLock(filePath, async () => {
+      entered = true;
+      return body();
+    });
+  } catch (error) {
+    if (!entered) rethrowLockError(filePath, error, action);
+    throw error;
+  }
 }
 
 /**
@@ -245,149 +274,145 @@ export async function writeOAuthSections(
 ): Promise<void> {
   const policy = getPersistTokensPolicy();
   const durable = await secretStoreIsDurable(secretStore);
-  try {
-    await withSecretFileLock(filePath, async () => {
-      const disk = await readDiskForMutation(filePath, "save");
-      // Deduplicated: caller-passed sections may repeat a URL/issuer, and a
-      // second pass over the same entry would snapshot the value the first
-      // pass just wrote — a rollback would then "restore" that intermediate
-      // value over the real prior one. An omitted list stays omitted (that
-      // section of the file is left untouched).
-      const effective: OAuthPersistSections = sections
-        ? {
-            servers: sections.servers && [...new Set(sections.servers)],
-            idpSessions: sections.idpSessions && [
-              ...new Set(sections.idpSessions),
-            ],
-          }
-        : {
-            servers: [
-              ...new Set([
-                ...Object.keys(disk?.servers ?? {}),
-                ...Object.keys(snapshot.servers),
-              ]),
-            ],
-            idpSessions: [
-              ...new Set([
-                ...Object.keys(disk?.idpSessions ?? {}),
-                ...Object.keys(snapshot.idpSessions),
-              ]),
-            ],
-          };
-      const merged = mergeOAuthSections(disk, snapshot, effective);
-      // Pre-write store values for every secret field this write touches.
-      // If anything fails after the store mutations begin — a delete, a
-      // later entry's snapshot read, or the residue file write — the store
-      // is restored to match the file that is still on disk. Without this,
-      // a failed residue write leaves the store ahead of the file: a
-      // brand-new entry's secrets are stranded with no file index for
-      // `removeOAuthStore` to find, and an updated entry rejoins its *old*
-      // residue with the *new* secrets (e.g. the previous client_id paired
-      // with the re-registered client_secret) on the next read.
-      const priorSecrets: SecretFieldSnapshot[] = [];
-
-      try {
-        for (const url of effective.servers ?? []) {
-          const serverId = oauthSecretServerId(url);
-          // Own-property reads: with a `__proto__` key a plain lookup on a
-          // map that lacks it returns the inherited prototype, so a clear
-          // would read as an update and skip the purge below.
-          const next = getOwnEntry(snapshot.servers, url);
-          // Candidates span the old and new shapes so a removed issuer's
-          // fields are deleted, not orphaned in the store.
-          const candidates = [
-            ...new Set([
-              ...serverSecretFields(getOwnEntry(disk?.servers, url)),
-              ...serverSecretFields(next),
-            ]),
-          ];
-          priorSecrets.push(
-            ...(await snapshotSecretFields(secretStore, serverId, candidates)),
-          );
-          if (next === undefined) {
-            // A failed purge propagates and aborts the write: committing a
-            // file without the entry while its secrets may linger in the
-            // store would orphan them, and re-adding the server later could
-            // resurrect the stale credentials.
-            await secretStore.deleteAllForServer(serverId);
-            continue;
-          }
-          const { residue, secrets } = splitServerOAuthState(next, policy);
-          // Own-property writes throughout: URL/issuer keys are untrusted
-          // and "__proto__" would otherwise silently drop the residue.
-          setOwnEntry(merged.servers, url, residue);
-          if (!durable) {
-            const diskEntry = getOwnEntry(disk?.servers, url);
-            // Split the disk value with the *active* policy so the compare
-            // is like-for-like: under `access` the raw disk blob still
-            // carries its refresh token while `secrets` never does, and a
-            // raw compare would wrongly treat the unchanged access token as
-            // changed and strip the only durable copy.
-            const keep = preserveNonDurableSecrets(
-              diskEntry ? splitServerOAuthState(diskEntry, policy).secrets : {},
-              secrets,
-            );
-            if (Object.keys(keep).length > 0) {
-              setOwnEntry(
-                merged.servers,
-                url,
-                joinServerOAuthState(residue, keep),
-              );
-            }
-          }
-          await persistEntrySecrets(secretStore, serverId, candidates, secrets);
+  await withOAuthStateLock(filePath, "save", async () => {
+    const disk = await readDiskForMutation(filePath, "save");
+    // Deduplicated: caller-passed sections may repeat a URL/issuer, and a
+    // second pass over the same entry would snapshot the value the first
+    // pass just wrote — a rollback would then "restore" that intermediate
+    // value over the real prior one. An omitted list stays omitted (that
+    // section of the file is left untouched).
+    const effective: OAuthPersistSections = sections
+      ? {
+          servers: sections.servers && [...new Set(sections.servers)],
+          idpSessions: sections.idpSessions && [
+            ...new Set(sections.idpSessions),
+          ],
         }
+      : {
+          servers: [
+            ...new Set([
+              ...Object.keys(disk?.servers ?? {}),
+              ...Object.keys(snapshot.servers),
+            ]),
+          ],
+          idpSessions: [
+            ...new Set([
+              ...Object.keys(disk?.idpSessions ?? {}),
+              ...Object.keys(snapshot.idpSessions),
+            ]),
+          ],
+        };
+    const merged = mergeOAuthSections(disk, snapshot, effective);
+    // Pre-write store values for every secret field this write touches.
+    // If anything fails after the store mutations begin — a delete, a
+    // later entry's snapshot read, or the residue file write — the store
+    // is restored to match the file that is still on disk. Without this,
+    // a failed residue write leaves the store ahead of the file: a
+    // brand-new entry's secrets are stranded with no file index for
+    // `removeOAuthStore` to find, and an updated entry rejoins its *old*
+    // residue with the *new* secrets (e.g. the previous client_id paired
+    // with the re-registered client_secret) on the next read.
+    const priorSecrets: SecretFieldSnapshot[] = [];
 
-        for (const issuer of effective.idpSessions ?? []) {
-          const serverId = oauthIdpSecretServerId(issuer);
-          const next = getOwnEntry(snapshot.idpSessions, issuer);
-          priorSecrets.push(
-            ...(await snapshotSecretFields(secretStore, serverId, [
-              IDP_SESSION_FIELD,
-            ])),
-          );
-          if (next === undefined) {
-            // Same as the server loop: a failed purge aborts the write.
-            await secretStore.deleteAllForServer(serverId);
-            continue;
-          }
-          const { residue, secrets } = splitIdpSession(next, policy);
-          setOwnEntry(merged.idpSessions, issuer, residue);
-          if (!durable) {
-            const diskSession = getOwnEntry(disk?.idpSessions, issuer);
-            const keep = preserveNonDurableSecrets(
-              diskSession ? splitIdpSession(diskSession, policy).secrets : {},
-              secrets,
-            );
-            if (Object.keys(keep).length > 0) {
-              setOwnEntry(
-                merged.idpSessions,
-                issuer,
-                joinIdpSession(residue, keep),
-              );
-            }
-          }
-          await persistEntrySecrets(
-            secretStore,
-            serverId,
-            [IDP_SESSION_FIELD],
+    try {
+      for (const url of effective.servers ?? []) {
+        const serverId = oauthSecretServerId(url);
+        // Own-property reads: with a `__proto__` key a plain lookup on a
+        // map that lacks it returns the inherited prototype, so a clear
+        // would read as an update and skip the purge below.
+        const next = getOwnEntry(snapshot.servers, url);
+        // Candidates span the old and new shapes so a removed issuer's
+        // fields are deleted, not orphaned in the store.
+        const candidates = [
+          ...new Set([
+            ...serverSecretFields(getOwnEntry(disk?.servers, url)),
+            ...serverSecretFields(next),
+          ]),
+        ];
+        priorSecrets.push(
+          ...(await snapshotSecretFields(secretStore, serverId, candidates)),
+        );
+        if (next === undefined) {
+          // A failed purge propagates and aborts the write: committing a
+          // file without the entry while its secrets may linger in the
+          // store would orphan them, and re-adding the server later could
+          // resurrect the stale credentials.
+          await secretStore.deleteAllForServer(serverId);
+          continue;
+        }
+        const { residue, secrets } = splitServerOAuthState(next, policy);
+        // Own-property writes throughout: URL/issuer keys are untrusted
+        // and "__proto__" would otherwise silently drop the residue.
+        setOwnEntry(merged.servers, url, residue);
+        if (!durable) {
+          const diskEntry = getOwnEntry(disk?.servers, url);
+          // Split the disk value with the *active* policy so the compare
+          // is like-for-like: under `access` the raw disk blob still
+          // carries its refresh token while `secrets` never does, and a
+          // raw compare would wrongly treat the unchanged access token as
+          // changed and strip the only durable copy.
+          const keep = preserveNonDurableSecrets(
+            diskEntry ? splitServerOAuthState(diskEntry, policy).secrets : {},
             secrets,
           );
+          if (Object.keys(keep).length > 0) {
+            setOwnEntry(
+              merged.servers,
+              url,
+              joinServerOAuthState(residue, keep),
+            );
+          }
         }
-
-        await writeStoreFile(filePath, serializeOAuthPersistBlob(merged));
-      } catch (error) {
-        await restoreSecretFields(
-          secretStore,
-          priorSecrets,
-          warnStoreWriteFailure,
-        );
-        throw error;
+        await persistEntrySecrets(secretStore, serverId, candidates, secrets);
       }
-    });
-  } catch (error) {
-    rethrowLockError(filePath, error);
-  }
+
+      for (const issuer of effective.idpSessions ?? []) {
+        const serverId = oauthIdpSecretServerId(issuer);
+        const next = getOwnEntry(snapshot.idpSessions, issuer);
+        priorSecrets.push(
+          ...(await snapshotSecretFields(secretStore, serverId, [
+            IDP_SESSION_FIELD,
+          ])),
+        );
+        if (next === undefined) {
+          // Same as the server loop: a failed purge aborts the write.
+          await secretStore.deleteAllForServer(serverId);
+          continue;
+        }
+        const { residue, secrets } = splitIdpSession(next, policy);
+        setOwnEntry(merged.idpSessions, issuer, residue);
+        if (!durable) {
+          const diskSession = getOwnEntry(disk?.idpSessions, issuer);
+          const keep = preserveNonDurableSecrets(
+            diskSession ? splitIdpSession(diskSession, policy).secrets : {},
+            secrets,
+          );
+          if (Object.keys(keep).length > 0) {
+            setOwnEntry(
+              merged.idpSessions,
+              issuer,
+              joinIdpSession(residue, keep),
+            );
+          }
+        }
+        await persistEntrySecrets(
+          secretStore,
+          serverId,
+          [IDP_SESSION_FIELD],
+          secrets,
+        );
+      }
+
+      await writeStoreFile(filePath, serializeOAuthPersistBlob(merged));
+    } catch (error) {
+      await restoreSecretFields(
+        secretStore,
+        priorSecrets,
+        warnStoreWriteFailure,
+      );
+      throw error;
+    }
+  });
 }
 
 /** Build the bulk-read request list for everything a snapshot could hold. */
@@ -528,29 +553,25 @@ export async function readOAuthStore(
   filePath: string,
   secretStore: SecretStore = defaultSecretStore(),
 ): Promise<OAuthPersistSnapshot | null> {
-  try {
-    return await withSecretFileLock(filePath, async () => {
-      let snapshot = parseOAuthPersistBlob(await readStoreFile(filePath));
-      if (snapshot === null) return null;
+  return withOAuthStateLock(filePath, "read", async () => {
+    let snapshot = parseOAuthPersistBlob(await readStoreFile(filePath));
+    if (snapshot === null) return null;
 
-      if (
-        snapshotHasPlaintextSecrets(snapshot) &&
-        (await secretStoreIsDurable(secretStore))
-      ) {
-        try {
-          await migratePlaintextSecrets(filePath, secretStore);
-          snapshot =
-            parseOAuthPersistBlob(await readStoreFile(filePath)) ?? snapshot;
-        } catch (error) {
-          warnMigrationFailure(error);
-        }
+    if (
+      snapshotHasPlaintextSecrets(snapshot) &&
+      (await secretStoreIsDurable(secretStore))
+    ) {
+      try {
+        await migratePlaintextSecrets(filePath, secretStore);
+        snapshot =
+          parseOAuthPersistBlob(await readStoreFile(filePath)) ?? snapshot;
+      } catch (error) {
+        warnMigrationFailure(error);
       }
+    }
 
-      return joinSnapshot(snapshot, secretStore);
-    });
-  } catch (error) {
-    rethrowLockError(filePath, error, "read");
-  }
+    return joinSnapshot(snapshot, secretStore);
+  });
 }
 
 /**
@@ -573,44 +594,40 @@ export async function removeOAuthStore(
   filePath: string,
   secretStore: SecretStore = defaultSecretStore(),
 ): Promise<void> {
-  try {
-    await withSecretFileLock(filePath, async () => {
-      const snapshot = await readDiskForMutation(filePath, "remove");
-      if (snapshot) {
-        const targets = [
-          ...Object.entries(snapshot.servers).map(([url, state]) => ({
-            id: oauthSecretServerId(url),
-            fields: serverSecretFields(state),
-          })),
-          ...Object.keys(snapshot.idpSessions).map((issuer) => ({
-            id: oauthIdpSecretServerId(issuer),
-            fields: [IDP_SESSION_FIELD],
-          })),
-        ];
-        const priorSecrets: SecretFieldSnapshot[] = [];
-        try {
-          for (const { id, fields } of targets) {
-            priorSecrets.push(
-              ...(await snapshotSecretFields(secretStore, id, fields)),
-            );
-            await secretStore.deleteAllForServer(id);
-          }
-          await deleteStoreFile(filePath);
-        } catch (error) {
-          await restoreSecretFields(
-            secretStore,
-            priorSecrets,
-            warnStoreWriteFailure,
+  await withOAuthStateLock(filePath, "remove", async () => {
+    const snapshot = await readDiskForMutation(filePath, "remove");
+    if (snapshot) {
+      const targets = [
+        ...Object.entries(snapshot.servers).map(([url, state]) => ({
+          id: oauthSecretServerId(url),
+          fields: serverSecretFields(state),
+        })),
+        ...Object.keys(snapshot.idpSessions).map((issuer) => ({
+          id: oauthIdpSecretServerId(issuer),
+          fields: [IDP_SESSION_FIELD],
+        })),
+      ];
+      const priorSecrets: SecretFieldSnapshot[] = [];
+      try {
+        for (const { id, fields } of targets) {
+          priorSecrets.push(
+            ...(await snapshotSecretFields(secretStore, id, fields)),
           );
-          throw error;
+          await secretStore.deleteAllForServer(id);
         }
-      } else {
         await deleteStoreFile(filePath);
+      } catch (error) {
+        await restoreSecretFields(
+          secretStore,
+          priorSecrets,
+          warnStoreWriteFailure,
+        );
+        throw error;
       }
-    });
-  } catch (error) {
-    rethrowLockError(filePath, error);
-  }
+    } else {
+      await deleteStoreFile(filePath);
+    }
+  });
 }
 
 export function createFileOAuthPersistBackend(
