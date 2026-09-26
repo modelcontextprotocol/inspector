@@ -395,6 +395,36 @@ describe("--use-stored-auth", () => {
     expect(last.headers?.authorization).toBe(`Bearer ${TOKEN}`);
   });
 
+  it("surfaces an unreadable state path as an error, not no_stored_token", async () => {
+    // The blanket catch this replaces read *any* failure as an empty
+    // snapshot, so an unreadable state file (here: a directory) reported
+    // no_stored_token / exit 3 — "re-authorize" advice for a failure that
+    // re-authorizing cannot fix. Operational read failures now propagate.
+    const dir = mkdtempSync(join(tmpdir(), "inspector-cli-eisdir-"));
+    try {
+      const result = await runCli(
+        [
+          "--transport",
+          "http",
+          "--server-url",
+          serverUrl,
+          "--use-stored-auth",
+          "--method",
+          "tools/list",
+        ],
+        { env: { MCP_INSPECTOR_OAUTH_STATE_PATH: dir } },
+      );
+      expect(result.exitCode).toBe(1);
+      const env = JSON.parse(result.stderr.trim()) as {
+        error: { code: string; message: string };
+      };
+      expect(env.error.code).toBe("error");
+      expect(env.error.message).toContain("EISDIR");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("merges with --header (explicit headers + stored auth coexist)", async () => {
     const result = await runCli(
       [
@@ -898,6 +928,37 @@ describe("--wait-for-auth", () => {
     ]);
     expectCliFailure(result);
     expect(result.stderr).toContain("positive number of seconds");
+  });
+
+  it("tolerates read failures while polling and reports the ordinary timeout", async () => {
+    // Polling races the browser flow *writing* the same state file under the
+    // same lock, so transient read failures there are the success case in
+    // progress — the loop retries them instead of propagating (unlike the
+    // one-shot --use-stored-auth read). A persistently unreadable path
+    // (here: a directory) therefore surfaces as the ordinary timeout.
+    const dir = mkdtempSync(join(tmpdir(), "inspector-cli-wait-eisdir-"));
+    try {
+      const result = await runCli(
+        [
+          "--transport",
+          "http",
+          "--server-url",
+          serverUrl,
+          "--wait-for-auth",
+          "1",
+          "--method",
+          "tools/list",
+        ],
+        { env: { MCP_INSPECTOR_OAUTH_STATE_PATH: dir } },
+      );
+      expect(result.exitCode).toBe(3);
+      const env = JSON.parse(result.stderr.trim()) as {
+        error: { code: string };
+      };
+      expect(env.error.code).toBe("auth_wait_timeout");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

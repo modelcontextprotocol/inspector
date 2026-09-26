@@ -263,19 +263,20 @@ type StoredServers = Record<string, StoredServerState>;
  * Read the shared OAuth state ({@link OAuthPersistSnapshot}) fresh on every
  * call — required for `--wait-for-auth` polling. Returns the full snapshot,
  * with tokens and client secrets rejoined from the secret store (where the
- * backend now keeps them), or an empty one when the file is absent or
- * unreadable.
+ * backend now keeps them), or an empty one when the file is absent or not a
+ * recognized OAuth state shape (both read as `null`). Operational failures
+ * — the state file locked by another Inspector process, an unreachable or
+ * unreadable secret store — propagate instead of masquerading as "no stored
+ * token": the credentials may exist, and `classifyError` maps these to a
+ * `store_unavailable` envelope rather than `auth_required`. Only the
+ * `--wait-for-auth` polling loop tolerates them (see
+ * {@link waitForStoredToken}).
  */
 async function readOAuthSnapshot(
   statePath: string,
 ): Promise<OAuthPersistSnapshot> {
-  try {
-    const snapshot = await readOAuthStore(statePath);
-    if (snapshot) return snapshot;
-  } catch {
-    // Absent/unreadable/malformed → fall through to the empty snapshot below.
-  }
-  return { servers: {}, idpSessions: {} };
+  const snapshot = await readOAuthStore(statePath);
+  return snapshot ?? { servers: {}, idpSessions: {} };
 }
 
 /**
@@ -457,8 +458,17 @@ async function waitForStoredToken(
 ): Promise<string> {
   const key = normalizeServerUrl(serverUrl);
   const deadline = Date.now() + timeoutSec * 1000;
+  let servers: StoredServers = {};
   for (;;) {
-    const servers = await readOAuthServers(statePath);
+    try {
+      servers = await readOAuthServers(statePath);
+    } catch {
+      // Transient read failures are expected while polling — the browser
+      // flow this waits on *writes* the same state file under the same
+      // lock, so contention here is the success case in progress. Keep the
+      // last good listing for the timeout message and try again; a
+      // persistent store failure surfaces as the ordinary timeout.
+    }
     const token = findStoredToken(servers, serverUrl);
     if (token) return token;
     if (Date.now() >= deadline) {

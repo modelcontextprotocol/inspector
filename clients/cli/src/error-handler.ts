@@ -1,4 +1,5 @@
 import { awaitableError } from "./utils/awaitable-log.js";
+import { SecretStoreUnavailableError } from "@inspector/core/auth/node/secret-store.js";
 
 /**
  * Exit-code map. Non-zero codes let an automated caller (CI, an agent) branch
@@ -156,6 +157,25 @@ export function classifyError(
         ...((error.envelope?.url ?? url) !== undefined && {
           url: error.envelope?.url ?? url,
         }),
+      },
+    };
+  }
+
+  // Secret-store / OAuth-state-lock failures are operational, not auth: the
+  // credentials may well exist but could not be read (keychain unreachable,
+  // state file locked by another Inspector process, unreadable secrets
+  // file). Classified *before* the keyword heuristic below, whose /OAuth/
+  // test would otherwise read "Could not read OAuth state…" as
+  // auth_required — reporting "re-authorize" for a failure re-authorizing
+  // cannot fix. The web path preserves the same distinction as a 503.
+  if (error instanceof SecretStoreUnavailableError) {
+    return {
+      exitCode: EXIT_CODES.USAGE,
+      envelope: {
+        code: "store_unavailable",
+        message,
+        ...(cause !== undefined && { cause }),
+        ...(url !== undefined && { url }),
       },
     };
   }

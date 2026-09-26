@@ -6,6 +6,10 @@ import {
   formatErrorOutput,
   handleError,
 } from "../src/error-handler.js";
+import {
+  SecretFileLockHeldError,
+  SecretStoreUnavailableError,
+} from "@inspector/core/auth/node/secret-store.js";
 
 /**
  * `handleError` is the binary's last-resort error sink (wired up in
@@ -116,6 +120,30 @@ describe("classifyError", () => {
       new Error("Dynamic client registration failed: WWW-Authenticate Bearer"),
     );
     expect(exitCode).toBe(EXIT_CODES.AUTH_REQUIRED);
+  });
+
+  it("classifies SecretStoreUnavailableError as store_unavailable, exit 1", () => {
+    const { exitCode, envelope } = classifyError(
+      new SecretStoreUnavailableError("keychain probe failed"),
+      { url: "https://x.example/mcp" },
+    );
+    expect(exitCode).toBe(EXIT_CODES.USAGE);
+    expect(envelope.code).toBe("store_unavailable");
+    expect(envelope.url).toBe("https://x.example/mcp");
+  });
+
+  it("does not let the OAuth keyword heuristic hijack a lock-held store error", () => {
+    // SecretFileLockHeldError messages mention the OAuth state file; without
+    // the instanceof branch running first, the /OAuth/i keyword heuristic
+    // would misreport the lock contention as auth_required / exit 3 —
+    // telling the user to re-authorize when the store is merely busy.
+    const { exitCode, envelope } = classifyError(
+      new SecretFileLockHeldError(
+        "Could not lock the OAuth state file: held by another process",
+      ),
+    );
+    expect(exitCode).toBe(EXIT_CODES.USAGE);
+    expect(envelope.code).toBe("store_unavailable");
   });
 
   it("classifies ENOTFOUND / fetch failed as UNREACHABLE", () => {
