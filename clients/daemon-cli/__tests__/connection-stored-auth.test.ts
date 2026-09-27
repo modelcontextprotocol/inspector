@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { resetNodeOAuthStorageCache } from "@inspector/core/auth/node/storage-node.js";
+import { writeOAuthSections } from "@inspector/core/auth/node/oauth-persist-file.js";
 import {
   clearAllStoredAuth,
   clearStoredAuth,
@@ -11,6 +12,8 @@ import {
   resolveStoredAuthKey,
 } from "../src/connection/stored-auth.js";
 import { CliExitCodeError } from "@inspector/cli/error-handler.js";
+import { defaultSecretStore } from "@inspector/core/auth/node/secret-store-selection.js";
+import { oauthSecretServerId } from "@inspector/core/auth/node/oauth-secrets.js";
 import { runMcp } from "./helpers/mcp-runner.js";
 import {
   expectCliSuccess,
@@ -41,8 +44,10 @@ function writeOAuthFixture(dir: string): string {
         "https://empty.example/mcp": {
           codeVerifier: "cv",
         },
-        "https://nullish.example/mcp": null,
-        "https://stringish.example/mcp": "not-an-object",
+        // Note: entries that are not objects (null, strings) now make the
+        // whole file unrecognized upstream (proto-safe parsing) — the file
+        // indexes secret-store entries, so core refuses rather than treats
+        // it as empty. Junk entries therefore no longer belong in a fixture.
         "https://issuer-empty.example/mcp": {
           byIssuer: {
             "https://as.example/": {},
@@ -72,15 +77,37 @@ function writeOAuthFixture(dir: string): string {
   return file;
 }
 
+const FIXTURE_URLS = [
+  "https://example.com/mcp",
+  "https://other.example/mcp",
+  "https://empty.example/mcp",
+  "https://issuer-empty.example/mcp",
+  "https://multi.example/mcp",
+];
+
+/**
+ * The pinned in-memory secret store (vitest.config.ts) is process-wide and
+ * keyed by server URL, not by state-file path — reads migrate fixture
+ * plaintext into it and joined reads prefer it over the file, so one test's
+ * migrated tokens would leak into the next test's fresh fixture.
+ */
+async function purgeFixtureSecrets(): Promise<void> {
+  const store = defaultSecretStore();
+  for (const url of FIXTURE_URLS) {
+    await store.deleteAllForServer(oauthSecretServerId(url));
+  }
+}
+
 describe("connection stored-auth helpers", () => {
   let dir: string | undefined;
   let prevPath: string | undefined;
 
-  afterEach(() => {
+  afterEach(async () => {
     if (prevPath === undefined)
       delete process.env.MCP_INSPECTOR_OAUTH_STATE_PATH;
     else process.env.MCP_INSPECTOR_OAUTH_STATE_PATH = prevPath;
     resetNodeOAuthStorageCache();
+    await purgeFixtureSecrets();
     if (dir) {
       fs.rmSync(dir, { recursive: true, force: true });
       dir = undefined;
@@ -105,17 +132,8 @@ describe("connection stored-auth helpers", () => {
       "https://example.com/mcp",
       "https://issuer-empty.example/mcp",
       "https://multi.example/mcp",
-      "https://nullish.example/mcp",
       "https://other.example/mcp",
-      "https://stringish.example/mcp",
     ]);
-    expect(list.servers.find((s) => s.url.includes("nullish"))).toMatchObject({
-      hasTokens: false,
-      hasRefreshToken: false,
-    });
-    expect(list.servers.find((s) => s.url.includes("stringish"))).toMatchObject(
-      { hasTokens: false, hasRefreshToken: false },
-    );
     expect(
       list.servers.find((s) => s.url.includes("issuer-empty")),
     ).toMatchObject({ hasTokens: false, hasRefreshToken: false });
@@ -138,6 +156,44 @@ describe("connection stored-auth helpers", () => {
     });
   });
 
+  it("still reports tokens after they are split into the secret store", async () => {
+    // Regression for the #2482 adaptation: writes split tokens out of
+    // oauth.json into the secret store, so a raw-file parse would report
+    // every entry as token-less. listStoredAuth must use the joined read.
+    // (Read-side plaintext migration is skipped for the non-durable memory
+    // store pinned in vitest.config.ts, so exercise the write-side split.)
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "mcp-stored-auth-"));
+    const file = path.join(dir, "oauth.json");
+    prevPath = process.env.MCP_INSPECTOR_OAUTH_STATE_PATH;
+    process.env.MCP_INSPECTOR_OAUTH_STATE_PATH = file;
+    resetNodeOAuthStorageCache();
+
+    await writeOAuthSections(
+      file,
+      {
+        servers: {
+          "https://example.com/mcp": {
+            tokens: {
+              access_token: "a",
+              token_type: "Bearer",
+              refresh_token: "r",
+            },
+          },
+        },
+        idpSessions: {},
+      },
+      { servers: ["https://example.com/mcp"] },
+    );
+
+    const raw = fs.readFileSync(file, "utf8");
+    expect(raw).not.toContain("access_token");
+
+    const list = await listStoredAuth();
+    expect(
+      list.servers.find((s) => s.url.includes("example.com")),
+    ).toMatchObject({ hasTokens: true, hasRefreshToken: true });
+  });
+
   it("clears one key and all keys", async () => {
     useFixture();
     const cleared = await clearStoredAuth("https://example.com/mcp");
@@ -148,7 +204,7 @@ describe("connection stored-auth helpers", () => {
     );
 
     const all = await clearAllStoredAuth();
-    expect(all.cleared).toBe(6);
+    expect(all.cleared).toBe(4);
     list = await listStoredAuth();
     expect(list.servers).toEqual([]);
   });
@@ -200,8 +256,9 @@ describe("connection stored-auth helpers", () => {
 describe("mcp auth/list and auth/clear", () => {
   let dir: string | undefined;
 
-  afterEach(() => {
+  afterEach(async () => {
     resetNodeOAuthStorageCache();
+    await purgeFixtureSecrets();
     if (dir) {
       fs.rmSync(dir, { recursive: true, force: true });
       dir = undefined;
@@ -220,7 +277,7 @@ describe("mcp auth/list and auth/clear", () => {
     const body = JSON.parse(listed.stdout) as {
       servers: { url: string }[];
     };
-    expect(body.servers.length).toBe(7);
+    expect(body.servers.length).toBe(5);
 
     const cleared = await runMcp(
       ["auth/clear", "https://example.com/mcp", "--format", "json"],
@@ -236,7 +293,7 @@ describe("mcp auth/list and auth/clear", () => {
       { env: { MCP_INSPECTOR_OAUTH_STATE_PATH: file } },
     );
     expectCliSuccess(all);
-    expect(JSON.parse(all.stdout)).toMatchObject({ all: true, cleared: 6 });
+    expect(JSON.parse(all.stdout)).toMatchObject({ all: true, cleared: 4 });
   });
 
   it("rejects --all without --yes when non-interactive", async () => {

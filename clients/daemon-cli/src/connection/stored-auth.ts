@@ -1,10 +1,10 @@
-import { parseOAuthPersistBlob } from "@inspector/core/auth/oauth-persist.js";
 import {
   clearAllOAuthClientState,
   getStateFilePath,
   NodeOAuthStorage,
   resetNodeOAuthStorageCache,
 } from "@inspector/core/auth/node/storage-node.js";
+import { readOAuthStore } from "@inspector/core/auth/node/oauth-persist-file.js";
 import { CliExitCodeError, EXIT_CODES } from "@inspector/cli/error-handler.js";
 
 /** Same canonicalisation as one-shot `normalizeServerUrl` (avoid importing cli.ts). */
@@ -60,15 +60,12 @@ function tokenFlagsFromState(state: unknown): {
 async function readServersMap(
   statePath: string,
 ): Promise<Record<string, unknown>> {
-  const { readFile } = await import("node:fs/promises");
-  try {
-    const text = await readFile(statePath, "utf8");
-    const snapshot = parseOAuthPersistBlob(text);
-    if (snapshot?.servers && typeof snapshot.servers === "object") {
-      return snapshot.servers as Record<string, unknown>;
-    }
-  } catch {
-    // absent / unreadable
+  // readOAuthStore rejoins secrets (tokens, client secrets) from the secret
+  // store into the snapshot — the raw oauth.json blob no longer carries them,
+  // so parsing the file directly would report every entry as token-less.
+  const snapshot = await readOAuthStore(statePath);
+  if (snapshot?.servers && typeof snapshot.servers === "object") {
+    return snapshot.servers as Record<string, unknown>;
   }
   return {};
 }

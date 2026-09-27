@@ -135,6 +135,12 @@ describe("dispatchConnectionRpc", () => {
   });
 
   it("opens a stream for logging/tail and wires SIGINT abort", async () => {
+    // Invoke only the SIGINT listener dispatch registers, rather than
+    // broadcasting `process.emit("SIGINT")` process-wide: `atomically`
+    // (loaded via core's secret-store persistence) pulls in `when-exit`,
+    // whose module-level SIGINT handler re-raises the signal and kills the
+    // vitest worker fork mid-run (#1941).
+    const listenersBefore = new Set(process.listeners("SIGINT"));
     streamDaemon.mockImplementation(
       async (
         _params: unknown,
@@ -144,7 +150,11 @@ describe("dispatchConnectionRpc", () => {
           type: "subscribed",
           uri: "test://x",
         });
-        process.emit("SIGINT");
+        const added = process
+          .listeners("SIGINT")
+          .filter((listener) => !listenersBefore.has(listener));
+        expect(added).toHaveLength(1);
+        for (const listener of added) listener("SIGINT");
         expect(opts.signal?.aborted).toBe(true);
       },
     );
@@ -232,9 +242,16 @@ describe("dispatchConnectionRpc", () => {
   });
 
   it("wires SIGINT/SIGTERM abort for the general rpc path (not just streams)", async () => {
+    // Same when-exit hazard as the stream test above: invoke only the
+    // SIGTERM listener dispatch registered, never a process-wide emit.
+    const listenersBefore = new Set(process.listeners("SIGTERM"));
     callDaemon.mockImplementation(
       async (_op: string, _params: unknown, opts: { signal?: AbortSignal }) => {
-        process.emit("SIGTERM");
+        const added = process
+          .listeners("SIGTERM")
+          .filter((listener) => !listenersBefore.has(listener));
+        expect(added).toHaveLength(1);
+        for (const listener of added) listener("SIGTERM");
         expect(opts.signal?.aborted).toBe(true);
         return { kind: "result", result: {} };
       },

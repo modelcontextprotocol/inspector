@@ -25,6 +25,11 @@ export default defineConfig({
     environment: "node",
     include: ["__tests__/**/*.test.ts"],
     setupFiles: [NO_RETRY_SETUP],
+    // OAuth tokens/client secrets are split into the selected secret store by
+    // the shared file persistence backend. Pin the in-memory store so
+    // stored-auth tests (and spawned daemons, which inherit process.env)
+    // never probe or write the real OS keychain on a dev machine.
+    env: { MCP_INSPECTOR_SECRET_STORE: "memory" },
     // Shared budgets (#2323).
     ...TIMEOUTS,
     pool: "forks",
