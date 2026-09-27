@@ -67,10 +67,7 @@ The split exists because the two layers fail differently. A skill loads
 conditionally and can be dropped from context during a long session's
 auto-compaction, so anything that must **never** silently disappear (a hard
 rule) lives in `AGENTS.md`; anything that's a **recipe** — safely reloadable
-from disk whenever it's needed — lives in a skill. See
-[Writing a skill](./skill-authoring.md) for how a skill's description is
-engineered to reliably fire, and how that reliability is measured rather than
-assumed.
+from disk whenever it's needed — lives in a skill.
 
 | Skill | Purpose | Invocation |
 |---|---|---|
@@ -89,6 +86,16 @@ assumed.
 Both Claude Code and the GitHub Copilot CLI parse the same skill frontmatter
 and read from the same `.claude/skills/` directory — there is no second,
 duplicate copy for either agent.
+
+Whether a skill actually fires when it's needed isn't just asserted: `npm run
+skills:eval` runs a bank of committed cases against a real agent session and
+scores the hit rate, for both a skill firing as the model's own first move on
+a matching prompt and a skill's description leading a *second* skill to fire
+in the same session (one skill handing off to another). The eval bank is run
+against both Claude Code and the GitHub Copilot CLI, since a description
+tuned against one agent doesn't necessarily transfer to the other. See
+[Writing a skill](./skill-authoring.md) for the harness and how a description
+gets tuned against it.
 
 ## Issue-driven work, end to end
 
@@ -110,8 +117,10 @@ A v2 issue's lifecycle:
    `issue-create` flow is approved by definition, so it's boarded straight
    into a milestoned **Todo**, skipping to step 5. Everything else — an
    outside reporter's issue, or a maintainer's own issue opened by hand
-   instead of through that flow — has no board access behind it and lands
-   unmilestoned in **Incoming** instead, regardless of who filed it.
+   instead of through that flow — arrives with no card and isn't visible on
+   the board at all until the `issue-triage` skill is triggered over it, at
+   which point it lands unmilestoned in **Incoming**, regardless of who filed
+   it.
 3. **Triaged** *(Incoming path only)* — Priority is scored against a rubric
    and posted as an issue comment, for auditability.
 4. **Approved** *(Incoming path only)* — a maintainer assigns a milestone and
@@ -122,8 +131,10 @@ A v2 issue's lifecycle:
    off (DCO), a PR opens against `v2/main` with `Closes #<N>` as its first
    line, Status → In Review.
 7. **Reviewed** — a code review is requested and answered, thread by thread.
-8. **Merged** — the issue is closed by hand (auto-close doesn't fire, since
-   `v2/main` isn't the default branch), Status → Done.
+8. **Merged** — the card is moved to Done, which is the step that actually
+   closes the issue: board #28 has a GitHub Projects workflow enabled that
+   auto-closes an issue when its card reaches Done, since `v2/main` isn't the
+   default branch and `Closes #N` never fires GitHub's own auto-close.
 
 `Done` means the work **shipped** — a merged PR, or a parent issue whose last
 sub-issue closed. Anything else that resolves an issue (duplicate, won't-fix,
@@ -156,9 +167,11 @@ rules in `AGENTS.md` cover:
   once a fix is pushed.
 - **Because v2 PRs target `v2/main`, not the default branch, `Closes #N`
   never auto-closes the issue.** The flow keeps the keyword anyway, for if
-  and when `v2/main` reaches `main`, but requires closing the issue and
-  moving its card to `Done` by hand on merge — a step the board audit checks
-  for directly.
+  and when `v2/main` reaches `main`, but requires moving the card to `Done`
+  by hand on merge — a step the board audit checks for directly. Board #28
+  has a GitHub Projects workflow enabled that closes the linked issue
+  automatically once its card reaches Done, so that single manual move is
+  what actually closes the issue out; nothing separately closes it.
 
 ### How a working session gets started
 
@@ -174,7 +187,7 @@ instruction naming the issue, or an intake instruction on the create side:
 
 Several sessions typically run at once, each independently working the flow
 above end to end — implement, run the gate, push, open the PR, answer review
-comments until the review comes back clean, merge, close the issue by hand.
+comments until the review comes back clean, merge, move the card to Done.
 
 That end-to-end run is only unattended because the launch itself asks for
 persistence, not just an instruction. The `/goal` prefix above is Claude
