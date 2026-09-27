@@ -776,6 +776,42 @@ describe("RemoteClientTransport", () => {
       await transport.close();
     });
 
+    it("re-arms the wait when the server echoes the progressToken as a string (#2458)", async () => {
+      const { fetchFn, getSse, getSentId } = backendHoldingSend();
+      const transport = new RemoteClientTransport(
+        { baseUrl, fetchFn, sseResponseTimeoutMs: TIMEOUT_MS },
+        config,
+      );
+      await transport.start();
+
+      const sent = transport.send({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+      });
+      await flushSse();
+
+      // The request id is numeric; the server hands the token back as "1".
+      for (let i = 0; i < 3; i++) {
+        getSse().pushMessage({
+          jsonrpc: "2.0",
+          method: "notifications/progress",
+          params: { progressToken: String(getSentId()), progress: i, total: 3 },
+        });
+        await flushSse();
+        await vi.advanceTimersByTimeAsync(900);
+      }
+      getSse().pushMessage({
+        jsonrpc: "2.0",
+        id: getSentId(),
+        result: { ok: true },
+      });
+      await flushSse();
+
+      await expect(sent).resolves.toBeUndefined();
+      await transport.close();
+    });
+
     it("does not re-arm on notifications/message, so a log-only call still times out", async () => {
       const { fetchFn, getSse, getSentId } = backendHoldingSend();
       const transport = new RemoteClientTransport(

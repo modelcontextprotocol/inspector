@@ -843,6 +843,33 @@ describe("SkillsTab (#2248)", () => {
     expect(frame).toContain("Verification FAILED");
   });
 
+  it("says a dynamic skill is UNVERIFIABLE rather than Verified (#2405)", async () => {
+    // Served cleanly and frontmatter matches, so nothing is wrong — but no
+    // digest was advertised and nothing was hashed. "Verified" there was the
+    // false pass #2405 reported.
+    const genMd = "---\nname: gen\ndescription: Generated\n---\n\n# G\n";
+    const { lastFrame, stdin } = render(
+      <SkillsTab
+        skills={[dynamic]}
+        pageCount={1}
+        inspectorClient={mockClient(
+          vi.fn().mockResolvedValue({
+            result: { contents: [{ uri: dynamic.uri, text: genMd }] },
+          }),
+        )}
+        width={160}
+        height={30}
+        focusedPane="list"
+      />,
+    );
+    stdin.write(ENTER);
+    await tick();
+    const frame = lastFrame() ?? "";
+    expect(frame).toContain("UNVERIFIABLE — Enter to re-verify");
+    expect(frame).not.toContain("[Verified");
+    expect(frame).not.toContain("Verification FAILED");
+  });
+
   it("shows the details footer only when the details pane is focused", () => {
     const unfocused = render(
       <SkillsTab

@@ -17,6 +17,7 @@ import { writeFormattedResult } from "./handlers/format-output.js";
 import { clearStoredAuthForRelogin } from "./clear-stored-auth-for-relogin.js";
 import { InspectorClient } from "@inspector/core/mcp/index.js";
 import { cleanRoots } from "@inspector/core/mcp/serverList.js";
+import { UI_EXTENSION_KEY } from "@inspector/core/mcp/extensions.js";
 import {
   createProxyFetch,
   createTransportNode,
@@ -205,6 +206,13 @@ async function callMethod(
     // Absent era defaults to legacy in the InspectorClient constructor (#1626).
     ...(serverSettings?.protocolEra && {
       versionNegotiation: eraToVersionNegotiation(serverSettings.protocolEra),
+    }),
+    // The CLI cannot render an MCP App, so it does not advertise the UI
+    // extension by default (#2403). `--advertise-apps` claims it explicitly,
+    // for a server that only exposes its App tools to a client that does —
+    // which is what an `--app-info` probe against such a server needs.
+    ...(args.advertiseApps && {
+      advertisedExtensions: { [UI_EXTENSION_KEY]: true },
     }),
     ...clientAuthOptions,
   });
@@ -757,12 +765,20 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
       "Probe the tool's MCP App UI metadata (resourceUri, csp, permissions, domain) and emit it as one JSON line; exit 2 when the tool has no app. Use with --method tools/call --tool-name <name> (the tool itself is not invoked) or --method tools/list (one NDJSON line per tool).",
     )
     .option(
+      "--advertise-apps",
+      "Advertise the MCP Apps UI extension (io.modelcontextprotocol/ui) at initialize. Off by default because the CLI cannot render an App; set it when a server only exposes its App tools to a client that claims App support, e.g. for an --app-info probe.",
+    )
+    .option(
       "--strict",
       "Report tool-schema portability problems in full (path, issue, suggested fix) on stderr, and exit 6 if any is error-severity. Use with --method tools/list. Without it, a one-line count is printed instead.",
     )
     .option(
       "--verify",
       "Run the SEP-2640 conformance and digest checks over the skills returned, emit one JSON report per skill on stdout, and exit 7 if any fails or 8 if any could not be fully checked within the read bounds. Use with --method skills/list or --method skills/get.",
+    )
+    .option(
+      "--require-digests",
+      'With --verify: exit 9 when a skill advertises no digests (resources: "dynamic"), instead of reporting it as unverifiable and exiting 0.',
     )
     .option(
       "--connect-timeout <ms>",
@@ -873,8 +889,10 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     serverUrl?: string;
     header?: Record<string, string>;
     appInfo?: boolean;
+    advertiseApps?: boolean;
     strict?: boolean;
     verify?: boolean;
+    requireDigests?: boolean;
     cursor?: string;
     connectTimeout?: number;
     protocolEra?: ServerProtocolEra;
@@ -958,6 +976,26 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
         "--verify requires --method skills/list or --method skills/get.",
       );
     }
+  }
+  // Same reasoning: a policy flag with no report to apply it to would be
+  // accepted and then silently do nothing.
+  if (options.requireDigests && !options.verify) {
+    throw new Error("--require-digests requires --verify.");
+  }
+
+  // `--advertise-apps` is checked here for the same reason: it shapes the
+  // `initialize` handshake, and the short-circuit paths below never open an
+  // MCP connection, so accepting it there would silently ignore it.
+  if (
+    options.advertiseApps &&
+    (options.listStoredAuth ||
+      options.printHandoff ||
+      options.method === "servers/list" ||
+      options.method === "servers/show")
+  ) {
+    throw new Error(
+      "--advertise-apps requires a command that connects to a server; it has no effect with --list-stored-auth, --print-handoff, or --method servers/list / servers/show.",
+    );
   }
 
   // State-path precedence (getStateFilePath): MCP_INSPECTOR_OAUTH_STATE_PATH →
@@ -1190,8 +1228,10 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     metadata: options.metadata,
     toolMeta: options.toolMetadata,
     appInfo: options.appInfo === true,
+    advertiseApps: options.advertiseApps === true,
     strict: options.strict === true,
     verify: options.verify === true,
+    requireDigests: options.requireDigests === true,
     cursor: options.cursor,
     format: options.format,
   };

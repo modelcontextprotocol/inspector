@@ -1,3 +1,4 @@
+import type { ReactElement } from "react";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   ProtocolErrorCode,
@@ -15,6 +16,16 @@ import {
 import userEvent from "@testing-library/user-event";
 import { AuthRecoveryRequiredError } from "@inspector/core/auth/challenge.js";
 import { RemoteOAuthStorage } from "@inspector/core/auth/remote/storage-remote.js";
+
+/**
+ * Let the async work an App mount starts (config reads, list loads) finish
+ * inside `act`. Tests that render and assert synchronously otherwise leave it
+ * to land after the test body returns, where React reports it as an unwrapped
+ * update (#2507).
+ */
+async function settle(): Promise<void> {
+  await act(() => new Promise<void>((r) => setTimeout(r, 0)));
+}
 
 // Spy on the toast layer so the progress-notification tests can assert the
 // show/update calls without mounting Mantine's <Notifications/> portal.
@@ -123,6 +134,11 @@ vi.mock("@inspector/core/mcp/index.js", async (importOriginal) => {
     getRoots = vi.fn().mockReturnValue([]);
     setRoots = vi.fn().mockResolvedValue(undefined);
     setServerSettings = vi.fn();
+    // #2460: closing Server Settings compares the edited headers against the
+    // ones the open transport was built with.
+    getStatus = vi.fn().mockReturnValue("connected");
+    getServerType = vi.fn().mockReturnValue("streamable-http");
+    getTransportSettings = vi.fn().mockReturnValue(undefined);
     resumeAfterOAuth = vi.fn(() => {
       if (nextResumeRejection !== null) {
         const err = nextResumeRejection;
@@ -1054,9 +1070,10 @@ describe("App initializeResult when connected without serverInfo (#1772)", () =>
   // modern server can be `connected` with `serverInfo === undefined`. The header
   // (and its whole tab bar) is gated on `initializeResult` downstream, so it must
   // still be built in that case — otherwise the connected server shows no menu.
-  it("builds initializeResult when connected even though serverInfo is undefined", () => {
+  it("builds initializeResult when connected even though serverInfo is undefined", async () => {
     // DEFAULT_USE_INSPECTOR_CLIENT is exactly this case: connected + no serverInfo.
     renderWithMantine(<App />);
+    await settle();
     expect(screen.getByTestId("init-result")).not.toHaveTextContent("none");
   });
 
@@ -1074,21 +1091,23 @@ describe("App initializeResult when connected without serverInfo (#1772)", () =>
     );
   });
 
-  it("does not build initializeResult while disconnected", () => {
+  it("does not build initializeResult while disconnected", async () => {
     vi.mocked(useInspectorClient).mockReturnValue({
       ...DEFAULT_USE_INSPECTOR_CLIENT,
       status: "disconnected",
     });
     renderWithMantine(<App />);
+    await settle();
     expect(screen.getByTestId("init-result")).toHaveTextContent("none");
   });
 
-  it("uses the reported serverInfo name when present (legacy / stamped modern)", () => {
+  it("uses the reported serverInfo name when present (legacy / stamped modern)", async () => {
     vi.mocked(useInspectorClient).mockReturnValue({
       ...DEFAULT_USE_INSPECTOR_CLIENT,
       serverInfo: { name: "real-server", version: "2.0.0" },
     });
     renderWithMantine(<App />);
+    await settle();
     expect(screen.getByTestId("init-result")).toHaveTextContent(
       "name:real-server",
     );
@@ -1418,7 +1437,7 @@ describe("App mid-session error toast", () => {
     vi.mocked(useInspectorClient).mockReturnValue(DEFAULT_USE_INSPECTOR_CLIENT);
   });
 
-  it("toasts the lastError with a generic title when no server is active", () => {
+  it("toasts the lastError with a generic title when no server is active", async () => {
     // `lastError` is set but nothing has been connected, so the active-server
     // name ref is empty and the toast falls back to "Connection lost".
     vi.mocked(useInspectorClient).mockReturnValue({
@@ -1426,6 +1445,7 @@ describe("App mid-session error toast", () => {
       lastError: "stdio subprocess crashed",
     });
     renderWithMantine(<App />);
+    await settle();
 
     expect(notificationsMock.show).toHaveBeenCalledTimes(1);
     const shown = notificationsMock.show.mock.calls[0][0];
@@ -2001,6 +2021,8 @@ type RootsFakeClient = EventTarget & {
   // Close also pushes the settings it decided to apply, which is what the
   // failed-save case asserts on (#2089).
   setServerSettings: ReturnType<typeof vi.fn>;
+  getTransportSettings: ReturnType<typeof vi.fn>;
+  disconnect: ReturnType<typeof vi.fn>;
 };
 
 const settingsWithRoots = (
@@ -2090,6 +2112,193 @@ describe("App roots live-apply on settings-dialog close", () => {
       expect(screen.queryByText("Server Settings")).not.toBeInTheDocument(),
     );
     expect(client.setRoots).not.toHaveBeenCalled();
+  });
+
+  it("raises a reconnect notice when headers changed on a live connection, and reconnects from it (#2460)", async () => {
+    const user = userEvent.setup();
+    const client = await openSettingsForConnectedServer({
+      ...settingsWithRoots([]),
+      headers: [
+        { key: "X-Auth-Token", value: "tok" },
+        { key: "X-Provider-Username", value: "user" },
+      ],
+    });
+    // The transport was built before the second header was added.
+    client.getTransportSettings.mockReturnValue({
+      ...settingsWithRoots([]),
+      headers: [{ key: "X-Auth-Token", value: "tok" }],
+    });
+
+    await closeModal(user);
+
+    await waitFor(() =>
+      expect(notificationsMock.show).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: "headers-reconnect-A",
+          title: "Reconnect to apply header changes",
+        }),
+      ),
+    );
+    const shown = notificationsMock.show.mock.calls
+      .map((c) => c[0] as { id?: string; message: ReactElement })
+      .find((n) => n.id === "headers-reconnect-A");
+    const { onReconnect } = shown!.message.props as { onReconnect: () => void };
+
+    await act(async () => {
+      onReconnect();
+    });
+
+    expect(notificationsMock.hide).toHaveBeenCalledWith("headers-reconnect-A");
+    await waitFor(() => expect(client.disconnect).toHaveBeenCalled());
+    await waitFor(() => expect(clientInstances).toHaveLength(2));
+  });
+
+  it("withdraws a raised reconnect notice once the connection ends (#2493 review)", async () => {
+    // Its message is about "this connection"; with none left it is false.
+    const user = userEvent.setup();
+    const client = await openSettingsForConnectedServer({
+      ...settingsWithRoots([]),
+      headers: [{ key: "X-Provider-Username", value: "user" }],
+    });
+    client.getTransportSettings.mockReturnValue(settingsWithRoots([]));
+    await closeModal(user);
+    await waitFor(() =>
+      expect(notificationsMock.show).toHaveBeenCalledWith(
+        expect.objectContaining({ id: "headers-reconnect-A" }),
+      ),
+    );
+    notificationsMock.hide.mockClear();
+
+    vi.mocked(useInspectorClient).mockReturnValue({
+      ...DEFAULT_USE_INSPECTOR_CLIENT,
+      status: "disconnected",
+    });
+    act(() => {
+      clientInstances[0].dispatchEvent(new Event("disconnect"));
+    });
+
+    await waitFor(() =>
+      expect(notificationsMock.hide).toHaveBeenCalledWith(
+        "headers-reconnect-A",
+      ),
+    );
+  });
+
+  it("waits for an in-flight settings write to land before raising the reconnect notice (#2460)", async () => {
+    // Until the flushed write settles the saved list still holds the pre-edit
+    // headers, so a Reconnect clicked in that window would rebuild the client
+    // from them.
+    const user = userEvent.setup();
+    const draft: InspectorServerSettings = {
+      ...settingsWithRoots([]),
+      headers: [
+        { key: "X-Auth-Token", value: "tok" },
+        { key: "X-Provider-Username", value: "user" },
+      ],
+    };
+    const client = await openSettingsForConnectedServer(draft);
+    client.getTransportSettings.mockReturnValue({
+      ...settingsWithRoots([]),
+      headers: [{ key: "X-Auth-Token", value: "tok" }],
+    });
+    const draftOptions = vi.mocked(useSettingsDraft).mock.calls.at(-1)?.[0];
+    if (!draftOptions) throw new Error("useSettingsDraft was never called");
+    let finishWrite: () => void = () => {};
+    updateServerSettingsSpy.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          finishWrite = resolve;
+        }),
+    );
+    let write: Promise<void> | undefined;
+    act(() => {
+      write = draftOptions.onPersist("A", draft);
+    });
+    notificationsMock.show.mockClear();
+
+    await closeModal(user);
+    await waitFor(() =>
+      expect(screen.queryByText("Server Settings")).not.toBeInTheDocument(),
+    );
+    expect(notificationsMock.show).not.toHaveBeenCalledWith(
+      expect.objectContaining({ id: "headers-reconnect-A" }),
+    );
+
+    await act(async () => {
+      finishWrite();
+      await write;
+    });
+
+    expect(notificationsMock.show).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "headers-reconnect-A" }),
+    );
+  });
+
+  it("raises no reconnect notice when the session ended before the deferred write landed (#2493 review)", async () => {
+    // The live client is no longer this server's session, so its transport
+    // cannot say whether this server's headers changed.
+    const user = userEvent.setup();
+    const draft: InspectorServerSettings = {
+      ...settingsWithRoots([]),
+      headers: [{ key: "X-Provider-Username", value: "user" }],
+    };
+    const client = await openSettingsForConnectedServer(draft);
+    client.getTransportSettings.mockReturnValue(settingsWithRoots([]));
+    const draftOptions = vi.mocked(useSettingsDraft).mock.calls.at(-1)?.[0];
+    if (!draftOptions) throw new Error("useSettingsDraft was never called");
+    let finishWrite: () => void = () => {};
+    updateServerSettingsSpy.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          finishWrite = resolve;
+        }),
+    );
+    let write: Promise<void> | undefined;
+    act(() => {
+      write = draftOptions.onPersist("A", draft);
+    });
+    await closeModal(user);
+    await waitFor(() =>
+      expect(screen.queryByText("Server Settings")).not.toBeInTheDocument(),
+    );
+
+    act(() => {
+      clientInstances[0].dispatchEvent(new Event("disconnect"));
+    });
+    notificationsMock.show.mockClear();
+    await act(async () => {
+      finishWrite();
+      await write;
+    });
+
+    expect(notificationsMock.show).not.toHaveBeenCalledWith(
+      expect.objectContaining({ id: "headers-reconnect-A" }),
+    );
+  });
+
+  it("withdraws the reconnect notice when the headers match the transport's (#2460)", async () => {
+    const user = userEvent.setup();
+    const headers = [{ key: "X-Auth-Token", value: "tok" }];
+    const client = await openSettingsForConnectedServer({
+      ...settingsWithRoots([]),
+      headers,
+    });
+    client.getTransportSettings.mockReturnValue({
+      ...settingsWithRoots([]),
+      headers,
+    });
+    notificationsMock.show.mockClear();
+
+    await closeModal(user);
+
+    await waitFor(() =>
+      expect(notificationsMock.hide).toHaveBeenCalledWith(
+        "headers-reconnect-A",
+      ),
+    );
+    expect(notificationsMock.show).not.toHaveBeenCalledWith(
+      expect.objectContaining({ id: "headers-reconnect-A" }),
+    );
   });
 
   it("applies the last persisted settings on close after a save failed (#2089)", async () => {
@@ -3741,12 +3950,13 @@ describe("App config submit with a failed list reload (#1914)", () => {
     );
   });
 
-  it("labels a settings save whose reload failed as saved, not failed (#1914)", () => {
+  it("labels a settings save whose reload failed as saved, not failed (#1914)", async () => {
     // The settings draft debounces and flushes on close, so this toast is the
     // user's only signal — a flush that rejects usually does so after the
     // modal is gone. `useSettingsDraft` is mocked here, so the App's `onError`
     // is invoked directly with the options it was handed.
     renderWithMantine(<App />);
+    await settle();
     const onError = vi.mocked(useSettingsDraft).mock.calls.at(-1)?.[0].onError;
     expect(onError).toBeDefined();
 

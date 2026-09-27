@@ -89,13 +89,15 @@ const FILE_COLOR: Record<string, string> = {
 };
 
 /**
- * The status line for each of the three verification outcomes.
+ * The status line for each verification outcome.
  *
- * A `Record` over the union rather than a chain of ternaries, so adding a
- * fourth outcome is a type error here instead of a silently missing label.
+ * A `Record` over the union rather than a chain of ternaries, so adding an
+ * outcome is a type error here instead of a silently missing label — which is
+ * exactly how `unverifiable` (#2405) was caught.
  */
 const VERIFY_STATUS: Record<SkillVerifyReport["outcome"], string> = {
   verified: "[Verified — Enter to re-verify]",
+  unverifiable: "[UNVERIFIABLE — Enter to re-verify]",
   incomplete: "[Verification INCOMPLETE — Enter to re-verify]",
   failed: "[Verification FAILED — Enter to re-verify]",
 };

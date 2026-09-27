@@ -269,6 +269,18 @@ describe("Skills extension over a real transport (#2234)", () => {
         expect(Array.isArray(entry.resources)).toBe(true);
       });
 
+      it("carries the caching attributes on skills/get (#2404)", async () => {
+        const started = await startSkillsServer(modern);
+        const connected = await connect(started.url, modern);
+        // On the modern leg `getSkillResult` selects
+        // `ModernGetSkillEnvelopeSchema`, so this resolving is itself the
+        // requirement; the fixture stamps both eras alike.
+        const result = await connected.getSkillResult(
+          "skill://data-analysis/SKILL.md",
+        );
+        expect(result).toMatchObject({ ttlMs: 0, cacheScope: "public" });
+      });
+
       it("answers -32602 for an unknown skill uri", async () => {
         const started = await startSkillsServer(modern);
         const connected = await connect(started.url, modern);
@@ -438,6 +450,7 @@ describe("Skills extension over a real transport (#2234)", () => {
 
           const dynamic = reports.find((r) => r.name === "dynamic-report")!;
           expect(dynamic.ok).toBe(true);
+          expect(dynamic.outcome).toBe("unverifiable");
         } finally {
           store.destroy();
         }

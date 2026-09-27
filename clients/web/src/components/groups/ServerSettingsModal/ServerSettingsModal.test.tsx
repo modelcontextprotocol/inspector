@@ -336,6 +336,37 @@ describe("ServerSettingsModal", () => {
     );
   });
 
+  it("persists a true UI override when checked without an App renderer (#2403)", async () => {
+    // With no sandbox the UI extension defaults OFF, so checking it is a real
+    // override — it must be written, not dropped as "back to the default".
+    const user = userEvent.setup();
+    const onSettingsChange = vi.fn();
+    renderWithMantine(
+      <ServerSettingsModal
+        opened
+        settings={emptySettings}
+        serverType="streamable-http"
+        isStdio={false}
+        rendersApps={false}
+        onClose={vi.fn()}
+        onSettingsChange={onSettingsChange}
+      />,
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Advertised Extensions" }),
+    );
+    await user.click(
+      screen.getByRole("checkbox", {
+        name: /MCP Apps UI \(io\.modelcontextprotocol\/ui\)/,
+      }),
+    );
+    expect(onSettingsChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        advertisedExtensions: { "io.modelcontextprotocol/ui": true },
+      }),
+    );
+  });
+
   it("hides the modern log-level control when this server negotiated legacy under 'auto' (#1629)", () => {
     renderWithMantine(
       <ServerSettingsModal

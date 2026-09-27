@@ -341,6 +341,82 @@ describe("FileSecretStore failure handling", () => {
     );
   });
 
+  it("refuses an authentic tag truncated to 4 bytes (#2485)", async () => {
+    // A genuine tag, cut short. Node 22 (the engines floor) authenticates a
+    // 4-byte GCM tag unless the length is pinned, which makes a forgery a
+    // ~2^-32 guess — so no read may return the secret, whatever the runtime.
+    await writeEncryptedFixture();
+    const parsed = JSON.parse(await fs.readFile(filePath(), "utf-8"));
+    const [iv, tag, body] = parsed.data.split(".");
+    const short = Buffer.from(tag, "base64").subarray(0, 4).toString("base64");
+    parsed.data = `${iv}.${short}.${body}`;
+    await fs.writeFile(filePath(), JSON.stringify(parsed), "utf-8");
+    const store = new FileSecretStore({
+      filePath: filePath(),
+      passphrase: "right-key",
+    });
+    expect(await store.get("alpha", SECRET_FIELD_OAUTH_CLIENT_SECRET)).toBe(
+      null,
+    );
+    await expect(
+      store.getStrict("alpha", SECRET_FIELD_OAUTH_CLIENT_SECRET),
+    ).rejects.toThrow(/authentication tag is 4 bytes, expected 16/);
+    expect(await store.readOnDiskEncryption()).toEqual({
+      state: "unreadable",
+      detail: "authentication tag is 4 bytes, expected 16",
+    });
+  });
+
+  it("pins the tag length at the cipher, not only in the envelope check (#2485)", async () => {
+    // The test above cannot see this: `encryptedEnvelopeProblem` rejects a
+    // short tag before `createDecipheriv` runs, and current Node rejects one
+    // natively. So observe the options themselves — without them, Node 22
+    // authenticates a 4-byte tag should the envelope check ever regress.
+    const seen: { cipher: unknown[]; decipher: unknown[] } = {
+      cipher: [],
+      decipher: [],
+    };
+    vi.resetModules();
+    vi.doMock("node:crypto", async () => {
+      const actual =
+        await vi.importActual<typeof import("node:crypto")>("node:crypto");
+      return {
+        ...actual,
+        default: actual,
+        createCipheriv: (...args: Parameters<typeof actual.createCipheriv>) => {
+          seen.cipher.push(args[3]);
+          return actual.createCipheriv(...args);
+        },
+        createDecipheriv: (
+          ...args: Parameters<typeof actual.createDecipheriv>
+        ) => {
+          seen.decipher.push(args[3]);
+          return actual.createDecipheriv(...args);
+        },
+      };
+    });
+    try {
+      const mod =
+        await import("@inspector/core/auth/node/file-secret-store.js");
+      const fresh = new mod.FileSecretStore({
+        filePath: filePath(),
+        passphrase: "right-key",
+      });
+      await fresh.set("alpha", SECRET_FIELD_OAUTH_CLIENT_SECRET, "shh");
+      expect(await fresh.get("alpha", SECRET_FIELD_OAUTH_CLIENT_SECRET)).toBe(
+        "shh",
+      );
+      expect(seen.cipher).toEqual([{ authTagLength: 16 }]);
+      expect(seen.decipher.length).toBeGreaterThan(0);
+      for (const options of seen.decipher) {
+        expect(options).toEqual({ authTagLength: 16 });
+      }
+    } finally {
+      vi.doUnmock("node:crypto");
+      vi.resetModules();
+    }
+  });
+
   it("blames the file, not the passphrase, for a decrypted-but-corrupt payload", async () => {
     // GCM has already authenticated by this point, so the passphrase is
     // *proven correct* — telling the user to restore it sends them after a

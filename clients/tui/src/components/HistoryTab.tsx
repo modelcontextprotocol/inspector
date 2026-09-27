@@ -79,7 +79,11 @@ export function HistoryTab({
   // Update count when messages change
   React.useEffect(() => {
     onCountChange?.(messages.length);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Keyed on the count alone: App passes `onCountChange` as an inline
+    // arrow, a new function every render, and it sets App state with a fresh
+    // object — so depending on it would re-render App forever. Every version
+    // of it does the same thing, so the count is the only real input.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- onCountChange is a fresh inline arrow each render
   }, [messages.length]);
 
   // Reset details scroll when message selection changes
