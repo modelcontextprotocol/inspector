@@ -23,6 +23,7 @@ import {
   NodeOAuthStorage,
 } from "@inspector/core/auth/node/index.js";
 import { flushStoreFileWrites } from "@inspector/core/storage/store-io.js";
+import { readOAuthStore } from "@inspector/core/auth/node/oauth-persist-file.js";
 import {
   TestServerHttp,
   getDefaultServerConfig,
@@ -198,13 +199,20 @@ describe("InspectorClient EMA E2E", () => {
     await client.connect();
     await flushStoreFileWrites(oauthTestStatePath);
 
+    // Tokens live in the secret store; the file keeps the residue (including
+    // the enterpriseManaged tag). Assert via the joined read, plus that the
+    // file itself carries no plaintext token.
     const raw = JSON.parse(await fs.readFile(oauthTestStatePath, "utf-8")) as {
       servers: Record<
         string,
         { tokens?: { access_token?: string }; enterpriseManaged?: boolean }
       >;
     };
-    const entry = raw.servers[mcpUrl];
+    expect(raw.servers[mcpUrl]?.tokens).toBeUndefined();
+    expect(raw.servers[mcpUrl]?.enterpriseManaged).toBe(true);
+
+    const joined = await readOAuthStore(oauthTestStatePath);
+    const entry = joined?.servers[mcpUrl];
     expect(entry?.tokens?.access_token).toBeDefined();
     expect(entry?.enterpriseManaged).toBe(true);
   });

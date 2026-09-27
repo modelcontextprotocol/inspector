@@ -167,6 +167,19 @@ describe("BrowserOAuthStorage", () => {
 
       expect(result).toEqual(tokens);
     });
+
+    it("serves a partial token payload as no tokens, not a throw", async () => {
+      // A refresh-only entry preserved from a legacy plaintext file (see
+      // splitTokens in oauth-secrets.ts) is kept at rest for the CLI's
+      // stored-token refresh, but has no access token to serve. Throwing
+      // here would brick every flow touching the server (connection state,
+      // the SDK provider's tokens() callback) instead of re-authorizing.
+      await storage.saveTokens(testServerUrl, {
+        refresh_token: "rt-only",
+        token_type: "Bearer",
+      } as unknown as OAuthTokens);
+      await expect(storage.getTokens(testServerUrl)).resolves.toBeUndefined();
+    });
   });
 
   describe("saveTokens", () => {

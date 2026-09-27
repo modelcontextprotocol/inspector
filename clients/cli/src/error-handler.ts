@@ -1,5 +1,8 @@
 import { redactUrlQuery } from "@inspector/core/mcp/fetchTracking.js";
 import { awaitableError } from "./utils/awaitable-log.js";
+import { isUnauthorizedError } from "@inspector/core/auth/index.js";
+import { SecretStoreUnavailableError } from "@inspector/core/auth/node/secret-store.js";
+import { OAuthStateFileUnrecognizedError } from "@inspector/core/auth/node/oauth-persist-file.js";
 
 /**
  * Exit-code map. Non-zero codes let an automated caller (CI, an agent) branch
@@ -240,14 +243,50 @@ function classifyUnredacted(
     };
   }
 
-  // 401 / OAuth-required → AUTH_REQUIRED so the caller can kick the auth flow.
-  if (
-    status === 401 ||
-    status === 403 ||
-    /WWW-Authenticate|Unauthorized|invalid_token|OAuth/i.test(
-      message + " " + (cause ?? ""),
-    )
-  ) {
+  // Secret-store / OAuth-state-lock failures are operational, not auth: the
+  // credentials may well exist but could not be read (keychain unreachable,
+  // state file locked by another Inspector process, unreadable secrets
+  // file). Reporting them as auth_required would say "re-authorize" for a
+  // failure re-authorizing cannot fix. The web path preserves the same
+  // distinction as a 503.
+  if (error instanceof SecretStoreUnavailableError) {
+    return {
+      exitCode: EXIT_CODES.USAGE,
+      envelope: {
+        code: "store_unavailable",
+        message,
+        ...(cause !== undefined && { cause }),
+        ...(url !== undefined && { url }),
+      },
+    };
+  }
+
+  // A present-but-unrecognized OAuth state file also is not an auth
+  // failure — the file must be repaired (or deleted), so it gets a code of
+  // its own: unlike store_unavailable, retrying will not help.
+  if (error instanceof OAuthStateFileUnrecognizedError) {
+    return {
+      exitCode: EXIT_CODES.USAGE,
+      envelope: {
+        code: "oauth_state_unrecognized",
+        message,
+        ...(cause !== undefined && { cause }),
+        ...(url !== undefined && { url }),
+      },
+    };
+  }
+
+  // 401/403 or a typed SDK auth error → AUTH_REQUIRED so the caller can kick
+  // the auth flow. `isUnauthorizedError` is the same detector cliOAuth.ts
+  // uses: `UnauthorizedError.isInstance`, a structured 401 status/code
+  // anywhere in the cause chain, and the remote transport's "failed …(401)"
+  // wording. Every genuine auth-required condition in the SDK throws typed
+  // `UnauthorizedError` or carries a structured 401 — this replaced a
+  // keyword sniff (/WWW-Authenticate|Unauthorized|invalid_token|OAuth/i)
+  // whose terms matched no real thrower while "OAuth" misclassified
+  // ordinary operational errors ("OAuth storage is required…", "HTTP 500
+  // trying to load well-known OAuth metadata") as "re-authorize".
+  if (status === 401 || status === 403 || isUnauthorizedError(error)) {
     return {
       exitCode: EXIT_CODES.AUTH_REQUIRED,
       envelope: {

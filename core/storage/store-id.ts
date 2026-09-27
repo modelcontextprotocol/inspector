@@ -9,7 +9,16 @@
 /**
  * A store id must be non-empty and contain only alphanumerics, hyphens, and
  * underscores (it becomes a filename and an `mcpServers` map key).
+ * `__proto__` matches the character class but is additionally rejected: a
+ * plain `map[id] = …` assignment with it invokes the inherited prototype
+ * setter and silently drops the entry. Other `Object.prototype` names
+ * (`constructor`, `toString`, …) stay valid — they were accepted before this
+ * check existed, so rejecting them would strand pre-existing `mcp.json`
+ * entries (listed by GET but refused by PUT/DELETE), and they are safe
+ * because every dynamic-key map access uses own-property operations
+ * (`Object.hasOwn`, `getOwnEntry`/`setOwnEntry`), never `in` membership or
+ * bare reads.
  */
 export function validateStoreId(storeId: string): boolean {
-  return /^[a-zA-Z0-9_-]+$/.test(storeId) && storeId.length > 0;
+  return /^[a-zA-Z0-9_-]+$/.test(storeId) && storeId !== "__proto__";
 }

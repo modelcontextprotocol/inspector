@@ -208,7 +208,6 @@ describe("InspectorClient OAuth E2E with Remote Storage", () => {
         });
         const remoteStorage = new RemoteOAuthStorage({
           baseUrl: remoteBaseUrl!,
-          storeId: "oauth",
           authToken: remoteAuthToken!,
         });
 
@@ -299,7 +298,6 @@ describe("InspectorClient OAuth E2E with Remote Storage", () => {
         });
         const remoteStorage = new RemoteOAuthStorage({
           baseUrl: remoteBaseUrl!,
-          storeId: "oauth",
           authToken: remoteAuthToken!,
         });
 
@@ -378,7 +376,6 @@ describe("InspectorClient OAuth E2E with Remote Storage", () => {
         // Second client: should load persisted state
         const remoteStorage2 = new RemoteOAuthStorage({
           baseUrl: remoteBaseUrl!,
-          storeId: "oauth",
           authToken: remoteAuthToken!,
         });
 
@@ -468,7 +465,6 @@ describe("InspectorClient OAuth E2E with Remote Storage", () => {
         });
         const remoteStorage = new RemoteOAuthStorage({
           baseUrl: remoteBaseUrl!,
-          storeId: "oauth",
           authToken: remoteAuthToken!,
         });
 
