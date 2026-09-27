@@ -293,6 +293,13 @@ export default defineConfig(({ command }) => {
           test: {
             name: "unit",
             environment: "happy-dom",
+            // OAuth tokens and client secrets now live in the OS secret store
+            // (core/auth/node/oauth-secrets.ts). Without this, any test
+            // that touches the file OAuth backend without injecting a store
+            // double would probe — and on a dev machine, write to — the real
+            // keychain. Tests that exercise selection behavior stash/delete
+            // this var themselves, so the pin doesn't constrain them.
+            env: { MCP_INSPECTOR_SECRET_STORE: "memory" },
             // Don't let happy-dom actually navigate child frames. Components like
             // the MCP Apps sandbox render an <iframe src="/sandbox.html">; with
             // navigation enabled happy-dom fetches that URL (and unloads it on
@@ -358,6 +365,10 @@ export default defineConfig(({ command }) => {
           test: {
             name: "integration",
             environment: "node",
+            // Same keychain guard as the unit project: never let a test that
+            // exercises the split OAuth/file persistence reach the real OS
+            // keychain via the default secret-store probe.
+            env: { MCP_INSPECTOR_SECRET_STORE: "memory" },
             // Same reason as the unit project: rooted at repoRoot so vitest
             // can transform core/ modules and run tests against the source.
             root: repoRoot,

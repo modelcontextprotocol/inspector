@@ -15,7 +15,7 @@ npx @modelcontextprotocol/inspector --tui    # TUI
 ```
 
 > [!WARNING]
-> **On a machine with no OS keychain, secrets are saved to a plaintext file by default.** That covers Linux without libsecret or a Secret Service, headless and SSH sessions, Termux, and containers with a mounted volume. OAuth client secrets and stdio `env:` values then go to `~/.mcp-inspector/secrets.json`, unencrypted unless you supply a key. See [Where secrets are stored](./docs/secret-storage.md) for how to get a keychain back, encrypt the file, or keep secrets in memory only.
+> **The Inspector manages secrets — OAuth tokens, OAuth client secrets, and stdio `env:` values — and stores them in the OS keychain, if available, by default.** On a machine with no keychain — Linux without libsecret or a Secret Service, headless and SSH sessions, Termux, and containers with a mounted volume — they are saved to `~/.mcp-inspector/secrets.json` instead, unencrypted unless you supply a key. See [Where secrets are stored](./docs/secret-storage.md) for how to get a keychain back, encrypt the file, or keep secrets in memory only.
 
 > **Upgrading from v1?** Read the [v1 → v2 migration guide](./docs/v1-to-v2-migration.md) — CLI flags, the new `--config` vs. `--catalog` split, the Node engine bump, and what no longer ships.
 

@@ -37,6 +37,15 @@ import type {
 } from "../types.js";
 import type { JSONRPCMessage } from "@modelcontextprotocol/client";
 import { AuthChallengeError } from "../../../auth/challenge.js";
+import {
+  parseOAuthStoreWriteBody,
+  OAUTH_PERSIST_STORE_ID as OAUTH_STORE_ID,
+} from "../../../auth/oauth-persist.js";
+import {
+  readOAuthStore,
+  removeOAuthStore,
+  writeOAuthSections,
+} from "../../../auth/node/oauth-persist-file.js";
 import { MCP_PARAM_HEADER_PREFIX } from "../../../json/xMcpHeader.js";
 import {
   DEFAULT_MAX_FETCH_REQUESTS,
@@ -71,14 +80,18 @@ import { RemoteSession } from "./remote-session.js";
 import { createRemoteAuthProvider } from "./tokenAuthProvider.js";
 import { API_SERVER_ENV_VARS } from "../constants.js";
 import {
+  restoreSecretFields,
   secretStoreGetMany,
   secretStoreSetMany,
   secretStoreGetStrict,
   secretStoreIsDurable,
   SecretStoreUnavailableError,
+  snapshotSecretFields,
+  settleStoreMutations,
   type SecretStore,
 } from "../../../auth/node/secret-store.js";
 import { defaultSecretStore } from "../../../auth/node/secret-store-selection.js";
+import { setOwnEntry } from "../../../storage/own-entry.js";
 import {
   deleteClientConfigStore,
   readClientConfigStore,
@@ -329,6 +342,18 @@ const MAX_APP_DOCUMENT_BODY_BYTES = 24 * 1024 * 1024;
  * hundred characters — an app pushing more is not describing sources.
  */
 const MAX_APP_CSP_CHARS = 8 * 1024;
+
+/**
+ * Upper bound on a `POST /api/storage/:storeId` body, in bytes, enforced by
+ * `bodyLimit` *before* `c.req.json()` buffers it (same reasoning as
+ * {@link MAX_APP_DOCUMENT_BODY_BYTES}). The sectioned OAuth write rides in
+ * this body precisely because a query parameter could not hold a large
+ * descriptor (see `OAuthStoreWrite`), so the body is where the bound must
+ * actually exist. Generous: the largest legitimate payload is a full OAuth
+ * or servers store plus a descriptor naming every entry — thousands of
+ * server URLs and their residues still measure in the hundreds of KB.
+ */
+const MAX_STORAGE_BODY_BYTES = 4 * 1024 * 1024;
 
 /**
  * Whether a string is safe to emit as an HTTP header VALUE.
@@ -1388,6 +1413,14 @@ export function createRemoteApp(
         return c.json(config);
       }
 
+      // The OAuth store is split across the file (non-secret state) and the
+      // secret store (tokens, client secrets) — reads rejoin the two, and
+      // lazily migrate a pre-split plaintext file. Other stores are raw KV.
+      if (storeId === OAUTH_STORE_ID) {
+        const snapshot = await readOAuthStore(filePath, secretStore);
+        return c.json(snapshot ?? {});
+      }
+
       const raw = await readStoreFile(filePath);
       if (raw === null) {
         return c.json({}, 200);
@@ -1395,50 +1428,103 @@ export function createRemoteApp(
       const store = parseStore(raw);
       return c.json(store);
     } catch (error) {
+      // Lock contention and secret-store failures are retryable/actionable
+      // — map them to 503 like the write paths, not a generic 500.
+      const keychainResp = keychainErrorResponse(c, error);
+      if (keychainResp) return keychainResp;
       const msg = error instanceof Error ? error.message : String(error);
       return c.json({ error: `Failed to read store: ${msg}` }, 500);
     }
   });
 
-  app.post("/api/storage/:storeId", async (c) => {
-    const storeId = c.req.param("storeId");
-    if (!storeId || !validateStoreId(storeId)) {
-      return c.json({ error: "Invalid storeId" }, 400);
-    }
+  app.post(
+    "/api/storage/:storeId",
+    // Before the parse, not after: see MAX_STORAGE_BODY_BYTES.
+    bodyLimit({
+      maxSize: MAX_STORAGE_BODY_BYTES,
+      onError: (c) => c.json({ error: "Storage payload too large" }, 413),
+    }),
+    async (c) => {
+      const storeId = c.req.param("storeId");
+      if (!storeId || !validateStoreId(storeId)) {
+        return c.json({ error: "Invalid storeId" }, 400);
+      }
 
-    let body: unknown;
-    try {
-      body = await c.req.json();
-    } catch {
-      return c.json({ error: "Invalid JSON body" }, 400);
-    }
+      let body: unknown;
+      try {
+        body = await c.req.json();
+      } catch {
+        return c.json({ error: "Invalid JSON body" }, 400);
+      }
 
-    const filePath = getStoreFilePath(storageDir, storeId);
+      const filePath = getStoreFilePath(storageDir, storeId);
 
-    try {
-      if (storeId === "client") {
-        await writeClientConfigStore(filePath, body, secretStore);
+      try {
+        if (storeId === "client") {
+          await writeClientConfigStore(filePath, body, secretStore);
+          return c.json({ ok: true });
+        }
+
+        // The OAuth store routes through the shared locked merge + secret
+        // split. Sectioned bodies overlay only the named entries (the
+        // remote OAuth persist backend sends a `{ sections, snapshot }`
+        // envelope — see `parseOAuthStoreWriteBody`) — without that, a
+        // browser tab holding a stale snapshot would overwrite entries
+        // other processes (daemon, CLI) wrote since the tab loaded. A
+        // plain blob body is a full replacement, still split.
+        //
+        // The descriptor used to ride a `?sections=` query parameter.
+        // Reject it rather than ignore it: silently dropping a stale
+        // client's descriptor would turn its sectioned merge into a
+        // destructive full replacement.
+        if (c.req.query("sections") !== undefined) {
+          return c.json(
+            {
+              error:
+                "The sections descriptor moved from the ?sections query parameter to the request body",
+            },
+            400,
+          );
+        }
+        if (storeId === OAUTH_STORE_ID) {
+          const write = parseOAuthStoreWriteBody(body);
+          if (!write) {
+            return c.json(
+              { error: "OAuth store writes require an OAuth state body" },
+              400,
+            );
+          }
+          await writeOAuthSections(
+            filePath,
+            write.snapshot,
+            write.sections,
+            secretStore,
+          );
+          return c.json({ ok: true });
+        }
+
+        const jsonData = serializeStore(body);
+        await writeStoreFile(filePath, jsonData);
         return c.json({ ok: true });
+      } catch (error) {
+        // A malformed client.json body fails `parseClientConfig` with a ZodError
+        // — that's a client error (bad request), not a server failure. Return 400
+        // with the same human-readable formatting the load path uses, rather than
+        // letting it fall through to the generic 500 below.
+        if (error instanceof ZodError) {
+          return c.json({ error: formatClientConfigLoadError(error) }, 400);
+        }
+        // Secret-store failures (keychain down, secrets file unreadable) are
+        // typed; map them to the actionable 503 for every store that touches
+        // the secret store (client and oauth) — the helper returns undefined
+        // for anything else, so running it unconditionally is safe.
+        const keychainResp = keychainErrorResponse(c, error);
+        if (keychainResp) return keychainResp;
+        const msg = error instanceof Error ? error.message : String(error);
+        return c.json({ error: `Failed to write store: ${msg}` }, 500);
       }
-
-      const jsonData = serializeStore(body);
-      await writeStoreFile(filePath, jsonData);
-      return c.json({ ok: true });
-    } catch (error) {
-      // A malformed client.json body fails `parseClientConfig` with a ZodError
-      // — that's a client error (bad request), not a server failure. Return 400
-      // with the same human-readable formatting the load path uses, rather than
-      // letting it fall through to the generic 500 below.
-      if (error instanceof ZodError) {
-        return c.json({ error: formatClientConfigLoadError(error) }, 400);
-      }
-      const keychainResp =
-        storeId === "client" ? keychainErrorResponse(c, error) : undefined;
-      if (keychainResp) return keychainResp;
-      const msg = error instanceof Error ? error.message : String(error);
-      return c.json({ error: `Failed to write store: ${msg}` }, 500);
-    }
-  });
+    },
+  );
 
   app.delete("/api/storage/:storeId", async (c) => {
     const storeId = c.req.param("storeId");
@@ -1454,9 +1540,20 @@ export function createRemoteApp(
         return c.json({ ok: true });
       }
 
+      if (storeId === OAUTH_STORE_ID) {
+        await removeOAuthStore(filePath, secretStore);
+        return c.json({ ok: true });
+      }
+
       await deleteStoreFile(filePath);
       return c.json({ ok: true });
     } catch (error) {
+      // `removeOAuthStore` (and the client store's delete) propagate an
+      // unavailable secret store so the file remains as the index of the
+      // store's entries — surface that as the same actionable 503 as the
+      // other secret-backed routes, not a generic 500.
+      const keychainResp = keychainErrorResponse(c, error);
+      if (keychainResp) return keychainResp;
       const msg = error instanceof Error ? error.message : String(error);
       return c.json({ error: `Failed to delete store: ${msg}` }, 500);
     }
@@ -1603,6 +1700,18 @@ export function createRemoteApp(
     const out: Record<string, StoredMCPServer> = {};
     for (const [id, val] of Object.entries(raw as Record<string, unknown>)) {
       if (!val || typeof val !== "object") continue;
+      // A `__proto__` key survives JSON.parse as an own property, but every
+      // downstream `mcpServers[id] = …` rebuild would hit the prototype
+      // setter and silently drop the entry (and strand any secrets it
+      // indexes). The routes reject the id (`validateStoreId`); a
+      // hand-edited file gets it dropped loudly here.
+      if (id === "__proto__") {
+        logWarn(
+          { route: "/api/servers", id },
+          "Dropping mcp.json entry with reserved id `__proto__` — rename the server to use it.",
+        );
+        continue;
+      }
       // `valObj` is the per-entry object we'll mutate in place via the
       // `delete` calls below. Safe because the only callers
       // (`readMcpConfig` and the GET handler's file-present branch — the
@@ -2477,13 +2586,36 @@ export function createRemoteApp(
 
   // Parallel for symmetry with `readKeychainEntriesFor` /
   // `writeKeychainEntriesFor`: distinct (id, field) deletes have no
-  // ordering requirement, and `secretStore.delete` is already a silent
-  // no-op on unavailability so Promise.all has no failure-mode surprise.
+  // ordering requirement. A delete throws on an unavailable keychain
+  // (missing entries still resolve as success), and the routes translate
+  // that to the same 503 a failed `set` produces. Every delete settles
+  // before the first failure escapes, so the callers' compensation
+  // blocks never race a delete still in flight (see
+  // `settleStoreMutations`).
   const deleteKeychainFields = async (
     id: string,
     fields: string[],
   ): Promise<void> => {
-    await Promise.all(fields.map((field) => secretStore.delete(id, field)));
+    await settleStoreMutations(
+      fields.map((field) => secretStore.delete(id, field)),
+    );
+  };
+
+  // Restore-failure sink for the catalog mutations' compensation blocks
+  // (see `restoreSecretFields`): the original route failure is the
+  // actionable error and escapes; a failed restore can only be reported.
+  const warnSecretRestoreFailure = (error: unknown): void => {
+    const msg = error instanceof Error ? error.message : String(error);
+    if (fileLogger) {
+      fileLogger.warn(
+        { err: msg },
+        "Could not restore keychain entries after a failed catalog mutation; keychain and mcp.json may disagree until the next successful save.",
+      );
+    } else {
+      console.warn(
+        `[mcp-inspector] Could not restore keychain entries after a failed catalog mutation: ${msg}`,
+      );
+    }
   };
 
   /**
@@ -2669,7 +2801,7 @@ export function createRemoteApp(
       return c.json(
         {
           error:
-            "Invalid id: must be non-empty and contain only alphanumeric, hyphen, or underscore",
+            "Invalid id: must be non-empty, contain only alphanumeric, hyphen, or underscore, and not be `__proto__`",
         },
         400,
       );
@@ -2690,24 +2822,44 @@ export function createRemoteApp(
     try {
       return await withWriteLock(async () => {
         const current = await readMcpConfig();
-        if (id in current.mcpServers) {
+        // Own-property check: `in` consults the prototype chain, where an
+        // Object.prototype-named id would read as a permanent duplicate.
+        if (Object.hasOwn(current.mcpServers, id)) {
           return c.json({ error: `Server '${id}' already exists` }, 409);
         }
         const built = buildStoredEntry(id, body.config, postSettings);
         // Split secret values out of the new entry — the stripped shape
         // goes to disk, the values go to the keychain.
         const { stripped, secrets } = extractSecretsFromStored(built);
-        // Order: sweep → keychain → disk. The keychain write is the
-        // only step that can hard-fail (SecretStoreUnavailableError on
-        // `set`); doing it before the disk write means a 503 leaves no
-        // disk entry behind, so a retry POST isn't trapped at 409. The
-        // initial sweep handles the case where a previous DELETE failed
-        // midway and left orphans under the same id the user is now
-        // reusing; it's a silent no-op when the keychain is unavailable.
+        // Order: sweep → keychain → disk. The initial sweep handles the
+        // case where a previous DELETE failed midway and left orphans
+        // under the same id the user is now reusing — left in place they
+        // would rehydrate into the new entry. Under the confirmed-delete
+        // contract an unavailable keychain makes the sweep throw (503),
+        // which is the safe direction: proceeding could resurrect those
+        // orphans into the new server. The keychain writes come before the
+        // disk write and are compensated: if the disk write fails, the
+        // just-written entries are removed again (post-sweep snapshot, so
+        // every prior value is "absent"), leaving no orphans and a retry
+        // POST that isn't trapped at 409.
         await secretStore.deleteAllForServer(id);
-        await writeKeychainEntriesFor(id, secrets);
-        current.mcpServers[id] = await entryForDisk(built, stripped);
-        await writeMcpAndTrackMtime(serializeStore(current));
+        const prior = await snapshotSecretFields(
+          secretStore,
+          id,
+          Object.keys(secrets),
+        );
+        try {
+          await writeKeychainEntriesFor(id, secrets);
+          current.mcpServers[id] = await entryForDisk(built, stripped);
+          await writeMcpAndTrackMtime(serializeStore(current));
+        } catch (error) {
+          await restoreSecretFields(
+            secretStore,
+            prior,
+            warnSecretRestoreFailure,
+          );
+          throw error;
+        }
         return c.json({ ok: true });
       });
     } catch (error) {
@@ -2849,10 +3001,11 @@ export function createRemoteApp(
     try {
       return await withWriteLock(async () => {
         const current = await readMcpConfig();
-        if (!(originalId in current.mcpServers)) {
+        // Own-property checks — see the POST route's duplicate check.
+        if (!Object.hasOwn(current.mcpServers, originalId)) {
           return c.json({ error: `Server '${originalId}' not found` }, 404);
         }
-        if (newId !== originalId && newId in current.mcpServers) {
+        if (newId !== originalId && Object.hasOwn(current.mcpServers, newId)) {
           return c.json({ error: `Server '${newId}' already exists` }, 409);
         }
         // Rebuild preserving insertion order; replace the original key in
@@ -2862,7 +3015,7 @@ export function createRemoteApp(
         // deliberate side-effect of using `readMcpConfig` + full rewrite
         // here.
         const existing = current.mcpServers[originalId];
-        /* v8 ignore next 5 -- the `in` check above guarantees this branch is unreachable; narrowing without the non-null assertion keeps TS happy and makes the contract explicit for future refactors. */
+        /* v8 ignore next 5 -- the own-property check above guarantees this branch is unreachable; narrowing without the non-null assertion keeps TS happy and makes the contract explicit for future refactors. */
         if (!existing) {
           return c.json({ error: `Server '${originalId}' not found` }, 404);
         }
@@ -2953,7 +3106,9 @@ export function createRemoteApp(
           }
         }
         // Ordering: write the new keychain entries first, then the
-        // disk file, then clean up obsolete keychain entries.
+        // disk file, then clean up obsolete keychain entries — with
+        // every touched field snapshotted first so any failure after
+        // the first mutation restores the pre-PUT state.
         //
         // - Keychain set is the only hard-fail step (it raises 503 on
         //   `SecretStoreUnavailableError`). Doing it first means a failed
@@ -2961,27 +3116,80 @@ export function createRemoteApp(
         //   the user retries and nothing is half-applied.
         // - The disk write happens after the keychain is fully primed,
         //   so a successful disk write is also a fully-consistent end
-        //   state.
-        // - Obsolete deletion comes last because it's destructive: if
-        //   we deleted first and then the disk write failed, the user
-        //   would still see the old config on disk but with missing
-        //   keychain values. With the current order a failed disk
-        //   write leaves orphan keychain entries — recoverable on the
-        //   next reconcile or `deleteAllForServer` sweep.
+        //   state. If it fails, the keychain writes are rolled back to
+        //   the snapshot — otherwise the old on-disk entry would
+        //   rehydrate with the *new* secrets on the next read.
+        // - Obsolete deletion comes last because it's destructive. Under
+        //   the confirmed-delete contract a failed delete now throws
+        //   *after* the disk commit — so the compensation also rewrites
+        //   the pre-PUT config: without that, a rename 503 would leave
+        //   the new id on disk while the old id's undeleted secrets are
+        //   no longer discoverable from any file entry (orphaned), and a
+        //   retry could no longer find them. All-or-nothing: a PUT that
+        //   returns an error has changed nothing.
         if (newId !== originalId) {
           const previousFields = expectedSecretFields(existing);
-          const keychainSecrets = await readKeychainEntriesFor(
+          // Strict snapshot first, and it does double duty: rollback
+          // record *and* the source of the values to carry to the new
+          // id. The tolerant read used elsewhere answers `{}` for an
+          // unreadable store, and this read drives a delete — a
+          // transient blank would commit the rename without the old
+          // id's secrets and then `deleteAllForServer` would erase the
+          // only copy. Strict reads throw instead, aborting the PUT
+          // before anything is mutated.
+          const originalPrior = await snapshotSecretFields(
+            secretStore,
             originalId,
             previousFields,
           );
+          const keychainSecrets: Record<string, string> = {};
+          for (const { field, value } of originalPrior) {
+            if (value !== null) setOwnEntry(keychainSecrets, field, value);
+          }
           const secretsToWrite = mergeRenameKeychainSecrets(
             stripped,
             keychainSecrets,
             secrets,
           );
-          await writeKeychainEntriesFor(newId, secretsToWrite);
-          await writeMcpAndTrackMtime(serializeStore(next));
-          await secretStore.deleteAllForServer(originalId);
+          // Sweep the destination id before writing to it — same reuse
+          // safeguard as POST: `newId` has no file entry (409 above), so
+          // any fields under it are orphans from a previous failed DELETE,
+          // and left in place the ones `secretsToWrite` doesn't overwrite
+          // would rehydrate into the renamed server. Under the
+          // confirmed-delete contract an unavailable keychain makes the
+          // sweep throw (503) before anything else has been mutated. The
+          // post-sweep snapshot below then records every destination field
+          // as absent, so the rollback removes exactly what this PUT wrote.
+          await secretStore.deleteAllForServer(newId);
+          const prior = [
+            ...(await snapshotSecretFields(
+              secretStore,
+              newId,
+              Object.keys(secretsToWrite),
+            )),
+            ...originalPrior,
+          ];
+          let diskCommitted = false;
+          try {
+            await writeKeychainEntriesFor(newId, secretsToWrite);
+            await writeMcpAndTrackMtime(serializeStore(next));
+            diskCommitted = true;
+            await secretStore.deleteAllForServer(originalId);
+          } catch (error) {
+            if (diskCommitted) {
+              try {
+                await writeMcpAndTrackMtime(serializeStore(current));
+              } catch (diskError) {
+                warnSecretRestoreFailure(diskError);
+              }
+            }
+            await restoreSecretFields(
+              secretStore,
+              prior,
+              warnSecretRestoreFailure,
+            );
+            throw error;
+          }
         } else {
           // In-place update: same id, possibly different fields. Set
           // the new values first, then write disk, then drop obsolete
@@ -3022,9 +3230,30 @@ export function createRemoteApp(
               ? settingsIntent.kind !== "preserve" && !(field in secrets)
               : !stillExpected.has(field),
           );
-          await writeKeychainEntriesFor(newId, secrets);
-          await writeMcpAndTrackMtime(serializeStore(next));
-          await deleteKeychainFields(newId, obsolete);
+          const prior = await snapshotSecretFields(secretStore, newId, [
+            ...new Set([...Object.keys(secrets), ...obsolete]),
+          ]);
+          let diskCommitted = false;
+          try {
+            await writeKeychainEntriesFor(newId, secrets);
+            await writeMcpAndTrackMtime(serializeStore(next));
+            diskCommitted = true;
+            await deleteKeychainFields(newId, obsolete);
+          } catch (error) {
+            if (diskCommitted) {
+              try {
+                await writeMcpAndTrackMtime(serializeStore(current));
+              } catch (diskError) {
+                warnSecretRestoreFailure(diskError);
+              }
+            }
+            await restoreSecretFields(
+              secretStore,
+              prior,
+              warnSecretRestoreFailure,
+            );
+            throw error;
+          }
         }
         return c.json({ ok: true });
       });
@@ -3047,16 +3276,43 @@ export function createRemoteApp(
     try {
       return await withWriteLock(async () => {
         const current = await readMcpConfig();
-        if (!(id in current.mcpServers)) {
+        // Own-property check — see the POST route's duplicate check.
+        if (!Object.hasOwn(current.mcpServers, id)) {
           // Idempotent DELETE — but still sweep the keychain in case a
           // prior delete failed after rewriting the file and orphaned
           // entries are sitting there.
           await secretStore.deleteAllForServer(id);
           return c.json({ ok: true });
         }
+        // All-or-nothing, like the other combined writers: snapshot the
+        // entry's secret fields, then run the purge *and* the disk write
+        // inside one compensated block. The purge precedes the disk
+        // commit but is not atomic itself — the keyring backend deletes
+        // credentials sequentially and can fail midway — so a purge
+        // failure must restore the snapshot exactly like a file-write
+        // failure, not assume nothing was deleted. A DELETE that returns
+        // an error has changed nothing. `deleteAllForServer` may also
+        // sweep legacy fields the snapshot does not cover — those are
+        // orphans by definition and losing them is the sweep working as
+        // intended.
+        const stored = current.mcpServers[id];
         delete current.mcpServers[id];
-        await writeMcpAndTrackMtime(serializeStore(current));
-        await secretStore.deleteAllForServer(id);
+        const prior = await snapshotSecretFields(
+          secretStore,
+          id,
+          expectedSecretFields(stored),
+        );
+        try {
+          await secretStore.deleteAllForServer(id);
+          await writeMcpAndTrackMtime(serializeStore(current));
+        } catch (error) {
+          await restoreSecretFields(
+            secretStore,
+            prior,
+            warnSecretRestoreFailure,
+          );
+          throw error;
+        }
         return c.json({ ok: true });
       });
     } catch (error) {

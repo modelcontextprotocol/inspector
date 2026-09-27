@@ -83,7 +83,7 @@ import * as path from "node:path";
 // graph for the web runner); named imports off a CJS module depend on
 // lexer detection that esbuild and rollup disagree about.
 import properLockfile from "proper-lockfile";
-import { SecretStoreUnavailableError } from "./secret-store.js";
+import { SecretFileLockHeldError } from "./secret-store.js";
 
 /**
  * How long a lock may go untouched before another process may claim it.
@@ -412,7 +412,7 @@ export async function isFileLockHeld(filePath: string): Promise<boolean> {
  * failures refuse and which degrade lives here, so both entry points cannot
  * drift on that question.
  *
- * Throws {@link SecretStoreUnavailableError} when the lock is held or stuck;
+ * Throws {@link SecretFileLockHeldError} when the lock is held or stuck;
  * returns `null` when it could not be created at all.
  */
 export async function openSecretFileLock(
@@ -462,7 +462,7 @@ export async function openSecretFileLock(
     // that is stuck. Refusing loses nothing — `set` reports it and the user
     // retries — whereas proceeding can lose a secret while reporting success.
     if (isStuckOrHeld(err, lockPathOf(target))) {
-      throw new SecretStoreUnavailableError(
+      throw new SecretFileLockHeldError(
         `Could not save to the secrets file at ${target}: its lock (${lockPathOf(target)}) was still held after the ${Math.round(RETRY_BUDGET_MS / 1000)} seconds this save waited. Its secrets are intact; the value you just entered was not saved. If no other Inspector is running, remove that lock and try again.`,
       );
     }

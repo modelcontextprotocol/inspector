@@ -1138,7 +1138,8 @@ describe("revokeStoredOAuthTokens (plan + execute)", () => {
             refresh_token: "r-good",
           },
         },
-        // Unparseable: no `token_type`.
+        // Unparseable: type-corrupt `access_token` (partial shapes with
+        // well-typed fields are readable grants — see the test below).
         "https://broken.example.com": { tokens: { access_token: 42 } },
       },
       serverMetadata: {
@@ -1169,6 +1170,43 @@ describe("revokeStoredOAuthTokens (plan + execute)", () => {
     expect(outcome.status === "failed" ? outcome.detail : "").toContain(
       "could not read the stored grant",
     );
+  });
+
+  // The store contract deliberately holds partial payloads (a refresh-only
+  // grant inherited from a legacy file, say). Revocation must read them with
+  // the same contract: gating on the full schema here would clear the local
+  // state and then report the grant unreadable — leaving a live bearer
+  // refresh token at the AS with no local record of it.
+  it("revokes a refresh-only grant instead of reporting it unreadable", async () => {
+    stubSnapshot(storage, {
+      byIssuer: {
+        "https://as.example.com": {
+          tokens: { refresh_token: "r-only", token_type: "Bearer" },
+        },
+      },
+      serverMetadata: {
+        issuer: "https://as.example.com",
+        authorization_endpoint: "https://as.example.com/authorize",
+        token_endpoint: "https://as.example.com/token",
+        revocation_endpoint: REVOKE_URL,
+        response_types_supported: ["code"],
+      },
+    });
+    const fetchFn = vi.fn<typeof fetch>(
+      async () => new Response(null, { status: 200 }),
+    );
+
+    const outcome = await revokeStoredOAuthTokens({
+      serverUrl: SERVER_URL,
+      storage,
+      fetchFn,
+    });
+
+    expect(outcome).toMatchObject({ status: "revoked" });
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+    const body = new URLSearchParams(String(fetchFn.mock.calls[0]![1]!.body));
+    expect(body.get("token")).toBe("r-only");
+    expect(body.get("token_type_hint")).toBe("refresh_token");
   });
 
   // A token is only meaningful to the AS that minted it, so two issuers minting

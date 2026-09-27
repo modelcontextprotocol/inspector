@@ -52,7 +52,7 @@ See [v2_server.md](./v2_server.md#pino-rationale) for Pino configuration details
 
 ## OAuth runtime persistence
 
-OAuth and EMA **runtime state** (access/refresh tokens, PKCE verifiers, granted scopes, cached authorization-server metadata, IdP sessions) is stored separately from `mcp.json` in **`~/.mcp-inspector/storage/oauth.json`** by default.
+OAuth and EMA **runtime state** (access/refresh tokens, PKCE verifiers, granted scopes, cached authorization-server metadata, IdP sessions) is rooted separately from `mcp.json` in **`~/.mcp-inspector/storage/oauth.json`** by default — though the secret material within it lives in the OS secret store, not the file (see below).
 
 | Client | Implementation | Path |
 | ------ | -------------- | ---- |
@@ -60,7 +60,9 @@ OAuth and EMA **runtime state** (access/refresh tokens, PKCE verifiers, granted 
 | **CLI / TUI** | `NodeOAuthStorage` | Direct file I/O |
 | **Tests / reference** | `BrowserOAuthStorage` | sessionStorage (not wired in v2 web app) |
 
-**Stack (#1549):** `OAuthStorage` interface → `OAuthStorageBase` + `OAuthMemoryStore` + `OAuthPersistBackend` (`core/auth/oauth-storage.ts`, `core/auth/store.ts`, `core/auth/oauth-persist.ts`). Writes plain JSON `{ servers, idpSessions }`. Reads still promote legacy `{ state, version }` envelopes (migrate-on-write). All getters are async; setters auto-persist. Web shares one store via `getWebRemoteOAuthStorage()`.
+**Stack (#1549):** `OAuthStorage` interface → `OAuthStorageBase` + `OAuthMemoryStore` + `OAuthPersistBackend` (`core/auth/oauth-storage.ts`, `core/auth/store.ts`, `core/auth/oauth-persist.ts`). Reads still promote legacy `{ state, version }` envelopes (migrate-on-write). All getters are async; setters auto-persist. Web shares one store via `getWebRemoteOAuthStorage()`.
+
+**Secret split (#2481):** `oauth.json` holds only the **non-secret residue** — server URLs, granted scopes, cached authorization-server metadata, and non-secret client registration fields. Secret material (access/refresh tokens, `client_secret`, `registration_access_token`, IdP session payloads) lives in the OS **secret store** (`core/auth/node/secret-store.ts`), keyed per server. Reads rejoin the residue with the stored secrets (lazily migrating any legacy plaintext into the store); writes are section-scoped merges under the state-file lock, so a writer never clobbers sections it did not read. A present-but-unrecognized `oauth.json` refuses mutation rather than being treated as empty. See [docs/secret-storage.md](../docs/secret-storage.md) for store selection and fallbacks.
 
 Details: [EMA auth](v2_auth_ema.md#oauth-persistence-1549--done), [Mid-session auth](v2_auth_mid_session.md).
 
