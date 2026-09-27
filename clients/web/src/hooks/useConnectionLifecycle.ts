@@ -56,6 +56,12 @@ import { deepLinkConfigEquals } from "../utils/deepLink";
 import type { DeepLink } from "../utils/deepLink";
 
 /**
+ * Client identity name the web client reports to servers. It matches core's
+ * fallback identity, so supplying the version changes nothing but the version.
+ */
+export const WEB_CLIENT_NAME = "mcp-inspector";
+
+/**
  * Handshake telemetry: the "connecting" edge stamps `connectStartRef` and the
  * "connected" edge consumes it into `latencyMs`.
  *
@@ -154,6 +160,12 @@ export interface UseConnectionLifecycleOptions {
    */
   sandboxUrl: string | undefined;
   /**
+   * The Inspector version from `/api/config`, or `undefined` when it is
+   * unavailable. Reported to servers as `clientInfo.version`; the browser
+   * cannot read the root package.json the CLI and TUI take it from (#2445).
+   */
+  inspectorVersion: string | undefined;
+  /**
    * Resolves once `/api/config` has settled, so a connect waits for the
    * sandbox answer rather than guessing it.
    */
@@ -239,6 +251,7 @@ export function useConnectionLifecycle({
   clientConfig,
   newAppElicitationSession,
   sandboxUrl,
+  inspectorVersion,
   initialConfigSettledRef,
   connectStartRef,
   setupClientForServerRef,
@@ -273,6 +286,12 @@ export function useConnectionLifecycle({
   useLayoutEffect(() => {
     sandboxUrlRef.current = sandboxUrl;
   }, [sandboxUrl]);
+  // Same shape and reason as `sandboxUrlRef`: the version arrives with the
+  // same `/api/config` response, after the render a connect may start in.
+  const inspectorVersionRef = useRef<string | undefined>(undefined);
+  useLayoutEffect(() => {
+    inspectorVersionRef.current = inspectorVersion;
+  }, [inspectorVersion]);
 
   const {
     clearResultPanels,
@@ -472,6 +491,15 @@ export function useConnectionLifecycle({
       );
       const client = new InspectorClient(effectiveConfig, {
         environment,
+        // Report the real Inspector version (#2445). With none available the
+        // option is omitted and core's neutral `0.0.0` identity stands, rather
+        // than an invented number.
+        ...(inspectorVersionRef.current && {
+          clientIdentity: {
+            name: WEB_CLIENT_NAME,
+            version: inspectorVersionRef.current,
+          },
+        }),
         // The Tasks tab needs the receiver-task pipeline; the
         // requestor-task list comes from the client's task store.
         receiverTasks: true,

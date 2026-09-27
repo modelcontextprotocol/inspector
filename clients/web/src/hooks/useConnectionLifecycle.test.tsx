@@ -23,6 +23,7 @@ import type { getWebRemoteOAuthStorage } from "../lib/remoteOAuthStorage";
 import {
   useConnectionLifecycle,
   useHandshakeTelemetry,
+  WEB_CLIENT_NAME,
   type ConnectionLifecycle,
   type SessionResetSurface,
 } from "./useConnectionLifecycle";
@@ -112,6 +113,8 @@ interface HarnessProps {
   client?: InspectorClient | null;
   clientConfig?: ClientConfig;
   sandboxUrl?: string;
+  /** The Inspector version `/api/config` reported, if any (#2445). */
+  inspectorVersion?: string;
   /**
    * The `/api/config` gate a connect awaits. Defaults to already-settled;
    * supply a pending promise to hold a connect at that gate.
@@ -219,6 +222,7 @@ function harness(initial: HarnessProps = {}): Harness {
       clientConfig: p.clientConfig ?? {},
       newAppElicitationSession: s.newAppElicitationSession,
       sandboxUrl: p.sandboxUrl,
+      inspectorVersion: p.inspectorVersion,
       initialConfigSettledRef,
       connectStartRef,
       setupClientForServerRef,
@@ -479,6 +483,55 @@ describe("useConnectionLifecycle", () => {
       // Built from the URL as of the release, not the `undefined` in scope when
       // the toggle was called.
       expect(h.spies.newAppElicitationSession).toHaveBeenCalled();
+    });
+
+    it("reports the /api/config Inspector version as clientInfo (#2445)", () => {
+      const h = harness({ servers: [entry("a")], inspectorVersion: "2.7.0" });
+
+      const client = h.published()!(entry("a"));
+
+      expect(client.getClientInfo()).toEqual({
+        name: WEB_CLIENT_NAME,
+        version: "2.7.0",
+      });
+    });
+
+    it("keeps core's neutral identity when no version is available", () => {
+      // An unreadable version leaves the option off rather than inventing
+      // one; core's fallback carries the same name, so only the version moves.
+      const h = harness({ servers: [entry("a")] });
+
+      const client = h.published()!(entry("a"));
+
+      expect(client.getClientInfo()).toEqual({
+        name: WEB_CLIENT_NAME,
+        version: "0.0.0",
+      });
+    });
+
+    it("reads the version as of the config gate, like the sandbox URL", async () => {
+      // Same late-arrival shape as the sandbox test above: the version comes
+      // in the same `/api/config` response the connect is waiting on.
+      let settle!: () => void;
+      const gate = new Promise<void>((resolve) => (settle = resolve));
+      const props: HarnessProps = {
+        servers: [entry("a")],
+        configSettled: gate,
+      };
+      const h = harness(props);
+
+      let toggled: Promise<void>;
+      act(() => {
+        toggled = h.api().onToggleConnection("a");
+      });
+      h.rerender({ ...props, inspectorVersion: "2.7.0" });
+
+      await act(async () => {
+        settle();
+        await toggled;
+      });
+
+      expect(lastClient(h).getClientInfo().version).toBe("2.7.0");
     });
 
     it("carries the OAuth session id onto both the client and its stores", () => {

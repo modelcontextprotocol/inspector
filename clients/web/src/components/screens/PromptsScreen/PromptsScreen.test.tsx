@@ -2,7 +2,11 @@ import { useState } from "react";
 import { describe, it, expect, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import type { Prompt } from "@modelcontextprotocol/client";
-import { renderWithMantine, screen } from "../../../test/renderWithMantine";
+import {
+  act,
+  renderWithMantine,
+  screen,
+} from "../../../test/renderWithMantine";
 import { noopPagination } from "../../../test/fixtures/pagination";
 import {
   PromptsScreen,
@@ -10,6 +14,15 @@ import {
   type PromptsUiState,
 } from "./PromptsScreen";
 import { EMPTY_PROMPTS_UI } from "../screenUiState";
+
+/**
+ * Let `ms` of real time pass inside `act`, so the debounced completion
+ * request and the state its promise sets land in React's test scope rather
+ * than as an update React reports as unwrapped (#2507).
+ */
+async function waitInAct(ms: number): Promise<void> {
+  await act(() => new Promise<void>((r) => setTimeout(r, ms)));
+}
 
 const promptsWithArgs: Prompt[] = [
   {
@@ -383,7 +396,7 @@ describe("PromptsScreen", () => {
     );
     await user.click(screen.getByText("summarize"));
     await user.type(screen.getByRole("textbox", { name: /topic/ }), "ab");
-    await new Promise((r) => setTimeout(r, 400));
+    await waitInAct(400);
     expect(onCompleteArgument).toHaveBeenCalled();
     expect(onCompleteArgument.mock.calls[0][0]).toEqual({
       type: "ref/prompt",

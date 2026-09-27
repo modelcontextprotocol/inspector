@@ -77,6 +77,9 @@ export function parseOutdated(json) {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
+/** A full-length commit SHA, the only immutable form a `uses:` ref can take. */
+export const SHA_REF = /^[0-9a-f]{40}$/;
+
 /**
  * Pull every action reference out of one workflow file.
  *
@@ -86,8 +89,15 @@ export function parseOutdated(json) {
  * steps are skipped — neither has a releases feed to compare against — as is
  * an unpinned `uses:` with no `@ref` at all.
  *
+ * A SHA-pinned ref (#2484) carries the release it was resolved from as a
+ * trailing comment — `uses: actions/checkout@<sha> # v7.0.1` — and that comment
+ * is returned as `version`. It is the only thing that makes a SHA pin
+ * comparable at all: without it `isActionStale` cannot rank the ref, and a
+ * pinned action would silently drop out of the sweep that is meant to watch it.
+ * The comment is read on a SHA ref only; on a tag ref the tag already says it.
+ *
  * @param {string} yaml raw contents of a workflow file
- * @returns {Array<{action: string, ref: string}>} in file order, duplicates kept
+ * @returns {Array<{action: string, ref: string, version?: string}>} in file order, duplicates kept
  */
 export function parseActionRefs(yaml) {
   const refs = [];
@@ -100,7 +110,10 @@ export function parseActionRefs(yaml) {
     if (uses.startsWith("./") || uses.startsWith("docker://")) continue;
     const at = uses.lastIndexOf("@");
     if (at === -1) continue;
-    refs.push({ action: uses.slice(0, at), ref: uses.slice(at + 1) });
+    const entry = { action: uses.slice(0, at), ref: uses.slice(at + 1) };
+    const comment = /#\s*(v?\d+(?:\.\d+){0,2})\s*$/.exec(line);
+    if (SHA_REF.test(entry.ref) && comment) entry.version = comment[1];
+    refs.push(entry);
   }
   return refs;
 }
@@ -145,16 +158,22 @@ export function isActionStale(current, latest) {
 }
 
 /**
- * @param {Array<{action: string, ref: string}>} refs every ref found across the workflows
+ * A SHA pin is compared by the release its comment names, so it is reported as
+ * soon as ANY newer release ships — pinning a SHA pins the patch, and a comment
+ * of `v7.0.1` says exactly that. It is shown as that release plus the short
+ * SHA, which is what a maintainer re-resolves when bumping it.
+ *
+ * @param {ReturnType<typeof parseActionRefs>} refs every ref found across the workflows
  * @param {Record<string, string | null>} latestByAction latest release tag per action, `null` when unknown
  * @returns {Array<{action: string, current: string, latest: string}>} the stale ones, deduped and sorted
  */
 export function staleActions(refs, latestByAction) {
   const stale = new Map();
-  for (const { action, ref } of refs) {
+  for (const { action, ref, version } of refs) {
     const latest = latestByAction[action];
-    if (!latest || !isActionStale(ref, latest)) continue;
-    stale.set(`${action}@${ref}`, { action, current: ref, latest });
+    if (!latest || !isActionStale(version ?? ref, latest)) continue;
+    const current = version ? `${version} (\`${ref.slice(0, 7)}\`)` : ref;
+    stale.set(`${action}@${ref}`, { action, current, latest });
   }
   return [...stale.values()].sort(
     (a, b) =>

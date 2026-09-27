@@ -615,6 +615,7 @@ function App() {
     clientConfig,
     newAppElicitationSession,
     sandboxUrl,
+    inspectorVersion,
     initialConfigSettledRef,
     connectStartRef,
     setupClientForServerRef,
