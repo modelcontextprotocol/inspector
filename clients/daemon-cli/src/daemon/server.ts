@@ -430,6 +430,11 @@ export class DaemonServer {
           capabilities: client.getCapabilities(),
           instructions: client.getInstructions(),
           supportedVersions: client.getDiscoverResult()?.supportedVersions,
+          transport: isTerminalStatus(client.getStatus())
+            ? "dormant"
+            : client.getStatus() === "connecting"
+              ? "connecting"
+              : "live",
         };
         return {
           response: { id: request.id, ok: true, result },
@@ -479,7 +484,10 @@ export class DaemonServer {
         code: "invalid_params",
       });
     }
-    const client = this.registry.clientFor(params.name, params.requireExplicit);
+    const client = await this.registry.liveClientFor(
+      params.name,
+      params.requireExplicit,
+    );
     const previous = this.rpcQueues.get(client) ?? Promise.resolve();
     const run = previous.then(() =>
       this.runRpcOnClient(client, requestId, params, elicitation),
@@ -503,6 +511,19 @@ export class DaemonServer {
     elicitation: ElicitationChannel,
   ): Promise<RpcResult> {
     const methodArgs = stripConnectionFields(params);
+    // Backstop against the silent-empty class: `runMethod`'s list states
+    // return `[]` without error when the client isn't connected, which would
+    // render as "Tools (0)" for a connection that actually dropped. The
+    // resolve above revived a dead client, but a drop can still land between
+    // that and here (e.g. while queued behind a long op) — fail honestly and
+    // let a retry revive it.
+    if (isTerminalStatus(client.getStatus())) {
+      throw new CliExitCodeError(
+        EXIT_CODES.UNREACHABLE,
+        "The connection dropped before this command could run; re-run the command to reconnect.",
+        { code: "connection_stale" },
+      );
+    }
     const unwire = wireElicitationBridge(client, elicitation, requestId);
     let outcome;
     try {
@@ -541,7 +562,10 @@ export class DaemonServer {
         code: "invalid_params",
       });
     }
-    const client = this.registry.clientFor(params.name, params.requireExplicit);
+    const client = await this.registry.liveClientFor(
+      params.name,
+      params.requireExplicit,
+    );
     const methodArgs = stripConnectionFields(params);
     const outcome = await runMethod(client, methodArgs);
     if (outcome.kind !== "stream") {

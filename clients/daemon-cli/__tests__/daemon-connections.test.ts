@@ -293,6 +293,117 @@ describe("ConnectionRegistry", () => {
     }
   });
 
+  it("liveClientFor revives a connection whose transport settled into a terminal state", async () => {
+    const { InspectorClient } = await import("@inspector/core/mcp/index.js");
+    const connectSpy = vi
+      .spyOn(InspectorClient.prototype, "connect")
+      .mockResolvedValue(undefined);
+    const disconnectSpy = vi
+      .spyOn(InspectorClient.prototype, "disconnect")
+      .mockResolvedValue(undefined);
+    const authSpy = vi
+      .spyOn(InspectorClient.prototype, "getOAuthState")
+      .mockResolvedValue(undefined as never);
+    const registry = new ConnectionRegistry(0);
+    let deadClient: unknown;
+    const statusSpy = vi
+      .spyOn(InspectorClient.prototype, "getStatus")
+      .mockImplementation(function (this: unknown) {
+        // Only the original client is dead; the revived one is live.
+        return this === deadClient ? "error" : "connected";
+      });
+    try {
+      await registry.connect({
+        name: "r",
+        serverConfig: {
+          type: "streamable-http",
+          url: "https://mcp.example.com/mcp",
+        },
+        serverIdentity: "https://mcp.example.com/mcp",
+      });
+      const original = registry.clientFor("r", false);
+
+      // Live client: no re-dial.
+      expect(await registry.liveClientFor("r", false)).toBe(original);
+      expect(connectSpy).toHaveBeenCalledTimes(1);
+
+      // Simulate the overnight drop (server expired the session).
+      deadClient = original;
+      const revived = await registry.liveClientFor("r", false);
+      expect(revived).not.toBe(original);
+      expect(connectSpy).toHaveBeenCalledTimes(2);
+      // The dead client's resources were released.
+      expect(disconnectSpy).toHaveBeenCalledTimes(1);
+      // The registry entry was swapped in place — still one connection.
+      expect(registry.connectionCount()).toBe(1);
+      expect(registry.clientFor("r", false)).toBe(revived);
+      // Live now: no further re-dial.
+      expect(await registry.liveClientFor("r", false)).toBe(revived);
+      expect(connectSpy).toHaveBeenCalledTimes(2);
+    } finally {
+      connectSpy.mockRestore();
+      disconnectSpy.mockRestore();
+      authSpy.mockRestore();
+      statusSpy.mockRestore();
+    }
+  });
+
+  it("revive maps a credentials failure to auth_required and keeps the entry on any failure", async () => {
+    const { InspectorClient } = await import("@inspector/core/mcp/index.js");
+    const connectSpy = vi
+      .spyOn(InspectorClient.prototype, "connect")
+      .mockResolvedValueOnce(undefined) // initial connect
+      .mockRejectedValueOnce(
+        // Revive 1: SDK token-exchange failure meaning "needs full re-auth".
+        new Error("prepareTokenRequest() or authorizationCode is required"),
+      )
+      .mockRejectedValueOnce(new Error("connect ECONNREFUSED 127.0.0.1:443")) // revive 2: server down
+      .mockResolvedValueOnce(undefined); // revive 3: server back
+    const disconnectSpy = vi
+      .spyOn(InspectorClient.prototype, "disconnect")
+      .mockResolvedValue(undefined);
+    const authSpy = vi
+      .spyOn(InspectorClient.prototype, "getOAuthState")
+      .mockResolvedValue(undefined as never);
+    const registry = new ConnectionRegistry(0);
+    let deadClient: unknown;
+    const statusSpy = vi
+      .spyOn(InspectorClient.prototype, "getStatus")
+      .mockImplementation(function (this: unknown) {
+        return this === deadClient ? "error" : "connected";
+      });
+    try {
+      await registry.connect({
+        name: "r",
+        serverConfig: {
+          type: "streamable-http",
+          url: "https://mcp.example.com/mcp",
+        },
+        serverIdentity: "https://mcp.example.com/mcp",
+      });
+      deadClient = registry.clientFor("r", false);
+
+      // Refresh credentials are gone: the ONLY case that involves the user.
+      await expect(registry.liveClientFor("r", false)).rejects.toMatchObject({
+        envelope: { code: "auth_required" },
+      });
+      await expect(registry.liveClientFor("r", false)).rejects.toThrow(
+        /ECONNREFUSED/,
+      );
+      // Both failures kept the entry — the user's intent persists…
+      expect(registry.connectionCount()).toBe(1);
+      // …so a later op simply revives once the server is reachable again.
+      const revived = await registry.liveClientFor("r", false);
+      expect(revived).not.toBe(deadClient);
+      expect(registry.clientFor("r", false)).toBe(revived);
+    } finally {
+      connectSpy.mockRestore();
+      disconnectSpy.mockRestore();
+      authSpy.mockRestore();
+      statusSpy.mockRestore();
+    }
+  });
+
   it("a connect that outlives shutdown's quiesce grace tears its client down instead of leaking it", async () => {
     const { InspectorClient } = await import("@inspector/core/mcp/index.js");
     let releaseConnect!: () => void;
@@ -801,6 +912,57 @@ describe("DaemonServer IPC", () => {
       { name: "stdio" },
       { socketPath: server.socketPath },
     );
+  });
+
+  it("rpc transparently revives a connection whose transport died (end-to-end)", async () => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "mcp-daemon-revive-"));
+    server = new DaemonServer({ dir, idleMs: 0 });
+    await server.start();
+
+    const { command, args } = getTestMcpServerCommand();
+    await callDaemon(
+      "connect",
+      {
+        name: "stdio",
+        serverConfig: { type: "stdio", command, args },
+        serverIdentity: "test-stdio",
+      },
+      { socketPath: server.socketPath, timeoutMs: 15000 },
+    );
+
+    // Kill the daemon-held client's transport out from under the registry —
+    // the in-process equivalent of the server expiring the session (or a
+    // stdio child dying) overnight.
+    const registry = (server as unknown as { registry: ConnectionRegistry })
+      .registry;
+    await registry.clientFor("stdio", false).disconnect();
+
+    // connections/show is passive: it reports the drop, no revive.
+    const shown = await callDaemon<{ transport?: string }>(
+      "connections/show",
+      { name: "stdio" },
+      { socketPath: server.socketPath },
+    );
+    expect(shown.transport).toBe("dormant");
+
+    // An actual op self-heals: fresh dial, real result — never "Tools (0)".
+    const listed = await callDaemon<{
+      kind: string;
+      result: { tools: unknown[] };
+    }>(
+      "rpc",
+      { method: "tools/list", name: "stdio" },
+      { socketPath: server.socketPath, timeoutMs: 15000 },
+    );
+    expect(listed.kind).toBe("result");
+    expect(listed.result.tools.length).toBeGreaterThan(0);
+
+    const after = await callDaemon<{ transport?: string }>(
+      "connections/show",
+      { name: "stdio" },
+      { socketPath: server.socketPath },
+    );
+    expect(after.transport).toBe("live");
   });
 
   it("rejects stream methods on rpc and rpc methods on stream", async () => {

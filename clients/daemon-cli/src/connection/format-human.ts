@@ -640,6 +640,15 @@ export function formatConnectionInfoHuman(
     }
     lines.push(`Auth: ${method} ${style.dim(`(${parts.join("; ")})`)}`);
   }
+  // Live transport state (`connections/show` only). Dormant is informational:
+  // the next op transparently re-dials with stored credentials.
+  if (typeof connection.transport === "string") {
+    const detail =
+      connection.transport === "dormant"
+        ? "dormant (reconnects on next use)"
+        : connection.transport;
+    lines.push(`Transport: ${style.dim(detail)}`);
+  }
   const serverInfo = connection.serverInfo as JsonObject | undefined;
   if (serverInfo?.name !== undefined) {
     const version =

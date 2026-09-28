@@ -3,6 +3,7 @@ import type { InspectorClientEnvironment } from "@inspector/core/mcp/types.js";
 import {
   DEFAULT_ELICIT_CAPABILITY,
   eraToVersionNegotiation,
+  isTerminalStatus,
   type ElicitCapabilityMode,
   type InspectorClientOptions,
   type InspectorServerSettings,
@@ -223,6 +224,134 @@ export class ConnectionRegistry {
     return this.connectionFor(name, requireExplicit).client;
   }
 
+  /**
+   * Like {@link clientFor}, but guarantees the returned client's transport is
+   * live, transparently re-dialing when it has settled into a terminal state.
+   *
+   * The registry entry represents user intent — "I connected; it's mine until
+   * I disconnect" — while the `InspectorClient` inside it is a disposable
+   * transport artifact. A long-held connection's transport can die without any
+   * user action (the server expires its session, drops the SSE stream, or a
+   * stdio child exits), so ops resolve their client through here and the dead
+   * client is replaced with a freshly dialed one on demand. Stored credentials
+   * (refresh token → new access token) make the revive silent; the user is
+   * only involved when re-auth genuinely needs them (`auth_required`, e.g. a
+   * missing/expired refresh token). No background retry loop: a connection
+   * nobody is using costs nothing, matching increasingly session-less servers.
+   *
+   * On revive failure the registry entry is kept — the intent persists, and
+   * the next op simply tries again.
+   */
+  async liveClientFor(
+    name: string | undefined,
+    requireExplicit: boolean | undefined,
+  ): Promise<InspectorClient> {
+    const connection = this.connectionFor(name, requireExplicit);
+    if (!isTerminalStatus(connection.client.getStatus())) {
+      return connection.client;
+    }
+    return this.withNameLock(connection.name, () =>
+      this.reviveLocked(connection.name),
+    );
+  }
+
+  private async reviveLocked(name: string): Promise<InspectorClient> {
+    this.assertOpen();
+    // Re-resolve under the lock: a disconnect or replacing connect queued
+    // ahead of this revive changes what the name means (or removes it).
+    const connection = this.resolve(name, true);
+    if (!isTerminalStatus(connection.client.getStatus())) {
+      // A queued sibling op already revived it.
+      return connection.client;
+    }
+    const dead = connection.client;
+    let client: InspectorClient;
+    try {
+      client = await this.dial(connection);
+    } catch (error) {
+      if (
+        error instanceof CliExitCodeError &&
+        error.envelope?.code === "auth_required"
+      ) {
+        // Silent revive is out of credentials; only now does the user need
+        // to act. The front-end `connect` command runs the interactive flow.
+        throw new CliExitCodeError(
+          EXIT_CODES.AUTH_REQUIRED,
+          `Connection '${name}' needs re-authentication (stored credentials could not be refreshed). ` +
+            `Run mcpdo connect for this server to sign in again. (${error.message})`,
+          { code: "auth_required" },
+        );
+      }
+      throw error;
+    }
+    // Free the dead client's resources (child process reaping, timers);
+    // best-effort, its transport is already gone.
+    await safeDisconnect(dead);
+    if (this.closed) {
+      // Shutdown ran while dialing; disconnectAll's snapshot already passed
+      // this entry, so registering the fresh client would leak it past exit.
+      await safeDisconnect(client);
+      this.assertOpen();
+    }
+    connection.client = client;
+    connection.lastAccessedAt = Date.now();
+    // Refresh the auth snapshot `connections/list`/`use` report — the revive
+    // may have rotated tokens.
+    const auth = await getConnectionAuthInfo(client);
+    if (auth) {
+      connection.auth = auth;
+    } else {
+      delete connection.auth;
+    }
+    return client;
+  }
+
+  /**
+   * Build a client for a server config and connect it, using whatever
+   * credentials are on disk (silent: interactive login runs in the front-end,
+   * never here). Shared by first connect and revive. Auth failures — including
+   * SDK token-exchange mistakes that mean "needs a full re-auth" — map to an
+   * `auth_required` envelope; every failure path tears the client down.
+   */
+  private async dial(
+    params: {
+      serverConfig: MCPServerConfig;
+      serverSettings?: InspectorServerSettings;
+    },
+    signal?: AbortSignal,
+  ): Promise<InspectorClient> {
+    // Front-end authorize / auth/clear write oauth.json in another process.
+    // Drop the daemon's cached store so this dial re-reads disk.
+    resetNodeOAuthStorageCache();
+
+    const client = await createConnectionClient(
+      params.serverConfig,
+      params.serverSettings,
+    );
+
+    try {
+      // Race the connect against caller hang-up: when the requesting
+      // socket closes mid-dial (Ctrl-C, frontend crash) the daemon must
+      // not keep the attempt alive — with `--connect-timeout 0` it would
+      // otherwise pin `pendingConnects` (blocking idle shutdown) or
+      // register a connection the user cancelled. On abort the shared
+      // catch below tears the client down, which also cancels the
+      // still-in-flight connect.
+      await withAbort(() => client.connect(), signal, connectCancelledError);
+    } catch (error) {
+      await safeDisconnect(client);
+      if (isConnectionAuthRequiredError(error)) {
+        throw new CliExitCodeError(
+          EXIT_CODES.AUTH_REQUIRED,
+          error instanceof Error ? error.message : String(error),
+          { code: "auth_required" },
+        );
+      }
+      throw error;
+    }
+    return client;
+  }
+
   use(name: string): ConnectionInfo {
     const connection = this.resolve(name, true);
     this.touch(connection.name);
@@ -274,35 +403,7 @@ export class ConnectionRegistry {
         await this.disconnectLocked(params.name);
       }
 
-      // Front-end authorize / auth/clear write oauth.json in another process.
-      // Drop the daemon's cached store so this connect re-reads disk.
-      resetNodeOAuthStorageCache();
-
-      const client = await createConnectionClient(
-        params.serverConfig,
-        params.serverSettings,
-      );
-
-      try {
-        // Race the connect against caller hang-up: when the requesting
-        // socket closes mid-dial (Ctrl-C, frontend crash) the daemon must
-        // not keep the attempt alive — with `--connect-timeout 0` it would
-        // otherwise pin `pendingConnects` (blocking idle shutdown) or
-        // register a connection the user cancelled. On abort the shared
-        // catch below tears the client down, which also cancels the
-        // still-in-flight connect.
-        await withAbort(() => client.connect(), signal, connectCancelledError);
-      } catch (error) {
-        await safeDisconnect(client);
-        if (isConnectionAuthRequiredError(error)) {
-          throw new CliExitCodeError(
-            EXIT_CODES.AUTH_REQUIRED,
-            error instanceof Error ? error.message : String(error),
-            { code: "auth_required" },
-          );
-        }
-        throw error;
-      }
+      const client = await this.dial(params, signal);
 
       const now = Date.now();
       const auth = await getConnectionAuthInfo(client);

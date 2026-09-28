@@ -192,6 +192,16 @@ export type ConnectionShowResult = ConnectionInfo & {
   capabilities?: ServerCapabilities;
   instructions?: string;
   supportedVersions?: string[];
+  /**
+   * Live transport state, `connections/show` only. The connection itself is
+   * user intent ("connected until I disconnect"); the transport under it is
+   * disposable and self-healing. `"live"` = the client session is up;
+   * `"connecting"` = mid-dial; `"dormant"` = the transport dropped (server
+   * expired the session, SSE stream closed, stdio child exited) and the next
+   * op will transparently re-dial with stored credentials. Debug detail, not
+   * something the user must act on.
+   */
+  transport?: "live" | "connecting" | "dormant";
 };
 
 export type DaemonStatus = {
