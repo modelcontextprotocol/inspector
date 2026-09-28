@@ -38,7 +38,11 @@ import {
 } from "@inspector/core/auth/index.js";
 import { isEmaClientNotConfiguredError } from "@inspector/core/auth/ema/clientConfigError.js";
 import { CliExitCodeError, EXIT_CODES } from "@inspector/cli/error-handler.js";
-import type { ConnectionAuthInfo, ConnectionInfo } from "./protocol.js";
+import type {
+  ConnectionAuthInfo,
+  ConnectionInfo,
+  ConnectParams,
+} from "./protocol.js";
 
 const CONNECTION_CLIENT_NAME = "inspector-cli";
 
@@ -56,6 +60,12 @@ type LiveConnection = {
   serverSettings?: InspectorServerSettings;
   /** Connect-time snapshot (see {@link ConnectionInfo.auth}). */
   auth?: ConnectionAuthInfo;
+  /**
+   * Auth-pending intent entry (see {@link ConnectionInfo.pendingAuth}):
+   * registered with a never-connected client while the detached auth helper
+   * completes sign-in out of band. Cleared by the first successful revive.
+   */
+  pendingAuth?: boolean;
 };
 
 /**
@@ -145,6 +155,7 @@ export class ConnectionRegistry {
         isMru: s.name === this.mruName,
         protocolEra: s.client.getProtocolEra(),
         ...(s.auth && { auth: s.auth }),
+        ...(s.pendingAuth && { pendingAuth: true }),
       }))
       .sort((a, b) => b.lastAccessedAt - a.lastAccessedAt);
   }
@@ -295,6 +306,8 @@ export class ConnectionRegistry {
     }
     connection.client = client;
     connection.lastAccessedAt = Date.now();
+    // A successful revive is the completion of any out-of-band sign-in.
+    delete connection.pendingAuth;
     // Refresh the auth snapshot `connections/list`/`use` report — the revive
     // may have rotated tokens.
     const auth = await getConnectionAuthInfo(client);
@@ -363,16 +376,12 @@ export class ConnectionRegistry {
       isMru: true,
       protocolEra: connection.client.getProtocolEra(),
       ...(connection.auth && { auth: connection.auth }),
+      ...(connection.pendingAuth && { pendingAuth: true }),
     };
   }
 
   async connect(
-    params: {
-      name: string;
-      serverConfig: MCPServerConfig;
-      serverSettings?: InspectorServerSettings;
-      serverIdentity: string;
-    },
+    params: ConnectParams,
     signal?: AbortSignal,
   ): Promise<ConnectionInfo> {
     return this.withNameLock(params.name, () =>
@@ -381,12 +390,7 @@ export class ConnectionRegistry {
   }
 
   private async connectLocked(
-    params: {
-      name: string;
-      serverConfig: MCPServerConfig;
-      serverSettings?: InspectorServerSettings;
-      serverIdentity: string;
-    },
+    params: ConnectParams,
     signal?: AbortSignal,
   ): Promise<ConnectionInfo> {
     this.assertOpen();
@@ -403,10 +407,36 @@ export class ConnectionRegistry {
         await this.disconnectLocked(params.name);
       }
 
-      const client = await this.dial(params, signal);
+      let client: InspectorClient;
+      let pendingAuth = false;
+      try {
+        client = await this.dial(params, signal);
+      } catch (error) {
+        if (
+          !params.pendingOnAuthRequired ||
+          !(error instanceof CliExitCodeError) ||
+          error.envelope?.code !== "auth_required"
+        ) {
+          throw error;
+        }
+        // Sign-in is completing out of band (detached auth helper).
+        // Register the intent anyway with a never-connected client: its
+        // status is "disconnected" (terminal), so the first op after tokens
+        // land goes through liveClientFor → revive and dials with the fresh
+        // credentials — the entry self-completes on use.
+        client = await createConnectionClient(
+          params.serverConfig,
+          params.serverSettings,
+        );
+        pendingAuth = true;
+      }
 
       const now = Date.now();
-      const auth = await getConnectionAuthInfo(client);
+      // Pending entries snapshot as unauthorized OAuth: the whole point is
+      // that tokens aren't in storage yet.
+      const auth: ConnectionAuthInfo | undefined = pendingAuth
+        ? { method: "oauth", authorized: false }
+        : await getConnectionAuthInfo(client);
       if (this.closed) {
         // Shutdown proceeded past its bounded quiesce grace while this
         // connect was still in flight; the disconnectAll snapshot has already
@@ -431,6 +461,7 @@ export class ConnectionRegistry {
         serverConfig: params.serverConfig,
         ...(params.serverSettings && { serverSettings: params.serverSettings }),
         ...(auth && { auth }),
+        ...(pendingAuth && { pendingAuth: true }),
       });
       this.mruName = params.name;
 
@@ -442,6 +473,7 @@ export class ConnectionRegistry {
         isMru: true,
         protocolEra: client.getProtocolEra(),
         ...(auth && { auth }),
+        ...(pendingAuth && { pendingAuth: true }),
       };
     } finally {
       this.pendingConnects--;

@@ -82,7 +82,17 @@ export type ConnectionWriteKind =
       source?: { kind: "catalog" | "config"; path: string };
     }
   | { kind: "connections/list"; connections: unknown[] }
-  | { kind: "connection"; connection: ConnectionInfo | JsonObject }
+  | {
+      kind: "connection";
+      connection: ConnectionInfo | JsonObject;
+      /**
+       * Non-TTY pending sign-in (see auth-helper.ts): the authorize URL the
+       * caller must relay to a human. Rides the normal output payload — the
+       * error envelope redacts URL query strings, which would strip the
+       * client_id/PKCE/state this URL is made of.
+       */
+      authUrl?: string;
+    }
   | { kind: "disconnect"; name: string }
   | { kind: "daemon/status"; status: JsonObject }
   | { kind: "daemon/stop"; result: JsonObject }
@@ -186,7 +196,9 @@ function jsonPayload(payload: ConnectionWriteKind): unknown {
     case "connections/list":
       return { connections: payload.connections };
     case "connection":
-      return payload.connection;
+      return payload.authUrl !== undefined
+        ? { ...(payload.connection as JsonObject), authUrl: payload.authUrl }
+        : payload.connection;
     case "disconnect":
       return { name: payload.name };
     case "daemon/status":
@@ -233,8 +245,23 @@ function humanPayload(payload: ConnectionWriteKind, style: Style): string {
       return formatServerShowHuman(payload.server, style, payload.source);
     case "connections/list":
       return formatConnectionsListHuman(payload.connections, style);
-    case "connection":
-      return formatConnectionInfoHuman(payload.connection as JsonObject, style);
+    case "connection": {
+      const info = formatConnectionInfoHuman(
+        payload.connection as JsonObject,
+        style,
+      );
+      if (payload.authUrl === undefined) return info;
+      const name = String((payload.connection as JsonObject).name ?? "");
+      return [
+        info,
+        "",
+        "Sign-in required. The user needs to open this link in a browser to authenticate:",
+        `  ${style.link(payload.authUrl)}`,
+        style.dim(
+          `The connection completes automatically after sign-in — check with \`connections/show @${name}\`, or just run the next command.`,
+        ),
+      ].join("\n");
+    }
     case "disconnect":
       return `${style.bold("Disconnected")} ${`\`${style.bold(`@${payload.name}`)}\``}`;
     case "daemon/status": {

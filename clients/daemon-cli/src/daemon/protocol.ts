@@ -32,6 +32,16 @@ export type ConnectParams = {
   serverSettings?: InspectorServerSettings;
   /** Human-readable server identity for `connections/list`. */
   serverIdentity: string;
+  /**
+   * When true and the dial fails with `auth_required`, register the
+   * connection anyway as a dormant intent entry (never-connected client,
+   * terminal status) and return `ConnectionInfo` with `pendingAuth: true`
+   * instead of throwing. The front-end sets this on the non-TTY connect path
+   * after handing interactive OAuth to the detached auth helper: once the
+   * user finishes signing in, the next op on this connection revives it with
+   * the freshly stored credentials — no second `connect` required.
+   */
+  pendingOnAuthRequired?: boolean;
 };
 
 export type ConnectionNameParams = {
@@ -175,6 +185,16 @@ export type ConnectionInfo = {
    * reports the persisted state, matching `auth/ema-status`.
    */
   auth?: ConnectionAuthInfo;
+  /**
+   * True when this entry was registered as auth-pending intent
+   * ({@link ConnectParams.pendingOnAuthRequired}): the dial hit
+   * `auth_required` and interactive sign-in is completing out of band in the
+   * detached auth helper. The entry holds a never-connected client, so the
+   * first op after tokens land revives (dials) it transparently. Reported by
+   * `connect` and echoed by `connections/list`/`connections/show` until a
+   * revive succeeds.
+   */
+  pendingAuth?: boolean;
 };
 
 /**

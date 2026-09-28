@@ -44,6 +44,12 @@ import {
   type MethodArgs,
 } from "@inspector/cli/handlers/method-types.js";
 import { authorizeInFrontend } from "./authorize.js";
+import {
+  AUTH_HELPER_COMMAND,
+  obtainPendingAuthUrl,
+  runAuthHelper,
+} from "./auth-helper.js";
+import { isCliAutoOpenForced } from "@inspector/cli/cli-oauth-navigation.js";
 import { emaLogin, emaLogout, getEmaStatus } from "./ema.js";
 import {
   assertJsonRoundTrips,
@@ -586,6 +592,37 @@ function registerConnect(program: CommandType): void {
         if (opts.storedAuthOnly) {
           throw error;
         }
+        // Agent path: no TTY anywhere means the blocking interactive flow is
+        // hostile — the URL sits invisible in a buffered pipe and a timeout
+        // kill would tear down the callback listener the link points at.
+        // Hand the flow to a detached helper, register the connection as
+        // pending intent, and exit with the link so the caller can relay it.
+        // `MCP_AUTO_OPEN_ENABLED=true` (forced auto-open) keeps the blocking
+        // flow: that's an explicit unattended-automation opt-in.
+        const humanPresent =
+          process.stdin.isTTY === true || process.stderr.isTTY === true;
+        if (!humanPresent && !isCliAutoOpenForced()) {
+          const authUrl = await obtainPendingAuthUrl(
+            serverConfig,
+            serverSettings,
+          );
+          // The dial re-attempt is cheap (it fails auth_required again) but
+          // makes the daemon register the pending entry, so
+          // `connections/show @name` polls sign-in state and the first real
+          // op completes the connection via revive.
+          const { socketPath: pendingSocketPath } = await ensureDaemon();
+          const pending = await callDaemon<ConnectionInfo>(
+            "connect",
+            { ...connectParams, pendingOnAuthRequired: true },
+            { socketPath: pendingSocketPath, timeoutMs: 0 },
+          );
+          await writeConnectionOutput(outOpts(opts), {
+            kind: "connection",
+            connection: pending,
+            ...(pending.pendingAuth === true && { authUrl }),
+          });
+          return;
+        }
         await authorizeInFrontend(serverConfig, serverSettings, {
           storedAuthOnly: false,
         });
@@ -609,6 +646,15 @@ function registerConnect(program: CommandType): void {
 }
 
 function registerAuthCommands(program: CommandType): void {
+  // Internal detached sign-in helper for the non-TTY connect path (see
+  // auth-helper.ts). Hidden: params arrive as JSON on stdin, never argv.
+  program
+    .command(AUTH_HELPER_COMMAND, { hidden: true })
+    .description("Internal: complete an OAuth sign-in (params JSON on stdin)")
+    .action(async () => {
+      await runAuthHelper();
+    });
+
   program
     .command("auth/list")
     .description(

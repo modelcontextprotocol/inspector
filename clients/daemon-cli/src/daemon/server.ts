@@ -427,6 +427,7 @@ export class DaemonServer {
           protocolVersion: client.getProtocolVersion(),
           protocolEra: client.getProtocolEra(),
           ...(auth && { auth }),
+          ...(connection.pendingAuth && { pendingAuth: true }),
           capabilities: client.getCapabilities(),
           instructions: client.getInstructions(),
           supportedVersions: client.getDiscoverResult()?.supportedVersions,

@@ -608,6 +608,56 @@ describe("writeConnectionOutput", () => {
     process.stderr.write = originalErr;
   });
 
+  it("connection with authUrl: json carries the URL verbatim (query intact), human prints relay guidance", async () => {
+    const authUrl = "https://as.example/authorize?client_id=abc&state=xyz";
+    await writeConnectionOutput(
+      { format: "json" },
+      {
+        kind: "connection",
+        connection: {
+          name: "api",
+          serverIdentity: "https://mcp.example.com/mcp",
+          pendingAuth: true,
+          auth: { method: "oauth", authorized: false },
+        },
+        authUrl,
+      },
+    );
+    const parsed = JSON.parse(stdout) as Record<string, unknown>;
+    expect(parsed.pendingAuth).toBe(true);
+    expect(parsed.authUrl).toBe(authUrl);
+
+    stdout = "";
+    await writeConnectionOutput(
+      { format: "text" },
+      {
+        kind: "connection",
+        connection: {
+          name: "api",
+          serverIdentity: "https://mcp.example.com/mcp",
+          pendingAuth: true,
+          auth: { method: "oauth", authorized: false },
+        },
+        authUrl,
+      },
+    );
+    expect(stdout).toContain("Sign-in required");
+    expect(stdout).toContain(authUrl);
+    expect(stdout).toContain("Sign-in: pending");
+    expect(stdout).toContain("connections/show @api");
+  });
+
+  it("connection without authUrl renders exactly as before (no sign-in block)", async () => {
+    await writeConnectionOutput(
+      { format: "text" },
+      {
+        kind: "connection",
+        connection: { name: "api", serverIdentity: "id" },
+      },
+    );
+    expect(stdout).not.toContain("Sign-in");
+  });
+
   it("pretty-prints json without a result envelope", async () => {
     await writeConnectionOutput(
       { format: "json" },

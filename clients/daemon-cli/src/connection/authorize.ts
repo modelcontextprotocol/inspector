@@ -23,16 +23,28 @@ import { createCliOAuthNavigation } from "@inspector/cli/cli-oauth-navigation.js
 import { connectInspectorWithOAuth } from "@inspector/cli/cliOAuth.js";
 import { CliExitCodeError, EXIT_CODES } from "@inspector/cli/error-handler.js";
 import { isEmaClientNotConfiguredError } from "@inspector/core/auth/ema/clientConfigError.js";
+import type { CallbackNavigation } from "@inspector/core/auth/index.js";
+import type { CliOAuthAutoOpenControl } from "@inspector/cli/cli-oauth-navigation.js";
 import { mcpdoEmaGuidance } from "./ema.js";
 
 /**
  * Run interactive (or stored-auth-only) OAuth in the front-end process so tokens
  * land in the shared `oauth.json` store, then the daemon can reconnect.
+ *
+ * `makeNavigation` overrides how the authorize URL is surfaced once the
+ * flow's interactive window arms it: the default prints the relay-worded
+ * prompt line; the detached auth helper injects a navigation that reports
+ * the raw URL over its stdout pipe instead (see auth-helper.ts).
  */
 export async function authorizeInFrontend(
   serverConfig: MCPServerConfig,
   serverSettings: InspectorServerSettings | undefined,
-  options?: { storedAuthOnly?: boolean },
+  options?: {
+    storedAuthOnly?: boolean;
+    makeNavigation?: (
+      autoOpenControl: CliOAuthAutoOpenControl,
+    ) => CallbackNavigation;
+  },
 ): Promise<void> {
   if (!isOAuthCapableServerConfig(serverConfig)) {
     return;
@@ -59,14 +71,16 @@ export async function authorizeInFrontend(
     // stdin/stderr. Reword the printed line so an agent knows it must relay
     // the link to a human rather than treating "Please navigate to" as
     // addressed to itself.
-    navigation: createCliOAuthNavigation({
-      autoOpenControl,
-      disableAutoOpen: options?.storedAuthOnly,
-      promptMessage: (hrefDisplay, tty) =>
-        tty
-          ? `Please navigate to: ${hrefDisplay}`
-          : `The user needs to navigate to this link to authenticate: ${hrefDisplay}`,
-    }),
+    navigation: options?.makeNavigation
+      ? options.makeNavigation(autoOpenControl)
+      : createCliOAuthNavigation({
+          autoOpenControl,
+          disableAutoOpen: options?.storedAuthOnly,
+          promptMessage: (hrefDisplay, tty) =>
+            tty
+              ? `Please navigate to: ${hrefDisplay}`
+              : `The user needs to navigate to this link to authenticate: ${hrefDisplay}`,
+        }),
     redirectUrlProvider,
   };
 

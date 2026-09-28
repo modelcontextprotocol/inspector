@@ -604,7 +604,7 @@ export function formatConnectionsListHuman(
         ? style.dim(` [${String(s.protocolEra)}]`)
         : "";
     lines.push(
-      `* ${code(style, `@${String(s.name)}`)}${mru}${style.dim(` — ${String(s.serverIdentity ?? "")}`)}${era}`,
+      `* ${code(style, `@${String(s.name)}`)}${mru}${style.dim(` — ${String(s.serverIdentity ?? "")}`)}${era}${s.pendingAuth === true ? style.yellow(" (sign-in pending)") : ""}`,
     );
   }
   if (connections.length === 0) lines.push(style.dim("(none — connect first)"));
@@ -650,6 +650,13 @@ export function formatConnectionInfoHuman(
       parts.push(`IdP session: ${auth.idpSession}`);
     }
     lines.push(`Auth: ${method} ${style.dim(`(${parts.join("; ")})`)}`);
+  }
+  // Sign-in pending (non-TTY connect handed OAuth to the detached helper):
+  // the connection completes automatically on first use after sign-in.
+  if (connection.pendingAuth === true) {
+    lines.push(
+      `Sign-in: ${style.yellow("pending")} ${style.dim("(completes automatically after the user signs in)")}`,
+    );
   }
   // Live transport state (`connections/show` only). Dormant is informational:
   // the next op transparently re-dials with stored credentials.

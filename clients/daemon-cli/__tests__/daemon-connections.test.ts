@@ -404,6 +404,116 @@ describe("ConnectionRegistry", () => {
     }
   });
 
+  it("pendingOnAuthRequired registers a dormant intent entry that completes via revive on first use", async () => {
+    const { InspectorClient } = await import("@inspector/core/mcp/index.js");
+    const connectSpy = vi
+      .spyOn(InspectorClient.prototype, "connect")
+      // Dial: no stored tokens yet — auth_required.
+      .mockRejectedValueOnce(Object.assign(new Error("boom"), { status: 401 }))
+      // Revive after the helper stored tokens: succeeds.
+      .mockResolvedValueOnce(undefined);
+    const disconnectSpy = vi
+      .spyOn(InspectorClient.prototype, "disconnect")
+      .mockResolvedValue(undefined);
+    const authSpy = vi
+      .spyOn(InspectorClient.prototype, "getOAuthState")
+      .mockResolvedValue(undefined as never);
+    const registry = new ConnectionRegistry(0);
+    let pendingClient: unknown;
+    const statusSpy = vi
+      .spyOn(InspectorClient.prototype, "getStatus")
+      .mockImplementation(function (this: unknown) {
+        // The pending entry's client never connected (terminal status →
+        // revivable); the revived client is live.
+        return this === pendingClient ? "disconnected" : "connected";
+      });
+    try {
+      const info = await registry.connect({
+        name: "p",
+        serverConfig: {
+          type: "streamable-http",
+          url: "https://mcp.example.com/mcp",
+        },
+        serverIdentity: "https://mcp.example.com/mcp",
+        pendingOnAuthRequired: true,
+      });
+      // Registered as pending intent instead of throwing.
+      expect(info.pendingAuth).toBe(true);
+      expect(info.auth).toEqual({ method: "oauth", authorized: false });
+      expect(registry.connectionCount()).toBe(1);
+      expect(registry.list()[0]).toMatchObject({
+        name: "p",
+        pendingAuth: true,
+      });
+      pendingClient = registry.clientFor("p", false);
+
+      // First op after tokens land: revive dials and clears the flag.
+      const revived = await registry.liveClientFor("p", false);
+      expect(revived).not.toBe(pendingClient);
+      expect(registry.list()[0]?.pendingAuth).toBeUndefined();
+    } finally {
+      connectSpy.mockRestore();
+      disconnectSpy.mockRestore();
+      authSpy.mockRestore();
+      statusSpy.mockRestore();
+    }
+  });
+
+  it("pendingOnAuthRequired only swallows auth_required — other dial failures still throw with no entry", async () => {
+    const { InspectorClient } = await import("@inspector/core/mcp/index.js");
+    const connectSpy = vi
+      .spyOn(InspectorClient.prototype, "connect")
+      .mockRejectedValueOnce(new Error("connect ECONNREFUSED 127.0.0.1:443"));
+    const disconnectSpy = vi
+      .spyOn(InspectorClient.prototype, "disconnect")
+      .mockResolvedValue(undefined);
+    const registry = new ConnectionRegistry(0);
+    try {
+      await expect(
+        registry.connect({
+          name: "p",
+          serverConfig: {
+            type: "streamable-http",
+            url: "https://mcp.example.com/mcp",
+          },
+          serverIdentity: "https://mcp.example.com/mcp",
+          pendingOnAuthRequired: true,
+        }),
+      ).rejects.toThrow(/ECONNREFUSED/);
+      expect(registry.connectionCount()).toBe(0);
+    } finally {
+      connectSpy.mockRestore();
+      disconnectSpy.mockRestore();
+    }
+  });
+
+  it("without pendingOnAuthRequired, an auth_required dial still throws with no entry", async () => {
+    const { InspectorClient } = await import("@inspector/core/mcp/index.js");
+    const connectSpy = vi
+      .spyOn(InspectorClient.prototype, "connect")
+      .mockRejectedValueOnce(Object.assign(new Error("boom"), { status: 401 }));
+    const disconnectSpy = vi
+      .spyOn(InspectorClient.prototype, "disconnect")
+      .mockResolvedValue(undefined);
+    const registry = new ConnectionRegistry(0);
+    try {
+      await expect(
+        registry.connect({
+          name: "p",
+          serverConfig: {
+            type: "streamable-http",
+            url: "https://mcp.example.com/mcp",
+          },
+          serverIdentity: "https://mcp.example.com/mcp",
+        }),
+      ).rejects.toMatchObject({ envelope: { code: "auth_required" } });
+      expect(registry.connectionCount()).toBe(0);
+    } finally {
+      connectSpy.mockRestore();
+      disconnectSpy.mockRestore();
+    }
+  });
+
   it("a connect that outlives shutdown's quiesce grace tears its client down instead of leaking it", async () => {
     const { InspectorClient } = await import("@inspector/core/mcp/index.js");
     let releaseConnect!: () => void;

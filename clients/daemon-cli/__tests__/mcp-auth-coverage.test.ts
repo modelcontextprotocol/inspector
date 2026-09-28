@@ -8,6 +8,7 @@ import { CliExitCodeError, EXIT_CODES } from "@inspector/cli/error-handler.js";
 const callDaemon = vi.fn();
 const ensureDaemon = vi.fn();
 const authorizeInFrontend = vi.fn();
+const obtainPendingAuthUrl = vi.fn();
 
 vi.mock("../src/daemon/index.js", () => ({
   callDaemon: (...args: unknown[]) => callDaemon(...args),
@@ -17,6 +18,12 @@ vi.mock("../src/daemon/index.js", () => ({
 
 vi.mock("../src/connection/authorize.js", () => ({
   authorizeInFrontend: (...args: unknown[]) => authorizeInFrontend(...args),
+}));
+
+vi.mock("../src/connection/auth-helper.js", () => ({
+  AUTH_HELPER_COMMAND: "auth/complete-signin",
+  runAuthHelper: vi.fn(),
+  obtainPendingAuthUrl: (...args: unknown[]) => obtainPendingAuthUrl(...args),
 }));
 
 describe("mcp.ts auth / daemon error paths", () => {
@@ -50,9 +57,15 @@ describe("mcp.ts auth / daemon error paths", () => {
     callDaemon.mockReset();
     authorizeInFrontend.mockReset();
     authorizeInFrontend.mockResolvedValue(undefined);
+    obtainPendingAuthUrl.mockReset();
   });
 
+  const originalStderrIsTTY = process.stderr.isTTY;
+  const originalStdinIsTTY = process.stdin.isTTY;
+
   afterEach(() => {
+    process.stderr.isTTY = originalStderrIsTTY;
+    process.stdin.isTTY = originalStdinIsTTY;
     process.stdout.write = originalStdoutWrite;
     process.stderr.write = originalStderrWrite;
     if (configPath) {
@@ -90,6 +103,7 @@ describe("mcp.ts auth / daemon error paths", () => {
   });
 
   it("retries connect after auth_required via authorizeInFrontend", async () => {
+    process.stderr.isTTY = true; // human path: blocking interactive OAuth
     configPath = createSampleTestConfig();
     const connection = {
       name: "test-stdio",
@@ -122,6 +136,7 @@ describe("mcp.ts auth / daemon error paths", () => {
   });
 
   it("re-ensures the daemon after authorizeInFrontend, in case interactive OAuth outlasted its idle timeout", async () => {
+    process.stderr.isTTY = true; // human path: blocking interactive OAuth
     configPath = createSampleTestConfig();
     const connection = {
       name: "test-stdio",
@@ -162,6 +177,129 @@ describe("mcp.ts auth / daemon error paths", () => {
     expect(callDaemon.mock.calls[1][2]).toMatchObject({
       socketPath: "/tmp/mcp-auth-cov-fresh.sock",
     });
+  });
+
+  it("non-TTY connect on auth_required: hands off to the helper, registers a pending entry, and prints the auth URL", async () => {
+    // Agent path: no TTY on stdin or stderr.
+    process.stdin.isTTY = undefined as unknown as boolean;
+    process.stderr.isTTY = undefined as unknown as boolean;
+    configPath = createSampleTestConfig();
+    callDaemon
+      .mockRejectedValueOnce(
+        new CliExitCodeError(EXIT_CODES.AUTH_REQUIRED, "need auth", {
+          code: "auth_required",
+        }),
+      )
+      .mockResolvedValueOnce({
+        name: "test-stdio",
+        isMru: true,
+        serverIdentity: "stdio",
+        pendingAuth: true,
+        auth: { method: "oauth", authorized: false },
+      });
+    obtainPendingAuthUrl.mockResolvedValueOnce(
+      "https://as.example/authorize?client_id=abc&state=xyz",
+    );
+
+    const { runMcp } = await import("../src/connection/mcp.js");
+    await runMcp([
+      "node",
+      "mcpdo",
+      "connect",
+      "test-stdio",
+      "--config",
+      configPath,
+      "--format",
+      "json",
+    ]);
+
+    // Never the blocking interactive flow on the agent path.
+    expect(authorizeInFrontend).not.toHaveBeenCalled();
+    expect(obtainPendingAuthUrl).toHaveBeenCalledOnce();
+    // The re-dial carries the pending-intent flag.
+    const second = callDaemon.mock.calls[1];
+    expect(second[0]).toBe("connect");
+    expect(second[1]).toMatchObject({ pendingOnAuthRequired: true });
+    // The auth URL rides the normal JSON payload, query string intact
+    // (the error envelope would redact it).
+    const out = JSON.parse(stdout.trim()) as Record<string, unknown>;
+    expect(out.pendingAuth).toBe(true);
+    expect(out.authUrl).toBe(
+      "https://as.example/authorize?client_id=abc&state=xyz",
+    );
+  });
+
+  it("non-TTY connect omits authUrl when the pending re-dial actually connected (sign-in already finished)", async () => {
+    process.stdin.isTTY = undefined as unknown as boolean;
+    process.stderr.isTTY = undefined as unknown as boolean;
+    configPath = createSampleTestConfig();
+    callDaemon
+      .mockRejectedValueOnce(
+        new CliExitCodeError(EXIT_CODES.AUTH_REQUIRED, "need auth", {
+          code: "auth_required",
+        }),
+      )
+      .mockResolvedValueOnce({
+        name: "test-stdio",
+        isMru: true,
+        serverIdentity: "stdio",
+        auth: { method: "oauth", authorized: true },
+      });
+    obtainPendingAuthUrl.mockResolvedValueOnce("https://as.example/authorize");
+
+    const { runMcp } = await import("../src/connection/mcp.js");
+    await runMcp([
+      "node",
+      "mcpdo",
+      "connect",
+      "test-stdio",
+      "--config",
+      configPath,
+      "--format",
+      "json",
+    ]);
+
+    const out = JSON.parse(stdout.trim()) as Record<string, unknown>;
+    expect(out.pendingAuth).toBeUndefined();
+    expect(out.authUrl).toBeUndefined();
+  });
+
+  it("MCP_AUTO_OPEN_ENABLED=true keeps the blocking interactive flow even without a TTY", async () => {
+    process.stdin.isTTY = undefined as unknown as boolean;
+    process.stderr.isTTY = undefined as unknown as boolean;
+    const prev = process.env.MCP_AUTO_OPEN_ENABLED;
+    process.env.MCP_AUTO_OPEN_ENABLED = "true";
+    configPath = createSampleTestConfig();
+    callDaemon
+      .mockRejectedValueOnce(
+        new CliExitCodeError(EXIT_CODES.AUTH_REQUIRED, "need auth", {
+          code: "auth_required",
+        }),
+      )
+      .mockResolvedValueOnce({
+        name: "test-stdio",
+        isMru: true,
+        serverIdentity: "stdio",
+      });
+
+    try {
+      const { runMcp } = await import("../src/connection/mcp.js");
+      await runMcp([
+        "node",
+        "mcpdo",
+        "connect",
+        "test-stdio",
+        "--config",
+        configPath,
+        "--format",
+        "json",
+      ]);
+      expect(authorizeInFrontend).toHaveBeenCalledOnce();
+      expect(obtainPendingAuthUrl).not.toHaveBeenCalled();
+    } finally {
+      if (prev === undefined) delete process.env.MCP_AUTO_OPEN_ENABLED;
+      else process.env.MCP_AUTO_OPEN_ENABLED = prev;
+    }
   });
 
   it("rejects --relogin with --stored-auth-only", async () => {
