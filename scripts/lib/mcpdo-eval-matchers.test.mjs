@@ -13,6 +13,7 @@ import {
   evalExpectCalls,
   streamText,
   validateBehaviorCase,
+  validateCaseServers,
   validateServerSpec,
 } from "./mcpdo-eval-matchers.mjs";
 
@@ -399,16 +400,70 @@ test("validateServerSpec: url form, composed form, and rejects", () => {
       /needs `serverInfo`/.test(e),
     ),
   );
+  assert.deepEqual(
+    validateServerSpec(
+      {
+        serverInfo: { name: "protected-api", version: "1.0.0" },
+        transport: { type: "streamable-http" },
+        oauth: { enabled: true, mode: "combined" },
+      },
+      0,
+    ),
+    [],
+    "http composed form (incl. oauth) is valid",
+  );
   assert.ok(
     validateServerSpec(
       {
         serverInfo: { name: "c", version: "1" },
-        transport: { type: "streamable-http" },
+        transport: { type: "sse" },
       },
       0,
-    ).some((e) => /omit `transport`/.test(e)),
+    ).some((e) => /sse fixtures are not supported/.test(e)),
   );
   assert.ok(validateServerSpec([], 0).some((e) => /must be an object/.test(e)));
+});
+
+test("validateCaseServers: map form, exclusivity, and per-entry labels", () => {
+  const spec = { serverInfo: { name: "s", version: "1" } };
+  assert.deepEqual(
+    validateCaseServers(
+      { servers: { calendar: spec, "weather-api": { url: "http://x/mcp" } } },
+      0,
+    ),
+    [],
+  );
+  assert.ok(
+    validateCaseServers({ server: spec, servers: { a: spec } }, 0).some((e) =>
+      /mutually exclusive/.test(e),
+    ),
+  );
+  assert.ok(
+    validateCaseServers({ servers: {} }, 0).some((e) =>
+      /must not be empty/.test(e),
+    ),
+  );
+  assert.ok(
+    validateCaseServers({ servers: ["x"] }, 0).some((e) =>
+      /name→spec object/.test(e),
+    ),
+  );
+  assert.ok(
+    validateCaseServers({ servers: { "bad name!": spec } }, 0).some((e) =>
+      /not a valid catalog entry name/.test(e),
+    ),
+  );
+  assert.ok(
+    validateCaseServers({ servers: { a: undefined } }, 0).some((e) =>
+      /must not be undefined/.test(e),
+    ),
+  );
+  // Nested spec errors carry the entry name.
+  assert.ok(
+    validateCaseServers({ servers: { alpha: { url: "ftp://x" } } }, 3).some(
+      (e) => /behavior case 3 `servers`\.alpha/.test(e),
+    ),
+  );
 });
 
 test("validateBehaviorCase: server field is validated through the case", () => {

@@ -62,7 +62,7 @@
 //   AGENT=copilot npm run skills:eval:mcpdo
 //   BEHAVIOR_RUNS=4 BEHAVIOR_THRESHOLD=0.75 npm run skills:eval:mcpdo
 
-import { spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import {
   chmodSync,
   cpSync,
@@ -280,33 +280,53 @@ export function behaviorAgentArgs(agent, maxTurns) {
 }
 
 /**
+ * Normalize a behavior case's server declaration to a name→spec map.
+ * `servers` wins (validation forbids both); `server` is sugar for a single
+ * entry under the default name; neither means the default composition.
+ *
+ * @param {object} c A behavior case.
+ * @returns {Record<string, object | undefined>}
+ */
+export function caseServers(c) {
+  if (c.servers !== undefined) return c.servers;
+  return { "test-stdio": c.server };
+}
+
+/**
  * Build one behavior sample's hermetic mcpdo world, next to (not inside) its
  * sandbox so the agent's cwd stays clean.
  *
  * Private daemon binding (own dir + minted token — the same isolation
  * `mcpdo private` gives a shell), throwaway storage, a catalog holding
- * exactly `test-stdio`, and a bin dir whose `mcpdo` is the recording shim.
- * One entry on purpose: with a single catalog entry, an implicit-MRU call
- * can only mean the right server, which is what lets the `connection`
- * matcher accept the flag's absence.
+ * exactly the case's servers, and a bin dir whose `mcpdo` is the recording
+ * shim.
  *
- * No `MCP_ALLOW_DEFAULT_CONNECTION`: agents run non-TTY, and the explicit
- * connect-or-name path is the realistic one being measured.
+ * No `MCP_ALLOW_DEFAULT_CONNECTION`: agents run non-TTY, so the daemon-cli
+ * itself refuses implicit-MRU targeting (`requireExplicitConnection`) —
+ * every successful targeting call in a transcript names its connection,
+ * which is what keeps `connection` matchers decidable even with several
+ * catalog entries.
  *
- * The default entry is the stdio test server in its DEFAULT composition. A
- * case's `server` spec swaps in a composed one instead: the `url` form
- * points the entry at an already-running HTTP fixture; the config form is
- * written to disk and served through the eval's stdio launcher — the
- * composable framework's own path, not an extension of the default server's
- * entrypoint.
+ * Per-entry spec forms (see `validateServerSpec`): undefined → the stdio
+ * test server in its DEFAULT composition; `{url}` → an already-running HTTP
+ * fixture; composed with stdio (or no) transport → config on disk, served
+ * through the eval's stdio launcher; composed with streamable-http
+ * transport → started IN-PROCESS (`TestServerHttp`) and the entry points at
+ * its URL. In-process because nothing forces a process boundary for HTTP
+ * (the daemon only spawns stdio commands), the fixture can't pollute the
+ * transcript (the shim records only mcpdo invocations), and teardown is a
+ * direct `stop()`. OAuth rides on the same instance (`oauth` in the spec).
  *
  * @param {string} sandbox The sample's sandbox dir (from `makeSandbox`).
- * @param {object} [server] Optional per-case server spec (see
- *   `validateServerSpec`).
- * @returns {{ env: Record<string, string>, logPath: string, teardown: () =>
- *   void }}
+ * @param {Record<string, object | undefined>} [servers] Name→spec map (from
+ *   `caseServers`).
+ * @returns {Promise<{ env: Record<string, string>, logPath: string,
+ *   teardown: () => Promise<void> }>}
  */
-export function makeBehaviorEnv(sandbox, server = undefined) {
+export async function makeBehaviorEnv(
+  sandbox,
+  servers = { "test-stdio": undefined },
+) {
   const envDir = `${sandbox}-env`;
   const daemonDir = path.join(envDir, "daemon");
   const storageDir = path.join(envDir, "storage");
@@ -316,33 +336,58 @@ export function makeBehaviorEnv(sandbox, server = undefined) {
   mkdirSync(daemonDir, { recursive: true, mode: 0o700 });
   mkdirSync(storageDir, { recursive: true });
   mkdirSync(binDir, { recursive: true });
-  let entry;
-  if (server === undefined) {
-    entry = {
-      type: "stdio",
-      command: process.execPath,
-      args: [TEST_SERVER_BIN],
-    };
-  } else if ("url" in server) {
-    entry = { type: "streamable-http", url: server.url };
-  } else {
-    const serverConfigPath = path.join(envDir, "server-config.json");
-    // The launcher is always a stdio child; the case spec needn't say so
-    // (and validateServerSpec rejects a spec that says otherwise).
-    writeFileSync(
-      serverConfigPath,
-      JSON.stringify({ transport: { type: "stdio" }, ...server }, null, 2),
-    );
-    entry = {
-      type: "stdio",
-      command: process.execPath,
-      args: [SERVER_LAUNCHER, serverConfigPath],
-    };
+  /** In-process HTTP fixtures to stop at teardown. */
+  const httpServers = [];
+  const entries = {};
+  try {
+    for (const [name, spec] of Object.entries(servers)) {
+      if (spec === undefined) {
+        entries[name] = {
+          type: "stdio",
+          command: process.execPath,
+          args: [TEST_SERVER_BIN],
+        };
+      } else if ("url" in spec) {
+        entries[name] = { type: "streamable-http", url: spec.url };
+      } else if (spec.transport?.type === "streamable-http") {
+        const serverConfigPath = path.join(
+          envDir,
+          `server-config-${name}.json`,
+        );
+        writeFileSync(serverConfigPath, JSON.stringify(spec, null, 2));
+        const { loadConfig, resolveConfig, TestServerHttp } = await import(
+          path.join(ROOT, "test-servers", "build", "index.js")
+        );
+        const server = new TestServerHttp(
+          resolveConfig(loadConfig(serverConfigPath)),
+        );
+        await server.start();
+        httpServers.push(server);
+        entries[name] = { type: "streamable-http", url: server.url };
+      } else {
+        const serverConfigPath = path.join(
+          envDir,
+          `server-config-${name}.json`,
+        );
+        // The launcher is always a stdio child; the case spec needn't say so
+        // (and validateServerSpec rejects a spec that says otherwise).
+        writeFileSync(
+          serverConfigPath,
+          JSON.stringify({ transport: { type: "stdio" }, ...spec }, null, 2),
+        );
+        entries[name] = {
+          type: "stdio",
+          command: process.execPath,
+          args: [SERVER_LAUNCHER, serverConfigPath],
+        };
+      }
+    }
+  } catch (err) {
+    for (const s of httpServers) await s.stop().catch(() => {});
+    rmSync(envDir, { recursive: true, force: true });
+    throw err;
   }
-  writeFileSync(
-    catalogPath,
-    JSON.stringify({ mcpServers: { "test-stdio": entry } }, null, 2),
-  );
+  writeFileSync(catalogPath, JSON.stringify({ mcpServers: entries }, null, 2));
   const shimBin = path.join(binDir, "mcpdo");
   writeFileSync(
     shimBin,
@@ -358,14 +403,29 @@ export function makeBehaviorEnv(sandbox, server = undefined) {
     MCPDO_EVAL_REAL: REAL_BIN,
     MCPDO_EVAL_LOG: logPath,
   };
-  const teardown = () => {
-    // Direct spawn of the real build, not the shim: teardown must not
-    // appear in the transcript, and must work even if the shim is broken.
-    spawnSync(process.execPath, [REAL_BIN, "daemon", "stop"], {
-      env: { ...process.env, ...env },
-      timeout: 15000,
-      stdio: "ignore",
+  const teardown = async () => {
+    // Daemon first (it may hold connections into the HTTP fixtures), then
+    // the fixtures. Direct spawn of the real build, not the shim: teardown
+    // must not appear in the transcript, and must work even if the shim is
+    // broken. Async spawn, NOT spawnSync — the in-process fixtures share
+    // this event loop, and a synchronous wait would deadlock any daemon
+    // shutdown that talks to them (measured: the sync variant stalled).
+    await new Promise((resolve) => {
+      const child = spawn(process.execPath, [REAL_BIN, "daemon", "stop"], {
+        env: { ...process.env, ...env },
+        stdio: "ignore",
+      });
+      const timer = setTimeout(() => child.kill("SIGKILL"), 15000);
+      child.on("exit", () => {
+        clearTimeout(timer);
+        resolve();
+      });
+      child.on("error", () => {
+        clearTimeout(timer);
+        resolve();
+      });
     });
+    for (const s of httpServers) await s.stop().catch(() => {});
     rmSync(envDir, { recursive: true, force: true });
   };
   return { env, logPath, teardown };
@@ -395,7 +455,10 @@ export function readTranscript(logPath) {
  */
 async function runBehaviorSample(c) {
   const sandbox = makeSandbox();
-  const { env, logPath, teardown } = makeBehaviorEnv(sandbox, c.server);
+  const { env, logPath, teardown } = await makeBehaviorEnv(
+    sandbox,
+    caseServers(c),
+  );
   try {
     await runPrompt(c.prompt, {
       cwd: sandbox,
@@ -408,7 +471,7 @@ async function runBehaviorSample(c) {
     const { ok, failures } = evalExpectCalls(c.expectCalls, records);
     return { hit: ok, failures, calls: records.length };
   } finally {
-    teardown();
+    await teardown();
     rmSync(sandbox, { recursive: true, force: true });
   }
 }

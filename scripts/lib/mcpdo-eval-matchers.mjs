@@ -494,26 +494,77 @@ export function validateBehaviorCase(c, i) {
       }
     }
   });
-  errors.push(...validateServerSpec(c.server, i));
+  errors.push(...validateCaseServers(c, i));
   return errors;
 }
 
 /**
- * Validate a behavior case's optional `server` field: either
- * `{ "url": "<http(s) endpoint>" }` for a server the harness does not spawn,
- * or the test-servers declarative config-file shape (serverInfo + preset
- * refs), which the harness writes to disk and serves through the eval's
- * stdio launcher. Only the discriminating structure is checked here — preset
- * names and capability switches are the framework's contract, validated by
- * `resolveConfig` when the server starts.
+ * Validate a behavior case's server declaration: optional `server` (single
+ * spec under the default catalog name) or `servers` (name→spec map), never
+ * both. Names become catalog entry names — the agent sees them via
+ * `servers/list`, so they are scenario content.
  *
- * @param {object | undefined} server
+ * @param {object} c A behavior case.
  * @param {number} i Case index, for error messages.
  * @returns {string[]}
  */
-export function validateServerSpec(server, i) {
+export function validateCaseServers(c, i) {
+  if (c.server !== undefined && c.servers !== undefined) {
+    return [
+      `behavior case ${i}: \`server\` and \`servers\` are mutually exclusive`,
+    ];
+  }
+  if (c.servers !== undefined) {
+    const at = `behavior case ${i} \`servers\``;
+    if (
+      c.servers === null ||
+      typeof c.servers !== "object" ||
+      Array.isArray(c.servers)
+    ) {
+      return [`${at}: must be a name→spec object`];
+    }
+    const names = Object.keys(c.servers);
+    if (names.length === 0) return [`${at}: must not be empty`];
+    const errors = [];
+    for (const name of names) {
+      if (!/^[A-Za-z0-9_.-]+$/.test(name)) {
+        errors.push(`${at}: \`${name}\` is not a valid catalog entry name`);
+        continue;
+      }
+      if (c.servers[name] === undefined) {
+        errors.push(
+          `${at}.${name}: spec must not be undefined (omit \`servers\` for the default server)`,
+        );
+        continue;
+      }
+      errors.push(
+        ...validateServerSpec(c.servers[name], i, `\`servers\`.${name}`),
+      );
+    }
+    return errors;
+  }
+  return validateServerSpec(c.server, i);
+}
+
+/**
+ * Validate one server spec: either `{ "url": "<http(s) endpoint>" }` for a
+ * server the harness does not manage, or the test-servers declarative
+ * config-file shape (serverInfo + preset refs). A composed spec with no
+ * transport (or stdio) is served through the eval's stdio launcher; with
+ * `transport.type: "streamable-http"` it is started in-process
+ * (`TestServerHttp`) and the catalog entry points at its URL — OAuth via the
+ * spec's `oauth` block rides on the same instance. Only the discriminating
+ * structure is checked here — preset names and capability switches are the
+ * framework's contract, validated by `resolveConfig` when the server starts.
+ *
+ * @param {object | undefined} server
+ * @param {number} i Case index, for error messages.
+ * @param {string} [label] Field label for error messages.
+ * @returns {string[]}
+ */
+export function validateServerSpec(server, i, label = "`server`") {
   if (server === undefined) return [];
-  const at = `behavior case ${i} \`server\``;
+  const at = `behavior case ${i} ${label}`;
   if (server === null || typeof server !== "object" || Array.isArray(server)) {
     return [`${at}: must be an object`];
   }
@@ -537,9 +588,13 @@ export function validateServerSpec(server, i) {
       `${at}: composed form needs \`serverInfo\` with \`name\` and \`version\` (or use the \`url\` form)`,
     ];
   }
-  if (server.transport !== undefined && server.transport?.type !== "stdio") {
+  if (
+    server.transport !== undefined &&
+    server.transport?.type !== "stdio" &&
+    server.transport?.type !== "streamable-http"
+  ) {
     return [
-      `${at}: composed servers are spawned over stdio; omit \`transport\` (for an HTTP fixture, use the \`url\` form)`,
+      `${at}: composed transport must be "stdio" (default) or "streamable-http" — sse fixtures are not supported by the harness`,
     ];
   }
   return [];

@@ -18,6 +18,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  caseServers,
   makeBehaviorEnv,
   readTranscript,
   loadCases,
@@ -43,10 +44,10 @@ const cleanup = (sandbox) => {
 test(
   "makeBehaviorEnv: default world shape",
   { skip: process.platform === "win32" },
-  () => {
+  async () => {
     const sandbox = tempSandbox();
     try {
-      const { env, logPath } = makeBehaviorEnv(sandbox);
+      const { env, logPath } = await makeBehaviorEnv(sandbox);
       const envDir = `${sandbox}-env`;
 
       const catalog = JSON.parse(
@@ -81,10 +82,13 @@ test(
 test(
   "makeBehaviorEnv: url server spec points the entry at the fixture",
   { skip: process.platform === "win32" },
-  () => {
+  async () => {
     const sandbox = tempSandbox();
     try {
-      makeBehaviorEnv(sandbox, { url: "http://127.0.0.1:3999/mcp" });
+      await makeBehaviorEnv(
+        sandbox,
+        caseServers({ server: { url: "http://127.0.0.1:3999/mcp" } }),
+      );
       const catalog = JSON.parse(
         readFileSync(path.join(`${sandbox}-env`, "catalog.json"), "utf8"),
       );
@@ -101,14 +105,14 @@ test(
 test(
   "makeBehaviorEnv: composed server spec is written and served via the launcher",
   { skip: process.platform === "win32" },
-  () => {
+  async () => {
     const sandbox = tempSandbox();
     try {
       const spec = {
         serverInfo: { name: "composed-test", version: "1.0.0" },
         tools: [{ preset: "add" }],
       };
-      makeBehaviorEnv(sandbox, spec);
+      await makeBehaviorEnv(sandbox, caseServers({ server: spec }));
       const envDir = `${sandbox}-env`;
       const entry = JSON.parse(
         readFileSync(path.join(envDir, "catalog.json"), "utf8"),
@@ -121,6 +125,164 @@ test(
         "the config on disk is the case's spec plus the stdio transport",
       );
     } finally {
+      cleanup(sandbox);
+    }
+  },
+);
+
+test("caseServers: normalizes server / servers / neither", () => {
+  const spec = { serverInfo: { name: "s", version: "1" } };
+  assert.deepEqual(caseServers({}), { "test-stdio": undefined });
+  assert.deepEqual(caseServers({ server: spec }), { "test-stdio": spec });
+  assert.deepEqual(caseServers({ servers: { a: spec } }), { a: spec });
+});
+
+test(
+  "makeBehaviorEnv: multiple servers get their own entries and config files",
+  { skip: process.platform === "win32" },
+  async () => {
+    const sandbox = tempSandbox();
+    try {
+      const calendar = {
+        serverInfo: { name: "calendar", version: "1.0.0" },
+        tools: [{ preset: "add" }],
+      };
+      await makeBehaviorEnv(sandbox, {
+        calendar,
+        "weather-api": { url: "http://127.0.0.1:3999/mcp" },
+      });
+      const envDir = `${sandbox}-env`;
+      const catalog = JSON.parse(
+        readFileSync(path.join(envDir, "catalog.json"), "utf8"),
+      );
+      assert.deepEqual(Object.keys(catalog.mcpServers).sort(), [
+        "calendar",
+        "weather-api",
+      ]);
+      const cal = catalog.mcpServers.calendar;
+      assert.equal(cal.args[0], LAUNCHER);
+      assert.match(cal.args[1], /server-config-calendar\.json$/);
+      assert.deepEqual(catalog.mcpServers["weather-api"], {
+        type: "streamable-http",
+        url: "http://127.0.0.1:3999/mcp",
+      });
+    } finally {
+      cleanup(sandbox);
+    }
+  },
+);
+
+// In-process HTTP fixture: a composed spec with streamable-http transport
+// must come up inside the harness, get a catalog entry pointing at its live
+// URL, answer an MCP initialize over HTTP, and die at teardown. OAuth rides
+// on the same instance, so its AS metadata endpoint is asserted too.
+test(
+  "makeBehaviorEnv: http composed server runs in-process (with oauth metadata)",
+  { skip: !existsSync(TEST_SERVERS_BUILD) || process.platform === "win32" },
+  async () => {
+    const sandbox = tempSandbox();
+    let teardown;
+    try {
+      const env = await makeBehaviorEnv(sandbox, {
+        "protected-api": {
+          transport: { type: "streamable-http" },
+          serverInfo: { name: "protected-api", version: "1.0.0" },
+          tools: [{ preset: "add" }],
+          oauth: { enabled: true, mode: "combined", requireAuth: true },
+        },
+      });
+      teardown = env.teardown;
+      const entry = JSON.parse(
+        readFileSync(path.join(`${sandbox}-env`, "catalog.json"), "utf8"),
+      ).mcpServers["protected-api"];
+      assert.equal(entry.type, "streamable-http");
+      assert.match(entry.url, /^http:\/\/localhost:\d+\/mcp$/);
+
+      const origin = entry.url.replace(/\/mcp$/, "");
+      const meta = await fetch(
+        `${origin}/.well-known/oauth-authorization-server`,
+      );
+      assert.equal(meta.status, 200);
+      const asMeta = await meta.json();
+      assert.equal(asMeta.issuer, origin);
+      assert.ok(asMeta.authorization_endpoint.startsWith(origin));
+
+      // Unauthenticated MCP request → the protected resource must challenge,
+      // not serve (401 + WWW-Authenticate), proving oauth guards the entry
+      // the catalog points at.
+      const res = await fetch(entry.url, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          accept: "application/json, text/event-stream",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "initialize",
+          params: {
+            protocolVersion: "2025-06-18",
+            capabilities: {},
+            clientInfo: { name: "eval-test", version: "0.0.0" },
+          },
+        }),
+      });
+      assert.equal(res.status, 401);
+      assert.ok(res.headers.get("www-authenticate"));
+
+      await teardown();
+      teardown = undefined;
+      await assert.rejects(
+        fetch(`${origin}/.well-known/oauth-authorization-server`),
+        undefined,
+        "fixture must be gone after teardown",
+      );
+    } finally {
+      if (teardown) await teardown();
+      cleanup(sandbox);
+    }
+  },
+);
+
+test(
+  "makeBehaviorEnv: plain http composed server answers initialize",
+  { skip: !existsSync(TEST_SERVERS_BUILD) || process.platform === "win32" },
+  async () => {
+    const sandbox = tempSandbox();
+    let teardown;
+    try {
+      const env = await makeBehaviorEnv(sandbox, {
+        api: {
+          transport: { type: "streamable-http" },
+          serverInfo: { name: "plain-api", version: "1.0.0" },
+          tools: [{ preset: "add" }],
+        },
+      });
+      teardown = env.teardown;
+      const entry = JSON.parse(
+        readFileSync(path.join(`${sandbox}-env`, "catalog.json"), "utf8"),
+      ).mcpServers.api;
+      const res = await fetch(entry.url, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          accept: "application/json, text/event-stream",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "initialize",
+          params: {
+            protocolVersion: "2025-06-18",
+            capabilities: {},
+            clientInfo: { name: "eval-test", version: "0.0.0" },
+          },
+        }),
+      });
+      assert.equal(res.status, 200);
+      assert.match(await res.text(), /"name":\s*"plain-api"/);
+    } finally {
+      if (teardown) await teardown();
       cleanup(sandbox);
     }
   },
