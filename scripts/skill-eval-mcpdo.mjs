@@ -118,6 +118,12 @@ const TEST_SERVER_BIN = path.join(
   "build",
   "test-server-stdio.js",
 );
+const SERVER_LAUNCHER = path.join(
+  ROOT,
+  "scripts",
+  "lib",
+  "mcpdo-eval-server-launcher.mjs",
+);
 
 const THRESHOLD = Number(process.env.THRESHOLD ?? 0.8);
 const RUNS = Number(process.env.RUNS ?? 3);
@@ -287,11 +293,20 @@ export function behaviorAgentArgs(agent, maxTurns) {
  * No `MCP_ALLOW_DEFAULT_CONNECTION`: agents run non-TTY, and the explicit
  * connect-or-name path is the realistic one being measured.
  *
+ * The default entry is the stdio test server in its DEFAULT composition. A
+ * case's `server` spec swaps in a composed one instead: the `url` form
+ * points the entry at an already-running HTTP fixture; the config form is
+ * written to disk and served through the eval's stdio launcher — the
+ * composable framework's own path, not an extension of the default server's
+ * entrypoint.
+ *
  * @param {string} sandbox The sample's sandbox dir (from `makeSandbox`).
+ * @param {object} [server] Optional per-case server spec (see
+ *   `validateServerSpec`).
  * @returns {{ env: Record<string, string>, logPath: string, teardown: () =>
  *   void }}
  */
-export function makeBehaviorEnv(sandbox) {
+export function makeBehaviorEnv(sandbox, server = undefined) {
   const envDir = `${sandbox}-env`;
   const daemonDir = path.join(envDir, "daemon");
   const storageDir = path.join(envDir, "storage");
@@ -301,21 +316,32 @@ export function makeBehaviorEnv(sandbox) {
   mkdirSync(daemonDir, { recursive: true, mode: 0o700 });
   mkdirSync(storageDir, { recursive: true });
   mkdirSync(binDir, { recursive: true });
+  let entry;
+  if (server === undefined) {
+    entry = {
+      type: "stdio",
+      command: process.execPath,
+      args: [TEST_SERVER_BIN],
+    };
+  } else if ("url" in server) {
+    entry = { type: "streamable-http", url: server.url };
+  } else {
+    const serverConfigPath = path.join(envDir, "server-config.json");
+    // The launcher is always a stdio child; the case spec needn't say so
+    // (and validateServerSpec rejects a spec that says otherwise).
+    writeFileSync(
+      serverConfigPath,
+      JSON.stringify({ transport: { type: "stdio" }, ...server }, null, 2),
+    );
+    entry = {
+      type: "stdio",
+      command: process.execPath,
+      args: [SERVER_LAUNCHER, serverConfigPath],
+    };
+  }
   writeFileSync(
     catalogPath,
-    JSON.stringify(
-      {
-        mcpServers: {
-          "test-stdio": {
-            type: "stdio",
-            command: process.execPath,
-            args: [TEST_SERVER_BIN],
-          },
-        },
-      },
-      null,
-      2,
-    ),
+    JSON.stringify({ mcpServers: { "test-stdio": entry } }, null, 2),
   );
   const shimBin = path.join(binDir, "mcpdo");
   writeFileSync(
@@ -369,7 +395,7 @@ export function readTranscript(logPath) {
  */
 async function runBehaviorSample(c) {
   const sandbox = makeSandbox();
-  const { env, logPath, teardown } = makeBehaviorEnv(sandbox);
+  const { env, logPath, teardown } = makeBehaviorEnv(sandbox, c.server);
   try {
     await runPrompt(c.prompt, {
       cwd: sandbox,

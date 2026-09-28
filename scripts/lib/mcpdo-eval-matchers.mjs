@@ -189,6 +189,93 @@ function readPath(value, dotted) {
 }
 
 /**
+ * Per-stream views of a transcript with a mapping back to GLOBAL event
+ * order.
+ *
+ * Two problems solved at once. A pipe does not preserve write boundaries, so
+ * a phase's pattern may span two recorded chunks — matching must run over
+ * each stream's concatenated text, not per event. But interactive ordering
+ * ("the stdin answer came after the stdout prompt") is BETWEEN streams, so
+ * every character also needs a position on the one shared timeline; segments
+ * carry that mapping.
+ *
+ * @param {object} record One shim transcript record.
+ * @returns {Map<string, { text: string, segments: { streamStart: number,
+ *   globalStart: number, len: number }[] }>}
+ */
+export function buildTimeline(record) {
+  const streams = new Map();
+  let global = 0;
+  for (const event of record.events ?? []) {
+    const data = String(event.data ?? "");
+    let entry = streams.get(event.stream);
+    if (!entry) {
+      entry = { text: "", segments: [] };
+      streams.set(event.stream, entry);
+    }
+    entry.segments.push({
+      streamStart: entry.text.length,
+      globalStart: global,
+      len: data.length,
+    });
+    entry.text += data;
+    global += data.length;
+  }
+  return streams;
+}
+
+/** Global timeline position of a stream-local offset. */
+function globalPos(entry, streamOffset) {
+  for (const seg of entry.segments) {
+    if (streamOffset < seg.streamStart + seg.len) {
+      return seg.globalStart + (streamOffset - seg.streamStart);
+    }
+  }
+  return Number.MAX_SAFE_INTEGER;
+}
+
+/**
+ * Match ordered phases against one invocation's interleaved transcript.
+ *
+ * Each phase is `{ stream, match }`: a regex that must appear on that stream
+ * strictly AFTER (on the global timeline) where the previous phase matched.
+ * This is what turns the shim's event capture into assertions like "stdout
+ * showed the auth URL before exit" or "stdin answered only after the prompt
+ * appeared".
+ *
+ * @param {{ stream: string, match: string }[]} phases
+ * @param {object} record One shim transcript record.
+ * @returns {string | null} `null` on match, else the first failure reason.
+ */
+export function matchPhases(phases, record) {
+  const streams = buildTimeline(record);
+  let cursor = -1;
+  for (const [i, phase] of phases.entries()) {
+    const entry = streams.get(phase.stream);
+    if (!entry) {
+      return `phase ${i} /${phase.match}/: no ${phase.stream} data recorded`;
+    }
+    const re = new RegExp(phase.match, "g");
+    let found = -1;
+    for (const m of entry.text.matchAll(re)) {
+      const end = globalPos(entry, m.index + Math.max(m[0].length, 1) - 1);
+      if (end > cursor) {
+        found = end;
+        break;
+      }
+    }
+    if (found === -1) {
+      const anywhere = new RegExp(phase.match).test(entry.text);
+      return anywhere
+        ? `phase ${i} /${phase.match}/ matched ${phase.stream} only BEFORE phase ${i - 1}`
+        : `phase ${i} /${phase.match}/ not found on ${phase.stream}`;
+    }
+    cursor = found;
+  }
+  return null;
+}
+
+/**
  * Match one transcript record against one matcher.
  *
  * @param {object} matcher See `validateBehaviorCase` for the shape.
@@ -252,6 +339,10 @@ export function matchCall(matcher, record) {
       return `stdout does not match /${matcher.stdoutMatch}/`;
     }
   }
+  if (matcher.phases !== undefined) {
+    const reason = matchPhases(matcher.phases, record);
+    if (reason !== null) return reason;
+  }
   return null;
 }
 
@@ -306,7 +397,10 @@ const MATCHER_KEYS = new Set([
   "exit",
   "result",
   "stdoutMatch",
+  "phases",
 ]);
+
+const PHASE_STREAMS = new Set(["stdin", "stdout", "stderr"]);
 
 /**
  * Validate one behavior case. Local to the mcpdo eval on purpose — the
@@ -368,6 +462,85 @@ export function validateBehaviorCase(c, i) {
         errors.push(`${at}: \`stdoutMatch\` is not a valid regex`);
       }
     }
+    if (m.phases !== undefined) {
+      if (!Array.isArray(m.phases) || m.phases.length === 0) {
+        errors.push(`${at}: \`phases\` must be a non-empty array`);
+      } else {
+        m.phases.forEach((p, k) => {
+          if (p === null || typeof p !== "object" || Array.isArray(p)) {
+            errors.push(`${at}: phases[${k}] must be an object`);
+            return;
+          }
+          for (const key of Object.keys(p)) {
+            if (key !== "stream" && key !== "match") {
+              errors.push(`${at}: phases[${k}] unknown key \`${key}\``);
+            }
+          }
+          if (!PHASE_STREAMS.has(p.stream)) {
+            errors.push(
+              `${at}: phases[${k}].stream must be one of ${[...PHASE_STREAMS].join(", ")}`,
+            );
+          }
+          if (typeof p.match !== "string") {
+            errors.push(`${at}: phases[${k}].match must be a string`);
+          } else {
+            try {
+              new RegExp(p.match);
+            } catch {
+              errors.push(`${at}: phases[${k}].match is not a valid regex`);
+            }
+          }
+        });
+      }
+    }
   });
+  errors.push(...validateServerSpec(c.server, i));
   return errors;
+}
+
+/**
+ * Validate a behavior case's optional `server` field: either
+ * `{ "url": "<http(s) endpoint>" }` for a server the harness does not spawn,
+ * or the test-servers declarative config-file shape (serverInfo + preset
+ * refs), which the harness writes to disk and serves through the eval's
+ * stdio launcher. Only the discriminating structure is checked here — preset
+ * names and capability switches are the framework's contract, validated by
+ * `resolveConfig` when the server starts.
+ *
+ * @param {object | undefined} server
+ * @param {number} i Case index, for error messages.
+ * @returns {string[]}
+ */
+export function validateServerSpec(server, i) {
+  if (server === undefined) return [];
+  const at = `behavior case ${i} \`server\``;
+  if (server === null || typeof server !== "object" || Array.isArray(server)) {
+    return [`${at}: must be an object`];
+  }
+  if ("url" in server) {
+    const errors = [];
+    if (typeof server.url !== "string" || !/^https?:\/\//.test(server.url)) {
+      errors.push(`${at}: \`url\` must be an http(s) URL`);
+    }
+    for (const key of Object.keys(server)) {
+      if (key !== "url") {
+        errors.push(`${at}: \`url\` form takes no other keys (got \`${key}\`)`);
+      }
+    }
+    return errors;
+  }
+  if (
+    typeof server.serverInfo?.name !== "string" ||
+    typeof server.serverInfo?.version !== "string"
+  ) {
+    return [
+      `${at}: composed form needs \`serverInfo\` with \`name\` and \`version\` (or use the \`url\` form)`,
+    ];
+  }
+  if (server.transport !== undefined && server.transport?.type !== "stdio") {
+    return [
+      `${at}: composed servers are spawned over stdio; omit \`transport\` (for an HTTP fixture, use the \`url\` form)`,
+    ];
+  }
+  return [];
 }

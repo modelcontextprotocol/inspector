@@ -9,9 +9,11 @@ import {
   parseMcpdoArgv,
   valuesMatch,
   matchCall,
+  matchPhases,
   evalExpectCalls,
   streamText,
   validateBehaviorCase,
+  validateServerSpec,
 } from "./mcpdo-eval-matchers.mjs";
 
 const record = (argv, { exit = 0, stdout = "", stderr = "" } = {}) => ({
@@ -275,6 +277,146 @@ test("validateBehaviorCase: catches typos, bad types, bad regex", () => {
   assert.ok(errs.some((e) => /`exit` must be an integer/.test(e)));
   assert.ok(errs.some((e) => /not a valid regex/.test(e)));
   assert.ok(errs.some((e) => /must be an object/.test(e)));
+});
+
+test("matchPhases: interleaved prompt/answer/result ordering", () => {
+  const r = {
+    argv: ["tools/call", "collect"],
+    exit: 0,
+    events: [
+      { t: 1, stream: "stdout", data: "Enter your na" },
+      { t: 2, stream: "stdout", data: "me: " }, // pattern spans chunks
+      { t: 3, stream: "stdin", data: "Ada\n" },
+      { t: 4, stream: "stdout", data: '{"ok":true}\n' },
+    ],
+  };
+  assert.equal(
+    matchPhases(
+      [
+        { stream: "stdout", match: "Enter your name" },
+        { stream: "stdin", match: "Ada" },
+        { stream: "stdout", match: '"ok"' },
+      ],
+      r,
+    ),
+    null,
+  );
+  // The answer cannot come before the prompt.
+  assert.match(
+    matchPhases(
+      [
+        { stream: "stdin", match: "Ada" },
+        { stream: "stdout", match: "Enter your name" },
+      ],
+      r,
+    ),
+    /matched stdout only BEFORE/,
+  );
+  assert.match(
+    matchPhases([{ stream: "stderr", match: "x" }], r),
+    /no stderr data recorded/,
+  );
+  assert.match(
+    matchPhases([{ stream: "stdout", match: "missing" }], r),
+    /not found on stdout/,
+  );
+});
+
+test("matchCall: phases participate in a full matcher", () => {
+  const r = record(["connect", "test-stdio"], {
+    stdout: "Visit https://idp.example/auth to continue\nConnection ready\n",
+  });
+  assert.equal(
+    matchCall(
+      {
+        cmd: "connect",
+        phases: [
+          { stream: "stdout", match: "https://idp\\.example/auth" },
+          { stream: "stdout", match: "Connection ready" },
+        ],
+      },
+      r,
+    ),
+    null,
+  );
+});
+
+test("validateBehaviorCase: phases schema", () => {
+  const errs = validateBehaviorCase(
+    {
+      prompt: "p",
+      expectCalls: [
+        {
+          cmd: "connect",
+          phases: [
+            { stream: "socket", match: "x" },
+            { stream: "stdout", match: "(", extra: 1 },
+            "nope",
+          ],
+        },
+        { cmd: "ok", phases: [] },
+      ],
+    },
+    0,
+  );
+  assert.ok(errs.some((e) => /phases\[0\]\.stream must be one of/.test(e)));
+  assert.ok(
+    errs.some((e) => /phases\[1\]\.match is not a valid regex/.test(e)),
+  );
+  assert.ok(errs.some((e) => /phases\[1\] unknown key `extra`/.test(e)));
+  assert.ok(errs.some((e) => /phases\[2\] must be an object/.test(e)));
+  assert.ok(errs.some((e) => /`phases` must be a non-empty array/.test(e)));
+});
+
+test("validateServerSpec: url form, composed form, and rejects", () => {
+  assert.deepEqual(validateServerSpec(undefined, 0), []);
+  assert.deepEqual(
+    validateServerSpec({ url: "http://127.0.0.1:3999/mcp" }, 0),
+    [],
+  );
+  assert.deepEqual(
+    validateServerSpec(
+      {
+        serverInfo: { name: "composed", version: "1.0.0" },
+        tools: [{ preset: "add" }],
+      },
+      0,
+    ),
+    [],
+  );
+  assert.ok(
+    validateServerSpec({ url: "ftp://x" }, 0).some((e) =>
+      /http\(s\) URL/.test(e),
+    ),
+  );
+  assert.ok(
+    validateServerSpec({ url: "http://x", tools: [{ preset: "add" }] }, 0).some(
+      (e) => /no other keys/.test(e),
+    ),
+  );
+  assert.ok(
+    validateServerSpec({ tools: [{ preset: "add" }] }, 0).some((e) =>
+      /needs `serverInfo`/.test(e),
+    ),
+  );
+  assert.ok(
+    validateServerSpec(
+      {
+        serverInfo: { name: "c", version: "1" },
+        transport: { type: "streamable-http" },
+      },
+      0,
+    ).some((e) => /omit `transport`/.test(e)),
+  );
+  assert.ok(validateServerSpec([], 0).some((e) => /must be an object/.test(e)));
+});
+
+test("validateBehaviorCase: server field is validated through the case", () => {
+  const errs = validateBehaviorCase(
+    { prompt: "p", expectCalls: [{ cmd: "connect" }], server: { url: "nope" } },
+    2,
+  );
+  assert.ok(errs.some((e) => /behavior case 2 `server`/.test(e)));
 });
 
 test("validateBehaviorCase: empty expectCalls is an error", () => {
