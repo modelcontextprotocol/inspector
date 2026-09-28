@@ -537,8 +537,14 @@ export function formatEmaStatusHuman(
 export function formatServersListHuman(
   servers: unknown[],
   style: Style = PLAIN,
+  source?: { kind: "catalog" | "config"; path: string },
 ): string {
   const lines = [heading(style, `Servers (${servers.length}):`)];
+  // Say where the entries came from — shells with different --catalog /
+  // MCP_CATALOG_PATH / --config see different lists from the same daemon.
+  if (source) {
+    lines.push(`Source: ${style.dim(`${source.kind} ${source.path}`)}`);
+  }
   for (const raw of servers) {
     const s = raw as JsonObject;
     const connectionName =
@@ -560,6 +566,7 @@ export function formatServersListHuman(
 export function formatServerShowHuman(
   server: JsonObject,
   style: Style = PLAIN,
+  source?: { kind: "catalog" | "config"; path: string },
 ): string {
   const name = String(server.name ?? "?");
   const type = String(server.type ?? "?");
@@ -575,6 +582,10 @@ export function formatServerShowHuman(
   return [
     header,
     detail ? style.dim(detail) : style.dim("(no detail)"),
+    // Same provenance line as servers/list — which file the entry came from.
+    ...(source
+      ? [`Source: ${style.dim(`${source.kind} ${source.path}`)}`]
+      : []),
     JSON.stringify(body, null, 2),
   ].join("\n");
 }

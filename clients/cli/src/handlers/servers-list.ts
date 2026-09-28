@@ -5,7 +5,9 @@ import type {
 import { InMemorySecretStore } from "@inspector/core/auth/node/secret-store.js";
 import {
   loadServerEntries,
+  resolveServerSource,
   selectServerEntry,
+  withDefaultCatalogPath,
   type ServerLoadOptions,
 } from "@inspector/core/mcp/node/index.js";
 
@@ -29,6 +31,27 @@ export type ConnectionListRef = {
   name: string;
   isMru?: boolean;
 };
+
+/**
+ * Where a server list came from: the writable catalog (default
+ * `~/.mcp-inspector/mcp.json`, or `--catalog` / `MCP_CATALOG_PATH`) or a
+ * read-only `--config` file. Surfaced by `servers/list` so users working
+ * across shells with different catalog env vars can see which file produced
+ * the entries. `null` for ad-hoc targets (no list source).
+ */
+export type ServerListSource = { kind: "catalog" | "config"; path: string };
+
+/**
+ * Resolve the source `listServerEntries` would read for these options,
+ * applying the same default-catalog fallback.
+ */
+export function resolveServerListSource(
+  serverOptions: ServerLoadOptions = {},
+): ServerListSource | null {
+  const source = resolveServerSource(withDefaultCatalogPath(serverOptions));
+  if (!source) return null;
+  return { kind: source.writable ? "catalog" : "config", path: source.path };
+}
 
 /**
  * Mark catalog entries that have a live connection with the same name.

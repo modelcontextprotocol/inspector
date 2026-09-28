@@ -6,6 +6,7 @@ import { getTestMcpServerCommand } from "@modelcontextprotocol/inspector-test-se
 import { runMcp } from "./helpers/mcp-runner.js";
 import {
   createSampleTestConfig,
+  createTestConfig,
   deleteConfigFile,
 } from "../../cli/__tests__/helpers/fixtures.js";
 import {
@@ -279,6 +280,35 @@ describe("mcp.ts coverage", () => {
       { env: e, timeout: 20000 },
     );
     expectCliSuccess(show);
+    // Entry provenance rides along, mirroring servers/list.
+    expect(JSON.parse(show.stdout).source).toMatchObject({ kind: "config" });
+
+    // No name: falls back to the MRU connection's entry (test-stdio is
+    // connected above and MCP_ALLOW_DEFAULT_CONNECTION opts non-TTY in).
+    const showMru = await runMcp(
+      ["servers/show", "--config", configPath, "--format", "json"],
+      { env: e, timeout: 20000 },
+    );
+    expectCliSuccess(showMru);
+    expect(JSON.parse(showMru.stdout).name).toBe("test-stdio");
+
+    // MRU-inferred name missing from the shell's source: the error must
+    // explain the name came from the MRU connection, not look like a typo.
+    const otherConfig = createTestConfig({
+      mcpServers: { unrelated: { type: "stdio", command: "true" } },
+    });
+    try {
+      const crossCatalog = await runMcp(
+        ["servers/show", "--config", otherConfig],
+        { env: e, timeout: 20000 },
+      );
+      expectCliFailure(crossCatalog);
+      expect(crossCatalog.stderr).toMatch(
+        /most-recently-used connection 'test-stdio' has no entry in config/,
+      );
+    } finally {
+      deleteConfigFile(otherConfig);
+    }
 
     // Skills support is optional; the default test server may not advertise
     // it. Either way, the RPC action itself should run (not a usage error).
@@ -474,6 +504,37 @@ describe("mcp.ts coverage", () => {
     } finally {
       process.argv = originalArgv;
     }
+  });
+
+  it("servers/show without a name explains the MRU rules instead of a bare parse error", async () => {
+    configPath = createSampleTestConfig();
+    const e = env();
+
+    // Non-interactive without the default-connection opt-in: name required.
+    const strict = await runMcp(["servers/show", "--config", configPath], {
+      env: { ...e, MCP_ALLOW_DEFAULT_CONNECTION: "" },
+      timeout: 20000,
+    });
+    expectCliFailure(strict);
+    expect(strict.stderr).toMatch(/requires an entry name/);
+
+    // Opted in but nothing connected (no daemon): no MRU to infer from.
+    const noMru = await runMcp(["servers/show", "--config", configPath], {
+      env: e,
+      timeout: 20000,
+    });
+    expectCliFailure(noMru);
+    expect(noMru.stderr).toMatch(/no most-recently-used connection/);
+
+    // Explicit unknown name: keep the core message but say which file was
+    // searched, so a cross-catalog mismatch is self-explanatory.
+    const unknown = await runMcp(
+      ["servers/show", "no-such-entry", "--config", configPath],
+      { env: e, timeout: 20000 },
+    );
+    expectCliFailure(unknown);
+    expect(unknown.stderr).toMatch(/Server 'no-such-entry' not found/);
+    expect(unknown.stderr).toContain(`(config ${configPath}`);
   });
 
   it("connections/list and daemon status do not auto-spawn the daemon", async () => {

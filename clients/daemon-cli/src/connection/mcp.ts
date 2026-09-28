@@ -29,6 +29,8 @@ import type {
 import {
   annotateServerEntriesWithConnections,
   listServerEntries,
+  resolveServerListSource,
+  type ServerListSource,
   showServerEntry,
   summarizeServerConfig,
 } from "@inspector/cli/handlers/servers-list.js";
@@ -74,6 +76,77 @@ function isDaemonUnreachable(error: unknown): boolean {
     error instanceof CliExitCodeError &&
     error.envelope?.code === "daemon_unreachable"
   );
+}
+
+/**
+ * `servers/show` with no name falls back to the MRU connection's entry name,
+ * under the same non-interactive gate as MRU connection targeting: an agent
+ * shell must name the entry explicitly. When there is no MRU (no daemon, or
+ * nothing connected), say so — a bare Commander "missing required argument"
+ * doesn't tell the user why a name is needed.
+ */
+async function resolveMruEntryName(): Promise<string> {
+  if (requireExplicitConnection()) {
+    throw new CliExitCodeError(
+      EXIT_CODES.USAGE,
+      "servers/show requires an entry name in non-interactive mode. Pass one (see mcpdo servers/list).",
+      { code: "server_name_required" },
+    );
+  }
+  let connections: ConnectionInfo[] = [];
+  try {
+    const result = await callDaemon<{ connections: ConnectionInfo[] }>(
+      "connections/list",
+      {},
+    );
+    connections = result.connections;
+  } catch (error) {
+    if (!isDaemonUnreachable(error)) throw error;
+  }
+  const mru = connections.find((c) => c.isMru);
+  if (!mru) {
+    throw new CliExitCodeError(
+      EXIT_CODES.USAGE,
+      "No entry name given and there is no most-recently-used connection to infer one from. Pass a catalog entry name (see mcpdo servers/list).",
+      { code: "server_name_required" },
+    );
+  }
+  return mru.name;
+}
+
+/**
+ * The core "not found" error is source-agnostic by design; here we know both
+ * where the list came from and whether the user typed the name. An explicit
+ * name gets the source appended; an MRU-inferred name gets a full explanation,
+ * because "Server 'X' not found" is baffling when the user never typed X —
+ * connections are daemon-global while the catalog is per-shell, so the MRU
+ * connection's entry may simply not exist in this shell's catalog.
+ */
+function describeServerShowNotFound(
+  error: unknown,
+  entryName: string,
+  inferredFromMru: boolean,
+  source: ServerListSource | null,
+): unknown {
+  if (
+    !(error instanceof Error) ||
+    !error.message.startsWith(`Server '${entryName}' not found`)
+  ) {
+    return error;
+  }
+  const where = source
+    ? `${source.kind} ${source.path}`
+    : "the resolved server list";
+  if (inferredFromMru) {
+    return new CliExitCodeError(
+      EXIT_CODES.USAGE,
+      `The most-recently-used connection '${entryName}' has no entry in ${where}. Connections and catalog entries are separate — it may have been connected ad-hoc or from a different catalog. Pass an entry name (see mcpdo servers/list).`,
+      { code: "server_not_found" },
+    );
+  }
+  return new CliExitCodeError(EXIT_CODES.USAGE, `${error.message} (${where})`, {
+    code: "server_not_found",
+  });
 }
 
 /** Commander help/version exits — text already written; not real failures. */
@@ -199,10 +272,12 @@ export async function runMcp(argv?: string[]): Promise<void> {
     .action(async () => {
       const opts = program.opts<GlobalOpts>();
       const envCatalog = process.env.MCP_CATALOG_PATH;
-      const entries = await listServerEntries({
+      const serverOptions = {
         catalogPath: opts.catalog?.trim() || envCatalog,
         configPath: opts.config?.trim() || undefined,
-      });
+      };
+      const entries = await listServerEntries(serverOptions);
+      const source = resolveServerListSource(serverOptions);
       let connections: ConnectionInfo[] = [];
       try {
         const result = await callDaemon<{ connections: ConnectionInfo[] }>(
@@ -216,6 +291,7 @@ export async function runMcp(argv?: string[]): Promise<void> {
       await writeConnectionOutput(outOpts(opts), {
         kind: "servers/list",
         servers: annotateServerEntriesWithConnections(entries, connections),
+        ...(source && { source }),
       });
     });
 
@@ -224,17 +300,35 @@ export async function runMcp(argv?: string[]): Promise<void> {
     .description(
       "Show one catalog/config entry in detail (no MCP connection; secrets redacted)",
     )
-    .argument("<name>", "Catalog entry name")
-    .action(async (name: string) => {
+    .argument(
+      "[name]",
+      "Catalog entry name (defaults to the MRU connection's entry on an interactive TTY)",
+    )
+    .action(async (name: string | undefined) => {
       const opts = program.opts<GlobalOpts>();
       const envCatalog = process.env.MCP_CATALOG_PATH;
-      const entry = await showServerEntry(name, {
+      const serverOptions = {
         catalogPath: opts.catalog?.trim() || envCatalog,
         configPath: opts.config?.trim() || undefined,
-      });
+      };
+      const explicitName = stripAt(name?.trim() || undefined);
+      const entryName = explicitName ?? (await resolveMruEntryName());
+      const source = resolveServerListSource(serverOptions);
+      let entry;
+      try {
+        entry = await showServerEntry(entryName, serverOptions);
+      } catch (error) {
+        throw describeServerShowNotFound(
+          error,
+          entryName,
+          explicitName === undefined,
+          source,
+        );
+      }
       await writeConnectionOutput(outOpts(opts), {
         kind: "servers/show",
         server: entry,
+        ...(source && { source }),
       });
     });
 

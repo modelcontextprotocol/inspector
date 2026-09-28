@@ -25,7 +25,7 @@ import {
 } from "../src/connection/format-human.js";
 import { writeConnectionOutput } from "../src/connection/format-connection.js";
 import { CliExitCodeError, EXIT_CODES } from "@inspector/cli/error-handler.js";
-import { createStyle } from "@inspector/cli/style.js";
+import { createStyle, PLAIN } from "@inspector/cli/style.js";
 
 describe("format-human", () => {
   it("formats tools with schema variants and empty list", () => {
@@ -312,6 +312,18 @@ describe("format-human", () => {
     ).toContain("(none)");
     expect(formatServersListHuman([])).toContain("(none)");
     expect(
+      formatServersListHuman([], PLAIN, {
+        kind: "catalog",
+        path: "/home/u/.mcp-inspector/mcp.json",
+      }),
+    ).toContain("Source: catalog /home/u/.mcp-inspector/mcp.json");
+    expect(
+      formatServersListHuman([], PLAIN, {
+        kind: "config",
+        path: "./mcp.json",
+      }),
+    ).toContain("Source: config ./mcp.json");
+    expect(
       formatServersListHuman([{ name: "s", type: "stdio", detail: "x" }]),
     ).toContain("`s`");
     expect(
@@ -325,6 +337,13 @@ describe("format-human", () => {
         },
       ]),
     ).toMatch(/@s \(MRU\)/);
+    expect(
+      formatServerShowHuman(
+        { name: "s", type: "stdio", detail: "x", config: {} },
+        PLAIN,
+        { kind: "catalog", path: "/tmp/cat.json" },
+      ),
+    ).toContain("Source: catalog /tmp/cat.json");
     expect(
       formatServerShowHuman({
         name: "s",

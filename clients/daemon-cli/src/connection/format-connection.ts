@@ -69,8 +69,18 @@ export type ConnectionWriteKind =
       exitCode?: number;
     }
   | { kind: "stream-event"; data: unknown }
-  | { kind: "servers/list"; servers: unknown[] }
-  | { kind: "servers/show"; server: JsonObject }
+  | {
+      kind: "servers/list";
+      servers: unknown[];
+      /** Which file produced the entries (writable catalog vs read-only config). */
+      source?: { kind: "catalog" | "config"; path: string };
+    }
+  | {
+      kind: "servers/show";
+      server: JsonObject;
+      /** Which file produced the entry (writable catalog vs read-only config). */
+      source?: { kind: "catalog" | "config"; path: string };
+    }
   | { kind: "connections/list"; connections: unknown[] }
   | { kind: "connection"; connection: ConnectionInfo | JsonObject }
   | { kind: "disconnect"; name: string }
@@ -165,9 +175,14 @@ function jsonPayload(payload: ConnectionWriteKind): unknown {
     case "stream-event":
       return payload.data;
     case "servers/list":
-      return { servers: payload.servers };
+      return {
+        servers: payload.servers,
+        ...(payload.source && { source: payload.source }),
+      };
     case "servers/show":
-      return payload.server;
+      return payload.source
+        ? { ...payload.server, source: payload.source }
+        : payload.server;
     case "connections/list":
       return { connections: payload.connections };
     case "connection":
@@ -213,9 +228,9 @@ function humanPayload(payload: ConnectionWriteKind, style: Style): string {
     case "stream-event":
       return formatStreamEventHuman(payload.data, style);
     case "servers/list":
-      return formatServersListHuman(payload.servers, style);
+      return formatServersListHuman(payload.servers, style, payload.source);
     case "servers/show":
-      return formatServerShowHuman(payload.server, style);
+      return formatServerShowHuman(payload.server, style, payload.source);
     case "connections/list":
       return formatConnectionsListHuman(payload.connections, style);
     case "connection":

@@ -9,6 +9,7 @@ import { expectCliSuccess } from "./helpers/assertions.js";
 import {
   annotateServerEntriesWithConnections,
   listServerEntries,
+  resolveServerListSource,
   sanitizeServerConfig,
   sanitizeServerSettings,
   showServerEntry,
@@ -97,6 +98,31 @@ describe("annotateServerEntriesWithConnections", () => {
       { name: "a", type: "stdio", detail: "node a", connection: "a" },
       { name: "b", type: "stdio", detail: "node b" },
     ]);
+  });
+});
+
+describe("resolveServerListSource", () => {
+  it("reports catalog (writable) vs config (read-only) with the resolved path", () => {
+    expect(resolveServerListSource({ catalogPath: "/tmp/cat.json" })).toEqual({
+      kind: "catalog",
+      path: "/tmp/cat.json",
+    });
+    expect(resolveServerListSource({ configPath: "/tmp/conf.json" })).toEqual({
+      kind: "config",
+      path: "/tmp/conf.json",
+    });
+  });
+
+  it("falls back to the default writable catalog when no source is given", () => {
+    const source = resolveServerListSource({});
+    expect(source?.kind).toBe("catalog");
+    expect(source?.path).toMatch(/mcp\.json$/);
+  });
+
+  it("is null for ad-hoc targets (no list source)", () => {
+    expect(
+      resolveServerListSource({ target: ["https://example.com/mcp"] }),
+    ).toBeNull();
   });
 });
 
