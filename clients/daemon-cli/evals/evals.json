@@ -1,34 +1,72 @@
 [
   {
+    "kind": "trigger",
     "prompt": "What MCP servers am I connected to?",
     "expect": "mcpdo"
   },
   {
+    "kind": "trigger",
     "prompt": "Call the echo tool on the everything MCP server and show me the result.",
     "expect": "mcpdo"
   },
   {
+    "kind": "trigger",
     "prompt": "Do I have access to any MCP tools besides your built-in ones?",
     "expect": "mcpdo"
   },
   {
+    "kind": "trigger",
     "prompt": "List the resources available on the MCP server I connected to earlier.",
     "expect": "mcpdo"
   },
   {
+    "kind": "trigger",
     "prompt": "Use mcpdo to list the tools on the everything server.",
     "expect": "mcpdo"
   },
   {
+    "kind": "trigger",
     "prompt": "What does this regex do? /^\\d{3}-\\d{4}$/",
     "expect": null
   },
   {
+    "kind": "trigger",
     "prompt": "How do I write a simple HTTP server in Node.js?",
     "expect": null
   },
   {
+    "kind": "trigger",
     "prompt": "Rename the variable `foo` to `bar` in this snippet: const foo = 1; console.log(foo);",
     "expect": null
+  },
+  {
+    "kind": "behavior",
+    "prompt": "Connect to the test-stdio MCP server and list its tools.",
+    "expectCalls": [
+      {
+        "cmd": "connect",
+        "connection": "test-stdio"
+      },
+      {
+        "cmd": "tools/list",
+        "connection": "test-stdio"
+      }
+    ]
+  },
+  {
+    "kind": "behavior",
+    "prompt": "Use the test-stdio MCP server to add the numbers 2 and 3, and tell me the result.",
+    "expectCalls": [
+      {
+        "cmd": "tools/call",
+        "connection": "test-stdio",
+        "tool": "get_sum",
+        "args": {
+          "a": 2,
+          "b": 3
+        },
+        "stdoutMatch": "5"
+      }
+    ]
   }
 ]

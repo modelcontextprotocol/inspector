@@ -674,6 +674,15 @@ export function runPrompt(
     maxTurns = 1,
     agent = "claude",
     killFn = killTree,
+    // Additive seams for the mcpdo BEHAVIOR eval (skill-eval-mcpdo.mjs):
+    // `env` merges over the inherited environment (the behavior eval puts a
+    // recording shim first on PATH and binds a private daemon), and
+    // `agentArgsFn` replaces the whole argument builder — replacement, not
+    // appending, because a policy that must allow shell cannot be reached by
+    // appending to one that denies it (`--deny-tool shell` has no inverse
+    // flag). Defaults preserve this file's read-only trigger policy exactly.
+    env = null,
+    agentArgsFn = agentArgs,
   } = {},
 ) {
   return new Promise((resolve, reject) => {
@@ -685,9 +694,10 @@ export function runPrompt(
     // process table.
     const { command, args, options } = cliSpawnArgs(
       agent,
-      agentArgs(agent, maxTurns),
+      agentArgsFn(agent, maxTurns),
       {
         cwd,
+        ...(env ? { env: { ...process.env, ...env } } : {}),
         stdio: ["pipe", "pipe", "inherit"],
         // Its own process group, so `killTree` can reach the native binary the
         // wrapper starts. Windows has no groups; `taskkill /T` covers it.
