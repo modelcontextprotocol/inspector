@@ -22,6 +22,7 @@ import {
   formatSkillVerifyListHuman,
   formatStreamEventHuman,
   formatRpcResultHuman,
+  formatElicitationPendingHuman,
 } from "../src/connection/format-human.js";
 import { writeConnectionOutput } from "../src/connection/format-connection.js";
 import { CliExitCodeError, EXIT_CODES } from "@inspector/cli/error-handler.js";
@@ -571,6 +572,68 @@ describe("format-human", () => {
     );
     expect(formatRpcResultHuman("roots/set", { roots: [] })).toContain("Roots");
     expect(formatRpcResultHuman("unknown/op", { x: 1 })).toBeNull();
+  });
+});
+
+describe("formatElicitationPendingHuman", () => {
+  it("formatElicitationPendingHuman renders form fields and respond guidance", () => {
+    const text = formatElicitationPendingHuman({
+      elicitationId: "e-9",
+      connection: "srv",
+      method: "tools/call",
+      toolName: "collect",
+      mode: "form",
+      message: "Pick a color",
+      requestedSchema: {
+        type: "object",
+        properties: {
+          color: { type: "string", description: "Favourite color" },
+          size: { type: "string", enum: ["s", "m", "l"] },
+          count: { type: "integer" },
+        },
+        required: ["color"],
+      },
+      origin: "server-request",
+      expiresAt: Date.now() + 600_000,
+    });
+    expect(text).toContain("Input required");
+    expect(text).toContain("@srv");
+    expect(text).toContain("Pick a color");
+    expect(text).toContain("color (string, required)");
+    expect(text).toContain("Favourite color");
+    expect(text).toContain("size (enum) [s, m, l]");
+    expect(text).toContain("count (integer)");
+    expect(text).toContain("elicitation/respond e-9 field:=value");
+    expect(text).toContain("--decline | --cancel");
+    expect(text).toContain("expires");
+  });
+
+  it("formatElicitationPendingHuman renders url mode with --done guidance; unsafe schemes stay plain", () => {
+    const info = {
+      elicitationId: "e-u",
+      connection: "srv",
+      method: "tools/call",
+      mode: "url",
+      message: "Finish signup",
+      url: "https://example.com/signup?flow=abc",
+      origin: "server-request",
+      expiresAt: 0,
+    };
+    const styled = formatElicitationPendingHuman(
+      info,
+      createStyle({ color: true, links: true }),
+    );
+    expect(styled).toContain("https://example.com/signup?flow=abc");
+    expect(styled).toContain("\u001b]8;;https://example.com/signup?flow=abc");
+    expect(styled).toContain("elicitation/respond e-u --done");
+    expect(styled).toContain("elicitation/respond e-u --cancel");
+
+    const unsafe = formatElicitationPendingHuman(
+      { ...info, url: "file:///etc/passwd" },
+      createStyle({ color: true, links: true }),
+    );
+    expect(unsafe).toContain("file:///etc/passwd");
+    expect(unsafe).not.toContain("\u001b]8");
   });
 });
 

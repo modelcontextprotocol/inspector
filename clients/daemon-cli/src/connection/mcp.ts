@@ -25,6 +25,8 @@ import { callDaemon, ensureDaemon } from "../daemon/index.js";
 import type {
   ConnectionInfo,
   ConnectionShowResult,
+  ElicitationRespondParams,
+  ElicitationRespondResult,
 } from "../daemon/protocol.js";
 import {
   annotateServerEntriesWithConnections,
@@ -53,6 +55,7 @@ import { isCliAutoOpenForced } from "@inspector/cli/cli-oauth-navigation.js";
 import { emaLogin, emaLogout, getEmaStatus } from "./ema.js";
 import {
   assertJsonRoundTrips,
+  parseToolCallPositionals,
   resolveToolCallArgs,
 } from "./parse-tool-args.js";
 import { resolveCommandPath } from "./resolve-command.js";
@@ -61,6 +64,7 @@ import {
   hoistAtConnection,
   requireExplicitConnection,
   stripAt,
+  writeRpcOutcome,
 } from "./dispatch.js";
 import { writeConnectionOutput } from "./format-connection.js";
 import {
@@ -342,6 +346,7 @@ export async function runMcp(argv?: string[]): Promise<void> {
   registerConnectionAdmin(program);
   registerAuthCommands(program);
   registerRpcCommands(program);
+  registerElicitationCommands(program);
   // Keep infra commands last in --help (just before Commander's built-in help).
   registerDaemonCommands(program);
   registerPrivateCommand(program);
@@ -1212,6 +1217,79 @@ function registerRpcCommands(program: CommandType): void {
         break;
     }
   }
+}
+
+/**
+ * `elicitation/respond` — answers an elicitation the daemon parked for a
+ * non-interactive caller (`elicitationPending` output). One respond per
+ * round: the result is either the resumed call's final output or the next
+ * pending round.
+ */
+function registerElicitationCommands(program: CommandType): void {
+  program
+    .command("elicitation/respond")
+    .description(
+      "Answer a pending server elicitation (from elicitationPending output): form answers as key:=value pairs / JSON, --done for URL mode, or --decline / --cancel",
+    )
+    .argument("<elicitationId>", "Id from the elicitationPending payload")
+    .argument(
+      "[fields...]",
+      "Form answers as key:=value pairs or one JSON object (accepts)",
+    )
+    .option(
+      "--done",
+      "URL mode: report the linked interaction as finished (accept)",
+    )
+    .option("--decline", "Decline the request (form mode only)")
+    .option("--cancel", "Cancel the elicitation")
+    .action(async (elicitationId: string, fields: string[] | undefined, o) => {
+      const opts = program.opts<GlobalOpts>();
+      const flags = [
+        o.done === true && "--done",
+        o.decline === true && "--decline",
+        o.cancel === true && "--cancel",
+      ].filter(Boolean) as string[];
+      const hasFields = (fields?.length ?? 0) > 0;
+      if (flags.length > 1 || (flags.length === 1 && hasFields)) {
+        throw new CliExitCodeError(
+          EXIT_CODES.USAGE,
+          `Provide field values, or exactly one of --done / --decline / --cancel — not ${[...(hasFields ? ["field values"] : []), ...flags].join(" and ")}.`,
+          { code: "usage" },
+        );
+      }
+      if (flags.length === 0 && !hasFields) {
+        throw new CliExitCodeError(
+          EXIT_CODES.USAGE,
+          "Provide form answers as key:=value pairs (or one JSON object), or one of --done / --decline / --cancel.",
+          { code: "usage" },
+        );
+      }
+      const params: ElicitationRespondParams = o.cancel
+        ? { elicitationId, action: "cancel" }
+        : o.decline
+          ? { elicitationId, action: "decline" }
+          : hasFields
+            ? {
+                elicitationId,
+                action: "accept",
+                content: parseToolCallPositionals(fields!),
+              }
+            : { elicitationId, action: "accept" };
+      const { socketPath } = await ensureDaemon();
+      const result = await callDaemon<ElicitationRespondResult>(
+        "elicitation/respond",
+        params,
+        // The resumed call's duration is governed by MCP timeouts the
+        // daemon enforces; a fixed local deadline would falsely fail it.
+        { socketPath, timeoutMs: 0 },
+      );
+      await writeRpcOutcome(
+        outOpts(opts),
+        result.method,
+        result.toolName,
+        result.outcome,
+      );
+    });
 }
 
 async function runRpc(

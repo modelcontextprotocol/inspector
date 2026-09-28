@@ -24,7 +24,8 @@ export type DaemonOp =
   | "daemon/status"
   | "daemon/stop"
   | "rpc"
-  | "stream";
+  | "stream"
+  | "elicitation/respond";
 
 export type ConnectParams = {
   name: string;
@@ -61,6 +62,17 @@ export type ConnectionNameParams = {
 export type RpcParams = ConnectionNameParams &
   MethodArgs & {
     method: string;
+    /**
+     * When true and the call surfaces a legacy or modern non-task MRTR
+     * elicitation, don't relay it over the socket for an inline prompt —
+     * park it daemon-side and return immediately with
+     * `kind: "elicitation-pending"`. The caller answers via the
+     * `elicitation/respond` op, whose result is either the final call
+     * outcome or the next pending round. Set by the front-end for
+     * non-interactive callers (`--format json`, non-TTY), which have no
+     * human at the stream to answer an inline prompt.
+     */
+    parkElicitations?: boolean;
   };
 
 export type DaemonRequest = {
@@ -78,6 +90,7 @@ export type DaemonRequest = {
     | ConnectParams
     | ConnectionNameParams
     | RpcParams
+    | ElicitationRespondParams
     | Record<string, never>;
 };
 
@@ -135,6 +148,54 @@ export type ElicitationResponseFrame = {
   action: "accept" | "decline" | "cancel";
   /** Form mode `action: "accept"` only. */
   content?: Record<string, unknown>;
+};
+
+/**
+ * A parked elicitation, as reported to a non-interactive caller
+ * ({@link RpcParams.parkElicitations}): everything an agent needs to relay
+ * the request to a human and answer it with `elicitation/respond`. Rides the
+ * normal success payload — like the pending-auth URL, an elicitation URL's
+ * query string is meaningful data the error envelope would redact.
+ */
+export type ElicitationPendingInfo = {
+  /** Key for `elicitation/respond`; changes on every round. */
+  elicitationId: string;
+  /** Connection whose in-flight call is parked. */
+  connection: string;
+  /** Originating rpc method (e.g. `tools/call`), for output rendering. */
+  method: string;
+  /** Originating tool, when the method was `tools/call`. */
+  toolName?: string;
+  mode: "form" | "url";
+  message: string;
+  /** Form mode only. */
+  requestedSchema?: Record<string, unknown>;
+  /** URL mode only. */
+  url?: string;
+  /** Legacy server→client request vs. modern non-task MRTR round. */
+  origin: PendingRequestOrigin;
+  /** Epoch ms; the exchange is auto-cancelled if unanswered by then. */
+  expiresAt: number;
+};
+
+/** Params for the `elicitation/respond` op. */
+export type ElicitationRespondParams = {
+  elicitationId: string;
+  action: "accept" | "decline" | "cancel";
+  /** Form mode `action: "accept"` only. */
+  content?: Record<string, unknown>;
+};
+
+/**
+ * `elicitation/respond` result. `outcome` is either the parked call's final
+ * result — the response the original `rpc` would have produced — or the next
+ * `elicitation-pending` round; `method`/`toolName` echo the originating call
+ * so the front-end can render that result the same way `rpc` output is.
+ */
+export type ElicitationRespondResult = {
+  method: string;
+  toolName?: string;
+  outcome: RpcResult;
 };
 
 /**
@@ -250,4 +311,14 @@ export type RpcResult =
       summary?: string;
       /** Non-zero when the emitted report is itself a failure (`--verify`). */
       exitCode?: number;
+    }
+  | {
+      /**
+       * The call surfaced an elicitation while
+       * {@link RpcParams.parkElicitations} was set: the call is parked
+       * daemon-side awaiting `elicitation/respond`, and this is everything
+       * the caller needs to answer it.
+       */
+      kind: "elicitation-pending";
+      elicitation: ElicitationPendingInfo;
     };

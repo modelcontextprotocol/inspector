@@ -14,6 +14,10 @@ import {
   type HandleOutcome,
 } from "./ipc-glue.js";
 import { wireElicitationBridge } from "./elicitation-bridge.js";
+import {
+  ElicitationParkRegistry,
+  ParkingElicitationChannel,
+} from "./elicitation-park.js";
 import { assertDaemonToken, getDaemonTokenFromEnv } from "./auth.js";
 import type { InspectorClient } from "@inspector/core/mcp/index.js";
 import { isTerminalStatus } from "@inspector/core/mcp/types.js";
@@ -32,6 +36,10 @@ import type {
   DaemonRequest,
   DaemonResponse,
   DaemonStatus,
+  ElicitationPendingInfo,
+  ElicitationRequestFrame,
+  ElicitationRespondParams,
+  ElicitationRespondResult,
   RpcParams,
   RpcResult,
   ConnectionNameParams,
@@ -76,6 +84,11 @@ export type DaemonServerOptions = {
    * must not hang `daemon stop`). Tests use a short value.
    */
   flushTimeoutMs?: number;
+  /**
+   * TTL for parked elicitations (`RpcParams.parkElicitations`); defaults to
+   * {@link PARKED_ELICITATION_TTL_MS}. Tests use a short value.
+   */
+  elicitationTtlMs?: number;
 };
 
 /**
@@ -109,6 +122,8 @@ export class DaemonServer {
    * the bridge would route a prompt to the wrong caller's terminal; running
    * at most one rpc per connection at a time makes the routing exact. */
   private readonly rpcQueues = new WeakMap<InspectorClient, Promise<void>>();
+  /** Parked elicitations for non-interactive callers (see elicitation-park.ts). */
+  private readonly parks: ElicitationParkRegistry;
 
   constructor(options: DaemonServerOptions = {}) {
     this.dir = options.dir ?? getDaemonDir();
@@ -118,6 +133,7 @@ export class DaemonServer {
     this.flushTimeoutMs =
       options.flushTimeoutMs ?? DaemonServer.FLUSH_TIMEOUT_MS;
     this.registry = new ConnectionRegistry(options.idleMs ?? DEFAULT_IDLE_MS);
+    this.parks = new ElicitationParkRegistry(options.elicitationTtlMs);
     this.onShutdown = options.onShutdown ?? null;
     this.registry.setIdleHandler(() => {
       void this.stop("idle");
@@ -198,6 +214,9 @@ export class DaemonServer {
   private async doStop(reason: "idle" | "stop" | "signal"): Promise<void> {
     void reason;
     this.stopping = true;
+    // Settle parked elicitations first: their held server requests must be
+    // cancelled before the connections under them are torn down.
+    this.parks.cancelAll();
     // Quiesce: new ops are rejected above; wait (bounded — an rpc blocked on
     // an interactive elicitation prompt must not hang shutdown forever) for
     // in-flight ops so a concurrent connect lands in the registry before the
@@ -359,6 +378,9 @@ export class DaemonServer {
             { code: "invalid_params" },
           );
         }
+        // A replacing connect tears down any previous connection under this
+        // name; a call parked on it can never be answered — settle it now.
+        this.parks.cancelForConnection(params.name);
         return {
           response: {
             id: request.id,
@@ -369,15 +391,14 @@ export class DaemonServer {
       }
       case "disconnect": {
         const params = (request.params ?? {}) as ConnectionNameParams;
+        const result = await this.registry.disconnect(
+          params.name,
+          params.requireExplicit,
+        );
+        // The connection is gone; a call parked on it can never be answered.
+        this.parks.cancelForConnection(result.name);
         return {
-          response: {
-            id: request.id,
-            ok: true,
-            result: await this.registry.disconnect(
-              params.name,
-              params.requireExplicit,
-            ),
-          },
+          response: { id: request.id, ok: true, result },
         };
       }
       case "connections/list":
@@ -466,6 +487,16 @@ export class DaemonServer {
         };
       case "stream":
         return this.openStream(request.id, request.params as RpcParams);
+      case "elicitation/respond":
+        return {
+          response: {
+            id: request.id,
+            ok: true,
+            result: await this.respondElicitation(
+              request.params as ElicitationRespondParams,
+            ),
+          },
+        };
       default:
         throw new CliExitCodeError(
           EXIT_CODES.USAGE,
@@ -485,13 +516,21 @@ export class DaemonServer {
         code: "invalid_params",
       });
     }
+    const park = params.parkElicitations === true;
+    // Parking needs the connection *name* for the pending payload and for
+    // teardown-keyed cancellation; resolve it before reviving the client.
+    const connectionName = park
+      ? this.registry.connectionFor(params.name, params.requireExplicit).name
+      : undefined;
     const client = await this.registry.liveClientFor(
       params.name,
       params.requireExplicit,
     );
     const previous = this.rpcQueues.get(client) ?? Promise.resolve();
     const run = previous.then(() =>
-      this.runRpcOnClient(client, requestId, params, elicitation),
+      park
+        ? this.runRpcParked(client, connectionName!, requestId, params)
+        : this.runRpcOnClient(client, requestId, params, elicitation),
     );
     // Keep the queue alive past failures; each caller still sees its own
     // error through `run`.
@@ -512,6 +551,7 @@ export class DaemonServer {
     elicitation: ElicitationChannel,
   ): Promise<RpcResult> {
     const methodArgs = stripConnectionFields(params);
+    this.assertNoParkedCall(client);
     // Backstop against the silent-empty class: `runMethod`'s list states
     // return `[]` without error when the client isn't connected, which would
     // render as "Tools (0)" for a connection that actually dropped. The
@@ -532,25 +572,159 @@ export class DaemonServer {
     } finally {
       unwire();
     }
-    if (outcome.kind === "stream") {
+    return toRpcResult(outcome, params.method);
+  }
+
+  /**
+   * A connection with a parked call must not accept new rpcs: the bridge
+   * routes elicitations to its oldest subscriber, so a second in-flight call
+   * would have its elicitations misdelivered to the parked exchange.
+   */
+  private assertNoParkedCall(client: InspectorClient): void {
+    const parked = this.parks.forClient(client);
+    if (parked) {
       throw new CliExitCodeError(
         EXIT_CODES.USAGE,
-        `Method '${params.method}' is a stream; use the stream op.`,
-        { code: "use_stream_op" },
+        `A server elicitation is pending on this connection; answer it first: elicitation/respond ${parked.info.elicitationId} (or --cancel).`,
+        { code: "elicitation_pending" },
       );
     }
-    if (outcome.kind === "ndjson") {
+  }
+
+  /**
+   * `rpc` with `parkElicitations`: run the call racing its completion
+   * against the first elicitation. Completion first → ordinary result.
+   * Elicitation first → park the still-running call and return
+   * `elicitation-pending`; `elicitation/respond` picks it up from there.
+   */
+  private async runRpcParked(
+    client: InspectorClient,
+    connectionName: string,
+    requestId: string,
+    params: RpcParams,
+  ): Promise<RpcResult> {
+    const methodArgs = stripConnectionFields(params);
+    this.assertNoParkedCall(client);
+    if (isTerminalStatus(client.getStatus())) {
+      throw new CliExitCodeError(
+        EXIT_CODES.UNREACHABLE,
+        "The connection dropped before this command could run; re-run the command to reconnect.",
+        { code: "connection_stale" },
+      );
+    }
+    const channel = new ParkingElicitationChannel();
+    const unwire = wireElicitationBridge(client, channel, requestId);
+    const outcome: Promise<RpcResult> = (async () => {
+      try {
+        return toRpcResult(await runMethod(client, methodArgs), params.method);
+      } finally {
+        unwire();
+      }
+    })();
+    const first = await raceCallOrElicitation(outcome, channel);
+    if (first.kind === "settled") return first.result;
+    if (first.kind === "failed") throw first.error;
+    // Parked: the call keeps running with nothing here awaiting it — the
+    // eventual settle is picked up by elicitation/respond, or discarded on
+    // expiry/teardown. The swallow keeps a discarded failure from becoming
+    // an unhandled rejection.
+    outcome.catch(() => {});
+    const entry = this.parks.add({
+      client,
+      channel,
+      outcome,
+      info: pendingInfo(first.frame, connectionName, {
+        method: params.method,
+        toolName: params.toolName,
+      }),
+    });
+    return { kind: "elicitation-pending", elicitation: entry.info };
+  }
+
+  /**
+   * Answer a parked elicitation and pick up what the resumed call does
+   * next: its final result, its failure, or another elicitation round
+   * (re-parked under a fresh id).
+   */
+  private async respondElicitation(
+    params: ElicitationRespondParams,
+  ): Promise<ElicitationRespondResult> {
+    if (!params?.elicitationId || typeof params.elicitationId !== "string") {
+      throw new CliExitCodeError(
+        EXIT_CODES.USAGE,
+        "elicitation/respond requires an elicitationId",
+        { code: "invalid_params" },
+      );
+    }
+    const action = params.action;
+    if (action !== "accept" && action !== "decline" && action !== "cancel") {
+      throw new CliExitCodeError(
+        EXIT_CODES.USAGE,
+        "elicitation/respond action must be accept, decline, or cancel",
+        { code: "invalid_params" },
+      );
+    }
+    const entry = this.parks.take(params.elicitationId);
+    try {
+      if (entry.info.mode === "url") {
+        if (action === "decline") {
+          // Mirrors the interactive prompt: URL mode has no decline — the
+          // user either reports completion (--done) or cancels.
+          throw new CliExitCodeError(
+            EXIT_CODES.USAGE,
+            "A URL elicitation can't be declined — use --done once the linked interaction is finished, or --cancel.",
+            { code: "invalid_params" },
+          );
+        }
+        if (params.content !== undefined) {
+          throw new CliExitCodeError(
+            EXIT_CODES.USAGE,
+            "A URL elicitation takes no field values — use --done once the linked interaction is finished.",
+            { code: "invalid_params" },
+          );
+        }
+      }
+      if (params.content !== undefined && action !== "accept") {
+        throw new CliExitCodeError(
+          EXIT_CODES.USAGE,
+          "Field values are only valid when accepting (omit --decline/--cancel).",
+          { code: "invalid_params" },
+        );
+      }
+    } catch (error) {
+      // Validation failed after the claim — put the entry back so a
+      // corrected respond can still answer it.
+      this.parks.rearm(entry, entry.info);
+      throw error;
+    }
+    entry.channel.answer({
+      id: entry.channel.pendingFrame()?.id ?? "",
+      kind: "elicitation-response",
+      elicitationId: entry.info.elicitationId,
+      action,
+      ...(action === "accept" && entry.info.mode === "form"
+        ? { content: params.content ?? {} }
+        : {}),
+    });
+    const { method, toolName, connection } = entry.info;
+    const next = await raceCallOrElicitation(entry.outcome, entry.channel);
+    if (next.kind === "elicited") {
+      const info = this.parks.rearm(
+        entry,
+        pendingInfo(next.frame, connection, { method, toolName }),
+      );
       return {
-        kind: "ndjson",
-        lines: outcome.lines,
-        summary: outcome.summary,
-        exitCode: outcome.exitCode,
+        method,
+        ...(toolName !== undefined && { toolName }),
+        outcome: { kind: "elicitation-pending", elicitation: info },
       };
     }
+    this.parks.finish(entry);
+    if (next.kind === "failed") throw next.error;
     return {
-      kind: "result",
-      result: outcome.result,
-      appInfo: outcome.appInfo,
+      method,
+      ...(toolName !== undefined && { toolName }),
+      outcome: next.result,
     };
   }
 
@@ -732,10 +906,86 @@ function stripConnectionFields(
 ): MethodArgs & { method: string } {
   // `format` is a frontend-only output concern; forwarding it would make
   // runMethod's `format === "json"` branch collect app info (an extra
-  // resources/read) whose result the frontend discards.
-  const { name, requireExplicit, format, method, ...rest } = params;
+  // resources/read) whose result the frontend discards. `parkElicitations`
+  // is daemon routing, not a method argument.
+  const { name, requireExplicit, format, parkElicitations, method, ...rest } =
+    params;
   void name;
   void requireExplicit;
   void format;
+  void parkElicitations;
   return { method, ...rest };
+}
+
+/** Convert a `runMethod` outcome into the serializable `rpc` result. */
+function toRpcResult(
+  outcome: Awaited<ReturnType<typeof runMethod>>,
+  method: string,
+): RpcResult {
+  if (outcome.kind === "stream") {
+    throw new CliExitCodeError(
+      EXIT_CODES.USAGE,
+      `Method '${method}' is a stream; use the stream op.`,
+      { code: "use_stream_op" },
+    );
+  }
+  if (outcome.kind === "ndjson") {
+    return {
+      kind: "ndjson",
+      lines: outcome.lines,
+      summary: outcome.summary,
+      exitCode: outcome.exitCode,
+    };
+  }
+  return {
+    kind: "result",
+    result: outcome.result,
+    appInfo: outcome.appInfo,
+  };
+}
+
+/** Project one elicitation frame into the caller-facing pending payload. */
+function pendingInfo(
+  frame: ElicitationRequestFrame,
+  connectionName: string,
+  call: { method: string; toolName?: string },
+): Omit<ElicitationPendingInfo, "expiresAt"> {
+  return {
+    elicitationId: frame.elicitationId,
+    connection: connectionName,
+    method: call.method,
+    ...(call.toolName !== undefined && { toolName: call.toolName }),
+    mode: frame.mode,
+    message: frame.message,
+    ...(frame.requestedSchema !== undefined && {
+      requestedSchema: frame.requestedSchema,
+    }),
+    ...(frame.url !== undefined && { url: frame.url }),
+    origin: frame.origin,
+  };
+}
+
+type CallOrElicitation =
+  | { kind: "settled"; result: RpcResult }
+  | { kind: "failed"; error: unknown }
+  | { kind: "elicited"; frame: ElicitationRequestFrame };
+
+/**
+ * Race a (possibly parked) call's completion against its next elicitation.
+ * Both parking sites — the original `rpc` and each `elicitation/respond`
+ * round — end in exactly this decision.
+ */
+function raceCallOrElicitation(
+  outcome: Promise<RpcResult>,
+  channel: ParkingElicitationChannel,
+): Promise<CallOrElicitation> {
+  return Promise.race([
+    outcome.then(
+      (result): CallOrElicitation => ({ kind: "settled", result }),
+      (error): CallOrElicitation => ({ kind: "failed", error }),
+    ),
+    channel
+      .waitForElicitation()
+      .then((frame): CallOrElicitation => ({ kind: "elicited", frame })),
+  ]);
 }

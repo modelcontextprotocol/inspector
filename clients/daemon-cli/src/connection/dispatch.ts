@@ -6,7 +6,7 @@ import type {
 } from "@inspector/cli/handlers/method-types.js";
 import type { OutputFormat } from "@inspector/cli/handlers/format-output.js";
 import { writeConnectionOutput } from "./format-connection.js";
-import { styleFromOpts } from "@inspector/cli/style.js";
+import { styleFromOpts, type Style } from "@inspector/cli/style.js";
 import { promptElicitation } from "./elicitation-prompt.js";
 
 const STREAM_METHODS = new Set(["logging/tail", "resources/subscribe"]);
@@ -100,6 +100,14 @@ export async function dispatchConnectionRpc(
   const onSignal = () => ac.abort();
   process.on("SIGINT", onSignal);
   process.on("SIGTERM", onSignal);
+  // Interactive callers get inline prompts; everyone else — `--format json`
+  // (single machine-readable payload) or no TTY at all (an agent's stdin is
+  // not wired to the human, so a prompt would hang until auto-cancel) — has
+  // the daemon park the elicitation and answers via `elicitation/respond`.
+  const interactive =
+    format === "text" &&
+    (process.stdin.isTTY === true || process.stderr.isTTY === true);
+  if (!interactive) params.parkElicitations = true;
   let outcome: RpcResult;
   try {
     outcome = await callDaemon<RpcResult>("rpc", params, {
@@ -112,19 +120,42 @@ export async function dispatchConnectionRpc(
         promptElicitation(frame, {
           style,
           // Prompting only needs a readable stdin and a text-based reply
-          // channel, not an actual TTY — an agent relaying prompts to a human
-          // (or answering directly) over a plain pipe works the same way a
-          // human at a terminal does. `--format json` is still excluded since
-          // stdout is a single machine-readable payload there, not a place to
-          // interleave prompts. A stdin that's already closed (e.g. `</dev/null`)
-          // is handled by declining/cancelling gracefully instead of hanging,
-          // not by refusing to try.
-          interactive: format === "text",
+          // channel; parked (non-interactive) callers never receive frames,
+          // so this only ever runs interactively.
+          interactive,
         }),
     });
   } finally {
     process.off("SIGINT", onSignal);
     process.off("SIGTERM", onSignal);
+  }
+  await writeRpcOutcome(
+    { format, style },
+    method,
+    methodArgs.toolName,
+    outcome,
+  );
+}
+
+/**
+ * Render one rpc outcome — final result, NDJSON report, or a parked
+ * elicitation round. Shared by the originating call above and by
+ * `elicitation/respond`, whose result is the same shape (the resumed call's
+ * outcome or the next round).
+ */
+export async function writeRpcOutcome(
+  out: { format?: OutputFormat; style: Style },
+  method: string,
+  toolName: string | undefined,
+  outcome: RpcResult,
+): Promise<void> {
+  const { format, style } = out;
+  if (outcome.kind === "elicitation-pending") {
+    await writeConnectionOutput(
+      { format, style },
+      { kind: "elicitation-pending", elicitation: outcome.elicitation },
+    );
+    return;
   }
   if (outcome.kind === "ndjson") {
     await writeConnectionOutput(
@@ -146,7 +177,7 @@ export async function dispatchConnectionRpc(
       method,
       result: outcome.result,
       appInfo: outcome.appInfo as CliAppInfo | undefined,
-      toolName: methodArgs.toolName,
+      toolName,
     },
   );
 }

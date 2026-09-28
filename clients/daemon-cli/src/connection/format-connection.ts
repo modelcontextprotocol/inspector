@@ -2,7 +2,10 @@ import {
   awaitableError,
   awaitableLog,
 } from "@inspector/cli/utils/awaitable-log.js";
-import type { ConnectionInfo } from "../daemon/protocol.js";
+import type {
+  ConnectionInfo,
+  ElicitationPendingInfo,
+} from "../daemon/protocol.js";
 import { CliExitCodeError, EXIT_CODES } from "@inspector/cli/error-handler.js";
 import type { OutputFormat } from "@inspector/cli/handlers/format-output.js";
 import type { CliAppInfo } from "@inspector/cli/handlers/method-types.js";
@@ -16,6 +19,7 @@ import {
   formatServerShowHuman,
   formatConnectionInfoHuman,
   formatConnectionsListHuman,
+  formatElicitationPendingHuman,
   formatSkillVerifyListHuman,
   formatStreamEventHuman,
 } from "./format-human.js";
@@ -92,6 +96,17 @@ export type ConnectionWriteKind =
        * client_id/PKCE/state this URL is made of.
        */
       authUrl?: string;
+    }
+  | {
+      /**
+       * A parked elicitation (non-interactive caller): everything needed to
+       * relay the request to a human and answer it with
+       * `elicitation/respond`. Rides the normal output payload for the same
+       * redaction reason as `authUrl` (URL-mode elicitations carry a URL
+       * whose query is meaningful).
+       */
+      kind: "elicitation-pending";
+      elicitation: ElicitationPendingInfo;
     }
   | { kind: "disconnect"; name: string }
   | { kind: "daemon/status"; status: JsonObject }
@@ -199,6 +214,10 @@ function jsonPayload(payload: ConnectionWriteKind): unknown {
       return payload.authUrl !== undefined
         ? { ...(payload.connection as JsonObject), authUrl: payload.authUrl }
         : payload.connection;
+    case "elicitation-pending":
+      // The key doubles as the discriminator: a caller can tell "input
+      // required" from a final tool result by `elicitationPending` alone.
+      return { elicitationPending: payload.elicitation };
     case "disconnect":
       return { name: payload.name };
     case "daemon/status":
@@ -262,6 +281,11 @@ function humanPayload(payload: ConnectionWriteKind, style: Style): string {
         ),
       ].join("\n");
     }
+    case "elicitation-pending":
+      return formatElicitationPendingHuman(
+        payload.elicitation as unknown as JsonObject,
+        style,
+      );
     case "disconnect":
       return `${style.bold("Disconnected")} ${`\`${style.bold(`@${payload.name}`)}\``}`;
     case "daemon/status": {

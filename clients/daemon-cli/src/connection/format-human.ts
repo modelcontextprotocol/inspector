@@ -5,6 +5,7 @@
 
 import { PLAIN, type Style } from "@inspector/cli/style.js";
 import { isSafeLinkTarget } from "./sanitize.js";
+import { parseFormSchema } from "./form-schema.js";
 
 type JsonObject = Record<string, unknown>;
 
@@ -591,6 +592,76 @@ export function formatServerShowHuman(
 }
 
 /** Format connections/list. */
+/**
+ * A parked elicitation (`kind: "elicitation-pending"`): show the caller —
+ * typically an agent relaying to a human — what the server is asking and
+ * exactly how to answer it. Guidance lives here in human output only; the
+ * JSON payload stays data-only (the mcpdo skill carries the procedure).
+ */
+export function formatElicitationPendingHuman(
+  elicitation: JsonObject,
+  style: Style = PLAIN,
+): string {
+  const id = String(elicitation.elicitationId ?? "");
+  const mode = elicitation.mode === "url" ? "url" : "form";
+  const message = String(elicitation.message ?? "");
+  const lines = [
+    `${heading(style, "Input required")} — ${code(style, String(elicitation.method ?? ""))}${
+      typeof elicitation.toolName === "string"
+        ? ` (tool ${code(style, elicitation.toolName)})`
+        : ""
+    } on ${code(style, `@${String(elicitation.connection ?? "")}`)} is waiting on the user:`,
+    `  ${message}`,
+  ];
+  if (mode === "url") {
+    const url = typeof elicitation.url === "string" ? elicitation.url : "";
+    lines.push(
+      "",
+      "The user needs to open this link and complete it:",
+      // Only allowlisted schemes render as a clickable OSC 8 link; a server
+      // supplying file:/custom-handler URLs gets plain text (see sanitize.ts).
+      `  ${isSafeLinkTarget(url) ? style.link(url, url) : url}`,
+      "",
+      `When they're done, run: ${code(style, `elicitation/respond ${id} --done`)}`,
+      style.dim(`To give up instead: elicitation/respond ${id} --cancel`),
+    );
+  } else {
+    const fields = parseFormSchema(
+      elicitation.requestedSchema as Record<string, unknown> | undefined,
+    );
+    if (fields && fields.length > 0) {
+      lines.push("", heading(style, `Fields (${fields.length}):`));
+      for (const field of fields) {
+        const kind =
+          field.kind === "number" && field.integer ? "integer" : field.kind;
+        const flags = field.required ? `${kind}, required` : kind;
+        const choices =
+          field.kind === "enum" || field.kind === "multiselect"
+            ? ` [${field.choices.map((c) => c.value).join(", ")}]`
+            : "";
+        lines.push(
+          `  ${style.bold(field.name)} (${flags})${choices}${descSuffix(style, field.description)}`,
+        );
+      }
+    }
+    lines.push(
+      "",
+      `Answer with: ${code(style, `elicitation/respond ${id} field:=value ...`)}`,
+      style.dim(`Or: elicitation/respond ${id} --decline | --cancel`),
+    );
+  }
+  const expiresAt = Number(elicitation.expiresAt ?? 0);
+  if (Number.isFinite(expiresAt) && expiresAt > Date.now()) {
+    const minutes = Math.max(1, Math.round((expiresAt - Date.now()) / 60_000));
+    lines.push(
+      style.dim(
+        `Unanswered, this expires (auto-cancels) in about ${minutes} minute${minutes === 1 ? "" : "s"}.`,
+      ),
+    );
+  }
+  return lines.join("\n");
+}
+
 export function formatConnectionsListHuman(
   connections: unknown[],
   style: Style = PLAIN,

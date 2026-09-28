@@ -335,6 +335,112 @@ describe("dispatchConnectionRpc", () => {
       expect.objectContaining({ interactive: false }),
     );
   });
+
+  it("asks the daemon to park elicitations for --format json and for non-TTY text", async () => {
+    callDaemon.mockResolvedValue({ kind: "result", result: {} });
+    const stdinDesc = Object.getOwnPropertyDescriptor(process.stdin, "isTTY");
+    const stderrDesc = Object.getOwnPropertyDescriptor(process.stderr, "isTTY");
+    Object.defineProperty(process.stdin, "isTTY", {
+      configurable: true,
+      value: undefined,
+    });
+    Object.defineProperty(process.stderr, "isTTY", {
+      configurable: true,
+      value: undefined,
+    });
+    try {
+      const { dispatchConnectionRpc } =
+        await import("../src/connection/dispatch.js");
+      await dispatchConnectionRpc(
+        "tools/call",
+        {},
+        { format: "text", requireExplicit: false },
+      );
+      await dispatchConnectionRpc(
+        "tools/call",
+        {},
+        { format: "json", requireExplicit: false },
+      );
+      expect(callDaemon.mock.calls[0][1]).toMatchObject({
+        parkElicitations: true,
+      });
+      expect(callDaemon.mock.calls[1][1]).toMatchObject({
+        parkElicitations: true,
+      });
+    } finally {
+      if (stdinDesc) Object.defineProperty(process.stdin, "isTTY", stdinDesc);
+      if (stderrDesc)
+        Object.defineProperty(process.stderr, "isTTY", stderrDesc);
+    }
+  });
+
+  it("omits parkElicitations for interactive text (TTY)", async () => {
+    callDaemon.mockResolvedValue({ kind: "result", result: {} });
+    const stderrDesc = Object.getOwnPropertyDescriptor(process.stderr, "isTTY");
+    Object.defineProperty(process.stderr, "isTTY", {
+      configurable: true,
+      value: true,
+    });
+    try {
+      const { dispatchConnectionRpc } =
+        await import("../src/connection/dispatch.js");
+      await dispatchConnectionRpc(
+        "tools/call",
+        {},
+        { format: "text", requireExplicit: false },
+      );
+      expect(
+        (callDaemon.mock.calls[0][1] as Record<string, unknown>)
+          .parkElicitations,
+      ).toBeUndefined();
+    } finally {
+      if (stderrDesc)
+        Object.defineProperty(process.stderr, "isTTY", stderrDesc);
+    }
+  });
+
+  it("renders an elicitation-pending outcome (json and human)", async () => {
+    const elicitation = {
+      elicitationId: "e-1",
+      connection: "srv",
+      method: "tools/call",
+      toolName: "collect",
+      mode: "form",
+      message: "Pick a color",
+      requestedSchema: {
+        type: "object",
+        properties: { color: { type: "string" } },
+        required: ["color"],
+      },
+      origin: "server-request",
+      expiresAt: Date.now() + 600_000,
+    };
+    callDaemon.mockResolvedValue({ kind: "elicitation-pending", elicitation });
+    const { dispatchConnectionRpc } =
+      await import("../src/connection/dispatch.js");
+    await dispatchConnectionRpc(
+      "tools/call",
+      { toolName: "collect" },
+      { format: "json", requireExplicit: false },
+    );
+    const parsed = JSON.parse(stdout) as {
+      elicitationPending: { elicitationId: string };
+    };
+    expect(parsed.elicitationPending.elicitationId).toBe("e-1");
+
+    stdout = "";
+    await dispatchConnectionRpc(
+      "tools/call",
+      { toolName: "collect" },
+      // --plain: human rendering must stay assertable when this test runs
+      // under a stderr TTY (styled output would interleave ANSI codes).
+      { format: "text", plain: true, requireExplicit: false },
+    );
+    expect(stdout).toContain("Input required");
+    expect(stdout).toContain("Pick a color");
+    expect(stdout).toContain("elicitation/respond e-1");
+    expect(stdout).toContain("color (string, required)");
+  });
 });
 
 describe("hoistAtConnection / stripAt / requireExplicitConnection", () => {
