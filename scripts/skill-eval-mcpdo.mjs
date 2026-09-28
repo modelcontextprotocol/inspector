@@ -80,6 +80,7 @@ import { AGENTS, formatReport, runPrompt } from "./skill-eval.mjs";
 import { parseSkill, validateEvalCases } from "./lib/skill-manifest.mjs";
 import {
   evalExpectCalls,
+  streamText,
   validateBehaviorCase,
 } from "./lib/mcpdo-eval-matchers.mjs";
 
@@ -136,6 +137,10 @@ const AGENT = process.env.AGENT ?? "claude";
 const BEHAVIOR_RUNS = Number(process.env.BEHAVIOR_RUNS ?? RUNS);
 const BEHAVIOR_THRESHOLD = Number(process.env.BEHAVIOR_THRESHOLD ?? 0.5);
 const BEHAVIOR_TURNS = Number(process.env.BEHAVIOR_TURNS ?? 14);
+// Substring filter over case prompts (both sections) for cheap iteration on
+// one case: `CASE_MATCH="add 2 and 3" npm run skills:eval:mcpdo`. A filtered
+// run is a dev probe, not a measurement — the summary says so when active.
+const CASE_MATCH = process.env.CASE_MATCH ?? "";
 
 /**
  * Build the sandbox project one sample set runs in.
@@ -447,6 +452,90 @@ export function readTranscript(logPath) {
 }
 
 /**
+ * Simulate the human side of a headless OAuth flow: visit the sign-in link
+ * the agent was handed and approve the consent page.
+ *
+ * Non-TTY `connect` against an auth-requiring server exits 0 with the
+ * authorize URL in its output while a detached helper holds the loopback
+ * callback. In a real session the agent relays that URL and a human clicks
+ * it; here the harness is the human. GET shows the composable AS's consent
+ * page; POSTing the same params approves it; following the redirect delivers
+ * code+state to the helper's loopback listener, which finishes the token
+ * exchange — after which the agent's next call revives the connection.
+ *
+ * @param {string} authUrl The full /oauth/authorize URL from the transcript.
+ */
+export async function clickConsent(authUrl) {
+  let res = await fetch(authUrl, { redirect: "manual" });
+  if (res.status === 200) {
+    const u = new URL(authUrl);
+    res = await fetch(`${u.origin}${u.pathname}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams(u.searchParams),
+      redirect: "manual",
+    });
+  }
+  if (res.status !== 301 && res.status !== 302) {
+    throw new Error(
+      `consent POST: expected redirect, got ${res.status}: ${(await res.text()).slice(0, 200)}`,
+    );
+  }
+  const location = res.headers.get("location");
+  if (!location) throw new Error("consent redirect missing Location header");
+  // The loopback callback owned by the detached auth helper.
+  const cb = await fetch(new URL(location, authUrl));
+  await cb.text().catch(() => {});
+}
+
+const AUTHORIZE_URL_RE =
+  /https?:\/\/[^\s"'<>\\]+\/oauth\/authorize\?[^\s"'<>\\]*/g;
+
+/**
+ * Watch a behavior sample's transcript for authorize URLs and auto-approve
+ * each one once (`autoConsent` cases). Polling the transcript, not the live
+ * streams: the shim appends a record when an invocation exits, and non-TTY
+ * connect exits as soon as it prints the URL, so the link shows up while
+ * the agent is still mid-session. Click failures are logged, not thrown —
+ * the case then fails on its own matchers, with this as the diagnostic.
+ *
+ * @param {string} logPath The sample's transcript path.
+ * @returns {{ stop: () => void }}
+ */
+export function startConsentClicker(logPath) {
+  const clicked = new Set();
+  let inFlight = false;
+  const timer = setInterval(() => {
+    if (inFlight) return;
+    const urls = new Set();
+    for (const record of readTranscript(logPath)) {
+      for (const event of record.events ?? []) {
+        for (const url of event.data?.match?.(AUTHORIZE_URL_RE) ?? []) {
+          if (!clicked.has(url)) urls.add(url);
+        }
+      }
+    }
+    if (urls.size === 0) return;
+    for (const url of urls) clicked.add(url);
+    inFlight = true;
+    (async () => {
+      for (const url of urls) {
+        try {
+          await clickConsent(url);
+        } catch (err) {
+          console.error(`  autoConsent: click failed — ${err.message}`);
+        }
+      }
+    })().finally(() => {
+      inFlight = false;
+    });
+  }, 250);
+  return {
+    stop: () => clearInterval(timer),
+  };
+}
+
+/**
  * Run one behavior sample: fresh sandbox + hermetic env, one agent session,
  * transcript scored against the case's `expectCalls`.
  *
@@ -459,6 +548,7 @@ async function runBehaviorSample(c) {
     sandbox,
     caseServers(c),
   );
+  const clicker = c.autoConsent === true ? startConsentClicker(logPath) : null;
   try {
     await runPrompt(c.prompt, {
       cwd: sandbox,
@@ -469,8 +559,19 @@ async function runBehaviorSample(c) {
     });
     const records = readTranscript(logPath);
     const { ok, failures } = evalExpectCalls(c.expectCalls, records);
-    return { hit: ok, failures, calls: records.length };
+    // Compact transcript for miss diagnostics: what the agent actually ran
+    // and what it got back — the eval's equivalent of a stack trace.
+    const transcript = ok
+      ? []
+      : records.map((r) => ({
+          argv: r.argv,
+          exit: r.exit,
+          out: streamText(r, "stdout").slice(0, 300),
+          err: streamText(r, "stderr").slice(0, 300),
+        }));
+    return { hit: ok, failures, calls: records.length, transcript };
   } finally {
+    clicker?.stop();
     await teardown();
     rmSync(sandbox, { recursive: true, force: true });
   }
@@ -509,11 +610,17 @@ async function main() {
     }
   }
   const { trigger, behavior } = loadCases();
+  const byMatch = (c) => c.prompt.includes(CASE_MATCH);
+  if (CASE_MATCH !== "") {
+    console.log(
+      `skills:eval:mcpdo — CASE_MATCH filter active (${JSON.stringify(CASE_MATCH)}); this is a dev probe, not a measurement`,
+    );
+  }
   let failed = 0;
   failed += await runTriggerSection(
-    trigger.map((c) => ({ ...c, from: SKILL_NAME })),
+    trigger.filter(byMatch).map((c) => ({ ...c, from: SKILL_NAME })),
   );
-  failed += await runBehaviorSection(behavior);
+  failed += await runBehaviorSection(behavior.filter(byMatch));
   process.exit(failed > 0 ? 1 : 0);
 }
 
@@ -606,6 +713,13 @@ async function runBehaviorSection(cases) {
         console.log(
           `  miss (${r.calls} mcpdo calls): ${r.failures.join("; ")}`,
         );
+        for (const t of r.transcript ?? []) {
+          console.log(
+            `    $ mcpdo ${t.argv.join(" ")} -> ${t.exit}` +
+              (t.out ? `\n      out: ${t.out.replace(/\n/g, "\\n")}` : "") +
+              (t.err ? `\n      err: ${t.err.replace(/\n/g, "\\n")}` : ""),
+          );
+        }
       }
     }
   }

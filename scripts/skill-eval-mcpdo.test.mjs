@@ -19,8 +19,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   caseServers,
+  clickConsent,
   makeBehaviorEnv,
   readTranscript,
+  startConsentClicker,
   loadCases,
 } from "./skill-eval-mcpdo.mjs";
 
@@ -300,6 +302,79 @@ test("readTranscript: missing file and torn tail line", () => {
     assert.deepEqual(records[0].argv, ["tools/list"]);
   } finally {
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("consent clicker: approves each authorize URL from the transcript once", async () => {
+  const { createServer } = await import("node:http");
+  const hits = { get: 0, post: 0, callback: 0 };
+  const server = createServer((req, res) => {
+    const u = new URL(req.url, "http://127.0.0.1");
+    if (u.pathname === "/oauth/authorize" && req.method === "GET") {
+      hits.get++;
+      res.writeHead(200, { "Content-Type": "text/html" });
+      res.end("<form>consent</form>");
+    } else if (u.pathname === "/oauth/authorize" && req.method === "POST") {
+      hits.post++;
+      res.writeHead(302, {
+        Location: `http://127.0.0.1:${server.address().port}/cb?code=x&state=s`,
+      });
+      res.end();
+    } else if (u.pathname === "/cb") {
+      hits.callback++;
+      res.writeHead(200);
+      res.end("done");
+    } else {
+      res.writeHead(404);
+      res.end();
+    }
+  });
+  await new Promise((r) => server.listen(0, "127.0.0.1", r));
+  const port = server.address().port;
+  const authUrl = `http://127.0.0.1:${port}/oauth/authorize?client_id=c&state=s`;
+  const dir = mkdtempSync(path.join(os.tmpdir(), "mcpdo-eval-test-"));
+  const logPath = path.join(dir, "log.ndjson");
+  const record = JSON.stringify({
+    argv: ["connect", "secure"],
+    exit: 0,
+    events: [{ t: 1, stream: "stdout", data: `"authUrl": "${authUrl}"` }],
+  });
+  writeFileSync(logPath, `${record}\n`);
+  const clicker = startConsentClicker(logPath);
+  try {
+    const deadline = Date.now() + 5000;
+    while (hits.callback === 0 && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    assert.equal(hits.get, 1);
+    assert.equal(hits.post, 1);
+    assert.equal(hits.callback, 1);
+    // Same URL appearing again (an agent re-printing it) is not re-clicked.
+    writeFileSync(logPath, `${record}\n${record}\n`);
+    await new Promise((r) => setTimeout(r, 700));
+    assert.equal(hits.post, 1);
+  } finally {
+    clicker.stop();
+    server.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("clickConsent: throws when the AS does not redirect", async () => {
+  const { createServer } = await import("node:http");
+  const server = createServer((_req, res) => {
+    res.writeHead(400);
+    res.end("nope");
+  });
+  await new Promise((r) => server.listen(0, "127.0.0.1", r));
+  const port = server.address().port;
+  try {
+    await assert.rejects(
+      clickConsent(`http://127.0.0.1:${port}/oauth/authorize?x=1`),
+      /expected redirect, got 400/,
+    );
+  } finally {
+    server.close();
   }
 });
 

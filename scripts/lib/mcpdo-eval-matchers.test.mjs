@@ -280,6 +280,16 @@ test("validateBehaviorCase: catches typos, bad types, bad regex", () => {
   assert.ok(errs.some((e) => /must be an object/.test(e)));
 });
 
+test("validateBehaviorCase: autoConsent must be a boolean", () => {
+  const base = { prompt: "p", expectCalls: [{ cmd: "connect" }] };
+  assert.deepEqual(validateBehaviorCase({ ...base, autoConsent: true }, 0), []);
+  assert.ok(
+    validateBehaviorCase({ ...base, autoConsent: "yes" }, 0).some((e) =>
+      /`autoConsent` must be a boolean/.test(e),
+    ),
+  );
+});
+
 test("matchPhases: interleaved prompt/answer/result ordering", () => {
   const r = {
     argv: ["tools/call", "collect"],

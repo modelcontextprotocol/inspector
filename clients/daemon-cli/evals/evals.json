@@ -68,5 +68,42 @@
         "stdoutMatch": "5"
       }
     ]
+  },
+  {
+    "kind": "behavior",
+    "autoConsent": true,
+    "prompt": "Connect to the secure-add MCP server and use it to add 2 and 3. It requires signing in — share the sign-in link with me if one comes up, and finish the job once access is granted.",
+    "servers": {
+      "secure-add": {
+        "serverInfo": { "name": "secure-add", "version": "1.0.0" },
+        "tools": [{ "preset": "add" }],
+        "oauth": {
+          "enabled": true,
+          "mode": "combined",
+          "requireAuth": true,
+          "scopesSupported": ["mcp"],
+          "supportDCR": true
+        },
+        "transport": { "type": "streamable-http" }
+      }
+    },
+    "expectCalls": [
+      {
+        "cmd": "connect",
+        "connection": "secure-add",
+        "exit": 0,
+        "stdoutMatch": "oauth/authorize"
+      },
+      {
+        "cmd": "tools/call",
+        "connection": "secure-add",
+        "tool": "add",
+        "args": {
+          "a": 2,
+          "b": 3
+        },
+        "stdoutMatch": "5"
+      }
+    ]
   }
 ]

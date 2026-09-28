@@ -494,6 +494,9 @@ export function validateBehaviorCase(c, i) {
       }
     }
   });
+  if (c.autoConsent !== undefined && typeof c.autoConsent !== "boolean") {
+    errors.push(`behavior case ${i}: \`autoConsent\` must be a boolean`);
+  }
   errors.push(...validateCaseServers(c, i));
   return errors;
 }
