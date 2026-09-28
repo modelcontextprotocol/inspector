@@ -1,6 +1,7 @@
 ---
 name: mcpdo
-description: Use the mcpdo CLI to connect to Model Context Protocol (MCP) servers and run tools, read resources, list prompts, and more from the command line or from an agent's shell. Use this skill whenever a task requires inspecting, testing, or scripting against an MCP server (stdio or HTTP) rather than writing custom client code.
+description: Access MCP (Model Context Protocol) servers and their tools, resources, and prompts through the mcpdo CLI — connections it holds extend your capabilities alongside any built-in MCP support. Use this skill for any question or task about MCP servers, connections, or tools (e.g. "what MCP servers am I connected to?", "what MCP tools do I have?"), and whenever a task requires inspecting, testing, or scripting against an MCP server (stdio or HTTP) rather than writing custom client code.
+disable-model-invocation: false
 ---
 
 # mcpdo — MCP Inspector connection CLI

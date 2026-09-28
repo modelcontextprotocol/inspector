@@ -1,0 +1,34 @@
+[
+  {
+    "prompt": "What MCP servers am I connected to?",
+    "expect": "mcpdo"
+  },
+  {
+    "prompt": "Call the echo tool on the everything MCP server and show me the result.",
+    "expect": "mcpdo"
+  },
+  {
+    "prompt": "Do I have access to any MCP tools besides your built-in ones?",
+    "expect": "mcpdo"
+  },
+  {
+    "prompt": "List the resources available on the MCP server I connected to earlier.",
+    "expect": "mcpdo"
+  },
+  {
+    "prompt": "Use mcpdo to list the tools on the everything server.",
+    "expect": "mcpdo"
+  },
+  {
+    "prompt": "What does this regex do? /^\\d{3}-\\d{4}$/",
+    "expect": null
+  },
+  {
+    "prompt": "How do I write a simple HTTP server in Node.js?",
+    "expect": null
+  },
+  {
+    "prompt": "Rename the variable `foo` to `bar` in this snippet: const foo = 1; console.log(foo);",
+    "expect": null
+  }
+]

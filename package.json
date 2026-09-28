@@ -97,7 +97,8 @@
     "pack:verify": "node scripts/install-smoke-browser.mjs chromium && node scripts/pack-and-verify.mjs",
     "prepack": "npm run build",
     "postinstall": "node scripts/install-clients.mjs",
-    "skills:eval": "node scripts/skill-eval.mjs"
+    "skills:eval": "node scripts/skill-eval.mjs",
+    "skills:eval:mcpdo": "node scripts/skill-eval-mcpdo.mjs"
   },
   "dependencies": {
     "@hono/node-server": "^2.0.12",
