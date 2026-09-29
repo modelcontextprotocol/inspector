@@ -162,6 +162,63 @@ describe("auth-helper", () => {
       });
     });
 
+    it("skips marker reuse for stdio configs and still spawns the helper", async () => {
+      const script = writeHelperScript(`
+        process.stdin.resume();
+        process.stdin.on("end", () => {
+          process.stdout.write(
+            JSON.stringify({ event: "auth_url", url: "https://as.example/stdio" }) + "\\n",
+          );
+        });
+      `);
+      const url = await obtainPendingAuthUrl(
+        { type: "stdio", command: "srv" },
+        undefined,
+        { helperArgv1: script },
+      );
+      expect(url).toBe("https://as.example/stdio");
+    });
+
+    it("skips blank, malformed, and unknown-event lines before the URL", async () => {
+      const script = writeHelperScript(`
+        process.stdin.resume();
+        process.stdin.on("end", () => {
+          process.stdout.write(
+            "\\n" +
+            "not json\\n" +
+            JSON.stringify({ event: "progress" }) + "\\n" +
+            JSON.stringify({ event: "auth_url", url: "https://as.example/after-noise" }) + "\\n",
+          );
+        });
+      `);
+      const url = await obtainPendingAuthUrl(
+        { type: "streamable-http", url: SERVER_URL },
+        undefined,
+        { helperArgv1: script },
+      );
+      expect(url).toBe("https://as.example/after-noise");
+    });
+
+    it("maps a helper spawn failure to auth_required", async () => {
+      const originalExecPath = process.execPath;
+      // A nonexistent interpreter makes spawn emit `error` instead of `exit`.
+      process.execPath = path.join(dir, "no-such-node");
+      try {
+        await expect(
+          obtainPendingAuthUrl(
+            { type: "streamable-http", url: SERVER_URL },
+            undefined,
+            { helperArgv1: path.join(dir, "unused.mjs") },
+          ),
+        ).rejects.toMatchObject({
+          envelope: { code: "auth_required" },
+          message: expect.stringContaining("Failed to spawn"),
+        });
+      } finally {
+        process.execPath = originalExecPath;
+      }
+    });
+
     it("fails when the helper exits before producing a URL", async () => {
       const script = writeHelperScript(`process.exit(2);`);
       await expect(
@@ -303,6 +360,102 @@ describe("auth-helper", () => {
         .lines()
         .map((l) => JSON.parse(l) as { event: string; message?: string });
       expect(events).toEqual([{ event: "error", message: "flow exploded" }]);
+    });
+
+    it("emits the URL without writing a marker for stdio configs", async () => {
+      authorizeInFrontend.mockImplementation(
+        async (
+          _config: unknown,
+          _settings: unknown,
+          options: {
+            makeNavigation: (control: { armed: boolean }) => CallbackNavigation;
+          },
+        ) => {
+          const navigation = options.makeNavigation({ armed: true });
+          navigation.navigateToAuthorization(
+            new URL("https://as.example/authorize?stdio=1"),
+          );
+        },
+      );
+      const restoreStdin = stubStdin(
+        JSON.stringify({ serverConfig: { type: "stdio", command: "srv" } }),
+      );
+      const stdout = captureStdout();
+      try {
+        await runAuthHelper();
+        // The EPIPE guard on stdout must swallow late write errors.
+        process.stdout.emit("error", new Error("EPIPE"));
+      } finally {
+        stdout.restore();
+        restoreStdin();
+      }
+      const events = stdout
+        .lines()
+        .map((l) => JSON.parse(l) as { event: string });
+      expect(events.map((e) => e.event)).toEqual(["auth_url", "done"]);
+      // No url on the config → no marker file anywhere in the daemon dir.
+      expect(fs.readdirSync(dir).filter((f) => f.includes("auth"))).toEqual([]);
+    });
+
+    it("stringifies a non-Error flow failure in the error event", async () => {
+      authorizeInFrontend.mockRejectedValueOnce("string boom");
+      const restoreStdin = stubStdin(
+        JSON.stringify({
+          serverConfig: { type: "streamable-http", url: SERVER_URL },
+        }),
+      );
+      const stdout = captureStdout();
+      try {
+        await expect(runAuthHelper()).rejects.toBe("string boom");
+      } finally {
+        stdout.restore();
+        restoreStdin();
+      }
+      const events = stdout
+        .lines()
+        .map((l) => JSON.parse(l) as { event: string; message?: string });
+      expect(events).toEqual([{ event: "error", message: "string boom" }]);
+    });
+
+    it("rejects when stdin errors before EOF", async () => {
+      const stream = new PassThrough();
+      const descriptor = Object.getOwnPropertyDescriptor(process, "stdin");
+      Object.defineProperty(process, "stdin", {
+        value: stream,
+        configurable: true,
+      });
+      const stdout = captureStdout();
+      try {
+        const pending = runAuthHelper();
+        stream.emit("error", new Error("broken pipe"));
+        await expect(pending).rejects.toThrow("broken pipe");
+      } finally {
+        stdout.restore();
+        if (descriptor) Object.defineProperty(process, "stdin", descriptor);
+      }
+    });
+
+    it("times out when the parent never sends params", async () => {
+      vi.useFakeTimers();
+      const stream = new PassThrough();
+      const descriptor = Object.getOwnPropertyDescriptor(process, "stdin");
+      Object.defineProperty(process, "stdin", {
+        value: stream,
+        configurable: true,
+      });
+      const stdout = captureStdout();
+      try {
+        const pending = runAuthHelper();
+        const expectation = expect(pending).rejects.toThrow(
+          /timed out waiting for params/,
+        );
+        await vi.advanceTimersByTimeAsync(30_000);
+        await expectation;
+      } finally {
+        vi.useRealTimers();
+        stdout.restore();
+        if (descriptor) Object.defineProperty(process, "stdin", descriptor);
+      }
     });
 
     it("rejects params without a serverConfig", async () => {

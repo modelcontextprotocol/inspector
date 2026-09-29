@@ -530,6 +530,42 @@ describe("ParkingElicitationChannel / ElicitationParkRegistry primitives", () =>
     expect(channel.pendingFrame()).toBeNull();
   });
 
+  it("waitForElicitation resolves immediately when a request is already pending", async () => {
+    const channel = new ParkingElicitationChannel();
+    const pending = channel.request(frame("e1"));
+    const seen = await channel.waitForElicitation();
+    expect(seen.elicitationId).toBe("e1");
+    channel.close(new Error("teardown"));
+    await expect(pending).rejects.toThrow("teardown");
+  });
+
+  it("forClient and cancelForConnection ignore non-matching entries", async () => {
+    const registry = new ElicitationParkRegistry(0);
+    const channel = new ParkingElicitationChannel();
+    const pending = channel.request(frame("e1"));
+    const client = {} as InspectorClient;
+    registry.add({
+      info: {
+        elicitationId: "e1",
+        connection: "srv",
+        method: "tools/call",
+        mode: "form",
+        message: "hi",
+        origin: "server-request",
+      },
+      client,
+      channel,
+      outcome: new Promise<never>(() => {}),
+    });
+    expect(registry.forClient({} as InspectorClient)).toBeUndefined();
+    expect(registry.forClient(client)).toBeDefined();
+    // A different connection's teardown must not cancel this parked call.
+    registry.cancelForConnection("other");
+    expect(registry.forClient(client)).toBeDefined();
+    registry.cancelAll();
+    await expect(pending).rejects.toThrow(/going away/);
+  });
+
   it("cancelAll settles every parked entry", async () => {
     const registry = new ElicitationParkRegistry(0);
     const channel = new ParkingElicitationChannel();

@@ -486,6 +486,27 @@ describe("format-human", () => {
 
   it("formats stream events and rpc dispatch", () => {
     expect(formatStreamEventHuman(null)).toBe("null");
+    // Empty URI: formatUri must pass it through without linkifying.
+    expect(formatStreamEventHuman({ type: "subscribed" })).toBe("Subscribed: ");
+    // colorLevel groups: red, yellow, dim, and the default (cyan) bucket.
+    const s = createStyle(true);
+    for (const [level, colored] of [
+      ["error", s.red("error")],
+      ["warning", s.yellow("warning")],
+      ["debug", s.dim("debug")],
+      ["notice", s.dim("notice")],
+      ["info", s.cyan("info")],
+    ] as const) {
+      expect(
+        formatStreamEventHuman(
+          {
+            direction: "notification",
+            message: { params: { level, data: "x" } },
+          },
+          s,
+        ),
+      ).toContain(`[${colored}]`);
+    }
     expect(formatStreamEventHuman({ type: "subscribed", uri: "u" })).toBe(
       "Subscribed: u",
     );

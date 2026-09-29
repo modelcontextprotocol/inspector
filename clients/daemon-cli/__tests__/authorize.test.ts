@@ -107,6 +107,33 @@ describe("authorizeInFrontend", () => {
     );
   });
 
+  it("rethrows non-EMA connect failures unchanged", async () => {
+    connectSpy.mockRejectedValue(new Error("network down"));
+    const { authorizeInFrontend } =
+      await import("../src/connection/authorize.js");
+    await expect(
+      authorizeInFrontend(
+        { type: "streamable-http", url: "https://example.com/mcp" },
+        undefined,
+      ),
+    ).rejects.toThrow("network down");
+    expect(disconnectSpy).toHaveBeenCalled();
+  });
+
+  it("uses a caller-provided navigation instead of the CLI default", async () => {
+    connectSpy.mockResolvedValue(undefined);
+    const makeNavigation = vi.fn().mockReturnValue({ navigate: vi.fn() });
+    const { authorizeInFrontend } =
+      await import("../src/connection/authorize.js");
+    await authorizeInFrontend(
+      { type: "streamable-http", url: "https://example.com/mcp" },
+      undefined,
+      { makeNavigation },
+    );
+    expect(makeNavigation).toHaveBeenCalledTimes(1);
+    expect(navigationSpy).not.toHaveBeenCalled();
+  });
+
   it("maps EmaClientNotConfiguredError to actionable mcpdo guidance", async () => {
     const { EmaClientNotConfiguredError } =
       await import("@inspector/core/auth/ema/clientConfigError.js");
