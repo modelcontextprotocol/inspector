@@ -121,6 +121,25 @@ export function readLivePendingAuthMarker(
   return marker;
 }
 
+/**
+ * Remove the pending-auth marker only if THIS process wrote the one on disk.
+ * Past the 15-minute TTL a replacement flow may have published a fresh
+ * marker at the same shared pathname, and an unconditional rm at helper exit
+ * would delete the replacement's URL out from under its callers. A read→rm
+ * microsecond window remains (POSIX has no compare-and-delete); losing it
+ * costs one extra sign-in prompt, never a wrong URL.
+ */
+export function removeOwnPendingAuthMarker(markerPath: string) {
+  try {
+    const onDisk = JSON.parse(
+      fs.readFileSync(markerPath, "utf8"),
+    ) as PendingAuthMarker;
+    if (onDisk.pid === process.pid) fs.rmSync(markerPath, { force: true });
+  } catch {
+    // Missing or unreadable marker: nothing of ours to clean up.
+  }
+}
+
 function writePendingAuthMarker(markerPath: string, marker: PendingAuthMarker) {
   // Recreate exclusively (same symlink hardening as the daemon log): an
   // append/overwrite open would follow a planted symlink and only apply the
@@ -206,9 +225,7 @@ export async function runAuthHelper(): Promise<void> {
     });
     throw error;
   } finally {
-    if (markerPath !== undefined) {
-      fs.rmSync(markerPath, { force: true });
-    }
+    if (markerPath !== undefined) removeOwnPendingAuthMarker(markerPath);
   }
 }
 

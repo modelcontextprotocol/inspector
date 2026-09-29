@@ -108,6 +108,61 @@ describe("runMethod (mocked client)", () => {
     expect(failing.unsubscribeFromResource).toHaveBeenCalledTimes(1);
   });
 
+  it("buffers updates that land between subscribe and start", async () => {
+    const listeners = new Set<(ev: Event) => void>();
+    const client = mockClient({
+      addEventListener: vi.fn((_type: string, fn: (ev: Event) => void) =>
+        listeners.add(fn),
+      ),
+      removeEventListener: vi.fn((_type: string, fn: (ev: Event) => void) =>
+        listeners.delete(fn),
+      ),
+    } as unknown as Partial<InspectorClient>);
+    const outcome = await runMethod(client, {
+      method: "resources/subscribe",
+      uri: "test://early",
+    });
+    // The listener is live before any consumer starts the stream...
+    expect(listeners.size).toBe(1);
+    // ...so an update in the subscribe→start window is captured, not lost.
+    const dispatch = (uri: string) => {
+      for (const fn of listeners)
+        fn(new CustomEvent("resourceUpdated", { detail: { uri } }));
+    };
+    dispatch("test://early");
+    dispatch("test://other"); // different URI: filtered out
+    const lines: unknown[] = [];
+    expect(outcome.kind).toBe("stream");
+    if (outcome.kind !== "stream") return;
+    const stop = outcome.start((obj) => lines.push(obj));
+    expect(lines).toEqual([
+      { type: "subscribed", uri: "test://early" },
+      { type: "resources/updated", uri: "test://early" },
+    ]);
+    // Post-start events flow straight through.
+    dispatch("test://early");
+    expect(lines).toHaveLength(3);
+    stop();
+    expect(listeners.size).toBe(0);
+  });
+
+  it("detaches the early listener when the subscribe fails", async () => {
+    const listeners = new Set<(ev: Event) => void>();
+    const client = mockClient({
+      addEventListener: vi.fn((_type: string, fn: (ev: Event) => void) =>
+        listeners.add(fn),
+      ),
+      removeEventListener: vi.fn((_type: string, fn: (ev: Event) => void) =>
+        listeners.delete(fn),
+      ),
+      subscribeToResource: vi.fn().mockRejectedValue(new Error("nope")),
+    } as unknown as Partial<InspectorClient>);
+    await expect(
+      runMethod(client, { method: "resources/subscribe", uri: "test://f" }),
+    ).rejects.toThrow("nope");
+    expect(listeners.size).toBe(0);
+  });
+
   it("concurrent same-URI subscribes share one in-flight subscription", async () => {
     let release!: () => void;
     const gate = new Promise<void>((resolve) => (release = resolve));

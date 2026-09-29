@@ -252,9 +252,30 @@ export async function runMethod(
       }
       const entry = shared;
       entry.count++;
+      // Attached BEFORE the subscribe handshake completes: a server may
+      // notify immediately after (or with) its subscribe response, and the
+      // stream's consumer only calls start() after this outcome crosses
+      // back through dispatch. Updates landing in that window are buffered
+      // and flushed to the first writeLine; ipc-glue guarantees every
+      // stream outcome is started (inert-started on a vanished caller), so
+      // stop() below always detaches this listener.
+      const buffered: Array<{ type: string; uri: string }> = [];
+      let sink: ((obj: unknown) => void) | undefined;
+      const onUpdate = (ev: Event) => {
+        const detail = (ev as CustomEvent<{ uri: string }>).detail;
+        // Multiple subscribe streams can share one connection; only
+        // forward updates for this stream's URI. Events without a uri
+        // (spec-noncompliant server) still pass through as before.
+        if (detail?.uri !== undefined && detail.uri !== uri) return;
+        const line = { type: "resources/updated", uri: detail?.uri ?? uri };
+        if (sink) sink(line);
+        else buffered.push(line);
+      };
+      inspectorClient.addEventListener("resourceUpdated", onUpdate);
       try {
         await entry.ready;
       } catch (error) {
+        inspectorClient.removeEventListener("resourceUpdated", onUpdate);
         entry.count--;
         if (entry.count === 0 && refs.get(uri) === entry) refs.delete(uri);
         throw error;
@@ -264,18 +285,9 @@ export async function runMethod(
         label: "resources/subscribe",
         start: (writeLine) => {
           writeLine({ type: "subscribed", uri: args.uri });
-          const onUpdate = (ev: Event) => {
-            const detail = (ev as CustomEvent<{ uri: string }>).detail;
-            // Multiple subscribe streams can share one connection; only
-            // forward updates for this stream's URI. Events without a uri
-            // (spec-noncompliant server) still pass through as before.
-            if (detail?.uri !== undefined && detail.uri !== args.uri) return;
-            writeLine({
-              type: "resources/updated",
-              uri: detail?.uri ?? args.uri,
-            });
-          };
-          inspectorClient.addEventListener("resourceUpdated", onUpdate);
+          for (const line of buffered) writeLine(line);
+          buffered.length = 0;
+          sink = writeLine;
           let closed = false;
           return () => {
             // A second stop from any caller must not double-decrement the

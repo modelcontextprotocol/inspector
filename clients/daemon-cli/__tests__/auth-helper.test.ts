@@ -16,6 +16,7 @@ import {
   obtainPendingAuthUrl,
   pendingAuthMarkerPath,
   readLivePendingAuthMarker,
+  removeOwnPendingAuthMarker,
   runAuthHelper,
   type PendingAuthMarker,
 } from "../src/connection/auth-helper.js";
@@ -71,6 +72,30 @@ describe("auth-helper", () => {
       expect(readLivePendingAuthMarker(SERVER_URL)).toBeUndefined();
       // Read-time deletion would race a just-spawned helper's fresh marker.
       expect(fs.existsSync(markerPath)).toBe(true);
+    });
+
+    it("cleanup removes only this process's own marker", () => {
+      const markerPath = writeMarker({
+        url: "https://as.example/authorize",
+        pid: process.pid,
+        expiresAt: Date.now() + 60_000,
+      });
+      removeOwnPendingAuthMarker(markerPath);
+      expect(fs.existsSync(markerPath)).toBe(false);
+      // A replacement flow's marker (different pid) must survive the old
+      // helper's exit cleanup.
+      writeMarker({
+        url: "https://as.example/authorize-2",
+        pid: process.pid + 1,
+        expiresAt: Date.now() + 60_000,
+      });
+      removeOwnPendingAuthMarker(markerPath);
+      expect(fs.existsSync(markerPath)).toBe(true);
+      // Missing or malformed markers are a no-op, not an error.
+      fs.writeFileSync(markerPath, "not json\n");
+      expect(() => removeOwnPendingAuthMarker(markerPath)).not.toThrow();
+      fs.rmSync(markerPath, { force: true });
+      expect(() => removeOwnPendingAuthMarker(markerPath)).not.toThrow();
     });
 
     it("ignores a marker whose helper process is gone", () => {
