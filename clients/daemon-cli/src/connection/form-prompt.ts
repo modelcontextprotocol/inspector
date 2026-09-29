@@ -9,6 +9,7 @@
 import type { Interface as ReadlineInterface } from "node:readline/promises";
 import type { Style } from "@inspector/cli/style.js";
 import type { FormField } from "./form-schema.js";
+import { codePointLength } from "./form-schema.js";
 import { sanitizeText } from "./sanitize.js";
 
 export type FormOutcome =
@@ -207,13 +208,15 @@ async function promptField(
     // non-empty — so minLength (if any) decides below.
     if (raw === "" && !field.required) return undefined;
     const value = raw;
-    if (field.minLength !== undefined && value.length < field.minLength) {
+    // Code points, not UTF-16 units: JSON Schema length semantics.
+    const length = codePointLength(value);
+    if (field.minLength !== undefined && length < field.minLength) {
       process.stderr.write(
         style.red(`  Must be at least ${field.minLength} characters.\n`),
       );
       continue;
     }
-    if (field.maxLength !== undefined && value.length > field.maxLength) {
+    if (field.maxLength !== undefined && length > field.maxLength) {
       process.stderr.write(
         style.red(`  Must be at most ${field.maxLength} characters.\n`),
       );

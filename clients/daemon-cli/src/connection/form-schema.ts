@@ -87,6 +87,16 @@ function isValidCount(value: number | undefined): boolean {
 }
 
 /**
+ * JSON Schema `minLength`/`maxLength` count Unicode code points, not UTF-16
+ * code units — `"😀"` has length 1 under the spec but `.length === 2` in
+ * JavaScript. Every bound check on user-visible strings must use this.
+ */
+export function codePointLength(value: string): number {
+  // String iteration yields code points, unlike .length's UTF-16 units.
+  return [...value].length;
+}
+
+/**
  * A structurally valid field can still be internally inconsistent —
  * unsatisfiable constraints (`minimum > maximum`, `minItems` above the
  * choice count) or a default that violates its own constraints. Those would
@@ -127,13 +137,13 @@ function isConsistent(field: FieldExtra): boolean {
       if (field.default !== undefined) {
         if (
           field.minLength !== undefined &&
-          field.default.length < field.minLength
+          codePointLength(field.default) < field.minLength
         ) {
           return false;
         }
         if (
           field.maxLength !== undefined &&
-          field.default.length > field.maxLength
+          codePointLength(field.default) > field.maxLength
         ) {
           return false;
         }

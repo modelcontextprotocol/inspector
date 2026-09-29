@@ -546,9 +546,19 @@ export function createSubmitTicketTool(): ToolDefinition {
         );
       }
       const content = (result.content ?? {}) as Record<string, unknown>;
-      // Deterministic-looking but content-derived id, so distinct submissions
-      // get distinct numbers without the fixture holding state.
-      const ticket = `TCK-${(1000 + ((summary.length * 37 + String(content.contact_email).length * 101) % 9000)).toString()}`;
+      // Content-derived id (djb2 over the full submission), so the fixture
+      // holds no state and distinct submissions get distinct numbers except
+      // for genuine hash collisions in the 4-digit space.
+      const payload = JSON.stringify([
+        summary,
+        content.contact_name,
+        content.contact_email,
+      ]);
+      let hash = 5381;
+      for (let i = 0; i < payload.length; i++) {
+        hash = ((hash * 33) ^ payload.charCodeAt(i)) >>> 0;
+      }
+      const ticket = `TCK-${(1000 + (hash % 9000)).toString()}`;
       return toToolResult(
         JSON.stringify({
           ticket,

@@ -143,6 +143,14 @@ describe("promptForm", () => {
     expect(stderr).toContain("at most 5");
   });
 
+  it("measures length bounds in code points, not UTF-16 units", async () => {
+    // "😀😀😀" is 3 code points (6 UTF-16 units): valid for min 3 / max 5.
+    const field: FormField = { ...stringField, minLength: 3, maxLength: 5 };
+    const rl = fakeRl(["😀😀😀", ""]);
+    const outcome = await promptForm(rl, "msg", [field], style);
+    expect(outcome).toEqual({ action: "accept", content: { name: "😀😀😀" } });
+  });
+
   it("collects a required number field with range validation", async () => {
     const field: FormField = {
       name: "age",

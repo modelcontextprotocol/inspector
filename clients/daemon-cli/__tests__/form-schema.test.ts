@@ -366,6 +366,23 @@ describe("parseFormSchema", () => {
     ).toHaveLength(1);
   });
 
+  it("measures default length bounds in code points, not UTF-16 units", () => {
+    // "😀" is 1 code point (2 UTF-16 units): a valid default for maxLength 1.
+    expect(
+      parseFormSchema({
+        type: "object",
+        properties: { s: { type: "string", maxLength: 1, default: "😀" } },
+      }),
+    ).toHaveLength(1);
+    // ...and 1 code point still violates minLength 2.
+    expect(
+      parseFormSchema({
+        type: "object",
+        properties: { s: { type: "string", minLength: 2, default: "😀" } },
+      }),
+    ).toBeNull();
+  });
+
   it("returns null for defaults that violate the field's own constraints", () => {
     const cases: Record<string, unknown>[] = [
       { n: { type: "number", minimum: 1, maximum: 10, default: 11 } },
