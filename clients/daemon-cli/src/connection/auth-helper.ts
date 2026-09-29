@@ -209,9 +209,71 @@ export async function runAuthHelper(): Promise<void> {
 }
 
 /**
+ * Atomically reserve the right to spawn the sign-in helper for one server.
+ * `wx` creation is the atomicity (O_EXCL also refuses a planted symlink); a
+ * leftover lock from a crashed reserver is stolen once it is older than the
+ * URL wait window, so a crash cannot wedge sign-in forever.
+ *
+ * @returns true if this process holds the reservation.
+ */
+function tryReserveAuthFlow(lockPath: string): boolean {
+  const create = () =>
+    fs.writeFileSync(lockPath, `${process.pid}\n`, { flag: "wx", mode: 0o600 });
+  try {
+    create();
+    return true;
+  } catch {
+    try {
+      const age = Date.now() - fs.statSync(lockPath).mtimeMs;
+      if (age > AUTH_URL_WAIT_MS + 5_000) {
+        fs.rmSync(lockPath, { force: true });
+        create();
+        return true;
+      }
+    } catch {
+      // Lock vanished or was recreated mid-check: treat as held by another.
+    }
+    return false;
+  }
+}
+
+/**
+ * Another connect holds the flow reservation: wait for its helper to publish
+ * the marker and reuse that URL instead of spawning a competing helper.
+ */
+async function waitForPendingAuthUrl(
+  serverUrl: string,
+  waitMs: number,
+  pollMs: number,
+): Promise<string> {
+  const deadline = Date.now() + waitMs;
+  for (;;) {
+    const marker = readLivePendingAuthMarker(serverUrl);
+    if (marker !== undefined) return marker.url;
+    if (Date.now() >= deadline) {
+      throw new CliExitCodeError(
+        EXIT_CODES.AUTH_REQUIRED,
+        "Timed out waiting for the in-progress sign-in flow to produce an authorization URL.",
+        { code: "auth_required" },
+      );
+    }
+    await new Promise<void>((resolve) => {
+      const timer = setTimeout(resolve, pollMs);
+      timer.unref();
+    });
+  }
+}
+
+/**
  * Non-TTY connect path: return the authorize URL for `serverConfig`, either
  * from a still-live pending marker (helper already waiting — reuse its URL)
  * or by spawning a fresh detached helper and reading the URL off its stdout.
+ *
+ * The marker check and helper spawn are made atomic by a per-server lock
+ * file: concurrent connects for the same server would otherwise both pass
+ * the check and spawn helpers that contend for the OAuth callback port. The
+ * loser of the reservation waits for the winner's helper to publish the
+ * marker (written before the helper reports the URL) and reuses it.
  *
  * After this resolves the helper is unrefed and survives this process: it
  * holds the loopback callback listener and completes the token exchange when
@@ -220,16 +282,44 @@ export async function runAuthHelper(): Promise<void> {
 export async function obtainPendingAuthUrl(
   serverConfig: MCPServerConfig,
   serverSettings: InspectorServerSettings | undefined,
-  options?: { helperArgv1?: string },
+  options?: { helperArgv1?: string; waitMs?: number; pollMs?: number },
 ): Promise<string> {
+  const waitMs = options?.waitMs ?? AUTH_URL_WAIT_MS;
+  let lockPath: string | undefined;
   const serverUrl = "url" in serverConfig ? serverConfig.url : undefined;
   if (serverUrl !== undefined) {
     const marker = readLivePendingAuthMarker(serverUrl);
     if (marker !== undefined) return marker.url;
+    lockPath = `${pendingAuthMarkerPath(serverUrl)}.lock`;
+    if (!tryReserveAuthFlow(lockPath)) {
+      return waitForPendingAuthUrl(serverUrl, waitMs, options?.pollMs ?? 250);
+    }
   }
 
+  try {
+    return await spawnAuthHelperForUrl(
+      serverConfig,
+      serverSettings,
+      waitMs,
+      options?.helperArgv1,
+    );
+  } finally {
+    // Success: the helper's marker is already on disk (written before the
+    // URL event), so later connects reuse it. Failure: releasing lets the
+    // next attempt spawn a fresh helper.
+    if (lockPath !== undefined) fs.rmSync(lockPath, { force: true });
+  }
+}
+
+/** Spawn the detached helper and read the authorize URL off its stdout. */
+async function spawnAuthHelperForUrl(
+  serverConfig: MCPServerConfig,
+  serverSettings: InspectorServerSettings | undefined,
+  waitMs: number,
+  helperArgv1?: string,
+): Promise<string> {
   /* v8 ignore next 6 -- argv[1] is always the mcpdo bin in production. */
-  const script = options?.helperArgv1 ?? process.argv[1];
+  const script = helperArgv1 ?? process.argv[1];
   if (!script) {
     throw new CliExitCodeError(
       EXIT_CODES.USAGE,
@@ -260,7 +350,7 @@ export async function obtainPendingAuthUrl(
         fail(
           "Timed out waiting for the sign-in helper to produce an authorization URL.",
         );
-      }, AUTH_URL_WAIT_MS);
+      }, waitMs);
       timer.unref();
       child.stdout.setEncoding("utf8");
       child.stdout.on("data", (chunk: string) => {

@@ -23,7 +23,7 @@ import {
   formatSkillVerifyListHuman,
   formatStreamEventHuman,
 } from "./format-human.js";
-import { sanitizeDeep, sanitizeText } from "./sanitize.js";
+import { isSafeLinkTarget, sanitizeDeep, sanitizeText } from "./sanitize.js";
 import { PLAIN, type Style } from "@inspector/cli/style.js";
 
 type JsonObject = Record<string, unknown>;
@@ -275,7 +275,10 @@ function humanPayload(payload: ConnectionWriteKind, style: Style): string {
         info,
         "",
         "Sign-in required. The user needs to open this link in a browser to authenticate:",
-        `  ${style.link(payload.authUrl)}`,
+        // The URL comes from server-controlled OAuth metadata: only
+        // allowlisted schemes become clickable OSC 8 links (same gate as
+        // every other server-supplied link — see sanitize.ts).
+        `  ${isSafeLinkTarget(payload.authUrl) ? style.link(payload.authUrl) : payload.authUrl}`,
         style.dim(
           `The connection completes automatically after sign-in — check with \`connections/show @${name}\`, or just run the next command.`,
         ),

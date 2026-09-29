@@ -728,6 +728,40 @@ describe("writeConnectionOutput", () => {
     expect(stdout).toContain("connections/show @api");
   });
 
+  it("connection authUrl: only allowlisted schemes become OSC 8 links", async () => {
+    const connection = {
+      name: "api",
+      serverIdentity: "https://mcp.example.com/mcp",
+      pendingAuth: true,
+      auth: { method: "oauth", authorized: false },
+    };
+    const style = createStyle(true);
+    stdout = "";
+    await writeConnectionOutput(
+      { format: "text", style },
+      {
+        kind: "connection",
+        connection,
+        authUrl: "https://as.example/authorize?state=ok",
+      },
+    );
+    expect(stdout).toContain("\u001b]8;;https://as.example/authorize?state=ok");
+
+    // Server-controlled OAuth metadata: an unsafe scheme renders as plain
+    // text, never a clickable link.
+    stdout = "";
+    await writeConnectionOutput(
+      { format: "text", style },
+      {
+        kind: "connection",
+        connection,
+        authUrl: "file:///etc/passwd",
+      },
+    );
+    expect(stdout).toContain("file:///etc/passwd");
+    expect(stdout).not.toContain("\u001b]8");
+  });
+
   it("connection without authUrl renders exactly as before (no sign-in block)", async () => {
     await writeConnectionOutput(
       { format: "text" },
