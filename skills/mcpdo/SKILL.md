@@ -10,10 +10,12 @@ Connect to an MCP server once, then run many commands against that named
 connection.
 
 ```bash
-mcpdo connect entry-name --config ./mcp.json # entry from a config file
+mcpdo servers/list                           # catalog entries you can connect
+mcpdo connect entry-name                     # connect a catalog entry
 mcpdo connect https://example.com/mcp        # ad-hoc HTTP/SSE target
 mcpdo connect node server.js                 # ad-hoc stdio target
 
+mcpdo connections/list                       # open connections
 mcpdo @entry-name tools/list
 mcpdo @entry-name tools/call <toolName> arg:=value
 mcpdo @entry-name resources/list
@@ -25,33 +27,82 @@ mcpdo --connection entry-name tools/list     # flag form of @entry-name
 mcpdo disconnect entry-name
 ```
 
+The canonical flow is `servers/list` → `connect <entry>` → `@entry <command>`.
 Run `mcpdo help` or `mcpdo <command> --help` for the full, authoritative list of
-commands and flags.
+commands and flags (auth management, elicitation controls, daemon control, and
+more).
+
+## How to think about mcpdo
+
+- **Connections extend your toolset.** Treat every open connection's tools,
+  resources, and prompts as part of your available capabilities: when facing a
+  task (or before saying "I can't do that"), check `mcpdo connections/list`
+  and the connected servers' `tools/list`, and call those tools mid-task like
+  any built-in tool.
+- **Answer capability questions with it.** "What MCP servers/tools do I have?"
+  includes mcpdo connections (`connections/list`) and catalog entries that are
+  connectable but not connected (`servers/list`).
+- **Don't auto-connect.** Catalog entries don't describe capabilities, and
+  connecting can start an auth flow involving the human. Connect when the user
+  directs it, or when a task clearly needs it — and say so first.
+- **Inspect via commands, not the filesystem.** Entries, connections, auth
+  state, and daemon state all have read commands; never list or read
+  `~/.mcp-inspector` directly. The one exception is _editing_ the catalog
+  (below).
+
+## The catalog
+
+- `servers/list` / `servers/show <name>` read the **catalog**: the writable
+  entry file at `~/.mcp-inspector/mcp.json` (standard `mcpServers` shape),
+  overridable per shell via `--catalog <path>` or `MCP_CATALOG_PATH`.
+  `servers/list` prints the resolved source path.
+- `servers/*` shows entries on disk; `connections/*` shows live daemon state.
+  Two shells with different catalogs share the same connections.
+- There are no CLI edit commands, by design: add or remove entries by editing
+  the catalog file directly. `mcpdo connect entry --config path/to/mcp.json`
+  instead connects an entry from a read-only foreign config file.
 
 ## Conventions
 
 - `--format json` outputs JSON; the default, `--format text`, is
   human-readable.
-- `mcpdo connections/list` shows open connections; `@name` (prefix on any command)
-  or `--connection <name>` (shorthand `--conn`) selects one explicitly. Always
-  qualify commands this way from an agent shell: with non-interactive (non-TTY)
-  stdin, mcpdo requires an explicit connection and errors without one. Omitting
-  it falls back to the most-recently-used connection only on an interactive
-  TTY, or anywhere when `MCP_ALLOW_DEFAULT_CONNECTION=1` is set.
-- A connected connection persists across separate `mcpdo` invocations — no need
-  to reconnect before each command. `mcpdo disconnect` ends one connection;
-  `mcpdo daemon stop` resets everything.
-- `mcpdo connect <name-in-config> --config path/to/mcp.json` connects a
-  pre-declared catalog entry (may include auth, headers, protocol-era
-  overrides); `mcpdo connect <url-or-command>` connects an ad-hoc target with
-  defaults.
-- Auth is handled automatically at connect time and stored for reuse (`mcpdo
-auth/list` / `mcpdo auth/clear`); nothing extra is needed for authenticated
-  HTTP servers beyond `connect` and completing the browser flow if prompted.
-- If a server asks a question mid-call (elicitation), mcpdo prompts
-  interactively by default — including over a plain non-TTY stdin, so an
-  agent can relay the question and answer it. Only `--format json` (whose
-  stdout must stay a single machine-readable payload) auto-declines instead
-  of prompting. Pass `--elicit off` on
-  `connect` if you want a well-behaved server to fall back to its own
-  defaults instead.
+- Always qualify commands with `@name` or `--connection <name>` (shorthand
+  `--conn`) from an agent shell: with non-interactive (non-TTY) stdin, mcpdo
+  requires an explicit connection and errors without one. Omitting it falls
+  back to the most-recently-used connection only on an interactive TTY, or
+  anywhere when `MCP_ALLOW_DEFAULT_CONNECTION=1` is set.
+- Connections persist across separate `mcpdo` invocations and **self-heal**: a
+  dropped transport (expired session, exited stdio child) transparently
+  re-dials on next use with stored credentials. Don't monitor or reconnect
+  manually; only an `auth_required` error needs action (re-run `connect`).
+  `mcpdo disconnect` ends one connection; `mcpdo daemon stop` resets
+  everything.
+- The `[legacy]` / `[modern]` era tag on `connections/list` is the negotiated
+  protocol generation (`legacy` = classic `initialize` handshake — current and
+  fine, not deprecated). Informational only.
+
+## Auth
+
+- Auth is automatic at connect time and stored for reuse (`mcpdo auth/list` /
+  `mcpdo auth/clear`). When a browser sign-in is needed and stdin is non-TTY,
+  `connect` exits 0 immediately with `pendingAuth: true` and an `authUrl`:
+  relay that URL to the user verbatim, then finish the job — the connection
+  completes automatically once they sign in, which often takes only moments.
+  Retry the intended command (sleep a few seconds between attempts) and only
+  hand back to the user if sign-in still hasn't completed after a few tries.
+  Never reconnect to fix a pending sign-in.
+
+## Elicitations (server asks a question mid-call)
+
+- On an interactive TTY, mcpdo prompts inline. From an agent shell (non-TTY or
+  `--format json`), the call instead **parks** and exits 0 with an
+  `elicitationPending` payload carrying the question, schema, and an
+  `elicitationId`.
+- Answer with `mcpdo elicitation/respond <elicitationId> field:=value ...`
+  (repeat if the server asks again), or end it with `--decline` or `--cancel`.
+  For URL-mode elicitations, relay the URL to the user, then confirm with
+  `elicitation/respond <id> --done` (or `--decline`). The response returns the
+  final tool result.
+- Parked calls expire after 10 minutes; one parked call per connection. Pass
+  `--elicit off` on `connect` to have well-behaved servers fall back to their
+  own defaults instead of asking.
