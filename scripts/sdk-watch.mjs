@@ -339,7 +339,7 @@ export function parseSupersededMarker(body) {
  * in the one mechanism that exists to remove a silent blind spot. Throwing
  * turns "we forgot to add it here" into a red run on the next night.
  *
- * @param {Record<string, string> | undefined} dependencies the root manifest's `dependencies`
+ * @param {Record<string, string> | undefined} dependencies the root manifest's declared packages (`dependencies` and `devDependencies`)
  * @throws when an in-scope package is not named in `SDK_GROUPS`
  */
 export function assertEveryPackageWatched(dependencies) {
@@ -772,12 +772,17 @@ export function main(
 
   const manifest = JSON.parse(readFile("package.json"));
   const lock = JSON.parse(readFile("package-lock.json"));
-  assertEveryPackageWatched(manifest.dependencies);
+  // Both sections, because the lockstep group is not all runtime:
+  // `server-legacy` is reached only by `test-servers/src` and so is a
+  // devDependency (#2519). Reading `dependencies` alone would drop it from the
+  // unwatched-package guard and report it as undeclared.
+  const declared = { ...manifest.devDependencies, ...manifest.dependencies };
+  assertEveryPackageWatched(declared);
 
   const versions = {};
   for (const pkg of SDK_GROUPS.flatMap((g) => g.packages)) {
     versions[pkg] = {
-      declared: manifest.dependencies?.[pkg] ?? null,
+      declared: declared[pkg] ?? null,
       installed: installedVersion(lock, pkg),
       latest: latestVersion(pkg, spawn),
     };
