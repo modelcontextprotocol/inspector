@@ -19,6 +19,8 @@ import {
   selectServerEntry,
 } from "@inspector/core/mcp/node/index.js";
 import { type LoggingLevel } from "@modelcontextprotocol/client";
+import { getDefaultEnvironment } from "@modelcontextprotocol/client/stdio";
+import type { MCPServerConfig } from "@inspector/core/mcp/types.js";
 import { LoggingLevelSchema } from "@modelcontextprotocol/core";
 import { CliExitCodeError, EXIT_CODES } from "@inspector/cli/error-handler.js";
 import { callDaemon, ensureDaemon } from "../daemon/index.js";
@@ -215,6 +217,37 @@ export function expandConnAlias(argv: string[]): string[] {
  * IPC for connect/disconnect/connections and MCP RPCs; `servers/list` and
  * `servers/show` are local (no daemon).
  */
+/**
+ * Pin a stdio config's cwd, command, and environment to the CALLER's shell
+ * before it crosses the socket to the daemon.
+ *
+ * The daemon is a persistent detached process: it chdir()s at startup and
+ * keeps the environment of whichever mcpdo invocation first spawned it. Left
+ * unpinned, a relative cwd or bare command name — and every default-inherited
+ * env var the SDK transport fills in (PATH, HOME, SHELL, ...) — would resolve
+ * against that stale context instead of the shell that ran `connect`, which
+ * is what `mcpdo connect node ./server.js` means to the user. A cwd/env
+ * configured in the catalog entry (or flags) still wins; this only pins the
+ * defaults and resolves relative values.
+ */
+export function pinStdioConfigToCaller<T extends MCPServerConfig>(
+  config: T,
+): T {
+  // `type` is optional on stdio configs (stdio is the implicit default), so
+  // narrow by excluding the URL transports rather than matching "stdio".
+  if (config.type === "sse" || config.type === "streamable-http") return config;
+  const resolved = resolveCommandPath(config.command);
+  return {
+    ...config,
+    cwd: path.resolve(config.cwd ?? process.cwd()),
+    ...(resolved !== config.command ? { command: resolved } : {}),
+    // The SDK transport spawns with {...getDefaultEnvironment(), ...env}
+    // evaluated in the DAEMON process; snapshotting the same default set
+    // here makes those fallbacks the caller's.
+    env: { ...getDefaultEnvironment(), ...config.env },
+  };
+}
+
 export async function runMcp(argv?: string[]): Promise<void> {
   const raw = argv ?? process.argv;
   const { argv: rewritten, connectionFromAt } = hoistAtConnection(
@@ -526,30 +559,10 @@ function registerConnect(program: CommandType): void {
 
       const entries = await loadServerEntries(serverOptions);
       const selected = selectServerEntry(entries, selectName);
-      let serverConfig = selected.config;
-      // A stdio config with no cwd would resolve relative commands and
-      // relative paths against the DAEMON's cwd — whichever directory the
-      // first mcpdo invocation happened to run from. Pin it to the caller's
-      // cwd, which is what `mcpdo connect node ./server.js` means to the user.
-      // A cwd configured in the catalog/config entry (or --cwd) still wins —
-      // but a *relative* configured cwd must also be resolved here, against
-      // this shell's cwd, not left for the daemon to resolve post-chdir.
-      if (serverConfig.type === "stdio") {
-        serverConfig = {
-          ...serverConfig,
-          cwd: path.resolve(serverConfig.cwd ?? process.cwd()),
-        };
-      }
-      // Same staleness problem for bare command names: the daemon would look
-      // `node` up in the PATH of whichever mcpdo invocation first spawned it.
-      // Resolve against the CALLER's PATH here so the daemon spawns exactly
-      // the binary this shell would have run.
-      if (serverConfig.type === "stdio") {
-        const resolved = resolveCommandPath(serverConfig.command);
-        if (resolved !== serverConfig.command) {
-          serverConfig = { ...serverConfig, command: resolved };
-        }
-      }
+      // Pin cwd/command/env to THIS shell before the config crosses to the
+      // persistent daemon, whose own cwd and environment are stale (they
+      // belong to whichever invocation first spawned it).
+      const serverConfig = pinStdioConfigToCaller(selected.config);
       const serverSettings = withEmaOverride(
         withElicitOverride(
           withEraOverride(

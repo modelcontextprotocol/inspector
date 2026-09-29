@@ -305,6 +305,24 @@ test("readTranscript: missing file and torn tail line", () => {
   }
 });
 
+test("readTranscript: corruption before the final record throws", () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "mcpdo-eval-test-"));
+  try {
+    const p = path.join(dir, "log.ndjson");
+    const good = JSON.stringify({ argv: ["tools/list"], exit: 0, events: [] });
+    // Only a torn FINAL line is a benign kill artifact; a malformed record
+    // with records after it is corruption the scorer must not misread as
+    // the agent never running that command.
+    writeFileSync(p, `${good}\n{"argv":["to\n${good}\n`);
+    assert.throws(
+      () => readTranscript(p),
+      /malformed transcript record at line 2/,
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("consent clicker: finds an authorize URL split across stream chunks", async () => {
   const { createServer } = await import("node:http");
   const hits = { callback: 0 };

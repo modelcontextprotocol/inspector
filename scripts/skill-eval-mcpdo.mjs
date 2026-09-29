@@ -456,16 +456,24 @@ export async function makeBehaviorEnv(
 /** Parse the shim transcript; tolerate a torn final line, never silent-drop. */
 export function readTranscript(logPath) {
   if (!existsSync(logPath)) return [];
-  return readFileSync(logPath, "utf8")
-    .split("\n")
-    .filter((l) => l.trim() !== "")
-    .flatMap((l) => {
-      try {
-        return [JSON.parse(l)];
-      } catch {
-        return [];
-      }
-    });
+  const lines = readFileSync(logPath, "utf8").split("\n");
+  const lastNonEmpty = lines.findLastIndex((l) => l.trim() !== "");
+  const records = [];
+  for (let i = 0; i <= lastNonEmpty; i++) {
+    if (lines[i].trim() === "") continue;
+    try {
+      records.push(JSON.parse(lines[i]));
+    } catch {
+      // Only the final record can legitimately be malformed (a write torn
+      // by a kill); anything earlier is corruption the scorer must not
+      // silently misread as agent behavior.
+      if (i === lastNonEmpty) break;
+      throw new Error(
+        `${logPath}: malformed transcript record at line ${i + 1}`,
+      );
+    }
+  }
+  return records;
 }
 
 /**
