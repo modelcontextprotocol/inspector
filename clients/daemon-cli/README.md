@@ -160,19 +160,24 @@ legacy server→client `elicitation/create` requests and modern non-task MRTR
 - **Form mode**: mcpdo renders one prompt per field from the schema, with a
   review step (edit any field again, or submit) before answering.
 
-Only `--format json` callers get an automatic decline (URL mode: cancel)
-instead of a prompt.
+Interactive callers (`--format text` on a TTY) get these prompts inline.
+Non-interactive callers — `--format json`, or no TTY at all — don't get a
+prompt: the daemon **parks** the elicitation and the RPC returns an
+`elicitationPending` payload naming the pending id. Answer it (from any
+shell) with `elicitation/respond <id>` — form answers as `key:=value` pairs
+or JSON, `--done` for URL mode, or `--decline` / `--cancel` — after which the
+original call completes. An unanswered parked elicitation is auto-cancelled
+after 10 minutes.
 
-> **Decision — who answers a prompt.** Only `--format json` auto-declines
-> (its stdout must stay a single machine-readable payload). Everything else —
-> including a plain non-TTY stdin — gets a real prompt, which means an agent
-> driving mcpdo can routinely read a form-mode question and answer on the
-> user's behalf. That is deliberate for an inspector tool. URL-mode is
-> different: there is never an auto-accept — completion is only ever
-> confirmed by an explicit answer to the prompt, because the out-of-band
-> action (typically an auth or consent step in a browser) is the user's to
-> perform. Use `--elicit off` on `connect` to keep any elicitation from
-> being asked at all.
+> **Decision — who answers a prompt.** Non-interactive callers never get an
+> automatic decline: the elicitation is parked so whoever drives mcpdo (a
+> script, an agent relaying to a human) can answer deliberately via
+> `elicitation/respond`, on its own schedule. That is deliberate for an
+> inspector tool. URL-mode is different: there is never an auto-accept —
+> completion is only ever confirmed by an explicit answer, because the
+> out-of-band action (typically an auth or consent step in a browser) is the
+> user's to perform. Use `--elicit off` on `connect` to keep any elicitation
+> from being asked at all.
 
 By default mcpdo advertises **both** modes to the server (`elicit: {url,
 form}`), matching pre-#1783 behavior. Override this per connection with
@@ -181,8 +186,8 @@ form}`), matching pre-#1783 behavior. Override this per connection with
 - `off` — advertise no elicitation capability at all. Useful when whatever is
   driving mcpdo (a script, an agent) can't handle an interactive prompt itself
   — omitting the capability lets a well-behaved server fall back to its own
-  alternative (e.g. proceeding with defaults) instead of the request being
-  auto-declined.
+  alternative (e.g. proceeding with defaults) instead of the request sitting
+  parked until someone answers it.
 - `url` — URL mode only.
 - `form` — form mode only.
 - `both` — the default; both modes.
