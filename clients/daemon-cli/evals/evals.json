@@ -105,5 +105,29 @@
         "stdoutMatch": "5"
       }
     ]
+  },
+  {
+    "kind": "behavior",
+    "prompt": "File a ticket on the helpdesk server with the summary 'Printer on floor 3 is jammed'. If it needs contact details, I'm Ada Lovelace, ada@example.com. Tell me the ticket number.",
+    "servers": {
+      "helpdesk": {
+        "serverInfo": { "name": "helpdesk", "version": "1.0.0" },
+        "tools": [{ "preset": "submit_ticket" }]
+      }
+    },
+    "expectCalls": [
+      {
+        "cmd": "tools/call",
+        "connection": "helpdesk",
+        "tool": "submit_ticket",
+        "exit": 0,
+        "stdoutMatch": "elicitationPending|Input required"
+      },
+      {
+        "cmd": "elicitation/respond",
+        "exit": 0,
+        "stdoutMatch": "TCK-"
+      }
+    ]
   }
 ]
