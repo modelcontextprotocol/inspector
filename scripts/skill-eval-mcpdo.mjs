@@ -232,9 +232,17 @@ export function loadCases() {
 
 /**
  * Agent arguments for a BEHAVIOR run: the trigger policy plus shell, scoped
- * to mcpdo by command-level approval. Both syntaxes were probed live (see
- * the header): unapproved effectful commands fail fast and the run
- * continues, so containment costs turns, not hangs.
+ * to mcpdo by command-level approval.
+ *
+ * SECURITY NOTE — this scoping is NOT a boundary. The approval patterns are
+ * prefix matches (`mcpdo x && anything` passes), and `mcpdo connect` itself
+ * launches arbitrary stdio commands by design. What the patterns do is keep a
+ * COOPERATING model from drifting into unrelated shell work (probed live:
+ * unapproved effectful commands fail fast and the run continues, so the
+ * denials cost turns, not hangs). The agent's command environment is
+ * minimized separately (see agentEnv in skill-eval.mjs); a runner who wants
+ * hard isolation from a misbehaving model should run this suite inside an
+ * OS-level sandbox of their choice (container, VM, dedicated user).
  *
  * Passed to `runPrompt` as `agentArgsFn` — a replacement, because the
  * trigger policy's `--deny-tool shell` / `--disallowedTools Bash` cannot be
@@ -252,9 +260,9 @@ export function behaviorAgentArgs(agent, maxTurns) {
       // No `--available-tools`: its availability names differ from the
       // approval-pattern names (the shell tool is `bash` in events but
       // `shell(...)` in patterns), and naming it wrong silently removes the
-      // tool — after which the model FABRICATES command output. Approval
-      // scoping alone contains the run: everything unapproved is auto-denied
-      // in headless mode.
+      // tool — after which the model FABRICATES command output. Everything
+      // unapproved is auto-denied in headless mode (drift reduction, not
+      // containment — see the function doc).
       "--allow-tool",
       "view,glob,grep,skill",
       "--allow-tool",
