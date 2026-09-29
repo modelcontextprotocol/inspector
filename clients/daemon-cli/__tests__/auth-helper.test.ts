@@ -62,25 +62,25 @@ describe("auth-helper", () => {
       });
     });
 
-    it("removes and ignores an expired marker", () => {
+    it("ignores an expired marker without deleting it (writers replace it)", () => {
       const markerPath = writeMarker({
         url: "https://as.example/authorize",
         pid: process.pid,
         expiresAt: Date.now() - 1,
       });
       expect(readLivePendingAuthMarker(SERVER_URL)).toBeUndefined();
-      expect(fs.existsSync(markerPath)).toBe(false);
+      // Read-time deletion would race a just-spawned helper's fresh marker.
+      expect(fs.existsSync(markerPath)).toBe(true);
     });
 
-    it("removes and ignores a marker whose helper process is gone", () => {
-      const markerPath = writeMarker({
+    it("ignores a marker whose helper process is gone", () => {
+      writeMarker({
         url: "https://as.example/authorize",
         // Out-of-range / nonexistent pid: process.kill(pid, 0) throws.
         pid: 0x7fffffff,
         expiresAt: Date.now() + 60_000,
       });
       expect(readLivePendingAuthMarker(SERVER_URL)).toBeUndefined();
-      expect(fs.existsSync(markerPath)).toBe(false);
     });
 
     it("ignores malformed marker files", () => {
@@ -268,6 +268,30 @@ describe("auth-helper", () => {
       expect(url).toBe("https://as.example/stolen");
       // The reservation is released once the URL is obtained.
       expect(fs.existsSync(lockPath)).toBe(false);
+    });
+
+    it("backs off when another stealer claims the stale lock first", async () => {
+      const lockPath = `${pendingAuthMarkerPath(SERVER_URL)}.lock`;
+      fs.writeFileSync(lockPath, "1234\n", { mode: 0o600 });
+      const old = new Date(Date.now() - 120_000);
+      fs.utimesSync(lockPath, old, old);
+      // Occupying this process's claim path makes the rename throw — the
+      // same observable outcome as losing the claim race: reserve fails,
+      // the caller waits, and (with no marker forthcoming) times out.
+      fs.mkdirSync(`${lockPath}.claim-${process.pid}`);
+      await expect(
+        obtainPendingAuthUrl(
+          { type: "streamable-http", url: SERVER_URL },
+          undefined,
+          {
+            helperArgv1: path.join(dir, "does-not-exist.mjs"),
+            waitMs: 60,
+            pollMs: 10,
+          },
+        ),
+      ).rejects.toMatchObject({ envelope: { code: "auth_required" } });
+      // The stale lock was claimed away by the rename attempt or left in
+      // place — either way this process never spawned a helper.
     });
 
     it("maps a helper spawn failure to auth_required", async () => {

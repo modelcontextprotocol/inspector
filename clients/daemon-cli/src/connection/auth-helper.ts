@@ -111,7 +111,11 @@ export function readLivePendingAuthMarker(
       }
     })();
   if (!live) {
-    fs.rmSync(markerPath, { force: true });
+    // Deliberately NOT deleted here: unlinking by pathname after the read
+    // would race a just-spawned helper replacing the marker (TOCTOU — the
+    // rm could delete the fresh URL). Stale markers are inert (re-validated
+    // on every read) and the next flow's writePendingAuthMarker replaces
+    // them.
     return undefined;
   }
   return marker;
@@ -210,13 +214,20 @@ export async function runAuthHelper(): Promise<void> {
 
 /**
  * Atomically reserve the right to spawn the sign-in helper for one server.
- * `wx` creation is the atomicity (O_EXCL also refuses a planted symlink); a
- * leftover lock from a crashed reserver is stolen once it is older than the
- * URL wait window, so a crash cannot wedge sign-in forever.
+ * `wx` creation is the atomicity (O_EXCL also refuses a planted symlink).
+ *
+ * A leftover lock from a crashed reserver is stolen once it is older than
+ * the URL wait window. The steal claims the specific stale file by an
+ * atomic rename to a per-pid path — concurrent stealers cannot both win,
+ * and a winner that renamed a lock which turned out to be fresh backs off
+ * (POSIX has no compare-and-delete; the rename makes the claim itself
+ * exclusive, which is what prevents a double spawn).
  *
  * @returns true if this process holds the reservation.
  */
 function tryReserveAuthFlow(lockPath: string): boolean {
+  const isStale = (mtimeMs: number) =>
+    Date.now() - mtimeMs > AUTH_URL_WAIT_MS + 5_000;
   const create = () =>
     fs.writeFileSync(lockPath, `${process.pid}\n`, { flag: "wx", mode: 0o600 });
   try {
@@ -224,16 +235,24 @@ function tryReserveAuthFlow(lockPath: string): boolean {
     return true;
   } catch {
     try {
-      const age = Date.now() - fs.statSync(lockPath).mtimeMs;
-      if (age > AUTH_URL_WAIT_MS + 5_000) {
-        fs.rmSync(lockPath, { force: true });
-        create();
-        return true;
-      }
+      if (!isStale(fs.statSync(lockPath).mtimeMs)) return false;
+      // Claim the stale lock atomically: only one renamer succeeds.
+      const claimPath = `${lockPath}.claim-${process.pid}`;
+      fs.renameSync(lockPath, claimPath);
+      const claimedFresh = !isStale(fs.statSync(claimPath).mtimeMs);
+      fs.rmSync(claimPath, { force: true });
+      // The claimed file was recreated fresh between stat and rename: an
+      // active reserver holds the flow — back off and wait for its marker.
+      // (Un-injectable microsecond race; the guard is what matters.)
+      /* v8 ignore next */
+      if (claimedFresh) return false;
+      create();
+      return true;
     } catch {
-      // Lock vanished or was recreated mid-check: treat as held by another.
+      // Lock vanished, was claimed by another stealer, or was recreated
+      // mid-steal: treat as held by another process.
+      return false;
     }
-    return false;
   }
 }
 
@@ -258,8 +277,10 @@ async function waitForPendingAuthUrl(
       );
     }
     await new Promise<void>((resolve) => {
-      const timer = setTimeout(resolve, pollMs);
-      timer.unref();
+      // NOT unref'ed: for a reservation loser this timer may be the only
+      // live handle, and an unref'ed one would let Node exit cleanly
+      // mid-wait — the connect would print no authorization URL at all.
+      setTimeout(resolve, pollMs);
     });
   }
 }
