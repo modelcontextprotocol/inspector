@@ -120,11 +120,16 @@
         "cmd": "tools/call",
         "connection": "helpdesk",
         "tool": "submit_ticket",
+        "args": { "summary": "Printer on floor 3 is jammed" },
         "exit": 0,
         "stdoutMatch": "elicitationPending|Input required"
       },
       {
         "cmd": "elicitation/respond",
+        "args": {
+          "contact_name": "Ada Lovelace",
+          "contact_email": "ada@example.com"
+        },
         "exit": 0,
         "stdoutMatch": "TCK-"
       }
