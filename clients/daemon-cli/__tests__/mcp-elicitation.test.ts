@@ -22,7 +22,7 @@ import type { ElicitationPendingInfo } from "../src/daemon/protocol.js";
 describe("mcp non-interactive elicitation (e2e)", () => {
   let storageDir: string | undefined;
   let configPath: string | undefined;
-  let ttyDescriptors: Array<{
+  const ttyDescriptors: Array<{
     stream: NodeJS.ReadStream | NodeJS.WriteStream;
     desc: PropertyDescriptor | undefined;
   }> = [];

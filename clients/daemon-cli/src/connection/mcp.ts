@@ -970,30 +970,88 @@ function resolveAgentSkillPath(): string | undefined {
   return candidates.find((candidate) => existsSync(candidate));
 }
 
+/**
+ * The always-on awareness snippet for a project's CLAUDE.md / AGENTS.md.
+ * Skills are pull-only (an agent sees just the description until something
+ * triggers a load), so task-shaped prompts that never mention MCP won't
+ * activate the skill; a line in an always-in-context instructions file is
+ * the reliable mechanism for standing awareness.
+ */
+const AGENT_INSTRUCTIONS_SNIPPET =
+  "mcpdo manages connections to additional MCP servers. Treat the tools, " +
+  "resources, and prompts on its open connections (`mcpdo connections/list`) " +
+  "as part of your available toolset — check them before deciding a task " +
+  "can't be done, and include them when asked what tools or MCP servers " +
+  "you have. Run `mcpdo agent-help` for the usage guide.\n";
+
+/** Returns SKILL.md content with the YAML frontmatter block removed. */
+function stripFrontmatter(content: string): string {
+  if (!content.startsWith("---\n")) return content;
+  const end = content.indexOf("\n---\n", 4);
+  if (end === -1) return content;
+  return content.slice(end + 5).replace(/^\n+/, "");
+}
+
 function registerAgentHelpCommand(program: CommandType): void {
   program
     .command("agent-help")
     .description(
-      "Print mcpdo's SKILL.md content — a concise, agent-oriented guide for " +
-        "coding agents/LLMs (also the file `npx skills` installs). Use " +
-        "--path to print its file location instead of its contents.",
+      "Print an agent-oriented usage guide, comparable to the mcpdo SKILL. " +
+        "Agents should read this before using other mcpdo commands.",
     )
-    .option("--path", "Print the resolved file path instead of its contents")
-    .action(async (o: { path?: boolean }) => {
-      const skillPath = resolveAgentSkillPath();
-      if (!skillPath) {
-        throw new CliExitCodeError(
-          EXIT_CODES.USAGE,
-          "Could not locate skills/mcpdo/SKILL.md relative to this install.",
-          { code: "agent_help_not_found" },
-        );
-      }
-      if (o.path === true) {
-        await awaitableLog(skillPath + "\n");
-        return;
-      }
-      await awaitableLog(readFileSync(skillPath, "utf8"));
-    });
+    .option(
+      "--skill",
+      "Print the full usage guide — the mcpdo SKILL.md body, usable as if " +
+        "the skill had been loaded (default when no option is given)",
+    )
+    .option(
+      "--instructions",
+      "Print a short snippet to append to a project's CLAUDE.md/AGENTS.md " +
+        "so agents treat mcpdo connections as part of their toolset on " +
+        "every turn (skills and this guide load only on demand). " +
+        "Pipeable: mcpdo agent-help --instructions >> AGENTS.md",
+    )
+    .option(
+      "--skill-path",
+      "Print the path of the installable SKILL.md file — this guide plus " +
+        "its skill frontmatter — for skill runtimes " +
+        "(e.g. copy into ~/.claude/skills/mcpdo/)",
+    )
+    .action(
+      async (o: {
+        skill?: boolean;
+        instructions?: boolean;
+        skillPath?: boolean;
+      }) => {
+        const picked = [o.skill, o.instructions, o.skillPath].filter(
+          (v) => v === true,
+        ).length;
+        if (picked > 1) {
+          throw new CliExitCodeError(
+            EXIT_CODES.USAGE,
+            "--skill, --instructions, and --skill-path are mutually exclusive.",
+            { code: "agent_help_flag_conflict" },
+          );
+        }
+        if (o.instructions === true) {
+          await awaitableLog(AGENT_INSTRUCTIONS_SNIPPET);
+          return;
+        }
+        const skillPath = resolveAgentSkillPath();
+        if (!skillPath) {
+          throw new CliExitCodeError(
+            EXIT_CODES.USAGE,
+            "Could not locate skills/mcpdo/SKILL.md relative to this install.",
+            { code: "agent_help_not_found" },
+          );
+        }
+        if (o.skillPath === true) {
+          await awaitableLog(skillPath + "\n");
+          return;
+        }
+        await awaitableLog(stripFrontmatter(readFileSync(skillPath, "utf8")));
+      },
+    );
 }
 
 function registerRpcCommands(program: CommandType): void {

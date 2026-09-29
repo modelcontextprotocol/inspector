@@ -619,10 +619,7 @@ describe("formatElicitationPendingHuman", () => {
       origin: "server-request",
       expiresAt: 0,
     };
-    const styled = formatElicitationPendingHuman(
-      info,
-      createStyle({ color: true, links: true }),
-    );
+    const styled = formatElicitationPendingHuman(info, createStyle(true));
     expect(styled).toContain("https://example.com/signup?flow=abc");
     expect(styled).toContain("\u001b]8;;https://example.com/signup?flow=abc");
     expect(styled).toContain("elicitation/respond e-u --done");
@@ -630,7 +627,7 @@ describe("formatElicitationPendingHuman", () => {
 
     const unsafe = formatElicitationPendingHuman(
       { ...info, url: "file:///etc/passwd" },
-      createStyle({ color: true, links: true }),
+      createStyle(true),
     );
     expect(unsafe).toContain("file:///etc/passwd");
     expect(unsafe).not.toContain("\u001b]8");

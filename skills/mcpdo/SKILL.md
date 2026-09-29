@@ -49,6 +49,11 @@ more).
   state, and daemon state all have read commands; never list or read
   `~/.mcp-inspector` directly. The one exception is _editing_ the catalog
   (below).
+- **Make it always-on (optional).** Skills load only on demand; for standing
+  awareness of mcpdo in a project, append `mcpdo agent-help --instructions`
+  output to the project's `CLAUDE.md`/`AGENTS.md`. (`mcpdo agent-help`
+  prints this guide; `--skill-path` prints the installable skill file's
+  path.)
 
 ## The catalog
 
