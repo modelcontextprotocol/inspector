@@ -69,6 +69,7 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  renameSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -129,7 +130,9 @@ const SERVER_LAUNCHER = path.join(
 const THRESHOLD = Number(process.env.THRESHOLD ?? 0.8);
 const RUNS = Number(process.env.RUNS ?? 3);
 const CONCURRENCY = Number(process.env.CONCURRENCY ?? 4);
-const AGENT = process.env.AGENT ?? "claude";
+// `all` runs every known agent in sequence; a single agent name narrows the
+// run (e.g. AGENT=claude for cheaper iteration).
+const AGENT = process.env.AGENT ?? "all";
 // Behavior knobs are separate from the trigger ones: a multi-turn agentic
 // run costs an order of magnitude more than a one-turn trigger sample, and
 // its hit rate is honestly lower — 0.5 strict to start, tightened as the
@@ -405,10 +408,16 @@ export async function makeBehaviorEnv(
     MCP_INSPECTOR_DAEMON_TOKEN: randomBytes(32).toString("base64url"),
     MCP_STORAGE_DIR: storageDir,
     MCP_CATALOG_PATH: catalogPath,
+    // Ephemeral OAuth callback port per sample: the default is a fixed port
+    // (6276), which concurrent samples' detached auth helpers fight over —
+    // the loser's consent redirect lands on the winner's helper and sign-in
+    // silently never completes (measured: intermittent secure-add misses
+    // with endless `authorized: false` polls).
+    MCP_OAUTH_CALLBACK_URL: "http://127.0.0.1:0/oauth/callback",
     MCPDO_EVAL_REAL: REAL_BIN,
     MCPDO_EVAL_LOG: logPath,
   };
-  const teardown = async () => {
+  const teardown = async ({ keepEnvDir = false } = {}) => {
     // Daemon first (it may hold connections into the HTTP fixtures), then
     // the fixtures. Direct spawn of the real build, not the shim: teardown
     // must not appear in the transcript, and must work even if the shim is
@@ -431,9 +440,9 @@ export async function makeBehaviorEnv(
       });
     });
     for (const s of httpServers) await s.stop().catch(() => {});
-    rmSync(envDir, { recursive: true, force: true });
+    if (!keepEnvDir) rmSync(envDir, { recursive: true, force: true });
   };
-  return { env, logPath, teardown };
+  return { env, logPath, envDir, teardown };
 }
 
 /** Parse the shim transcript; tolerate a torn final line, never silent-drop. */
@@ -509,8 +518,13 @@ export function startConsentClicker(logPath) {
     if (inFlight) return;
     const urls = new Set();
     for (const record of readTranscript(logPath)) {
-      for (const event of record.events ?? []) {
-        for (const url of event.data?.match?.(AUTHORIZE_URL_RE) ?? []) {
+      // Scan joined per-stream text, not individual chunks: a long authorize
+      // URL (e.g. inside pretty-printed `--format json` output) can be split
+      // across stream chunks, and a per-chunk scan then sees only fragments
+      // (measured: copilot misses where sign-in silently never happened).
+      for (const stream of ["stdout", "stderr"]) {
+        for (const url of streamText(record, stream).match(AUTHORIZE_URL_RE) ??
+          []) {
           if (!clicked.has(url)) urls.add(url);
         }
       }
@@ -522,6 +536,7 @@ export function startConsentClicker(logPath) {
       for (const url of urls) {
         try {
           await clickConsent(url);
+          console.error(`  autoConsent: clicked ${new URL(url).pathname}`);
         } catch (err) {
           console.error(`  autoConsent: click failed — ${err.message}`);
         }
@@ -536,26 +551,44 @@ export function startConsentClicker(logPath) {
 }
 
 /**
+ * Where a failed sample's artifacts are preserved for diagnosis: the shim
+ * transcript, the raw agent stream, the composed catalog/server configs, and
+ * the case itself. Never auto-cleaned — delete by hand when done.
+ */
+export const FAILURES_DIR = path.join(
+  os.homedir(),
+  ".cache",
+  "mcpdo-skill-eval",
+  "failures",
+);
+
+/**
  * Run one behavior sample: fresh sandbox + hermetic env, one agent session,
- * transcript scored against the case's `expectCalls`.
+ * transcript scored against the case's `expectCalls`. On a miss the sample's
+ * env dir (transcript, agent stream, configs, case) is preserved under
+ * {@link FAILURES_DIR} and its path returned as `artifactsDir`.
  *
  * @param {object} c A behavior case.
+ * @param {string} agent One of `AGENTS`.
  * @returns {Promise<{ hit: boolean, failures: string[], calls: number }>}
  */
-async function runBehaviorSample(c) {
+async function runBehaviorSample(c, agent) {
   const sandbox = makeSandbox();
-  const { env, logPath, teardown } = await makeBehaviorEnv(
+  const { env, logPath, envDir, teardown } = await makeBehaviorEnv(
     sandbox,
     caseServers(c),
   );
   const clicker = c.autoConsent === true ? startConsentClicker(logPath) : null;
+  let keepEnvDir = false;
+  let artifactsDir = null;
   try {
     await runPrompt(c.prompt, {
       cwd: sandbox,
-      agent: AGENT,
+      agent,
       maxTurns: BEHAVIOR_TURNS,
       env,
       agentArgsFn: behaviorAgentArgs,
+      rawLogPath: path.join(envDir, "agent-session.ndjson"),
     });
     const records = readTranscript(logPath);
     const { ok, failures } = evalExpectCalls(c.expectCalls, records);
@@ -566,13 +599,36 @@ async function runBehaviorSample(c) {
       : records.map((r) => ({
           argv: r.argv,
           exit: r.exit,
+          start: r.start,
+          end: r.end,
           out: streamText(r, "stdout").slice(0, 300),
           err: streamText(r, "stderr").slice(0, 300),
         }));
-    return { hit: ok, failures, calls: records.length, transcript };
+    if (!ok) {
+      keepEnvDir = true;
+      writeFileSync(
+        path.join(envDir, "case.json"),
+        JSON.stringify({ agent, case: c, failures }, null, 2),
+      );
+      artifactsDir = path.join(
+        FAILURES_DIR,
+        `${new Date().toISOString().replace(/[:.]/g, "-")}-${agent}-${path.basename(envDir)}`,
+      );
+    }
+    return {
+      hit: ok,
+      failures,
+      calls: records.length,
+      transcript,
+      artifactsDir,
+    };
   } finally {
     clicker?.stop();
-    await teardown();
+    await teardown({ keepEnvDir });
+    if (keepEnvDir && artifactsDir !== null) {
+      mkdirSync(FAILURES_DIR, { recursive: true });
+      renameSync(envDir, artifactsDir);
+    }
     rmSync(sandbox, { recursive: true, force: true });
   }
 }
@@ -592,12 +648,13 @@ async function pool(items, n, fn) {
 }
 
 async function main() {
-  if (!AGENTS.includes(AGENT)) {
+  if (AGENT !== "all" && !AGENTS.includes(AGENT)) {
     console.error(
-      `skills:eval:mcpdo — unknown AGENT \`${AGENT}\`; known: ${AGENTS.join(", ")}`,
+      `skills:eval:mcpdo — unknown AGENT \`${AGENT}\`; known: all, ${AGENTS.join(", ")}`,
     );
     process.exit(1);
   }
+  const agents = AGENT === "all" ? [...AGENTS] : [AGENT];
   for (const [name, value] of [
     ["THRESHOLD", THRESHOLD],
     ["BEHAVIOR_THRESHOLD", BEHAVIOR_THRESHOLD],
@@ -617,10 +674,13 @@ async function main() {
     );
   }
   let failed = 0;
-  failed += await runTriggerSection(
-    trigger.filter(byMatch).map((c) => ({ ...c, from: SKILL_NAME })),
-  );
-  failed += await runBehaviorSection(behavior.filter(byMatch));
+  for (const agent of agents) {
+    failed += await runTriggerSection(
+      trigger.filter(byMatch).map((c) => ({ ...c, from: SKILL_NAME })),
+      agent,
+    );
+    failed += await runBehaviorSection(behavior.filter(byMatch), agent);
+  }
   process.exit(failed > 0 ? 1 : 0);
 }
 
@@ -629,18 +689,18 @@ async function main() {
  *
  * @returns {Promise<number>} Failed case count.
  */
-async function runTriggerSection(cases) {
+async function runTriggerSection(cases, agent) {
   if (cases.length === 0) return 0;
   const sandbox = makeSandbox();
   console.log(
-    `skills:eval:mcpdo trigger — ${cases.length} cases x ${RUNS} runs, agent ${AGENT}, sandbox ${sandbox}`,
+    `skills:eval:mcpdo trigger — ${cases.length} cases x ${RUNS} runs, agent ${agent}, sandbox ${sandbox}`,
   );
   const samples = cases.flatMap((c) => Array.from({ length: RUNS }, () => c));
   try {
     const results = await pool(samples, CONCURRENCY, async (c) => {
       const invoked = await runPrompt(c.prompt, {
         cwd: sandbox,
-        agent: AGENT,
+        agent,
         maxTurns: 1,
       });
       return { c, invoked };
@@ -657,7 +717,7 @@ async function runTriggerSection(cases) {
         threshold: THRESHOLD,
         chainThreshold: 0.5,
         chainMaxTurns: 1,
-        agent: AGENT,
+        agent,
       },
     );
     for (const line of lines) console.log(line);
@@ -673,7 +733,7 @@ async function runTriggerSection(cases) {
  *
  * @returns {Promise<number>} Failed case count.
  */
-async function runBehaviorSection(cases) {
+async function runBehaviorSection(cases, agent) {
   if (cases.length === 0) return 0;
   if (process.platform === "win32") {
     console.log(
@@ -689,14 +749,14 @@ async function runBehaviorSection(cases) {
     return 1;
   }
   console.log(
-    `skills:eval:mcpdo behavior — ${cases.length} cases x ${BEHAVIOR_RUNS} runs, agent ${AGENT}, budget ${BEHAVIOR_TURNS} turns`,
+    `skills:eval:mcpdo behavior — ${cases.length} cases x ${BEHAVIOR_RUNS} runs, agent ${agent}, budget ${BEHAVIOR_TURNS} turns`,
   );
   const samples = cases.flatMap((c) =>
     Array.from({ length: BEHAVIOR_RUNS }, () => c),
   );
   const results = await pool(samples, CONCURRENCY, async (c) => ({
     c,
-    ...(await runBehaviorSample(c)),
+    ...(await runBehaviorSample(c, agent)),
   }));
   let failed = 0;
   for (const c of cases) {
@@ -713,9 +773,15 @@ async function runBehaviorSection(cases) {
         console.log(
           `  miss (${r.calls} mcpdo calls): ${r.failures.join("; ")}`,
         );
+        if (r.artifactsDir) console.log(`    artifacts: ${r.artifactsDir}`);
+        const t0 = r.transcript?.[0]?.start;
         for (const t of r.transcript ?? []) {
+          const at =
+            typeof t.start === "number" && typeof t0 === "number"
+              ? ` @${((t.start - t0) / 1000).toFixed(1)}s+${((t.end - t.start) / 1000).toFixed(1)}s`
+              : "";
           console.log(
-            `    $ mcpdo ${t.argv.join(" ")} -> ${t.exit}` +
+            `    $ mcpdo ${t.argv.join(" ")} -> ${t.exit}${at}` +
               (t.out ? `\n      out: ${t.out.replace(/\n/g, "\\n")}` : "") +
               (t.err ? `\n      err: ${t.err.replace(/\n/g, "\\n")}` : ""),
           );

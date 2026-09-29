@@ -49,7 +49,13 @@
 // the run has established it needs one — so they never share a column.
 
 import { spawn } from "node:child_process";
-import { readFileSync, existsSync, readdirSync, statSync } from "node:fs";
+import {
+  readFileSync,
+  existsSync,
+  readdirSync,
+  statSync,
+  appendFileSync,
+} from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { cliSpawnArgs, probeCliVersion } from "./lib/claude-cli.mjs";
@@ -683,6 +689,9 @@ export function runPrompt(
     // flag). Defaults preserve this file's read-only trigger policy exactly.
     env = null,
     agentArgsFn = agentArgs,
+    // Optional raw capture of the agent's stdout stream (NDJSON events) for
+    // post-mortem diagnosis of failed samples.
+    rawLogPath = null,
   } = {},
 ) {
   return new Promise((resolve, reject) => {
@@ -726,6 +735,13 @@ export function runPrompt(
     // stream rather than restarting at each read.
     let turnOffset = 0;
     p.stdout.on("data", (chunk) => {
+      if (rawLogPath !== null) {
+        try {
+          appendFileSync(rawLogPath, chunk);
+        } catch {
+          // Diagnostics only — never fail the run over the raw log.
+        }
+      }
       if (stopped) return;
       const parsed = collect(buf + chunk.toString(), turnOffset);
       buf = parsed.rest;

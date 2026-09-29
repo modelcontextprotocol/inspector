@@ -305,6 +305,63 @@ test("readTranscript: missing file and torn tail line", () => {
   }
 });
 
+test("consent clicker: finds an authorize URL split across stream chunks", async () => {
+  const { createServer } = await import("node:http");
+  const hits = { callback: 0 };
+  const server = createServer((req, res) => {
+    const u = new URL(req.url, "http://127.0.0.1");
+    if (u.pathname === "/oauth/authorize" && req.method === "GET") {
+      res.writeHead(200, { "Content-Type": "text/html" });
+      res.end("<form>consent</form>");
+    } else if (u.pathname === "/oauth/authorize" && req.method === "POST") {
+      res.writeHead(302, {
+        Location: `http://127.0.0.1:${server.address().port}/cb?code=x&state=s`,
+      });
+      res.end();
+    } else if (u.pathname === "/cb") {
+      hits.callback++;
+      res.writeHead(200);
+      res.end("done");
+    } else {
+      res.writeHead(404);
+      res.end();
+    }
+  });
+  await new Promise((r) => server.listen(0, "127.0.0.1", r));
+  const port = server.address().port;
+  const authUrl = `http://127.0.0.1:${port}/oauth/authorize?client_id=c&state=s`;
+  const cut = authUrl.indexOf("authorize?") + 12; // mid-query split
+  const dir = mkdtempSync(path.join(os.tmpdir(), "mcpdo-eval-test-"));
+  const logPath = path.join(dir, "log.ndjson");
+  writeFileSync(
+    logPath,
+    JSON.stringify({
+      argv: ["connect", "secure"],
+      exit: 0,
+      events: [
+        {
+          t: 1,
+          stream: "stdout",
+          data: `"authUrl": "${authUrl.slice(0, cut)}`,
+        },
+        { t: 2, stream: "stdout", data: `${authUrl.slice(cut)}"` },
+      ],
+    }) + "\n",
+  );
+  const clicker = startConsentClicker(logPath);
+  try {
+    const deadline = Date.now() + 5000;
+    while (hits.callback === 0 && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    assert.equal(hits.callback, 1);
+  } finally {
+    clicker.stop();
+    server.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("consent clicker: approves each authorize URL from the transcript once", async () => {
   const { createServer } = await import("node:http");
   const hits = { get: 0, post: 0, callback: 0 };
