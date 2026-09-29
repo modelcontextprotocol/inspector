@@ -1098,7 +1098,9 @@ test("runPrompt: spawned agent env is minimal plus the caller's overlay", async 
       queueMicrotask(() => {
         child.stdout.emit(
           "data",
-          Buffer.from(JSON.stringify({ type: "result", subtype: "success" }) + "\n"),
+          Buffer.from(
+            JSON.stringify({ type: "result", subtype: "success" }) + "\n",
+          ),
         );
         child.emit("close", 0);
       });
