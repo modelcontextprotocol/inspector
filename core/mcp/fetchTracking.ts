@@ -138,6 +138,41 @@ function redactJsonValue(value: unknown): unknown {
 }
 
 /**
+ * Fold a sensitive value's raw-`&` continuations back into that value.
+ *
+ * A conforming form body percent-encodes `&` inside a value, but a
+ * non-conforming token endpoint may not, and `URLSearchParams` would then split
+ * `access_token=abc&def` into `access_token=abc` plus a key `def` — leaving the
+ * secret's tail in the recorded body as an ordinary key (#2532). This applies
+ * the rule the web display masker settled in #2422: once a sensitive key has a
+ * non-empty value, a following segment with no `=` belongs to that value, so it
+ * is re-joined as `%26` and redacted with it. Empty segments (`&&`) are kept.
+ */
+function joinSensitiveContinuations(body: string): string {
+  const out: string[] = [];
+  // Index in `out` of the sensitive pair whose value is still open, or -1.
+  // An index rather than "the last entry", because an empty segment kept in
+  // between (`access_token=abc&&def`) must not become the fold target.
+  let sensitiveAt = -1;
+  for (const pair of body.split("&")) {
+    const eq = pair.indexOf("=");
+    if (eq === -1) {
+      if (sensitiveAt !== -1 && pair.length > 0) {
+        out[sensitiveAt] += `%26${pair}`;
+      } else {
+        out.push(pair);
+      }
+      continue;
+    }
+    const [key] = new URLSearchParams(pair).keys();
+    sensitiveAt =
+      isSensitiveField(key) && eq < pair.length - 1 ? out.length : -1;
+    out.push(pair);
+  }
+  return out.join("&");
+}
+
+/**
  * Returns `body` with every {@link SENSITIVE_BODY_FIELDS} value masked, for
  * `application/x-www-form-urlencoded` and JSON payloads. The surrounding shape
  * (field order, non-sensitive fields, JSON structure) is preserved — only the
@@ -169,7 +204,7 @@ export function redactBody(
   // Form-encoded bodies (the OAuth token endpoint's request format).
   if (type.includes("application/x-www-form-urlencoded")) {
     try {
-      const params = new URLSearchParams(body);
+      const params = new URLSearchParams(joinSensitiveContinuations(body));
       let changed = false;
       for (const key of new Set(params.keys())) {
         if (isSensitiveField(key)) {
