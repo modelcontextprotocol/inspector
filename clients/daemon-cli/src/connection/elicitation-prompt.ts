@@ -13,7 +13,6 @@
  *   Schemas outside the spec's restricted primitive-field shape (should
  *   never happen from a well-behaved server) fall back to a clear decline.
  */
-import { createInterface } from "node:readline/promises";
 import type { Style } from "@inspector/cli/style.js";
 import type {
   ElicitationRequestFrame,
@@ -21,6 +20,7 @@ import type {
 } from "../daemon/protocol.js";
 import { parseFormSchema } from "./form-schema.js";
 import { promptForm, watchForClose } from "./form-prompt.js";
+import { getSharedPromptReader } from "./prompt-reader.js";
 import { isSafeLinkTarget, sanitizeText } from "./sanitize.js";
 
 export type PromptElicitationOpts = {
@@ -105,10 +105,10 @@ export async function promptElicitation(
       return declineResponse(frame);
     }
 
-    const rl = createInterface({
-      input: process.stdin,
-      output: process.stderr,
-    });
+    // The shared reader outlives this exchange on purpose: piped answers
+    // for later fields/rounds arrive before their questions are asked, and
+    // a per-exchange interface would drop them (see prompt-reader.ts).
+    const rl = getSharedPromptReader();
     try {
       const outcome = await promptForm(rl, message, fields, style);
       if (outcome.action === "accept") {
@@ -124,8 +124,6 @@ export async function promptElicitation(
       return cancelResponse(frame);
     } catch {
       return cancelResponse(frame);
-    } finally {
-      rl.close();
     }
   }
 
@@ -155,10 +153,7 @@ export async function promptElicitation(
       "\n\n",
   );
 
-  const rl = createInterface({
-    input: process.stdin,
-    output: process.stderr,
-  });
+  const rl = getSharedPromptReader();
   try {
     const answer = await Promise.race([
       rl.question(
@@ -178,7 +173,5 @@ export async function promptElicitation(
     };
   } catch {
     return cancelResponse(frame);
-  } finally {
-    rl.close();
   }
 }

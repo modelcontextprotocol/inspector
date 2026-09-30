@@ -3,13 +3,12 @@ import { createStyle } from "@inspector/cli/style.js";
 import type { ElicitationRequestFrame } from "../src/daemon/protocol.js";
 
 const question = vi.fn();
-const close = vi.fn();
 const promptFormMock = vi.fn();
 
 const once = vi.fn();
 
-vi.mock("node:readline/promises", () => ({
-  createInterface: () => ({ question, close, once }),
+vi.mock("../src/connection/prompt-reader.js", () => ({
+  getSharedPromptReader: () => ({ question, once }),
 }));
 
 vi.mock("../src/connection/form-prompt.js", async () => {
@@ -44,7 +43,6 @@ describe("promptElicitation", () => {
       return true;
     }) as typeof process.stderr.write;
     question.mockReset();
-    close.mockReset();
     once.mockReset();
     promptFormMock.mockReset();
   });
@@ -171,7 +169,6 @@ describe("promptElicitation", () => {
       elicitationId: "elicitation-1",
       action: "accept",
     });
-    expect(close).toHaveBeenCalled();
     expect(stderr).toContain("Please confirm");
     expect(stderr).toContain("https://example.com/confirm");
   });
@@ -213,7 +210,6 @@ describe("promptElicitation", () => {
     const frame = urlFrame();
     const answer = await promptElicitation(frame, { interactive: true, style });
     expect(answer.action).toBe("cancel");
-    expect(close).toHaveBeenCalled();
   });
 
   it("cancels URL mode if stdin closes before the user answers", async () => {
@@ -229,7 +225,6 @@ describe("promptElicitation", () => {
     const frame = urlFrame();
     const answer = await promptElicitation(frame, { interactive: true, style });
     expect(answer.action).toBe("cancel");
-    expect(close).toHaveBeenCalled();
   });
 
   it("accepts an interactive form submission and returns its content", async () => {
@@ -248,7 +243,6 @@ describe("promptElicitation", () => {
       action: "accept",
       content: { name: "octocat" },
     });
-    expect(close).toHaveBeenCalled();
   });
 
   it("declines an interactive form when promptForm reports decline", async () => {
@@ -276,6 +270,5 @@ describe("promptElicitation", () => {
     const frame = formFrame();
     const answer = await promptElicitation(frame, { interactive: true, style });
     expect(answer.action).toBe("cancel");
-    expect(close).toHaveBeenCalled();
   });
 });

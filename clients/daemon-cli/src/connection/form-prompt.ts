@@ -6,8 +6,8 @@
  * range), then shows a review step before submitting so the user can
  * re-edit any field or cancel outright.
  */
-import type { Interface as ReadlineInterface } from "node:readline/promises";
 import type { Style } from "@inspector/cli/style.js";
+import type { PromptInput } from "./prompt-reader.js";
 import type { FormField } from "./form-schema.js";
 import { codePointLength } from "./form-schema.js";
 import { sanitizeText } from "./sanitize.js";
@@ -18,14 +18,15 @@ export type FormOutcome =
   | { action: "cancel" };
 
 /**
- * A promise that rejects the first time `rl`'s underlying input stream
- * closes (EOF on a redirected/piped stdin, or the readline interface being
- * closed elsewhere). Racing every `rl.question()` against this means a
- * closed-before-answered stdin (e.g. `mcpdo ... </dev/null`) falls through
- * to the caller's cancel/decline handling instead of hanging forever
- * waiting for a line that will never arrive.
+ * A promise that rejects the first time `rl` reports exhausted input (for a
+ * {@link PromptReader}: EOF on a redirected/piped stdin *with no buffered
+ * line left to answer from*, or the reader being disposed elsewhere). Racing
+ * every `rl.question()` against this means a closed-before-answered stdin
+ * (e.g. `mcpdo ... </dev/null`) falls through to the caller's cancel/decline
+ * handling instead of hanging forever waiting for a line that will never
+ * arrive.
  */
-export function watchForClose(rl: ReadlineInterface): Promise<never> {
+export function watchForClose(rl: PromptInput): Promise<never> {
   return new Promise((_, reject) => {
     rl.once("close", () =>
       reject(new Error("stdin closed before an answer was given")),
@@ -35,7 +36,7 @@ export function watchForClose(rl: ReadlineInterface): Promise<never> {
 
 /** `rl.question()`, but rejects instead of hanging if stdin closes first. */
 function ask(
-  rl: ReadlineInterface,
+  rl: PromptInput,
   closed: Promise<never>,
   prompt: string,
 ): Promise<string> {
@@ -63,7 +64,7 @@ function describeField(field: FormField, style: Style): string {
 
 /** Prompts for one field's value; loops until a valid answer or a default/blank-when-optional. */
 async function promptField(
-  rl: ReadlineInterface,
+  rl: PromptInput,
   closed: Promise<never>,
   field: FormField,
   style: Style,
@@ -231,7 +232,7 @@ async function promptField(
  * field by name / cancel) until the user submits or cancels.
  */
 export async function promptForm(
-  rl: ReadlineInterface,
+  rl: PromptInput,
   message: string,
   fields: FormField[],
   style: Style,
