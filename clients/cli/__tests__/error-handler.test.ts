@@ -394,6 +394,17 @@ describe("envelope URL redaction", () => {
     expect(envelope.message).not.toContain("tok456");
   });
 
+  it("keeps a punctuation run inside the URL and splits only the trailing one", () => {
+    // A long run that does not end the match was quadratic under the old
+    // unanchored /[…]+$/ (#2540); the backward scan must still stop at `x`.
+    const run = "!".repeat(50_000);
+    const { envelope } = classifyError(
+      new Error(`see https://srv.example/cb?note=${run}x&code=abc123!?`),
+    );
+    expect(envelope.message).toMatch(/x&code=%5BREDACTED%5D!\?$/);
+    expect(envelope.message).not.toContain("abc123");
+  });
+
   it("redacts a URL whose scheme is upper- or mixed-case", () => {
     const { envelope } = classifyError(
       new Error(
