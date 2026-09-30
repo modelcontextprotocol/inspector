@@ -880,6 +880,33 @@ describe("redactBody", () => {
     expect(params.get("grant_type")).toBe("client_credentials");
   });
 
+  it("redacts a sensitive value's raw-& tail with it (#2532)", () => {
+    const out = redactBody(
+      "access_token=SECRETabc&SECRETdef&SECRETghi&token_type=bearer",
+      "application/x-www-form-urlencoded",
+    );
+    expect(out).not.toMatch(/SECRET/);
+    expect([...new URLSearchParams(out)]).toEqual([
+      ["access_token", REDACTED_VALUE],
+      ["token_type", "bearer"],
+    ]);
+  });
+
+  it("keeps a no-= segment that follows a non-sensitive or empty value", () => {
+    const out = redactBody(
+      "scope=read&flag&access_token=&bare&refresh_token=r&&grant_type=x",
+      "application/x-www-form-urlencoded",
+    );
+    expect([...new URLSearchParams(out)]).toEqual([
+      ["scope", "read"],
+      ["flag", ""],
+      ["access_token", REDACTED_VALUE],
+      ["bare", ""],
+      ["refresh_token", REDACTED_VALUE],
+      ["grant_type", "x"],
+    ]);
+  });
+
   it("leaves a form body with no sensitive fields byte-identical", () => {
     const body = "grant_type=client_credentials&scope=read";
     expect(redactBody(body, "application/x-www-form-urlencoded")).toBe(body);
