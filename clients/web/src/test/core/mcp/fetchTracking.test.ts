@@ -892,6 +892,18 @@ describe("redactBody", () => {
     ]);
   });
 
+  it("folds a tail across an empty segment into the secret (#2532)", () => {
+    const out = redactBody(
+      "access_token=SECRETabc&&SECRETtail&token_type=bearer",
+      "application/x-www-form-urlencoded",
+    );
+    expect(out).not.toMatch(/SECRET/);
+    expect([...new URLSearchParams(out)]).toEqual([
+      ["access_token", REDACTED_VALUE],
+      ["token_type", "bearer"],
+    ]);
+  });
+
   it("keeps a no-= segment that follows a non-sensitive or empty value", () => {
     const out = redactBody(
       "scope=read&flag&access_token=&bare&refresh_token=r&&grant_type=x",

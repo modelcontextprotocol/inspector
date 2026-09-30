@@ -150,19 +150,23 @@ function redactJsonValue(value: unknown): unknown {
  */
 function joinSensitiveContinuations(body: string): string {
   const out: string[] = [];
-  let inSensitiveValue = false;
+  // Index in `out` of the sensitive pair whose value is still open, or -1.
+  // An index rather than "the last entry", because an empty segment kept in
+  // between (`access_token=abc&&def`) must not become the fold target.
+  let sensitiveAt = -1;
   for (const pair of body.split("&")) {
     const eq = pair.indexOf("=");
     if (eq === -1) {
-      if (inSensitiveValue && pair.length > 0) {
-        out[out.length - 1] += `%26${pair}`;
+      if (sensitiveAt !== -1 && pair.length > 0) {
+        out[sensitiveAt] += `%26${pair}`;
       } else {
         out.push(pair);
       }
       continue;
     }
     const [key] = new URLSearchParams(pair).keys();
-    inSensitiveValue = isSensitiveField(key) && eq < pair.length - 1;
+    sensitiveAt =
+      isSensitiveField(key) && eq < pair.length - 1 ? out.length : -1;
     out.push(pair);
   }
   return out.join("&");
