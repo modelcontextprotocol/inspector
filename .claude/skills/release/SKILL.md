@@ -228,7 +228,11 @@ builds parts 1 and 4. It reproduced 2.9.0's published Thanks section exactly.
 REPO=modelcontextprotocol/inspector
 git fetch origin main --tags
 VERSION=$(git show origin/main:package.json | node -p "JSON.parse(require('fs').readFileSync(0)).version")
-PREV=$(git tag -l '[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | grep -vx "$VERSION" | head -1)
+# The highest STABLE tag below VERSION. Whole-name match: this repo also has
+# 2.0.0-rc.N, x.y.z-hotfix, x.y.z-amended and v2-alpha-1 tags, and a glob
+# like [0-9]*.[0-9]*.[0-9]* would pick an RC as PREV and drop changes.
+PREV=$( { git tag -l | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$'; echo "$VERSION"; } \
+  | sort -uV | grep -B1 -x "$VERSION" | head -1 )
 echo "$PREV → $VERSION"                                   # sanity-check both
 
 # 1. What's Changed, exactly as the UI generates it.
@@ -250,7 +254,8 @@ done | awk '{ c[$1]++; l[$1] = l[$1] (l[$1] ? ", " : "") "#" $2 }
   END { for (u in c) printf "%d\t%s\t%s\n", c[u], u, l[u] }' \
   | sort -t$'\t' -k1,1nr -k2,2f | awk -F'\t' '{ print "* @" $2 " (" $3 ")" }' > thanks.txt
 
-[ -s thanks.txt ] && { printf '\n## Thanks for helping us improve\n\nThis release addresses issues reported by these community members. Thank you for taking the time to file them:\n\n'; cat thanks.txt; } > thanks.md
+: > thanks.md                          # truncate first, so a rerun never keeps a stale section
+[ -s thanks.txt ] && { printf '\n## Thanks for helping us improve\n\nThis release addresses issues reported by these community members. Thank you for taking the time to file them:\n\n'; cat thanks.txt; } >> thanks.md
 ```
 
 Then assemble `release-notes.md`, the ledger line, any known issue, and
@@ -345,10 +350,16 @@ is what 2.9.0 needed (#2551): the first run's `publish` passed a bare
    attaches to the broken commit again, and `generate-notes` reads that commit
    too. Delete the tag with `git push origin :refs/tags/$VERSION`, and confirm
    it is gone with `gh api repos/$REPO/git/ref/tags/$VERSION` (expect a 404).
-4. **Recreate the Release at the new `main`** with the same notes, regenerating
-   only the What's Changed list, which now includes the fix PRs.
-5. **Record it in the ledger.** The fix could not be smoke-tested; the re-cut
-   run passing `publish` is its evidence.
+4. **Recreate the Release at the new `main`.** Re-run the whole 3a recipe:
+   What's Changed now includes the fix PRs, and a fix PR can close a
+   community-reported issue, so the Thanks section can change too. Keep the
+   hand-written parts (the ledger line and any known issue) as they were.
+5. **Verify the fix before publishing again, wherever it can be verified.**
+   Run the gate, and the smoke rows the fix touches, on the new tree. Only a path
+   that exists solely inside a release run (like #2551's publish step) has the
+   re-cut run as its first real evidence. Get as close as you can beforehand (a
+   `--dry-run` with the pinned tool version), and record in the ledger which kind
+   of evidence each fix has.
 
 If npm *did* publish and something downstream failed (the GHCR image, for
 example), do not re-cut: that would try to publish the same npm version again.
