@@ -156,7 +156,31 @@ const UNREACHABLE_PATTERN =
 const EMBEDDED_URL_PATTERN = /\bhttps?:\/\/(?:(?!https?:\/\/)[^\s"<>])+/gi;
 
 /** Sentence punctuation (or a closing quote) a message may put right after a URL. */
-const TRAILING_PUNCTUATION = /[.,;:!?)\]']+$/;
+const TRAILING_PUNCTUATION = new Set([
+  ".",
+  ",",
+  ";",
+  ":",
+  "!",
+  "?",
+  ")",
+  "]",
+  "'",
+]);
+
+/**
+ * Length of `match` once its trailing {@link TRAILING_PUNCTUATION} run is
+ * removed. A backward scan rather than an unanchored `/[…]+$/`: that regex
+ * rescans a punctuation run from every start position when the run does not
+ * end the string, which is quadratic, and the text here is server-controlled
+ * (an HTTP error body lands in the message), so a long `!!!…x` stalled the
+ * CLI's error path (#2540).
+ */
+function trailingPunctuationStart(match: string): number {
+  let end = match.length;
+  while (end > 0 && TRAILING_PUNCTUATION.has(match.charAt(end - 1))) end--;
+  return end;
+}
 
 /**
  * Apply {@link redactUrlQuery} to every URL embedded in `text`. Trailing
@@ -166,9 +190,8 @@ const TRAILING_PUNCTUATION = /[.,;:!?)\]']+$/;
  */
 function redactUrlsInText(text: string): string {
   return text.replace(EMBEDDED_URL_PATTERN, (match) => {
-    const trailing = TRAILING_PUNCTUATION.exec(match)?.[0] ?? "";
-    const url = match.slice(0, match.length - trailing.length);
-    return redactUrlQuery(url) + trailing;
+    const end = trailingPunctuationStart(match);
+    return redactUrlQuery(match.slice(0, end)) + match.slice(end);
   });
 }
 
