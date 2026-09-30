@@ -280,6 +280,7 @@ export class DaemonServer {
       socketPath: this.socketPath,
       connections: this.registry.list(),
       idleMs: this.registry.idleRemainingMs(),
+      stopping: this.stopping,
     };
   }
 
@@ -366,7 +367,10 @@ export class DaemonServer {
           response: {
             id: request.id,
             ok: true,
-            result: { pong: true, pid: process.pid },
+            // `stopping` lets ensureDaemon treat a shutting-down daemon as
+            // "about to be gone" (wait for exit, respawn) instead of alive —
+            // ping itself always succeeds so status checks never fail.
+            result: { pong: true, pid: process.pid, stopping: this.stopping },
           },
         };
       case "connect": {
@@ -671,6 +675,7 @@ export class DaemonServer {
       client,
       channel,
       outcome,
+      unwire,
       info: pendingInfo(first.frame, connectionName, {
         method: params.method,
         toolName: params.toolName,

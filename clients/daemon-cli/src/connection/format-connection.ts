@@ -300,7 +300,8 @@ function humanPayload(payload: ConnectionWriteKind, style: Style): string {
         ? (s.connections as unknown[])
         : [];
       return [
-        `${style.bold("Daemon")} pid ${String(s.pid)}`,
+        `${style.bold("Daemon")} pid ${String(s.pid)}` +
+          (s.stopping === true ? ` ${style.yellow("(shutting down)")}` : ""),
         style.dim(`Socket: ${String(s.socketPath ?? "")}`),
         formatConnectionsListHuman(connections, style),
       ].join("\n");

@@ -18,7 +18,9 @@ import {
   ensureDaemon,
   readLogTail,
   resolveDaemonScriptPath,
+  waitForDaemonExit,
 } from "../src/daemon/ensure.js";
+import { spawn, spawnSync } from "node:child_process";
 import { ConnectionRegistry } from "../src/daemon/connections.js";
 import { CliExitCodeError } from "@inspector/cli/error-handler.js";
 import { runMcp } from "./helpers/mcp-runner.js";
@@ -787,6 +789,87 @@ describe("daemon coverage", () => {
     await callDaemon("daemon/stop", {}, { socketPath: ensured.socketPath });
     await new Promise((r) => setTimeout(r, 150));
   });
+
+  it("ping and daemon/status report stopping during shutdown", async () => {
+    const d = freshDir();
+    const srv = new DaemonServer({ dir: d, idleMs: 0 });
+    await srv.start();
+    const before = await srv.handle({ id: "p1", op: "ping" });
+    expect(before).toMatchObject({ ok: true, result: { stopping: false } });
+    await srv.stop("stop");
+    // Ping never fails — a stopping (or just-stopped in-process) daemon
+    // still answers, flagged so ensureDaemon knows to wait it out.
+    const after = await srv.handle({ id: "p2", op: "ping" });
+    expect(after).toMatchObject({
+      ok: true,
+      result: { pong: true, stopping: true },
+    });
+    const status = await srv.handle({ id: "s1", op: "daemon/status" });
+    expect(status).toMatchObject({ ok: true, result: { stopping: true } });
+  });
+
+  it("waitForDaemonExit resolves for a dead pid and times out on a live one", async () => {
+    const dead = spawnSync(process.execPath, ["-e", ""]);
+    expect(dead.pid).toBeGreaterThan(0);
+    await waitForDaemonExit(dead.pid, "/nonexistent.sock", 2000, 10);
+    await expect(
+      waitForDaemonExit(process.pid, "/nonexistent.sock", 150, 25),
+    ).rejects.toMatchObject({ envelope: { code: "daemon_stopping" } });
+  });
+
+  it("waitForDaemonExit falls back to socket reachability without a pid", async () => {
+    const d = freshDir();
+    await waitForDaemonExit(undefined, path.join(d, "absent.sock"), 500, 10);
+  });
+
+  it("ensureDaemon waits out a stopping daemon and spawns a fresh one", async () => {
+    const d = freshDir();
+    const sock = path.join(d, "daemon.sock");
+    // The "old daemon": a process that takes a moment to exit, and a socket
+    // that answers ping with stopping:true (as the real dispatch does).
+    const oldDaemon = spawn(
+      process.execPath,
+      ["-e", "setTimeout(()=>{},800)"],
+      {
+        stdio: "ignore",
+      },
+    );
+    const stoppingSocket = net.createServer((socket) => {
+      socket.on("error", () => {});
+      socket.once("data", (buf) => {
+        const req = JSON.parse(String(buf).trim()) as { id: string };
+        socket.write(
+          JSON.stringify({
+            id: req.id,
+            ok: true,
+            result: { pong: true, pid: oldDaemon.pid, stopping: true },
+          }) + "\n",
+        );
+      });
+    });
+    await new Promise<void>((r) => stoppingSocket.listen(sock, r));
+    // Mid-shutdown the socket goes away before the process does — the gap
+    // where spawning too early would die on the still-held lock.
+    setTimeout(() => {
+      stoppingSocket.close();
+      try {
+        fs.unlinkSync(sock);
+      } catch {
+        // already gone
+      }
+    }, 200);
+    try {
+      const ensured = await ensureDaemon({
+        dir: d,
+        daemonScript: resolveDaemonScriptPath(),
+      });
+      expect(ensured.spawned).toBe(true);
+      await callDaemon("daemon/stop", {}, { socketPath: ensured.socketPath });
+      await new Promise((r) => setTimeout(r, 150));
+    } finally {
+      oldDaemon.kill();
+    }
+  }, 15000);
 
   it("start-timeout error quotes the daemon's stderr log", async () => {
     const d = freshDir();

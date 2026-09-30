@@ -100,6 +100,16 @@ export type ParkedCall = {
   /** Settles when the parked daemon-side call finishes (result or error). */
   outcome: Promise<RpcResult>;
   /**
+   * Removes the call's bridge subscriber. Normally the call's own `finally`
+   * unwires when the underlying call settles — but a cancelled/expired park
+   * abandons a call that is still running server-side, and its subscriber
+   * would otherwise stay first in the bridge's dispatch order until the
+   * server settles it, swallowing (auto-cancelling) the next elicitation of
+   * any new call started in that window. Park teardown owns the unwire so a
+   * closed channel is never a dispatch target. Idempotent.
+   */
+  unwire: () => void;
+  /**
    * `awaiting` = parked, answerable; `responding` = an `elicitation/respond`
    * is in flight for it (a concurrent respond must not double-answer).
    */
@@ -135,6 +145,7 @@ export class ElicitationParkRegistry {
     client: InspectorClient;
     channel: ParkingElicitationChannel;
     outcome: Promise<RpcResult>;
+    unwire: () => void;
   }): ParkedCall {
     const parked: ParkedCall = {
       ...entry,
@@ -195,6 +206,10 @@ export class ElicitationParkRegistry {
 
   private cancel(entry: ParkedCall): void {
     this.finish(entry);
+    // The abandoned call may run server-side long after this park is gone;
+    // unwire its bridge subscriber now so it cannot shadow a new call's
+    // elicitations (see ParkedCall.unwire).
+    entry.unwire();
     entry.channel.close(
       new CliExitCodeError(
         EXIT_CODES.UNREACHABLE,
@@ -208,6 +223,7 @@ export class ElicitationParkRegistry {
     if (this.ttlMs <= 0) return;
     entry.timer = setTimeout(() => {
       this.finish(entry);
+      entry.unwire();
       entry.channel.close(
         new CliExitCodeError(
           EXIT_CODES.UNREACHABLE,

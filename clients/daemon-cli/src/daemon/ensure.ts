@@ -130,6 +130,51 @@ export function readLogTail(logPath: string, maxLines = 10): string {
   }
 }
 
+/** How long ensureDaemon waits for a stopping daemon to finish exiting. */
+export const STOPPING_EXIT_TIMEOUT_MS = 10_000;
+const STOPPING_POLL_MS = 100;
+
+/** Signal-0 liveness probe; EPERM means alive but not ours. */
+function pidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+/**
+ * Wait for a shutting-down daemon to actually exit. Keyed on the process
+ * (which holds the daemon lock until it dies), not the socket — the socket
+ * closes earlier in shutdown, and spawning in that gap would die on the
+ * still-held lock. Falls back to socket reachability when the ping predates
+ * the `pid` field. Exported for tests.
+ */
+export async function waitForDaemonExit(
+  pid: number | undefined,
+  socketPath: string,
+  timeoutMs = STOPPING_EXIT_TIMEOUT_MS,
+  pollMs = STOPPING_POLL_MS,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const gone =
+      pid !== undefined
+        ? !pidAlive(pid)
+        : !(await isDaemonReachable(socketPath));
+    if (gone) return;
+    if (Date.now() >= deadline) {
+      throw new CliExitCodeError(
+        EXIT_CODES.UNREACHABLE,
+        "Connection daemon is shutting down but did not exit in time; retry shortly.",
+        { code: "daemon_stopping" },
+      );
+    }
+    await new Promise((r) => setTimeout(r, pollMs));
+  }
+}
+
 /**
  * Ensure a connection daemon is running for the current {@link getDaemonDir}.
  * Auto-spawns a detached Node process when the socket is not reachable.
@@ -163,8 +208,19 @@ export async function ensureDaemon(options?: {
     // unreachable path below — is stale, and the spawned daemon itself
     // removes it after a connect probe (removeStaleDaemonSocket).
     token ??= readDaemonTokenFile(dir);
-    await callDaemon("ping", {}, { socketPath, timeoutMs: 2000, token });
-    return { socketPath, spawned: false };
+    const pong = await callDaemon<{
+      pong: boolean;
+      pid?: number;
+      stopping?: boolean;
+    }>("ping", {}, { socketPath, timeoutMs: 2000, token });
+    if (pong?.stopping !== true) {
+      return { socketPath, spawned: false };
+    }
+    // The daemon answered but is shutting down; it would reject real work
+    // with daemon_stopping, and a respawn now would die on its still-held
+    // lock. To the caller the daemon is simply "up": wait for the old
+    // process to finish exiting, then fall through and spawn a fresh one.
+    await waitForDaemonExit(pong.pid, socketPath);
   }
 
   // Every daemon requires a token; generate one for the child when the

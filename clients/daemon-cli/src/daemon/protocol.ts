@@ -300,6 +300,8 @@ export type DaemonStatus = {
   socketPath: string;
   connections: ConnectionInfo[];
   idleMs: number | null;
+  /** True once shutdown has begun (status stays answerable while stopping). */
+  stopping: boolean;
 };
 
 /** Serializable RPC outcome (no live stream callbacks). */
