@@ -243,7 +243,7 @@ gh api "repos/$REPO/releases/generate-notes" -f tag_name="$VERSION" \
 #    maintainers (admin/maintain/write) and bots.
 for pr in $(grep -oE 'pull/[0-9]+' release-notes.md | cut -d/ -f2 | sort -un); do
   gh api graphql -F n="$pr" -f query='query($n:Int!){repository(owner:"modelcontextprotocol",name:"inspector"){pullRequest(number:$n){body closingIssuesReferences(first:20){nodes{number}}}}}' \
-    --jq '.data.repository.pullRequest | ([.closingIssuesReferences.nodes[].number] + ([.body | scan("(?i)(?:closes|fixes|resolves) #([0-9]+)")[] | .[0] | tonumber])) | .[]'
+    --jq '.data.repository.pullRequest | ([.closingIssuesReferences.nodes[].number] + ([.body | scan("(?i)(?:closes|fixes|resolves) #([0-9]+)") | .[0] | tonumber])) | .[]'
 done | sort -un | while read -r n; do
   gh api graphql -F n="$n" -f query='query($n:Int!){repository(owner:"modelcontextprotocol",name:"inspector"){issueOrPullRequest(number:$n){... on Issue{number author{login __typename}}}}}' \
     --jq '.data.repository.issueOrPullRequest | select(.number and .author.__typename == "User") | "\(.author.login) \(.number)"'
@@ -288,7 +288,8 @@ merged: *Releases → Draft a new release → Choose a tag → type the bare `x.
 The same thing from the CLI, with the notes file from 3a:
 
 ```sh
-gh release create "$VERSION" --target main --title "$VERSION" --notes-file <assembled-notes.md> --latest
+NOTES=release-notes-final.md    # the assembled notes from 3a
+gh release create "$VERSION" --target main --title "$VERSION" --notes-file "$NOTES" --latest
 ```
 
 `--target main` and the bare `$VERSION` give the right target and tag by
