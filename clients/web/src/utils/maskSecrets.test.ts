@@ -167,6 +167,40 @@ describe("maskSecretsInBody", () => {
     expect(masked).toBe(`code=${MASK_PLACEHOLDER}&code=${MASK_PLACEHOLDER}`);
   });
 
+  it("folds the tail of a secret containing a raw & into the mask (#2422)", () => {
+    // A non-conforming server left `&` un-encoded inside the token, so the
+    // split yields `=`-less tail segments that are part of the secret.
+    const { masked, hasSecrets } = maskSecretsInBody(
+      "access_token=abc&def&ghi&token_type=bearer",
+      "application/x-www-form-urlencoded",
+    );
+    expect(hasSecrets).toBe(true);
+    expect(masked).toBe(`access_token=${MASK_PLACEHOLDER}&token_type=bearer`);
+    expect(masked).not.toContain("def");
+    expect(masked).not.toContain("ghi");
+  });
+
+  it("folds a tail at the end of the body and keeps empty segments", () => {
+    const { masked } = maskSecretsInBody("scope=read&code=abc&&tail&");
+    expect(masked).toBe(`scope=read&code=${MASK_PLACEHOLDER}&&`);
+    expect(masked).not.toContain("tail");
+  });
+
+  it("leaves a flag-style param alone when it follows a non-secret pair", () => {
+    const { masked, hasSecrets } = maskSecretsInBody(
+      "scope=read&flag&code=abc",
+    );
+    expect(hasSecrets).toBe(true);
+    expect(masked).toBe(`scope=read&flag&code=${MASK_PLACEHOLDER}`);
+  });
+
+  it("does not fold a segment after an empty sensitive value", () => {
+    // An empty value was not masked, so what follows is not part of a secret.
+    const { masked, hasSecrets } = maskSecretsInBody("code=&flag");
+    expect(hasSecrets).toBe(false);
+    expect(masked).toBe("code=&flag");
+  });
+
   it("does not flag an empty form param value", () => {
     const { masked, hasSecrets } = maskSecretsInBody(
       "grant_type=refresh_token&client_secret=",

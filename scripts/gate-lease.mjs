@@ -35,6 +35,23 @@
  * being non-single-winner apply here too and matter less: the worst case is
  * two gates running at once, which is exactly today's behaviour.
  *
+ * **Why waiters queue in arrival order (#2473).** The lock alone grants the
+ * lease to whichever waiter's poll lands first after a release, so a gate that
+ * has waited longest has no advantage over one that arrived a second ago — and
+ * since {@link MAX_WAIT_MS} is a total budget, an old waiter could lose race
+ * after race to newer arrivals and give up while they ran. So each waiter
+ * first takes a *ticket*: a file in `<lease dir>/queue/` whose name begins
+ * with its arrival time, and only the waiter whose ticket sorts first among
+ * the live ones asks for the lock at all. The lock stays the thing that
+ * grants; the queue only decides who is allowed to ask. A ticket is dead —
+ * pruned by whichever waiter behind it notices — when its process is gone
+ * (same host) or it has gone {@link STALE_MS} without a refresh, so a waiter
+ * that is Ctrl-C'd or killed stops blocking the line within one poll, or
+ * within `STALE_MS` where its pid cannot be checked. A live waiter refreshes
+ * its ticket every poll and puts it back *under the same name* if a peer
+ * pruned it, so a starved event loop costs it nothing but a moment, not its
+ * place.
+ *
  * **Why the lease is machine-wide.** The lock lives under `os.tmpdir()`
  * (`$XDG_RUNTIME_DIR` where a desktop session sets it), never inside a
  * worktree — a lock in the repo would be one per worktree, which is one per
@@ -60,16 +77,20 @@
  */
 
 import { spawn } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import nodeFs, {
   existsSync,
   mkdirSync,
   readFileSync,
+  readdirSync,
+  renameSync,
   rmSync,
   rmdirSync,
   statSync,
+  utimesSync,
   writeFileSync,
 } from "node:fs";
-import { constants as osConstants, tmpdir } from "node:os";
+import { hostname, constants as osConstants, tmpdir } from "node:os";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
@@ -111,7 +132,9 @@ export const PROGRESS_MS = 60_000;
  * takes the lease. A dead holder releases within {@link STALE_MS}, so it
  * expires against a live gate that has hung, a dead holder's lock directory
  * that could not be removed, or a queue of healthy gates deeper than the
- * budget covers — about ten at ~4.5 minutes each. The right outcome in every
+ * budget covers — about ten at ~4.5 minutes each. Because waiters queue in
+ * arrival order, the one that gives up in that last case is the newest, never
+ * one that has been passed over. The right outcome in every
  * case is a loud failure naming whichever gate holds the lease at that moment
  * rather than another process joining the pile; an unbounded wait would be a
  * task that looks like progress and can never succeed. Keep this in step with
@@ -138,6 +161,172 @@ export function leaseTarget(dir) {
 /** The lock directory `proper-lockfile` creates for {@link leaseTarget}. */
 export function lockPathOf(dir) {
   return `${leaseTarget(dir)}.lock`;
+}
+
+/**
+ * Where waiters' tickets live. A sibling of the lock, never inside it — a file
+ * inside the lock directory would make its removal (and so stale takeover)
+ * fail.
+ */
+export function queueDirOf(dir) {
+  return path.join(dir, "queue");
+}
+
+/** Only names ending in this are tickets; a half-written `.tmp` is not. */
+const TICKET_EXT = ".ticket";
+
+/**
+ * A ticket name that sorts by arrival: zero-padded milliseconds, then pid and
+ * a random suffix so two waiters arriving in the same millisecond still get
+ * distinct names (and a deterministic, if arbitrary, order between them).
+ */
+export function ticketName(now, pid, suffix = randomBytes(4).toString("hex")) {
+  return `${String(now).padStart(16, "0")}-${pid}-${suffix}${TICKET_EXT}`;
+}
+
+/** Written to a temp name and renamed, so a reader never sees a partial record. */
+function writeTicket(ticket) {
+  const tmp = `${ticket.path}.tmp`;
+  writeFileSync(tmp, ticket.body);
+  renameSync(tmp, ticket.path);
+}
+
+/**
+ * Take a place in line. Returns the ticket to pass to {@link refreshTicket},
+ * {@link countAhead} and {@link leaveQueue}; throws if the queue directory
+ * cannot be written.
+ */
+export function joinQueue(dir, { now = Date.now(), pid = process.pid } = {}) {
+  const qdir = queueDirOf(dir);
+  mkdirSync(qdir, { recursive: true });
+  const ticket = {
+    path: path.join(qdir, ticketName(now, pid)),
+    body: JSON.stringify({
+      pid,
+      host: hostname(),
+      cwd: process.cwd(),
+      queuedAt: now,
+    }),
+  };
+  writeTicket(ticket);
+  return ticket;
+}
+
+/**
+ * Mark a ticket as still wanted, restoring it under the *same name* if a peer
+ * pruned it as stale — so the waiter keeps its place. Best effort: a waiter
+ * whose ticket cannot be written at all still waits, just unordered.
+ */
+export function refreshTicket(ticket) {
+  const now = new Date();
+  try {
+    utimesSync(ticket.path, now, now);
+  } catch {
+    try {
+      writeTicket(ticket);
+    } catch {
+      // Nothing more to do; the lock still serializes the gates.
+    }
+  }
+}
+
+/** Give up a place in line. Never throws. */
+export function leaveQueue(ticket) {
+  try {
+    rmSync(ticket.path, { force: true });
+  } catch {
+    // A ticket left behind goes stale and is pruned by whoever is next.
+  }
+}
+
+/** `EPERM` means the process exists but belongs to someone else. */
+function isPidAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return err?.code === "EPERM";
+  }
+}
+
+/**
+ * Whether the ticket at `file` still belongs to a waiter: refreshed within
+ * `staleMs`, and — when it names a process on this host — that process still
+ * exists. An unreadable record on a fresh file is treated as live; the
+ * staleness check retires it soon enough.
+ */
+export function isTicketLive(
+  file,
+  { now = Date.now(), host = hostname(), staleMs = STALE_MS } = {},
+) {
+  let mtimeMs;
+  try {
+    ({ mtimeMs } = statSync(file));
+  } catch {
+    return false;
+  }
+  if (now - mtimeMs > staleMs) return false;
+  try {
+    const record = JSON.parse(readFileSync(file, "utf8"));
+    if (
+      record?.host === host &&
+      Number.isInteger(record?.pid) &&
+      record.pid > 0
+    ) {
+      return isPidAlive(record.pid);
+    }
+  } catch {
+    // Unreadable or malformed — fall back to the staleness check alone.
+  }
+  return true;
+}
+
+/**
+ * How many live waiters are ahead of `ticket`. Dead tickets it passes are
+ * removed on the way, so a crashed waiter blocks the line for one poll.
+ */
+export function countAhead(dir, ticket) {
+  const qdir = queueDirOf(dir);
+  let names;
+  try {
+    names = readdirSync(qdir);
+  } catch {
+    return 0;
+  }
+  const mine = path.basename(ticket.path);
+  let ahead = 0;
+  for (const name of names) {
+    if (!name.endsWith(TICKET_EXT) || name >= mine) continue;
+    const file = path.join(qdir, name);
+    if (isTicketLive(file)) ahead += 1;
+    else leaveQueue({ path: file });
+  }
+  return ahead;
+}
+
+/** `, with 2 more gates queued ahead of this one` — or nothing at the head. */
+export function describeQueue(ahead) {
+  if (ahead <= 0) return "";
+  return `, with ${ahead} more gate${ahead === 1 ? "" : "s"} queued ahead of this one`;
+}
+
+/**
+ * What a waiter is waiting on. The lock can be free while this waiter is not
+ * at the head of the line — the head is between polls — and then naming a
+ * holder would send someone to stop a gate that does not exist, so that case
+ * names the queue instead. `lockPath` is appended to the holder form only,
+ * for the give-up line, where it is the thing to remove by hand.
+ */
+export function describeWait(
+  dir,
+  ahead,
+  { withLockPath = false, now = Date.now() } = {},
+) {
+  if (ahead > 0 && !existsSync(lockPathOf(dir))) {
+    return `the lease is free, but ${ahead} gate${ahead === 1 ? " queued ahead of this one goes" : "s queued ahead of this one go"} first`;
+  }
+  const where = withLockPath ? ` (${lockPathOf(dir)})` : "";
+  return `${describeHolder(readHolder(dir), now)} holds the gate lease${where}${describeQueue(ahead)}`;
 }
 
 /** `INSPECTOR_SKIP_GATE_LEASE=0` and an empty value both mean "not skipped". */
@@ -311,57 +500,83 @@ async function acquireLease({ dir, fs, log, pollMs, progressMs, maxWaitMs }) {
   const startedWaiting = Date.now();
   let lastProgress = startedWaiting;
   let announced = false;
-  for (;;) {
-    try {
-      const release = await properLockfile.lock(target, {
-        realpath: false,
-        stale: STALE_MS,
-        retries: 0,
-        fs,
-        // The library's default throws from a timer with no caller on the
-        // stack, which would take the *holder* down mid-gate. A compromised
-        // lease means another gate is now running alongside this one — worth
-        // saying, not worth killing a gate that is otherwise fine.
-        onCompromised: (err) =>
-          log(
-            `gate-lease: another process took the lease over while this gate was running (${err.message}); continuing without it.`,
-          ),
-      });
-      // `announced` is set on the first failed attempt, so it is exactly
-      // "this call looped".
-      return { release, waited: announced ? Date.now() - startedWaiting : 0 };
-    } catch (err) {
-      // `ELOCKED` is not the only "someone holds it": a stale directory the
-      // library could not remove (`ENOTEMPTY`, `EACCES`, `EROFS`) surfaces as
-      // an ordinary error, and running unleased beside whatever holds it is
-      // the overlap this exists to prevent. So the discriminator is the
-      // directory: if it exists, wait; only a lock that could not be created
-      // at all is a reason to degrade.
-      if (err?.code !== "ELOCKED" && !existsSync(lockPathOf(dir))) {
-        log(
-          `gate-lease: could not take the lease at ${lockPathOf(dir)} (${err?.message ?? err}); running without it.`,
-        );
-        return null;
+  // A queue that cannot be joined costs the ordering, not the lease: the lock
+  // still keeps two gates apart, which is the part that must not degrade.
+  let ticket = null;
+  try {
+    ticket = joinQueue(dir, { now: startedWaiting });
+  } catch (err) {
+    log(
+      `gate-lease: could not join the queue at ${queueDirOf(dir)} (${err?.message ?? err}); waiting for the lease out of turn.`,
+    );
+  }
+  try {
+    for (;;) {
+      if (ticket !== null) refreshTicket(ticket);
+      const ahead = ticket === null ? 0 : countAhead(dir, ticket);
+      // Only the head of the line asks for the lock; everyone behind it
+      // waits for its turn rather than racing it for the release.
+      if (ahead === 0) {
+        try {
+          const release = await properLockfile.lock(target, {
+            realpath: false,
+            stale: STALE_MS,
+            retries: 0,
+            fs,
+            // The library's default throws from a timer with no caller on the
+            // stack, which would take the *holder* down mid-gate. A
+            // compromised lease means another gate is now running alongside
+            // this one — worth saying, not worth killing a gate that is
+            // otherwise fine.
+            onCompromised: (err) =>
+              log(
+                `gate-lease: another process took the lease over while this gate was running (${err.message}); continuing without it.`,
+              ),
+          });
+          // `announced` is set on the first failed attempt, so it is exactly
+          // "this call looped".
+          return {
+            release,
+            waited: announced ? Date.now() - startedWaiting : 0,
+          };
+        } catch (err) {
+          // `ELOCKED` is not the only "someone holds it": a stale directory
+          // the library could not remove (`ENOTEMPTY`, `EACCES`, `EROFS`)
+          // surfaces as an ordinary error, and running unleased beside
+          // whatever holds it is the overlap this exists to prevent. So the
+          // discriminator is the directory: if it exists, wait; only a lock
+          // that could not be created at all is a reason to degrade.
+          if (err?.code !== "ELOCKED" && !existsSync(lockPathOf(dir))) {
+            log(
+              `gate-lease: could not take the lease at ${lockPathOf(dir)} (${err?.message ?? err}); running without it.`,
+            );
+            return null;
+          }
+        }
       }
+      const waited = Date.now() - startedWaiting;
+      if (!announced) {
+        announced = true;
+        log(
+          `gate-lease: ${describeWait(dir, ahead)}; waiting for its turn so the gates do not contend. ${SKIP_ENV}=1 runs anyway.`,
+        );
+      } else if (Date.now() - lastProgress >= progressMs) {
+        lastProgress = Date.now();
+        log(
+          `gate-lease: still waiting (${formatDuration(waited)}): ${describeWait(dir, ahead)}.`,
+        );
+      }
+      if (waited >= maxWaitMs) {
+        throw new Error(
+          `gate-lease: gave up after ${formatDuration(waited)} — ${describeWait(dir, ahead, { withLockPath: true })}. If a gate is hung, stop it; ${SKIP_ENV}=1 runs without the lease.`,
+        );
+      }
+      await delay(pollMs);
     }
-    const waited = Date.now() - startedWaiting;
-    if (!announced) {
-      announced = true;
-      log(
-        `gate-lease: ${describeHolder(readHolder(dir))} holds the gate lease; waiting for it to finish so the two do not contend. ${SKIP_ENV}=1 runs anyway.`,
-      );
-    } else if (Date.now() - lastProgress >= progressMs) {
-      lastProgress = Date.now();
-      log(
-        `gate-lease: still waiting (${formatDuration(waited)}) on ${describeHolder(readHolder(dir))}.`,
-      );
-    }
-    if (waited >= maxWaitMs) {
-      throw new Error(
-        `gate-lease: gave up after ${formatDuration(waited)} — ${describeHolder(readHolder(dir))} still holds ${lockPathOf(dir)}. If that gate is hung, stop it; ${SKIP_ENV}=1 runs without the lease.`,
-      );
-    }
-    await delay(pollMs);
+  } finally {
+    // Acquired, gave up, or degraded — either way this waiter is no longer
+    // in line, and the next one should not wait a poll to find that out.
+    if (ticket !== null) leaveQueue(ticket);
   }
 }
 

@@ -15,7 +15,7 @@ npx @modelcontextprotocol/inspector --tui    # TUI
 ```
 
 > [!WARNING]
-> **On a machine with no OS keychain, secrets are saved to a plaintext file by default.** That covers Linux without libsecret or a Secret Service, headless and SSH sessions, Termux, and containers with a mounted volume. OAuth client secrets and stdio `env:` values then go to `~/.mcp-inspector/secrets.json`, unencrypted unless you supply a key. See [Where secrets are stored](./docs/secret-storage.md) for how to get a keychain back, encrypt the file, or keep secrets in memory only.
+> **The Inspector manages secrets — OAuth tokens, OAuth client secrets, and stdio `env:` values — and stores them in the OS keychain, if available, by default.** On a machine with no keychain — Linux without libsecret or a Secret Service, headless and SSH sessions, Termux, and containers with a mounted volume — they are saved to `~/.mcp-inspector/secrets.json` instead, unencrypted unless you supply a key. See [Where secrets are stored](./docs/secret-storage.md) for how to get a keychain back, encrypt the file, or keep secrets in memory only.
 
 > **Upgrading from v1?** Read the [v1 → v2 migration guide](./docs/v1-to-v2-migration.md) — CLI flags, the new `--config` vs. `--catalog` split, the Node engine bump, and what no longer ships.
 
@@ -56,8 +56,9 @@ inspector/
 │   └── launcher/     Shared launcher — provides the `mcp-inspector` bin, dispatches to web/cli/tui
 ├── core/             Shared code consumed via the `@inspector/core` alias (no package.json)
 ├── test-servers/     Composable MCP test servers + fixtures used by integration and smoke tests
-├── scripts/          Root build/verify tooling (install cascade, smokes, the verify:* guards)
-│                     and repo automation run from CI (the dependency, Dependabot-alert and SDK sweeps)
+├── scripts/          Root build/verify tooling (install cascade, smokes, the verify:* guards),
+│                     repo automation run from CI (the dependency, Dependabot-alert and SDK sweeps)
+│                     and the Docker image's HEALTHCHECK probe
 ├── docs/             Task-oriented guides — see below
 ├── specification/    Design/build specifications
 ├── .claude/skills/   Agent skills: the repo's procedures, invokable by name
@@ -86,6 +87,7 @@ Each client has its own README with client-specific detail:
 | [Smoke-testing an MCP server](./docs/cli-smoke-testing.md) | The connect → list → call → assert workflow for a shell or CI job: `--format json` + `jq`, the exit-code map, and keeping OAuth non-interactive |
 | [Launcher and config consolidation](./docs/launcher-config-consolidation-plan.md) | Why the launcher runs a client in-process rather than spawning it |
 | [Roadmap, Aug 2026 → Feb 2027](./docs/inspector-roadmap-2026-h2.md) | The six-month plan: spec-following work aligned to the published MCP roadmap, official extension support, and the experience work we choose |
+| [MCP Inspector: Our AI Software Factory](./docs/ai-software-factory.md) | How contributions actually happen since v2.0.0 — issue-driven work end to end, the rules/skills split, the sweeps that replaced Dependabot, the quality gate, and where it's headed |
 
 ## Testing and the quality gate
 
@@ -94,10 +96,10 @@ Each client self-validates from its own folder; the root scripts chain them. The
 ```bash
 npm run validate     # fast inner loop: format:check + lint + typecheck + build + unit tests
 npm run coverage     # the per-file ≥90% gate (lines/statements/functions/branches)
-npm run local:gate   # MANDATORY before pushing — every GitHub CI check, plus two local-only ones
+npm run local:gate   # MANDATORY before pushing — every GitHub CI check, plus one local-only one
 ```
 
-`npm run local:gate` chains every check below, plus the smokes and the Storybook tests. [Testing and the quality gate](./docs/quality-gate.md) owns the stage list and says what each one covers and why two are local-only; [`AGENTS.md`](./AGENTS.md) holds the testing rules themselves.
+`npm run local:gate` chains every check below, plus the smokes and the Storybook tests. [Testing and the quality gate](./docs/quality-gate.md) owns the stage list and says what each one covers and why one is local-only; [`AGENTS.md`](./AGENTS.md) holds the testing rules themselves.
 
 ## Contributing — `AGENTS.md`, `CLAUDE.md`, and the skills
 

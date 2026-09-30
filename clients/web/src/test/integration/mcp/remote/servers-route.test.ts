@@ -12,6 +12,7 @@ import {
   rmSync,
   existsSync,
   writeFileSync,
+  chmodSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -1769,6 +1770,49 @@ describe("/api/servers routes", () => {
       });
       expect(res.status).toBe(400);
     });
+
+    it("rejects `__proto__` with 400 but keeps other prototype names manageable", async () => {
+      // `__proto__` is the one prototype name a plain assignment can't
+      // store, so it is refused with a message that says why (it satisfies
+      // the stated character-class rule).
+      const res = await fetch(`${h.baseUrl}/api/servers`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: "__proto__",
+          config: { type: "streamable-http", url: "https://x.test/mcp" },
+        }),
+      });
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as { error: string };
+      expect(body.error).toContain("__proto__");
+
+      // Other Object.prototype names were valid ids before the `__proto__`
+      // rejection existed, so they must remain fully manageable: create,
+      // list, and delete all work (membership checks use `Object.hasOwn`,
+      // so `constructor` is not a false duplicate on an empty map).
+      for (const id of ["constructor", "toString", "hasOwnProperty"]) {
+        const created = await fetch(`${h.baseUrl}/api/servers`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id,
+            config: { type: "streamable-http", url: "https://x.test/mcp" },
+          }),
+        });
+        expect(created.status, id).toBe(200);
+        const listed = (await (
+          await fetch(`${h.baseUrl}/api/servers`)
+        ).json()) as {
+          mcpServers: Record<string, unknown>;
+        };
+        expect(Object.hasOwn(listed.mcpServers, id), id).toBe(true);
+        const deleted = await fetch(`${h.baseUrl}/api/servers/${id}`, {
+          method: "DELETE",
+        });
+        expect(deleted.status, id).toBe(200);
+      }
+    });
   });
 
   describe("keychain secrets (#1356)", () => {
@@ -2067,6 +2111,154 @@ describe("/api/servers routes", () => {
       expect(srv.oauth?.scopes).toBe("read");
     });
 
+    it("PUT rename sweeps orphaned destination secrets before writing to it", async () => {
+      // Same reuse safeguard POST has: the destination id has no file entry
+      // (or the rename would 409), so any store fields under it are orphans
+      // from a previous failed DELETE. Left in place, fields the rename does
+      // not overwrite would rehydrate into the renamed server — here an
+      // OAuth client secret the renamed server never had.
+      writeFileSync(
+        h.configPath,
+        JSON.stringify({
+          mcpServers: {
+            "old-name": {
+              type: "streamable-http",
+              url: "https://x.test/mcp",
+              oauth: { clientId: "cid" },
+            },
+          },
+        }),
+      );
+      await h.secretStore.set(
+        "new-name",
+        SECRET_FIELD_OAUTH_CLIENT_SECRET,
+        "orphaned-secret",
+      );
+
+      const res = await fetch(`${h.baseUrl}/api/servers/old-name`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: "new-name",
+          config: { type: "streamable-http", url: "https://x.test/mcp" },
+        }),
+      });
+      expect(res.status).toBe(200);
+
+      expect(
+        await h.secretStore.get("new-name", SECRET_FIELD_OAUTH_CLIENT_SECRET),
+      ).toBe(null);
+      const cfg = (await (
+        await fetch(`${h.baseUrl}/api/servers`)
+      ).json()) as MCPConfig;
+      const srv = cfg.mcpServers["new-name"] as {
+        oauth?: { clientId?: string; clientSecret?: string };
+      };
+      expect(srv.oauth?.clientId).toBe("cid");
+      expect(srv.oauth?.clientSecret).toBeUndefined();
+    });
+
+    it("PUT rename carries secrets via strict reads even when tolerant reads blank out", async () => {
+      // The rename copies the old id's secrets and then deletes them under
+      // the old id — a deletion-driving read, so it must come from the
+      // strict path. The tolerant `get` answers null for an unreadable
+      // store; if the copy trusted it, a transient blank would commit the
+      // rename without the secret and the delete would erase the only copy.
+      writeFileSync(
+        h.configPath,
+        JSON.stringify({
+          mcpServers: {
+            "old-name": {
+              type: "streamable-http",
+              url: "https://x.test/mcp",
+              oauth: { clientId: "cid" },
+            },
+          },
+        }),
+      );
+      await h.secretStore.set(
+        "old-name",
+        SECRET_FIELD_OAUTH_CLIENT_SECRET,
+        "keychain-only-secret",
+      );
+
+      const store = h.secretStore as InMemorySecretStore & {
+        getStrict?: (id: string, field: string) => Promise<string | null>;
+      };
+      const realGet = store.get.bind(store);
+      store.getStrict = realGet;
+      store.get = async () => null;
+      try {
+        const res = await fetch(`${h.baseUrl}/api/servers/old-name`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id: "new-name",
+            config: { type: "streamable-http", url: "https://x.test/mcp" },
+          }),
+        });
+        expect(res.status).toBe(200);
+      } finally {
+        store.get = realGet;
+        delete store.getStrict;
+      }
+
+      expect(
+        await h.secretStore.get("old-name", SECRET_FIELD_OAUTH_CLIENT_SECRET),
+      ).toBe(null);
+      expect(
+        await h.secretStore.get("new-name", SECRET_FIELD_OAUTH_CLIENT_SECRET),
+      ).toBe("keychain-only-secret");
+    });
+
+    it("PUT rename aborts before mutating anything when the strict read fails", async () => {
+      writeFileSync(
+        h.configPath,
+        JSON.stringify({
+          mcpServers: {
+            "old-name": {
+              type: "streamable-http",
+              url: "https://x.test/mcp",
+              oauth: { clientId: "cid" },
+            },
+          },
+        }),
+      );
+      await h.secretStore.set(
+        "old-name",
+        SECRET_FIELD_OAUTH_CLIENT_SECRET,
+        "keychain-only-secret",
+      );
+
+      const store = h.secretStore as InMemorySecretStore & {
+        getStrict?: (id: string, field: string) => Promise<string | null>;
+      };
+      store.getStrict = async () => {
+        throw new KeychainUnavailableError(new Error("keychain down"));
+      };
+      try {
+        const res = await fetch(`${h.baseUrl}/api/servers/old-name`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id: "new-name",
+            config: { type: "streamable-http", url: "https://x.test/mcp" },
+          }),
+        });
+        expect(res.status).toBe(503);
+      } finally {
+        delete store.getStrict;
+      }
+
+      // Nothing moved: the secret survives under the old id and the disk
+      // file still names it.
+      expect(
+        await h.secretStore.get("old-name", SECRET_FIELD_OAUTH_CLIENT_SECRET),
+      ).toBe("keychain-only-secret");
+      const cfg = JSON.parse(readFileSync(h.configPath, "utf8")) as MCPConfig;
+      expect(Object.keys(cfg.mcpServers)).toEqual(["old-name"]);
+    });
+
     it("DELETE sweeps every keychain entry for the deleted server", async () => {
       writeFileSync(
         h.configPath,
@@ -2265,6 +2457,28 @@ describe("/api/servers routes", () => {
         expect(res.status).toBe(200);
         const body = (await res.json()) as MCPConfig;
         expect(body.mcpServers.plain).toBeDefined();
+      } finally {
+        await new Promise<void>((r) => u.server.close(() => r()));
+        rmSync(u.tempDir, { recursive: true });
+      }
+    });
+
+    it("GET drops a hand-edited __proto__ entry instead of mangling the map", async () => {
+      const u = await startUnavailableHarness();
+      try {
+        // JSON.parse keeps "__proto__" as an own key, but every downstream
+        // `mcpServers[id] = …` rebuild would hit the prototype setter.
+        // The id is reserved: normalize drops it (routes reject it via
+        // validateStoreId), other entries are untouched.
+        writeFileSync(
+          u.configPath,
+          '{"mcpServers": {"plain": {"type": "stdio", "command": "node"}, "__proto__": {"type": "stdio", "command": "evil"}}}',
+        );
+        const res = await fetch(`${u.baseUrl}/api/servers`);
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as MCPConfig;
+        expect(body.mcpServers.plain).toBeDefined();
+        expect(Object.hasOwn(body.mcpServers, "__proto__")).toBe(false);
       } finally {
         await new Promise<void>((r) => u.server.close(() => r()));
         rmSync(u.tempDir, { recursive: true });
@@ -2995,5 +3209,251 @@ describe("plaintext migration against a session-scoped store (#1950)", () => {
     const res = await app.request(new Request("http://test/api/servers"));
     expect(res.status).toBe(200);
     expect(readFileSync(configPath, "utf-8")).not.toContain("must-survive");
+  });
+});
+
+describe("catalog mutations are all-or-nothing (file/keychain compensation)", () => {
+  // A store whose destructive operations can be switched to fail, for
+  // exercising the confirmed-delete contract inside the catalog routes:
+  // a failure after the disk write must restore the pre-request state
+  // (disk and keychain), not half-apply the mutation.
+  class FailingDeleteStore extends InMemorySecretStore {
+    failFieldDeletes = false;
+    failPurges = false;
+    // When set, `deleteAllForServer` removes this one field and then
+    // throws — modeling the keyring backend, whose purge deletes
+    // credentials sequentially and is not atomic.
+    partialPurgeField: string | null = null;
+    override async delete(serverId: string, field: string): Promise<void> {
+      if (this.failFieldDeletes) {
+        throw new KeychainUnavailableError(new Error("keychain locked"));
+      }
+      return super.delete(serverId, field);
+    }
+    override async deleteAllForServer(serverId: string): Promise<void> {
+      if (this.partialPurgeField !== null) {
+        await super.delete(serverId, this.partialPurgeField);
+        throw new KeychainUnavailableError(new Error("keychain locked"));
+      }
+      if (this.failPurges) {
+        throw new KeychainUnavailableError(new Error("keychain locked"));
+      }
+      return super.deleteAllForServer(serverId);
+    }
+  }
+
+  let tempDir: string;
+  let configPath: string;
+  let store: FailingDeleteStore;
+  let baseUrl: string;
+  let server: ServerType;
+
+  beforeEach(async () => {
+    tempDir = mkdtempSync(join(tmpdir(), "inspector-catalog-txn-"));
+    configPath = join(tempDir, "mcp.json");
+    store = new FailingDeleteStore();
+    ({ baseUrl, server } = await startServer(configPath, store));
+  });
+
+  afterEach(async () => {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    chmodSync(tempDir, 0o755);
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it("PUT in-place: a failed obsolete-field delete restores disk and keychain", async () => {
+    writeFileSync(
+      configPath,
+      JSON.stringify({
+        mcpServers: {
+          srv: { type: "stdio", command: "node", env: { A: "", B: "" } },
+        },
+      }),
+    );
+    await store.set("srv", envSecretField("A"), "value-A");
+    await store.set("srv", envSecretField("B"), "value-B");
+    const before = readConfig(configPath);
+
+    // Dropping B makes its keychain entry obsolete; the delete runs after
+    // the disk write, so its failure must roll the whole request back
+    // (the restore only *sets* prior values here, so it still works while
+    // deletes are down).
+    store.failFieldDeletes = true;
+    const res = await fetch(`${baseUrl}/api/servers/srv`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        config: { type: "stdio", command: "node", env: { A: "value-A2" } },
+      }),
+    });
+    store.failFieldDeletes = false;
+
+    expect(res.status).toBe(503);
+    expect(readConfig(configPath)).toEqual(before);
+    expect(await store.get("srv", envSecretField("A"))).toBe("value-A");
+    expect(await store.get("srv", envSecretField("B"))).toBe("value-B");
+  });
+
+  it("PUT rename: a failed old-id purge restores disk and keychain", async () => {
+    writeFileSync(
+      configPath,
+      JSON.stringify({
+        mcpServers: {
+          "old-name": { type: "stdio", command: "node", env: { K: "" } },
+        },
+      }),
+    );
+    await store.set("old-name", envSecretField("K"), "v");
+    const before = readConfig(configPath);
+
+    // Fail only the purge (deleteAllForServer): targeted field deletes
+    // still work, so the compensation can remove `new-name`'s entries.
+    store.failPurges = true;
+    const res = await fetch(`${baseUrl}/api/servers/old-name`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: "new-name",
+        config: { type: "stdio", command: "node", env: { K: "" } },
+      }),
+    });
+    store.failPurges = false;
+
+    // Without the disk restore, the 503 would leave `new-name` on disk
+    // while `old-name`'s undeleted secrets are no longer indexed by any
+    // entry — orphaned where a retry can't find them.
+    expect(res.status).toBe(503);
+    expect(readConfig(configPath)).toEqual(before);
+    expect(await store.get("old-name", envSecretField("K"))).toBe("v");
+    expect(await store.get("new-name", envSecretField("K"))).toBe(null);
+  });
+
+  it("PUT in-place: a failed disk write rolls the keychain values back", async () => {
+    writeFileSync(
+      configPath,
+      JSON.stringify({
+        mcpServers: {
+          srv: { type: "stdio", command: "node", env: { A: "" } },
+        },
+      }),
+    );
+    await store.set("srv", envSecretField("A"), "value-A");
+    const before = readFileSync(configPath, "utf-8");
+
+    // The keychain set precedes the disk write: without compensation the
+    // old on-disk entry would rehydrate with the *new* secret.
+    chmodSync(tempDir, 0o555);
+    const res = await fetch(`${baseUrl}/api/servers/srv`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        config: { type: "stdio", command: "node", env: { A: "value-A2" } },
+      }),
+    });
+    chmodSync(tempDir, 0o755);
+
+    expect(res.status).toBe(500);
+    expect(readFileSync(configPath, "utf-8")).toBe(before);
+    expect(await store.get("srv", envSecretField("A"))).toBe("value-A");
+  });
+
+  it("POST: a failed disk write removes the just-written keychain entries", async () => {
+    writeFileSync(configPath, JSON.stringify({ mcpServers: {} }));
+
+    chmodSync(tempDir, 0o555);
+    const res = await fetch(`${baseUrl}/api/servers`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: "newsrv",
+        config: { type: "stdio", command: "node", env: { A: "secret-A" } },
+      }),
+    });
+    chmodSync(tempDir, 0o755);
+
+    expect(res.status).toBe(500);
+    // No disk entry indexes them, so leaving them would strand credentials;
+    // a retry POST must also not be trapped by leftovers.
+    expect(await store.get("newsrv", envSecretField("A"))).toBe(null);
+  });
+
+  it("DELETE: a failed keychain purge leaves disk and keychain untouched", async () => {
+    writeFileSync(
+      configPath,
+      JSON.stringify({
+        mcpServers: {
+          srv: { type: "stdio", command: "node", env: { A: "" } },
+        },
+      }),
+    );
+    await store.set("srv", envSecretField("A"), "value-A");
+    const before = readConfig(configPath);
+
+    // The purge now runs before the disk commit, so its failure must
+    // return a 503 with the entry still on disk and its secret intact —
+    // not a vanished entry with orphaned credentials.
+    store.failPurges = true;
+    const res = await fetch(`${baseUrl}/api/servers/srv`, {
+      method: "DELETE",
+    });
+    store.failPurges = false;
+
+    expect(res.status).toBe(503);
+    expect(readConfig(configPath)).toEqual(before);
+    expect(await store.get("srv", envSecretField("A"))).toBe("value-A");
+  });
+
+  it("DELETE: a purge that fails midway restores the fields it removed", async () => {
+    writeFileSync(
+      configPath,
+      JSON.stringify({
+        mcpServers: {
+          srv: { type: "stdio", command: "node", env: { A: "", B: "" } },
+        },
+      }),
+    );
+    await store.set("srv", envSecretField("A"), "value-A");
+    await store.set("srv", envSecretField("B"), "value-B");
+    const before = readConfig(configPath);
+
+    // The keyring purge is not atomic: it can delete some credentials
+    // and then throw. The compensation must cover the purge itself, not
+    // only the disk write, or a 503 leaves the surviving entry with part
+    // of its secrets gone.
+    store.partialPurgeField = envSecretField("A");
+    const res = await fetch(`${baseUrl}/api/servers/srv`, {
+      method: "DELETE",
+    });
+    store.partialPurgeField = null;
+
+    expect(res.status).toBe(503);
+    expect(readConfig(configPath)).toEqual(before);
+    expect(await store.get("srv", envSecretField("A"))).toBe("value-A");
+    expect(await store.get("srv", envSecretField("B"))).toBe("value-B");
+  });
+
+  it("DELETE: a failed disk write restores the purged secrets", async () => {
+    writeFileSync(
+      configPath,
+      JSON.stringify({
+        mcpServers: {
+          srv: { type: "stdio", command: "node", env: { A: "" } },
+        },
+      }),
+    );
+    await store.set("srv", envSecretField("A"), "value-A");
+    const before = readFileSync(configPath, "utf-8");
+
+    // The purge succeeds but the file rewrite fails: without the restore
+    // the entry would rehydrate with no credential on the next read.
+    chmodSync(tempDir, 0o555);
+    const res = await fetch(`${baseUrl}/api/servers/srv`, {
+      method: "DELETE",
+    });
+    chmodSync(tempDir, 0o755);
+
+    expect(res.status).toBe(500);
+    expect(readFileSync(configPath, "utf-8")).toBe(before);
+    expect(await store.get("srv", envSecretField("A"))).toBe("value-A");
   });
 });

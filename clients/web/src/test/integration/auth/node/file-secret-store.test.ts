@@ -210,6 +210,30 @@ describe("FileSecretStore failure handling", () => {
     );
   });
 
+  it("refuses a non-string value before touching the file", async () => {
+    // A cast slipping past the compile-time contract (say a numeric
+    // client_secret from a malformed payload) must not be written: one
+    // non-string value makes `asSecretMap` refuse the whole file on every
+    // later read and write, poisoning unrelated stored credentials.
+    const store = new FileSecretStore({ filePath: filePath() });
+    await store.set("alpha", "keep", "safe");
+    await expect(
+      store.set("alpha", "bad", 123 as unknown as string),
+    ).rejects.toThrow(/non-string secret value \(number\) for "bad"/);
+    await expect(
+      store.setMany("alpha", {
+        ok: "fine",
+        worse: { nested: true } as unknown as string,
+      }),
+    ).rejects.toThrow(/non-string secret value \(object\) for "worse"/);
+    // Nothing from the refused batch landed, and the store still works.
+    expect(await store.get("alpha", "bad")).toBeNull();
+    expect(await store.get("alpha", "ok")).toBeNull();
+    expect(await store.get("alpha", "keep")).toBe("safe");
+    await store.set("alpha", "after", "still-writable");
+    expect(await store.get("alpha", "after")).toBe("still-writable");
+  });
+
   it("reads a plaintext file that carries no secrets key as empty", async () => {
     // A hand-edited (or hand-created) file is the realistic source of this
     // shape, and it must read as "no secrets yet" rather than throwing: the
@@ -256,7 +280,10 @@ describe("FileSecretStore failure handling", () => {
     expect(raw.version).toBe(2);
   });
 
-  it("delete stays silent on a file it cannot decrypt", async () => {
+  it("delete rejects on a file it cannot decrypt", async () => {
+    // A deletion that cannot be confirmed must escape: committing state
+    // that assumes the entry is gone would resurrect it once the file
+    // decrypts again.
     await writeEncryptedFixture();
     const store = new FileSecretStore({
       filePath: filePath(),
@@ -264,8 +291,10 @@ describe("FileSecretStore failure handling", () => {
     });
     await expect(
       store.delete("alpha", SECRET_FIELD_OAUTH_CLIENT_SECRET),
-    ).resolves.toBeUndefined();
-    await expect(store.deleteAllForServer("alpha")).resolves.toBeUndefined();
+    ).rejects.toBeInstanceOf(SecretStoreUnavailableError);
+    await expect(store.deleteAllForServer("alpha")).rejects.toBeInstanceOf(
+      SecretStoreUnavailableError,
+    );
   });
 
   it("set reports a corrupt file rather than silently replacing it", async () => {
@@ -339,6 +368,82 @@ describe("FileSecretStore failure handling", () => {
     await expect(store.set("alpha", "env:A", "1")).rejects.toThrow(
       /encrypted payload is not iv\.tag\.ciphertext/,
     );
+  });
+
+  it("refuses an authentic tag truncated to 4 bytes (#2485)", async () => {
+    // A genuine tag, cut short. Node 22 (the engines floor) authenticates a
+    // 4-byte GCM tag unless the length is pinned, which makes a forgery a
+    // ~2^-32 guess — so no read may return the secret, whatever the runtime.
+    await writeEncryptedFixture();
+    const parsed = JSON.parse(await fs.readFile(filePath(), "utf-8"));
+    const [iv, tag, body] = parsed.data.split(".");
+    const short = Buffer.from(tag, "base64").subarray(0, 4).toString("base64");
+    parsed.data = `${iv}.${short}.${body}`;
+    await fs.writeFile(filePath(), JSON.stringify(parsed), "utf-8");
+    const store = new FileSecretStore({
+      filePath: filePath(),
+      passphrase: "right-key",
+    });
+    expect(await store.get("alpha", SECRET_FIELD_OAUTH_CLIENT_SECRET)).toBe(
+      null,
+    );
+    await expect(
+      store.getStrict("alpha", SECRET_FIELD_OAUTH_CLIENT_SECRET),
+    ).rejects.toThrow(/authentication tag is 4 bytes, expected 16/);
+    expect(await store.readOnDiskEncryption()).toEqual({
+      state: "unreadable",
+      detail: "authentication tag is 4 bytes, expected 16",
+    });
+  });
+
+  it("pins the tag length at the cipher, not only in the envelope check (#2485)", async () => {
+    // The test above cannot see this: `encryptedEnvelopeProblem` rejects a
+    // short tag before `createDecipheriv` runs, and current Node rejects one
+    // natively. So observe the options themselves — without them, Node 22
+    // authenticates a 4-byte tag should the envelope check ever regress.
+    const seen: { cipher: unknown[]; decipher: unknown[] } = {
+      cipher: [],
+      decipher: [],
+    };
+    vi.resetModules();
+    vi.doMock("node:crypto", async () => {
+      const actual =
+        await vi.importActual<typeof import("node:crypto")>("node:crypto");
+      return {
+        ...actual,
+        default: actual,
+        createCipheriv: (...args: Parameters<typeof actual.createCipheriv>) => {
+          seen.cipher.push(args[3]);
+          return actual.createCipheriv(...args);
+        },
+        createDecipheriv: (
+          ...args: Parameters<typeof actual.createDecipheriv>
+        ) => {
+          seen.decipher.push(args[3]);
+          return actual.createDecipheriv(...args);
+        },
+      };
+    });
+    try {
+      const mod =
+        await import("@inspector/core/auth/node/file-secret-store.js");
+      const fresh = new mod.FileSecretStore({
+        filePath: filePath(),
+        passphrase: "right-key",
+      });
+      await fresh.set("alpha", SECRET_FIELD_OAUTH_CLIENT_SECRET, "shh");
+      expect(await fresh.get("alpha", SECRET_FIELD_OAUTH_CLIENT_SECRET)).toBe(
+        "shh",
+      );
+      expect(seen.cipher).toEqual([{ authTagLength: 16 }]);
+      expect(seen.decipher.length).toBeGreaterThan(0);
+      for (const options of seen.decipher) {
+        expect(options).toEqual({ authTagLength: 16 });
+      }
+    } finally {
+      vi.doUnmock("node:crypto");
+      vi.resetModules();
+    }
   });
 
   it("blames the file, not the passphrase, for a decrypted-but-corrupt payload", async () => {
@@ -415,7 +520,7 @@ describe("FileSecretStore failure handling", () => {
     });
     await expect(store.set("alpha", "env:A", "1")).rejects.toThrow();
     expect(await store.get("alpha", "env:A")).toBe(null);
-    await expect(store.delete("alpha", "env:A")).resolves.toBeUndefined();
+    await expect(store.delete("alpha", "env:A")).rejects.toThrow();
     await expect(store.set("alpha", "env:B", "2")).rejects.toThrow();
   });
 
@@ -844,6 +949,31 @@ describe("getMany", () => {
     });
   });
 
+  it("returns prototype-named fields and server ids as own entries", async () => {
+    // A plain `out[serverId] = found` / `found[field] = value` invokes the
+    // inherited `__proto__` setter instead of creating an entry, so a
+    // requested field or server id with that name would be silently omitted
+    // from the result — a violated bulk-read contract, not just a missing
+    // value. Both maps must be built with own-property writes.
+    const store = new FileSecretStore({
+      filePath: filePath(),
+      passphrase: "hunter2",
+    });
+    await store.set("srv", "__proto__", "field-value");
+    await store.set("__proto__", "env:A", "server-value");
+
+    const out = await store.getMany([
+      { serverId: "srv", fields: ["__proto__"] },
+      { serverId: "__proto__", fields: ["env:A"] },
+    ]);
+    expect(Object.getOwnPropertyDescriptor(out.srv, "__proto__")?.value).toBe(
+      "field-value",
+    );
+    expect(Object.getOwnPropertyDescriptor(out, "__proto__")?.value).toEqual({
+      "env:A": "server-value",
+    });
+  });
+
   it("derives the key once for the whole set, not once per field", async () => {
     // The reason the seam exists: `get` reads and decrypts the *entire* file,
     // so rehydrating field-by-field cost one scrypt derivation per field,
@@ -1110,6 +1240,72 @@ describe("getStrict (round 9)", () => {
     await expect(store.getStrict("srv", "env:A")).rejects.toBeInstanceOf(
       SecretStoreUnavailableError,
     );
+  });
+});
+
+describe("getManyStrict", () => {
+  it("returns values like getMany when the file is readable", async () => {
+    const store = new FileSecretStore({ filePath: filePath() });
+    await store.set("srv", "env:A", "1");
+    expect(
+      await store.getManyStrict([
+        { serverId: "srv", fields: ["env:A", "env:MISSING"] },
+      ]),
+    ).toEqual({ srv: { "env:A": "1" } });
+  });
+
+  it("answers empty fields for a store file that does not exist yet", async () => {
+    // Absence is a real answer — only *unreadability* must throw.
+    const store = new FileSecretStore({ filePath: filePath() });
+    expect(
+      await store.getManyStrict([{ serverId: "srv", fields: ["env:A"] }]),
+    ).toEqual({ srv: {} });
+  });
+
+  it("returns prototype-named fields and server ids as own entries", async () => {
+    // Same contract as getMany: a `__proto__`-named request must land as an
+    // own entry rather than vanish into the inherited setter — this read
+    // later drives store deletions, so a silently omitted result is a
+    // deleted secret.
+    const store = new FileSecretStore({ filePath: filePath() });
+    await store.set("srv", "__proto__", "field-value");
+    await store.set("__proto__", "env:A", "server-value");
+
+    const out = await store.getManyStrict([
+      { serverId: "srv", fields: ["__proto__"] },
+      { serverId: "__proto__", fields: ["env:A"] },
+    ]);
+    expect(Object.getOwnPropertyDescriptor(out.srv, "__proto__")?.value).toBe(
+      "field-value",
+    );
+    expect(Object.getOwnPropertyDescriptor(out, "__proto__")?.value).toEqual({
+      "env:A": "server-value",
+    });
+  });
+
+  it("wraps a filesystem failure as SecretStoreUnavailableError", async () => {
+    const blocker = path.join(tmpDir, "blocker");
+    await fs.writeFile(blocker, "x", "utf-8");
+    const store = new FileSecretStore({
+      filePath: path.join(blocker, "secrets.json"),
+    });
+    await expect(
+      store.getManyStrict([{ serverId: "srv", fields: ["env:A"] }]),
+    ).rejects.toBeInstanceOf(SecretStoreUnavailableError);
+  });
+
+  it("throws where getMany yields no fields, so hydration cannot read an outage as absence", async () => {
+    // OAuth read hydration feeds the memory state that sectioned writes
+    // diff against; an unreadable store answering empty maps would make the
+    // next save delete every credential the outage hid.
+    await fs.writeFile(filePath(), "{ not json", "utf-8");
+    const store = new FileSecretStore({ filePath: filePath() });
+    expect(
+      await store.getMany([{ serverId: "srv", fields: ["env:A"] }]),
+    ).toEqual({ srv: {} });
+    await expect(
+      store.getManyStrict([{ serverId: "srv", fields: ["env:A"] }]),
+    ).rejects.toBeInstanceOf(SecretStoreUnavailableError);
   });
 });
 
@@ -1507,9 +1703,14 @@ describe("cross-process convergence (optimistic verify-and-retry)", () => {
     );
   });
 
-  it("a non-convergent delete stays silent, per the interface contract", async () => {
-    // `delete` reports nothing by contract — only `set` hard-fails — so a
-    // delete that cannot converge must still resolve rather than throw.
+  it("resolves a delete once the clobbering writer removes the key itself", async () => {
+    // The confirmed-delete contract: a delete resolves only when the key's
+    // absence is confirmed, and throws when it cannot be (unreadable file,
+    // held lock, non-convergence). Here the clobbering writer replaces the
+    // file *without* the target key, so the retry finds nothing left to
+    // delete — absence confirmed by someone else's hand is still absence,
+    // and the delete resolves. A clobberer that kept the key present would
+    // exhaust the retries and throw the non-convergence error, same as set.
     const store = new FileSecretStore({ filePath: filePath() });
     await store.set("srv", "env:A", "1");
     clobberAfterEveryWrite(store);
@@ -1688,7 +1889,9 @@ describe("FileSecretStore with MCP_INSPECTOR_SECRET_KEY_FILE (#2447)", () => {
     await expect(store.set("alpha", "env:B", "2")).rejects.toThrow(
       SecretStoreUnavailableError,
     );
-    await expect(store.delete("alpha", "env:A")).resolves.toBeUndefined();
+    await expect(store.delete("alpha", "env:A")).rejects.toThrow(
+      SecretStoreUnavailableError,
+    );
     expect(await fs.readFile(filePath(), "utf-8")).toBe(before);
   });
 

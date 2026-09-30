@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import type { SkillEntry } from "@inspector/core/mcp/skillsSchemas";
 import { sha256Digest, textToBytes } from "@inspector/core/mcp/skills";
 import {
+  act,
   renderWithMantine,
   screen,
   waitFor,
@@ -177,6 +178,17 @@ const readFixtureFile = vi.fn(async (uri: string) => {
   };
 });
 
+/**
+ * Let the reads a render or a released promise started run to completion
+ * inside `act`. Selecting a skill kicks off its SKILL.md read (and whatever a
+ * test resolves by hand); left alone, those land after the test body returns,
+ * where React reports them as unwrapped updates (#2507). Settling first also
+ * means an assertion sees the screen those reads produce, not the frame before.
+ */
+async function settle(): Promise<void> {
+  await act(() => new Promise<void>((r) => setTimeout(r, 0)));
+}
+
 const baseProps: SkillsScreenProps = {
   sessionKey: "session-1",
   skills: ALL_SKILLS,
@@ -292,7 +304,7 @@ describe("SkillsScreen", () => {
     expect(screen.queryByTestId("skill-issues")).not.toBeInTheDocument();
   });
 
-  it("collapses Conformance for a clean skill selected BEFORE mount", () => {
+  it("collapses Conformance for a clean skill selected BEFORE mount", async () => {
     // `useValueChange` deliberately does not fire on the first render, so the
     // auto-collapse it drives cannot cover a screen that mounts with a skill
     // already chosen — a restored `SkillsUiState` does exactly that. The
@@ -304,19 +316,21 @@ describe("SkillsScreen", () => {
         ui={{ ...EMPTY_SKILLS_UI, selectedSkillUri: CLEAN_SKILL.uri }}
       />,
     );
+    await settle();
     expect(screen.getByRole("button", { name: /Conformance/ })).toHaveAttribute(
       "aria-expanded",
       "false",
     );
   });
 
-  it("opens Conformance for a skill WITH findings selected before mount", () => {
+  it("opens Conformance for a skill WITH findings selected before mount", async () => {
     renderWithMantine(
       <SkillsScreen
         {...baseProps}
         ui={{ ...EMPTY_SKILLS_UI, selectedSkillUri: MISMATCHED_SKILL.uri }}
       />,
     );
+    await settle();
     expect(screen.getByRole("button", { name: /Conformance/ })).toHaveAttribute(
       "aria-expanded",
       "true",
@@ -1044,6 +1058,7 @@ describe("SkillsScreen", () => {
         ui={{ ...EMPTY_SKILLS_UI, selectedSkillUri: CLEAN_SKILL.uri }}
       />,
     );
+    await settle();
     expect(screen.queryByTestId("skills-get-result")).not.toBeInTheDocument();
   });
 
@@ -1112,6 +1127,7 @@ describe("SkillsScreen", () => {
       />,
     );
     release?.({ text: SELF_TEXT });
+    await settle();
     expect(screen.queryByText("verified")).not.toBeInTheDocument();
     // ...and the batch guard did not carry over either.
     expect(
@@ -1132,6 +1148,7 @@ describe("SkillsScreen", () => {
         }}
       />,
     );
+    await settle();
     expect(screen.getByTestId("skill-detail")).toBeInTheDocument();
     expect(
       screen.queryByText("Select a skill to view details"),
@@ -1722,6 +1739,7 @@ describe("SkillsScreen", () => {
         ui={{ ...EMPTY_SKILLS_UI, selectedSkillUri: CLEAN_SKILL.uri }}
       />,
     );
+    await settle();
     expect(screen.queryByText("verified")).not.toBeInTheDocument();
   });
 
@@ -1743,6 +1761,7 @@ describe("SkillsScreen", () => {
     await user.click(screen.getByRole("button", { name: /Verify all/ }));
     await user.click(screen.getByText("tampered"));
     release?.({ text: SELF_TEXT });
+    await settle();
     // Nothing from the abandoned read reaches the new selection's rows.
     expect(screen.queryByText("verified")).not.toBeInTheDocument();
     expect(screen.queryByText("mismatch")).not.toBeInTheDocument();
@@ -1767,6 +1786,7 @@ describe("SkillsScreen", () => {
     const stale = release;
     await user.click(screen.getByText("tampered"));
     stale?.({ text: "# from the abandoned skill\n" });
+    await settle();
     expect(screen.getByTestId("skill-resource-viewer")).not.toHaveTextContent(
       "abandoned",
     );
@@ -1789,6 +1809,7 @@ describe("SkillsScreen", () => {
     const stale = fail;
     await user.click(screen.getByText("tampered"));
     stale?.(new Error("too late"));
+    await settle();
     expect(screen.queryByText("too late")).not.toBeInTheDocument();
   });
 });
@@ -2490,6 +2511,7 @@ describe("SkillsScreen name collisions (#2248)", () => {
         ui={{ ...EMPTY_SKILLS_UI, selectedSkillUri: ACME.uri }}
       />,
     );
+    await settle();
     expect(screen.getByRole("button", { name: /Conformance/ })).toHaveAttribute(
       "aria-expanded",
       "true",

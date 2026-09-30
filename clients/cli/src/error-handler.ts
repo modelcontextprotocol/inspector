@@ -1,4 +1,8 @@
+import { redactUrlQuery } from "@inspector/core/mcp/fetchTracking.js";
 import { awaitableError } from "./utils/awaitable-log.js";
+import { isUnauthorizedError } from "@inspector/core/auth/index.js";
+import { SecretStoreUnavailableError } from "@inspector/core/auth/node/secret-store.js";
+import { OAuthStateFileUnrecognizedError } from "@inspector/core/auth/node/oauth-persist-file.js";
 
 /**
  * Exit-code map. Non-zero codes let an automated caller (CI, an agent) branch
@@ -11,6 +15,9 @@ import { awaitableError } from "./utils/awaitable-log.js";
  *  - 4: server unreachable (DNS, connect refused, timeout, fetch failure)
  *  - 5: tool error (`tools/call` returned `isError:true`, or tool not found)
  *  - 6: `--strict` found an error-severity tool-schema portability finding
+ *  - 7: `--verify` found a SEP-2640 violation
+ *  - 8: `--verify` could not check the whole catalog within the read bounds
+ *  - 9: `--verify --require-digests` found a skill that advertised no digests
  *
  * Note 6 is `SCHEMA_UNPORTABLE`, not "invalid": the whole premise of the lint
  * is that these schemas ARE valid JSON Schema and are merely refused by some
@@ -48,6 +55,19 @@ export const EXIT_CODES = {
    * on 7.
    */
   SKILL_INCOMPLETE: 8,
+  /**
+   * `--verify --require-digests` found a skill whose `resources` is
+   * `"dynamic"`, so no digest was advertised and nothing was hashed (#2405).
+   *
+   * Only ever produced under `--require-digests`: `"dynamic"` is a conforming
+   * wire form, and SEP-2640 leaves declining such skills to the host ("Hosts
+   * MAY decline to load such skills"). The flag is how a CI job standing in for
+   * a host that declines them says so; without it the run exits 0 and reports
+   * `outcome: "unverifiable"`. Its own code, like 8, so a job can tell "no
+   * digests to check" apart from "a digest was wrong" and "the walk was cut
+   * short".
+   */
+  SKILL_UNVERIFIABLE: 9,
 } as const;
 
 /** Machine-readable error envelope written as one JSON line on stderr. */
@@ -123,11 +143,97 @@ const UNREACHABLE_PATTERN =
   /ENOTFOUND|ECONNREFUSED|ECONNRESET|EAI_AGAIN|ETIMEDOUT|fetch failed|getaddrinfo|connect(?:ion)? timed out|aborted/i;
 
 /**
+ * An `http(s)://` URL embedded in free text. Stops at whitespace, at the
+ * double-quote/angle-bracket characters that commonly delimit a URL inside a
+ * message, and where a second `http(s)://` begins — so two URLs joined by a
+ * comma are redacted separately rather than the second one's query being read
+ * as part of the first one's last value (Copilot). An apostrophe is kept in the
+ * match because it is legal inside a query value; a *trailing* one is peeled
+ * off as punctuation below, which still handles a `'…'`-quoted URL.
+ * Case-insensitive because URI schemes are: `HTTPS://…?code=…` is the same
+ * URL and must not slip past the redaction (Copilot).
+ */
+const EMBEDDED_URL_PATTERN = /\bhttps?:\/\/(?:(?!https?:\/\/)[^\s"<>])+/gi;
+
+/** Sentence punctuation (or a closing quote) a message may put right after a URL. */
+const TRAILING_PUNCTUATION = new Set([
+  ".",
+  ",",
+  ";",
+  ":",
+  "!",
+  "?",
+  ")",
+  "]",
+  "'",
+]);
+
+/**
+ * Length of `match` once its trailing {@link TRAILING_PUNCTUATION} run is
+ * removed. A backward scan rather than an unanchored `/[…]+$/`: that regex
+ * rescans a punctuation run from every start position when the run does not
+ * end the string, which is quadratic, and the text here is server-controlled
+ * (an HTTP error body lands in the message), so a long `!!!…x` stalled the
+ * CLI's error path (#2540).
+ */
+function trailingPunctuationStart(match: string): number {
+  let end = match.length;
+  while (end > 0 && TRAILING_PUNCTUATION.has(match.charAt(end - 1))) end--;
+  return end;
+}
+
+/**
+ * Apply {@link redactUrlQuery} to every URL embedded in `text`. Trailing
+ * sentence punctuation is split off first and re-appended, so a URL ending a
+ * sentence (`…?code=abc.`) keeps its full stop instead of having it folded into
+ * the redacted parameter value.
+ */
+function redactUrlsInText(text: string): string {
+  return text.replace(EMBEDDED_URL_PATTERN, (match) => {
+    const end = trailingPunctuationStart(match);
+    return redactUrlQuery(match.slice(0, end)) + match.slice(end);
+  });
+}
+
+/**
+ * Scrub query-string secrets out of every envelope field that can carry a URL
+ * (#2423). The envelope is written verbatim to stderr — a terminal, a CI log,
+ * a pipe into another tool — so it gets the same {@link redactUrlQuery}
+ * guarantee the web client's Network log and `OAuthRequestTimeoutError`
+ * already have: an OAuth `code`, `access_token` or `client_secret` in a server
+ * URL is replaced, while the path and non-sensitive parameters stay readable.
+ *
+ * Applied to the finished envelope rather than to the inputs, so
+ * classification still reads the error's own text: redaction rewrites
+ * parameter values, and a pattern test run on the rewritten copy could land a
+ * different exit code.
+ */
+function redactEnvelope(envelope: ErrorEnvelope): ErrorEnvelope {
+  return {
+    ...envelope,
+    message: redactUrlsInText(envelope.message),
+    ...(envelope.cause !== undefined && {
+      cause: redactUrlsInText(envelope.cause),
+    }),
+    ...(envelope.url !== undefined && { url: redactUrlQuery(envelope.url) }),
+  };
+}
+
+/**
  * Classify an arbitrary error into an exit code and envelope. Used both by the
  * binary's {@link handleError} and by callers that want to throw a
- * {@link CliExitCodeError} with the right code up front.
+ * {@link CliExitCodeError} with the right code up front. Every URL in the
+ * returned envelope is query-redacted (see {@link redactEnvelope}).
  */
 export function classifyError(
+  error: unknown,
+  context?: { url?: string },
+): { exitCode: number; envelope: ErrorEnvelope } {
+  const { exitCode, envelope } = classifyUnredacted(error, context);
+  return { exitCode, envelope: redactEnvelope(envelope) };
+}
+
+function classifyUnredacted(
   error: unknown,
   context?: { url?: string },
 ): { exitCode: number; envelope: ErrorEnvelope } {
@@ -160,14 +266,50 @@ export function classifyError(
     };
   }
 
-  // 401 / OAuth-required → AUTH_REQUIRED so the caller can kick the auth flow.
-  if (
-    status === 401 ||
-    status === 403 ||
-    /WWW-Authenticate|Unauthorized|invalid_token|OAuth/i.test(
-      message + " " + (cause ?? ""),
-    )
-  ) {
+  // Secret-store / OAuth-state-lock failures are operational, not auth: the
+  // credentials may well exist but could not be read (keychain unreachable,
+  // state file locked by another Inspector process, unreadable secrets
+  // file). Reporting them as auth_required would say "re-authorize" for a
+  // failure re-authorizing cannot fix. The web path preserves the same
+  // distinction as a 503.
+  if (error instanceof SecretStoreUnavailableError) {
+    return {
+      exitCode: EXIT_CODES.USAGE,
+      envelope: {
+        code: "store_unavailable",
+        message,
+        ...(cause !== undefined && { cause }),
+        ...(url !== undefined && { url }),
+      },
+    };
+  }
+
+  // A present-but-unrecognized OAuth state file also is not an auth
+  // failure — the file must be repaired (or deleted), so it gets a code of
+  // its own: unlike store_unavailable, retrying will not help.
+  if (error instanceof OAuthStateFileUnrecognizedError) {
+    return {
+      exitCode: EXIT_CODES.USAGE,
+      envelope: {
+        code: "oauth_state_unrecognized",
+        message,
+        ...(cause !== undefined && { cause }),
+        ...(url !== undefined && { url }),
+      },
+    };
+  }
+
+  // 401/403 or a typed SDK auth error → AUTH_REQUIRED so the caller can kick
+  // the auth flow. `isUnauthorizedError` is the same detector cliOAuth.ts
+  // uses: `UnauthorizedError.isInstance`, a structured 401 status/code
+  // anywhere in the cause chain, and the remote transport's "failed …(401)"
+  // wording. Every genuine auth-required condition in the SDK throws typed
+  // `UnauthorizedError` or carries a structured 401 — this replaced a
+  // keyword sniff (/WWW-Authenticate|Unauthorized|invalid_token|OAuth/i)
+  // whose terms matched no real thrower while "OAuth" misclassified
+  // ordinary operational errors ("OAuth storage is required…", "HTTP 500
+  // trying to load well-known OAuth metadata") as "re-authorize".
+  if (status === 401 || status === 403 || isUnauthorizedError(error)) {
     return {
       exitCode: EXIT_CODES.AUTH_REQUIRED,
       envelope: {

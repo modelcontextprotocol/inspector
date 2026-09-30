@@ -1,5 +1,13 @@
-import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
-import { mkdtempSync, writeFileSync, readFileSync, rmSync } from "node:fs";
+import {
+  describe,
+  it,
+  expect,
+  beforeAll,
+  afterAll,
+  afterEach,
+  vi,
+} from "vitest";
+import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
@@ -9,7 +17,13 @@ import {
   normalizeServerUrl,
   deepLinkTransport,
   refreshStoredAuthToken,
+  waitForStoredToken,
+  type StoredServers,
 } from "../src/cli.js";
+import { SecretFileLockHeldError } from "@inspector/core/auth/node/secret-store.js";
+import { readOAuthStore } from "@inspector/core/auth/node/oauth-persist-file.js";
+import { oauthSecretServerId } from "@inspector/core/auth/node/oauth-secrets.js";
+import { defaultSecretStore } from "@inspector/core/auth/node/secret-store-selection.js";
 import {
   createTestServerHttp,
   createEchoTool,
@@ -64,6 +78,15 @@ describe("deepLinkTransport", () => {
 
 describe("refreshStoredAuthToken", () => {
   const SERVER = "https://api.example/mcp";
+
+  // Persisted writes split tokens into the process-wide (in-memory, per
+  // vitest.config.ts) secret store, and joined reads prefer the store over
+  // file plaintext — so purge the entry between tests or one test's rotated
+  // tokens would leak into the next test's fixture.
+  afterEach(async () => {
+    await defaultSecretStore().deleteAllForServer(oauthSecretServerId(SERVER));
+  });
+
   const freshTokens = {
     access_token: "refreshed-access-token",
     token_type: "Bearer",
@@ -100,11 +123,10 @@ describe("refreshStoredAuthToken", () => {
         client_id: "cid",
         client_secret: "sec",
       });
-      // Rotation persisted back under the same key.
-      const persisted = JSON.parse(readFileSync(path, "utf8")) as {
-        servers: Record<string, { tokens?: { refresh_token?: string } }>;
-      };
-      expect(persisted.servers[SERVER]?.tokens?.refresh_token).toBe(
+      // Rotation persisted back under the same key — via a joined read, since
+      // the tokens themselves now live in the secret store, not the file.
+      const persisted = await readOAuthStore(path);
+      expect(persisted?.servers[SERVER]?.tokens?.refresh_token).toBe(
         "rotated-refresh-token",
       );
     } finally {
@@ -347,6 +369,15 @@ describe("--use-stored-auth", () => {
     rmSync(fixturePath, { force: true });
   });
 
+  // Same secret-store hygiene as the refreshStoredAuthToken suite: a joined
+  // read prefers the store, so rotated tokens persisted by one test must not
+  // leak into the next test's fixture for the same server URL.
+  afterEach(async () => {
+    await defaultSecretStore().deleteAllForServer(
+      oauthSecretServerId(serverUrl),
+    );
+  });
+
   it("injects the stored token as Authorization: Bearer on the outgoing request", async () => {
     const result = await runCli(
       [
@@ -365,6 +396,36 @@ describe("--use-stored-auth", () => {
     expect(recorded.length).toBeGreaterThan(0);
     const last = recorded[recorded.length - 1]!;
     expect(last.headers?.authorization).toBe(`Bearer ${TOKEN}`);
+  });
+
+  it("surfaces an unreadable state path as an error, not no_stored_token", async () => {
+    // The blanket catch this replaces read *any* failure as an empty
+    // snapshot, so an unreadable state file (here: a directory) reported
+    // no_stored_token / exit 3 — "re-authorize" advice for a failure that
+    // re-authorizing cannot fix. Operational read failures now propagate.
+    const dir = mkdtempSync(join(tmpdir(), "inspector-cli-eisdir-"));
+    try {
+      const result = await runCli(
+        [
+          "--transport",
+          "http",
+          "--server-url",
+          serverUrl,
+          "--use-stored-auth",
+          "--method",
+          "tools/list",
+        ],
+        { env: { MCP_INSPECTOR_OAUTH_STATE_PATH: dir } },
+      );
+      expect(result.exitCode).toBe(1);
+      const env = JSON.parse(result.stderr.trim()) as {
+        error: { code: string; message: string };
+      };
+      expect(env.error.code).toBe("error");
+      expect(env.error.message).toContain("EISDIR");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("merges with --header (explicit headers + stored auth coexist)", async () => {
@@ -538,11 +599,10 @@ describe("--use-stored-auth", () => {
       expect(tokenRequests).toBeGreaterThan(0);
       const last = server.getRecordedRequests().at(-1)!;
       expect(last.headers?.authorization).toBe("Bearer refreshed-access-token");
-      // Rotation persisted so a subsequent run reuses the new refresh token.
-      const persisted = JSON.parse(readFileSync(fixture, "utf8")) as {
-        servers: Record<string, { tokens?: { refresh_token?: string } }>;
-      };
-      expect(persisted.servers[serverUrl]?.tokens?.refresh_token).toBe(
+      // Rotation persisted so a subsequent run reuses the new refresh token —
+      // asserted through a joined read (tokens live in the secret store).
+      const persisted = await readOAuthStore(fixture);
+      expect(persisted?.servers[serverUrl]?.tokens?.refresh_token).toBe(
         "rotated-refresh-token",
       );
     } finally {
@@ -871,6 +931,139 @@ describe("--wait-for-auth", () => {
     ]);
     expectCliFailure(result);
     expect(result.stderr).toContain("positive number of seconds");
+  });
+
+  it("rethrows a persistent read failure at the deadline instead of masking it as a timeout", async () => {
+    // Polling races the browser flow *writing* the same state file under the
+    // same lock, so lock contention is tolerated (see the waitForStoredToken
+    // unit tests). But a *permanent* operational failure — here EISDIR from
+    // a state path that is a directory — is something re-authorizing cannot
+    // fix, so the deadline rethrows it and classifyError maps it to an
+    // operational envelope (exit 1), not `auth_wait_timeout` (exit 3).
+    const dir = mkdtempSync(join(tmpdir(), "inspector-cli-wait-eisdir-"));
+    try {
+      const result = await runCli(
+        [
+          "--transport",
+          "http",
+          "--server-url",
+          serverUrl,
+          "--wait-for-auth",
+          "1",
+          "--method",
+          "tools/list",
+        ],
+        { env: { MCP_INSPECTOR_OAUTH_STATE_PATH: dir } },
+      );
+      expect(result.exitCode).toBe(1);
+      const env = JSON.parse(result.stderr.trim()) as {
+        error: { code: string; message: string };
+      };
+      expect(env.error.code).not.toBe("auth_wait_timeout");
+      expect(env.error.message).toContain("EISDIR");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+/**
+ * Unit tests for the waitForStoredToken read-failure policy, via the injected
+ * `readServers` (integration can't exercise lock contention: acquisition
+ * retries internally for ~10s before throwing, longer than any sane test
+ * timeout). Policy under test: held locks are the success case in progress
+ * (never retained); other failures keep polling but are rethrown at the
+ * deadline; a later successful read clears the retained error.
+ */
+describe("waitForStoredToken read-failure policy", () => {
+  const url = "https://wait.example/mcp";
+  const withToken: StoredServers = {
+    [normalizeServerUrl(url)]: {
+      tokens: { access_token: "healed-tok", token_type: "Bearer" },
+    },
+  };
+
+  it("treats a held lock as contention, not an error: deadline reports the ordinary timeout", async () => {
+    const readServers = vi
+      .fn<(p: string) => Promise<StoredServers>>()
+      .mockRejectedValue(new SecretFileLockHeldError("state file locked"));
+    await expect(
+      waitForStoredToken(url, "/tmp/state.json", 0.3, readServers),
+    ).rejects.toMatchObject({
+      exitCode: 3,
+      envelope: { code: "auth_wait_timeout" },
+    });
+  });
+
+  it("rethrows a retained non-lock failure at the deadline", async () => {
+    const boom = Object.assign(new Error("EACCES: permission denied"), {
+      code: "EACCES",
+    });
+    const readServers = vi
+      .fn<(p: string) => Promise<StoredServers>>()
+      .mockRejectedValue(boom);
+    await expect(
+      waitForStoredToken(url, "/tmp/state.json", 0.3, readServers),
+    ).rejects.toBe(boom);
+  });
+
+  it("clears a retained failure once a later read succeeds with the token", async () => {
+    const readServers = vi
+      .fn<(p: string) => Promise<StoredServers>>()
+      .mockRejectedValueOnce(new Error("transient outage"))
+      .mockResolvedValue(withToken);
+    await expect(
+      waitForStoredToken(url, "/tmp/state.json", 5, readServers),
+    ).resolves.toBe("healed-tok");
+  });
+
+  it("honors the deadline while a read is stuck on the state-file lock", async () => {
+    // A single lock acquisition retries for ~15s; the deadline must abandon
+    // the in-flight read, not wait it out.
+    const readServers = vi
+      .fn<(p: string) => Promise<StoredServers>>()
+      .mockImplementation(() => new Promise(() => {}));
+    const started = Date.now();
+    await expect(
+      waitForStoredToken(url, "/tmp/state.json", 0.3, readServers),
+    ).rejects.toMatchObject({
+      exitCode: 3,
+      envelope: { code: "auth_wait_timeout" },
+    });
+    expect(Date.now() - started).toBeLessThan(2_000);
+  });
+
+  it("rethrows the retained failure when the deadline lands mid-read", async () => {
+    const boom = Object.assign(new Error("EACCES: permission denied"), {
+      code: "EACCES",
+    });
+    const readServers = vi
+      .fn<(p: string) => Promise<StoredServers>>()
+      .mockRejectedValueOnce(boom)
+      .mockImplementation(() => new Promise(() => {}));
+    await expect(
+      waitForStoredToken(url, "/tmp/state.json", 0.3, readServers),
+    ).rejects.toBe(boom);
+  });
+
+  it("swallows an abandoned read's late rejection instead of crashing", async () => {
+    // The abandoned read's promise settles after the wait has already
+    // thrown; its rejection must not surface as an unhandled rejection.
+    let rejectLate: ((e: unknown) => void) | undefined;
+    const readServers = vi
+      .fn<(p: string) => Promise<StoredServers>>()
+      .mockImplementation(
+        () =>
+          new Promise((_, reject) => {
+            rejectLate = reject;
+          }),
+      );
+    await expect(
+      waitForStoredToken(url, "/tmp/state.json", 0.3, readServers),
+    ).rejects.toMatchObject({ envelope: { code: "auth_wait_timeout" } });
+    rejectLate?.(new Error("lock acquisition gave up after abandonment"));
+    // A macrotask tick: an unhandled rejection here would fail the run.
+    await new Promise((r) => setTimeout(r, 20));
   });
 });
 

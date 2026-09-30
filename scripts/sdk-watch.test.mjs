@@ -1560,3 +1560,42 @@ test("main fails on an SDK package the group table does not watch", () => {
     /something-new/,
   );
 });
+
+test("main fails on an unwatched SDK package declared only as a devDependency", () => {
+  const readFile = (path) =>
+    path === "package.json"
+      ? JSON.stringify({
+          devDependencies: { "@modelcontextprotocol/something-new": "1.0.0" },
+        })
+      : JSON.stringify({ packages: {} });
+  assert.throws(
+    () => main("o/r", fakeSpawn(), noAmbientOutput(readFile)),
+    /something-new/,
+  );
+});
+
+test("main reads the declared range of an SDK package held in devDependencies", () => {
+  // `server-legacy` is a devDependency (#2519). Read from `dependencies` alone
+  // it is "(undeclared)", which the issue body reports as needing a manifest
+  // edit even when the range already admits the target.
+  const legacy = "@modelcontextprotocol/server-legacy";
+  const base = JSON.parse(fakeReadFile()("package.json"));
+  const { [legacy]: range, ...runtime } = base.dependencies;
+  const manifest = {
+    dependencies: runtime,
+    devDependencies: { [legacy]: range },
+  };
+  const lock = fakeReadFile()("package-lock.json");
+  const readFile = (path) =>
+    path === "package.json" ? JSON.stringify(manifest) : lock;
+  const spawn = fakeSpawn({ latest: latestAt(SDK, "2.1.0") });
+
+  main("o/r", spawn, noAmbientOutput(readFile));
+
+  const create = spawn.calls.find(
+    (c) => c.args[0] === "issue" && c.args[1] === "create",
+  );
+  const body = create.args[create.args.indexOf("--body") + 1];
+  assert.ok(body.includes(`| \`${legacy}\` | 2.0.0 |`), body);
+  assert.ok(!body.includes("(undeclared)"), body);
+});

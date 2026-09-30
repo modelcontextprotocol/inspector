@@ -552,6 +552,49 @@ describe("ServerSettingsForm", () => {
     expect(tasks).toBeChecked();
   });
 
+  it.each([
+    [true, true],
+    [false, false],
+  ])(
+    "with rendersApps=%s, shows the MCP Apps UI toggle checked=%s by default (#2403)",
+    (rendersApps, checked) => {
+      renderWithMantine(
+        <ServerSettingsForm
+          {...baseHandlers}
+          settings={emptySettings}
+          rendersApps={rendersApps}
+          expandedSections={["extensions"]}
+        />,
+      );
+      const ui = screen.getByRole("checkbox", {
+        name: /MCP Apps UI \(io\.modelcontextprotocol\/ui\)/,
+      });
+      // With no App renderer the client does not declare the extension, so
+      // the toggle must not claim it does.
+      if (checked) expect(ui).toBeChecked();
+      else expect(ui).not.toBeChecked();
+    },
+  );
+
+  it("shows an explicit UI override as checked even without a renderer (#2403)", () => {
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        settings={{
+          ...emptySettings,
+          advertisedExtensions: { "io.modelcontextprotocol/ui": true },
+        }}
+        rendersApps={false}
+        expandedSections={["extensions"]}
+      />,
+    );
+    expect(
+      screen.getByRole("checkbox", {
+        name: /MCP Apps UI \(io\.modelcontextprotocol\/ui\)/,
+      }),
+    ).toBeChecked();
+  });
+
   it("reflects an advertisedExtensions override that disables Tasks", () => {
     renderWithMantine(
       <ServerSettingsForm

@@ -91,6 +91,7 @@ import { ToolTestModal } from "./components/ToolTestModal.js";
 import { ResourceTestModal } from "./components/ResourceTestModal.js";
 import { PromptTestModal } from "./components/PromptTestModal.js";
 import { DetailsModal } from "./components/DetailsModal.js";
+import { BodyLines } from "./components/BodyLines.js";
 import type { TuiServer } from "./tui-servers.js";
 
 // Header branding. The version is the single source of truth — the root
@@ -408,7 +409,13 @@ function App({
       }));
       setStderrLogStates((prev) => ({ ...prev, ...newStderrLogStates }));
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Omitted on purpose: `inspectorClients` is this effect's own output, so
+    // depending on it would re-run the effect after every client it creates
+    // (the `in` check above only skips clients that already exist).
+    // `mcpServers` is loaded once in `tui.tsx` and rendered once, so it is
+    // fixed for the process; `serverNames` is derived from it as a fresh
+    // array every render and would re-run the effect on each one.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- create clients once; mcpServers is fixed for the process
   }, [
     clientConfig,
     clientId,
@@ -469,7 +476,10 @@ function App({
     if (serverNames.length > 0 && selectedServer === null) {
       setSelectedServer(serverNames[0]);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Mount-only by design: this seeds a default, and after mount the user's
+    // navigation owns `selectedServer`, so there is nothing to re-sync.
+    // `serverNames` is a fresh array every render (fixed contents — above).
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- preselect once on mount
   }, []);
 
   // Clear OAuth status when switching servers; drop step-up for other servers.
@@ -1279,29 +1289,7 @@ function App({
           <Box marginTop={1} flexShrink={0}>
             <Text bold>Request Body:</Text>
           </Box>
-          {(() => {
-            try {
-              const parsed = JSON.parse(request.requestBody);
-              return JSON.stringify(parsed, null, 2)
-                .split("\n")
-                .map((line: string, idx: number) => (
-                  <Box
-                    key={`req-body-${idx}`}
-                    marginTop={idx === 0 ? 1 : 0}
-                    paddingLeft={2}
-                    flexShrink={0}
-                  >
-                    <Text dimColor>{line}</Text>
-                  </Box>
-                ));
-            } catch {
-              return (
-                <Box marginTop={1} paddingLeft={2} flexShrink={0}>
-                  <Text dimColor>{request.requestBody}</Text>
-                </Box>
-              );
-            }
-          })()}
+          <BodyLines body={request.requestBody} keyPrefix="req-body" />
         </>
       )}
       {request.responseHeaders &&
@@ -1324,29 +1312,7 @@ function App({
           <Box marginTop={1} flexShrink={0}>
             <Text bold>Response Body:</Text>
           </Box>
-          {(() => {
-            try {
-              const parsed = JSON.parse(request.responseBody);
-              return JSON.stringify(parsed, null, 2)
-                .split("\n")
-                .map((line: string, idx: number) => (
-                  <Box
-                    key={`resp-body-${idx}`}
-                    marginTop={idx === 0 ? 1 : 0}
-                    paddingLeft={2}
-                    flexShrink={0}
-                  >
-                    <Text dimColor>{line}</Text>
-                  </Box>
-                ));
-            } catch {
-              return (
-                <Box marginTop={1} paddingLeft={2} flexShrink={0}>
-                  <Text dimColor>{request.responseBody}</Text>
-                </Box>
-              );
-            }
-          })()}
+          <BodyLines body={request.responseBody} keyPrefix="resp-body" />
         </>
       )}
     </>
@@ -1442,8 +1408,11 @@ function App({
         setFocus("tabContentList");
       }
     }
-    // Intentionally not depending on focus to avoid loops
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Runs on a tab switch only. `focus` is read, not reacted to: this is a
+    // one-time adjustment when the tab changes, and depending on `focus`
+    // would re-run it on every focus move, turning it into a standing
+    // constraint on focus that no caller asked for.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- react to tab switches, not focus moves
   }, [activeTab]);
 
   // Switch away from logging tab if server is not stdio

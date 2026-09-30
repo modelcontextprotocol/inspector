@@ -116,29 +116,42 @@ function maskJsonBody(body: string): MaskResult {
 // formatting (we only swap the value, so the placeholder isn't percent-encoded
 // the way `URLSearchParams.toString()` would mangle it). A non-form string
 // (no `key=value` pairs with a sensitive key) falls through untouched.
+//
+// A conforming body percent-encodes `&` inside a value, but a non-conforming
+// server can send a secret containing a raw `&`, which splits the value into a
+// masked `key=<prefix>` pair plus `=`-less tail segments. Those tails are the
+// rest of the secret, so every `=`-less segment that follows a masked pair is
+// folded into its placeholder rather than displayed as a flag-style param
+// (#2422). The run ends at the next segment with an `=`. Empty segments carry
+// nothing and are kept, so `code=X&` still shows its trailing separator.
 function maskFormBody(body: string): MaskResult {
   let hasSecrets = false;
-  const masked = body
-    .split("&")
-    .map((pair) => {
-      const eq = pair.indexOf("=");
-      if (eq === -1) return pair;
-      const rawKey = pair.slice(0, eq);
-      const value = pair.slice(eq + 1);
-      let key: string;
-      try {
-        key = decodeURIComponent(rawKey);
-      } catch {
-        key = rawKey;
-      }
-      if (isSensitiveKey(FORM_SENSITIVE_KEYS, key) && value.length > 0) {
-        hasSecrets = true;
-        return `${rawKey}=${MASK_PLACEHOLDER}`;
-      }
-      return pair;
-    })
-    .join("&");
-  return { masked: hasSecrets ? masked : body, hasSecrets };
+  let inMaskedValue = false;
+  const out: string[] = [];
+  for (const pair of body.split("&")) {
+    const eq = pair.indexOf("=");
+    if (eq === -1) {
+      if (!inMaskedValue || pair.length === 0) out.push(pair);
+      continue;
+    }
+    const rawKey = pair.slice(0, eq);
+    const value = pair.slice(eq + 1);
+    let key: string;
+    try {
+      key = decodeURIComponent(rawKey);
+    } catch {
+      key = rawKey;
+    }
+    inMaskedValue =
+      isSensitiveKey(FORM_SENSITIVE_KEYS, key) && value.length > 0;
+    if (inMaskedValue) {
+      hasSecrets = true;
+      out.push(`${rawKey}=${MASK_PLACEHOLDER}`);
+    } else {
+      out.push(pair);
+    }
+  }
+  return { masked: hasSecrets ? out.join("&") : body, hasSecrets };
 }
 
 /**

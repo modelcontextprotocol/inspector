@@ -1263,6 +1263,16 @@ export interface InspectorClientOptions {
   advertisedExtensions?: Record<string, boolean>;
 
   /**
+   * Whether this client can render MCP Apps. When true, the MCP Apps UI
+   * extension (`io.modelcontextprotocol/ui`) is advertised by default; when
+   * false or absent it is advertised only if `advertisedExtensions` turns it
+   * on explicitly. Servers decide whether to return an App from this
+   * advertisement, so only a client with a renderer (today: the web client)
+   * should set it. Supplying `appElicitation` implies it (#2403).
+   */
+  rendersApps?: boolean;
+
+  /**
    * Renders an app-rendered form elicitation (#1854) and resolves with the
    * app's standard `ElicitResult`.
    *

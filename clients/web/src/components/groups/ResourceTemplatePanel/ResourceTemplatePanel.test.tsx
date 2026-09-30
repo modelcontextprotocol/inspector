@@ -1,8 +1,21 @@
 import { describe, it, expect, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import type { ResourceTemplateType as ResourceTemplate } from "@modelcontextprotocol/client";
-import { renderWithMantine, screen } from "../../../test/renderWithMantine";
+import {
+  act,
+  renderWithMantine,
+  screen,
+} from "../../../test/renderWithMantine";
 import { ResourceTemplatePanel } from "./ResourceTemplatePanel";
+
+/**
+ * Let `ms` of real time pass inside `act`, so the debounced completion
+ * request and the state its promise sets land in React's test scope rather
+ * than as an update React reports as unwrapped (#2507).
+ */
+async function waitInAct(ms: number): Promise<void> {
+  await act(() => new Promise<void>((r) => setTimeout(r, ms)));
+}
 
 const singleVarTemplate: ResourceTemplate = {
   name: "User Profile",
@@ -376,7 +389,7 @@ describe("ResourceTemplatePanel", () => {
       );
 
       await user.click(screen.getByRole("textbox", { name: "tableName" }));
-      await new Promise((r) => setTimeout(r, 0));
+      await waitInAct(0);
       // Empty value, empty sibling — but the sibling key is still
       // present so the server sees the full argument set.
       expect(onCompleteArgument).toHaveBeenCalledWith("tableName", "", {
@@ -408,7 +421,7 @@ describe("ResourceTemplatePanel", () => {
 
       await user.type(screen.getByRole("textbox", { name: "userId" }), "al");
       // Wait past the 300ms debounce.
-      await new Promise((r) => setTimeout(r, 400));
+      await waitInAct(400);
       // user.type focuses first (firing one immediate completion) and
       // then types the characters (firing the debounced one). Only the
       // typed-prefix call is the one we care about here.
@@ -444,7 +457,7 @@ describe("ResourceTemplatePanel", () => {
         screen.getByRole("textbox", { name: "tableName" }),
         "users",
       );
-      await new Promise((r) => setTimeout(r, 400));
+      await waitInAct(400);
       // The completing arg ("tableName") is excluded from context; only
       // the other variables ride along.
       expect(onCompleteArgument).toHaveBeenLastCalledWith(
@@ -454,7 +467,7 @@ describe("ResourceTemplatePanel", () => {
       );
 
       await user.type(screen.getByRole("textbox", { name: "rowId" }), "42");
-      await new Promise((r) => setTimeout(r, 400));
+      await waitInAct(400);
       expect(onCompleteArgument).toHaveBeenLastCalledWith("rowId", "42", {
         tableName: "users",
       });
@@ -485,7 +498,7 @@ describe("ResourceTemplatePanel", () => {
       // Focus → first call (value=""). Resolve so the dropdown has
       // something to show.
       await user.click(screen.getByRole("textbox", { name: "userId" }));
-      await new Promise((r) => setTimeout(r, 0));
+      await waitInAct(0);
       expect(deferred.length).toBe(1);
       deferred[0].resolve(["alpha", "alphabet"]);
       expect(await screen.findByText("alpha")).toBeInTheDocument();
@@ -525,11 +538,11 @@ describe("ResourceTemplatePanel", () => {
 
       const input = screen.getByRole("textbox", { name: "userId" });
       await user.click(input);
-      await new Promise((r) => setTimeout(r, 0));
+      await waitInAct(0);
       expect(await screen.findByText("alpha")).toBeInTheDocument();
 
       await user.type(input, "z");
-      await new Promise((r) => setTimeout(r, 400));
+      await waitInAct(400);
       expect(screen.queryByText("alpha")).not.toBeInTheDocument();
       expect(screen.queryByText("alphabet")).not.toBeInTheDocument();
     });
@@ -565,7 +578,7 @@ describe("ResourceTemplatePanel", () => {
       await user.click(rowInput);
       await user.click(tableInput);
       onCompleteArgument.mockClear();
-      await new Promise((r) => setTimeout(r, 400));
+      await waitInAct(400);
       const tableCalls = onCompleteArgument.mock.calls.filter(
         ([n]) => n === "tableName",
       );
@@ -600,9 +613,9 @@ describe("ResourceTemplatePanel", () => {
       // "h" controller.
       const input = screen.getByRole("textbox", { name: "userId" });
       await user.type(input, "h");
-      await new Promise((r) => setTimeout(r, 350));
+      await waitInAct(350);
       await user.type(input, "i");
-      await new Promise((r) => setTimeout(r, 350));
+      await waitInAct(350);
 
       const hi = calls.find((c) => c.value === "hi");
       const h = calls.find((c) => c.value === "h");
@@ -612,7 +625,7 @@ describe("ResourceTemplatePanel", () => {
       // guard drops the response so it can't overwrite the fresh one.
       h?.resolve(["from-stale-h"]);
       hi?.resolve(["from-fresh-hi"]);
-      await new Promise((r) => setTimeout(r, 0));
+      await waitInAct(0);
 
       expect(await screen.findByText("from-fresh-hi")).toBeInTheDocument();
       expect(screen.queryByText("from-stale-h")).not.toBeInTheDocument();
@@ -634,7 +647,7 @@ describe("ResourceTemplatePanel", () => {
 
       // Focus fires a completion immediately, leaving an in-flight request.
       await user.click(screen.getByRole("textbox", { name: "userId" }));
-      await new Promise((r) => setTimeout(r, 0));
+      await waitInAct(0);
       expect(onCompleteArgument).toHaveBeenCalled();
 
       // The unmount-cleanup effect iterates the in-flight controllers and
@@ -656,7 +669,7 @@ describe("ResourceTemplatePanel", () => {
       // Focusing the plain TextInput hits the early `!useAutocomplete`
       // return in handleVariableFocus.
       await user.click(screen.getByLabelText("userId"));
-      await new Promise((r) => setTimeout(r, 0));
+      await waitInAct(0);
       expect(onCompleteArgument).not.toHaveBeenCalled();
     });
 
@@ -672,7 +685,7 @@ describe("ResourceTemplatePanel", () => {
         />,
       );
       await user.type(screen.getByLabelText("userId"), "ab");
-      await new Promise((r) => setTimeout(r, 400));
+      await waitInAct(400);
       expect(onCompleteArgument).not.toHaveBeenCalled();
     });
   });
