@@ -28,6 +28,7 @@ import {
   OAuthRequestTimeoutError,
   deadlineForRequestInit,
   exemptMcpEndpoint,
+  stampRequestDeadline,
   withOAuthRequestTimeout,
 } from "@inspector/core/auth/requestTimeout.js";
 import { withRfc8414OidcCompat } from "@inspector/core/auth/oidcDiscoveryCompat.js";
@@ -594,6 +595,37 @@ describe("withOAuthRequestTimeout", () => {
       expect(deadlineForRequestInit(undefined)).toBeUndefined();
       expect(deadlineForRequestInit({})).toBeUndefined();
       expect(deadlineForRequestInit({ method: "GET" })).toBeUndefined();
+    });
+
+    // #2418: the WeakMap holds one entry per call only because the wrapper
+    // builds a fresh init each time. These pin that invariant.
+    it("hands each call its own init, never one shared across calls", async () => {
+      const inner = vi.fn<typeof fetch>().mockResolvedValue(new Response("{}"));
+      const wrapped = withOAuthRequestTimeout(inner, 1234);
+      const callerInit: RequestInit = { method: "GET" };
+
+      await wrapped(URL_UNDER_TEST, callerInit);
+      await wrapped(URL_UNDER_TEST, callerInit);
+
+      const [first, second] = inner.mock.calls.map(([, init]) => init);
+      expect(first).not.toBe(second);
+      expect(deadlineForRequestInit(first)).toBe(1234);
+      expect(deadlineForRequestInit(second)).toBe(1234);
+      // Nor is the caller's own object stamped: reusing it across calls is the
+      // caller's right, and stamping it would make the second call collide.
+      expect(first).not.toBe(callerInit);
+      expect(deadlineForRequestInit(callerInit)).toBeUndefined();
+    });
+
+    it("refuses to stamp an init that already carries a deadline", () => {
+      const init: RequestInit = {};
+      stampRequestDeadline(init, 1000);
+
+      expect(() => stampRequestDeadline(init, 2000)).toThrow(
+        /already carries a deadline/,
+      );
+      // The first stamp survives — the refusal overwrites nothing.
+      expect(deadlineForRequestInit(init)).toBe(1000);
     });
   });
 

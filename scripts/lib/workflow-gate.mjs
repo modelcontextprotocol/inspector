@@ -8,8 +8,9 @@
  *     `smoke:launcher`, `smoke:cli`, `smoke:tui`, `smoke:web` and
  *     `smoke:web:chromium` — all of which BELONG there.
  *   - **`npm run local:gate`**, the pre-push gate, runs every check CI runs and
- *     adds the **Firefox** engine pass, and `smoke:tui` really runs there rather
- *     than self-skipping. WebKit is on demand and belongs to neither tier. It
+ *     adds the **Firefox** engine pass. (`smoke:tui` used to be a second
+ *     local-only step by self-skipping under CI; it runs in both since #2408.)
+ *     WebKit is on demand and belongs to neither tier. It
  *     runs each client's unit suite once (instrumented, under `coverage`) via
  *     `local:validate`, where CI's two parallel jobs run it twice (#2341).
  *
@@ -54,8 +55,8 @@
  *      out a forbidden one.
  *
  * WHAT IT MUST NOT FORBID: `npm run smoke`, `smoke:web:chromium`, `smoke:tui`.
- * Those belong in CI and are there today — `smoke:tui` self-skips under
- * `process.env.CI` on its own, so it needs no guarding.
+ * Those belong in CI and are there today — `smoke:tui` included, which runs
+ * for real in CI since #2408 rather than self-skipping.
  *
  * ONLY EXECUTABLE POSITIONS ARE SCANNED, found by parsing the file rather than
  * by matching lines: `run:` scalars (inline and block), a custom `shell:`

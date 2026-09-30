@@ -24,10 +24,14 @@ The step-by-step procedure — bump on `v2/main` first, merge the milestone into
 lives in the [`release` skill](../.claude/skills/release/SKILL.md), so there is
 exactly one copy of it. Invoke it as `/release`, or just read the file.
 
-The short version: publishing is automated by two release-gated jobs in
-[`.github/workflows/main.yml`](../.github/workflows/main.yml), both
+The short version: publishing is automated by release-gated jobs in
+[`.github/workflows/main.yml`](../.github/workflows/main.yml), all downstream of
 `needs: [build, coverage]`, so a release cannot publish with either the build
-job or the coverage gate red.
+job or the coverage gate red. The npm half is two jobs split on the credential
+([#2483](https://github.com/modelcontextprotocol/inspector/issues/2483)):
+`package` installs, runs `pack:verify` and packs the tarball with no OIDC token,
+and `publish` — the only job holding `id-token: write` — downloads that tarball
+and runs `npm publish` on it, executing no dependency code at all.
 
 ## Docker
 

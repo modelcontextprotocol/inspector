@@ -11,7 +11,8 @@
  * timeout in whichever smoke was not updated.
  *
  * `connectViaDeepLink` is driven against a stand-in page rather than a real
- * browser — it takes only `goto` and `locator(...)` → `waitFor`/`getAttribute`,
+ * browser — it takes only `goto` and `locator(...)` →
+ * `waitFor`/`getAttribute`/`count`,
  * which is what makes that possible.
  */
 
@@ -49,6 +50,7 @@ function fakePage(plan, { gotoStatus = 200 } = {}) {
           if (entry.waitFails) throw new Error(`timeout: ${selector}`);
         },
         getAttribute: async (name) => entry.attrs?.[name] ?? null,
+        count: async () => entry.count ?? 1,
       };
     },
   };
@@ -166,6 +168,58 @@ describe("connectViaDeepLink", () => {
         url: "http://x/",
       }),
       /timeout/,
+    );
+  });
+
+  it("names the app's own connect error on a connect timeout (#2496)", async () => {
+    // The #2482 shape: `POST /api/servers` returned 503, the app recorded it on
+    // the status element, and the smoke reported only Playwright's timeout.
+    const plan = happyPlan();
+    plan[STATUS].attrs["data-status"] = "error";
+    plan[STATUS].attrs["data-error-message"] = "Failed to add server: HTTP 503";
+    plan[CONNECTED] = { waitFails: true };
+    await assert.rejects(
+      connectViaDeepLink({ page: fakePage(plan), url: "http://x/" }),
+      (err) => {
+        assert.match(
+          err.message,
+          /^connection never reached data-status="connected" \(last: "error", data-error-message="Failed to add server: HTTP 503"\)/,
+        );
+        // Playwright's message stays on the line — it names the budget spent.
+        assert.match(err.message, /timeout: .*data-status="connected"/);
+        assert.ok(err.cause instanceof Error);
+        return true;
+      },
+    );
+  });
+
+  it("omits the error message when the app recorded none", async () => {
+    const plan = happyPlan();
+    plan[STATUS].attrs["data-status"] = "connecting";
+    plan[CONNECTED] = { waitFails: true };
+    await assert.rejects(
+      connectViaDeepLink({ page: fakePage(plan), url: "http://x/" }),
+      (err) => {
+        assert.match(err.message, /\(last: "connecting"\)/);
+        assert.doesNotMatch(err.message, /data-error-message/);
+        return true;
+      },
+    );
+  });
+
+  it("says so when the status element never mounted", async () => {
+    // Only reachable with the gate skipped — the gate's own `attached` wait
+    // would have failed first otherwise.
+    const plan = happyPlan();
+    plan[STATUS] = { count: 0 };
+    plan[CONNECTED] = { waitFails: true };
+    await assert.rejects(
+      connectViaDeepLink({
+        page: fakePage(plan),
+        url: "http://x/",
+        expectDeepLink: false,
+      }),
+      /\(no connection-status element\)/,
     );
   });
 });

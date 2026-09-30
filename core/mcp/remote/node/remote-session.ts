@@ -10,7 +10,7 @@ import type { AuthChallenge } from "../../../auth/challenge.js";
 import { AuthChallengeError } from "../../../auth/challenge.js";
 import type { RemoteAuthProviderHandle } from "./tokenAuthProvider.js";
 import type { RemoteAuthState } from "../types.js";
-import { progressTokenOf } from "../progressToken.js";
+import { progressTokenOf, waitForProgressToken } from "../progressToken.js";
 
 export interface SessionEvent {
   type: RemoteEvent["type"];
@@ -226,10 +226,11 @@ export class RemoteSession {
   /**
    * Re-arm a pending request's wait timeout. Invoked from {@link onMessage} when
    * a `notifications/progress` carrying this request's `progressToken` arrives.
-   * A no-op when no wait is pending for the id.
+   * A no-op when no wait is pending for the id. A numeric string token (`"4"`)
+   * matches the numeric request id, as it does in the SDK (#2458).
    */
-  noteRequestProgress(requestId: string | number): void {
-    this.requestWaits.get(requestId)?.resetTimeout();
+  noteRequestProgress(progressToken: string | number): void {
+    waitForProgressToken(this.requestWaits, progressToken)?.resetTimeout();
   }
 
   cancelRequestWait(requestId: string | number): void {

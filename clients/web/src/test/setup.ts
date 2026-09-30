@@ -45,6 +45,22 @@ import { cleanup, configure } from "@testing-library/react";
 // asserts the effective value, so moving it is deliberate by construction.
 configure({ asyncUtilTimeout: 1000 });
 
+// Tell React this is a test environment that supports `act` (#2507). React
+// warns "The current testing environment is not configured to support
+// act(...)" on every direct `act` call unless this flag is set. Testing
+// Library normally sets it for the whole file, but only from a GLOBAL
+// `beforeAll`, and this project runs without `globals: true` (see the unit
+// project in `vite.config.ts`) — so nothing set it, and each `act` imported
+// straight from `react` warned, ~95 times per CI job. RTL's own `render` and
+// `act` flip it temporarily, which is why only direct-`act` call sites showed
+// it. Setting it here is what RTL would do under globals; its async utilities
+// (`waitFor`, `findBy*`) still clear it for the duration of a wait and restore
+// it afterwards, so no update inside a wait is reported as unwrapped.
+// `reactActEnvironment.test.ts` asserts the flag is set.
+(
+  globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
+).IS_REACT_ACT_ENVIRONMENT = true;
+
 // Node 22+ exposes an experimental `localStorage` placeholder that overrides
 // happy-dom's implementation. Without `--localstorage-file`, it's an empty
 // stub with no methods, which breaks anything that calls setItem/getItem.

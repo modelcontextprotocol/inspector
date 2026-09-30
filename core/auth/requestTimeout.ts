@@ -288,8 +288,32 @@ export function exemptMcpEndpoint(
  * serialization, it needs no cast onto `RequestInit`, and it is collected with
  * the object — the wrapper builds a fresh init per call, so there is one entry
  * per in-flight request and nothing accumulates.
+ *
+ * That "fresh init per call" is load-bearing, and it is enforced rather than
+ * assumed: every write goes through `stampRequestDeadline`, which refuses an
+ * init that already carries a deadline (#2418).
  */
 const REQUEST_DEADLINES = new WeakMap<object, number>();
+
+/**
+ * Record the deadline a wrapped call runs under, on the init it hands down.
+ *
+ * Throws when `init` is already stamped. Reusing one init across two calls —
+ * a retry layer, a cache, a refactor that hoists the init out of the per-call
+ * closure — would otherwise let one call's lookup read the other's budget, and
+ * that surfaces only as a request misclassified bounded/unbounded at the proxy
+ * hop: a confusing OAuth timeout far from the mistake (#2418). Failing here
+ * puts the error at the point of the mistake instead.
+ */
+export function stampRequestDeadline(init: RequestInit, budget: number): void {
+  if (REQUEST_DEADLINES.has(init)) {
+    throw new Error(
+      "stampRequestDeadline: this RequestInit already carries a deadline — " +
+        "withOAuthRequestTimeout must build a fresh init per call (#2418)",
+    );
+  }
+  REQUEST_DEADLINES.set(init, budget);
+}
 
 /**
  * The deadline `withOAuthRequestTimeout` stamped on this init, if any.
@@ -502,7 +526,7 @@ export function withOAuthRequestTimeout(
     // Built once and stamped, so `createRemoteFetch` can read the budget off it
     // and tell `/api/fetch` this particular request is bounded.
     const nextInit: RequestInit = { ...init, signal };
-    REQUEST_DEADLINES.set(nextInit, budget);
+    stampRequestDeadline(nextInit, budget);
 
     // Held so the losing path can tear both tee branches down — see below.
     let settled: Response | undefined;

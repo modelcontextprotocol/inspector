@@ -37,7 +37,10 @@ describe("MCP Apps UI extension constants (#1740)", () => {
   });
 
   it("is the value the client actually advertises for the ui extension", () => {
-    const map = buildClientExtensions({ enterpriseManaged: false });
+    const map = buildClientExtensions({
+      enterpriseManaged: false,
+      rendersApps: true,
+    });
     expect(map[UI_EXTENSION_KEY]).toEqual({ mimeTypes: [RESOURCE_MIME_TYPE] });
   });
 });

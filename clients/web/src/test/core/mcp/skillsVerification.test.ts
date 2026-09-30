@@ -12,6 +12,7 @@ import { AuthRecoveryRequiredError } from "@inspector/core/auth/challenge.js";
 import {
   allSkillsVerified,
   anySkillFailed,
+  anySkillUnverifiable,
   utf8Length,
   verifySkills,
 } from "@inspector/core/mcp/skillsVerification.js";
@@ -322,6 +323,10 @@ describe("verifySkills (#2248)", () => {
       }),
     ]);
     expect(report.ok).toBe(true);
+    // Passing is not verifying: nothing was hashed, so the outcome says so
+    // rather than reading the same as a skill whose every file checked out
+    // (#2405).
+    expect(report.outcome).toBe("unverifiable");
   });
 
   const authError = () =>
@@ -949,7 +954,9 @@ describe("verifySkills (#2248)", () => {
     } as unknown as InspectorClientProtocol;
     const reports = await verifySkills(client, skills);
     expect(readResource.mock.calls.length).toBe(1);
-    expect(reports[0].outcome).not.toBe("incomplete");
+    expect(reports[0].outcome).toBe("unverifiable");
+    // Past the budget a dynamic skill was not read at all, which `incomplete`
+    // states more precisely than `unverifiable` would.
     expect(reports[1].outcome).toBe("incomplete");
     expect(reports[2].outcome).toBe("incomplete");
   });
@@ -1232,5 +1239,47 @@ describe("verification outcomes (#2248)", () => {
     expect(reports[0].outcome).toBe("incomplete");
     expect(anySkillFailed(reports)).toBe(false);
     expect(allSkillsVerified(reports)).toBe(false);
+  });
+
+  it("reports a dynamic skill as unverifiable, not verified (#2405)", async () => {
+    // `"dynamic"` advertises no digests, so nothing is hashed. That is neither
+    // a pass — nothing was checked — nor a failure, since it is a conforming
+    // wire form: `ok` stays true and the outcome names the state.
+    const gen: SkillEntry = {
+      uri: "skill://gen/SKILL.md",
+      frontmatter: { name: "gen", description: "Generated" },
+      resources: DYNAMIC_RESOURCES,
+    };
+    const reports = await verifySkills(
+      serving("---\nname: gen\ndescription: Generated\n---\n\n# gen\n"),
+      [gen],
+    );
+    expect(reports[0].files).toEqual([]);
+    expect(reports[0].ok).toBe(true);
+    expect(reports[0].outcome).toBe("unverifiable");
+    expect(allSkillsVerified(reports)).toBe(false);
+    expect(anySkillFailed(reports)).toBe(false);
+    expect(anySkillUnverifiable(reports)).toBe(true);
+  });
+
+  it("still fails a dynamic skill whose frontmatter disagrees", async () => {
+    // A broken MUST outranks having nothing to hash.
+    const gen: SkillEntry = {
+      uri: "skill://gen/SKILL.md",
+      frontmatter: { name: "gen", description: "Listed" },
+      resources: DYNAMIC_RESOURCES,
+    };
+    const reports = await verifySkills(
+      serving("---\nname: gen\ndescription: Served\n---\n\n# gen\n"),
+      [gen],
+    );
+    expect(reports[0].outcome).toBe("failed");
+    expect(anySkillUnverifiable(reports)).toBe(false);
+  });
+
+  it("anySkillUnverifiable is false for a fully verified catalog", async () => {
+    const md = "---\nname: ok\ndescription: Fine\n---\n\n# ok\n";
+    const reports = await verifySkills(serving(md), [await clean()]);
+    expect(anySkillUnverifiable(reports)).toBe(false);
   });
 });

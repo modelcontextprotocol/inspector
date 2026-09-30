@@ -14,14 +14,19 @@ A v2 release is cut from **`main`**, after the milestone's work has been merged
 there from `v2/main` — not from `v2/main` itself. The v1 line releases
 independently from `v1/main` to the `v1-latest` tag and never touches `main`.
 
-Publishing is automated by two release-gated jobs in
-`.github/workflows/main.yml` (`github.event_name == 'release'`), both
-`needs: [build, coverage]` — so a release cannot publish with either the build
+Publishing is automated by release-gated jobs in
+`.github/workflows/main.yml` (`github.event_name == 'release'`), all downstream
+of `needs: [build, coverage]` — so a release cannot publish with either the build
 job or the coverage gate red:
 
-- **`publish`** — runs `npm run pack:verify` as the pre-publish gate, asserts the
-  release tag matches the root `package.json` version, then `npm publish
-  --access public --provenance`.
+- **`package`** — asserts the release tag matches the root `package.json`
+  version, installs, runs `npm run pack:verify` as the pre-publish gate, then
+  `npm pack`s the tarball and uploads it as an artifact. It holds **no**
+  `id-token`.
+- **`publish`** — `needs: [package]`; holds `id-token: write` and only downloads
+  that tarball and runs `npm publish <tgz> --access public --provenance`. No
+  checkout, no dependency install, no build — the split keeps install scripts
+  away from the OIDC publish token (#2483).
 - **`publish-github-container-registry`** — the GHCR image.
 
 ## The shape: two PRs, then the Release
@@ -148,7 +153,7 @@ The `local-dev`, `test-servers` and `pre-push-gate` skills cover the mechanics.
 **Then run `npm run pack:verify` there as its own step.** It is what proves the
 tarball a consumer installs actually resolves, and ⚠️ **`local:gate` does not
 run it** — `local:gate:stages` has no packaging stage, and a green gate says
-nothing about the published tarball (#2380). CI runs it only in the `publish`
+nothing about the published tarball (#2380). CI runs it only in the `package`
 job, which fires on the published GitHub Release — after the tag exists — so
 skipping it here means the first signal of a broken package arrives too late to
 stop the release. It needs network access; record its result (tarball size and

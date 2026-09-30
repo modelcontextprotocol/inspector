@@ -17,6 +17,7 @@ import { writeFormattedResult } from "./handlers/format-output.js";
 import { clearStoredAuthForRelogin } from "./clear-stored-auth-for-relogin.js";
 import { InspectorClient } from "@inspector/core/mcp/index.js";
 import { cleanRoots } from "@inspector/core/mcp/serverList.js";
+import { UI_EXTENSION_KEY } from "@inspector/core/mcp/extensions.js";
 import {
   createProxyFetch,
   createTransportNode,
@@ -34,6 +35,7 @@ import {
   isAllInterfacesHost,
 } from "@inspector/core/node/hostUrl.js";
 import { getStateFilePath } from "@inspector/core/auth/node/storage-node.js";
+import { SecretFileLockHeldError } from "@inspector/core/auth/node/secret-store.js";
 import { consumeMethodOutcome } from "./handlers/consume-outcome.js";
 import { runMethod } from "./handlers/run-method.js";
 import {
@@ -44,11 +46,11 @@ import {
 export type { CliAppInfo } from "./handlers/method-types.js";
 export { emitResult } from "./handlers/emit-result.js";
 export { collectAppInfo } from "./handlers/collect-app-info.js";
+import { type OAuthPersistSnapshot } from "@inspector/core/auth/oauth-persist.js";
 import {
-  parseOAuthPersistBlob,
-  serializeOAuthPersistBlob,
-  type OAuthPersistSnapshot,
-} from "@inspector/core/auth/oauth-persist.js";
+  readOAuthStore,
+  writeOAuthSections,
+} from "@inspector/core/auth/node/oauth-persist-file.js";
 import {
   discoverAuthorizationServerMetadataFromCandidates,
   getAuthorizationServerUrl,
@@ -56,7 +58,6 @@ import {
 } from "@inspector/core/auth/discovery.js";
 import { withRfc8414OidcCompat } from "@inspector/core/auth/oidcDiscoveryCompat.js";
 import { withOAuthRequestTimeout } from "@inspector/core/auth/requestTimeout.js";
-import { writeStoreFile } from "@inspector/core/storage/store-io.js";
 import {
   refreshAuthorization,
   discoverAuthorizationServerMetadata,
@@ -206,6 +207,13 @@ async function callMethod(
     ...(serverSettings?.protocolEra && {
       versionNegotiation: eraToVersionNegotiation(serverSettings.protocolEra),
     }),
+    // The CLI cannot render an MCP App, so it does not advertise the UI
+    // extension by default (#2403). `--advertise-apps` claims it explicitly,
+    // for a server that only exposes its App tools to a client that does —
+    // which is what an `--app-info` probe against such a server needs.
+    ...(args.advertiseApps && {
+      advertisedExtensions: { [UI_EXTENSION_KEY]: true },
+    }),
     ...clientAuthOptions,
   });
 
@@ -258,28 +266,26 @@ type StoredServerState = {
   serverMetadata?: OAuthMetadata;
 };
 /** The stored-server map shape the CLI reads out of the OAuth state file. */
-type StoredServers = Record<string, StoredServerState>;
+export type StoredServers = Record<string, StoredServerState>;
 
 /**
- * Read the OAuth state file directly (bypassing the Zustand store cache) so
- * each call sees the current on-disk state — required for `--wait-for-auth`
- * polling. Returns the full snapshot, or an empty one when the file is absent
- * or unreadable. Uses the shared {@link parseOAuthPersistBlob} so both the
- * plain `{servers,idpSessions}` and legacy `{state,version}` layouts are
- * accepted, matching whatever the web backend wrote.
+ * Read the shared OAuth state ({@link OAuthPersistSnapshot}) fresh on every
+ * call — required for `--wait-for-auth` polling. Returns the full snapshot,
+ * with tokens and client secrets rejoined from the secret store (where the
+ * backend now keeps them), or an empty one when the file is absent or not a
+ * recognized OAuth state shape (both read as `null`). Operational failures
+ * — the state file locked by another Inspector process, an unreachable or
+ * unreadable secret store — propagate instead of masquerading as "no stored
+ * token": the credentials may exist, and `classifyError` maps these to a
+ * `store_unavailable` envelope rather than `auth_required`. Only the
+ * `--wait-for-auth` polling loop tolerates them (see
+ * {@link waitForStoredToken}).
  */
 async function readOAuthSnapshot(
   statePath: string,
 ): Promise<OAuthPersistSnapshot> {
-  const { readFile } = await import("node:fs/promises");
-  try {
-    const text = await readFile(statePath, "utf8");
-    const snapshot = parseOAuthPersistBlob(text);
-    if (snapshot) return snapshot;
-  } catch {
-    // Absent/unreadable/malformed → fall through to the empty snapshot below.
-  }
-  return { servers: {}, idpSessions: {} };
+  const snapshot = await readOAuthStore(statePath);
+  return snapshot ?? { servers: {}, idpSessions: {} };
 }
 
 /**
@@ -434,15 +440,44 @@ export async function refreshStoredAuthToken(
     );
   }
 
-  // Persist the rotated tokens back under the same key, preserving every other
-  // server entry and the idpSessions block, so web and CLI stay consistent.
-  // Route through the shared `writeStoreFile` (not a raw `writeFile`) so the
-  // secrets file keeps its owner-only `0o600` mode + `mkdir -p`, identical to
-  // how the web backend's OAuth persist backend writes it.
+  // Persist the rotated tokens back under the same key via the shared
+  // sectioned write: lock → fresh read → overlay just this server's entry →
+  // atomic write. This generalizes the read-modify-write this function used
+  // to hand-roll — the merge now happens against the file as it is at write
+  // time (not the snapshot read before the network round-trip), under the
+  // same cross-process lock every other writer uses, and keeps the file's
+  // owner-only `0o600` mode + `mkdir -p` via the shared store IO.
   servers[found.key] = { ...found.state, tokens };
-  await writeStoreFile(statePath, serializeOAuthPersistBlob(snapshot));
+  await writeOAuthSections(statePath, snapshot, { servers: [found.key] });
 
   return tokens.access_token;
+}
+
+/** Sentinel: the wait deadline elapsed while a read was still in flight. */
+const DEADLINE_ELAPSED = Symbol("deadline-elapsed");
+
+/**
+ * Race `promise` against the absolute `deadline` (epoch ms). Resolves with
+ * {@link DEADLINE_ELAPSED} if the deadline passes first; the abandoned
+ * promise's eventual rejection is swallowed (a lock-acquisition failure
+ * landing after abandonment must not become an unhandled rejection).
+ */
+async function raceDeadline<T>(
+  promise: Promise<T>,
+  deadline: number,
+): Promise<T | typeof DEADLINE_ELAPSED> {
+  promise.catch(() => {});
+  const remaining = deadline - Date.now();
+  if (remaining <= 0) return DEADLINE_ELAPSED;
+  let timer: NodeJS.Timeout | undefined;
+  const elapsed = new Promise<typeof DEADLINE_ELAPSED>((resolve) => {
+    timer = setTimeout(() => resolve(DEADLINE_ELAPSED), remaining);
+  });
+  try {
+    return await Promise.race([promise, elapsed]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /**
@@ -451,19 +486,49 @@ export async function refreshStoredAuthToken(
  * off to a human for the OAuth dance and resume once the token lands. The
  * lookup is normalised, so a trailing-slash mismatch between the URL the human
  * opened and the one the agent passed still resolves.
+ *
+ * Read-failure policy: a held lock ({@link SecretFileLockHeldError}) is the
+ * success case in progress — the browser flow this waits on *writes* the same
+ * state file under the same lock — so it is never treated as an error here.
+ * Any other read failure keeps the loop polling (the store may heal mid-wait,
+ * e.g. a keychain unlocking), but is retained so a deadline hit rethrows the
+ * real operational problem — `classifyError` maps it to its own envelope —
+ * instead of masking it as `auth_wait_timeout`, which re-authorizing cannot
+ * fix. A later successful read clears the retained error.
+ *
+ * The deadline bounds the *whole* loop, reads included: a single read can
+ * block for the state-file lock's full acquisition budget (~15s, see
+ * `RETRY_BUDGET_MS` in core/auth/node/file-lock.ts), which would let
+ * `--wait-for-auth 1` run fifteen times past its own deadline. Each read is
+ * raced against the remaining budget ({@link raceDeadline}) and abandoned
+ * when it elapses — safe, because the read's only side effect (lazy
+ * plaintext migration) is atomic under the file lock, and the process is
+ * about to exit through `handleError` anyway.
  */
-async function waitForStoredToken(
+export async function waitForStoredToken(
   serverUrl: string,
   statePath: string,
   timeoutSec: number,
+  readServers: (statePath: string) => Promise<StoredServers> = readOAuthServers,
 ): Promise<string> {
   const key = normalizeServerUrl(serverUrl);
   const deadline = Date.now() + timeoutSec * 1000;
+  let servers: StoredServers = {};
+  let lastError: unknown;
   for (;;) {
-    const servers = await readOAuthServers(statePath);
+    try {
+      const read = await raceDeadline(readServers(statePath), deadline);
+      if (read !== DEADLINE_ELAPSED) {
+        servers = read;
+        lastError = undefined;
+      }
+    } catch (error) {
+      if (!(error instanceof SecretFileLockHeldError)) lastError = error;
+    }
     const token = findStoredToken(servers, serverUrl);
     if (token) return token;
     if (Date.now() >= deadline) {
+      if (lastError !== undefined) throw lastError;
       const stored = Object.keys(servers);
       throw new CliExitCodeError(
         EXIT_CODES.AUTH_REQUIRED,
@@ -474,7 +539,9 @@ async function waitForStoredToken(
         { code: "auth_wait_timeout", url: serverUrl },
       );
     }
-    await new Promise((r) => setTimeout(r, 500));
+    await new Promise((r) =>
+      setTimeout(r, Math.min(500, deadline - Date.now())),
+    );
   }
 }
 
@@ -757,12 +824,20 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
       "Probe the tool's MCP App UI metadata (resourceUri, csp, permissions, domain) and emit it as one JSON line; exit 2 when the tool has no app. Use with --method tools/call --tool-name <name> (the tool itself is not invoked) or --method tools/list (one NDJSON line per tool).",
     )
     .option(
+      "--advertise-apps",
+      "Advertise the MCP Apps UI extension (io.modelcontextprotocol/ui) at initialize. Off by default because the CLI cannot render an App; set it when a server only exposes its App tools to a client that claims App support, e.g. for an --app-info probe.",
+    )
+    .option(
       "--strict",
       "Report tool-schema portability problems in full (path, issue, suggested fix) on stderr, and exit 6 if any is error-severity. Use with --method tools/list. Without it, a one-line count is printed instead.",
     )
     .option(
       "--verify",
       "Run the SEP-2640 conformance and digest checks over the skills returned, emit one JSON report per skill on stdout, and exit 7 if any fails or 8 if any could not be fully checked within the read bounds. Use with --method skills/list or --method skills/get.",
+    )
+    .option(
+      "--require-digests",
+      'With --verify: exit 9 when a skill advertises no digests (resources: "dynamic"), instead of reporting it as unverifiable and exiting 0.',
     )
     .option(
       "--connect-timeout <ms>",
@@ -873,8 +948,10 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     serverUrl?: string;
     header?: Record<string, string>;
     appInfo?: boolean;
+    advertiseApps?: boolean;
     strict?: boolean;
     verify?: boolean;
+    requireDigests?: boolean;
     cursor?: string;
     connectTimeout?: number;
     protocolEra?: ServerProtocolEra;
@@ -958,6 +1035,26 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
         "--verify requires --method skills/list or --method skills/get.",
       );
     }
+  }
+  // Same reasoning: a policy flag with no report to apply it to would be
+  // accepted and then silently do nothing.
+  if (options.requireDigests && !options.verify) {
+    throw new Error("--require-digests requires --verify.");
+  }
+
+  // `--advertise-apps` is checked here for the same reason: it shapes the
+  // `initialize` handshake, and the short-circuit paths below never open an
+  // MCP connection, so accepting it there would silently ignore it.
+  if (
+    options.advertiseApps &&
+    (options.listStoredAuth ||
+      options.printHandoff ||
+      options.method === "servers/list" ||
+      options.method === "servers/show")
+  ) {
+    throw new Error(
+      "--advertise-apps requires a command that connects to a server; it has no effect with --list-stored-auth, --print-handoff, or --method servers/list / servers/show.",
+    );
   }
 
   // State-path precedence (getStateFilePath): MCP_INSPECTOR_OAUTH_STATE_PATH →
@@ -1190,8 +1287,10 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     metadata: options.metadata,
     toolMeta: options.toolMetadata,
     appInfo: options.appInfo === true,
+    advertiseApps: options.advertiseApps === true,
     strict: options.strict === true,
     verify: options.verify === true,
+    requireDigests: options.requireDigests === true,
     cursor: options.cursor,
     format: options.format,
   };

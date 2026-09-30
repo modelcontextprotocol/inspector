@@ -720,6 +720,24 @@ describe("DeferredSecretStore forwards the optional seams", () => {
       ]),
     ).toEqual({ srv: { "env:A": "1", "env:B": "2" } });
   });
+
+  it("forwards getManyStrict rather than degrading per-field", async () => {
+    process.env.MCP_INSPECTOR_SECRET_FILE = path.join(tmpDir, "secrets.json");
+    process.env.MCP_INSPECTOR_SECRET_STORE = "file";
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const mod = await loadWithProbe(false);
+    const store = mod.defaultSecretStore();
+    expect(typeof store.getManyStrict).toBe("function");
+    await store.set("srv", "env:A", "1");
+
+    const { secretStoreGetManyStrict } =
+      await import("@inspector/core/auth/node/secret-store.js");
+    expect(
+      await secretStoreGetManyStrict(store, [
+        { serverId: "srv", fields: ["env:A"] },
+      ]),
+    ).toEqual({ srv: { "env:A": "1" } });
+  });
 });
 
 describe("absorbFileSecretsIntoKeyring", () => {

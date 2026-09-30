@@ -121,8 +121,10 @@ Options that specify the MCP server (catalog/config file, ad-hoc command/URL, en
 | `--tool-metadata <key=value>` | Tool-specific `_meta` entries for `tools/call`. Same JSON-parsed value handling as `--metadata`. |
 | `--connect-timeout <ms>`      | Connection timeout in ms. Defaults to `15000` for ad-hoc `--server-url`/target runs (so a black-holed host fails fast) and to the file-level `connectionTimeout` for `--catalog`/`--config` runs — `30000` when the file sets none. `0` disables the timeout.                                                                                                                                                       |
 | `--app-info`                  | Probe a tool's MCP App UI metadata without invoking it. With `--method tools/call --tool-name <name>`: prints one JSON line (`hasApp`, `resourceUri`, `csp`, `permissions`, `domain`, …) and exits `0` if the tool has an app or `2` (`no_app`) if not. With `--method tools/list`: emits NDJSON — one app-info line per tool over a single connection.                                                              |
+| `--advertise-apps`            | Advertise the MCP Apps UI extension (`io.modelcontextprotocol/ui`) at `initialize`. Off by default, because the CLI cannot render an App and a server decides whether to return one from that advertisement. Set it when a server only exposes its App tools to a client that claims App support — typically alongside `--app-info`. |
 | `--strict`                    | With `--method tools/list`: report tool-schema portability problems in full (path, issue, suggested fix) on stderr, and exit `6` if any is error-severity. Without it, a one-line count is printed instead. See [Schema portability](#schema-portability---strict). |
 | `--verify`                    | With `--method skills/list` or `--method skills/get`: run the SEP-2640 conformance, digest and frontmatter checks over the skills returned, emit one JSON report per skill on stdout, and exit `7` if any fails. See [Skill verification](#skill-verification---verify). |
+| `--require-digests`           | With `--verify`: exit `9` when a skill advertises no digests (`resources: "dynamic"`), instead of reporting it `unverifiable` and exiting `0`. See [Skill verification](#skill-verification---verify). |
 | `--format <text\|json>`       | Output format. `text` (default) pretty-prints the result. `json` emits a single JSON object on stdout (`{ "result": … }`, plus `{ "appInfo": … }` as a sibling key for App tools) with no banners, so the whole output pipes cleanly into `jq`.                                                                                                                                                                      |
 | `--relogin`                   | Delete stored OAuth for this server URL from the shared store before connect; interactive login still only runs if the server requires auth. Requires an HTTP/SSE URL (rejected for stdio). Conflicts with `--stored-auth-only` / `--use-stored-auth` / `--wait-for-auth` / catalog short-circuits.                                                                                                                  |
 | `--no-revoke`                 | With `--relogin`, skip the [RFC 7009](https://datatracker.ietf.org/doc/html/rfc7009) revocation request that would otherwise end the grant at the authorization server when the local state is deleted. The per-server `oauth.revokeOnClear` setting is the persistent form of the same opt-out; either one is enough to skip it. See [Revoking on `--relogin`](#revoking-on---relogin). |
@@ -158,6 +160,12 @@ mcp-inspector --cli <server> --method tools/call --tool-name my_tool --app-info
 
 # Probe every tool at once — NDJSON, one line per tool, single connection.
 mcp-inspector --cli <server> --method tools/list --app-info | jq -c 'select(.hasApp)'
+```
+
+The CLI does **not** advertise the MCP Apps UI extension by default, since it cannot render an App. A server that registers its App tools only for a client that advertises Apps support will therefore show no app to a bare probe; add `--advertise-apps` to claim that support for the probe:
+
+```bash
+mcp-inspector --cli <server> --method tools/list --app-info --advertise-apps
 ```
 
 Exit semantics: a tool that **has** an app exits `0`; one with **no** app exits `2` (`no_app`); a **missing** tool exits `5` (`tool_not_found`) — distinct so a typo isn't mistaken for "no app". A probe failure (an unreadable UI resource, or a malformed `_meta.ui.resourceUri`) is tolerated and reported in a `resourceError` field rather than aborting — so in `tools/list --app-info` one bad tool never kills the rest of the listing.
@@ -265,7 +273,7 @@ Interactive OAuth (connect-time or mid-RPC) requires a TTY on **stdin or stderr*
 
 **Step-up (standard OAuth):** when an RPC needs extra scopes, the CLI prompts on stderr: `Proceed with step-up authorization? [y/N]`. **y** continues (including piped stdin — `echo y | …` or `printf y | …`); **N** or EOF with no answer (`< /dev/null` / Ctrl-D) declines. Piped answers must be **newline-terminated, or stdin must close** — a bare `y` held open without `\n` or EOF is not flushed as a line and times out. A non-TTY stdin that never sends a line within **5 seconds** fails with `auth_required` (`timed out`, not the same as an explicit **N**). Answering **y** only confirms step-up — the following browser/loopback OAuth can still wait up to 15 minutes; for headless CI prefer **`--stored-auth-only`** with tokens already in the store. EMA step-up re-mints silently (no prompt).
 
-**Shared OAuth storage:** the CLI **reuses** tokens from `~/.mcp-inspector/storage/oauth.json` when they already exist (same file as other Inspector clients). That is passive file sharing, not launching another app.
+**Shared OAuth storage:** the CLI **reuses** tokens stored by other Inspector clients — indexed by the shared `~/.mcp-inspector/storage/oauth.json`, with the tokens themselves held in the secret store. That is passive storage sharing, not launching another app.
 
 **Shared with TUI** (config only, not interactive login):
 
@@ -293,7 +301,7 @@ Register `http://127.0.0.1:6276/oauth/callback` on static or enterprise IdPs tha
 | `--client-secret <secret>`    | —                        | OAuth client secret; overrides `client.json`.                                                                                                                                                                                                                                                                                                |
 | `--client-metadata-url <url>` | —                        | CIMD metadata URL; overrides `client.json`.                                                                                                                                                                                                                                                                                                  |
 | `--callback-url <url>`        | `MCP_OAUTH_CALLBACK_URL` | Redirect URI sent to the authorization server (default: `http://127.0.0.1:6276/oauth/callback`). Must bind a **loopback** host (`localhost` / `127.0.0.0/8` / `[::1]`) — the listener receives the authorization code over plaintext `http`, so a non-loopback host hard-errors (no opt-in; use a port-forward if the browser is elsewhere). |
-| —                             | `MCP_AUTO_OPEN_ENABLED`  | Browser auto-open **and** non-TTY interactive-OAuth admit: `true` (allow interactive OAuth without a TTY **and** force-open the browser — same as the web launcher), `false` (never open), unset (open on a TTY unless `VITEST` is set). For CI that must not hang, prefer `--stored-auth-only`.                                             |
+| —                             | `MCP_AUTO_OPEN_ENABLED`  | Browser auto-open **and** non-TTY interactive-OAuth admit: `true` (allow interactive OAuth without a TTY **and** force-open the browser — same as the web launcher), `false` (never open), unset (open on a TTY unless `VITEST` is set). The authorization URL is always printed first; an open that fails, or does not launch within 5s, adds a stderr line saying to open it by hand. For CI that must not hang, prefer `--stored-auth-only`.                                             |
 
 **Example** — list tools on an OAuth-protected server using stored tokens and CIMD from the command line:
 
@@ -307,7 +315,7 @@ See [EMA / enterprise-managed auth](../../specification/v2_auth_ema.md) and [OAu
 
 #### Stored-auth (web → CLI handoff)
 
-For the common case where OAuth was already completed in the **web inspector on the same machine**, the CLI can reuse the resulting token instead of running its own interactive flow. It reads the shared OAuth state file (the `oauth.json` the web backend writes) directly from disk and injects `Authorization: Bearer <token>` for `--server-url`.
+For the common case where OAuth was already completed in the **web inspector on the same machine**, the CLI can reuse the resulting token instead of running its own interactive flow. It reads the shared OAuth state (the `oauth.json` the web backend writes, joined with the tokens in the secret store) and injects `Authorization: Bearer <token>` for `--server-url`.
 
 | Option                  | Description                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -372,14 +380,18 @@ caller branching on `.code` should not have to special-case this command.
 `--method skills/get --uri <skill>` verifies exactly one skill, in the same
 shape.
 
-**What fails the run.** Three outcomes, three exit codes, because "this skill is
-wrong" and "this skill could not be fully checked" are different answers:
+**What fails the run.** Four outcomes, because "this skill is wrong", "this
+skill could not be fully checked" and "this skill offered nothing to check" are
+different answers:
 
 | `outcome` | Exit | When |
 | --- | --- | --- |
 | `verified` | `0` | Everything was checked and everything passed. |
 | `failed` | `7` | Something SEP-2640 makes a MUST was broken — an error-severity finding, a digest or size mismatch, or an unreadable manifest file. |
 | `incomplete` | `8` | Nothing checked was wrong, but the read bounds stopped the walk before it finished. See `incomplete` in the report for the reason. |
+| `unverifiable` | `0`, or `9` with `--require-digests` | Nothing checked was wrong, but `resources` is `"dynamic"`: no digest was advertised, so nothing was hashed. `SKILL.md` is still read for the frontmatter cross-check. |
+
+When a catalog mixes them, the exit code is the loudest: `7` over `8` over `9`.
 
 **The run is bounded, and says when a bound bit.** Three limits, all reported as
 `incomplete` (`8`) rather than as a pass or a failure, because an entry that was
@@ -404,7 +416,13 @@ about its files was checked; verify it on its own with `--method skills/get
 A **warning** never produces `7`. That distinction matters most for `resources: "dynamic"`, which is a
 *conforming* wire form for generated content: it means integrity cannot be
 verified, which is worth reporting, but failing CI for it would tell server
-authors their valid skill is broken.
+authors their valid skill is broken. It is not `verified` either — SEP-2640 calls
+such a `SKILL.md` "unverifiable", and reporting it with the same outcome as a
+skill whose every file hashed clean gave CI no way to tell them apart (#2405).
+So it gets its own outcome, and the stderr headline says how many skills
+advertised no digests. SEP-2640 also says "Hosts MAY decline to load such
+skills"; a CI job standing in for such a host passes `--require-digests` to
+turn that outcome into exit `9`.
 
 **Three checks, three different jobs**, and the second is the one nothing else
 covers:
@@ -436,12 +454,13 @@ prose from stderr:
 | `0`  | Success.                                                                      |
 | `1`  | Usage / unexpected error (the catch-all).                                     |
 | `2`  | No MCP App found on the tool (`--app-info` probe).                            |
-| `3`  | Server requires authentication (401/403, `WWW-Authenticate`, OAuth).          |
+| `3`  | Server requires authentication (401/403 or a typed SDK auth error).           |
 | `4`  | Server unreachable (DNS, connection refused, timeout, `fetch failed`).        |
 | `5`  | Tool error (`tools/call` returned `isError:true`, or the tool was not found). |
 | `6`  | `--strict` found an error-severity tool-schema portability problem (`schema_unportable` — the schema is valid JSON Schema, just not portable). |
 | `7`  | `--verify` found a SEP-2640 violation (`skills_nonconformant` — a conformance error, a digest or size mismatch, or an unreadable manifest file). |
 | `8`  | `--verify` could not check the whole catalog (`skills_incomplete` — the read bounds stopped the walk). The server broke no **MUST**: the 512-entry and 16 MiB limits are `SHOULD NOT`, and hosts may support more. A job that tolerates oversized catalogs can allow `8` and still fail on `7`. |
+| `9`  | `--verify --require-digests` found a skill that advertised no digests (`skills_unverifiable` — `resources: "dynamic"`). Only produced under `--require-digests`; without it such a skill is reported `unverifiable` and the run exits `0`. |
 
 On any non-zero exit the CLI also writes a single JSON line to **stderr** — the
 `ErrorEnvelope`:

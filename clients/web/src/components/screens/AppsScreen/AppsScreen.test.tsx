@@ -8,6 +8,7 @@ import type { AppBridge } from "@modelcontextprotocol/ext-apps/app-bridge";
 import {
   renderWithMantine,
   screen,
+  waitFor,
   within,
 } from "../../../test/renderWithMantine";
 import { setAceTextByLabel } from "../../../test/aceEditor";
@@ -225,7 +226,7 @@ describe("AppsScreen", () => {
     // The no-fields app auto-launches on selection, mounting the renderer,
     // whose effect invokes the factory (which throws → routes to onError).
     await user.click(screen.getByText("Ops Dashboard"));
-    await vi.waitFor(() => expect(onError).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(onError).toHaveBeenCalledTimes(1));
     expect(onError.mock.calls[0][0]).toBeInstanceOf(Error);
     expect((onError.mock.calls[0][0] as Error).message).toContain(
       "no connected MCP client",
@@ -289,7 +290,7 @@ describe("AppsScreen", () => {
       />,
     );
     // No click: the fire-once effect opens the seeded app with its form values.
-    await vi.waitFor(() =>
+    await waitFor(() =>
       expect(onOpenApp).toHaveBeenCalledWith("weather", { city: "Reykjavik" }),
     );
     expect(onOpenApp).toHaveBeenCalledTimes(1);
@@ -507,7 +508,7 @@ describe("AppsScreen", () => {
     const { factory, bridges } = createEventBridgeFactory();
     renderWithMantine(<ControlledAppsScreen bridgeFactory={factory} />);
     await user.click(screen.getByText("Ops Dashboard"));
-    await vi.waitFor(() =>
+    await waitFor(() =>
       expect(bridges.at(-1)?.onmessage).toBeTypeOf("function"),
     );
     await sendUiMessage(bridges, [
@@ -523,7 +524,7 @@ describe("AppsScreen", () => {
     const { factory, bridges } = createEventBridgeFactory();
     renderWithMantine(<ControlledAppsScreen bridgeFactory={factory} />);
     await user.click(screen.getByText("Ops Dashboard"));
-    await vi.waitFor(() =>
+    await waitFor(() =>
       expect(bridges.at(-1)?.onmessage).toBeTypeOf("function"),
     );
     const result = await sendUiMessage(bridges, [
@@ -537,7 +538,7 @@ describe("AppsScreen", () => {
     const { factory, bridges } = createEventBridgeFactory();
     renderWithMantine(<ControlledAppsScreen bridgeFactory={factory} />);
     await user.click(screen.getByText("Ops Dashboard"));
-    await vi.waitFor(() =>
+    await waitFor(() =>
       expect(bridges.at(-1)?.onmessage).toBeTypeOf("function"),
     );
     await sendUiMessage(bridges, [

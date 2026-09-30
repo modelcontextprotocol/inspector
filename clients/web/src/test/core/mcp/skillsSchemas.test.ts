@@ -6,6 +6,7 @@ import {
   DYNAMIC_RESOURCES,
   GetSkillEnvelopeSchema,
   GetSkillResultSchema,
+  ModernGetSkillEnvelopeSchema,
   ListSkillsResultSchema,
   ModernListSkillsResultSchema,
   SKILLS_EXTENSION_KEY,
@@ -263,27 +264,76 @@ describe("directory read schemas (#2248)", () => {
   });
 });
 
-describe("GetSkillResultSchema caching attributes (#2248)", () => {
-  it("accepts a result with the caching attributes and one without", () => {
-    // SEP-2640 leaves the question open in as many words, so both are
-    // conforming and neither may be reported as a defect.
-    expect(GetSkillResultSchema.safeParse({ skill: ENTRY }).success).toBe(true);
-    expect(
-      GetSkillResultSchema.safeParse({
-        skill: ENTRY,
-        resultType: "complete",
-        ttlMs: 0,
-        cacheScope: "public",
-      }).success,
-    ).toBe(true);
-  });
+describe("skills/get caching attributes (#2404)", () => {
+  const CACHE = { ttlMs: 0, cacheScope: "public" } as const;
 
-  it("serves both eras with one envelope schema (#2373)", () => {
-    // The modern variant used to add a required `resultType`, which the SDK
-    // codec lifts before any caller schema runs — so it could never pass on a
-    // real modern connection. With that gone the two eras want the same shape.
+  it("the LEGACY schema accepts a result with the caching attributes and one without", () => {
+    // They are 2026-era attributes: a legacy server must not be failed for
+    // their absence, nor for sending them.
     expect(GetSkillEnvelopeSchema.safeParse({ skill: ENTRY }).success).toBe(
       true,
     );
+    expect(
+      GetSkillEnvelopeSchema.safeParse({ skill: ENTRY, ...CACHE }).success,
+    ).toBe(true);
+  });
+
+  it("the MODERN schema requires ttlMs and cacheScope", () => {
+    // The stable ext-skills spec: `GetSkillResult` extends `CacheableResult`,
+    // so both are REQUIRED, as on `resources/read`.
+    expect(
+      ModernGetSkillEnvelopeSchema.safeParse({ skill: ENTRY }).success,
+    ).toBe(false);
+    expect(
+      ModernGetSkillEnvelopeSchema.safeParse({ skill: ENTRY, ttlMs: 0 })
+        .success,
+    ).toBe(false);
+    expect(
+      ModernGetSkillEnvelopeSchema.safeParse({
+        skill: ENTRY,
+        cacheScope: "private",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("the MODERN schema accepts a result as the SDK codec delivers it (#2373)", () => {
+    // No `resultType`: the codec lifts it before any caller schema runs.
+    const parsed = ModernGetSkillEnvelopeSchema.parse({
+      skill: ENTRY,
+      ttlMs: 60_000,
+      cacheScope: "private",
+    });
+    expect(parsed.skill).toEqual(ENTRY);
+    expect(parsed.ttlMs).toBe(60_000);
+    expect(parsed.cacheScope).toBe("private");
+  });
+
+  it.each([-1, 0.5])(
+    "the MODERN schema rejects ttlMs %s — not a non-negative integer",
+    (ttlMs) => {
+      expect(
+        ModernGetSkillEnvelopeSchema.safeParse({
+          skill: ENTRY,
+          ttlMs,
+          cacheScope: "public",
+        }).success,
+      ).toBe(false);
+    },
+  );
+
+  it("the MODERN schema rejects a cacheScope outside public/private", () => {
+    expect(
+      ModernGetSkillEnvelopeSchema.safeParse({
+        skill: ENTRY,
+        ttlMs: 0,
+        cacheScope: "shared",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("the MODERN schema still requires the { skill } envelope", () => {
+    expect(
+      ModernGetSkillEnvelopeSchema.safeParse({ ...ENTRY, ...CACHE }).success,
+    ).toBe(false);
   });
 });
