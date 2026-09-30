@@ -385,7 +385,10 @@ jobs:
         # `.npmrc` that `setup-node` generates, and npm then fails `ENEEDAUTH`
         # before OIDC is ever attempted. Do not "restore" it.
         run: |
-          set -- release-tarball/*.tgz
+          # `./` is load-bearing: `npm publish` reads a bare `dir/file`
+          # argument as GitHub `owner/repo` shorthand and tries to clone it
+          # over SSH instead of publishing the local tarball (#2551).
+          set -- ./release-tarball/*.tgz
           if [ "$#" -ne 1 ] || [ ! -f "$1" ]; then
             echo "Expected exactly one tarball in release-tarball/, found: $*"
             exit 1
