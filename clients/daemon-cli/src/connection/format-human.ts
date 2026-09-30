@@ -892,9 +892,10 @@ export function formatStreamEventHuman(
     const params = (msg.params ?? {}) as JsonObject;
     const level = String(params.level ?? "info");
     const logger = params.logger ? style.dim(` ${String(params.logger)}:`) : "";
-    const text = String(
-      params.data ?? params.message ?? JSON.stringify(params),
-    );
+    // Servers may log structured `data`; String() would render it as
+    // "[object Object]", so non-strings get JSON instead.
+    const raw = params.data ?? params.message ?? params;
+    const text = typeof raw === "string" ? raw : JSON.stringify(raw);
     return `[${colorLevel(style, level)}]${logger} ${text}`;
   }
   return JSON.stringify(ev, null, 2);

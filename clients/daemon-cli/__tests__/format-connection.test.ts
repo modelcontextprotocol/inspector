@@ -522,6 +522,16 @@ describe("format-human", () => {
         },
       }),
     ).toBe("[warn] L: hi");
+    // Object `data` renders as JSON, not "[object Object]".
+    expect(
+      formatStreamEventHuman({
+        direction: "notification",
+        message: {
+          method: "notifications/message",
+          params: { level: "info", data: { job: "sync", ok: true } },
+        },
+      }),
+    ).toBe('[info] {"job":"sync","ok":true}');
     expect(
       formatStreamEventHuman({
         direction: "notification",
@@ -963,6 +973,21 @@ describe("writeConnectionOutput", () => {
         },
       ),
     ).rejects.toMatchObject({ message: expect.stringContaining("tool") });
+    // Server-influenced tool names are sanitized before reaching the
+    // terminal-bound error message (C0/C1 → visible stand-ins).
+    await expect(
+      writeConnectionOutput(
+        { format: "json" },
+        {
+          kind: "rpc",
+          method: "tools/call",
+          result: { isError: true, content: [] },
+          toolName: "evil\u001b]0;pwned\u0007",
+        },
+      ),
+    ).rejects.toMatchObject({
+      message: expect.not.stringContaining("\u001b"),
+    });
   });
 
   it("falls back to pretty JSON for unknown rpc methods in text mode", async () => {

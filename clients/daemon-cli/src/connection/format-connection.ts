@@ -374,7 +374,9 @@ function applyExitCodes(payload: ConnectionWriteKind): void {
       if (!info.hasApp) {
         throw new CliExitCodeError(
           EXIT_CODES.NO_APP,
-          `Tool '${info.toolName}' has no MCP App UI resource (_meta.ui.resourceUri).`,
+          // toolName echoes server-influenced text into a terminal-bound
+          // error message; sanitize like the success path does.
+          `Tool '${sanitizeText(info.toolName)}' has no MCP App UI resource (_meta.ui.resourceUri).`,
         );
       }
       return;
@@ -382,7 +384,7 @@ function applyExitCodes(payload: ConnectionWriteKind): void {
     if (payload.result.isError === true) {
       throw new CliExitCodeError(
         EXIT_CODES.TOOL_ERROR,
-        `Tool '${payload.toolName ?? "tool"}' returned isError:true.`,
+        `Tool '${sanitizeText(payload.toolName ?? "tool")}' returned isError:true.`,
         { code: "tool_is_error" },
       );
     }

@@ -37,6 +37,9 @@ export default defineConfig({
       provider: "v8",
       reporter: ["text", "html", "json-summary"],
       include: ["src/**/*.ts"],
+      // Process entry points only: argv/env wiring plus a top-level call into
+      // covered modules. Exercised by spawning real processes (daemon spawn in
+      // tests, smoke), which v8 coverage can't observe from the parent.
       exclude: ["src/mcp-bin.ts", "src/daemon/run.ts"],
       thresholds: {
         perFile: true,

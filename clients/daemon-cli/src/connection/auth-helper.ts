@@ -10,6 +10,7 @@ import type {
 import { CliExitCodeError, EXIT_CODES } from "@inspector/cli/error-handler.js";
 import { getDaemonDir } from "../daemon/paths.js";
 import { authorizeInFrontend } from "./authorize.js";
+import { sanitizeText } from "./sanitize.js";
 
 /**
  * Detached OAuth completion helper for the non-TTY `connect` path.
@@ -411,12 +412,17 @@ async function spawnAuthHelperForUrl(
           }
           if (event.event === "error") {
             clearTimeout(timer);
-            fail(`Sign-in helper failed: ${event.message}`);
+            // The helper relays server-derived text; strip C0/C1 controls
+            // before it reaches a terminal via the error envelope.
+            fail(`Sign-in helper failed: ${sanitizeText(event.message)}`);
             return;
           }
         }
       });
-      child.on("exit", (code) => {
+      // "close", not "exit": exit can fire while the final stdout line
+      // (e.g. `{"event":"error",...}`) is still buffered; close waits for
+      // the stdio streams to drain so that line is parsed first.
+      child.on("close", (code) => {
         clearTimeout(timer);
         fail(
           `Sign-in helper exited (code ${String(code)}) before producing an authorization URL.`,
