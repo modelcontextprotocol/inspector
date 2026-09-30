@@ -349,8 +349,11 @@ is what 2.9.0 needed (#2551): the first run's `publish` passed a bare
 3. **Delete the Release *and* its tag.** ⚠️ Deleting a Release in the UI leaves
    the tag behind. While the old tag exists, GitHub reuses it, so the re-cut
    attaches to the broken commit again, and `generate-notes` reads that commit
-   too. Delete the tag with `git push origin :refs/tags/$VERSION`, and confirm
-   it is gone with `gh api repos/$REPO/git/ref/tags/$VERSION` (expect a 404).
+   too. Delete it on the remote **and locally**: `git push origin :refs/tags/$VERSION`
+   and `git tag -d "$VERSION"`. A stale local tag (the 3b manual path creates one)
+   makes the re-tag abort, and later makes `git fetch --tags` refuse to clobber it.
+   Confirm the remote tag is gone with `gh api repos/$REPO/git/ref/tags/$VERSION`
+   (expect a 404).
 4. **Recreate the Release at the new `main`.** Re-run the whole 3a recipe:
    What's Changed now includes the fix PRs, and a fix PR can close a
    community-reported issue, so the Thanks section can change too. Keep the
