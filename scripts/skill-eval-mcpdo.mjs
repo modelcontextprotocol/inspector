@@ -590,10 +590,16 @@ export const FAILURES_DIR = path.join(
  */
 async function runBehaviorSample(c, agent) {
   const sandbox = makeSandbox();
-  const { env, logPath, envDir, teardown } = await makeBehaviorEnv(
-    sandbox,
-    caseServers(c),
-  );
+  let ready;
+  try {
+    ready = await makeBehaviorEnv(sandbox, caseServers(c));
+  } catch (err) {
+    // makeBehaviorEnv cleans up its own envDir on failure; the sandbox
+    // predates it and is ours to reclaim.
+    rmSync(sandbox, { recursive: true, force: true });
+    throw err;
+  }
+  const { env, logPath, envDir, teardown } = ready;
   const clicker = c.autoConsent === true ? startConsentClicker(logPath) : null;
   let keepEnvDir = false;
   let artifactsDir = null;
@@ -649,17 +655,45 @@ async function runBehaviorSample(c, agent) {
   }
 }
 
-async function pool(items, n, fn) {
+/**
+ * Run `fn` over `items` with at most `n` in flight.
+ *
+ * A rejecting item must not blow up the pool mid-run: sibling samples own
+ * live resources (spawned daemons, sandbox dirs) that only their own
+ * try/finally reclaims, so an immediate `Promise.all` rejection would exit
+ * the process before that cleanup runs. With `onError`, a rejection is
+ * mapped to a result and the run continues. Without it, the pool stops
+ * taking new items, lets in-flight siblings finish (and clean up), then
+ * rethrows the first error. Exported for tests.
+ *
+ * @param {Array<T>} items
+ * @param {number} n Max concurrency.
+ * @param {(item: T) => Promise<R>} fn
+ * @param {(item: T, err: unknown) => R} [onError]
+ * @returns {Promise<R[]>}
+ * @template T, R
+ */
+export async function pool(items, n, fn, onError) {
   const out = new Array(items.length);
+  let firstError = null;
   let i = 0;
   await Promise.all(
     Array.from({ length: Math.min(n, items.length) }, async () => {
-      while (i < items.length) {
+      while (firstError === null && i < items.length) {
         const idx = i++;
-        out[idx] = await fn(items[idx]);
+        try {
+          out[idx] = await fn(items[idx]);
+        } catch (err) {
+          if (onError) {
+            out[idx] = onError(items[idx], err);
+          } else {
+            firstError ??= err;
+          }
+        }
       }
     }),
   );
+  if (firstError !== null) throw firstError;
   return out;
 }
 
@@ -770,10 +804,25 @@ async function runBehaviorSection(cases, agent) {
   const samples = cases.flatMap((c) =>
     Array.from({ length: BEHAVIOR_RUNS }, () => c),
   );
-  const results = await pool(samples, CONCURRENCY, async (c) => ({
-    c,
-    ...(await runBehaviorSample(c, agent)),
-  }));
+  const results = await pool(
+    samples,
+    CONCURRENCY,
+    async (c) => ({
+      c,
+      ...(await runBehaviorSample(c, agent)),
+    }),
+    // Infrastructure failure (spawn error, fixture died), not a model miss —
+    // scored as a miss with an explicit reason so the section finishes and
+    // sibling samples' daemons/sandboxes still get their teardown.
+    (c, err) => ({
+      c,
+      hit: false,
+      calls: 0,
+      failures: [`sample error: ${err?.message ?? String(err)}`],
+      transcript: [],
+      artifactsDir: null,
+    }),
+  );
   let failed = 0;
   for (const c of cases) {
     const mine = results.filter((r) => r.c === c);

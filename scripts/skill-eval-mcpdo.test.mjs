@@ -24,6 +24,7 @@ import {
   readTranscript,
   startConsentClicker,
   loadCases,
+  pool,
 } from "./skill-eval-mcpdo.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -535,3 +536,56 @@ test(
     }
   },
 );
+
+test("pool: onError maps a rejecting item and every sibling still runs", async () => {
+  const done = [];
+  const results = await pool(
+    [1, 2, 3, 4, 5],
+    2,
+    async (n) => {
+      if (n === 3) throw new Error(`boom-${n}`);
+      done.push(n);
+      return `ok-${n}`;
+    },
+    (n, err) => `mapped-${n}:${err.message}`,
+  );
+  assert.deepEqual(results, [
+    "ok-1",
+    "ok-2",
+    "mapped-3:boom-3",
+    "ok-4",
+    "ok-5",
+  ]);
+  assert.deepEqual(done.sort(), [1, 2, 4, 5]);
+});
+
+test("pool: without onError it lets in-flight cleanup finish, stops new work, rethrows", async () => {
+  const cleaned = [];
+  const started = [];
+  let releaseSlow;
+  const slow = new Promise((r) => {
+    releaseSlow = r;
+  });
+  await assert.rejects(
+    pool([1, 2, 3, 4], 2, async (n) => {
+      started.push(n);
+      try {
+        if (n === 1) {
+          // Rejects while item 2 is still in flight; its finally must run
+          // before the pool settles (that's where real samples tear down
+          // their daemons/sandboxes).
+          throw new Error("infra");
+        }
+        await slow;
+        return n;
+      } finally {
+        cleaned.push(n);
+        if (n === 1) setTimeout(releaseSlow, 20);
+      }
+    }),
+    /infra/,
+  );
+  // Item 2's cleanup ran; items 3 and 4 were never started after the abort.
+  assert.deepEqual(cleaned.sort(), [1, 2]);
+  assert.deepEqual(started.sort(), [1, 2]);
+});
