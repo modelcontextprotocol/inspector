@@ -332,10 +332,14 @@ adding a known issue after the fact needs no ceremony.
 
 ### 3c. If the release run fails
 
-Check npm before anything else: `npm view @modelcontextprotocol/inspector
-dist-tags`. If the new version is not there, nothing was published. A freshly
-published version can also show **Validating** on npmjs.com for a few minutes
-before it resolves; that is npm's automated review, not a failure.
+**Check npm for the exact version before anything else**, and never infer
+from `dist-tags`. A freshly published version sits in **Validating** (npm's
+automated review, shown on npmjs.com) for a few minutes, and during that window
+`dist-tags` still shows the previous `latest`. That happened on 2.9.0. So wait
+out validation, then query the version itself:
+`npm view @modelcontextprotocol/inspector@$VERSION version --prefer-online`.
+**Only an exact-version 404 means nothing was published.** Re-cutting a version
+npm already owns cannot succeed, because the version number is immutable.
 
 ⚠️ **A release event runs the workflow from the tag's commit, not from
 `main`.** Re-running a failed job therefore re-runs the same broken step. The
@@ -365,9 +369,15 @@ is what 2.9.0 needed (#2551): the first run's `publish` passed a bare
    `--dry-run` with the pinned tool version), and record in the ledger which kind
    of evidence each fix has.
 
-If npm *did* publish and something downstream failed (the GHCR image, for
-example), do not re-cut: that would try to publish the same npm version again.
-Fix it forward in the next release.
+If npm *did* publish and a downstream job failed (the GHCR image, for example),
+**do not re-cut**: that would try to publish the same npm version again.
+Instead:
+
+- **A transient failure** (a registry hiccup, a runner fault): re-run **only
+  the failed job** from the run page. It re-runs at the same tagged commit and
+  does not touch the npm job.
+- **A defect in the tagged workflow** that cannot pass on retry: fix it on
+  `v2/main` and let it ship with the next release.
 
 ## Why the bump goes on `v2/main` first (#2010)
 
