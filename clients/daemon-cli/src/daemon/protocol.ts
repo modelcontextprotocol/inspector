@@ -253,9 +253,19 @@ export type ConnectionInfo = {
    * detached auth helper. The entry holds a never-connected client, so the
    * first op after tokens land revives (dials) it transparently. Reported by
    * `connect` and echoed by `connections/list`/`connections/show` until a
-   * revive succeeds.
+   * revive succeeds; `connections/show` itself revives once it sees the
+   * signed-in tokens on disk, so polling it observes the completion.
    */
   pendingAuth?: boolean;
+  /**
+   * Only alongside `pendingAuth: true`: the out-of-band sign-in has already
+   * stored usable tokens on disk, so the connection completes on its next
+   * use (or on the next `connections/show`, which revives it). Set by the
+   * read-only echoes (`connections/list`, `connections/use`, `daemon/status`)
+   * from a disk check — no dial. A poller seeing this can stop waiting on the
+   * user and proceed to its next command.
+   */
+  pendingAuthSignedIn?: boolean;
 };
 
 /**

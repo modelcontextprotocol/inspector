@@ -160,6 +160,31 @@ export class ConnectionRegistry {
       .sort((a, b) => b.lastAccessedAt - a.lastAccessedAt);
   }
 
+  /**
+   * Annotate pending-auth entries whose out-of-band sign-in has completed:
+   * a disk check only (no dial, no MRU touch), setting
+   * {@link ConnectionInfo.pendingAuthSignedIn} and refreshing `auth` to the
+   * live disk state so the echo isn't the contradictory "pending +
+   * authorized: false". Used by the read-only echoes (`connections/list`,
+   * `connections/use`, `daemon/status`); `connections/show` goes further and
+   * revives (see the show handler).
+   */
+  async annotateAuthProgress(
+    infos: ConnectionInfo[],
+  ): Promise<ConnectionInfo[]> {
+    for (const info of infos) {
+      if (info.pendingAuth !== true) continue;
+      const connection = this.connections.get(String(info.name));
+      if (!connection) continue;
+      const auth = await getLiveConnectionAuthInfo(connection);
+      if (auth?.authorized === true) {
+        info.pendingAuthSignedIn = true;
+        info.auth = auth;
+      }
+    }
+    return infos;
+  }
+
   getMruName(): string | null {
     return this.mruName;
   }

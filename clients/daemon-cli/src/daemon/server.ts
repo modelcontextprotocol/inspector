@@ -406,7 +406,11 @@ export class DaemonServer {
           response: {
             id: request.id,
             ok: true,
-            result: { connections: this.registry.list() },
+            result: {
+              connections: await this.registry.annotateAuthProgress(
+                this.registry.list(),
+              ),
+            },
           },
         };
       case "connections/use": {
@@ -422,22 +426,51 @@ export class DaemonServer {
           response: {
             id: request.id,
             ok: true,
-            result: this.registry.use(params.name),
+            result: (
+              await this.registry.annotateAuthProgress([
+                this.registry.use(params.name),
+              ])
+            )[0],
           },
         };
       }
       case "connections/show": {
         const params = (request.params ?? {}) as ConnectionNameParams;
-        const connection = this.registry.connectionFor(
+        let connection = this.registry.connectionFor(
           params.name,
           params.requireExplicit,
         );
-        const client = connection.client;
         // Recomputed live from disk (not the connect-time cache and not the
         // client's memory-cached storage): `show` reports the *current*
         // persisted auth state, so an auth/clear, auth/ema-logout, or a
         // web-client re-auth since connect is reflected here.
-        const auth = await getLiveConnectionAuthInfo(connection);
+        let auth = await getLiveConnectionAuthInfo(connection);
+        if (connection.pendingAuth === true && auth?.authorized === true) {
+          // The out-of-band sign-in completed (tokens are on disk) but no op
+          // has revived the entry yet. `connect` tells callers to poll here
+          // ("completes automatically after sign-in — check with
+          // `connections/show`"), so make that true: run the same revive the
+          // first op would, instead of reporting "pending" forever.
+          try {
+            await this.registry.liveClientFor(
+              params.name,
+              params.requireExplicit,
+            );
+          } catch {
+            // Revive failed (server unreachable, tokens rejected mid-flight,
+            // raced disconnect). Keep show read-only-honest: fall through to
+            // the snapshot — the entry stays pending and a later op retries.
+          }
+          // Re-resolve: a successful revive replaced the client and cleared
+          // pendingAuth; a raced disconnect removed the entry (thrown here
+          // as the usual unknown-connection error).
+          connection = this.registry.connectionFor(
+            params.name,
+            params.requireExplicit,
+          );
+          auth = await getLiveConnectionAuthInfo(connection);
+        }
+        const client = connection.client;
         const result: ConnectionShowResult = {
           name: connection.name,
           serverIdentity: connection.serverIdentity,
@@ -462,10 +495,15 @@ export class DaemonServer {
           response: { id: request.id, ok: true, result },
         };
       }
-      case "daemon/status":
+      case "daemon/status": {
+        const status = this.status();
+        status.connections = await this.registry.annotateAuthProgress(
+          status.connections,
+        );
         return {
-          response: { id: request.id, ok: true, result: this.status() },
+          response: { id: request.id, ok: true, result: status },
         };
+      }
       case "daemon/stop":
         queueMicrotask(() => {
           void this.stop("stop");

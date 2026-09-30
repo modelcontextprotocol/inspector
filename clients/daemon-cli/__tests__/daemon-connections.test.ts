@@ -514,6 +514,214 @@ describe("ConnectionRegistry", () => {
     }
   });
 
+  it("connections/show completes a pending-auth entry once signed-in tokens are on disk", async () => {
+    const { InspectorClient } = await import("@inspector/core/mcp/index.js");
+    const { NodeOAuthStorage, resetNodeOAuthStorageCache } =
+      await import("@inspector/core/auth/node/storage-node.js");
+    const serverUrl = "https://mcp.example.com/mcp";
+    // Isolated client.json + oauth.json so the show handler's disk reads are
+    // deterministic (same pattern as the show-recomputes-from-disk test).
+    const stateDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "mcp-show-pending-"),
+    );
+    const savedEnv = {
+      MCP_CLIENT_CONFIG_PATH: process.env.MCP_CLIENT_CONFIG_PATH,
+      MCP_INSPECTOR_OAUTH_STATE_PATH:
+        process.env.MCP_INSPECTOR_OAUTH_STATE_PATH,
+    };
+    process.env.MCP_CLIENT_CONFIG_PATH = path.join(stateDir, "client.json");
+    process.env.MCP_INSPECTOR_OAUTH_STATE_PATH = path.join(
+      stateDir,
+      "oauth.json",
+    );
+    resetNodeOAuthStorageCache();
+    const connectSpy = vi
+      .spyOn(InspectorClient.prototype, "connect")
+      // Dial at connect time: no stored tokens yet — auth_required.
+      .mockRejectedValueOnce(Object.assign(new Error("boom"), { status: 401 }))
+      // Revive triggered by connections/show after tokens land: succeeds.
+      .mockResolvedValueOnce(undefined);
+    const disconnectSpy = vi
+      .spyOn(InspectorClient.prototype, "disconnect")
+      .mockResolvedValue(undefined);
+    const authSpy = vi
+      .spyOn(InspectorClient.prototype, "getOAuthState")
+      .mockResolvedValue(undefined as never);
+    let pendingClient: unknown;
+    const statusSpy = vi
+      .spyOn(InspectorClient.prototype, "getStatus")
+      .mockImplementation(function (this: unknown) {
+        return this === pendingClient ? "disconnected" : "connected";
+      });
+    const server = new DaemonServer({
+      dir: fs.mkdtempSync(path.join(os.tmpdir(), "mcp-show-pending-daemon-")),
+      idleMs: 0,
+    });
+    try {
+      await server.registry.connect({
+        name: "p",
+        serverConfig: { type: "streamable-http", url: serverUrl },
+        serverIdentity: serverUrl,
+        pendingOnAuthRequired: true,
+      });
+      pendingClient = server.registry.clientFor("p", false);
+
+      // Before sign-in completes, show reports the pending snapshot (no
+      // usable tokens on disk → no revive attempt).
+      const before = await server.handle({
+        id: "s1",
+        op: "connections/show",
+        params: { name: "p" },
+      });
+      expect(before.ok).toBe(true);
+      if (!before.ok) throw new Error("unreachable");
+      expect(before.result).toMatchObject({
+        pendingAuth: true,
+        transport: "dormant",
+      });
+
+      // The detached helper finishes sign-in: usable tokens land on disk.
+      await new NodeOAuthStorage().saveTokens(serverUrl, {
+        access_token: "opaque-access-token",
+        token_type: "Bearer",
+      });
+      resetNodeOAuthStorageCache();
+
+      // Now show itself completes the connection via revive.
+      const after = await server.handle({
+        id: "s2",
+        op: "connections/show",
+        params: { name: "p" },
+      });
+      expect(after.ok).toBe(true);
+      if (!after.ok) throw new Error("unreachable");
+      expect(
+        (after.result as { pendingAuth?: boolean }).pendingAuth,
+      ).toBeUndefined();
+      expect(after.result).toMatchObject({
+        transport: "live",
+        auth: { method: "oauth", authorized: true },
+      });
+      expect(server.registry.clientFor("p", false)).not.toBe(pendingClient);
+    } finally {
+      connectSpy.mockRestore();
+      disconnectSpy.mockRestore();
+      authSpy.mockRestore();
+      statusSpy.mockRestore();
+      process.env.MCP_CLIENT_CONFIG_PATH = savedEnv.MCP_CLIENT_CONFIG_PATH;
+      process.env.MCP_INSPECTOR_OAUTH_STATE_PATH =
+        savedEnv.MCP_INSPECTOR_OAUTH_STATE_PATH;
+      resetNodeOAuthStorageCache();
+      await server.stop().catch(() => {});
+      fs.rmSync(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("connections/show keeps the pending snapshot when the revive attempt fails", async () => {
+    const { InspectorClient } = await import("@inspector/core/mcp/index.js");
+    const { NodeOAuthStorage, resetNodeOAuthStorageCache } =
+      await import("@inspector/core/auth/node/storage-node.js");
+    const serverUrl = "https://mcp.example.com/mcp";
+    const stateDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "mcp-show-pending-fail-"),
+    );
+    const savedEnv = {
+      MCP_CLIENT_CONFIG_PATH: process.env.MCP_CLIENT_CONFIG_PATH,
+      MCP_INSPECTOR_OAUTH_STATE_PATH:
+        process.env.MCP_INSPECTOR_OAUTH_STATE_PATH,
+    };
+    process.env.MCP_CLIENT_CONFIG_PATH = path.join(stateDir, "client.json");
+    process.env.MCP_INSPECTOR_OAUTH_STATE_PATH = path.join(
+      stateDir,
+      "oauth.json",
+    );
+    resetNodeOAuthStorageCache();
+    const connectSpy = vi
+      .spyOn(InspectorClient.prototype, "connect")
+      // Both the original dial and the show-triggered revive fail.
+      .mockRejectedValue(Object.assign(new Error("boom"), { status: 401 }));
+    const disconnectSpy = vi
+      .spyOn(InspectorClient.prototype, "disconnect")
+      .mockResolvedValue(undefined);
+    const statusSpy = vi
+      .spyOn(InspectorClient.prototype, "getStatus")
+      .mockReturnValue("disconnected");
+    const server = new DaemonServer({
+      dir: fs.mkdtempSync(
+        path.join(os.tmpdir(), "mcp-show-pending-fail-daemon-"),
+      ),
+      idleMs: 0,
+    });
+    try {
+      await server.registry.connect({
+        name: "p",
+        serverConfig: { type: "streamable-http", url: serverUrl },
+        serverIdentity: serverUrl,
+        pendingOnAuthRequired: true,
+      });
+      await new NodeOAuthStorage().saveTokens(serverUrl, {
+        access_token: "opaque-access-token",
+        token_type: "Bearer",
+      });
+      resetNodeOAuthStorageCache();
+
+      // Revive fails (tokens rejected on dial): show still answers with the
+      // honest pending snapshot instead of erroring, and the entry survives
+      // so a later op retries.
+      const shown = await server.handle({
+        id: "s1",
+        op: "connections/show",
+        params: { name: "p" },
+      });
+      expect(shown.ok).toBe(true);
+      if (!shown.ok) throw new Error("unreachable");
+      expect(shown.result).toMatchObject({
+        pendingAuth: true,
+        transport: "dormant",
+      });
+      expect(server.registry.connectionCount()).toBe(1);
+
+      // The read-only echoes annotate instead of dialing: tokens are on
+      // disk, so list/use report signed-in progress while the entry stays
+      // pending.
+      const listed = await server.handle({
+        id: "l1",
+        op: "connections/list",
+        params: {},
+      });
+      expect(listed.ok).toBe(true);
+      if (!listed.ok) throw new Error("unreachable");
+      expect(
+        (listed.result as { connections: unknown[] }).connections[0],
+      ).toMatchObject({
+        pendingAuth: true,
+        pendingAuthSignedIn: true,
+        auth: { method: "oauth", authorized: true },
+      });
+      const used = await server.handle({
+        id: "u1",
+        op: "connections/use",
+        params: { name: "p" },
+      });
+      expect(used.ok).toBe(true);
+      if (!used.ok) throw new Error("unreachable");
+      expect(used.result).toMatchObject({
+        pendingAuth: true,
+        pendingAuthSignedIn: true,
+      });
+    } finally {
+      connectSpy.mockRestore();
+      disconnectSpy.mockRestore();
+      statusSpy.mockRestore();
+      process.env.MCP_CLIENT_CONFIG_PATH = savedEnv.MCP_CLIENT_CONFIG_PATH;
+      process.env.MCP_INSPECTOR_OAUTH_STATE_PATH =
+        savedEnv.MCP_INSPECTOR_OAUTH_STATE_PATH;
+      resetNodeOAuthStorageCache();
+      await server.stop().catch(() => {});
+      fs.rmSync(stateDir, { recursive: true, force: true });
+    }
+  });
+
   it("a connect that outlives shutdown's quiesce grace tears its client down instead of leaking it", async () => {
     const { InspectorClient } = await import("@inspector/core/mcp/index.js");
     let releaseConnect!: () => void;
@@ -1047,7 +1255,9 @@ describe("DaemonServer IPC", () => {
       .registry;
     await registry.clientFor("stdio", false).disconnect();
 
-    // connections/show is passive: it reports the drop, no revive.
+    // connections/show is passive for a non-pending entry: it reports the
+    // drop, no revive (out-of-band sign-in completion is the one case where
+    // show itself revives — covered separately).
     const shown = await callDaemon<{ transport?: string }>(
       "connections/show",
       { name: "stdio" },

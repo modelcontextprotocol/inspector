@@ -728,6 +728,55 @@ describe("writeConnectionOutput", () => {
     expect(stdout).toContain("connections/show @api");
   });
 
+  it("pendingAuthSignedIn: human output flips to completed / completing-on-next-use", async () => {
+    stdout = "";
+    await writeConnectionOutput(
+      { format: "text" },
+      {
+        kind: "connection",
+        connection: {
+          name: "api",
+          serverIdentity: "https://mcp.example.com/mcp",
+          pendingAuth: true,
+          pendingAuthSignedIn: true,
+          auth: { method: "oauth", authorized: true },
+        },
+      },
+    );
+    expect(stdout).toContain("Sign-in: completed");
+    expect(stdout).toContain("finishes on next use");
+    expect(stdout).not.toContain("Sign-in: pending");
+
+    stdout = "";
+    await writeConnectionOutput(
+      { format: "text" },
+      {
+        kind: "connections/list",
+        connections: [
+          {
+            name: "api",
+            serverIdentity: "https://mcp.example.com/mcp",
+            connectedAt: 1,
+            lastAccessedAt: 1,
+            isMru: true,
+            pendingAuth: true,
+            pendingAuthSignedIn: true,
+          },
+          {
+            name: "other",
+            serverIdentity: "https://mcp2.example.com/mcp",
+            connectedAt: 1,
+            lastAccessedAt: 1,
+            isMru: false,
+            pendingAuth: true,
+          },
+        ],
+      },
+    );
+    expect(stdout).toContain("signed in — completing on next use");
+    expect(stdout).toContain("(sign-in pending)");
+  });
+
   it("connection authUrl: only allowlisted schemes become OSC 8 links", async () => {
     const connection = {
       name: "api",

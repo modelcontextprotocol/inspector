@@ -626,8 +626,9 @@ function registerConnect(program: CommandType): void {
           );
           // The dial re-attempt is cheap (it fails auth_required again) but
           // makes the daemon register the pending entry, so
-          // `connections/show @name` polls sign-in state and the first real
-          // op completes the connection via revive.
+          // `connections/show @name` polls sign-in state (completing the
+          // connection itself once tokens land) and any real op completes it
+          // via revive.
           const { socketPath: pendingSocketPath } = await ensureDaemon();
           const pending = await callDaemon<ConnectionInfo>(
             "connect",

@@ -95,6 +95,10 @@ more).
   completes automatically once they sign in, which often takes only moments.
   Retry the intended command (sleep a few seconds between attempts) and only
   hand back to the user if sign-in still hasn't completed after a few tries.
+  To check progress without running the real command:
+  `connections/show @name` completes a finished sign-in itself, and
+  `connections/list` stays read-only but reports `pendingAuthSignedIn: true`
+  ("signed in — completing on next use") once the user's part is done.
   Never reconnect to fix a pending sign-in.
 
 ## Elicitations (server asks a question mid-call)

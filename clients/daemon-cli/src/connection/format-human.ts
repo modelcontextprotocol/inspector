@@ -674,8 +674,14 @@ export function formatConnectionsListHuman(
       s.protocolEra !== undefined
         ? style.dim(` [${String(s.protocolEra)}]`)
         : "";
+    const pending =
+      s.pendingAuth === true
+        ? s.pendingAuthSignedIn === true
+          ? style.yellow(" (signed in — completing on next use)")
+          : style.yellow(" (sign-in pending)")
+        : "";
     lines.push(
-      `* ${code(style, `@${String(s.name)}`)}${mru}${style.dim(` — ${String(s.serverIdentity ?? "")}`)}${era}${s.pendingAuth === true ? style.yellow(" (sign-in pending)") : ""}`,
+      `* ${code(style, `@${String(s.name)}`)}${mru}${style.dim(` — ${String(s.serverIdentity ?? "")}`)}${era}${pending}`,
     );
   }
   if (connections.length === 0) lines.push(style.dim("(none — connect first)"));
@@ -723,10 +729,14 @@ export function formatConnectionInfoHuman(
     lines.push(`Auth: ${method} ${style.dim(`(${parts.join("; ")})`)}`);
   }
   // Sign-in pending (non-TTY connect handed OAuth to the detached helper):
-  // the connection completes automatically on first use after sign-in.
+  // the connection completes automatically on first use after sign-in. Once
+  // the tokens are on disk the read-only echoes flag it, so a poller knows
+  // the user's part is done.
   if (connection.pendingAuth === true) {
     lines.push(
-      `Sign-in: ${style.yellow("pending")} ${style.dim("(completes automatically after the user signs in)")}`,
+      connection.pendingAuthSignedIn === true
+        ? `Sign-in: ${style.green("completed")} ${style.dim("(connection finishes on next use)")}`
+        : `Sign-in: ${style.yellow("pending")} ${style.dim("(completes automatically after the user signs in)")}`,
     );
   }
   // Live transport state (`connections/show` only). Dormant is informational:
