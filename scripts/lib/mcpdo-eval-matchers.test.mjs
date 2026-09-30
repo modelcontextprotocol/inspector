@@ -51,6 +51,13 @@ test("parseMcpdoArgv: every tools/call spelling normalizes the same", () => {
       "--connection",
       "test-stdio",
     ],
+    [
+      "tools/call",
+      "--tool-name=get_sum",
+      "--tool-arg=a=2",
+      "b=3",
+      "--connection=test-stdio",
+    ],
   ];
   for (const argv of spellings) {
     const p = parseMcpdoArgv(argv);

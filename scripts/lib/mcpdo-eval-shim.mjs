@@ -122,10 +122,18 @@ if (isMain) {
     stdout: process.stdout,
     stderr: process.stderr,
   }).then(
-    (code) => process.exit(code),
+    // `process.exitCode` + natural exit, not `process.exit()`: exit()
+    // discards queued stdout/stderr writes, truncating large JSON results
+    // on macOS pipes. Destroying stdin releases the last open handle so
+    // the process drains its writes and exits on its own.
+    (code) => {
+      process.exitCode = code;
+      process.stdin.destroy();
+    },
     (err) => {
       process.stderr.write(`mcpdo-eval-shim: ${err?.message ?? err}\n`);
-      process.exit(2);
+      process.exitCode = 2;
+      process.stdin.destroy();
     },
   );
 }

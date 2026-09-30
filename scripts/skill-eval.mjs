@@ -712,7 +712,10 @@ export function agentEnv(agent, source = process.env) {
   const prefixes =
     agent === "copilot"
       ? ["GITHUB_", "GH_", "COPILOT_", "XDG_"]
-      : ["ANTHROPIC_", "CLAUDE_", "XDG_"];
+      : // AWS_/GOOGLE_/CLOUD_ML_ carry Bedrock and Vertex credentials/region;
+        // claude routes through them when CLAUDE_CODE_USE_BEDROCK/VERTEX is
+        // set, and dropping them fails auth on those runs.
+        ["ANTHROPIC_", "CLAUDE_", "XDG_", "AWS_", "GOOGLE_", "CLOUD_ML_"];
   const env = {};
   for (const key of Object.keys(source)) {
     if (source[key] === undefined) continue;

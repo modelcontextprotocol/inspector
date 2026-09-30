@@ -85,6 +85,12 @@ mcpdo connect test-stdio --config path/to/mcp.json
 mcpdo tools/list
 ```
 
+**Private mode:** `eval "$(mcpdo private)"` gives the shell its own daemon and
+bearer token, separating its connections and daemon state from other mcpdo
+daemons. It is not a security boundary against other processes running as your
+user: anything with the same UID that learns the daemon directory can read the
+token. For a hard boundary, use OS-level isolation (separate user, container).
+
 **Globals (before subcommand):** `--format text|json`, `--plain`, `--connection <name>` (shorthand: `--conn`), `--catalog` / `--config`, `--stored-auth-only`.
 
 **Output:** `--format text` (default) is human-readable (TTY ANSI unless `--plain` / `NO_COLOR`). `--format json` is pretty-printed payload with **no** `{ result }` envelope.

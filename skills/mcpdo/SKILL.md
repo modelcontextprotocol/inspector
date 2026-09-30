@@ -104,9 +104,11 @@ more).
 ## Elicitations (server asks a question mid-call)
 
 - On an interactive TTY, mcpdo prompts inline. From an agent shell (non-TTY or
-  `--format json`), the call instead **parks** and exits 0 with an
+  `--format json`), the **command returns immediately** (exit 0) with an
   `elicitationPending` payload carrying the question, schema, and an
-  `elicitationId`.
+  `elicitationId`; the underlying MCP **tool call stays parked** on the daemon
+  awaiting your response. Never wait on or time-box the mcpdo command itself —
+  it has already exited; the pending work lives daemon-side.
 - Answer with `mcpdo elicitation/respond <elicitationId> field:=value ...`
   (repeat if the server asks again), or end it with `--decline` or `--cancel`.
   For URL-mode elicitations, relay the URL to the user, then confirm with

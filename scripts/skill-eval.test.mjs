@@ -1059,7 +1059,9 @@ test("agentEnv: agents get only process basics and their own credentials", () =>
   const source = {
     PATH: "/usr/bin",
     HOME: "/Users/dev",
-    AWS_SECRET_ACCESS_KEY: "leak-me-not",
+    AWS_SECRET_ACCESS_KEY: "bedrock-key",
+    GOOGLE_APPLICATION_CREDENTIALS: "/creds.json",
+    CLOUD_ML_REGION: "us-east5",
     NPM_TOKEN: "leak-me-not",
     ANTHROPIC_API_KEY: "claude-key",
     CLAUDE_CODE_FLAG: "1",
@@ -1074,7 +1076,11 @@ test("agentEnv: agents get only process basics and their own credentials", () =>
   assert.equal(claude.ANTHROPIC_API_KEY, "claude-key");
   assert.equal(claude.CLAUDE_CODE_FLAG, "1");
   assert.equal(claude.XDG_CONFIG_HOME, "/Users/dev/.config");
-  assert.ok(!("AWS_SECRET_ACCESS_KEY" in claude));
+  // Bedrock/Vertex credentials are claude's own auth route
+  // (CLAUDE_CODE_USE_BEDROCK/VERTEX), so AWS_/GOOGLE_/CLOUD_ML_ pass through.
+  assert.equal(claude.AWS_SECRET_ACCESS_KEY, "bedrock-key");
+  assert.equal(claude.GOOGLE_APPLICATION_CREDENTIALS, "/creds.json");
+  assert.equal(claude.CLOUD_ML_REGION, "us-east5");
   assert.ok(!("NPM_TOKEN" in claude));
   assert.ok(!("GH_TOKEN" in claude));
   assert.ok(!("GITHUB_TOKEN" in claude));
@@ -1084,6 +1090,7 @@ test("agentEnv: agents get only process basics and their own credentials", () =>
   assert.equal(copilot.COPILOT_MODEL, "m");
   assert.ok(!("ANTHROPIC_API_KEY" in copilot));
   assert.ok(!("AWS_SECRET_ACCESS_KEY" in copilot));
+  assert.ok(!("GOOGLE_APPLICATION_CREDENTIALS" in copilot));
 });
 
 test("runPrompt: spawned agent env is minimal plus the caller's overlay", async () => {

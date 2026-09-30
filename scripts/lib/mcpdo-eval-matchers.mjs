@@ -71,9 +71,20 @@ export function parseMcpdoArgv(argv) {
   const positionals = [];
 
   for (let i = 0; i < argv.length; i++) {
-    const token = argv[i];
+    let token = argv[i];
+    // `--flag=value` form: split so the flag matches the sets below the same
+    // as the space-separated form; otherwise `--connection=x` would parse as
+    // an unknown boolean flag and silently drop the value.
+    let inline = null;
+    if (token.startsWith("--")) {
+      const eq = token.indexOf("=");
+      if (eq !== -1) {
+        inline = token.slice(eq + 1);
+        token = token.slice(0, eq);
+      }
+    }
     if (VARIADIC_FLAGS.has(token)) {
-      const pairs = [];
+      const pairs = inline !== null ? [inline] : [];
       while (
         i + 1 < argv.length &&
         !argv[i + 1].startsWith("-") &&
@@ -90,7 +101,7 @@ export function parseMcpdoArgv(argv) {
       continue;
     }
     if (VALUE_FLAGS.has(token)) {
-      const value = argv[++i];
+      const value = inline ?? argv[++i];
       if (token === "--connection" || token === "--conn") connection = value;
       if (token === "--tool-name") toolNameFlag = value;
       if (token === "--tool-args-json") {
