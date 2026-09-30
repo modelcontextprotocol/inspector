@@ -68,6 +68,26 @@ describe("openUrl", () => {
     );
   });
 
+  it("catches a spawn failure when entered from a timer or I/O callback", async () => {
+    // From a macrotask, Node drains process.nextTick BEFORE promise reactions,
+    // and on macOS `open` reaches spawn() without an earlier await, so a
+    // listener chained on its promise alone would attach too late.
+    const enoent = Object.assign(new Error("spawn open ENOENT"), {
+      code: "ENOENT",
+    });
+    openMock.mockImplementation(async () => fakeChild(enoent));
+    const { openUrl } = await import("../src/open-url.js");
+    const outcome = await new Promise<unknown>((resolve) => {
+      setImmediate(() => {
+        openUrl("https://example.com/auth").then(
+          () => resolve("resolved"),
+          (err: unknown) => resolve(err),
+        );
+      });
+    });
+    expect(outcome).toBe(enoent);
+  });
+
   it("absorbs an opener error that arrives after launch", async () => {
     let child: EventEmitter | undefined;
     openMock.mockImplementation(async () => (child = fakeChild()));

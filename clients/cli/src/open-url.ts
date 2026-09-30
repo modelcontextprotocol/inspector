@@ -21,9 +21,14 @@ export const OPEN_URL_TIMEOUT_MS = 5_000;
  * waits for the browser to quit. Unlistened, the event crashes the process
  * instead of reaching the caller's fallback (#2531).
  *
- * Chained directly onto `open`'s promise, this runs as a microtask, ahead of
- * the `process.nextTick` that emits `'error'` or `'spawn'`. The listener stays
- * attached (`on`, not `once`) so an error after settling is still absorbed.
+ * Chained directly onto `open`'s promise, this runs as a microtask. That is
+ * only ahead of the `process.nextTick` emitting `'error'` or `'spawn'` when
+ * `open` itself ran inside a microtask: from a timer or I/O callback, Node
+ * drains `nextTick` before promise reactions, and on macOS `open` reaches
+ * `spawn()` with no earlier `await`. So {@link openUrl} calls `open` from a
+ * queued microtask, which puts the spawn and this listener in the same drain
+ * whatever the caller's context. The listener stays attached (`on`, not
+ * `once`) so an error after settling is still absorbed.
  */
 function launched(child: ChildProcess): Promise<void> {
   return new Promise<void>((resolve, reject) => {
@@ -51,7 +56,10 @@ export async function openUrl(
     );
   });
   try {
-    await Promise.race([open(href).then(launched), timeout]);
+    const opened = Promise.resolve()
+      .then(() => open(href))
+      .then(launched);
+    await Promise.race([opened, timeout]);
   } finally {
     clearTimeout(timer);
   }
