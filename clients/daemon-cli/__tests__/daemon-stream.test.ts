@@ -50,6 +50,25 @@ describe("streamDaemon + ipc-glue", () => {
     await new Promise<void>((resolve) => server!.listen(sock, resolve));
   }
 
+  it("resolves immediately on an already-aborted signal without dialing", async () => {
+    const sock = freshSock();
+    const ac = new AbortController();
+    ac.abort();
+    // No server listens at `sock`: a dial would reject with
+    // daemon_unreachable, so resolving proves connect() was never called.
+    await expect(
+      streamDaemon(
+        { method: "logging/tail" },
+        {
+          socketPath: sock,
+          timeoutMs: 2000,
+          signal: ac.signal,
+          onData: () => {},
+        },
+      ),
+    ).resolves.toBeUndefined();
+  });
+
   it("delivers data frames then end (skips blank/mismatched ids)", async () => {
     const sock = freshSock();
     await listen(sock, (socket) => {

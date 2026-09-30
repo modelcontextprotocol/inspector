@@ -52,6 +52,10 @@ export async function streamDaemon(
     let pendingCallbacks = 0;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const socket = new net.Socket();
+    // Decode at the socket: a multi-byte UTF-8 character split across TCP
+    // chunks must be reassembled by the stream's StringDecoder, not mangled
+    // into U+FFFD by a per-chunk String() conversion.
+    socket.setEncoding("utf8");
 
     function settle(fn: () => void) {
       if (settled) return;
@@ -232,6 +236,9 @@ export async function streamDaemon(
       }
     });
 
-    socket.connect(socketPath);
+    // A pre-aborted signal settles above via onAbort() and destroys the
+    // socket; connect() would silently un-destroy it and leak a live socket
+    // that pins the event loop.
+    if (!settled) socket.connect(socketPath);
   });
 }

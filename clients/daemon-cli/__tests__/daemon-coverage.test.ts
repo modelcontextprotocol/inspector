@@ -188,6 +188,50 @@ describe("daemon coverage", () => {
     expect(fs.existsSync(`${lockPath}.reclaim.${process.pid}`)).toBe(false);
   });
 
+  it("treats a young pidless lock as held instead of stealing it", async () => {
+    const d = freshDir();
+    const lockPath = path.join(d, "daemon.lock");
+    // A concurrent starter between its O_EXCL create and its pid write.
+    fs.writeFileSync(lockPath, "");
+    const contender = new DaemonServer({ dir: d, idleMs: 0 });
+    await expect(contender.start()).rejects.toThrow(/Could not acquire/);
+    // The other starter's lock survived untouched.
+    expect(fs.readFileSync(lockPath, "utf8")).toBe("");
+  });
+
+  it("reclaims a pidless lock older than the write grace period", async () => {
+    const d = freshDir();
+    const lockPath = path.join(d, "daemon.lock");
+    // A starter that died between create and pid write, long ago.
+    fs.writeFileSync(lockPath, "");
+    const past = (Date.now() - 60_000) / 1000;
+    fs.utimesSync(lockPath, past, past);
+    server = new DaemonServer({ dir: d, idleMs: 0 });
+    await server.start();
+    expect(fs.readFileSync(lockPath, "utf8").trim()).toBe(String(process.pid));
+  });
+
+  it("restores a young pidless lock renamed aside mid-reclaim", async () => {
+    const d = freshDir();
+    const lockPath = path.join(d, "daemon.lock");
+    fs.writeFileSync(lockPath, "999999999\n"); // dead pid triggers the reclaim
+    const actualFs = await vi.importActual<typeof import("node:fs")>("node:fs");
+    vi.mocked(fs.renameSync).mockImplementationOnce(((
+      ...args: Parameters<typeof fs.renameSync>
+    ) => {
+      actualFs.renameSync(...args);
+      // Simulate the renamed-aside file really belonging to a concurrent
+      // starter that created it but has not written its pid yet: empty,
+      // freshly touched.
+      actualFs.truncateSync(args[1] as string);
+    }) as typeof fs.renameSync);
+    const contender = new DaemonServer({ dir: d, idleMs: 0 });
+    await expect(contender.start()).rejects.toThrow(/Could not acquire/);
+    // The lock was restored at the canonical path, not stolen.
+    expect(fs.existsSync(lockPath)).toBe(true);
+    expect(fs.existsSync(`${lockPath}.reclaim.${process.pid}`)).toBe(false);
+  });
+
   it("stop() force-destroys sockets whose shutdown flush never drains", async () => {
     const d = freshDir();
     server = new DaemonServer({ dir: d, idleMs: 0, flushTimeoutMs: 100 });
@@ -310,6 +354,62 @@ describe("daemon coverage", () => {
     await expect(
       callDaemon("connections/use", {}, { socketPath: server.socketPath }),
     ).rejects.toThrow(/requires a connection name/);
+  });
+
+  it("callDaemon reassembles a multi-byte UTF-8 character split across chunks", async () => {
+    const d = freshDir();
+    const sock = path.join(d, "daemon.sock");
+    const value = "héllo 👋 wörld";
+    const splitter = net.createServer((socket) => {
+      socket.on("error", () => {});
+      socket.once("data", (buf) => {
+        const req = JSON.parse(String(buf).trim()) as { id: string };
+        const payload = Buffer.from(
+          JSON.stringify({ id: req.id, ok: true, result: { value } }) + "\n",
+          "utf8",
+        );
+        // Split mid-emoji (0xf0 opens the 4-byte sequence) so the two TCP
+        // chunks each carry half of one UTF-8 character.
+        const mid = payload.indexOf(0xf0) + 2;
+        socket.write(payload.subarray(0, mid));
+        setTimeout(() => socket.write(payload.subarray(mid)), 20);
+      });
+    });
+    await new Promise<void>((resolve) => splitter.listen(sock, resolve));
+    try {
+      const result = await callDaemon<{ value: string }>(
+        "ping",
+        {},
+        { socketPath: sock, timeoutMs: 2000 },
+      );
+      expect(result.value).toBe(value);
+    } finally {
+      splitter.close();
+      try {
+        fs.unlinkSync(sock);
+      } catch {
+        // ignore
+      }
+    }
+  });
+
+  it("callDaemon with an already-aborted signal rejects without dialing", async () => {
+    const d = freshDir();
+    const ac = new AbortController();
+    ac.abort();
+    // A nonexistent socket path proves no connect is attempted: dialing it
+    // would fail with daemon_unreachable, not cancelled.
+    await expect(
+      callDaemon(
+        "ping",
+        {},
+        {
+          socketPath: path.join(d, "absent.sock"),
+          signal: ac.signal,
+          timeoutMs: 2000,
+        },
+      ),
+    ).rejects.toMatchObject({ envelope: { code: "cancelled" } });
   });
 
   it("callDaemon rejects malformed response JSON", async () => {

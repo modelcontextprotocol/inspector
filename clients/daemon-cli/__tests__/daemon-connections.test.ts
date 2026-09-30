@@ -243,6 +243,49 @@ describe("ConnectionRegistry", () => {
     expect(DEFAULT_IDLE_MS).toBe(60_000);
   });
 
+  it("disconnectAll tears down the remaining connections when one disconnect fails", async () => {
+    const { InspectorClient } = await import("@inspector/core/mcp/index.js");
+    const connectSpy = vi
+      .spyOn(InspectorClient.prototype, "connect")
+      .mockResolvedValue(undefined);
+    const disconnectSpy = vi
+      .spyOn(InspectorClient.prototype, "disconnect")
+      .mockResolvedValue(undefined);
+    const authSpy = vi
+      .spyOn(InspectorClient.prototype, "getOAuthState")
+      .mockResolvedValue(undefined as never);
+    const registry = new ConnectionRegistry(0);
+    try {
+      const params = (name: string) =>
+        ({
+          name,
+          serverConfig: {
+            type: "streamable-http",
+            url: "https://mcp.example.com/mcp",
+          },
+          serverIdentity: "https://mcp.example.com/mcp",
+        }) as const;
+      await registry.connect(params("a"));
+      await registry.connect(params("b"));
+      // First teardown loses a race (connection_not_found); shutdown must
+      // still settle and tear down the rest instead of leaking "b".
+      const spy = vi.spyOn(registry, "disconnect");
+      spy.mockRejectedValueOnce(
+        new CliExitCodeError(1, "No connection named 'a'.", {
+          code: "connection_not_found",
+        }),
+      );
+      await expect(registry.disconnectAll()).resolves.toBeUndefined();
+      expect(spy).toHaveBeenCalledTimes(2);
+      // "b" was genuinely disconnected, not abandoned mid-loop.
+      expect(registry.list().map((c) => c.name)).toEqual(["a"]);
+    } finally {
+      connectSpy.mockRestore();
+      disconnectSpy.mockRestore();
+      authSpy.mockRestore();
+    }
+  });
+
   it("serializes concurrent connects for the same name so the replaced client is torn down, not leaked", async () => {
     const { InspectorClient } = await import("@inspector/core/mcp/index.js");
     // Slow connect widens the check→set window that raced pre-lock.

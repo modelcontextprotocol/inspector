@@ -107,6 +107,10 @@ export async function callDaemon<T = unknown>(
     // synchronously (prefer-const would put `timer` in the TDZ for that race).
     let timer: ReturnType<typeof setTimeout> | undefined;
     const socket = new net.Socket();
+    // Decode at the socket: a multi-byte UTF-8 character split across TCP
+    // chunks must be reassembled by the stream's StringDecoder, not mangled
+    // into U+FFFD by a per-chunk String() conversion.
+    socket.setEncoding("utf8");
 
     function settle(fn: () => void) {
       /* v8 ignore next -- settle() no-op when already settled (connect/timeout race) */
@@ -270,6 +274,9 @@ export async function callDaemon<T = unknown>(
       }
     });
 
-    socket.connect(socketPath);
+    // A pre-aborted signal settles above via onAbort() and destroys the
+    // socket; connect() would silently un-destroy it and leak a live socket
+    // that pins the event loop.
+    if (!settled) socket.connect(socketPath);
   });
 }

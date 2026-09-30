@@ -543,7 +543,18 @@ export class ConnectionRegistry {
     this.closed = true;
     const names = [...this.connections.keys()];
     for (const name of names) {
-      await this.disconnect(name, false);
+      // Settle each teardown independently: one failed disconnect (e.g. a
+      // connection_not_found race with a concurrent explicit disconnect)
+      // must not abandon the remaining connections — that would leak live
+      // clients and stdio child processes, and make daemon shutdown reject
+      // before the socket server closes.
+      try {
+        await this.disconnect(name, false);
+      } catch {
+        // Best-effort teardown on shutdown; the connection is already gone
+        // or its transport close failed, neither of which should block the
+        // rest.
+      }
     }
     this.clearIdleTimer();
   }

@@ -830,6 +830,10 @@ export class DaemonServer {
    * read-pid → unlink window of another. If the renamed-aside file turns out
    * to hold a *live* pid (created between our read and the rename), it is
    * restored with a create-only `link` — ownership-preserving, same inode.
+   * A lock with *no* pid is only stale once it outlives
+   * {@link LOCK_WRITE_GRACE_MS}: younger than that, it belongs to a starter
+   * that has created the file but not yet written its pid, so it is treated
+   * as held (and restored if already renamed aside) rather than stolen.
    */
   private acquireLock(): void {
     for (let attempt = 0; attempt < 3; attempt++) {
@@ -848,6 +852,18 @@ export class DaemonServer {
             { cause: error },
           );
         }
+        if (
+          holder === undefined &&
+          lockFileAgeMs(this.lockPath) < LOCK_WRITE_GRACE_MS
+        ) {
+          // Empty (or unparsable) but young: a concurrent starter is between
+          // its O_EXCL create and its pid write. Stealing it here would let
+          // both daemons win — treat it as held and retry after a beat. Only
+          // a lock still empty past the grace period (a starter that died
+          // mid-create) is stale.
+          sleepSync(LOCK_RETRY_DELAY_MS);
+          continue;
+        }
         const claimed = `${this.lockPath}.reclaim.${process.pid}`;
         try {
           fs.renameSync(this.lockPath, claimed);
@@ -856,9 +872,16 @@ export class DaemonServer {
           continue;
         }
         const claimedPid = this.readPidFile(claimed);
-        if (claimedPid !== undefined && isPidAlive(claimedPid)) {
+        if (
+          (claimedPid !== undefined && isPidAlive(claimedPid)) ||
+          (claimedPid === undefined &&
+            lockFileAgeMs(claimed) < LOCK_WRITE_GRACE_MS)
+        ) {
           // We renamed away a lock that a concurrent starter created between
-          // our dead-pid read and the rename. Put it back without breaking
+          // our dead-pid read and the rename — either it already holds a
+          // live pid, or it is still empty inside the pid-write grace
+          // period (the starter's fd targets this same inode, so its write
+          // still lands after the restore). Put it back without breaking
           // that starter's ownership: link() re-creates the path for the
           // same inode and fails (EEXIST) rather than overwriting.
           try {
@@ -871,6 +894,10 @@ export class DaemonServer {
             fs.unlinkSync(claimed);
           } catch {
             // best-effort temp cleanup
+          }
+          if (claimedPid === undefined) {
+            sleepSync(LOCK_RETRY_DELAY_MS);
+            continue;
           }
           throw new Error(
             `Connection daemon lock ${this.lockPath} is held by running pid ${claimedPid}. ` +
@@ -937,6 +964,31 @@ function isPidAlive(pid: number): boolean {
   } catch (error) {
     return (error as NodeJS.ErrnoException).code === "EPERM";
   }
+}
+
+/**
+ * How long a pidless `daemon.lock` is presumed to belong to a concurrent
+ * starter that is between its O_EXCL create and its pid write, rather than
+ * to a starter that died mid-create. Generous against a stalled writer while
+ * still reclaiming a genuinely abandoned empty lock promptly.
+ */
+const LOCK_WRITE_GRACE_MS = 2000;
+
+/** Backoff between lock-acquisition retries while inside the grace period. */
+const LOCK_RETRY_DELAY_MS = 100;
+
+/** Age of `filePath` since last write; missing/unstattable counts as stale. */
+function lockFileAgeMs(filePath: string): number {
+  try {
+    return Date.now() - fs.statSync(filePath).mtimeMs;
+  } catch {
+    return Number.POSITIVE_INFINITY;
+  }
+}
+
+/** Synchronous sleep — acquireLock() runs in the sync startup path. */
+function sleepSync(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
 function stripConnectionFields(
