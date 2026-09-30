@@ -1,3 +1,4 @@
+import type { ChildProcess } from "node:child_process";
 import open from "open";
 
 /**
@@ -12,9 +13,34 @@ import open from "open";
 export const OPEN_URL_TIMEOUT_MS = 5_000;
 
 /**
+ * Settle once the opener process has actually launched. `open` resolves with
+ * the `ChildProcess` as soon as it has called `spawn()`, and a spawn failure
+ * (the opener binary missing from `PATH`: `ENOENT`) arrives afterwards as an
+ * `'error'` event on that child. `open` only listens for it when called with
+ * `{ wait: true }`, which is unusable here: on macOS it adds `open -W`, which
+ * waits for the browser to quit. Unlistened, the event crashes the process
+ * instead of reaching the caller's fallback (#2531).
+ *
+ * Chained directly onto `open`'s promise, this runs as a microtask. That is
+ * only ahead of the `process.nextTick` emitting `'error'` or `'spawn'` when
+ * `open` itself ran inside a microtask: from a timer or I/O callback, Node
+ * drains `nextTick` before promise reactions, and on macOS `open` reaches
+ * `spawn()` with no earlier `await`. So {@link openUrl} calls `open` from a
+ * queued microtask, which puts the spawn and this listener in the same drain
+ * whatever the caller's context. The listener stays attached (`on`, not
+ * `once`) so an error after settling is still absorbed.
+ */
+function launched(child: ChildProcess): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    child.on("error", reject);
+    child.once("spawn", () => resolve());
+  });
+}
+
+/**
  * Open a URL in the user's default browser (best-effort). Rejects when the
- * opener fails or does not launch within `timeoutMs`; callers print the URL
- * themselves and decide what to tell the user.
+ * opener fails, cannot be spawned, or does not launch within `timeoutMs`;
+ * callers print the URL themselves and decide what to tell the user.
  */
 export async function openUrl(
   url: string | URL,
@@ -30,7 +56,10 @@ export async function openUrl(
     );
   });
   try {
-    await Promise.race([open(href), timeout]);
+    const opened = Promise.resolve()
+      .then(() => open(href))
+      .then(launched);
+    await Promise.race([opened, timeout]);
   } finally {
     clearTimeout(timer);
   }
