@@ -401,6 +401,10 @@ export async function isFileLockHeld(filePath: string): Promise<boolean> {
  *
  * Returns whatever `fn` returns. `fn` runs exactly once either way — the
  * lock's absence changes the guarantee, never whether the work happens.
+ * `fn` receives whether the lock is actually held (`false` = degraded,
+ * unlocked run), so a caller whose work is only safe under real exclusion
+ * — legacy secret-entry migration, which deletes its sources — can refuse
+ * instead of racing (#2556 review).
  */
 /**
  * Take the lock and hand back its release, or `null` when locking is
@@ -515,12 +519,12 @@ export async function openSecretFileLock(
 
 export async function withSecretFileLock<T>(
   filePath: string,
-  fn: () => Promise<T>,
+  fn: (locked: boolean) => Promise<T>,
 ): Promise<T> {
   const release = await openSecretFileLock(filePath);
-  if (release === null) return fn();
+  if (release === null) return fn(false);
   try {
-    return await fn();
+    return await fn(true);
   } finally {
     await release();
   }

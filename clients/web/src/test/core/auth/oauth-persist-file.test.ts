@@ -85,7 +85,7 @@ describe("writeOAuthSections lock failures", () => {
     // the wrong file. Only acquisition failures (the mocks above, which
     // reject before the callback runs) get the OAuth wording.
     vi.mocked(withSecretFileLock).mockImplementation(
-      async (_path, fn) => fn() as Promise<never>,
+      async (_path, fn) => fn(true) as Promise<never>,
     );
     const original = new SecretFileLockHeldError(
       "Could not lock the secrets file at /home/u/.mcp-inspector/secrets.json",
@@ -142,7 +142,7 @@ describe("readOAuthStore locking", () => {
     // residue with its already-committed new secrets. The whole read must
     // execute inside the same lock the writers hold.
     vi.mocked(withSecretFileLock).mockImplementation(
-      async (_path, fn) => fn() as Promise<never>,
+      async (_path, fn) => fn(true) as Promise<never>,
     );
 
     const result = await readOAuthStore(
@@ -190,7 +190,7 @@ describe("persistEntrySecrets partial-commit compensation", () => {
   beforeEach(() => {
     vi.mocked(withSecretFileLock).mockReset();
     vi.mocked(withSecretFileLock).mockImplementation(
-      async (_path, fn) => fn() as Promise<never>,
+      async (_path, fn) => fn(true) as Promise<never>,
     );
   });
 

@@ -197,13 +197,13 @@ function rethrowLockError(
 async function withOAuthStateLock<T>(
   filePath: string,
   action: "save" | "read" | "remove",
-  body: () => Promise<T>,
+  body: (locked: boolean) => Promise<T>,
 ): Promise<T> {
   let entered = false;
   try {
-    return await withSecretFileLock(filePath, async () => {
+    return await withSecretFileLock(filePath, async (locked) => {
       entered = true;
-      return body();
+      return body(locked);
     });
   } catch (error) {
     if (!entered) rethrowLockError(filePath, error, action);
@@ -333,10 +333,22 @@ function warnNamespaceCleanupFailure(error: unknown): void {
  *
  * A fresh file (absent, or no entries on disk) just mints: the namespace
  * reaches disk with the write that follows, and there is nothing to move.
+ *
+ * Migration requires the real file lock (`locked`). The move deletes its
+ * sources, so two unlocked adopters racing on one legacy file can each
+ * observe the other's half-finished move — one copies and deletes, the
+ * other strict-reads nothing, stamps an empty namespace of its own, and
+ * can win the file, stranding the first's copies under an abandoned
+ * namespace. Under the lock adopters serialize (the second sees the
+ * first's stamp and returns it); degraded, this refuses the one-time
+ * migration loudly rather than risking that loss. Mint-only adoption
+ * stays allowed unlocked — there is nothing to move, and a concurrent
+ * mint converges via the namespace re-key in `writeOAuthSections`.
  */
 async function adoptSecretsNamespace(
   filePath: string,
   secretStore: SecretStore,
+  locked: boolean,
 ): Promise<string> {
   const raw = await readStoreFile(filePath);
   const existing = parseSecretsNamespace(raw);
@@ -347,6 +359,11 @@ async function adoptSecretsNamespace(
   }
   const namespace = newSecretsNamespace();
   if (snapshot === null) return namespace;
+  if (!locked) {
+    throw new SecretStoreUnavailableError(
+      `Could not save OAuth state: ${filePath} predates per-state-file secret namespaces, and migrating its secret-store entries needs the file lock, which is unavailable here (see the lock warning above). Migrating without it could lose credentials if two processes migrate at once. Nothing was changed; make the lock directory writable and retry.`,
+    );
+  }
 
   const moves = [
     ...Object.entries(snapshot.servers).map(([url, state]) => ({
@@ -538,15 +555,16 @@ export async function writeOAuthSections(
 ): Promise<void> {
   const policy = getPersistTokensPolicy();
   const durable = await secretStoreIsDurable(secretStore);
-  await withOAuthStateLock(filePath, "save", async () => {
+  await withOAuthStateLock(filePath, "save", async (locked) => {
     // The namespace scoping every store id below; minted (and legacy
-    // entries moved) on this file's first namespaced write. Resolved once
-    // per save, inside the lock: an attempt retry never re-ADOPTS — but it
-    // may re-KEY. Under degraded (unlocked) locking a concurrent first
-    // writer can adopt a different namespace and win the file between this
-    // read and an attempt's write, so each attempt below re-checks the
-    // namespace observed on disk and converges onto it (`let`, not `const`).
-    let namespace = await adoptSecretsNamespace(filePath, secretStore);
+    // entries moved — under the real lock only, see adoptSecretsNamespace)
+    // on this file's first namespaced write. Resolved once per save: an
+    // attempt retry never re-ADOPTS — but it may re-KEY. Under degraded
+    // (unlocked) locking a concurrent first writer can mint a different
+    // namespace and win the file between this read and an attempt's write,
+    // so each attempt below re-checks the namespace observed on disk and
+    // converges onto it (`let`, not `const`).
+    let namespace = await adoptSecretsNamespace(filePath, secretStore, locked);
     // Restore baseline for every failure exit below. For each touched
     // (server, field) it holds the latest store value NOT written by this
     // call: the pre-operation value, superseded by a concurrent writer's
