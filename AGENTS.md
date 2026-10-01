@@ -1,7 +1,7 @@
 # Inspector V2
 
 This is an application for inspecting MCP servers. It has four client
-surfaces — Web, TUI, one-shot CLI, and the experimental session CLI (`mcpdo`) —
+surfaces — Web, TUI, one-shot CLI, and the experimental connection CLI (`mcpdo`) —
 over a shared `core/`.
 
 **This file holds the _rules_: the conventions a reviewer cites against a diff.**

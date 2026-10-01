@@ -112,7 +112,8 @@ more).
 - Answer with `mcpdo elicitation/respond <elicitationId> field:=value ...`
   (repeat if the server asks again), or end it with `--decline` or `--cancel`.
   For URL-mode elicitations, relay the URL to the user, then confirm with
-  `elicitation/respond <id> --done` (or `--decline`). The response returns the
+  `elicitation/respond <id> --done` (or `--cancel`; URL mode has no decline).
+  The response returns the
   final tool result.
 - Parked calls expire after 10 minutes; one parked call per connection. Pass
   `--elicit off` on `connect` to have well-behaved servers fall back to their
