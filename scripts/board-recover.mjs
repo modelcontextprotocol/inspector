@@ -18,7 +18,7 @@
 // comes back) to each lost card, paced to stay under the API's abuse limits.
 
 import { spawnSync } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { parseArgs } from "node:util";
 import { setTimeout as delay } from "node:timers/promises";
@@ -116,6 +116,11 @@ export async function main(
   const parsed = parseRecoverArgs(argv);
 
   if (parsed.phase === "diff") {
+    // A previous diff's lost-ids.json must not survive this run: a diff that
+    // fails or ends with nothing recoverable would otherwise leave stale ids
+    // for reapply to consume. Remove it before anything can fail.
+    const lostPath = join(dirname(parsed.snapshot), "lost-ids.json");
+    rmSync(lostPath, { force: true });
     const snapshot = JSON.parse(readFileSync(parsed.snapshot, "utf8"));
     if (!Array.isArray(snapshot.items)) {
       throw new Error(`${parsed.snapshot} has no items array — not a snapshot`);
@@ -127,7 +132,6 @@ export async function main(
     for (const { value, count } of groups) {
       console.log(`was ${value}: ${count}`);
     }
-    const lostPath = join(dirname(parsed.snapshot), "lost-ids.json");
     if (groups.length === 0) {
       console.log("lost: 0 cards — nothing to recover");
       return;

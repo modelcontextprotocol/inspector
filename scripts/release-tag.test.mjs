@@ -53,19 +53,18 @@ test("the default run fetches, prints what it would tag, and tags nothing", (t) 
   );
 });
 
-test("--push tags origin/main's SHA — never a local HEAD — and pushes it", (t) => {
+test("--push pushes origin/main's SHA as the tag ref — no local tag", (t) => {
   const lines = [];
   t.mock.method(console, "log", (line) => lines.push(line));
   const spawn = gitSpawn();
   main(["--push"], spawn);
   assert.deepEqual(lines, [`tagged: 2.4.1 → ${SHA}`]);
-  assert.deepEqual(
-    spawn.calls.find((args) => args[0] === "tag"),
-    ["tag", "2.4.1", SHA],
-  );
+  // The ref is pushed directly from the SHA, so a failed push leaves no
+  // local tag behind and the retry starts clean.
+  assert.ok(!spawn.calls.some((args) => args[0] === "tag"));
   assert.deepEqual(
     spawn.calls.find((args) => args[0] === "push"),
-    ["push", "origin", "2.4.1"],
+    ["push", "origin", `${SHA}:refs/tags/2.4.1`],
   );
 });
 

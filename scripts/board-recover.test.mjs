@@ -146,6 +146,34 @@ test("diff refuses a truncated broken-board dump", async () => {
   );
 });
 
+test("diff removes a stale lost-ids.json before doing anything", async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "board-recover-test-"));
+  const snapshotPath = join(dir, "board-28-snapshot.json");
+  const lostPath = join(dir, "lost-ids.json");
+  writeFileSync(lostPath, JSON.stringify(["stale"]));
+
+  // A failing diff (unreadable snapshot) must not preserve the stale file…
+  await assert.rejects(
+    main(["--phase", "diff", "--snapshot", snapshotPath], () =>
+      assert.fail("nothing should be spawned"),
+    ),
+  );
+  assert.ok(!existsSync(lostPath));
+
+  // …and neither does a diff that finds nothing to recover.
+  writeFileSync(lostPath, JSON.stringify(["stale"]));
+  writeFileSync(
+    snapshotPath,
+    JSON.stringify({ items: [{ id: "a", status: "Done" }] }),
+  );
+  t.mock.method(console, "log", () => {});
+  await main(
+    ["--phase", "diff", "--snapshot", snapshotPath],
+    dumpSpawn([{ id: "a", status: "Done" }]),
+  );
+  assert.ok(!existsSync(lostPath));
+});
+
 test("reapply edits each lost card with pacing and reports the count", async (t) => {
   const dir = mkdtempSync(join(tmpdir(), "board-recover-test-"));
   const lostPath = join(dir, "lost-ids.json");

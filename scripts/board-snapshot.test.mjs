@@ -7,10 +7,12 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   readdirSync,
   statSync,
+  symlinkSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -34,6 +36,20 @@ test("assertOutsideRepo refuses the repo root and anything under it", () => {
   // A sibling whose name shares the prefix is fine.
   assertOutsideRepo("/repo-sibling", "/repo");
   assertOutsideRepo("/elsewhere", "/repo");
+});
+
+test("assertOutsideRepo resolves symlinks — a link into the repo is refused", () => {
+  const outside = mkdtempSync(join(tmpdir(), "board-snapshot-test-"));
+  const repo = join(outside, "repo");
+  const linkToRepo = join(outside, "to-repo");
+  mkdirSync(repo);
+  symlinkSync(repo, linkToRepo);
+  assert.throws(() => assertOutsideRepo(linkToRepo, repo), /private/);
+  // And the repo root reached through its own symlink still anchors the check.
+  assert.throws(
+    () => assertOutsideRepo(join(repo, "sub"), linkToRepo),
+    /private/,
+  );
 });
 
 const ITEMS = [{ id: "PVTI_a", status: "Todo" }];

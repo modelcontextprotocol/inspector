@@ -61,8 +61,10 @@ export function main(argv = process.argv.slice(2), spawn = spawnSync) {
     );
     return;
   }
-  git(spawn, ["tag", tag, sha]);
-  git(spawn, ["push", "origin", tag]);
+  // Push the ref directly from the SHA — no local tag is created, so a
+  // failed push leaves nothing behind and a retry starts clean (a local
+  // `git tag` first would make the retry fail with "already exists").
+  git(spawn, ["push", "origin", `${sha}:refs/tags/${tag}`]);
   console.log(`tagged: ${tag} → ${sha}`);
 }
 
