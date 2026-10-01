@@ -311,7 +311,7 @@ function warnNamespaceCleanupFailure(error: unknown): void {
   if (warnedStoreFailures.has(key)) return;
   warnedStoreFailures.add(key);
   console.warn(
-    `[mcp-inspector] Could not remove legacy un-namespaced secret-store entries after scoping them to this state file (${reason}). The scoped copies are in use; the leftovers are harmless duplicates but will not be cleaned up automatically.`,
+    `[mcp-inspector] Could not remove legacy un-namespaced secret-store entries after scoping them to this state file (${reason}). This file uses the scoped copies, but another pre-namespace state file could still read the stale leftovers until it adopts or re-authorizes — and they will not be cleaned up automatically.`,
   );
 }
 
@@ -336,8 +336,10 @@ function warnNamespaceCleanupFailure(error: unknown): void {
  *   stamp would be re-run under a *different* UUID next time, stranding
  *   this one's copies forever.
  * - **Delete** (the legacy originals) is best-effort after the commit: the
- *   namespaced ids are already authoritative, so a failure here leaves
- *   harmless-but-unindexed duplicates and a warning, never a lost token
+ *   namespaced ids are already authoritative for this file, so a failure
+ *   here never loses a token — but the leftovers are not harmless to
+ *   everyone: they are unindexed here, and a pre-namespace profile could
+ *   still read them as stale credentials until it adopts or re-authorizes
  *   ({@link warnNamespaceCleanupFailure}). Deleting is deliberate, not
  *   cautious copying: the legacy entry is exactly the shared slot this
  *   change exists to retire, and `removeOAuthStore` purges by the file's
