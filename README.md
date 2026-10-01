@@ -57,7 +57,8 @@ inspector/
 ├── core/             Shared code consumed via the `@inspector/core` alias (no package.json)
 ├── test-servers/     Composable MCP test servers + fixtures used by integration and smoke tests
 ├── scripts/          Root build/verify tooling (install cascade, smokes, the verify:* guards),
-│                     repo automation run from CI (the dependency, Dependabot-alert and SDK sweeps)
+│                     repo automation run from CI (the dependency, Dependabot-alert and SDK sweeps),
+│                     maintainer-workflow helpers (the pr:* and board:status aliases)
 │                     and the Docker image's HEALTHCHECK probe
 ├── docs/             Task-oriented guides — see below
 ├── specification/    Design/build specifications

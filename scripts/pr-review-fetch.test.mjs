@@ -84,14 +84,31 @@ test("main resolves the latest round and prints header + every comment", (t) => 
   assert.ok(spawn.calls[1].at(-1).includes("/reviews/5/comments"));
 });
 
-test("main with --review skips the listing fetch", (t) => {
+test("main with --review prints the named review's full header and body", (t) => {
   const lines = [];
   t.mock.method(console, "log", (line) => lines.push(line));
-  const spawn = spawnFor({ comments: [] });
+  const spawn = spawnFor({
+    reviews: [
+      review(77, COPILOT, "2026-01-01T00:00:00Z"),
+      review(99, COPILOT, "2026-01-02T00:00:00Z"),
+    ],
+    comments: [],
+  });
   main(["--pr", "4", "--review", "77"], spawn);
-  assert.equal(spawn.calls.length, 1);
-  assert.ok(spawn.calls[0].at(-1).includes("/reviews/77/comments"));
-  assert.match(lines.join("\n"), /REVIEW=77/);
+  assert.ok(spawn.calls[1].at(-1).includes("/reviews/77/comments"));
+  const out = lines.join("\n");
+  assert.match(out, /REVIEW=77 SUBMITTED=2026-01-01T00:00:00Z/);
+  assert.match(out, /body of 77/);
+});
+
+test("main with --review throws when the review does not exist", () => {
+  const spawn = spawnFor({
+    reviews: [review(99, COPILOT, "2026-01-02T00:00:00Z")],
+  });
+  assert.throws(
+    () => main(["--pr", "4", "--review", "77"], spawn),
+    /no review 77/,
+  );
 });
 
 test("main throws when the PR has no Copilot review", () => {

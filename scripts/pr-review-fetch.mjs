@@ -4,10 +4,12 @@
 // previously transcribed this as a paginated fetch + jq block rebuilt every
 // round.
 //
-// Without `--review` it resolves the LATEST Copilot review by `submitted_at`.
-// Comments are fetched by REVIEW id — the unpaginated /reviews listing hides
-// later rounds behind your own replies — and paginated completely, because a
-// round you only half fetch is a round you only half answer.
+// Without `--review` it resolves the LATEST Copilot review by `submitted_at`;
+// with it, the named review is selected from the same listing, so both paths
+// print the same header and body. Comments are fetched by REVIEW id — the
+// unpaginated /reviews listing hides later rounds behind your own replies —
+// and paginated completely, because a round you only half fetch is a round
+// you only half answer.
 //
 // The review BODY is printed in full: the headline sentence and the
 // "Suppressed comments" block live there, and a zero-comment round can still
@@ -53,24 +55,28 @@ export function parseFetchArgs(argv) {
 export function main(argv = process.argv.slice(2), spawn = spawnSync) {
   const { pr, review } = parseFetchArgs(argv);
 
-  let reviewId = review;
-  let header = "";
-  if (reviewId === undefined) {
-    const latest = latestCopilotReview(
-      ghPaginatedList(spawn, `repos/${REPO_SLUG}/pulls/${pr}/reviews`),
+  const reviews = ghPaginatedList(
+    spawn,
+    `repos/${REPO_SLUG}/pulls/${pr}/reviews`,
+  );
+  // Both paths resolve a full review object, so the header and body — where
+  // the headline and "Suppressed comments" findings live — print either way.
+  const selected =
+    review === undefined
+      ? latestCopilotReview(reviews)
+      : reviews.find((candidate) => candidate.id === review);
+  if (!selected) {
+    throw new Error(
+      review === undefined
+        ? `PR #${pr} has no Copilot review`
+        : `PR #${pr} has no review ${review}`,
     );
-    if (!latest) {
-      throw new Error(`PR #${pr} has no Copilot review`);
-    }
-    reviewId = latest.id;
-    header = `REVIEW=${latest.id} SUBMITTED=${latest.submitted_at}\n${latest.body}`;
-  } else {
-    header = `REVIEW=${reviewId}`;
   }
+  const header = `REVIEW=${selected.id} SUBMITTED=${selected.submitted_at}\n${selected.body}`;
 
   const comments = ghPaginatedList(
     spawn,
-    `repos/${REPO_SLUG}/pulls/${pr}/reviews/${reviewId}/comments`,
+    `repos/${REPO_SLUG}/pulls/${pr}/reviews/${selected.id}/comments`,
   );
 
   console.log(header);

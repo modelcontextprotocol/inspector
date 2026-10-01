@@ -43,12 +43,13 @@ answer "who has this?", and an assigned issue whose card still says `Todo` tells
 the board nobody has started. `@me` resolves to whoever `gh` is authenticated
 as, so an agent assigns the maintainer it is working for.
 
-Run both commands. **The step is done only when the second prints
-`card: In Progress`.**
+Run the chained command. **The step is done only when it prints
+`card: In Progress`** — the `&&` makes that line unreachable when the
+assignment fails:
 
 ```sh
-gh issue edit <ISSUE_NUMBER> --repo modelcontextprotocol/inspector --add-assignee @me
-npm run board:status -- --issue <ISSUE_NUMBER> --status "In Progress"   # add --board 11 for a v1 issue
+gh issue edit <ISSUE_NUMBER> --repo modelcontextprotocol/inspector --add-assignee @me \
+  && npm run board:status -- --issue <ISSUE_NUMBER> --status "In Progress"   # add --board 11 for a v1 issue
 ```
 
 The script (`scripts/board-card-status.mjs`, #2558) resolves every id by name
@@ -333,8 +334,9 @@ npm run pr:review-wait -- --pr <N> --expected <K>   # --timeout-minutes 25 is th
 ```
 
 Its last line is the outcome: `ROUND=posted`, `ROUND=ended-without-review`, or
-`ROUND=timed-out` (all exit 0; only a `gh` failure exits nonzero — the script
-never retries blind on one, for the reason its header records).
+`ROUND=timed-out` (all exit 0). A nonzero exit means the wait itself failed —
+a `gh` failure (the script never retries blind on one, for the reason its
+header records), a malformed response, or a bad argument — not a round outcome.
 
 `--expected` is the review **count** to reach, so it is `1` only on the first
 round — on round two the first round's review is still there and an existence
