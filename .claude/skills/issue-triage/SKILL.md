@@ -46,29 +46,13 @@ work a maintainer had already scheduled.
 Diff the open issues against **both boards**. Diffing against #28 alone is
 wrong: a `v1` issue correctly carded on #11 is reported as unboarded and gets
 double-boarded (a real defect a past sweep introduced — #1929 reproduced it).
+The script (`scripts/board-sweep.mjs`, #2558) does the union, trusts each dump
+only when complete (a truncated listing makes a carded issue read as
+unboarded), and prints each unboarded issue with its destination — milestoned
+already → Todo, otherwise → Incoming:
 
 ```sh
-D=$(mktemp -d)
-gh issue list --repo modelcontextprotocol/inspector --state open --limit 1000 \
-  --json number,milestone > "$D/open.json"
-# item-list truncates SILENTLY past --limit (and a failed call writes nothing), and a
-# missing card reads as an "unboarded" issue that then gets double-carded — so an
-# incomplete dump is deleted, and the steps below fail on the missing file.
-for P in 28 11; do
-  gh project item-list $P --owner modelcontextprotocol --format json --limit 2000 > "$D/b$P.json"
-  jq -e '(.items | length) == .totalCount' "$D/b$P.json" >/dev/null \
-    || { echo "board #$P listing INCOMPLETE — raise --limit and re-run" >&2; rm -f "$D/b$P.json"; false; }
-done
-# Union of BOTH boards, filtered to this repo — org boards can hold other repos' issues.
-jq -s '[.[].items[] | select(.content.type=="Issue"
-        and .content.repository=="modelcontextprotocol/inspector")
-        | .content.number]' "$D/b28.json" "$D/b11.json" > "$D/boarded.json" \
-  || rm -f "$D/boarded.json"
-# Prints the destination too: milestoned already → Todo, otherwise → Incoming.
-jq -r --slurpfile b "$D/boarded.json" \
-  '.[] | select(.number as $n | ($b[0]|index($n))|not)
-   | "#\(.number)\t→ \(if .milestone then "Todo (has milestone \(.milestone.title))" else "Incoming" end)"' \
-  "$D/open.json"
+npm run board:sweep     # exits non-zero when any unboarded issue exists
 ```
 
 ## Pass 2 — approve what should ship
@@ -219,79 +203,15 @@ count means the board contradicts a rule, not that the rule needs revisiting.
 | Open, but carded `Done` | A card in Done ⇒ its issue is closed | Close the issue, or move the card back |
 
 ```sh
-D=$(mktemp -d); R=modelcontextprotocol/inspector
-# --limit must exceed the repo's TOTAL issue count (884 as of 2026-08-05), not just the open ones —
-# the last check below reads closed issues' state reasons.
-gh issue list --repo $R --state all --limit 2000 \
-  --json number,state,stateReason,labels,milestone > "$D/i.json"
-# item-list truncates SILENTLY past --limit (and a failed call writes nothing); an
-# incomplete dump would make every check below lie, so it is deleted and the audit
-# fails on the missing file instead.
-for P in 28 11; do gh project item-list $P --owner modelcontextprotocol \
-  --format json --limit 2000 > "$D/b$P.json"
-  jq -e '(.items | length) == .totalCount' "$D/b$P.json" >/dev/null \
-    || { echo "board #$P listing INCOMPLETE — raise --limit and re-run" >&2; rm -f "$D/b$P.json"; false; }
-done
-jq -nr --slurpfile o "$D/i.json" --slurpfile a "$D/b28.json" --slurpfile b "$D/b11.json" --arg R "$R" '
-  ($o[0] | map({key:(.number|tostring), value:{st:.state, sr:(.stateReason // ""),
-                lab:[.labels[].name], ms:(.milestone.title // null)}}) | from_entries) as $M
-  | def own($s): [$s[].items[]
-        # A DRAFT card has no `.content.repository`, so filtering on equality
-        # alone drops the very items the "non-Issue" check exists to find.
-        | select((.content.repository // null) == null or .content.repository==$R)];
-    def I($n): ($M[($n|tostring)] // null);
-    def ms($n): (I($n).ms // null);
-    def lab($n): (I($n).lab // []);
-    def isopen($n): (I($n).st == "OPEN");
-    def shipped($n): (I($n).sr == "COMPLETED");
-    [own($a)[] | select(.content.type=="Issue") | {n:.content.number, s:.status, p:.priority}] as $B28
-  | [own($b)[] | select(.content.type=="Issue") | {n:.content.number, s:.status}] as $B11
-  | {
-    "double-boarded":        [$B28[].n | select(. as $n | [$B11[].n]|index($n))],
-    # An advisory draft card is the ONE legitimate non-Issue item (see AGENTS.md).
-    # The exemption is narrowed three ways, and each one matters: DRAFTS only
-    # (a GHSA-titled PR is still reported), board #28 ONLY (an advisory has no
-    # business on #11), and the `[GHSA-` title prefix (a stray draft is still
-    # reported). Reports the TITLE, since a draft has no number.
-    "non-Issue on a board":  [(own($a)[] | select(.content.type!="Issue"
-                                and ((.content.type=="DraftIssue"
-                                      and ((.content.title // "") | startswith("[GHSA-"))) | not))),
-                              (own($b)[] | select(.content.type!="Issue"))]
-                             | map(.content.title // "(untitled)"),
-    # $B28/$B11 hold only Issue items, so the Status and Priority checks below
-    # cannot see an advisory draft. Exempting drafts from the check above would
-    # therefore have made a half-made advisory card invisible to the whole
-    # audit; this is the narrow replacement.
-    "GHSA draft missing Status/Priority":
-                             [own($a)[] | select(.content.type=="DraftIssue"
-                                and ((.content.title // "") | startswith("[GHSA-")))
-                              | select(.status==null or .priority==null)
-                              | (.content.title[0:24])],
-    "no Status":             [($B28[], $B11[]) | select(.s==null) | .n],
-    "Incoming w/ milestone": [$B28[] | select(.s=="Incoming" and ms(.n)!=null) | .n],
-    "past Incoming, no ms":  [$B28[] | select(.s!=null and .s!="Incoming" and .s!="Done"
-                                              and isopen(.n) and ms(.n)==null) | .n],
-    "v1 label on #28":       [$B28[] | select(isopen(.n) and (lab(.n)|index("v1"))) | .n],
-    "v2 label on #11":       [$B11[] | select(isopen(.n) and (lab(.n)|index("v2"))) | .n],
-    "open, not exactly 1 version label":
-                             [$o[0][] | select(.state=="OPEN")
-                              | select(([.labels[].name] | map(select(IN("v1","v2"))) | length) != 1)
-                              | .number],
-    "open, not exactly 1 type label":
-                             [$o[0][] | select(.state=="OPEN")
-                              | select(([.labels[].name]
-                                        | map(select(IN("bug","enhancement","documentation","chore","question")))
-                                        | length) != 1)
-                              | .number],
-    "#28 open, no Priority": [$B28[] | select(.p==null and isopen(.n)) | .n],
-    "closed unshipped, still carded":
-                             [($B28[], $B11[]) | select(I(.n)!=null and (isopen(.n)|not)
-                                                        and (shipped(.n)|not)) | .n],
-    "open, but carded Done": [($B28[], $B11[]) | select(.s=="Done" and isopen(.n)) | .n]
-  } | to_entries[] | "\(.value|length)\t\(.key)\t\(.value[0:10])"'
+npm run board:audit     # one line per check; exits non-zero when any is dirty
 ```
 
-Two things the queries must account for, both learned the hard way:
+The script (`scripts/board-audit.mjs`, #2558) prints
+`<count>\t<check>\t<first offenders>` for every invariant in the table above,
+over complete dumps only — a truncated listing would make every check lie, so
+it refuses one instead.
+
+Two things its queries account for, both learned the hard way:
 
 - **Filter by repository.** These are **org** projects and can hold cards from
   any repo in the org — board #11 currently carries one

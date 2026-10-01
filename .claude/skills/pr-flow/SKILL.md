@@ -218,25 +218,21 @@ you. Re-shoot rather than shipping one that "mostly" shows the change.
 
 ### 5c. Upload
 
-To host them, upload to GitHub's attachment endpoint with your `gh` token. Two
-mechanics, both of which bite:
+To host them, upload to GitHub's attachment endpoint with the script
+(`scripts/pr-upload-screenshot.mjs`, #2558); it prints the hosted URL to embed:
+
+```sh
+npm run pr:upload -- --file pr-screenshots/tools-tab-after.png
+```
+
+Two mechanics it handles, both of which bite when done by hand:
 
 - The parameters go in the **query string**, with the raw bytes as the body. A
   JSON body fails with a misleading "Invalid name for request".
-- ⚠️ **Do not put the token in argv.** `-H "Authorization: token $(gh auth
-token)"` puts your credential in curl's command line, where any local user or
+- ⚠️ **The token never goes in argv.** A `-H "Authorization: token $(gh auth
+token)"` puts your credential in a command line, where any local user or
   process can read it off the process table while the upload runs (Copilot).
-  Feed it through `--config -` instead: curl reads its options from stdin, so
-  the token never becomes an argument.
-
-```sh
-printf 'header = "Authorization: token %s"\n' "$(gh auth token)" | curl -sS --config - \
-  -X POST --data-binary @pr-screenshots/tools-tab-after.png \
-  "https://uploads.github.com/user-attachments/assets?repository_id=<REPO_ID>&name=tools-tab-after.png&content_type=image/png"
-```
-
-(The token is still in the shell's environment and in `printf`'s _stdin_, which
-is not world-readable the way `/proc/<pid>/cmdline` is.)
+  The script sends it only as a request header.
 
 ## 6. Open the PR
 
@@ -259,30 +255,21 @@ is only a cross-reference — it will **not** create a hard link or close the is
 on merge. Keep it anyway, so the issues close if/when `v2/main` reaches `main`.
 
 **So link the PR to its issue explicitly, right after creating it.** The
-`addCloseIssueReferences` GraphQL mutation adds a manual closing reference, the
-same link as the UI's **Development** sidebar, and it works whatever the base
-branch. It is what puts the PR in the card's **Linked pull requests** field,
-which the board shows as a column in table views and as a chip on kanban cards.
-Without it a v2 card shows no PR at all.
+script (`scripts/pr-link-issue.mjs`, #2558) runs the `addCloseIssueReferences`
+GraphQL mutation — a manual closing reference, the same link as the UI's
+**Development** sidebar, working whatever the base branch — and verifies it by
+reading the PR's `closingIssuesReferences` back. It is what puts the PR in the
+card's **Linked pull requests** field, which the board shows as a column in
+table views and as a chip on kanban cards. Without it a v2 card shows no PR at
+all.
 
 ```sh
-ISSUE_ID=$(gh api graphql -F n=<ISSUE_NUMBER> -f query='query($n:Int!){
-  repository(owner:"modelcontextprotocol",name:"inspector"){issue(number:$n){id}}}' \
-  --jq .data.repository.issue.id)
-PR_ID=$(gh pr view <N> --repo modelcontextprotocol/inspector --json id --jq .id)
-gh api graphql -f query='mutation($i:ID!,$p:[ID!]!){
-  addCloseIssueReferences(input:{issueId:$i, pullRequestIds:$p}){clientMutationId}}' \
-  -f i="$ISSUE_ID" -f p="$PR_ID"
-
-# Verify: the PR should list the issue.
-gh api graphql -F n=<N> -f query='query($n:Int!){
-  repository(owner:"modelcontextprotocol",name:"inspector"){pullRequest(number:$n){
-    closingIssuesReferences(first:10){nodes{number}}}}}' \
-  --jq '[.data.repository.pullRequest.closingIssuesReferences.nodes[].number]'
+npm run pr:link -- --pr <N> --issue <ISSUE_NUMBER>   # prints linked: … only on a verified link
 ```
 
 The link does not change how the issue closes on a v2 merge; that is still
-step 9. `removeCloseIssueReferences` takes the same input and undoes the link.
+step 9. The `removeCloseIssueReferences` mutation takes the same input and
+undoes the link.
 
 **Then move the card to In Review. Step 6 is done only when the PR is linked
 _and_ the card says `In Review`.** Same script as step 1, different column —

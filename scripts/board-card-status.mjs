@@ -21,45 +21,18 @@
 
 import { spawnSync } from "node:child_process";
 import { parseArgs } from "node:util";
+import { requirePositiveInt } from "./lib/gh.mjs";
 import {
-  OWNER,
-  REPO,
-  gh,
-  ghGraphql,
-  ghJson,
-  requirePositiveInt,
-} from "./lib/gh.mjs";
+  DEFAULT_BOARD,
+  boardFields,
+  cardOnProject,
+  editItemField,
+  fieldOption,
+  findCard,
+  projectId as resolveProjectId,
+} from "./lib/board.mjs";
 
-export const DEFAULT_BOARD = 28;
-
-/** Resolve a single-select field's id and one option's id, both by name. */
-export function fieldOption(fields, fieldName, optionName) {
-  const field = fields.find((candidate) => candidate.name === fieldName);
-  if (!field) {
-    throw new Error(`board has no "${fieldName}" field`);
-  }
-  const option = (field.options ?? []).find(
-    (candidate) => candidate.name === optionName,
-  );
-  if (!option) {
-    const known = (field.options ?? []).map((o) => o.name).join(", ");
-    throw new Error(
-      `"${fieldName}" has no option "${optionName}" (has: ${known})`,
-    );
-  }
-  return { fieldId: field.id, optionId: option.id };
-}
-
-/** The issue's card on the given project, from a `projectItems` response. */
-export function cardOnProject(response, projectId) {
-  const nodes = response?.data?.repository?.issue?.projectItems?.nodes;
-  if (!Array.isArray(nodes)) {
-    throw new Error(
-      `unexpected projectItems response shape: ${JSON.stringify(response)}`,
-    );
-  }
-  return nodes.find((node) => node?.project?.id === projectId);
-}
+export { DEFAULT_BOARD, cardOnProject, fieldOption };
 
 export function parseStatusArgs(argv) {
   const { values } = parseArgs({
@@ -83,72 +56,27 @@ export function parseStatusArgs(argv) {
   };
 }
 
-const CARD_QUERY = `query($n:Int!){repository(owner:"${OWNER}",name:"${REPO}"){issue(number:$n){projectItems(first:100){nodes{id project{id} fieldValueByName(name:"Status"){... on ProjectV2ItemFieldSingleSelectValue{name}}}}}}}`;
-
 export function main(argv = process.argv.slice(2), spawn = spawnSync) {
   const { issue, status, board } = parseStatusArgs(argv);
-  const boardArg = String(board);
 
-  const projectId = ghJson(spawn, [
-    "project",
-    "view",
-    boardArg,
-    "--owner",
-    OWNER,
-    "--format",
-    "json",
-  ]).id;
-  if (!projectId) {
-    throw new Error(`could not resolve project id for board #${board}`);
-  }
-
+  const project = resolveProjectId(spawn, board);
   const { fieldId, optionId } = fieldOption(
-    ghJson(spawn, [
-      "project",
-      "field-list",
-      boardArg,
-      "--owner",
-      OWNER,
-      "--format",
-      "json",
-    ]).fields ?? [],
+    boardFields(spawn, board),
     "Status",
     status,
   );
 
-  const card = cardOnProject(
-    ghGraphql(spawn, CARD_QUERY, { n: issue }),
-    projectId,
-  );
+  const card = findCard(spawn, issue, project);
   if (!card?.id) {
     throw new Error(
       `#${issue} has no card on board #${board} — board it first (/issue-create step 4)`,
     );
   }
 
-  const edit = gh(spawn, [
-    "project",
-    "item-edit",
-    "--project-id",
-    projectId,
-    "--id",
-    card.id,
-    "--field-id",
-    fieldId,
-    "--single-select-option-id",
-    optionId,
-    "--format",
-    "json",
-  ]);
-  if (edit.status !== 0) {
-    throw new Error(`item-edit failed: ${(edit.stderr ?? "").trim()}`);
-  }
+  editItemField(spawn, project, card.id, fieldId, optionId);
 
   // Verify by reading the Status back — never report an unconfirmed move.
-  const after = cardOnProject(
-    ghGraphql(spawn, CARD_QUERY, { n: issue }),
-    projectId,
-  );
+  const after = findCard(spawn, issue, project);
   const now = after?.fieldValueByName?.name ?? "(none)";
   if (now !== status) {
     throw new Error(`card reads "${now}" after the edit, not "${status}"`);
