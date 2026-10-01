@@ -218,13 +218,18 @@ describe("persistEntrySecrets partial-commit compensation", () => {
     failWhen: (field: string, value: string) => boolean,
   ) => {
     const store = new InMemorySecretStore();
-    const serverId = oauthSecretServerId(url);
     await writeOAuthSections(
       file,
       { servers: { [url]: SEED_STATE }, idpSessions: {} },
       { servers: [url] },
       store,
     );
+    // The seed write adopted a secrets namespace (#2549); the entry's store
+    // id is scoped by it, so read it back from the written file.
+    const { secretsNamespace } = JSON.parse(await readFile(file, "utf8")) as {
+      secretsNamespace: string;
+    };
+    const serverId = oauthSecretServerId(url, secretsNamespace);
     const realSet = store.set.bind(store);
     store.set = async (sid: string, field: string, value: string) => {
       if (failWhen(field, value))

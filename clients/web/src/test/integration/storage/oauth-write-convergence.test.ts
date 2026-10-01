@@ -82,6 +82,8 @@ let filePath: string;
 let store: InMemorySecretStore;
 /** File bytes holding only server A, as the racing writer would leave them. */
 let onlyA: string;
+/** Store id for a url under the seed write's adopted secrets namespace. */
+let idOf: (url: string) => string;
 
 beforeEach(async () => {
   tempDir = mkdtempSync(join(tmpdir(), "inspector-oauth-converge-"));
@@ -98,6 +100,10 @@ beforeEach(async () => {
     store,
   );
   onlyA = readFileSync(filePath, "utf-8");
+  const { secretsNamespace } = JSON.parse(onlyA) as {
+    secretsNamespace: string;
+  };
+  idOf = (url) => oauthSecretServerId(url, secretsNamespace);
 });
 
 afterEach(() => {
@@ -160,11 +166,11 @@ describe("writeOAuthSections convergence verification", () => {
 
     // Server B never made it into the file, so its secrets must not linger
     // in the store (they would have no index for removeOAuthStore to find).
-    const idB = oauthSecretServerId(SERVER_B);
+    const idB = idOf(SERVER_B);
     expect(await store.get(idB, LEGACY_TOKENS_FIELD)).toBeNull();
     expect(await store.get(idB, LEGACY_CLIENT_SECRET_FIELD)).toBeNull();
     // Server A's stored secrets are untouched.
-    const idA = oauthSecretServerId(SERVER_A);
+    const idA = idOf(SERVER_A);
     expect(await store.get(idA, LEGACY_TOKENS_FIELD)).not.toBeNull();
     expect(await store.get(idA, LEGACY_CLIENT_SECRET_FIELD)).toBe("cs-a");
   });
@@ -192,10 +198,10 @@ describe("writeOAuthSections convergence verification", () => {
       ),
     ).rejects.toThrow(/disk full/);
 
-    const idB = oauthSecretServerId(SERVER_B);
+    const idB = idOf(SERVER_B);
     expect(await store.get(idB, LEGACY_TOKENS_FIELD)).toBeNull();
     expect(await store.get(idB, LEGACY_CLIENT_SECRET_FIELD)).toBeNull();
-    const idA = oauthSecretServerId(SERVER_A);
+    const idA = idOf(SERVER_A);
     expect(await store.get(idA, LEGACY_CLIENT_SECRET_FIELD)).toBe("cs-a");
     expect(readFileSync(filePath, "utf-8")).toBe(onlyA);
   });
@@ -216,10 +222,10 @@ describe("writeOAuthSections convergence verification", () => {
       ),
     ).rejects.toThrow(/refusing/i);
 
-    const idB = oauthSecretServerId(SERVER_B);
+    const idB = idOf(SERVER_B);
     expect(await store.get(idB, LEGACY_TOKENS_FIELD)).toBeNull();
     expect(await store.get(idB, LEGACY_CLIENT_SECRET_FIELD)).toBeNull();
-    const idA = oauthSecretServerId(SERVER_A);
+    const idA = idOf(SERVER_A);
     expect(await store.get(idA, LEGACY_CLIENT_SECRET_FIELD)).toBe("cs-a");
   });
 
@@ -230,7 +236,7 @@ describe("writeOAuthSections convergence verification", () => {
     // writer. The rollback baseline folds each attempt's priors, telling our
     // own earlier attempt's writes (equal to what this call writes — they
     // are constant across attempts) apart from foreign values.
-    const idB = oauthSecretServerId(SERVER_B);
+    const idB = idOf(SERVER_B);
     await writeOAuthSections(
       filePath,
       snapshotOf({ [SERVER_B]: serverState("b") }),
@@ -278,7 +284,7 @@ describe("writeOAuthSections convergence verification", () => {
     // pairs with — so the failure escalates into the reconciling exit, which
     // finds the file changed and restores the pre-operation secrets.
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const idB = oauthSecretServerId(SERVER_B);
+    const idB = idOf(SERVER_B);
     await writeOAuthSections(
       filePath,
       snapshotOf({ [SERVER_B]: serverState("b") }),
@@ -337,7 +343,7 @@ describe("writeOAuthSections convergence verification", () => {
     // so attempt 2's store writes must be rolled back to the baseline, not
     // left in place under the old residue.
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const idB = oauthSecretServerId(SERVER_B);
+    const idB = idOf(SERVER_B);
     await writeOAuthSections(
       filePath,
       snapshotOf({ [SERVER_B]: serverState("b") }),
@@ -358,11 +364,12 @@ describe("writeOAuthSections convergence verification", () => {
     let reads = 0;
     hook.beforeRead = () => {
       reads += 1;
-      // Read 1: attempt 1's disk read. Read 2: its failing read-back.
-      // Read 3: attempt 2's disk read — the store has recovered by now.
-      // Read 4: the reconciling exit's confirmation read.
-      if (reads === 2) throw new Error("EIO: read failed");
-      if (reads === 3) failNewSets = false;
+      // Read 1: the save's namespace-adoption read. Read 2: attempt 1's
+      // disk read. Read 3: its failing read-back. Read 4: attempt 2's disk
+      // read — the store has recovered by now. Read 5: the reconciling
+      // exit's confirmation read.
+      if (reads === 3) throw new Error("EIO: read failed");
+      if (reads === 4) failNewSets = false;
     };
     let writes = 0;
     hook.beforeWrite = () => {
@@ -393,7 +400,7 @@ describe("writeOAuthSections convergence verification", () => {
     // reconciling exit. The file is confirmed to still hold attempt 1's
     // write, so the save is committed: the store is re-pointed at attempt
     // 1's values and the call reports success.
-    const idB = oauthSecretServerId(SERVER_B);
+    const idB = idOf(SERVER_B);
     await writeOAuthSections(
       filePath,
       snapshotOf({ [SERVER_B]: serverState("b") }),
@@ -410,12 +417,13 @@ describe("writeOAuthSections convergence verification", () => {
     let reads = 0;
     hook.beforeRead = () => {
       reads += 1;
-      // Read 1: attempt 1's disk read. Read 2: its failing read-back.
-      // Read 3: attempt 2's disk read — the store starts flaking here.
-      // Read 4: the confirmation read — the flake has passed.
-      if (reads === 2) throw new Error("EIO: read failed");
-      if (reads === 3) failSets = true;
-      if (reads === 4) failSets = false;
+      // Read 1: the save's namespace-adoption read. Read 2: attempt 1's
+      // disk read. Read 3: its failing read-back. Read 4: attempt 2's disk
+      // read — the store starts flaking here. Read 5: the confirmation
+      // read — the flake has passed.
+      if (reads === 3) throw new Error("EIO: read failed");
+      if (reads === 4) failSets = true;
+      if (reads === 5) failSets = false;
     };
 
     await writeOAuthSections(
@@ -441,10 +449,11 @@ describe("writeOAuthSections convergence verification", () => {
     let reads = 0;
     hook.beforeRead = () => {
       reads += 1;
-      // Read 1: attempt 1's disk read. Reads 2-3: attempt 1's verifying
-      // read-back and attempt 2's disk read, both failing. Read 4: the
-      // reconciling exit's confirmation read, which succeeds.
-      if (reads === 2 || reads === 3) throw new Error("EIO: read failed");
+      // Read 1: the save's namespace-adoption read. Read 2: attempt 1's
+      // disk read. Reads 3-4: attempt 1's verifying read-back and attempt
+      // 2's disk read, both failing. Read 5: the reconciling exit's
+      // confirmation read, which succeeds.
+      if (reads === 3 || reads === 4) throw new Error("EIO: read failed");
     };
 
     await writeOAuthSections(
@@ -454,7 +463,7 @@ describe("writeOAuthSections convergence verification", () => {
       store,
     );
 
-    const idB = oauthSecretServerId(SERVER_B);
+    const idB = idOf(SERVER_B);
     expect(await store.get(idB, LEGACY_TOKENS_FIELD)).toContain("at-b");
     expect(await store.get(idB, LEGACY_CLIENT_SECRET_FIELD)).toBe("cs-b");
     const read = await readOAuthStore(filePath, store);
@@ -470,7 +479,9 @@ describe("writeOAuthSections convergence verification", () => {
     let reads = 0;
     hook.beforeRead = () => {
       reads += 1;
-      if (reads >= 2) throw new Error("EIO: read failed");
+      // Read 1 is the save's namespace-adoption read, read 2 attempt 1's
+      // disk read; everything after fails.
+      if (reads >= 3) throw new Error("EIO: read failed");
     };
 
     await expect(
@@ -482,7 +493,7 @@ describe("writeOAuthSections convergence verification", () => {
       ),
     ).rejects.toThrow(/EIO/);
 
-    const idB = oauthSecretServerId(SERVER_B);
+    const idB = idOf(SERVER_B);
     expect(await store.get(idB, LEGACY_TOKENS_FIELD)).toBeNull();
     expect(await store.get(idB, LEGACY_CLIENT_SECRET_FIELD)).toBeNull();
     expect(
