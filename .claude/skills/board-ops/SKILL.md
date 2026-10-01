@@ -145,8 +145,10 @@ given), and verifies each by reading it back before printing `card: …`:
 npm run board:add -- --issue <N> --status Todo --priority Medium
 ```
 
-For an issue swept in at triage, the only difference is `--status Incoming`
-and that you do **not** set a milestone or a `--priority`.
+For an issue swept in at triage, the differences are `--status Incoming`, a
+`--priority` still scored with the rubric in `/issue-triage` (every v2 card
+carries one — `board:audit` flags a card without it), and that you do **not**
+set a milestone.
 
 For **v1**, the same against board #11 — and **no `--priority`**, which that
 board has no field for:

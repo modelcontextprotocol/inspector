@@ -53,12 +53,24 @@ export function main(argv = process.argv.slice(2), spawn = spawnSync) {
     "POST",
     `repos/${REPO_SLUG}/security-advisories/${ghsa}/forks`,
   ]);
-  if (!fork?.full_name) {
-    throw new Error(
-      `fork creation returned no full_name: ${JSON.stringify(fork)}`,
-    );
+  // The 202 response's shape has varied (a repository object vs the advisory
+  // with private_fork nested) — accept either, and never report failure for
+  // a POST that succeeded: the fork now exists whatever the payload said.
+  const created = fork?.full_name ?? fork?.private_fork?.full_name;
+  if (created) {
+    console.log(`fork: ${created} (created)`);
+    return;
   }
-  console.log(`fork: ${fork.full_name} (created)`);
+  // Creation is asynchronous — re-read the advisory for the name.
+  const after = ghJson(spawn, [
+    "api",
+    `repos/${REPO_SLUG}/security-advisories/${ghsa}`,
+  ])?.private_fork?.full_name;
+  console.log(
+    after
+      ? `fork: ${after} (created)`
+      : `fork: created, name pending — re-run without --create to confirm`,
+  );
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

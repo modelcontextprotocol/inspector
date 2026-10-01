@@ -76,6 +76,20 @@ test("main throws on an upload rejection with the response body", async () => {
   );
 });
 
+test("main rejects a success response with no hosted URL", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "pr-upload-test-"));
+  const file = join(dir, "proof.png");
+  writeFileSync(file, Buffer.from([1]));
+  await assert.rejects(
+    main(["--file", file], spawnScript(), async () => ({
+      ok: true,
+      status: 201,
+      json: async () => ({ id: 99 }),
+    })),
+    /no url\/href/,
+  );
+});
+
 test("main throws when gh has no token", async () => {
   await assert.rejects(
     main(["--file", "x.png"], (cmd, args) =>

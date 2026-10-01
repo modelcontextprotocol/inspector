@@ -79,8 +79,15 @@ export async function main(
       `upload failed (${response.status}): ${JSON.stringify(json)}`,
     );
   }
-  // The attachment URL's field name has varied; fall back to the whole payload.
-  console.log(json.url ?? json.href ?? JSON.stringify(json));
+  // The attachment URL's field name has varied — but a success with neither
+  // is unusable output, not a hosted URL; reject it rather than print it.
+  const hosted = json.url ?? json.href;
+  if (!hosted) {
+    throw new Error(
+      `upload succeeded but returned no url/href: ${JSON.stringify(json)}`,
+    );
+  }
+  console.log(hosted);
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
