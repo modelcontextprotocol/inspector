@@ -737,7 +737,22 @@ export async function writeOAuthSections(
         // writes (all keyed under the abandoned namespace) back to baseline.
         const diskNamespace = parseSecretsNamespace(rawDisk);
         if (diskNamespace !== undefined && diskNamespace !== namespace) {
-          await restoreToBaseline();
+          // Strict, unlike the failure exits' best-effort restores: this is
+          // normal control flow with no original error to preserve, and
+          // carrying on past a failed restore would clear the baseline and
+          // let the save report success with earlier attempts' writes
+          // stranded under the abandoned namespace, unindexed by any file.
+          // Aborting keeps the baseline for the rethrow's reconciliation,
+          // and a retried save converges cleanly.
+          let restoreFailure: unknown;
+          await restoreSecretFields(
+            secretStore,
+            [...restoreBaseline.values()],
+            (error) => {
+              restoreFailure ??= error;
+            },
+          );
+          if (restoreFailure !== undefined) throw restoreFailure;
           restoreBaseline.clear();
           ourWrites.clear();
           // Our unconfirmed write carried the abandoned namespace, and the

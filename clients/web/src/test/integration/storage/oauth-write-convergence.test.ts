@@ -186,6 +186,50 @@ describe("writeOAuthSections convergence verification", () => {
     expect(read?.servers[SERVER_A]?.tokens?.access_token).toBe("at-racing");
   });
 
+  it("aborts the namespace re-key when the baseline restore fails, instead of reporting success", async () => {
+    // Same race as above, but unwinding the abandoned attempt's store
+    // writes fails. Carrying on would clear the rollback baseline and let
+    // the save report success with those writes stranded under a namespace
+    // no file references — the re-key must abort instead, leaving a loud
+    // failure a retried save can converge from.
+    const racingNs = "99999999-9999-4999-8999-999999999999";
+    const racing = JSON.parse(onlyA) as Record<string, unknown>;
+    racing.secretsNamespace = racingNs;
+    let clobbers = 0;
+    hook.afterWrite = (path) => {
+      if (clobbers++ === 0) writeFileSync(path, JSON.stringify(racing));
+    };
+    // The re-key restore deletes the abandoned attempt's new-entry writes
+    // (their baseline is "absent"). Refuse the first such delete once; the
+    // failure-path rollback that follows retries it and succeeds.
+    const realDelete = store.delete.bind(store);
+    let refused = false;
+    vi.spyOn(store, "delete").mockImplementation(async (serverId, field) => {
+      if (!refused && serverId === idOf(SERVER_B)) {
+        refused = true;
+        throw new Error("keychain delete refused");
+      }
+      await realDelete(serverId, field);
+    });
+
+    await expect(
+      writeOAuthSections(
+        filePath,
+        snapshotOf({ [SERVER_B]: serverState("b") }),
+        { servers: [SERVER_B] },
+        store,
+      ),
+    ).rejects.toThrow("keychain delete refused");
+
+    // The failure-path rollback unwound the abandoned writes after all —
+    // nothing is stranded under our mint, and the racing file stands.
+    expect(await store.get(idOf(SERVER_B), LEGACY_TOKENS_FIELD)).toBeNull();
+    const final = JSON.parse(readFileSync(filePath, "utf-8")) as {
+      secretsNamespace: string;
+    };
+    expect(final.secretsNamespace).toBe(racingNs);
+  });
+
   it("gives up with a typed, retryable error when the file keeps changing", async () => {
     hook.afterWrite = (path) => writeFileSync(path, onlyA);
 
