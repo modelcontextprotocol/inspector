@@ -148,7 +148,13 @@ export async function main(
       return;
     }
     const lostIds = groups[0].ids;
-    writeFileSync(lostPath, JSON.stringify(lostIds, null, 2));
+    // Same protections as the snapshot itself: the ids are private board
+    // data, so owner-only, and exclusive so a file planted between the
+    // removal above and this write is refused rather than followed.
+    writeFileSync(lostPath, JSON.stringify(lostIds, null, 2), {
+      mode: 0o600,
+      flag: "wx",
+    });
     console.log(
       `lost: ${lostIds.length} cards (all "${groups[0].value}") → ${lostPath}`,
     );

@@ -5,7 +5,13 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  mkdtempSync,
+  existsSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { lostGrouping, main, parseRecoverArgs } from "./board-recover.mjs";
@@ -76,6 +82,8 @@ test("diff writes lost-ids.json beside the snapshot and prints the grouping", as
   );
   const lostPath = join(dir, "lost-ids.json");
   assert.deepEqual(JSON.parse(readFileSync(lostPath, "utf8")), ["a"]);
+  // Same protections as the snapshot: private ids, owner-only, exclusive.
+  assert.equal(statSync(lostPath).mode & 0o777, 0o600);
   assert.deepEqual(lines, [
     "was Done: 1",
     `lost: 1 cards (all "Done") → ${lostPath}`,

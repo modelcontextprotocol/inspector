@@ -94,6 +94,23 @@ test("main throws when there is no card to delete", () => {
   );
 });
 
+test("a --reason retry with the card already gone still closes", (t) => {
+  // A prior run may have deleted the card and failed the PATCH transiently —
+  // the retry must not stop at "no card" with the issue still open.
+  const lines = [];
+  t.mock.method(console, "log", (line) => lines.push(line));
+  const spawn = spawnScript({ card: false });
+  main(["--issue", "7", "--reason", "not-planned"], spawn);
+  assert.deepEqual(lines, [
+    "no card: #7 on board #28 (already deleted?) — closing anyway",
+    "closed: #7 (not_planned)",
+  ]);
+  assert.equal(
+    spawn.calls.some((args) => args.includes("item-delete")),
+    false,
+  );
+});
+
 test("main refuses to report an unconfirmed delete", () => {
   assert.throws(
     () => main(["--issue", "7"], spawnScript({ stillThere: true })),

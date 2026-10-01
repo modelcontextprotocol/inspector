@@ -55,33 +55,42 @@ export function main(argv = process.argv.slice(2), spawn = spawnSync) {
   const project = resolveProjectId(spawn, board);
   const card = findCard(spawn, issue, project);
   if (!card?.id) {
-    throw new Error(
-      `#${issue} has no card on board #${board} — nothing deleted`,
+    // Without --reason the absent card is the whole job failing. With it,
+    // carry on to the close: a prior run may have deleted the card and then
+    // failed the PATCH transiently, and stopping here would make that
+    // partial failure unretryable.
+    if (!reason) {
+      throw new Error(
+        `#${issue} has no card on board #${board} — nothing deleted`,
+      );
+    }
+    console.log(
+      `no card: #${issue} on board #${board} (already deleted?) — closing anyway`,
     );
-  }
+  } else {
+    const del = gh(spawn, [
+      "project",
+      "item-delete",
+      String(board),
+      "--owner",
+      OWNER,
+      "--id",
+      card.id,
+      "--format",
+      "json",
+    ]);
+    if (del.status !== 0) {
+      throw new Error(`item-delete failed: ${(del.stderr ?? "").trim()}`);
+    }
 
-  const del = gh(spawn, [
-    "project",
-    "item-delete",
-    String(board),
-    "--owner",
-    OWNER,
-    "--id",
-    card.id,
-    "--format",
-    "json",
-  ]);
-  if (del.status !== 0) {
-    throw new Error(`item-delete failed: ${(del.stderr ?? "").trim()}`);
+    // Verify by looking the card up again — never report an unconfirmed delete.
+    if (findCard(spawn, issue, project)?.id) {
+      throw new Error(
+        `#${issue} still has a card on board #${board} after delete`,
+      );
+    }
+    console.log(`deleted: card for #${issue} on board #${board}`);
   }
-
-  // Verify by looking the card up again — never report an unconfirmed delete.
-  if (findCard(spawn, issue, project)?.id) {
-    throw new Error(
-      `#${issue} still has a card on board #${board} after delete`,
-    );
-  }
-  console.log(`deleted: card for #${issue} on board #${board}`);
 
   if (reason) {
     const close = gh(spawn, [
