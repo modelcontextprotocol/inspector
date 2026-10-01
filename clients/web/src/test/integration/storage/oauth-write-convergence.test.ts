@@ -136,6 +136,56 @@ describe("writeOAuthSections convergence verification", () => {
     expect(read?.servers[SERVER_B]?.tokens?.access_token).toBe("at-b");
   });
 
+  it("converges onto a concurrent adopter's namespace instead of re-stamping its own", async () => {
+    // The degraded-lock first-write race: another writer adopted a different
+    // namespace and won the file between our write and read-back. The retry
+    // must re-key to the namespace observed on disk — re-stamping our own
+    // mint would ping-pong and strand the other writer's secrets.
+    const racingNs = "99999999-9999-4999-8999-999999999999";
+    const racing = JSON.parse(onlyA) as Record<string, unknown>;
+    racing.secretsNamespace = racingNs;
+    // The racing writer's own store entries live under its namespace.
+    await store.set(
+      oauthSecretServerId(SERVER_A, racingNs),
+      LEGACY_TOKENS_FIELD,
+      JSON.stringify({ access_token: "at-racing", token_type: "Bearer" }),
+    );
+    let clobbers = 0;
+    hook.afterWrite = (path) => {
+      if (clobbers++ === 0) writeFileSync(path, JSON.stringify(racing));
+    };
+
+    await writeOAuthSections(
+      filePath,
+      snapshotOf({ [SERVER_B]: serverState("b") }),
+      { servers: [SERVER_B] },
+      store,
+    );
+
+    // Seed + clobbered attempt + converging retry.
+    expect(vi.mocked(writeStoreFile)).toHaveBeenCalledTimes(3);
+    const final = JSON.parse(readFileSync(filePath, "utf-8")) as {
+      secretsNamespace: string;
+    };
+    expect(final.secretsNamespace).toBe(racingNs);
+    // B's secrets were written under the adopted namespace…
+    expect(
+      await store.get(
+        oauthSecretServerId(SERVER_B, racingNs),
+        LEGACY_TOKENS_FIELD,
+      ),
+    ).not.toBeNull();
+    // …and the abandoned attempt's writes under our own mint were unwound.
+    expect(await store.get(idOf(SERVER_B), LEGACY_TOKENS_FIELD)).toBeNull();
+    expect(
+      await store.get(idOf(SERVER_B), LEGACY_CLIENT_SECRET_FIELD),
+    ).toBeNull();
+    // Joined read-back sees both writers' entries under the one namespace.
+    const read = await readOAuthStore(filePath, store);
+    expect(read?.servers[SERVER_B]?.tokens?.access_token).toBe("at-b");
+    expect(read?.servers[SERVER_A]?.tokens?.access_token).toBe("at-racing");
+  });
+
   it("gives up with a typed, retryable error when the file keeps changing", async () => {
     hook.afterWrite = (path) => writeFileSync(path, onlyA);
 

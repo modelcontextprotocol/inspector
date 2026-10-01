@@ -53,6 +53,7 @@ vi.mock("@napi-rs/keyring", () => ({
 import {
   writeOAuthSections,
   readOAuthStore,
+  removeOAuthStore,
   resetOAuthSecretStoreWarnings,
   SECRETS_NAMESPACE_KEY,
 } from "@inspector/core/auth/node/oauth-persist-file.js";
@@ -180,6 +181,21 @@ describe("secrets namespace isolation (#2549)", () => {
     await flushStoreFileWrites(fileA);
     expect(namespaceOf(fileA)).toBe(ns);
   });
+
+  it("removing one profile's state purges only its own entries, not the other's", async () => {
+    const store = new InMemorySecretStore();
+    await writeOAuthSections(fileA, snapshotFor("a"), undefined, store);
+    await writeOAuthSections(fileB, snapshotFor("b"), undefined, store);
+    await flushBoth();
+    const idB = oauthSecretServerId(SERVER, namespaceOf(fileB));
+
+    await removeOAuthStore(fileA, store);
+
+    // B's scoped entry survives A's removal, and B still reads back whole.
+    expect(await store.get(idB, LEGACY_TOKENS_FIELD)).not.toBeNull();
+    const readB = await readOAuthStore(fileB, store);
+    expect(readB?.servers[SERVER]?.tokens).toEqual(tokensFor("b"));
+  });
 });
 
 describe("legacy adoption (#2549)", () => {
@@ -281,6 +297,52 @@ describe("legacy adoption (#2549)", () => {
     expect(
       await store.get(oauthSecretServerId(SERVER, ns2), LEGACY_TOKENS_FIELD),
     ).toBe(JSON.stringify(tokensFor("stale-legacy")));
+  });
+
+  it("a failed legacy purge still attempts every remaining legacy id", async () => {
+    const store = new InMemorySecretStore();
+    await seedLegacy(store);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    // The first purge (the server's legacy id) fails; the idp session's
+    // must still be attempted rather than abandoned (best-effort per id).
+    const realDelete = store.deleteAllForServer.bind(store);
+    vi.spyOn(store, "deleteAllForServer").mockImplementation(async (id) => {
+      if (id === oauthSecretServerId(SERVER)) {
+        throw new Error("purge refused");
+      }
+      return realDelete(id);
+    });
+
+    await writeOAuthSections(
+      fileA,
+      {
+        servers: { "https://other.example": { scope: "x" } },
+        idpSessions: {},
+      },
+      { servers: ["https://other.example"] },
+      store,
+    );
+    await flushStoreFileWrites(fileA);
+
+    const ns = namespaceOf(fileA);
+    // Both moves landed, and the idp legacy original was purged despite the
+    // earlier server purge failing.
+    expect(
+      await store.get(oauthSecretServerId(SERVER, ns), LEGACY_TOKENS_FIELD),
+    ).toBe(JSON.stringify(tokensFor("legacy")));
+    expect(
+      await store.get(oauthIdpSecretServerId(ISSUER, ns), IDP_SESSION_FIELD),
+    ).toBe(JSON.stringify({ tokens: tokensFor("idp") }));
+    expect(
+      await store.get(oauthIdpSecretServerId(ISSUER), IDP_SESSION_FIELD),
+    ).toBeNull();
+    // The failed purge left its legacy original behind, warned not thrown.
+    expect(
+      await store.get(oauthSecretServerId(SERVER), LEGACY_TOKENS_FIELD),
+    ).toBe(JSON.stringify(tokensFor("legacy")));
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("legacy un-namespaced secret-store entries"),
+    );
   });
 
   it("an invalid secretsNamespace is ignored on read (legacy ids) and replaced on save", async () => {

@@ -235,23 +235,6 @@ export class OAuthStateFileUnrecognizedError extends Error {
 }
 
 /**
- * Locked-read helper for the mutation paths: parse the OAuth state file,
- * distinguishing "absent" (null) from "present but unrecognized" (refuse —
- * see {@link OAuthStateFileUnrecognizedError}).
- */
-async function readDiskForMutation(
-  filePath: string,
-  action: "save" | "remove",
-): Promise<OAuthPersistSnapshot | null> {
-  const raw = await readStoreFile(filePath);
-  const parsed = parseOAuthPersistBlob(raw);
-  if (raw !== null && parsed === null) {
-    throw new OAuthStateFileUnrecognizedError(filePath, action);
-  }
-  return parsed;
-}
-
-/**
  * Top-level state-file key holding the file's secrets namespace (#2549): a
  * UUID minted per state file and baked into every secret-store id the file's
  * entries use (see `oauthSecretServerId`). It is what keeps two state files
@@ -395,12 +378,14 @@ async function adoptSecretsNamespace(
     await restoreSecretFields(secretStore, touched, warnRestoreFailure);
     throw error;
   }
-  try {
-    for (const { legacyId } of moves) {
+  // Per-id catch: one failed purge must not abandon the remaining legacy
+  // ids — each gets its own best-effort attempt.
+  for (const { legacyId } of moves) {
+    try {
       await secretStore.deleteAllForServer(legacyId);
+    } catch (error) {
+      warnNamespaceCleanupFailure(error);
     }
-  } catch (error) {
-    warnNamespaceCleanupFailure(error);
   }
   return namespace;
 }
@@ -556,8 +541,12 @@ export async function writeOAuthSections(
   await withOAuthStateLock(filePath, "save", async () => {
     // The namespace scoping every store id below; minted (and legacy
     // entries moved) on this file's first namespaced write. Resolved once
-    // per save, inside the lock: an attempt retry must not re-adopt.
-    const namespace = await adoptSecretsNamespace(filePath, secretStore);
+    // per save, inside the lock: an attempt retry never re-ADOPTS — but it
+    // may re-KEY. Under degraded (unlocked) locking a concurrent first
+    // writer can adopt a different namespace and win the file between this
+    // read and an attempt's write, so each attempt below re-checks the
+    // namespace observed on disk and converges onto it (`let`, not `const`).
+    let namespace = await adoptSecretsNamespace(filePath, secretStore);
     // Restore baseline for every failure exit below. For each touched
     // (server, field) it holds the latest store value NOT written by this
     // call: the pre-operation value, superseded by a concurrent writer's
@@ -704,10 +693,34 @@ export async function writeOAuthSections(
 
       // The disk read sits inside the try too: on a retry the store already
       // holds an earlier attempt's writes, and a concurrent writer replacing
-      // the file with something unrecognized would otherwise make
-      // `readDiskForMutation` throw past the loop without any rollback.
+      // the file with something unrecognized would otherwise throw past the
+      // loop without any rollback. Read raw, not just parsed: the namespace
+      // check below needs the unparsed blob.
       try {
-        const disk = await readDiskForMutation(filePath, "save");
+        const rawDisk = await readStoreFile(filePath);
+        const disk = parseOAuthPersistBlob(rawDisk);
+        if (rawDisk !== null && disk === null) {
+          throw new OAuthStateFileUnrecognizedError(filePath, "save");
+        }
+        // Namespace convergence: under degraded (unlocked) locking a
+        // concurrent first writer can adopt a different namespace and win
+        // the file after our adoption read. The merge below already
+        // converges the *data* onto what they left; the namespace must
+        // converge the same way, or every retry re-stamps our own mint and
+        // the two writers ping-pong, stranding the loser's secrets under a
+        // namespace the final file no longer references. Re-key to the
+        // namespace observed on disk, first rolling earlier attempts' store
+        // writes (all keyed under the abandoned namespace) back to baseline.
+        const diskNamespace = parseSecretsNamespace(rawDisk);
+        if (diskNamespace !== undefined && diskNamespace !== namespace) {
+          await restoreToBaseline();
+          restoreBaseline.clear();
+          ourWrites.clear();
+          // Our unconfirmed write carried the abandoned namespace, and the
+          // read above proves the file no longer holds it.
+          unconfirmed = null;
+          namespace = diskNamespace;
+        }
         // Deduplicated: caller-passed sections may repeat a URL/issuer, and a
         // second pass over the same entry would snapshot the value the first
         // pass just wrote — a rollback would then "restore" that intermediate
