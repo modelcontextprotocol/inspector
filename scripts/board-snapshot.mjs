@@ -59,7 +59,13 @@ export function main(argv = process.argv.slice(2), spawn = spawnSync) {
   // itemListComplete throws on a truncated dump, so nothing partial is written.
   const dump = itemListComplete(spawn, board);
   const path = join(target, `board-${board}-snapshot.json`);
-  writeFileSync(path, JSON.stringify(dump, null, 2));
+  // The dump is private: 0600 so a shared --dir (e.g. /tmp) never leaves it
+  // world-readable, and "wx" so an existing file (or a symlink planted at the
+  // path) is refused rather than followed or overwritten.
+  writeFileSync(path, JSON.stringify(dump, null, 2), {
+    mode: 0o600,
+    flag: "wx",
+  });
   console.log(`snapshot: ${path} (${dump.totalCount} items)`);
 }
 

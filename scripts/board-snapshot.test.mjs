@@ -5,7 +5,13 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, readdirSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  statSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -45,6 +51,9 @@ test("main writes the verified dump and prints its path", (t) => {
   const path = join(dir, "board-28-snapshot.json");
   assert.deepEqual(lines, [`snapshot: ${path} (1 items)`]);
   assert.deepEqual(JSON.parse(readFileSync(path, "utf8")).items, ITEMS);
+  // The dump is private: owner-only, and an existing file is never reused.
+  assert.equal(statSync(path).mode & 0o777, 0o600);
+  assert.throws(() => main(["--dir", dir], spawnScript(1)), /EEXIST/);
 });
 
 test("main writes nothing from a truncated dump", () => {

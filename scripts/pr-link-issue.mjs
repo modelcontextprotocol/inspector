@@ -25,7 +25,10 @@ import {
 
 const ISSUE_ID_QUERY = `query($n:Int!){repository(owner:"${OWNER}",name:"${REPO}"){issue(number:$n){id}}}`;
 const LINK_MUTATION = `mutation($i:ID!,$p:[ID!]!){addCloseIssueReferences(input:{issueId:$i, pullRequestIds:$p}){clientMutationId}}`;
-const VERIFY_QUERY = `query($n:Int!){repository(owner:"${OWNER}",name:"${REPO}"){pullRequest(number:$n){closingIssuesReferences(first:10){nodes{number}}}}}`;
+// `first:100` is the connection's maximum page — with `first:10` a PR already
+// linked to ten issues would verify the wrong page and report a successful
+// mutation as a failure.
+const VERIFY_QUERY = `query($n:Int!){repository(owner:"${OWNER}",name:"${REPO}"){pullRequest(number:$n){closingIssuesReferences(first:100){nodes{number}}}}}`;
 
 export function parseLinkArgs(argv) {
   const { values } = parseArgs({

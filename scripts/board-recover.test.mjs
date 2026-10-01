@@ -5,7 +5,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { lostGrouping, main, parseRecoverArgs } from "./board-recover.mjs";
@@ -26,16 +26,22 @@ test("parseRecoverArgs demands each phase's own inputs", () => {
   );
 });
 
-test("lostGrouping groups what the lost cards held in the snapshot", () => {
+test("lostGrouping keeps only cards that lost a snapshot value", () => {
   const snapshot = [
     { id: "a", status: "Done" },
     { id: "b", status: "Done" },
-    { id: "c", status: null },
-    { id: "d", status: "Todo" }, // not lost — untouched
+    { id: "c", status: null }, // blank before the deletion — not lost
+    { id: "d", status: "Todo" }, // untouched
   ];
-  assert.deepEqual(lostGrouping(snapshot, ["a", "b", "c"], "Status"), [
-    { value: "Done", count: 2 },
-    { value: "(none)", count: 1 },
+  const broken = [
+    { id: "a", status: null },
+    { id: "b", status: null },
+    { id: "c", status: null },
+    { id: "d", status: "Todo" },
+    { id: "e", status: null }, // added after the snapshot — not lost
+  ];
+  assert.deepEqual(lostGrouping(snapshot, broken, "Status"), [
+    { value: "Done", count: 2, ids: ["a", "b"] },
   ]);
 });
 
@@ -70,7 +76,61 @@ test("diff writes lost-ids.json beside the snapshot and prints the grouping", as
   );
   const lostPath = join(dir, "lost-ids.json");
   assert.deepEqual(JSON.parse(readFileSync(lostPath, "utf8")), ["a"]);
-  assert.deepEqual(lines, ["was Done: 1", `lost: 1 cards → ${lostPath}`]);
+  assert.deepEqual(lines, [
+    "was Done: 1",
+    `lost: 1 cards (all "Done") → ${lostPath}`,
+  ]);
+});
+
+test("diff refuses to write lost-ids.json when lost cards held mixed values", async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "board-recover-test-"));
+  const snapshotPath = join(dir, "board-28-snapshot.json");
+  writeFileSync(
+    snapshotPath,
+    JSON.stringify({
+      items: [
+        { id: "a", status: "Done" },
+        { id: "b", status: "Todo" },
+      ],
+    }),
+  );
+  const lines = [];
+  const errors = [];
+  t.mock.method(console, "log", (line) => lines.push(line));
+  t.mock.method(console, "error", (line) => errors.push(line));
+  const previousExitCode = process.exitCode;
+  try {
+    await main(
+      ["--phase", "diff", "--snapshot", snapshotPath],
+      dumpSpawn([
+        { id: "a", status: null },
+        { id: "b", status: null },
+      ]),
+    );
+    assert.equal(process.exitCode, 1);
+  } finally {
+    process.exitCode = previousExitCode;
+  }
+  assert.ok(!existsSync(join(dir, "lost-ids.json")));
+  assert.deepEqual(lines, ["was Done: 1", "was Todo: 1"]);
+  assert.match(errors.join("\n"), /2 different values/);
+});
+
+test("diff reports nothing to recover when no card lost a value", async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "board-recover-test-"));
+  const snapshotPath = join(dir, "board-28-snapshot.json");
+  writeFileSync(
+    snapshotPath,
+    JSON.stringify({ items: [{ id: "a", status: "Done" }] }),
+  );
+  const lines = [];
+  t.mock.method(console, "log", (line) => lines.push(line));
+  await main(
+    ["--phase", "diff", "--snapshot", snapshotPath],
+    dumpSpawn([{ id: "a", status: "Done" }]),
+  );
+  assert.ok(!existsSync(join(dir, "lost-ids.json")));
+  assert.deepEqual(lines, ["lost: 0 cards — nothing to recover"]);
 });
 
 test("diff refuses a truncated broken-board dump", async () => {

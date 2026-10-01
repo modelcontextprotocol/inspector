@@ -8,12 +8,14 @@
 //   npm run board:recover -- --phase diff --snapshot <path> [--field Status]
 //   npm run board:recover -- --phase reapply --lost <path> --option-id <id>
 //
-// `diff` dumps the broken board (complete or refused), writes the orphaned
-// item ids to lost-ids.json BESIDE the snapshot, and groups what those cards
-// held in the snapshot — the safety check that the orphaned set is exactly
-// the cards that held the deleted option, not ones someone legitimately
-// moved. `reapply` re-applies the NEW option id (the deleted one never comes
-// back) to each lost card, paced to stay under the API's abuse limits.
+// `diff` dumps the broken board (complete or refused) and compares it against
+// the snapshot: a card is LOST only when it is null now AND held a value in
+// the snapshot — a card already blank in the snapshot, or added since, is not
+// recovery's to touch. The lost ids are written to lost-ids.json BESIDE the
+// snapshot only when every lost card held the SAME snapshot value, since
+// reapply assigns one option id to all of them; a mixed grouping is printed
+// and refused. `reapply` re-applies the NEW option id (the deleted one never
+// comes back) to each lost card, paced to stay under the API's abuse limits.
 
 import { spawnSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
@@ -78,18 +80,32 @@ export function parseRecoverArgs(argv) {
 /** item-list exposes each single-select field under its lowercased name. */
 const fieldKey = (field) => field.toLowerCase();
 
-/** Group what the lost cards held in the snapshot: [{ value, count }]. */
-export function lostGrouping(snapshotItems, lostIds, field) {
-  const lost = new Set(lostIds);
-  const counts = new Map();
+/**
+ * Cards null in the broken dump that held a value in the snapshot, grouped by
+ * that value: [{ value, count, ids }]. A card null in both dumps was blank
+ * before the deletion, and a card absent from the snapshot was added after it
+ * — neither is recovery's to overwrite, so both are excluded.
+ */
+export function lostGrouping(snapshotItems, brokenItems, field) {
+  const key = fieldKey(field);
+  const held = new Map();
   for (const item of snapshotItems) {
-    if (!lost.has(item.id)) {
+    if (item[key] != null) {
+      held.set(item.id, item[key]);
+    }
+  }
+  const groups = new Map();
+  for (const item of brokenItems) {
+    if (item[key] != null || !held.has(item.id)) {
       continue;
     }
-    const value = item[fieldKey(field)] ?? "(none)";
-    counts.set(value, (counts.get(value) ?? 0) + 1);
+    const value = held.get(item.id);
+    const group = groups.get(value) ?? { value, count: 0, ids: [] };
+    group.count += 1;
+    group.ids.push(item.id);
+    groups.set(value, group);
   }
-  return [...counts.entries()].map(([value, count]) => ({ value, count }));
+  return [...groups.values()];
 }
 
 export async function main(
@@ -98,7 +114,6 @@ export async function main(
   sleep = delay,
 ) {
   const parsed = parseRecoverArgs(argv);
-  const key = fieldKey(parsed.field);
 
   if (parsed.phase === "diff") {
     const snapshot = JSON.parse(readFileSync(parsed.snapshot, "utf8"));
@@ -108,19 +123,31 @@ export async function main(
     // itemListComplete refuses a truncated dump, so lost-ids.json is written
     // only from a complete picture of the broken board.
     const broken = itemListComplete(spawn, parsed.board);
-    const lostIds = broken.items
-      .filter((item) => item[key] == null)
-      .map((item) => item.id);
-    const lostPath = join(dirname(parsed.snapshot), "lost-ids.json");
-    writeFileSync(lostPath, JSON.stringify(lostIds, null, 2));
-    for (const { value, count } of lostGrouping(
-      snapshot.items,
-      lostIds,
-      parsed.field,
-    )) {
+    const groups = lostGrouping(snapshot.items, broken.items, parsed.field);
+    for (const { value, count } of groups) {
       console.log(`was ${value}: ${count}`);
     }
-    console.log(`lost: ${lostIds.length} cards → ${lostPath}`);
+    const lostPath = join(dirname(parsed.snapshot), "lost-ids.json");
+    if (groups.length === 0) {
+      console.log("lost: 0 cards — nothing to recover");
+      return;
+    }
+    // Reapply assigns ONE option id to every lost card, so the lost set is
+    // only actionable when it held a single value. A mixed grouping means
+    // something besides the option deletion blanked cards — refuse it.
+    if (groups.length > 1) {
+      process.exitCode = 1;
+      console.error(
+        `lost cards held ${groups.length} different values — one option id ` +
+          `cannot restore them all; not writing ${lostPath}`,
+      );
+      return;
+    }
+    const lostIds = groups[0].ids;
+    writeFileSync(lostPath, JSON.stringify(lostIds, null, 2));
+    console.log(
+      `lost: ${lostIds.length} cards (all "${groups[0].value}") → ${lostPath}`,
+    );
     return;
   }
 

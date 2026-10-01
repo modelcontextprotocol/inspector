@@ -318,11 +318,14 @@ npm run board:recover -- --phase diff --snapshot <path-from-board:snapshot>
 npm run board:recover -- --phase reapply --lost <dir>/lost-ids.json --option-id <NEW_OPTION_ID>
 ```
 
-Step 1's grouping is the safety check: confirm the orphaned set is exactly the
-cards that held the deleted option, so you don't overwrite a card someone
-legitimately moved in the meantime. Step 3 refuses to run without step 1's
-file, so neither a truncated dump nor a missing snapshot can turn into a
-silent no-op or an unconfirmed re-apply.
+Step 1's grouping is the safety check, and the script enforces it: a card is
+counted as lost only when it is blank now **and** held a value in the snapshot
+(a card blank before the deletion, or added since, is excluded), and
+`lost-ids.json` is written only when every lost card held the **same** value —
+a mixed grouping is printed and refused, since one option id cannot restore
+two. Step 3 refuses to run without step 1's file, so neither a truncated dump
+nor a missing snapshot can turn into a silent no-op or an unconfirmed
+re-apply.
 
 Because the recreated option carries a **new id**, the tables above and every
 reference to it must be updated in the same change — `grep` the old id across
