@@ -640,7 +640,7 @@ describe("OAuth persistence", () => {
       // the file still exists (#2549).
       const { secretsNamespace } = JSON.parse(
         readFileSync(join(tempDir, "oauth.json"), "utf-8"),
-      );
+      ) as { secretsNamespace: string };
       const id = oauthSecretServerId("https://example.com", secretsNamespace);
       expect(await secretStore.get(id, LEGACY_TOKENS_FIELD)).not.toBeNull();
 
