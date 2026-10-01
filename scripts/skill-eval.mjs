@@ -717,9 +717,17 @@ export function agentEnv(agent, source = process.env) {
         // set, and dropping them fails auth on those runs.
         ["ANTHROPIC_", "CLAUDE_", "XDG_", "AWS_", "GOOGLE_", "CLOUD_ML_"];
   const env = {};
+  // Windows environment keys keep mixed-case spellings (`Path`, `SystemRoot`,
+  // `ComSpec`), so the base-list match is case-insensitive; the original
+  // spelling is preserved in the returned env. Prefixes stay case-sensitive —
+  // the vendor vars they name are uppercase on every platform.
+  const baseUpper = base.map((k) => k.toUpperCase());
   for (const key of Object.keys(source)) {
     if (source[key] === undefined) continue;
-    if (base.includes(key) || prefixes.some((p) => key.startsWith(p))) {
+    if (
+      baseUpper.includes(key.toUpperCase()) ||
+      prefixes.some((p) => key.startsWith(p))
+    ) {
       env[key] = source[key];
     }
   }

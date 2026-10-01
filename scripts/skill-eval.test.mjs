@@ -1093,6 +1093,23 @@ test("agentEnv: agents get only process basics and their own credentials", () =>
   assert.ok(!("GOOGLE_APPLICATION_CREDENTIALS" in copilot));
 });
 
+test("agentEnv: mixed-case Windows base keys pass through with spelling intact", () => {
+  const source = {
+    Path: "C:\\Windows;C:\\Windows\\System32",
+    SystemRoot: "C:\\Windows",
+    ComSpec: "C:\\Windows\\System32\\cmd.exe",
+    AppData: "C:\\Users\\dev\\AppData\\Roaming",
+    // Mixed case only helps base-list names; prefixes stay case-sensitive.
+    Anthropic_Api_Key: "not-a-real-prefix-match",
+  };
+  const env = agentEnv("claude", source);
+  assert.equal(env.Path, source.Path);
+  assert.equal(env.SystemRoot, source.SystemRoot);
+  assert.equal(env.ComSpec, source.ComSpec);
+  assert.equal(env.AppData, source.AppData);
+  assert.ok(!("Anthropic_Api_Key" in env));
+});
+
 test("runPrompt: spawned agent env is minimal plus the caller's overlay", async () => {
   process.env.SKILL_EVAL_TEST_SECRET = "leak-me-not";
   try {

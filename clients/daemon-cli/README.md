@@ -108,7 +108,7 @@ wrap the stdio command in a container — this works today with no mcpdo
 support:
 
 ```bash
-mcpdo connect docker run -i --rm --network none -v "$PWD:/work:ro" <server-image>
+mcpdo connect -- docker run -i --rm --network none -v "$PWD:/work:ro" <server-image>
 ```
 
 Tighten or loosen the flags per server (drop `--network none` if it needs
