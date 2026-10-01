@@ -50,6 +50,19 @@ vi.mock("@napi-rs/keyring", () => ({
   findCredentialsAsync: keyringMocks.findCredentialsAsync,
 }));
 
+// Passthrough mock so one test can make adoption's stamp write fail at the
+// commit point; every other call runs the real implementation.
+vi.mock("@inspector/core/storage/store-io.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<
+      typeof import("@inspector/core/storage/store-io.js")
+    >();
+  return {
+    ...actual,
+    writeStoreFile: vi.fn(actual.writeStoreFile),
+  };
+});
+
 import {
   writeOAuthSections,
   readOAuthStore,
@@ -62,6 +75,7 @@ import {
   KeyringSecretStore,
   type SecretStore,
 } from "@inspector/core/auth/node/secret-store.js";
+import { FileSecretStore } from "@inspector/core/auth/node/file-secret-store.js";
 import {
   PERSIST_TOKENS_ENV,
   oauthSecretServerId,
@@ -163,6 +177,15 @@ describe("secrets namespace isolation (#2549)", () => {
     expect(
       accounts.filter((a) => a.includes(encodeURIComponent(SERVER))),
     ).toHaveLength(2);
+  });
+
+  it("keeps them apart on the file backend too (acceptance criterion)", async () => {
+    // The real FileSecretStore: nested secrets-file locking and serialized
+    // whole-file mutations are backend-specific and not represented by the
+    // in-memory double.
+    await assertTwoProfileIsolation(
+      new FileSecretStore({ filePath: join(tempDir, "secrets.json") }),
+    );
   });
 
   it("mints a valid namespace on a fresh file's first write and keeps it on later saves", async () => {
@@ -414,5 +437,69 @@ describe("legacy adoption (#2549)", () => {
       unknown
     >;
     expect(parsed[SECRETS_NAMESPACE_KEY]).toBeUndefined();
+  });
+
+  it("rolls the scoped copies back when the commit-point stamp write fails", async () => {
+    const store = new InMemorySecretStore();
+    await seedLegacy(store);
+    // Copies land, then the state-file stamp — the migration's commit
+    // point — rejects. The copies must be removed and the legacy file and
+    // ids left authoritative for the retry.
+    vi.mocked(writeStoreFile).mockImplementationOnce(async () => {
+      throw new Error("disk full during stamp");
+    });
+
+    await expect(
+      writeOAuthSections(fileA, snapshotFor("new"), undefined, store),
+    ).rejects.toThrow("disk full during stamp");
+
+    // The namespace the failed stamp would have committed (from the blob
+    // handed to the rejected write) holds no copies.
+    const attempted = vi.mocked(writeStoreFile).mock.calls.at(-1)?.[1];
+    const ns = (JSON.parse(attempted as string) as Record<string, unknown>)[
+      SECRETS_NAMESPACE_KEY
+    ] as string;
+    expect(isValidSecretsNamespace(ns)).toBe(true);
+    expect(
+      await store.get(oauthSecretServerId(SERVER, ns), LEGACY_TOKENS_FIELD),
+    ).toBeNull();
+    expect(
+      await store.get(oauthIdpSecretServerId(ISSUER, ns), IDP_SESSION_FIELD),
+    ).toBeNull();
+    // Legacy entries are intact and the file is still un-stamped.
+    expect(
+      await store.get(oauthSecretServerId(SERVER), LEGACY_TOKENS_FIELD),
+    ).toBe(JSON.stringify(tokensFor("legacy")));
+    expect(
+      await store.get(oauthIdpSecretServerId(ISSUER), IDP_SESSION_FIELD),
+    ).toBe(JSON.stringify({ tokens: tokensFor("idp") }));
+    const parsed = JSON.parse(readFileSync(fileA, "utf8")) as Record<
+      string,
+      unknown
+    >;
+    expect(parsed[SECRETS_NAMESPACE_KEY]).toBeUndefined();
+  });
+
+  it("removing a still-legacy profile purges the shared legacy ids — deliberately", async () => {
+    // A pre-namespace file's live index IS the shared legacy ids, and the
+    // file being deleted is the store's only index of them: skipping the
+    // purge would strand credentials in the shared store with nothing left
+    // able to find or clear them. So removal keeps the pre-namespace
+    // world's semantics — another still-legacy profile sharing the server
+    // re-authorizes once, the same cost it pays when a sibling adopts.
+    // Isolation on removal is a property of *stamped* files (covered
+    // above), not a retroactive one.
+    const store = new InMemorySecretStore();
+    await seedLegacy(store);
+
+    await removeOAuthStore(fileA, store);
+
+    expect(
+      await store.get(oauthSecretServerId(SERVER), LEGACY_TOKENS_FIELD),
+    ).toBeNull();
+    expect(
+      await store.get(oauthIdpSecretServerId(ISSUER), IDP_SESSION_FIELD),
+    ).toBeNull();
+    expect(() => readFileSync(fileA, "utf8")).toThrow();
   });
 });

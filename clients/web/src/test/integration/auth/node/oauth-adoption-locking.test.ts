@@ -134,6 +134,26 @@ describe("legacy adoption under a degraded (unlocked) file lock", () => {
     ).not.toBeNull();
   });
 
+  it("still mints for a recognized but entry-less legacy file", async () => {
+    // `{ servers: {}, idpSessions: {} }` indexes no store ids, so there is
+    // no destructive race to guard — refusing it would leave users on
+    // lock-hostile filesystems unable to save forever.
+    await writeStoreFile(
+      filePath,
+      JSON.stringify({ servers: {}, idpSessions: {} }),
+    );
+    await flushStoreFileWrites(filePath);
+
+    await writeOAuthSections(filePath, snapshotFor("empty"), undefined, store);
+    await flushStoreFileWrites(filePath);
+
+    const ns = fileNamespace(filePath);
+    expect(isValidSecretsNamespace(ns)).toBe(true);
+    expect(
+      await store.get(oauthSecretServerId(SERVER, ns), LEGACY_TOKENS_FIELD),
+    ).not.toBeNull();
+  });
+
   it("still saves against an already-stamped file under its namespace", async () => {
     await writeOAuthSections(filePath, snapshotFor("first"), undefined, store);
     await flushStoreFileWrites(filePath);

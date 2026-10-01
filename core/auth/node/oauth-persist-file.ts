@@ -341,8 +341,9 @@ function warnNamespaceCleanupFailure(error: unknown): void {
  * can win the file, stranding the first's copies under an abandoned
  * namespace. Under the lock adopters serialize (the second sees the
  * first's stamp and returns it); degraded, this refuses the one-time
- * migration loudly rather than risking that loss. Mint-only adoption
- * stays allowed unlocked — there is nothing to move, and a concurrent
+ * migration loudly rather than risking that loss. Mint-only adoption —
+ * a file that is absent, or recognized but indexing no entries — stays
+ * allowed unlocked: there is nothing to move, and a concurrent
  * mint converges via the namespace re-key in `writeOAuthSections`.
  */
 async function adoptSecretsNamespace(
@@ -359,11 +360,6 @@ async function adoptSecretsNamespace(
   }
   const namespace = newSecretsNamespace();
   if (snapshot === null) return namespace;
-  if (!locked) {
-    throw new SecretStoreUnavailableError(
-      `Could not save OAuth state: ${filePath} predates per-state-file secret namespaces, and migrating its secret-store entries needs the file lock, which is unavailable here (see the lock warning above). Migrating without it could lose credentials if two processes migrate at once. Nothing was changed; make the lock directory writable and retry.`,
-    );
-  }
 
   const moves = [
     ...Object.entries(snapshot.servers).map(([url, state]) => ({
@@ -377,6 +373,16 @@ async function adoptSecretsNamespace(
       fields: [IDP_SESSION_FIELD],
     })),
   ];
+  // A recognized but entry-less legacy file indexes no store ids, so no
+  // destructive race exists — it mints like a fresh file, locked or not
+  // (the save that follows writes the namespace to disk).
+  if (moves.length === 0) return namespace;
+  if (!locked) {
+    throw new SecretStoreUnavailableError(
+      `Could not save OAuth state: ${filePath} predates per-state-file secret namespaces, and migrating its secret-store entries needs the file lock, which is unavailable here (see the lock warning above). Migrating without it could lose credentials if two processes migrate at once. Nothing was changed; make the lock directory writable and retry.`,
+    );
+  }
+
   // Rollback baseline: the scoped ids are vacant before this call — the
   // namespace is a UUID minted moments ago, so nothing can already live
   // under it — which makes "restore" simply "delete what we copied".
