@@ -171,6 +171,19 @@ gh project item-edit --project-id PVT_kwDOCt2Azc4BA5sz --id "$ITEM_ID" \
 
 ### Move an existing card
 
+**For a plain Status move, use the script** (`scripts/board-card-status.mjs`,
+#2558) — it does everything this recipe describes (name-resolved ids,
+issue-side lookup, edit, verify re-read) and prints `card: <Status>` only on a
+confirmed move:
+
+```sh
+npm run board:status -- --issue <N> --status "In Review"   # --board 11 for a v1 issue
+```
+
+The manual recipe below remains for what the script does not do — capturing an
+`ITEM_ID` for a **delete**, or adapting the lookup for another field — and as
+the record of how the lookup works.
+
 Look the item id up **from the issue** rather than re-adding it. An issue's
 `projectItems` lists the cards it has on every board, so the lookup does not
 depend on how many items the board holds (see [Finding a card without trusting
