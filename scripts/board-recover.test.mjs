@@ -182,6 +182,23 @@ test("diff removes a stale lost-ids.json before doing anything", async (t) => {
   assert.ok(!existsSync(lostPath));
 });
 
+test("diff refuses a snapshot path inside the repo", async () => {
+  // lost-ids.json is derived beside the snapshot — written in the worktree
+  // it is private board data one `git add -A` from a PR.
+  await assert.rejects(
+    main(
+      [
+        "--phase",
+        "diff",
+        "--snapshot",
+        join(process.cwd(), "board-28-snapshot.json"),
+      ],
+      () => assert.fail("nothing should be spawned"),
+    ),
+    /private/,
+  );
+});
+
 test("reapply edits each lost card with pacing and reports the count", async (t) => {
   const dir = mkdtempSync(join(tmpdir(), "board-recover-test-"));
   const lostPath = join(dir, "lost-ids.json");
@@ -198,6 +215,20 @@ test("reapply edits each lost card with pacing and reports the count", async (t)
         status: 0,
         stdout: JSON.stringify({
           fields: [{ id: "F_status", name: "Status" }],
+        }),
+        stderr: "",
+      };
+    }
+    if (joined.includes("item-list")) {
+      // The pre-mutation re-read: both cards still exist and are still blank.
+      return {
+        status: 0,
+        stdout: JSON.stringify({
+          items: [
+            { id: "a", status: null },
+            { id: "b", status: null },
+          ],
+          totalCount: 2,
         }),
         stderr: "",
       };
@@ -231,5 +262,59 @@ test("reapply refuses a lost file that is not a list of ids", async () => {
       assert.fail("nothing should be spawned");
     }),
     /not a list of item ids/,
+  );
+});
+
+/** A reapply spawn whose re-read reports the given current items. */
+const reapplySpawn = (items) => (cmd, args) => {
+  const joined = args.join(" ");
+  if (joined.includes("project view")) {
+    return { status: 0, stdout: JSON.stringify({ id: "PVT_x" }), stderr: "" };
+  }
+  if (joined.includes("field-list")) {
+    return {
+      status: 0,
+      stdout: JSON.stringify({ fields: [{ id: "F_status", name: "Status" }] }),
+      stderr: "",
+    };
+  }
+  if (joined.includes("item-list")) {
+    return {
+      status: 0,
+      stdout: JSON.stringify({ items, totalCount: items.length }),
+      stderr: "",
+    };
+  }
+  assert.fail(`no edit may run on a stale lost list: ${joined}`);
+};
+
+test("reapply refuses a lost card that is no longer blank", async () => {
+  // Someone legitimately set the card between diff and reapply — the stale
+  // list must not overwrite that newer value.
+  const dir = mkdtempSync(join(tmpdir(), "board-recover-test-"));
+  const lostPath = join(dir, "lost-ids.json");
+  writeFileSync(lostPath, JSON.stringify(["a", "b"]));
+  await assert.rejects(
+    main(
+      ["--phase", "reapply", "--lost", lostPath, "--option-id", "x"],
+      reapplySpawn([
+        { id: "a", status: null },
+        { id: "b", status: "In Progress" },
+      ]),
+    ),
+    /no longer blank.*stale.*re-run --phase diff/s,
+  );
+});
+
+test("reapply refuses a lost card that no longer exists", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "board-recover-test-"));
+  const lostPath = join(dir, "lost-ids.json");
+  writeFileSync(lostPath, JSON.stringify(["a", "gone"]));
+  await assert.rejects(
+    main(
+      ["--phase", "reapply", "--lost", lostPath, "--option-id", "x"],
+      reapplySpawn([{ id: "a", status: null }]),
+    ),
+    /gone or no longer blank.*gone/s,
   );
 });

@@ -25,6 +25,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { requirePositiveInt } from "./lib/gh.mjs";
 import {
   DEFAULT_BOARD,
+  assertOutsideRepo,
   boardFields,
   editItemField,
   itemListComplete,
@@ -116,10 +117,15 @@ export async function main(
   const parsed = parseRecoverArgs(argv);
 
   if (parsed.phase === "diff") {
+    // lost-ids.json is derived BESIDE the snapshot, so a --snapshot inside
+    // the worktree would write private board item ids one `git add -A` from
+    // a PR — the same refusal board:snapshot applies to its --dir.
+    const lostDir = dirname(parsed.snapshot);
+    assertOutsideRepo(lostDir, process.cwd());
     // A previous diff's lost-ids.json must not survive this run: a diff that
     // fails or ends with nothing recoverable would otherwise leave stale ids
     // for reapply to consume. Remove it before anything can fail.
-    const lostPath = join(dirname(parsed.snapshot), "lost-ids.json");
+    const lostPath = join(lostDir, "lost-ids.json");
     rmSync(lostPath, { force: true });
     const snapshot = JSON.parse(readFileSync(parsed.snapshot, "utf8"));
     if (!Array.isArray(snapshot.items)) {
@@ -171,6 +177,24 @@ export async function main(
   );
   if (!field) {
     throw new Error(`board #${parsed.board} has no "${parsed.field}" field`);
+  }
+  // The lost list can go stale between diff and reapply — someone may have
+  // legitimately set one of these cards while the option was being recreated,
+  // or deleted one. Re-read the board NOW and refuse to overwrite anything
+  // that is no longer a blank card; the safety check holds at mutation time,
+  // not only at diff time.
+  const current = itemListComplete(spawn, parsed.board);
+  const byId = new Map(current.items.map((item) => [item.id, item]));
+  const key = fieldKey(parsed.field);
+  const stale = lostIds.filter(
+    (id) => !byId.has(id) || byId.get(id)[key] != null,
+  );
+  if (stale.length > 0) {
+    throw new Error(
+      `${stale.length} of ${lostIds.length} lost cards are gone or no longer ` +
+        `blank (${stale.slice(0, 5).join(", ")}${stale.length > 5 ? ", …" : ""}) ` +
+        `— the lost list is stale; re-run --phase diff and retry`,
+    );
   }
   for (const id of lostIds) {
     editItemField(spawn, project, id, field.id, parsed.optionId);

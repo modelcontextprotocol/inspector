@@ -17,11 +17,15 @@
 //    refused.
 
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, realpathSync, writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, dirname, join, resolve, sep } from "node:path";
+import { join } from "node:path";
 import { parseArgs } from "node:util";
-import { DEFAULT_BOARD, itemListComplete } from "./lib/board.mjs";
+import {
+  DEFAULT_BOARD,
+  assertOutsideRepo,
+  itemListComplete,
+} from "./lib/board.mjs";
 import { requirePositiveInt } from "./lib/gh.mjs";
 
 export function parseSnapshotArgs(argv) {
@@ -39,36 +43,10 @@ export function parseSnapshotArgs(argv) {
 }
 
 /**
- * The canonical form of a path: symlinks resolved. A path that does not
- * exist yet canonicalizes its deepest existing ancestor and re-joins the
- * rest, so a planned subdirectory still anchors to the real tree.
- * `resolve()` alone would let a symlinked `--dir` (e.g. /tmp/to-repo → the
- * worktree) place the private dump inside the repo.
+ * The canonical-path outside-repo refusal lives in lib/board.mjs
+ * (`canonical` / `assertOutsideRepo`) — board-recover.mjs applies the same
+ * check to the directory it derives lost-ids.json into.
  */
-export function canonical(path, realpath = realpathSync) {
-  const full = resolve(path);
-  try {
-    return realpath(full);
-  } catch {
-    const parent = dirname(full);
-    if (parent === full) {
-      return full;
-    }
-    return join(canonical(parent, realpath), basename(full));
-  }
-}
-
-/** Throw when `dir` is inside `cwd` — a snapshot never lands in the worktree. */
-export function assertOutsideRepo(dir, cwd, realpath = realpathSync) {
-  const target = canonical(dir, realpath);
-  const root = canonical(cwd, realpath);
-  if (target === root || target.startsWith(root + sep)) {
-    throw new Error(
-      `refusing to write a board snapshot inside the repo (${target}) — ` +
-        `the boards are private; use a directory outside ${root}`,
-    );
-  }
-}
 
 export function main(argv = process.argv.slice(2), spawn = spawnSync) {
   const { board, dir } = parseSnapshotArgs(argv);

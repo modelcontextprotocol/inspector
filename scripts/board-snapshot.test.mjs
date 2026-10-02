@@ -16,12 +16,8 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  assertOutsideRepo,
-  main,
-  parseSnapshotArgs,
-} from "./board-snapshot.mjs";
-
+import { main, parseSnapshotArgs } from "./board-snapshot.mjs";
+import { assertOutsideRepo } from "./lib/board.mjs";
 test("parseSnapshotArgs defaults the board and passes --dir through", () => {
   assert.deepEqual(parseSnapshotArgs([]), { board: 28, dir: undefined });
   assert.deepEqual(parseSnapshotArgs(["--board", "11", "--dir", "/tmp/x"]), {

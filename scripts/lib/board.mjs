@@ -15,8 +15,45 @@
 //    item-list --limit N` truncates silently past N, so `itemListComplete`
 //    compares `.items | length` against `.totalCount` and throws rather than
 //    letting a truncated dump read as a smaller board (#2451's defect class).
+//  - A private dump NEVER lands inside the repo: `assertOutsideRepo` resolves
+//    symlinks before comparing, so a linked path cannot smuggle board data
+//    into the worktree (one `git add -A` from a PR).
 
+import { realpathSync } from "node:fs";
+import { basename, dirname, join, resolve, sep } from "node:path";
 import { OWNER, REPO, gh, ghGraphql, ghJson } from "./gh.mjs";
+
+/**
+ * The canonical form of a path: symlinks resolved. A path that does not
+ * exist yet canonicalizes its deepest existing ancestor and re-joins the
+ * rest, so a planned subdirectory still anchors to the real tree.
+ * `resolve()` alone would let a symlinked path (e.g. /tmp/to-repo → the
+ * worktree) place a private dump inside the repo.
+ */
+export function canonical(path, realpath = realpathSync) {
+  const full = resolve(path);
+  try {
+    return realpath(full);
+  } catch {
+    const parent = dirname(full);
+    if (parent === full) {
+      return full;
+    }
+    return join(canonical(parent, realpath), basename(full));
+  }
+}
+
+/** Throw when `dir` is inside `cwd` — a private dump never lands in the worktree. */
+export function assertOutsideRepo(dir, cwd, realpath = realpathSync) {
+  const target = canonical(dir, realpath);
+  const root = canonical(cwd, realpath);
+  if (target === root || target.startsWith(root + sep)) {
+    throw new Error(
+      `refusing to write private board data inside the repo (${target}) — ` +
+        `the boards are private; use a directory outside ${root}`,
+    );
+  }
+}
 
 export const DEFAULT_BOARD = 28;
 
