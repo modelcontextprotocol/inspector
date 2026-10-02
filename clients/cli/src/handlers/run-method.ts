@@ -33,6 +33,25 @@ import type {
  * `resources/directory/read`, whose stricter `directoryRead` gate lives in
  * `InspectorClient` itself.
  */
+/**
+ * `JSON.parse` accepts numeric literals JSON cannot represent (`1e999` →
+ * `Infinity`); serializing the request for IPC/MCP would then silently send
+ * `null` instead of the value the user supplied. Reject anything that cannot
+ * round-trip.
+ */
+function assertJsonRoundTrips(value: unknown): void {
+  if (typeof value === "number" && !Number.isFinite(value)) {
+    throw new Error(
+      `${value} has no JSON representation (it would silently be sent as null)`,
+    );
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) assertJsonRoundTrips(item);
+  } else if (value !== null && typeof value === "object") {
+    for (const item of Object.values(value)) assertJsonRoundTrips(item);
+  }
+}
+
 function assertSkillsSupported(
   inspectorClient: InspectorClient,
   method: string,
@@ -45,6 +64,32 @@ function assertSkillsSupported(
     );
   }
 }
+
+/**
+ * Live `resources/subscribe` stream consumers per client and URI. Streams
+ * for the same URI on one connection share a single core subscription
+ * (`subscribeToResource` is a no-op filter update when already subscribed),
+ * so the unsubscribe must be reference-counted: tearing it down when the
+ * first stream closes would leave the survivors open but silent.
+ */
+const resourceStreamRefs = new WeakMap<
+  InspectorClient,
+  Map<string, SharedResourceSubscription>
+>();
+
+/**
+ * One server-side subscription shared by every open subscribe stream for a
+ * given client + URI. The entry is the synchronization point for concurrent
+ * setups: it is reserved synchronously (before any await), so racing streams
+ * all join the same in-flight `ready` promise instead of each subscribing
+ * and corrupting the count. Consumers are counted from reservation; on
+ * subscribe failure each waiter rolls back its own reservation and the last
+ * one out removes the entry so a later subscribe can retry cleanly.
+ */
+type SharedResourceSubscription = {
+  count: number;
+  ready: Promise<void>;
+};
 
 /**
  * Run one MCP method against a connected {@link InspectorClient}.
@@ -190,23 +235,76 @@ export async function runMethod(
           "URI is required for resources/subscribe. Use --uri to specify the resource URI.",
         );
       }
-      await inspectorClient.subscribeToResource(args.uri);
+      let refs = resourceStreamRefs.get(inspectorClient);
+      if (!refs) {
+        refs = new Map();
+        resourceStreamRefs.set(inspectorClient, refs);
+      }
+      const uri = args.uri;
+      // Reserve before awaiting (see SharedResourceSubscription): the first
+      // arrival creates the entry with the in-flight subscribe, and every
+      // concurrent arrival joins it. The stream is only exposed once the
+      // shared subscribe has succeeded.
+      let shared = refs.get(uri);
+      if (!shared) {
+        shared = { count: 0, ready: inspectorClient.subscribeToResource(uri) };
+        refs.set(uri, shared);
+      }
+      const entry = shared;
+      entry.count++;
+      // Attached BEFORE the subscribe handshake completes: a server may
+      // notify immediately after (or with) its subscribe response, and the
+      // stream's consumer only calls start() after this outcome crosses
+      // back through dispatch. Updates landing in that window are buffered
+      // and flushed to the first writeLine; ipc-glue guarantees every
+      // stream outcome is started (inert-started on a vanished caller), so
+      // stop() below always detaches this listener.
+      const buffered: Array<{ type: string; uri: string }> = [];
+      let sink: ((obj: unknown) => void) | undefined;
+      const onUpdate = (ev: Event) => {
+        const detail = (ev as CustomEvent<{ uri: string }>).detail;
+        // Multiple subscribe streams can share one connection; only
+        // forward updates for this stream's URI. Events without a uri
+        // (spec-noncompliant server) still pass through as before.
+        if (detail?.uri !== undefined && detail.uri !== uri) return;
+        const line = { type: "resources/updated", uri: detail?.uri ?? uri };
+        if (sink) sink(line);
+        else buffered.push(line);
+      };
+      inspectorClient.addEventListener("resourceUpdated", onUpdate);
+      try {
+        await entry.ready;
+      } catch (error) {
+        inspectorClient.removeEventListener("resourceUpdated", onUpdate);
+        entry.count--;
+        if (entry.count === 0 && refs.get(uri) === entry) refs.delete(uri);
+        throw error;
+      }
       return {
         kind: "stream",
         label: "resources/subscribe",
         start: (writeLine) => {
           writeLine({ type: "subscribed", uri: args.uri });
-          const onUpdate = (ev: Event) => {
-            const detail = (ev as CustomEvent<{ uri: string }>).detail;
-            writeLine({
-              type: "resources/updated",
-              uri: detail?.uri ?? args.uri,
-            });
-          };
-          inspectorClient.addEventListener("resourceUpdated", onUpdate);
+          for (const line of buffered) writeLine(line);
+          buffered.length = 0;
+          sink = writeLine;
+          let closed = false;
           return () => {
+            // A second stop from any caller must not double-decrement the
+            // shared count.
+            if (closed) return;
+            closed = true;
             inspectorClient.removeEventListener("resourceUpdated", onUpdate);
-            void inspectorClient.unsubscribeFromResource(args.uri!);
+            entry.count--;
+            if (entry.count > 0) return;
+            // Guard against deleting a successor generation: only remove
+            // the mapping if it is still this stream's entry.
+            if (refs.get(uri) === entry) refs.delete(uri);
+            // Catch the rejection here: this stop can run during daemon
+            // shutdown after disconnectAll has closed the client, where the
+            // unsubscribe rejects; a bare `void` would surface that as an
+            // unhandled rejection outside any caller's try/catch.
+            void inspectorClient.unsubscribeFromResource(uri).catch(() => {});
           };
         },
       };
@@ -214,6 +312,17 @@ export async function runMethod(
       if (!args.uri) {
         throw new Error(
           "URI is required for resources/unsubscribe. Use --uri to specify the resource URI.",
+        );
+      }
+      // Subscribe streams share one server-side subscription per URI (see
+      // resourceStreamRefs above). An explicit unsubscribe here would tear
+      // that shared subscription down while the counted streams stay open
+      // and silent — and the last stream's cleanup would unsubscribe again.
+      const activeStreams =
+        resourceStreamRefs.get(inspectorClient)?.get(args.uri)?.count ?? 0;
+      if (activeStreams > 0) {
+        throw new Error(
+          `Cannot unsubscribe: ${activeStreams} active resources/subscribe stream(s) share this URI's subscription. Close those streams (Ctrl-C) instead; the subscription ends when the last one closes.`,
         );
       }
       await inspectorClient.unsubscribeFromResource(args.uri);
@@ -313,6 +422,39 @@ export async function runMethod(
       result = (await inspectorClient.getRequestorTaskResult(
         args.taskId,
       )) as McpResponse;
+    } else if (args.method === "tasks/update") {
+      if (!args.taskId) {
+        throw new Error("Task id is required for tasks/update. Use --task-id.");
+      }
+      if (!args.inputResponsesJson) {
+        throw new Error(
+          "tasks/update requires --input-responses '<json object keyed by inputRequests id>'.",
+        );
+      }
+      let inputResponses: Record<string, unknown>;
+      try {
+        const parsed: unknown = JSON.parse(args.inputResponsesJson);
+        if (
+          typeof parsed !== "object" ||
+          parsed === null ||
+          Array.isArray(parsed)
+        ) {
+          throw new Error("must be a JSON object");
+        }
+        assertJsonRoundTrips(parsed);
+        inputResponses = parsed as Record<string, unknown>;
+      } catch (e) {
+        throw new Error(
+          `--input-responses is invalid: ${e instanceof Error ? e.message : String(e)}`,
+          { cause: e },
+        );
+      }
+      await inspectorClient.updateRequestorTask(args.taskId, inputResponses);
+      // The server acks with an empty result and the task's status advances
+      // only on a subsequent tasks/get poll (updateRequestorTask says so) —
+      // so echo back what was actually sent rather than imply a fresher
+      // status is available here.
+      result = { updated: true, taskId: args.taskId };
     } else if (args.method === "skills/list") {
       // The store's cursor walk is reused rather than re-implemented — it
       // carries the repeated-cursor and page-cap guards, and a second copy of

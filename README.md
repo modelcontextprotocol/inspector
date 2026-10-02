@@ -52,6 +52,8 @@ inspector/
 ├── clients/
 │   ├── web/          Web client (Vite + React + Mantine). src/ = browser app; server/ = Node backend
 │   ├── cli/          CLI client (tsup bundle, @inspector/core alias)
+│   ├── daemon-cli/   Experimental connection CLI (`mcpdo` bin) — bundled into the
+│   │                 published package; see clients/daemon-cli/README.md
 │   ├── tui/          TUI client (Ink + React, tsup bundle)
 │   └── launcher/     Shared launcher — provides the `mcp-inspector` bin, dispatches to web/cli/tui
 ├── core/             Shared code consumed via the `@inspector/core` alias (no package.json)
@@ -61,13 +63,16 @@ inspector/
 │                     and the Docker image's HEALTHCHECK probe
 ├── docs/             Task-oriented guides — see below
 ├── specification/    Design/build specifications
+├── skills/           End-user agent skills (e.g. skills/mcpdo teaches an agent to
+│                     drive the `mcpdo` CLI) — distinct from .claude/skills/,
+│                     which holds this repo's own procedures
 ├── .claude/skills/   Agent skills: the repo's procedures, invokable by name
 ├── AGENTS.md         Contribution rules for agents AND humans
 └── README.md         You are here
 ```
 
 Each client has its own README with client-specific detail:
-[web](./clients/web/README.md) · [cli](./clients/cli/README.md) · [tui](./clients/tui/README.md) · [launcher](./clients/launcher/README.md).
+[web](./clients/web/README.md) · [cli](./clients/cli/README.md) · [mcpdo](./clients/daemon-cli/README.md) · [tui](./clients/tui/README.md) · [launcher](./clients/launcher/README.md).
 
 ## Documentation
 

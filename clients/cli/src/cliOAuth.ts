@@ -215,6 +215,8 @@ export async function runCliInteractiveOAuth(
       createCallbackServer: createOAuthCallbackServer,
       authorizationUrl: options?.authorizationUrl,
       authChallenge: options?.authChallenge,
+      // The CLI has no other Ctrl-C owner; cancel the wait cleanly.
+      handleSignals: true,
     }),
   );
 

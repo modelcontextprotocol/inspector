@@ -49,7 +49,13 @@
 // the run has established it needs one — so they never share a column.
 
 import { spawn } from "node:child_process";
-import { readFileSync, existsSync, readdirSync, statSync } from "node:fs";
+import {
+  readFileSync,
+  existsSync,
+  readdirSync,
+  statSync,
+  appendFileSync,
+} from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { cliSpawnArgs, probeCliVersion } from "./lib/claude-cli.mjs";
@@ -652,6 +658,83 @@ export function stopLiveCopilotRuns(runs = liveCopilotRuns) {
 }
 
 /**
+ * Minimal environment for a spawned agent. The agent under test is a
+ * nondeterministic model with shell access — its actions are untrusted, so it
+ * must not inherit the developer's full environment (arbitrary exported
+ * credentials, cloud keys, tokens). Instead of spreading `process.env`, pick
+ * only what an agent CLI needs to run and authenticate:
+ *
+ * - process basics (PATH, HOME, TMPDIR, locale, terminal),
+ * - proxy configuration, and
+ * - the agent's OWN auth/config vars (ANTHROPIC_ and CLAUDE_ prefixes for
+ *   claude; GITHUB_, GH_, and COPILOT_ prefixes for copilot) — the agent
+ *   needs its credentials, but the other agent's (and everything else)
+ *   stays out.
+ *
+ * HOME remains real because both CLIs keep auth state under it; env
+ * minimization limits what leaks into the model's command environment, not
+ * filesystem access. OS-level isolation (container, VM, dedicated user) is
+ * the runner's responsibility if they want a hard boundary.
+ *
+ * @param {string} agent `claude` or `copilot`.
+ * @param {NodeJS.ProcessEnv} [source] Injectable for tests.
+ * @returns {Record<string, string>}
+ */
+export function agentEnv(agent, source = process.env) {
+  const base = [
+    "PATH",
+    "HOME",
+    "TMPDIR",
+    "TERM",
+    "SHELL",
+    "USER",
+    "LOGNAME",
+    "LANG",
+    "LC_ALL",
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "NO_PROXY",
+    "http_proxy",
+    "https_proxy",
+    "no_proxy",
+    "SSL_CERT_FILE",
+    "NODE_EXTRA_CA_CERTS",
+    // Windows equivalents; harmless no-ops elsewhere.
+    "SYSTEMROOT",
+    "APPDATA",
+    "LOCALAPPDATA",
+    "USERPROFILE",
+    "TEMP",
+    "TMP",
+    "PATHEXT",
+    "COMSPEC",
+  ];
+  const prefixes =
+    agent === "copilot"
+      ? ["GITHUB_", "GH_", "COPILOT_", "XDG_"]
+      : // AWS_/GOOGLE_/CLOUD_ML_ carry Bedrock and Vertex credentials/region;
+        // claude routes through them when CLAUDE_CODE_USE_BEDROCK/VERTEX is
+        // set, and dropping them fails auth on those runs.
+        ["ANTHROPIC_", "CLAUDE_", "XDG_", "AWS_", "GOOGLE_", "CLOUD_ML_"];
+  const env = {};
+  // Windows environment keys keep mixed-case spellings (`Path`, `SystemRoot`,
+  // `ComSpec`), so the base-list match is case-insensitive; the original
+  // spelling is preserved in the returned env. Prefixes stay case-sensitive —
+  // the vendor vars they name are uppercase on every platform.
+  const baseUpper = base.map((k) => k.toUpperCase());
+  for (const key of Object.keys(source)) {
+    if (source[key] === undefined) continue;
+    if (
+      baseUpper.includes(key.toUpperCase()) ||
+      prefixes.some((p) => key.startsWith(p))
+    ) {
+      env[key] = source[key];
+    }
+  }
+  return env;
+}
+
+/**
  * Drive one fresh session and return the payloads the `Skill` tool was called
  * with.
  *
@@ -674,6 +757,18 @@ export function runPrompt(
     maxTurns = 1,
     agent = "claude",
     killFn = killTree,
+    // Additive seams for the mcpdo BEHAVIOR eval (skill-eval-mcpdo.mjs):
+    // `env` merges over the minimal agent environment (the behavior eval puts
+    // a recording shim first on PATH and binds a private daemon), and
+    // `agentArgsFn` replaces the whole argument builder — replacement, not
+    // appending, because a policy that must allow shell cannot be reached by
+    // appending to one that denies it (`--deny-tool shell` has no inverse
+    // flag). Defaults preserve this file's read-only trigger policy exactly.
+    env = null,
+    agentArgsFn = agentArgs,
+    // Optional raw capture of the agent's stdout stream (NDJSON events) for
+    // post-mortem diagnosis of failed samples.
+    rawLogPath = null,
   } = {},
 ) {
   return new Promise((resolve, reject) => {
@@ -685,9 +780,11 @@ export function runPrompt(
     // process table.
     const { command, args, options } = cliSpawnArgs(
       agent,
-      agentArgs(agent, maxTurns),
+      agentArgsFn(agent, maxTurns),
       {
         cwd,
+        // Never the full inherited environment: see agentEnv.
+        env: { ...agentEnv(agent), ...(env ?? {}) },
         stdio: ["pipe", "pipe", "inherit"],
         // Its own process group, so `killTree` can reach the native binary the
         // wrapper starts. Windows has no groups; `taskkill /T` covers it.
@@ -716,6 +813,13 @@ export function runPrompt(
     // stream rather than restarting at each read.
     let turnOffset = 0;
     p.stdout.on("data", (chunk) => {
+      if (rawLogPath !== null) {
+        try {
+          appendFileSync(rawLogPath, chunk);
+        } catch {
+          // Diagnostics only — never fail the run over the raw log.
+        }
+      }
       if (stopped) return;
       const parsed = collect(buf + chunk.toString(), turnOffset);
       buf = parsed.rest;

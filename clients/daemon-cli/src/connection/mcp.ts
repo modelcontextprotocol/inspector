@@ -1,0 +1,1517 @@
+import { Command, type Command as CommandType } from "commander";
+import { existsSync, readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import type { JsonValue } from "@inspector/core/mcp/index.js";
+import type {
+  ElicitCapabilityMode,
+  InspectorServerSettings,
+  ServerProtocolEra,
+} from "@inspector/core/mcp/types.js";
+import {
+  DEFAULT_MAX_FETCH_REQUESTS,
+  DEFAULT_TASK_TTL_MS,
+} from "@inspector/core/mcp/types.js";
+import {
+  loadServerEntries,
+  parseHeaderPair,
+  parseKeyValuePair as parseEnvPair,
+  selectServerEntry,
+} from "@inspector/core/mcp/node/index.js";
+import { type LoggingLevel } from "@modelcontextprotocol/client";
+import { getDefaultEnvironment } from "@modelcontextprotocol/client/stdio";
+import type { MCPServerConfig } from "@inspector/core/mcp/types.js";
+import { LoggingLevelSchema } from "@modelcontextprotocol/core";
+import { CliExitCodeError, EXIT_CODES } from "@inspector/cli/error-handler.js";
+import { callDaemon, ensureDaemon } from "../daemon/index.js";
+import type {
+  ConnectionInfo,
+  ConnectionShowResult,
+  ElicitationRespondParams,
+  ElicitationRespondResult,
+} from "../daemon/protocol.js";
+import {
+  annotateServerEntriesWithConnections,
+  listServerEntries,
+  resolveServerListSource,
+  type ServerListSource,
+  showServerEntry,
+  summarizeServerConfig,
+} from "@inspector/cli/handlers/servers-list.js";
+import { type OutputFormat } from "@inspector/cli/handlers/format-output.js";
+import {
+  DEFAULT_CONNECT_TIMEOUT_MS,
+  withConnectTimeout,
+} from "@inspector/cli/handlers/connect-timeout.js";
+import {
+  CONNECTION_RPC_METHODS,
+  type MethodArgs,
+} from "@inspector/cli/handlers/method-types.js";
+import { authorizeInFrontend } from "./authorize.js";
+import {
+  AUTH_HELPER_COMMAND,
+  obtainPendingAuthUrl,
+  runAuthHelper,
+} from "./auth-helper.js";
+import { isCliAutoOpenForced } from "@inspector/cli/cli-oauth-navigation.js";
+import { emaLogin, emaLogout, getEmaStatus } from "./ema.js";
+import {
+  assertJsonRoundTrips,
+  parseToolCallPositionals,
+  resolveToolCallArgs,
+} from "./parse-tool-args.js";
+import { resolveCommandPath } from "./resolve-command.js";
+import {
+  dispatchConnectionRpc,
+  hoistAtConnection,
+  requireExplicitConnection,
+  stripAt,
+  writeRpcOutcome,
+} from "./dispatch.js";
+import { writeConnectionOutput } from "./format-connection.js";
+import {
+  createPrivateBinding,
+  formatPrivateEnvExports,
+} from "./private-env.js";
+import {
+  clearAllStoredAuth,
+  clearStoredAuth,
+  clearStoredAuthForRelogin,
+  listStoredAuth,
+} from "./stored-auth.js";
+import { styleFromOpts } from "@inspector/cli/style.js";
+import { awaitableLog } from "@inspector/cli/utils/awaitable-log.js";
+import { createInterface } from "node:readline/promises";
+
+function isDaemonUnreachable(error: unknown): boolean {
+  return (
+    error instanceof CliExitCodeError &&
+    error.envelope?.code === "daemon_unreachable"
+  );
+}
+
+/**
+ * `servers/show` with no name falls back to the MRU connection's entry name,
+ * under the same non-interactive gate as MRU connection targeting: an agent
+ * shell must name the entry explicitly. When there is no MRU (no daemon, or
+ * nothing connected), say so — a bare Commander "missing required argument"
+ * doesn't tell the user why a name is needed.
+ */
+async function resolveMruEntryName(): Promise<string> {
+  if (requireExplicitConnection()) {
+    throw new CliExitCodeError(
+      EXIT_CODES.USAGE,
+      "servers/show requires an entry name in non-interactive mode. Pass one (see mcpdo servers/list).",
+      { code: "server_name_required" },
+    );
+  }
+  let connections: ConnectionInfo[] = [];
+  try {
+    const result = await callDaemon<{ connections: ConnectionInfo[] }>(
+      "connections/list",
+      {},
+    );
+    connections = result.connections;
+  } catch (error) {
+    if (!isDaemonUnreachable(error)) throw error;
+  }
+  const mru = connections.find((c) => c.isMru);
+  if (!mru) {
+    throw new CliExitCodeError(
+      EXIT_CODES.USAGE,
+      "No entry name given and there is no most-recently-used connection to infer one from. Pass a catalog entry name (see mcpdo servers/list).",
+      { code: "server_name_required" },
+    );
+  }
+  return mru.name;
+}
+
+/**
+ * The core "not found" error is source-agnostic by design; here we know both
+ * where the list came from and whether the user typed the name. An explicit
+ * name gets the source appended; an MRU-inferred name gets a full explanation,
+ * because "Server 'X' not found" is baffling when the user never typed X —
+ * connections are daemon-global while the catalog is per-shell, so the MRU
+ * connection's entry may simply not exist in this shell's catalog.
+ */
+function describeServerShowNotFound(
+  error: unknown,
+  entryName: string,
+  inferredFromMru: boolean,
+  source: ServerListSource | null,
+): unknown {
+  if (
+    !(error instanceof Error) ||
+    !error.message.startsWith(`Server '${entryName}' not found`)
+  ) {
+    return error;
+  }
+  const where = source
+    ? `${source.kind} ${source.path}`
+    : "the resolved server list";
+  if (inferredFromMru) {
+    return new CliExitCodeError(
+      EXIT_CODES.USAGE,
+      `The most-recently-used connection '${entryName}' has no entry in ${where}. Connections and catalog entries are separate — it may have been connected ad-hoc or from a different catalog. Pass an entry name (see mcpdo servers/list).`,
+      { code: "server_not_found" },
+    );
+  }
+  return new CliExitCodeError(EXIT_CODES.USAGE, `${error.message} (${where})`, {
+    code: "server_not_found",
+  });
+}
+
+/** Commander help/version exits — text already written; not real failures. */
+function isCommanderDisplayOnly(error: unknown): boolean {
+  if (error == null || typeof error !== "object") return false;
+  const code = (error as { code?: unknown }).code;
+  return (
+    code === "commander.help" ||
+    code === "commander.helpDisplayed" ||
+    code === "commander.version"
+  );
+}
+
+type GlobalOpts = {
+  format?: OutputFormat;
+  plain?: boolean;
+  connection?: string;
+  catalog?: string;
+  config?: string;
+  storedAuthOnly?: boolean;
+};
+
+function outOpts(opts: GlobalOpts) {
+  return {
+    format: opts.format,
+    style: styleFromOpts({ plain: opts.plain === true, format: opts.format }),
+  };
+}
+
+const validLogLevels: LoggingLevel[] = Object.values(LoggingLevelSchema.enum);
+
+/**
+ * `--conn` is a documented shorthand for `--connection`. Expanding it at the
+ * argv level keeps a single option registration (one help entry, one
+ * GlobalOpts field) instead of two options merged at every consumption site.
+ * Expansion stops at the first `--`: everything after the separator belongs
+ * to the child process (`connect … -- <server args>`) and must pass through
+ * verbatim.
+ */
+export function expandConnAlias(argv: string[]): string[] {
+  const sep = argv.indexOf("--");
+  const end = sep === -1 ? argv.length : sep;
+  return argv.map((arg, i) =>
+    i >= end
+      ? arg
+      : arg === "--conn"
+        ? "--connection"
+        : arg.startsWith("--conn=")
+          ? `--connection=${arg.slice("--conn=".length)}`
+          : arg,
+  );
+}
+
+/**
+ * Connection-first CLI entry (`mcpdo`). Talks to the implicit connection daemon over
+ * IPC for connect/disconnect/connections and MCP RPCs; `servers/list` and
+ * `servers/show` are local (no daemon).
+ */
+/**
+ * Pin a stdio config's cwd, command, and environment to the CALLER's shell
+ * before it crosses the socket to the daemon.
+ *
+ * The daemon is a persistent detached process: it chdir()s at startup and
+ * keeps the environment of whichever mcpdo invocation first spawned it. Left
+ * unpinned, a relative cwd or bare command name — and every default-inherited
+ * env var the SDK transport fills in (PATH, HOME, SHELL, ...) — would resolve
+ * against that stale context instead of the shell that ran `connect`, which
+ * is what `mcpdo connect node ./server.js` means to the user. A cwd/env
+ * configured in the catalog entry (or flags) still wins; this only pins the
+ * defaults and resolves relative values.
+ */
+export function pinStdioConfigToCaller<T extends MCPServerConfig>(
+  config: T,
+): T {
+  // `type` is optional on stdio configs (stdio is the implicit default), so
+  // narrow by excluding the URL transports rather than matching "stdio".
+  if (config.type === "sse" || config.type === "streamable-http") return config;
+  const resolved = resolveCommandPath(config.command);
+  return {
+    ...config,
+    cwd: path.resolve(config.cwd ?? process.cwd()),
+    ...(resolved !== config.command ? { command: resolved } : {}),
+    // The SDK transport spawns with {...getDefaultEnvironment(), ...env}
+    // evaluated in the DAEMON process; snapshotting the same default set
+    // here makes those fallbacks the caller's.
+    env: { ...getDefaultEnvironment(), ...config.env },
+  };
+}
+
+export async function runMcp(argv?: string[]): Promise<void> {
+  const raw = argv ?? process.argv;
+  const { argv: rewritten, connectionFromAt } = hoistAtConnection(
+    expandConnAlias(raw),
+  );
+
+  const program = new Command();
+  program.exitOverride((err) => {
+    // Help/version already printed. Always throw so Commander does not
+    // process.exit (which would tear down in-process tests); runMcp treats
+    // these as success. Bare `mcpdo` uses code `commander.help` with exitCode 1
+    // — must not reach handleError as an ErrorEnvelope.
+    if (isCommanderDisplayOnly(err)) throw err;
+    if (err.exitCode !== 0) throw err;
+  });
+
+  program
+    .name("mcpdo")
+    .description(
+      "MCP Inspector connection CLI — connect once, run many commands against a named connection.\n\n" +
+        "Agent skill for mcpdo: install with `npx skills add modelcontextprotocol/inspector --skill mcpdo`, or see `agent-help` below.",
+    )
+    .helpOption("-h, --help", "Display help for command")
+    .helpCommand("help [command]", "Display help for command")
+    .option(
+      "--format <format>",
+      "Output format: text (default; human-readable) or json (pretty-printed)",
+      (v: string): OutputFormat => {
+        if (v !== "text" && v !== "json") {
+          throw new Error(`--format must be 'text' or 'json'.`);
+        }
+        return v;
+      },
+    )
+    .option(
+      "--plain",
+      "Disable ANSI styling (color, bold/dim, hyperlinks) in human text output",
+    )
+    .option(
+      "--connection <name>",
+      "Connection name (without required @). Overrides MRU / positional @name. `--conn` is a supported shorthand.",
+    )
+    .option(
+      "--catalog <path>",
+      "Writable catalog file (default: ~/.mcp-inspector/mcp.json or MCP_CATALOG_PATH)",
+    )
+    .option(
+      "--config <path>",
+      "Read-only connection config file (never written or seeded)",
+    )
+    .option(
+      "--stored-auth-only",
+      "Never start interactive OAuth; use the shared store if present, otherwise fail.",
+    );
+
+  if (connectionFromAt) {
+    program.setOptionValue("connection", connectionFromAt);
+  }
+
+  program
+    .command("servers/list")
+    .description(
+      "List catalog/config server entries (marks live connections when the daemon is running; no MCP connection)",
+    )
+    .action(async () => {
+      const opts = program.opts<GlobalOpts>();
+      const envCatalog = process.env.MCP_CATALOG_PATH;
+      const serverOptions = {
+        catalogPath: opts.catalog?.trim() || envCatalog,
+        configPath: opts.config?.trim() || undefined,
+      };
+      const entries = await listServerEntries(serverOptions);
+      const source = resolveServerListSource(serverOptions);
+      let connections: ConnectionInfo[] = [];
+      try {
+        const result = await callDaemon<{ connections: ConnectionInfo[] }>(
+          "connections/list",
+          {},
+        );
+        connections = result.connections;
+      } catch (error) {
+        if (!isDaemonUnreachable(error)) throw error;
+      }
+      await writeConnectionOutput(outOpts(opts), {
+        kind: "servers/list",
+        servers: annotateServerEntriesWithConnections(entries, connections),
+        ...(source && { source }),
+      });
+    });
+
+  program
+    .command("servers/show")
+    .description(
+      "Show one catalog/config entry in detail (no MCP connection; secrets redacted)",
+    )
+    .argument(
+      "[name]",
+      "Catalog entry name (defaults to the MRU connection's entry on an interactive TTY)",
+    )
+    .action(async (name: string | undefined) => {
+      const opts = program.opts<GlobalOpts>();
+      const envCatalog = process.env.MCP_CATALOG_PATH;
+      const serverOptions = {
+        catalogPath: opts.catalog?.trim() || envCatalog,
+        configPath: opts.config?.trim() || undefined,
+      };
+      const explicitName = stripAt(name?.trim() || undefined);
+      const entryName = explicitName ?? (await resolveMruEntryName());
+      const source = resolveServerListSource(serverOptions);
+      let entry;
+      try {
+        entry = await showServerEntry(entryName, serverOptions);
+      } catch (error) {
+        throw describeServerShowNotFound(
+          error,
+          entryName,
+          explicitName === undefined,
+          source,
+        );
+      }
+      await writeConnectionOutput(outOpts(opts), {
+        kind: "servers/show",
+        server: entry,
+        ...(source && { source }),
+      });
+    });
+
+  registerConnect(program);
+  registerConnectionAdmin(program);
+  registerAuthCommands(program);
+  registerRpcCommands(program);
+  registerElicitationCommands(program);
+  // Keep infra commands last in --help (just before Commander's built-in help).
+  registerDaemonCommands(program);
+  registerPrivateCommand(program);
+  registerAgentHelpCommand(program);
+
+  try {
+    await program.parseAsync(rewritten);
+  } catch (error) {
+    if (isCommanderDisplayOnly(error)) return;
+    throw error;
+  }
+}
+
+function registerConnect(program: CommandType): void {
+  program
+    .command("connect")
+    .description(
+      "Connect a catalog entry or ad-hoc target as a named connection",
+    )
+    .argument(
+      "[target...]",
+      "Catalog entry name, or command/URL (use -- for command args). A " +
+        "single bare word is a catalog name; a URL, a path (contains / or " +
+        "starts with . or ~), multiple tokens, or --transport force an " +
+        "ad-hoc target.",
+    )
+    .option("--server <name>", "Server name from catalog/config")
+    .option(
+      "-e <env>",
+      "Environment variables for the server (KEY=VALUE)",
+      parseEnvPair,
+      {},
+    )
+    .option("--cwd <path>", "Working directory for stdio server process")
+    .option(
+      "--transport <type>",
+      "Transport type (sse, http, or stdio)",
+      (value: string) => {
+        const valid = ["sse", "http", "stdio"];
+        if (!valid.includes(value)) {
+          throw new Error(`Invalid transport type: ${value}`);
+        }
+        return value as "sse" | "http" | "stdio";
+      },
+    )
+    .option("--server-url <url>", "Server URL for SSE/HTTP transport")
+    .option(
+      "--header <headers...>",
+      'HTTP headers as "HeaderName: Value" pairs',
+      parseHeaderPair,
+      {},
+    )
+    .option(
+      "--connect-timeout <ms>",
+      `Connection timeout in ms (default ${DEFAULT_CONNECT_TIMEOUT_MS} for ad-hoc)`,
+      (v: string) => {
+        const n = Number(v);
+        if (!Number.isFinite(n) || n < 0) {
+          throw new Error(`--connect-timeout must be a non-negative number.`);
+        }
+        return n;
+      },
+    )
+    .option(
+      "--era <era>",
+      "Protocol era to negotiate: legacy (default), auto, or modern. " +
+        "Overrides the catalog/config entry's protocolEra; the only way to " +
+        "set it for an ad-hoc target, which has no config entry of its own.",
+      (value: string) => {
+        const valid: ServerProtocolEra[] = ["legacy", "auto", "modern"];
+        if (!valid.includes(value as ServerProtocolEra)) {
+          throw new Error(
+            `Invalid --era: ${value}. Use legacy, auto, or modern.`,
+          );
+        }
+        return value as ServerProtocolEra;
+      },
+    )
+    .option(
+      "--relogin",
+      "Ignore stored OAuth for this connect (HTTP/SSE URL keys only); interactive login runs only if the server requires auth. No-op for stdio / servers with no stored entry",
+    )
+    .option(
+      "--elicit <mode>",
+      "Elicitation capability to advertise: off, url, form, or both (default). " +
+        "Overrides the catalog/config entry's elicitCapability; the only way to " +
+        "set it for an ad-hoc target, which has no config entry of its own. Use " +
+        "off when the caller of mcpdo can't handle an elicitation request, so the " +
+        "server sees no elicitation capability and can fall back on its own.",
+      (value: string) => {
+        const valid: ElicitCapabilityMode[] = ["off", "url", "form", "both"];
+        if (!valid.includes(value as ElicitCapabilityMode)) {
+          throw new Error(
+            `Invalid --elicit: ${value}. Use off, url, form, or both.`,
+          );
+        }
+        return value as ElicitCapabilityMode;
+      },
+    )
+    .option(
+      "--ema",
+      "Treat the server as enterprise-managed (EMA): mint tokens from the " +
+        "signed-in enterprise IdP session instead of standard OAuth. " +
+        "Overrides the catalog/config entry's oauth.enterpriseManaged. " +
+        "Requires install-level IdP config (see auth/ema-status) and " +
+        "per-server OAuth client id/secret from the catalog entry, so it " +
+        "cannot be used with an ad-hoc target.",
+    )
+    .action(async (target: string[], cmdOpts) => {
+      const opts = program.opts<GlobalOpts>();
+      const { name: positionalConnection, rest } =
+        splitConnectionTarget(target);
+      const connectionName =
+        stripAt(opts.connection) ??
+        positionalConnection ??
+        cmdOpts.server?.trim() ??
+        rest[0];
+
+      if (!connectionName) {
+        throw new CliExitCodeError(
+          EXIT_CODES.USAGE,
+          "connect requires a catalog entry name, --server <name>, or an ad-hoc target.",
+          { code: "usage" },
+        );
+      }
+
+      const relogin = cmdOpts.relogin === true;
+      if (relogin && opts.storedAuthOnly) {
+        throw new CliExitCodeError(
+          EXIT_CODES.USAGE,
+          "--relogin cannot be combined with --stored-auth-only",
+          { code: "usage" },
+        );
+      }
+
+      const adHoc =
+        rest.length > 1 ||
+        Boolean(cmdOpts.transport) ||
+        Boolean(cmdOpts.serverUrl?.trim()) ||
+        (rest.length === 1 &&
+          (looksLikeUrl(rest[0]!) || looksLikePath(rest[0]!)));
+
+      // EMA needs the resource server's OAuth client id/secret, which only a
+      // catalog/config entry can carry (oauth.clientId / oauth.clientSecret).
+      // An ad-hoc target has no entry and this CLI deliberately offers no
+      // secret-bearing flags, so the flow would only fail later with an
+      // opaque error — reject up front with actionable guidance instead.
+      if (cmdOpts.ema === true && adHoc) {
+        throw new CliExitCodeError(
+          EXIT_CODES.USAGE,
+          "--ema cannot be used with an ad-hoc target: EMA requires per-server " +
+            "OAuth client id/secret from a catalog entry. Add the server to a " +
+            "catalog with oauth.clientId and oauth.clientSecret (and " +
+            "oauth.enterpriseManaged), then connect by entry name.",
+          { code: "usage" },
+        );
+      }
+
+      const envCatalog = adHoc ? undefined : process.env.MCP_CATALOG_PATH;
+      const serverOptions = {
+        catalogPath: opts.catalog?.trim() || envCatalog,
+        configPath: opts.config?.trim() || undefined,
+        target: adHoc ? (rest.length > 0 ? rest : undefined) : undefined,
+        transport: cmdOpts.transport as "sse" | "http" | "stdio" | undefined,
+        serverUrl: cmdOpts.serverUrl as string | undefined,
+        // Resolve --cwd against the CALLER's working directory. The daemon
+        // that spawns the stdio server inherits an unrelated cwd (see
+        // daemon/run.ts), so a relative --cwd must be pinned here.
+        cwd: cmdOpts.cwd ? path.resolve(cmdOpts.cwd as string) : undefined,
+        env: cmdOpts.e as Record<string, string> | undefined,
+        headers: cmdOpts.header as Record<string, string> | undefined,
+      };
+
+      const selectName = adHoc
+        ? undefined
+        : ((cmdOpts.server as string | undefined)?.trim() ?? rest[0]);
+
+      const entries = await loadServerEntries(serverOptions);
+      const selected = selectServerEntry(entries, selectName);
+      // Pin cwd/command/env to THIS shell before the config crosses to the
+      // persistent daemon, whose own cwd and environment are stale (they
+      // belong to whichever invocation first spawned it).
+      const serverConfig = pinStdioConfigToCaller(selected.config);
+      const serverSettings = withEmaOverride(
+        withElicitOverride(
+          withEraOverride(
+            withConnectTimeout(
+              selected.settings,
+              (cmdOpts.connectTimeout as number | undefined) ??
+                (adHoc ? DEFAULT_CONNECT_TIMEOUT_MS : undefined),
+            ),
+            cmdOpts.era as ServerProtocolEra | undefined,
+          ),
+          cmdOpts.elicit as ElicitCapabilityMode | undefined,
+        ),
+        cmdOpts.ema === true ? true : undefined,
+      );
+      const { detail } = summarizeServerConfig(serverConfig);
+      const name = stripAt(connectionName)!;
+
+      if (relogin && "url" in serverConfig && serverConfig.url) {
+        await clearStoredAuthForRelogin(serverConfig.url);
+      }
+
+      const { socketPath } = await ensureDaemon();
+      const connectParams = {
+        name,
+        serverConfig,
+        serverSettings,
+        serverIdentity: detail,
+      };
+
+      let result: ConnectionInfo;
+      try {
+        result = await callDaemon<ConnectionInfo>("connect", connectParams, {
+          socketPath,
+          // The daemon enforces the configured connect timeout (which may be
+          // 0 = unlimited or exceed 60s); no fixed local deadline.
+          timeoutMs: 0,
+        });
+      } catch (error) {
+        if (
+          !(error instanceof CliExitCodeError) ||
+          error.envelope?.code !== "auth_required"
+        ) {
+          throw error;
+        }
+        if (opts.storedAuthOnly) {
+          throw error;
+        }
+        // Agent path: no TTY anywhere means the blocking interactive flow is
+        // hostile — the URL sits invisible in a buffered pipe and a timeout
+        // kill would tear down the callback listener the link points at.
+        // Hand the flow to a detached helper, register the connection as
+        // pending intent, and exit with the link so the caller can relay it.
+        // `MCP_AUTO_OPEN_ENABLED=true` (forced auto-open) keeps the blocking
+        // flow: that's an explicit unattended-automation opt-in.
+        const humanPresent =
+          process.stdin.isTTY === true || process.stderr.isTTY === true;
+        if (!humanPresent && !isCliAutoOpenForced()) {
+          const authUrl = await obtainPendingAuthUrl(
+            serverConfig,
+            serverSettings,
+          );
+          // The dial re-attempt is cheap (it fails auth_required again) but
+          // makes the daemon register the pending entry, so
+          // `connections/show @name` polls sign-in state (completing the
+          // connection itself once tokens land) and any real op completes it
+          // via revive.
+          const { socketPath: pendingSocketPath } = await ensureDaemon();
+          const pending = await callDaemon<ConnectionInfo>(
+            "connect",
+            { ...connectParams, pendingOnAuthRequired: true },
+            { socketPath: pendingSocketPath, timeoutMs: 0 },
+          );
+          await writeConnectionOutput(outOpts(opts), {
+            kind: "connection",
+            connection: pending,
+            ...(pending.pendingAuth === true && { authUrl }),
+          });
+          return;
+        }
+        await authorizeInFrontend(serverConfig, serverSettings, {
+          storedAuthOnly: false,
+        });
+        // Interactive OAuth can run well past the daemon's idle timeout
+        // (60s, armed while it holds zero connections) — a slow human login
+        // (SSO, MFA) can leave the daemon we ensured above already exited.
+        // Re-ensure so the retry lands on a live daemon instead of a stale
+        // socket; ensureDaemon() is a no-op when the existing one still
+        // answers pings.
+        const { socketPath: freshSocketPath } = await ensureDaemon();
+        result = await callDaemon<ConnectionInfo>("connect", connectParams, {
+          socketPath: freshSocketPath,
+          timeoutMs: 0,
+        });
+      }
+      await writeConnectionOutput(outOpts(opts), {
+        kind: "connection",
+        connection: result,
+      });
+    });
+}
+
+function registerAuthCommands(program: CommandType): void {
+  // Internal detached sign-in helper for the non-TTY connect path (see
+  // auth-helper.ts). Hidden: params arrive as JSON on stdin, never argv.
+  program
+    .command(AUTH_HELPER_COMMAND, { hidden: true })
+    .description("Internal: complete an OAuth sign-in (params JSON on stdin)")
+    .action(async () => {
+      await runAuthHelper();
+    });
+
+  program
+    .command("auth/list")
+    .description(
+      "List server URLs in the shared OAuth store (keys for auth/clear)",
+    )
+    .action(async () => {
+      const opts = program.opts<GlobalOpts>();
+      const list = await listStoredAuth();
+      await writeConnectionOutput(outOpts(opts), { kind: "auth/list", list });
+    });
+
+  program
+    .command("auth/clear")
+    .description(
+      "Clear stored OAuth state for one server URL (from auth/list) or all entries",
+    )
+    .argument("[key]", "Server URL key from auth/list")
+    .option("--all", "Clear every stored OAuth server entry")
+    .option("--yes", "Skip confirmation when using --all")
+    .action(async (key: string | undefined, cmdOpts) => {
+      const opts = program.opts<GlobalOpts>();
+      const all = cmdOpts.all === true;
+      if (all && key?.trim()) {
+        throw new CliExitCodeError(
+          EXIT_CODES.USAGE,
+          "auth/clear: pass a key or --all, not both",
+          { code: "usage" },
+        );
+      }
+      if (!all && !key?.trim()) {
+        throw new CliExitCodeError(
+          EXIT_CODES.USAGE,
+          "auth/clear requires a server URL key (from auth/list) or --all",
+          { code: "usage" },
+        );
+      }
+      if (all) {
+        if (!cmdOpts.yes) {
+          if (!process.stdin.isTTY || !process.stdout.isTTY) {
+            throw new CliExitCodeError(
+              EXIT_CODES.USAGE,
+              "auth/clear --all requires --yes in non-interactive mode",
+              { code: "usage" },
+            );
+          }
+          /* v8 ignore next 22 -- interactive y/N confirm needs a real TTY */
+          const rl = createInterface({
+            input: process.stdin,
+            output: process.stderr,
+          });
+          try {
+            const answer = await rl.question(
+              "Clear ALL stored OAuth credentials? [y/N] ",
+            );
+            const ok =
+              answer.trim().toLowerCase() === "y" ||
+              answer.trim().toLowerCase() === "yes";
+            if (!ok) {
+              throw new CliExitCodeError(
+                EXIT_CODES.USAGE,
+                "auth/clear --all cancelled",
+                { code: "usage" },
+              );
+            }
+          } finally {
+            rl.close();
+          }
+        }
+        const result = await clearAllStoredAuth();
+        await writeConnectionOutput(outOpts(opts), {
+          kind: "auth/clear",
+          result: { all: true, cleared: result.cleared },
+        });
+        return;
+      }
+      const result = await clearStoredAuth(key!);
+      await writeConnectionOutput(outOpts(opts), {
+        kind: "auth/clear",
+        result: { url: result.url },
+      });
+    });
+
+  program
+    .command("auth/ema-status")
+    .description(
+      "Show enterprise-managed auth (EMA) configuration and IdP login state",
+    )
+    .action(async () => {
+      const opts = program.opts<GlobalOpts>();
+      const status = await getEmaStatus();
+      await writeConnectionOutput(outOpts(opts), {
+        kind: "auth/ema-status",
+        status,
+      });
+    });
+
+  program
+    .command("auth/ema-login")
+    .description(
+      "Sign in to the enterprise IdP (EMA); subsequent connects to EMA servers mint tokens silently from this connection",
+    )
+    .option(
+      "--relogin",
+      "Clear the existing IdP session (and EMA server tokens) and sign in fresh",
+    )
+    .action(async (cmdOpts) => {
+      const opts = program.opts<GlobalOpts>();
+      const result = await emaLogin({ relogin: cmdOpts.relogin === true });
+      await writeConnectionOutput(outOpts(opts), {
+        kind: "auth/ema-login",
+        result,
+      });
+    });
+
+  program
+    .command("auth/ema-logout")
+    .description(
+      "Sign out of the enterprise IdP and clear EMA-minted server tokens",
+    )
+    .action(async () => {
+      const opts = program.opts<GlobalOpts>();
+      const result = await emaLogout();
+      await writeConnectionOutput(outOpts(opts), {
+        kind: "auth/ema-logout",
+        result,
+      });
+    });
+}
+
+function registerConnectionAdmin(program: CommandType): void {
+  program
+    .command("disconnect")
+    .description("Disconnect a connection (MRU when omitted on a TTY)")
+    .argument("[connection]", "Optional @name / name to disconnect")
+    .action(async (connectionArg: string | undefined) => {
+      const opts = program.opts<GlobalOpts>();
+      const name = stripAt(opts.connection) ?? stripAt(connectionArg);
+      const { socketPath } = await ensureDaemon();
+      const result = await callDaemon<{ name: string }>(
+        "disconnect",
+        {
+          name,
+          requireExplicit: requireExplicitConnection(),
+        },
+        { socketPath },
+      );
+      await writeConnectionOutput(outOpts(opts), {
+        kind: "disconnect",
+        name: result.name,
+      });
+    });
+
+  program
+    .command("connections/list")
+    .description("List open connections (marks MRU); does not start the daemon")
+    .action(async () => {
+      const opts = program.opts<GlobalOpts>();
+      try {
+        const result = await callDaemon<{ connections: ConnectionInfo[] }>(
+          "connections/list",
+          {},
+        );
+        await writeConnectionOutput(outOpts(opts), {
+          kind: "connections/list",
+          connections: result.connections,
+        });
+      } catch (error) {
+        if (isDaemonUnreachable(error)) {
+          await writeConnectionOutput(outOpts(opts), {
+            kind: "connections/list",
+            connections: [],
+          });
+          return;
+        }
+        throw error;
+      }
+    });
+
+  program
+    .command("connections/use")
+    .description("Set the MRU connection without an MCP RPC")
+    .argument("<connection>", "Connection @name / name")
+    .action(async (connectionArg: string) => {
+      const opts = program.opts<GlobalOpts>();
+      const name = stripAt(opts.connection) ?? stripAt(connectionArg);
+      if (!name) {
+        throw new CliExitCodeError(
+          EXIT_CODES.USAGE,
+          "connections/use requires a connection name",
+          { code: "usage" },
+        );
+      }
+      const { socketPath } = await ensureDaemon();
+      const result = await callDaemon<ConnectionInfo>(
+        "connections/use",
+        { name },
+        { socketPath },
+      );
+      await writeConnectionOutput(outOpts(opts), {
+        kind: "connection",
+        connection: result,
+      });
+    });
+
+  program
+    .command("connections/show")
+    .description(
+      "Show connection + connection details: server info, capabilities, negotiated protocol era (defaults to MRU)",
+    )
+    .argument("[connection]", "Connection @name / name (defaults to MRU)")
+    .action(async (connectionArg: string | undefined) => {
+      const opts = program.opts<GlobalOpts>();
+      const name = stripAt(opts.connection) ?? stripAt(connectionArg);
+      const { socketPath } = await ensureDaemon();
+      const result = await callDaemon<ConnectionShowResult>(
+        "connections/show",
+        { name, requireExplicit: requireExplicitConnection() },
+        { socketPath },
+      );
+      await writeConnectionOutput(outOpts(opts), {
+        kind: "connection",
+        connection: result,
+      });
+    });
+}
+
+function registerDaemonCommands(program: CommandType): void {
+  const daemon = program.command("daemon").description("Daemon control");
+
+  daemon
+    .command("status")
+    .description("Show daemon pid, socket, and connections (does not start it)")
+    .action(async () => {
+      const opts = program.opts<GlobalOpts>();
+      try {
+        const result = await callDaemon("daemon/status", {});
+        await writeConnectionOutput(outOpts(opts), {
+          kind: "daemon/status",
+          status: result as Record<string, unknown>,
+        });
+      } catch (error) {
+        if (isDaemonUnreachable(error)) {
+          await writeConnectionOutput(outOpts(opts), {
+            kind: "daemon/status",
+            status: {
+              running: false,
+              message: "Daemon is not running.",
+            },
+          });
+          return;
+        }
+        throw error;
+      }
+    });
+
+  daemon
+    .command("stop")
+    .description("Stop the daemon and disconnect all connections")
+    .action(async () => {
+      const opts = program.opts<GlobalOpts>();
+      try {
+        const result = await callDaemon("daemon/stop", {});
+        await writeConnectionOutput(outOpts(opts), {
+          kind: "daemon/stop",
+          result: result as Record<string, unknown>,
+        });
+      } catch (error) {
+        if (isDaemonUnreachable(error)) {
+          await writeConnectionOutput(outOpts(opts), {
+            kind: "daemon/stop",
+            result: {
+              stopping: false,
+              message: "Daemon was not running.",
+            },
+          });
+          return;
+        }
+        throw error;
+      }
+    });
+}
+
+function registerPrivateCommand(program: CommandType): void {
+  program
+    .command("private")
+    .description(
+      'Print shell exports for a private daemon (eval "$(mcpdo private)"). ' +
+        "Later mcpdo commands in that shell use an isolated, token-gated daemon.",
+    )
+    .action(async () => {
+      const binding = createPrivateBinding();
+      await awaitableLog(formatPrivateEnvExports(binding));
+    });
+}
+
+/**
+ * Locates the repo-root `skills/mcpdo/SKILL.md` relative to this module.
+ * Tries both the built (bundled single-file, `clients/daemon-cli/build/`) and
+ * source (`clients/daemon-cli/src/connection/`) layouts, since the two sit at
+ * different depths from the repo root.
+ */
+function resolveAgentSkillPath(): string | undefined {
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const candidates = [
+    path.resolve(here, "../../../skills/mcpdo/SKILL.md"),
+    path.resolve(here, "../../../../skills/mcpdo/SKILL.md"),
+  ];
+  return candidates.find((candidate) => existsSync(candidate));
+}
+
+/**
+ * The always-on awareness snippet for a project's CLAUDE.md / AGENTS.md.
+ * Skills are pull-only (an agent sees just the description until something
+ * triggers a load), so task-shaped prompts that never mention MCP won't
+ * activate the skill; a line in an always-in-context instructions file is
+ * the reliable mechanism for standing awareness.
+ */
+const AGENT_INSTRUCTIONS_SNIPPET =
+  "mcpdo manages connections to additional MCP servers. Treat the tools, " +
+  "resources, and prompts on its open connections (`mcpdo connections/list`) " +
+  "as part of your available toolset — check them before deciding a task " +
+  "can't be done, and include them when asked what tools or MCP servers " +
+  "you have. Run `mcpdo agent-help` for the usage guide.\n";
+
+/** Returns SKILL.md content with the YAML frontmatter block removed. */
+function stripFrontmatter(content: string): string {
+  if (!content.startsWith("---\n")) return content;
+  const end = content.indexOf("\n---\n", 4);
+  if (end === -1) return content;
+  return content.slice(end + 5).replace(/^\n+/, "");
+}
+
+function registerAgentHelpCommand(program: CommandType): void {
+  program
+    .command("agent-help")
+    .description(
+      "Print an agent-oriented usage guide, comparable to the mcpdo SKILL. " +
+        "Agents should read this before using other mcpdo commands.",
+    )
+    .option(
+      "--skill",
+      "Print the full usage guide — the mcpdo SKILL.md body, usable as if " +
+        "the skill had been loaded (default when no option is given)",
+    )
+    .option(
+      "--instructions",
+      "Print a short snippet to append to a project's CLAUDE.md/AGENTS.md " +
+        "so agents treat mcpdo connections as part of their toolset on " +
+        "every turn (skills and this guide load only on demand). " +
+        "Pipeable: mcpdo agent-help --instructions >> AGENTS.md",
+    )
+    .option(
+      "--skill-path",
+      "Print the path of the installable SKILL.md file — this guide plus " +
+        "its skill frontmatter — for skill runtimes " +
+        "(e.g. copy into ~/.claude/skills/mcpdo/)",
+    )
+    .action(
+      async (o: {
+        skill?: boolean;
+        instructions?: boolean;
+        skillPath?: boolean;
+      }) => {
+        const picked = [o.skill, o.instructions, o.skillPath].filter(
+          (v) => v === true,
+        ).length;
+        if (picked > 1) {
+          throw new CliExitCodeError(
+            EXIT_CODES.USAGE,
+            "--skill, --instructions, and --skill-path are mutually exclusive.",
+            { code: "agent_help_flag_conflict" },
+          );
+        }
+        if (o.instructions === true) {
+          await awaitableLog(AGENT_INSTRUCTIONS_SNIPPET);
+          return;
+        }
+        const skillPath = resolveAgentSkillPath();
+        if (!skillPath) {
+          throw new CliExitCodeError(
+            EXIT_CODES.USAGE,
+            "Could not locate skills/mcpdo/SKILL.md relative to this install.",
+            { code: "agent_help_not_found" },
+          );
+        }
+        if (o.skillPath === true) {
+          await awaitableLog(skillPath + "\n");
+          return;
+        }
+        await awaitableLog(stripFrontmatter(readFileSync(skillPath, "utf8")));
+      },
+    );
+}
+
+function registerRpcCommands(program: CommandType): void {
+  for (const method of CONNECTION_RPC_METHODS) {
+    const cmd = program
+      .command(method)
+      .description(`MCP ${method} against the current connection`);
+
+    cmd.option(
+      "--metadata <pairs...>",
+      "General metadata as key=value pairs",
+      parseKeyValue,
+      {},
+    );
+
+    switch (method) {
+      case "tools/list":
+        cmd.option("--app-info", "Emit one NDJSON app-info line per tool");
+        cmd.action(async (o) => {
+          await runRpc(program, method, {
+            appInfo: o.appInfo === true,
+            metadata: o.metadata,
+          });
+        });
+        break;
+      case "tools/call":
+        cmd
+          .argument("[toolName]", "Tool name")
+          .argument(
+            "[toolArgs...]",
+            "Arguments as key:=value pairs or a JSON object",
+          )
+          .option("--tool-name <name>", "Tool name")
+          .option(
+            "--tool-arg <pairs...>",
+            "Tool argument as key=value pair (alternative to key:=value positionals)",
+            parseKeyValue,
+            {},
+          )
+          .option(
+            "--tool-args-json <json>",
+            "Tool arguments as a JSON object (alternative to inline JSON positional)",
+          )
+          .option(
+            "--tool-metadata <pairs...>",
+            "Tool-specific metadata",
+            parseKeyValue,
+            {},
+          )
+          .option("--task", "Task-augmented tool call (callToolStream)")
+          .option("--app-info", "Probe MCP App metadata only");
+        cmd.action(
+          async (
+            toolNamePos: string | undefined,
+            toolArgsPos: string[] | undefined,
+            o,
+          ) => {
+            const { toolName, toolArg } = resolveToolCallArgs({
+              toolNameFlag: o.toolName as string | undefined,
+              toolNamePos,
+              toolArgsPos,
+              toolArgFlag: (o.toolArg ?? {}) as Record<string, JsonValue>,
+              toolArgsJson: o.toolArgsJson as string | undefined,
+            });
+            await runRpc(program, method, {
+              toolName,
+              toolArg,
+              toolMeta: o.toolMetadata,
+              metadata: o.metadata,
+              task: o.task === true,
+              appInfo: o.appInfo === true,
+            });
+          },
+        );
+        break;
+      case "resources/read":
+      case "resources/subscribe":
+      case "resources/unsubscribe":
+        cmd
+          .argument("[uri]", "Resource URI")
+          .option("--uri <uri>", "Resource URI");
+        cmd.action(async (uriPos: string | undefined, o) => {
+          await runRpc(program, method, {
+            uri: (o.uri as string | undefined) ?? uriPos,
+            metadata: o.metadata,
+          });
+        });
+        break;
+      case "skills/list":
+        cmd.option(
+          "--verify",
+          "Run the SEP-2640 conformance and digest checks over every skill returned",
+        );
+        cmd.action(async (o) => {
+          await runRpc(program, method, {
+            verify: o.verify === true,
+            metadata: o.metadata,
+          });
+        });
+        break;
+      case "skills/get":
+        cmd
+          .argument("[uri]", "Skill URI")
+          .option("--uri <uri>", "Skill URI")
+          .option(
+            "--verify",
+            "Run the SEP-2640 conformance and digest checks over this skill",
+          );
+        cmd.action(async (uriPos: string | undefined, o) => {
+          await runRpc(program, method, {
+            uri: (o.uri as string | undefined) ?? uriPos,
+            verify: o.verify === true,
+            metadata: o.metadata,
+          });
+        });
+        break;
+      case "prompts/get":
+        cmd
+          .argument("[promptName]", "Prompt name")
+          .option("--prompt-name <name>", "Prompt name")
+          .option(
+            "--prompt-args <pairs...>",
+            "Prompt arguments",
+            parseKeyValue,
+            {},
+          );
+        cmd.action(async (promptPos: string | undefined, o) => {
+          await runRpc(program, method, {
+            promptName: (o.promptName as string | undefined) ?? promptPos,
+            promptArgs: (o.promptArgs ?? {}) as Record<string, JsonValue>,
+            metadata: o.metadata,
+          });
+        });
+        break;
+      case "prompts/complete":
+        cmd
+          .option("--complete-ref-type <type>", "ref/prompt or ref/resource")
+          .option("--complete-ref <ref>", "Prompt name or resource URI")
+          .option("--complete-arg-name <name>", "Argument name")
+          .option("--complete-arg-value <value>", "Partial value", "");
+        cmd.action(async (o) => {
+          const refType = o.completeRefType as string | undefined;
+          if (refType !== "ref/prompt" && refType !== "ref/resource") {
+            throw new CliExitCodeError(
+              EXIT_CODES.USAGE,
+              "prompts/complete requires --complete-ref-type ref/prompt|ref/resource",
+              { code: "usage" },
+            );
+          }
+          await runRpc(program, method, {
+            completeRefType: refType,
+            completeRef: o.completeRef as string | undefined,
+            completeArgName: o.completeArgName as string | undefined,
+            completeArgValue: (o.completeArgValue as string | undefined) ?? "",
+            metadata: o.metadata,
+          });
+        });
+        break;
+      case "logging/setLevel":
+        cmd
+          .argument("[level]", "Logging level")
+          .option("--log-level <level>", "Logging level");
+        cmd.action(async (levelPos: string | undefined, o) => {
+          const level = (o.logLevel as string | undefined) ?? levelPos;
+          if (level && !validLogLevels.includes(level as LoggingLevel)) {
+            throw new Error(
+              `Invalid log level: ${level}. Valid: ${validLogLevels.join(", ")}`,
+            );
+          }
+          await runRpc(program, method, {
+            logLevel: level as LoggingLevel | undefined,
+            metadata: o.metadata,
+          });
+        });
+        break;
+      case "tasks/get":
+      case "tasks/cancel":
+      case "tasks/result":
+        cmd.argument("[taskId]", "Task id").option("--task-id <id>", "Task id");
+        cmd.action(async (taskPos: string | undefined, o) => {
+          await runRpc(program, method, {
+            taskId: (o.taskId as string | undefined) ?? taskPos,
+            metadata: o.metadata,
+          });
+        });
+        break;
+      case "tasks/update":
+        // Modern-only (SEP-2663): resumes a task paused on `input_required`.
+        // `--input-responses` mirrors `roots/set`'s JSON-blob convention
+        // rather than trying to model arbitrary per-request shapes as flags.
+        cmd
+          .argument("[taskId]", "Task id")
+          .option("--task-id <id>", "Task id")
+          .option(
+            "--input-responses <json>",
+            "JSON object keyed by the server's inputRequests id",
+          );
+        cmd.action(async (taskPos: string | undefined, o) => {
+          await runRpc(program, method, {
+            taskId: (o.taskId as string | undefined) ?? taskPos,
+            inputResponsesJson: o.inputResponses as string | undefined,
+            metadata: o.metadata,
+          });
+        });
+        break;
+      case "roots/set":
+        cmd.option("--roots-json <json>", "JSON array of {uri, name?}");
+        cmd.action(async (o) => {
+          await runRpc(program, method, {
+            rootsJson: o.rootsJson as string | undefined,
+            metadata: o.metadata,
+          });
+        });
+        break;
+      default:
+        cmd.action(async (o) => {
+          await runRpc(program, method, {
+            metadata: o.metadata,
+          });
+        });
+        break;
+    }
+  }
+}
+
+/**
+ * `elicitation/respond` — answers an elicitation the daemon parked for a
+ * non-interactive caller (`elicitationPending` output). One respond per
+ * round: the result is either the resumed call's final output or the next
+ * pending round.
+ */
+function registerElicitationCommands(program: CommandType): void {
+  program
+    .command("elicitation/respond")
+    .description(
+      "Answer a pending server elicitation (from elicitationPending output): form answers as key:=value pairs / JSON, --done for URL mode, or --decline / --cancel",
+    )
+    .argument("<elicitationId>", "Id from the elicitationPending payload")
+    .argument(
+      "[fields...]",
+      "Form answers as key:=value pairs or one JSON object (accepts)",
+    )
+    .option(
+      "--done",
+      "URL mode: report the linked interaction as finished (accept)",
+    )
+    .option("--decline", "Decline the request (form mode only)")
+    .option("--cancel", "Cancel the elicitation")
+    .action(async (elicitationId: string, fields: string[] | undefined, o) => {
+      const opts = program.opts<GlobalOpts>();
+      const flags = [
+        o.done === true && "--done",
+        o.decline === true && "--decline",
+        o.cancel === true && "--cancel",
+      ].filter(Boolean) as string[];
+      const hasFields = (fields?.length ?? 0) > 0;
+      if (flags.length > 1 || (flags.length === 1 && hasFields)) {
+        throw new CliExitCodeError(
+          EXIT_CODES.USAGE,
+          `Provide field values, or exactly one of --done / --decline / --cancel — not ${[...(hasFields ? ["field values"] : []), ...flags].join(" and ")}.`,
+          { code: "usage" },
+        );
+      }
+      if (flags.length === 0 && !hasFields) {
+        throw new CliExitCodeError(
+          EXIT_CODES.USAGE,
+          "Provide form answers as key:=value pairs (or one JSON object), or one of --done / --decline / --cancel.",
+          { code: "usage" },
+        );
+      }
+      const params: ElicitationRespondParams = o.cancel
+        ? { elicitationId, action: "cancel" }
+        : o.decline
+          ? { elicitationId, action: "decline" }
+          : hasFields
+            ? {
+                elicitationId,
+                action: "accept",
+                content: parseToolCallPositionals(fields!),
+              }
+            : { elicitationId, action: "accept" };
+      const { socketPath } = await ensureDaemon();
+      const result = await callDaemon<ElicitationRespondResult>(
+        "elicitation/respond",
+        params,
+        // The resumed call's duration is governed by MCP timeouts the
+        // daemon enforces; a fixed local deadline would falsely fail it.
+        { socketPath, timeoutMs: 0 },
+      );
+      await writeRpcOutcome(
+        outOpts(opts),
+        result.method,
+        result.toolName,
+        result.outcome,
+      );
+    });
+}
+
+async function runRpc(
+  program: CommandType,
+  method: string,
+  methodArgs: MethodArgs,
+): Promise<void> {
+  const opts = program.opts<GlobalOpts>();
+  await dispatchConnectionRpc(method, methodArgs, {
+    format: opts.format,
+    plain: opts.plain === true,
+    connection: opts.connection,
+    requireExplicit: requireExplicitConnection(),
+  });
+}
+
+/**
+ * Overlay `--era` onto the settings lifted from the file/ad-hoc target.
+ * Mirrors `withConnectTimeout`'s shape: only `protocolEra` is overridden, and a
+ * bare-defaults settings object is synthesized when the target had none (the
+ * common ad-hoc case, which otherwise has no way to request `auto`/`modern`).
+ */
+function withEraOverride(
+  settings: InspectorServerSettings | undefined,
+  era: ServerProtocolEra | undefined,
+): InspectorServerSettings | undefined {
+  if (era === undefined) return settings;
+  if (settings) return { ...settings, protocolEra: era };
+  return {
+    headers: [],
+    metadata: {},
+    env: [],
+    connectionTimeout: DEFAULT_CONNECT_TIMEOUT_MS,
+    requestTimeout: 0,
+    taskTtl: DEFAULT_TASK_TTL_MS,
+    maxFetchRequests: DEFAULT_MAX_FETCH_REQUESTS,
+    autoRefreshOnListChanged: false,
+    paginatedLists: false,
+    roots: [],
+    protocolEra: era,
+  };
+}
+
+/**
+ * Overlay `--elicit` onto the settings lifted from the file/ad-hoc target.
+ * Mirrors `withEraOverride`: only `elicitCapability` is overridden, and a
+ * bare-defaults settings object is synthesized when the target had none (the
+ * common ad-hoc case, which otherwise has no way to request anything but the
+ * default `both`).
+ */
+function withElicitOverride(
+  settings: InspectorServerSettings | undefined,
+  elicit: ElicitCapabilityMode | undefined,
+): InspectorServerSettings | undefined {
+  if (elicit === undefined) return settings;
+  if (settings) return { ...settings, elicitCapability: elicit };
+  return {
+    headers: [],
+    metadata: {},
+    env: [],
+    connectionTimeout: DEFAULT_CONNECT_TIMEOUT_MS,
+    requestTimeout: 0,
+    taskTtl: DEFAULT_TASK_TTL_MS,
+    maxFetchRequests: DEFAULT_MAX_FETCH_REQUESTS,
+    autoRefreshOnListChanged: false,
+    paginatedLists: false,
+    roots: [],
+    elicitCapability: elicit,
+  };
+}
+
+/**
+ * Overlay `--ema` onto the settings lifted from the catalog/config target.
+ * Mirrors `withEraOverride`: only `enterpriseManaged` is overridden, and a
+ * bare-defaults settings object is synthesized when the entry had none.
+ * Ad-hoc targets never reach here with `--ema` set — connect rejects that
+ * combination up front, since EMA needs per-server OAuth credentials only a
+ * catalog entry can supply.
+ */
+function withEmaOverride(
+  settings: InspectorServerSettings | undefined,
+  ema: true | undefined,
+): InspectorServerSettings | undefined {
+  if (ema === undefined) return settings;
+  if (settings) return { ...settings, enterpriseManaged: true };
+  return {
+    headers: [],
+    metadata: {},
+    env: [],
+    connectionTimeout: DEFAULT_CONNECT_TIMEOUT_MS,
+    requestTimeout: 0,
+    taskTtl: DEFAULT_TASK_TTL_MS,
+    maxFetchRequests: DEFAULT_MAX_FETCH_REQUESTS,
+    autoRefreshOnListChanged: false,
+    paginatedLists: false,
+    roots: [],
+    enterpriseManaged: true,
+  };
+}
+
+function parseKeyValue(
+  value: string,
+  previous: Record<string, JsonValue> = {},
+): Record<string, JsonValue> {
+  const parts = value.split("=");
+  const key = parts[0];
+  const val = parts.slice(1).join("=");
+  if (!key || val === undefined || val === "") {
+    throw new Error(
+      `Invalid parameter format: ${value}. Use key=value format.`,
+    );
+  }
+  let parsedValue: JsonValue;
+  try {
+    parsedValue = JSON.parse(val) as JsonValue;
+  } catch {
+    parsedValue = val;
+  }
+  assertJsonRoundTrips(parsedValue, `parameter "${value}"`);
+  return { ...previous, [key]: parsedValue };
+}
+
+function looksLikeUrl(value: string): boolean {
+  return /^https?:\/\//i.test(value);
+}
+
+/**
+ * A single positional token is ambiguous between a catalog entry name and a
+ * bare stdio command. Disambiguate deterministically: a token that looks
+ * like a filesystem path (contains a separator, or starts with `.` or `~`)
+ * is an ad-hoc stdio target; a bare word is a catalog/config name. A bare
+ * command name can still be run ad-hoc with an explicit `--transport stdio`.
+ */
+function looksLikePath(value: string): boolean {
+  return (
+    value.includes("/") ||
+    value.includes("\\") ||
+    value.startsWith(".") ||
+    value.startsWith("~")
+  );
+}
+
+function splitConnectionTarget(target: string[]): {
+  name: string | undefined;
+  rest: string[];
+} {
+  if (target.length > 0 && target[0]!.startsWith("@")) {
+    return { name: stripAt(target[0]), rest: target.slice(1) };
+  }
+  return { name: undefined, rest: target };
+}
+
+export { hoistAtConnection } from "./dispatch.js";

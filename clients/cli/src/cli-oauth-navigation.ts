@@ -50,6 +50,15 @@ export type CliOAuthNavigationOptions = {
    * (`MCP_AUTO_OPEN_ENABLED=true`).
    */
   forceAutoOpen?: boolean;
+  /**
+   * Build the printed prompt line for a given authorize URL. Receives the
+   * (possibly OSC-8-linked) display string and whether stderr is a TTY.
+   * Defaults to the CLI's own "Please navigate to: <url>" framing. Override
+   * when a different caller needs different wording — e.g. mcpdo, addressed to
+   * whatever is running it (which may be an agent that must relay the link to
+   * a human) rather than to a human reading the terminal directly.
+   */
+  promptMessage?: (hrefDisplay: string, tty: boolean) => string;
 };
 
 /**
@@ -108,7 +117,10 @@ export function createCliOAuthNavigation(
     );
     const write =
       options.write ?? ((line: string) => process.stderr.write(line));
-    write(`Please navigate to: ${style.link(href)}\n`);
+    const promptMessage =
+      options.promptMessage ??
+      ((hrefDisplay: string) => `Please navigate to: ${hrefDisplay}`);
+    write(`${promptMessage(style.link(href), tty)}\n`);
 
     const envAllows =
       options.autoOpenEnabled !== undefined

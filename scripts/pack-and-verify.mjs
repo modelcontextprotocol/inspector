@@ -391,6 +391,109 @@ try {
     fail(`\`--cli … tools/list\` missing expected "echo" tool`);
   }
 
+  // 4b². The tarball also ships the `mcpdo` connection-CLI bin (#1783). Verify
+  //      the installed shim resolves and runs: `--help` (dispatch/build
+  //      resolution) plus a daemon-free command (`servers/list` against the
+  //      same catalog — no daemon spawn, no MCP connection), so a wrong bin
+  //      path or an incompletely packed daemon-cli build fails the gate.
+  step("verifying installed `mcpdo` (--help, daemon-free servers/list)...");
+  const mcpdoBin = join(
+    work,
+    "node_modules",
+    ".bin",
+    process.platform === "win32" ? "mcpdo.cmd" : "mcpdo",
+  );
+  if (!existsSync(mcpdoBin)) {
+    fail(`installed \`mcpdo\` bin not found at ${mcpdoBin}`);
+  }
+  const runMcpdo = (args, extraEnv = {}) => {
+    const r = spawnSync(shellArgs([mcpdoBin])[0], shellArgs(args), {
+      cwd: work,
+      encoding: "utf8",
+      env: { ...process.env, ...extraEnv },
+      shell: WIN_SHELL,
+    });
+    return { status: r.status, output: `${r.stdout ?? ""}${r.stderr ?? ""}` };
+  };
+  const mcpdoHelp = runMcpdo(["--help"]);
+  if (mcpdoHelp.status !== 0 || !mcpdoHelp.output.includes("Usage: mcpdo")) {
+    fail(
+      `\`mcpdo --help\` exited ${mcpdoHelp.status} or missing usage banner\n` +
+        mcpdoHelp.output.slice(0, 800),
+    );
+  }
+  // Point the daemon dir into the throwaway consumer so the check never sees
+  // (or touches) a real daemon on the host.
+  const mcpdoServers = runMcpdo(
+    ["servers/list", "--catalog", catalogPath, "--plain"],
+    { MCP_INSPECTOR_DAEMON_DIR: join(work, "mcpdo-daemon") },
+  );
+  if (mcpdoServers.status !== 0 || !mcpdoServers.output.includes("test")) {
+    fail(
+      `\`mcpdo servers/list\` exited ${mcpdoServers.status} or missing "test" entry\n` +
+        mcpdoServers.output.slice(0, 800),
+    );
+  }
+
+  // 4b³. Daemon lifecycle from the installed package: `connect` must locate
+  //      and spawn the separately shipped `build/daemon.js` — the daemon-free
+  //      checks above pass even when that artifact is missing or mislocated,
+  //      yet every connection command would fail at startup. Connect against
+  //      the same stdio fixture, verify the connection is listed, then tear
+  //      everything down (stop the daemon before any fail() so nothing
+  //      outlives the check).
+  step("verifying installed `mcpdo` daemon flow (connect/list/disconnect)...");
+  const mcpdoDaemonEnv = {
+    MCP_INSPECTOR_DAEMON_DIR: join(work, "mcpdo-daemon"),
+  };
+  const stopMcpdoDaemon = () => runMcpdo(["daemon", "stop"], mcpdoDaemonEnv);
+  const failMcpdoDaemonFlow = (message) => {
+    stopMcpdoDaemon();
+    fail(message);
+  };
+  const mcpdoConnect = runMcpdo(
+    ["connect", "test", "--catalog", catalogPath, "--plain"],
+    mcpdoDaemonEnv,
+  );
+  if (mcpdoConnect.status !== 0 || !mcpdoConnect.output.includes("test")) {
+    failMcpdoDaemonFlow(
+      `\`mcpdo connect test\` exited ${mcpdoConnect.status} — the packaged ` +
+        `daemon (build/daemon.js) likely failed to start\n` +
+        mcpdoConnect.output.slice(0, 800),
+    );
+  }
+  const mcpdoConnections = runMcpdo(
+    ["connections/list", "--plain"],
+    mcpdoDaemonEnv,
+  );
+  if (
+    mcpdoConnections.status !== 0 ||
+    !mcpdoConnections.output.includes("test")
+  ) {
+    failMcpdoDaemonFlow(
+      `\`mcpdo connections/list\` exited ${mcpdoConnections.status} or missing ` +
+        `the "test" connection\n` +
+        mcpdoConnections.output.slice(0, 800),
+    );
+  }
+  const mcpdoDisconnect = runMcpdo(
+    ["disconnect", "test", "--plain"],
+    mcpdoDaemonEnv,
+  );
+  if (mcpdoDisconnect.status !== 0) {
+    failMcpdoDaemonFlow(
+      `\`mcpdo disconnect test\` exited ${mcpdoDisconnect.status}\n` +
+        mcpdoDisconnect.output.slice(0, 800),
+    );
+  }
+  const mcpdoStop = stopMcpdoDaemon();
+  if (mcpdoStop.status !== 0) {
+    fail(
+      `\`mcpdo daemon stop\` exited ${mcpdoStop.status}\n` +
+        mcpdoStop.output.slice(0, 800),
+    );
+  }
+
   // 4c. Prod `--web` boot from the installed package — THE critical packaging
   //     path: the runner must locate and serve the shipped `dist` (not rebuild
   //     it) and inject the auth token. Run non-blocking and poll `/`.

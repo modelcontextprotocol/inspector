@@ -494,6 +494,83 @@ export function createCollectFormElicitationTool(): ToolDefinition {
   };
 }
 
+/**
+ * A tool whose elicitation is INTRINSIC: the elicited fields are deliberately
+ * absent from the input schema, so a caller cannot pre-supply them as
+ * arguments — the only way to a ticket number is to answer the mid-call
+ * `elicitation/create`. That is what makes it a fixture for measuring
+ * elicitation *behavior* (does an agent recognize the request, map known
+ * facts onto the requested schema, and use the result?), where
+ * `collect_elicitation` — whose message/schema are caller-composed — can
+ * only exercise the wire. Legacy-only, like `collect_elicitation`: it calls
+ * `server.elicitInput`, which errors on the 2026-07-28 leg.
+ */
+export function createSubmitTicketTool(): ToolDefinition {
+  return {
+    name: "submit_ticket",
+    description:
+      "File a helpdesk ticket with the given summary and return the ticket number. Contact details are collected separately when the ticket is filed.",
+    inputSchema: {
+      summary: z.string().describe("One-line summary of the issue"),
+    },
+    handler: async (
+      params: Record<string, unknown>,
+      context?: TestServerContext,
+    ): Promise<CallToolResult> => {
+      if (!context) {
+        throw new Error("Server context not available");
+      }
+      const summary = params.summary as string;
+      const result = await context.server.server.elicitInput({
+        message: "Who should we contact about this ticket?",
+        requestedSchema: {
+          type: "object",
+          properties: {
+            contact_name: {
+              type: "string",
+              title: "Contact name",
+              description: "Full name of the person to contact",
+            },
+            contact_email: {
+              type: "string",
+              title: "Contact email",
+              description: "Email address for updates on this ticket",
+            },
+          },
+          required: ["contact_name", "contact_email"],
+        },
+      });
+      if (result.action !== "accept") {
+        return toToolResult(
+          `Ticket not filed: contact details ${result.action === "decline" ? "declined" : "cancelled"}.`,
+        );
+      }
+      const content = (result.content ?? {}) as Record<string, unknown>;
+      // Content-derived id (djb2 over the full submission), so the fixture
+      // holds no state and distinct submissions get distinct numbers except
+      // for genuine hash collisions in the 4-digit space.
+      const payload = JSON.stringify([
+        summary,
+        content.contact_name,
+        content.contact_email,
+      ]);
+      let hash = 5381;
+      for (let i = 0; i < payload.length; i++) {
+        hash = ((hash * 33) ^ payload.charCodeAt(i)) >>> 0;
+      }
+      const ticket = `TCK-${(1000 + (hash % 9000)).toString()}`;
+      return toToolResult(
+        JSON.stringify({
+          ticket,
+          summary,
+          contact_name: content.contact_name,
+          contact_email: content.contact_email,
+        }),
+      );
+    },
+  };
+}
+
 /** Canonical URI for {@link createAppElicitationResource}, referenced by {@link createAppElicitationTool}'s `_meta.ui.resourceUri`. */
 export const APP_ELICITATION_URI = "ui://demo/choose-option.html";
 
