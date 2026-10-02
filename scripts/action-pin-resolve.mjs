@@ -80,7 +80,11 @@ export function main(argv = process.argv.slice(2), spawn = spawnSync) {
       `no exact v${major}.Y.Z tag in ${repo} points at ${sha} — pin by hand from the release page`,
     );
   }
-  console.log(`uses: ${repo}@${sha} # ${version}`);
+  // An exact requested tag IS the version — re-deriving it from the SHA
+  // could mislabel it when several exact tags share one commit (v5.1.2
+  // re-released unchanged as v5.2.0): the comment must name what was asked
+  // for, not the highest tag that happens to sit on the same tree.
+  console.log(`uses: ${repo}@${sha} # ${EXACT_TAG.test(tag) ? tag : version}`);
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

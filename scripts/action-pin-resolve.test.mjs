@@ -76,6 +76,18 @@ test("main prints the uses: line with SHA and matching exact version", (t) => {
   assert.deepEqual(lines, [`uses: actions/checkout@${SHA} # v5.0.1`]);
 });
 
+test("main preserves an exact requested tag over a same-SHA higher tag", (t) => {
+  // v5.1.2 re-released unchanged as v5.2.0 shares its commit; asking for
+  // v5.1.2 must print v5.1.2, not the highest tag on the same tree.
+  const lines = [];
+  t.mock.method(console, "log", (line) => lines.push(line));
+  main(
+    ["--repo", "actions/checkout", "--tag", "v5.1.2"],
+    spawnScript({ tags: [tag("v5"), tag("v5.1.2"), tag("v5.2.0")] }),
+  );
+  assert.deepEqual(lines, [`uses: actions/checkout@${SHA} # v5.1.2`]);
+});
+
 test("main throws when the requested tag is not in the listing", () => {
   assert.throws(
     () =>

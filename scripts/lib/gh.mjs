@@ -22,11 +22,23 @@ export const REPO_SLUG = `${OWNER}/${REPO}`;
 export const COPILOT_REVIEWER_LOGIN = "copilot-pull-request-reviewer[bot]";
 
 /**
+ * `spawnSync`'s default `maxBuffer` is 1 MiB, which a whole-board or
+ * all-issue JSON listing can exceed — board #28 already passes 500 items and
+ * each item carries its content — killing the call with ENOBUFS before
+ * `itemListComplete` ever gets to validate the dump. 64 MiB keeps the bound
+ * explicit while leaving complete dumps ample headroom.
+ */
+export const GH_MAX_BUFFER = 64 * 1024 * 1024;
+
+/**
  * Run `gh` with the given args. Throws only on spawn failure (gh not
  * installed); a non-zero exit is the caller's to interpret via the result.
  */
 export function gh(spawn, args) {
-  const result = spawn("gh", args, { encoding: "utf8" });
+  const result = spawn("gh", args, {
+    encoding: "utf8",
+    maxBuffer: GH_MAX_BUFFER,
+  });
   if (result.error) {
     throw result.error;
   }

@@ -9,6 +9,7 @@ import {
   ghGraphql,
   ghPaginatedList,
   requirePositiveInt,
+  GH_MAX_BUFFER,
 } from "./gh.mjs";
 
 function spawnReturning(result) {
@@ -27,6 +28,15 @@ test("gh passes args through and returns the raw result", () => {
   assert.equal(result.stdout, "x");
   assert.deepEqual(spawn.calls[0].args, ["api", "whatever"]);
   assert.equal(spawn.calls[0].cmd, "gh");
+});
+
+test("gh raises maxBuffer above spawnSync's 1 MiB default", () => {
+  // A whole-board or all-issue listing can exceed 1 MiB, and ENOBUFS would
+  // kill the call before itemListComplete could validate the dump.
+  const spawn = spawnReturning({ status: 0, stdout: "x", stderr: "" });
+  gh(spawn, ["api", "whatever"]);
+  assert.equal(spawn.calls[0].opts.maxBuffer, GH_MAX_BUFFER);
+  assert.ok(GH_MAX_BUFFER > 1024 * 1024);
 });
 
 test("gh throws on a spawn-level error (gh not installed)", () => {
