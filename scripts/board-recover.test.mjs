@@ -59,17 +59,19 @@ const dumpSpawn =
     stderr: "",
   });
 
+/** A snapshot file as board:snapshot writes it — complete, with totalCount. */
+const snapshotFile = (items) =>
+  JSON.stringify({ items, totalCount: items.length });
+
 test("diff writes lost-ids.json beside the snapshot and prints the grouping", async (t) => {
   const dir = mkdtempSync(join(tmpdir(), "board-recover-test-"));
   const snapshotPath = join(dir, "board-28-snapshot.json");
   writeFileSync(
     snapshotPath,
-    JSON.stringify({
-      items: [
-        { id: "a", status: "Done" },
-        { id: "b", status: "Todo" },
-      ],
-    }),
+    snapshotFile([
+      { id: "a", status: "Done" },
+      { id: "b", status: "Todo" },
+    ]),
   );
   const lines = [];
   t.mock.method(console, "log", (line) => lines.push(line));
@@ -100,12 +102,10 @@ test("diff refuses to write lost-ids.json when lost cards held mixed values", as
   const snapshotPath = join(dir, "board-28-snapshot.json");
   writeFileSync(
     snapshotPath,
-    JSON.stringify({
-      items: [
-        { id: "a", status: "Done" },
-        { id: "b", status: "Todo" },
-      ],
-    }),
+    snapshotFile([
+      { id: "a", status: "Done" },
+      { id: "b", status: "Todo" },
+    ]),
   );
   const lines = [];
   const errors = [];
@@ -132,10 +132,7 @@ test("diff refuses to write lost-ids.json when lost cards held mixed values", as
 test("diff reports nothing to recover when no card lost a value", async (t) => {
   const dir = mkdtempSync(join(tmpdir(), "board-recover-test-"));
   const snapshotPath = join(dir, "board-28-snapshot.json");
-  writeFileSync(
-    snapshotPath,
-    JSON.stringify({ items: [{ id: "a", status: "Done" }] }),
-  );
+  writeFileSync(snapshotPath, snapshotFile([{ id: "a", status: "Done" }]));
   const lines = [];
   t.mock.method(console, "log", (line) => lines.push(line));
   await main(
@@ -149,13 +146,39 @@ test("diff reports nothing to recover when no card lost a value", async (t) => {
 test("diff refuses a truncated broken-board dump", async () => {
   const dir = mkdtempSync(join(tmpdir(), "board-recover-test-"));
   const snapshotPath = join(dir, "s.json");
-  writeFileSync(snapshotPath, JSON.stringify({ items: [] }));
+  writeFileSync(snapshotPath, snapshotFile([]));
   await assert.rejects(
     main(
       ["--phase", "diff", "--snapshot", snapshotPath],
       dumpSpawn([{ id: "a", status: null }], 500),
     ),
     /INCOMPLETE/,
+  );
+});
+
+test("diff refuses a truncated snapshot by its own totalCount", async () => {
+  // A snapshot whose items fall short of its totalCount omits cards whose
+  // lost values can never be recovered from it — reapply would then report
+  // success while leaving them orphaned. The same shape check refuses a
+  // file with no items array or no totalCount at all.
+  const dir = mkdtempSync(join(tmpdir(), "board-recover-test-"));
+  const snapshotPath = join(dir, "s.json");
+  writeFileSync(
+    snapshotPath,
+    JSON.stringify({ items: [{ id: "a", status: "Done" }], totalCount: 500 }),
+  );
+  await assert.rejects(
+    main(["--phase", "diff", "--snapshot", snapshotPath], () =>
+      assert.fail("nothing should be spawned"),
+    ),
+    /not a complete board snapshot \(1 items of totalCount 500\)/,
+  );
+  writeFileSync(snapshotPath, JSON.stringify({ items: [] }));
+  await assert.rejects(
+    main(["--phase", "diff", "--snapshot", snapshotPath], () =>
+      assert.fail("nothing should be spawned"),
+    ),
+    /not a complete board snapshot/,
   );
 });
 
@@ -175,10 +198,7 @@ test("diff removes a stale lost-ids.json before doing anything", async (t) => {
 
   // …and neither does a diff that finds nothing to recover.
   writeFileSync(lostPath, JSON.stringify(["stale"]));
-  writeFileSync(
-    snapshotPath,
-    JSON.stringify({ items: [{ id: "a", status: "Done" }] }),
-  );
+  writeFileSync(snapshotPath, snapshotFile([{ id: "a", status: "Done" }]));
   t.mock.method(console, "log", () => {});
   await main(
     ["--phase", "diff", "--snapshot", snapshotPath],

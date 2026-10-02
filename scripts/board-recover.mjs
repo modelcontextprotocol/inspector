@@ -137,8 +137,21 @@ export async function main(
     const lostPath = join(lostDir, "lost-ids.json");
     rmSync(lostPath, { force: true });
     const snapshot = JSON.parse(readFileSync(parsed.snapshot, "utf8"));
-    if (!Array.isArray(snapshot.items)) {
-      throw new Error(`${parsed.snapshot} has no items array — not a snapshot`);
+    // A truncated snapshot cannot be diffed against: the cards it omits
+    // would be excluded from the lost set and reapply would then report
+    // success while leaving them orphaned. The snapshot carries its own
+    // totalCount (board:snapshot writes the verified dump whole), so refuse
+    // one whose items fall short of it — or one missing either key.
+    if (
+      !Array.isArray(snapshot.items) ||
+      typeof snapshot.totalCount !== "number" ||
+      snapshot.items.length !== snapshot.totalCount
+    ) {
+      throw new Error(
+        `${parsed.snapshot} is not a complete board snapshot ` +
+          `(${snapshot.items?.length ?? "?"} items of totalCount ` +
+          `${snapshot.totalCount ?? "?"}) — retake it with board:snapshot`,
+      );
     }
     // itemListComplete refuses a truncated dump, so lost-ids.json is written
     // only from a complete picture of the broken board.
