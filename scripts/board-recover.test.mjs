@@ -81,7 +81,12 @@ test("diff writes lost-ids.json beside the snapshot and prints the grouping", as
     ]),
   );
   const lostPath = join(dir, "lost-ids.json");
-  assert.deepEqual(JSON.parse(readFileSync(lostPath, "utf8")), ["a"]);
+  assert.deepEqual(JSON.parse(readFileSync(lostPath, "utf8")), {
+    board: 28,
+    field: "Status",
+    value: "Done",
+    ids: ["a"],
+  });
   // Same protections as the snapshot: private ids, owner-only, exclusive.
   assert.equal(statSync(lostPath).mode & 0o777, 0o600);
   assert.deepEqual(lines, [
@@ -199,13 +204,18 @@ test("diff refuses a snapshot path inside the repo", async () => {
   );
 });
 
-test("reapply edits each lost card with pacing and reports the count", async (t) => {
-  const dir = mkdtempSync(join(tmpdir(), "board-recover-test-"));
-  const lostPath = join(dir, "lost-ids.json");
-  writeFileSync(lostPath, JSON.stringify(["a", "b"]));
+/** A valid lost file as --phase diff writes it. */
+const lostFile = (ids, value = "Done") =>
+  JSON.stringify({ board: 28, field: "Status", value, ids });
 
-  const edits = [];
-  const spawn = (cmd, args) => {
+/**
+ * A reapply spawn: `items` is the current board (preflight dump AND the
+ * per-card reads), `options` the Status field's option list. `onEdit`
+ * collects item-edit args when provided; absent, an edit is a failure.
+ */
+const reapplySpawn =
+  (items, { options = [{ id: "opt_new", name: "Done" }], onEdit } = {}) =>
+  (cmd, args) => {
     const joined = args.join(" ");
     if (joined.includes("project view")) {
       return { status: 0, stdout: JSON.stringify({ id: "PVT_x" }), stderr: "" };
@@ -214,31 +224,56 @@ test("reapply edits each lost card with pacing and reports the count", async (t)
       return {
         status: 0,
         stdout: JSON.stringify({
-          fields: [{ id: "F_status", name: "Status" }],
+          fields: [{ id: "F_status", name: "Status", options }],
         }),
         stderr: "",
       };
     }
     if (joined.includes("item-list")) {
-      // The pre-mutation re-read: both cards still exist and are still blank.
       return {
         status: 0,
-        stdout: JSON.stringify({
-          items: [
-            { id: "a", status: null },
-            { id: "b", status: null },
-          ],
-          totalCount: 2,
-        }),
+        stdout: JSON.stringify({ items, totalCount: items.length }),
+        stderr: "",
+      };
+    }
+    if (joined.includes("api graphql")) {
+      // The per-card read immediately before an edit.
+      const id = args.find((arg) => arg.startsWith("id=")).slice(3);
+      const item = items.find((candidate) => candidate.id === id);
+      const node =
+        item === undefined
+          ? null
+          : {
+              fieldValueByName:
+                item.status == null ? null : { name: item.status },
+            };
+      return {
+        status: 0,
+        stdout: JSON.stringify({ data: { node } }),
         stderr: "",
       };
     }
     if (joined.includes("item-edit")) {
-      edits.push(args);
+      assert.ok(onEdit, `no edit may run here: ${joined}`);
+      onEdit(args);
       return { status: 0, stdout: "{}", stderr: "" };
     }
     assert.fail(`unexpected gh call: ${joined}`);
   };
+
+test("reapply edits each lost card with pacing and reports the count", async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "board-recover-test-"));
+  const lostPath = join(dir, "lost-ids.json");
+  writeFileSync(lostPath, lostFile(["a", "b"]));
+
+  const edits = [];
+  const spawn = reapplySpawn(
+    [
+      { id: "a", status: null },
+      { id: "b", status: null },
+    ],
+    { onEdit: (args) => edits.push(args) },
+  );
   const sleeps = [];
   const lines = [];
   t.mock.method(console, "log", (line) => lines.push(line));
@@ -253,50 +288,101 @@ test("reapply edits each lost card with pacing and reports the count", async (t)
   assert.deepEqual(lines, ["reapplied: 2 cards → option opt_new"]);
 });
 
-test("reapply refuses a lost file that is not a list of ids", async () => {
+test("reapply refuses a lost file that is not diff's own format", async () => {
   const dir = mkdtempSync(join(tmpdir(), "board-recover-test-"));
   const lostPath = join(dir, "lost-ids.json");
-  writeFileSync(lostPath, JSON.stringify({ not: "a list" }));
+  // The pre-#2559 bare-array format records no field/value, so --option-id
+  // could not be verified against what the cards held — refused outright.
+  writeFileSync(lostPath, JSON.stringify(["a", "b"]));
   await assert.rejects(
     main(["--phase", "reapply", "--lost", lostPath, "--option-id", "x"], () => {
       assert.fail("nothing should be spawned");
     }),
-    /not a list of item ids/,
+    /not a lost file written by --phase diff/,
   );
 });
 
-/** A reapply spawn whose re-read reports the given current items. */
-const reapplySpawn = (items) => (cmd, args) => {
-  const joined = args.join(" ");
-  if (joined.includes("project view")) {
-    return { status: 0, stdout: JSON.stringify({ id: "PVT_x" }), stderr: "" };
-  }
-  if (joined.includes("field-list")) {
-    return {
-      status: 0,
-      stdout: JSON.stringify({ fields: [{ id: "F_status", name: "Status" }] }),
-      stderr: "",
-    };
-  }
-  if (joined.includes("item-list")) {
-    return {
-      status: 0,
-      stdout: JSON.stringify({ items, totalCount: items.length }),
-      stderr: "",
-    };
-  }
-  assert.fail(`no edit may run on a stale lost list: ${joined}`);
-};
+test("reapply refuses an explicit flag that contradicts the lost file", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "board-recover-test-"));
+  const lostPath = join(dir, "lost-ids.json");
+  writeFileSync(lostPath, lostFile(["a"]));
+  await assert.rejects(
+    main(
+      [
+        "--phase",
+        "reapply",
+        "--lost",
+        lostPath,
+        "--option-id",
+        "x",
+        "--board",
+        "11",
+      ],
+      () => assert.fail("nothing should be spawned"),
+    ),
+    /--board 11 does not match the lost file's board #28/,
+  );
+  await assert.rejects(
+    main(
+      [
+        "--phase",
+        "reapply",
+        "--lost",
+        lostPath,
+        "--option-id",
+        "x",
+        "--field",
+        "Priority",
+      ],
+      () => assert.fail("nothing should be spawned"),
+    ),
+    /--field Priority does not match the lost file's field "Status"/,
+  );
+});
+
+test("reapply refuses an option id the field does not have", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "board-recover-test-"));
+  const lostPath = join(dir, "lost-ids.json");
+  writeFileSync(lostPath, lostFile(["a"]));
+  await assert.rejects(
+    main(
+      ["--phase", "reapply", "--lost", lostPath, "--option-id", "bogus"],
+      reapplySpawn([{ id: "a", status: null }]),
+    ),
+    /"Status" has no option with id bogus \(has: "Done" \(opt_new\)\)/,
+  );
+});
+
+test("reapply refuses an option whose name is not the recorded value", async () => {
+  // A valid option id from the SAME field that is not the recreated option
+  // would silently rewrite every lost card to the wrong value.
+  const dir = mkdtempSync(join(tmpdir(), "board-recover-test-"));
+  const lostPath = join(dir, "lost-ids.json");
+  writeFileSync(lostPath, lostFile(["a"]));
+  await assert.rejects(
+    main(
+      ["--phase", "reapply", "--lost", lostPath, "--option-id", "opt_todo"],
+      reapplySpawn([{ id: "a", status: null }], {
+        options: [
+          { id: "opt_new", name: "Done" },
+          { id: "opt_todo", name: "Todo" },
+        ],
+      }),
+    ),
+    /is "Todo" but the lost cards held "Done"/,
+  );
+});
 
 test("reapply refuses a lost card that is no longer blank", async () => {
   // Someone legitimately set the card between diff and reapply — the stale
-  // list must not overwrite that newer value.
+  // list must not overwrite that newer value. Caught by the preflight,
+  // before any edit.
   const dir = mkdtempSync(join(tmpdir(), "board-recover-test-"));
   const lostPath = join(dir, "lost-ids.json");
-  writeFileSync(lostPath, JSON.stringify(["a", "b"]));
+  writeFileSync(lostPath, lostFile(["a", "b"]));
   await assert.rejects(
     main(
-      ["--phase", "reapply", "--lost", lostPath, "--option-id", "x"],
+      ["--phase", "reapply", "--lost", lostPath, "--option-id", "opt_new"],
       reapplySpawn([
         { id: "a", status: null },
         { id: "b", status: "In Progress" },
@@ -309,12 +395,44 @@ test("reapply refuses a lost card that is no longer blank", async () => {
 test("reapply refuses a lost card that no longer exists", async () => {
   const dir = mkdtempSync(join(tmpdir(), "board-recover-test-"));
   const lostPath = join(dir, "lost-ids.json");
-  writeFileSync(lostPath, JSON.stringify(["a", "gone"]));
+  writeFileSync(lostPath, lostFile(["a", "gone"]));
   await assert.rejects(
     main(
-      ["--phase", "reapply", "--lost", lostPath, "--option-id", "x"],
+      ["--phase", "reapply", "--lost", lostPath, "--option-id", "opt_new"],
       reapplySpawn([{ id: "a", status: null }]),
     ),
     /gone or no longer blank.*gone/s,
   );
+});
+
+test("reapply aborts mid-loop when a card is set during the run", async (t) => {
+  // The preflight passes (both cards blank at the start), then card b is set
+  // while card a's edit is pacing — the per-card read must catch it and no
+  // edit may land on b.
+  const dir = mkdtempSync(join(tmpdir(), "board-recover-test-"));
+  const lostPath = join(dir, "lost-ids.json");
+  writeFileSync(lostPath, lostFile(["a", "b"]));
+  const items = [
+    { id: "a", status: null },
+    { id: "b", status: null },
+  ];
+  const edits = [];
+  const spawn = reapplySpawn(items, {
+    onEdit: (args) => {
+      edits.push(args);
+      // Simulate the concurrent maintainer: after a's edit, b gets a value.
+      items[1].status = "Todo";
+    },
+  });
+  t.mock.method(console, "log", () => {});
+  await assert.rejects(
+    main(
+      ["--phase", "reapply", "--lost", lostPath, "--option-id", "opt_new"],
+      spawn,
+      async () => {},
+    ),
+    /card b is no longer blank \("Todo"\).*went stale mid-run \(1 of 2 reapplied\)/s,
+  );
+  assert.equal(edits.length, 1);
+  assert.ok(edits[0].includes("a"));
 });

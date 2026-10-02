@@ -164,6 +164,26 @@ export function itemListComplete(spawn, board, limit = ITEM_LIST_LIMIT) {
   return dump;
 }
 
+/**
+ * Read one card's single-select field value at this moment, by item node id.
+ * Returns `{ exists, value }`: `exists` false when the item no longer
+ * resolves (a deleted card), `value` null when the field is blank. This is
+ * the per-card read board-recover's reapply makes immediately before each
+ * edit — a whole-board preflight cannot hold across a paced loop.
+ */
+export function itemFieldValue(spawn, itemId, fieldName) {
+  const response = ghGraphql(
+    spawn,
+    `query($id:ID!){node(id:$id){... on ProjectV2Item{fieldValueByName(name:"${fieldName}"){... on ProjectV2ItemFieldSingleSelectValue{name}}}}}`,
+    { id: itemId },
+  );
+  const node = response?.data?.node;
+  if (node == null) {
+    return { exists: false, value: null };
+  }
+  return { exists: true, value: node.fieldValueByName?.name ?? null };
+}
+
 /** Edit one single-select field on a card, throwing on a non-zero exit. */
 export function editItemField(spawn, project, itemId, fieldId, optionId) {
   const edit = gh(spawn, [

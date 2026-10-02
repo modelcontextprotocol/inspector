@@ -11,11 +11,16 @@
 // `diff` dumps the broken board (complete or refused) and compares it against
 // the snapshot: a card is LOST only when it is null now AND held a value in
 // the snapshot — a card already blank in the snapshot, or added since, is not
-// recovery's to touch. The lost ids are written to lost-ids.json BESIDE the
+// recovery's to touch. The lost set is written to lost-ids.json BESIDE the
 // snapshot only when every lost card held the SAME snapshot value, since
 // reapply assigns one option id to all of them; a mixed grouping is printed
-// and refused. `reapply` re-applies the NEW option id (the deleted one never
-// comes back) to each lost card, paced to stay under the API's abuse limits.
+// and refused. The file records the board, field and held value alongside the
+// ids, so `reapply` can verify that --option-id is actually the recreated
+// option for that value — any other valid option id on the field is refused
+// rather than silently rewriting every lost card to the wrong value. Reapply
+// also re-reads each card's field immediately before editing it (a whole-board
+// preflight cannot hold across a paced loop) and aborts on any card that is
+// gone or no longer blank, paced to stay under the API's abuse limits.
 
 import { spawnSync } from "node:child_process";
 import { readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -28,6 +33,7 @@ import {
   assertOutsideRepo,
   boardFields,
   editItemField,
+  itemFieldValue,
   itemListComplete,
   projectId as resolveProjectId,
 } from "./lib/board.mjs";
@@ -42,13 +48,13 @@ export function parseRecoverArgs(argv) {
       snapshot: { type: "string" },
       lost: { type: "string" },
       "option-id": { type: "string" },
-      field: { type: "string", default: "Status" },
+      field: { type: "string" },
       board: { type: "string" },
     },
   });
   const board =
     values.board === undefined
-      ? DEFAULT_BOARD
+      ? undefined
       : requirePositiveInt(values.board, "--board");
   if (values.phase === "diff") {
     if (!values.snapshot) {
@@ -57,8 +63,8 @@ export function parseRecoverArgs(argv) {
     return {
       phase: "diff",
       snapshot: values.snapshot,
-      field: values.field,
-      board,
+      field: values.field ?? "Status",
+      board: board ?? DEFAULT_BOARD,
     };
   }
   if (values.phase === "reapply") {
@@ -67,6 +73,9 @@ export function parseRecoverArgs(argv) {
         "--phase reapply needs --lost <path> and --option-id <id>",
       );
     }
+    // board and field stay undefined when not given: reapply takes both from
+    // the lost file (written by diff), and an explicit flag may only CONFIRM
+    // what the file records — a mismatch is refused in main.
     return {
       phase: "reapply",
       lost: values.lost,
@@ -154,10 +163,19 @@ export async function main(
       return;
     }
     const lostIds = groups[0].ids;
+    // The artifact records what the lost cards HELD, not just their ids, so
+    // reapply can refuse an --option-id that is valid on the field but is not
+    // the recreated option for this value.
+    const payload = {
+      board: parsed.board,
+      field: parsed.field,
+      value: groups[0].value,
+      ids: lostIds,
+    };
     // Same protections as the snapshot itself: the ids are private board
     // data, so owner-only, and exclusive so a file planted between the
     // removal above and this write is refused rather than followed.
-    writeFileSync(lostPath, JSON.stringify(lostIds, null, 2), {
+    writeFileSync(lostPath, JSON.stringify(payload, null, 2), {
       mode: 0o600,
       flag: "wx",
     });
@@ -167,25 +185,73 @@ export async function main(
     return;
   }
 
-  const lostIds = JSON.parse(readFileSync(parsed.lost, "utf8"));
-  if (!Array.isArray(lostIds) || lostIds.some((id) => typeof id !== "string")) {
-    throw new Error(`${parsed.lost} is not a list of item ids`);
+  const recorded = JSON.parse(readFileSync(parsed.lost, "utf8"));
+  if (
+    recorded === null ||
+    typeof recorded !== "object" ||
+    Array.isArray(recorded) ||
+    !Number.isInteger(recorded.board) ||
+    typeof recorded.field !== "string" ||
+    typeof recorded.value !== "string" ||
+    !Array.isArray(recorded.ids) ||
+    recorded.ids.length === 0 ||
+    recorded.ids.some((id) => typeof id !== "string")
+  ) {
+    throw new Error(
+      `${parsed.lost} is not a lost file written by --phase diff ` +
+        `({ board, field, value, ids })`,
+    );
   }
-  const project = resolveProjectId(spawn, parsed.board);
-  const field = boardFields(spawn, parsed.board).find(
-    (candidate) => candidate.name === parsed.field,
+  // The file is authoritative for board and field; an explicit flag may only
+  // confirm it. A silent override would let reapply run against a different
+  // board or field than the one diff actually measured.
+  if (parsed.board !== undefined && parsed.board !== recorded.board) {
+    throw new Error(
+      `--board ${parsed.board} does not match the lost file's board #${recorded.board}`,
+    );
+  }
+  if (parsed.field !== undefined && parsed.field !== recorded.field) {
+    throw new Error(
+      `--field ${parsed.field} does not match the lost file's field "${recorded.field}"`,
+    );
+  }
+  const lostIds = recorded.ids;
+  const project = resolveProjectId(spawn, recorded.board);
+  const field = boardFields(spawn, recorded.board).find(
+    (candidate) => candidate.name === recorded.field,
   );
   if (!field) {
-    throw new Error(`board #${parsed.board} has no "${parsed.field}" field`);
+    throw new Error(
+      `board #${recorded.board} has no "${recorded.field}" field`,
+    );
   }
-  // The lost list can go stale between diff and reapply — someone may have
-  // legitimately set one of these cards while the option was being recreated,
-  // or deleted one. Re-read the board NOW and refuse to overwrite anything
-  // that is no longer a blank card; the safety check holds at mutation time,
-  // not only at diff time.
-  const current = itemListComplete(spawn, parsed.board);
+  // --option-id must be the RECREATED option for the value the lost cards
+  // held — any other valid option id on the field would succeed and silently
+  // rewrite every lost card to the wrong value.
+  const option = (field.options ?? []).find(
+    (candidate) => candidate.id === parsed.optionId,
+  );
+  if (!option) {
+    const known = (field.options ?? [])
+      .map((o) => `"${o.name}" (${o.id})`)
+      .join(", ");
+    throw new Error(
+      `"${recorded.field}" has no option with id ${parsed.optionId} (has: ${known})`,
+    );
+  }
+  if (option.name !== recorded.value) {
+    throw new Error(
+      `--option-id ${parsed.optionId} is "${option.name}" but the lost cards ` +
+        `held "${recorded.value}" — pass the recreated "${recorded.value}" option's id`,
+    );
+  }
+  // Fail fast, before the FIRST edit, when the list is already stale — someone
+  // may have legitimately set one of these cards while the option was being
+  // recreated, or deleted one. This makes a stale-at-start run all-or-nothing;
+  // the per-card read in the loop below is what holds at mutation time.
+  const current = itemListComplete(spawn, recorded.board);
   const byId = new Map(current.items.map((item) => [item.id, item]));
-  const key = fieldKey(parsed.field);
+  const key = fieldKey(recorded.field);
   const stale = lostIds.filter(
     (id) => !byId.has(id) || byId.get(id)[key] != null,
   );
@@ -196,8 +262,21 @@ export async function main(
         `— the lost list is stale; re-run --phase diff and retry`,
     );
   }
+  let applied = 0;
   for (const id of lostIds) {
+    // Re-read THIS card immediately before its edit: with hundreds of cards
+    // and 400 ms pacing, the preflight above goes stale mid-loop, and a card
+    // someone set during the run must not be overwritten.
+    const now = itemFieldValue(spawn, id, recorded.field);
+    if (!now.exists || now.value !== null) {
+      throw new Error(
+        `card ${id} is ${now.exists ? `no longer blank ("${now.value}")` : "gone"} — ` +
+          `the lost list went stale mid-run (${applied} of ${lostIds.length} ` +
+          `reapplied); re-run --phase diff and retry with the remainder`,
+      );
+    }
     editItemField(spawn, project, id, field.id, parsed.optionId);
+    applied += 1;
     await sleep(EDIT_PACING_MS);
   }
   console.log(`reapplied: ${lostIds.length} cards → option ${parsed.optionId}`);

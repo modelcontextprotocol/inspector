@@ -333,7 +333,14 @@ counted as lost only when it is blank now **and** held a value in the snapshot
 a mixed grouping is printed and refused, since one option id cannot restore
 two. Step 3 refuses to run without step 1's file, so neither a truncated dump
 nor a missing snapshot can turn into a silent no-op or an unconfirmed
-re-apply.
+re-apply. The file also records the board, the field and the value the lost
+cards held, and step 3 verifies `--option-id` against them — an option id that
+is valid on the field but is not the recreated option for that value is
+refused rather than rewriting every lost card to the wrong one. Finally, step
+3 re-reads each card immediately before editing it and aborts — naming how far
+it got — if any card was deleted or set in the meantime, so a stale lost list
+never overwrites a value a maintainer legitimately set; re-run step 1 and
+retry with the remainder.
 
 Because the recreated option carries a **new id**, the tables above and every
 reference to it must be updated in the same change — `grep` the old id across
