@@ -89,11 +89,15 @@ export async function waitForRound({ pr, expected, timeoutMinutes }, deps) {
     copilotReviewCount(
       ghPaginatedList(spawn, `repos/${REPO_SLUG}/pulls/${pr}/reviews`),
     );
+  // first:100 is the connection maximum — a PR's requested-reviewer list is
+  // short, but a first page sized below the max could leave Copilot unseen
+  // on a PR with many requestees, reading as ended-without-review while the
+  // request is still active.
   const pending = () =>
     pendingCopilotRequests(
       ghGraphql(
         spawn,
-        `query($n:Int!){repository(owner:"${OWNER}",name:"${REPO}"){pullRequest(number:$n){reviewRequests(first:20){nodes{requestedReviewer{... on Bot{login} ... on User{login}}}}}}}`,
+        `query($n:Int!){repository(owner:"${OWNER}",name:"${REPO}"){pullRequest(number:$n){reviewRequests(first:100){nodes{requestedReviewer{... on Bot{login} ... on User{login}}}}}}}`,
         { n: pr },
       ),
     );

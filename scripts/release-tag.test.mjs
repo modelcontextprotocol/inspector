@@ -29,7 +29,7 @@ function gitSpawn() {
     let stdout = "";
     if (joined === `show ${SHA}:package.json`) {
       stdout = '{"version":"2.4.1"}';
-    } else if (joined === "rev-parse origin/main") {
+    } else if (joined === "rev-parse FETCH_HEAD") {
       stdout = `${SHA}\n`;
     }
     return { status: 0, stdout, stderr: "" };

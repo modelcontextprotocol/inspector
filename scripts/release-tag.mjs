@@ -51,11 +51,16 @@ export function main(argv = process.argv.slice(2), spawn = spawnSync) {
   const { push } = parseTagArgs(argv);
 
   git(spawn, ["fetch", "origin", "main"]);
-  // Resolve the SHA once and read everything else FROM that SHA. Worktrees
-  // share refs, so a fetch elsewhere can move origin/main between commands —
-  // reading package.json off the ref name could pair commit A's version with
-  // commit B's tag target, the exact mismatch this helper exists to prevent.
-  const sha = git(spawn, ["rev-parse", "origin/main"]);
+  // Read the SHA from FETCH_HEAD — what that fetch literally just retrieved.
+  // `rev-parse origin/main` would read the tracking ref, which a source-only
+  // `fetch origin main` updates only opportunistically — a stale tracking
+  // ref could be tagged while the output claims an explicit fetch made it
+  // current. Resolve the SHA once and read everything else FROM that SHA:
+  // worktrees share refs, so a fetch elsewhere can move things between
+  // commands — reading package.json off a ref name could pair commit A's
+  // version with commit B's tag target, the exact mismatch this helper
+  // exists to prevent.
+  const sha = git(spawn, ["rev-parse", "FETCH_HEAD"]);
   const version = versionFrom(git(spawn, ["show", `${sha}:package.json`]));
   const tag = version; // bare x.y.z — no v prefix on this repo's release tags
 

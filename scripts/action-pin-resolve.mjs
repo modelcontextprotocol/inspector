@@ -12,7 +12,7 @@
 
 import { spawnSync } from "node:child_process";
 import { parseArgs } from "node:util";
-import { ghJson, ghPaginatedList } from "./lib/gh.mjs";
+import { ghPaginatedList } from "./lib/gh.mjs";
 
 const EXACT_TAG = /^v\d+\.\d+\.\d+$/;
 
@@ -63,15 +63,18 @@ export function exactVersionFor(tags, sha, major) {
 export function main(argv = process.argv.slice(2), spawn = spawnSync) {
   const { repo, tag, major } = parsePinArgs(argv);
 
-  const sha = ghJson(spawn, ["api", `repos/${repo}/commits/${tag}`]).sha;
+  // ONE listing resolves both the SHA and the exact version. Resolving the
+  // moving tag through /commits/<tag> in a separate request would race an
+  // upstream retag between the two calls — the printed comment could name
+  // the previous release while the SHA pins the new one.
+  const tags = ghPaginatedList(spawn, `repos/${repo}/tags?per_page=100`);
+  const sha = tags.find((candidate) => candidate?.name === tag)?.commit?.sha;
   if (!sha) {
-    throw new Error(`could not resolve ${repo}@${tag} to a commit`);
+    throw new Error(
+      `could not resolve ${repo}@${tag} to a commit — no such tag`,
+    );
   }
-  const version = exactVersionFor(
-    ghPaginatedList(spawn, `repos/${repo}/tags?per_page=100`),
-    sha,
-    major,
-  );
+  const version = exactVersionFor(tags, sha, major);
   if (!version) {
     throw new Error(
       `no exact v${major}.Y.Z tag in ${repo} points at ${sha} — pin by hand from the release page`,

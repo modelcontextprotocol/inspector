@@ -57,15 +57,12 @@ test("exactVersionFor stays within the requested major", () => {
 function spawnScript({ tags }) {
   return (cmd, args) => {
     const joined = args.join(" ");
-    let payload;
-    if (joined.includes("/commits/")) {
-      payload = { sha: SHA };
-    } else if (joined.includes("/tags")) {
-      payload = [tags];
-    } else {
+    if (!joined.includes("/tags")) {
+      // The SHA must come from the same /tags listing as the version — a
+      // separate /commits/<tag> request would race an upstream retag.
       assert.fail(`unexpected gh call: ${joined}`);
     }
-    return { status: 0, stdout: JSON.stringify(payload), stderr: "" };
+    return { status: 0, stdout: JSON.stringify([tags]), stderr: "" };
   };
 }
 
@@ -77,6 +74,17 @@ test("main prints the uses: line with SHA and matching exact version", (t) => {
     spawnScript({ tags: [tag("v5"), tag("v5.0.1")] }),
   );
   assert.deepEqual(lines, [`uses: actions/checkout@${SHA} # v5.0.1`]);
+});
+
+test("main throws when the requested tag is not in the listing", () => {
+  assert.throws(
+    () =>
+      main(
+        ["--repo", "actions/checkout", "--tag", "v9"],
+        spawnScript({ tags: [tag("v5"), tag("v5.0.1")] }),
+      ),
+    /could not resolve actions\/checkout@v9 .* no such tag/,
+  );
 });
 
 test("main throws when no exact tag in the requested major points at the SHA", () => {

@@ -80,6 +80,11 @@ function fakeDeps(timeline) {
         stderr: "",
       };
     }
+    // The pending lookup must request the connection maximum — a smaller
+    // first page could leave Copilot unseen among many requestees and read
+    // as ended-without-review while the request is still active.
+    const query = args.find((arg) => arg.startsWith("query="));
+    assert.match(query, /reviewRequests\(first:100\)/);
     return {
       status: 0,
       stdout: JSON.stringify({
