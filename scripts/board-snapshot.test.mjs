@@ -62,7 +62,11 @@ test("main writes the verified dump and prints its path", (t) => {
   main(["--dir", dir], spawnScript(1));
   const path = join(dir, "board-28-snapshot.json");
   assert.deepEqual(lines, [`snapshot: ${path} (1 items)`]);
-  assert.deepEqual(JSON.parse(readFileSync(path, "utf8")).items, ITEMS);
+  const written = JSON.parse(readFileSync(path, "utf8"));
+  assert.deepEqual(written.items, ITEMS);
+  // The board is recorded in the snapshot so board-recover's diff can prove
+  // the snapshot belongs to the board it diffs against.
+  assert.equal(written.board, 28);
   // The dump is private: owner-only, and an existing file is never reused.
   assert.equal(statSync(path).mode & 0o777, 0o600);
   assert.throws(() => main(["--dir", dir], spawnScript(1)), /EEXIST/);

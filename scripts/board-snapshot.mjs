@@ -55,7 +55,10 @@ export function main(argv = process.argv.slice(2), spawn = spawnSync) {
   assertOutsideRepo(target, process.cwd());
 
   // itemListComplete throws on a truncated dump, so nothing partial is written.
-  const dump = itemListComplete(spawn, board);
+  // The board number is recorded IN the snapshot so board-recover's diff can
+  // prove the snapshot belongs to the board it is diffing against instead of
+  // trusting a default or a flag.
+  const dump = { board, ...itemListComplete(spawn, board) };
   const path = join(target, `board-${board}-snapshot.json`);
   // The dump is private: 0600 so a shared --dir (e.g. /tmp) never leaves it
   // world-readable, and "wx" so an existing file (or a symlink planted at the

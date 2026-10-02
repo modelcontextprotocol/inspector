@@ -53,15 +53,26 @@ test("lostGrouping keeps only cards that lost a snapshot value", () => {
 
 const dumpSpawn =
   (items, totalCount = items.length) =>
-  () => ({
-    status: 0,
-    stdout: JSON.stringify({ items, totalCount }),
-    stderr: "",
-  });
+  (cmd, args) => {
+    if (args.join(" ").includes("field-list")) {
+      return {
+        status: 0,
+        stdout: JSON.stringify({
+          fields: [{ id: "F_status", name: "Status" }],
+        }),
+        stderr: "",
+      };
+    }
+    return {
+      status: 0,
+      stdout: JSON.stringify({ items, totalCount }),
+      stderr: "",
+    };
+  };
 
-/** A snapshot file as board:snapshot writes it — complete, with totalCount. */
-const snapshotFile = (items) =>
-  JSON.stringify({ items, totalCount: items.length });
+/** A snapshot file as board:snapshot writes it — board recorded, complete. */
+const snapshotFile = (items, board = 28) =>
+  JSON.stringify({ board, items, totalCount: items.length });
 
 test("diff writes lost-ids.json beside the snapshot and prints the grouping", async (t) => {
   const dir = mkdtempSync(join(tmpdir(), "board-recover-test-"));
@@ -205,6 +216,92 @@ test("diff removes a stale lost-ids.json before doing anything", async (t) => {
     dumpSpawn([{ id: "a", status: "Done" }]),
   );
   assert.ok(!existsSync(lostPath));
+});
+
+test("diff refuses an explicit --board that contradicts the snapshot", async () => {
+  // A board-11 snapshot diffed against board 28's dump would match nothing
+  // and confidently print "lost: 0 cards".
+  const dir = mkdtempSync(join(tmpdir(), "board-recover-test-"));
+  const snapshotPath = join(dir, "s.json");
+  writeFileSync(snapshotPath, snapshotFile([{ id: "a", status: "Done" }], 11));
+  await assert.rejects(
+    main(["--phase", "diff", "--snapshot", snapshotPath, "--board", "28"], () =>
+      assert.fail("nothing should be spawned"),
+    ),
+    /--board 28 does not match the snapshot's board #11/,
+  );
+});
+
+test("diff takes its board from the snapshot and resolves fields on it", async (t) => {
+  // No --board flag: the snapshot's recorded board (11) decides which board
+  // is dumped and which board the lost file names.
+  const dir = mkdtempSync(join(tmpdir(), "board-recover-test-"));
+  const snapshotPath = join(dir, "s.json");
+  writeFileSync(snapshotPath, snapshotFile([{ id: "a", status: "Done" }], 11));
+  const boardsAsked = [];
+  const spawn = (cmd, args) => {
+    const joined = args.join(" ");
+    if (joined.includes("field-list") || joined.includes("item-list")) {
+      boardsAsked.push(args[2]);
+    }
+    if (joined.includes("field-list")) {
+      return {
+        status: 0,
+        stdout: JSON.stringify({ fields: [{ id: "F", name: "Status" }] }),
+        stderr: "",
+      };
+    }
+    return {
+      status: 0,
+      stdout: JSON.stringify({
+        items: [{ id: "a", status: null }],
+        totalCount: 1,
+      }),
+      stderr: "",
+    };
+  };
+  t.mock.method(console, "log", () => {});
+  await main(["--phase", "diff", "--snapshot", snapshotPath], spawn);
+  assert.deepEqual(boardsAsked, ["11", "11"]);
+  assert.equal(
+    JSON.parse(readFileSync(join(dir, "lost-ids.json"), "utf8")).board,
+    11,
+  );
+});
+
+test("diff refuses a field the board does not have", async () => {
+  // A typo (--field Priorty) would read every card's value as undefined,
+  // match nothing, and falsely report no lost cards.
+  const dir = mkdtempSync(join(tmpdir(), "board-recover-test-"));
+  const snapshotPath = join(dir, "s.json");
+  writeFileSync(snapshotPath, snapshotFile([{ id: "a", status: "Done" }]));
+  await assert.rejects(
+    main(
+      ["--phase", "diff", "--snapshot", snapshotPath, "--field", "Priorty"],
+      dumpSpawn([{ id: "a", status: null }]),
+    ),
+    /board #28 has no "Priorty" field/,
+  );
+  assert.ok(!existsSync(join(dir, "lost-ids.json")));
+});
+
+test("diff falls back to the flag or default for a snapshot with no board key", async (t) => {
+  // A hand-taken `gh project item-list` dump predates the recorded key.
+  const dir = mkdtempSync(join(tmpdir(), "board-recover-test-"));
+  const snapshotPath = join(dir, "s.json");
+  writeFileSync(
+    snapshotPath,
+    JSON.stringify({ items: [{ id: "a", status: "Done" }], totalCount: 1 }),
+  );
+  t.mock.method(console, "log", () => {});
+  await main(
+    ["--phase", "diff", "--snapshot", snapshotPath],
+    dumpSpawn([{ id: "a", status: null }]),
+  );
+  assert.equal(
+    JSON.parse(readFileSync(join(dir, "lost-ids.json"), "utf8")).board,
+    28,
+  );
 });
 
 test("diff refuses a snapshot path inside the repo", async () => {

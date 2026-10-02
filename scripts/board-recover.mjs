@@ -60,11 +60,14 @@ export function parseRecoverArgs(argv) {
     if (!values.snapshot) {
       throw new Error("--phase diff needs --snapshot <path>");
     }
+    // board stays undefined when not given: diff takes it from the snapshot
+    // (board:snapshot records it), and an explicit flag may only CONFIRM what
+    // the snapshot records — a mismatch is refused in main.
     return {
       phase: "diff",
       snapshot: values.snapshot,
       field: values.field ?? "Status",
-      board: board ?? DEFAULT_BOARD,
+      board,
     };
   }
   if (values.phase === "reapply") {
@@ -153,9 +156,40 @@ export async function main(
           `${snapshot.totalCount ?? "?"}) — retake it with board:snapshot`,
       );
     }
+    // The snapshot proves which board it belongs to (board:snapshot records
+    // it): diffing a board-11 snapshot against board 28's dump would match
+    // nothing and confidently print "lost: 0 cards". An explicit --board may
+    // only confirm it; a snapshot predating the recorded key (hand-taken
+    // with gh directly) falls back to the flag or the default.
+    let board;
+    if (snapshot.board !== undefined) {
+      if (!Number.isInteger(snapshot.board)) {
+        throw new Error(
+          `${parsed.snapshot} records a non-numeric board (${snapshot.board})`,
+        );
+      }
+      if (parsed.board !== undefined && parsed.board !== snapshot.board) {
+        throw new Error(
+          `--board ${parsed.board} does not match the snapshot's board #${snapshot.board}`,
+        );
+      }
+      board = snapshot.board;
+    } else {
+      board = parsed.board ?? DEFAULT_BOARD;
+    }
+    // The field must exist on the board — a typo (--field Priorty) would
+    // otherwise read every card's value as undefined, match nothing, and
+    // falsely report no lost cards.
+    if (
+      !boardFields(spawn, board).some(
+        (candidate) => candidate.name === parsed.field,
+      )
+    ) {
+      throw new Error(`board #${board} has no "${parsed.field}" field`);
+    }
     // itemListComplete refuses a truncated dump, so lost-ids.json is written
     // only from a complete picture of the broken board.
-    const broken = itemListComplete(spawn, parsed.board);
+    const broken = itemListComplete(spawn, board);
     const groups = lostGrouping(snapshot.items, broken.items, parsed.field);
     for (const { value, count } of groups) {
       console.log(`was ${value}: ${count}`);
@@ -180,7 +214,7 @@ export async function main(
     // reapply can refuse an --option-id that is valid on the field but is not
     // the recreated option for this value.
     const payload = {
-      board: parsed.board,
+      board,
       field: parsed.field,
       value: groups[0].value,
       ids: lostIds,
