@@ -379,7 +379,7 @@ async function adoptSecretsNamespace(
   if (moves.length === 0) return namespace;
   if (!locked) {
     throw new SecretStoreUnavailableError(
-      `Could not save OAuth state: ${filePath} predates per-state-file secret namespaces, and migrating its secret-store entries needs the file lock, which is unavailable here (see the lock warning above). Migrating without it could lose credentials if two processes migrate at once. Nothing was changed; make the lock directory writable and retry.`,
+      `Could not save OAuth state: ${filePath} predates per-state-file secret namespaces, and migrating its secret-store entries needs the file lock, which is unavailable here (see the lock warning above). Migrating without it could lose credentials if two processes migrate at once. Nothing was changed; make the lock directory writable and retry — or, if you cannot, clear this file's stored OAuth state and re-authorize (clearing does not migrate, and the fresh state file mints its namespace without the lock).`,
     );
   }
 
