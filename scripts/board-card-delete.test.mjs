@@ -12,6 +12,7 @@ test("parseDeleteArgs validates the reason vocabulary", () => {
     issue: 7,
     board: 28,
     reason: undefined,
+    allowMissingCard: false,
   });
   assert.equal(
     parseDeleteArgs(["--issue", "7", "--reason", "duplicate"]).reason,
@@ -20,6 +21,11 @@ test("parseDeleteArgs validates the reason vocabulary", () => {
   assert.throws(
     () => parseDeleteArgs(["--issue", "7", "--reason", "wontfix"]),
     /duplicate, not-planned/,
+  );
+  // The retry flag is only meaningful with a close to retry.
+  assert.throws(
+    () => parseDeleteArgs(["--issue", "7", "--allow-missing-card"]),
+    /only meaningful with --reason/,
   );
 });
 
@@ -94,15 +100,31 @@ test("main throws when there is no card to delete", () => {
   );
 });
 
-test("a --reason retry with the card already gone still closes", (t) => {
+test("--reason alone still refuses an absent card", () => {
+  // A wrong --board or a typo'd issue number must not close the issue while
+  // its real card survives — closing past an absent card is opt-in.
+  assert.throws(
+    () =>
+      main(
+        ["--issue", "7", "--reason", "not-planned"],
+        spawnScript({ card: false }),
+      ),
+    /no card on board #28.*--allow-missing-card/s,
+  );
+});
+
+test("an explicit --allow-missing-card retry closes past the absent card", (t) => {
   // A prior run may have deleted the card and failed the PATCH transiently —
-  // the retry must not stop at "no card" with the issue still open.
+  // the declared retry must not stop at "no card" with the issue still open.
   const lines = [];
   t.mock.method(console, "log", (line) => lines.push(line));
   const spawn = spawnScript({ card: false });
-  main(["--issue", "7", "--reason", "not-planned"], spawn);
+  main(
+    ["--issue", "7", "--reason", "not-planned", "--allow-missing-card"],
+    spawn,
+  );
   assert.deepEqual(lines, [
-    "no card: #7 on board #28 (already deleted?) — closing anyway",
+    "no card: #7 on board #28 — closing anyway (--allow-missing-card)",
     "closed: #7 (not_planned)",
   ]);
   assert.equal(

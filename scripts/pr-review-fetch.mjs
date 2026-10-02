@@ -18,14 +18,17 @@
 
 import { spawnSync } from "node:child_process";
 import { parseArgs } from "node:util";
-import { REPO_SLUG, ghPaginatedList, requirePositiveInt } from "./lib/gh.mjs";
+import {
+  REPO_SLUG,
+  COPILOT_REVIEWER_LOGIN,
+  ghPaginatedList,
+  requirePositiveInt,
+} from "./lib/gh.mjs";
 
 /** The latest Copilot-posted review in a flattened listing, or undefined. */
 export function latestCopilotReview(reviews) {
   return reviews
-    .filter((review) =>
-      (review?.user?.login ?? "").startsWith("copilot-pull-request-reviewer"),
-    )
+    .filter((review) => review?.user?.login === COPILOT_REVIEWER_LOGIN)
     .sort((a, b) =>
       String(a.submitted_at ?? "").localeCompare(String(b.submitted_at ?? "")),
     )

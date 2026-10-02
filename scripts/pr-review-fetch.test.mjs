@@ -32,6 +32,17 @@ test("latestCopilotReview picks the newest Copilot review by submitted_at", () =
   );
 });
 
+test("latestCopilotReview matches the bot login exactly, not by prefix", () => {
+  // A public-PR user whose login merely starts with the bot's name must not
+  // be read as "the Copilot round".
+  const latest = latestCopilotReview([
+    review(1, COPILOT, "2026-01-01T00:00:00Z"),
+    review(2, "copilot-pull-request-reviewer", "2026-01-02T00:00:00Z"),
+    review(3, "copilot-pull-request-reviewer-fake", "2026-01-03T00:00:00Z"),
+  ]);
+  assert.equal(latest.id, 1);
+});
+
 test("formatComment names the thread id and falls back to original_line", () => {
   assert.equal(
     formatComment({ id: 7, path: "a.ts", line: 12, body: "b" }),

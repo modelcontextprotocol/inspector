@@ -227,6 +227,12 @@ npm run board:delete -- --issue <N>                       # --board 11 for a v1 
 npm run board:delete -- --issue <N> --reason duplicate    # …and close the issue
 ```
 
+An absent card always fails the run — including with `--reason`, so a wrong
+`--board` or a typo'd issue number cannot close an issue whose real card
+survives. The one legitimate absent-card case is retrying a run that deleted
+the card and then failed the close; declare it with `--allow-missing-card` to
+proceed to the close anyway.
+
 Deleting the card removes it from the board only — **the issue itself is
 untouched**, keeps its labels and comments, and stays searchable and linkable
 forever. Nothing is lost; the board simply stops claiming the work was

@@ -22,6 +22,14 @@ test("copilotReviewCount counts only Copilot reviews", () => {
     copilotReviewCount([review(COPILOT), review("alice"), review(COPILOT), {}]),
     2,
   );
+  // Exact login, not a prefix — a lookalike account must not satisfy a wait.
+  assert.equal(
+    copilotReviewCount([
+      review("copilot-pull-request-reviewer"),
+      review("copilot-pull-request-reviewer-fake"),
+    ]),
+    0,
+  );
 });
 
 test("pendingCopilotRequests matches copilot case-insensitively, throws on bad shape", () => {

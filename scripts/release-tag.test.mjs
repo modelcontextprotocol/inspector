@@ -27,7 +27,7 @@ function gitSpawn() {
     calls.push(args);
     const joined = args.join(" ");
     let stdout = "";
-    if (joined === "show origin/main:package.json") {
+    if (joined === `show ${SHA}:package.json`) {
       stdout = '{"version":"2.4.1"}';
     } else if (joined === "rev-parse origin/main") {
       stdout = `${SHA}\n`;

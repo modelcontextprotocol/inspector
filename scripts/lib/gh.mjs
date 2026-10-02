@@ -15,6 +15,14 @@ export const REPO = "inspector";
 export const REPO_SLUG = `${OWNER}/${REPO}`;
 
 /**
+ * The Copilot code-review bot's exact REST login. Matched exactly, never by
+ * prefix — on a public PR a user whose login merely starts with the bot's
+ * name could otherwise pass as "the Copilot review" (satisfying a wait's
+ * expected count, or being printed as the round to act on).
+ */
+export const COPILOT_REVIEWER_LOGIN = "copilot-pull-request-reviewer[bot]";
+
+/**
  * Run `gh` with the given args. Throws only on spawn failure (gh not
  * installed); a non-zero exit is the caller's to interpret via the result.
  */

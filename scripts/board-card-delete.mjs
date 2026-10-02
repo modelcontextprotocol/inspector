@@ -13,6 +13,13 @@
 // reason. `duplicate` cannot be set through `gh issue close --reason` (it
 // accepts only completed / not planned), so the close goes through the API —
 // the same PATCH the skill documented.
+//
+// An absent card is ALWAYS an error unless `--allow-missing-card` says
+// otherwise. The flag exists for one case: a prior run deleted the card and
+// then failed the close transiently, so the retry finds no card and still
+// needs to PATCH. Implicit retry-on-absence was rejected in review — a wrong
+// `--board`, or a mistyped issue number, would close an issue while its real
+// card survives.
 
 import { spawnSync } from "node:child_process";
 import { parseArgs } from "node:util";
@@ -32,11 +39,17 @@ export function parseDeleteArgs(argv) {
       issue: { type: "string" },
       board: { type: "string" },
       reason: { type: "string" },
+      "allow-missing-card": { type: "boolean" },
     },
   });
   if (values.reason !== undefined && !(values.reason in CLOSE_REASONS)) {
     throw new Error(
       `--reason must be one of: ${Object.keys(CLOSE_REASONS).join(", ")}`,
+    );
+  }
+  if (values["allow-missing-card"] === true && values.reason === undefined) {
+    throw new Error(
+      "--allow-missing-card is only meaningful with --reason — without a close there is nothing left to do when the card is absent",
     );
   }
   return {
@@ -46,26 +59,30 @@ export function parseDeleteArgs(argv) {
         ? DEFAULT_BOARD
         : requirePositiveInt(values.board, "--board"),
     reason: values.reason,
+    allowMissingCard: values["allow-missing-card"] === true,
   };
 }
 
 export function main(argv = process.argv.slice(2), spawn = spawnSync) {
-  const { issue, board, reason } = parseDeleteArgs(argv);
+  const { issue, board, reason, allowMissingCard } = parseDeleteArgs(argv);
 
   const project = resolveProjectId(spawn, board);
   const card = findCard(spawn, issue, project);
   if (!card?.id) {
-    // Without --reason the absent card is the whole job failing. With it,
-    // carry on to the close: a prior run may have deleted the card and then
-    // failed the PATCH transiently, and stopping here would make that
-    // partial failure unretryable.
-    if (!reason) {
+    // Absent card: fail unless the caller explicitly declared this a retry
+    // of a delete-succeeded/close-failed run. Closing implicitly on --reason
+    // alone would close the issue on a wrong --board or a typo'd number
+    // while its real card survives.
+    if (!allowMissingCard) {
       throw new Error(
-        `#${issue} has no card on board #${board} — nothing deleted`,
+        `#${issue} has no card on board #${board} — nothing deleted` +
+          (reason
+            ? "; if a prior run already deleted it, re-run with --allow-missing-card to close anyway"
+            : ""),
       );
     }
     console.log(
-      `no card: #${issue} on board #${board} (already deleted?) — closing anyway`,
+      `no card: #${issue} on board #${board} — closing anyway (--allow-missing-card)`,
     );
   } else {
     const del = gh(spawn, [

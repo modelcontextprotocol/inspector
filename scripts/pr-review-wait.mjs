@@ -34,6 +34,7 @@ import {
   OWNER,
   REPO,
   REPO_SLUG,
+  COPILOT_REVIEWER_LOGIN,
   ghGraphql,
   ghPaginatedList,
   requirePositiveInt,
@@ -46,8 +47,8 @@ export const DEFAULT_TIMEOUT_MINUTES = 25;
 
 /** Count the Copilot-posted reviews in a full (flattened) review listing. */
 export function copilotReviewCount(reviews) {
-  return reviews.filter((review) =>
-    (review?.user?.login ?? "").startsWith("copilot-pull-request-reviewer"),
+  return reviews.filter(
+    (review) => review?.user?.login === COPILOT_REVIEWER_LOGIN,
   ).length;
 }
 
