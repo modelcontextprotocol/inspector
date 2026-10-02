@@ -295,32 +295,33 @@ gh release create "$VERSION" --target main --title "$VERSION" --notes-file "$NOT
 `--target main` and the bare `$VERSION` give the right target and tag by
 construction.
 
-The equivalent by hand, for when the UI is not an option — derive the tag from
-the version that just landed rather than typing one, since a hard-coded tag is
-either already taken (so `git tag` aborts) or, worse, wrong:
+The equivalent by hand, for when the UI is not an option, is the script
+(`scripts/release-tag.mjs`, #2558) — it derives the tag from the version that
+just landed rather than taking one as input, since a hard-coded tag is either
+already taken (so `git tag` aborts) or, worse, wrong:
 
 ```sh
-git fetch origin main
-VERSION=$(git show origin/main:package.json | node -p "JSON.parse(require('fs').readFileSync(0)).version")
-echo "$VERSION"                                  # sanity-check before tagging
-git tag "$VERSION" origin/main && git push origin "$VERSION"
+npm run release:tag              # dry run: prints what would be tagged
+npm run release:tag -- --push    # tags origin/main's SHA and pushes the tag
 # then draft & publish a GitHub Release for that tag → triggers `publish`
 ```
 
-⚠️ **Tag `origin/main`, not your local `HEAD`.** `git checkout main && git pull`
-resolves through whatever merge-or-rebase strategy you have configured, so a
-divergent local `main` can quietly produce or replay local commits. Tagging
-`HEAD` there tags a commit that is not on `origin/main`, and `git push origin
-<tag>` pushes only the tag — leaving a release whose commit was never published.
-The UI path avoids this by construction: the target is `main` itself.
+⚠️ **It tags `origin/main`, not your local `HEAD`.** `git checkout main && git
+pull` resolves through whatever merge-or-rebase strategy you have configured,
+so a divergent local `main` can quietly produce or replay local commits.
+Tagging `HEAD` there tags a commit that is not on `origin/main`, and `git push
+origin <tag>` pushes only the tag — leaving a release whose commit was never
+published. The script resolves the SHA from `origin/main` after an explicit
+fetch; the UI path avoids this by construction, since the target is `main`
+itself.
 
 ⚠️ **No `v` prefix.** This repo's release tags are bare `x.y.z` — which is why
-the command above tags `$VERSION` and not `v$VERSION`, and why the tag typed
-into the UI carries no prefix either. npm's own `tag-version-prefix` defaults to
-`v` and the repo sets no `.npmrc`, so a bare `npm version` would have produced a
-mismatched tag; tagging by hand is what keeps it right. (The workflow's assert
-step strips a leading `v` before comparing, so a `v`-prefixed tag would still
-publish — it would just be inconsistent with every previous release.)
+the script tags `$VERSION` and not `v$VERSION`, and why the tag typed into the
+UI carries no prefix either. npm's own `tag-version-prefix` defaults to `v` and
+the repo sets no `.npmrc`, so a bare `npm version` would have produced a
+mismatched tag. (The workflow's assert step strips a leading `v` before
+comparing, so a `v`-prefixed tag would still publish — it would just be
+inconsistent with every previous release.)
 
 The release's target commit selects which workflow runs, so this only publishes
 when a release is cut from a commit carrying the v2 workflow.
