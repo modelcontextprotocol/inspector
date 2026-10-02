@@ -30,6 +30,7 @@ import {
   fieldOption,
   findCard,
   projectId as resolveProjectId,
+  requireSupportedBoard,
 } from "./lib/board.mjs";
 
 export { DEFAULT_BOARD, cardOnProject, fieldOption };
@@ -49,10 +50,11 @@ export function parseStatusArgs(argv) {
   return {
     issue: requirePositiveInt(values.issue, "--issue"),
     status: values.status,
-    board:
+    board: requireSupportedBoard(
       values.board === undefined
         ? DEFAULT_BOARD
         : requirePositiveInt(values.board, "--board"),
+    ),
   };
 }
 

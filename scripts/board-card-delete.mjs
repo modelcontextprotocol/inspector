@@ -28,6 +28,7 @@ import {
   DEFAULT_BOARD,
   findCard,
   projectId as resolveProjectId,
+  requireSupportedBoard,
 } from "./lib/board.mjs";
 
 const CLOSE_REASONS = { duplicate: "duplicate", "not-planned": "not_planned" };
@@ -57,10 +58,11 @@ export function parseDeleteArgs(argv) {
   }
   return {
     issue: requirePositiveInt(values.issue, "--issue"),
-    board:
+    board: requireSupportedBoard(
       values.board === undefined
         ? DEFAULT_BOARD
         : requirePositiveInt(values.board, "--board"),
+    ),
     reason: values.reason,
     allowMissingCard: values["allow-missing-card"] === true,
   };

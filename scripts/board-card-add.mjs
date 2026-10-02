@@ -35,6 +35,7 @@ import {
   fieldOption,
   findCard,
   projectId as resolveProjectId,
+  requireSupportedBoard,
 } from "./lib/board.mjs";
 
 export function parseAddArgs(argv) {
@@ -50,10 +51,11 @@ export function parseAddArgs(argv) {
   if (!values.status) {
     throw new Error("--status is required (e.g. --status Todo)");
   }
-  const board =
+  const board = requireSupportedBoard(
     values.board === undefined
       ? DEFAULT_BOARD
-      : requirePositiveInt(values.board, "--board");
+      : requirePositiveInt(values.board, "--board"),
+  );
   if (board === DEFAULT_BOARD && values.priority === undefined) {
     throw new Error(
       "--priority is required on board #28 — every v2 board item has a Priority (derive it with the issue-triage rubric); only board #11, which has no Priority field, omits it",
@@ -65,6 +67,38 @@ export function parseAddArgs(argv) {
     priority: values.priority,
     board,
   };
+}
+
+/**
+ * Look the issue's card up and refuse when a requested field holds a
+ * DIFFERENT value — the real duplicate-add mistake (a wrong issue number, an
+ * issue already moving through the board), where proceeding would overwrite
+ * board state someone else set. Returns the card's item id when it exists
+ * with unset/matching fields (safe to configure in place), else undefined.
+ */
+function assertNoConflicts(spawn, issue, project, board, status, priority) {
+  const existing = findCard(spawn, issue, project);
+  if (!existing?.id) {
+    return undefined;
+  }
+  const conflicts = [];
+  const statusNow = existing.fieldValueByName?.name;
+  if (statusNow != null && statusNow !== status) {
+    conflicts.push(`Status "${statusNow}"`);
+  }
+  if (priority !== undefined) {
+    const priorityNow = findCard(spawn, issue, project, "Priority")
+      ?.fieldValueByName?.name;
+    if (priorityNow != null && priorityNow !== priority) {
+      conflicts.push(`Priority "${priorityNow}"`);
+    }
+  }
+  if (conflicts.length > 0) {
+    throw new Error(
+      `#${issue} already has a card on board #${board} reading ${conflicts.join(" and ")} — not adding a duplicate or overwriting a configured card; move it with board:status`,
+    );
+  }
+  return existing.id;
 }
 
 export function main(argv = process.argv.slice(2), spawn = spawnSync) {
@@ -83,38 +117,20 @@ export function main(argv = process.argv.slice(2), spawn = spawnSync) {
   // Resolve the number as an ISSUE before the first write — findCard queries
   // repository.issue(number:), so a PR number (same namespace, and item-add
   // would accept its URL) fails here instead of boarding a forbidden PR card.
-  //
-  // An existing card is refused only when a requested field holds a
-  // DIFFERENT value — that is the real duplicate-add mistake (a wrong issue
-  // number, an issue already moving through the board), and proceeding would
-  // overwrite board state someone else set. A card whose requested fields
-  // are unset or already match is configured in place instead: that is a
-  // re-run finishing this command's own earlier failure, or a harmless
+  // An existing card with unset/matching fields is configured in place: that
+  // is a re-run finishing this command's own earlier failure, or a harmless
   // repeat, and treating it as an error would make every failure after
   // item-add unrecoverable (see the header — rollback deletion is unsound).
-  const existing = findCard(spawn, issue, project);
-  let itemId;
-  if (existing?.id) {
-    const conflicts = [];
-    const statusNow = existing.fieldValueByName?.name;
-    if (statusNow != null && statusNow !== status) {
-      conflicts.push(`Status "${statusNow}"`);
-    }
-    if (priority !== undefined) {
-      const priorityNow = findCard(spawn, issue, project, "Priority")
-        ?.fieldValueByName?.name;
-      if (priorityNow != null && priorityNow !== priority) {
-        conflicts.push(`Priority "${priorityNow}"`);
-      }
-    }
-    if (conflicts.length > 0) {
-      throw new Error(
-        `#${issue} already has a card on board #${board} reading ${conflicts.join(" and ")} — not adding a duplicate or overwriting a configured card; move it with board:status`,
-      );
-    }
-    itemId = existing.id;
-  } else {
-    itemId = ghJson(spawn, [
+  let itemId = assertNoConflicts(
+    spawn,
+    issue,
+    project,
+    board,
+    status,
+    priority,
+  );
+  if (itemId === undefined) {
+    const addedId = ghJson(spawn, [
       "project",
       "item-add",
       String(board),
@@ -125,9 +141,17 @@ export function main(argv = process.argv.slice(2), spawn = spawnSync) {
       "--format",
       "json",
     ]).id;
-    if (!itemId) {
+    if (!addedId) {
       throw new Error(`item-add returned no id for #${issue}`);
     }
+    // item-add is idempotent, so the empty pre-check does not prove this id
+    // names a NEW, unconfigured card — a concurrent invocation may have
+    // added AND configured it between the check and the add. Re-read it and
+    // re-apply the same conflict checks before the first field write; the
+    // added id is used only if the card is not yet visible to the lookup.
+    itemId =
+      assertNoConflicts(spawn, issue, project, board, status, priority) ??
+      addedId;
   }
 
   try {

@@ -285,22 +285,43 @@ test("diff refuses a field the board does not have", async () => {
   assert.ok(!existsSync(join(dir, "lost-ids.json")));
 });
 
-test("diff falls back to the flag or default for a snapshot with no board key", async (t) => {
-  // A hand-taken `gh project item-list` dump predates the recorded key.
+test("diff requires an explicit --board for a snapshot with no board key", async (t) => {
+  // A hand-taken `gh project item-list` dump predates the recorded key and
+  // cannot prove its board — defaulting would diff a #11 snapshot against
+  // #28 and confidently report "lost: 0 cards".
   const dir = mkdtempSync(join(tmpdir(), "board-recover-test-"));
   const snapshotPath = join(dir, "s.json");
   writeFileSync(
     snapshotPath,
     JSON.stringify({ items: [{ id: "a", status: "Done" }], totalCount: 1 }),
   );
+  await assert.rejects(
+    main(["--phase", "diff", "--snapshot", snapshotPath], () =>
+      assert.fail("nothing should be spawned"),
+    ),
+    /records no board — pass --board/,
+  );
+  // With the flag the legacy snapshot still diffs, against the named board.
   t.mock.method(console, "log", () => {});
   await main(
-    ["--phase", "diff", "--snapshot", snapshotPath],
+    ["--phase", "diff", "--snapshot", snapshotPath, "--board", "28"],
     dumpSpawn([{ id: "a", status: null }]),
   );
   assert.equal(
     JSON.parse(readFileSync(join(dir, "lost-ids.json"), "utf8")).board,
     28,
+  );
+});
+
+test("diff refuses a snapshot recording an unsupported board", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "board-recover-test-"));
+  const snapshotPath = join(dir, "s.json");
+  writeFileSync(snapshotPath, snapshotFile([{ id: "a", status: "Done" }], 12));
+  await assert.rejects(
+    main(["--phase", "diff", "--snapshot", snapshotPath], () =>
+      assert.fail("nothing should be spawned"),
+    ),
+    /must be 28 \(v2\) or 11 \(v1\)/,
   );
 });
 

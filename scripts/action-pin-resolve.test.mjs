@@ -26,6 +26,12 @@ test("parsePinArgs validates the repo slug and the tag shape", () => {
     () => parsePinArgs(["--repo", "a/b", "--tag", "main"]),
     /vN moving tag/,
   );
+  // Only the two documented forms — a partial tag such as v5.1 is an
+  // undocumented minor moving tag and must be rejected, not resolved.
+  assert.throws(
+    () => parsePinArgs(["--repo", "a/b", "--tag", "v5.1"]),
+    /vN moving tag/,
+  );
 });
 
 const SHA = "deadbeef";

@@ -29,13 +29,13 @@ import { parseArgs } from "node:util";
 import { setTimeout as delay } from "node:timers/promises";
 import { requirePositiveInt } from "./lib/gh.mjs";
 import {
-  DEFAULT_BOARD,
   assertOutsideRepo,
   boardFields,
   editItemField,
   itemFieldValue,
   itemListComplete,
   projectId as resolveProjectId,
+  requireSupportedBoard,
 } from "./lib/board.mjs";
 
 const EDIT_PACING_MS = 400;
@@ -55,7 +55,7 @@ export function parseRecoverArgs(argv) {
   const board =
     values.board === undefined
       ? undefined
-      : requirePositiveInt(values.board, "--board");
+      : requireSupportedBoard(requirePositiveInt(values.board, "--board"));
   if (values.phase === "diff") {
     if (!values.snapshot) {
       throw new Error("--phase diff needs --snapshot <path>");
@@ -160,7 +160,9 @@ export async function main(
     // it): diffing a board-11 snapshot against board 28's dump would match
     // nothing and confidently print "lost: 0 cards". An explicit --board may
     // only confirm it; a snapshot predating the recorded key (hand-taken
-    // with gh directly) falls back to the flag or the default.
+    // with gh directly) cannot prove its board, so there the flag is
+    // REQUIRED rather than defaulted — the silent wrong-board diff is the
+    // exact failure this check exists for.
     let board;
     if (snapshot.board !== undefined) {
       if (!Number.isInteger(snapshot.board)) {
@@ -168,6 +170,7 @@ export async function main(
           `${parsed.snapshot} records a non-numeric board (${snapshot.board})`,
         );
       }
+      requireSupportedBoard(snapshot.board, `${parsed.snapshot}'s board`);
       if (parsed.board !== undefined && parsed.board !== snapshot.board) {
         throw new Error(
           `--board ${parsed.board} does not match the snapshot's board #${snapshot.board}`,
@@ -175,7 +178,12 @@ export async function main(
       }
       board = snapshot.board;
     } else {
-      board = parsed.board ?? DEFAULT_BOARD;
+      if (parsed.board === undefined) {
+        throw new Error(
+          `${parsed.snapshot} records no board — pass --board naming the board it was taken from`,
+        );
+      }
+      board = parsed.board;
     }
     // The field must exist on the board — a typo (--field Priorty) would
     // otherwise read every card's value as undefined, match nothing, and

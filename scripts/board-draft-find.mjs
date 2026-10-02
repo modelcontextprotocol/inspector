@@ -12,7 +12,11 @@
 
 import { spawnSync } from "node:child_process";
 import { parseArgs } from "node:util";
-import { DEFAULT_BOARD, itemListComplete } from "./lib/board.mjs";
+import {
+  DEFAULT_BOARD,
+  itemListComplete,
+  requireSupportedBoard,
+} from "./lib/board.mjs";
 import { requirePositiveInt } from "./lib/gh.mjs";
 
 const GHSA_PATTERN =
@@ -30,10 +34,11 @@ export function parseFindDraftArgs(argv) {
   }
   return {
     ghsa: values.ghsa,
-    board:
+    board: requireSupportedBoard(
       values.board === undefined
         ? DEFAULT_BOARD
         : requirePositiveInt(values.board, "--board"),
+    ),
   };
 }
 

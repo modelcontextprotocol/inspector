@@ -23,6 +23,12 @@ test("parseAddArgs validates and defaults", () => {
     undefined,
   );
   assert.throws(() => parseAddArgs(["--issue", "7"]), /--status/);
+  // Only the two live boards may be mutated — a typo naming another real
+  // org project would otherwise add the card there.
+  assert.throws(
+    () => parseAddArgs(["--issue", "7", "--status", "Todo", "--board", "12"]),
+    /must be 28 \(v2\) or 11 \(v1\)/,
+  );
   // Every v2 board item has a Priority — an add without one is refused.
   assert.throws(
     () => parseAddArgs(["--issue", "7", "--status", "Todo"]),
@@ -230,11 +236,32 @@ test("a bad option name fails BEFORE item-add, leaving nothing half-made", () =>
 });
 
 test("main refuses to report an unconfirmed add", () => {
-  const spawn = spawnScript({ after: { Status: "Incoming" } });
+  // before:{} keeps the post-add conflict recheck clean (unset fields), so
+  // the failure is the verify's own: the edit "succeeded" but did not take.
+  const spawn = spawnScript({ before: {}, after: { Status: "Incoming" } });
   assert.throws(
     () =>
       main(["--issue", "7", "--status", "Todo", "--priority", "Medium"], spawn),
     /reads "Incoming"/,
+  );
+});
+
+test("a card configured concurrently between pre-check and add is not overwritten", () => {
+  // item-add is idempotent: an empty pre-check does not prove the returned
+  // id names a new card. The post-add recheck must apply the same conflict
+  // rules before the first field write.
+  const spawn = spawnScript({
+    before: { Status: "In Progress", Priority: "Medium" },
+  });
+  assert.throws(
+    () =>
+      main(["--issue", "7", "--status", "Todo", "--priority", "Medium"], spawn),
+    /already has a card on board #28 reading Status "In Progress"/,
+  );
+  assert.ok(spawn.calls.some((args) => args.includes("item-add")));
+  assert.equal(
+    spawn.calls.some((args) => args.includes("item-edit")),
+    false,
   );
 });
 

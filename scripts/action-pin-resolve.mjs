@@ -26,9 +26,11 @@ export function parsePinArgs(argv) {
       `--repo must be owner/name, got ${values.repo ?? "nothing"}`,
     );
   }
-  // The tag names a release line (v5, or an exact v5.1.2) — its major is
-  // what the exact-version lookup is restricted to below.
-  const major = /^v(\d+)(\.\d+){0,2}$/.exec(values.tag ?? "")?.[1];
+  // The tag names a release line (a vN moving tag, or an exact vX.Y.Z) —
+  // its major is what the exact-version lookup is restricted to below.
+  // ONLY those two forms: a partial tag like v5.1 is an undocumented minor
+  // moving tag the exact-tag preservation above cannot reason about.
+  const major = /^v(\d+)(?:\.\d+\.\d+)?$/.exec(values.tag ?? "")?.[1];
   if (major === undefined) {
     throw new Error(
       `--tag must be a vN moving tag or exact vX.Y.Z, got ${values.tag ?? "nothing"}`,

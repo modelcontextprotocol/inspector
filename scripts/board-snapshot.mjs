@@ -25,6 +25,7 @@ import {
   DEFAULT_BOARD,
   assertOutsideRepo,
   itemListComplete,
+  requireSupportedBoard,
 } from "./lib/board.mjs";
 import { requirePositiveInt } from "./lib/gh.mjs";
 
@@ -34,10 +35,11 @@ export function parseSnapshotArgs(argv) {
     options: { board: { type: "string" }, dir: { type: "string" } },
   });
   return {
-    board:
+    board: requireSupportedBoard(
       values.board === undefined
         ? DEFAULT_BOARD
         : requirePositiveInt(values.board, "--board"),
+    ),
     dir: values.dir,
   };
 }

@@ -11,12 +11,28 @@ import {
   findCard,
   itemListComplete,
   projectId,
+  requireSupportedBoard,
 } from "./board.mjs";
 
 const ok = (payload) => ({
   status: 0,
   stdout: JSON.stringify(payload),
   stderr: "",
+});
+
+test("requireSupportedBoard accepts only the two live boards", () => {
+  assert.equal(requireSupportedBoard(28), 28);
+  assert.equal(requireSupportedBoard(11), 11);
+  // Project numbers are per-owner and the org holds other real projects —
+  // a typo must not mutate (or read as empty) an unrelated board.
+  assert.throws(
+    () => requireSupportedBoard(12),
+    /must be 28 \(v2\) or 11 \(v1\).*board #12/,
+  );
+  assert.throws(
+    () => requireSupportedBoard(12, "the snapshot's board"),
+    /the snapshot's board must be/,
+  );
 });
 
 test("projectId resolves by board number and throws on a missing id", () => {

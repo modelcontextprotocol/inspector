@@ -57,6 +57,25 @@ export function assertOutsideRepo(dir, cwd, realpath = realpathSync) {
 
 export const DEFAULT_BOARD = 28;
 
+/**
+ * The only boards these scripts may touch — v2's #28 and v1's #11
+ * (AGENTS.md's two live boards). Project numbers are per-owner and the org
+ * holds other real projects, so an unrestricted `--board` typo would add or
+ * edit cards on an unrelated board — and any non-28 number would also bypass
+ * board-card-add's #28-only Priority requirement.
+ */
+export const SUPPORTED_BOARDS = [DEFAULT_BOARD, 11];
+
+/** Refuse a board number outside SUPPORTED_BOARDS; returns it otherwise. */
+export function requireSupportedBoard(board, what = "--board") {
+  if (!SUPPORTED_BOARDS.includes(board)) {
+    throw new Error(
+      `${what} must be 28 (v2) or 11 (v1) — refusing to touch board #${board}`,
+    );
+  }
+  return board;
+}
+
 /** Default `--limit` for whole-board dumps — headroom over the board's size. */
 export const ITEM_LIST_LIMIT = 2000;
 
