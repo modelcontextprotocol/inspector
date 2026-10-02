@@ -7,19 +7,25 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { exactVersionFor, main, parsePinArgs } from "./action-pin-resolve.mjs";
 
-test("parsePinArgs validates the repo slug and requires a tag", () => {
+test("parsePinArgs validates the repo slug and the tag shape", () => {
   assert.deepEqual(
     parsePinArgs(["--repo", "actions/checkout", "--tag", "v5"]),
     {
       repo: "actions/checkout",
       tag: "v5",
+      major: 5,
     },
   );
+  assert.equal(parsePinArgs(["--repo", "a/b", "--tag", "v5.1.2"]).major, 5);
   assert.throws(
     () => parsePinArgs(["--repo", "checkout", "--tag", "v5"]),
     /owner\/name/,
   );
   assert.throws(() => parsePinArgs(["--repo", "a/b"]), /--tag/);
+  assert.throws(
+    () => parsePinArgs(["--repo", "a/b", "--tag", "main"]),
+    /vN moving tag/,
+  );
 });
 
 const SHA = "deadbeef";
@@ -31,10 +37,21 @@ test("exactVersionFor picks the highest exact tag on the SHA, numerically", () =
     exactVersionFor(
       [tag("v5"), tag("v5.9.1"), tag("v5.10.0"), tag("v4.9.9", "other")],
       SHA,
+      5,
     ),
     "v5.10.0",
   );
-  assert.equal(exactVersionFor([tag("v5")], SHA), undefined);
+  assert.equal(exactVersionFor([tag("v5")], SHA, 5), undefined);
+});
+
+test("exactVersionFor stays within the requested major", () => {
+  // One commit can carry exact tags from several majors (a lagging line
+  // re-released from the same tree) — the comment must name the line asked
+  // for, not the numerically highest.
+  const tags = [tag("v5.2.0"), tag("v6.0.0")];
+  assert.equal(exactVersionFor(tags, SHA, 5), "v5.2.0");
+  assert.equal(exactVersionFor(tags, SHA, 6), "v6.0.0");
+  assert.equal(exactVersionFor(tags, SHA, 4), undefined);
 });
 
 function spawnScript({ tags }) {
@@ -62,13 +79,13 @@ test("main prints the uses: line with SHA and matching exact version", (t) => {
   assert.deepEqual(lines, [`uses: actions/checkout@${SHA} # v5.0.1`]);
 });
 
-test("main throws when no exact vX.Y.Z tag points at the SHA", () => {
+test("main throws when no exact tag in the requested major points at the SHA", () => {
   assert.throws(
     () =>
       main(
         ["--repo", "actions/checkout", "--tag", "v5"],
-        spawnScript({ tags: [tag("v5")] }),
+        spawnScript({ tags: [tag("v5"), tag("v6.0.0")] }),
       ),
-    /no exact vX\.Y\.Z tag/,
+    /no exact v5\.Y\.Z tag/,
   );
 });

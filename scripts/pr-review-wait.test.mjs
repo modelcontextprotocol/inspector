@@ -32,7 +32,7 @@ test("copilotReviewCount counts only Copilot reviews", () => {
   );
 });
 
-test("pendingCopilotRequests matches copilot case-insensitively, throws on bad shape", () => {
+test("pendingCopilotRequests matches known logins exactly, throws on bad shape", () => {
   const resp = (nodes) => ({
     data: { repository: { pullRequest: { reviewRequests: { nodes } } } },
   });
@@ -40,11 +40,24 @@ test("pendingCopilotRequests matches copilot case-insensitively, throws on bad s
     pendingCopilotRequests(
       resp([
         { requestedReviewer: { login: "Copilot" } },
+        { requestedReviewer: { login: "copilot-pull-request-reviewer" } },
+        { requestedReviewer: { login: COPILOT } },
         { requestedReviewer: { login: "alice" } },
         { requestedReviewer: null },
       ]),
     ),
-    1,
+    3,
+  );
+  // Exact logins only — another reviewer whose login merely contains
+  // "copilot" must not keep the waiter polling to timeout.
+  assert.equal(
+    pendingCopilotRequests(
+      resp([
+        { requestedReviewer: { login: "my-copilot-team" } },
+        { requestedReviewer: { login: "copilot" } },
+      ]),
+    ),
+    0,
   );
   assert.throws(() => pendingCopilotRequests({ data: {} }), /unexpected/);
 });

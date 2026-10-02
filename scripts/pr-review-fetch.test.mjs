@@ -122,6 +122,18 @@ test("main with --review throws when the review does not exist", () => {
   );
 });
 
+test("main with --review refuses a review the bot did not post", () => {
+  // The contract is "fetch a Copilot round" — a mistyped id landing on a
+  // human review must fail, not be printed as the round to act on.
+  const spawn = spawnFor({
+    reviews: [review(77, "alice", "2026-01-01T00:00:00Z")],
+  });
+  assert.throws(
+    () => main(["--pr", "4", "--review", "77"], spawn),
+    /posted by "alice"/,
+  );
+});
+
 test("main throws when the PR has no Copilot review", () => {
   const spawn = spawnFor({ reviews: [review(2, "alice", "2026-01-01")] });
   assert.throws(() => main(["--pr", "4"], spawn), /no Copilot review/);

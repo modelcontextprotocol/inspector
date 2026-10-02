@@ -75,6 +75,14 @@ export function main(argv = process.argv.slice(2), spawn = spawnSync) {
         : `PR #${pr} has no review ${review}`,
     );
   }
+  // The contract is "fetch a Copilot round" on both paths — a mistyped
+  // --review id that lands on a human review must fail, not be classified
+  // as the round to act on.
+  if (selected.user?.login !== COPILOT_REVIEWER_LOGIN) {
+    throw new Error(
+      `review ${selected.id} was posted by "${selected.user?.login ?? "(unknown)"}", not ${COPILOT_REVIEWER_LOGIN}`,
+    );
+  }
   const header = `REVIEW=${selected.id} SUBMITTED=${selected.submitted_at}\n${selected.body}`;
 
   const comments = ghPaginatedList(

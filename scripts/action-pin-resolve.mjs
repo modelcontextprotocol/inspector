@@ -26,17 +26,30 @@ export function parsePinArgs(argv) {
       `--repo must be owner/name, got ${values.repo ?? "nothing"}`,
     );
   }
-  if (!values.tag) {
-    throw new Error("--tag is required (e.g. --tag v5)");
+  // The tag names a release line (v5, or an exact v5.1.2) — its major is
+  // what the exact-version lookup is restricted to below.
+  const major = /^v(\d+)(\.\d+){0,2}$/.exec(values.tag ?? "")?.[1];
+  if (major === undefined) {
+    throw new Error(
+      `--tag must be a vN moving tag or exact vX.Y.Z, got ${values.tag ?? "nothing"}`,
+    );
   }
-  return { repo: values.repo, tag: values.tag };
+  return { repo: values.repo, tag: values.tag, major: Number(major) };
 }
 
-/** The highest exact vX.Y.Z tag pointing at `sha`, by numeric semver. */
-export function exactVersionFor(tags, sha) {
+/**
+ * The highest exact vX.Y.Z tag pointing at `sha` WITHIN the requested major
+ * — a commit can carry exact tags from several majors (a lagging line
+ * re-released from the same tree), and the comment must identify the release
+ * line that was asked for, not the numerically highest.
+ */
+export function exactVersionFor(tags, sha, major) {
   const exact = tags
     .filter(
-      (tag) => EXACT_TAG.test(tag?.name ?? "") && tag?.commit?.sha === sha,
+      (tag) =>
+        EXACT_TAG.test(tag?.name ?? "") &&
+        tag?.commit?.sha === sha &&
+        Number(tag.name.slice(1).split(".")[0]) === major,
     )
     .map((tag) => tag.name)
     .sort((a, b) => {
@@ -48,7 +61,7 @@ export function exactVersionFor(tags, sha) {
 }
 
 export function main(argv = process.argv.slice(2), spawn = spawnSync) {
-  const { repo, tag } = parsePinArgs(argv);
+  const { repo, tag, major } = parsePinArgs(argv);
 
   const sha = ghJson(spawn, ["api", `repos/${repo}/commits/${tag}`]).sha;
   if (!sha) {
@@ -57,10 +70,11 @@ export function main(argv = process.argv.slice(2), spawn = spawnSync) {
   const version = exactVersionFor(
     ghPaginatedList(spawn, `repos/${repo}/tags?per_page=100`),
     sha,
+    major,
   );
   if (!version) {
     throw new Error(
-      `no exact vX.Y.Z tag in ${repo} points at ${sha} — pin by hand from the release page`,
+      `no exact v${major}.Y.Z tag in ${repo} points at ${sha} — pin by hand from the release page`,
     );
   }
   console.log(`uses: ${repo}@${sha} # ${version}`);

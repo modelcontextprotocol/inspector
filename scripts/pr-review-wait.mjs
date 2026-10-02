@@ -52,6 +52,18 @@ export function copilotReviewCount(reviews) {
   ).length;
 }
 
+/**
+ * The spellings under which a pending Copilot review request appears —
+ * matched exactly, never by substring, so another requested reviewer whose
+ * login merely contains "copilot" cannot keep the waiter polling after the
+ * real request resolved without a review.
+ */
+export const PENDING_COPILOT_LOGINS = new Set([
+  COPILOT_REVIEWER_LOGIN, // REST login
+  "copilot-pull-request-reviewer", // GraphQL Bot login (no [bot] suffix)
+  "Copilot", // the reviewer slug the request UI/API uses
+]);
+
 /** Count pending Copilot review requests in the GraphQL response. */
 export function pendingCopilotRequests(response) {
   const nodes = response?.data?.repository?.pullRequest?.reviewRequests?.nodes;
@@ -61,7 +73,7 @@ export function pendingCopilotRequests(response) {
     );
   }
   return nodes.filter((node) =>
-    /copilot/i.test(node?.requestedReviewer?.login ?? ""),
+    PENDING_COPILOT_LOGINS.has(node?.requestedReviewer?.login ?? ""),
   ).length;
 }
 
