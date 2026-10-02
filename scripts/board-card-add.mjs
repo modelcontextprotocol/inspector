@@ -18,7 +18,7 @@
 
 import { spawnSync } from "node:child_process";
 import { parseArgs } from "node:util";
-import { OWNER, REPO, ghJson, requirePositiveInt } from "./lib/gh.mjs";
+import { OWNER, REPO, gh, ghJson, requirePositiveInt } from "./lib/gh.mjs";
 import {
   DEFAULT_BOARD,
   boardFields,
@@ -96,36 +96,70 @@ export function main(argv = process.argv.slice(2), spawn = spawnSync) {
     throw new Error(`item-add returned no id for #${issue}`);
   }
 
-  editItemField(spawn, project, itemId, statusIds.fieldId, statusIds.optionId);
-  if (priorityIds) {
+  // Any failure past item-add rolls the new card back: a partially
+  // configured card cannot be finished by a retry — the pre-add duplicate
+  // check would stop it — so failing must leave the board as it was found.
+  try {
     editItemField(
       spawn,
       project,
       itemId,
-      priorityIds.fieldId,
-      priorityIds.optionId,
+      statusIds.fieldId,
+      statusIds.optionId,
     );
-  }
-
-  // Verify by reading each set field back — never report an unconfirmed add.
-  const after = findCard(spawn, issue, project);
-  const now = after?.fieldValueByName?.name ?? "(none)";
-  if (now !== status) {
-    throw new Error(`card reads "${now}" after the add, not "${status}"`);
-  }
-  if (priority !== undefined) {
-    const priorityNow =
-      findCard(spawn, issue, project, "Priority")?.fieldValueByName?.name ??
-      "(none)";
-    if (priorityNow !== priority) {
-      throw new Error(
-        `card Priority reads "${priorityNow}" after the add, not "${priority}"`,
+    if (priorityIds) {
+      editItemField(
+        spawn,
+        project,
+        itemId,
+        priorityIds.fieldId,
+        priorityIds.optionId,
       );
     }
+
+    // Verify by reading each set field back — never report an unconfirmed add.
+    const after = findCard(spawn, issue, project);
+    const now = after?.fieldValueByName?.name ?? "(none)";
+    if (now !== status) {
+      throw new Error(`card reads "${now}" after the add, not "${status}"`);
+    }
+    if (priority !== undefined) {
+      const priorityNow =
+        findCard(spawn, issue, project, "Priority")?.fieldValueByName?.name ??
+        "(none)";
+      if (priorityNow !== priority) {
+        throw new Error(
+          `card Priority reads "${priorityNow}" after the add, not "${priority}"`,
+        );
+      }
+    }
+    console.log(
+      `card: ${now}${priority === undefined ? "" : ` / ${priority}`} (board #${board})`,
+    );
+  } catch (cause) {
+    const message = cause instanceof Error ? cause.message : String(cause);
+    const del = gh(spawn, [
+      "project",
+      "item-delete",
+      String(board),
+      "--owner",
+      OWNER,
+      "--id",
+      itemId,
+      "--format",
+      "json",
+    ]);
+    if (del.status !== 0) {
+      throw new Error(
+        `${message}; rolling the new card back ALSO failed (${(del.stderr ?? "").trim()}) — card ${itemId} on board #${board} is partially configured, delete it with board:delete before retrying`,
+        { cause },
+      );
+    }
+    throw new Error(
+      `${message} — the new card was rolled back; re-run after fixing the cause`,
+      { cause },
+    );
   }
-  console.log(
-    `card: ${now}${priority === undefined ? "" : ` / ${priority}`} (board #${board})`,
-  );
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

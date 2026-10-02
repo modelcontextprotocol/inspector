@@ -22,6 +22,11 @@ test("parseDeleteArgs validates the reason vocabulary", () => {
     () => parseDeleteArgs(["--issue", "7", "--reason", "wontfix"]),
     /duplicate, not-planned/,
   );
+  // Own-property check: an inherited name must not pass as a close reason.
+  assert.throws(
+    () => parseDeleteArgs(["--issue", "7", "--reason", "toString"]),
+    /duplicate, not-planned/,
+  );
   // The retry flag is only meaningful with a close to retry.
   assert.throws(
     () => parseDeleteArgs(["--issue", "7", "--allow-missing-card"]),

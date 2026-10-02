@@ -42,7 +42,10 @@ export function parseDeleteArgs(argv) {
       "allow-missing-card": { type: "boolean" },
     },
   });
-  if (values.reason !== undefined && !(values.reason in CLOSE_REASONS)) {
+  if (
+    values.reason !== undefined &&
+    !Object.hasOwn(CLOSE_REASONS, values.reason)
+  ) {
     throw new Error(
       `--reason must be one of: ${Object.keys(CLOSE_REASONS).join(", ")}`,
     );

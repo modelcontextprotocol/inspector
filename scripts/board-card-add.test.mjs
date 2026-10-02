@@ -54,6 +54,8 @@ function spawnScript({
   after = { Status: "Todo", Priority: "Medium" },
   preexisting = false,
   issueLookup = "issue",
+  priorityEditFails = false,
+  rollbackFails = false,
 } = {}) {
   const calls = [];
   let added = false;
@@ -69,6 +71,15 @@ function spawnScript({
       added = true;
       payload = { id: "PVTI_new" };
     } else if (joined.includes("item-edit")) {
+      if (priorityEditFails && joined.includes("opt_med")) {
+        return { status: 1, stdout: "", stderr: "priority edit boom" };
+      }
+      return { status: 0, stdout: "{}", stderr: "" };
+    } else if (joined.includes("item-delete")) {
+      if (rollbackFails) {
+        return { status: 1, stdout: "", stderr: "delete boom" };
+      }
+      added = false;
       return { status: 0, stdout: "{}", stderr: "" };
     } else if (joined.includes("graphql")) {
       if (issueLookup === "pr") {
@@ -181,5 +192,27 @@ test("main refuses to report an unconfirmed add", () => {
     () =>
       main(["--issue", "7", "--status", "Todo", "--priority", "Medium"], spawn),
     /reads "Incoming"/,
+  );
+});
+
+test("a failure after item-add rolls the new card back", () => {
+  // A partially configured card cannot be finished by a retry (the pre-add
+  // duplicate check stops it), so failing must leave the board as found.
+  const spawn = spawnScript({ priorityEditFails: true });
+  assert.throws(
+    () =>
+      main(["--issue", "7", "--status", "Todo", "--priority", "Medium"], spawn),
+    /priority edit boom.*rolled back/s,
+  );
+  const del = spawn.calls.find((args) => args.includes("item-delete"));
+  assert.ok(del.includes("PVTI_new"));
+});
+
+test("a failed rollback names the partial card and how to remove it", () => {
+  const spawn = spawnScript({ priorityEditFails: true, rollbackFails: true });
+  assert.throws(
+    () =>
+      main(["--issue", "7", "--status", "Todo", "--priority", "Medium"], spawn),
+    /rolling the new card back ALSO failed.*PVTI_new.*board:delete/s,
   );
 });
