@@ -257,6 +257,10 @@ export async function main(
         `({ board, field, value, ids })`,
     );
   }
+  // Same boundary the diff phase applies to a snapshot's recorded board: a
+  // hand-edited lost file must not point this mutation loop at an arbitrary
+  // org project.
+  requireSupportedBoard(recorded.board, `${parsed.lost}'s board`);
   // The file is authoritative for board and field; an explicit flag may only
   // confirm it. A silent override would let reapply run against a different
   // board or field than the one diff actually measured.

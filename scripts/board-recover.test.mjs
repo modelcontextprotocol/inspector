@@ -440,6 +440,21 @@ test("reapply refuses a lost file that is not diff's own format", async () => {
   );
 });
 
+test("reapply refuses a lost file recording an unsupported board", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "board-recover-test-"));
+  const lostPath = join(dir, "lost-ids.json");
+  writeFileSync(
+    lostPath,
+    JSON.stringify({ board: 12, field: "Status", value: "Done", ids: ["a"] }),
+  );
+  await assert.rejects(
+    main(["--phase", "reapply", "--lost", lostPath, "--option-id", "x"], () => {
+      assert.fail("nothing should be spawned");
+    }),
+    /must be 28 \(v2\) or 11 \(v1\)/,
+  );
+});
+
 test("reapply refuses an explicit flag that contradicts the lost file", async () => {
   const dir = mkdtempSync(join(tmpdir(), "board-recover-test-"));
   const lostPath = join(dir, "lost-ids.json");
