@@ -10,6 +10,8 @@ import {
   resetPersistTokensPolicyWarnings,
   oauthSecretServerId,
   oauthIdpSecretServerId,
+  isValidSecretsNamespace,
+  newSecretsNamespace,
   issuerTokensField,
   issuerClientSecretField,
   issuerRegistrationTokenField,
@@ -102,6 +104,43 @@ describe("id and field schemes", () => {
     const plain = `${oauthSecretServerId("https://a.example")}:`;
     const withPort = `${oauthSecretServerId("https://a.example:8080")}:tokens`;
     expect(withPort.startsWith(plain)).toBe(false);
+  });
+
+  it("scopes ids by secrets namespace with an unforgeable delimiter", () => {
+    const ns = "9a3c2e1f-0b4d-4c5e-8f6a-7b8c9d0e1f2a";
+    expect(oauthSecretServerId("https://s.example/mcp", ns)).toBe(
+      `oauth+${ns}+https%3A%2F%2Fs.example%2Fmcp`,
+    );
+    expect(oauthIdpSecretServerId("https://idp.example", ns)).toBe(
+      `oauth-idp+${ns}+https%3A%2F%2Fidp.example`,
+    );
+    // Namespaced ids stay colon-free (same keyring purge constraint).
+    expect(oauthSecretServerId("https://s.example:8443/mcp", ns)).not.toContain(
+      ":",
+    );
+    // encodeURIComponent escapes `+`, so a URL cannot forge the delimiter:
+    // a legacy id over a `+`-bearing URL never collides with a namespaced id.
+    expect(oauthSecretServerId(`${ns}+https://s.example/mcp`)).not.toBe(
+      oauthSecretServerId("https://s.example/mcp", ns),
+    );
+  });
+
+  it("validates and mints namespaces", () => {
+    expect(isValidSecretsNamespace(newSecretsNamespace())).toBe(true);
+    expect(isValidSecretsNamespace("abc-123.DEF_456")).toBe(true);
+    for (const bad of [
+      undefined,
+      null,
+      42,
+      "",
+      "-leading-separator",
+      "has:colon",
+      "has+plus",
+      "has space",
+      "a".repeat(129),
+    ]) {
+      expect(isValidSecretsNamespace(bad)).toBe(false);
+    }
   });
 });
 

@@ -392,17 +392,6 @@ export async function isFileLockHeld(filePath: string): Promise<boolean> {
 }
 
 /**
- * Run `fn` holding an exclusive cross-process lock on `filePath`.
- *
- * The lock is `<filePath>.lock`, a directory beside the secrets file rather
- * than inside it — `proper-lockfile` never opens or truncates the file it
- * guards, so a lock that outlives its holder can only ever block a write,
- * never damage one.
- *
- * Returns whatever `fn` returns. `fn` runs exactly once either way — the
- * lock's absence changes the guarantee, never whether the work happens.
- */
-/**
  * Take the lock and hand back its release, or `null` when locking is
  * unavailable here and the caller should proceed unprotected.
  *
@@ -513,14 +502,29 @@ export async function openSecretFileLock(
   };
 }
 
+/**
+ * Run `fn` holding an exclusive cross-process lock on `filePath`.
+ *
+ * The lock is `<filePath>.lock`, a directory beside the secrets file rather
+ * than inside it — `proper-lockfile` never opens or truncates the file it
+ * guards, so a lock that outlives its holder can only ever block a write,
+ * never damage one.
+ *
+ * Returns whatever `fn` returns. `fn` runs exactly once either way — the
+ * lock's absence changes the guarantee, never whether the work happens.
+ * `fn` receives whether the lock is actually held (`false` = degraded,
+ * unlocked run), so a caller whose work is only safe under real exclusion
+ * — legacy secret-entry migration, which deletes its sources — can refuse
+ * instead of racing (#2556 review).
+ */
 export async function withSecretFileLock<T>(
   filePath: string,
-  fn: () => Promise<T>,
+  fn: (locked: boolean) => Promise<T>,
 ): Promise<T> {
   const release = await openSecretFileLock(filePath);
-  if (release === null) return fn();
+  if (release === null) return fn(false);
   try {
-    return await fn();
+    return await fn(true);
   } finally {
     await release();
   }

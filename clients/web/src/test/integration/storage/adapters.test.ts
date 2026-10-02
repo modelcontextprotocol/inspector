@@ -97,7 +97,7 @@ describe("OAuth persistence", () => {
       expect(
         JSON.parse(
           (await secretStore.get(
-            oauthSecretServerId("https://example.com"),
+            oauthSecretServerId("https://example.com", parsed.secretsNamespace),
             LEGACY_TOKENS_FIELD,
           ))!,
         ),
@@ -319,7 +319,9 @@ describe("OAuth persistence", () => {
       );
       await flushStoreFileWrites(filePath);
       const parsed = JSON.parse(readFileSync(filePath, "utf-8"));
+      // The first write also stamps the file's secrets namespace (#2549).
       expect(parsed).toEqual({
+        secretsNamespace: expect.any(String),
         servers: { "https://mine.example": { scope: "mine" } },
         idpSessions: {},
       });
@@ -569,7 +571,7 @@ describe("OAuth persistence", () => {
       expect(raw.servers["https://example.com"].tokens).toBeUndefined();
       expect(
         await secretStore.get(
-          oauthSecretServerId("https://example.com"),
+          oauthSecretServerId("https://example.com", raw.secretsNamespace),
           LEGACY_TOKENS_FIELD,
         ),
       ).not.toBeNull();
@@ -634,12 +636,13 @@ describe("OAuth persistence", () => {
           idpSessions: {},
         }),
       });
-      expect(
-        await secretStore.get(
-          oauthSecretServerId("https://example.com"),
-          LEGACY_TOKENS_FIELD,
-        ),
-      ).not.toBeNull();
+      // The id is scoped by the file's adopted namespace; capture it while
+      // the file still exists (#2549).
+      const { secretsNamespace } = JSON.parse(
+        readFileSync(join(tempDir, "oauth.json"), "utf-8"),
+      ) as { secretsNamespace: string };
+      const id = oauthSecretServerId("https://example.com", secretsNamespace);
+      expect(await secretStore.get(id, LEGACY_TOKENS_FIELD)).not.toBeNull();
 
       const del = await fetch(`${baseUrl}/api/storage/oauth`, {
         method: "DELETE",
@@ -647,12 +650,7 @@ describe("OAuth persistence", () => {
       });
       expect(del.status).toBe(200);
       expect(existsSync(join(tempDir, "oauth.json"))).toBe(false);
-      expect(
-        await secretStore.get(
-          oauthSecretServerId("https://example.com"),
-          LEGACY_TOKENS_FIELD,
-        ),
-      ).toBeNull();
+      expect(await secretStore.get(id, LEGACY_TOKENS_FIELD)).toBeNull();
     });
   });
 });

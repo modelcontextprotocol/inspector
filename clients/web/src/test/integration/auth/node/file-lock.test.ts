@@ -184,11 +184,15 @@ describe("withSecretFileLock across processes", () => {
     await expect(fs.stat(target)).rejects.toThrow();
 
     let ran = false;
-    await withSecretFileLock(target, async () => {
+    let sawLocked: boolean | undefined;
+    await withSecretFileLock(target, async (locked) => {
       ran = true;
+      sawLocked = locked;
     });
 
     expect(ran).toBe(true);
+    // The body is told it holds a real lock (adoption gates on this).
+    expect(sawLocked).toBe(true);
     expect(warnings()).toBe("");
   });
 
@@ -271,14 +275,20 @@ describe("withSecretFileLock degrades rather than failing", () => {
     const target = path.join(tmpDir, "not-a-dir", "secrets.json");
 
     let ran = 0;
-    await withSecretFileLock(target, async () => {
+    const sawLocked: boolean[] = [];
+    await withSecretFileLock(target, async (locked) => {
       ran += 1;
+      sawLocked.push(locked);
     });
-    await withSecretFileLock(target, async () => {
+    await withSecretFileLock(target, async (locked) => {
       ran += 1;
+      sawLocked.push(locked);
     });
 
     expect(ran).toBe(2);
+    // The body is told the run is unlocked, so work that is only safe
+    // under real exclusion (legacy adoption) can refuse instead of racing.
+    expect(sawLocked).toEqual([false, false]);
     expect(warnings()).toContain("Could not take a lock on the secrets file");
     // Once per reason per process — a warning on every save would be noise
     // on precisely the deployment that cannot act on it.

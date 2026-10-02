@@ -95,6 +95,24 @@ function readRawFile(): OAuthPersistSnapshot {
   return JSON.parse(readFileSync(filePath, "utf8")) as OAuthPersistSnapshot;
 }
 
+/** The secrets namespace the file's first write adopted (#2549). */
+function fileNamespace(): string {
+  const { secretsNamespace } = JSON.parse(readFileSync(filePath, "utf8")) as {
+    secretsNamespace: string;
+  };
+  return secretsNamespace;
+}
+
+/** Store id for a server under the file's adopted namespace. */
+function idOf(url: string): string {
+  return oauthSecretServerId(url, fileNamespace());
+}
+
+/** Store id for an IdP issuer under the file's adopted namespace. */
+function idpIdOf(issuer: string): string {
+  return oauthIdpSecretServerId(issuer, fileNamespace());
+}
+
 describe("writeOAuthSections secret split", () => {
   it("writes only residue to the file and secrets to the store", async () => {
     const store = new InMemorySecretStore();
@@ -107,7 +125,7 @@ describe("writeOAuthSections secret split", () => {
     expect(raw.servers[SERVER]!.clientInformation).toEqual({
       client_id: "cid",
     });
-    const id = oauthSecretServerId(SERVER);
+    const id = idOf(SERVER);
     expect(JSON.parse((await store.get(id, LEGACY_TOKENS_FIELD))!)).toEqual(
       TOKENS,
     );
@@ -134,9 +152,7 @@ describe("writeOAuthSections secret split", () => {
 
     const raw = readRawFile();
     expect(raw.idpSessions[ISSUER]).toEqual({ idTokenExpiresAt: 9 });
-    expect(
-      await store.get(oauthIdpSecretServerId(ISSUER), IDP_SESSION_FIELD),
-    ).not.toBeNull();
+    expect(await store.get(idpIdOf(ISSUER), IDP_SESSION_FIELD)).not.toBeNull();
 
     const joined = await readOAuthStore(filePath, store);
     expect(joined?.idpSessions[ISSUER]).toEqual({
@@ -157,7 +173,7 @@ describe("writeOAuthSections secret split", () => {
     );
     await flushStoreFileWrites(filePath);
 
-    const id = oauthSecretServerId(SERVER);
+    const id = idOf(SERVER);
     expect(await store.get(id, LEGACY_TOKENS_FIELD)).toBeNull();
     expect(await store.get(id, LEGACY_CLIENT_SECRET_FIELD)).toBeNull();
     expect(readRawFile().servers[SERVER]).toBeUndefined();
@@ -183,7 +199,7 @@ describe("writeOAuthSections secret split", () => {
       { servers: [SERVER] },
       store,
     );
-    const id = oauthSecretServerId(SERVER);
+    const id = idOf(SERVER);
     expect(await store.get(id, issuerTokensField(ISSUER))).not.toBeNull();
 
     await writeOAuthSections(
@@ -198,10 +214,10 @@ describe("writeOAuthSections secret split", () => {
 
   it("enforces the persist-tokens policy and self-cleans on downgrade", async () => {
     const store = new InMemorySecretStore();
-    const id = oauthSecretServerId(SERVER);
 
     process.env[PERSIST_TOKENS_ENV] = "access";
     await writeOAuthSections(filePath, snapshotWith(), undefined, store);
+    const id = idOf(SERVER);
     expect(JSON.parse((await store.get(id, LEGACY_TOKENS_FIELD))!)).toEqual({
       access_token: "at",
       token_type: "Bearer",
@@ -222,7 +238,7 @@ describe("writeOAuthSections secret split", () => {
       undefined,
       store,
     );
-    const id = oauthIdpSecretServerId(ISSUER);
+    const id = idpIdOf(ISSUER);
     expect(await store.get(id, IDP_SESSION_FIELD)).not.toBeNull();
 
     // Sections naming only idpSessions also exercises the servers-omitted
@@ -395,7 +411,7 @@ describe("writeOAuthSections secret split", () => {
 
     // The store holds the *old* secrets again, matching the old residue
     // still on disk — no cid/cs2 mismatch on the next joined read.
-    const id = oauthSecretServerId(SERVER);
+    const id = idOf(SERVER);
     expect(JSON.parse((await store.get(id, LEGACY_TOKENS_FIELD))!)).toEqual(
       TOKENS,
     );
@@ -434,9 +450,9 @@ describe("writeOAuthSections secret split", () => {
       chmodSync(tempDir, 0o755);
     }
 
-    expect(
-      await store.get(oauthSecretServerId(SERVER), LEGACY_CLIENT_SECRET_FIELD),
-    ).toBe("cs");
+    expect(await store.get(idOf(SERVER), LEGACY_CLIENT_SECRET_FIELD)).toBe(
+      "cs",
+    );
   });
 
   it("aborts the write when a store delete fails, keeping the old residue", async () => {
@@ -1016,15 +1032,13 @@ describe("removeOAuthStore", () => {
       store,
     );
     await flushStoreFileWrites(filePath);
+    const id = idOf(SERVER);
+    const idpId = idpIdOf(ISSUER);
 
     await removeOAuthStore(filePath, store);
     expect(existsSync(filePath)).toBe(false);
-    expect(
-      await store.get(oauthSecretServerId(SERVER), LEGACY_TOKENS_FIELD),
-    ).toBeNull();
-    expect(
-      await store.get(oauthIdpSecretServerId(ISSUER), IDP_SESSION_FIELD),
-    ).toBeNull();
+    expect(await store.get(id, LEGACY_TOKENS_FIELD)).toBeNull();
+    expect(await store.get(idpId, IDP_SESSION_FIELD)).toBeNull();
   });
 
   it("propagates a failed purge and leaves the file as the index", async () => {
@@ -1078,13 +1092,9 @@ describe("removeOAuthStore", () => {
     // The first target's purged secrets were restored — a retry of the
     // removal (or a plain read) still finds everything the file indexes.
     expect(
-      JSON.parse(
-        (await store.get(oauthSecretServerId(SERVER), LEGACY_TOKENS_FIELD))!,
-      ),
+      JSON.parse((await store.get(idOf(SERVER), LEGACY_TOKENS_FIELD))!),
     ).toEqual(TOKENS);
-    expect(
-      await store.get(oauthIdpSecretServerId(ISSUER), IDP_SESSION_FIELD),
-    ).not.toBeNull();
+    expect(await store.get(idpIdOf(ISSUER), IDP_SESSION_FIELD)).not.toBeNull();
   });
 
   it("restores purged secrets when the file delete fails", async () => {
@@ -1104,13 +1114,11 @@ describe("removeOAuthStore", () => {
     // The file survives as the index and the store matches it again.
     expect(existsSync(filePath)).toBe(true);
     expect(
-      JSON.parse(
-        (await store.get(oauthSecretServerId(SERVER), LEGACY_TOKENS_FIELD))!,
-      ),
+      JSON.parse((await store.get(idOf(SERVER), LEGACY_TOKENS_FIELD))!),
     ).toEqual(TOKENS);
-    expect(
-      await store.get(oauthSecretServerId(SERVER), LEGACY_CLIENT_SECRET_FIELD),
-    ).toBe("cs");
+    expect(await store.get(idOf(SERVER), LEGACY_CLIENT_SECRET_FIELD)).toBe(
+      "cs",
+    );
   });
 
   it("is a no-op purge for a missing file", async () => {
@@ -1268,12 +1276,12 @@ describe("partial token payloads round-trip through the store", () => {
 
   it("a save moves a partial token payload to the store and serves it back", async () => {
     const store = new InMemorySecretStore();
-    const id = oauthSecretServerId(SERVER);
     const snapshot = snapshotWith();
     snapshot.servers[SERVER]!.tokens = { ...PARTIAL } as never;
 
     await writeOAuthSections(filePath, snapshot, { servers: [SERVER] }, store);
     await flushStoreFileWrites(filePath);
+    const id = idOf(SERVER);
 
     // The bearer-grade refresh token is in the store, not the file.
     expect(readRawFile().servers[SERVER]!.tokens).toBeUndefined();
@@ -1386,7 +1394,7 @@ describe("saves only touch changed store fields", () => {
     expect(raw.servers[SERVER]!.tokens).toBeUndefined();
 
     // The store still holds the unchanged credentials, untouched.
-    const id = oauthSecretServerId(SERVER);
+    const id = idOf(SERVER);
     expect(JSON.parse((await store.get(id, LEGACY_TOKENS_FIELD))!)).toEqual(
       TOKENS,
     );

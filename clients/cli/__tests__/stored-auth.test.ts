@@ -82,7 +82,9 @@ describe("refreshStoredAuthToken", () => {
   // Persisted writes split tokens into the process-wide (in-memory, per
   // vitest.config.ts) secret store, and joined reads prefer the store over
   // file plaintext — so purge the entry between tests or one test's rotated
-  // tokens would leak into the next test's fixture.
+  // tokens would leak into the next test's fixture. Post-#2549 each fixture
+  // file mints its own secrets namespace, so namespaced entries can't collide
+  // across tests; this purge covers the legacy (un-namespaced) id.
   afterEach(async () => {
     await defaultSecretStore().deleteAllForServer(oauthSecretServerId(SERVER));
   });
