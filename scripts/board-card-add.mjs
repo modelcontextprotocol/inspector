@@ -6,9 +6,15 @@
 //
 // Same properties as `board-card-status.mjs`: every id resolved by name at
 // run time, and the Status VERIFIED by reading it back — `card: …` prints
-// only on a confirmed match. Priority is set only when given; board #11 has
-// no Priority field, and asking for one there fails loudly by name
-// resolution rather than with an opaque id error.
+// only on a confirmed match. On board #28 `--priority` is REQUIRED — every
+// v2 board item has a Priority (AGENTS.md), so an add without one would mint
+// a card `board:audit` immediately flags. Board #11 has no Priority field,
+// so there the flag is refused by name resolution instead.
+//
+// The issue is also resolved as an ISSUE before the first write: issue and
+// PR numbers share one namespace, `/issues/<PR number>` redirects to the PR,
+// and `item-add` accepts it — which would board a PR (forbidden) and fail
+// only at the later verify, leaving the bad card behind.
 
 import { spawnSync } from "node:child_process";
 import { parseArgs } from "node:util";
@@ -35,14 +41,20 @@ export function parseAddArgs(argv) {
   if (!values.status) {
     throw new Error("--status is required (e.g. --status Todo)");
   }
+  const board =
+    values.board === undefined
+      ? DEFAULT_BOARD
+      : requirePositiveInt(values.board, "--board");
+  if (board === DEFAULT_BOARD && values.priority === undefined) {
+    throw new Error(
+      "--priority is required on board #28 — every v2 board item has a Priority (derive it with the issue-triage rubric); only board #11, which has no Priority field, omits it",
+    );
+  }
   return {
     issue: requirePositiveInt(values.issue, "--issue"),
     status: values.status,
     priority: values.priority,
-    board:
-      values.board === undefined
-        ? DEFAULT_BOARD
-        : requirePositiveInt(values.board, "--board"),
+    board,
   };
 }
 
@@ -58,6 +70,16 @@ export function main(argv = process.argv.slice(2), spawn = spawnSync) {
     priority === undefined
       ? undefined
       : fieldOption(fields, "Priority", priority);
+
+  // Resolve the number as an ISSUE before the first write — findCard queries
+  // repository.issue(number:), so a PR number (same namespace, and item-add
+  // would accept its URL) fails here instead of boarding a forbidden PR card.
+  // The same lookup refuses a duplicate: the issue already has a card.
+  if (findCard(spawn, issue, project)?.id) {
+    throw new Error(
+      `#${issue} already has a card on board #${board} — not adding a duplicate`,
+    );
+  }
 
   const itemId = ghJson(spawn, [
     "project",
