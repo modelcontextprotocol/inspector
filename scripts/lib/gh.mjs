@@ -1,9 +1,8 @@
-// Shared `gh` invocation helpers for the maintainer-workflow scripts (#2558):
-// `pr-review-request.mjs`, `pr-review-wait.mjs`, `pr-review-fetch.mjs` and
-// `board-card-status.mjs`. Those scripts replace command blocks that the
-// pr-flow and board-ops skills previously transcribed inline, so the failure
-// modes the skills could only warn about in prose are handled here once,
-// under test.
+// Shared `gh` invocation helpers for the maintainer-workflow scripts (#2558)
+// — the pr:*, board:*, advisory:* and action:* helpers. Those scripts replace
+// command blocks that the skills previously transcribed inline, so the
+// failure modes the skills could only warn about in prose are handled here
+// once, under test.
 //
 // Every function takes its spawn function as a parameter (callers default it
 // to `spawnSync`), the same injectability pattern `dependabot-alerts.mjs` and
