@@ -11,6 +11,15 @@
 // a card `board:audit` immediately flags. Board #11 has no Priority field,
 // so there the flag is refused by name resolution instead.
 //
+// The command is IDEMPOTENT rather than rolling back on failure. `item-add`
+// is itself idempotent — two invocations (or a concurrent add) can both
+// receive the same item id — so this script can never prove it created the
+// card it holds an id for, and deleting on failure could destroy a card a
+// concurrent operation owns. Instead: an existing card whose requested
+// fields are unset or already match is (re)configured in place — which is
+// also what lets a re-run finish a card a failed edit left partial — and an
+// existing card holding a CONTRADICTING value is refused before any write.
+//
 // The issue is also resolved as an ISSUE before the first write: issue and
 // PR numbers share one namespace, `/issues/<PR number>` redirects to the PR,
 // and `item-add` accepts it — which would board a PR (forbidden) and fail
@@ -18,7 +27,7 @@
 
 import { spawnSync } from "node:child_process";
 import { parseArgs } from "node:util";
-import { OWNER, REPO, gh, ghJson, requirePositiveInt } from "./lib/gh.mjs";
+import { OWNER, REPO, ghJson, requirePositiveInt } from "./lib/gh.mjs";
 import {
   DEFAULT_BOARD,
   boardFields,
@@ -74,31 +83,53 @@ export function main(argv = process.argv.slice(2), spawn = spawnSync) {
   // Resolve the number as an ISSUE before the first write — findCard queries
   // repository.issue(number:), so a PR number (same namespace, and item-add
   // would accept its URL) fails here instead of boarding a forbidden PR card.
-  // The same lookup refuses a duplicate: the issue already has a card.
-  if (findCard(spawn, issue, project)?.id) {
-    throw new Error(
-      `#${issue} already has a card on board #${board} — not adding a duplicate`,
-    );
+  //
+  // An existing card is refused only when a requested field holds a
+  // DIFFERENT value — that is the real duplicate-add mistake (a wrong issue
+  // number, an issue already moving through the board), and proceeding would
+  // overwrite board state someone else set. A card whose requested fields
+  // are unset or already match is configured in place instead: that is a
+  // re-run finishing this command's own earlier failure, or a harmless
+  // repeat, and treating it as an error would make every failure after
+  // item-add unrecoverable (see the header — rollback deletion is unsound).
+  const existing = findCard(spawn, issue, project);
+  let itemId;
+  if (existing?.id) {
+    const conflicts = [];
+    const statusNow = existing.fieldValueByName?.name;
+    if (statusNow != null && statusNow !== status) {
+      conflicts.push(`Status "${statusNow}"`);
+    }
+    if (priority !== undefined) {
+      const priorityNow = findCard(spawn, issue, project, "Priority")
+        ?.fieldValueByName?.name;
+      if (priorityNow != null && priorityNow !== priority) {
+        conflicts.push(`Priority "${priorityNow}"`);
+      }
+    }
+    if (conflicts.length > 0) {
+      throw new Error(
+        `#${issue} already has a card on board #${board} reading ${conflicts.join(" and ")} — not adding a duplicate or overwriting a configured card; move it with board:status`,
+      );
+    }
+    itemId = existing.id;
+  } else {
+    itemId = ghJson(spawn, [
+      "project",
+      "item-add",
+      String(board),
+      "--owner",
+      OWNER,
+      "--url",
+      `https://github.com/${OWNER}/${REPO}/issues/${issue}`,
+      "--format",
+      "json",
+    ]).id;
+    if (!itemId) {
+      throw new Error(`item-add returned no id for #${issue}`);
+    }
   }
 
-  const itemId = ghJson(spawn, [
-    "project",
-    "item-add",
-    String(board),
-    "--owner",
-    OWNER,
-    "--url",
-    `https://github.com/${OWNER}/${REPO}/issues/${issue}`,
-    "--format",
-    "json",
-  ]).id;
-  if (!itemId) {
-    throw new Error(`item-add returned no id for #${issue}`);
-  }
-
-  // Any failure past item-add rolls the new card back: a partially
-  // configured card cannot be finished by a retry — the pre-add duplicate
-  // check would stop it — so failing must leave the board as it was found.
   try {
     editItemField(
       spawn,
@@ -138,25 +169,12 @@ export function main(argv = process.argv.slice(2), spawn = spawnSync) {
     );
   } catch (cause) {
     const message = cause instanceof Error ? cause.message : String(cause);
-    const del = gh(spawn, [
-      "project",
-      "item-delete",
-      String(board),
-      "--owner",
-      OWNER,
-      "--id",
-      itemId,
-      "--format",
-      "json",
-    ]);
-    if (del.status !== 0) {
-      throw new Error(
-        `${message}; rolling the new card back ALSO failed (${(del.stderr ?? "").trim()}) — card ${itemId} on board #${board} is partially configured, delete it with board:delete before retrying`,
-        { cause },
-      );
-    }
+    // NO rollback deletion: item-add is idempotent, so this invocation may
+    // hold the id of a card a concurrent operation created or has since
+    // configured — deleting it would destroy their work. The card is left
+    // in place and a re-run finishes it (or refuses, naming the conflict).
     throw new Error(
-      `${message} — the new card was rolled back; re-run after fixing the cause`,
+      `${message} — card ${itemId} on board #${board} may be partially configured; re-run this command to finish it, or remove it with board:delete`,
       { cause },
     );
   }

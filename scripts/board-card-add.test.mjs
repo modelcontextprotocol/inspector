@@ -46,18 +46,22 @@ const FIELDS = [
 /**
  * A spawn for main()'s flow: view, field-list, the pre-add issue lookup
  * (empty until item-add unless `preexisting`), item-add, item-edits, then
- * verify lookups returning `after` per queried field. `issueLookup:"pr"`
- * makes every graphql lookup fail the way a PR number does.
+ * verify lookups. A graphql read of a field returns `before[field]` until an
+ * item-edit touches that field, and `after[field]` from then on — which is
+ * how a test shows a preexisting partial card being finished in place.
+ * `issueLookup:"pr"` makes every graphql lookup fail the way a PR number
+ * does.
  */
 function spawnScript({
   fields = FIELDS,
   after = { Status: "Todo", Priority: "Medium" },
+  before,
   preexisting = false,
   issueLookup = "issue",
   priorityEditFails = false,
-  rollbackFails = false,
 } = {}) {
   const calls = [];
+  const edited = new Set();
   let added = false;
   const spawn = (cmd, args) => {
     calls.push(args);
@@ -74,12 +78,8 @@ function spawnScript({
       if (priorityEditFails && joined.includes("opt_med")) {
         return { status: 1, stdout: "", stderr: "priority edit boom" };
       }
-      return { status: 0, stdout: "{}", stderr: "" };
-    } else if (joined.includes("item-delete")) {
-      if (rollbackFails) {
-        return { status: 1, stdout: "", stderr: "delete boom" };
-      }
-      added = false;
+      if (joined.includes("F_status")) edited.add("Status");
+      if (joined.includes("F_priority")) edited.add("Priority");
       return { status: 0, stdout: "{}", stderr: "" };
     } else if (joined.includes("graphql")) {
       if (issueLookup === "pr") {
@@ -90,6 +90,7 @@ function spawnScript({
         };
       }
       const field = /fieldValueByName\(name:"(\w+)"\)/.exec(joined)[1];
+      const values = before && !edited.has(field) ? before : after;
       payload = {
         data: {
           repository: {
@@ -101,8 +102,8 @@ function spawnScript({
                         {
                           id: "PVTI_new",
                           project: { id: "PVT_x" },
-                          fieldValueByName: after[field]
-                            ? { name: after[field] }
+                          fieldValueByName: values[field]
+                            ? { name: values[field] }
                             : null,
                         },
                       ]
@@ -160,16 +161,58 @@ test("a PR number fails the pre-add issue lookup, before item-add", () => {
   );
 });
 
-test("an issue that already has a card is refused, before item-add", () => {
-  const spawn = spawnScript({ preexisting: true });
+test("a card holding a contradicting value is refused, before any write", () => {
+  // The real duplicate-add mistake: the issue is already moving through the
+  // board. Overwriting its Status would destroy board state someone set.
+  const spawn = spawnScript({
+    preexisting: true,
+    before: { Status: "In Progress", Priority: "Medium" },
+  });
   assert.throws(
     () =>
       main(["--issue", "7", "--status", "Todo", "--priority", "Medium"], spawn),
-    /already has a card on board #28/,
+    /already has a card on board #28 reading Status "In Progress"/,
   );
+  assert.equal(
+    spawn.calls.some(
+      (args) => args.includes("item-add") || args.includes("item-edit"),
+    ),
+    false,
+  );
+});
+
+test("a matching preexisting card is reconfigured idempotently, no item-add", (t) => {
+  // item-add is idempotent upstream, so the command is too: a re-run after
+  // success (or a concurrent add that won the race) confirms and reports.
+  const lines = [];
+  t.mock.method(console, "log", (line) => lines.push(line));
+  const spawn = spawnScript({ preexisting: true });
+  main(["--issue", "7", "--status", "Todo", "--priority", "Medium"], spawn);
+  assert.deepEqual(lines, ["card: Todo / Medium (board #28)"]);
   assert.equal(
     spawn.calls.some((args) => args.includes("item-add")),
     false,
+  );
+});
+
+test("a partially configured card is finished in place by a re-run", (t) => {
+  // The recovery path rollback used to foreclose: a failed Priority edit
+  // left Status set and Priority unset; the re-run completes it.
+  const lines = [];
+  t.mock.method(console, "log", (line) => lines.push(line));
+  const spawn = spawnScript({
+    preexisting: true,
+    before: { Status: "Todo" },
+  });
+  main(["--issue", "7", "--status", "Todo", "--priority", "Medium"], spawn);
+  assert.deepEqual(lines, ["card: Todo / Medium (board #28)"]);
+  assert.equal(
+    spawn.calls.some((args) => args.includes("item-add")),
+    false,
+  );
+  assert.equal(
+    spawn.calls.filter((args) => args.includes("item-edit")).length,
+    2,
   );
 });
 
@@ -195,24 +238,18 @@ test("main refuses to report an unconfirmed add", () => {
   );
 });
 
-test("a failure after item-add rolls the new card back", () => {
-  // A partially configured card cannot be finished by a retry (the pre-add
-  // duplicate check stops it), so failing must leave the board as found.
+test("a failure after item-add leaves the card and names the re-run", () => {
+  // NEVER a rollback delete: item-add is idempotent, so this invocation
+  // cannot prove it created the card — deleting could destroy a concurrent
+  // operation's card. The error says how to finish instead.
   const spawn = spawnScript({ priorityEditFails: true });
   assert.throws(
     () =>
       main(["--issue", "7", "--status", "Todo", "--priority", "Medium"], spawn),
-    /priority edit boom.*rolled back/s,
+    /priority edit boom.*PVTI_new.*may be partially configured.*re-run/s,
   );
-  const del = spawn.calls.find((args) => args.includes("item-delete"));
-  assert.ok(del.includes("PVTI_new"));
-});
-
-test("a failed rollback names the partial card and how to remove it", () => {
-  const spawn = spawnScript({ priorityEditFails: true, rollbackFails: true });
-  assert.throws(
-    () =>
-      main(["--issue", "7", "--status", "Todo", "--priority", "Medium"], spawn),
-    /rolling the new card back ALSO failed.*PVTI_new.*board:delete/s,
+  assert.equal(
+    spawn.calls.some((args) => args.includes("item-delete")),
+    false,
   );
 });
