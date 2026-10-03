@@ -1,6 +1,22 @@
+import { EventEmitter } from "node:events";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const openMock = vi.fn().mockResolvedValue(undefined);
+/**
+ * A stand-in for the `ChildProcess` `open` resolves with. Like a real spawn,
+ * it reports the outcome on a later `process.nextTick`: `'spawn'` when the
+ * opener launched, `'error'` when it could not be spawned.
+ */
+function fakeChild(outcome: "spawn" | Error = "spawn"): EventEmitter {
+  const child = new EventEmitter();
+  process.nextTick(() =>
+    outcome === "spawn" ? child.emit("spawn") : child.emit("error", outcome),
+  );
+  return child;
+}
+
+const openMock = vi.fn<(...args: unknown[]) => Promise<EventEmitter>>(
+  async () => fakeChild(),
+);
 
 vi.mock("open", () => ({
   default: (...args: unknown[]) => openMock(...args),
@@ -12,7 +28,7 @@ vi.unmock("../src/open-url.js");
 describe("openUrl", () => {
   beforeEach(() => {
     openMock.mockClear();
-    openMock.mockResolvedValue(undefined);
+    openMock.mockImplementation(async () => fakeChild());
   });
 
   afterEach(() => {
@@ -39,6 +55,45 @@ describe("openUrl", () => {
     await expect(openUrl("https://example.com/auth")).rejects.toThrow(
       "xdg-open not found",
     );
+  });
+
+  it("rejects when the opener cannot be spawned, instead of crashing", async () => {
+    const enoent = Object.assign(new Error("spawn open ENOENT"), {
+      code: "ENOENT",
+    });
+    openMock.mockImplementation(async () => fakeChild(enoent));
+    const { openUrl } = await import("../src/open-url.js");
+    await expect(openUrl("https://example.com/auth")).rejects.toThrow(
+      "spawn open ENOENT",
+    );
+  });
+
+  it("catches a spawn failure when entered from a timer or I/O callback", async () => {
+    // From a macrotask, Node drains process.nextTick BEFORE promise reactions,
+    // and on macOS `open` reaches spawn() without an earlier await, so a
+    // listener chained on its promise alone would attach too late.
+    const enoent = Object.assign(new Error("spawn open ENOENT"), {
+      code: "ENOENT",
+    });
+    openMock.mockImplementation(async () => fakeChild(enoent));
+    const { openUrl } = await import("../src/open-url.js");
+    const outcome = await new Promise<unknown>((resolve) => {
+      setImmediate(() => {
+        openUrl("https://example.com/auth").then(
+          () => resolve("resolved"),
+          (err: unknown) => resolve(err),
+        );
+      });
+    });
+    expect(outcome).toBe(enoent);
+  });
+
+  it("absorbs an opener error that arrives after launch", async () => {
+    let child: EventEmitter | undefined;
+    openMock.mockImplementation(async () => (child = fakeChild()));
+    const { openUrl } = await import("../src/open-url.js");
+    await openUrl("https://example.com/auth");
+    expect(() => child!.emit("error", new Error("late"))).not.toThrow();
   });
 
   it("rejects when the opener does not settle within the timeout", async () => {

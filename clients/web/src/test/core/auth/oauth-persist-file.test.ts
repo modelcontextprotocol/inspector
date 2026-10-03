@@ -85,7 +85,7 @@ describe("writeOAuthSections lock failures", () => {
     // the wrong file. Only acquisition failures (the mocks above, which
     // reject before the callback runs) get the OAuth wording.
     vi.mocked(withSecretFileLock).mockImplementation(
-      async (_path, fn) => fn() as Promise<never>,
+      async (_path, fn) => fn(true) as Promise<never>,
     );
     const original = new SecretFileLockHeldError(
       "Could not lock the secrets file at /home/u/.mcp-inspector/secrets.json",
@@ -142,7 +142,7 @@ describe("readOAuthStore locking", () => {
     // residue with its already-committed new secrets. The whole read must
     // execute inside the same lock the writers hold.
     vi.mocked(withSecretFileLock).mockImplementation(
-      async (_path, fn) => fn() as Promise<never>,
+      async (_path, fn) => fn(true) as Promise<never>,
     );
 
     const result = await readOAuthStore(
@@ -190,7 +190,7 @@ describe("persistEntrySecrets partial-commit compensation", () => {
   beforeEach(() => {
     vi.mocked(withSecretFileLock).mockReset();
     vi.mocked(withSecretFileLock).mockImplementation(
-      async (_path, fn) => fn() as Promise<never>,
+      async (_path, fn) => fn(true) as Promise<never>,
     );
   });
 
@@ -218,13 +218,18 @@ describe("persistEntrySecrets partial-commit compensation", () => {
     failWhen: (field: string, value: string) => boolean,
   ) => {
     const store = new InMemorySecretStore();
-    const serverId = oauthSecretServerId(url);
     await writeOAuthSections(
       file,
       { servers: { [url]: SEED_STATE }, idpSessions: {} },
       { servers: [url] },
       store,
     );
+    // The seed write adopted a secrets namespace (#2549); the entry's store
+    // id is scoped by it, so read it back from the written file.
+    const { secretsNamespace } = JSON.parse(await readFile(file, "utf8")) as {
+      secretsNamespace: string;
+    };
+    const serverId = oauthSecretServerId(url, secretsNamespace);
     const realSet = store.set.bind(store);
     store.set = async (sid: string, field: string, value: string) => {
       if (failWhen(field, value))

@@ -217,17 +217,14 @@ advisory: a private repo named `<repo>-<ghsa-id>` in the org.
 
 ⚠️ **Read `private_fork` FIRST. The POST is not a probe — it CREATES one.**
 Calling it to "check whether a fork exists" makes one, in the org, which then
-needs cleaning up. This was learned the hard way.
+needs cleaning up. This was learned the hard way. The script
+(`scripts/advisory-fork.mjs`, #2558) encodes that ordering: a bare run only
+reads, and it creates a fork only with the explicit `--create` flag and only
+when none exists:
 
 ```sh
-# Idempotency check — does one already exist?
-gh api repos/modelcontextprotocol/inspector/security-advisories/<GHSA_ID> \
-  --jq '.private_fork // "none"'
-
-# Only if that printed "none":
-gh api -X POST \
-  repos/modelcontextprotocol/inspector/security-advisories/<GHSA_ID>/forks
-# → 202 Accepted; the fork appears shortly afterwards.
+npm run advisory:fork -- --ghsa <GHSA_ID>            # read-only probe
+npm run advisory:fork -- --ghsa <GHSA_ID> --create   # create only if absent
 ```
 
 ⚠️ **Deleting a private fork needs the `delete_repo` OAuth scope, which a
