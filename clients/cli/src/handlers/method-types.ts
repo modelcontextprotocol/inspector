@@ -107,16 +107,16 @@ export type MethodOutcome =
 /**
  * Full method set supported by {@link runMethod}.
  *
- * TODO(#1432): several of these (subscribe, tasks, roots, logging/tail, …) are
- * not exposed by `mcp-inspector --cli` today; they exist for the experimental
- * connection CLI (`mcpdo`) and other Node runners that share this dispatcher.
+ * Several of these (subscribe, tasks, roots, logging/tail, …) are not exposed
+ * by `mcp-inspector --cli`; they exist for the connection CLI (`mcpdo`) and
+ * other Node runners that share this dispatcher.
  *
  * Deliberately excludes `"initialize"` — that's still a valid {@link
  * ONE_SHOT_METHODS} entry (scripting parity with the literal wire method
  * name), but for `mcpdo` it read as "send another initialize", which it never
  * did (it only replays cached connect-time state). `mcpdo connections/show`
  * covers the same data (server info, capabilities, negotiated era) alongside
- * daemon session bookkeeping instead.
+ * daemon connection bookkeeping instead.
  */
 export const CONNECTION_RPC_METHODS = [
   "tools/list",

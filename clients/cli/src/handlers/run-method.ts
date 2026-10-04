@@ -25,15 +25,6 @@ import type {
 } from "./method-types.js";
 
 /**
- * Refuse a `skills/*` call against a server that never declared the extension.
- *
- * Shared by `skills/list` and `skills/get` so the two cannot drift: declaring
- * the extension commits a server to both, so a client that gates one and not
- * the other is inconsistent with the thing it is checking. Not needed for
- * `resources/directory/read`, whose stricter `directoryRead` gate lives in
- * `InspectorClient` itself.
- */
-/**
  * `JSON.parse` accepts numeric literals JSON cannot represent (`1e999` →
  * `Infinity`); serializing the request for IPC/MCP would then silently send
  * `null` instead of the value the user supplied. Reject anything that cannot
@@ -52,6 +43,15 @@ function assertJsonRoundTrips(value: unknown): void {
   }
 }
 
+/**
+ * Refuse a `skills/*` call against a server that never declared the extension.
+ *
+ * Shared by `skills/list` and `skills/get` so the two cannot drift: declaring
+ * the extension commits a server to both, so a client that gates one and not
+ * the other is inconsistent with the thing it is checking. Not needed for
+ * `resources/directory/read`, whose stricter `directoryRead` gate lives in
+ * `InspectorClient` itself.
+ */
 function assertSkillsSupported(
   inspectorClient: InspectorClient,
   method: string,
