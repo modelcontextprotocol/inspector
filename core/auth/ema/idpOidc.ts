@@ -75,10 +75,25 @@ async function fetchOpenIdConfiguration(
     const response = await (fetchFn ?? fetch)(url);
     if (!response.ok) return undefined;
     const parsed = OAuthMetadataSchema.safeParse(await response.json());
-    return parsed.success ? parsed.data : undefined;
+    if (!parsed.success) return undefined;
+    // OIDC Discovery 1.0 §4.3: the document's `issuer` MUST be identical to
+    // the issuer the document was fetched for. The SDK's RFC 8414 fallback
+    // enforces its own issuer-echo check, so this direct path must too — a
+    // mismatched document is treated as invalid, falling back to the SDK.
+    if (
+      stripTrailingSlash(parsed.data.issuer) !==
+      stripTrailingSlash(issuerUrl.href)
+    ) {
+      return undefined;
+    }
+    return parsed.data;
   } catch {
     return undefined;
   }
+}
+
+function stripTrailingSlash(value: string): string {
+  return value.replace(/\/$/, "");
 }
 
 export async function discoverIdpMetadata(

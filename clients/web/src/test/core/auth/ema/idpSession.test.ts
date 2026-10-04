@@ -152,6 +152,12 @@ describe("idpSession", () => {
       ["not a string", { end_session_endpoint: 42 }],
       ["not a URL", { end_session_endpoint: "not a url" }],
       ["non-http scheme", { end_session_endpoint: "javascript:alert(1)" }],
+      // The URL carries the ID token, so plain http is rejected for any
+      // non-loopback host — never offer a cleartext logout URL.
+      [
+        "plain http on a non-loopback host",
+        { end_session_endpoint: "http://idp.test/session/end" },
+      ],
     ])(
       "returns no URL when end_session_endpoint is %s",
       async (_label, metadata) => {
@@ -163,6 +169,24 @@ describe("idpSession", () => {
         );
         const result = await clearEmaIdpSession(storage, "https://idp.test");
         expect(result).toEqual({});
+      },
+    );
+
+    it.each(["localhost", "127.0.0.1", "[::1]"])(
+      "allows plain http when the host is loopback (%s)",
+      async (host) => {
+        vi.mocked(storage.getIdpSession).mockResolvedValue({
+          idToken: "a.b.c",
+        });
+        vi.mocked(storage.getServerMetadata).mockResolvedValue(
+          idpMetadata({
+            end_session_endpoint: `http://${host}:8800/session/end`,
+          }),
+        );
+        const result = await clearEmaIdpSession(storage, "https://idp.test");
+        expect(result.endSessionUrl).toBe(
+          `http://${host}:8800/session/end?id_token_hint=a.b.c`,
+        );
       },
     );
   });

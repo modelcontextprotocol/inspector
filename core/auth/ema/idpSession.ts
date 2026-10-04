@@ -65,7 +65,10 @@ export async function clearEmaIdpSession(
  * `end_session_endpoint` is an OIDC RP-Initiated Logout field; the SDK's
  * RFC 8414 schema does not declare it but parses with a loose object, so it
  * survives into the cached metadata as an untyped extra key — narrow it
- * ourselves, and reject anything that is not an http(s) URL.
+ * ourselves. The URL carries the ID token (`id_token_hint`), so a plain-http
+ * endpoint is rejected unless its host is loopback (the same exemption the
+ * SDK applies to token endpoints) — never offer a logout URL that would send
+ * the token in cleartext.
  */
 function buildEndSessionUrl(
   metadata: object,
@@ -80,9 +83,19 @@ function buildEndSessionUrl(
   } catch {
     return undefined;
   }
-  if (url.protocol !== "https:" && url.protocol !== "http:") {
+  if (
+    url.protocol !== "https:" &&
+    !(url.protocol === "http:" && isLoopbackHost(url.hostname))
+  ) {
     return undefined;
   }
   url.searchParams.set("id_token_hint", idToken);
   return url.toString();
+}
+
+/** The SDK's loopback exemption list: localhost, 127.0.0.1, ::1. */
+function isLoopbackHost(hostname: string): boolean {
+  return (
+    hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]"
+  );
 }
