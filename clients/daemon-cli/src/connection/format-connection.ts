@@ -293,10 +293,7 @@ function humanPayload(payload: ConnectionWriteKind, style: Style): string {
       ].join("\n");
     }
     case "elicitation-pending":
-      return formatElicitationPendingHuman(
-        payload.elicitation as unknown as JsonObject,
-        style,
-      );
+      return formatElicitationPendingHuman(payload.elicitation, style);
     case "disconnect":
       return `${style.bold("Disconnected")} ${`\`${style.bold(`@${payload.name}`)}\``}`;
     case "daemon/status": {

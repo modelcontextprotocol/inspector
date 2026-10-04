@@ -715,7 +715,7 @@ describe("formatElicitationPendingHuman", () => {
       url: "https://example.com/signup?flow=abc",
       origin: "server-request",
       expiresAt: 0,
-    };
+    } satisfies Parameters<typeof formatElicitationPendingHuman>[0];
     const styled = formatElicitationPendingHuman(info, createStyle(true));
     expect(styled).toContain("https://example.com/signup?flow=abc");
     expect(styled).toContain("\u001b]8;;https://example.com/signup?flow=abc");

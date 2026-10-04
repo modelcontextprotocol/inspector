@@ -6,6 +6,7 @@
 import { PLAIN, type Style } from "@inspector/cli/style.js";
 import { isSafeLinkTarget } from "./sanitize.js";
 import { parseFormSchema } from "./form-schema.js";
+import type { ElicitationPendingInfo } from "../daemon/protocol.js";
 
 type JsonObject = Record<string, unknown>;
 
@@ -599,18 +600,18 @@ export function formatServerShowHuman(
  * JSON payload stays data-only (the mcpdo skill carries the procedure).
  */
 export function formatElicitationPendingHuman(
-  elicitation: JsonObject,
+  elicitation: ElicitationPendingInfo,
   style: Style = PLAIN,
 ): string {
-  const id = String(elicitation.elicitationId ?? "");
+  const id = elicitation.elicitationId;
   const mode = elicitation.mode === "url" ? "url" : "form";
-  const message = String(elicitation.message ?? "");
+  const message = elicitation.message;
   const lines = [
-    `${heading(style, "Input required")} — ${code(style, String(elicitation.method ?? ""))}${
+    `${heading(style, "Input required")} — ${code(style, elicitation.method)}${
       typeof elicitation.toolName === "string"
         ? ` (tool ${code(style, elicitation.toolName)})`
         : ""
-    } on ${code(style, `@${String(elicitation.connection ?? "")}`)} is waiting on the user:`,
+    } on ${code(style, `@${elicitation.connection}`)} is waiting on the user:`,
     `  ${message}`,
   ];
   if (mode === "url") {
@@ -626,9 +627,7 @@ export function formatElicitationPendingHuman(
       style.dim(`To give up instead: elicitation/respond ${id} --cancel`),
     );
   } else {
-    const fields = parseFormSchema(
-      elicitation.requestedSchema as Record<string, unknown> | undefined,
-    );
+    const fields = parseFormSchema(elicitation.requestedSchema);
     if (fields && fields.length > 0) {
       lines.push("", heading(style, `Fields (${fields.length}):`));
       for (const field of fields) {
