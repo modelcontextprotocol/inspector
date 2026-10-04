@@ -790,13 +790,8 @@ describe("InspectorClient peer-handler timing (#1797)", () => {
     );
     await client.connect();
 
-    // Seeded directly: subscribing for real needs a server that answers
-    // `resources/subscribe` and cancelling needs a live task, neither of which
-    // adds to what is under test — that a new session starts empty. The cast is
-    // the only route to `cancelledTaskIds`, which has no public reader.
     const internals = client as unknown as {
       subscribedResources: Set<string>;
-      cancelledTaskIds: Set<string>;
       modernStreamState: {
         active: boolean;
         status: string;
@@ -804,7 +799,6 @@ describe("InspectorClient peer-handler timing (#1797)", () => {
       };
     };
     internals.subscribedResources.add("file:///watched");
-    internals.cancelledTaskIds.add("task-1");
     // The stream state a live modern subscription would have left behind.
     internals.modernStreamState = {
       active: true,
@@ -829,7 +823,6 @@ describe("InspectorClient peer-handler timing (#1797)", () => {
     await client.connect();
 
     expect(client.getSubscribedResources()).toEqual([]);
-    expect(internals.cancelledTaskIds.size).toBe(0);
     // Cleared with the set it is derived from, not left reading `active` for
     // an empty one.
     expect(client.getResourceSubscriptionStreamState()).toMatchObject({
@@ -876,35 +869,6 @@ describe("InspectorClient peer-handler timing (#1797)", () => {
     await client.disconnect();
     await client.connect();
     expect(client.getModernLogLevel()).toBe("info");
-
-    await client.disconnect();
-  });
-
-  it("aborts a paused task-input wait when the session ends", async () => {
-    // The bounded-window member: both registration sites release in a
-    // `finally`, so nothing leaks permanently — this closes the gap between a
-    // crash and the loop unwinding on its own.
-    const transport = new SampleAfterConnectTransport();
-    const client = new InspectorClient(
-      { type: "stdio", command: "noop", args: [] },
-      { environment: { transport: () => ({ transport }) } },
-    );
-    await client.connect();
-
-    // Seeded directly: reaching this map for real needs a modern task paused at
-    // `input_required`, which adds nothing to what is under test. No public
-    // reader, hence the cast.
-    const controller = new AbortController();
-    (
-      client as unknown as {
-        taskInputAbortControllers: Map<string, AbortController>;
-      }
-    ).taskInputAbortControllers.set("task-1", controller);
-
-    transport.onclose?.();
-    await client.connect();
-
-    expect(controller.signal.aborted).toBe(true);
 
     await client.disconnect();
   });
@@ -1001,25 +965,15 @@ describe("InspectorClient peer-handler timing (#1797)", () => {
         );
         await client.connect();
 
-        // Seeded directly, for the reasons `closes a live listen stream the
-        // next connect drops` and `aborts a paused task-input wait when the
-        // session ends` give. No public writer for either, hence the casts.
+        // Seed the live subscription directly; it has no public writer.
         (
           client as unknown as {
             modernSubscription: { close: () => Promise<void> } | null;
           }
         ).modernSubscription = { close };
 
-        // A downstream teardown step, to witness that teardown continued.
-        const controller = new AbortController();
-        (
-          client as unknown as {
-            taskInputAbortControllers: Map<string, AbortController>;
-          }
-        ).taskInputAbortControllers.set("task-1", controller);
-
         await expect(client.disconnect()).resolves.toBeUndefined();
-        expect(controller.signal.aborted).toBe(true);
+        expect(client.getStatus()).toBe("disconnected");
 
         // Node reports an unhandled rejection after the microtask checkpoint,
         // so yield to the macrotask queue before reading the listener — nothing

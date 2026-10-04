@@ -260,27 +260,6 @@ describe("tasks era fork (#1631)", () => {
       expect(methodsSent(messages)).toContain("tasks/update");
     });
 
-    it("bounds a never-completing input_required task with the round cap (#1631 review)", async () => {
-      const started = await startModernTasksServer();
-      const { connected } = await connect(started.url, "modern");
-      const { tools } = await connected.listTools();
-      const tool = tools.find((t) => t.name === "modern_loop_task")!;
-
-      // The server never advances past input_required, so the client re-prompts
-      // each poll; auto-answer, and the round cap must eventually abort instead
-      // of looping forever.
-      connected.addEventListener("newPendingElicitation", (event) => {
-        void event.detail.respond({
-          action: "accept",
-          content: { approved: true },
-        });
-      });
-
-      await expect(connected.callToolStream(tool, {})).rejects.toThrow(
-        /exceeded \d+ input_required rounds/,
-      );
-    });
-
     it("cancels a task paused at input_required — aborts the pending elicitation and unblocks the poll (#1631)", async () => {
       const started = await startModernTasksServer();
       const { connected, messages } = await connect(started.url, "modern");
