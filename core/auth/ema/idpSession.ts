@@ -1,5 +1,4 @@
 import type { OAuthStorage } from "../storage.js";
-import { discoverIdpMetadata } from "./idpOidc.js";
 import { isJwtExpired } from "./jwt.js";
 import { idpOAuthStorageKey, normalizeIdpIssuer } from "./storage.js";
 
@@ -27,79 +26,63 @@ export interface ClearEmaIdpSessionResult {
    * OIDC RP-initiated logout URL (`end_session_endpoint` +
    * `id_token_hint`), for the caller to relay to a human whose browser
    * holds the IdP SSO cookie the local clear cannot touch. Present only
-   * when `buildEndSessionUrl` was requested, a session with an idToken
-   * existed, and the issuer's discovery metadata advertises the endpoint.
+   * when a session with an idToken existed and the IdP's login-time
+   * discovery metadata (cached in storage) advertises the endpoint.
    */
   endSessionUrl?: string;
 }
 
-export interface ClearEmaIdpSessionOptions {
-  /**
-   * Also build the IdP end-session URL (one best-effort discovery fetch).
-   * Off by default so existing sign-out callers stay network-free.
-   */
-  buildEndSessionUrl?: boolean;
-  fetchFn?: typeof fetch;
-}
-
 /**
  * Clear the inspector-local EMA IdP state: the cached IdP OIDC session, the
- * leg-1 pending key, and every EMA-tagged resource-server entry. Local-only —
- * the IdP's own browser SSO session is untouched; `buildEndSessionUrl`
- * returns the RP-initiated logout URL so the caller can offer that step.
+ * leg-1 pending key, and every EMA-tagged resource-server entry. Local-only
+ * and network-free — the IdP's own browser SSO session is untouched; the
+ * returned `endSessionUrl` (when the IdP advertises one) lets the caller
+ * offer that step.
  */
 export async function clearEmaIdpSession(
   storage: OAuthStorage,
   issuer: string,
-  options?: ClearEmaIdpSessionOptions,
 ): Promise<ClearEmaIdpSessionResult> {
   const normalized = normalizeIdpIssuer(issuer);
   if (!normalized) return {};
-  // Read before clearing: the end-session URL carries the session's idToken
-  // as id_token_hint, and the clears below destroy it. Folding the read into
-  // the clear (rather than a separate helper) is what makes the ordering
-  // impossible to get wrong at a call site.
-  let idToken: string | undefined;
-  if (options?.buildEndSessionUrl) {
-    idToken = (await storage.getIdpSession(normalized))?.idToken;
-  }
+  // Read before clearing: the end-session URL needs the session's idToken
+  // (as id_token_hint) and the login-time discovery metadata cached under
+  // the leg-1 key — the clears below destroy both.
+  const idToken = (await storage.getIdpSession(normalized))?.idToken;
+  const metadata = await storage.getServerMetadata(
+    idpOAuthStorageKey(normalized),
+  );
   await storage.clearIdpSession(normalized);
   await storage.clear(idpOAuthStorageKey(normalized));
   await storage.clearEnterpriseManagedResourceServers();
-  if (!idToken) return {};
-  const endSessionUrl = await buildEndSessionUrl(
-    normalized,
-    idToken,
-    options?.fetchFn,
-  );
+  if (!idToken || !metadata) return {};
+  const endSessionUrl = buildEndSessionUrl(metadata, idToken);
   return endSessionUrl === undefined ? {} : { endSessionUrl };
 }
 
 /**
- * Best-effort RP-initiated logout URL for `issuer`. Never throws: the clear
- * has already happened, and a discovery failure or an IdP that advertises no
- * `end_session_endpoint` simply means there is no URL to offer.
+ * RP-initiated logout URL from the IdP's cached discovery metadata.
+ * `end_session_endpoint` is an OIDC RP-Initiated Logout field; the SDK's
+ * RFC 8414 schema does not declare it but parses with a loose object, so it
+ * survives into the cached metadata as an untyped extra key — narrow it
+ * ourselves, and reject anything that is not an http(s) URL.
  */
-async function buildEndSessionUrl(
-  issuer: string,
+function buildEndSessionUrl(
+  metadata: object,
   idToken: string,
-  fetchFn?: typeof fetch,
-): Promise<string | undefined> {
+): string | undefined {
+  const endpoint = (metadata as { end_session_endpoint?: unknown })
+    .end_session_endpoint;
+  if (typeof endpoint !== "string") return undefined;
+  let url: URL;
   try {
-    const metadata = await discoverIdpMetadata(issuer, fetchFn);
-    // `end_session_endpoint` is an OIDC RP-Initiated Logout field; the SDK's
-    // RFC 8414 schema does not declare it but parses with a loose object, so
-    // it survives as an untyped extra key. Narrow it ourselves.
-    const endpoint = (metadata as { end_session_endpoint?: unknown })
-      .end_session_endpoint;
-    if (typeof endpoint !== "string") return undefined;
-    const url = new URL(endpoint);
-    if (url.protocol !== "https:" && url.protocol !== "http:") {
-      return undefined;
-    }
-    url.searchParams.set("id_token_hint", idToken);
-    return url.toString();
+    url = new URL(endpoint);
   } catch {
     return undefined;
   }
+  if (url.protocol !== "https:" && url.protocol !== "http:") {
+    return undefined;
+  }
+  url.searchParams.set("id_token_hint", idToken);
+  return url.toString();
 }

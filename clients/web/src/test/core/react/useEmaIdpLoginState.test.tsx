@@ -10,6 +10,9 @@ describe("useEmaIdpLoginState", () => {
     storage = {
       load: vi.fn().mockResolvedValue(undefined),
       getIdpSession: vi.fn().mockResolvedValue(undefined),
+      // clearEmaIdpSession reads the cached IdP metadata (for the end-session
+      // URL) before clearing; absent here, since these tests assert the clears.
+      getServerMetadata: vi.fn().mockResolvedValue(null),
       clearIdpSession: vi.fn().mockResolvedValue(undefined),
       clear: vi.fn().mockResolvedValue(undefined),
       clearEnterpriseManagedResourceServers: vi

@@ -11,7 +11,6 @@ import {
 const runRunnerInteractiveOAuth = vi.fn();
 const startIdpOidcAuthorization = vi.fn();
 const completeIdpOidcAuthorization = vi.fn();
-const discoverIdpMetadata = vi.fn();
 
 vi.mock("@inspector/core/auth/node/index.js", async (importOriginal) => {
   const actual =
@@ -28,7 +27,6 @@ vi.mock("@inspector/core/auth/ema/idpOidc.js", () => ({
     startIdpOidcAuthorization(...args),
   completeIdpOidcAuthorization: (...args: unknown[]) =>
     completeIdpOidcAuthorization(...args),
-  discoverIdpMetadata: (...args: unknown[]) => discoverIdpMetadata(...args),
 }));
 
 const ISSUER = "https://idp.example.com";
@@ -59,9 +57,6 @@ describe("mcpdo ema helpers", () => {
     runRunnerInteractiveOAuth.mockReset();
     startIdpOidcAuthorization.mockReset();
     completeIdpOidcAuthorization.mockReset();
-    // Default: no end_session_endpoint discoverable (and never the network).
-    discoverIdpMetadata.mockReset();
-    discoverIdpMetadata.mockRejectedValue(new Error("discovery unavailable"));
   });
 
   afterEach(() => {
@@ -166,7 +161,13 @@ describe("mcpdo ema helpers", () => {
   it("emaLogout returns the IdP end-session URL when the IdP advertises one", async () => {
     writeClientConfig(emaClientConfig());
     await seedIdpSession();
-    discoverIdpMetadata.mockResolvedValue({
+    // Login-time discovery caches the IdP metadata under the leg-1 key; the
+    // end-session URL is built from that cache, never a fresh network fetch.
+    await new NodeOAuthStorage().saveServerMetadata(`ema-idp:${ISSUER}`, {
+      issuer: ISSUER,
+      authorization_endpoint: `${ISSUER}/authorize`,
+      token_endpoint: `${ISSUER}/token`,
+      response_types_supported: ["code"],
       end_session_endpoint: `${ISSUER}/session/end`,
     });
     const { emaLogout, getEmaStatus } =

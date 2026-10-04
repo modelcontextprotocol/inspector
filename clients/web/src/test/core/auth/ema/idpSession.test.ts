@@ -5,18 +5,13 @@ import {
   getEmaIdpLoginState,
   normalizeIdpIssuer,
 } from "@inspector/core/auth/ema/idpSession.js";
-import { discoverIdpMetadata } from "@inspector/core/auth/ema/idpOidc.js";
 import type { OAuthMetadata } from "@modelcontextprotocol/client";
-
-vi.mock("@inspector/core/auth/ema/idpOidc.js", () => ({
-  discoverIdpMetadata: vi.fn(),
-}));
 
 /**
  * Minimal valid RFC 8414 metadata plus extras. `end_session_endpoint` is an
  * OIDC-layer field outside the typed shape, so it rides in via spread (the
- * SDK parses with a loose object, so real discovery responses carry it the
- * same way).
+ * SDK parses discovery responses with a loose object, so the metadata cached
+ * at login carries it the same way).
  */
 function idpMetadata(extra: Record<string, unknown> = {}): OAuthMetadata {
   return {
@@ -40,14 +35,14 @@ describe("idpSession", () => {
   let storage: OAuthStorage;
 
   beforeEach(() => {
-    vi.mocked(discoverIdpMetadata).mockReset();
     storage = {
       load: vi.fn().mockResolvedValue(undefined),
-      getIdpSession: vi.fn(),
+      getIdpSession: vi.fn().mockResolvedValue(undefined),
       saveIdpSession: vi.fn(),
       clearIdpSession: vi.fn(),
       clear: vi.fn(),
       clearEnterpriseManagedResourceServers: vi.fn(),
+      getServerMetadata: vi.fn().mockResolvedValue(null),
       takeRevocationSnapshot: vi.fn().mockResolvedValue({ byIssuer: {} }),
     } as unknown as OAuthStorage;
   });
@@ -103,10 +98,8 @@ describe("idpSession", () => {
     expect(storage.clearIdpSession).toHaveBeenCalledWith("https://idp.test");
     expect(storage.clear).toHaveBeenCalledWith("ema-idp:https://idp.test");
     expect(storage.clearEnterpriseManagedResourceServers).toHaveBeenCalled();
-    // Without buildEndSessionUrl there is no session read and no discovery.
+    // No session and no cached metadata: nothing to build a URL from.
     expect(result).toEqual({});
-    expect(storage.getIdpSession).not.toHaveBeenCalled();
-    expect(discoverIdpMetadata).not.toHaveBeenCalled();
   });
 
   it("clearEmaIdpSession no-ops when issuer normalizes to empty", async () => {
@@ -118,48 +111,38 @@ describe("idpSession", () => {
     ).not.toHaveBeenCalled();
   });
 
-  describe("clearEmaIdpSession buildEndSessionUrl", () => {
-    const OPTS = { buildEndSessionUrl: true };
-
-    it("returns the end-session URL with id_token_hint", async () => {
+  describe("clearEmaIdpSession end-session URL", () => {
+    it("returns the end-session URL with id_token_hint from cached metadata", async () => {
       vi.mocked(storage.getIdpSession).mockResolvedValue({
         idToken: "a.b.c",
       });
-      vi.mocked(discoverIdpMetadata).mockResolvedValue(
+      vi.mocked(storage.getServerMetadata).mockResolvedValue(
         idpMetadata({ end_session_endpoint: "https://idp.test/session/end" }),
       );
-      const result = await clearEmaIdpSession(storage, "https://idp.test", {
-        ...OPTS,
-        fetchFn: fetch,
-      });
+      const result = await clearEmaIdpSession(storage, "https://idp.test");
       expect(result.endSessionUrl).toBe(
         "https://idp.test/session/end?id_token_hint=a.b.c",
       );
-      // The clear still happened in full.
+      // The reads hit the leg-1 cache key, and the clear still happened in full.
+      expect(storage.getServerMetadata).toHaveBeenCalledWith(
+        "ema-idp:https://idp.test",
+      );
       expect(storage.clearIdpSession).toHaveBeenCalledWith("https://idp.test");
       expect(storage.clearEnterpriseManagedResourceServers).toHaveBeenCalled();
     });
 
-    it("returns no URL when no IdP session (and skips discovery)", async () => {
-      vi.mocked(storage.getIdpSession).mockResolvedValue(undefined);
-      const result = await clearEmaIdpSession(
-        storage,
-        "https://idp.test",
-        OPTS,
+    it("returns no URL when there is no IdP session", async () => {
+      vi.mocked(storage.getServerMetadata).mockResolvedValue(
+        idpMetadata({ end_session_endpoint: "https://idp.test/session/end" }),
       );
+      const result = await clearEmaIdpSession(storage, "https://idp.test");
       expect(result).toEqual({});
-      expect(discoverIdpMetadata).not.toHaveBeenCalled();
       expect(storage.clearIdpSession).toHaveBeenCalled();
     });
 
-    it("returns no URL when discovery fails (clear already happened)", async () => {
+    it("returns no URL when no metadata is cached (clear still happens)", async () => {
       vi.mocked(storage.getIdpSession).mockResolvedValue({ idToken: "a.b.c" });
-      vi.mocked(discoverIdpMetadata).mockRejectedValue(new Error("offline"));
-      const result = await clearEmaIdpSession(
-        storage,
-        "https://idp.test",
-        OPTS,
-      );
+      const result = await clearEmaIdpSession(storage, "https://idp.test");
       expect(result).toEqual({});
       expect(storage.clearIdpSession).toHaveBeenCalled();
     });
@@ -175,12 +158,10 @@ describe("idpSession", () => {
         vi.mocked(storage.getIdpSession).mockResolvedValue({
           idToken: "a.b.c",
         });
-        vi.mocked(discoverIdpMetadata).mockResolvedValue(idpMetadata(metadata));
-        const result = await clearEmaIdpSession(
-          storage,
-          "https://idp.test",
-          OPTS,
+        vi.mocked(storage.getServerMetadata).mockResolvedValue(
+          idpMetadata(metadata),
         );
+        const result = await clearEmaIdpSession(storage, "https://idp.test");
         expect(result).toEqual({});
       },
     );

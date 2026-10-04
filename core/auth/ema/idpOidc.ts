@@ -42,11 +42,54 @@ async function resolveIdpMetadata(
   return discoverIdpMetadata(issuer, fetchFn);
 }
 
+/** The OpenID Connect Discovery 1.0 well-known path. */
+const OIDC_WELL_KNOWN = "/.well-known/openid-configuration";
+
+/**
+ * Fetch the issuer's OpenID Connect Discovery document directly.
+ *
+ * The EMA IdP leg is an OIDC flow (it requests the `openid` scope and consumes
+ * an ID token), so OIDC Discovery 1.0 is the spec-correct metadata document for
+ * it — and the only one that can carry `end_session_endpoint`, which
+ * `clearEmaIdpSession` reads from the login-time cache to offer RP-initiated
+ * logout. The SDK's `discoverAuthorizationServerMetadata` tries the RFC 8414
+ * path first, and an IdP that serves both documents answers there with plain
+ * OAuth metadata that legitimately omits the OIDC-only fields.
+ *
+ * Returns `undefined` on any failure — non-2xx, network error, or a body that
+ * is not valid authorization-server metadata — so the caller can fall back to
+ * the SDK's discovery, which raises its own errors for an issuer that is
+ * genuinely unreachable.
+ */
+async function fetchOpenIdConfiguration(
+  issuerUrl: URL,
+  fetchFn?: typeof fetch,
+): Promise<OAuthMetadata | undefined> {
+  // OIDC Discovery 1.0 §4.1: the well-known path is appended after the
+  // issuer's path component.
+  const url = new URL(
+    `${issuerUrl.pathname.replace(/\/$/, "")}${OIDC_WELL_KNOWN}`,
+    issuerUrl.origin,
+  );
+  try {
+    const response = await (fetchFn ?? fetch)(url);
+    if (!response.ok) return undefined;
+    const parsed = OAuthMetadataSchema.safeParse(await response.json());
+    return parsed.success ? parsed.data : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export async function discoverIdpMetadata(
   issuer: string,
   fetchFn?: typeof fetch,
 ): Promise<OAuthMetadata> {
   const issuerUrl = parseHttpUrl(issuer, "EMA IdP issuer (Client Settings)");
+  const oidcMetadata = await fetchOpenIdConfiguration(issuerUrl, fetchFn);
+  if (oidcMetadata) {
+    return oidcMetadata;
+  }
   const metadata = await discoverAuthorizationServerMetadata(issuerUrl, {
     fetchFn,
   });

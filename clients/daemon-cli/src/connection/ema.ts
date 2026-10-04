@@ -148,9 +148,7 @@ export async function emaLogout(): Promise<EmaLogoutResult> {
   const { idp, enabled } = await loadEmaIdpConfig();
   const active = requireIdp(idp, enabled, { allowDisabled: true });
   const storage = new NodeOAuthStorage();
-  const { endSessionUrl } = await clearEmaIdpSession(storage, active.issuer, {
-    buildEndSessionUrl: true,
-  });
+  const { endSessionUrl } = await clearEmaIdpSession(storage, active.issuer);
   resetNodeOAuthStorageCache();
   return {
     issuer: normalizeIdpIssuer(active.issuer),
