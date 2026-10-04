@@ -10,6 +10,7 @@ import {
 } from "@modelcontextprotocol/ext-tasks/client";
 import { SdkError, SdkErrorCode } from "@modelcontextprotocol/client";
 import { InspectorClient } from "@inspector/core/mcp/inspectorClient.js";
+import type { TaskProgressRouter } from "@inspector/core/extension/tasks/progress.js";
 import type { TaskWithOptionalCreatedAt } from "@inspector/core/mcp/inspectorClientEventTarget.js";
 import { GetTaskResultV2Schema as ModernGetTaskResultSchema } from "@modelcontextprotocol/ext-tasks/core/v2";
 
@@ -1383,5 +1384,59 @@ describe("InspectorClient raw-wire channel (#1631)", () => {
       "worker vanished",
     );
     expect(invocations.at(-1)?.error).toBe("worker vanished");
+  });
+  it("routes owned task progress without re-emitting it when progress is off", () => {
+    const client = new InspectorClient(
+      { type: "stdio", command: "noop", args: [] },
+      { environment: { transport: () => ({}) as never }, progress: false },
+    );
+    // Double cast: the router is a private field with no public seam, and this
+    // test seeds it directly so the dispatch branches run without a live call.
+    const router = (client as unknown as { taskProgress: TaskProgressRouter })
+      .taskProgress;
+    router.acquire("owned");
+    router.correlate("owned", "task-1");
+    const taskProgress: unknown[] = [];
+    const generic: unknown[] = [];
+    client.addEventListener("requestorTaskProgress", (event) => {
+      taskProgress.push(event.detail);
+    });
+    client.addEventListener("progressNotification", (event) => {
+      generic.push(event.detail);
+    });
+
+    // A progress frame without a token belongs to no request at all.
+    taskInternals(client).dispatchTaskProgress({
+      method: "notifications/progress",
+      params: { progress: 1 },
+    });
+    taskInternals(client).dispatchTaskProgress({
+      method: "notifications/progress",
+      params: { progressToken: "owned", progress: 2 },
+    });
+
+    expect(generic).toEqual([]);
+    expect(taskProgress).toEqual([
+      { taskId: "task-1", progress: { progressToken: "owned", progress: 2 } },
+    ]);
+  });
+  it("cancels only the pending input belonging to a cancelled task", () => {
+    const client = makeClient();
+    const own = { taskId: "task-1", cancel: vi.fn() };
+    const other = { taskId: "task-2", cancel: vi.fn() };
+    // Double cast: the pending queues and the cancel helper are private, and
+    // the queue entries need only the two members the helper reads.
+    const pending = client as unknown as {
+      pendingElicitations: unknown[];
+      pendingSamples: unknown[];
+      cancelPendingTaskInput: (taskId: string) => void;
+    };
+    pending.pendingElicitations = [own, other];
+    pending.pendingSamples = [other];
+    pending.cancelPendingTaskInput("task-1");
+    expect(own.cancel).toHaveBeenCalledTimes(1);
+    expect(other.cancel).not.toHaveBeenCalled();
+    expect(pending.pendingElicitations).toEqual([other]);
+    expect(pending.pendingSamples).toEqual([other]);
   });
 });
