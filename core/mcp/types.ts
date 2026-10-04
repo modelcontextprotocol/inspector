@@ -22,6 +22,7 @@ import type {
 import type { Client } from "@modelcontextprotocol/client";
 import type { OAuthClientProvider } from "@modelcontextprotocol/client";
 import type { Transport } from "@modelcontextprotocol/client";
+import type { TaskView } from "@modelcontextprotocol/ext-tasks/client";
 import type { InspectorLogger } from "../logging/logger.js";
 import type { AppElicitationRenderer } from "./appElicitation.js";
 import type {
@@ -39,6 +40,25 @@ import type {
 } from "../auth/providers.js";
 import type { OAuthStorage } from "../auth/storage.js";
 import type { AuthChallenge } from "../auth/challenge.js";
+
+/**
+ * Requester task shape rendered by Inspector surfaces: a narrow normalized
+ * overlay of the ext-tasks `TaskView`. Shared fields (including the
+ * generation-neutral status union) are picked from the SDK type so the two
+ * contracts cannot drift; the overlay exists only because Inspector state
+ * stores require concrete timestamps (`TaskView` leaves them optional) and
+ * an unbranded task id.
+ */
+export interface InspectorTask extends Pick<
+  TaskView,
+  "status" | "statusMessage" | "ttl" | "pollInterval"
+> {
+  taskId: string;
+  createdAt: string;
+  lastUpdatedAt: string;
+  /** Original generation-specific task payload, preserved without type claims. */
+  raw?: Readonly<Record<string, unknown>>;
+}
 
 // Stdio transport config
 export interface StdioServerConfig {

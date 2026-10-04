@@ -133,6 +133,7 @@ export default defineConfig({
     // client's own code, so all three lists carry it (AGENTS.md). The CLI was
     // inlining it; the #2067 guard surfaced that.
     "@modelcontextprotocol/ext-apps",
+    "@modelcontextprotocol/ext-tasks",
     "@napi-rs/keyring",
     // Root-declared (see the repo's dependency-placement rule) and CJS, which
     // is the combination that bites: tsup externalizes what the *client's*

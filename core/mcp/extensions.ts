@@ -1,6 +1,6 @@
 import type { ClientCapabilities } from "@modelcontextprotocol/client";
 import { RESOURCE_MIME_TYPE } from "@modelcontextprotocol/ext-apps/app-bridge";
-import { TASKS_EXTENSION_KEY } from "./modernTaskSchemas.js";
+import { TASKS_EXTENSION_KEY } from "../extension/tasks/constants.js";
 import { SKILLS_EXTENSION_KEY } from "./skillsSchemas.js";
 
 /**

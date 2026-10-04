@@ -4,6 +4,7 @@ import {
   ProtocolError,
   UrlElicitationRequiredError,
 } from "@modelcontextprotocol/client";
+import { JsonRpcResponseError } from "@modelcontextprotocol/ext-tasks/client";
 import type {
   ElicitRequestURLParams,
   Tool,
@@ -80,7 +81,20 @@ describe("InspectorClient URL-elicitation error path", () => {
       request: vi.fn(async () => {
         attempt += 1;
         if (attempt === 1) {
-          throw new UrlElicitationRequiredError([elicitation]);
+          throw new JsonRpcResponseError({
+            code: ProtocolErrorCode.UrlElicitationRequired,
+            message: "Authorization required",
+            data: {
+              elicitations: [
+                {
+                  mode: elicitation.mode,
+                  elicitationId: elicitation.elicitationId,
+                  url: elicitation.url,
+                  message: elicitation.message,
+                },
+              ],
+            },
+          });
         }
         return okResult;
       }),

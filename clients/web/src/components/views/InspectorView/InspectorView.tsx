@@ -12,7 +12,7 @@ import type { Implementation, Tool } from "@modelcontextprotocol/client";
 import type { ServerEntry } from "@inspector/core/mcp/types.js";
 import { isTerminalStatus } from "@inspector/core/mcp/types.js";
 import { isAppTool } from "@inspector/core/mcp/apps.js";
-import { TASKS_EXTENSION_KEY } from "@inspector/core/mcp/modernTaskSchemas.js";
+import { TASKS_EXTENSION_KEY } from "@inspector/core/extension/tasks/constants.js";
 import { isSkillsExtensionSupported } from "@inspector/core/mcp/skills.js";
 import { ViewHeader } from "../../groups/ViewHeader/ViewHeader";
 import { VersionBadge } from "../../elements/VersionBadge/VersionBadge";
