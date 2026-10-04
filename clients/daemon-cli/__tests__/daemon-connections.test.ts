@@ -243,6 +243,40 @@ describe("ConnectionRegistry", () => {
     expect(DEFAULT_IDLE_MS).toBe(60_000);
   });
 
+  it("passes the server's configured roots to the client (cleaned), so roots are advertised at initialize", async () => {
+    const { command, args } = getTestMcpServerCommand();
+    const registry = new ConnectionRegistry(0);
+    try {
+      await registry.connect({
+        name: "a",
+        serverConfig: { type: "stdio", command, args },
+        serverIdentity: `${command} ${args.join(" ")}`,
+        serverSettings: {
+          headers: [],
+          metadata: {},
+          env: [],
+          connectionTimeout: 30_000,
+          requestTimeout: 0,
+          taskTtl: 0,
+          maxFetchRequests: 0,
+          autoRefreshOnListChanged: false,
+          paginatedLists: false,
+          // The blank-uri entry exercises cleanRoots: hand-edited mcp.json
+          // can hold shapes the types promise away (#1797).
+          roots: [
+            { uri: "file:///tmp/project", name: "project" },
+            { uri: "   " },
+          ],
+        },
+      });
+      expect(registry.clientFor("a", false)?.getRoots()).toEqual([
+        { uri: "file:///tmp/project", name: "project" },
+      ]);
+    } finally {
+      await registry.disconnectAll();
+    }
+  });
+
   it("disconnectAll tears down the remaining connections when one disconnect fails", async () => {
     const { InspectorClient } = await import("@inspector/core/mcp/index.js");
     const connectSpy = vi

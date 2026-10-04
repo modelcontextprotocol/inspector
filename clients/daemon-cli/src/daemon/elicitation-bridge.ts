@@ -1,11 +1,13 @@
 /**
  * Bridges `InspectorClient`'s `newPendingElicitation` events to a mid-`rpc`
- * duplex exchange with the CLI, for legacy and modern non-task MRTR
- * elicitations (dual-era support, phase 1). Task-augmented MRTR elicitation
- * (SEP-2663 `origin: "task-input-required"`) is out of scope here — those
- * calls already return immediately, so they never need this bridge to keep a
- * blocking `rpc` call alive; they'll get their own `tasks/get`-driven
- * discoverability + answer commands in a follow-up phase.
+ * duplex exchange with the CLI, for legacy and modern MRTR elicitations
+ * (dual-era support). Task-augmented MRTR elicitation (SEP-2663
+ * `origin: "task-input-required"`) goes through the same delivery when a call
+ * is awaiting it — in the modern era core's `tools/call` polls the task to a
+ * terminal state, so the originating call IS still in flight and would hang
+ * forever without the prompt. Only when nothing subscribes (the legacy shape,
+ * where the call returned immediately) is it left pending for a later
+ * `tasks/`-driven answer instead of being cancelled.
  */
 import type { InspectorClient } from "@inspector/core/mcp/inspectorClient.js";
 import type { ElicitationCreateMessage } from "@inspector/core/mcp/elicitationCreateMessage.js";
@@ -62,15 +64,16 @@ export function wireElicitationBridge(
       queue: Promise.resolve(),
       listener: (event) => {
         const message = event.detail;
-        if (message.origin === "task-input-required") {
-          // Task-augmented — the originating call already returned; nothing
-          // here is awaiting this elicitation, so leave it pending for a
-          // future tasks/-based command to answer.
-          return;
-        }
         created.queue = created.queue.then(() => {
           const subscriber = created.subscribers[0];
           if (!subscriber) {
+            if (message.origin === "task-input-required") {
+              // Task-augmented with no call awaiting it (the legacy shape,
+              // where the originating call returned a task id immediately):
+              // leave it pending for a later tasks/-driven command to
+              // answer, rather than cancelling — cancel would fail the task.
+              return;
+            }
             // Every subscribing call settled before this event was
             // dispatched — nothing is awaiting it, settle it like a channel
             // failure would.

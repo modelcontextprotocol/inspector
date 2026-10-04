@@ -111,6 +111,11 @@ more).
   only; when the IdP advertises an end-session endpoint the output includes a
   URL to end the IdP browser session too — relay it to the user, who may
   ignore it if they only meant to reset local state.
+- Tokens live in the OS keychain when one is available. On keychain-less
+  hosts mcpdo falls back to the shared secrets file (never the in-memory
+  store — mcpdo is multi-process, so a per-process store can't carry a token
+  from the sign-in helper to the daemon). `MCP_INSPECTOR_SECRET_STORE`
+  (`keyring|file|memory`) still overrides explicitly.
 
 ## Elicitations (server asks a question mid-call)
 

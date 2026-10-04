@@ -443,12 +443,37 @@ async function describeFileStore(
  * Pick the fallback store for a host with no keychain. Exported for the
  * tests, which drive the container/mount predicates directly rather than
  * trying to make a real container appear.
+ *
+ * `allowMemory: false` (see {@link disallowMemorySecretStoreFallback})
+ * collapses the container special case to `file`: a multi-process consumer
+ * can never be served by a per-process Map, so a plaintext file in an
+ * ephemeral layer — imperfect, but shared — is strictly better than a
+ * store two of its three processes cannot see.
  */
 export function chooseFallbackKind(opts: {
   container: boolean;
   mounted: boolean;
+  allowMemory?: boolean;
 }): SecretStoreKind {
+  if (opts.allowMemory === false) return "file";
   return opts.container && !opts.mounted ? "memory" : "file";
+}
+
+let memoryFallbackAllowed = true;
+
+/**
+ * Rule out `memory` as an automatic fallback for this process.
+ *
+ * For consumers that split one logical session across processes (the mcpdo
+ * front-end, its OAuth helper, and the connection daemon): an in-memory
+ * store is a per-process Map, so a token saved by one process is invisible
+ * to the others and OAuth can never complete. Call before the first store
+ * use — the selection is cached process-wide. An explicit
+ * `MCP_INSPECTOR_SECRET_STORE=memory` still wins: a user override is a
+ * statement of intent, this only shapes the automatic choice.
+ */
+export function disallowMemorySecretStoreFallback(): void {
+  memoryFallbackAllowed = false;
 }
 
 /**
@@ -517,6 +542,7 @@ export function resolveSecretStore(): Promise<ResolvedSecretStore> {
     const kind = chooseFallbackKind({
       container: isContainer(),
       mounted: isOnMountPoint(path.dirname(defaultSecretFilePath())),
+      allowMemory: memoryFallbackAllowed,
     });
     const result = await buildStore(kind, "fallback", probe.detail);
     warnAboutSecretStorage(result.info);

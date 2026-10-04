@@ -805,6 +805,50 @@ export function formatAppInfoListHuman(
 }
 
 /**
+ * Format a `skills/list` result: one line per skill — frontmatter name,
+ * URI, description, and whether its file manifest is enumerated or dynamic.
+ */
+export function formatSkillsHuman(
+  skills: unknown[],
+  style: Style = PLAIN,
+): string {
+  const lines = [heading(style, `Skills (${skills.length}):`)];
+  for (const raw of skills) {
+    lines.push(formatSkillEntryLine(raw as JsonObject, style));
+  }
+  if (skills.length === 0) lines.push(style.dim("(none)"));
+  return lines.join("\n");
+}
+
+/** Format a `skills/get` result (the envelope: `skill` + cache fields). */
+export function formatSkillGetHuman(
+  result: JsonObject,
+  style: Style = PLAIN,
+): string {
+  const skill = (result.skill ?? {}) as JsonObject;
+  const lines = [heading(style, "Skill:"), formatSkillEntryLine(skill, style)];
+  if (result.ttlMs !== undefined)
+    lines.push(style.dim(`ttlMs: ${String(result.ttlMs)}`));
+  if (result.cacheScope !== undefined)
+    lines.push(style.dim(`cacheScope: ${String(result.cacheScope)}`));
+  return lines.join("\n");
+}
+
+function formatSkillEntryLine(skill: JsonObject, style: Style): string {
+  const frontmatter = (skill.frontmatter ?? {}) as JsonObject;
+  const name = String(frontmatter.name ?? "?");
+  const uri = String(skill.uri ?? "");
+  const resources = skill.resources;
+  const manifest =
+    resources === "dynamic"
+      ? style.dim(" — dynamic resources")
+      : Array.isArray(resources)
+        ? style.dim(` — ${resources.length} file(s)`)
+        : "";
+  return `* ${code(style, name)} (${formatUri(style, uri)})${descSuffix(style, frontmatter.description)}${manifest}`;
+}
+
+/**
  * Format `skills/list --verify` / `skills/get --verify` NDJSON lines.
  * Each line is a {@link SkillVerifyReport}; the caller already computed the
  * one-line stderr summary (`summarizeSkillVerification`) shared with the
@@ -834,7 +878,9 @@ export function formatSkillVerifyListHuman(
         ? style.green("verified")
         : outcome === "incomplete"
           ? style.dim("incomplete")
-          : style.red("failed");
+          : outcome === "unverifiable"
+            ? style.dim("unverifiable")
+            : style.red("failed");
     const detail =
       outcome === "verified"
         ? ""
@@ -842,9 +888,15 @@ export function formatSkillVerifyListHuman(
           ? style.dim(
               ` — ${String(report.incomplete ?? "read bounds cut the walk short")}`,
             )
-          : style.dim(
-              ` — ${errorCount} issue(s), ${mismatchCount} file mismatch(es)`,
-            );
+          : outcome === "unverifiable"
+            ? // Nothing was checked, so "0 issue(s)" would misread as a pass
+              // narrowly missed; name the actual condition instead (#2405).
+              style.dim(
+                ` — advertised no digests (resources: "dynamic"), so integrity was not checked`,
+              )
+            : style.dim(
+                ` — ${errorCount} issue(s), ${mismatchCount} file mismatch(es)`,
+              );
     out.push(
       `* ${code(style, name)} (${formatUri(style, uri)}) — ${verdict}${detail}`,
     );
@@ -947,6 +999,10 @@ export function formatRpcResultHuman(
     case "roots/list":
     case "roots/set":
       return formatRootsHuman(asArray(result.roots), style);
+    case "skills/list":
+      return formatSkillsHuman(asArray(result.skills), style);
+    case "skills/get":
+      return formatSkillGetHuman(result, style);
     default:
       return null;
   }

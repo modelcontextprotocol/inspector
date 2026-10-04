@@ -524,6 +524,7 @@ export class DaemonServer {
               request.id,
               request.params as RpcParams,
               elicitation,
+              signal,
             ),
           },
         };
@@ -552,6 +553,7 @@ export class DaemonServer {
     requestId: string,
     params: RpcParams,
     elicitation: ElicitationChannel,
+    signal?: AbortSignal,
   ): Promise<RpcResult> {
     if (!params?.method) {
       throw new CliExitCodeError(EXIT_CODES.USAGE, "rpc requires a method", {
@@ -569,11 +571,20 @@ export class DaemonServer {
       params.requireExplicit,
     );
     const previous = this.rpcQueues.get(client) ?? Promise.resolve();
-    const run = previous.then(() =>
-      park
+    const run = previous.then(() => {
+      // The caller hung up while this call sat queued behind another op —
+      // don't run work on behalf of a socket that can't receive the result.
+      if (signal?.aborted) {
+        throw new CliExitCodeError(
+          EXIT_CODES.UNREACHABLE,
+          "The caller disconnected before this command could run.",
+          { code: "caller_gone" },
+        );
+      }
+      return park
         ? this.runRpcParked(client, connectionName!, requestId, params)
-        : this.runRpcOnClient(client, requestId, params, elicitation),
-    );
+        : this.runRpcOnClient(client, requestId, params, elicitation, signal);
+    });
     // Keep the queue alive past failures; each caller still sees its own
     // error through `run`.
     this.rpcQueues.set(
@@ -591,6 +602,7 @@ export class DaemonServer {
     requestId: string,
     params: RpcParams,
     elicitation: ElicitationChannel,
+    signal?: AbortSignal,
   ): Promise<RpcResult> {
     const methodArgs = stripConnectionFields(params);
     this.assertNoParkedCall(client);
@@ -608,10 +620,19 @@ export class DaemonServer {
       );
     }
     const unwire = wireElicitationBridge(client, elicitation, requestId);
+    // When the caller's socket closes mid-call, cancel the in-flight tool
+    // call so the per-client rpc queue isn't wedged behind work nobody is
+    // waiting for. `cancelToolCall` is a no-op for non-tool methods — those
+    // are quick lists/reads that settle on their own.
+    const onAbort = () => {
+      client.cancelToolCall();
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
     let outcome;
     try {
       outcome = await runMethod(client, methodArgs);
     } finally {
+      signal?.removeEventListener("abort", onAbort);
       unwire();
     }
     return toRpcResult(outcome, params.method);

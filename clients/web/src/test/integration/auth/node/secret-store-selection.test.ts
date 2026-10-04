@@ -140,6 +140,26 @@ describe("chooseFallbackKind", () => {
       "file",
     );
   });
+
+  it("never uses memory when allowMemory is false (multi-process consumers)", () => {
+    // mcpdo's front-end, OAuth helper, and daemon are separate processes; a
+    // per-process memory store can never serve them, so the container
+    // special case collapses to file.
+    expect(
+      chooseFallbackKind({
+        container: true,
+        mounted: false,
+        allowMemory: false,
+      }),
+    ).toBe("file");
+    expect(
+      chooseFallbackKind({
+        container: false,
+        mounted: false,
+        allowMemory: false,
+      }),
+    ).toBe("file");
+  });
 });
 
 describe("isContainer", () => {
@@ -564,6 +584,29 @@ describe("resolveSecretStore", () => {
       reason: "configured",
       durable: false,
     });
+  });
+
+  it("explicit memory still wins after disallowMemorySecretStoreFallback", async () => {
+    // The disallow shapes only the automatic fallback; a user override is a
+    // statement of intent and keeps winning outright.
+    process.env.MCP_INSPECTOR_SECRET_STORE = "memory";
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const mod = await loadWithProbe(true);
+    mod.disallowMemorySecretStoreFallback();
+    const { info } = await mod.resolveSecretStore();
+    expect(info).toMatchObject({ kind: "memory", reason: "configured" });
+  });
+
+  it("falls back to file, never memory, once memory fallback is disallowed", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    process.env.MCP_INSPECTOR_SECRET_FILE = path.join(tmpDir, "secrets.json");
+    // Look like the one environment whose automatic answer is memory.
+    process.env.KUBERNETES_SERVICE_HOST = "10.0.0.1";
+    const mod = await loadWithProbe(false);
+    mod.disallowMemorySecretStoreFallback();
+    const { info } = await mod.resolveSecretStore();
+    expect(info.reason).toBe("fallback");
+    expect(info.kind).toBe("file");
   });
 
   it("honors an explicit file store, reporting its path and encryption state", async () => {

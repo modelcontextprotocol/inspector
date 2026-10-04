@@ -6,6 +6,11 @@
 import { DaemonServer } from "./server.js";
 import { generateDaemonToken, getDaemonTokenFromEnv } from "./auth.js";
 import { ensureDaemonDir } from "./paths.js";
+import { disallowMemorySecretStoreFallback } from "@inspector/core/auth/node/secret-store-selection.js";
+
+// Same policy as mcp-bin.ts: mcpdo is multi-process, so the keychain-less
+// automatic fallback must be the (shared) secrets file, never memory.
+disallowMemorySecretStoreFallback();
 
 async function main(): Promise<void> {
   const server = new DaemonServer({

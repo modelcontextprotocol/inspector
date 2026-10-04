@@ -5,11 +5,11 @@ import type { ElicitationResponseFrame } from "../src/daemon/protocol.js";
 import type { InspectorClient } from "@inspector/core/mcp/inspectorClient.js";
 
 /**
- * Covers `wireElicitationBridge`'s event routing: origin filtering
- * (task-input-required elicitations are left for a future tasks/-based
- * command, not answered here), URL vs form mode frame shaping, and the
- * channel-failure fallback to `cancel()` (since some construction sites,
- * notably legacy URL-mode, never wire a reject callback).
+ * Covers `wireElicitationBridge`'s event routing: task-input-required
+ * delivery (to an awaiting caller like any other origin; left pending — not
+ * cancelled — when no caller is awaiting), URL vs form mode frame shaping,
+ * and the channel-failure fallback to `cancel()` (since some construction
+ * sites, notably legacy URL-mode, never wire a reject callback).
  */
 function fakeClient(): {
   client: InspectorClient;
@@ -44,15 +44,39 @@ function fakeMessage(overrides: Partial<Record<string, unknown>> = {}) {
 }
 
 describe("wireElicitationBridge", () => {
-  it("skips task-input-required origin elicitations entirely", () => {
+  it("delivers a task-input-required elicitation to an awaiting caller", async () => {
     const { client, emit } = fakeClient();
-    const channel: ElicitationChannel = { request: vi.fn() };
-    const unwire = wireElicitationBridge(client, channel, "req-1");
+    const answer: ElicitationResponseFrame = {
+      id: "req-1",
+      kind: "elicitation-response",
+      elicitationId: "elicitation-x",
+      action: "accept",
+    };
+    const request = vi.fn().mockResolvedValue(answer);
+    const unwire = wireElicitationBridge(client, { request }, "req-1");
     const message = fakeMessage({ origin: "task-input-required" });
     emit(message);
-    expect(channel.request).not.toHaveBeenCalled();
-    expect(message.respond).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(message.respond).toHaveBeenCalled());
+    expect(request).toHaveBeenCalledWith(
+      expect.objectContaining({ origin: "task-input-required" }),
+    );
     unwire();
+  });
+
+  it("leaves a task-input-required elicitation pending when no caller is awaiting it", async () => {
+    const { client, emit } = fakeClient();
+    const request = vi.fn();
+    const unwire = wireElicitationBridge(client, { request }, "req-1");
+    const message = fakeMessage({ origin: "task-input-required" });
+    emit(message);
+    unwire(); // settle before the queued microtask dispatches
+    // Flush the dispatch queue: a non-task origin would have been cancelled
+    // by now (see the cancel test below); task-input-required must stay
+    // pending for a later tasks/-driven answer.
+    await new Promise((r) => setTimeout(r, 0));
+    expect(message.cancel).not.toHaveBeenCalled();
+    expect(message.respond).not.toHaveBeenCalled();
+    expect(request).not.toHaveBeenCalled();
   });
 
   it("builds a url-mode frame and responds with the channel's answer", async () => {

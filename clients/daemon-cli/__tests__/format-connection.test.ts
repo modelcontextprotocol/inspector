@@ -20,6 +20,8 @@ import {
   formatAppInfoListHuman,
   formatAppInfoHuman,
   formatSkillVerifyListHuman,
+  formatSkillsHuman,
+  formatSkillGetHuman,
   formatStreamEventHuman,
   formatRpcResultHuman,
   formatElicitationPendingHuman,
@@ -468,6 +470,64 @@ describe("format-human", () => {
     expect(verifyText).toContain("`cut-short`");
     expect(verifyText).toContain("read bounds hit");
 
+    // Unverifiable is its own verdict — "failed — 0 issue(s)" misreads as a
+    // pass narrowly missed when nothing was checked at all.
+    const unverifiableText = formatSkillVerifyListHuman([
+      {
+        name: "dyn-skill",
+        uri: "skill://dyn/SKILL.md",
+        outcome: "unverifiable",
+      },
+    ]);
+    expect(unverifiableText).toContain("`dyn-skill`");
+    expect(unverifiableText).toContain("unverifiable");
+    expect(unverifiableText).toContain("advertised no digests");
+    expect(unverifiableText).not.toContain("failed");
+    expect(unverifiableText).not.toContain("0 issue(s)");
+
+    const skillsText = formatSkillsHuman([
+      {
+        uri: "skill://ok/SKILL.md",
+        frontmatter: { name: "ok-skill", description: "Does things" },
+        resources: [{ uri: "skill://ok/a.md" }, { uri: "skill://ok/b.md" }],
+      },
+      {
+        uri: "skill://dyn/SKILL.md",
+        frontmatter: { name: "dyn-skill" },
+        resources: "dynamic",
+      },
+    ]);
+    expect(skillsText).toContain("Skills (2):");
+    expect(skillsText).toContain("`ok-skill` (skill://ok/SKILL.md)");
+    expect(skillsText).toContain("Does things");
+    expect(skillsText).toContain("2 file(s)");
+    expect(skillsText).toContain("dynamic resources");
+    expect(formatSkillsHuman([])).toContain("(none)");
+
+    const skillGetText = formatSkillGetHuman({
+      skill: {
+        uri: "skill://one/SKILL.md",
+        frontmatter: { name: "one" },
+        resources: [],
+      },
+      ttlMs: 60000,
+      cacheScope: "session",
+    });
+    expect(skillGetText).toContain("Skill:");
+    expect(skillGetText).toContain("`one`");
+    expect(skillGetText).toContain("ttlMs: 60000");
+    expect(skillGetText).toContain("cacheScope: session");
+
+    // Degenerate shapes: a bare entry (no frontmatter/uri/resources) and a
+    // bare envelope (no skill/ttlMs/cacheScope) must still render.
+    const bareEntry = formatSkillsHuman([{}]);
+    expect(bareEntry).toContain("`?`");
+    expect(bareEntry).not.toContain("file(s)");
+    const bareGet = formatSkillGetHuman({});
+    expect(bareGet).toContain("Skill:");
+    expect(bareGet).not.toContain("ttlMs");
+    expect(bareGet).not.toContain("cacheScope");
+
     expect(
       formatAppInfoHuman({
         toolName: "t",
@@ -577,6 +637,12 @@ describe("format-human", () => {
       "Prompts",
     );
     expect(formatRpcResultHuman("prompts/get", {})).toBe("(empty prompt)");
+    expect(formatRpcResultHuman("skills/list", { skills: [] })).toContain(
+      "Skills (0):",
+    );
+    expect(
+      formatRpcResultHuman("skills/get", { skill: { uri: "skill://x" } }),
+    ).toContain("Skill:");
     expect(formatRpcResultHuman("prompts/complete", { values: [] })).toContain(
       "Completions",
     );

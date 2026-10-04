@@ -23,6 +23,7 @@ import { getDefaultEnvironment } from "@modelcontextprotocol/client/stdio";
 import type { MCPServerConfig } from "@inspector/core/mcp/types.js";
 import { LoggingLevelSchema } from "@modelcontextprotocol/core";
 import { CliExitCodeError, EXIT_CODES } from "@inspector/cli/error-handler.js";
+import { readInspectorVersion } from "@inspector/core/node/version.js";
 import { callDaemon, ensureDaemon } from "../daemon/index.js";
 import type {
   ConnectionInfo,
@@ -260,13 +261,26 @@ export async function runMcp(argv?: string[]): Promise<void> {
   );
 
   const program = new Command();
+  // Commander would print its own usage-error text before exitOverride runs;
+  // the JSON error envelope handleError writes is this CLI's single error
+  // channel, so the duplicate human line is suppressed (help output still
+  // prints through writeOut/writeErr as usual).
+  program.configureOutput({ outputError: () => {} });
   program.exitOverride((err) => {
     // Help/version already printed. Always throw so Commander does not
     // process.exit (which would tear down in-process tests); runMcp treats
     // these as success. Bare `mcpdo` uses code `commander.help` with exitCode 1
     // — must not reach handleError as an ErrorEnvelope.
     if (isCommanderDisplayOnly(err)) throw err;
-    if (err.exitCode !== 0) throw err;
+    if (err.exitCode !== 0) {
+      // Re-shape as a usage error so the envelope carries the right code and
+      // exit status instead of the generic "error".
+      throw new CliExitCodeError(
+        EXIT_CODES.USAGE,
+        err.message.replace(/^error: /, ""),
+        { code: "usage" },
+      );
+    }
   });
 
   program
@@ -277,6 +291,7 @@ export async function runMcp(argv?: string[]): Promise<void> {
     )
     .helpOption("-h, --help", "Display help for command")
     .helpCommand("help [command]", "Display help for command")
+    .version(readInspectorVersion(import.meta.url), "--version")
     .option(
       "--format <format>",
       "Output format: text (default; human-readable) or json (pretty-printed)",

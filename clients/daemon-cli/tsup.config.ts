@@ -38,6 +38,7 @@ export default defineConfig({
     "@modelcontextprotocol/client",
     "@modelcontextprotocol/core",
     "@modelcontextprotocol/ext-apps",
+    "@modelcontextprotocol/ext-tasks",
     "commander",
     "pino",
     "ajv",

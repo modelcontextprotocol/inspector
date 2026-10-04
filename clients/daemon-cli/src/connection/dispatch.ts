@@ -198,20 +198,55 @@ export function requireExplicitConnection(): boolean {
 }
 
 /**
- * Hoist a leading `@name` from argv so `mcpdo @alpha tools/list` works.
+ * Global options that take a value, as registered on the program in `runMcp`
+ * (after `expandConnAlias` has rewritten `--conn` to `--connection`). The
+ * hoist below needs this to know that the token after `--format` is its value
+ * rather than the subcommand.
+ */
+const VALUE_TAKING_GLOBALS = new Set([
+  "--format",
+  "--connection",
+  "--catalog",
+  "--config",
+]);
+
+const AT_CONNECTION_RE = /^@[A-Za-z0-9_.-]+$/;
+
+/**
+ * Hoist an `@name` connection token from argv so `mcpdo @alpha tools/list`
+ * works. The token is recognised anywhere before the subcommand — the README
+ * documents global options as going before the subcommand, so
+ * `mcpdo --format json @alpha tools/list` must work too, not only a leading
+ * `@alpha`. Scanning stops at the subcommand (the first token that is neither
+ * an option, an option's value, nor the `@name` itself) and at `--`, so a
+ * positional argument that happens to start with `@` is never claimed.
  */
 export function hoistAtConnection(argv: string[]): {
   argv: string[];
   connectionFromAt?: string;
 } {
   const start = 2;
-  const user = argv.slice(start);
-  const token = user[0];
-  if (token && /^@[A-Za-z0-9_.-]+$/.test(token)) {
-    return {
-      argv: [...argv.slice(0, start), ...user.slice(1)],
-      connectionFromAt: token.slice(1),
-    };
+  for (let i = start; i < argv.length; i++) {
+    const token = argv[i]!;
+    if (token === "--") break;
+    if (AT_CONNECTION_RE.test(token)) {
+      return {
+        argv: [...argv.slice(0, i), ...argv.slice(i + 1)],
+        connectionFromAt: token.slice(1),
+      };
+    }
+    if (token.startsWith("-")) {
+      // `--opt=value` carries its value inline; a value-taking global
+      // consumes the next token. Any other option (boolean globals, -h) is a
+      // single token. An option this table doesn't know is treated as
+      // boolean, which at worst stops the scan early at its value — never
+      // claims one as a connection.
+      if (!token.includes("=") && VALUE_TAKING_GLOBALS.has(token)) i++;
+      continue;
+    }
+    // First non-option token is the subcommand: @name past this point is a
+    // positional argument, not a connection selector.
+    break;
   }
   return { argv };
 }

@@ -32,6 +32,7 @@ import {
   loadRunnerClientConfig,
 } from "@inspector/core/client/runner.js";
 import { readInspectorVersion } from "@inspector/core/node/version.js";
+import { cleanRoots } from "@inspector/core/mcp/serverList.js";
 import {
   AuthRecoveryRequiredError,
   isUnauthorizedError,
@@ -773,6 +774,13 @@ async function createConnectionClient(
     initialLoggingLevel: "debug",
     progress: false,
     sample: false,
+    // Advertise the roots configured for this server in mcp.json, exactly as
+    // the one-shot CLI (`cli.ts`), web and TUI do. Passing the option (even
+    // empty) is what negotiates `capabilities.roots` at `initialize` and
+    // registers the `roots/list` handler — omitting it meant a server that
+    // asks for roots was told the client doesn't support them, and
+    // `roots/set` changed local state only (#1797).
+    roots: cleanRoots(serverSettings?.roots ?? []),
     // Elicitation capability advertised to the server: derived from
     // `serverSettings.elicitCapability` (settable via a catalog entry or the
     // `--elicit` connect flag), defaulting to url+form when unset. A server
