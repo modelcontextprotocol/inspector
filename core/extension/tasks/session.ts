@@ -45,13 +45,24 @@ export function taskSessionEndpointId(
  * True when the connection is modern (2026-07-28) AND the server advertised
  * the `io.modelcontextprotocol/tasks` extension (SEP-2663) in its
  * `server/discover` capabilities. Legacy servers use `capabilities.tasks`.
+ *
+ * Accepts the value only in the shape ext-tasks itself accepts — a plain,
+ * empty object — because the package starts a 2026-07-28 task session on
+ * nothing else; a looser check here would show Tasks for a server the
+ * attached session treats as unsupported.
  */
 export function isTasksExtensionNegotiated(
   era: ProtocolEra | undefined,
   capabilities: ServerCapabilities | undefined,
 ): boolean {
+  if (era !== "modern") return false;
+  // Typed as unknown: the SDK types the value as an object, but a malformed
+  // server can still send null, an array, or a scalar on the wire.
+  const extension: unknown = capabilities?.extensions?.[TASKS_EXTENSION_KEY];
   return (
-    era === "modern" &&
-    capabilities?.extensions?.[TASKS_EXTENSION_KEY] !== undefined
+    extension !== null &&
+    typeof extension === "object" &&
+    !Array.isArray(extension) &&
+    Object.keys(extension).length === 0
   );
 }

@@ -40,4 +40,19 @@ describe("isTasksExtensionNegotiated", () => {
     expect(isTasksExtensionNegotiated("modern", {})).toBe(false);
     expect(isTasksExtensionNegotiated(undefined, undefined)).toBe(false);
   });
+
+  it("accepts only the empty-object shape ext-tasks starts a session on", () => {
+    const withValue = (value: unknown) =>
+      // Single cast: the SDK types the value as an object; these are the
+      // malformed wire shapes it cannot express.
+      ({ extensions: { [TASKS_EXTENSION_KEY]: value } }) as Parameters<
+        typeof isTasksExtensionNegotiated
+      >[1];
+    expect(isTasksExtensionNegotiated("modern", withValue({ x: 1 }))).toBe(
+      false,
+    );
+    expect(isTasksExtensionNegotiated("modern", withValue(null))).toBe(false);
+    expect(isTasksExtensionNegotiated("modern", withValue([]))).toBe(false);
+    expect(isTasksExtensionNegotiated("modern", withValue("yes"))).toBe(false);
+  });
 });
