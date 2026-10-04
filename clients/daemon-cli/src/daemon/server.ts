@@ -874,7 +874,7 @@ export class DaemonServer {
         if (holder !== undefined && isPidAlive(holder)) {
           throw new Error(
             `Connection daemon lock ${this.lockPath} is held by running pid ${holder}. ` +
-              `Use \`mcpdo daemon/stop\`, or remove the file if that pid is not an mcpdo daemon.`,
+              `Use \`mcpdo daemon stop\`, or remove the file if that pid is not an mcpdo daemon.`,
             { cause: error },
           );
         }
@@ -927,7 +927,7 @@ export class DaemonServer {
           }
           throw new Error(
             `Connection daemon lock ${this.lockPath} is held by running pid ${claimedPid}. ` +
-              `Use \`mcpdo daemon/stop\`, or remove the file if that pid is not an mcpdo daemon.`,
+              `Use \`mcpdo daemon stop\`, or remove the file if that pid is not an mcpdo daemon.`,
             { cause: error },
           );
         }
