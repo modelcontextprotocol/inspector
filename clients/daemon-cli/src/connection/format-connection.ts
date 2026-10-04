@@ -144,7 +144,7 @@ export type ConnectionWriteKind =
     }
   | {
       kind: "auth/ema-logout";
-      result: { issuer: string };
+      result: { issuer: string; endSessionUrl?: string };
     }
   | { kind: "generic"; data: unknown; title?: string };
 
@@ -347,8 +347,16 @@ function humanPayload(payload: ConnectionWriteKind, style: Style): string {
         ].join("\n");
       }
       return `${style.green("Signed in")} to \`${style.bold(payload.result.issuer)}\``;
-    case "auth/ema-logout":
-      return `${style.green("Signed out")} of \`${style.bold(payload.result.issuer)}\` ${style.dim("(EMA server tokens cleared)")}`;
+    case "auth/ema-logout": {
+      const signedOut = `${style.green("Signed out")} of \`${style.bold(payload.result.issuer)}\` ${style.dim("(EMA server tokens cleared)")}`;
+      if (payload.result.endSessionUrl === undefined) return signedOut;
+      // Local clear only — the IdP's browser SSO cookie survives it. Relay
+      // the RP-initiated logout URL so the user can end that session too.
+      return [
+        signedOut,
+        `To end your IdP browser session, navigate to: ${payload.result.endSessionUrl}`,
+      ].join("\n");
+    }
     case "generic": {
       if (payload.title) {
         return `${style.bold(payload.title)}\n${JSON.stringify(payload.data, null, 2)}`;

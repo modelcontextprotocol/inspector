@@ -300,7 +300,7 @@ Install-level IdP credentials are edited in **Client Settings**, separate from p
      The next connect to a cleared EMA server has no cached access token, so a **401** triggers leg 1 (IdP login) via `authenticate()`.
 - **Web OAuth store singleton:** web uses `getWebRemoteOAuthStorage()` (`clients/web/src/lib/remoteOAuthStorage.ts`) — memoized `RemoteOAuthStorage` backed by `/api/storage/oauth` — so Client Settings sign-out, EMA IdP session, connect, and per-server clear all mutate the same in-memory `OAuthStorageBase` view as the active `InspectorClient`.
 
-**Future (not implemented):** explicit **Sign out** may additionally invoke the IdP's OIDC **end-session** / logout endpoint (RP-initiated logout) so the IdP SSO cookie is cleared — not just inspector-local IdP/resource token state. Today sign-out is **local-only** (clear `idpSessions`, tagged EMA resource entries, and leg-1 PKCE); the IdP may still treat the browser as signed in and skip the login prompt on the next authorize redirect until the IdP session expires or the user signs out at the IdP.
+**End-session URL (implemented, opt-in):** `clearEmaIdpSession` accepts `{ buildEndSessionUrl: true }` and then returns `{ endSessionUrl? }` — the IdP's OIDC **end-session** (RP-initiated logout) URL with `id_token_hint`, built best-effort from discovery metadata (the session's idToken is read *before* the clear; any discovery failure or missing `end_session_endpoint` just omits the URL and never fails the clear). The clear itself stays local-only — the URL is for the caller to relay so the user can also end the IdP's browser SSO session. `mcpdo auth/ema-logout` requests and prints it; web/TUI sign-out does not request it yet, so there the IdP may still treat the browser as signed in and skip the login prompt on the next authorize redirect until the IdP session expires or the user signs out at the IdP. Auto-*invoking* the endpoint (with `post_logout_redirect_uri` confirmation) remains future work.
 
 **Copy / UX notes:** User-facing text explains enterprise-managed authorization in plain language (org IdP sign-in vs each server's OAuth login). It does **not** reference protocol jargon (`leg 1`, resource AS, etc.) or storage filenames in the form. Per-server EMA enablement and MCP-server OAuth credentials remain in **Server Settings** (see below).
 
@@ -518,7 +518,7 @@ Design decisions for EMA are complete. Remaining work is the phased plan and che
 - [x] **Web shared OAuth store** — `RemoteOAuthStorage` / `oauth.json` for web + CLI + TUI parity (#1548); see §Shared file-backed OAuth state
 - [ ] Client profile persistence (migrate from `client.json`; may extend or replace web Client Settings)
 - [ ] Optional: adopt `@modelcontextprotocol/client` v2 Layer-2 helpers for legs 2–3 (replace `wire.ts`) or full v2 transport for EMA
-- [ ] Optional: IdP **end-session** / RP-initiated logout on explicit **Sign out** (today sign-out clears inspector-local IdP session and tagged EMA resource tokens only; IdP browser SSO may remain active)
+- [x] Partial: IdP **end-session** URL on explicit **Sign out** — `clearEmaIdpSession({ buildEndSessionUrl: true })` returns the RP-initiated logout URL (`end_session_endpoint` + `id_token_hint`); `mcpdo auth/ema-logout` prints it. Still open: web/TUI adoption, and optionally auto-invoking the endpoint with `post_logout_redirect_uri` confirmation
 
 ---
 

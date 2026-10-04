@@ -814,7 +814,7 @@ function registerAuthCommands(program: CommandType): void {
   program
     .command("auth/ema-logout")
     .description(
-      "Sign out of the enterprise IdP and clear EMA-minted server tokens",
+      "Sign out of the enterprise IdP locally and clear EMA-minted server tokens (prints the IdP end-session URL when available)",
     )
     .action(async () => {
       const opts = program.opts<GlobalOpts>();

@@ -117,6 +117,20 @@ describe("auth/ema-* commands", () => {
     await runMcp(["node", "mcpdo", "auth/ema-logout"]);
     expect(stdout).toContain("Signed out");
     expect(stdout).toContain("https://idp.example.com");
+    expect(stdout).not.toContain("IdP browser session");
+  });
+
+  it("auth/ema-logout relays the IdP end-session URL when present", async () => {
+    emaLogout.mockResolvedValue({
+      issuer: "https://idp.example.com",
+      endSessionUrl: "https://idp.example.com/session/end?id_token_hint=a.b.c",
+    });
+    const { runMcp } = await import("../src/connection/mcp.js");
+    await runMcp(["node", "mcpdo", "auth/ema-logout"]);
+    expect(stdout).toContain("Signed out");
+    expect(stdout).toContain(
+      "To end your IdP browser session, navigate to: https://idp.example.com/session/end?id_token_hint=a.b.c",
+    );
   });
 
   it("auth/ema-login parks on a detached helper when no TTY is present", async () => {

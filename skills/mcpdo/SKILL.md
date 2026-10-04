@@ -107,7 +107,10 @@ more).
   completes in the background. After that, connects to EMA servers mint
   tokens silently with no further sign-in. Connecting to an EMA server
   *without* a prior IdP login parks like any other pending sign-in, with the
-  IdP link as its `authUrl`.
+  IdP link as its `authUrl`. `mcpdo auth/ema-logout` clears local EMA state
+  only; when the IdP advertises an end-session endpoint the output includes a
+  URL to end the IdP browser session too — relay it to the user, who may
+  ignore it if they only meant to reset local state.
 
 ## Elicitations (server asks a question mid-call)
 

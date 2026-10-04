@@ -127,20 +127,35 @@ export async function getEmaStatus(): Promise<EmaStatus> {
   };
 }
 
-export type EmaLogoutResult = { issuer: string };
+export type EmaLogoutResult = {
+  issuer: string;
+  /**
+   * OIDC RP-initiated logout URL, when the IdP advertises one. The local
+   * clear cannot end the IdP's browser SSO session; navigating here does.
+   */
+  endSessionUrl?: string;
+};
 
 /**
- * Sign out of the enterprise IdP: clears the cached IdP OIDC connection and all
- * EMA-minted resource-server tokens. Works even when EMA is disabled (state
- * cleanup should never be blocked by the enabled flag).
+ * Sign out of the enterprise IdP locally: clears the cached IdP OIDC
+ * connection and all EMA-minted resource-server tokens. The IdP's own
+ * browser session is untouched — when the IdP advertises an
+ * `end_session_endpoint`, the returned `endSessionUrl` lets the user end it
+ * too. Works even when EMA is disabled (state cleanup should never be
+ * blocked by the enabled flag).
  */
 export async function emaLogout(): Promise<EmaLogoutResult> {
   const { idp, enabled } = await loadEmaIdpConfig();
   const active = requireIdp(idp, enabled, { allowDisabled: true });
   const storage = new NodeOAuthStorage();
-  await clearEmaIdpSession(storage, active.issuer);
+  const { endSessionUrl } = await clearEmaIdpSession(storage, active.issuer, {
+    buildEndSessionUrl: true,
+  });
   resetNodeOAuthStorageCache();
-  return { issuer: normalizeIdpIssuer(active.issuer) };
+  return {
+    issuer: normalizeIdpIssuer(active.issuer),
+    ...(endSessionUrl === undefined ? {} : { endSessionUrl }),
+  };
 }
 
 export type EmaLoginResult = {

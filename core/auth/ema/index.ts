@@ -20,6 +20,8 @@ export {
   clearEmaIdpSession,
   getEmaIdpLoginState,
   normalizeIdpIssuer,
+  type ClearEmaIdpSessionOptions,
+  type ClearEmaIdpSessionResult,
   type EmaIdpLoginState,
 } from "./idpSession.js";
 export {

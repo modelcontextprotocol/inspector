@@ -11,6 +11,7 @@ import {
 const runRunnerInteractiveOAuth = vi.fn();
 const startIdpOidcAuthorization = vi.fn();
 const completeIdpOidcAuthorization = vi.fn();
+const discoverIdpMetadata = vi.fn();
 
 vi.mock("@inspector/core/auth/node/index.js", async (importOriginal) => {
   const actual =
@@ -27,6 +28,7 @@ vi.mock("@inspector/core/auth/ema/idpOidc.js", () => ({
     startIdpOidcAuthorization(...args),
   completeIdpOidcAuthorization: (...args: unknown[]) =>
     completeIdpOidcAuthorization(...args),
+  discoverIdpMetadata: (...args: unknown[]) => discoverIdpMetadata(...args),
 }));
 
 const ISSUER = "https://idp.example.com";
@@ -57,6 +59,9 @@ describe("mcpdo ema helpers", () => {
     runRunnerInteractiveOAuth.mockReset();
     startIdpOidcAuthorization.mockReset();
     completeIdpOidcAuthorization.mockReset();
+    // Default: no end_session_endpoint discoverable (and never the network).
+    discoverIdpMetadata.mockReset();
+    discoverIdpMetadata.mockRejectedValue(new Error("discovery unavailable"));
   });
 
   afterEach(() => {
@@ -154,6 +159,23 @@ describe("mcpdo ema helpers", () => {
       await import("../src/connection/ema.js");
     const result = await emaLogout();
     expect(result.issuer).toBe(ISSUER);
+    expect(result.endSessionUrl).toBeUndefined();
+    expect((await getEmaStatus()).loginState).toBe("none");
+  });
+
+  it("emaLogout returns the IdP end-session URL when the IdP advertises one", async () => {
+    writeClientConfig(emaClientConfig());
+    await seedIdpSession();
+    discoverIdpMetadata.mockResolvedValue({
+      end_session_endpoint: `${ISSUER}/session/end`,
+    });
+    const { emaLogout, getEmaStatus } =
+      await import("../src/connection/ema.js");
+    const result = await emaLogout();
+    expect(result.issuer).toBe(ISSUER);
+    const url = new URL(result.endSessionUrl!);
+    expect(url.origin + url.pathname).toBe(`${ISSUER}/session/end`);
+    expect(url.searchParams.get("id_token_hint")).toMatch(/\./);
     expect((await getEmaStatus()).loginState).toBe("none");
   });
 
